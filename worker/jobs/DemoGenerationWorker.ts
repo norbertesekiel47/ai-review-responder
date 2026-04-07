@@ -1,0 +1,1 @@
+// worker/jobs/DemoGenerationWorker — placeholder
