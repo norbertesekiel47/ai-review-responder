@@ -13,6 +13,8 @@ import { checkRateLimit } from '../rate-limit';
 describe('checkRateLimit', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Rate limiter skips when REDIS_CACHE_URL is not set — set it for tests
+    process.env.REDIS_CACHE_URL = 'redis://localhost:6379/0';
   });
 
   it('allows first request', async () => {

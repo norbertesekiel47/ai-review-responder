@@ -27,17 +27,30 @@ export async function checkRateLimit(
   maxRequests: number,
   windowSeconds: number,
 ): Promise<RateLimitResult> {
-  const redis = getCacheRedis();
-  const current = await redis.eval(
-    RATE_LIMIT_LUA,
-    1,
-    key,
-    String(windowSeconds),
-  ) as number;
-
-  if (current > maxRequests) {
-    return { allowed: false, remaining: 0 };
+  // If Redis is not configured (e.g. Vercel without REDIS_CACHE_URL),
+  // allow the request rather than crashing. Rate limiting is defense-in-depth,
+  // not a hard gate — the approval service has its own idempotency guards.
+  if (!process.env.REDIS_CACHE_URL) {
+    return { allowed: true, remaining: maxRequests };
   }
 
-  return { allowed: true, remaining: maxRequests - current };
+  try {
+    const redis = getCacheRedis();
+    const current = await redis.eval(
+      RATE_LIMIT_LUA,
+      1,
+      key,
+      String(windowSeconds),
+    ) as number;
+
+    if (current > maxRequests) {
+      return { allowed: false, remaining: 0 };
+    }
+
+    return { allowed: true, remaining: maxRequests - current };
+  } catch (err) {
+    // Redis connection failure — allow the request rather than blocking the user
+    console.error('[rate-limit] Redis unavailable, allowing request:', err instanceof Error ? err.message : err);
+    return { allowed: true, remaining: maxRequests };
+  }
 }
