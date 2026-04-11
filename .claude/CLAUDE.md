@@ -19,7 +19,7 @@ An automated service for small businesses that monitors Google reviews via SerpA
 ## Tech stack
 - **Runtime**: Node.js 20 LTS, TypeScript 5 strict mode
 - **Framework**: Next.js 14 App Router (Vercel)
-- **Worker**: Standalone Node.js process (Railway) — Fastify HTTP server (webhook ingress) + BullMQ consumers + OutboxPoller
+- **Worker**: Standalone Node.js process (Railway) — Fastify HTTP server (`fastify` + `fastify-raw-body`) for webhook ingress + BullMQ consumers + OutboxPoller
 - **Database**: PostgreSQL 15 via Supabase (PgBouncer pooling enabled). Two clients: `postgres` (Postgres.js) for transactional writes (`sql.begin()`), `@supabase/supabase-js` for auth/storage/reads
 - **Cache**: Redis 7 via Upstash (SEPARATE instance from job queue)
 - **Job queue**: BullMQ 5 with Redis via Upstash (SEPARATE instance from cache)
@@ -51,9 +51,11 @@ src/
 └── types/                  # Shared TypeScript interfaces
 
 worker/                     # Railway worker (separate process, at project root)
-├── index.ts                # Entry point — `npx tsx worker/index.ts`
-├── queues.ts               # BullMQ queue definitions
+├── env.ts                  # Dotenv loader — must be imported first in index.ts
+├── index.ts                # Entry point — `pnpm worker` or `npx tsx worker/index.ts`
+├── queues.ts               # BullMQ queue definitions + Redis connection
 ├── jobs/                   # Workers: ReviewSync, ResponseGenerator, DemoGeneration, etc.
+│   └── OutboxPoller.ts     # 10s interval, FOR UPDATE SKIP LOCKED, dispatches to BullMQ
 └── ingress/                # Webhook handlers: Stripe, Resend (direct Railway endpoints)
 ```
 Configure tsconfig paths so `worker/` can import shared code: `"@/lib/*": ["./src/lib/*"]`, `"@/types/*": ["./src/types/*"]`.
@@ -96,6 +98,8 @@ Businesses start in `pending_payment`. Stripe's `checkout.session.completed` web
   - When GBP API arrives: swap `provider` to `'google'`, replace synthetic IDs with canonical Google resource names. Content hash logic stays identical.
 - **Voice learning**: fetch recent owner-edited responses as few-shot examples. Returns empty array until >=5 edited+posted responses exist. The hook is in place; it activates naturally.
 - **Owner auth data flow**: Supabase Auth handles identity, the app `users` table handles role + business scope, and server handlers must check both. Do not trust client-submitted business IDs.
+- **Demo vs Production mode**: The response generator has two modes. Demo mode (used by `DemoGenerationWorker`) skips cost guards, caching, and voice learning — fast feedback for prospect demos. Production mode (used by `ResponseGeneratorWorker`) runs the full cost guard lifecycle: reserve → concurrency slot → generate → finalize → cache → audit. The mode is set via `GenerationOptions.mode`.
+- **Mock mode**: Set `MOCK_EXTERNAL_APIS=true` in `.env.local` to bypass SerpAPI + LLM calls. Uses `MockReviewSource` (canned reviews) and `generateMockResponse` (template responses) for local testing without API keys.
 - **Error handling**: all workers are idempotent. Replaying an outbox entry must produce the same result. Use unique constraints + ON CONFLICT for deduplication.
 
 ## GBP API migration path
@@ -113,14 +117,33 @@ The architecture was designed so this is a mechanical swap — same outbox, same
 - Integration tests (Vitest + real Supabase): full pipeline flows, outbox recovery, idempotency
 - E2E tests (Playwright): approval page flows, demo generation, admin pages
 
+## Dev commands
+- `pnpm dev` — Next.js dev server (port 3000)
+- `pnpm worker` — Railway worker via tsx (port 3001)
+- `pnpm test` — Run Vitest unit tests
+- `pnpm test:watch` — Vitest in watch mode
+- `pnpm test:e2e` — Playwright E2E tests
+- Set `MOCK_EXTERNAL_APIS=true` in `.env.local` to bypass SerpAPI + LLM calls for local testing
+
 ## Current status
-- Sprint 1: IN PROGRESS (scaffolding complete, DB migrations next)
-- Sprint 2: NOT STARTED
+- Sprint 1: COMPLETE (Prompts 1-6 done + audit fixes applied; demo pipeline verified with mock data)
+  - Post-audit fixes (2026-04-09): mock data path, OutboxPoller hardening (FOR UPDATE SKIP LOCKED, max_attempts, transaction wrapping), DemoGenerationWorker crash recovery, admin auth middleware, JSONB parsing guard, local Redis, vitest config
+- Sprint 2: COMPLETE (Prompts 7-13 done; all 7 BullMQ workers implemented; 189 tests across 15 files)
+  - Prompt 7 (shared worker utilities): COMPLETE (2026-04-10)
+  - Prompt 8 (OutboxPoller watchdog + ReconciliationPoller): COMPLETE (2026-04-10)
+  - Prompt 9 (ReviewSyncWorker): COMPLETE (2026-04-10)
+  - Prompt 10 (ResponseGeneratorWorker): COMPLETE (2026-04-10)
+  - Prompt 11 (NotificationWorker + email + Resend webhook): COMPLETE (2026-04-10)
+  - Prompt 12 (Approval flow): COMPLETE (2026-04-10) — app code + unit tests done; Playwright E2E deferred to Prompt 18 (Sprint 4) pending test DB/seed/worker harness
+  - Prompt 13 (Manual posting + AdminExceptionWorker): COMPLETE (2026-04-10)
 - Sprint 3: NOT STARTED
 - Sprint 4: NOT STARTED
+  - **Deferred from Sprint 2:** Playwright E2E approval-flow tests (approve, edit, expired, regenerate, already-approved) — requires seeded Postgres, running worker, Redis. Scaffolded in `e2e/approval.spec.ts` as skipped scenarios.
 - Sprint 5: NOT STARTED
-- Sprint 6: NOT STARTED
 - GBP API: NOT APPLIED FOR
+
+## Lab notes
+- [2026-04-09] Postgres.js returns JSONB columns as strings (not parsed objects) when using `DATABASE_POOL_URL` with PgBouncer. Always guard with `typeof x === 'string' ? JSON.parse(x) : x` when reading JSONB columns. Hit this in OutboxPoller (payload) and demo viewer (reviews_snapshot, generated_responses).
 
 ## MCP servers available
 - **Supabase**: Database queries and management

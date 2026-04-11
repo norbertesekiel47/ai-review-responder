@@ -20,53 +20,126 @@ async function pollOutbox(): Promise<void> {
   isPolling = true;
 
   try {
-    const entries = await sql<OutboxEntry[]>`
-      SELECT id, topic, payload, attempts, max_attempts
-      FROM job_outbox
-      WHERE status = 'pending'
-        AND available_at <= NOW()
-      ORDER BY available_at
-      LIMIT ${BATCH_SIZE}
-    `;
+    await sql.begin(async (tx) => {
+      // ── Watchdog: recover stale dispatched entries ─────────────────
+      // If a BullMQ worker crashed after the OutboxPoller marked the entry
+      // as 'dispatched' but before the worker marked it as 'completed',
+      // the entry is stuck. Reset retryable ones to 'pending'; fail terminal ones.
 
-    if (entries.length === 0) return;
+      const [recovered] = await tx<{ count: string }[]>`
+        WITH recovered AS (
+          UPDATE job_outbox
+          SET status = 'pending', available_at = NOW(), dispatched_at = NULL
+          WHERE status = 'dispatched'
+            AND dispatched_at < NOW() - INTERVAL '1 hour'
+            AND attempts < max_attempts
+          RETURNING id
+        )
+        SELECT COUNT(*)::text AS count FROM recovered
+      `;
 
-    console.log(`[OutboxPoller] Found ${entries.length} pending entries`);
-
-    for (const entry of entries) {
-      const queue = topicToQueue[entry.topic];
-
-      if (!queue) {
-        console.error(`[OutboxPoller] Unknown topic "${entry.topic}" for outbox entry ${entry.id}`);
-        await sql`
+      const [terminated] = await tx<{ count: string }[]>`
+        WITH terminated AS (
           UPDATE job_outbox
           SET status = 'failed',
-              last_error = ${'Unknown topic: ' + entry.topic},
-              attempts = attempts + 1
-          WHERE id = ${entry.id}
-        `;
-        continue;
-      }
+              last_error = 'Stale dispatched entry exceeded max_attempts',
+              completed_at = NOW()
+          WHERE status = 'dispatched'
+            AND dispatched_at < NOW() - INTERVAL '1 hour'
+            AND attempts >= max_attempts
+          RETURNING id
+        )
+        SELECT COUNT(*)::text AS count FROM terminated
+      `;
 
-      try {
-        // jobId = outbox entry id → idempotent (BullMQ skips duplicates)
-        await queue.add(entry.topic, entry.payload, { jobId: entry.id });
+      const recoveredCount = parseInt(recovered?.count ?? '0', 10);
+      const terminatedCount = parseInt(terminated?.count ?? '0', 10);
 
-        await sql`
-          UPDATE job_outbox
-          SET status = 'dispatched',
-              dispatched_at = NOW(),
-              attempts = attempts + 1
-          WHERE id = ${entry.id}
-        `;
-      } catch (dispatchError) {
-        console.error(
-          `[OutboxPoller] Failed to dispatch entry ${entry.id} (topic=${entry.topic}):`,
-          dispatchError,
+      if (recoveredCount > 0 || terminatedCount > 0) {
+        console.log(
+          `[OutboxPoller] Watchdog: recovered=${recoveredCount}, failed=${terminatedCount}`,
         );
-        // Leave as 'pending' — next cycle will retry
       }
-    }
+
+      const entries = await tx<OutboxEntry[]>`
+        SELECT id, topic, payload, attempts, max_attempts
+        FROM job_outbox
+        WHERE status = 'pending'
+          AND available_at <= NOW()
+        ORDER BY available_at
+        LIMIT ${BATCH_SIZE}
+        FOR UPDATE SKIP LOCKED
+      `;
+
+      if (entries.length === 0) return;
+
+      console.log(`[OutboxPoller] Found ${entries.length} pending entries`);
+
+      for (const entry of entries) {
+        const queue = topicToQueue[entry.topic];
+
+        if (!queue) {
+          console.error(`[OutboxPoller] Unknown topic "${entry.topic}" for outbox entry ${entry.id}`);
+          await tx`
+            UPDATE job_outbox
+            SET status = 'failed',
+                last_error = ${'Unknown topic: ' + entry.topic},
+                attempts = attempts + 1
+            WHERE id = ${entry.id}
+          `;
+          continue;
+        }
+
+        try {
+          // Postgres.js may return JSONB as a string depending on connection config.
+          // Ensure it's a parsed object before passing to BullMQ.
+          const payload = typeof entry.payload === 'string'
+            ? JSON.parse(entry.payload) as Record<string, unknown>
+            : entry.payload;
+
+          // jobId includes attempt count so watchdog-recovered entries get a
+          // fresh BullMQ job. Without this, BullMQ treats the re-add as a
+          // duplicate of the old completed/failed job and silently drops it.
+          // outbox_id is passed in payload so workers can complete the right
+          // outbox entry regardless of the BullMQ jobId format.
+          const jobId = `${entry.id}_${entry.attempts + 1}`;
+          await queue.add(entry.topic, { ...payload, outbox_id: entry.id }, { jobId });
+
+          await tx`
+            UPDATE job_outbox
+            SET status = 'dispatched',
+                dispatched_at = NOW(),
+                attempts = attempts + 1
+            WHERE id = ${entry.id}
+          `;
+        } catch (dispatchError) {
+          console.error(
+            `[OutboxPoller] Failed to dispatch entry ${entry.id} (topic=${entry.topic}):`,
+            dispatchError,
+          );
+
+          const nextAttempts = entry.attempts + 1;
+          if (nextAttempts >= entry.max_attempts) {
+            console.error(
+              `[OutboxPoller] Entry ${entry.id} exceeded max_attempts (${entry.max_attempts}), marking as failed`,
+            );
+            await tx`
+              UPDATE job_outbox
+              SET status = 'failed',
+                  last_error = ${'Dispatch failed after ' + entry.max_attempts + ' attempts'},
+                  attempts = ${nextAttempts}
+              WHERE id = ${entry.id}
+            `;
+          } else {
+            await tx`
+              UPDATE job_outbox
+              SET attempts = ${nextAttempts}
+              WHERE id = ${entry.id}
+            `;
+          }
+        }
+      }
+    });
   } catch (error) {
     console.error('[OutboxPoller] Poll cycle failed:', error);
   } finally {

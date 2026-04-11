@@ -3,13 +3,16 @@ import type { RedisOptions } from 'ioredis';
 
 // ---------------------------------------------------------------------------
 // Redis connection options for BullMQ
-// Supports both Upstash REST-style URLs (https://) and standard Redis URLs
+// Supports:
+//   redis://localhost:6379/1       — local Docker / WSL Redis (development)
+//   rediss://default:pw@host:6379  — Railway / TLS-enabled Redis (production)
+//   https://host.upstash.io        — Upstash REST URL (legacy, needs REDIS_QUEUE_TOKEN)
 // ---------------------------------------------------------------------------
 export function getRedisOptions(): RedisOptions {
   const url = process.env.REDIS_QUEUE_URL!;
   const token = process.env.REDIS_QUEUE_TOKEN;
 
-  // Upstash REST URL → extract host and use Redis protocol
+  // Upstash REST URL → extract host and use Redis protocol over TLS
   if (url.startsWith('https://')) {
     return {
       host: new URL(url).hostname,
@@ -20,12 +23,13 @@ export function getRedisOptions(): RedisOptions {
     };
   }
 
-  // Standard redis:// or rediss:// URL
+  // Standard redis:// or rediss:// URL (local, Railway, or any Redis)
   const parsed = new URL(url);
   return {
     host: parsed.hostname,
     port: parseInt(parsed.port || '6379', 10),
     password: parsed.password || token || undefined,
+    db: parsed.pathname ? parseInt(parsed.pathname.slice(1), 10) || 0 : 0,
     tls: parsed.protocol === 'rediss:' ? {} : undefined,
     maxRetriesPerRequest: null,
   };
@@ -52,14 +56,22 @@ export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
 // ---------------------------------------------------------------------------
 const opts = getRedisOptions();
 
+// Default job options: 3 retry attempts with exponential backoff starting at 5s.
+// This ensures transient failures (network errors, rate limits) are retried
+// automatically instead of relying on the 1-hour OutboxPoller watchdog.
+const defaultJobOptions = {
+  attempts: 3,
+  backoff: { type: 'exponential' as const, delay: 5_000 },
+};
+
 export const queues = {
-  syncReviews: new Queue(QUEUE_NAMES.SYNC_REVIEWS, { connection: opts }),
-  generateResponse: new Queue(QUEUE_NAMES.GENERATE_RESPONSE, { connection: opts }),
-  sendNotification: new Queue(QUEUE_NAMES.SEND_NOTIFICATION, { connection: opts }),
-  publishResponse: new Queue(QUEUE_NAMES.PUBLISH_RESPONSE, { connection: opts }),
-  generateDemo: new Queue(QUEUE_NAMES.GENERATE_DEMO, { connection: opts }),
-  weeklySummary: new Queue(QUEUE_NAMES.WEEKLY_SUMMARY, { connection: opts }),
-  notifyAdmin: new Queue(QUEUE_NAMES.NOTIFY_ADMIN, { connection: opts }),
+  syncReviews: new Queue(QUEUE_NAMES.SYNC_REVIEWS, { connection: opts, defaultJobOptions }),
+  generateResponse: new Queue(QUEUE_NAMES.GENERATE_RESPONSE, { connection: opts, defaultJobOptions }),
+  sendNotification: new Queue(QUEUE_NAMES.SEND_NOTIFICATION, { connection: opts, defaultJobOptions }),
+  publishResponse: new Queue(QUEUE_NAMES.PUBLISH_RESPONSE, { connection: opts, defaultJobOptions }),
+  generateDemo: new Queue(QUEUE_NAMES.GENERATE_DEMO, { connection: opts, defaultJobOptions }),
+  weeklySummary: new Queue(QUEUE_NAMES.WEEKLY_SUMMARY, { connection: opts, defaultJobOptions }),
+  notifyAdmin: new Queue(QUEUE_NAMES.NOTIFY_ADMIN, { connection: opts, defaultJobOptions }),
 } as const;
 
 // Lookup table: outbox topic string → Queue instance

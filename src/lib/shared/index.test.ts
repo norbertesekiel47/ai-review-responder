@@ -1,7 +1,2 @@
-import { describe, it, expect } from 'vitest';
-
-describe('scaffold', () => {
-  it('project bootstraps correctly', () => {
-    expect(true).toBe(true);
-  });
-});
+// Replaced by real tests in __tests__/ directory.
+// This file is intentionally empty — vitest picks up __tests__/*.test.ts

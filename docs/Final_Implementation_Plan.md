@@ -474,199 +474,527 @@ Deploy both services before continuing to Prompt 4:
 ## Sprint 2: Production Pipeline (Days 6–13)
 
 ### What you build
-SerpAPI polling, outbox-driven response generation, email notifications, approval flow, and manual posting.
+Shared worker utilities, SerpAPI polling, outbox-driven response generation, email notifications, approval flow, and manual posting.
+
+### Sprint 2 Architecture Review Overrides
+
+If any prompt below conflicts with these rules, these rules win:
+
+- **OutboxPoller is ALREADY hardened.** Do NOT recreate it. It already has: `FOR UPDATE SKIP LOCKED`, transaction wrapping, `max_attempts` enforcement, JSONB parsing guard. Only ADD the missing watchdog recovery.
+- **JSONB parsing guard EVERYWHERE.** Postgres.js returns JSONB columns as strings through PgBouncer. EVERY worker reading JSONB from Postgres must use: `typeof x === 'string' ? JSON.parse(x) : x`. This was discovered in Sprint 1 and is documented in `.claude/CLAUDE.md` lab notes.
+- **Subscription guard rules (from CLAUDE.md — authoritative):**
+  - `cancelled` → skip, complete outbox
+  - `past_due` → check how long (7-day grace). If `> 7 days`, treat as cancelled. Otherwise allow.
+  - `pending_payment` → `ResponseGeneratorWorker` is ALLOWED (admin-visible demo drafts during sales call). `NotificationWorker` and `ResponsePublisherWorker` MUST skip.
+- **Worker registration pattern.** Every new worker MUST: (1) import the handler in `worker/index.ts`, (2) create `new Worker(QUEUE_NAMES.X, handler, { connection: redisOpts })`, (3) add to the `workers` array for graceful shutdown.
+- **Outbox completion.** Every worker MUST mark its originating outbox entry as `completed` or `failed` on every code path. Use the shared `markOutboxCompleted()` utility (created in Prompt 7).
+- **Mock mode.** When `MOCK_EXTERNAL_APIS=true`, workers that call external APIs (SerpAPI, OpenAI, Anthropic, Resend) must use mock implementations. This allows local testing without API keys or costs.
+- **All job payload shapes must be defined as TypeScript interfaces** in a shared location so producers and consumers agree on the contract.
 
 ### Claude Code prompts
 
-**Prompt 7 — OutboxPoller + ReconciliationPoller (Day 6)**
+**Prompt 7 — Shared worker utilities (Day 6)**
 ```
-Build the outbox infrastructure in the worker service:
+Create the shared utilities that ALL Sprint 2 workers depend on. These MUST exist before any worker is built.
 
-1. Create worker/jobs/OutboxPoller.ts following .claude/skills/outbox-pattern.md EXACTLY:
-   - Runs every 10 seconds via setInterval
-   - Watchdog recovery: reset entries stuck in 'dispatched' for > 1 hour (check attempts vs max_attempts for terminal vs retry)
-   - SELECT with FOR UPDATE SKIP LOCKED, batch size 50
-   - Dispatch to BullMQ by topic, using outbox entry ID as jobId (idempotent)
-   - Handle dispatch failures: retry if under max_attempts, terminal 'failed' if over
+1. Create src/lib/shared/subscription-guard.ts:
+   - Export: checkSubscription(status: string, businessUpdatedAt: Date, workerType: 'generator' | 'notification' | 'publisher' | 'summary'): { allowed: true } | { allowed: false; reason: string }
+   - Rules per CLAUDE.md (these are AUTHORITATIVE):
+     - cancelled → { allowed: false, reason: 'cancelled' }
+     - past_due → check Date.now() - businessUpdatedAt.getTime() > 7 * 86_400_000. If exceeded: { allowed: false, reason: 'past_due_expired' }. Otherwise: { allowed: true }
+     - pending_payment → if workerType === 'generator': { allowed: true }. Otherwise: { allowed: false, reason: 'pending_payment' }
+     - active → { allowed: true }
+   - Write tests in src/lib/shared/__tests__/subscription-guard.test.ts covering all 4 statuses × 4 worker types + grace period boundary
+
+2. Create src/lib/shared/outbox.ts:
+   - Import sql from '@/lib/db/server'
+   - Export: markOutboxCompleted(outboxId: string): Promise<void> — UPDATE job_outbox SET status = 'completed', completed_at = NOW() WHERE id = $1
+   - Export: markOutboxFailed(outboxId: string, error: string): Promise<void> — UPDATE job_outbox SET status = 'failed', last_error = $1, completed_at = NOW() WHERE id = $2
+   - These are currently local functions in DemoGenerationWorker.ts. Extract them here and update DemoGenerationWorker to import from this shared module.
+
+3. Create src/lib/shared/sanitize.ts:
+   - Export: sanitizeText(input: string): string
+   - Strip Unicode control characters (U+0000-U+001F except \n \r \t, U+007F-U+009F)
+   - Strip null bytes (\x00)
+   - Collapse multiple whitespace into single space
+   - Trim leading/trailing whitespace
+   - Write tests in src/lib/shared/__tests__/sanitize.test.ts
+
+4. Create src/lib/shared/rate-limit.ts:
+   - Import getCacheRedis from '@/lib/costs/tracker'
+   - Export: checkRateLimit(key: string, maxRequests: number, windowSeconds: number): Promise<{ allowed: boolean; remaining: number }>
+   - Uses Redis INCR + EXPIRE pattern on the cache instance (NOT the queue instance)
+   - Write tests with mocked Redis
+
+5. Create src/lib/shared/mock-mode.ts:
+   - Export: isMockMode(): boolean — returns process.env.MOCK_EXTERNAL_APIS === 'true'
+   - Export: getReviewMonitor(apiKey: string): SerpApiMonitor | MockSerpApiMonitor
+   - Create src/lib/reviews/mock-monitor.ts that returns a MockSerpApiMonitor:
+     - Reuses reviews from MockReviewSource (src/lib/reviews/mock-source.ts)
+     - Enriches each with identity fields (provider='serpapi_poll', providerReviewId=SHA-256 hash, providerReviewName, providerLocationName) and contentHash
+     - Returns MonitorResult { reviews: MonitoredReview[], collisions: [] }
+   - This is needed by ReviewSyncWorker in mock mode
+
+6. Create src/lib/shared/worker-types.ts — ALL job payload interfaces:
+   - SyncReviewsPayload: { business_id: string; google_place_id: string }
+   - GenerateResponsePayload: { review_id: string; business_id: string; version: number }
+   - SendNotificationPayload: { response_id: string; business_id: string }
+   - PublishResponsePayload: { response_id: string; business_id: string }
+   - NotifyAdminExceptionPayload: { review_exception_id: string; business_id: string }
+   - DemoJobPayload already exists in src/lib/demos/types.ts — leave it there
+   - These types are imported by BOTH the producer (whoever writes the outbox entry) and the consumer (the worker)
+
+7. Create src/lib/responses/voice-learning.ts:
+   - Export: getApprovedResponsePairs(businessId: string): Promise<VoiceExample[]>
+   - Query: SELECT original_draft_text, edited_text, r.star_rating FROM responses resp JOIN reviews r ON resp.review_id = r.id WHERE resp.business_id = $1 AND resp.status = 'posted' AND resp.edited_text IS NOT NULL ORDER BY resp.posted_at DESC LIMIT 10
+   - Filter to ≤ 5 results
+   - Return as VoiceExample[] (from src/lib/responses/types.ts)
+   - Uses the existing idx_responses_voice index
+   - Returns [] if < 5 edited+posted responses exist (voice learning hasn't activated yet)
+   - JSONB parsing guard on any JSONB columns read
+
+8. Install the `fastest-levenshtein` package (needed by Prompt 12 approval edit flow):
+   pnpm add fastest-levenshtein
+
+After creating all utilities, verify:
+- tsc --noEmit passes
+- pnpm test passes (all new + existing tests)
+```
+
+**Prompt 8 — OutboxPoller watchdog + ReconciliationPoller (Day 6)**
+```
+The OutboxPoller (worker/jobs/OutboxPoller.ts) is ALREADY implemented with FOR UPDATE SKIP LOCKED, transaction wrapping, and max_attempts enforcement. Do NOT recreate it. This prompt adds TWO things: watchdog recovery and the ReconciliationPoller.
+
+1. ADD watchdog recovery to the EXISTING OutboxPoller (worker/jobs/OutboxPoller.ts):
+   - At the START of each poll cycle (inside the sql.begin, before the pending-entry SELECT), run a watchdog query:
+     UPDATE job_outbox SET status = 'pending', available_at = NOW()
+     WHERE status = 'dispatched' AND dispatched_at < NOW() - INTERVAL '1 hour' AND attempts < max_attempts
+   - For entries that are dispatched AND exceeded max_attempts:
+     UPDATE job_outbox SET status = 'failed', last_error = 'Stale dispatched entry exceeded max_attempts', completed_at = NOW()
+     WHERE status = 'dispatched' AND dispatched_at < NOW() - INTERVAL '1 hour' AND attempts >= max_attempts
+   - Log how many entries were recovered and how many were failed
+   - This recovers from the scenario where a BullMQ worker crashes after the OutboxPoller marks the entry as 'dispatched' but before the worker marks it as 'completed'
 
 2. Create worker/jobs/ReconciliationPoller.ts:
-   - BullMQ repeatable job every 60 minutes
-   - Queries active businesses using `businesses.last_sync_at` (NOT google_connections — those are empty in SerpAPI mode):
-     WHERE subscription_status = 'active' AND (last_sync_at IS NULL OR last_sync_at < NOW() - INTERVAL '60 minutes')
-   - Writes sync_reviews outbox entries for each business (payload includes business_id and google_place_id)
-   - This is the PRIMARY ingestion path while using SerpAPI
-   - When GBP API arrives: this becomes the fallback path with adaptive intervals (60/120/240 min)
+   - Uses setInterval (same pattern as OutboxPoller, NOT BullMQ repeatable jobs — simpler and consistent)
+   - Interval: 60 minutes (configurable via RECONCILIATION_INTERVAL_MS env var, default 3_600_000)
+   - Re-entrancy guard: isPolling flag (same pattern as OutboxPoller)
+   - If isMockMode() from src/lib/shared/mock-mode.ts: log and skip. ReconciliationPoller should not create sync jobs in mock mode.
+   - Query active businesses due for sync:
+     SELECT id, google_place_id FROM businesses
+     WHERE subscription_status = 'active'
+       AND google_place_id IS NOT NULL
+       AND (last_sync_at IS NULL OR last_sync_at < NOW() - INTERVAL '60 minutes')
+   - DEDUP GUARD: For each business, check for in-flight sync before creating a new outbox entry:
+     WHERE NOT EXISTS (
+       SELECT 1 FROM job_outbox
+       WHERE topic = 'sync_reviews' AND aggregate_id = business.id
+         AND status IN ('pending', 'dispatched')
+     )
+   - For each eligible business, insert outbox entry in a transaction:
+     INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+     VALUES (uuidv7(), 'sync_reviews', 'business', business.id, '{"business_id":"...","google_place_id":"..."}'::jsonb, 'pending')
+   - Use SyncReviewsPayload from src/lib/shared/worker-types.ts for the payload shape
+   - Export startReconciliationPoller() / stopReconciliationPoller()
+
+3. Update worker/index.ts:
+   - Import and call startReconciliationPoller() after startOutboxPoller()
+   - Call stopReconciliationPoller() in the shutdown function
+
+4. When GBP API arrives: ReconciliationPoller becomes the FALLBACK path with adaptive intervals (60/120/240 min based on review velocity). The architecture stays the same.
 ```
 
-**Prompt 8 — ReviewSyncWorker (Day 7)**
+**Prompt 9 — ReviewSyncWorker (Day 7)**
 ```
-Build worker/jobs/ReviewSyncWorker.ts that processes sync_reviews jobs:
+Build worker/jobs/ReviewSyncWorker.ts that processes sync_reviews jobs.
 
-1. Fetch reviews via the serpapi-monitor.ts module built in Prompt 4 (production mode, NOT the demo serpapi-source.ts). This returns reviews with pre-computed identity fields (provider_review_id, provider_review_name, provider_location_name) and content hashes. If SerpAPI returns an empty array (business has no reviews), skip to step 3 — update last_sync_at and return.
+Job payload type: SyncReviewsPayload from src/lib/shared/worker-types.ts
+  { business_id: string; google_place_id: string }
 
-2. For EACH review, inside a Postgres transaction (use `sql.begin()` from the Postgres.js client created in Prompt 3):
-   - Read existing review row with FOR UPDATE lock to get current review_content_hash BEFORE the upsert overwrites it (the upsert's RETURNING would return the NEW hash, making comparison useless)
-   - Use the identity fields DIRECTLY from serpapi-monitor output — do NOT recompute identity in the worker. The monitor already applied the tiered identity strategy (source ID → fallback with profile URL → last resort hash). Fields: provider, provider_review_id, provider_review_name, provider_location_name, review_content_hash.
-   - Upsert the review using ON CONFLICT (provider, provider_review_name)
-   - If NEW (no existing row): insert job_outbox entry topic='generate_response' in SAME transaction
-   - If CONTENT CHANGED (review_content_hash differs) and response is pending: set old response status to 'failed' with reason 'Review updated by reviewer', insert new generate_response outbox entry
-   - If CONTENT CHANGED and response is posted: insert review_exceptions row with type='review_edited_after_post' + notify_admin_review_exception outbox entry. ON CONFLICT DO NOTHING on the unique partial index to prevent notification storms.
-   - If unchanged: skip silently (no action needed)
+1. Read business from DB:
+   SELECT id, subscription_status, updated_at, google_place_id, baseline_captured_at
+   FROM businesses WHERE id = $1
+   - If not found: log warning, markOutboxCompleted(), return
+   - Subscription guard: checkSubscription(status, updatedAt, 'generator'). If not allowed: markOutboxCompleted(), return
+   - Null google_place_id guard: if null, log warning, markOutboxCompleted(), return
 
-3. Update `businesses.last_sync_at = NOW()` for this business
+2. Fetch reviews:
+   - If isMockMode(): use MockSerpApiMonitor from src/lib/reviews/mock-monitor.ts
+   - Otherwise: use SerpApiMonitor from src/lib/reviews/serpapi-monitor.ts with SERPAPI_API_KEY
+   - Call monitor.fetchReviews(business.google_place_id)
+   - Returns MonitorResult { reviews: MonitoredReview[], collisions: IdentityCollision[] }
+   - SerpAPI error handling:
+     - Transient errors (network, 429 rate limit, 5xx): THROW so BullMQ retries with exponential backoff
+     - Permanent errors (401 auth, 403 quota): markOutboxFailed() with error message, return
 
-4. ROI baseline capture: after syncing, if `businesses.baseline_captured_at IS NULL`, this is the first sync for this business. Count total reviews ingested and how many already have owner replies (from SerpAPI data if available, or default to 0). Write `initial_review_count`, `initial_responded_count`, `baseline_captured_at = NOW()` to the businesses table. This baseline powers Sprint 5's "before us vs after us" ROI dashboard. Do NOT capture baseline during onboarding (reviews haven't been synced yet at that point).
+3. Handle collisions:
+   - For each collision in MonitorResult.collisions, insert into review_exceptions:
+     INSERT INTO review_exceptions (id, business_id, review_id, type, payload)
+     VALUES (uuidv7(), business_id, NULL, 'identity_collision', $collisionJson::jsonb)
+     ON CONFLICT DO NOTHING (use the unique partial index on review_id + type WHERE status = 'open')
+   - Note: review_id is NULL for identity collisions detected at fetch time (the review hasn't been inserted yet)
 
-Critical: the review upsert and outbox entry MUST be in the same transaction (sql.begin). This is the #1 silent data loss vector per the plan. If the worker crashes between them, the review sits in 'new' status forever with no generation job queued.
+4. Process each review — use ONE Postgres transaction PER REVIEW (intentional: partial success is better than all-or-nothing failure):
+   Inside sql.begin(async (tx) => { ... }):
+
+   a. Read existing review with FOR UPDATE lock:
+      SELECT id, review_content_hash FROM reviews
+      WHERE provider = ${identity.provider} AND provider_review_name = ${identity.providerReviewName}
+      FOR UPDATE
+
+   b. Upsert the review:
+      INSERT INTO reviews (id, business_id, provider, provider_review_id, provider_review_name, provider_location_name, reviewer_name, star_rating, review_text, review_date, detected_language, review_content_hash, status)
+      VALUES (uuidv7(), ...)
+      ON CONFLICT (provider, provider_review_name) DO UPDATE SET
+        reviewer_name = EXCLUDED.reviewer_name,
+        star_rating = EXCLUDED.star_rating,
+        review_text = EXCLUDED.review_text,
+        review_content_hash = EXCLUDED.review_content_hash,
+        detected_at = NOW()
+      RETURNING id
+
+   c. Branch logic:
+      - NEW review (no existing row from step a):
+        Insert outbox entry topic='generate_response' with GenerateResponsePayload { review_id, business_id, version: 1 }
+      - CONTENT CHANGED (existing row AND review_content_hash differs):
+        Check response status: SELECT status FROM responses WHERE review_id = existingId AND status NOT IN ('superseded', 'failed') ORDER BY version DESC LIMIT 1
+        * If response is 'pending_approval': UPDATE responses SET status = 'failed', posting_error = 'Review updated by reviewer' WHERE id = responseId. Insert new generate_response outbox entry with version+1
+        * If response is 'posted' or 'awaiting_manual_post': INSERT review_exceptions (type='review_edited_after_post') ON CONFLICT DO NOTHING. Insert notify_admin_review_exception outbox entry.
+      - UNCHANGED: skip (no action)
+
+5. After all reviews processed:
+   UPDATE businesses SET last_sync_at = NOW() WHERE id = $business_id
+
+6. ROI baseline capture:
+   If business.baseline_captured_at IS NULL (first sync for this business):
+   - Count: SELECT COUNT(*) FROM reviews WHERE business_id = $1 (total just ingested)
+   - SerpAPI does NOT reliably provide owner reply counts. Default initial_responded_count = 0.
+   - UPDATE businesses SET initial_review_count = $count, initial_responded_count = 0, baseline_captured_at = NOW() WHERE id = $1
+   - This powers Sprint 5's ROI dashboard. Accuracy improves when GBP API arrives.
+
+7. markOutboxCompleted(outboxId)
+
+8. Register worker in worker/index.ts:
+   - Import handleReviewSync from './jobs/ReviewSyncWorker'
+   - const reviewSyncWorker = new Worker(QUEUE_NAMES.SYNC_REVIEWS, handleReviewSync, { connection: redisOpts })
+   - Add to workers array
+
+Write tests covering: new review → outbox entry created, unchanged review → no action, content changed + pending response → old response failed + new outbox, content changed + posted → exception created, null google_place_id → early return, subscription cancelled → skip.
 ```
 
-**Prompt 9 — ResponseGeneratorWorker (Day 8)**
+**Prompt 10 — ResponseGeneratorWorker (Day 8)**
 ```
-Build worker/jobs/ResponseGeneratorWorker.ts with the FULL implementation:
+Build worker/jobs/ResponseGeneratorWorker.ts. This is a thin orchestration wrapper around the existing generateResponse() in src/lib/responses/generator.ts, which already implements the full cost guard lifecycle.
 
-1. Consumes generate_response jobs
-2. Cancellation guard: check business.subscription_status — if 'cancelled' or 'past_due', complete the outbox entry and skip silently. This prevents burning LLM tokens for businesses that stopped paying.
-3. Idempotent cache check: Redis key gen:{reviewId}:v{version}
-4. Cost reservation via cost-guard.md pattern
-4. Concurrency limiter: max 3 per business
-5. Regeneration budget: max 3 per review per day via Redis counter
-6. Input sanitization: strip Unicode control chars, null bytes, collapse whitespace
-7. Language detection from review
-8. Voice learning: getApprovedResponsePairs() — returns [] until ≥5 edited+posted responses exist
-9. generateWithGuardrails: check avoid_facts on output, retry once if violated, accumulate cost across retries
-10. Fallback from OpenAI to Anthropic
-11. Two-phase cost accounting: reserve before, finalize after, NEVER refund after finalization
-12. After success, in ONE transaction:
-    - Insert response with original_draft_text
-    - Insert job_outbox topic='send_notification' (payload has response_id + business_id, NO raw token)
-13. Complete originating outbox entry
+Job payload type: GenerateResponsePayload from src/lib/shared/worker-types.ts
+  { review_id: string; business_id: string; version: number }
 
-DO NOT generate approval tokens here. That happens in NotificationWorker.
+1. Read review and business from DB:
+   SELECT * FROM reviews WHERE id = $reviewId
+   SELECT * FROM businesses WHERE id = $businessId
+   - If either not found: markOutboxFailed(), return
+   - Build BusinessContext from the business row (map DB snake_case columns to TypeScript camelCase: tone, products_services → productsServices, staff_names → staffNames, etc.)
+
+2. Subscription guard:
+   checkSubscription(business.subscription_status, business.updated_at, 'generator')
+   - If not allowed: markOutboxCompleted(), return
+
+3. Input sanitization:
+   Apply sanitizeText() from src/lib/shared/sanitize.ts to review.review_text before passing to the generator. This strips Unicode control chars, null bytes, and collapses whitespace.
+
+4. Voice learning:
+   const voiceExamples = await getApprovedResponsePairs(businessId)
+   - From src/lib/responses/voice-learning.ts (created in Prompt 7)
+   - Returns [] until ≥ 5 edited+posted responses exist
+
+5. Generate response with guardrails:
+   - If isMockMode(): use generateMockResponse() from src/lib/responses/mock-generator.ts
+   - Otherwise: call generateResponse(review, businessContext, voiceExamples, { mode: 'production', reviewId, version, businessId, subscriptionTier })
+   - The generator.ts already handles: idempotent cache, cost reservation, concurrency limit, OpenAI → Anthropic fallback, finalization, audit trail
+   - AFTER getting the result: check business.avoid_facts against result.responseText. If any avoid_fact string appears (case-insensitive substring match): log a warning and regenerate ONCE with the same parameters. Accumulate cost from both attempts. If the second attempt also violates, use it anyway (best-effort).
+   - Regeneration budget: call checkRegenBudget(reviewId) from src/lib/costs/tracker.ts BEFORE generating. Skip if budget exceeded.
+
+6. After successful generation, in ONE sql.begin() transaction:
+   - INSERT INTO responses (id, review_id, business_id, response_text, response_language, version, status, original_draft_text, llm_provider, llm_model, prompt_tokens, completion_tokens)
+     VALUES (uuidv7(), reviewId, businessId, result.responseText, result.language, version, 'pending_approval', result.responseText, result.provider, result.model, result.usage.promptTokens, result.usage.completionTokens)
+     RETURNING id
+   - Link api_costs: if result.apiCostId is not null, call linkApiCostToResponse(result.apiCostId, responseId)
+   - INSERT outbox entry topic='send_notification' with SendNotificationPayload { response_id: responseId, business_id: businessId }
+   - Do NOT include any approval token in the outbox payload. Token generation happens in NotificationWorker.
+
+7. markOutboxCompleted(outboxId)
+
+8. Error handling:
+   - CostLimitExceededError, GlobalCostLimitExceededError: markOutboxFailed() with the error message. Do NOT retry (the limit is real).
+   - ConcurrencyLimitExceededError: THROW so BullMQ retries later (transient — other jobs will finish).
+   - RegenBudgetExceededError: markOutboxFailed(). Do NOT retry.
+   - LLM call failures (after both OpenAI and Anthropic fail): markOutboxFailed() with error.
+   - DB transaction failures: THROW so BullMQ retries (transient).
+
+9. Register worker in worker/index.ts (same pattern as Prompt 9 step 8).
+
+Write tests covering: successful generation → response + outbox created, subscription cancelled → skip, cost limit exceeded → outbox failed, mock mode → uses mock generator, avoid_facts violation → regenerates once.
 ```
 
-**Prompt 10 — NotificationWorker + email + delivery tracking (Day 9)**
+**Prompt 11 — NotificationWorker + email + delivery tracking (Day 9)**
 ```
-Build the notification system:
+Build the notification system.
+
+PREREQUISITES: Add RESEND_FROM_EMAIL to .env.local and .env.example:
+  RESEND_FROM_EMAIL="RepWorth <notifications@yourdomain.com>"
+  You must verify the sender domain in the Resend dashboard first.
+
+Job payload type: SendNotificationPayload from src/lib/shared/worker-types.ts
+  { response_id: string; business_id: string }
 
 1. Create src/lib/notifications/email.ts:
-   - Uses Resend SDK
-   - sendApprovalEmail(to, reviewData, responsePreview, approvalUrl, businessName)
-   - Clean mobile-friendly HTML template with:
-     - Subject: "New review for [Business Name] — response ready for approval"
-     - Star rating as visual stars
-     - Reviewer name and date
-     - Review text (truncated to 200 chars — full text on approval page)
-     - Draft response preview (first 100 chars)
-     - Big "Review & Approve" button linking to /approve/{token}
-     - "This link expires in 48 hours"
-   - Returns the Resend message ID for delivery tracking
+   - Import { Resend } from 'resend'
+   - Initialize with RESEND_API_KEY
+   - Export: sendApprovalEmail(params: { to: string; from: string; businessName: string; reviewerName: string; starRating: number; reviewText: string | null; responsePreview: string; approvalUrl: string }): Promise<{ messageId: string }>
+   - HTML template (inline CSS, single-column, mobile-first, max-width 600px):
+     - Subject: "New review for {businessName} — response ready"
+     - Body: star rating as "★★★★☆" text, reviewer name + date, review text (truncated to 200 chars with "..." if longer, or "Rating only — no written review"), draft response preview (first 100 chars), big blue CTA button "Review & Approve" linking to approvalUrl, footer "This link expires in 48 hours"
+   - Returns { messageId } from Resend response (the external_message_id)
+   - If isMockMode(): log the email contents and return { messageId: 'mock-' + randomUUID() } instead of calling Resend
 
 2. Create worker/jobs/NotificationWorker.ts:
    - Consumes send_notification jobs
-   - Subscription guard: read business, skip if subscription_status is 'cancelled', 'past_due' (beyond grace), or 'pending_payment' — do NOT send approval emails to owners of unpaid businesses. Complete outbox entry and return.
-   - Reads response + review + business from database
-   - Generates approval token HERE: `import { randomUUID } from 'node:crypto'` then randomUUID()
-   - Stores ONLY SHA-256(token) in approval_links with 48-hour TTL. Use `createHash('sha256').update(rawToken).digest('hex')`.
-   - Constructs approval URL with the raw token
-   - Sends email via Resend
-   - Writes to notification_deliveries with the external_message_id from Resend
-   - The raw token is NEVER persisted in Postgres or outbox payloads
-   - Complete outbox entry
+   - Read response + review + business from DB:
+     SELECT resp.*, r.reviewer_name, r.star_rating, r.review_text, r.review_date
+     FROM responses resp JOIN reviews r ON resp.review_id = r.id
+     WHERE resp.id = $responseId
+     SELECT owner_email, owner_name, name as business_name FROM businesses WHERE id = $businessId
+   - Subscription guard: checkSubscription(status, updatedAt, 'notification'). This correctly skips cancelled, past_due beyond grace, AND pending_payment.
+   - Generate approval token: import { randomUUID, createHash } from 'node:crypto'. const rawToken = randomUUID(). const tokenHash = createHash('sha256').update(rawToken).digest('hex').
+   - Idempotency: check for existing unexpired approval link for this response:
+     SELECT id FROM approval_links WHERE response_id = $responseId AND revoked_at IS NULL AND expires_at > NOW()
+     If one exists, the email was already sent (retry scenario). markOutboxCompleted(), return.
+   - In ONE sql.begin() transaction:
+     - INSERT INTO approval_links (id, response_id, business_id, token_hash, channel, expires_at)
+       VALUES (uuidv7(), responseId, businessId, tokenHash, 'email', NOW() + INTERVAL '48 hours')
+     - The raw token is NEVER persisted — only the hash goes to Postgres
+   - Construct approval URL: ${process.env.NEXT_PUBLIC_APP_URL}/approve/${rawToken}
+   - Send email via sendApprovalEmail(). If Resend call FAILS: THROW so BullMQ retries. The approval link already exists in DB (idempotent — next retry will find it and skip link creation, but still needs to send the email). Actually NO — the idempotency check above will see the existing link and return. FIX: the idempotency check should be: if link exists AND notification_deliveries has a sent_at for this response. If link exists but no delivery record, the email was never sent — proceed to send.
+   - CORRECTED idempotency logic:
+     a. Check approval_links for existing unexpired link for this response → get linkId if exists
+     b. Check notification_deliveries for existing sent delivery for this response → if exists, markOutboxCompleted(), return
+     c. If no link exists: create approval link in transaction
+     d. If link exists but no delivery: reuse the existing link's raw token... WAIT — we can't reconstruct the raw token from the hash. So if the link was created but email failed, we're stuck.
+     e. SOLUTION: On retry, if an unexpired link exists but no delivery, REVOKE the old link and create a new one with a new token. This is safe because the old link was never emailed.
+   - After successful email send:
+     INSERT INTO notification_deliveries (id, business_id, response_id, channel, recipient, template, sent_at, external_message_id)
+     VALUES (uuidv7(), businessId, responseId, 'email', ownerEmail, 'approval_request', NOW(), messageId)
+   - markOutboxCompleted(outboxId)
+   - The raw token exists only in memory during this function. NEVER log it, NEVER store it in outbox payloads.
 
 3. Create worker/ingress/resend.ts — Resend delivery webhook handler:
-   - Verify webhook signature (Resend signs webhooks with a secret)
-   - Write to inbound_events for deduplication (external_event_key = Resend event ID)
-   - Handle events:
-     - email.delivered: update notification_deliveries.delivered_at
-     - email.bounced: update notification_deliveries.failed_at + failure_reason
-     - email.complained: update notification_deliveries.failed_at + failure_reason
-   - Without this handler, the admin notification log will show all emails as "pending" forever
+   - Replace the placeholder in worker/index.ts: app.post('/ingress/resend', ...) with a real handler
+   - Route MUST have { config: { rawBody: true } } (already configured in the placeholder)
+   - Verify webhook signature using RESEND_WEBHOOK_SECRET and the raw body
+     (Resend provides a svix-id, svix-timestamp, svix-signature headers — use the Resend SDK's webhook verification or manual HMAC verification)
+   - Write to inbound_events for deduplication:
+     INSERT INTO inbound_events (id, source, external_event_key, event_type, payload, status)
+     VALUES (uuidv7(), 'resend', eventId, eventType, payload::jsonb, 'received')
+     ON CONFLICT (external_event_key) DO NOTHING
+   - If insert succeeded (not a duplicate), process the event:
+     - email.delivered: UPDATE notification_deliveries SET delivered_at = NOW() WHERE external_message_id = $messageId
+     - email.bounced: UPDATE notification_deliveries SET failed_at = NOW(), failure_reason = $reason WHERE external_message_id = $messageId
+     - email.complained: same as bounced
+   - Return 200 OK (even for duplicates — Resend expects 2xx)
 
-4. Point the Resend webhook directly at the Railway ingress endpoint in production. Do NOT create a Vercel forwarding route for this.
+4. Register worker in worker/index.ts (same pattern as previous prompts).
+
+5. In production, point the Resend webhook to https://yourworker.railway.app/ingress/resend. Do NOT create a Vercel forwarding route.
 ```
 
-**Prompt 11 — Approval flow (Days 10-11)**
+**Prompt 12 — Approval flow (Days 10-11)**
 
 Use **Playwright MCP** for E2E testing:
 ```
-Build the complete approval system:
+Build the complete approval system.
 
 1. Create src/lib/approval/service.ts per .claude/skills/approval-security.md:
-   - establishApprovalSession(rawToken, deviceCookieHash)
-   - approve(rawToken, deviceCookieHash): transaction: consume link + revoke siblings + update response + insert publish_response outbox
-   - edit(rawToken, editedText, deviceCookieHash): same + store edited_text + compute Levenshtein edit_distance
-   - regenerate(rawToken, deviceCookieHash): in ONE transaction: consume link + revoke ALL sibling links + mark the OLD response as `superseded` (UPDATE responses SET status = 'superseded' WHERE id = old_response_id) + insert generate_response outbox with version+1. This enforces the invariant: at most one non-terminal response per review at a time.
-   - lockValidLink(): FOR UPDATE inside transaction, validates hash + device cookie + expiry
-   - ALL approval actions (approve, edit, regenerate, session_bind) MUST write to approval_audit_log in the same transaction: token_hash, device_cookie_hash, action, ip_address, response_id, business_id
+   - All methods receive a Postgres transaction client (tx) from the caller, NOT create their own. This lets callers compose multiple operations in the same transaction.
 
-2. Create src/lib/approval/cookies.ts — device cookie + CSRF implementation:
-   - DEVICE COOKIE: On GET /approve/:token, if no `__device` cookie exists, generate a random value via `randomUUID()`, HMAC-sign it with `SESSION_COOKIE_SECRET` (`createHmac('sha256', secret).update(value).digest('hex')`), set the signed value as cookie `__device` with attributes: `Secure; HttpOnly; SameSite=Lax; Path=/; Max-Age=172800` (48h matching token TTL). The `device_cookie_hash` stored in `approval_links` is `SHA-256(cookie_value)`.
-   - CSRF: Use double-submit cookie pattern. On GET /approve/:token, generate a random CSRF token via `randomUUID()`, set it as cookie `__csrf` with `Secure; SameSite=Lax; Path=/` (NOT HttpOnly — JS needs to read it). Client JS reads the cookie and sends it as `x-csrf-token` header on all POST requests. Server validates: header value === cookie value.
-   - Export helpers: `setDeviceCookie(res)`, `getDeviceCookieHash(req)`, `setCsrfCookie(res)`, `validateCsrf(req)`.
+   - lockValidLink(tx, rawToken): FOR UPDATE on approval_links, validates:
+     * token_hash matches SHA-256(rawToken)
+     * consumed_at IS NULL (not already used)
+     * revoked_at IS NULL (not revoked by regeneration)
+     * expires_at > NOW() (not expired — MUST check on POST actions too, not just GET)
+     Returns the link row or throws a typed error (ExpiredTokenError, RevokedTokenError, InvalidTokenError, ConsumedTokenError)
 
-3. Create API routes:
-   - GET /api/approve/[token] — read-only, returns review + response data, sets device cookie + CSRF cookie. MUST set `Cache-Control: no-store, private` — these responses contain sensitive review/draft content behind a bearer-style token and must never be cached by browsers, proxies, or shared devices. Rate limit: 10 lookups per minute per IP (prevents token enumeration reconnaissance).
-   - POST /api/approval/session — binds device cookie hash. Requires device cookie present.
-   - POST /api/approve/[token]/approve — requires device cookie + CSRF header
-   - POST /api/approve/[token]/edit — requires device cookie + CSRF header
-   - POST /api/approve/[token]/regenerate — requires device cookie + CSRF header
-   All approval API responses (GET and POST) must include `Cache-Control: no-store, private`.
-   Error responses should distinguish: expired token ("This link has expired"), revoked/superseded token ("A newer version was generated — check your email for the latest link"), invalid token ("Invalid link"), device conflict ("This link is already open on another device"), already processed ("Already approved").
+   - establishApprovalSession(tx, linkId, deviceCookieHash):
+     * UPDATE approval_links SET device_cookie_hash = $hash WHERE id = $linkId AND device_cookie_hash IS NULL
+     * If device_cookie_hash is already set and differs from the new hash: throw DeviceConflictError
+     * Audit log: INSERT INTO approval_audit_log (id, response_id, business_id, action, device_cookie_hash, ip_address) using tx
 
-3. Create src/app/(public)/approve/[token]/page.tsx:
-   - SSR returns minimal shell (business name + "Review a draft response") — NO review text in initial HTML
-   - Client-side fetch loads actual content via TanStack Query
-   - Mobile-first: review card + editable response + approve/edit/regenerate buttons
-   - On approve: show "Response approved! We'll post it to Google shortly."
-   - On edit: inline editor, save button
-   - On regenerate: loading state, then new draft
+   - approve(tx, linkId, deviceCookieHash):
+     * Verify device_cookie_hash matches the link's bound device
+     * UPDATE approval_links SET consumed_at = NOW() WHERE id = $linkId
+     * UPDATE responses SET status = 'approved', approved_at = NOW(), approved_text = response_text WHERE id = link.response_id
+     * Revoke ALL sibling links for the same response: UPDATE approval_links SET revoked_at = NOW() WHERE response_id = link.response_id AND id != $linkId AND consumed_at IS NULL
+     * INSERT outbox entry topic='publish_response' with PublishResponsePayload { response_id, business_id }
+     * Audit log
 
-4. Write Playwright E2E tests:
-   - Owner clicks link → approve → confirmation
-   - Owner clicks link → edit → save → confirmation  
-   - Owner clicks expired link → expiration message
-   - Owner clicks link → regenerate → new draft appears → approve new
+   - edit(tx, linkId, editedText, deviceCookieHash):
+     * Same as approve, plus:
+     * Compute Levenshtein edit_distance using fastest-levenshtein: distance(originalDraftText, editedText)
+     * UPDATE responses SET status = 'edited', approved_at = NOW(), approved_text = editedText, edited_text = editedText, edit_distance = $distance
+
+   - regenerate(tx, linkId, deviceCookieHash):
+     * Verify device
+     * UPDATE approval_links SET consumed_at = NOW() — consume the current link
+     * Revoke ALL links for the same response (including consumed ones? No — only unclosed ones): UPDATE approval_links SET revoked_at = NOW() WHERE response_id = link.response_id AND consumed_at IS NULL AND id != $linkId
+     * Read current response version: SELECT version FROM responses WHERE id = link.response_id
+     * Mark OLD response as superseded: UPDATE responses SET status = 'superseded' WHERE id = link.response_id
+     * INSERT outbox entry topic='generate_response' with GenerateResponsePayload { review_id: response.review_id, business_id, version: currentVersion + 1 }
+     * Audit log
+     * This triggers: ResponseGeneratorWorker → new response → NotificationWorker → new email with new link
+
+   Error types to export: ExpiredTokenError, RevokedTokenError, InvalidTokenError, ConsumedTokenError, DeviceConflictError
+
+2. Create src/lib/approval/cookies.ts:
+   - Import { randomUUID, createHash, createHmac } from 'node:crypto'
+   - DEVICE COOKIE:
+     * setDeviceCookie(response: NextResponse): string — generates randomUUID(), HMAC-signs with SESSION_COOKIE_SECRET, sets cookie '__device' (Secure; HttpOnly; SameSite=Lax; Path=/; Max-Age=172800). Returns the cookie value.
+     * getDeviceCookieHash(request: NextRequest): string | null — reads '__device' cookie, returns SHA-256(cookieValue) or null if not present
+     * verifyDeviceCookie(request: NextRequest): boolean — reads cookie, verifies HMAC signature with SESSION_COOKIE_SECRET
+   - CSRF (double-submit cookie pattern):
+     * setCsrfCookie(response: NextResponse): string — generates randomUUID(), sets cookie '__csrf' (Secure; SameSite=Lax; Path=/; NOT HttpOnly). Returns the token.
+     * validateCsrf(request: NextRequest): boolean — compares x-csrf-token header with __csrf cookie value
+
+3. Create API routes — ALL under /api/approve/ (consistent base path):
+   - GET /api/approve/[token]/route.ts:
+     * Read-only. Hash the URL token, look up in approval_links → response → review → business
+     * If valid: set device cookie + CSRF cookie, return { review, response, businessName }
+     * Set Cache-Control: no-store, private
+     * Rate limit: checkRateLimit(`approve:get:${ip}`, 10, 60) using src/lib/shared/rate-limit.ts
+     * Error responses with specific messages: expired, revoked, invalid, consumed
+
+   - POST /api/approve/[token]/session/route.ts:
+     * Validate CSRF. Get device cookie hash.
+     * sql.begin(tx => approvalService.establishApprovalSession(tx, linkId, deviceCookieHash))
+     * Set Cache-Control: no-store, private
+
+   - POST /api/approve/[token]/approve/route.ts:
+     * Validate CSRF + device cookie
+     * sql.begin(tx => { lockValidLink(tx, rawToken); approve(tx, linkId, deviceCookieHash) })
+     * Return { success: true, message: "Response approved! We'll post it to Google shortly." }
+
+   - POST /api/approve/[token]/edit/route.ts:
+     * Same + parse editedText from body, validate non-empty
+     * sql.begin(tx => { lockValidLink(tx, rawToken); edit(tx, linkId, editedText, deviceCookieHash) })
+
+   - POST /api/approve/[token]/regenerate/route.ts:
+     * sql.begin(tx => { lockValidLink(tx, rawToken); regenerate(tx, linkId, deviceCookieHash) })
+     * Return { success: true, message: "Generating a new response — check your email in a few minutes." }
+
+   ALL responses include Cache-Control: no-store, private.
+
+4. Create src/app/(public)/approve/[token]/page.tsx:
+   - Server component renders minimal shell:
+     * Hash the token server-side, look up approval_links → responses → businesses.name
+     * If invalid/expired: render error message directly (no client fetch needed)
+     * If valid: render shell with business name + "Review a draft response" — NO review text in HTML
+   - Client component (loaded via 'use client' child):
+     * Fetch GET /api/approve/{token} via TanStack Query
+     * POST /api/approve/{token}/session on mount (binds device cookie)
+     * Display: review card (stars, reviewer, date, text), response text in editable textarea
+     * Three buttons: Approve, Edit & Approve (saves textarea), Regenerate
+     * Each button POSTs to the corresponding endpoint with x-csrf-token header
+     * Shows success/error messages
+     * Mobile-first layout
+
+5. Write Playwright E2E tests:
+   - Setup: create a test business + review + response + approval link directly in DB
+   - Test: navigate to /approve/{rawToken} → see review + response → click Approve → success message
+   - Test: navigate → edit response text → click Edit & Approve → success
+   - Test: navigate to expired link → see "This link has expired"
+   - Test: navigate → click Regenerate → see "check your email" message
+   - Test: navigate to already-approved link → see "Already approved"
 ```
 
-**Prompt 12 — Manual posting + AdminExceptionWorker (Days 12-13)**
+**Prompt 13 — Manual posting + AdminExceptionWorker (Days 12-13)**
 ```
-Build the posting workflow for SerpAPI mode:
+Build the posting workflow for SerpAPI mode.
+
+Job payload types from src/lib/shared/worker-types.ts:
+  PublishResponsePayload: { response_id: string; business_id: string }
+  NotifyAdminExceptionPayload: { review_exception_id: string; business_id: string }
+
+PREREQUISITE: Add ADMIN_NOTIFICATION_EMAIL to .env.local and .env.example:
+  ADMIN_NOTIFICATION_EMAIL=your-admin@email.com
+  This is where manual posting instructions and exception alerts are sent.
 
 1. Create worker/jobs/ResponsePublisherWorker.ts:
    - Consumes publish_response jobs
-   - Subscription guard: read business, skip if subscription_status is 'cancelled'. Complete outbox entry and return. (Past_due within grace period is allowed — the response was already approved.)
-   - Updates response status to 'awaiting_manual_post'
-   - Sends internal email to admin/sales partner via Resend:
-     - Business name, approved response text, Google Maps link
-     - Instructions to copy-paste as owner reply
-   - Complete outbox entry
+   - Read response + review + business from DB
+   - Subscription guard: checkSubscription(status, updatedAt, 'publisher'). Skips cancelled and pending_payment. Allows past_due within grace (response was already approved).
+   - UPDATE responses SET status = 'awaiting_manual_post' WHERE id = $responseId
+   - Determine admin email: query users WHERE role IN ('admin', 'sales_partner') AND business_id = businessId or fall back to ADMIN_NOTIFICATION_EMAIL env var
+   - Send internal email via Resend (or mock in mock mode):
+     - To: admin/sales partner email
+     - Subject: "Manual post needed: {businessName}"
+     - Body: business name, reviewer name + rating, approved response text (the approved_text from response row), Google Maps URL (construct from business.google_place_id)
+     - Instructions: "Copy the response below and paste it as an owner reply on Google Maps."
+   - markOutboxCompleted(outboxId)
+   - If email fails: THROW for BullMQ retry (response is already awaiting_manual_post, so retry is safe)
 
 2. Create worker/jobs/AdminExceptionWorker.ts:
    - Consumes notify_admin_review_exception jobs
-   - Sends email to admin about review-edited-after-post
-   - Checks if exception is already resolved (skip if so)
-   - Complete outbox entry
+   - Read exception from DB:
+     SELECT re.*, r.reviewer_name, r.star_rating, b.name as business_name
+     FROM review_exceptions re
+     JOIN reviews r ON re.review_id = r.id
+     JOIN businesses b ON re.business_id = b.id
+     WHERE re.id = $exceptionId
+   - If exception is already resolved (status != 'open'): markOutboxCompleted(), return
+   - Send email to ADMIN_NOTIFICATION_EMAIL:
+     - Subject: "Review exception: {businessName} — {exception.type}"
+     - Body: explain what happened (review was edited after response was posted), include original review text and new review text from exception payload
+   - markOutboxCompleted(outboxId)
 
-3. Add "Mark as Posted" to admin business detail page:
-   - Show responses with status 'awaiting_manual_post'
-   - "Copy to Clipboard" button + "Mark as Posted" button
-   - Mark as Posted: updates status to 'posted', sets posted_at
+3. Build minimal admin business detail page at src/app/admin/businesses/[id]/page.tsx:
+   (This replaces the placeholder. Full admin dashboard is Sprint 3, but we need this for the manual posting workflow to be testable.)
+   - Server component that reads business + responses from DB
+   - Show: business name, subscription status, google_place_id
+   - Section: "Awaiting Manual Post" — list responses with status = 'awaiting_manual_post':
+     - Reviewer name, star rating, approved response text
+     - "Copy to Clipboard" button (copies approved_text)
+     - "Mark as Posted" button → calls POST /api/admin/businesses/[id]/mark-posted with response_id
+   - Create API route POST /api/admin/businesses/[id]/mark-posted:
+     - Protected by middleware (admin auth)
+     - Updates: UPDATE responses SET status = 'posted', posted_at = NOW() WHERE id = $responseId AND business_id = $businessId AND status = 'awaiting_manual_post'
+     - Returns 200 on success
 
-4. Run full end-to-end test:
-   - Add real business → wait for poll → verify review in DB → verify response generated → verify email received → approve → verify awaiting_manual_post → mark as posted
+4. Register both workers in worker/index.ts (same pattern as previous prompts).
+
+5. End-to-end verification (manual, not automated):
+   - In mock mode: manually insert a business (active) + outbox entry for sync_reviews
+   - Watch: ReviewSyncWorker processes → generates response → NotificationWorker sends email (or logs in mock mode) → open approval link → approve → ResponsePublisherWorker sends manual-post email → admin page shows "Awaiting Manual Post" → click "Mark as Posted"
+   - Verify all status transitions in the DB: review new → response pending_approval → approved → awaiting_manual_post → posted
+   - For real SerpAPI test: set MOCK_EXTERNAL_APIS=false, use a real Google Maps place ID, and verify the full flow with real API calls
 ```
 
 ### Sprint 2 done when
-- [ ] Reviews polled every 60 minutes via SerpAPI using serpapi-monitor.ts
-- [ ] Review dedup works: synthetic identity (SHA-256 of name+date) + content hash for edit detection
-- [ ] AI responses generated automatically for new reviews
+- [ ] Shared utilities: subscription guard, outbox helpers, sanitizer, rate limiter, mock monitor, voice learning, worker types — all tested
+- [ ] OutboxPoller watchdog recovers stale dispatched entries (> 1 hour)
+- [ ] ReconciliationPoller creates sync_reviews outbox entries every 60 minutes for active businesses (with dedup guard)
+- [ ] Reviews polled via SerpAPI (or mock) and upserted with dedup (identity + content hash)
+- [ ] New reviews trigger response generation automatically
+- [ ] Cost circuit breaker works (per-business + global daily limits, concurrency, regen budget)
+- [ ] Avoid-facts guardrail checks generated responses and retries once if violated
+- [ ] Voice learning returns few-shot examples when ≥ 5 edited+posted responses exist
 - [ ] Email notifications sent with approval links (delivery tracked via Resend webhooks)
-- [ ] Approval page works on mobile: approve, edit, regenerate
-- [ ] Approval tokens stored as SHA-256 hashes only — raw tokens never persisted
+- [ ] Approval tokens stored as SHA-256 hashes only — raw tokens never in Postgres, outbox payloads, or logs
+- [ ] Approval page works on mobile: approve, edit (with Levenshtein distance), regenerate
+- [ ] Regeneration chain works end-to-end: old response superseded → new generated → new email → new link
 - [ ] Owner sees "we'll post it shortly" — manual posting invisible to them
-- [ ] Cost circuit breaker works (per-business + global daily limits)
-- [ ] Review edit detection works: edited reviews trigger regeneration (if pending) or admin exception (if posted)
-- [ ] E2E tests pass in Playwright
+- [ ] Admin business detail page shows awaiting-manual-post responses with copy + mark-as-posted buttons
+- [ ] Review edit detection: edited reviews trigger regeneration (pending) or admin exception (posted)
+- [ ] Mock mode works for all workers (no real API calls in local development)
+- [ ] All workers register in worker/index.ts with graceful shutdown
+- [ ] E2E approval flow tests pass in Playwright
 
 ---
 
@@ -674,7 +1002,7 @@ Build the posting workflow for SerpAPI mode:
 
 ### Claude Code prompts
 
-**Prompt 13 — Admin dashboard + authentication + business management (Days 14-15)**
+**Prompt 14 — Admin dashboard + authentication + business management (Days 14-15)**
 ```
 Build the sales partner admin dashboard with proper authentication:
 
@@ -744,7 +1072,7 @@ All admin pages require Supabase Auth with role = admin or sales_partner.
 PAGINATION: All list views (business table, review list, notification log, jobs page) must support cursor-based or offset pagination from the start. Use TanStack Query's `useInfiniteQuery` or page-based fetching with `limit` + `offset` params. Without pagination, these pages will degrade as data grows — the notification log alone grows by ~10 rows/week/business.
 ```
 
-**Prompt 14 — Stripe integration (Day 16)**
+**Prompt 15 — Stripe integration (Day 16)**
 ```
 Integrate Stripe payments:
 
@@ -764,7 +1092,7 @@ Integrate Stripe payments:
 4. Update business onboarding to include Stripe customer creation
 ```
 
-**Prompt 15 — Security hardening (Days 17-18)**
+**Prompt 16 — Security hardening (Days 17-18)**
 
 Use **Sentry MCP** for error tracking setup:
 ```
@@ -830,7 +1158,7 @@ Harden the application:
 
 ### Claude Code prompts
 
-**Prompt 16 — Monitoring + weekly summaries**
+**Prompt 17 — Monitoring + weekly summaries**
 ```
 Build production hardening features:
 
@@ -860,7 +1188,7 @@ Build production hardening features:
    - Track: edit rate per business (quality metric)
 ```
 
-**Prompt 17 — Load + security testing**
+**Prompt 18 — Load + security testing**
 
 Use **Playwright MCP**:
 ```
@@ -907,7 +1235,7 @@ Write comprehensive tests:
 
 ### Claude Code prompts
 
-**Prompt 18 — ROI dashboard + intelligence brief**
+**Prompt 19 — ROI dashboard + intelligence brief**
 ```
 Build the churn prevention features:
 
@@ -939,7 +1267,7 @@ Build the churn prevention features:
 
 ## Sprint 6: Scale to $1K MRR (Weeks 9–12)
 
-**Prompt 19 — Voice learning + onboarding automation**
+**Prompt 20 — Voice learning + onboarding automation**
 ```
 Optimize for scale:
 
