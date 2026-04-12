@@ -39,15 +39,15 @@ src/
 │   ├── (authenticated)/    # Owner dashboard + settings
 │   └── (admin)/            # Sales partner CRM, demos, costs, notifications, jobs
 ├── lib/                    # Shared business logic
-│   ├── db/                 # Supabase client, query helpers
-│   ├── reviews/            # ReviewSource interface, SerpAPI source + monitor
+│   ├── db/                 # Supabase client, query helpers, Redis cache client
+│   ├── reviews/            # ReviewSource interface, SerpAPI source + monitor, process-review domain logic
 │   ├── responses/          # Response generator, prompt builder
 │   ├── approval/           # ApprovalService, token management
-│   ├── notifications/      # Resend email service
+│   ├── notifications/      # Resend email service, email templates, delivery recording
 │   ├── publishing/         # Manual posting workflow (GBP API stub)
-│   ├── costs/              # CostTracker, circuit breaker
+│   ├── costs/              # Cost guards (tracker.ts) + audit trail (audit.ts)
 │   ├── demos/              # Demo generation pipeline
-│   └── shared/             # Types, utils, constants
+│   └── shared/             # Types, utils, constants (status enums, URL builders)
 └── types/                  # Shared TypeScript interfaces
 
 worker/                     # Railway worker (separate process, at project root)
@@ -128,7 +128,7 @@ The architecture was designed so this is a mechanical swap — same outbox, same
 ## Current status
 - Sprint 1: COMPLETE (Prompts 1-6 done + audit fixes applied; demo pipeline verified with mock data)
   - Post-audit fixes (2026-04-09): mock data path, OutboxPoller hardening (FOR UPDATE SKIP LOCKED, max_attempts, transaction wrapping), DemoGenerationWorker crash recovery, admin auth middleware, JSONB parsing guard, local Redis, vitest config
-- Sprint 2: COMPLETE (Prompts 7-13 done; all 7 BullMQ workers implemented; 189 tests across 15 files)
+- Sprint 2: COMPLETE (Prompts 7-13 done; all 7 BullMQ workers implemented; 189 tests across 15 files; end-to-end verified locally + deployed to Vercel)
   - Prompt 7 (shared worker utilities): COMPLETE (2026-04-10)
   - Prompt 8 (OutboxPoller watchdog + ReconciliationPoller): COMPLETE (2026-04-10)
   - Prompt 9 (ReviewSyncWorker): COMPLETE (2026-04-10)
@@ -136,7 +136,20 @@ The architecture was designed so this is a mechanical swap — same outbox, same
   - Prompt 11 (NotificationWorker + email + Resend webhook): COMPLETE (2026-04-10)
   - Prompt 12 (Approval flow): COMPLETE (2026-04-10) — app code + unit tests done; Playwright E2E deferred to Prompt 18 (Sprint 4) pending test DB/seed/worker harness
   - Prompt 13 (Manual posting + AdminExceptionWorker): COMPLETE (2026-04-10)
-- Sprint 3: NOT STARTED
+  - Post-sprint fixes (2026-04-11): SerpAPI `num` param removal, Anthropic model upgrade (`claude-haiku-4-5-20251001`), graceful rate-limit fallback when Redis unavailable, Vercel deployment env var configuration
+- Post-Sprint 2 code checkup (2026-04-11): modularization + cleanup, no functional changes
+  - Split `src/lib/costs/tracker.ts` → `src/lib/db/redis-cache.ts` (Redis client), `src/lib/costs/tracker.ts` (cost guards), `src/lib/costs/audit.ts` (Postgres audit trail + pricing)
+  - Extracted `buildManualPostEmailHtml()` from `ResponsePublisherWorker` → `src/lib/notifications/email.ts`
+  - Extracted `processReview()`, `captureRoiBaseline()`, `isPermanentSerpApiError()` from `ReviewSyncWorker` → `src/lib/reviews/process-review.ts` (reusable for GBP API Pub/Sub handler)
+  - Extracted `recordNotificationDelivery()` → `src/lib/notifications/delivery.ts` (shared by NotificationWorker + ResponsePublisherWorker)
+  - Created `src/lib/shared/constants.ts`: `ResponseStatus`, `SubscriptionStatus`, `ExceptionType` enums, `NO_STORE_HEADERS`, `buildGoogleMapsUrl()`
+  - Deduplicated `Cache-Control` headers across 5 approval routes → use shared `NO_STORE_HEADERS`
+  - Broke up `handleResponseGeneration` → extracted `applyAvoidFactsGuardrail()` + `persistResponseAndNotify()`
+  - OutboxPoller now stores the actual dispatch error message in `last_error` (was storing generic message)
+  - Mock email logger now includes approval URL for local testing
+  - 189/189 tests passing after all changes
+- Sprint 3: IN PROGRESS
+  - Prompt 14a (Supabase Auth + middleware + login): COMPLETE (2026-04-11) — @supabase/ssr installed, middleware rewritten with session refresh + role-based protection, login page uses signInWithPassword(), auth callback route created, old API key auth removed, requireRole() defense-in-depth on all admin API routes, users RLS policy created, 189/189 tests passing
 - Sprint 4: NOT STARTED
   - **Deferred from Sprint 2:** Playwright E2E approval-flow tests (approve, edit, expired, regenerate, already-approved) — requires seeded Postgres, running worker, Redis. Scaffolded in `e2e/approval.spec.ts` as skipped scenarios.
 - Sprint 5: NOT STARTED
@@ -144,6 +157,11 @@ The architecture was designed so this is a mechanical swap — same outbox, same
 
 ## Lab notes
 - [2026-04-09] Postgres.js returns JSONB columns as strings (not parsed objects) when using `DATABASE_POOL_URL` with PgBouncer. Always guard with `typeof x === 'string' ? JSON.parse(x) : x` when reading JSONB columns. Hit this in OutboxPoller (payload) and demo viewer (reviews_snapshot, generated_responses).
+- [2026-04-11] SerpAPI Google Maps Reviews rejects `num` parameter on the initial page unless `next_page_token` is also set. Always returns 8 results on first page. Removed `num` from both `SerpApiSource` and `SerpApiMonitor`; results are sliced client-side after fetch.
+- [2026-04-11] Anthropic model `claude-3-5-haiku-latest` was deprecated and returns 404. Updated to `claude-haiku-4-5-20251001` in generator and cost tracker.
+- [2026-04-11] Vercel serverless functions cannot reach local Docker Redis. Rate limiter must gracefully skip when `REDIS_CACHE_URL` is not set or Redis is unreachable, rather than crashing the request. The approval service has its own idempotency guards as defense-in-depth.
+- [2026-04-11] BullMQ rejects `:` in custom job IDs (`Custom Id cannot contain :`). OutboxPoller uses `_` as separator for attempt-suffixed job IDs.
+- [2026-04-11] Supabase PgBouncer pooled connections have a short default `statement_timeout` (~8s). The OutboxPoller watchdog CTE can exceed this when updating locked rows. Set `connection: { statement_timeout: 30_000 }` on the Postgres.js client.
 
 ## MCP servers available
 - **Supabase**: Database queries and management
