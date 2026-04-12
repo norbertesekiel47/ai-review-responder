@@ -1,8 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Queue } from 'bullmq';
+import type { RedisOptions } from 'ioredis';
 import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
-import { getRedisOptions, QUEUE_NAMES } from '../../../../../worker/queues';
+
+// Queue names defined locally to avoid importing worker/queues.ts, which
+// constructs Queue instances at module scope and crashes if REDIS_QUEUE_URL is missing.
+const QUEUE_NAMES = [
+  'sync_reviews',
+  'generate_response',
+  'send_notification',
+  'publish_response',
+  'generate_demo',
+  'weekly_summary',
+  'notify_admin_review_exception',
+] as const;
 
 export const dynamic = 'force-dynamic';
 
@@ -88,20 +100,27 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const failedTotal = countRows[0]?.total ?? 0;
 
     let queueHealth: Record<string, Record<string, number>> | { unavailable: true };
-    try {
-      const redisOpts = getRedisOptions();
-      const queueNames = Object.values(QUEUE_NAMES);
-      const counts: Record<string, Record<string, number>> = {};
-      for (const name of queueNames) {
-        const queue = new Queue(name, { connection: redisOpts });
-        const jobCounts = await queue.getJobCounts('waiting', 'active', 'delayed', 'failed');
-        counts[name] = jobCounts;
-        await queue.close();
-      }
-      queueHealth = counts;
-    } catch (redisError) {
-      console.warn('[api/admin/jobs] Redis unavailable for queue health:', redisError);
+    const redisUrl = process.env.REDIS_QUEUE_URL;
+    if (!redisUrl) {
       queueHealth = { unavailable: true };
+    } else {
+      try {
+        const redisOpts = parseRedisUrl(redisUrl);
+        const counts: Record<string, Record<string, number>> = {};
+        for (const name of QUEUE_NAMES) {
+          const queue = new Queue(name, { connection: redisOpts });
+          try {
+            const jobCounts = await queue.getJobCounts('waiting', 'active', 'delayed', 'failed');
+            counts[name] = jobCounts;
+          } finally {
+            await queue.close();
+          }
+        }
+        queueHealth = counts;
+      } catch (redisError) {
+        console.warn('[api/admin/jobs] Redis unavailable for queue health:', redisError);
+        queueHealth = { unavailable: true };
+      }
     }
 
     const data: JobsData = {
@@ -130,4 +149,28 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     console.error('[api/admin/jobs] Failed to fetch job data:', error);
     return NextResponse.json({ error: 'Failed to fetch job data' }, { status: 500 });
   }
+}
+
+/** Parse a Redis URL into ioredis options with a short connect timeout. */
+function parseRedisUrl(url: string): RedisOptions {
+  if (url.startsWith('https://')) {
+    return {
+      host: new URL(url).hostname,
+      port: 6379,
+      password: process.env.REDIS_QUEUE_TOKEN,
+      tls: {},
+      maxRetriesPerRequest: 1,
+      connectTimeout: 5_000,
+    };
+  }
+  const parsed = new URL(url);
+  return {
+    host: parsed.hostname,
+    port: parseInt(parsed.port || '6379', 10),
+    password: parsed.password || process.env.REDIS_QUEUE_TOKEN || undefined,
+    db: parsed.pathname ? parseInt(parsed.pathname.slice(1), 10) || 0 : 0,
+    tls: parsed.protocol === 'rediss:' ? {} : undefined,
+    maxRetriesPerRequest: 1,
+    connectTimeout: 5_000,
+  };
 }

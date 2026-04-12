@@ -48,9 +48,9 @@ export interface CostData {
 }
 
 const TIER_LIMITS_CENTS: Record<string, number> = {
-  founding: parseInt(process.env.FOUNDING_DAILY_COST_LIMIT_CENTS ?? '500', 10),
-  standard: parseInt(process.env.STANDARD_DAILY_COST_LIMIT_CENTS ?? '1000', 10),
-  premium: parseInt(process.env.PREMIUM_DAILY_COST_LIMIT_CENTS ?? '2000', 10),
+  founding: parseInt(process.env.DAILY_COST_LIMIT_CENTS_FOUNDING ?? '500', 10),
+  standard: parseInt(process.env.DAILY_COST_LIMIT_CENTS_STANDARD ?? '1000', 10),
+  premium: parseInt(process.env.DAILY_COST_LIMIT_CENTS_PREMIUM ?? '2000', 10),
 };
 
 const GLOBAL_DAILY_LIMIT_CENTS = parseInt(

@@ -3,6 +3,7 @@
 // Auth: Supabase session checked by src/middleware.ts (admin/sales_partner role required)
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import type { OverviewData } from '@/app/api/admin/overview/route';
 
@@ -63,6 +64,7 @@ function HealthCard({ label, value, warn }: HealthCardProps) {
 }
 
 export default function AdminOverviewPage() {
+  const router = useRouter();
   const { data, isLoading, isError, error } = useQuery<OverviewData>({
     queryKey: ['admin-overview'],
     queryFn: async () => {
@@ -158,7 +160,11 @@ export default function AdminOverviewPage() {
                   </tr>
                 )}
                 {businesses.map((biz) => (
-                  <tr key={biz.id} className="hover:bg-gray-50">
+                  <tr
+                    key={biz.id}
+                    className="hover:bg-gray-50 cursor-pointer"
+                    onClick={() => router.push(`/admin/businesses/${biz.id}`)}
+                  >
                     <td className="px-4 py-3">
                       <Link
                         href={`/admin/businesses/${biz.id}`}
