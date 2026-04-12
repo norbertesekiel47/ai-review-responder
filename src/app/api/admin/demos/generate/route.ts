@@ -5,6 +5,7 @@ import { nanoid } from 'nanoid';
 import { sql } from '@/lib/db/server';
 import { extractPlaceId } from '@/lib/reviews/url-parser';
 import { requireRole, AuthError } from '@/lib/db/auth';
+import { checkRateLimit } from '@/lib/shared/rate-limit';
 import type { DemoJobPayload } from '@/lib/demos/types';
 
 const GenerateDemoSchema = z.object({
@@ -21,6 +22,25 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: err.message }, { status: err.statusCode });
     }
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  // Rate limit: 50 demos per day globally (cost-sensitive — triggers SerpAPI + LLM)
+  const dailyLimit = await checkRateLimit('demo:generate:daily', 50, 86400);
+  if (!dailyLimit.allowed) {
+    return NextResponse.json(
+      { error: 'Daily demo generation limit reached (50/day)' },
+      { status: 429 },
+    );
+  }
+
+  // Rate limit: 5 per minute per IP
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown';
+  const minuteLimit = await checkRateLimit(`demo:generate:minute:${ip}`, 5, 60);
+  if (!minuteLimit.allowed) {
+    return NextResponse.json(
+      { error: 'Too many demo generations. Try again in a minute.' },
+      { status: 429 },
+    );
   }
 
   const body = await request.json();
