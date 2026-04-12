@@ -122,7 +122,12 @@ export default function NewBusinessPage() {
         return;
       }
 
-      router.push(`/admin/businesses/${json.id}`);
+      const { id, paymentUrl } = json as { id: string; paymentUrl?: string | null };
+      if (paymentUrl) {
+        try { await navigator.clipboard.writeText(paymentUrl); } catch { /* ignore */ }
+        alert(`Business created! Payment link copied to clipboard:\n\n${paymentUrl}`);
+      }
+      router.push(`/admin/businesses/${id}`);
     } catch {
       setServerError('Network error — please try again');
     } finally {

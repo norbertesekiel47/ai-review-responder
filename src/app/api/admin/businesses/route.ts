@@ -119,6 +119,19 @@ function splitParagraphs(text: string | undefined): string[] {
     .filter(Boolean);
 }
 
+function buildPaymentLinkUrl(tier: string, businessId: string, ownerEmail: string): string | null {
+  const links: Record<string, string | undefined> = {
+    founding: process.env.STRIPE_PAYMENT_LINK_FOUNDING,
+    standard: process.env.STRIPE_PAYMENT_LINK_STANDARD,
+  };
+  const baseUrl = links[tier];
+  if (!baseUrl) return null;
+  const url = new URL(baseUrl);
+  url.searchParams.set('client_reference_id', businessId);
+  url.searchParams.set('prefilled_email', ownerEmail);
+  return url.toString();
+}
+
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     await requireRole(request, 'admin', 'sales_partner');
@@ -242,5 +255,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
   }
 
-  return NextResponse.json({ id: businessId }, { status: 201 });
+  const paymentUrl = buildPaymentLinkUrl(data.subscriptionTier, businessId, data.ownerEmail);
+  return NextResponse.json({ id: businessId, paymentUrl }, { status: 201 });
 }
