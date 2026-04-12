@@ -207,12 +207,11 @@ export async function PATCH(
 
   // Build dynamic SET clause: $1 reserved for businessId, fields start at $2.
   const setClauses: string[] = [];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const values: any[] = [businessId];
+  const values: (string | string[] | null)[] = [businessId];
 
   for (const field of fields) {
     const column = FIELD_TO_COLUMN[field];
-    const value = data[field];
+    const value = data[field] ?? null;
     values.push(value);
     setClauses.push(`${column} = $${values.length}`);
   }
