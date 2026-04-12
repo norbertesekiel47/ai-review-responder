@@ -2,29 +2,33 @@ import './env'; // Must be first — loads .env.local before other modules read 
 
 import * as Sentry from '@sentry/node';
 
+/** Recursively scrub sensitive keys from any object */
+function scrubObject(obj: Record<string, unknown>): void {
+  const sensitiveKeys = /key|secret|token|password|authorization/i;
+  for (const key of Object.keys(obj)) {
+    if (sensitiveKeys.test(key)) {
+      obj[key] = '[REDACTED]';
+    } else if (obj[key] && typeof obj[key] === 'object' && !Array.isArray(obj[key])) {
+      scrubObject(obj[key] as Record<string, unknown>);
+    }
+  }
+}
+
 Sentry.init({
   dsn: process.env.SENTRY_DSN,
   tracesSampleRate: 0.1,
   environment: process.env.NODE_ENV ?? 'development',
   beforeSend(event) {
-    const sensitiveKeys = /key|secret|token|password|authorization/i;
-    if (event.extra) {
-      for (const key of Object.keys(event.extra)) {
-        if (sensitiveKeys.test(key)) {
-          event.extra[key] = '[REDACTED]';
-        }
-      }
-    }
-    if (event.request?.headers) {
-      for (const key of Object.keys(event.request.headers)) {
-        if (sensitiveKeys.test(key)) {
-          event.request.headers[key] = '[REDACTED]';
-        }
-      }
+    if (event.extra) scrubObject(event.extra as Record<string, unknown>);
+    if (event.request?.headers) scrubObject(event.request.headers as Record<string, unknown>);
+    if (event.request?.data && typeof event.request.data === 'object') {
+      scrubObject(event.request.data as Record<string, unknown>);
     }
     return event;
   },
 });
+
+export { Sentry };
 
 import Fastify from 'fastify';
 import rawBody from 'fastify-raw-body';
@@ -81,6 +85,19 @@ const adminExceptionWorker = new Worker(QUEUE_NAMES.NOTIFY_ADMIN, handleAdminExc
 });
 
 const workers = [demoWorker, reviewSyncWorker, responseGenWorker, notificationWorker, publisherWorker, adminExceptionWorker];
+
+// Sentry breadcrumbs on job lifecycle
+for (const worker of workers) {
+  worker.on('active', (job) => {
+    Sentry.addBreadcrumb({ category: 'worker', message: `Started ${job.name} (${job.id})`, level: 'info' });
+  });
+  worker.on('completed', (job) => {
+    Sentry.addBreadcrumb({ category: 'worker', message: `Completed ${job.name} (${job.id})`, level: 'info' });
+  });
+  worker.on('failed', (job, err) => {
+    Sentry.addBreadcrumb({ category: 'worker', message: `Failed ${job?.name} (${job?.id}): ${err.message}`, level: 'error' });
+  });
+}
 
 // Re-export for use by other modules (ingress handlers, tests)
 export { queues, QUEUE_NAMES } from './queues';

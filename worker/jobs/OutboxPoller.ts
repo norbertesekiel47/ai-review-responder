@@ -1,3 +1,4 @@
+import * as Sentry from '@sentry/node';
 import { sql } from '../../src/lib/db/server';
 import { topicToQueue } from '../queues';
 
@@ -105,6 +106,12 @@ async function pollOutbox(): Promise<void> {
           const jobId = `${entry.id}_${entry.attempts + 1}`;
           await queue.add(entry.topic, { ...payload, outbox_id: entry.id }, { jobId });
 
+          Sentry.addBreadcrumb({
+            category: 'outbox',
+            message: `Dispatched ${entry.topic} (${entry.id})`,
+            level: 'info',
+          });
+
           await tx`
             UPDATE job_outbox
             SET status = 'dispatched',
@@ -117,6 +124,12 @@ async function pollOutbox(): Promise<void> {
             `[OutboxPoller] Failed to dispatch entry ${entry.id} (topic=${entry.topic}):`,
             dispatchError,
           );
+
+          Sentry.addBreadcrumb({
+            category: 'outbox',
+            message: `Dispatch failed ${entry.topic} (${entry.id})`,
+            level: 'error',
+          });
 
           const errorMsg = dispatchError instanceof Error ? dispatchError.message : String(dispatchError);
           const nextAttempts = entry.attempts + 1;

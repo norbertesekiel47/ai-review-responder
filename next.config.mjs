@@ -5,6 +5,7 @@ const nextConfig = {
   reactStrictMode: true,
   experimental: {
     serverComponentsExternalPackages: ['postgres'],
+    instrumentationHook: true,
   },
   async headers() {
     return [
