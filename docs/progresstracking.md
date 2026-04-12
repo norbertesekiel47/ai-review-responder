@@ -1192,6 +1192,45 @@ Built the business onboarding form, business list page, and upgraded the busines
 
 ---
 
+### Prompt 15 — Stripe Integration (2026-04-12)
+
+**Status:** COMPLETE
+
+Integrated Stripe payments connecting the business onboarding flow to the payment lifecycle that unlocks recurring review polling.
+
+1. **Rewrote `worker/ingress/stripe.ts`** — Stripe webhook handler:
+   - Signature verification via `stripe.webhooks.constructEvent(rawBody, sig, webhookSecret)` — invalid/missing → 401, no DB write
+   - Dedup via `inbound_events` table (same pattern as Resend handler): processed → 200 duplicate, received/failed → reprocess, new → INSERT
+   - **5 event types handled:**
+     - `checkout.session.completed`: extracts `client_reference_id` (= business_id), sets `subscription_status='active'`, stores `stripe_customer_id` + `stripe_subscription_id`. This is the transition from `pending_payment` that unlocks ReconciliationPoller.
+     - `invoice.payment_failed`: marks business `past_due` (only if currently `active`)
+     - `invoice.paid`: grace period recovery, `past_due` → `active`
+     - `customer.subscription.deleted`: marks business `cancelled`
+     - `customer.subscription.updated`: maps Stripe price ID to subscription_tier via `STRIPE_PRICE_FOUNDING`/`STRIPE_PRICE_STANDARD` env vars
+   - Success → mark inbound_events `processed`, return 200
+   - Failure → mark inbound_events `failed` with error_message, return 500 (Stripe retries)
+   - Lazy Stripe singleton — doesn't crash if `STRIPE_SECRET_KEY` is not set at import time
+
+2. **Modified `worker/index.ts`** — replaced Stripe placeholder route with real `handleStripeWebhook` handler
+
+3. **Modified `src/app/api/admin/businesses/route.ts`** — POST response:
+   - Added `buildPaymentLinkUrl(tier, businessId, ownerEmail)` helper
+   - Reads `STRIPE_PAYMENT_LINK_FOUNDING` / `STRIPE_PAYMENT_LINK_STANDARD` from env
+   - Appends `client_reference_id` + `prefilled_email` as query params
+   - Returns `{ id, paymentUrl }` in 201 response (paymentUrl is null if env var not set)
+
+4. **Modified `src/app/admin/businesses/new/page.tsx`** — on successful creation:
+   - Copies Payment Link URL to clipboard
+   - Shows alert with the URL before redirecting to detail page
+
+5. **Updated `.env.example`** — added 4 new Stripe env vars:
+   - `STRIPE_PAYMENT_LINK_FOUNDING`, `STRIPE_PAYMENT_LINK_STANDARD`
+   - `STRIPE_PRICE_FOUNDING`, `STRIPE_PRICE_STANDARD`
+
+**Verification:** `tsc --noEmit` clean, 189/189 tests pass across 15 files, `pnpm build` succeeds
+
+---
+
 ## Sprint 4: Payments + Notifications
 
 **Status:** NOT STARTED
