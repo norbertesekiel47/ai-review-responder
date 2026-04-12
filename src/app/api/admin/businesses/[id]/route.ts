@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { z } from 'zod';
 import { sql } from '@/lib/db/server';
+import { UpdateBusinessSchema } from '@/lib/shared/schemas';
 import { requireRole, AuthError } from '@/lib/db/auth';
 
 export const dynamic = 'force-dynamic';
@@ -147,20 +147,6 @@ export async function GET(
 // PATCH /api/admin/businesses/[id] — update business settings
 // ---------------------------------------------------------------------------
 
-const UpdateSchema = z
-  .object({
-    name: z.string().min(1).max(255).optional(),
-    category: z.string().max(100).nullable().optional(),
-    tone: z.string().max(100).optional(),
-    productsServices: z.string().max(5000).nullable().optional(),
-    staffNames: z.array(z.string()).optional(),
-    highlightFacts: z.array(z.string()).optional(),
-    avoidFacts: z.array(z.string()).optional(),
-  })
-  .refine((data) => Object.keys(data).length > 0, {
-    message: 'At least one field must be provided',
-  });
-
 // Column name mapping from camelCase API fields to snake_case DB columns.
 const FIELD_TO_COLUMN: Record<string, string> = {
   name: 'name',
@@ -194,7 +180,7 @@ export async function PATCH(
     return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
   }
 
-  const parsed = UpdateSchema.safeParse(body);
+  const parsed = UpdateBusinessSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json(
       { error: parsed.error.issues[0]?.message ?? 'Invalid input' },

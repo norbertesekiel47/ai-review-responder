@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { z } from 'zod';
 import { v7 as uuidv7 } from 'uuid';
+import { OnboardBusinessSchema } from '@/lib/shared/schemas';
 import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { extractPlaceId } from '@/lib/reviews/url-parser';
@@ -86,23 +86,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 // POST /api/admin/businesses — onboard a new business
 // ---------------------------------------------------------------------------
 
-const OnboardSchema = z.object({
-  name: z.string().min(1).max(255),
-  category: z.string().max(100).optional(),
-  googleMapsUrl: z.string().min(1),
-  ownerName: z.string().min(1).max(255),
-  ownerEmail: z.string().email().max(255),
-  ownerPhone: z.string().max(20).optional(),
-  notificationPreference: z.enum(['email', 'sms', 'both']).default('email'),
-  tone: z.string().max(100).default('professional and friendly'),
-  productsServices: z.string().max(5000).optional(),
-  staffNames: z.string().max(2000).optional(),
-  highlightFacts: z.string().max(2000).optional(),
-  avoidFacts: z.string().max(2000).optional(),
-  sampleResponses: z.string().max(5000).optional(),
-  subscriptionTier: z.enum(['founding', 'standard']).default('standard'),
-});
-
 function splitCommaOrNewline(text: string | undefined): string[] {
   if (!text?.trim()) return [];
   return text
@@ -144,7 +127,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   const body = await request.json();
 
-  const parsed = OnboardSchema.safeParse(body);
+  const parsed = OnboardBusinessSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json(
       { error: parsed.error.issues[0]?.message ?? 'Invalid input' },
