@@ -1,5 +1,8 @@
 # dependencies
 /node_modules
+
+# binaries
+stripe.exe
 /.pnp
 .pnp.js
 
