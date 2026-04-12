@@ -109,10 +109,15 @@ function buildPaymentLinkUrl(tier: string, businessId: string, ownerEmail: strin
   };
   const baseUrl = links[tier];
   if (!baseUrl) return null;
-  const url = new URL(baseUrl);
-  url.searchParams.set('client_reference_id', businessId);
-  url.searchParams.set('prefilled_email', ownerEmail);
-  return url.toString();
+  try {
+    const url = new URL(baseUrl);
+    url.searchParams.set('client_reference_id', businessId);
+    url.searchParams.set('prefilled_email', ownerEmail);
+    return url.toString();
+  } catch {
+    console.error(`[api/admin/businesses POST] Malformed payment link URL for tier ${tier}: ${baseUrl}`);
+    return null;
+  }
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
@@ -148,6 +153,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const businessId = uuidv7();
   const userId = uuidv7();
   const outboxId = uuidv7();
+
+  // Build payment link URL BEFORE the transaction — if the env var is malformed,
+  // we return null gracefully instead of crashing after the business is created.
+  const paymentUrl = buildPaymentLinkUrl(data.subscriptionTier, businessId, data.ownerEmail);
 
   const staffNames = splitCommaOrNewline(data.staffNames);
   const highlightFacts = splitCommaOrNewline(data.highlightFacts);
@@ -238,6 +247,5 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
   }
 
-  const paymentUrl = buildPaymentLinkUrl(data.subscriptionTier, businessId, data.ownerEmail);
   return NextResponse.json({ id: businessId, paymentUrl }, { status: 201 });
 }
