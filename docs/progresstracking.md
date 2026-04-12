@@ -1140,6 +1140,58 @@ Built 4 admin read-only pages replacing placeholders, each with a corresponding 
 
 ---
 
+### Prompt 14c — Business Onboarding + Detail Page Upgrade (2026-04-12)
+
+**Status:** COMPLETE
+
+Built the business onboarding form, business list page, and upgraded the business detail page with profile editing and review list.
+
+1. **Created `src/app/api/admin/businesses/route.ts`** — GET + POST:
+   - GET: business list with pagination (LEFT JOIN responses for pending count)
+   - POST: onboarding — creates business (`subscription_status='pending_payment'`) + owner user (`role='owner'`, `auth_id=NULL`) + `sync_reviews` outbox entry in ONE transaction. Zod validation, Place ID extraction via `extractPlaceId()`. Duplicate email detection (409).
+
+2. **Created `src/app/api/admin/businesses/[id]/route.ts`** — GET + PATCH:
+   - GET: business detail + all reviews with latest non-superseded response via LATERAL JOIN. JSONB array parsing guard for PgBouncer.
+   - PATCH: update business settings (name, category, tone, productsServices, staffNames, highlightFacts, avoidFacts). Dynamic SET clause via `sql.unsafe()`. Nullable fields (category, productsServices) can be cleared.
+
+3. **Created `src/app/admin/businesses/new/page.tsx`** — onboarding form:
+   - react-hook-form + Zod + @hookform/resolvers
+   - 4 sections: Business Info (name, category, Google Maps URL), Owner Info (name, email, phone, notification preference), Voice & Context (tone dropdown, products/services, staff names, highlight/avoid facts, sample responses), Subscription Tier (founding/standard radio buttons)
+   - On submit: POST /api/admin/businesses → redirect to /admin/businesses/[id]
+   - Installed `@hookform/resolvers@5.2.2`
+
+4. **Rewrote `src/app/admin/businesses/page.tsx`** — business list:
+   - Table: name, category, subscription status badge, last sync, pending count
+   - Whole row clickable → /admin/businesses/[id]
+   - "Add Business" button → /admin/businesses/new
+   - Pagination: 20 per page
+
+5. **Rewrote `src/app/admin/businesses/[id]/page.tsx`** — upgraded detail page:
+   - Converted from server component to client component (fetches via API, not direct DB)
+   - Business header: name, status badge, tier, category, Google Maps link
+   - Inline-editable profile section: read mode (dl/dd grid) → edit mode (form fields) → PATCH on save
+   - Review list: all reviews with color-coded response status badges (new=gray, pending_approval=yellow, approved/edited=blue, awaiting_manual_post=orange, posted=green, failed=red)
+   - Existing ManualPostSection component preserved unchanged
+   - `useQuery` with `queryClient.invalidateQueries` on profile save
+
+**Post-review fixes:**
+- PATCH schema: `category` and `productsServices` now accept `null` (clearing optional fields)
+- Review list: gray "new" badge renders when no response exists (was hidden)
+- Sample responses: split on double-newlines (paragraphs) not commas, preserving "Thanks, Sarah"
+- Business list GET: clamp limit to min 1 (prevent negative values)
+- Removed `@typescript-eslint/no-explicit-any` disable comment, fixed undefined type coalescing
+
+**End-to-end verified (2026-04-12):**
+- Onboarded test business via form → redirected to detail page → profile data correct
+- Worker picked up sync_reviews outbox → ReviewSyncWorker ingested 8 mock reviews → ResponseGeneratorWorker generated 8 mock responses → NotificationWorker sent mock approval emails
+- Business list shows the new business with correct pending count
+- Detail page shows all 8 reviews with color-coded status badges
+- Profile editing (Edit → modify → Save) works via PATCH API
+
+**Verification:** `tsc --noEmit` clean, 189/189 tests pass across 15 files, `pnpm build` succeeds
+
+---
+
 ## Sprint 4: Payments + Notifications
 
 **Status:** NOT STARTED
