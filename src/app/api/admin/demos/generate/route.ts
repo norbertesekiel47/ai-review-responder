@@ -4,9 +4,8 @@ import { v7 as uuidv7 } from 'uuid';
 import { nanoid } from 'nanoid';
 import { sql } from '@/lib/db/server';
 import { extractPlaceId } from '@/lib/reviews/url-parser';
+import { requireRole, AuthError } from '@/lib/db/auth';
 import type { DemoJobPayload } from '@/lib/demos/types';
-
-// Auth handled by src/middleware.ts — Sprint 3 replaces with Supabase Auth role check
 
 const GenerateDemoSchema = z.object({
   googleMapsUrl: z.string().min(1, 'Google Maps URL is required'),
@@ -15,6 +14,15 @@ const GenerateDemoSchema = z.object({
 });
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  try {
+    await requireRole(request, 'admin', 'sales_partner');
+  } catch (err) {
+    if (err instanceof AuthError) {
+      return NextResponse.json({ error: err.message }, { status: err.statusCode });
+    }
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   const body = await request.json();
 
   const parsed = GenerateDemoSchema.safeParse(body);
