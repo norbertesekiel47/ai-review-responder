@@ -5,8 +5,13 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 
+const PAGE_SIZE = 20;
+
 interface CostData {
   days: number;
+  totalBusinesses: number;
+  limit: number;
+  offset: number;
   byProvider: { provider: string; totalUsd: number; callCount: number }[];
   byBusiness: {
     businessId: string;
@@ -27,11 +32,17 @@ const DAY_OPTIONS = [7, 30, 90] as const;
 
 export default function CostsPage() {
   const [days, setDays] = useState<number>(7);
+  const [page, setPage] = useState(0);
 
   const { data, isLoading, isError, error } = useQuery<CostData>({
-    queryKey: ['admin-costs', days],
+    queryKey: ['admin-costs', days, page],
     queryFn: async () => {
-      const res = await fetch(`/api/admin/costs?days=${days}`);
+      const params = new URLSearchParams({
+        days: String(days),
+        limit: String(PAGE_SIZE),
+        offset: String(page * PAGE_SIZE),
+      });
+      const res = await fetch(`/api/admin/costs?${params}`);
       if (!res.ok) throw new Error(`Failed to fetch cost data: ${res.status}`);
       return res.json() as Promise<CostData>;
     },
@@ -77,7 +88,7 @@ export default function CostsPage() {
             {DAY_OPTIONS.map((d) => (
               <button
                 key={d}
-                onClick={() => setDays(d)}
+                onClick={() => { setDays(d); setPage(0); }}
                 className={`rounded px-3 py-1.5 text-sm font-medium transition-colors ${
                   days === d
                     ? 'bg-blue-600 text-white'
@@ -259,6 +270,29 @@ export default function CostsPage() {
               </tbody>
             </table>
           </div>
+          {data && Math.ceil(data.totalBusinesses / PAGE_SIZE) > 1 && (
+            <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200">
+              <p className="text-sm text-gray-500">
+                Showing {data.offset + 1}–{Math.min(data.offset + PAGE_SIZE, data.totalBusinesses)} of {data.totalBusinesses}
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                  disabled={page === 0}
+                  className="px-3 py-1 rounded border border-gray-300 text-sm disabled:opacity-40"
+                >
+                  Prev
+                </button>
+                <button
+                  onClick={() => setPage((p) => p + 1)}
+                  disabled={page >= Math.ceil(data.totalBusinesses / PAGE_SIZE) - 1}
+                  className="px-3 py-1 rounded border border-gray-300 text-sm disabled:opacity-40"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

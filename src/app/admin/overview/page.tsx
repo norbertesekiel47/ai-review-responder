@@ -2,9 +2,12 @@
 
 // Auth: Supabase session checked by src/middleware.ts (admin/sales_partner role required)
 
+import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
+
+const PAGE_SIZE = 20;
 
 interface OverviewData {
   systemHealth: {
@@ -13,6 +16,9 @@ interface OverviewData {
     todayCostUsd: number;
     notificationFailures24h: number;
   };
+  totalBusinesses: number;
+  limit: number;
+  offset: number;
   businesses: {
     id: string;
     name: string;
@@ -85,15 +91,21 @@ function HealthCard({ label, value, warn }: HealthCardProps) {
 
 export default function AdminOverviewPage() {
   const router = useRouter();
+  const [page, setPage] = useState(0);
   const { data, isLoading, isError, error } = useQuery<OverviewData>({
-    queryKey: ['admin-overview'],
+    queryKey: ['admin-overview', page],
     queryFn: async () => {
-      const res = await fetch('/api/admin/overview');
+      const params = new URLSearchParams({
+        limit: String(PAGE_SIZE),
+        offset: String(page * PAGE_SIZE),
+      });
+      const res = await fetch(`/api/admin/overview?${params}`);
       if (!res.ok) throw new Error(`Failed to fetch overview: ${res.status}`);
       return res.json() as Promise<OverviewData>;
     },
     refetchInterval: 30_000,
   });
+  const totalPages = data ? Math.ceil(data.totalBusinesses / PAGE_SIZE) : 0;
 
   if (isLoading) {
     return (
@@ -221,6 +233,29 @@ export default function AdminOverviewPage() {
               </tbody>
             </table>
           </div>
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200">
+              <p className="text-sm text-gray-500">
+                Showing {(data?.offset ?? 0) + 1}–{Math.min((data?.offset ?? 0) + PAGE_SIZE, data?.totalBusinesses ?? 0)} of {data?.totalBusinesses ?? 0}
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                  disabled={page === 0}
+                  className="px-3 py-1 rounded border border-gray-300 text-sm disabled:opacity-40"
+                >
+                  Prev
+                </button>
+                <button
+                  onClick={() => setPage((p) => p + 1)}
+                  disabled={page >= totalPages - 1}
+                  className="px-3 py-1 rounded border border-gray-300 text-sm disabled:opacity-40"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
         </section>
       </div>
     </div>

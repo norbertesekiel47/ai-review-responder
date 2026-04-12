@@ -31,6 +31,9 @@ export interface OverviewData {
     todayCostUsd: number;
     notificationFailures24h: number;
   };
+  totalBusinesses: number;
+  limit: number;
+  offset: number;
   businesses: {
     id: string;
     name: string;
@@ -56,12 +59,16 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   try {
+    const limit = Math.min(parseInt(request.nextUrl.searchParams.get('limit') ?? '20', 10) || 20, 100);
+    const offset = Math.max(parseInt(request.nextUrl.searchParams.get('offset') ?? '0', 10) || 0, 0);
+
     const [
       pendingOutboxRows,
       failedJobsRows,
       todayCostRows,
       notifFailureRows,
       businessRows,
+      businessCountRows,
     ] = await Promise.all([
       sql<SystemHealthRow[]>`
         SELECT COUNT(*)::int AS count FROM job_outbox WHERE status = 'pending'
@@ -87,7 +94,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         LEFT JOIN responses resp ON resp.business_id = b.id AND resp.status != 'superseded'
         GROUP BY b.id, b.name, b.subscription_status, b.last_sync_at
         ORDER BY COUNT(CASE WHEN resp.status = 'pending_approval' THEN 1 END) DESC, b.name ASC
+        LIMIT ${limit} OFFSET ${offset}
       `,
+      sql<{ total: number }[]>`SELECT COUNT(*)::int AS total FROM businesses`,
     ]);
 
     const data: OverviewData = {
@@ -97,6 +106,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         todayCostUsd: todayCostRows[0]?.total ?? 0,
         notificationFailures24h: notifFailureRows[0]?.count ?? 0,
       },
+      totalBusinesses: businessCountRows[0]?.total ?? 0,
+      limit,
+      offset,
       businesses: businessRows.map((row) => {
         const responseRate =
           row.total_responses > 0

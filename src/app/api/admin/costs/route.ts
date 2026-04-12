@@ -31,6 +31,9 @@ interface TodayTotalRow {
 
 export interface CostData {
   days: number;
+  totalBusinesses: number;
+  limit: number;
+  offset: number;
   byProvider: { provider: string; totalUsd: number; callCount: number }[];
   byBusiness: {
     businessId: string;
@@ -75,8 +78,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const rawDays = request.nextUrl.searchParams.get('days');
     const days = Math.min(Math.max(parseInt(rawDays ?? '7', 10) || 7, 1), 90);
+    const limit = Math.min(parseInt(request.nextUrl.searchParams.get('limit') ?? '20', 10) || 20, 100);
+    const offset = Math.max(parseInt(request.nextUrl.searchParams.get('offset') ?? '0', 10) || 0, 0);
 
-    const [providerRows, businessRows, dayRows, todayRows] = await Promise.all([
+    const [providerRows, businessRows, businessCountRows, dayRows, todayRows] = await Promise.all([
       sql<ProviderRow[]>`
         SELECT provider, SUM(cost_usd)::float AS total_usd, COUNT(*)::int AS call_count
         FROM api_costs
@@ -97,6 +102,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         WHERE ac.created_at >= CURRENT_DATE - ${days}::int * INTERVAL '1 day'
         GROUP BY b.id, b.name, b.subscription_tier
         ORDER BY total_usd DESC
+        LIMIT ${limit} OFFSET ${offset}
+      `,
+      sql<{ total: number }[]>`
+        SELECT COUNT(DISTINCT b.id)::int AS total
+        FROM api_costs ac JOIN businesses b ON ac.business_id = b.id
+        WHERE ac.created_at >= CURRENT_DATE - ${days}::int * INTERVAL '1 day'
       `,
       sql<DayRow[]>`
         SELECT
@@ -117,6 +128,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     const data: CostData = {
       days,
+      totalBusinesses: businessCountRows[0]?.total ?? 0,
+      limit,
+      offset,
       byProvider: providerRows.map((row) => ({
         provider: row.provider,
         totalUsd: row.total_usd,
