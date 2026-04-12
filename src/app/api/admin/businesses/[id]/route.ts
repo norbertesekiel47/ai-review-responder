@@ -150,9 +150,9 @@ export async function GET(
 const UpdateSchema = z
   .object({
     name: z.string().min(1).max(255).optional(),
-    category: z.string().max(100).optional(),
+    category: z.string().max(100).nullable().optional(),
     tone: z.string().max(100).optional(),
-    productsServices: z.string().max(5000).optional(),
+    productsServices: z.string().max(5000).nullable().optional(),
     staffNames: z.array(z.string()).optional(),
     highlightFacts: z.array(z.string()).optional(),
     avoidFacts: z.array(z.string()).optional(),

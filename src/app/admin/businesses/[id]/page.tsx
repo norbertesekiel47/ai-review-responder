@@ -50,9 +50,10 @@ function renderStars(rating: number): string {
 }
 
 function ResponseBadge({ status }: { status: string | null }) {
-  if (!status) return null;
+  const displayStatus = status ?? 'new';
 
   const colorMap: Record<string, string> = {
+    new: 'bg-gray-100 text-gray-600',
     pending_approval: 'bg-yellow-100 text-yellow-800',
     approved: 'bg-blue-100 text-blue-800',
     edited: 'bg-blue-100 text-blue-800',
@@ -61,11 +62,11 @@ function ResponseBadge({ status }: { status: string | null }) {
     failed: 'bg-red-100 text-red-800',
   };
 
-  const colorClass = colorMap[status] ?? 'bg-gray-100 text-gray-700';
+  const colorClass = colorMap[displayStatus] ?? 'bg-gray-100 text-gray-700';
 
   return (
     <span className={`inline-block rounded px-2 py-0.5 text-xs font-medium ${colorClass}`}>
-      {status.replace(/_/g, ' ')}
+      {displayStatus.replace(/_/g, ' ')}
     </span>
   );
 }
@@ -395,9 +396,7 @@ export default function BusinessDetailPage() {
                         [{review.detectedLanguage}]
                       </span>
                     )}
-                    {review.responseStatus && (
-                      <ResponseBadge status={review.responseStatus} />
-                    )}
+                    <ResponseBadge status={review.responseStatus} />
                   </div>
                   {review.reviewText && (
                     <p className="mt-1 text-sm text-gray-600 line-clamp-3">

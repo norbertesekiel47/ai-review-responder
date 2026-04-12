@@ -33,7 +33,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   try {
     const limit = Math.min(
-      parseInt(request.nextUrl.searchParams.get('limit') ?? '20', 10) || 20,
+      Math.max(parseInt(request.nextUrl.searchParams.get('limit') ?? '20', 10) || 20, 1),
       100,
     );
     const offset = Math.max(
@@ -103,10 +103,18 @@ const OnboardSchema = z.object({
   subscriptionTier: z.enum(['founding', 'standard']).default('standard'),
 });
 
-function splitLines(text: string | undefined): string[] {
+function splitCommaOrNewline(text: string | undefined): string[] {
   if (!text?.trim()) return [];
   return text
     .split(/\n|,/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function splitParagraphs(text: string | undefined): string[] {
+  if (!text?.trim()) return [];
+  return text
+    .split(/\n\n+/)
     .map((s) => s.trim())
     .filter(Boolean);
 }
@@ -145,10 +153,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const userId = uuidv7();
   const outboxId = uuidv7();
 
-  const staffNames = splitLines(data.staffNames);
-  const highlightFacts = splitLines(data.highlightFacts);
-  const avoidFacts = splitLines(data.avoidFacts);
-  const sampleResponses = splitLines(data.sampleResponses);
+  const staffNames = splitCommaOrNewline(data.staffNames);
+  const highlightFacts = splitCommaOrNewline(data.highlightFacts);
+  const avoidFacts = splitCommaOrNewline(data.avoidFacts);
+  const sampleResponses = splitParagraphs(data.sampleResponses);
 
   const payload: SyncReviewsPayload = {
     business_id: businessId,
