@@ -4,6 +4,9 @@
 -- business/review/response tables directly — admin data flows through server
 -- API routes using the service-role client.
 
+-- Enable RLS on users table (was missing from migration 001)
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+
 CREATE POLICY users_self_select ON users
   FOR SELECT
   TO authenticated

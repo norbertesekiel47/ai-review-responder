@@ -1,7 +1,8 @@
 import { sql } from '@/lib/db/server';
+import { buildGoogleMapsUrl } from '@/lib/shared/constants';
 import ManualPostSection from './manual-post-section';
 
-// Auth handled by src/middleware.ts — Sprint 3 replaces with Supabase Auth role check
+// Auth: Supabase session checked by src/middleware.ts (admin/sales_partner role required)
 
 export default async function BusinessDetailPage({
   params,
@@ -58,7 +59,7 @@ export default async function BusinessDetailPage({
         {business.category && <span>{business.category}</span>}
         {business.google_place_id && (
           <a
-            href={`https://www.google.com/maps/place/?q=place_id:${business.google_place_id}`}
+            href={buildGoogleMapsUrl(business.google_place_id)}
             target="_blank"
             rel="noopener noreferrer"
             className="text-blue-600 hover:underline"

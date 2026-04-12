@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { DemoListItem } from '@/lib/demos/types';
 
-// TODO Sprint 3: protect with admin/sales_partner auth check
+// Auth: Supabase session checked by src/middleware.ts (admin/sales_partner role required)
 
 export default function AdminDemosPage() {
   return (
