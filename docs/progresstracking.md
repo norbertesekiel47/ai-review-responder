@@ -1227,6 +1227,14 @@ Integrated Stripe payments connecting the business onboarding flow to the paymen
    - `STRIPE_PAYMENT_LINK_FOUNDING`, `STRIPE_PAYMENT_LINK_STANDARD`
    - `STRIPE_PRICE_FOUNDING`, `STRIPE_PRICE_STANDARD`
 
+**End-to-end verified (2026-04-12):**
+- Created test business "Golden Dragon Chinese Restaurant" via onboarding form
+- Payment Link URL returned in API response and copied to clipboard via alert
+- Stripe CLI (`stripe listen --forward-to localhost:3001/ingress/stripe`) forwarded webhooks to worker
+- `checkout.session.completed` webhook received and processed: business transitioned from `pending_payment` → `active`, `stripe_customer_id` + `stripe_subscription_id` stored
+- ReconciliationPoller picked up the now-active business for review syncing
+- Full payment lifecycle confirmed: onboard → Payment Link → Stripe test checkout (card 4242...) → webhook → active subscription
+
 **Verification:** `tsc --noEmit` clean, 189/189 tests pass across 15 files, `pnpm build` succeeds
 
 ---
