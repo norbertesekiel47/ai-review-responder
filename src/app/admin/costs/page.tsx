@@ -4,7 +4,24 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import type { CostData } from '@/app/api/admin/costs/route';
+
+interface CostData {
+  days: number;
+  byProvider: { provider: string; totalUsd: number; callCount: number }[];
+  byBusiness: {
+    businessId: string;
+    businessName: string;
+    subscriptionTier: string;
+    totalUsd: number;
+    callCount: number;
+    todayUsd: number;
+    dailyLimitUsd: number;
+    pctOfDailyLimit: number;
+  }[];
+  byDay: { day: string; totalUsd: number; callCount: number }[];
+  todayTotalUsd: number;
+  globalDailyLimitUsd: number;
+}
 
 const DAY_OPTIONS = [7, 30, 90] as const;
 

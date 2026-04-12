@@ -5,7 +5,27 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import type { OverviewData } from '@/app/api/admin/overview/route';
+
+interface OverviewData {
+  systemHealth: {
+    pendingOutbox: number;
+    failedJobs: number;
+    todayCostUsd: number;
+    notificationFailures24h: number;
+  };
+  businesses: {
+    id: string;
+    name: string;
+    subscriptionStatus: string;
+    lastSyncAt: string | null;
+    pendingApprovalCount: number;
+    totalResponses: number;
+    completedResponses: number;
+    responseRate: number;
+    avgResponseTimeHours: number | null;
+    lastActivity: string | null;
+  }[];
+}
 
 function formatRelative(isoString: string | null): string {
   if (!isoString) return '—';

@@ -4,7 +4,27 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import type { JobsData } from '@/app/api/admin/jobs/route';
+
+interface JobsData {
+  outbox: {
+    pending: number;
+    dispatched: number;
+    failed: number;
+    completedToday: number;
+  };
+  failedJobs: {
+    id: string;
+    topic: string;
+    lastError: string | null;
+    attempts: number;
+    maxAttempts: number;
+    createdAt: string;
+  }[];
+  failedTotal: number;
+  limit: number;
+  offset: number;
+  queueHealth: Record<string, Record<string, number>> | { unavailable: true };
+}
 
 const PAGE_SIZE = 20 as const;
 

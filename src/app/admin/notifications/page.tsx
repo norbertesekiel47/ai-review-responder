@@ -4,7 +4,25 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import type { NotifData } from '@/app/api/admin/notifications/route';
+
+interface NotifData {
+  notifications: {
+    id: string;
+    businessName: string;
+    channel: string;
+    recipient: string;
+    template: string;
+    sentAt: string | null;
+    deliveredAt: string | null;
+    failedAt: string | null;
+    failureReason: string | null;
+    createdAt: string;
+  }[];
+  total: number;
+  limit: number;
+  offset: number;
+  businesses: { id: string; name: string }[];
+}
 
 const PAGE_SIZE = 20 as const;
 
