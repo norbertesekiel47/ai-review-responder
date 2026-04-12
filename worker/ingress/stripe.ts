@@ -1,1 +1,231 @@
-// Stripe webhook handler — placeholder
+import type { FastifyRequest, FastifyReply } from 'fastify';
+import Stripe from 'stripe';
+import { v7 as uuidv7 } from 'uuid';
+import { sql } from '../../src/lib/db/server';
+
+const LOG_PREFIX = '[ingress/stripe]';
+
+// Lazy singleton — avoids crashing on import when STRIPE_SECRET_KEY is absent
+let stripeInstance: Stripe | null = null;
+function getStripe(): Stripe {
+  if (!stripeInstance) {
+    const key = process.env.STRIPE_SECRET_KEY;
+    if (!key) throw new Error('STRIPE_SECRET_KEY is not set');
+    stripeInstance = new Stripe(key);
+  }
+  return stripeInstance;
+}
+
+function extractCustomerId(customer: string | Stripe.Customer | Stripe.DeletedCustomer | null): string | null {
+  if (!customer) return null;
+  return typeof customer === 'string' ? customer : customer.id;
+}
+
+function extractSubscriptionId(subscription: string | Stripe.Subscription | null): string | null {
+  if (!subscription) return null;
+  return typeof subscription === 'string' ? subscription : subscription.id;
+}
+
+async function processCheckoutSessionCompleted(session: Stripe.Checkout.Session): Promise<void> {
+  const businessId = session.client_reference_id ?? session.metadata?.business_id;
+  if (!businessId) {
+    console.warn(`${LOG_PREFIX} checkout.session.completed missing business_id — skipping`);
+    return;
+  }
+
+  const customerId = extractCustomerId(session.customer);
+  const subscriptionId = extractSubscriptionId(session.subscription as string | Stripe.Subscription | null);
+
+  await sql`
+    UPDATE businesses
+    SET
+      subscription_status = 'active',
+      stripe_customer_id = ${customerId},
+      stripe_subscription_id = ${subscriptionId},
+      updated_at = NOW()
+    WHERE id = ${businessId}::uuid
+  `;
+  console.log(`${LOG_PREFIX} Business ${businessId} activated (customer=${customerId})`);
+}
+
+async function processInvoicePaymentFailed(invoice: Stripe.Invoice): Promise<void> {
+  const customerId = extractCustomerId(invoice.customer);
+  if (!customerId) {
+    console.warn(`${LOG_PREFIX} invoice.payment_failed missing customer — skipping`);
+    return;
+  }
+
+  await sql`
+    UPDATE businesses
+    SET subscription_status = 'past_due', updated_at = NOW()
+    WHERE stripe_customer_id = ${customerId}
+      AND subscription_status = 'active'
+  `;
+  console.log(`${LOG_PREFIX} Business with customer=${customerId} marked past_due`);
+}
+
+async function processInvoicePaid(invoice: Stripe.Invoice): Promise<void> {
+  const customerId = extractCustomerId(invoice.customer);
+  if (!customerId) {
+    console.warn(`${LOG_PREFIX} invoice.paid missing customer — skipping`);
+    return;
+  }
+
+  await sql`
+    UPDATE businesses
+    SET subscription_status = 'active', updated_at = NOW()
+    WHERE stripe_customer_id = ${customerId}
+      AND subscription_status = 'past_due'
+  `;
+  console.log(`${LOG_PREFIX} Business with customer=${customerId} recovered from past_due to active`);
+}
+
+async function processSubscriptionDeleted(sub: Stripe.Subscription): Promise<void> {
+  const customerId = extractCustomerId(sub.customer);
+  if (!customerId) {
+    console.warn(`${LOG_PREFIX} customer.subscription.deleted missing customer — skipping`);
+    return;
+  }
+
+  await sql`
+    UPDATE businesses
+    SET subscription_status = 'cancelled', updated_at = NOW()
+    WHERE stripe_customer_id = ${customerId}
+  `;
+  console.log(`${LOG_PREFIX} Business with customer=${customerId} cancelled`);
+}
+
+async function processSubscriptionUpdated(sub: Stripe.Subscription): Promise<void> {
+  const customerId = extractCustomerId(sub.customer);
+  if (!customerId) {
+    console.warn(`${LOG_PREFIX} customer.subscription.updated missing customer — skipping`);
+    return;
+  }
+
+  const priceId = sub.items?.data?.[0]?.price?.id;
+  if (!priceId) {
+    console.warn(`${LOG_PREFIX} customer.subscription.updated missing price ID for customer=${customerId} — skipping tier update`);
+    return;
+  }
+
+  const priceToTier: Record<string, string> = {
+    [process.env.STRIPE_PRICE_FOUNDING ?? '']: 'founding',
+    [process.env.STRIPE_PRICE_STANDARD ?? '']: 'standard',
+  };
+
+  const tier = priceToTier[priceId];
+  if (!tier) {
+    console.warn(`${LOG_PREFIX} Unknown price ID ${priceId} for customer=${customerId} — skipping tier update`);
+    return;
+  }
+
+  await sql`
+    UPDATE businesses
+    SET subscription_tier = ${tier}, updated_at = NOW()
+    WHERE stripe_customer_id = ${customerId}
+  `;
+  console.log(`${LOG_PREFIX} Business with customer=${customerId} tier updated to ${tier}`);
+}
+
+export async function handleStripeWebhook(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+  const rawBody = (request as unknown as { rawBody?: string }).rawBody ?? '';
+  const sig = request.headers['stripe-signature'] as string | undefined;
+
+  if (!sig) {
+    console.warn(`${LOG_PREFIX} Missing stripe-signature header`);
+    reply.status(401).send({ error: 'missing_signature' });
+    return;
+  }
+
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  if (!webhookSecret) {
+    console.error(`${LOG_PREFIX} STRIPE_WEBHOOK_SECRET is not set — rejecting request`);
+    reply.status(401).send({ error: 'webhook_secret_not_configured' });
+    return;
+  }
+
+  let event: Stripe.Event;
+  try {
+    event = getStripe().webhooks.constructEvent(rawBody, sig, webhookSecret);
+  } catch (err) {
+    console.warn(`${LOG_PREFIX} Signature verification failed: ${err instanceof Error ? err.message : err}`);
+    reply.status(401).send({ error: 'invalid_signature' });
+    return;
+  }
+
+  // Check for existing dedup record
+  const existing = await sql<{ status: string }[]>`
+    SELECT status FROM inbound_events
+    WHERE external_event_key = ${event.id}
+    LIMIT 1
+  `;
+
+  if (existing.length > 0 && existing[0]?.status === 'processed') {
+    console.log(`${LOG_PREFIX} Duplicate event ${event.id} already processed — skipping`);
+    reply.status(200).send({ received: true, duplicate: true });
+    return;
+  }
+
+  // Insert new record or leave existing received/failed record for reprocessing
+  if (existing.length === 0) {
+    await sql`
+      INSERT INTO inbound_events (id, source, external_event_key, event_type, payload, status)
+      VALUES (
+        ${uuidv7()},
+        'stripe',
+        ${event.id},
+        ${event.type},
+        ${JSON.stringify(event)}::jsonb,
+        'received'
+      )
+      ON CONFLICT (external_event_key) DO NOTHING
+    `;
+  }
+
+  try {
+    switch (event.type) {
+      case 'checkout.session.completed':
+        await processCheckoutSessionCompleted(event.data.object as Stripe.Checkout.Session);
+        break;
+
+      case 'invoice.payment_failed':
+        await processInvoicePaymentFailed(event.data.object as Stripe.Invoice);
+        break;
+
+      case 'invoice.paid':
+        await processInvoicePaid(event.data.object as Stripe.Invoice);
+        break;
+
+      case 'customer.subscription.deleted':
+        await processSubscriptionDeleted(event.data.object as Stripe.Subscription);
+        break;
+
+      case 'customer.subscription.updated':
+        await processSubscriptionUpdated(event.data.object as Stripe.Subscription);
+        break;
+
+      default:
+        console.log(`${LOG_PREFIX} Unhandled event type: ${event.type} — ignoring`);
+        break;
+    }
+
+    await sql`
+      UPDATE inbound_events
+      SET status = 'processed', processed_at = NOW()
+      WHERE external_event_key = ${event.id}
+    `;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`${LOG_PREFIX} Failed to process event ${event.id} (${event.type}): ${message}`);
+    await sql`
+      UPDATE inbound_events
+      SET status = 'failed', error_message = ${message}
+      WHERE external_event_key = ${event.id}
+    `;
+    // Return 500 so Stripe retries
+    reply.status(500).send({ error: 'processing_failed' });
+    return;
+  }
+
+  reply.status(200).send({ received: true });
+}
