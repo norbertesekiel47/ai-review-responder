@@ -1,45 +1,98 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { createServerClient } from '@supabase/ssr';
+import { createClient } from '@supabase/supabase-js';
 
-/**
- * Protects /admin/* pages and /api/admin/* API routes.
- *
- * - ADMIN_API_KEY unset + NODE_ENV=development → open access (local dev)
- * - ADMIN_API_KEY unset + production → all admin access blocked (fail-closed)
- * - ADMIN_API_KEY set → requires __admin_key cookie matching the key
- *
- * Replaced by Supabase Auth in Sprint 3.
- */
-export function middleware(request: NextRequest) {
-  const secret = process.env.ADMIN_API_KEY;
-  const isDev = process.env.NODE_ENV === 'development';
+// Service-role client for role lookups (HTTP-based, Edge-compatible).
+// Middleware can't use Postgres.js (TCP sockets not available on Edge Runtime).
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_KEY!,
+);
 
-  // No key configured: open in dev, blocked in prod
-  if (!secret) {
-    if (isDev) return NextResponse.next();
-    return blockRequest(request);
+export async function middleware(request: NextRequest) {
+  // 1. Create a Supabase client that reads/writes auth cookies
+  let response = NextResponse.next({ request });
+
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll();
+        },
+        setAll(cookiesToSet) {
+          for (const { name, value } of cookiesToSet) {
+            request.cookies.set(name, value);
+          }
+          response = NextResponse.next({ request });
+          for (const { name, value, options } of cookiesToSet) {
+            response.cookies.set(name, value, options);
+          }
+        },
+      },
+    },
+  );
+
+  // 2. Refresh the session (validates token with Supabase Auth server)
+  const {
+    data: { user: authUser },
+  } = await supabase.auth.getUser();
+
+  const pathname = request.nextUrl.pathname;
+
+  // 3. Admin pages (except /admin/login)
+  if (pathname.startsWith('/admin') && pathname !== '/admin/login') {
+    if (!authUser) {
+      return redirectToLogin(request);
+    }
+    const role = await lookupRole(authUser.id);
+    if (!role || !['admin', 'sales_partner'].includes(role)) {
+      return redirectToLogin(request);
+    }
   }
 
-  // Check cookie (sent automatically by browser on every request)
-  const cookieKey = request.cookies.get('__admin_key')?.value;
-  if (cookieKey === secret) {
-    return NextResponse.next();
+  // 4. Admin API routes
+  if (pathname.startsWith('/api/admin')) {
+    if (!authUser) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    const role = await lookupRole(authUser.id);
+    if (!role || !['admin', 'sales_partner'].includes(role)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
   }
 
-  // Check header (for programmatic API access)
-  const headerKey = request.headers.get('x-admin-key');
-  if (headerKey === secret) {
-    return NextResponse.next();
+  // 5. Owner pages (future -- not built yet, but guard is in place)
+  if (pathname.startsWith('/dashboard') || pathname.startsWith('/settings')) {
+    if (!authUser) {
+      return redirectToLogin(request);
+    }
+    const { data } = await supabaseAdmin
+      .from('users')
+      .select('role, business_id')
+      .eq('auth_id', authUser.id)
+      .limit(1)
+      .single();
+    if (!data || data.role !== 'owner' || !data.business_id) {
+      return redirectToLogin(request);
+    }
   }
 
-  return blockRequest(request);
+  return response;
 }
 
-function blockRequest(request: NextRequest): NextResponse {
-  const isApi = request.nextUrl.pathname.startsWith('/api/');
-  if (isApi) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-  // Redirect pages to login
+async function lookupRole(authId: string): Promise<string | null> {
+  const { data } = await supabaseAdmin
+    .from('users')
+    .select('role')
+    .eq('auth_id', authId)
+    .limit(1)
+    .single();
+  return data?.role ?? null;
+}
+
+function redirectToLogin(request: NextRequest): NextResponse {
   const loginUrl = new URL('/admin/login', request.url);
   loginUrl.searchParams.set('from', request.nextUrl.pathname);
   return NextResponse.redirect(loginUrl);
@@ -47,7 +100,9 @@ function blockRequest(request: NextRequest): NextResponse {
 
 export const config = {
   matcher: [
-    '/admin/:path((?!login).*)', // all /admin/* except /admin/login
-    '/api/admin/:path*',         // all /api/admin/*
+    '/admin/:path((?!login).*)',  // /admin/* except /admin/login
+    '/api/admin/:path*',
+    '/dashboard/:path*',
+    '/settings/:path*',
   ],
 };
