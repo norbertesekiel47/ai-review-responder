@@ -1,10 +1,24 @@
-import { createClient } from '@supabase/supabase-js';
+import { createBrowserClient } from '@supabase/ssr';
 
-// ---------------------------------------------------------------------------
-// Supabase browser client — client-side auth and real-time subscriptions
-// Uses the anon key. Safe for browser bundles.
-// ---------------------------------------------------------------------------
-export const supabaseClient = createClient(
+/**
+ * Supabase browser client — auth-aware, manages cookies automatically.
+ * Uses the anon key. Safe for browser bundles.
+ *
+ * Call this function (not a singleton) so @supabase/ssr manages cookies correctly.
+ * The library deduplicates internally — multiple calls return the same instance.
+ */
+export function createBrowserSupabaseClient() {
+  return createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+  );
+}
+
+/**
+ * @deprecated Use createBrowserSupabaseClient() instead.
+ * Kept temporarily for any existing client-component imports.
+ */
+export const supabaseClient = createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
 );
