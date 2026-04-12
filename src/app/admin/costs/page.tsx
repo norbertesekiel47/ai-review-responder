@@ -77,7 +77,7 @@ export default function CostsPage() {
         <div className="mt-6 rounded-lg border border-gray-200 bg-white p-5">
           <div className="flex items-baseline justify-between">
             <p className="text-sm font-semibold text-gray-700">
-              Today's Platform Spend
+              Today&apos;s Platform Spend
             </p>
             <p className={`text-sm font-medium ${globalBarRed ? 'text-red-700' : 'text-gray-600'}`}>
               ${data.todayTotalUsd.toFixed(2)} / ${data.globalDailyLimitUsd.toFixed(2)}
