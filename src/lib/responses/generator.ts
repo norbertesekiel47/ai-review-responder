@@ -18,9 +18,8 @@ import {
   setCachedGeneration,
   releaseCost,
   releaseConcurrencySlot,
-  recordApiCost,
-  calculateCostUsd,
 } from '@/lib/costs/tracker';
+import { recordApiCost, calculateCostUsd } from '@/lib/costs/audit';
 
 // Re-export error classes so callers can import from one place
 export {

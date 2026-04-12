@@ -1,5 +1,5 @@
+// Cost guard lifecycle
 export {
-  // Cost guard lifecycle
   checkIdempotentCache,
   reserveCost,
   acquireConcurrencySlot,
@@ -8,18 +8,18 @@ export {
   releaseCost,
   releaseConcurrencySlot,
   checkRegenBudget,
-
-  // Audit trail
-  recordApiCost,
-  linkApiCostToResponse,
-  calculateCostUsd,
-
-  // Redis client
-  getCacheRedis,
-
-  // Error classes
   CostLimitExceededError,
   GlobalCostLimitExceededError,
   ConcurrencyLimitExceededError,
   RegenBudgetExceededError,
 } from './tracker';
+
+// Audit trail
+export {
+  recordApiCost,
+  linkApiCostToResponse,
+  calculateCostUsd,
+} from './audit';
+
+// Redis client (re-exported for backward compat — prefer importing from @/lib/db/redis-cache directly)
+export { getCacheRedis } from '@/lib/db/redis-cache';

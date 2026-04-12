@@ -4,7 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const mockEval = vi.fn();
 const mockRedisInstance = { eval: mockEval };
 
-vi.mock('@/lib/costs/tracker', () => ({
+vi.mock('@/lib/db/redis-cache', () => ({
   getCacheRedis: () => mockRedisInstance,
 }));
 

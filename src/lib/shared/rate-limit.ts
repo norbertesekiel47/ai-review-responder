@@ -1,4 +1,4 @@
-import { getCacheRedis } from '@/lib/costs/tracker';
+import { getCacheRedis } from '@/lib/db/redis-cache';
 
 export interface RateLimitResult {
   allowed: boolean;

@@ -185,47 +185,88 @@ export async function handleResponseGeneration(
   }
 
   // ── Step 8: Avoid-facts guardrail ───────────────────────────────────
-  const avoidFacts = businessContext.avoidFacts;
-  if (avoidFacts.length > 0) {
-    const violation = findAvoidFactViolation(result.responseText, avoidFacts);
-    if (violation) {
-      console.warn(`${LOG_PREFIX} Avoid-fact violation for review ${review_id}: "${violation}". Regenerating once.`);
-      try {
-        // skipCache: true so the idempotent cache doesn't return the violating first result
-        const retryOpts = { mode: 'production' as const, reviewId: review_id, version, businessId: business_id, subscriptionTier: businessContext.subscriptionTier, skipCache: true };
-        const retryResult = isMockMode()
-          ? await generateMockResponse(normalizedReview, businessContext, voiceExamples, retryOpts)
-          : await generateResponse(normalizedReview, businessContext, voiceExamples, retryOpts);
+  result = await applyAvoidFactsGuardrail(
+    result, businessContext, normalizedReview, voiceExamples,
+    { reviewId: review_id, version, businessId: business_id },
+  );
 
-        // Accumulate cost from both attempts
-        result = {
-          ...retryResult,
-          costUsd: result.costUsd + retryResult.costUsd,
-        };
+  // ── Step 9: Persist response + outbox + cost link in one transaction ─
+  const responseId = await persistResponseAndNotify(
+    result, review_id, business_id, version,
+  );
+  // DB transaction failure throws for BullMQ retry (transient)
 
-        // Overwrite the cache with the accepted retry result so the
-        // polluted first-attempt entry doesn't persist.
-        try {
-          await setCachedGeneration(review_id, version, JSON.stringify({
-            responseText: result.responseText,
-            language: result.language,
-            provider: result.provider,
-            model: result.model,
-            promptTokens: result.usage.promptTokens,
-            completionTokens: result.usage.completionTokens,
-          }));
-        } catch {
-          // Best-effort — cache TTL will expire the polluted entry eventually
-        }
-      } catch {
-        // Best-effort retry failed — use the original result
-        console.warn(`${LOG_PREFIX} Avoid-fact retry failed for review ${review_id}, using original response`);
-      }
+  // ── Step 10: Complete outbox ─────────────────────────────────────────
+  await markOutboxCompleted(outboxId);
+  console.log(`${LOG_PREFIX} Response ${responseId} generated for review ${review_id} (v${version})`);
+}
+
+// ── Avoid-facts guardrail ───────────────────────────────────────────────
+
+async function applyAvoidFactsGuardrail(
+  result: GenerationResult,
+  businessContext: BusinessContext,
+  normalizedReview: NormalizedReview,
+  voiceExamples: VoiceExample[],
+  ids: { reviewId: string; version: number; businessId: string },
+): Promise<GenerationResult> {
+  const { avoidFacts } = businessContext;
+  if (avoidFacts.length === 0) return result;
+
+  const violation = findAvoidFactViolation(result.responseText, avoidFacts);
+  if (!violation) return result;
+
+  console.warn(`${LOG_PREFIX} Avoid-fact violation for review ${ids.reviewId}: "${violation}". Regenerating once.`);
+
+  try {
+    const retryOpts = {
+      mode: 'production' as const,
+      reviewId: ids.reviewId,
+      version: ids.version,
+      businessId: ids.businessId,
+      subscriptionTier: businessContext.subscriptionTier,
+      skipCache: true,
+    };
+    const retryResult = isMockMode()
+      ? await generateMockResponse(normalizedReview, businessContext, voiceExamples, retryOpts)
+      : await generateResponse(normalizedReview, businessContext, voiceExamples, retryOpts);
+
+    const merged: GenerationResult = {
+      ...retryResult,
+      costUsd: result.costUsd + retryResult.costUsd,
+    };
+
+    // Overwrite the cache so the polluted first-attempt entry doesn't persist
+    try {
+      await setCachedGeneration(ids.reviewId, ids.version, JSON.stringify({
+        responseText: merged.responseText,
+        language: merged.language,
+        provider: merged.provider,
+        model: merged.model,
+        promptTokens: merged.usage.promptTokens,
+        completionTokens: merged.usage.completionTokens,
+      }));
+    } catch {
+      // Best-effort — cache TTL will expire the polluted entry eventually
     }
-  }
 
-  // ── Step 10: Persist response + outbox + cost link in one transaction ─
+    return merged;
+  } catch {
+    console.warn(`${LOG_PREFIX} Avoid-fact retry failed for review ${ids.reviewId}, using original response`);
+    return result;
+  }
+}
+
+// ── Persist response + notification outbox ───────────────────────────────
+
+async function persistResponseAndNotify(
+  result: GenerationResult,
+  reviewId: string,
+  businessId: string,
+  version: number,
+): Promise<string> {
   const responseId = uuidv7();
+
   await sql.begin(async (tx) => {
     await tx`
       INSERT INTO responses (
@@ -233,14 +274,12 @@ export async function handleResponseGeneration(
         version, status, original_draft_text,
         llm_provider, llm_model, prompt_tokens, completion_tokens
       ) VALUES (
-        ${responseId}, ${review_id}, ${business_id}, ${result.responseText}, ${result.language},
+        ${responseId}, ${reviewId}, ${businessId}, ${result.responseText}, ${result.language},
         ${version}, 'pending_approval', ${result.responseText},
         ${result.provider}, ${result.model}, ${result.usage.promptTokens}, ${result.usage.completionTokens}
       )
     `;
 
-    // Link api_costs row to the new response (inside the transaction so
-    // response_id is never left null on a successful commit)
     if (result.apiCostId) {
       await tx`
         UPDATE api_costs SET response_id = ${responseId} WHERE id = ${result.apiCostId}
@@ -249,7 +288,7 @@ export async function handleResponseGeneration(
 
     const notifyPayload: SendNotificationPayload = {
       response_id: responseId,
-      business_id: business_id,
+      business_id: businessId,
     };
 
     await tx`
@@ -260,11 +299,8 @@ export async function handleResponseGeneration(
       )
     `;
   });
-  // DB transaction failure throws for BullMQ retry (transient)
 
-  // ── Step 10: Complete outbox ─────────────────────────────────────────
-  await markOutboxCompleted(outboxId);
-  console.log(`${LOG_PREFIX} Response ${responseId} generated for review ${review_id} (v${version})`);
+  return responseId;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────

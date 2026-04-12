@@ -118,6 +118,7 @@ async function pollOutbox(): Promise<void> {
             dispatchError,
           );
 
+          const errorMsg = dispatchError instanceof Error ? dispatchError.message : String(dispatchError);
           const nextAttempts = entry.attempts + 1;
           if (nextAttempts >= entry.max_attempts) {
             console.error(
@@ -126,14 +127,15 @@ async function pollOutbox(): Promise<void> {
             await tx`
               UPDATE job_outbox
               SET status = 'failed',
-                  last_error = ${'Dispatch failed after ' + entry.max_attempts + ' attempts'},
+                  last_error = ${errorMsg},
                   attempts = ${nextAttempts}
               WHERE id = ${entry.id}
             `;
           } else {
             await tx`
               UPDATE job_outbox
-              SET attempts = ${nextAttempts}
+              SET attempts = ${nextAttempts},
+                  last_error = ${errorMsg}
               WHERE id = ${entry.id}
             `;
           }

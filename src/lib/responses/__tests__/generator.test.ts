@@ -34,12 +34,15 @@ vi.mock('@/lib/costs/tracker', () => ({
   setCachedGeneration: vi.fn().mockResolvedValue(undefined),
   releaseCost: vi.fn().mockResolvedValue(undefined),
   releaseConcurrencySlot: vi.fn().mockResolvedValue(undefined),
-  recordApiCost: vi.fn().mockResolvedValue('cost-uuid-001'),
-  calculateCostUsd: vi.fn().mockReturnValue(0.000_123),
   CostLimitExceededError: class extends Error { name = 'CostLimitExceededError'; },
   GlobalCostLimitExceededError: class extends Error { name = 'GlobalCostLimitExceededError'; },
   ConcurrencyLimitExceededError: class extends Error { name = 'ConcurrencyLimitExceededError'; },
   RegenBudgetExceededError: class extends Error { name = 'RegenBudgetExceededError'; },
+}));
+
+vi.mock('@/lib/costs/audit', () => ({
+  recordApiCost: vi.fn().mockResolvedValue('cost-uuid-001'),
+  calculateCostUsd: vi.fn().mockReturnValue(0.000_123),
 }));
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -158,19 +161,21 @@ describe('generateResponse', () => {
         openaiCreate.mockResolvedValueOnce(openAIResponse('Thanks!'));
 
     const tracker = await import('@/lib/costs/tracker');
+    const audit = await import('@/lib/costs/audit');
     const { generateResponse } = await import('../generator');
     await generateResponse(review, businessContext, [], demoOptions);
 
     expect(tracker.reserveCost).not.toHaveBeenCalled();
     expect(tracker.acquireConcurrencySlot).not.toHaveBeenCalled();
     expect(tracker.finalizeCost).not.toHaveBeenCalled();
-    expect(tracker.recordApiCost).not.toHaveBeenCalled();
+    expect(audit.recordApiCost).not.toHaveBeenCalled();
   });
 
   it('production mode runs full cost guard lifecycle', async () => {
         openaiCreate.mockResolvedValueOnce(openAIResponse('Thanks!'));
 
     const tracker = await import('@/lib/costs/tracker');
+    const audit = await import('@/lib/costs/audit');
     const { generateResponse } = await import('../generator');
     await generateResponse(review, businessContext, [], productionOptions);
 
@@ -178,7 +183,7 @@ describe('generateResponse', () => {
     expect(tracker.acquireConcurrencySlot).toHaveBeenCalledWith('biz-001');
     expect(tracker.finalizeCost).toHaveBeenCalled();
     expect(tracker.setCachedGeneration).toHaveBeenCalled();
-    expect(tracker.recordApiCost).toHaveBeenCalled();
+    expect(audit.recordApiCost).toHaveBeenCalled();
     expect(tracker.releaseConcurrencySlot).toHaveBeenCalledWith('biz-001');
   });
 

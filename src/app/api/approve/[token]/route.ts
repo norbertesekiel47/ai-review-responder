@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
 import { setDeviceCookie, setCsrfCookie, verifyDeviceCookie } from '@/lib/approval/cookies';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
+import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 
 export async function GET(
   request: NextRequest,
@@ -13,7 +14,7 @@ export async function GET(
   if (!rateCheck.allowed) {
     return NextResponse.json(
       { error: 'Rate limit exceeded' },
-      { status: 429, headers: { 'Cache-Control': 'no-store, private' } },
+      { status: 429, headers: NO_STORE_HEADERS },
     );
   }
 
@@ -35,25 +36,25 @@ export async function GET(
   if (!link) {
     return NextResponse.json(
       { error: 'Invalid approval link' },
-      { status: 404, headers: { 'Cache-Control': 'no-store, private' } },
+      { status: 404, headers: NO_STORE_HEADERS },
     );
   }
   if (link.consumed_at) {
     return NextResponse.json(
       { error: 'This link has already been used' },
-      { status: 410, headers: { 'Cache-Control': 'no-store, private' } },
+      { status: 410, headers: NO_STORE_HEADERS },
     );
   }
   if (link.revoked_at) {
     return NextResponse.json(
       { error: 'This link has been revoked' },
-      { status: 410, headers: { 'Cache-Control': 'no-store, private' } },
+      { status: 410, headers: NO_STORE_HEADERS },
     );
   }
   if (new Date(link.expires_at) <= new Date()) {
     return NextResponse.json(
       { error: 'This link has expired' },
-      { status: 410, headers: { 'Cache-Control': 'no-store, private' } },
+      { status: 410, headers: NO_STORE_HEADERS },
     );
   }
 
@@ -79,7 +80,7 @@ export async function GET(
   if (!data) {
     return NextResponse.json(
       { error: 'Response data not found' },
-      { status: 404, headers: { 'Cache-Control': 'no-store, private' } },
+      { status: 404, headers: NO_STORE_HEADERS },
     );
   }
 
@@ -97,7 +98,7 @@ export async function GET(
     },
     businessName: data.business_name,
     expiresAt: link.expires_at,
-  }, { status: 200, headers: { 'Cache-Control': 'no-store, private' } });
+  }, { status: 200, headers: NO_STORE_HEADERS });
 
   // Only set a new device cookie if one doesn't already exist or is invalid.
   // Re-creating on every GET would overwrite the browser cookie after session

@@ -3,16 +3,12 @@ import { v7 as uuidv7 } from 'uuid';
 import { sql } from '../../src/lib/db/server';
 import { checkSubscription } from '../../src/lib/shared/subscription-guard';
 import { markOutboxCompleted, markOutboxFailed } from '../../src/lib/shared/outbox';
-import { sendInternalEmail } from '../../src/lib/notifications/email';
+import { sendInternalEmail, buildManualPostEmailHtml } from '../../src/lib/notifications/email';
+import { recordNotificationDelivery } from '../../src/lib/notifications/delivery';
+import { buildGoogleMapsUrl } from '../../src/lib/shared/constants';
 import type { PublishResponsePayload } from '../../src/lib/shared/worker-types';
 
-import { escapeHtml } from '../../src/lib/shared/html';
-
 const LOG_PREFIX = '[ResponsePublisherWorker]';
-
-function renderStars(rating: number): string {
-  return '★'.repeat(rating) + '☆'.repeat(5 - rating);
-}
 
 export async function handlePublishResponse(
   job: Job<PublishResponsePayload>,
@@ -172,56 +168,16 @@ export async function handlePublishResponse(
   const businessName = business.name;
 
   const googleMapsUrl = business.google_place_id
-    ? `https://www.google.com/maps/place/?q=place_id:${encodeURIComponent(business.google_place_id)}`
+    ? buildGoogleMapsUrl(business.google_place_id)
     : null;
 
-  const safeBusinessName = escapeHtml(businessName);
-  const safeReviewerName = escapeHtml(reviewerName);
-  const safeApprovedText = escapeHtml(approvedText);
-  const stars = renderStars(starRating);
-
-  const mapsLinkHtml = googleMapsUrl
-    ? `<p style="margin:16px 0 0;"><a href="${escapeHtml(googleMapsUrl)}" style="display:inline-block;background:#2563eb;color:#ffffff;padding:12px 24px;border-radius:6px;font-size:14px;font-weight:600;text-decoration:none;">Open on Google Maps</a></p>`
-    : `<p style="margin:16px 0 0;font-size:13px;color:#9ca3af;">No Google Place ID on file — locate the business manually on Google Maps.</p>`;
-
-  const bodyHtml = `<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
-<body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f5f5f5;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f5f5;padding:24px 0;">
-    <tr><td align="center">
-      <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;max-width:600px;width:100%;">
-        <tr><td style="padding:32px 24px 0;">
-          <h2 style="margin:0 0 4px;font-size:18px;color:#111;">Manual post needed: ${safeBusinessName}</h2>
-          <p style="margin:0 0 20px;font-size:14px;color:#666;">An owner-approved response is ready to be posted on Google Maps.</p>
-        </td></tr>
-        <tr><td style="padding:0 24px;">
-          <table role="presentation" width="100%" style="background:#f9fafb;border-radius:6px;padding:16px;border:1px solid #e5e7eb;">
-            <tr><td>
-              <p style="margin:0 0 4px;font-size:14px;color:#374151;font-weight:600;">${safeReviewerName} ${stars}</p>
-            </td></tr>
-          </table>
-        </td></tr>
-        <tr><td style="padding:16px 24px 0;">
-          <p style="margin:0 0 8px;font-size:12px;color:#9ca3af;text-transform:uppercase;letter-spacing:0.5px;">Instructions</p>
-          <p style="margin:0 0 16px;font-size:14px;color:#374151;line-height:1.5;">Copy the response below and paste it as an owner reply on Google Maps.</p>
-        </td></tr>
-        <tr><td style="padding:0 24px;">
-          <table role="presentation" width="100%" style="background:#f0fdf4;border-radius:6px;padding:16px;border:1px solid #bbf7d0;">
-            <tr><td>
-              <p style="margin:0 0 4px;font-size:12px;color:#166534;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">Approved response (copy this)</p>
-              <p style="margin:0;font-size:14px;color:#14532d;line-height:1.6;white-space:pre-wrap;">${safeApprovedText}</p>
-            </td></tr>
-          </table>
-        </td></tr>
-        <tr><td style="padding:16px 24px 24px;">
-          ${mapsLinkHtml}
-        </td></tr>
-      </table>
-    </td></tr>
-  </table>
-</body>
-</html>`;
+  const bodyHtml = buildManualPostEmailHtml({
+    businessName,
+    reviewerName,
+    starRating,
+    approvedText,
+    googleMapsUrl,
+  });
 
   // Throw on email failure so BullMQ retries.
   // The response is already awaiting_manual_post — the idempotency check
@@ -233,10 +189,14 @@ export async function handlePublishResponse(
   });
 
   // Record delivery so retries can detect the email was already sent
-  await sql`
-    INSERT INTO notification_deliveries (id, business_id, response_id, channel, recipient, template, sent_at, external_message_id)
-    VALUES (${uuidv7()}, ${business_id}, ${response_id}, 'email', ${adminEmail}, 'admin_manual_post', NOW(), ${messageId})
-  `;
+  await recordNotificationDelivery({
+    businessId: business_id,
+    responseId: response_id,
+    channel: 'email',
+    recipient: adminEmail,
+    template: 'admin_manual_post',
+    externalMessageId: messageId,
+  });
 
   console.log(
     `${LOG_PREFIX} Manual-post email sent to ${adminEmail} for response ${response_id}`,

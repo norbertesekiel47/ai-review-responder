@@ -34,9 +34,13 @@ vi.mock('../../src/lib/shared/outbox', () => ({
   markOutboxCompleted: mockMarkOutboxCompleted,
   markOutboxFailed: mockMarkOutboxFailed,
 }));
-vi.mock('../../src/lib/notifications/email', () => ({
-  sendInternalEmail: mockSendInternalEmail,
-}));
+vi.mock('../../src/lib/notifications/email', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/lib/notifications/email')>();
+  return {
+    ...actual,
+    sendInternalEmail: mockSendInternalEmail,
+  };
+});
 vi.mock('uuid', () => ({ v7: vi.fn(() => 'test-uuid') }));
 
 import { handlePublishResponse } from '../jobs/ResponsePublisherWorker';

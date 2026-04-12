@@ -57,7 +57,7 @@ vi.mock('uuid', () => ({
 
 describe('calculateCostUsd', () => {
   it('calculates correctly for gpt-4o-mini', async () => {
-    const { calculateCostUsd } = await import('../tracker');
+    const { calculateCostUsd } = await import('../audit');
     // 1000 input tokens at $0.15/1M + 500 output tokens at $0.60/1M
     const cost = calculateCostUsd('gpt-4o-mini', 1000, 500);
     const expected = (1000 / 1_000_000) * 0.15 + (500 / 1_000_000) * 0.60;
@@ -65,21 +65,21 @@ describe('calculateCostUsd', () => {
   });
 
   it('calculates correctly for claude-haiku-4-5-20251001', async () => {
-    const { calculateCostUsd } = await import('../tracker');
+    const { calculateCostUsd } = await import('../audit');
     const cost = calculateCostUsd('claude-haiku-4-5-20251001', 1000, 500);
     const expected = (1000 / 1_000_000) * 0.80 + (500 / 1_000_000) * 4.00;
     expect(cost).toBeCloseTo(expected, 6);
   });
 
   it('throws for unknown model', async () => {
-    const { calculateCostUsd } = await import('../tracker');
+    const { calculateCostUsd } = await import('../audit');
     expect(() => calculateCostUsd('unknown-model', 100, 50)).toThrow(
       'Unknown model for pricing',
     );
   });
 
   it('rounds to 6 decimal places', async () => {
-    const { calculateCostUsd } = await import('../tracker');
+    const { calculateCostUsd } = await import('../audit');
     const cost = calculateCostUsd('gpt-4o-mini', 1, 1);
     const decimals = cost.toString().split('.')[1]?.length ?? 0;
     expect(decimals).toBeLessThanOrEqual(6);
@@ -258,7 +258,7 @@ describe('recordApiCost', () => {
   });
 
   it('calls sql to insert into api_costs', async () => {
-    const { recordApiCost } = await import('../tracker');
+    const { recordApiCost } = await import('../audit');
     await recordApiCost({
       businessId: 'biz-001',
       provider: 'openai',

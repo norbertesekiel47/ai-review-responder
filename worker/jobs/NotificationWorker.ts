@@ -5,6 +5,7 @@ import { sql } from '../../src/lib/db/server';
 import { checkSubscription } from '../../src/lib/shared/subscription-guard';
 import { markOutboxCompleted, markOutboxFailed } from '../../src/lib/shared/outbox';
 import { sendApprovalEmail } from '../../src/lib/notifications/email';
+import { recordNotificationDelivery } from '../../src/lib/notifications/delivery';
 import type { SendNotificationPayload } from '../../src/lib/shared/worker-types';
 
 const LOG_PREFIX = '[NotificationWorker]';
@@ -162,13 +163,14 @@ export async function handleSendNotification(
   }
 
   // ── Step 7: Record delivery ────────────────────────────────────────
-  await sql`
-    INSERT INTO notification_deliveries (id, business_id, response_id, channel, recipient, template, sent_at, external_message_id)
-    VALUES (
-      ${uuidv7()}, ${business_id}, ${response_id}, 'email', ${business.owner_email},
-      'approval_request', NOW(), ${messageId}
-    )
-  `;
+  await recordNotificationDelivery({
+    businessId: business_id,
+    responseId: response_id,
+    channel: 'email',
+    recipient: business.owner_email,
+    template: 'approval_request',
+    externalMessageId: messageId,
+  });
 
   // Raw token only existed in memory during this function.
   // NEVER log it, NEVER store it in outbox payloads.

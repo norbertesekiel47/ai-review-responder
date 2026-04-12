@@ -7,8 +7,7 @@ import {
   DeviceConflictError,
   ResponseNotPendingError,
 } from './errors';
-
-const NO_STORE = { 'Cache-Control': 'no-store, private' };
+import { NO_STORE_HEADERS as NO_STORE } from '@/lib/shared/constants';
 
 /**
  * Maps typed approval errors to HTTP responses. Used by all POST
