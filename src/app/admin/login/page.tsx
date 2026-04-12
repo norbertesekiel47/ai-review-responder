@@ -32,7 +32,9 @@ function LoginForm() {
   const [loading, setLoading] = useState(false);
   const searchParams = useSearchParams();
   const router = useRouter();
-  const from = searchParams.get('from') ?? '/admin/overview';
+  const rawFrom = searchParams.get('from') ?? '/admin/overview';
+  // Restrict redirect to safe internal paths to prevent open redirects
+  const from = rawFrom.startsWith('/admin') ? rawFrom : '/admin/overview';
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();

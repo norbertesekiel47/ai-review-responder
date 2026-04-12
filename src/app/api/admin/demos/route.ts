@@ -3,6 +3,8 @@ import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import type { DemoListItem } from '@/lib/demos/types';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     await requireRole(request, 'admin', 'sales_partner');

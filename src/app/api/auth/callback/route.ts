@@ -11,7 +11,9 @@ import { createServerClient } from '@supabase/ssr';
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get('code');
-  const next = searchParams.get('next') ?? '/admin/overview';
+  const rawNext = searchParams.get('next') ?? '/admin/overview';
+  // Restrict redirect to safe internal paths to prevent open redirects
+  const next = rawNext.startsWith('/') && !rawNext.startsWith('//') ? rawNext : '/admin/overview';
 
   if (!code) {
     return NextResponse.redirect(new URL('/admin/login', origin));
