@@ -1101,6 +1101,45 @@ Replaced the stopgap `ADMIN_API_KEY` cookie auth with Supabase Auth (email/passw
 
 ---
 
+### Prompt 14b — Admin Read-Only Pages (2026-04-11)
+
+**Status:** COMPLETE
+
+Built 4 admin read-only pages replacing placeholders, each with a corresponding API route. All routes use `requireRole()` defense-in-depth, `export const dynamic = 'force-dynamic'`, and follow the established pattern from demos route.
+
+1. **Created `src/app/api/admin/overview/route.ts`** + **rewrote `src/app/admin/overview/page.tsx`** — Sales partner CRM:
+   - System health bar: 4 cards (pending outbox, failed jobs, today's API cost, notification failures 24h) with red warning state
+   - Business table: name (linked to detail page), subscription status badge, pending approval count, response rate %, avg response time, last activity (relative time)
+   - Sorted by pending approval count (most urgent first)
+   - TanStack Query with 30-second polling interval
+
+2. **Created `src/app/api/admin/costs/route.ts`** + **rewrote `src/app/admin/costs/page.tsx`** — Cost monitoring:
+   - Date range filter: 7d/30d/90d toggle buttons
+   - Global daily progress bar: today's platform spend vs global limit (red when >=80%)
+   - By Provider table: provider, cost, calls
+   - By Day table: date, cost, calls
+   - By Business table: name, tier, period total, today spend, daily limit with %. Rows exceeding 80% highlighted red.
+   - Tier-aware daily limits from env vars (founding=500c, standard=1000c, premium=2000c)
+
+3. **Created `src/app/api/admin/notifications/route.ts`** + **rewrote `src/app/admin/notifications/page.tsx`** — Notification delivery log:
+   - Filters: business (dropdown populated from DB), channel (email/sms), status (delivered/failed/pending)
+   - Dynamic WHERE via `sql.unsafe()` with parameterized queries
+   - Table: business, channel, recipient, template, sent timestamp, status badge (green/red/yellow)
+   - Pagination: 20 per page with Prev/Next + "Showing X-Y of Z"
+
+4. **Created `src/app/api/admin/jobs/route.ts`** + **rewrote `src/app/admin/jobs/page.tsx`** — Job monitoring:
+   - Outbox summary: 4 colored cards (pending/dispatched/failed/completed today)
+   - BullMQ queue depth: grid of cards per queue showing waiting/active/delayed/failed counts. Creates temporary Queue instances (NOT Workers) for `getJobCounts()`, closes them after. Redis unavailable → shows warning instead of crashing.
+   - Failed jobs table: topic, error (truncated with tooltip), attempts/max, created. Paginated.
+   - 30-second polling interval
+
+**Post-build fix:**
+- Escaped apostrophe in costs page JSX (`Today's` → `Today&apos;s`) to fix ESLint `react/no-unescaped-entities` error
+
+**Verification:** `tsc --noEmit` clean, 189/189 tests pass across 15 files, `pnpm build` succeeds (all pages compiled, 4 new API routes visible)
+
+---
+
 ## Sprint 4: Payments + Notifications
 
 **Status:** NOT STARTED

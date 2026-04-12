@@ -150,6 +150,7 @@ The architecture was designed so this is a mechanical swap — same outbox, same
   - 189/189 tests passing after all changes
 - Sprint 3: IN PROGRESS
   - Prompt 14a (Supabase Auth + middleware + login): COMPLETE (2026-04-11) — @supabase/ssr installed, middleware rewritten with session refresh + role-based protection, login page uses signInWithPassword(), auth callback route created, old API key auth removed, requireRole() defense-in-depth on all admin API routes, users RLS policy created, 189/189 tests passing
+  - Prompt 14b (Admin read-only pages): COMPLETE (2026-04-11) — 4 admin pages + 4 API routes built: overview (system health + business CRM table, 30s polling), costs (provider/business/day breakdown, daily limit progress bar, date range filter), notifications (delivery log with business/channel/status filters, pagination), jobs (outbox summary + BullMQ queue depth + failed jobs list, graceful Redis unavailable handling). 189/189 tests passing.
 - Sprint 4: NOT STARTED
   - **Deferred from Sprint 2:** Playwright E2E approval-flow tests (approve, edit, expired, regenerate, already-approved) — requires seeded Postgres, running worker, Redis. Scaffolded in `e2e/approval.spec.ts` as skipped scenarios.
 - Sprint 5: NOT STARTED
