@@ -13,6 +13,7 @@ import { handleSendNotification } from './jobs/NotificationWorker';
 import { handlePublishResponse } from './jobs/ResponsePublisherWorker';
 import { handleAdminException } from './jobs/AdminExceptionWorker';
 import { handleResendWebhook } from './ingress/resend';
+import { handleStripeWebhook } from './ingress/stripe';
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
 
@@ -77,10 +78,8 @@ async function main(): Promise<void> {
     timestamp: new Date().toISOString(),
   }));
 
-  // Webhook ingress — Stripe placeholder (implemented in Sprint 3, Prompt 15)
-  app.post('/ingress/stripe', { config: { rawBody: true } }, async (_request, reply) => {
-    reply.status(200).send({ received: true });
-  });
+  // Stripe webhook ingress — real handler
+  app.post('/ingress/stripe', { config: { rawBody: true } }, handleStripeWebhook);
 
   // Resend delivery webhook — real handler
   app.post('/ingress/resend', { config: { rawBody: true } }, handleResendWebhook);
