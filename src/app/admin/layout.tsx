@@ -1,7 +1,6 @@
 import { AdminProviders } from './providers';
 
-// Auth handled by src/middleware.ts (ADMIN_API_KEY cookie check)
-// Sprint 3: replace with Supabase Auth role check (admin/sales_partner)
+// Auth: Supabase session checked by src/middleware.ts (admin/sales_partner role required)
 
 export default function AdminLayout({
   children,
