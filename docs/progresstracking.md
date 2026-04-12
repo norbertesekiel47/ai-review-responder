@@ -1239,7 +1239,79 @@ Integrated Stripe payments connecting the business onboarding flow to the paymen
 
 ---
 
-## Sprint 4: Payments + Notifications
+### Prompt 16 — Sentry + Security Headers + Hardening (2026-04-12)
+
+**Status:** COMPLETE
+
+Added error tracking, security headers, shared validation schemas, and rate limiting for the final Sprint 3 hardening pass.
+
+1. **Installed `@sentry/nextjs@10.48.0` + `@sentry/node@10.48.0`**
+
+2. **Created Sentry config files** (project root):
+   - `sentry.client.config.ts` — browser-side init with `NEXT_PUBLIC_SENTRY_DSN`, replay disabled, `beforeSend` scrubs sensitive keys (matches `/key|secret|token|password|authorization/i` in `event.extra` and `event.request.headers`)
+   - `sentry.server.config.ts` — server-side init with `SENTRY_DSN`, same scrubbing
+   - `sentry.edge.config.ts` — minimal Edge Runtime init
+
+3. **Rewrote `next.config.mjs`** — wrapped with `withSentryConfig()`:
+   - Source map upload configured via `SENTRY_ORG`, `SENTRY_PROJECT`, `SENTRY_AUTH_TOKEN` (silent when auth token not set)
+   - Security headers on all routes via `headers()`:
+     - `Strict-Transport-Security: max-age=63072000; includeSubDomains`
+     - `X-Content-Type-Options: nosniff`
+     - `X-Frame-Options: DENY`
+     - `Content-Security-Policy` — full policy in production (self + supabase + sentry), empty in dev (Next.js tooling needs eval/websockets)
+
+4. **Modified `worker/index.ts`** — Sentry + security headers for Railway:
+   - `Sentry.init()` immediately after env loading, before all other imports
+   - Same `beforeSend` scrubbing as Next.js configs
+   - Fastify `onSend` hook adds `Strict-Transport-Security` + `X-Content-Type-Options` to all worker responses
+
+5. **Created `src/lib/shared/schemas.ts`** — shared Zod validation:
+   - Reusable field schemas: `businessNameSchema`, `categorySchema`, `toneSchema`, `ownerEmailSchema`, etc.
+   - `OnboardBusinessSchema` — replaces inline schema in POST /api/admin/businesses
+   - `UpdateBusinessSchema` — replaces inline schema in PATCH /api/admin/businesses/:id
+   - Updated both route files to import from shared module, removed inline `z` imports
+
+6. **Modified `src/app/api/admin/demos/generate/route.ts`** — rate limits:
+   - Global: 50 demos per day (`demo:generate:daily`, 86400s TTL)
+   - Per-IP: 5 per minute (`demo:generate:minute:{ip}`, 60s TTL)
+   - Uses existing `checkRateLimit()` from `@/lib/shared/rate-limit` (Redis INCR+EXPIRE, graceful degradation)
+
+7. **Updated `.env.example`** — added `NEXT_PUBLIC_SENTRY_DSN`, `SENTRY_ORG`, `SENTRY_PROJECT`, `SENTRY_AUTH_TOKEN`
+
+**Items confirmed already done in Sprint 2 (NOT rebuilt):**
+- Approval route rate limiting (3/token/min POST, 10/IP/min GET) ✅
+- CSRF double-submit pattern ✅
+- Approval actions audit-logged ✅
+- Input sanitization (sanitizeText + escapeHtml) ✅
+- Resend webhook signature verification ✅
+- Regeneration budget (3/review/day) ✅
+
+**Verification:** `tsc --noEmit` clean, 189/189 tests pass across 15 files, `pnpm build` succeeds with Sentry wrapping
+
+---
+
+### Sprint 3 done when
+- [x] Supabase Auth configured: admin and sales_partner roles enforced
+- [x] Stopgap API key auth removed, replaced by Supabase session-based auth
+- [x] Minimal users self-lookup RLS policy exists
+- [x] Sales partner can onboard clients via /admin/businesses/new
+- [x] Admin overview shows all businesses with health indicators + system health bar
+- [x] Admin costs page shows per-business and per-provider cost breakdown
+- [x] Admin notifications page shows delivery log with filters and pagination
+- [x] Admin jobs page shows outbox + queue health with failed job details
+- [x] Business detail page shows reviews with color-coded status + inline editable settings
+- [x] Business list page with pagination
+- [x] Stripe payments work end-to-end: onboard → Payment Link → webhook → active
+- [x] ReconciliationPoller starts polling after Stripe activates subscription
+- [x] Sentry capturing errors from both Vercel and Railway
+- [x] Security headers (HSTS, CSP, X-Frame-Options, nosniff) on all responses
+- [x] Demo generation rate-limited to 50/day
+- [x] All admin list views have pagination
+- [x] Zod validation on business onboarding and settings update inputs
+
+---
+
+## Sprint 4: Production Hardening
 
 **Status:** NOT STARTED
 
