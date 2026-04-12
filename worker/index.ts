@@ -1,5 +1,31 @@
 import './env'; // Must be first — loads .env.local before other modules read process.env
 
+import * as Sentry from '@sentry/node';
+
+Sentry.init({
+  dsn: process.env.SENTRY_DSN,
+  tracesSampleRate: 0.1,
+  environment: process.env.NODE_ENV ?? 'development',
+  beforeSend(event) {
+    const sensitiveKeys = /key|secret|token|password|authorization/i;
+    if (event.extra) {
+      for (const key of Object.keys(event.extra)) {
+        if (sensitiveKeys.test(key)) {
+          event.extra[key] = '[REDACTED]';
+        }
+      }
+    }
+    if (event.request?.headers) {
+      for (const key of Object.keys(event.request.headers)) {
+        if (sensitiveKeys.test(key)) {
+          event.request.headers[key] = '[REDACTED]';
+        }
+      }
+    }
+    return event;
+  },
+});
+
 import Fastify from 'fastify';
 import rawBody from 'fastify-raw-body';
 import { Worker } from 'bullmq';
@@ -70,6 +96,12 @@ async function main(): Promise<void> {
     global: false,
     encoding: 'utf8',
     runFirst: true,
+  });
+
+  // Security headers on all worker responses
+  app.addHook('onSend', async (_request, reply) => {
+    reply.header('Strict-Transport-Security', 'max-age=63072000; includeSubDomains');
+    reply.header('X-Content-Type-Options', 'nosniff');
   });
 
   // Health check
