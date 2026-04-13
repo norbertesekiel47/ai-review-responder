@@ -87,18 +87,35 @@ export async function handleSendNotification(
     return;
   }
 
-  // ── Step 3: Idempotency check ──────────────────────────────────────
-  // If a delivery record already exists for this response, the email was
-  // already sent (previous attempt succeeded). Complete and return.
-  const [existingDelivery] = await sql<{ id: string }[]>`
-    SELECT id FROM notification_deliveries
-    WHERE response_id = ${response_id} AND template = 'approval_request' AND sent_at IS NOT NULL
-  `;
+  // ── Step 3: Idempotency / failover check ───────────────────────────
+  const isFailover = !!(job.data as SendNotificationPayload).failover;
 
-  if (existingDelivery) {
-    console.log(`${LOG_PREFIX} Delivery already exists for response ${response_id}, skipping`);
-    await markOutboxCompleted(outboxId);
-    return;
+  if (isFailover) {
+    // Failover mode: only skip if a delivery was actually DELIVERED (not just sent).
+    // A sent_at without delivered_at means the email may have been lost.
+    const [deliveredRow] = await sql<{ id: string }[]>`
+      SELECT id FROM notification_deliveries
+      WHERE response_id = ${response_id}
+        AND template = 'approval_request'
+        AND delivered_at IS NOT NULL
+    `;
+    if (deliveredRow) {
+      console.log(`${LOG_PREFIX} Failover: delivery already confirmed for response ${response_id}, skipping`);
+      await markOutboxCompleted(outboxId);
+      return;
+    }
+    console.log(`${LOG_PREFIX} Failover: re-sending notification for response ${response_id} (reason: ${job.data.failover!.reason})`);
+  } else {
+    // Normal mode: skip if any delivery record with sent_at exists (email was sent).
+    const [existingDelivery] = await sql<{ id: string }[]>`
+      SELECT id FROM notification_deliveries
+      WHERE response_id = ${response_id} AND template = 'approval_request' AND sent_at IS NOT NULL
+    `;
+    if (existingDelivery) {
+      console.log(`${LOG_PREFIX} Delivery already exists for response ${response_id}, skipping`);
+      await markOutboxCompleted(outboxId);
+      return;
+    }
   }
 
   // ── Step 4: Validate config before creating any state ───────────────

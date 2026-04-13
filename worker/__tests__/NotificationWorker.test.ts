@@ -199,4 +199,54 @@ describe('NotificationWorker – handleSendNotification', () => {
     expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
   });
+
+  // ── Failover mode tests ───────────────────────────────────────────
+
+  // 6. Failover skips when delivery already succeeded
+  it('failover: completes without sending when delivered_at exists', async () => {
+    const job = makeJob();
+    (job.data as any).failover = { reason: 'stale_no_delivery' as const };
+
+    sqlReturnQueue.push([mockResponseRow()]);           // 1: response+review
+    sqlReturnQueue.push([mockBusinessRow()]);            // 2: business
+    sqlReturnQueue.push([{ id: 'delivered-1' }]);        // 3: failover delivered check → found
+
+    await handleSendNotification(job);
+
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-notif-1');
+    expect(mockSendApprovalEmail).not.toHaveBeenCalled();
+    expect(mockSql.begin).not.toHaveBeenCalled();
+  });
+
+  // 7. Failover re-sends even when old sent_at delivery exists (the key distinction)
+  it('failover: re-sends when sent_at exists but no delivered_at', async () => {
+    const job = makeJob();
+    (job.data as any).failover = { reason: 'stale_no_delivery' as const };
+
+    sqlReturnQueue.push([mockResponseRow()]);           // 1: response+review
+    sqlReturnQueue.push([mockBusinessRow()]);            // 2: business
+    sqlReturnQueue.push([]);                             // 3: failover delivered check → none found
+    // sql.begin: revoke orphans + create link → 2 tx calls
+    sqlReturnQueue.push([]);                             // INSERT notification_deliveries
+
+    await handleSendNotification(job);
+
+    expect(mockSql.begin).toHaveBeenCalledOnce();
+    expect(mockSendApprovalEmail).toHaveBeenCalledOnce();
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-notif-1');
+  });
+
+  // 8. Failover respects subscription guard
+  it('failover: skips for cancelled subscription', async () => {
+    const job = makeJob();
+    (job.data as any).failover = { reason: 'all_deliveries_failed' as const };
+
+    sqlReturnQueue.push([mockResponseRow()]);
+    sqlReturnQueue.push([mockBusinessRow({ subscription_status: 'cancelled' })]);
+
+    await handleSendNotification(job);
+
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-notif-1');
+    expect(mockSendApprovalEmail).not.toHaveBeenCalled();
+  });
 });
