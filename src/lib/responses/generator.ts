@@ -242,6 +242,20 @@ async function runProductionMode(
   }
 }
 
+// ── LLM client lazy singletons ──────────────────────────────────────
+
+let _openai: OpenAI | null = null;
+function getOpenAI(): OpenAI {
+  if (!_openai) _openai = new OpenAI();
+  return _openai;
+}
+
+let _anthropic: Anthropic | null = null;
+function getAnthropic(): Anthropic {
+  if (!_anthropic) _anthropic = new Anthropic();
+  return _anthropic;
+}
+
 // ── LLM call with OpenAI → Anthropic fallback ───────────────────────
 
 interface LLMCallResult {
@@ -267,7 +281,7 @@ async function callOpenAI(
   systemPrompt: string,
   userPrompt: string,
 ): Promise<LLMCallResult> {
-  const client = new OpenAI();
+  const client = getOpenAI();
   const response = await client.chat.completions.create({
     model: OPENAI_MODEL,
     messages: [
@@ -296,7 +310,7 @@ async function callAnthropic(
   systemPrompt: string,
   userPrompt: string,
 ): Promise<LLMCallResult> {
-  const client = new Anthropic();
+  const client = getAnthropic();
   const response = await client.messages.create({
     model: ANTHROPIC_MODEL,
     max_tokens: LLM_MAX_TOKENS,
