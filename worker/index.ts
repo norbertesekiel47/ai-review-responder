@@ -45,6 +45,9 @@ import { handleAdminException } from './jobs/AdminExceptionWorker';
 import { handleWeeklySummary } from './jobs/WeeklySummaryWorker';
 import { handleResendWebhook } from './ingress/resend';
 import { handleStripeWebhook } from './ingress/stripe';
+import { startNotificationFailoverPoller, stopNotificationFailoverPoller } from './jobs/NotificationFailoverPoller';
+import { startWeeklySummaryScheduler, stopWeeklySummaryScheduler } from './jobs/WeeklySummaryScheduler';
+import { startArchivalPoller, stopArchivalPoller } from './jobs/ArchivalPoller';
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
 
@@ -141,6 +144,9 @@ async function main(): Promise<void> {
   await app.listen({ port: PORT, host: '0.0.0.0' });
   startOutboxPoller();
   startReconciliationPoller();
+  startNotificationFailoverPoller();
+  startWeeklySummaryScheduler();
+  startArchivalPoller();
   console.log(`Worker service running on port ${PORT}`);
 }
 
@@ -151,6 +157,9 @@ async function shutdown(): Promise<void> {
   console.log('Shutting down worker...');
   stopOutboxPoller();
   stopReconciliationPoller();
+  stopNotificationFailoverPoller();
+  stopWeeklySummaryScheduler();
+  stopArchivalPoller();
   await Promise.all(workers.map((w) => w.close()));
   await Promise.all(Object.values(queues).map((q) => q.close()));
   await app.close();
