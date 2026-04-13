@@ -234,7 +234,10 @@ async function applyAvoidFactsGuardrail(
     const merged: GenerationResult = {
       ...retryResult,
       costUsd: result.costUsd + retryResult.costUsd,
+      apiCostId: result.apiCostId, // Restore original (retryResult spread overwrote it)
     };
+    // Attach retry cost ID separately for persistResponseAndNotify
+    (merged as any)._retryCostId = retryResult.apiCostId;
 
     // Overwrite the cache so the polluted first-attempt entry doesn't persist
     try {
@@ -283,6 +286,13 @@ async function persistResponseAndNotify(
     if (result.apiCostId) {
       await tx`
         UPDATE api_costs SET response_id = ${responseId} WHERE id = ${result.apiCostId}
+      `;
+    }
+
+    const retryCostId = (result as any)._retryCostId as string | undefined;
+    if (retryCostId) {
+      await tx`
+        UPDATE api_costs SET response_id = ${responseId} WHERE id = ${retryCostId}
       `;
     }
 
