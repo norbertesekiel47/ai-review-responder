@@ -35,6 +35,12 @@ export async function handlePublishResponse(
     return;
   }
 
+  if (response.business_id !== business_id) {
+    console.error(`${LOG_PREFIX} Response ${response_id} belongs to business ${response.business_id}, not ${business_id}`);
+    await markOutboxFailed(outboxId, 'business_id_mismatch');
+    return;
+  }
+
   const [review] = await sql<{
     id: string;
     reviewer_name: string;
