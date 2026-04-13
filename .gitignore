@@ -44,6 +44,7 @@ next-env.d.ts
 
 # private docs
 /docs
+.superpowers
 
 test-results/
 playwright-report/

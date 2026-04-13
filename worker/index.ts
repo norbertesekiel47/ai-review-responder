@@ -8,7 +8,13 @@ function scrubObject(obj: Record<string, unknown>): void {
   for (const key of Object.keys(obj)) {
     if (sensitiveKeys.test(key)) {
       obj[key] = '[REDACTED]';
-    } else if (obj[key] && typeof obj[key] === 'object' && !Array.isArray(obj[key])) {
+    } else if (Array.isArray(obj[key])) {
+      for (const item of obj[key] as unknown[]) {
+        if (item && typeof item === 'object') {
+          scrubObject(item as Record<string, unknown>);
+        }
+      }
+    } else if (obj[key] && typeof obj[key] === 'object') {
       scrubObject(obj[key] as Record<string, unknown>);
     }
   }

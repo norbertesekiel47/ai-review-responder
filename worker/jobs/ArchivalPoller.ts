@@ -71,6 +71,9 @@ async function runArchival(): Promise<void> {
       console.log(
         `${LOG_PREFIX} Archived: ${outboxCount} outbox entries, ${eventsCount} inbound events, ${demosCount} expired demos`,
       );
+      if (outboxCount >= 5000 || eventsCount >= 5000 || demosCount >= 5000) {
+        console.warn(`${LOG_PREFIX} Batch limit (5000) reached — more rows may remain. Next cycle will continue cleanup.`);
+      }
     } else {
       console.log(`${LOG_PREFIX} Nothing to archive`);
     }

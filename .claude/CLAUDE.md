@@ -169,8 +169,12 @@ The architecture was designed so this is a mechanical swap — same outbox, same
 - [2026-04-11] BullMQ rejects `:` in custom job IDs (`Custom Id cannot contain :`). OutboxPoller uses `_` as separator for attempt-suffixed job IDs.
 - [2026-04-11] Supabase PgBouncer pooled connections have a short default `statement_timeout` (~8s). The OutboxPoller watchdog CTE can exceed this when updating locked rows. Set `connection: { statement_timeout: 30_000 }` on the Postgres.js client.
 
-## MCP servers available
-- **Supabase**: Database queries and management
-- **Sentry**: Error tracking and monitoring
-- **Playwright**: Browser testing
-- **Context7**: Library documentation lookup
+## MCP Usage Reference
+
+| MCP | When to use | Sprint |
+|---|---|---|
+| **Supabase** | Database queries, migrations, checking table data, debugging data issues | All sprints |
+| **Context7** | Looking up library docs (SerpAPI, BullMQ, Resend, Stripe SDKs, Next.js App Router) before implementing | Sprints 1-3 |
+| **Playwright** | Writing and running E2E tests for approval flow, demo pages, admin pages | Sprints 2-4 |
+| **Sentry** | Setting up error tracking, checking error reports, debugging production issues | Sprints 3+ |
+| **Google Chrome Dev** | Debugging approval page rendering, mobile responsiveness, performance profiling | Sprints 2-4 |
