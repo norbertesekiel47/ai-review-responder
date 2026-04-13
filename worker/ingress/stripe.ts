@@ -36,7 +36,7 @@ async function processCheckoutSessionCompleted(session: Stripe.Checkout.Session)
   const customerId = extractCustomerId(session.customer);
   const subscriptionId = extractSubscriptionId(session.subscription as string | Stripe.Subscription | null);
 
-  await sql`
+  const updated = await sql`
     UPDATE businesses
     SET
       subscription_status = 'active',
@@ -44,8 +44,13 @@ async function processCheckoutSessionCompleted(session: Stripe.Checkout.Session)
       stripe_subscription_id = ${subscriptionId},
       updated_at = NOW()
     WHERE id = ${businessId}::uuid
+      AND subscription_status IN ('pending_payment', 'past_due')
   `;
-  console.log(`${LOG_PREFIX} Business ${businessId} activated (customer=${customerId})`);
+  if (updated.count > 0) {
+    console.log(`${LOG_PREFIX} Business ${businessId} activated (customer=${customerId})`);
+  } else {
+    console.warn(`${LOG_PREFIX} Business ${businessId} not activated — current status is not pending_payment or past_due`);
+  }
 }
 
 async function processInvoicePaymentFailed(invoice: Stripe.Invoice): Promise<void> {
