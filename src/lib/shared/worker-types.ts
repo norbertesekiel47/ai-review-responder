@@ -19,6 +19,10 @@ export interface GenerateResponsePayload {
 export interface SendNotificationPayload {
   response_id: string;
   business_id: string;
+  /** Present only when re-queued by the NotificationFailoverPoller. */
+  failover?: {
+    reason: 'stale_no_delivery' | 'all_deliveries_failed';
+  };
 }
 
 export interface PublishResponsePayload {
@@ -29,4 +33,10 @@ export interface PublishResponsePayload {
 export interface NotifyAdminExceptionPayload {
   review_exception_id: string;
   business_id: string;
+}
+
+export interface WeeklySummaryPayload {
+  business_id: string;
+  /** ISO date 'YYYY-MM-DD' — always a Monday (start of the week being summarized). */
+  week_start_date: string;
 }
