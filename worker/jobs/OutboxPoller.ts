@@ -21,47 +21,56 @@ async function pollOutbox(): Promise<void> {
   isPolling = true;
 
   try {
+    // ── Phase 1: Watchdog recovery (separate transaction) ───────────
+    // Runs in its own transaction so a timeout or failure here
+    // doesn't block the dispatch phase.
+    try {
+      await sql.begin(async (tx) => {
+        // If a BullMQ worker crashed after the OutboxPoller marked the entry
+        // as 'dispatched' but before the worker marked it as 'completed',
+        // the entry is stuck. Reset retryable ones to 'pending'; fail terminal ones.
+
+        const [recovered] = await tx<{ count: string }[]>`
+          WITH recovered AS (
+            UPDATE job_outbox
+            SET status = 'pending', available_at = NOW(), dispatched_at = NULL
+            WHERE status = 'dispatched'
+              AND dispatched_at < NOW() - INTERVAL '1 hour'
+              AND attempts < max_attempts
+            RETURNING id
+          )
+          SELECT COUNT(*)::text AS count FROM recovered
+        `;
+
+        const [terminated] = await tx<{ count: string }[]>`
+          WITH terminated AS (
+            UPDATE job_outbox
+            SET status = 'failed',
+                last_error = 'Stale dispatched entry exceeded max_attempts',
+                completed_at = NOW()
+            WHERE status = 'dispatched'
+              AND dispatched_at < NOW() - INTERVAL '1 hour'
+              AND attempts >= max_attempts
+            RETURNING id
+          )
+          SELECT COUNT(*)::text AS count FROM terminated
+        `;
+
+        const recoveredCount = parseInt(recovered?.count ?? '0', 10);
+        const terminatedCount = parseInt(terminated?.count ?? '0', 10);
+
+        if (recoveredCount > 0 || terminatedCount > 0) {
+          console.log(
+            `[OutboxPoller] Watchdog: recovered=${recoveredCount}, failed=${terminatedCount}`,
+          );
+        }
+      });
+    } catch (watchdogError) {
+      console.error('[OutboxPoller] Watchdog recovery failed (continuing to dispatch):', watchdogError);
+    }
+
+    // ── Phase 2: Fetch pending + dispatch to BullMQ ─────────────────
     await sql.begin(async (tx) => {
-      // ── Watchdog: recover stale dispatched entries ─────────────────
-      // If a BullMQ worker crashed after the OutboxPoller marked the entry
-      // as 'dispatched' but before the worker marked it as 'completed',
-      // the entry is stuck. Reset retryable ones to 'pending'; fail terminal ones.
-
-      const [recovered] = await tx<{ count: string }[]>`
-        WITH recovered AS (
-          UPDATE job_outbox
-          SET status = 'pending', available_at = NOW(), dispatched_at = NULL
-          WHERE status = 'dispatched'
-            AND dispatched_at < NOW() - INTERVAL '1 hour'
-            AND attempts < max_attempts
-          RETURNING id
-        )
-        SELECT COUNT(*)::text AS count FROM recovered
-      `;
-
-      const [terminated] = await tx<{ count: string }[]>`
-        WITH terminated AS (
-          UPDATE job_outbox
-          SET status = 'failed',
-              last_error = 'Stale dispatched entry exceeded max_attempts',
-              completed_at = NOW()
-          WHERE status = 'dispatched'
-            AND dispatched_at < NOW() - INTERVAL '1 hour'
-            AND attempts >= max_attempts
-          RETURNING id
-        )
-        SELECT COUNT(*)::text AS count FROM terminated
-      `;
-
-      const recoveredCount = parseInt(recovered?.count ?? '0', 10);
-      const terminatedCount = parseInt(terminated?.count ?? '0', 10);
-
-      if (recoveredCount > 0 || terminatedCount > 0) {
-        console.log(
-          `[OutboxPoller] Watchdog: recovered=${recoveredCount}, failed=${terminatedCount}`,
-        );
-      }
-
       const entries = await tx<OutboxEntry[]>`
         SELECT id, topic, payload, attempts, max_attempts
         FROM job_outbox
