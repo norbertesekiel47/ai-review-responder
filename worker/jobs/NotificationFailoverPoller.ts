@@ -23,63 +23,11 @@ async function checkFailedNotifications(): Promise<void> {
   isPolling = true;
 
   try {
-    // ── 1. Stale: pending_approval >4h, no confirmed delivery, no in-flight outbox ──
-    const staleResponses = await sql<{ response_id: string; business_id: string }[]>`
-      SELECT resp.id AS response_id, resp.business_id
-      FROM responses resp
-      WHERE resp.status = 'pending_approval'
-        AND resp.created_at < NOW() - INTERVAL '4 hours'
-        AND NOT EXISTS (
-          SELECT 1 FROM notification_deliveries nd
-          WHERE nd.response_id = resp.id
-            AND nd.template = 'approval_request'
-            AND nd.delivered_at IS NOT NULL
-        )
-        AND NOT EXISTS (
-          SELECT 1 FROM job_outbox jo
-          WHERE jo.topic = 'send_notification'
-            AND jo.aggregate_id = resp.id
-            AND jo.status IN ('pending', 'dispatched')
-        )
-    `;
-
-    let staleQueued = 0;
-    for (const row of staleResponses) {
-      const payload: SendNotificationPayload = {
-        response_id: row.response_id,
-        business_id: row.business_id,
-        failover: { reason: 'stale_no_delivery' },
-      };
-      try {
-        const inserted = await sql`
-          INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-          SELECT
-            ${uuidv7()},
-            'send_notification',
-            'response',
-            ${row.response_id},
-            ${JSON.stringify(payload)}::jsonb,
-            'pending'
-          WHERE NOT EXISTS (
-            SELECT 1 FROM job_outbox jo
-            WHERE jo.topic = 'send_notification'
-              AND jo.aggregate_id = ${row.response_id}
-              AND jo.status IN ('pending', 'dispatched')
-          )
-        `;
-        if (inserted.count > 0) staleQueued++;
-      } catch (err: unknown) {
-        const code = (err as { code?: string }).code;
-        if (code === '23505') continue;
-        console.error(`${LOG_PREFIX} Failed to queue failover for response ${row.response_id}:`, err);
-      }
-    }
-
-    if (staleQueued > 0) {
-      console.log(`${LOG_PREFIX} Queued ${staleQueued} stale failover entries (${staleResponses.length} candidates)`);
-    }
-
-    // ── 2. All-failed: every approval_request delivery has failed_at set ──
+    // ── 1. All-failed: every approval_request delivery has failed_at set ──
+    // IMPORTANT: Process all-failed BEFORE stale. The stale query's "no delivered_at"
+    // condition also matches all-failed responses. If stale ran first, its outbox INSERT
+    // would cause the all-failed query's in-flight check to skip, and the admin alert
+    // would never fire.
     const allFailedResponses = await sql<{
       response_id: string;
       business_id: string;
@@ -175,6 +123,64 @@ async function checkFailedNotifications(): Promise<void> {
 
     if (allFailedResponses.length > 0) {
       console.log(`${LOG_PREFIX} Processed ${allFailedResponses.length} all-failed responses`);
+    }
+
+    // ── 2. Stale: pending_approval >4h, no confirmed delivery, no in-flight outbox ──
+    // Runs AFTER all-failed so those responses already have outbox entries and are
+    // excluded by the in-flight check here.
+    const staleResponses = await sql<{ response_id: string; business_id: string }[]>`
+      SELECT resp.id AS response_id, resp.business_id
+      FROM responses resp
+      WHERE resp.status = 'pending_approval'
+        AND resp.created_at < NOW() - INTERVAL '4 hours'
+        AND NOT EXISTS (
+          SELECT 1 FROM notification_deliveries nd
+          WHERE nd.response_id = resp.id
+            AND nd.template = 'approval_request'
+            AND nd.delivered_at IS NOT NULL
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM job_outbox jo
+          WHERE jo.topic = 'send_notification'
+            AND jo.aggregate_id = resp.id
+            AND jo.status IN ('pending', 'dispatched')
+        )
+    `;
+
+    let staleQueued = 0;
+    for (const row of staleResponses) {
+      const payload: SendNotificationPayload = {
+        response_id: row.response_id,
+        business_id: row.business_id,
+        failover: { reason: 'stale_no_delivery' },
+      };
+      try {
+        const inserted = await sql`
+          INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+          SELECT
+            ${uuidv7()},
+            'send_notification',
+            'response',
+            ${row.response_id},
+            ${JSON.stringify(payload)}::jsonb,
+            'pending'
+          WHERE NOT EXISTS (
+            SELECT 1 FROM job_outbox jo
+            WHERE jo.topic = 'send_notification'
+              AND jo.aggregate_id = ${row.response_id}
+              AND jo.status IN ('pending', 'dispatched')
+          )
+        `;
+        if (inserted.count > 0) staleQueued++;
+      } catch (err: unknown) {
+        const code = (err as { code?: string }).code;
+        if (code === '23505') continue;
+        console.error(`${LOG_PREFIX} Failed to queue failover for response ${row.response_id}:`, err);
+      }
+    }
+
+    if (staleQueued > 0) {
+      console.log(`${LOG_PREFIX} Queued ${staleQueued} stale failover entries (${staleResponses.length} candidates)`);
     }
   } catch (error) {
     console.error(`${LOG_PREFIX} Poll cycle failed:`, error);

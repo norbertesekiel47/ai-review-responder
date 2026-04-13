@@ -110,7 +110,9 @@ describe('WeeklySummaryWorker – handleWeeklySummary', () => {
     sqlReturnQueue.push([{ count: '3' }]);                             // total reviews
     sqlReturnQueue.push([{ count: '3' }]);                             // total responded
     sqlReturnQueue.push([]);                                           // no notable
-    sqlReturnQueue.push([{ sent_at: '2026-04-07T08:00:00Z' }]);       // upsert RETURNING → already sent
+    // When the row exists with sent_at IS NOT NULL, the ON CONFLICT WHERE clause
+    // prevents the update and Postgres returns ZERO rows (not the existing row).
+    sqlReturnQueue.push([]);                                           // upsert RETURNING → empty (already sent)
 
     await handleWeeklySummary(makeJob());
 

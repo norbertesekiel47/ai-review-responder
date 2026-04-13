@@ -99,7 +99,9 @@ export async function handleWeeklySummary(
     RETURNING sent_at
   `;
 
-  if (upsertRow?.sent_at !== null && upsertRow?.sent_at !== undefined) {
+  // If the upsert returned no row, the ON CONFLICT WHERE clause prevented the
+  // update because sent_at IS NOT NULL — meaning the summary was already sent.
+  if (!upsertRow) {
     console.log(`${LOG_PREFIX} Weekly summary for ${business_id} week ${week_start_date} already sent`);
     await markOutboxCompleted(outboxId);
     return;

@@ -48,11 +48,18 @@ describe('NotificationFailoverPoller', () => {
     vi.useRealTimers();
   });
 
+  // NOTE: Execution order is all-failed FIRST, then stale.
+  // This ensures all-failed responses get admin alerts before the stale
+  // query creates outbox entries that would shadow them.
+
   it('creates failover outbox entry for stale response with no delivery', async () => {
+    // 1: all-failed query → empty (no all-failed responses)
+    sqlReturnQueue.push([]);
+    // 2: stale query → one response
     sqlReturnQueue.push([{ response_id: 'resp-1', business_id: 'biz-1' }]);
+    // 3: INSERT outbox for stale
     const insertResult: any = []; insertResult.count = 1;
     sqlReturnQueue.push(insertResult);
-    sqlReturnQueue.push([]);
 
     const mod = await import('../jobs/NotificationFailoverPoller');
     mod.startNotificationFailoverPoller();
@@ -71,7 +78,7 @@ describe('NotificationFailoverPoller', () => {
   });
 
   it('sends admin alert and creates failover outbox for all-failed deliveries', async () => {
-    sqlReturnQueue.push([]);
+    // 1: all-failed query → one response
     sqlReturnQueue.push([{
       response_id: 'resp-2',
       business_id: 'biz-2',
@@ -79,9 +86,13 @@ describe('NotificationFailoverPoller', () => {
       reviewer_name: 'Jane',
       star_rating: 1,
     }]);
+    // 2: admin alert dedup check → no recent alert
     sqlReturnQueue.push([]);
+    // 3: INSERT outbox for all-failed
     const insertResult: any = []; insertResult.count = 1;
     sqlReturnQueue.push(insertResult);
+    // 4: stale query → empty (the all-failed response now has an in-flight outbox)
+    sqlReturnQueue.push([]);
 
     const mod = await import('../jobs/NotificationFailoverPoller');
     mod.startNotificationFailoverPoller();
@@ -96,7 +107,7 @@ describe('NotificationFailoverPoller', () => {
   });
 
   it('deduplicates admin alerts within 24 hours', async () => {
-    sqlReturnQueue.push([]);
+    // 1: all-failed query → one response
     sqlReturnQueue.push([{
       response_id: 'resp-3',
       business_id: 'biz-3',
@@ -104,9 +115,13 @@ describe('NotificationFailoverPoller', () => {
       reviewer_name: 'Bob',
       star_rating: 2,
     }]);
+    // 2: admin alert dedup check → existing alert found
     sqlReturnQueue.push([{ id: 'existing-alert' }]);
+    // 3: INSERT outbox for all-failed (still created — only admin email is deduped)
     const insertResult: any = []; insertResult.count = 1;
     sqlReturnQueue.push(insertResult);
+    // 4: stale query → empty
+    sqlReturnQueue.push([]);
 
     const mod = await import('../jobs/NotificationFailoverPoller');
     mod.startNotificationFailoverPoller();
@@ -118,8 +133,8 @@ describe('NotificationFailoverPoller', () => {
   });
 
   it('lifecycle: start and stop work without errors', async () => {
-    sqlReturnQueue.push([]);
-    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([]); // all-failed
+    sqlReturnQueue.push([]); // stale
     const mod = await import('../jobs/NotificationFailoverPoller');
     const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     mod.startNotificationFailoverPoller();
