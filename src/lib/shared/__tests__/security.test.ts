@@ -119,36 +119,9 @@ describe('Token enumeration — hash-only storage', () => {
   });
 });
 
-// ── 4b. Webhook replay: dedup logic pattern ───────────────────────────
-describe('Webhook replay — deduplication', () => {
-  it('already-processed event is detected and skipped', () => {
-    // Both Stripe and Resend ingress handlers use this pattern:
-    //   SELECT status FROM inbound_events WHERE external_event_key = $eventId
-    //   If status === 'processed' → return 200 duplicate, skip processing
-    //   If no row → INSERT ... ON CONFLICT (external_event_key) DO NOTHING
-    //
-    // The ON CONFLICT constraint requires a real DB to test (covered by E2E).
-    // Here we verify the dedup decision logic that all handlers follow:
-    const existingRows = [{ status: 'processed' }];
-    const isAlreadyProcessed =
-      existingRows.length > 0 && existingRows[0]?.status === 'processed';
-    expect(isAlreadyProcessed).toBe(true);
-  });
-
-  it('received/failed event is allowed through for reprocessing', () => {
-    const existingRows = [{ status: 'received' }];
-    const isAlreadyProcessed =
-      existingRows.length > 0 && existingRows[0]?.status === 'processed';
-    expect(isAlreadyProcessed).toBe(false);
-  });
-
-  it('new event (no existing row) is allowed through', () => {
-    const existingRows: { status: string }[] = [];
-    const isAlreadyProcessed =
-      existingRows.length > 0 && existingRows[0]?.status === 'processed';
-    expect(isAlreadyProcessed).toBe(false);
-  });
-});
+// ── 4b. Webhook replay tests moved to worker/__tests__/webhook-dedup.test.ts ──
+// Tests there exercise the actual handleStripeWebhook and handleResendWebhook
+// functions with mocked SQL to verify ON CONFLICT dedup behavior.
 
 // ── 5. Expired token: lockValidLink throws ExpiredTokenError ──────────
 describe('Expired token — lockValidLink', () => {
