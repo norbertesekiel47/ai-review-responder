@@ -19,8 +19,8 @@ export async function handleAdminException(
     type: string;
     status: string;
     payload: Record<string, unknown> | string;
-    reviewer_name: string;
-    star_rating: number;
+    reviewer_name: string | null;
+    star_rating: number | null;
     review_text: string | null;
     business_name: string;
   }[]>`
@@ -28,7 +28,7 @@ export async function handleAdminException(
            r.reviewer_name, r.star_rating, r.review_text,
            b.name AS business_name
     FROM review_exceptions re
-    JOIN reviews r ON re.review_id = r.id
+    LEFT JOIN reviews r ON re.review_id = r.id
     JOIN businesses b ON re.business_id = b.id
     WHERE re.id = ${review_exception_id}
   `;
@@ -61,7 +61,7 @@ export async function handleAdminException(
   const bodyHtml = `
     <h2>Review Exception: ${escapeHtml(exception.business_name)}</h2>
     <p><strong>Type:</strong> ${escapeHtml(exception.type)}</p>
-    <p><strong>Reviewer:</strong> ${escapeHtml(exception.reviewer_name)} (${'★'.repeat(exception.star_rating)}${'☆'.repeat(5 - exception.star_rating)})</p>
+    <p><strong>Reviewer:</strong> ${escapeHtml(exception.reviewer_name ?? 'Unknown reviewer')} ${exception.star_rating ? `(${'★'.repeat(exception.star_rating)}${'☆'.repeat(5 - exception.star_rating)})` : '(rating not available)'}</p>
     <p><strong>Current review text:</strong></p>
     <blockquote style="border-left:3px solid #ccc;padding:8px 12px;margin:8px 0;color:#555;">
       ${exception.review_text ? escapeHtml(exception.review_text) : '<em>No text</em>'}
