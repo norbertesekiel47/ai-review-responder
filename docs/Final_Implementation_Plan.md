@@ -1302,23 +1302,33 @@ Build production hardening features that ensure the system runs 10 businesses wi
    - Use setInterval (same pattern as ReconciliationPoller, NOT BullMQ repeatable job — must follow the outbox pattern)
    - Interval: 2 hours (configurable via NOTIFICATION_FAILOVER_INTERVAL_MS)
    - Re-entrancy guard: isPolling flag (same as OutboxPoller/ReconciliationPoller)
-   - Query: find responses in 'pending_approval' for >4 hours that have NO successful notification_delivery (delivered_at IS NULL AND failed_at IS NULL for that response_id)
-   - For each stale response: insert a new 'send_notification' outbox entry (the existing NotificationWorker handles retry — revokes orphaned approval link, creates new token, sends new email)
-   - Also find responses where ALL notification_deliveries have failed_at set (bounced/complained) — alert admin via sendInternalEmail
+   - Query: find responses in 'pending_approval' for >4 hours that have NO successful notification_delivery row (`delivered_at IS NOT NULL`) and no in-flight `send_notification` outbox entry (`status IN ('pending', 'dispatched')`)
+   - Extend `SendNotificationPayload` with optional failover fields: `failover?: { reason: 'stale_no_delivery' | 'all_deliveries_failed' }`
+   - Modify `NotificationWorker` so normal retry idempotency remains unchanged, but failover payloads do NOT skip merely because an old `notification_deliveries.sent_at` row exists. In failover mode:
+     1. Re-check the response is still `pending_approval` and the business subscription still allows notifications.
+     2. If an approval email has already been delivered (`delivered_at IS NOT NULL`), mark the outbox completed and do nothing.
+     3. Revoke all open, unconsumed approval links for the response because the raw token cannot be recovered.
+     4. Create a fresh approval link/token, send a fresh email, record a new `notification_deliveries` row, and mark the failover outbox completed.
+   - For each stale response: insert a new `send_notification` outbox entry with `{ response_id, business_id, failover: { reason: 'stale_no_delivery' } }`
+   - Also find responses where ALL approval-request deliveries have `failed_at` set (bounced/complained). Insert a failover `send_notification` outbox entry with `reason: 'all_deliveries_failed'`, and alert admin via `sendInternalEmail`.
+   - Deduplicate admin alerts: before sending the admin alert, check no `notification_deliveries` row exists for that response with `template = 'admin_exception'`, the same admin recipient, and `created_at > NOW() - INTERVAL '24 hours'`. After sending, record a `notification_deliveries` row so the next poll does not spam the admin.
    - Export startNotificationFailoverPoller() / stopNotificationFailoverPoller()
    - Register in worker/index.ts lifecycle (start after other pollers, stop in shutdown)
-   - Add NotificationFailoverPayload to worker-types.ts if needed, or reuse SendNotificationPayload
+   - Reuse `SendNotificationPayload` after adding the optional failover field above
 
 2. Weekly summary scheduler + worker:
    - WeeklySummaryScheduler: setInterval poller (same pattern as ReconciliationPoller, NOT BullMQ cron)
    - Interval: runs every hour, checks if it's Monday between 8-9 AM UTC
-   - Timezone: use UTC for MVP. Store as a constant WEEKLY_SUMMARY_TIMEZONE = 'UTC'. When businesses span time zones, add a `timezone` column — but NOT now.
-   - For each active/past_due business (skip cancelled + pending_payment): check if a weekly_summaries row already exists for this week's Monday → if not, insert outbox entry for 'weekly_summary'
+   - Timezone: use UTC for MVP. Store as a constant `WEEKLY_SUMMARY_TIMEZONE = 'UTC'`. When businesses span time zones, add a `timezone` column — but NOT now.
+   - IMPORTANT: Monday 8-9 AM sends the summary for the week that just ended, not the empty week that just started. Compute `week_start_date` as the previous Monday 00:00 UTC and query `[week_start_date, week_start_date + 7 days)`.
+   - For each active/past_due business (skip cancelled + pending_payment): schedule a `weekly_summary` outbox entry when there is no existing `weekly_summaries` row for that business/week OR the row exists but `sent_at IS NULL`. Do not schedule when `sent_at IS NOT NULL`.
+   - Also check for an in-flight `weekly_summary` outbox entry for that same `business_id` and `week_start_date` payload before inserting a new outbox entry.
    - WeeklySummaryWorker (replace placeholder in worker/jobs/WeeklySummaryWorker.ts):
      - Consumes weekly_summary jobs
      - Subscription guard (workerType 'summary'): skip cancelled + pending_payment
      - Query: count reviews this week, count responses (posted/approved/edited), find 1-2 star reviews with text
-     - Insert into weekly_summaries table (with ON CONFLICT DO NOTHING for idempotency)
+     - Insert or update the `weekly_summaries` row before sending using this pattern: `INSERT INTO weekly_summaries (...) VALUES (...) ON CONFLICT (business_id, week_start_date) DO UPDATE SET total_reviews = EXCLUDED.total_reviews, total_responded = EXCLUDED.total_responded, notable_reviews = EXCLUDED.notable_reviews WHERE weekly_summaries.sent_at IS NULL RETURNING sent_at`
+     - If the existing row already has `sent_at IS NOT NULL`, mark the outbox completed and return without sending. This prevents duplicate emails from replayed outbox jobs.
      - Build HTML email: business name, week dates, review count, response count, response rate %, list of negative reviews needing attention
      - Send via sendInternalEmail to business.owner_email
      - Update weekly_summaries.sent_at on success
@@ -1344,42 +1354,53 @@ Write tests for: WeeklySummaryWorker (active business gets summary, cancelled sk
 Write tests that verify security properties and the end-to-end approval flow.
 
 1. Security tests (Vitest — src/lib/shared/__tests__/security.test.ts):
-   These verify that existing security mechanisms work correctly. No new features — just test coverage.
+   These verify that existing security mechanisms work correctly. No new features — just test coverage. Do NOT add placeholder tests such as `expect(true).toBe(true)`, and do NOT change production behavior just to satisfy an inaccurate test.
 
-   - Prompt injection: pass review text containing '{{system}}', 'ignore previous instructions', '<script>alert(1)</script>' through sanitizeText() → verify control chars stripped, HTML tags stripped
-   - Cost amplification: mock Redis to simulate 4th regeneration attempt on same review → verify checkRegenBudget() throws RegenBudgetExceededError
+   - Prompt injection / XSS boundary:
+     * `sanitizeText()` is prompt/input sanitization, not HTML rendering. It strips control characters and collapses whitespace; it currently does NOT strip semantic text or HTML tags.
+     * Test `sanitizeText()` with control characters plus prompt-injection phrasing and assert it strips control characters without crashing.
+     * Test `escapeHtml()` separately with `<script>alert(1)</script>` and assert rendered output escapes `<`, `>`, and quotes. Do NOT force `sanitizeText()` to become an HTML sanitizer.
+   - Cost amplification: mock Redis to simulate the 4th regeneration attempt on the same review and verify `checkRegenBudget()` throws `RegenBudgetExceededError`. Match the current implementation: mock `getCacheRedis()` with `incr`, `expire`, and `decr` methods, not `eval`.
    - Token enumeration: verify approval_links stores SHA-256 hash only — call createHash('sha256').update(rawToken).digest('hex') and confirm it matches what lockValidLink expects
-   - Webhook replay: insert an inbound_event with status='processed', attempt to insert same external_event_key → verify ON CONFLICT DO NOTHING (count=0)
-   - Expired token: create an approval_link with expires_at in the past → verify lockValidLink throws ExpiredTokenError
-   - Device hijack: establish session with device_cookie_hash_A, attempt action with device_cookie_hash_B → verify DeviceConflictError
+   - Webhook replay: add a real DB-backed integration test only if the test suite has a dedicated test database configured. Insert an inbound_event with `status='processed'`, attempt to insert the same `external_event_key` with `ON CONFLICT DO NOTHING`, and verify affected row count is 0. If no dedicated test DB exists, extend the existing Stripe/Resend webhook unit tests instead of adding a fake placeholder.
+   - Expired token: extend `src/lib/approval/__tests__/service.test.ts` if needed; it already tests `lockValidLink()` variants. Verify a past `expires_at` throws `ExpiredTokenError`.
+   - Device hijack: extend `src/lib/approval/__tests__/service.test.ts` if needed. Establish session with `device_cookie_hash_A`, then attempt an action with `device_cookie_hash_B` and verify `DeviceConflictError`.
    - Subscription bypass: call checkSubscription with 'cancelled' + workerType 'notification' → verify {allowed: false}
 
 2. Playwright E2E approval flow tests (e2e/approval.spec.ts):
    Replace the skipped scaffolded tests with working E2E tests.
+
+   Hard safety requirements:
+   - These tests perform destructive cleanup. Use `TEST_DATABASE_POOL_URL` for E2E seed/cleanup. Do NOT point E2E cleanup at production or staging `DATABASE_POOL_URL`.
+   - The seed helper must fail fast unless `TEST_DATABASE_POOL_URL` is set and `NODE_ENV === 'test'` or `ALLOW_E2E_DB_WRITES === 'true'`.
+   - Seed data must be unique per test and per Playwright project because `playwright.config.ts` runs desktop and mobile projects and `fullyParallel: true`.
+   - Use `provider_review_name = 'test://review/{reviewId}'` and `provider_location_name = 'test://location/{businessId}'`; never use constant provider identity values.
+   - Cleanup must delete outbox rows by all affected aggregate IDs (`responseId`, `reviewId`, `businessId`) and by JSON payload `business_id`, then delete audit logs, approval links, notification deliveries, responses, reviews, and the business.
 
    PREREQUISITE: Create a test seed script at e2e/seed.ts that:
    - Creates a test business (subscription_status='active')
    - Creates a test review
    - Creates a test response (status='pending_approval')
    - Creates an approval_link with a known raw token (hash stored in DB, raw token returned for test use)
-   - Returns { businessId, reviewId, responseId, rawToken }
+   - Exports helpers: `seedApprovalFlow()`, `cleanupApprovalFlow(seedData)`, `getResponse(responseId)`, and `getOutboxEntriesForBusiness(businessId)`
+   - Returns `{ businessId, reviewId, responseId, rawToken, approvalLinkId }`
 
    Test scenarios:
-   a. Happy path approve: navigate to /approve/{rawToken} → see review + response → click session bind → click Approve → see success message → verify response status='approved' in DB
-   b. Edit flow: navigate → edit text → click Edit & Approve → verify edited_text stored + edit_distance computed
+   a. Happy path approve: navigate to /approve/{rawToken} → wait for the approval buttons to render (session binding happens automatically in the current UI; do not add a fake "session bind" click) → click Approve → see success message → verify response status='approved' and `approved_text=response_text` in DB
+   b. Edit flow: navigate → click Edit → edit textarea → click Save & Approve → verify `status='edited'`, `edited_text` stored, and `edit_distance > 0`
    c. Expired token: seed with expires_at in past → navigate → see "expired" error message
-   d. Regenerate: navigate → click Regenerate → see "generating new response" message → verify old response superseded + new outbox entry created
+   d. Regenerate: navigate → click Regenerate → see "generating new response" or "check your email" message → verify old response `status='superseded'` and a new `generate_response` outbox entry exists for the review/business
    e. Already consumed: seed with consumed_at set → navigate → see "already used" message
 
-   Each test creates its own seed data in beforeEach and cleans up in afterEach.
+   Each test should use local seed data inside the test body or a per-test fixture. Do not use a shared module-level `let data` because Playwright can run tests in parallel. Cleanup must run in `finally` so a failed assertion does not leave rows behind.
    Use the Playwright webServer config to start `pnpm dev` automatically.
 
 3. Integration tests (Vitest — worker/__tests__/integration.test.ts):
-   Test the full pipeline with mocked external APIs but real DB queries.
+   Test the full pipeline with mocked external APIs but real DB queries only against a dedicated test database. Never use production/staging `DATABASE_POOL_URL` for destructive test setup.
 
    - Idempotency: insert a response, call handleResponseGeneration twice with same payload → verify only 1 response exists (not 2)
    - LLM failover: mock OpenAI to throw, verify Anthropic fallback produces a response
-   - Outbox completion: verify every worker path calls markOutboxCompleted or markOutboxFailed (not left hanging)
+   - Outbox completion: for each Sprint 4 worker path, assert the originating outbox entry transitions to `completed` or `failed` on every handled branch. Do not attempt a vague "every worker path" meta-test; add targeted cases for WeeklySummaryWorker, NotificationFailoverPoller-created send_notification jobs, and existing workers only where coverage is missing.
 ```
 
 ### Sprint 4 done when
