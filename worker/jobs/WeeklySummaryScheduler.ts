@@ -18,13 +18,14 @@ function getIntervalMs(): number {
 
 /**
  * Returns the Monday 00:00 UTC of the week that just ended.
- * Called on Monday 8-9 AM: the current Monday is today, so
- * "previous week" starts 7 days ago (last Monday).
+ * Works for any day of the week — not just Monday.
  */
 function getPreviousMonday(now: Date): string {
   const d = new Date(now);
   d.setUTCHours(0, 0, 0, 0);
-  d.setUTCDate(d.getUTCDate() - 7);
+  const dayOfWeek = d.getUTCDay(); // 0=Sun, 1=Mon ... 6=Sat
+  const daysSinceMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+  d.setUTCDate(d.getUTCDate() - daysSinceMonday - 7);
   return d.toISOString().slice(0, 10);
 }
 
