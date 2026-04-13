@@ -42,6 +42,7 @@ import { handleResponseGeneration } from './jobs/ResponseGeneratorWorker';
 import { handleSendNotification } from './jobs/NotificationWorker';
 import { handlePublishResponse } from './jobs/ResponsePublisherWorker';
 import { handleAdminException } from './jobs/AdminExceptionWorker';
+import { handleWeeklySummary } from './jobs/WeeklySummaryWorker';
 import { handleResendWebhook } from './ingress/resend';
 import { handleStripeWebhook } from './ingress/stripe';
 
@@ -84,7 +85,11 @@ const adminExceptionWorker = new Worker(QUEUE_NAMES.NOTIFY_ADMIN, handleAdminExc
   connection: redisOpts,
 });
 
-const workers = [demoWorker, reviewSyncWorker, responseGenWorker, notificationWorker, publisherWorker, adminExceptionWorker];
+const weeklySummaryWorker = new Worker(QUEUE_NAMES.WEEKLY_SUMMARY, handleWeeklySummary, {
+  connection: redisOpts,
+});
+
+const workers = [demoWorker, reviewSyncWorker, responseGenWorker, notificationWorker, publisherWorker, adminExceptionWorker, weeklySummaryWorker];
 
 // Sentry breadcrumbs on job lifecycle
 for (const worker of workers) {
