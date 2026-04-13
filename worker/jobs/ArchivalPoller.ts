@@ -18,12 +18,16 @@ async function runArchival(): Promise<void> {
   isPolling = true;
 
   try {
-    // 1. Completed outbox entries older than 7 days
+    // 1. Completed outbox entries older than 7 days (batched to avoid long locks)
     const [outboxResult] = await sql<{ count: string }[]>`
-      WITH deleted AS (
-        DELETE FROM job_outbox
+      WITH candidates AS (
+        SELECT id FROM job_outbox
         WHERE status = 'completed'
           AND completed_at < NOW() - INTERVAL '7 days'
+        LIMIT 5000
+      ),
+      deleted AS (
+        DELETE FROM job_outbox WHERE id IN (SELECT id FROM candidates)
         RETURNING id
       )
       SELECT COUNT(*)::text AS count FROM deleted
@@ -31,10 +35,14 @@ async function runArchival(): Promise<void> {
 
     // 2. Processed inbound events older than 30 days
     const [eventsResult] = await sql<{ count: string }[]>`
-      WITH deleted AS (
-        DELETE FROM inbound_events
+      WITH candidates AS (
+        SELECT id FROM inbound_events
         WHERE status = 'processed'
           AND processed_at < NOW() - INTERVAL '30 days'
+        LIMIT 5000
+      ),
+      deleted AS (
+        DELETE FROM inbound_events WHERE id IN (SELECT id FROM candidates)
         RETURNING id
       )
       SELECT COUNT(*)::text AS count FROM deleted
@@ -42,10 +50,14 @@ async function runArchival(): Promise<void> {
 
     // 3. Expired prospect demos older than 30 days past expiry
     const [demosResult] = await sql<{ count: string }[]>`
-      WITH deleted AS (
-        DELETE FROM prospect_demos
+      WITH candidates AS (
+        SELECT id FROM prospect_demos
         WHERE expires_at < NOW() - INTERVAL '30 days'
           AND generation_status = 'completed'
+        LIMIT 5000
+      ),
+      deleted AS (
+        DELETE FROM prospect_demos WHERE id IN (SELECT id FROM candidates)
         RETURNING id
       )
       SELECT COUNT(*)::text AS count FROM deleted

@@ -1,4 +1,5 @@
 import type { Job } from 'bullmq';
+import { v7 as uuidv7 } from 'uuid';
 import { sql } from '../../src/lib/db/server';
 import { checkSubscription } from '../../src/lib/shared/subscription-guard';
 import { markOutboxCompleted, markOutboxFailed } from '../../src/lib/shared/outbox';
@@ -85,7 +86,7 @@ export async function handleWeeklySummary(
   const [upsertRow] = await sql<{ sent_at: string | null }[]>`
     INSERT INTO weekly_summaries (id, business_id, week_start_date, total_reviews, total_responded, notable_reviews)
     VALUES (
-      gen_random_uuid(), ${business_id}, ${week_start_date}::date,
+      ${uuidv7()}, ${business_id}, ${week_start_date}::date,
       ${totalReviews}, ${totalResponded},
       ${JSON.stringify(notableReviews)}::jsonb
     )
@@ -119,11 +120,16 @@ export async function handleWeeklySummary(
   });
 
   const weekLabel = `${week_start_date} to ${weekEndDate}`;
-  await sendInternalEmail({
-    to: business.owner_email,
-    subject: `Weekly Review Summary — ${business.name} (${weekLabel})`,
-    bodyHtml: html,
-  });
+  try {
+    await sendInternalEmail({
+      to: business.owner_email,
+      subject: `Weekly Review Summary — ${business.name} (${weekLabel})`,
+      bodyHtml: html,
+    });
+  } catch (err) {
+    console.error(`${LOG_PREFIX} Failed to send weekly summary for ${business.name} (week ${week_start_date}): ${err instanceof Error ? err.message : err}`);
+    throw err; // BullMQ retries; upsert is idempotent on retry
+  }
 
   // ── 6. Mark as sent ───────────────────────────────────────────────
   await sql`
