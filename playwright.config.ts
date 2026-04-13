@@ -28,5 +28,10 @@ export default defineConfig({
         command: 'pnpm dev',
         port: 3000,
         reuseExistingServer: true,
+        // When E2E tests use a dedicated test DB, the app under test must
+        // read from the same database so it can find seeded approval tokens.
+        ...(process.env.TEST_DATABASE_POOL_URL
+          ? { env: { DATABASE_POOL_URL: process.env.TEST_DATABASE_POOL_URL } }
+          : {}),
       },
 });

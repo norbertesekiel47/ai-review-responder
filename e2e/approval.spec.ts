@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import {
+  isE2eConfigured,
   seedApprovalFlow,
   cleanupApprovalFlow,
   getResponse,
@@ -7,11 +8,10 @@ import {
   type SeedData,
 } from './seed';
 
-// Skip entire suite if no test DB configured
-const hasTestDb = !!process.env.TEST_DATABASE_POOL_URL;
-
 test.describe('Approval flow E2E', () => {
-  test.skip(!hasTestDb, 'TEST_DATABASE_POOL_URL not set — skipping E2E approval tests');
+  // Gate: skip if no test DB configured. Uses the exported flag so the
+  // module-level import doesn't throw when TEST_DATABASE_POOL_URL is unset.
+  test.skip(!isE2eConfigured, 'TEST_DATABASE_POOL_URL not set — skipping E2E approval tests');
 
   // ── a. Happy path: approve ──────────────────────────────────────────
   test('approve: click Approve → response status becomes approved', async ({ page }) => {

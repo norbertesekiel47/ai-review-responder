@@ -1,25 +1,41 @@
 import postgres from 'postgres';
 import { randomUUID, createHash } from 'node:crypto';
+import type { Sql } from 'postgres';
 
-// ── Safety: never run against production ─────────────────────────────
-const dbUrl = process.env.TEST_DATABASE_POOL_URL;
-if (!dbUrl) {
-  throw new Error(
-    'TEST_DATABASE_POOL_URL is not set. E2E tests require a dedicated test database.',
-  );
+/**
+ * Whether E2E DB seeding is configured. Import this in test files
+ * to gate test.skip() BEFORE calling any seed functions.
+ */
+export const isE2eConfigured: boolean =
+  !!process.env.TEST_DATABASE_POOL_URL &&
+  (process.env.NODE_ENV === 'test' || process.env.ALLOW_E2E_DB_WRITES === 'true');
+
+// ── Lazy DB connection (only created when seed functions are called) ──
+let _sql: Sql | null = null;
+
+function getSql(): Sql {
+  if (_sql) return _sql;
+
+  const dbUrl = process.env.TEST_DATABASE_POOL_URL;
+  if (!dbUrl) {
+    throw new Error(
+      'TEST_DATABASE_POOL_URL is not set. E2E tests require a dedicated test database.',
+    );
+  }
+
+  const allowWrites =
+    process.env.NODE_ENV === 'test' ||
+    process.env.ALLOW_E2E_DB_WRITES === 'true';
+
+  if (!allowWrites) {
+    throw new Error(
+      'E2E DB writes require NODE_ENV=test or ALLOW_E2E_DB_WRITES=true',
+    );
+  }
+
+  _sql = postgres(dbUrl);
+  return _sql;
 }
-
-const allowWrites =
-  process.env.NODE_ENV === 'test' ||
-  process.env.ALLOW_E2E_DB_WRITES === 'true';
-
-if (!allowWrites) {
-  throw new Error(
-    'E2E DB writes require NODE_ENV=test or ALLOW_E2E_DB_WRITES=true',
-  );
-}
-
-const sql = postgres(dbUrl);
 
 export interface SeedData {
   businessId: string;
@@ -40,6 +56,7 @@ export async function seedApprovalFlow(
     consumedAt?: Date | null;
   } = {},
 ): Promise<SeedData> {
+  const sql = getSql();
   const businessId = randomUUID();
   const reviewId = randomUUID();
   const responseId = randomUUID();
@@ -80,6 +97,7 @@ export async function seedApprovalFlow(
  * Order respects foreign key constraints.
  */
 export async function cleanupApprovalFlow(data: SeedData): Promise<void> {
+  const sql = getSql();
   const { businessId, reviewId, responseId } = data;
 
   await sql`
@@ -105,6 +123,7 @@ export async function getResponse(
   edited_text: string | null;
   edit_distance: number | null;
 } | null> {
+  const sql = getSql();
   const [row] = await sql<{
     status: string;
     approved_text: string | null;
@@ -121,6 +140,7 @@ export async function getResponse(
 export async function getOutboxEntriesForBusiness(
   businessId: string,
 ): Promise<Array<{ topic: string; status: string; payload: unknown }>> {
+  const sql = getSql();
   const rows = await sql<{ topic: string; status: string; payload: unknown }[]>`
     SELECT topic, status, payload
     FROM job_outbox
@@ -135,5 +155,8 @@ export async function getOutboxEntriesForBusiness(
 
 /** Close the DB connection (call in globalTeardown or afterAll). */
 export async function closeSeedDb(): Promise<void> {
-  await sql.end();
+  if (_sql) {
+    await _sql.end();
+    _sql = null;
+  }
 }
