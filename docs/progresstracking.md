@@ -1569,9 +1569,79 @@ Improvements discovered during end-to-end manual testing of the full system afte
 
 ---
 
-## Sprint 5: Churn Killers
+## Sprint 5: Churn Killers (Retention Stack)
 
-**Status:** NOT STARTED
+**Status:** IN PROGRESS
+
+### Phase 5A.1 — Weekly Value Report + Monthly Impact Email (Prompt 19a) (2026-04-14)
+
+**Status:** COMPLETE
+
+**What was done:**
+
+1. **Review Summary LLM Helper** (`src/lib/responses/review-summary.ts`):
+   - Dedicated helper for generating multi-review intelligence briefs
+   - OpenAI (gpt-4o-mini) primary, Anthropic (claude-haiku-4-5-20251001) fallback
+   - Caps input to 30 reviews, truncates each review text to 200 chars
+   - Best-effort cost audit via `recordApiCost()` (swallows audit write failures)
+   - Mock mode returns canned summary with provider='mock', costUsd=0
+   - Both providers failing returns null (graceful degradation)
+   - 7 tests covering all paths
+
+2. **Notification Delivery Extended** (`src/lib/notifications/delivery.ts`):
+   - `responseId` made optional (`string | null | undefined`) to support business-level notifications
+   - Weekly value report and monthly impact emails have no specific response — pass null
+   - Backward-compatible: existing callers unaffected
+
+3. **Queue Registration** (`worker/queues.ts`, `src/lib/shared/worker-types.ts`):
+   - `SendMonthlyImpactPayload` interface: `{ business_id, month_start_date }`
+   - `SEND_MONTHLY_IMPACT` queue name, queue instance, topic-to-queue mapping
+
+4. **Weekly Value Report Email Template** (`src/lib/notifications/email.ts`):
+   - New `buildWeeklyValueReportHtml()` replacing old `buildWeeklySummaryEmailHtml()`
+   - Sections: AI Intelligence Brief (blue left border, light blue bg), Value Delivered header (reviews × 7 min), Response Rate Lift (with baseline comparison), Review Velocity (4-week average), Conditional Ranking, Notable Reviews, Conditional Dashboard Link
+   - Old template and interface removed
+
+5. **Monthly Impact Email Template** (`src/lib/notifications/email.ts`):
+   - New `buildMonthlyImpactEmailHtml()` with Monthly Intelligence Brief, value delivered in hours, response rate with baseline, ranking change, best review of the month (with approved response), dashboard link
+   - 24 tests for both email templates
+
+6. **Upgraded WeeklySummaryWorker** (`worker/jobs/WeeklySummaryWorker.ts`):
+   - Expanded business query to include ROI baseline fields
+   - New queries: reviews for LLM summary (30 max), 4-week average review count, ranking snapshots (latest + initial), dashboard eligibility (owner has auth_id)
+   - Intelligence brief: reuses existing `summary_text` from weekly_summaries if present (idempotent), otherwise calls `generateReviewSummary()` and persists
+   - Records notification delivery with `template='weekly_value_report'` after successful send
+   - Email subject changed to "Weekly Value Report"
+   - 12 tests covering all paths
+
+7. **MonthlyImpactScheduler** (`worker/jobs/MonthlyImpactScheduler.ts`):
+   - Hourly setInterval poller, fires 1st of month 9-10 AM UTC
+   - Queries active/past_due businesses without sent monthly_impact_emails for previous month
+   - Dedup guard: checks both monthly_impact_emails table and in-flight outbox entries
+   - Same patterns as WeeklySummaryScheduler
+
+8. **MonthlyImpactWorker** (`worker/jobs/MonthlyImpactWorker.ts`):
+   - Processes `send_monthly_impact` outbox entries
+   - Idempotent upsert into monthly_impact_emails (sent_at IS NULL guard)
+   - Queries month stats, best review (highest star + longest text), reviews for LLM brief
+   - Reuses existing `summary_text` if present (no re-LLM on retry)
+   - Conditional ranking snapshots (latest vs initial)
+   - Dashboard URL only when owner has auth_id
+   - Crash-safe: marks sent_at BEFORE Resend call
+   - Records notification delivery with `template='monthly_impact'`
+   - 13 tests covering all paths
+
+9. **Worker Registration** (`worker/index.ts`):
+   - MonthlyImpactWorker added to BullMQ workers array (10 workers total)
+   - MonthlyImpactScheduler added to startup/shutdown lifecycle (6 pollers total)
+
+10. **Migration 008** (`supabase/migrations/008_retention_core.sql`):
+    - `monthly_impact_emails` table (UUIDv7 PK, business_id FK, month_start_date, summary_text, sent_at)
+    - Unique constraint on (business_id, month_start_date) for idempotency
+    - Index on notification_deliveries (business_id, template, sent_at DESC) for cooldown checks
+
+**Test count:** 307/307 passing across 24 files (was 253)
+**New test files:** `review-summary.test.ts`, `email-templates.test.ts`, `WeeklySummaryWorker.test.ts`, `MonthlyImpactWorker.test.ts`
 
 ---
 

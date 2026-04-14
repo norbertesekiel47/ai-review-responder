@@ -175,7 +175,9 @@ The architecture was designed so this is a mechanical swap — same outbox, same
     - L10: E2E tests use `domcontentloaded` waitUntil
     - Admin navbar added to all admin pages (shared layout component)
     - 253/253 tests passing across 21 files
-- Sprint 5: NOT STARTED
+- **Sprint 5: IN PROGRESS**
+  - Prompt 19a (Weekly Value Report + Monthly Impact Email): COMPLETE (2026-04-14) — Review summary LLM helper (OpenAI→Anthropic fallback + cost audit), `recordNotificationDelivery` extended for business-level notifications (responseId optional), `SendMonthlyImpactPayload` + BullMQ queue registered, WeeklySummaryWorker upgraded to Weekly Value Report with AI Intelligence Brief + value-delivered header + response rate lift + review velocity + conditional ranking + dashboard link, old `buildWeeklySummaryEmailHtml` replaced with `buildWeeklyValueReportHtml`, MonthlyImpactScheduler (1st of month 9-10 AM UTC), MonthlyImpactWorker (idempotent upsert, LLM brief, best review, crash-safe sent_at), `buildMonthlyImpactEmailHtml` template, migration 008 (monthly_impact_emails table + notification delivery index). 307/307 tests passing across 24 files.
+  - New files: `src/lib/responses/review-summary.ts`, `worker/jobs/MonthlyImpactScheduler.ts`, `worker/jobs/MonthlyImpactWorker.ts`, `supabase/migrations/008_retention_core.sql`
 - GBP API: NOT APPLIED FOR
 
 ## Lab notes
