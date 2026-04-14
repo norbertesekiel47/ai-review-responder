@@ -253,10 +253,20 @@ async function applyAvoidFactsGuardrail(
       // Best-effort — cache TTL will expire the polluted entry eventually
     }
 
+    // Re-check the retry for violations
+    const retryViolation = findAvoidFactViolation(merged.responseText, avoidFacts);
+    if (retryViolation) {
+      throw new Error(
+        `Avoid-fact violation persists after retry for review ${ids.reviewId}: "${retryViolation}"`,
+      );
+    }
+
     return merged;
-  } catch {
-    console.warn(`${LOG_PREFIX} Avoid-fact retry failed for review ${ids.reviewId}, using original response`);
-    return result;
+  } catch (err) {
+    // Retry failed or still violates — do NOT fall back to the violating draft.
+    // Throw so the worker marks this as failed and creates a review exception.
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`Avoid-fact guardrail failed for review ${ids.reviewId}: ${message}`);
   }
 }
 
