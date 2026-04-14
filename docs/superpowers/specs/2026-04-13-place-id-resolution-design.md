@@ -58,7 +58,7 @@ Replace the `googleMapsUrl` text input with:
 2. A "Or paste a Google Maps URL" toggle that reveals the old text input (fallback)
 
 The form schema changes:
-- When autocomplete is used: submit `{ googlePlaceId, googlePlaceName, googlePlaceAddress }` — no URL parsing needed
+- When autocomplete is used: submit `{ googlePlaceId, googlePlaceAddress }` — no URL parsing needed
 - When URL fallback is used: submit `{ googleMapsUrl }` — existing URL parsing + worker validation
 
 **Demo form (`/admin/demos`):**
@@ -105,7 +105,7 @@ Current `extractPlaceId()` returns `string | null`. Add a richer extraction func
 
 ```typescript
 interface GoogleMapsUrlData {
-  placeId: string | null;       // ChIJ... format (high confidence)
+  placeId: string | null;       // canonical base64url format (high confidence)
   hexCid: string | null;        // 0x...:0x... format (unreliable with SerpAPI)
   businessName: string | null;  // decoded from /place/Name/ URL segment
   coordinates: { lat: number; lng: number } | null; // from /@lat,lng segment
@@ -115,7 +115,7 @@ function parseGoogleMapsUrl(input: string): GoogleMapsUrlData;
 ```
 
 From `https://www.google.com/maps/place/Caf%C3%A9+LaTTea/@37.32,-122.01,...`, this extracts:
-- `placeId`: null (no ChIJ in this URL)
+- `placeId`: null (no canonical Place ID in this URL)
 - `hexCid`: `0x808fb59e48e954f1:0xd8ad2f3c266775b`
 - `businessName`: `Cafe LaTTea`
 - `coordinates`: `{ lat: 37.3231977, lng: -122.0123423 }`
@@ -148,35 +148,43 @@ Resolution strategy (in order):
 1. Has canonical Place ID (base64url)? → Return directly (high confidence)
 2. Has business name + coordinates? → SerpAPI search (engine=google_maps) with name as query,
    coordinates as ll parameter → match results → return place_id
-3. Has business name but no coordinates? → SerpAPI search by name only → match results
-4. Nothing useful (no name, no ID)? → Fail with descriptive error
+3. Anything else (name only, hex CID only, nothing)? → Fail fast with clear error
+   directing the admin to use autocomplete
 ```
+
+**Why no name-only fallback:** Name-only SerpAPI Maps search has the highest false-match risk (common business names, no geographic anchor) and still costs a credit. Failing fast and directing the admin to autocomplete is cheaper and more reliable than guessing.
 
 **Note:** The hex CID is NOT used as a SerpAPI lookup parameter. SerpAPI's `data` parameter is deprecated and requires a constructed value (data_id + coordinates), not a raw hex string. The `ll` parameter is only a search origin — SerpAPI does not guarantee results are within that area. This is why the coordinate + name matching gate below is critical.
 
-**SerpAPI search call:**
+**SerpAPI search call (only when both name + coordinates are available):**
 ```typescript
 const params: Record<string, unknown> = {
   engine: 'google_maps',
   q: businessName,            // "Cafe LaTTea"
+  ll: `@${coordinates.lat},${coordinates.lng},15z`,
   type: 'search',
   api_key: serpApiKey,
 };
-// ll is a search origin hint, NOT a geographic filter
-if (coordinates) {
-  params.ll = `@${coordinates.lat},${coordinates.lng},15z`;
-}
 ```
 
-**Result matching (required to compensate for `ll` not being a filter):**
+**Result matching (required to compensate for `ll` not being a geographic filter):**
 - SerpAPI returns `local_results[]` with `place_id`, `title`, `gps_coordinates`, `address`
-- Match by coordinate proximity (haversine distance < 200m) — if coordinates available
+- Match by coordinate proximity (haversine distance < 200m)
 - If multiple results within 200m, pick the one whose `title` best matches `businessName` (case-insensitive, normalized whitespace, diacritics stripped via `String.normalize('NFD')`)
-- If no coordinates available, match by exact name against the first 3 results only (high false-match risk otherwise)
 - If no result passes thresholds, fail with "Could not verify business location — try using the search field instead"
 - Return the matched `place_id`
 
 **Cost:** 1 SerpAPI credit per resolution. One-time cost per business — the resolved Place ID is stored and reused for all future polling.
+
+### SerpAPI budget guard
+
+The resolver makes a `google_maps` search call (1 credit) and the subsequent reviews fetch costs another credit. In the worst case where every demo uses the URL fallback, 50 demos/day = 100 SerpAPI credits/day (50 resolution + 50 reviews).
+
+To prevent runaway spend:
+- The resolver checks the existing `checkRateLimit()` infrastructure before making the SerpAPI search call, using key `serpapi:resolve:daily` with a limit of **75/day** (covers onboarding + demos with headroom)
+- If the limit is hit, the resolver fails with a clear error: "Daily Place ID resolution limit reached — use the search field instead"
+- This is separate from the existing demo rate limit (50/day) which gates the total pipeline
+- The reviews fetch itself is already gated by the demo rate limit and the cost guard system
 
 ### When the resolver is called
 
@@ -201,12 +209,12 @@ interface ValidatePlaceIdPayload {
 
 1. Read business record
 2. Parse URL via `parseGoogleMapsUrl()`
-3. If URL contains a ChIJ Place ID directly:
+3. If URL contains a canonical Place ID directly (passes `isPlaceId()`):
    - Store it, set `place_id_verified = true`
    - Queue `sync_reviews` in the same transaction
    - Done
 4. Otherwise, call resolver:
-   - On success: update `google_place_id` with canonical ChIJ, set `place_id_verified = true`, queue `sync_reviews`
+   - On success: update `google_place_id` with canonical Place ID, set `place_id_verified = true`, queue `sync_reviews`
    - On failure (permanent — no match found): set `place_id_verified = false`, insert `review_exceptions` entry with type `place_id_resolution_failed`, mark outbox failed
    - On failure (transient — SerpAPI down): throw to trigger BullMQ retry
 
@@ -229,16 +237,19 @@ SET place_id_verified = TRUE
 WHERE google_place_id IS NOT NULL
   AND google_place_id ~ '^[A-Za-z][A-Za-z0-9_-]{19,}$';
 
--- Queue validate_place_id for existing businesses with hex CIDs or unknown formats.
--- These rows keep place_id_verified = FALSE and will be resolved by the worker.
-INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+-- Existing businesses with hex CIDs or unknown formats stay place_id_verified = FALSE.
+-- They cannot be auto-resolved (no stored URL to parse). Insert a review_exception
+-- so the admin sees them in the dashboard and can reselect via autocomplete.
+INSERT INTO review_exceptions (id, business_id, exception_type, details, created_at)
 SELECT
   gen_random_uuid(),
-  'validate_place_id',
-  'business',
   id,
-  jsonb_build_object('business_id', id, 'google_maps_url', ''),
-  'pending'
+  'place_id_resolution_required',
+  jsonb_build_object(
+    'reason', 'Existing google_place_id is not a canonical Place ID',
+    'current_value', google_place_id
+  ),
+  NOW()
 FROM businesses
 WHERE google_place_id IS NOT NULL
   AND NOT (google_place_id ~ '^[A-Za-z][A-Za-z0-9_-]{19,}$');
@@ -268,7 +279,7 @@ WHERE b.subscription_status = 'active'
 
 ## Layer 5: SerpAPI Source/Monitor Cleanup
 
-Once all identifiers flowing into the system are canonical ChIJ Place IDs:
+Once all identifiers flowing into the system are canonical Place IDs:
 
 - **Revert `serpapi-source.ts`**: Remove the `isHexCid` conditional. Always use `place_id` parameter.
 - **Revert `serpapi-monitor.ts`**: Same — always `place_id`.
@@ -309,8 +320,8 @@ Admin uses autocomplete or pastes URL
   → API route stores demo with placeId or URL data
   → Queues generate_demo
   → DemoGenerationWorker:
-    - If placeId is ChIJ → use directly
-    - If hex CID or URL → resolve via SerpAPI search first
+    - If placeId passes isPlaceId() → use directly
+    - If URL fallback → resolve via SerpAPI search (requires name + coords)
     - Fetch reviews with verified Place ID
     - Generate responses
 ```
@@ -331,13 +342,15 @@ Every 60 minutes:
 | Scenario | Behavior |
 |---|---|
 | Autocomplete used | Server validates format with `isPlaceId()`. Rejects hex CIDs/URLs. `place_id_verified = true` only after validation. |
-| URL contains ChIJ | Validation worker sets `place_id_verified = true` immediately. |
-| URL contains hex CID | Resolver searches by name + coords. 1 SerpAPI credit. |
-| URL contains no ID | Resolver searches by name + coords. 1 SerpAPI credit. |
+| URL contains canonical Place ID | Validation worker sets `place_id_verified = true` immediately. No SerpAPI call. |
+| URL has name + coords (no canonical ID) | Resolver searches by name + coords. 1 SerpAPI credit. |
+| URL has name only (no coords) | Fail fast — too high false-match risk. Admin directed to use autocomplete. |
+| URL has hex CID only (no name/coords) | Fail fast — hex CID is unreliable. Admin directed to use autocomplete. |
 | SerpAPI search finds no match | `place_id_verified = false`, exception logged, admin can retry or use autocomplete. |
 | SerpAPI down during validation | BullMQ retries with backoff (transient error). |
 | Ambiguous search results | Match by coordinate proximity (< 200m) + name similarity. Fail if no confident match. |
 | Shortened URL (maps.app.goo.gl) | No ID, no coords, no name extractable. Fail with clear error suggesting autocomplete or full URL. |
+| SerpAPI resolution daily limit hit | Fail with "Daily resolution limit reached — use the search field instead". Budget: 75/day. |
 
 ---
 
@@ -371,7 +384,7 @@ The `place_id_verified` flag and `google_maps_url` column remain useful througho
 | Onboarding API route | Handle both input modes, conditionally queue validation |
 | Demo form | Same — autocomplete + URL fallback |
 | Demo API route | Handle both input modes, pass URL data in payload |
-| `DemoGenerationWorker` | Add resolver pre-step for non-ChIJ IDs |
+| `DemoGenerationWorker` | Add resolver pre-step for non-canonical IDs |
 | `ReconciliationPoller` | Add `place_id_verified = TRUE` filter |
 | `serpapi-source.ts` | Revert to always `place_id` (no more `isHexCid` conditional) |
 | `serpapi-monitor.ts` | Same revert |
