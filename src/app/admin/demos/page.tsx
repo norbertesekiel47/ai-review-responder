@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { DemoListItem } from '@/lib/demos/types';
+import { PlaceAutocomplete, type PlaceSelection } from '@/components/PlaceAutocomplete';
 
 // Auth: Supabase session checked by src/middleware.ts (admin/sales_partner role required)
 
@@ -26,18 +27,28 @@ function GenerateForm() {
   const [url, setUrl] = useState('');
   const [businessName, setBusinessName] = useState('');
   const [category, setCategory] = useState('');
+  const [inputMode, setInputMode] = useState<'autocomplete' | 'url'>('autocomplete');
+  const [placeSelection, setPlaceSelection] = useState<PlaceSelection | null>(null);
   const queryClient = useQueryClient();
 
   const mutation = useMutation({
     mutationFn: async () => {
+      const body = placeSelection
+        ? {
+            googlePlaceId: placeSelection.placeId,
+            businessName,
+            category: category || undefined,
+          }
+        : {
+            googleMapsUrl: url,
+            businessName,
+            category: category || undefined,
+          };
+
       const res = await fetch('/api/admin/demos/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          googleMapsUrl: url,
-          businessName,
-          category: category || undefined,
-        }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) {
         const data = await res.json();
@@ -49,6 +60,7 @@ function GenerateForm() {
       setUrl('');
       setBusinessName('');
       setCategory('');
+      setPlaceSelection(null);
       queryClient.invalidateQueries({ queryKey: ['demos'] });
     },
   });
@@ -66,21 +78,40 @@ function GenerateForm() {
         className="space-y-4"
       >
         <div>
-          <label
-            htmlFor="url"
-            className="block text-sm font-medium text-gray-700 mb-1"
-          >
-            Google Maps URL
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Business Location
           </label>
-          <input
-            id="url"
-            type="text"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder="https://www.google.com/maps/place/..."
-            required
-            className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          />
+          {inputMode === 'autocomplete' ? (
+            <PlaceAutocomplete
+              onPlaceSelect={(sel) => setPlaceSelection(sel)}
+              onClear={() => setPlaceSelection(null)}
+              placeholder="Search for a business..."
+              className="rounded-md border border-gray-300 px-1 py-1 shadow-sm w-full"
+            />
+          ) : (
+            <input
+              id="url"
+              type="text"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="https://www.google.com/maps/place/..."
+              required={inputMode === 'url'}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              setInputMode(inputMode === 'autocomplete' ? 'url' : 'autocomplete');
+              setPlaceSelection(null);
+              setUrl('');
+            }}
+            className="mt-1 text-xs text-blue-600 hover:text-blue-800"
+          >
+            {inputMode === 'autocomplete'
+              ? 'Or paste a Google Maps URL'
+              : 'Use search instead'}
+          </button>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

@@ -7,11 +7,14 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { z } from 'zod';
+import { PlaceAutocomplete } from '@/components/PlaceAutocomplete';
 
 const FormSchema = z.object({
   name: z.string().min(1, 'Business name is required').max(255),
   category: z.string().max(100).optional(),
-  googleMapsUrl: z.string().min(1, 'Google Maps URL is required'),
+  googlePlaceId: z.string().optional(),
+  googlePlaceAddress: z.string().optional(),
+  googleMapsUrl: z.string().optional(),
   ownerName: z.string().min(1, 'Owner name is required').max(255),
   ownerEmail: z.string().email('Valid email is required').max(255),
   ownerPhone: z.string().max(20).optional(),
@@ -85,10 +88,13 @@ export default function NewBusinessPage() {
   const router = useRouter();
   const [serverError, setServerError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [inputMode, setInputMode] = useState<'autocomplete' | 'url'>('autocomplete');
 
   const {
     register,
     handleSubmit,
+    setValue,
+    clearErrors,
     formState: { errors },
   } = useForm<FormData>({
     resolver: zodResolver(FormSchema),
@@ -104,10 +110,30 @@ export default function NewBusinessPage() {
     setServerError(null);
 
     try {
+      const payload = data.googlePlaceId
+        ? {
+            name: data.name,
+            category: data.category,
+            googlePlaceId: data.googlePlaceId,
+            googlePlaceAddress: data.googlePlaceAddress,
+            ownerName: data.ownerName,
+            ownerEmail: data.ownerEmail,
+            ownerPhone: data.ownerPhone,
+            notificationPreference: data.notificationPreference,
+            tone: data.tone,
+            productsServices: data.productsServices,
+            staffNames: data.staffNames,
+            highlightFacts: data.highlightFacts,
+            avoidFacts: data.avoidFacts,
+            sampleResponses: data.sampleResponses,
+            subscriptionTier: data.subscriptionTier,
+          }
+        : data;
+
       const res = await fetch('/api/admin/businesses', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
+        body: JSON.stringify(payload),
       });
 
       const json = (await res.json()) as { id?: string; error?: string };
@@ -164,16 +190,46 @@ export default function NewBusinessPage() {
             </Field>
 
             <Field
-              label="Google Maps URL *"
-              error={errors.googleMapsUrl?.message}
-              hint="Paste the full Google Maps URL for this business"
+              label="Business Location *"
+              error={errors.googlePlaceId?.message || errors.googleMapsUrl?.message}
+              hint={
+                inputMode === 'autocomplete'
+                  ? 'Search for the business by name'
+                  : 'Paste the full Google Maps URL for this business'
+              }
             >
-              <input
-                {...register('googleMapsUrl')}
-                type="text"
-                className={inputClass}
-                placeholder="https://maps.google.com/..."
-              />
+              {inputMode === 'autocomplete' ? (
+                <PlaceAutocomplete
+                  onPlaceSelect={(sel) => {
+                    setValue('googlePlaceId', sel.placeId);
+                    setValue('googlePlaceAddress', sel.formattedAddress);
+                    clearErrors('googlePlaceId');
+                  }}
+                  onClear={() => {
+                    setValue('googlePlaceId', '');
+                    setValue('googlePlaceAddress', '');
+                  }}
+                  className="rounded-md border border-gray-300 px-1 py-1 shadow-sm"
+                />
+              ) : (
+                <input
+                  {...register('googleMapsUrl')}
+                  type="text"
+                  className={inputClass}
+                  placeholder="https://maps.google.com/..."
+                />
+              )}
+              <button
+                type="button"
+                onClick={() =>
+                  setInputMode(inputMode === 'autocomplete' ? 'url' : 'autocomplete')
+                }
+                className="mt-1 text-xs text-indigo-600 hover:text-indigo-800"
+              >
+                {inputMode === 'autocomplete'
+                  ? 'Or paste a Google Maps URL'
+                  : 'Use search instead'}
+              </button>
             </Field>
           </SectionCard>
 

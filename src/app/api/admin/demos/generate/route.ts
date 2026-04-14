@@ -3,16 +3,22 @@ import { z } from 'zod';
 import { v7 as uuidv7 } from 'uuid';
 import { nanoid } from 'nanoid';
 import { sql } from '@/lib/db/server';
-import { extractPlaceId } from '@/lib/reviews/url-parser';
+import { isPlaceId, extractPlaceId } from '@/lib/reviews/url-parser';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import type { DemoJobPayload } from '@/lib/demos/types';
 
-const GenerateDemoSchema = z.object({
-  googleMapsUrl: z.string().min(1, 'Google Maps URL is required'),
-  businessName: z.string().min(1, 'Business name is required').max(255),
-  category: z.string().max(100).optional(),
-});
+const GenerateDemoSchema = z
+  .object({
+    googlePlaceId: z.string().min(1).optional(),
+    googleMapsUrl: z.string().min(1).optional(),
+    businessName: z.string().min(1, 'Business name is required').max(255),
+    category: z.string().max(100).optional(),
+  })
+  .refine(
+    (data) => Boolean(data.googlePlaceId) || Boolean(data.googleMapsUrl),
+    { message: 'Either a Place ID or Google Maps URL is required', path: ['googlePlaceId'] },
+  );
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
@@ -53,14 +59,21 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
   }
 
-  const { googleMapsUrl, businessName, category } = parsed.data;
+  const { businessName, category } = parsed.data;
 
-  const placeId = extractPlaceId(googleMapsUrl);
-  if (!placeId) {
-    return NextResponse.json(
-      { error: 'Could not extract Google Place ID from URL' },
-      { status: 400 },
-    );
+  let placeId: string;
+  let googleMapsUrl: string | undefined;
+
+  if (parsed.data.googlePlaceId) {
+    if (!isPlaceId(parsed.data.googlePlaceId)) {
+      return NextResponse.json({ error: 'Invalid Place ID format' }, { status: 400 });
+    }
+    placeId = parsed.data.googlePlaceId;
+  } else {
+    // URL fallback — extract what we can for now, worker will resolve
+    const extracted = extractPlaceId(parsed.data.googleMapsUrl!);
+    placeId = extracted ?? 'pending_resolution';
+    googleMapsUrl = parsed.data.googleMapsUrl;
   }
 
   const demoId = uuidv7();
@@ -72,14 +85,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     googlePlaceId: placeId,
     businessName,
     category,
+    googleMapsUrl,
   };
 
   // Transactional outbox: demo + outbox entry in ONE transaction
   try {
     await sql.begin(async (tx) => {
       await tx`
-        INSERT INTO prospect_demos (id, business_name, google_place_id, demo_url_slug, generation_status)
-        VALUES (${demoId}, ${businessName}, ${placeId}, ${slug}, 'queued')
+        INSERT INTO prospect_demos (id, business_name, google_place_id, google_maps_url, demo_url_slug, generation_status)
+        VALUES (${demoId}, ${businessName}, ${placeId}, ${googleMapsUrl ?? null}, ${slug}, 'queued')
       `;
 
       await tx`

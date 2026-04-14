@@ -3,11 +3,15 @@ import { sql } from '../../src/lib/db/server';
 import { generateDemo } from '../../src/lib/demos/generator';
 import type { DemoJobPayload } from '../../src/lib/demos/types';
 import { markOutboxCompleted } from '../../src/lib/shared/outbox';
+import { isPlaceId, parseGoogleMapsUrl } from '../../src/lib/reviews/url-parser';
+import { resolvePlaceId } from '../../src/lib/reviews/place-id-resolver';
 
 export async function handleDemoGeneration(
   job: Job<DemoJobPayload>,
 ): Promise<void> {
-  const { demoId, googlePlaceId, businessName, category } = job.data;
+  const { demoId, businessName, category } = job.data;
+  let { googlePlaceId } = job.data;
+  const googleMapsUrl = job.data.googleMapsUrl;
   const outboxId = (job.data as unknown as { outbox_id?: string }).outbox_id ?? job.id!;
 
   // Idempotency: only process if still in a startable state
@@ -71,6 +75,14 @@ export async function handleDemoGeneration(
   }
 
   try {
+    // Resolve Place ID if it's not canonical (e.g. URL fallback path set 'pending_resolution')
+    if (!isPlaceId(googlePlaceId) && googleMapsUrl) {
+      const urlData = parseGoogleMapsUrl(googleMapsUrl);
+      googlePlaceId = await resolvePlaceId(urlData);
+    } else if (!isPlaceId(googlePlaceId)) {
+      throw new Error('Invalid Place ID and no URL available for resolution');
+    }
+
     const result = await generateDemo({
       placeId: googlePlaceId,
       businessName,

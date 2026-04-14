@@ -14,6 +14,7 @@ const QUEUE_NAMES = [
   'generate_demo',
   'weekly_summary',
   'notify_admin_review_exception',
+  'validate_place_id',
 ] as const;
 
 export const dynamic = 'force-dynamic';

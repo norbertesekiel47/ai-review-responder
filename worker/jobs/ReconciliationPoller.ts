@@ -31,6 +31,7 @@ async function pollBusinesses(): Promise<void> {
       FROM businesses b
       WHERE b.subscription_status = 'active'
         AND b.google_place_id IS NOT NULL
+        AND b.place_id_verified = TRUE
         AND (b.last_sync_at IS NULL OR b.last_sync_at < NOW() - INTERVAL '60 minutes')
     `;
 

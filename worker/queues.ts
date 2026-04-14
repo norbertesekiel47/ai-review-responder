@@ -46,6 +46,7 @@ export const QUEUE_NAMES = {
   GENERATE_DEMO: 'generate_demo',
   WEEKLY_SUMMARY: 'weekly_summary',
   NOTIFY_ADMIN: 'notify_admin_review_exception',
+  VALIDATE_PLACE_ID: 'validate_place_id',
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -72,6 +73,7 @@ export const queues = {
   generateDemo: new Queue(QUEUE_NAMES.GENERATE_DEMO, { connection: opts, defaultJobOptions }),
   weeklySummary: new Queue(QUEUE_NAMES.WEEKLY_SUMMARY, { connection: opts, defaultJobOptions }),
   notifyAdmin: new Queue(QUEUE_NAMES.NOTIFY_ADMIN, { connection: opts, defaultJobOptions }),
+  validatePlaceId: new Queue(QUEUE_NAMES.VALIDATE_PLACE_ID, { connection: opts, defaultJobOptions }),
 } as const;
 
 // Lookup table: outbox topic string → Queue instance
@@ -83,4 +85,5 @@ export const topicToQueue: Record<string, Queue> = {
   [QUEUE_NAMES.GENERATE_DEMO]: queues.generateDemo,
   [QUEUE_NAMES.WEEKLY_SUMMARY]: queues.weeklySummary,
   [QUEUE_NAMES.NOTIFY_ADMIN]: queues.notifyAdmin,
+  [QUEUE_NAMES.VALIDATE_PLACE_ID]: queues.validatePlaceId,
 };

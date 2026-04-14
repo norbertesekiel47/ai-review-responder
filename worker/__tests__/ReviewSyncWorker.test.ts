@@ -84,6 +84,7 @@ function activeBusiness(overrides: Record<string, unknown> = {}) {
     id: 'biz-001',
     subscription_status: 'active',
     google_place_id: 'ChIJ-test',
+    place_id_verified: true,
     baseline_captured_at: new Date(),
     updated_at: new Date(),
     ...overrides,
@@ -336,7 +337,17 @@ describe('ReviewSyncWorker – handleReviewSync', () => {
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-test-123');
   });
 
-  // 11. Duplicate identity collision — suppressed by ON CONFLICT DO NOTHING
+  // 11. place_id_verified = false — early return, no SerpAPI call
+  it('completes the outbox without fetching reviews when place_id_verified is false', async () => {
+    sqlReturnQueue.push([activeBusiness({ place_id_verified: false })]);
+
+    await handleReviewSync(makeJob());
+
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-test-123');
+    expect(mockFetchReviews).not.toHaveBeenCalled();
+  });
+
+  // 12. Duplicate identity collision — suppressed by ON CONFLICT DO NOTHING
   it('does not fail when duplicate collision insert is suppressed', async () => {
     let sqlCallCount = 0;
     mockSql.mockImplementation((_s: TemplateStringsArray, ..._v: unknown[]) => {

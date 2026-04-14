@@ -8,6 +8,7 @@ export interface DemoJobPayload {
   googlePlaceId: string;
   businessName: string;
   category?: string;
+  googleMapsUrl?: string;
 }
 
 // ── Generator input/output ──────────────────────────────────────────

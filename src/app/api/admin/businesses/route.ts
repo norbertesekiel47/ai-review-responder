@@ -3,8 +3,8 @@ import { v7 as uuidv7 } from 'uuid';
 import { OnboardBusinessSchema } from '@/lib/shared/schemas';
 import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
-import { extractPlaceId } from '@/lib/reviews/url-parser';
-import type { SyncReviewsPayload } from '@/lib/shared/worker-types';
+import { isPlaceId, extractPlaceId } from '@/lib/reviews/url-parser';
+import type { SyncReviewsPayload, ValidatePlaceIdPayload } from '@/lib/shared/worker-types';
 
 export const dynamic = 'force-dynamic';
 
@@ -142,12 +142,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   const data = parsed.data;
 
-  const placeId = extractPlaceId(data.googleMapsUrl);
-  if (!placeId) {
-    return NextResponse.json(
-      { error: 'Could not extract Google Place ID from URL' },
-      { status: 400 },
-    );
+  let placeId: string | null = null;
+  let placeIdVerified = false;
+
+  if (data.googlePlaceId) {
+    // Autocomplete path — validate format server-side
+    if (!isPlaceId(data.googlePlaceId)) {
+      return NextResponse.json({ error: 'Invalid Place ID format' }, { status: 400 });
+    }
+    placeId = data.googlePlaceId;
+    placeIdVerified = true;
+  } else if (data.googleMapsUrl) {
+    // URL fallback — extract what we can, validation happens in worker
+    placeId = extractPlaceId(data.googleMapsUrl);
+    // placeId may be hex CID or null — that's OK, worker will resolve it
+    placeIdVerified = false;
+  } else {
+    return NextResponse.json({ error: 'Place ID or Google Maps URL required' }, { status: 400 });
   }
 
   const businessId = uuidv7();
@@ -163,11 +174,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const avoidFacts = splitCommaOrNewline(data.avoidFacts);
   const sampleResponses = splitParagraphs(data.sampleResponses);
 
-  const payload: SyncReviewsPayload = {
-    business_id: businessId,
-    google_place_id: placeId,
-  };
-
   try {
     await sql.begin(async (tx) => {
       await tx`
@@ -176,6 +182,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           name,
           category,
           google_place_id,
+          place_id_verified,
+          google_maps_url,
           tone,
           products_services,
           staff_names,
@@ -193,6 +201,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           ${data.name},
           ${data.category ?? null},
           ${placeId},
+          ${placeIdVerified},
+          ${data.googleMapsUrl ?? null},
           ${data.tone},
           ${data.productsServices ?? null},
           ${staffNames},
@@ -220,17 +230,41 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         )
       `;
 
-      await tx`
-        INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-        VALUES (
-          ${outboxId},
-          'sync_reviews',
-          'business',
-          ${businessId},
-          ${JSON.stringify(payload)}::jsonb,
-          'pending'
-        )
-      `;
+      if (placeIdVerified) {
+        // Queue sync_reviews directly — Place ID is canonical
+        const syncPayload: SyncReviewsPayload = {
+          business_id: businessId,
+          google_place_id: placeId!,
+        };
+        await tx`
+          INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+          VALUES (
+            ${outboxId},
+            'sync_reviews',
+            'business',
+            ${businessId},
+            ${JSON.stringify(syncPayload)}::jsonb,
+            'pending'
+          )
+        `;
+      } else {
+        // Queue validate_place_id first — worker resolves then syncs
+        const validatePayload: ValidatePlaceIdPayload = {
+          business_id: businessId,
+          google_maps_url: data.googleMapsUrl!,
+        };
+        await tx`
+          INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+          VALUES (
+            ${outboxId},
+            'validate_place_id',
+            'business',
+            ${businessId},
+            ${JSON.stringify(validatePayload)}::jsonb,
+            'pending'
+          )
+        `;
+      }
     });
   } catch (error) {
     const pgError = error as { code?: string };
