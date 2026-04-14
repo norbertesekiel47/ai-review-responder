@@ -27,13 +27,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'session_id is required' }, { status: 400 });
   }
 
-  // Try to find the business by checking inbound_events for the checkout session
-  // The Stripe webhook stores the full event payload in inbound_events
+  // Try to find the business by checking inbound_events for the checkout session.
+  // The Stripe webhook stores the full event object — the session ID is nested
+  // at payload->'data'->'object'->>'id' (not payload->>'id', which is the event ID).
   const [event] = await sql<{ payload: string | Record<string, unknown> }[]>`
     SELECT payload FROM inbound_events
     WHERE source = 'stripe'
       AND event_type = 'checkout.session.completed'
-      AND payload->>'id' = ${sessionId}
+      AND payload->'data'->'object'->>'id' = ${sessionId}
     LIMIT 1
   `;
 
