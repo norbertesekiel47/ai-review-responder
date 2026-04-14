@@ -100,7 +100,7 @@ describe('generateReviewSummary', () => {
 
     expect(result).not.toBeNull();
     // The user prompt should reference 30 reviews, not 50
-    const callArgs = openaiCreate.mock.calls[0][0];
+    const callArgs = openaiCreate.mock.calls[0]![0];
     const userMessage = callArgs.messages[1].content as string;
     expect(userMessage).toContain('30 recent customer reviews');
     expect(userMessage).not.toContain('Review number 31');
