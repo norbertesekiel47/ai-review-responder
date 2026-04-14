@@ -84,6 +84,7 @@ function activeBusiness(overrides: Record<string, unknown> = {}) {
     id: 'biz-001',
     subscription_status: 'active',
     google_place_id: 'ChIJ-test',
+    place_id_verified: true,
     baseline_captured_at: new Date(),
     updated_at: new Date(),
     ...overrides,

@@ -24,10 +24,11 @@ export async function handleReviewSync(
     id: string;
     subscription_status: string;
     google_place_id: string | null;
+    place_id_verified: boolean;
     baseline_captured_at: Date | null;
     updated_at: Date;
   }[]>`
-    SELECT id, subscription_status, google_place_id, baseline_captured_at, updated_at
+    SELECT id, subscription_status, google_place_id, place_id_verified, baseline_captured_at, updated_at
     FROM businesses
     WHERE id = ${business_id}
   `;
@@ -40,6 +41,12 @@ export async function handleReviewSync(
 
   if (!business.google_place_id) {
     console.warn(`${LOG_PREFIX} Business ${business_id} has no google_place_id`);
+    await markOutboxCompleted(outboxId);
+    return;
+  }
+
+  if (!business.place_id_verified) {
+    console.warn(`${LOG_PREFIX} Business ${business_id} place_id not verified, skipping`);
     await markOutboxCompleted(outboxId);
     return;
   }
