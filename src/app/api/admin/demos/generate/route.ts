@@ -30,22 +30,36 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // Rate limit: 50 demos per day globally (cost-sensitive — triggers SerpAPI + LLM)
-  const dailyLimit = await checkRateLimit('demo:generate:daily', 50, 86400);
-  if (!dailyLimit.allowed) {
+  // Rate limits: fail CLOSED for cost-sensitive demo generation.
+  // If Redis is unavailable, return 503 instead of allowing uncapped generation.
+  if (!process.env.REDIS_CACHE_URL) {
     return NextResponse.json(
-      { error: 'Daily demo generation limit reached (50/day)' },
-      { status: 429 },
+      { error: 'Rate limiting unavailable — try again later' },
+      { status: 503 },
     );
   }
 
-  // Rate limit: 5 per minute per IP
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown';
-  const minuteLimit = await checkRateLimit(`demo:generate:minute:${ip}`, 5, 60);
-  if (!minuteLimit.allowed) {
+  try {
+    const dailyLimit = await checkRateLimit('demo:generate:daily', 50, 86400);
+    if (!dailyLimit.allowed) {
+      return NextResponse.json(
+        { error: 'Daily demo generation limit reached (50/day)' },
+        { status: 429 },
+      );
+    }
+
+    const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown';
+    const minuteLimit = await checkRateLimit(`demo:generate:minute:${ip}`, 5, 60);
+    if (!minuteLimit.allowed) {
+      return NextResponse.json(
+        { error: 'Too many demo generations. Try again in a minute.' },
+        { status: 429 },
+      );
+    }
+  } catch {
     return NextResponse.json(
-      { error: 'Too many demo generations. Try again in a minute.' },
-      { status: 429 },
+      { error: 'Rate limiting unavailable — try again later' },
+      { status: 503 },
     );
   }
 
