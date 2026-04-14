@@ -162,6 +162,19 @@ The architecture was designed so this is a mechanical swap — same outbox, same
   - Place ID Resolution: COMPLETE — Google Maps Place Autocomplete as primary input (PlaceAutocompleteElement, Essentials-tier fields, `color-scheme: light only` for dark mode compat). URL paste fallback with worker-side SerpAPI search resolution (`engine=google_maps`, haversine <200m matching). `place_id_verified` flag gates ReconciliationPoller + ReviewSyncWorker. PlaceIdValidationWorker (`validate_place_id` outbox topic). Budget guard 75/day via checkRateLimit. Migration 007 smart-grandfathers canonical IDs only, inserts `place_id_resolution_required` exceptions for hex CIDs. URL parser upgraded with `parseGoogleMapsUrl()` extracting name + coords + ID. Place IDs no longer restricted to `ChIJ` prefix (supports `GhIJ`, `Eic`, `Iho`, etc.). 249/249 tests passing across 21 files.
   - New files: `src/components/PlaceAutocomplete.tsx`, `src/lib/reviews/place-id-resolver.ts`, `worker/jobs/PlaceIdValidationWorker.ts`, `supabase/migrations/007_place_id_verification.sql`
   - New env var: `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` (Google Maps JS API key with Places API enabled)
+  - Robustness fixes (2026-04-14): COMPLETE — 10 validated findings from system-wide code review. All surgical, no new tables or workers.
+    - H1: NotificationWorker skips approval link revocation on retry when delivery record exists
+    - H2: ResponseGeneratorWorker re-checks avoid-facts on retry, fails instead of returning violating draft
+    - H3: Demo generation rate limit fails closed (503) when Redis unavailable
+    - H4: Stripe webhook uses atomic INSERT dedup (no check-then-insert race)
+    - H5: Stripe checkout verifies `payment_status=paid` + `mode=subscription` before activation
+    - M6: OutboxPoller dispatches BullMQ jobs outside DB transaction (two-phase claim+dispatch)
+    - M7: WeeklySummaryWorker marks `sent_at` before email send (prevents duplicate on crash)
+    - M8: Resend webhook rejects stale svix-timestamps (>5min replay protection)
+    - M9: Payment-success removes fallback to recent business + fixes session ID JSON path lookup
+    - L10: E2E tests use `domcontentloaded` waitUntil
+    - Admin navbar added to all admin pages (shared layout component)
+    - 253/253 tests passing across 21 files
 - Sprint 5: NOT STARTED
 - GBP API: NOT APPLIED FOR
 
@@ -177,6 +190,7 @@ The architecture was designed so this is a mechanical swap — same outbox, same
 - [2026-04-13] `gmp-place-autocomplete` (PlaceAutocompleteElement) has a closed shadow DOM — no CSS custom properties or `::part()` selectors can change the background. However, it respects `color-scheme`. If the system is in dark mode, it renders dark. Fix: `color-scheme: light only !important`. Also: `overflow: hidden` on the element clips the suggestions dropdown — never set it.
 - [2026-04-13] Google Maps Platform pricing changed March 2025 to tier-based (Essentials/Pro/Enterprise) with Free Usage Caps (10,000/month baseline). `displayName` field is Pro tier; `id` + `formattedAddress` + `location` are Essentials tier. Stay in Essentials to minimize costs.
 - [2026-04-13] `@googlemaps/js-api-loader` v2 `setOptions()` accesses `window` — crashes during Next.js SSR. Guard with `if (typeof window !== 'undefined')`. The deprecated `google.maps.places.Autocomplete` class is blocked for new customers since March 2025; use `PlaceAutocompleteElement` instead.
+- [2026-04-14] Stripe webhook stores the full **event** object in `inbound_events.payload`. The session ID is at `payload->'data'->'object'->>'id'`, NOT `payload->>'id'` (which is the event ID like `evt_...`). The payment-success route was querying the wrong JSON path, causing perpetual 404s.
 
 ## MCP Usage Reference
 

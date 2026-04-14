@@ -1539,6 +1539,34 @@ Improvements discovered during end-to-end manual testing of the full system afte
 
 **GBP API migration path:** When Google Business Profile API access is approved, Place Autocomplete stays as-is, resolver swaps from SerpAPI search to Google Places API (Find Place), validation worker stays, same `place_id_verified` flag and `google_maps_url` column.
 
+### Robustness Fixes — Code Review Findings (2026-04-14)
+
+10 validated findings from a system-wide code review. All surgical fixes — no new tables, no new workers, no architectural changes.
+
+**Spec:** `docs/superpowers/specs/2026-04-13-place-id-resolution-design.md`
+**Plan:** `docs/superpowers/plans/2026-04-14-robustness-fixes.md`
+
+**High priority (correctness/security):**
+- [x] H1: NotificationWorker — skip approval link revocation on retry when delivery record exists. Prevents revoking a live link sitting in the owner's inbox after crash-between-send-and-delivery-record.
+- [x] H2: ResponseGeneratorWorker — re-check `findAvoidFactViolation()` on retry result. Throw instead of falling back to the original violating draft. Worker marks outbox failed + creates review exception.
+- [x] H3: Demo generation rate limit — fail closed (503) when Redis unavailable. Prevents uncapped SerpAPI + LLM calls during Redis outages. Checks `REDIS_CACHE_URL` env var + wraps `checkRateLimit` in try/catch.
+- [x] H4: Stripe webhook — atomic INSERT dedup. Single `INSERT...ON CONFLICT DO NOTHING RETURNING id` replaces check-then-insert race. If no row returned, event already claimed — skip.
+- [x] H5: Stripe checkout — verify `session.payment_status === 'paid'` and `session.mode === 'subscription'` before setting `subscription_status = 'active'`. Rejects unpaid/non-subscription sessions.
+
+**Medium priority (reliability/security):**
+- [x] M6: OutboxPoller — two-phase claim+dispatch. Phase 2 claims rows (`status = 'dispatching'`, commit). Phase 3 dispatches to BullMQ outside transaction. Eliminates ghost jobs from DB rollback after BullMQ accept. Watchdog extended to recover stale `dispatching` rows.
+- [x] M7: WeeklySummaryWorker — set `sent_at = NOW()` BEFORE `sendInternalEmail()`. If email fails, mark outbox failed (no rethrow). Prevents duplicate weekly summaries on crash-and-retry.
+- [x] M8: Resend webhook — reject svix-timestamps older than 5 minutes or >1 minute in the future. Prevents replay attacks after archival deletes inbound_events dedup records.
+- [x] M9: Payment-success — removed fallback to "most recently activated business within 5 minutes" (wrong business on concurrent checkouts). Fixed JSON path: `payload->'data'->'object'->>'id'` instead of `payload->>'id'` (event ID vs session ID).
+
+**Low priority (test reliability):**
+- [x] L10: E2E tests — `page.goto()` uses `{ waitUntil: 'domcontentloaded' }` instead of default `load` event. More reliable when external resources are slow.
+
+**Other improvements:**
+- [x] Admin navbar — shared `AdminNav` component in admin layout with links to Overview, Businesses, Demos, Costs, Notifications, Jobs. Active page highlighted. Responsive hamburger on mobile. Hidden on login/payment-success.
+
+**Tests:** 253/253 Vitest tests passing across 21 files (up from 249 after Place ID Resolution)
+
 ---
 
 ## Sprint 5: Churn Killers
