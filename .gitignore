@@ -52,3 +52,4 @@ playwright-report/
 *.out.log
 error.png
 screenshot.png
+"playwright-report/"  
