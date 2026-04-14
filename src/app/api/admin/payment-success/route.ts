@@ -8,9 +8,9 @@ export const dynamic = 'force-dynamic';
  * GET /api/admin/payment-success?session_id=cs_test_...
  *
  * Looks up the business that was activated by a Stripe checkout session.
- * The Stripe webhook writes stripe_customer_id when processing
- * checkout.session.completed. We look up by that or by matching the
- * most recently activated business (fallback for timing gaps).
+ * The Stripe webhook writes the event to inbound_events; we match by
+ * client_reference_id inside the payload. Returns 404 if the webhook
+ * has not processed yet — the client retries with exponential backoff.
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
@@ -55,21 +55,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         });
       }
     }
-  }
-
-  // Fallback: The webhook event may reference the session's Stripe event ID,
-  // not the session ID directly. Check by looking for recent activations.
-  // Look for the most recently activated business (within last 5 minutes)
-  const [recentBiz] = await sql<{ id: string }[]>`
-    SELECT id FROM businesses
-    WHERE subscription_status = 'active'
-      AND updated_at > NOW() - INTERVAL '5 minutes'
-    ORDER BY updated_at DESC
-    LIMIT 1
-  `;
-
-  if (recentBiz) {
-    return NextResponse.json({ businessId: recentBiz.id, subscriptionStatus: 'active' });
   }
 
   // Not found yet — webhook may still be processing
