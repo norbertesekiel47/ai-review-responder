@@ -16,7 +16,7 @@ const adminApiRoutes = [
 
 test.describe('Prompt 14b admin runtime guards', () => {
   test('admin login page renders the Supabase email/password form', async ({ page }) => {
-    await page.goto('/admin/login');
+    await page.goto('/admin/login', { waitUntil: 'domcontentloaded' });
 
     await expect(page.getByRole('heading', { name: 'RepWorth Admin' })).toBeVisible();
     await expect(page.getByLabel('Email')).toBeVisible();
@@ -26,7 +26,7 @@ test.describe('Prompt 14b admin runtime guards', () => {
 
   for (const path of adminPages) {
     test(`unauthenticated page ${path} redirects to admin login`, async ({ page }) => {
-      await page.goto(path);
+      await page.goto(path, { waitUntil: 'domcontentloaded' });
 
       await expect(page).toHaveURL(/\/admin\/login\?from=/);
       const url = new URL(page.url());
