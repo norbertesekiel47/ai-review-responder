@@ -4,8 +4,15 @@ vi.mock('serpapi', () => ({
   getJson: vi.fn(),
 }));
 
-vi.mock('@/lib/shared/rate-limit', () => ({
-  checkRateLimit: vi.fn().mockResolvedValue({ allowed: true, remaining: 50 }),
+// Mock Redis for the fail-closed budget guard
+const mockIncr = vi.fn().mockResolvedValue(1);
+const mockExpire = vi.fn().mockResolvedValue(1);
+
+vi.mock('@/lib/db/redis-cache', () => ({
+  getCacheRedis: vi.fn(() => ({
+    incr: mockIncr,
+    expire: mockExpire,
+  })),
 }));
 
 import { resolvePlaceId } from '../place-id-resolver';
@@ -16,14 +23,11 @@ async function getJsonMock() {
   return getJson as ReturnType<typeof vi.fn>;
 }
 
-async function getRateLimitMock() {
-  const { checkRateLimit } = await import('@/lib/shared/rate-limit');
-  return checkRateLimit as ReturnType<typeof vi.fn>;
-}
-
 describe('resolvePlaceId', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockIncr.mockResolvedValue(1);
+    process.env.REDIS_CACHE_URL = 'redis://localhost:6379/0';
   });
 
   it('returns canonical Place ID directly without SerpAPI call', async () => {
@@ -144,14 +148,33 @@ describe('resolvePlaceId', () => {
     expect(result).toBe('ChIJCorrectBiz234567890abc');
   });
 
-  it('respects daily rate limit', async () => {
-    const rateLimitMock = await getRateLimitMock();
-    rateLimitMock.mockResolvedValueOnce({ allowed: false, remaining: 0 });
+  it('blocks when daily limit exceeded', async () => {
+    mockIncr.mockResolvedValueOnce(76); // over 75 limit
 
     const data: GoogleMapsUrlData = {
       placeId: null, hexCid: null, businessName: 'Café LaTTea',
       coordinates: { lat: 37.3232, lng: -122.0123 },
     };
     await expect(resolvePlaceId(data)).rejects.toThrow('Daily Place ID resolution limit reached');
+  });
+
+  it('blocks when Redis is unavailable (fail closed)', async () => {
+    mockIncr.mockRejectedValueOnce(new Error('ECONNREFUSED'));
+
+    const data: GoogleMapsUrlData = {
+      placeId: null, hexCid: null, businessName: 'Café LaTTea',
+      coordinates: { lat: 37.3232, lng: -122.0123 },
+    };
+    await expect(resolvePlaceId(data)).rejects.toThrow('Daily Place ID resolution limit unavailable');
+  });
+
+  it('blocks when REDIS_CACHE_URL is not set (fail closed)', async () => {
+    delete process.env.REDIS_CACHE_URL;
+
+    const data: GoogleMapsUrlData = {
+      placeId: null, hexCid: null, businessName: 'Café LaTTea',
+      coordinates: { lat: 37.3232, lng: -122.0123 },
+    };
+    await expect(resolvePlaceId(data)).rejects.toThrow('Daily Place ID resolution limit unavailable');
   });
 });

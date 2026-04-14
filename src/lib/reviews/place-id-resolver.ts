@@ -1,7 +1,7 @@
 import { getJson } from 'serpapi';
 import { isPlaceId } from './url-parser';
 import type { GoogleMapsUrlData } from './url-parser';
-import { checkRateLimit } from '@/lib/shared/rate-limit';
+import { getCacheRedis } from '@/lib/db/redis-cache';
 
 const MATCH_RADIUS_M = 200;
 const DAILY_LIMIT = 75;
@@ -45,11 +45,8 @@ export async function resolvePlaceId(data: GoogleMapsUrlData): Promise<string> {
     );
   }
 
-  // Strategy 2: SerpAPI search
-  const limit = await checkRateLimit('serpapi:resolve:daily', DAILY_LIMIT, DAILY_WINDOW_S);
-  if (!limit.allowed) {
-    throw new Error('Daily Place ID resolution limit reached — use the search field instead');
-  }
+  // Strategy 2: SerpAPI search — fail closed (block if Redis unavailable)
+  await checkSerpApiResolutionBudget();
 
   const params: Record<string, unknown> = {
     engine: 'google_maps',
@@ -108,6 +105,32 @@ export async function resolvePlaceId(data: GoogleMapsUrlData): Promise<string> {
   }
 
   return bestMatch.place_id;
+}
+
+/** Fail-closed SerpAPI budget guard. Blocks if Redis is unavailable (unlike checkRateLimit which fails open). */
+async function checkSerpApiResolutionBudget(): Promise<void> {
+  if (!process.env.REDIS_CACHE_URL) {
+    throw new Error('Daily Place ID resolution limit unavailable — use the search field instead');
+  }
+
+  try {
+    const redis = getCacheRedis();
+    const key = 'serpapi:resolve:daily';
+    const current = await redis.incr(key);
+
+    if (current === 1) {
+      await redis.expire(key, DAILY_WINDOW_S);
+    }
+
+    if (current > DAILY_LIMIT) {
+      throw new Error('Daily Place ID resolution limit reached — use the search field instead');
+    }
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('Daily Place ID resolution limit')) {
+      throw err;
+    }
+    throw new Error('Daily Place ID resolution limit unavailable — use the search field instead');
+  }
 }
 
 function normalizeName(name: string): string {

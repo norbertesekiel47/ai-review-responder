@@ -110,25 +110,11 @@ export default function NewBusinessPage() {
     setServerError(null);
 
     try {
-      const payload = data.googlePlaceId
-        ? {
-            name: data.name,
-            category: data.category,
-            googlePlaceId: data.googlePlaceId,
-            googlePlaceAddress: data.googlePlaceAddress,
-            ownerName: data.ownerName,
-            ownerEmail: data.ownerEmail,
-            ownerPhone: data.ownerPhone,
-            notificationPreference: data.notificationPreference,
-            tone: data.tone,
-            productsServices: data.productsServices,
-            staffNames: data.staffNames,
-            highlightFacts: data.highlightFacts,
-            avoidFacts: data.avoidFacts,
-            sampleResponses: data.sampleResponses,
-            subscriptionTier: data.subscriptionTier,
-          }
-        : data;
+      // Build payload from inputMode, not hidden field presence
+      const { googlePlaceId, googlePlaceAddress, googleMapsUrl, ...rest } = data;
+      const payload = inputMode === 'autocomplete'
+        ? { ...rest, googlePlaceId, googlePlaceAddress }
+        : { ...rest, googleMapsUrl };
 
       const res = await fetch('/api/admin/businesses', {
         method: 'POST',
@@ -225,9 +211,18 @@ export default function NewBusinessPage() {
               )}
               <button
                 type="button"
-                onClick={() =>
-                  setInputMode(inputMode === 'autocomplete' ? 'url' : 'autocomplete')
-                }
+                onClick={() => {
+                  if (inputMode === 'autocomplete') {
+                    setValue('googlePlaceId', '');
+                    setValue('googlePlaceAddress', '');
+                    clearErrors('googlePlaceId');
+                    setInputMode('url');
+                  } else {
+                    setValue('googleMapsUrl', '');
+                    clearErrors('googleMapsUrl');
+                    setInputMode('autocomplete');
+                  }
+                }}
                 className="mt-1 text-xs text-indigo-600 hover:text-indigo-800"
               >
                 {inputMode === 'autocomplete'

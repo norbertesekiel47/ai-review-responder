@@ -1,4 +1,5 @@
 import type { Job } from 'bullmq';
+import type postgres from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
 import { sql } from '../../src/lib/db/server';
 import { markOutboxCompleted, markOutboxFailed } from '../../src/lib/shared/outbox';
@@ -6,6 +7,8 @@ import type { ValidatePlaceIdPayload, SyncReviewsPayload } from '../../src/lib/s
 import { parseGoogleMapsUrl, isPlaceId } from '../../src/lib/reviews/url-parser';
 import { resolvePlaceId } from '../../src/lib/reviews/place-id-resolver';
 import { ExceptionType } from '../../src/lib/shared/constants';
+
+type TxClient = postgres.TransactionSql;
 
 const LOG_PREFIX = '[PlaceIdValidationWorker]';
 
@@ -90,7 +93,7 @@ export async function handlePlaceIdValidation(
 
 /** Enqueue sync_reviews with WHERE NOT EXISTS dedup guard (same pattern as ReconciliationPoller). */
 async function enqueueSyncReviews(
-  tx: Parameters<Parameters<typeof sql.begin>[0]>[0],
+  tx: TxClient,
   businessId: string,
   placeId: string,
 ): Promise<void> {
