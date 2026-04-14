@@ -10,7 +10,7 @@
 
 Replace the "paste a URL and hope" flow with a two-path input system:
 
-1. **Primary path (autocomplete):** Google Maps Place Autocomplete widget on onboarding and demo forms. Returns canonical `ChIJ` Place IDs directly from Google. Zero ambiguity, zero wasted SerpAPI credits.
+1. **Primary path (autocomplete):** Google Maps Place Autocomplete widget on onboarding and demo forms. Returns canonical Place IDs directly from Google. Zero ambiguity, zero wasted SerpAPI credits.
 2. **Fallback path (URL paste):** For users who prefer pasting a URL. The URL is parsed for all available data (ID, name, coordinates), then resolved to a canonical Place ID via SerpAPI search in a worker.
 3. **Validation gate:** No business enters the polling pipeline without a verified Place ID. A `place_id_verified` flag gates ReconciliationPoller.
 
@@ -22,11 +22,7 @@ Replace the "paste a URL and hope" flow with a two-path input system:
 
 Replaces the plain text "Google Maps URL" field on both the onboarding form (`/admin/businesses/new`) and demo generation form (`/admin/demos`) with a Google Maps Place Autocomplete widget.
 
-The admin types a business name, selects from autocomplete suggestions, and the widget returns:
-- `place.id` — canonical Place ID (`ChIJ` format)
-- `place.displayName` — verified business name
-- `place.formattedAddress` — full address
-- `place.location` — lat/lng coordinates
+The admin types a business name, selects from autocomplete suggestions, and the widget returns the canonical Place ID plus display info.
 
 ### Implementation
 
@@ -35,13 +31,23 @@ The admin types a business name, selects from autocomplete suggestions, and the 
 A reusable React component that wraps the Google Maps Place Autocomplete element. It:
 - Loads the Google Maps JavaScript API via `@googlemaps/js-api-loader` (or a script tag with `loading=async`)
 - Renders a `gmp-place-autocomplete` element for place search
-- On selection, calls `place.fetchFields({ fields: ['displayName', 'formattedAddress', 'location', 'id'] })`
-- Fires an `onPlaceSelect` callback with `{ placeId, displayName, formattedAddress, lat, lng }`
-- Shows a confirmation card below the input: "Cafe LaTTea - 123 Main St, Cupertino, CA" with the Place ID
+- Listens for the `gmp-select` event (renamed from the deprecated `gmp-placeselect`)
+- On selection, calls `event.placePrediction.toPlace()` to get the Place object, then `place.fetchFields({ fields: ['id', 'formattedAddress', 'location'] })`
+- Fires an `onPlaceSelect` callback with `{ placeId: place.id, formattedAddress, lat, lng }`
+- Shows a confirmation card below the input: "123 Main St, Cupertino, CA" with the Place ID
 
-**Environment variable:** `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` — a Maps JavaScript API key with Places API enabled. Restricted to the app's domain(s).
+**Note on `gmp-select` event flow:** Per Google's migration docs, the event returns a `placePrediction` instance, not a `place` directly. You must call `placePrediction.toPlace()` before `fetchFields()`.
 
-**Cost:** ~$0.017 per autocomplete session. With Google's $200/month free credit, this is effectively free at MVP scale.
+**fetchFields billing tiers (Google SKU docs):**
+- `id` → **IDs Only** tier (cheapest / free tier eligible)
+- `formattedAddress`, `location` → **Essentials** tier
+- `displayName` → **Pro** tier (more expensive)
+
+We request `['id', 'formattedAddress', 'location']` — staying in the Essentials tier. We do NOT request `displayName` to avoid Pro-tier billing. The business name is already typed by the admin in the form's "Business Name" field, so we don't need it from Google.
+
+**Environment variable:** `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` — a Maps JavaScript API key with Places API (New) enabled. Restricted to the app's domain(s).
+
+**Cost:** As of March 2025, Google uses tier-based pricing (Essentials/Pro/Enterprise) with Free Usage Caps replacing the old "$200 credit" model. The Essentials tier provides 10,000 free requests/month for most core services. At MVP scale (tens of businesses per month), this is well within the free tier. Requesting only Essentials-tier fields keeps us in the cheapest billing bracket.
 
 ### Form changes
 
@@ -68,7 +74,6 @@ Both the onboarding route (`POST /api/admin/businesses`) and demo route (`POST /
 const PlaceInputSchema = z.union([
   z.object({
     googlePlaceId: z.string().min(1),
-    googlePlaceName: z.string().optional(),
     googlePlaceAddress: z.string().optional(),
   }),
   z.object({
@@ -77,9 +82,13 @@ const PlaceInputSchema = z.union([
 ]);
 ```
 
-When `googlePlaceId` is provided directly (autocomplete path):
-- Store it immediately with `place_id_verified = true`
-- Queue `sync_reviews` directly (skip validation step)
+**Server-side validation — do NOT trust client-submitted `googlePlaceId` blindly:**
+
+When `googlePlaceId` is provided (autocomplete path), the API route MUST validate the format before setting `place_id_verified = true`:
+- Check with `isPlaceId(googlePlaceId)` — must be base64url, 20+ chars, starts with a letter
+- Reject hex CIDs (`0x...:0x...`) and raw URLs even if submitted on the autocomplete path
+- If validation fails: return 400 with "Invalid Place ID format"
+- If validation passes: store with `place_id_verified = true`, queue `sync_reviews` directly
 
 When `googleMapsUrl` is provided (fallback path):
 - Parse the URL for available data
@@ -115,12 +124,16 @@ The existing `extractPlaceId()` remains as a thin wrapper for backward compatibi
 
 ### Extraction rules
 
+Place IDs are NOT limited to the `ChIJ` prefix. Google docs list multiple prefixes (`ChIJ`, `GhIJ`, `Eic`, `Iho`, etc.) with no maximum length. The reliable distinction is: Place IDs are base64url strings after `!1s` that are NOT hex CIDs.
+
 | URL segment | Regex | Extracts |
 |---|---|---|
 | `/place/Caf%C3%A9+LaTTea/` | `/place/([^/@]+)/` | Business name (URI-decoded, `+` → space) |
 | `/@37.32,-122.01,17z` | `/@(-?[\d.]+),(-?[\d.]+)` | Latitude, longitude |
-| `!1sChIJ...` | `!1s(ChIJ[A-Za-z0-9_-]+)` | Canonical Place ID |
+| `!1s<base64url>` (not hex) | `!1s([A-Za-z0-9_-]{20,})` after excluding hex CID match | Canonical Place ID (any prefix) |
 | `!1s0x...:0x...` | `!1s(0x[0-9a-fA-F]+:0x[0-9a-fA-F]+)` | Hex CID |
+| `?q=place_id:...` | query param extraction | Canonical Place ID |
+| `?placeid=...` | query param extraction | Canonical Place ID (write-review URLs) |
 
 ---
 
@@ -132,31 +145,36 @@ A utility that takes `GoogleMapsUrlData` and returns a verified canonical Place 
 
 ```
 Resolution strategy (in order):
-1. Has ChIJ Place ID? → Return directly (already canonical, high confidence)
-2. Has business name + coordinates? → SerpAPI search (engine=google_maps) with name as query, 
-   coordinates as ll parameter → match top result → return place_id
-3. Has hex CID only? → SerpAPI search with hex CID as data parameter → return place_id
-4. Nothing useful? → Fail with descriptive error
+1. Has canonical Place ID (base64url)? → Return directly (high confidence)
+2. Has business name + coordinates? → SerpAPI search (engine=google_maps) with name as query,
+   coordinates as ll parameter → match results → return place_id
+3. Has business name but no coordinates? → SerpAPI search by name only → match results
+4. Nothing useful (no name, no ID)? → Fail with descriptive error
 ```
+
+**Note:** The hex CID is NOT used as a SerpAPI lookup parameter. SerpAPI's `data` parameter is deprecated and requires a constructed value (data_id + coordinates), not a raw hex string. The `ll` parameter is only a search origin — SerpAPI does not guarantee results are within that area. This is why the coordinate + name matching gate below is critical.
 
 **SerpAPI search call:**
 ```typescript
-const params = {
+const params: Record<string, unknown> = {
   engine: 'google_maps',
-  q: businessName,           // "Cafe LaTTea"
-  ll: `@${lat},${lng},15z`,  // near these coordinates
+  q: businessName,            // "Cafe LaTTea"
   type: 'search',
   api_key: serpApiKey,
 };
+// ll is a search origin hint, NOT a geographic filter
+if (coordinates) {
+  params.ll = `@${coordinates.lat},${coordinates.lng},15z`;
+}
 ```
 
-**Result matching:**
+**Result matching (required to compensate for `ll` not being a filter):**
 - SerpAPI returns `local_results[]` with `place_id`, `title`, `gps_coordinates`, `address`
 - Match by coordinate proximity (haversine distance < 200m) — if coordinates available
 - If multiple results within 200m, pick the one whose `title` best matches `businessName` (case-insensitive, normalized whitespace, diacritics stripped via `String.normalize('NFD')`)
-- If no coordinates available (rare), match by name alone against the first 3 results
+- If no coordinates available, match by exact name against the first 3 results only (high false-match risk otherwise)
 - If no result passes thresholds, fail with "Could not verify business location — try using the search field instead"
-- Return the matched `place_id` (canonical ChIJ format)
+- Return the matched `place_id`
 
 **Cost:** 1 SerpAPI credit per resolution. One-time cost per business — the resolved Place ID is stored and reused for all future polling.
 
@@ -197,14 +215,33 @@ interface ValidatePlaceIdPayload {
 **Migration: `add_place_id_verification.sql`**
 
 ```sql
--- Add verification flag (defaults false for safety — existing businesses grandfathered below)
+-- Add verification flag (defaults false — forces explicit verification)
 ALTER TABLE businesses ADD COLUMN place_id_verified BOOLEAN NOT NULL DEFAULT FALSE;
 
--- Store original URL for re-resolution
+-- Store original URL for re-resolution if needed
 ALTER TABLE businesses ADD COLUMN google_maps_url TEXT;
 
--- Grandfather existing businesses with a google_place_id — they've been polling successfully
-UPDATE businesses SET place_id_verified = TRUE WHERE google_place_id IS NOT NULL;
+-- Only verify existing businesses whose google_place_id is a canonical base64url
+-- Place ID (starts with a letter, 20+ chars). Do NOT blindly grandfather hex CIDs
+-- (0x...:0x...) or other formats — those need resolution via validate_place_id.
+UPDATE businesses
+SET place_id_verified = TRUE
+WHERE google_place_id IS NOT NULL
+  AND google_place_id ~ '^[A-Za-z][A-Za-z0-9_-]{19,}$';
+
+-- Queue validate_place_id for existing businesses with hex CIDs or unknown formats.
+-- These rows keep place_id_verified = FALSE and will be resolved by the worker.
+INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+SELECT
+  gen_random_uuid(),
+  'validate_place_id',
+  'business',
+  id,
+  jsonb_build_object('business_id', id, 'google_maps_url', ''),
+  'pending'
+FROM businesses
+WHERE google_place_id IS NOT NULL
+  AND NOT (google_place_id ~ '^[A-Za-z][A-Za-z0-9_-]{19,}$');
 
 -- Index for ReconciliationPoller filter
 CREATE INDEX idx_businesses_verified_active
@@ -246,11 +283,12 @@ This simplifies the SerpAPI integration back to a single code path.
 ### Onboarding — Autocomplete Path (happy path)
 ```
 Admin types business name in autocomplete
-  → Google returns canonical Place ID (ChIJ)
+  → Google returns canonical Place ID
   → Form submits { googlePlaceId, ... }
-  → API route stores business with place_id_verified=true
+  → API route validates format (isPlaceId() — rejects hex CIDs and URLs)
+  → Stores business with place_id_verified=true
   → Queues sync_reviews directly
-  → ReviewSyncWorker fetches reviews with verified Place ID
+  → ReviewSyncWorker checks place_id_verified (defense-in-depth) → fetches reviews
 ```
 
 ### Onboarding — URL Fallback Path
@@ -292,7 +330,7 @@ Every 60 minutes:
 
 | Scenario | Behavior |
 |---|---|
-| Autocomplete used | `place_id_verified = true` immediately. No resolution needed. |
+| Autocomplete used | Server validates format with `isPlaceId()`. Rejects hex CIDs/URLs. `place_id_verified = true` only after validation. |
 | URL contains ChIJ | Validation worker sets `place_id_verified = true` immediately. |
 | URL contains hex CID | Resolver searches by name + coords. 1 SerpAPI credit. |
 | URL contains no ID | Resolver searches by name + coords. 1 SerpAPI credit. |
@@ -327,6 +365,7 @@ The `place_id_verified` flag and `google_maps_url` column remain useful througho
 | `worker-types.ts` | Add `ValidatePlaceIdPayload` |
 | `queues.ts` | Add `VALIDATE_PLACE_ID` queue + topic mapping |
 | `worker/index.ts` | Register new worker + queue |
+| `src/app/api/admin/jobs/route.ts` | Add `'validate_place_id'` to local `QUEUE_NAMES` list (line 9) |
 | `schemas.ts` | Update `OnboardBusinessSchema` to accept either autocomplete or URL input |
 | Onboarding form | Replace URL input with autocomplete + URL fallback toggle |
 | Onboarding API route | Handle both input modes, conditionally queue validation |
@@ -336,7 +375,22 @@ The `place_id_verified` flag and `google_maps_url` column remain useful througho
 | `ReconciliationPoller` | Add `place_id_verified = TRUE` filter |
 | `serpapi-source.ts` | Revert to always `place_id` (no more `isHexCid` conditional) |
 | `serpapi-monitor.ts` | Same revert |
-| DB migration | Add `place_id_verified`, `google_maps_url` columns |
+| `ReviewSyncWorker` | Add `place_id_verified` defensive guard (see below) |
+| DB migration | Add `place_id_verified`, `google_maps_url` columns; smart grandfathering |
+
+### Defensive guard in ReviewSyncWorker
+
+Add a check early in `handleReviewSync()` after loading the business record:
+
+```typescript
+if (!business.place_id_verified) {
+  console.warn(`${LOG_PREFIX} Business ${business_id} place_id not verified, skipping`);
+  await markOutboxCompleted(outboxId);
+  return;
+}
+```
+
+This prevents stale `sync_reviews` jobs (queued before the migration or by a race condition) from polling SerpAPI with an unverified identifier. The ReconciliationPoller filter is the primary gate, but this is defense-in-depth at the worker level.
 
 ### What doesn't change
 - OutboxPoller, BullMQ infrastructure, approval flow, notification flow, response generation, weekly summaries, archival — all untouched.
