@@ -45,3 +45,9 @@ export interface ValidatePlaceIdPayload {
   business_id: string;
   google_maps_url: string;
 }
+
+export interface SendMonthlyImpactPayload {
+  business_id: string;
+  /** ISO date 'YYYY-MM-DD' — always the 1st of the month being summarized. */
+  month_start_date: string;
+}

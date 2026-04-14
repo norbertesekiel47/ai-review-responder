@@ -47,6 +47,7 @@ export const QUEUE_NAMES = {
   WEEKLY_SUMMARY: 'weekly_summary',
   NOTIFY_ADMIN: 'notify_admin_review_exception',
   VALIDATE_PLACE_ID: 'validate_place_id',
+  SEND_MONTHLY_IMPACT: 'send_monthly_impact',
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -74,6 +75,7 @@ export const queues = {
   weeklySummary: new Queue(QUEUE_NAMES.WEEKLY_SUMMARY, { connection: opts, defaultJobOptions }),
   notifyAdmin: new Queue(QUEUE_NAMES.NOTIFY_ADMIN, { connection: opts, defaultJobOptions }),
   validatePlaceId: new Queue(QUEUE_NAMES.VALIDATE_PLACE_ID, { connection: opts, defaultJobOptions }),
+  sendMonthlyImpact: new Queue(QUEUE_NAMES.SEND_MONTHLY_IMPACT, { connection: opts, defaultJobOptions }),
 } as const;
 
 // Lookup table: outbox topic string → Queue instance
@@ -86,4 +88,5 @@ export const topicToQueue: Record<string, Queue> = {
   [QUEUE_NAMES.WEEKLY_SUMMARY]: queues.weeklySummary,
   [QUEUE_NAMES.NOTIFY_ADMIN]: queues.notifyAdmin,
   [QUEUE_NAMES.VALIDATE_PLACE_ID]: queues.validatePlaceId,
+  [QUEUE_NAMES.SEND_MONTHLY_IMPACT]: queues.sendMonthlyImpact,
 };
