@@ -184,7 +184,7 @@ To prevent runaway spend:
 - The resolver checks the existing `checkRateLimit()` infrastructure before making the SerpAPI search call, using key `serpapi:resolve:daily` with a limit of **75/day** (covers onboarding + demos with headroom)
 - If the limit is hit, the resolver fails with a clear error: "Daily Place ID resolution limit reached — use the search field instead"
 - This is separate from the existing demo rate limit (50/day) which gates the total pipeline
-- The reviews fetch itself is already gated by the demo rate limit and the cost guard system
+- The reviews fetch is gated by the demo rate limit (demos) and the 60-minute sync cadence (production). There is no SerpAPI-specific cost guard — SerpAPI credits are controlled by rate limits and sync intervals, not by the LLM cost guard system
 
 ### When the resolver is called
 
@@ -393,7 +393,25 @@ The `place_id_verified` flag and `google_maps_url` column remain useful througho
 
 ### Defensive guard in ReviewSyncWorker
 
-Add a check early in `handleReviewSync()` after loading the business record:
+The business SELECT query must include `place_id_verified` in its column list so the guard compiles against the loaded row type:
+
+```typescript
+const [business] = await sql<{
+  id: string;
+  subscription_status: string;
+  google_place_id: string | null;
+  place_id_verified: boolean;        // ← add this column
+  baseline_captured_at: Date | null;
+  updated_at: Date;
+}[]>`
+  SELECT id, subscription_status, google_place_id, place_id_verified,
+         baseline_captured_at, updated_at
+  FROM businesses
+  WHERE id = ${business_id}
+`;
+```
+
+Then add the guard early, after the null checks and before the subscription check:
 
 ```typescript
 if (!business.place_id_verified) {
