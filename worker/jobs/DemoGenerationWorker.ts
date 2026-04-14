@@ -11,7 +11,7 @@ export async function handleDemoGeneration(
 ): Promise<void> {
   const { demoId, businessName, category } = job.data;
   let { googlePlaceId } = job.data;
-  const googleMapsUrl = (job.data as { googleMapsUrl?: string }).googleMapsUrl;
+  const googleMapsUrl = job.data.googleMapsUrl;
   const outboxId = (job.data as unknown as { outbox_id?: string }).outbox_id ?? job.id!;
 
   // Idempotency: only process if still in a startable state

@@ -5,6 +5,7 @@ import { markOutboxCompleted, markOutboxFailed } from '../../src/lib/shared/outb
 import type { ValidatePlaceIdPayload, SyncReviewsPayload } from '../../src/lib/shared/worker-types';
 import { parseGoogleMapsUrl, isPlaceId } from '../../src/lib/reviews/url-parser';
 import { resolvePlaceId } from '../../src/lib/reviews/place-id-resolver';
+import { ExceptionType } from '../../src/lib/shared/constants';
 
 const LOG_PREFIX = '[PlaceIdValidationWorker]';
 
@@ -96,10 +97,9 @@ export async function handlePlaceIdValidation(
     await sql`
       INSERT INTO review_exceptions (id, business_id, review_id, type, status, payload)
       VALUES (
-        ${uuidv7()}, ${business_id}, NULL, 'place_id_resolution_failed', 'open',
+        ${uuidv7()}, ${business_id}, NULL, ${ExceptionType.PLACE_ID_RESOLUTION_FAILED}, 'open',
         ${JSON.stringify({ reason: message, google_maps_url })}::jsonb
       )
-      ON CONFLICT DO NOTHING
     `;
 
     await markOutboxFailed(outboxId, message);

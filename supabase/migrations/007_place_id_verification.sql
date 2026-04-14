@@ -28,7 +28,13 @@ SELECT
   NOW()
 FROM businesses
 WHERE google_place_id IS NOT NULL
-  AND NOT (google_place_id ~ '^[A-Za-z][A-Za-z0-9_-]{19,}$');
+  AND NOT (google_place_id ~ '^[A-Za-z][A-Za-z0-9_-]{19,}$')
+  AND NOT EXISTS (
+    SELECT 1 FROM review_exceptions re
+    WHERE re.business_id = businesses.id
+      AND re.type = 'place_id_resolution_required'
+      AND re.status = 'open'
+  );
 
 -- Add google_maps_url to prospect_demos too
 ALTER TABLE prospect_demos ADD COLUMN google_maps_url TEXT;

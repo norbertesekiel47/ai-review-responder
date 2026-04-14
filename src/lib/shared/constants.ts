@@ -30,6 +30,8 @@ export type SubscriptionStatus = (typeof SubscriptionStatus)[keyof typeof Subscr
 export const ExceptionType = {
   REVIEW_EDITED_AFTER_POST: 'review_edited_after_post',
   IDENTITY_COLLISION: 'identity_collision',
+  PLACE_ID_RESOLUTION_REQUIRED: 'place_id_resolution_required',
+  PLACE_ID_RESOLUTION_FAILED: 'place_id_resolution_failed',
 } as const;
 
 // ── HTTP headers ────────────────────────────────────────────────────
