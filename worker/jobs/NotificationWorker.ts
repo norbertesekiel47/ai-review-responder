@@ -130,19 +130,27 @@ export async function handleSendNotification(
   const rawToken = randomUUID();
   const tokenHash = createHash('sha256').update(rawToken).digest('hex');
 
-  // ── Step 6: Revoke orphaned links + create new link in ONE transaction ─
-  // If a previous attempt created a link but crashed before sending the
-  // email, the link is orphaned (we can't reconstruct the raw token from
-  // the hash). Revoking + creating in the same transaction ensures we never
-  // leave the response with zero links after a crash.
+  // ── Step 6: Create approval link ──────────────────────────────────
+  // Only revoke existing links if NO delivery record exists (orphaned link
+  // from a crash before email send). If a delivery exists, the link is live
+  // in the owner's inbox — do NOT revoke it on retry.
+  const [existingDeliveryForRevoke] = await sql<{ id: string }[]>`
+    SELECT id FROM notification_deliveries
+    WHERE response_id = ${response_id} AND template = 'approval_request' AND sent_at IS NOT NULL
+    LIMIT 1
+  `;
+
   await sql.begin(async (tx) => {
-    await tx`
-      UPDATE approval_links SET revoked_at = NOW()
-      WHERE response_id = ${response_id}
-        AND revoked_at IS NULL
-        AND consumed_at IS NULL
-        AND expires_at > NOW()
-    `;
+    if (!existingDeliveryForRevoke) {
+      // No delivery record → link is orphaned (crash before send). Safe to revoke.
+      await tx`
+        UPDATE approval_links SET revoked_at = NOW()
+        WHERE response_id = ${response_id}
+          AND revoked_at IS NULL
+          AND consumed_at IS NULL
+          AND expires_at > NOW()
+      `;
+    }
 
     await tx`
       INSERT INTO approval_links (id, response_id, business_id, token_hash, channel, expires_at)
