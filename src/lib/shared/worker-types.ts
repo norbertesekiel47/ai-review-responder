@@ -40,3 +40,8 @@ export interface WeeklySummaryPayload {
   /** ISO date 'YYYY-MM-DD' — always a Monday (start of the week being summarized). */
   week_start_date: string;
 }
+
+export interface ValidatePlaceIdPayload {
+  business_id: string;
+  google_maps_url: string;
+}
