@@ -39,16 +39,7 @@ export async function handlePlaceIdValidation(
         WHERE id = ${business_id}
       `;
 
-      const syncPayload: SyncReviewsPayload = {
-        business_id,
-        google_place_id: urlData.placeId!,
-      };
-
-      await tx`
-        INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-        VALUES (${uuidv7()}, 'sync_reviews', 'business', ${business_id},
-                ${JSON.stringify(syncPayload)}::jsonb, 'pending')
-      `;
+      await enqueueSyncReviews(tx, business_id, urlData.placeId!);
     });
 
     await markOutboxCompleted(outboxId);
@@ -68,16 +59,7 @@ export async function handlePlaceIdValidation(
         WHERE id = ${business_id}
       `;
 
-      const syncPayload: SyncReviewsPayload = {
-        business_id,
-        google_place_id: resolvedPlaceId,
-      };
-
-      await tx`
-        INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-        VALUES (${uuidv7()}, 'sync_reviews', 'business', ${business_id},
-                ${JSON.stringify(syncPayload)}::jsonb, 'pending')
-      `;
+      await enqueueSyncReviews(tx, business_id, resolvedPlaceId);
     });
 
     await markOutboxCompleted(outboxId);
@@ -104,4 +86,33 @@ export async function handlePlaceIdValidation(
 
     await markOutboxFailed(outboxId, message);
   }
+}
+
+/** Enqueue sync_reviews with WHERE NOT EXISTS dedup guard (same pattern as ReconciliationPoller). */
+async function enqueueSyncReviews(
+  tx: Parameters<Parameters<typeof sql.begin>[0]>[0],
+  businessId: string,
+  placeId: string,
+): Promise<void> {
+  const syncPayload: SyncReviewsPayload = {
+    business_id: businessId,
+    google_place_id: placeId,
+  };
+
+  await tx`
+    INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+    SELECT
+      ${uuidv7()},
+      'sync_reviews',
+      'business',
+      ${businessId},
+      ${JSON.stringify(syncPayload)}::jsonb,
+      'pending'
+    WHERE NOT EXISTS (
+      SELECT 1 FROM job_outbox jo
+      WHERE jo.topic = 'sync_reviews'
+        AND jo.aggregate_id = ${businessId}
+        AND jo.status IN ('pending', 'dispatched')
+    )
+  `;
 }

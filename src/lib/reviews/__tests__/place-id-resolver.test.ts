@@ -109,6 +109,41 @@ describe('resolvePlaceId', () => {
     await expect(resolvePlaceId(data)).rejects.toThrow('Could not verify business location');
   });
 
+  it('rejects nearby result with dissimilar name (strip mall scenario)', async () => {
+    const mock = await getJsonMock();
+    mock.mockResolvedValueOnce({
+      local_results: [{
+        place_id: 'ChIJWrongBiz1234567890abc',
+        title: 'Panda Express',
+        gps_coordinates: { latitude: 37.3232, longitude: -122.0124 },
+      }],
+    });
+
+    const data: GoogleMapsUrlData = {
+      placeId: null, hexCid: null, businessName: 'Café LaTTea',
+      coordinates: { lat: 37.3232, lng: -122.0123 },
+    };
+    await expect(resolvePlaceId(data)).rejects.toThrow('Could not verify business location');
+  });
+
+  it('accepts nearby result with similar name (substring match)', async () => {
+    const mock = await getJsonMock();
+    mock.mockResolvedValueOnce({
+      local_results: [{
+        place_id: 'ChIJCorrectBiz234567890abc',
+        title: 'Café LaTTea - Cupertino',
+        gps_coordinates: { latitude: 37.3232, longitude: -122.0124 },
+      }],
+    });
+
+    const data: GoogleMapsUrlData = {
+      placeId: null, hexCid: null, businessName: 'Café LaTTea',
+      coordinates: { lat: 37.3232, lng: -122.0123 },
+    };
+    const result = await resolvePlaceId(data);
+    expect(result).toBe('ChIJCorrectBiz234567890abc');
+  });
+
   it('respects daily rate limit', async () => {
     const rateLimitMock = await getRateLimitMock();
     rateLimitMock.mockResolvedValueOnce({ allowed: false, remaining: 0 });

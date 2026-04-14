@@ -71,16 +71,18 @@ export async function resolvePlaceId(data: GoogleMapsUrlData): Promise<string> {
     throw new Error('Could not verify business location — try using the search field instead');
   }
 
-  // Find best match within MATCH_RADIUS_M
+  // Find best match: must be within MATCH_RADIUS_M AND have a similar name.
+  // SerpAPI's ll is only a search origin hint — results can be anywhere.
+  // In dense areas (strip malls), distance alone picks the wrong business.
   const targetLat = data.coordinates.lat;
   const targetLng = data.coordinates.lng;
   const targetName = normalizeName(data.businessName);
 
   let bestMatch: SerpApiLocalResult | null = null;
-  let bestDistance = Infinity;
+  let bestScore = -1;
 
   for (const result of results) {
-    if (!result.place_id || !result.gps_coordinates) continue;
+    if (!result.place_id || !result.gps_coordinates || !result.title) continue;
 
     const distance = haversineMeters(
       targetLat, targetLng,
@@ -89,15 +91,15 @@ export async function resolvePlaceId(data: GoogleMapsUrlData): Promise<string> {
 
     if (distance > MATCH_RADIUS_M) continue;
 
-    if (distance < bestDistance) {
-      bestDistance = distance;
+    const similarity = nameSimilarity(targetName, normalizeName(result.title));
+    if (similarity < 0.4) continue; // reject poor name matches even if close by
+
+    // Score: weight name similarity heavily, use distance as tiebreaker
+    const score = similarity * 1000 - distance;
+
+    if (score > bestScore) {
+      bestScore = score;
       bestMatch = result;
-    } else if (distance === bestDistance && result.title) {
-      const currentNameSim = normalizeName(bestMatch?.title ?? '');
-      const candidateNameSim = normalizeName(result.title);
-      if (candidateNameSim === targetName && currentNameSim !== targetName) {
-        bestMatch = result;
-      }
     }
   }
 
@@ -115,6 +117,29 @@ function normalizeName(name: string): string {
     .toLowerCase()
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+/** Returns 0-1 similarity score. 1 = exact match, 0 = no overlap. */
+function nameSimilarity(a: string, b: string): number {
+  if (a === b) return 1;
+  if (a.length === 0 || b.length === 0) return 0;
+
+  // Check containment (handles "Cafe LaTTea" vs "Cafe LaTTea - Downtown")
+  if (a.includes(b) || b.includes(a)) {
+    const shorter = Math.min(a.length, b.length);
+    const longer = Math.max(a.length, b.length);
+    return shorter / longer;
+  }
+
+  // Word overlap ratio
+  const wordsA = new Set(a.split(' '));
+  const wordsB = new Set(b.split(' '));
+  let overlap = 0;
+  for (const w of wordsA) {
+    if (wordsB.has(w)) overlap++;
+  }
+  const totalUnique = new Set([...wordsA, ...wordsB]).size;
+  return totalUnique > 0 ? overlap / totalUnique : 0;
 }
 
 function haversineMeters(
