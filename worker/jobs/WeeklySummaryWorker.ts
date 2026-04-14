@@ -3,7 +3,9 @@ import { v7 as uuidv7 } from 'uuid';
 import { sql } from '../../src/lib/db/server';
 import { checkSubscription } from '../../src/lib/shared/subscription-guard';
 import { markOutboxCompleted, markOutboxFailed } from '../../src/lib/shared/outbox';
-import { sendInternalEmail, buildWeeklySummaryEmailHtml } from '../../src/lib/notifications/email';
+import { sendInternalEmail, buildWeeklyValueReportHtml } from '../../src/lib/notifications/email';
+import { recordNotificationDelivery } from '../../src/lib/notifications/delivery';
+import { generateReviewSummary } from '../../src/lib/responses/review-summary';
 import type { WeeklySummaryPayload } from '../../src/lib/shared/worker-types';
 
 const LOG_PREFIX = '[WeeklySummaryWorker]';
@@ -14,15 +16,19 @@ export async function handleWeeklySummary(
   const { business_id, week_start_date } = job.data;
   const outboxId = (job.data as unknown as { outbox_id?: string }).outbox_id ?? job.id!;
 
-  // ── 1. Load business ──────────────────────────────────────────────
+  // ── 1. Load business (including ROI baseline fields) ──────────────
   const [business] = await sql<{
     id: string;
     name: string;
     owner_email: string;
     subscription_status: string;
     updated_at: Date;
+    initial_review_count: number | null;
+    initial_responded_count: number | null;
+    baseline_captured_at: Date | null;
   }[]>`
-    SELECT id, name, owner_email, subscription_status, updated_at
+    SELECT id, name, owner_email, subscription_status, updated_at,
+           initial_review_count, initial_responded_count, baseline_captured_at
     FROM businesses WHERE id = ${business_id}
   `;
 
@@ -82,8 +88,70 @@ export async function handleWeeklySummary(
   const totalReviews = parseInt(reviewCount?.count ?? '0', 10);
   const totalResponded = parseInt(respondedCount?.count ?? '0', 10);
 
-  // ── 4. Upsert weekly_summaries row (idempotent) ───────────────────
-  const [upsertRow] = await sql<{ sent_at: string | null }[]>`
+  // ── 4. Additional queries for value report ────────────────────────
+
+  // 4a. Reviews for intelligence brief (texts for LLM summarization)
+  const reviewsForSummary = await sql<{
+    star_rating: number;
+    review_text: string | null;
+  }[]>`
+    SELECT star_rating, review_text FROM reviews
+    WHERE business_id = ${business_id}
+      AND detected_at >= ${week_start_date}::date
+      AND detected_at < ${weekEndDate}::date
+      AND review_text IS NOT NULL
+    ORDER BY detected_at DESC
+    LIMIT 30
+  `;
+
+  // 4b. 4-week average review count
+  const [avgRow] = await sql<{ avg: string }[]>`
+    SELECT COALESCE(
+      (SELECT COUNT(*)::float / 4.0 FROM reviews
+       WHERE business_id = ${business_id}
+         AND detected_at >= (${week_start_date}::date - INTERVAL '28 days')
+         AND detected_at < ${weekEndDate}::date),
+      0
+    )::text AS avg
+  `;
+  const fourWeekAvgReviews = parseFloat(avgRow?.avg ?? '0');
+
+  // 4c. Ranking snapshot (conditional, no SerpAPI calls)
+  let ranking: { keyword: string; currentRank: number; initialRank: number } | null = null;
+  const [latestRanking] = await sql<{
+    keyword: string;
+    rank_position: number;
+  }[]>`
+    SELECT keyword, rank_position FROM ranking_snapshots
+    WHERE business_id = ${business_id}
+    ORDER BY snapshot_date DESC LIMIT 1
+  `;
+
+  if (latestRanking) {
+    const [initialRanking] = await sql<{ rank_position: number }[]>`
+      SELECT rank_position FROM ranking_snapshots
+      WHERE business_id = ${business_id} AND keyword = ${latestRanking.keyword}
+      ORDER BY snapshot_date ASC LIMIT 1
+    `;
+    ranking = {
+      keyword: latestRanking.keyword,
+      currentRank: latestRanking.rank_position,
+      initialRank: initialRanking?.rank_position ?? latestRanking.rank_position,
+    };
+  }
+
+  // 4d. Dashboard link eligibility
+  const [ownerWithAuth] = await sql<{ exists: number }[]>`
+    SELECT 1 AS exists FROM users
+    WHERE business_id = ${business_id} AND role = 'owner' AND auth_id IS NOT NULL
+    LIMIT 1
+  `;
+  const dashboardUrl = ownerWithAuth
+    ? `${process.env.NEXT_PUBLIC_APP_URL}/dashboard`
+    : null;
+
+  // ── 5. Upsert weekly_summaries row (idempotent) ───────────────────
+  const [upsertRow] = await sql<{ sent_at: string | null; summary_text: string | null }[]>`
     INSERT INTO weekly_summaries (id, business_id, week_start_date, total_reviews, total_responded, notable_reviews)
     VALUES (
       ${uuidv7()}, ${business_id}, ${week_start_date}::date,
@@ -96,7 +164,7 @@ export async function handleWeeklySummary(
       total_responded = EXCLUDED.total_responded,
       notable_reviews = EXCLUDED.notable_reviews
     WHERE weekly_summaries.sent_at IS NULL
-    RETURNING sent_at
+    RETURNING sent_at, summary_text
   `;
 
   // If the upsert returned no row, the ON CONFLICT WHERE clause prevented the
@@ -107,11 +175,47 @@ export async function handleWeeklySummary(
     return;
   }
 
-  // ── 5. Build email ────────────────────────────────────────────────
-  const html = buildWeeklySummaryEmailHtml({
+  // ── 6. Intelligence brief (reuse existing or generate) ────────────
+  let intelligenceBrief: string | null = upsertRow.summary_text ?? null;
+
+  if (!intelligenceBrief && reviewsForSummary.length > 0) {
+    const summaryResult = await generateReviewSummary(
+      reviewsForSummary.map((r) => ({
+        starRating: r.star_rating,
+        reviewText: r.review_text,
+      })),
+      business_id,
+    );
+    intelligenceBrief = summaryResult?.summaryText ?? null;
+
+    // Persist the summary_text for idempotent retries
+    if (intelligenceBrief) {
+      await sql`
+        UPDATE weekly_summaries
+        SET summary_text = ${intelligenceBrief}
+        WHERE business_id = ${business_id} AND week_start_date = ${week_start_date}::date
+      `;
+    }
+  }
+
+  // ── 7. Compute baseline response rate ─────────────────────────────
+  let baselineResponseRate: number | null = null;
+  if (
+    business.baseline_captured_at &&
+    business.initial_review_count !== null &&
+    business.initial_review_count > 0 &&
+    business.initial_responded_count !== null
+  ) {
+    baselineResponseRate = Math.round(
+      (business.initial_responded_count / business.initial_review_count) * 100,
+    );
+  }
+
+  // ── 8. Build email ────────────────────────────────────────────────
+  const html = buildWeeklyValueReportHtml({
     businessName: business.name,
     weekStartDate: week_start_date,
-    weekEndDate: weekEndDate,
+    weekEndDate,
     totalReviews,
     totalResponded,
     notableReviews: notableReviews.map((r) => ({
@@ -119,29 +223,45 @@ export async function handleWeeklySummary(
       starRating: r.star_rating,
       reviewText: r.review_text,
     })),
+    intelligenceBrief,
+    baselineResponseRate,
+    fourWeekAvgReviews,
+    ranking,
+    dashboardUrl,
   });
 
-  // ── 6. Mark as sent BEFORE sending (crash-safe) ───────────────────
+  // ── 9. Mark as sent BEFORE sending (crash-safe) ───────────────────
   await sql`
     UPDATE weekly_summaries
     SET sent_at = NOW()
     WHERE business_id = ${business_id} AND week_start_date = ${week_start_date}::date
   `;
 
-  // ── 7. Send email ─────────────────────────────────────────────────
+  // ── 10. Send email ────────────────────────────────────────────────
   const weekLabel = `${week_start_date} to ${weekEndDate}`;
+  let messageId: string;
   try {
-    await sendInternalEmail({
+    const result = await sendInternalEmail({
       to: business.owner_email,
-      subject: `Weekly Review Summary — ${business.name} (${weekLabel})`,
+      subject: `Weekly Value Report — ${business.name} (${weekLabel})`,
       bodyHtml: html,
     });
+    messageId = result.messageId;
   } catch (err) {
-    console.error(`${LOG_PREFIX} Failed to send weekly summary for ${business.name} (week ${week_start_date}): ${err instanceof Error ? err.message : err}`);
+    console.error(`${LOG_PREFIX} Failed to send weekly value report for ${business.name} (week ${week_start_date}): ${err instanceof Error ? err.message : err}`);
     await markOutboxFailed(outboxId, err instanceof Error ? err.message : String(err));
     return;
   }
 
+  // ── 11. Record notification delivery ──────────────────────────────
+  await recordNotificationDelivery({
+    businessId: business_id,
+    channel: 'email',
+    recipient: business.owner_email,
+    template: 'weekly_value_report',
+    externalMessageId: messageId,
+  });
+
   await markOutboxCompleted(outboxId);
-  console.log(`${LOG_PREFIX} Weekly summary sent for ${business.name} (week ${week_start_date})`);
+  console.log(`${LOG_PREFIX} Weekly value report sent for ${business.name} (week ${week_start_date})`);
 }

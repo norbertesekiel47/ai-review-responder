@@ -217,20 +217,7 @@ export async function sendInternalEmail(
   return { messageId: data!.id };
 }
 
-// ── Weekly summary email template ─────────────────────────────────────
-
-export interface WeeklySummaryEmailParams {
-  businessName: string;
-  weekStartDate: string; // 'YYYY-MM-DD'
-  weekEndDate: string;   // 'YYYY-MM-DD'
-  totalReviews: number;
-  totalResponded: number;
-  notableReviews: Array<{
-    reviewerName: string;
-    starRating: number;
-    reviewText: string | null;
-  }>;
-}
+// ── Weekly Value Report email template ──────────────────────────────────
 
 function formatWeekDate(iso: string): string {
   try {
@@ -241,70 +228,6 @@ function formatWeekDate(iso: string): string {
     return iso;
   }
 }
-
-export function buildWeeklySummaryEmailHtml(params: WeeklySummaryEmailParams): string {
-  const { businessName, weekStartDate, weekEndDate, totalReviews, totalResponded, notableReviews } = params;
-  const safeName = escapeHtml(businessName);
-  const responseRate = totalReviews > 0 ? Math.round((totalResponded / totalReviews) * 100) : 0;
-  const weekRange = `${formatWeekDate(weekStartDate)} – ${formatWeekDate(weekEndDate)}`;
-
-  let notableHtml = '';
-  if (notableReviews.length > 0) {
-    const items = notableReviews.map((r) => {
-      const stars = renderStars(r.starRating);
-      const text = r.reviewText ? escapeHtml(truncate(r.reviewText, 150)) : 'Rating only';
-      return `<tr><td style="padding:8px 0;border-bottom:1px solid #e5e7eb;"><span style="font-size:16px;">${stars}</span> <strong>${escapeHtml(r.reviewerName)}</strong><br><span style="color:#4b5563;font-size:14px;">${text}</span></td></tr>`;
-    }).join('');
-    notableHtml = `
-      <tr><td style="padding:16px 24px 0;">
-        <p style="margin:0 0 8px;font-size:12px;color:#9ca3af;text-transform:uppercase;letter-spacing:0.5px;">Reviews needing attention</p>
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0">${items}</table>
-      </td></tr>`;
-  }
-
-  return `<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
-<body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f5f5f5;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f5f5;padding:24px 0;">
-    <tr><td align="center">
-      <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;max-width:600px;width:100%;">
-        <tr><td style="padding:32px 24px 0;">
-          <h2 style="margin:0 0 4px;font-size:18px;color:#111;">Weekly Review Summary — ${safeName}</h2>
-          <p style="margin:0 0 20px;font-size:14px;color:#666;">${weekRange}</p>
-        </td></tr>
-        <tr><td style="padding:0 24px;">
-          <table role="presentation" width="100%" style="border-collapse:collapse;">
-            <tr>
-              <td style="padding:16px;background:#f9fafb;border-radius:6px;text-align:center;width:33%;">
-                <p style="margin:0;font-size:24px;font-weight:700;color:#111;">${totalReviews}</p>
-                <p style="margin:4px 0 0;font-size:12px;color:#6b7280;">Reviews</p>
-              </td>
-              <td style="width:8px;"></td>
-              <td style="padding:16px;background:#f9fafb;border-radius:6px;text-align:center;width:33%;">
-                <p style="margin:0;font-size:24px;font-weight:700;color:#111;">${totalResponded}</p>
-                <p style="margin:4px 0 0;font-size:12px;color:#6b7280;">Responded</p>
-              </td>
-              <td style="width:8px;"></td>
-              <td style="padding:16px;background:${responseRate >= 90 ? '#f0fdf4' : '#fef3c7'};border-radius:6px;text-align:center;width:33%;">
-                <p style="margin:0;font-size:24px;font-weight:700;color:${responseRate >= 90 ? '#166534' : '#92400e'};">${responseRate}%</p>
-                <p style="margin:4px 0 0;font-size:12px;color:#6b7280;">Rate</p>
-              </td>
-            </tr>
-          </table>
-        </td></tr>
-        ${notableHtml}
-        <tr><td style="padding:24px;">
-          <p style="margin:0;font-size:12px;color:#9ca3af;text-align:center;">Powered by RepWorth — automated review responses for your business.</p>
-        </td></tr>
-      </table>
-    </td></tr>
-  </table>
-</body>
-</html>`;
-}
-
-// ── Weekly Value Report email template ──────────────────────────────────
 
 export interface WeeklyValueReportParams {
   businessName: string;
