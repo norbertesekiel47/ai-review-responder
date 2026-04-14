@@ -107,7 +107,7 @@ export async function handleWeeklySummary(
     return;
   }
 
-  // ── 5. Build and send email ───────────────────────────────────────
+  // ── 5. Build email ────────────────────────────────────────────────
   const html = buildWeeklySummaryEmailHtml({
     businessName: business.name,
     weekStartDate: week_start_date,
@@ -121,6 +121,14 @@ export async function handleWeeklySummary(
     })),
   });
 
+  // ── 6. Mark as sent BEFORE sending (crash-safe) ───────────────────
+  await sql`
+    UPDATE weekly_summaries
+    SET sent_at = NOW()
+    WHERE business_id = ${business_id} AND week_start_date = ${week_start_date}::date
+  `;
+
+  // ── 7. Send email ─────────────────────────────────────────────────
   const weekLabel = `${week_start_date} to ${weekEndDate}`;
   try {
     await sendInternalEmail({
@@ -130,15 +138,9 @@ export async function handleWeeklySummary(
     });
   } catch (err) {
     console.error(`${LOG_PREFIX} Failed to send weekly summary for ${business.name} (week ${week_start_date}): ${err instanceof Error ? err.message : err}`);
-    throw err; // BullMQ retries; upsert is idempotent on retry
+    await markOutboxFailed(outboxId, err instanceof Error ? err.message : String(err));
+    return;
   }
-
-  // ── 6. Mark as sent ───────────────────────────────────────────────
-  await sql`
-    UPDATE weekly_summaries
-    SET sent_at = NOW()
-    WHERE business_id = ${business_id} AND week_start_date = ${week_start_date}::date
-  `;
 
   await markOutboxCompleted(outboxId);
   console.log(`${LOG_PREFIX} Weekly summary sent for ${business.name} (week ${week_start_date})`);
