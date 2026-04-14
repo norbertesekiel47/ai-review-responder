@@ -10,7 +10,7 @@ interface OutboxEntry {
   max_attempts: number;
 }
 
-const POLL_INTERVAL_MS = 10_000;
+const POLL_INTERVAL_MS = parseInt(process.env.OUTBOX_POLL_INTERVAL_MS || '30000', 10);
 const BATCH_SIZE = 50;
 
 let pollerInterval: ReturnType<typeof setInterval> | null = null;

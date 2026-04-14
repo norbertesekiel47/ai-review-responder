@@ -61,7 +61,7 @@ const PORT = parseInt(process.env.PORT || '3001', 10);
 // ---------------------------------------------------------------------------
 // Fastify server — health check + webhook ingress
 // ---------------------------------------------------------------------------
-export const app = Fastify({ logger: true });
+export const app = Fastify({ logger: { level: process.env.NODE_ENV === 'production' ? 'warn' : 'info' } });
 
 // ---------------------------------------------------------------------------
 // BullMQ workers — only create Workers for implemented handlers.
@@ -71,33 +71,24 @@ export const app = Fastify({ logger: true });
 // ---------------------------------------------------------------------------
 const redisOpts = getRedisOptions();
 
-const demoWorker = new Worker(QUEUE_NAMES.GENERATE_DEMO, handleDemoGeneration, {
-  connection: redisOpts,
-});
+// Reduce Redis polling frequency to cut egress costs.
+// Default drainDelay is 200ms (5 polls/sec/worker × 7 workers = 35 polls/sec).
+// 5000ms cuts that by 25× — still picks up jobs within 5s, which is fine for our SLAs.
+const workerOpts = { connection: redisOpts, drainDelay: 5_000 };
 
-const reviewSyncWorker = new Worker(QUEUE_NAMES.SYNC_REVIEWS, handleReviewSync, {
-  connection: redisOpts,
-});
+const demoWorker = new Worker(QUEUE_NAMES.GENERATE_DEMO, handleDemoGeneration, workerOpts);
 
-const responseGenWorker = new Worker(QUEUE_NAMES.GENERATE_RESPONSE, handleResponseGeneration, {
-  connection: redisOpts,
-});
+const reviewSyncWorker = new Worker(QUEUE_NAMES.SYNC_REVIEWS, handleReviewSync, workerOpts);
 
-const notificationWorker = new Worker(QUEUE_NAMES.SEND_NOTIFICATION, handleSendNotification, {
-  connection: redisOpts,
-});
+const responseGenWorker = new Worker(QUEUE_NAMES.GENERATE_RESPONSE, handleResponseGeneration, workerOpts);
 
-const publisherWorker = new Worker(QUEUE_NAMES.PUBLISH_RESPONSE, handlePublishResponse, {
-  connection: redisOpts,
-});
+const notificationWorker = new Worker(QUEUE_NAMES.SEND_NOTIFICATION, handleSendNotification, workerOpts);
 
-const adminExceptionWorker = new Worker(QUEUE_NAMES.NOTIFY_ADMIN, handleAdminException, {
-  connection: redisOpts,
-});
+const publisherWorker = new Worker(QUEUE_NAMES.PUBLISH_RESPONSE, handlePublishResponse, workerOpts);
 
-const weeklySummaryWorker = new Worker(QUEUE_NAMES.WEEKLY_SUMMARY, handleWeeklySummary, {
-  connection: redisOpts,
-});
+const adminExceptionWorker = new Worker(QUEUE_NAMES.NOTIFY_ADMIN, handleAdminException, workerOpts);
+
+const weeklySummaryWorker = new Worker(QUEUE_NAMES.WEEKLY_SUMMARY, handleWeeklySummary, workerOpts);
 
 const placeIdValidationWorker = new Worker(QUEUE_NAMES.VALIDATE_PLACE_ID, handlePlaceIdValidation, {
   connection: redisOpts,

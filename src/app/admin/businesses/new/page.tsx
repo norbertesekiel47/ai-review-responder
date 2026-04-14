@@ -150,8 +150,13 @@ export default function NewBusinessPage() {
 
       const { id, paymentUrl } = json as { id: string; paymentUrl?: string | null };
       if (paymentUrl) {
-        try { await navigator.clipboard.writeText(paymentUrl); } catch { /* ignore */ }
-        alert(`Business created! Payment link copied to clipboard:\n\n${paymentUrl}`);
+        // Redirect to Stripe Payment Link — after checkout, Stripe redirects
+        // back (if success_url is configured) or the admin checks the business detail page.
+        // Original clipboard copy commented out:
+        // try { await navigator.clipboard.writeText(paymentUrl); } catch { /* ignore */ }
+        // alert(`Business created! Payment link copied to clipboard:\n\n${paymentUrl}`);
+        window.location.href = paymentUrl;
+        return; // Don't push to router — we're leaving the app
       }
       router.push(`/admin/businesses/${id}`);
     } catch {
@@ -209,7 +214,6 @@ export default function NewBusinessPage() {
                     setValue('googlePlaceId', '');
                     setValue('googlePlaceAddress', '');
                   }}
-                  className="rounded-md border border-gray-300 px-1 py-1 shadow-sm"
                 />
               ) : (
                 <input

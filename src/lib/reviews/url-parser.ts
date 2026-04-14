@@ -1,28 +1,84 @@
+// Place IDs are base64url strings of varying length (20+ chars). Known prefixes
+// include ChIJ, GhIJ, Eic, Iho — but Google doesn't guarantee a fixed prefix,
+// so we match on character set + minimum length rather than prefix.
+const PLACE_ID_RE = /^[A-Za-z][A-Za-z0-9_-]{19,}$/;
+const HEX_CID_RE = /^0x[0-9a-fA-F]+:0x[0-9a-fA-F]+$/;
+
 /**
- * Utilities for parsing Google Maps URLs and extracting business identifiers.
+ * Extracts a Google Place ID or hex CID from various Google Maps URL formats.
  *
- * Supported Place ID formats:
- *   - ChIJ... (most common, 27 chars)
- *   - GhIJ... (newer format)
- *   - Eic... (address-based)
- *   - Any base64url string starting with a letter, 20+ chars
+ * Supported formats:
+ * - Raw Place ID: "ChIJgUbEo8cfqokR5lP9_Wh_DaM" (any prefix, not just ChIJ)
+ * - Place query param: "https://www.google.com/maps/place/?q=place_id:..."
+ * - Write review URL: "https://search.google.com/local/writereview?placeid=..."
+ * - Data path (Place ID): "https://www.google.com/maps/place/.../@.../data=...!1s<base64url>"
+ * - Data path (hex CID): "https://www.google.com/maps/place/.../@.../data=...!1s0x...:0x..."
  *
- * Hex CID format: 0x{hex}:0x{hex} — NOT a Place ID; treated separately.
- *
- * CID URLs (google.com/maps?cid=...) return null from extractPlaceId —
- * numeric CIDs cannot be used as Place IDs in the Google APIs.
+ * Returns null if no identifier can be extracted.
  */
+export function extractPlaceId(input: string): string | null {
+  const trimmed = input.trim();
+  if (trimmed.length === 0) return null;
 
-export const PLACE_ID_RE = /^[A-Za-z][A-Za-z0-9_-]{19,}$/;
-export const HEX_CID_RE = /^0x[0-9a-fA-F]+:0x[0-9a-fA-F]+$/;
+  // Raw Place ID (base64url, 20+ chars, starts with a letter)
+  if (PLACE_ID_RE.test(trimmed)) {
+    return trimmed;
+  }
 
-export function isPlaceId(identifier: string): boolean {
-  return PLACE_ID_RE.test(identifier);
+  let url: URL;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    return null;
+  }
+
+  // ?q=place_id:... or &place_id=...
+  const qParam = url.searchParams.get('q');
+  if (qParam?.startsWith('place_id:')) {
+    return qParam.slice('place_id:'.length);
+  }
+
+  // ?placeid=... (Google's write-review URL)
+  const placeIdParam =
+    url.searchParams.get('placeid') ?? url.searchParams.get('place_id');
+  if (placeIdParam) {
+    return placeIdParam;
+  }
+
+  // /data=...!1s<base64url Place ID> (any prefix — ChIJ, GhIJ, Eic, Iho, etc.)
+  // Check BEFORE hex CID: when a URL contains both, prefer the Place ID.
+  // No false-match risk — Place IDs start with [A-Za-z], hex CIDs start with 0x.
+  const dataExtracted = trimmed.match(/!1s([A-Za-z][A-Za-z0-9_-]{19,})/)?.[1];
+  if (dataExtracted) {
+    return dataExtracted;
+  }
+
+  // /data=...!1s0x...:0x... (hex CID — fallback when no Place ID found)
+  const cidExtracted = trimmed.match(/!1s(0x[0-9a-fA-F]+:0x[0-9a-fA-F]+)/)?.[1];
+  if (cidExtracted) {
+    return cidExtracted;
+  }
+
+  // Path segment that looks like a Place ID
+  const pathExtracted = trimmed.match(/\/([A-Za-z][A-Za-z0-9_-]{19,})(?:[/?#]|$)/)?.[1];
+  if (pathExtracted) {
+    return pathExtracted;
+  }
+
+  return null;
 }
 
+/** Returns true if the identifier is a hex CID (0x...:0x...) rather than a Place ID. */
 export function isHexCid(identifier: string): boolean {
   return HEX_CID_RE.test(identifier);
 }
+
+/** Returns true if the identifier looks like a Google Place ID (base64url, 20+ chars). */
+export function isPlaceId(identifier: string): boolean {
+  return PLACE_ID_RE.test(identifier) && !HEX_CID_RE.test(identifier);
+}
+
+// ── Rich URL parser ─────────────────────────────────────────────────
 
 export interface GoogleMapsUrlData {
   placeId: string | null;
@@ -31,6 +87,7 @@ export interface GoogleMapsUrlData {
   coordinates: { lat: number; lng: number } | null;
 }
 
+/** Extracts all available data from a Google Maps URL. */
 export function parseGoogleMapsUrl(input: string): GoogleMapsUrlData {
   const result: GoogleMapsUrlData = {
     placeId: null,
@@ -77,52 +134,18 @@ export function parseGoogleMapsUrl(input: string): GoogleMapsUrlData {
     return result;
   }
 
-  // Scan all !1s tokens — prefer Place ID over hex CID when both appear.
-  // Real URLs can have !1s0x{hexcid}!...!1sChIJ{placeid} where the hex CID
-  // appears first but the Place ID is the canonical identifier we want.
-  const dataTokenRe = /!1s([A-Za-z0-9_:+/-]{4,})/g;
-  let dataMatch: RegExpExecArray | null;
-  let foundHexCid: string | null = null;
-
-  while ((dataMatch = dataTokenRe.exec(trimmed)) !== null) {
-    const token = dataMatch[1]!;
-    if (PLACE_ID_RE.test(token)) {
-      result.placeId = token;
-      return result;
-    }
-    if (foundHexCid === null && HEX_CID_RE.test(token)) {
-      foundHexCid = token;
-    }
+  // Canonical Place ID from !1s data path (check before hex CID)
+  const dataPlaceId = trimmed.match(/!1s([A-Za-z][A-Za-z0-9_-]{19,})/)?.[1];
+  if (dataPlaceId) {
+    result.placeId = dataPlaceId;
+    return result;
   }
 
-  if (foundHexCid !== null) {
-    result.hexCid = foundHexCid;
+  // Hex CID from !1s data path
+  const hexCid = trimmed.match(/!1s(0x[0-9a-fA-F]+:0x[0-9a-fA-F]+)/)?.[1];
+  if (hexCid) {
+    result.hexCid = hexCid;
   }
 
   return result;
-}
-
-/**
- * Extracts a Google Place ID or hex CID from various Google Maps URL formats.
- *
- * Supported formats:
- * - Raw Place ID: "ChIJN1t_tDeuEmsRUsoyG83frY4"
- * - Place query param: "https://www.google.com/maps/place/?q=place_id:ChIJ..."
- * - Write review URL: "https://search.google.com/local/writereview?placeid=ChIJ..."
- * - Data path: "https://www.google.com/maps/place/.../@.../data=...!1sChIJ..."
- * - Hex CID in data path: "...!1s0x808fb59e48e954f1:0xd8ad2f3c266775b..."
- *
- * Returns null if no Place ID or hex CID can be extracted.
- */
-export function extractPlaceId(input: string): string | null {
-  const trimmed = input.trim();
-  if (trimmed.length === 0) return null;
-
-  // Raw Place ID (base64url, 20+ chars, starts with a letter)
-  if (PLACE_ID_RE.test(trimmed)) {
-    return trimmed;
-  }
-
-  const parsed = parseGoogleMapsUrl(trimmed);
-  return parsed.placeId ?? parsed.hexCid ?? null;
 }

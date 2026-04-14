@@ -86,7 +86,6 @@ function GenerateForm() {
               onPlaceSelect={(sel) => setPlaceSelection(sel)}
               onClear={() => setPlaceSelection(null)}
               placeholder="Search for a business..."
-              className="rounded-md border border-gray-300 px-1 py-1 shadow-sm w-full"
             />
           ) : (
             <input

@@ -135,7 +135,29 @@ export default function AdminOverviewPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="mx-auto max-w-6xl px-4 py-8">
-        <h1 className="text-2xl font-bold text-gray-900">Admin Overview</h1>
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-bold text-gray-900">Admin Overview</h1>
+          <div className="flex items-center gap-3">
+            <Link
+              href="/admin/demos"
+              className="rounded-lg border border-stone-300 px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-50"
+            >
+              Demos
+            </Link>
+            <Link
+              href="/admin/businesses"
+              className="rounded-lg border border-stone-300 px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-50"
+            >
+              All Businesses
+            </Link>
+            <Link
+              href="/admin/businesses/new"
+              className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700"
+            >
+              + Add Business
+            </Link>
+          </div>
+        </div>
 
         {/* System Health */}
         <section className="mt-6">

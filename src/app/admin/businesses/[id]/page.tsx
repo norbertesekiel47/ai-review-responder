@@ -4,6 +4,7 @@
 
 import { useState } from 'react';
 import { useParams } from 'next/navigation';
+import Link from 'next/link';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import ManualPostSection from './manual-post-section';
 
@@ -338,8 +339,17 @@ export default function BusinessDetailPage() {
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-4xl mx-auto px-4 py-8">
 
-        {/* Header */}
-        <div>
+        {/* Back + Header */}
+        <Link
+          href="/admin/overview"
+          className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700"
+        >
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+          </svg>
+          Back to Overview
+        </Link>
+        <div className="mt-2">
           <h1 className="text-2xl font-bold text-gray-900">{business.name}</h1>
           <div className="mt-2 flex flex-wrap gap-2 text-sm text-gray-500 items-center">
             <span className="rounded bg-gray-100 px-2 py-0.5 font-medium text-gray-700">
