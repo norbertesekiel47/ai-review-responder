@@ -39,6 +39,17 @@ function verifySignature(rawBody: string, headers: Record<string, string | undef
     return false;
   }
 
+  // Reject stale timestamps to prevent replay attacks after archival
+  const timestampSeconds = parseInt(svixTimestamp, 10);
+  if (Number.isNaN(timestampSeconds)) {
+    return false;
+  }
+  const ageSeconds = Math.floor(Date.now() / 1000) - timestampSeconds;
+  if (ageSeconds > 300 || ageSeconds < -60) {
+    console.warn(`${LOG_PREFIX} Stale svix-timestamp: age=${ageSeconds}s — rejecting`);
+    return false;
+  }
+
   // Svix secrets are prefixed with "whsec_" and base64-encoded after the prefix
   const secretBytes = Buffer.from(secret.replace(/^whsec_/, ''), 'base64');
   const signedContent = `${svixId}.${svixTimestamp}.${rawBody}`;
