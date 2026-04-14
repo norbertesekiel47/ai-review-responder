@@ -36,6 +36,17 @@ async function processCheckoutSessionCompleted(session: Stripe.Checkout.Session)
   const customerId = extractCustomerId(session.customer);
   const subscriptionId = extractSubscriptionId(session.subscription as string | Stripe.Subscription | null);
 
+  // Only activate for subscription-mode sessions with confirmed payment
+  if (session.mode !== 'subscription') {
+    console.warn(`${LOG_PREFIX} checkout.session.completed mode=${session.mode} (not subscription) — skipping activation`);
+    return;
+  }
+
+  if (session.payment_status !== 'paid') {
+    console.warn(`${LOG_PREFIX} checkout.session.completed payment_status=${session.payment_status} (not paid) — skipping activation for business ${businessId}`);
+    return;
+  }
+
   const updated = await sql`
     UPDATE businesses
     SET
@@ -158,33 +169,33 @@ export async function handleStripeWebhook(request: FastifyRequest, reply: Fastif
     return;
   }
 
-  // Check for existing dedup record
-  const existing = await sql<{ status: string }[]>`
-    SELECT status FROM inbound_events
-    WHERE external_event_key = ${event.id}
-    LIMIT 1
+  // Atomic dedup: INSERT or skip if already exists.
+  const claimed = await sql`
+    INSERT INTO inbound_events (id, source, external_event_key, event_type, payload, status)
+    VALUES (
+      ${uuidv7()},
+      'stripe',
+      ${event.id},
+      ${event.type},
+      ${JSON.stringify(event)}::jsonb,
+      'received'
+    )
+    ON CONFLICT (external_event_key) DO NOTHING
+    RETURNING id
   `;
 
-  if (existing.length > 0 && existing[0]?.status === 'processed') {
-    console.log(`${LOG_PREFIX} Duplicate event ${event.id} already processed — skipping`);
+  if (claimed.count === 0) {
+    // Already claimed — check if processed
+    const [existing] = await sql<{ status: string }[]>`
+      SELECT status FROM inbound_events WHERE external_event_key = ${event.id}
+    `;
+    if (existing?.status === 'processed') {
+      console.log(`${LOG_PREFIX} Duplicate event ${event.id} already processed — skipping`);
+    } else {
+      console.log(`${LOG_PREFIX} Event ${event.id} already claimed (status=${existing?.status}) — skipping`);
+    }
     reply.status(200).send({ received: true, duplicate: true });
     return;
-  }
-
-  // Insert new record or leave existing received/failed record for reprocessing
-  if (existing.length === 0) {
-    await sql`
-      INSERT INTO inbound_events (id, source, external_event_key, event_type, payload, status)
-      VALUES (
-        ${uuidv7()},
-        'stripe',
-        ${event.id},
-        ${event.type},
-        ${JSON.stringify(event)}::jsonb,
-        'received'
-      )
-      ON CONFLICT (external_event_key) DO NOTHING
-    `;
   }
 
   try {

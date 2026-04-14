@@ -71,7 +71,10 @@ describe('Stripe webhook dedup — handleStripeWebhook', () => {
 
   it('skips processing and returns duplicate:true when event is already processed', async () => {
     setupStripeEvent();
-    // 1: SELECT status → processed
+    // 1: INSERT returns count=0 (conflict — already claimed)
+    const dupResult: any = []; dupResult.count = 0;
+    sqlReturnQueue.push(dupResult);
+    // 2: SELECT status → processed
     sqlReturnQueue.push([{ status: 'processed' }]);
 
     const { handleStripeWebhook } = await import('../ingress/stripe');
@@ -82,21 +85,19 @@ describe('Stripe webhook dedup — handleStripeWebhook', () => {
     expect(reply.send).toHaveBeenCalledWith(
       expect.objectContaining({ duplicate: true }),
     );
-    // Only 1 SQL call (the SELECT), no INSERT
-    expect(sqlCalls).toHaveLength(1);
+    // 2 SQL calls: INSERT (conflict) + SELECT for status log
+    expect(sqlCalls).toHaveLength(2);
     expect(sqlCalls[0]!.text).toContain('inbound_events');
   });
 
   it('inserts inbound_event and processes new event', async () => {
     setupStripeEvent();
-    // 1: SELECT status → empty (new event)
-    sqlReturnQueue.push([]);
-    // 2: INSERT INTO inbound_events
+    // 1: INSERT INTO inbound_events → count=1 (new event claimed)
     const insertResult: any = []; insertResult.count = 1;
     sqlReturnQueue.push(insertResult);
-    // 3: UPDATE businesses (checkout.session.completed)
-    sqlReturnQueue.push([]);
-    // 4: UPDATE inbound_events SET status='processed'
+    // 2: UPDATE businesses (checkout.session.completed skips — mode=undefined)
+    // (no SQL call for businesses since mode check fails)
+    // 3: UPDATE inbound_events SET status='processed'
     sqlReturnQueue.push([]);
 
     const { handleStripeWebhook } = await import('../ingress/stripe');
@@ -113,23 +114,25 @@ describe('Stripe webhook dedup — handleStripeWebhook', () => {
     expect(insertCalls[0]!.values).toContain('evt_test_123');
   });
 
-  it('reprocesses event with status=received (not processed)', async () => {
+  it('returns duplicate:true when event is already claimed with status=received', async () => {
     setupStripeEvent();
-    // 1: SELECT status → received (previously failed)
+    // 1: INSERT returns count=0 (conflict — already claimed even if not yet processed)
+    const dupResult: any = []; dupResult.count = 0;
+    sqlReturnQueue.push(dupResult);
+    // 2: SELECT status → received
     sqlReturnQueue.push([{ status: 'received' }]);
-    // 2: UPDATE businesses (reprocess)
-    sqlReturnQueue.push([]);
-    // 3: UPDATE inbound_events SET status='processed'
-    sqlReturnQueue.push([]);
 
     const { handleStripeWebhook } = await import('../ingress/stripe');
     const reply = makeReply();
     await handleStripeWebhook(makeRequest(), reply);
 
     expect(reply.status).toHaveBeenCalledWith(200);
-    // Should NOT have inserted (record already exists)
-    const insertCalls = sqlCalls.filter((c) => c.text.includes('INSERT'));
-    expect(insertCalls).toHaveLength(0);
+    expect(reply.send).toHaveBeenCalledWith(
+      expect.objectContaining({ duplicate: true }),
+    );
+    // Only the INSERT attempt + SELECT for status log — no business logic calls
+    const businessUpdateCalls = sqlCalls.filter((c) => c.text.includes('UPDATE businesses'));
+    expect(businessUpdateCalls).toHaveLength(0);
   });
 
   it('rejects missing stripe-signature with 401', async () => {
