@@ -1,7 +1,6 @@
 import type { Job } from 'bullmq';
-import { randomUUID, createHash } from 'node:crypto';
-import { v7 as uuidv7 } from 'uuid';
 import { sql } from '../../src/lib/db/server';
+import { createApprovalLink } from '../../src/lib/approval/create-link';
 import { checkSubscription } from '../../src/lib/shared/subscription-guard';
 import { markOutboxCompleted, markOutboxFailed } from '../../src/lib/shared/outbox';
 import { sendApprovalEmail } from '../../src/lib/notifications/email';
@@ -126,39 +125,10 @@ export async function handleSendNotification(
     return;
   }
 
-  // ── Step 5: Generate approval token ────────────────────────────────
-  const rawToken = randomUUID();
-  const tokenHash = createHash('sha256').update(rawToken).digest('hex');
-
-  // ── Step 6: Create approval link ──────────────────────────────────
-  // Only revoke existing links if NO delivery record exists (orphaned link
-  // from a crash before email send). If a delivery exists, the link is live
-  // in the owner's inbox — do NOT revoke it on retry.
-  const [existingDeliveryForRevoke] = await sql<{ id: string }[]>`
-    SELECT id FROM notification_deliveries
-    WHERE response_id = ${response_id} AND template = 'approval_request' AND sent_at IS NOT NULL
-    LIMIT 1
-  `;
-
-  await sql.begin(async (tx) => {
-    if (!existingDeliveryForRevoke) {
-      // No delivery record → link is orphaned (crash before send). Safe to revoke.
-      await tx`
-        UPDATE approval_links SET revoked_at = NOW()
-        WHERE response_id = ${response_id}
-          AND revoked_at IS NULL
-          AND consumed_at IS NULL
-          AND expires_at > NOW()
-      `;
-    }
-
-    await tx`
-      INSERT INTO approval_links (id, response_id, business_id, token_hash, channel, expires_at)
-      VALUES (
-        ${uuidv7()}, ${response_id}, ${business_id}, ${tokenHash}, 'email',
-        NOW() + INTERVAL '48 hours'
-      )
-    `;
+  // ── Step 5-6: Create approval link (shared logic) ─────────────────
+  const { rawToken } = await createApprovalLink({
+    responseId: response_id,
+    businessId: business_id,
   });
 
   // ── Step 7: Send email ─────────────────────────────────────────────
