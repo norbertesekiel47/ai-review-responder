@@ -1777,6 +1777,48 @@ Improvements discovered during end-to-end manual testing of the full system afte
 
 ---
 
+### Phase 5A.4 — Churn Risk Score System (Prompt 19f) (2026-04-15)
+
+**Status:** COMPLETE
+
+**What was done:**
+
+1. **Churn Risk Score Function** (`src/lib/shared/churn-score.ts`):
+   - Pure function `computeChurnRiskScore(metrics)` — no DB calls, no side effects
+   - 5 weighted signals: approval rate (30%), days since approval (25%), satisfaction pulse (20%), response time trend (15%), account age (10%)
+   - Levels: 0-30 = healthy, 31-60 = watch, 61-100 = at_risk
+   - Returns score, level, and breakdown array with signal name, value, and contribution
+   - Weights and thresholds exported as constants for tuning
+   - 39 comprehensive tests covering each signal independently, edge cases, boundary values, combined scoring
+
+2. **Admin Overview API** (`src/app/api/admin/overview/route.ts`):
+   - Added grouped metrics CTE query for all returned business IDs (one query, not N+1)
+   - Computes approval rate, notified/pending counts, days since approval, account age, response time trend
+   - Runs each through `computeChurnRiskScore()` and adds `churnScore` to response
+
+3. **Admin Overview Page** (`src/app/admin/overview/page.tsx`):
+   - Added Health column with HealthBadge (green=Healthy, amber=Watch, red=At Risk)
+   - Shows numeric score alongside level badge
+   - Default sort: risk score descending (most at-risk at top)
+
+4. **Business Detail API** (`src/app/api/admin/businesses/[id]/route.ts`):
+   - Added same metrics CTE query (scoped to single business)
+   - Computes and returns `churnScore` in GET response
+
+5. **Business Detail Page** (`src/app/admin/businesses/[id]/page.tsx`):
+   - Risk badge next to business name in header
+   - New Engagement section with score breakdown
+   - Each signal shows: name, value, contribution bar (color-coded green/amber/red), numeric contribution
+
+**Test count:** 427/427 passing across 29 files (was 388)
+**New test file:** `churn-score.test.ts` (39 tests)
+
+---
+
+**Sprint 5A: COMPLETE** — All 4 prompts (19a Weekly Value Report + Monthly Impact Email, 19c Read-Only Owner Dashboard, 19d Engagement Detection & Re-engagement, 19f Churn Risk Score) implemented with all review findings addressed. 427 tests across 29 files.
+
+---
+
 ## Sprint 6: Scale to $1K MRR
 
 **Status:** NOT STARTED

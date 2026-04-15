@@ -183,6 +183,9 @@ The architecture was designed so this is a mechanical swap — same outbox, same
   - New files: `src/app/api/dashboard/route.ts`, `src/components/OwnerNav.tsx`, `src/components/DashboardContent.tsx`, `src/app/api/dashboard/__tests__/route.test.ts`, `supabase/migrations/010_dashboard_indexes.sql`
   - Prompt 19d (Engagement Detection & Re-engagement): COMPLETE (2026-04-14) — EngagementMonitorPoller (daily, single grouped SQL query across active businesses, 4 engagement rules with cooldown dedup via notification_deliveries), EngagementAlertWorker (owner_nudge creates fresh approval links per pending review via extracted `createApprovalLink()`, 3 partner alert types send internal emails to admin), `createApprovalLink()` extracted from NotificationWorker to `src/lib/approval/create-link.ts` for reuse, 4 email templates (owner nudge customer-facing, partner engagement/escalation/low-engagement internal with red/amber accents). 386/386 tests across 28 files.
   - New files: `worker/jobs/EngagementMonitorPoller.ts`, `worker/jobs/EngagementAlertWorker.ts`, `src/lib/approval/create-link.ts`
+  - Prompt 19f (Churn Risk Score): COMPLETE (2026-04-15) — Pure `computeChurnRiskScore()` function (5 weighted signals: approval rate 30%, days since approval 25%, satisfaction pulse 20%, response time trend 15%, account age 10%; levels: healthy/watch/at_risk at 0-30/31-60/61-100), admin overview API enhanced with grouped metrics CTE query + churn score per business, Health column with color badges (green/amber/red) + default sort by risk score descending, business detail API + page enhanced with risk badge in header + Engagement section with signal breakdown and contribution bars. 39 churn score tests. 427/427 tests across 29 files.
+  - New files: `src/lib/shared/churn-score.ts`
+- **Sprint 5A: COMPLETE** — All prompts (19a, 19c, 19d, 19f) done.
 - GBP API: NOT APPLIED FOR
 
 ## Lab notes
