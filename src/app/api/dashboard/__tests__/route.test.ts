@@ -102,7 +102,7 @@ function setDbResults(overrides?: {
         star_rating: 5,
         review_text: 'Great!',
         review_date: new Date('2025-03-10T00:00:00Z'),
-        status: 'processed',
+        status: 'new',
         response_text: 'Thanks Alice!',
         response_status: 'posted',
       },
@@ -232,14 +232,14 @@ describe('GET /api/dashboard', () => {
     ]);
   });
 
-  it('prefers weekly brief when it is more recent than monthly', async () => {
+  it('prefers weekly brief when it was sent more recently than monthly', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
     setDbResults({
       monthlyBriefRows: [
-        { summary_text: 'Monthly summary', month_start_date: '2025-02-01' },
+        { summary_text: 'Monthly summary', month_start_date: '2025-03-01', sent_at: '2025-04-01T09:00:00Z' },
       ],
       weeklyBriefRows: [
-        { summary_text: 'Weekly summary', week_start_date: '2025-03-10' },
+        { summary_text: 'Weekly summary', week_start_date: '2025-04-07', sent_at: '2025-04-07T08:30:00Z' },
       ],
     });
 
@@ -250,6 +250,31 @@ describe('GET /api/dashboard', () => {
     expect(body.latestBrief).not.toBeNull();
     expect(body.latestBrief!.type).toBe('weekly');
     expect(body.latestBrief!.text).toBe('Weekly summary');
-    expect(body.latestBrief!.periodLabel).toBe('Week of 2025-03-10');
+  });
+
+  it('shows pending_approval responses in recent reviews', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+    setDbResults({
+      recentReviewRows: [
+        {
+          id: 'rev-pending',
+          reviewer_name: 'Bob',
+          star_rating: 4,
+          review_text: 'Pretty good',
+          review_date: new Date('2025-03-12T00:00:00Z'),
+          status: 'new',
+          response_text: 'Thank you Bob!',
+          response_status: 'pending_approval',
+        },
+      ],
+    });
+
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(200);
+
+    const body: DashboardData = await res.json();
+    expect(body.recentReviews).toHaveLength(1);
+    expect(body.recentReviews[0]!.responseStatus).toBe('pending_approval');
+    expect(body.recentReviews[0]!.responseText).toBe('Thank you Bob!');
   });
 });

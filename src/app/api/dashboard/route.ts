@@ -35,25 +35,24 @@ export interface DashboardData {
   } | null;
 }
 
+/** All dashboard responses use no-store headers — owner-specific data. */
+function jsonResponse(body: unknown, status = 200): NextResponse {
+  return NextResponse.json(body, { status, headers: NO_STORE_HEADERS });
+}
+
 export async function GET(request: NextRequest): Promise<NextResponse> {
   let user;
   try {
     user = await requireRole(request, 'owner');
   } catch (err) {
     if (err instanceof AuthError) {
-      return NextResponse.json(
-        { error: err.message },
-        { status: err.statusCode },
-      );
+      return jsonResponse({ error: err.message }, err.statusCode);
     }
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return jsonResponse({ error: 'Unauthorized' }, 401);
   }
 
   if (!user.businessId) {
-    return NextResponse.json(
-      { error: 'No business associated with this account' },
-      { status: 403 },
-    );
+    return jsonResponse({ error: 'No business associated with this account' }, 403);
   }
 
   const businessId = user.businessId;
@@ -118,6 +117,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         ORDER BY keyword ASC, snapshot_date ASC
       `,
       // Recent reviews: last 10 with latest non-superseded/failed response
+      // Include pending_approval so the UI can show "check your email" reminders
       sql`
         SELECT
           rev.id,
@@ -133,7 +133,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           SELECT COALESCE(approved_text, response_text) AS response_text, status
           FROM responses
           WHERE review_id = rev.id
-            AND status IN ('posted', 'approved', 'edited', 'awaiting_manual_post')
+            AND status IN ('pending_approval', 'posted', 'approved', 'edited', 'awaiting_manual_post')
           ORDER BY version DESC
           LIMIT 1
         ) resp ON true
@@ -141,34 +141,31 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         ORDER BY rev.detected_at DESC
         LIMIT 10
       `,
-      // Latest monthly brief
+      // Latest monthly brief (with sent_at for recency comparison)
       sql`
-        SELECT summary_text, month_start_date
+        SELECT summary_text, month_start_date, sent_at
         FROM monthly_impact_emails
         WHERE business_id = ${businessId}
           AND summary_text IS NOT NULL
           AND sent_at IS NOT NULL
-        ORDER BY month_start_date DESC
+        ORDER BY sent_at DESC
         LIMIT 1
       `,
-      // Latest weekly brief
+      // Latest weekly brief (with sent_at for recency comparison)
       sql`
-        SELECT summary_text, week_start_date
+        SELECT summary_text, week_start_date, sent_at
         FROM weekly_summaries
         WHERE business_id = ${businessId}
           AND summary_text IS NOT NULL
           AND sent_at IS NOT NULL
-        ORDER BY week_start_date DESC
+        ORDER BY sent_at DESC
         LIMIT 1
       `,
     ]);
 
     const business = businessRows[0];
     if (!business) {
-      return NextResponse.json(
-        { error: 'Business not found' },
-        { status: 404 },
-      );
+      return jsonResponse({ error: 'Business not found' }, 404);
     }
 
     const totalReviews = totalReviewRows[0]?.count ?? 0;
@@ -217,15 +214,16 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           }))
         : null;
 
-    // Pick whichever brief is more recent
+    // Pick whichever brief was sent more recently (by sent_at, not period start)
     let latestBrief: DashboardData['latestBrief'] = null;
     const monthlyBrief = monthlyBriefRows[0];
     const weeklyBrief = weeklyBriefRows[0];
 
-    const monthlyDate = monthlyBrief?.month_start_date ? String(monthlyBrief.month_start_date) : '';
-    const weeklyDate = weeklyBrief?.week_start_date ? String(weeklyBrief.week_start_date) : '';
+    const monthlySentAt = monthlyBrief?.sent_at ? new Date(monthlyBrief.sent_at as string).getTime() : 0;
+    const weeklySentAt = weeklyBrief?.sent_at ? new Date(weeklyBrief.sent_at as string).getTime() : 0;
 
-    if (monthlyBrief?.summary_text && (!weeklyDate || monthlyDate >= weeklyDate)) {
+    if (monthlyBrief?.summary_text && monthlySentAt >= weeklySentAt) {
+      const monthlyDate = String(monthlyBrief.month_start_date);
       const d = new Date(monthlyDate + 'T00:00:00Z');
       latestBrief = {
         text: monthlyBrief.summary_text as string,
@@ -236,7 +234,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       latestBrief = {
         text: weeklyBrief.summary_text as string,
         type: 'weekly',
-        periodLabel: `Week of ${weeklyDate}`,
+        periodLabel: `Week of ${String(weeklyBrief.week_start_date)}`,
       };
     }
 
@@ -271,12 +269,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       latestBrief,
     };
 
-    return NextResponse.json(data, { headers: NO_STORE_HEADERS });
+    return jsonResponse(data);
   } catch (error) {
     console.error('[api/dashboard] Failed to fetch dashboard data:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch dashboard data' },
-      { status: 500 },
-    );
+    return jsonResponse({ error: 'Failed to fetch dashboard data' }, 500);
   }
 }

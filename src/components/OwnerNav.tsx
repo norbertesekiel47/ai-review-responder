@@ -15,9 +15,13 @@ export function OwnerNav({ businessName }: OwnerNavProps) {
 
   async function handleSignOut() {
     setSigningOut(true);
-    const supabase = createBrowserSupabaseClient();
-    await supabase.auth.signOut();
-    router.push('/admin/login');
+    try {
+      const supabase = createBrowserSupabaseClient();
+      await supabase.auth.signOut();
+    } finally {
+      setSigningOut(false);
+      router.push('/admin/login');
+    }
   }
 
   return (
