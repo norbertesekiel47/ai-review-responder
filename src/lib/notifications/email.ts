@@ -261,7 +261,7 @@ export function buildWeeklyValueReportHtml(params: WeeklyValueReportParams): str
   const timeSavedMinutes = totalResponded * 7;
 
   // Value-delivered header
-  const valueHeader = `This week RepWorth handled ${totalReviews} reviews for you, saving you approximately ${timeSavedMinutes} minutes`;
+  const valueHeader = `This week RepWorth handled ${totalResponded} review${totalResponded !== 1 ? 's' : ''} for you, saving you approximately ${timeSavedMinutes} minutes`;
 
   // Response rate lift
   const baselineHtml = baselineResponseRate !== null
@@ -415,7 +415,7 @@ export function buildMonthlyImpactEmailHtml(params: MonthlyImpactEmailParams): s
   // Value delivered
   const valueHtml = `
         <tr><td style="padding:0 24px;">
-          <p style="margin:0 0 16px;font-size:15px;color:#374151;line-height:1.5;">In ${safeMonth}, we handled ${totalReviews} reviews, saving you approximately ${timeSavedHours} hours</p>
+          <p style="margin:0 0 16px;font-size:15px;color:#374151;line-height:1.5;">In ${safeMonth}, we handled ${totalResponded} review${totalResponded !== 1 ? 's' : ''}, saving you approximately ${timeSavedHours} hours</p>
         </td></tr>`;
 
   // Response rate with baseline

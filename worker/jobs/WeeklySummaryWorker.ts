@@ -64,11 +64,12 @@ export async function handleWeeklySummary(
   `;
 
   const [respondedCount] = await sql<{ count: string }[]>`
-    SELECT COUNT(*)::text AS count FROM responses
-    WHERE business_id = ${business_id}
-      AND status IN ('posted', 'approved', 'edited', 'awaiting_manual_post')
-      AND created_at >= ${week_start_date}::date
-      AND created_at < ${weekEndDate}::date
+    SELECT COUNT(DISTINCT r.id)::text AS count FROM reviews r
+    JOIN responses resp ON resp.review_id = r.id
+      AND resp.status IN ('posted', 'approved', 'edited', 'awaiting_manual_post')
+    WHERE r.business_id = ${business_id}
+      AND r.detected_at >= ${week_start_date}::date
+      AND r.detected_at < ${weekEndDate}::date
   `;
 
   const notableReviews = await sql<{
@@ -110,7 +111,7 @@ export async function handleWeeklySummary(
       (SELECT COUNT(*)::float / 4.0 FROM reviews
        WHERE business_id = ${business_id}
          AND detected_at >= (${week_start_date}::date - INTERVAL '28 days')
-         AND detected_at < ${weekEndDate}::date),
+         AND detected_at < ${week_start_date}::date),
       0
     )::text AS avg
   `;
@@ -123,14 +124,14 @@ export async function handleWeeklySummary(
     rank_position: number;
   }[]>`
     SELECT keyword, rank_position FROM ranking_snapshots
-    WHERE business_id = ${business_id}
+    WHERE business_id = ${business_id} AND rank_position IS NOT NULL
     ORDER BY snapshot_date DESC LIMIT 1
   `;
 
   if (latestRanking) {
     const [initialRanking] = await sql<{ rank_position: number }[]>`
       SELECT rank_position FROM ranking_snapshots
-      WHERE business_id = ${business_id} AND keyword = ${latestRanking.keyword}
+      WHERE business_id = ${business_id} AND keyword = ${latestRanking.keyword} AND rank_position IS NOT NULL
       ORDER BY snapshot_date ASC LIMIT 1
     `;
     ranking = {

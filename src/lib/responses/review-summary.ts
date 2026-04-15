@@ -2,6 +2,7 @@ import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
 import { isMockMode } from '@/lib/shared/mock-mode';
 import { recordApiCost, calculateCostUsd } from '@/lib/costs/audit';
+import { reserveCost, finalizeCost, releaseCost } from '@/lib/costs/tracker';
 
 // ── Public types ────────────────────────────────────────────────────
 
@@ -143,10 +144,20 @@ export async function generateReviewSummary(
   const capped = reviews.slice(0, MAX_REVIEWS_FOR_SUMMARY);
   const userPrompt = buildUserPrompt(capped);
 
+  // Reserve budget before LLM call — summary is optional, degrade gracefully on limit
+  let dateStr: string;
+  try {
+    dateStr = await reserveCost(businessId, 'standard');
+  } catch (err) {
+    console.warn('[review-summary] Cost reservation failed, skipping summary:', err instanceof Error ? err.message : err);
+    return null;
+  }
+
   let result: LLMCallResult;
   try {
     result = await callLLMWithFallback(userPrompt);
   } catch (error) {
+    await releaseCost(businessId, dateStr);
     console.error('[review-summary] Both LLM providers failed:', error);
     return null;
   }
@@ -156,6 +167,9 @@ export async function generateReviewSummary(
     result.usage.promptTokens,
     result.usage.completionTokens,
   );
+
+  const actualCostCents = Math.ceil(costUsd * 100);
+  await finalizeCost(businessId, actualCostCents, dateStr);
 
   // Best-effort cost audit — don't fail the summary if this write fails
   try {

@@ -47,7 +47,7 @@ describe('buildWeeklyValueReportHtml', () => {
     const html = buildWeeklyValueReportHtml(baseWeeklyParams({ totalReviews: 12, totalResponded: 10 }));
     // 10 responded * 7 = 70 minutes
     expect(html).toContain('saving you approximately 70 minutes');
-    expect(html).toContain('handled 12 reviews');
+    expect(html).toContain('handled 10 reviews');
   });
 
   it('includes intelligence brief section when provided', () => {

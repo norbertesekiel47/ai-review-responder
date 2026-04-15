@@ -81,11 +81,12 @@ export async function handleMonthlyImpact(
   `;
 
   const [respondedCount] = await sql<{ count: string }[]>`
-    SELECT COUNT(*)::text AS count FROM responses
-    WHERE business_id = ${business_id}
-      AND status IN ('posted', 'approved', 'edited', 'awaiting_manual_post')
-      AND created_at >= ${month_start_date}::date
-      AND created_at < ${monthEndDate}::date
+    SELECT COUNT(DISTINCT r.id)::text AS count FROM reviews r
+    JOIN responses resp ON resp.review_id = r.id
+      AND resp.status IN ('posted', 'approved', 'edited', 'awaiting_manual_post')
+    WHERE r.business_id = ${business_id}
+      AND r.detected_at >= ${month_start_date}::date
+      AND r.detected_at < ${monthEndDate}::date
   `;
 
   const totalReviews = parseInt(reviewCount?.count ?? '0', 10);
@@ -106,7 +107,6 @@ export async function handleMonthlyImpact(
     WHERE r.business_id = ${business_id}
       AND r.detected_at >= ${month_start_date}::date
       AND r.detected_at < ${monthEndDate}::date
-      AND r.star_rating >= 4
       AND r.review_text IS NOT NULL
     ORDER BY r.star_rating DESC, LENGTH(r.review_text) DESC
     LIMIT 1
@@ -165,14 +165,14 @@ export async function handleMonthlyImpact(
     rank_position: number;
   }[]>`
     SELECT keyword, rank_position FROM ranking_snapshots
-    WHERE business_id = ${business_id}
+    WHERE business_id = ${business_id} AND rank_position IS NOT NULL
     ORDER BY snapshot_date DESC LIMIT 1
   `;
 
   if (latestRanking) {
     const [initialRanking] = await sql<{ rank_position: number }[]>`
       SELECT rank_position FROM ranking_snapshots
-      WHERE business_id = ${business_id} AND keyword = ${latestRanking.keyword}
+      WHERE business_id = ${business_id} AND keyword = ${latestRanking.keyword} AND rank_position IS NOT NULL
       ORDER BY snapshot_date ASC LIMIT 1
     `;
     ranking = {

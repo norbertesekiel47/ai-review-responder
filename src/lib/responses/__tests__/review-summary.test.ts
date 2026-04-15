@@ -25,6 +25,27 @@ vi.mock('@/lib/costs/audit', () => ({
   calculateCostUsd: vi.fn().mockReturnValue(0.000_05),
 }));
 
+const mockReserveCost = vi.fn().mockResolvedValue('2026-04-14');
+const mockFinalizeCost = vi.fn().mockResolvedValue(undefined);
+const mockReleaseCost = vi.fn().mockResolvedValue(undefined);
+vi.mock('@/lib/costs/tracker', () => ({
+  reserveCost: (...args: unknown[]) => mockReserveCost(...args),
+  finalizeCost: (...args: unknown[]) => mockFinalizeCost(...args),
+  releaseCost: (...args: unknown[]) => mockReleaseCost(...args),
+  CostLimitExceededError: class CostLimitExceededError extends Error {
+    constructor(public readonly businessId: string) {
+      super(`Daily cost limit exceeded for business ${businessId}`);
+      this.name = 'CostLimitExceededError';
+    }
+  },
+  GlobalCostLimitExceededError: class GlobalCostLimitExceededError extends Error {
+    constructor() {
+      super('Global daily cost limit exceeded');
+      this.name = 'GlobalCostLimitExceededError';
+    }
+  },
+}));
+
 let mockModeEnabled = false;
 vi.mock('@/lib/shared/mock-mode', () => ({
   isMockMode: () => mockModeEnabled,
@@ -155,5 +176,41 @@ describe('generateReviewSummary', () => {
 
     expect(result).not.toBeNull();
     expect(result!.summaryText).toBe(summaryText);
+  });
+
+  it('calls reserveCost before LLM and finalizeCost after', async () => {
+    const summaryText = 'Cost-tracked summary.';
+    openaiCreate.mockResolvedValueOnce(openAIResponse(summaryText));
+
+    const generateReviewSummary = await getSut();
+    await generateReviewSummary(makeReviews(3), 'biz-001');
+
+    expect(mockReserveCost).toHaveBeenCalledWith('biz-001', 'standard');
+    expect(mockFinalizeCost).toHaveBeenCalledWith('biz-001', expect.any(Number), '2026-04-14');
+    expect(mockReleaseCost).not.toHaveBeenCalled();
+  });
+
+  it('releases cost reservation when LLM call fails', async () => {
+    openaiCreate.mockRejectedValueOnce(new Error('OpenAI down'));
+    anthropicCreate.mockRejectedValueOnce(new Error('Anthropic down'));
+
+    const generateReviewSummary = await getSut();
+    const result = await generateReviewSummary(makeReviews(3), 'biz-001');
+
+    expect(result).toBeNull();
+    expect(mockReleaseCost).toHaveBeenCalledWith('biz-001', '2026-04-14');
+    expect(mockFinalizeCost).not.toHaveBeenCalled();
+  });
+
+  it('returns null gracefully when cost limit exceeded', async () => {
+    const { CostLimitExceededError } = await import('@/lib/costs/tracker');
+    mockReserveCost.mockRejectedValueOnce(new CostLimitExceededError('biz-001'));
+
+    const generateReviewSummary = await getSut();
+    const result = await generateReviewSummary(makeReviews(3), 'biz-001');
+
+    expect(result).toBeNull();
+    expect(openaiCreate).not.toHaveBeenCalled();
+    expect(anthropicCreate).not.toHaveBeenCalled();
   });
 });
