@@ -1701,7 +1701,27 @@ Improvements discovered during end-to-end manual testing of the full system afte
 7. **Dashboard page** (`src/app/(authenticated)/dashboard/page.tsx`):
    - Replaced placeholder with `DashboardContent`
 
-**Test count:** 312/312 passing across 24 files (unchanged — UI components, no new test files for this prompt)
+### Post-19c Dashboard Robustness Fixes (2026-04-14)
+
+**Status:** COMPLETE
+
+1. ROI metrics: changed to explicit `IN ('posted', 'approved', 'edited', 'awaiting_manual_post')` — excludes pending_approval from "handled" count
+2. Edited response display: `COALESCE(approved_text, response_text)` in lateral join shows owner-approved text
+3. UTC date formatting: all chart date parsing uses `T00:00:00Z` suffix + `timeZone: 'UTC'`
+4. Zero-review weeks: velocity query uses `generate_series` to fill missing weeks with zero counts
+5. Brief recency: compares `sent_at` timestamps instead of period start dates
+6. Dashboard index: migration 010 adds `(business_id, detected_at DESC)` composite index
+7. Ranking limit: snapshots bounded to last 12 months
+8. Dashboard tests: 9 API route tests covering auth, scoping, empty states, brief recency, pending reviews
+9. Null review_date: returns empty string instead of current date
+10. No-store headers: all dashboard responses (success + error) use `NO_STORE_HEADERS` via `jsonResponse` helper; middleware `/api/dashboard` 401/403 also include no-store
+11. Pending reviews: lateral join includes `pending_approval` so UI shows "check your email" reminder
+12. Sign-out: only redirects on success, shows error state on failure, uses `router.refresh()`
+13. Status badges: added `edited` and `generating` to badge color map
+14. Nullable star_rating: typed as `number | null`, renders "No rating" when absent
+
+**Test count:** 322/322 passing across 25 files (was 312)
+**New test file:** `src/app/api/dashboard/__tests__/route.test.ts`
 
 ---
 
