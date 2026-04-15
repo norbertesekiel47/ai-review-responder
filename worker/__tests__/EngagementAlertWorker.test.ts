@@ -358,7 +358,7 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
 
     expect(mockSendInternalEmail).toHaveBeenCalledWith({
       to: 'admin@repworth.com',
-      subject: 'Customer Test Biz approval rate dropped to 25%',
+      subject: 'Customer Test Biz approval rate is 25%',
       bodyHtml: '<html>low-engagement</html>',
     });
 

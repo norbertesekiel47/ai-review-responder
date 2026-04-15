@@ -132,6 +132,7 @@ async function handleOwnerNudge(
 
   const bodyHtml = buildOwnerNudgeEmailHtml({
     businessName: business.name,
+    totalPending,
     pendingReviews,
   });
 
@@ -211,7 +212,7 @@ async function handlePartnerAlert(
         ownerEmail: business.owner_email,
         ownerPhone: business.owner_phone,
       });
-      subject = `Customer ${business.name} approval rate dropped to ${metrics.approval_rate}%`;
+      subject = `Customer ${business.name} approval rate is ${metrics.approval_rate}%`;
       break;
     }
   }

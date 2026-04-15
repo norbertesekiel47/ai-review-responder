@@ -160,7 +160,7 @@ export async function runEngagementCheck(): Promise<void> {
               SELECT 1 FROM job_outbox
               WHERE topic = 'engagement_alert'
                 AND aggregate_id = ${row.business_id}
-                AND status IN ('pending', 'dispatched')
+                AND status IN ('pending', 'dispatching', 'dispatched')
                 AND payload->>'alert_type' = ${rule.type}
             )
           `;

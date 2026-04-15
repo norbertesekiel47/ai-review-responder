@@ -6,4 +6,4 @@
 CREATE UNIQUE INDEX IF NOT EXISTS idx_jo_engagement_alert_inflight
   ON job_outbox (aggregate_id, (payload->>'alert_type'))
   WHERE topic = 'engagement_alert'
-    AND status IN ('pending', 'dispatched');
+    AND status IN ('pending', 'dispatching', 'dispatched');

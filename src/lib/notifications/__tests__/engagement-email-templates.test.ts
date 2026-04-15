@@ -283,7 +283,7 @@ describe('buildPartnerEscalationAlertHtml', () => {
 describe('buildPartnerLowEngagementAlertHtml', () => {
   it('contains approval rate percentage in header', () => {
     const html = buildPartnerLowEngagementAlertHtml(baseLowEngagementParams({ approvalRate: 25 }));
-    expect(html).toContain('approval rate dropped to 25%');
+    expect(html).toContain('approval rate is 25%');
   });
 
   it('has amber accent via border-left', () => {

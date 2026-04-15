@@ -498,6 +498,8 @@ export function buildMonthlyImpactEmailHtml(params: MonthlyImpactEmailParams): s
 
 export interface OwnerNudgeEmailParams {
   businessName: string;
+  /** Total pending reviews (may be more than pendingReviews.length if capped). */
+  totalPending?: number;
   pendingReviews: Array<{
     reviewerName: string;
     starRating: number | null;
@@ -509,7 +511,8 @@ export interface OwnerNudgeEmailParams {
 export function buildOwnerNudgeEmailHtml(params: OwnerNudgeEmailParams): string {
   const { businessName, pendingReviews } = params;
   const safeName = escapeHtml(businessName);
-  const count = pendingReviews.length;
+  const totalPending = params.totalPending ?? pendingReviews.length;
+  const showing = pendingReviews.length;
 
   const reviewRows = pendingReviews.map((review) => {
     const stars = review.starRating != null ? renderStars(review.starRating) : '';
@@ -536,8 +539,8 @@ export function buildOwnerNudgeEmailHtml(params: OwnerNudgeEmailParams): string 
     <tr><td align="center">
       <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;max-width:600px;width:100%;">
         <tr><td style="padding:32px 24px 0;">
-          <h2 style="margin:0 0 4px;font-size:18px;color:#111;">You have ${count} review${count !== 1 ? 's' : ''} waiting for your approval</h2>
-          <p style="margin:0 0 20px;font-size:14px;color:#666;">Hi! These responses for ${safeName} are ready whenever you have a moment.</p>
+          <h2 style="margin:0 0 4px;font-size:18px;color:#111;">You have ${totalPending} review${totalPending !== 1 ? 's' : ''} waiting for your approval</h2>
+          <p style="margin:0 0 20px;font-size:14px;color:#666;">Hi! These responses for ${safeName} are ready whenever you have a moment.${totalPending > showing ? ` Showing the ${showing} oldest.` : ''}</p>
         </td></tr>
         <tr><td style="padding:0 24px;">
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
@@ -590,7 +593,7 @@ export function buildPartnerEngagementAlertHtml(params: PartnerEngagementAlertPa
 <body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
   <div style="max-width:600px;margin:0 auto;padding:24px;">
     <h2 style="margin:0 0 16px;font-size:18px;color:#111;">Customer ${safeName} hasn&#39;t engaged in ${daysText}</h2>
-    <p style="margin:0 0 8px;font-size:14px;color:#374151;">Days since last approval: <strong>${daysText}</strong></p>
+    <p style="margin:0 0 8px;font-size:14px;color:#374151;">${params.daysSinceApproval !== null ? 'Days since last approval' : 'Oldest pending review age'}: <strong>${daysText}</strong></p>
     <p style="margin:0 0 8px;font-size:14px;color:#374151;">Pending reviews: <strong>${params.pendingCount}</strong></p>
     ${approvalRateText}
     <hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0;">
@@ -632,7 +635,7 @@ export function buildPartnerEscalationAlertHtml(params: PartnerEngagementAlertPa
       <h2 style="margin:0 0 4px;font-size:18px;color:#dc2626;">Customer ${safeName} may be at risk</h2>
       <p style="margin:0;font-size:14px;color:#374151;">No engagement in 2+ weeks</p>
     </div>
-    <p style="margin:0 0 8px;font-size:14px;color:#374151;">Days since last approval: <strong>${daysText}</strong></p>
+    <p style="margin:0 0 8px;font-size:14px;color:#374151;">${params.daysSinceApproval !== null ? 'Days since last approval' : 'Oldest pending review age'}: <strong>${daysText}</strong></p>
     <p style="margin:0 0 8px;font-size:14px;color:#374151;">Pending reviews: <strong>${params.pendingCount}</strong></p>
     ${approvalRateText}
     <hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0;">
@@ -671,7 +674,7 @@ export function buildPartnerLowEngagementAlertHtml(params: PartnerLowEngagementP
 <body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
   <div style="max-width:600px;margin:0 auto;padding:24px;">
     <div style="border-left:4px solid #d97706;padding-left:16px;margin-bottom:16px;">
-      <h2 style="margin:0 0 4px;font-size:18px;color:#92400e;">Customer ${safeName} approval rate dropped to ${params.approvalRate}%</h2>
+      <h2 style="margin:0 0 4px;font-size:18px;color:#92400e;">Customer ${safeName} approval rate is ${params.approvalRate}%</h2>
     </div>
     <p style="margin:0 0 8px;font-size:14px;color:#374151;">Approval rate: <strong>${params.approvalRate}%</strong></p>
     <p style="margin:0 0 8px;font-size:14px;color:#374151;">Pending reviews: <strong>${params.pendingCount}</strong></p>
