@@ -176,6 +176,26 @@ export async function handleWeeklySummary(
     return;
   }
 
+  // ── 5b. Claim: atomically set sent_at to prevent duplicate sends ──
+  // The upsert above auto-commits and does NOT hold a lock across the
+  // rest of the worker. Without this claim, two concurrent jobs could
+  // both pass the upsert (both see sent_at IS NULL) and both proceed
+  // through the LLM call + email send. This conditional UPDATE is
+  // atomic — only one concurrent job wins the claim.
+  const [claimed] = await sql<{ id: string }[]>`
+    UPDATE weekly_summaries
+    SET sent_at = NOW()
+    WHERE business_id = ${business_id}
+      AND week_start_date = ${week_start_date}::date
+      AND sent_at IS NULL
+    RETURNING id
+  `;
+  if (!claimed) {
+    console.log(`${LOG_PREFIX} Weekly summary for ${business_id} week ${week_start_date} claimed by another worker`);
+    await markOutboxCompleted(outboxId);
+    return;
+  }
+
   // ── 6. Intelligence brief (reuse existing or generate) ────────────
   let intelligenceBrief: string | null = upsertRow.summary_text ?? null;
 
@@ -231,14 +251,9 @@ export async function handleWeeklySummary(
     dashboardUrl,
   });
 
-  // ── 9. Mark as sent BEFORE sending (crash-safe) ───────────────────
-  await sql`
-    UPDATE weekly_summaries
-    SET sent_at = NOW()
-    WHERE business_id = ${business_id} AND week_start_date = ${week_start_date}::date
-  `;
+  // sent_at already claimed in step 5b (crash-safe: set before send)
 
-  // ── 10. Send email ────────────────────────────────────────────────
+  // ── 9. Send email ─────────────────────────────────────────────────
   const weekLabel = `${week_start_date} to ${weekEndDate}`;
   let messageId: string;
   try {

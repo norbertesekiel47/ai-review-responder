@@ -88,15 +88,15 @@ function mockBusinessRow(overrides: Record<string, unknown> = {}) {
  * Query order:
  *  1. business SELECT
  *  2. upsert RETURNING
- *  3. review count
- *  4. responded count
- *  5. best review of month
- *  6. reviews for summary (intelligence brief) — only if summary_text is null
- *  7. UPDATE summary_text — only if LLM called and returned text
- *  8. latest ranking snapshot
- *  9. initial ranking snapshot — only if latest exists
- * 10. dashboard eligibility (users with auth_id)
- * 11. UPDATE sent_at
+ *  3. claim UPDATE (sent_at = NOW() WHERE sent_at IS NULL)
+ *  4. review count
+ *  5. responded count
+ *  6. best review of month
+ *  7. reviews for summary (intelligence brief) — only if summary_text is null
+ *  8. UPDATE summary_text — only if LLM called and returned text
+ *  9. latest ranking snapshot
+ * 10. initial ranking snapshot — only if latest exists
+ * 11. dashboard eligibility (users with auth_id)
  */
 function pushHappyPathSqlQueue(opts: {
   business?: Record<string, unknown>;
@@ -111,34 +111,34 @@ function pushHappyPathSqlQueue(opts: {
   const biz = opts.business ?? {};
   sqlReturnQueue.push([mockBusinessRow(biz)]);                            // 1. business
   sqlReturnQueue.push(opts.upsertRow ?? [{ sent_at: null, summary_text: opts.summaryText ?? null }]); // 2. upsert
-  sqlReturnQueue.push([{ count: '12' }]);                                  // 3. review count
-  sqlReturnQueue.push([{ count: '10' }]);                                  // 4. responded count
-  sqlReturnQueue.push(opts.bestReview ?? [{                               // 5. best review
+  sqlReturnQueue.push([{ id: 'claimed-id' }]);                             // 3. claim UPDATE
+  sqlReturnQueue.push([{ count: '12' }]);                                  // 4. review count
+  sqlReturnQueue.push([{ count: '10' }]);                                  // 5. responded count
+  sqlReturnQueue.push(opts.bestReview ?? [{                               // 6. best review
     reviewer_name: 'Alice',
     star_rating: 5,
     review_text: 'Amazing place!',
     response_text: 'Thank you Alice!',
   }]);
 
-  // 6. reviews for summary — only queried if summary_text is null
+  // 7. reviews for summary — only queried if summary_text is null
   if (!opts.summaryText) {
     sqlReturnQueue.push(opts.reviewsForSummary ?? [
       { star_rating: 5, review_text: 'Great service' },
       { star_rating: 4, review_text: 'Very good' },
     ]);
-    // 7. UPDATE summary_text — only if reviews exist and LLM returned text
+    // 8. UPDATE summary_text — only if reviews exist and LLM returned text
     const hasReviews = opts.reviewsForSummary === undefined || opts.reviewsForSummary.length > 0;
     if (hasReviews) {
-      sqlReturnQueue.push([]);                                             // 7. UPDATE summary_text
+      sqlReturnQueue.push([]);                                             // 8. UPDATE summary_text
     }
   }
 
-  sqlReturnQueue.push(opts.latestRanking ?? []);                           // 8. latest ranking
+  sqlReturnQueue.push(opts.latestRanking ?? []);                           // 9. latest ranking
   if (opts.latestRanking && opts.latestRanking.length > 0) {
-    sqlReturnQueue.push(opts.initialRanking ?? [{ rank_position: 8 }]);   // 9. initial ranking
+    sqlReturnQueue.push(opts.initialRanking ?? [{ rank_position: 8 }]);   // 10. initial ranking
   }
-  sqlReturnQueue.push(opts.ownerWithAuth ?? []);                           // 10. dashboard eligibility
-  sqlReturnQueue.push([]);                                                 // 11. UPDATE sent_at
+  sqlReturnQueue.push(opts.ownerWithAuth ?? []);                           // 11. dashboard eligibility
 }
 
 describe('MonthlyImpactWorker – handleMonthlyImpact', () => {

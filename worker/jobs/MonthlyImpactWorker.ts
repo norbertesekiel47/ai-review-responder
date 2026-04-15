@@ -67,6 +67,26 @@ export async function handleMonthlyImpact(
     return;
   }
 
+  // ── 3b. Claim: atomically set sent_at to prevent duplicate sends ──
+  // The upsert above auto-commits and does NOT hold a lock across the
+  // rest of the worker. Without this claim, two concurrent jobs could
+  // both pass the upsert (both see sent_at IS NULL) and both proceed
+  // through the LLM call + email send. This conditional UPDATE is
+  // atomic — only one concurrent job wins the claim.
+  const [claimed] = await sql<{ id: string }[]>`
+    UPDATE monthly_impact_emails
+    SET sent_at = NOW()
+    WHERE business_id = ${business_id}
+      AND month_start_date = ${month_start_date}::date
+      AND sent_at IS NULL
+    RETURNING id
+  `;
+  if (!claimed) {
+    console.log(`${LOG_PREFIX} Monthly impact for ${business_id} month ${month_start_date} claimed by another worker`);
+    await markOutboxCompleted(outboxId);
+    return;
+  }
+
   // ── 4. Compute month boundaries ──────────────────────────────────
   const monthStart = new Date(month_start_date + 'T00:00:00Z');
   const monthEnd = new Date(Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth() + 1, 1));
@@ -230,14 +250,9 @@ export async function handleMonthlyImpact(
     dashboardUrl,
   });
 
-  // ── 12. Mark sent_at BEFORE send (crash-safe) ────────────────────
-  await sql`
-    UPDATE monthly_impact_emails
-    SET sent_at = NOW()
-    WHERE business_id = ${business_id} AND month_start_date = ${month_start_date}::date
-  `;
+  // sent_at already claimed in step 3b (crash-safe: set before send)
 
-  // ── 13. Send email ───────────────────────────────────────────────
+  // ── 12. Send email ───────────────────────────────────────────────
   let messageId: string;
   try {
     const result = await sendInternalEmail({

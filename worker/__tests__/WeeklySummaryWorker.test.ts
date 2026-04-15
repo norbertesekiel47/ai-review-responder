@@ -96,8 +96,8 @@ function mockBusinessRow(overrides: Record<string, unknown> = {}) {
  *  8. initial ranking snapshot (only if latest exists)
  *  9. dashboard eligibility (users with auth_id)
  * 10. upsert RETURNING
- * 11. UPDATE summary_text (only if LLM called)
- * 12. UPDATE sent_at
+ * 11. claim UPDATE (sent_at = NOW() WHERE sent_at IS NULL)
+ * 12. UPDATE summary_text (only if LLM called)
  */
 function pushHappyPathSqlQueue(opts: {
   business?: Record<string, unknown>;
@@ -124,11 +124,11 @@ function pushHappyPathSqlQueue(opts: {
   }
   sqlReturnQueue.push(opts.ownerWithAuth ?? []);                            // 9. dashboard eligibility
   sqlReturnQueue.push(opts.upsertRow ?? [{ sent_at: null, summary_text: opts.summaryText ?? null }]); // 10. upsert
-  // 11. UPDATE summary_text — only if LLM is called (summaryText is null and reviews exist)
+  sqlReturnQueue.push([{ id: 'claimed-id' }]);                              // 11. claim UPDATE
+  // 12. UPDATE summary_text — only if LLM is called (summaryText is null and reviews exist)
   if (!opts.summaryText && (opts.reviewsForSummary === undefined || opts.reviewsForSummary.length > 0)) {
-    sqlReturnQueue.push([]);                                                // 11. UPDATE summary_text
+    sqlReturnQueue.push([]);                                                // 12. UPDATE summary_text
   }
-  sqlReturnQueue.push([]);                                                  // 12. UPDATE sent_at
 }
 
 describe('WeeklySummaryWorker – handleWeeklySummary', () => {
