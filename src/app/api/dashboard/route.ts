@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
+import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 
 export const dynamic = 'force-dynamic';
 
@@ -87,15 +88,24 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         FROM reviews r
         JOIN responses resp ON resp.review_id = r.id
         WHERE r.business_id = ${businessId}
-          AND resp.status NOT IN ('superseded', 'failed')
+          AND resp.status IN ('posted', 'approved', 'edited', 'awaiting_manual_post')
       `,
-      // Review velocity: last 8 weeks
+      // Review velocity: last 8 weeks (zero-filled)
       sql`
-        SELECT DATE_TRUNC('week', detected_at)::date AS week_start, COUNT(*)::int AS count
-        FROM reviews
-        WHERE business_id = ${businessId}
-          AND detected_at >= NOW() - INTERVAL '8 weeks'
-        GROUP BY DATE_TRUNC('week', detected_at)
+        SELECT gs::date AS week_start,
+               COALESCE(r.cnt, 0)::int AS count
+        FROM generate_series(
+          DATE_TRUNC('week', NOW() - INTERVAL '7 weeks'),
+          DATE_TRUNC('week', NOW()),
+          INTERVAL '1 week'
+        ) gs
+        LEFT JOIN (
+          SELECT DATE_TRUNC('week', detected_at)::date AS wk, COUNT(*) AS cnt
+          FROM reviews
+          WHERE business_id = ${businessId}
+            AND detected_at >= NOW() - INTERVAL '8 weeks'
+          GROUP BY DATE_TRUNC('week', detected_at)
+        ) r ON r.wk = gs::date
         ORDER BY week_start ASC
       `,
       // Ranking snapshots (all with rank_position)
@@ -104,6 +114,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         FROM ranking_snapshots
         WHERE business_id = ${businessId}
           AND rank_position IS NOT NULL
+          AND snapshot_date >= (CURRENT_DATE - INTERVAL '12 months')
         ORDER BY keyword ASC, snapshot_date ASC
       `,
       // Recent reviews: last 10 with latest non-superseded/failed response
@@ -119,10 +130,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           resp.status AS response_status
         FROM reviews rev
         LEFT JOIN LATERAL (
-          SELECT response_text, status
+          SELECT COALESCE(approved_text, response_text) AS response_text, status
           FROM responses
           WHERE review_id = rev.id
-            AND status NOT IN ('superseded', 'failed')
+            AND status IN ('posted', 'approved', 'edited', 'awaiting_manual_post')
           ORDER BY version DESC
           LIMIT 1
         ) resp ON true
@@ -206,22 +217,26 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           }))
         : null;
 
-    // Pick latest brief: prefer monthly over weekly
+    // Pick whichever brief is more recent
     let latestBrief: DashboardData['latestBrief'] = null;
     const monthlyBrief = monthlyBriefRows[0];
     const weeklyBrief = weeklyBriefRows[0];
 
-    if (monthlyBrief?.summary_text) {
+    const monthlyDate = monthlyBrief?.month_start_date ? String(monthlyBrief.month_start_date) : '';
+    const weeklyDate = weeklyBrief?.week_start_date ? String(weeklyBrief.week_start_date) : '';
+
+    if (monthlyBrief?.summary_text && (!weeklyDate || monthlyDate >= weeklyDate)) {
+      const d = new Date(monthlyDate + 'T00:00:00Z');
       latestBrief = {
         text: monthlyBrief.summary_text as string,
         type: 'monthly',
-        periodLabel: String(monthlyBrief.month_start_date),
+        periodLabel: d.toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' }),
       };
     } else if (weeklyBrief?.summary_text) {
       latestBrief = {
         text: weeklyBrief.summary_text as string,
         type: 'weekly',
-        periodLabel: String(weeklyBrief.week_start_date),
+        periodLabel: `Week of ${weeklyDate}`,
       };
     }
 
@@ -248,7 +263,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         reviewText: (row.review_text as string) ?? null,
         reviewDate: row.review_date
           ? (row.review_date as Date).toISOString()
-          : new Date().toISOString(),
+          : '',
         status: row.status as string,
         responseText: (row.response_text as string) ?? null,
         responseStatus: (row.response_status as string) ?? null,
@@ -256,7 +271,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       latestBrief,
     };
 
-    return NextResponse.json(data);
+    return NextResponse.json(data, { headers: NO_STORE_HEADERS });
   } catch (error) {
     console.error('[api/dashboard] Failed to fetch dashboard data:', error);
     return NextResponse.json(

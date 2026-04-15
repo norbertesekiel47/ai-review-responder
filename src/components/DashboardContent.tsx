@@ -27,10 +27,8 @@ function formatStatusLabel(status: string): string {
 }
 
 function formatWeekLabel(dateStr: string): string {
-  const date = new Date(dateStr);
-  const month = date.toLocaleString('en-US', { month: 'short' });
-  const day = date.getDate();
-  return `${month} ${day}`;
+  const date = new Date(dateStr + 'T00:00:00Z');
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 }
 
 function renderStars(rating: number): string {
