@@ -1813,9 +1813,23 @@ Improvements discovered during end-to-end manual testing of the full system afte
 **Test count:** 427/427 passing across 29 files (was 388)
 **New test file:** `churn-score.test.ts` (39 tests)
 
+### Post-19f Robustness Fixes (2026-04-15)
+
+**Status:** COMPLETE
+
+1. Detail API contract: moved `churnScore` inside `business` object (was top-level — page expected `business.churnScore`, badge/engagement section never rendered)
+2. Overview API: fetch all businesses, sort by churn score server-side, then paginate (was sorting only the post-pagination page)
+3. Negative limit bypass: clamped to `[1, 100]` with `Math.max(..., 1)`
+4. Deterministic sort tie-breaker: score → pending count → name → id (prevents unstable pagination with tied scores)
+5. Migration 013: composite indexes `(business_id, status, created_at)` and `(business_id, approved_at DESC)` for churn metrics queries
+6. Email send failure recovery: WeeklySummaryWorker + MonthlyImpactWorker clear `sent_at` + `claimed_at` on send failure so retries can reclaim the report (was permanently stuck as "already sent")
+7. Owner nudge idempotency: checks for existing delivery within 1 day before creating approval links (prevents DB churn on BullMQ retries)
+8. `approvalRate` contract: documented as 0-1 fraction on `BusinessMetrics`, added defensive auto-correction guard for accidental 0-100 values
+9. Non-null assertion replaced with `?? 0` fallback on `metrics.approval_rate` in low-engagement alert
+
 ---
 
-**Sprint 5A: COMPLETE** — All 4 prompts (19a Weekly Value Report + Monthly Impact Email, 19c Read-Only Owner Dashboard, 19d Engagement Detection & Re-engagement, 19f Churn Risk Score) implemented with all review findings addressed. 427 tests across 29 files.
+**Sprint 5A: COMPLETE** — All 4 prompts (19a Weekly Value Report + Monthly Impact Email, 19c Read-Only Owner Dashboard, 19d Engagement Detection & Re-engagement, 19f Churn Risk Score) implemented with all review findings addressed across 7 review rounds. 427 tests across 29 files.
 
 ---
 
