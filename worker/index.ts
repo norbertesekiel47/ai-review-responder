@@ -58,6 +58,7 @@ import { startArchivalPoller, stopArchivalPoller } from './jobs/ArchivalPoller';
 import { handleMonthlyImpact } from './jobs/MonthlyImpactWorker';
 import { startMonthlyImpactScheduler, stopMonthlyImpactScheduler } from './jobs/MonthlyImpactScheduler';
 import { startEngagementMonitorPoller, stopEngagementMonitorPoller } from './jobs/EngagementMonitorPoller';
+import { handleEngagementAlert } from './jobs/EngagementAlertWorker';
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
 
@@ -97,7 +98,9 @@ const placeIdValidationWorker = new Worker(QUEUE_NAMES.VALIDATE_PLACE_ID, handle
 
 const monthlyImpactWorker = new Worker(QUEUE_NAMES.SEND_MONTHLY_IMPACT, handleMonthlyImpact, workerOpts);
 
-const workers = [demoWorker, reviewSyncWorker, responseGenWorker, notificationWorker, publisherWorker, adminExceptionWorker, weeklySummaryWorker, placeIdValidationWorker, monthlyImpactWorker];
+const engagementAlertWorker = new Worker(QUEUE_NAMES.ENGAGEMENT_ALERT, handleEngagementAlert, workerOpts);
+
+const workers = [demoWorker, reviewSyncWorker, responseGenWorker, notificationWorker, publisherWorker, adminExceptionWorker, weeklySummaryWorker, placeIdValidationWorker, monthlyImpactWorker, engagementAlertWorker];
 
 // Sentry breadcrumbs on job lifecycle
 for (const worker of workers) {
