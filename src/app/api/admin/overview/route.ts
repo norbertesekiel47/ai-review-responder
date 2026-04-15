@@ -88,6 +88,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       sql<SystemHealthRow[]>`
         SELECT COUNT(*)::int AS count FROM notification_deliveries WHERE failed_at IS NOT NULL AND failed_at >= NOW() - INTERVAL '24 hours'
       `,
+      // Fetch ALL businesses (no LIMIT/OFFSET) so we can sort by churn score
+      // server-side before paginating. At MVP scale (10-50 businesses) this is fine.
       sql<BusinessRow[]>`
         SELECT
           b.id, b.name, b.subscription_status, b.last_sync_at,
@@ -99,8 +101,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         FROM businesses b
         LEFT JOIN responses resp ON resp.business_id = b.id AND resp.status != 'superseded'
         GROUP BY b.id, b.name, b.subscription_status, b.last_sync_at
-        ORDER BY COUNT(CASE WHEN resp.status = 'pending_approval' THEN 1 END) DESC, b.name ASC
-        LIMIT ${limit} OFFSET ${offset}
       `,
       sql<{ total: number }[]>`SELECT COUNT(*)::int AS total FROM businesses`,
     ]);
@@ -167,6 +167,51 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     const metricsMap = new Map(metricsRows.map((r) => [r.business_id, r]));
 
+    // Map all businesses with churn scores, sort by risk descending, then paginate
+    const allBusinesses = businessRows.map((row) => {
+      const responseRate =
+        row.total_responses > 0
+          ? Math.round((row.completed_responses / row.total_responses) * 100)
+          : 0;
+
+      const m = metricsMap.get(row.id);
+
+      let responseTimeTrend: 'faster_or_stable' | 'slower' | 'stopped' | null = null;
+      if (m?.avg_hours_current != null && m?.avg_hours_prev != null) {
+        responseTimeTrend = m.avg_hours_current > m.avg_hours_prev * 1.5 ? 'slower' : 'faster_or_stable';
+      } else if (m && m.pending_count > 0 && m.days_since_approval != null && m.days_since_approval > 7) {
+        responseTimeTrend = 'stopped';
+      }
+
+      const churnScore = computeChurnRiskScore({
+        approvalRate: m?.approval_rate ?? null,
+        notifiedResponseCount30d: m?.notified_count ?? 0,
+        pendingResponseCount: m?.pending_count ?? 0,
+        daysSinceLastApproval: m?.days_since_approval ?? null,
+        satisfactionResponses: null,
+        responseTimeTrend,
+        accountAgeDays: m?.account_age_days ?? 0,
+      });
+
+      return {
+        id: row.id,
+        name: row.name,
+        subscriptionStatus: row.subscription_status,
+        lastSyncAt: row.last_sync_at ? row.last_sync_at.toISOString() : null,
+        pendingApprovalCount: row.pending_approval_count,
+        totalResponses: row.total_responses,
+        completedResponses: row.completed_responses,
+        responseRate,
+        avgResponseTimeHours: row.avg_response_time_hours ?? null,
+        lastActivity: row.last_activity ? row.last_activity.toISOString() : null,
+        churnScore,
+      };
+    });
+
+    // Sort by risk score descending (most at-risk first), then paginate
+    allBusinesses.sort((a, b) => b.churnScore.score - a.churnScore.score);
+    const paginatedBusinesses = allBusinesses.slice(offset, offset + limit);
+
     const data: OverviewData = {
       systemHealth: {
         pendingOutbox: pendingOutboxRows[0]?.count ?? 0,
@@ -177,45 +222,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       totalBusinesses: businessCountRows[0]?.total ?? 0,
       limit,
       offset,
-      businesses: businessRows.map((row) => {
-        const responseRate =
-          row.total_responses > 0
-            ? Math.round((row.completed_responses / row.total_responses) * 100)
-            : 0;
-
-        const m = metricsMap.get(row.id);
-
-        let responseTimeTrend: 'faster_or_stable' | 'slower' | 'stopped' | null = null;
-        if (m?.avg_hours_current != null && m?.avg_hours_prev != null) {
-          responseTimeTrend = m.avg_hours_current > m.avg_hours_prev * 1.5 ? 'slower' : 'faster_or_stable';
-        } else if (m && m.pending_count > 0 && m.days_since_approval != null && m.days_since_approval > 7) {
-          responseTimeTrend = 'stopped';
-        }
-
-        const churnScore = computeChurnRiskScore({
-          approvalRate: m?.approval_rate ?? null,
-          notifiedResponseCount30d: m?.notified_count ?? 0,
-          pendingResponseCount: m?.pending_count ?? 0,
-          daysSinceLastApproval: m?.days_since_approval ?? null,
-          satisfactionResponses: null,
-          responseTimeTrend,
-          accountAgeDays: m?.account_age_days ?? 0,
-        });
-
-        return {
-          id: row.id,
-          name: row.name,
-          subscriptionStatus: row.subscription_status,
-          lastSyncAt: row.last_sync_at ? row.last_sync_at.toISOString() : null,
-          pendingApprovalCount: row.pending_approval_count,
-          totalResponses: row.total_responses,
-          completedResponses: row.completed_responses,
-          responseRate,
-          avgResponseTimeHours: row.avg_response_time_hours ?? null,
-          lastActivity: row.last_activity ? row.last_activity.toISOString() : null,
-          churnScore,
-        };
-      }),
+      businesses: paginatedBusinesses,
     };
 
     return NextResponse.json(data);

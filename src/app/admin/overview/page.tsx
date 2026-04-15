@@ -154,7 +154,7 @@ export default function AdminOverviewPage() {
   }
 
   const { systemHealth, businesses } = data;
-  const sorted = [...businesses].sort((a, b) => b.churnScore.score - a.churnScore.score);
+  // API returns businesses pre-sorted by churn risk score descending
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -238,7 +238,7 @@ export default function AdminOverviewPage() {
                     </td>
                   </tr>
                 )}
-                {sorted.map((biz) => (
+                {businesses.map((biz) => (
                   <tr
                     key={biz.id}
                     className="hover:bg-gray-50 cursor-pointer"

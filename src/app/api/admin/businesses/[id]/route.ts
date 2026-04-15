@@ -190,6 +190,7 @@ export async function GET(
         ownerName: business.owner_name ?? null,
         ownerEmail: business.owner_email ?? null,
         lastSyncAt: business.last_sync_at ? business.last_sync_at.toISOString() : null,
+        churnScore,
       },
       reviews: reviewRows.map((row) => ({
         id: row.id,
@@ -205,7 +206,6 @@ export async function GET(
         approvedText: row.approved_text ?? null,
         responseVersion: row.version ?? null,
       })),
-      churnScore,
     });
   } catch (error) {
     console.error('[api/admin/businesses/[id] GET] Failed:', error);
