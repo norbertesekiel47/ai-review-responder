@@ -30,6 +30,11 @@ interface OverviewData {
     responseRate: number;
     avgResponseTimeHours: number | null;
     lastActivity: string | null;
+    churnScore: {
+      score: number;
+      level: 'healthy' | 'watch' | 'at_risk';
+      breakdown: Array<{ signal: string; value: string; contribution: number }>;
+    };
   }[];
 }
 
@@ -89,6 +94,24 @@ function HealthCard({ label, value, warn }: HealthCardProps) {
   );
 }
 
+function HealthBadge({ level, score }: { level: string; score: number }) {
+  const styles: Record<string, string> = {
+    healthy: 'bg-green-100 text-green-800',
+    watch: 'bg-amber-100 text-amber-800',
+    at_risk: 'bg-red-100 text-red-800',
+  };
+  const labels: Record<string, string> = {
+    healthy: 'Healthy',
+    watch: 'Watch',
+    at_risk: 'At Risk',
+  };
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${styles[level] ?? styles.healthy}`}>
+      {labels[level] ?? level} <span className="opacity-60">{score}</span>
+    </span>
+  );
+}
+
 export default function AdminOverviewPage() {
   const router = useRouter();
   const [page, setPage] = useState(0);
@@ -131,6 +154,7 @@ export default function AdminOverviewPage() {
   }
 
   const { systemHealth, businesses } = data;
+  const sorted = [...businesses].sort((a, b) => b.churnScore.score - a.churnScore.score);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -203,17 +227,18 @@ export default function AdminOverviewPage() {
                   <th className="px-4 py-3 text-left font-medium text-gray-500">Response Rate</th>
                   <th className="px-4 py-3 text-left font-medium text-gray-500">Avg Time</th>
                   <th className="px-4 py-3 text-left font-medium text-gray-500">Last Activity</th>
+                  <th className="px-4 py-3 text-left font-medium text-gray-500">Health</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {businesses.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="px-4 py-6 text-center text-gray-400">
+                    <td colSpan={7} className="px-4 py-6 text-center text-gray-400">
                       No businesses found.
                     </td>
                   </tr>
                 )}
-                {businesses.map((biz) => (
+                {sorted.map((biz) => (
                   <tr
                     key={biz.id}
                     className="hover:bg-gray-50 cursor-pointer"
@@ -249,6 +274,9 @@ export default function AdminOverviewPage() {
                     </td>
                     <td className="px-4 py-3 text-gray-500">
                       {formatRelative(biz.lastActivity)}
+                    </td>
+                    <td className="px-4 py-3">
+                      <HealthBadge level={biz.churnScore.level} score={biz.churnScore.score} />
                     </td>
                   </tr>
                 ))}
