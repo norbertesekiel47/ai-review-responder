@@ -12,15 +12,24 @@ interface OwnerNavProps {
 export function OwnerNav({ businessName }: OwnerNavProps) {
   const router = useRouter();
   const [signingOut, setSigningOut] = useState(false);
+  const [signOutError, setSignOutError] = useState(false);
 
   async function handleSignOut() {
     setSigningOut(true);
+    setSignOutError(false);
     try {
       const supabase = createBrowserSupabaseClient();
-      await supabase.auth.signOut();
-    } finally {
-      setSigningOut(false);
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        setSignOutError(true);
+        setSigningOut(false);
+        return;
+      }
       router.push('/admin/login');
+      router.refresh();
+    } catch {
+      setSignOutError(true);
+      setSigningOut(false);
     }
   }
 
@@ -35,14 +44,17 @@ export function OwnerNav({ businessName }: OwnerNavProps) {
             <span className="hidden text-sm text-gray-500 sm:inline">{businessName}</span>
           </div>
 
-          <button
-            type="button"
-            onClick={handleSignOut}
-            disabled={signingOut}
-            className="rounded-md px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 hover:text-gray-900 disabled:opacity-50"
-          >
-            {signingOut ? 'Signing out...' : 'Sign out'}
-          </button>
+          <div className="flex items-center gap-2">
+            {signOutError && <span className="text-xs text-red-500">Sign out failed</span>}
+            <button
+              type="button"
+              onClick={handleSignOut}
+              disabled={signingOut}
+              className="rounded-md px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 hover:text-gray-900 disabled:opacity-50"
+            >
+              {signingOut ? 'Signing out...' : 'Sign out'}
+            </button>
+          </div>
         </div>
       </div>
     </nav>

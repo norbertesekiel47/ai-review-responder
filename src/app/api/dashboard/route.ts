@@ -21,7 +21,7 @@ export interface DashboardData {
   recentReviews: Array<{
     id: string;
     reviewerName: string;
-    starRating: number;
+    starRating: number | null;
     reviewText: string | null;
     reviewDate: string;
     status: string;
@@ -257,7 +257,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       recentReviews: recentReviewRows.map((row) => ({
         id: row.id as string,
         reviewerName: (row.reviewer_name as string) ?? 'Anonymous',
-        starRating: row.star_rating as number,
+        starRating: (row.star_rating as number) ?? null,
         reviewText: (row.review_text as string) ?? null,
         reviewDate: row.review_date
           ? (row.review_date as Date).toISOString()

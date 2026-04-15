@@ -9,8 +9,10 @@ import {
 
 const STATUS_BADGE_COLORS: Record<string, string> = {
   new: 'bg-gray-100 text-gray-700',
+  generating: 'bg-gray-100 text-gray-700',
   pending_approval: 'bg-yellow-100 text-yellow-800',
   approved: 'bg-blue-100 text-blue-800',
+  edited: 'bg-blue-100 text-blue-800',
   awaiting_manual_post: 'bg-orange-100 text-orange-800',
   posted: 'bg-green-100 text-green-800',
   failed: 'bg-red-100 text-red-700',
@@ -191,9 +193,13 @@ export function DashboardContent() {
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-sm text-yellow-500" aria-label={`${review.starRating} stars`}>
-                          {renderStars(review.starRating)}
-                        </span>
+                        {review.starRating != null ? (
+                          <span className="text-sm text-yellow-500" aria-label={`${review.starRating} stars`}>
+                            {renderStars(review.starRating)}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-gray-400">No rating</span>
+                        )}
                         <span className="text-sm font-medium text-gray-900">
                           {review.reviewerName}
                         </span>

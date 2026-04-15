@@ -65,8 +65,9 @@ export async function middleware(request: NextRequest) {
 
   // 5. Owner API routes
   if (pathname.startsWith('/api/dashboard')) {
+    const noStoreHeaders = { 'Cache-Control': 'no-store, private' };
     if (!authUser) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: noStoreHeaders });
     }
     const { data } = await supabaseAdmin
       .from('users')
@@ -75,7 +76,7 @@ export async function middleware(request: NextRequest) {
       .limit(1)
       .single();
     if (!data || data.role !== 'owner' || !data.business_id) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403, headers: noStoreHeaders });
     }
   }
 
