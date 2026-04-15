@@ -54,40 +54,52 @@ export async function handleMonthlyImpact(
   }
 
   // ── 3. Upsert monthly_impact_emails row (idempotent) ──────────────
+  // Allow reclaim of stale claims (>15 min) so a crashed worker doesn't
+  // permanently block the email.
+  const STALE_CLAIM_INTERVAL = "15 minutes";
   const [upsertRow] = await sql<{ sent_at: string | null; summary_text: string | null }[]>`
     INSERT INTO monthly_impact_emails (id, business_id, month_start_date)
     VALUES (${uuidv7()}, ${business_id}, ${month_start_date}::date)
     ON CONFLICT (business_id, month_start_date)
     DO UPDATE SET business_id = monthly_impact_emails.business_id
-    WHERE monthly_impact_emails.sent_at IS NULL AND monthly_impact_emails.claimed_at IS NULL
+    WHERE monthly_impact_emails.sent_at IS NULL
+      AND (monthly_impact_emails.claimed_at IS NULL
+           OR monthly_impact_emails.claimed_at < NOW() - INTERVAL '${STALE_CLAIM_INTERVAL}')
     RETURNING sent_at, summary_text
   `;
 
   if (!upsertRow) {
-    console.log(`${LOG_PREFIX} Monthly impact for ${business_id} month ${month_start_date} already sent`);
-    await markOutboxCompleted(outboxId);
+    const [existing] = await sql<{ sent_at: string | null; claimed_at: string | null }[]>`
+      SELECT sent_at, claimed_at FROM monthly_impact_emails
+      WHERE business_id = ${business_id} AND month_start_date = ${month_start_date}::date
+    `;
+    if (existing?.sent_at) {
+      console.log(`${LOG_PREFIX} Monthly impact for ${business_id} month ${month_start_date} already sent`);
+      await markOutboxCompleted(outboxId);
+    } else {
+      console.log(`${LOG_PREFIX} Monthly impact for ${business_id} month ${month_start_date} claimed by another worker, will retry`);
+      throw new Error('Report claimed by another worker');
+    }
     return;
   }
 
   // ── 3b. Claim: atomically set claimed_at to prevent duplicate sends ──
   // The upsert above auto-commits and does NOT hold a lock across the
-  // rest of the worker. Without this claim, two concurrent jobs could
-  // both pass the upsert (both see sent_at IS NULL) and both proceed
-  // through the LLM call + email send. This conditional UPDATE is
-  // atomic — only one concurrent job wins the claim.
+  // rest of the worker. This conditional UPDATE is atomic — only one
+  // concurrent job wins the claim. Stale claims (>15 min) are reclaimable.
   const [claimed] = await sql<{ id: string }[]>`
     UPDATE monthly_impact_emails
     SET claimed_at = NOW()
     WHERE business_id = ${business_id}
       AND month_start_date = ${month_start_date}::date
-      AND claimed_at IS NULL
       AND sent_at IS NULL
+      AND (claimed_at IS NULL
+           OR claimed_at < NOW() - INTERVAL '${STALE_CLAIM_INTERVAL}')
     RETURNING id
   `;
   if (!claimed) {
-    console.log(`${LOG_PREFIX} Monthly impact for ${business_id} month ${month_start_date} claimed by another worker`);
-    await markOutboxCompleted(outboxId);
-    return;
+    console.log(`${LOG_PREFIX} Monthly impact for ${business_id} month ${month_start_date} claimed by another worker, will retry`);
+    throw new Error('Report claimed by another worker');
   }
 
   // ── 4. Compute month boundaries ──────────────────────────────────

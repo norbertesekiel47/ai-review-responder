@@ -249,8 +249,8 @@ describe('WeeklySummaryWorker – handleWeeklySummary', () => {
     sqlReturnQueue.push([{ avg: '3.0' }]);           // 4-week avg
     sqlReturnQueue.push([]);                         // latest ranking
     sqlReturnQueue.push([]);                         // dashboard eligibility
-    // upsert returns empty = row already has sent_at IS NOT NULL
-    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([]);                         // upsert returns empty
+    sqlReturnQueue.push([{ sent_at: '2026-04-07', claimed_at: '2026-04-07' }]); // distinguish query: sent_at IS NOT NULL
 
     await handleWeeklySummary(makeJob());
 
@@ -258,6 +258,23 @@ describe('WeeklySummaryWorker – handleWeeklySummary', () => {
     expect(mockGenerateReviewSummary).not.toHaveBeenCalled();
     expect(mockRecordNotificationDelivery).not.toHaveBeenCalled();
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ws-1');
+  });
+
+  it('throws for retry when claimed by another worker (not yet sent)', async () => {
+    sqlReturnQueue.push([mockBusinessRow()]);      // business
+    sqlReturnQueue.push([{ count: '3' }]);          // review count
+    sqlReturnQueue.push([{ count: '3' }]);          // responded count
+    sqlReturnQueue.push([]);                         // notable
+    sqlReturnQueue.push([]);                         // reviews for summary
+    sqlReturnQueue.push([{ avg: '3.0' }]);           // 4-week avg
+    sqlReturnQueue.push([]);                         // latest ranking
+    sqlReturnQueue.push([]);                         // dashboard eligibility
+    sqlReturnQueue.push([]);                         // upsert returns empty
+    sqlReturnQueue.push([{ sent_at: null, claimed_at: new Date().toISOString() }]); // distinguish: claimed but not sent
+
+    await expect(handleWeeklySummary(makeJob())).rejects.toThrow('Report claimed by another worker');
+    expect(mockSendInternalEmail).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
   });
 
   it('includes ranking data when snapshots exist', async () => {

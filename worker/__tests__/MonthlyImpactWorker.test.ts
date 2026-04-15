@@ -181,8 +181,8 @@ describe('MonthlyImpactWorker – handleMonthlyImpact', () => {
 
   it('already-sent report marks outbox completed without sending', async () => {
     sqlReturnQueue.push([mockBusinessRow()]);   // business
-    // upsert returns empty = row already has sent_at IS NOT NULL
-    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([]);                     // upsert returns empty
+    sqlReturnQueue.push([{ sent_at: '2026-03-01', claimed_at: '2026-03-01' }]); // distinguish: sent_at IS NOT NULL
 
     await handleMonthlyImpact(makeJob());
 
@@ -190,6 +190,16 @@ describe('MonthlyImpactWorker – handleMonthlyImpact', () => {
     expect(mockGenerateReviewSummary).not.toHaveBeenCalled();
     expect(mockRecordNotificationDelivery).not.toHaveBeenCalled();
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-mi-1');
+  });
+
+  it('throws for retry when claimed by another worker (not yet sent)', async () => {
+    sqlReturnQueue.push([mockBusinessRow()]);   // business
+    sqlReturnQueue.push([]);                     // upsert returns empty
+    sqlReturnQueue.push([{ sent_at: null, claimed_at: new Date().toISOString() }]); // claimed but not sent
+
+    await expect(handleMonthlyImpact(makeJob())).rejects.toThrow('Report claimed by another worker');
+    expect(mockSendInternalEmail).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
   });
 
   it('sends email and records delivery on success', async () => {
