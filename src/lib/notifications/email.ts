@@ -101,7 +101,7 @@ export async function sendApprovalEmail(
 ): Promise<{ messageId: string }> {
   if (isMockMode()) {
     const mockId = `mock-${randomUUID()}`;
-    console.log(`${LOG_PREFIX} [MOCK] Approval email to=${params.to} subject="New review for ${params.businessName} — response ready" messageId=${mockId}\n  → ${params.approvalUrl}`);
+    console.log(`${LOG_PREFIX} [MOCK] Approval email to=${params.to} subject="New review for ${params.businessName} — response ready" messageId=${mockId}\n  → /approve/[redacted]`);
     return { messageId: mockId };
   }
 

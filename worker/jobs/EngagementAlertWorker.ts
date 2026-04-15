@@ -51,7 +51,7 @@ export async function handleEngagementAlert(job: Job<EngagementAlertPayload>): P
   }
 
   if (alert_type === 'owner_nudge') {
-    await handleOwnerNudge(outboxId, business_id, business);
+    await handleOwnerNudge(outboxId, business_id, business, markOutboxFailed);
   } else {
     await handlePartnerAlert(outboxId, business_id, alert_type, metrics, business);
   }
@@ -63,7 +63,23 @@ async function handleOwnerNudge(
   outboxId: string,
   businessId: string,
   business: { name: string; owner_email: string },
+  markOutboxFailedFn: typeof markOutboxFailed,
 ): Promise<void> {
+  // Validate config before creating any approval links
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+  if (!appUrl) {
+    console.error(`${LOG_PREFIX} NEXT_PUBLIC_APP_URL not set — cannot send owner nudge`);
+    await markOutboxFailedFn(outboxId, 'NEXT_PUBLIC_APP_URL not configured');
+    return;
+  }
+
+  const fromEmail = process.env.RESEND_FROM_EMAIL;
+  if (!fromEmail) {
+    console.error(`${LOG_PREFIX} RESEND_FROM_EMAIL not set — cannot send owner nudge`);
+    await markOutboxFailedFn(outboxId, 'RESEND_FROM_EMAIL not configured');
+    return;
+  }
+
   // Query pending reviews with their response IDs
   const pendingRows = await sql<{
     response_id: string;
@@ -98,12 +114,13 @@ async function handleOwnerNudge(
     const { rawToken } = await createApprovalLink({
       responseId: row.response_id,
       businessId,
+      revokeMode: 'always',
     });
     pendingReviews.push({
       reviewerName: row.reviewer_name,
       starRating: row.star_rating,
       reviewText: row.review_text,
-      approvalUrl: `${process.env.NEXT_PUBLIC_APP_URL}/approve/${rawToken}`,
+      approvalUrl: `${appUrl}/approve/${rawToken}`,
     });
   }
 

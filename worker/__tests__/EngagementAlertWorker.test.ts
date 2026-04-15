@@ -155,10 +155,10 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
 
     await handleEngagementAlert(makeJob({ alert_type: 'owner_nudge' }));
 
-    // Created approval links for each pending review
+    // Created approval links for each pending review with revokeMode: 'always'
     expect(mockCreateApprovalLink).toHaveBeenCalledTimes(2);
-    expect(mockCreateApprovalLink).toHaveBeenCalledWith({ responseId: 'resp-1', businessId: 'biz-1' });
-    expect(mockCreateApprovalLink).toHaveBeenCalledWith({ responseId: 'resp-2', businessId: 'biz-1' });
+    expect(mockCreateApprovalLink).toHaveBeenCalledWith({ responseId: 'resp-1', businessId: 'biz-1', revokeMode: 'always' });
+    expect(mockCreateApprovalLink).toHaveBeenCalledWith({ responseId: 'resp-2', businessId: 'biz-1', revokeMode: 'always' });
 
     // Built nudge email with correct params
     expect(mockBuildOwnerNudgeEmailHtml).toHaveBeenCalledOnce();
@@ -198,6 +198,28 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
     expect(mockCreateApprovalLink).not.toHaveBeenCalled();
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ea-1');
+  });
+
+  it('owner_nudge: fails outbox if NEXT_PUBLIC_APP_URL not set', async () => {
+    delete process.env.NEXT_PUBLIC_APP_URL;
+    sqlReturnQueue.push([mockBusinessRow()]); // business
+
+    await handleEngagementAlert(makeJob({ alert_type: 'owner_nudge' }));
+
+    expect(mockMarkOutboxFailed).toHaveBeenCalledWith('outbox-ea-1', 'NEXT_PUBLIC_APP_URL not configured');
+    expect(mockCreateApprovalLink).not.toHaveBeenCalled();
+    expect(mockSendInternalEmail).not.toHaveBeenCalled();
+  });
+
+  it('owner_nudge: fails outbox if RESEND_FROM_EMAIL not set', async () => {
+    delete process.env.RESEND_FROM_EMAIL;
+    sqlReturnQueue.push([mockBusinessRow()]); // business
+
+    await handleEngagementAlert(makeJob({ alert_type: 'owner_nudge' }));
+
+    expect(mockMarkOutboxFailed).toHaveBeenCalledWith('outbox-ea-1', 'RESEND_FROM_EMAIL not configured');
+    expect(mockCreateApprovalLink).not.toHaveBeenCalled();
+    expect(mockSendInternalEmail).not.toHaveBeenCalled();
   });
 
   it('owner_nudge: uses singular "review" for count of 1', async () => {

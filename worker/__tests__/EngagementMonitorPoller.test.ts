@@ -6,7 +6,7 @@ const { sqlReturnQueue, mockSql } = vi.hoisted(() => {
 
   const mockSql: any = vi.fn((_s: TemplateStringsArray, ..._v: unknown[]) => {
     const result = sqlReturnQueue.shift() ?? [];
-    if (Array.isArray(result)) {
+    if (Array.isArray(result) && !('count' in result)) {
       (result as any).count = result.length > 0 ? 1 : 0;
     }
     return Promise.resolve(result);
@@ -63,10 +63,8 @@ describe('EngagementMonitorPoller', () => {
 
   it('fires owner_nudge when activity_age >= 3 AND pending > 0', async () => {
     sqlReturnQueue.push([metricsRow({ days_since_approval: 4, pending_count: 2 })]);
-    // Cooldown check for owner_nudge → no existing
-    sqlReturnQueue.push([]);
-    // INSERT outbox
-    sqlReturnQueue.push([]);
+    // Atomic INSERT ... WHERE NOT EXISTS (cooldown + dedup built-in)
+    sqlReturnQueue.push(Object.assign([], { count: 1 }));
 
     const mod = await import('../jobs/EngagementMonitorPoller');
     mod.startEngagementMonitorPoller();
@@ -82,11 +80,9 @@ describe('EngagementMonitorPoller', () => {
 
   it('fires partner_engagement_alert when activity_age >= 7 AND pending > 0', async () => {
     sqlReturnQueue.push([metricsRow({ days_since_approval: 8, pending_count: 1 })]);
-    // Cooldown checks: owner_nudge (fires too at >=3), partner_engagement_alert
-    sqlReturnQueue.push([]); // owner_nudge cooldown → clear
-    sqlReturnQueue.push([]); // owner_nudge insert
-    sqlReturnQueue.push([]); // partner_engagement_alert cooldown → clear
-    sqlReturnQueue.push([]); // partner_engagement_alert insert
+    // Atomic INSERT for owner_nudge + partner_engagement_alert
+    sqlReturnQueue.push(Object.assign([], { count: 1 })); // owner_nudge inserted
+    sqlReturnQueue.push(Object.assign([], { count: 1 })); // partner_engagement_alert inserted
 
     const mod = await import('../jobs/EngagementMonitorPoller');
     mod.startEngagementMonitorPoller();
@@ -104,9 +100,8 @@ describe('EngagementMonitorPoller', () => {
   it('fires partner_escalation_alert when activity_age >= 14 AND (pending > 0 OR notified > 0)', async () => {
     // No pending, but notified > 0 (keep notified < 3 to avoid triggering low_engagement)
     sqlReturnQueue.push([metricsRow({ days_since_approval: 15, pending_count: 0, notified_count: 2 })]);
-    // Only escalation should fire (owner_nudge and partner_engagement need pending > 0)
-    sqlReturnQueue.push([]); // escalation cooldown → clear
-    sqlReturnQueue.push([]); // escalation insert
+    // Atomic INSERT for escalation only (owner_nudge and partner_engagement need pending > 0)
+    sqlReturnQueue.push(Object.assign([], { count: 1 })); // escalation inserted
 
     const mod = await import('../jobs/EngagementMonitorPoller');
     mod.startEngagementMonitorPoller();
@@ -123,10 +118,8 @@ describe('EngagementMonitorPoller', () => {
   it('fires partner_low_engagement when approval_rate < 50% AND notified >= 3', async () => {
     // notified=4, approved=1 → rate=25%
     sqlReturnQueue.push([metricsRow({ notified_count: 4, approved_count: 1 })]);
-    // low_engagement cooldown → clear
-    sqlReturnQueue.push([]);
-    // low_engagement insert
-    sqlReturnQueue.push([]);
+    // Atomic INSERT for low_engagement
+    sqlReturnQueue.push(Object.assign([], { count: 1 })); // low_engagement inserted
 
     const mod = await import('../jobs/EngagementMonitorPoller');
     mod.startEngagementMonitorPoller();
@@ -187,21 +180,22 @@ describe('EngagementMonitorPoller', () => {
     expect(insertCalls).toHaveLength(0);
   });
 
-  it('skips alert when cooldown is active', async () => {
+  it('skips alert when cooldown is active (INSERT returns count=0)', async () => {
     sqlReturnQueue.push([metricsRow({ days_since_approval: 5, pending_count: 1 })]);
-    // Cooldown check for owner_nudge → found existing delivery within window
-    sqlReturnQueue.push([{ exists: 1 }]);
+    // Atomic INSERT WHERE NOT EXISTS → cooldown active, nothing inserted
+    sqlReturnQueue.push(Object.assign([], { count: 0 }));
 
     const mod = await import('../jobs/EngagementMonitorPoller');
     mod.startEngagementMonitorPoller();
     await vi.advanceTimersByTimeAsync(0);
     mod.stopEngagementMonitorPoller();
 
+    // INSERT was still called (the query runs), but count=0 means no row was inserted
     const insertCalls = mockSql.mock.calls.filter((call: any[]) => {
       const text = Array.from(call[0] as TemplateStringsArray).join('');
       return text.includes('job_outbox') && text.includes('INSERT');
     });
-    expect(insertCalls).toHaveLength(0);
+    expect(insertCalls).toHaveLength(1); // query ran but inserted nothing
   });
 
   it('can fire multiple alert types for the same business in one cycle', async () => {
@@ -215,15 +209,11 @@ describe('EngagementMonitorPoller', () => {
       approved_count: 1,
     })]);
 
-    // Cooldown checks + inserts for all 4 rules
-    sqlReturnQueue.push([]); // owner_nudge cooldown → clear
-    sqlReturnQueue.push([]); // owner_nudge insert
-    sqlReturnQueue.push([]); // partner_engagement_alert cooldown → clear
-    sqlReturnQueue.push([]); // partner_engagement_alert insert
-    sqlReturnQueue.push([]); // partner_escalation_alert cooldown → clear
-    sqlReturnQueue.push([]); // partner_escalation_alert insert
-    sqlReturnQueue.push([]); // partner_low_engagement cooldown → clear
-    sqlReturnQueue.push([]); // partner_low_engagement insert
+    // Atomic INSERT for all 4 rules (one per rule, no separate cooldown SELECT)
+    sqlReturnQueue.push(Object.assign([], { count: 1 })); // owner_nudge
+    sqlReturnQueue.push(Object.assign([], { count: 1 })); // partner_engagement_alert
+    sqlReturnQueue.push(Object.assign([], { count: 1 })); // partner_escalation_alert
+    sqlReturnQueue.push(Object.assign([], { count: 1 })); // partner_low_engagement
 
     const mod = await import('../jobs/EngagementMonitorPoller');
     mod.startEngagementMonitorPoller();

@@ -1,3 +1,7 @@
+// NOTE: Prompt 19d specifies "trend direction" in partner_low_engagement alerts.
+// Deferred: computing trend requires historical approval_rate snapshots that are
+// not currently stored. Add when a churn_metrics table is introduced in Sprint 5B.
+
 import { v7 as uuidv7 } from 'uuid';
 import { sql } from '../../src/lib/db/server';
 import type { EngagementAlertPayload, EngagementAlertType } from '../../src/lib/shared/worker-types';
@@ -67,35 +71,44 @@ export async function runEngagementCheck(): Promise<void> {
 
   try {
     const rows = await sql<BusinessMetrics[]>`
+      WITH active_biz AS (
+        SELECT id FROM businesses WHERE subscription_status = 'active'
+      ),
+      response_metrics AS (
+        SELECT
+          resp.business_id,
+          MAX(resp.approved_at) FILTER (WHERE resp.status IN ('approved','edited','posted','awaiting_manual_post')) AS last_approval,
+          COUNT(*) FILTER (WHERE resp.status = 'pending_approval')::int AS pending_count,
+          MIN(resp.created_at) FILTER (WHERE resp.status = 'pending_approval') AS oldest_pending_at
+        FROM responses resp
+        WHERE resp.business_id IN (SELECT id FROM active_biz)
+        GROUP BY resp.business_id
+      ),
+      notif_metrics AS (
+        SELECT
+          nd.business_id,
+          COUNT(DISTINCT nd.response_id)::int AS notified_count,
+          COUNT(DISTINCT nd.response_id) FILTER (
+            WHERE r.status IN ('approved','edited','posted','awaiting_manual_post')
+          )::int AS approved_count
+        FROM notification_deliveries nd
+        JOIN responses r ON r.id = nd.response_id
+        WHERE nd.business_id IN (SELECT id FROM active_biz)
+          AND nd.template = 'approval_request'
+          AND nd.sent_at IS NOT NULL
+          AND nd.sent_at >= CURRENT_DATE - 30
+        GROUP BY nd.business_id
+      )
       SELECT
-        b.id AS business_id,
-        EXTRACT(DAY FROM CURRENT_TIMESTAMP - MAX(resp.approved_at)
-          FILTER (WHERE resp.status IN ('approved','edited','posted','awaiting_manual_post'))
-        )::int AS days_since_approval,
-        COUNT(resp.id) FILTER (WHERE resp.status = 'pending_approval')::int AS pending_count,
-        EXTRACT(DAY FROM CURRENT_TIMESTAMP - MIN(resp.created_at)
-          FILTER (WHERE resp.status = 'pending_approval')
-        )::int AS oldest_pending_age_days,
-        (SELECT COUNT(DISTINCT nd.response_id)
-         FROM notification_deliveries nd
-         WHERE nd.business_id = b.id
-           AND nd.template = 'approval_request'
-           AND nd.sent_at IS NOT NULL
-           AND nd.sent_at >= CURRENT_DATE - 30
-        )::int AS notified_count,
-        (SELECT COUNT(DISTINCT nd.response_id)
-         FROM notification_deliveries nd
-         JOIN responses r2 ON r2.id = nd.response_id
-         WHERE nd.business_id = b.id
-           AND nd.template = 'approval_request'
-           AND nd.sent_at IS NOT NULL
-           AND nd.sent_at >= CURRENT_DATE - 30
-           AND r2.status IN ('approved','edited','posted','awaiting_manual_post')
-        )::int AS approved_count
-      FROM businesses b
-      LEFT JOIN responses resp ON resp.business_id = b.id
-      WHERE b.subscription_status = 'active'
-      GROUP BY b.id
+        ab.id AS business_id,
+        EXTRACT(DAY FROM CURRENT_TIMESTAMP - rm.last_approval)::int AS days_since_approval,
+        COALESCE(rm.pending_count, 0) AS pending_count,
+        EXTRACT(DAY FROM CURRENT_TIMESTAMP - rm.oldest_pending_at)::int AS oldest_pending_age_days,
+        COALESCE(nm.notified_count, 0) AS notified_count,
+        COALESCE(nm.approved_count, 0) AS approved_count
+      FROM active_biz ab
+      LEFT JOIN response_metrics rm ON rm.business_id = ab.id
+      LEFT JOIN notif_metrics nm ON nm.business_id = ab.id
     `;
 
     let totalAlerts = 0;
@@ -117,15 +130,6 @@ export async function runEngagementCheck(): Promise<void> {
         if (!rule.shouldFire(metrics)) continue;
 
         const cooldownDays = COOLDOWNS[rule.type];
-        const [existing] = await sql<{ exists: number }[]>`
-          SELECT 1 AS exists FROM notification_deliveries
-          WHERE business_id = ${row.business_id}
-            AND template = ${rule.type}
-            AND sent_at > NOW() - ${cooldownDays} * INTERVAL '1 day'
-          LIMIT 1
-        `;
-
-        if (existing) continue;
 
         const payload: EngagementAlertPayload = {
           business_id: row.business_id,
@@ -139,13 +143,30 @@ export async function runEngagementCheck(): Promise<void> {
           },
         };
 
-        await sql`
+        const inserted = await sql`
           INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-          VALUES (${uuidv7()}, 'engagement_alert', 'business', ${row.business_id}, ${JSON.stringify(payload)}::jsonb, 'pending')
+          SELECT
+            ${uuidv7()}, 'engagement_alert', 'business', ${row.business_id},
+            ${JSON.stringify(payload)}::jsonb, 'pending'
+          WHERE NOT EXISTS (
+            SELECT 1 FROM notification_deliveries
+            WHERE business_id = ${row.business_id}
+              AND template = ${rule.type}
+              AND sent_at > NOW() - ${cooldownDays} * INTERVAL '1 day'
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM job_outbox
+            WHERE topic = 'engagement_alert'
+              AND aggregate_id = ${row.business_id}
+              AND status IN ('pending', 'dispatched')
+              AND payload->>'alert_type' = ${rule.type}
+          )
         `;
 
-        totalAlerts++;
-        businessesAlerted.add(row.business_id);
+        if (inserted.count > 0) {
+          totalAlerts++;
+          businessesAlerted.add(row.business_id);
+        }
       }
     }
 
