@@ -1,6 +1,11 @@
-// NOTE: Prompt 19d specifies "trend direction" in partner_low_engagement alerts.
-// Deferred: computing trend requires historical approval_rate snapshots that are
-// not currently stored. Add when a churn_metrics table is introduced in Sprint 5B.
+// SPRINT 5B DEFERRAL: Prompt 19d specifies "trend direction" in partner_low_engagement
+// alerts. Deferred to Sprint 5B because computing trend requires comparing the current
+// 30-day approval rate against a previous 30-day window, which needs either historical
+// approval_rate snapshots or a dual-window query. Current implementation uses neutral
+// wording ("approval rate is X%") instead of claiming a direction. When implementing:
+// add a previous_approval_rate field to EngagementAlertPayload.metrics, compute it in
+// the metrics CTE, and pass trend direction ('declining' | 'stable' | 'improving') to
+// the low-engagement email template.
 
 import { v7 as uuidv7 } from 'uuid';
 import { sql } from '../../src/lib/db/server';

@@ -68,7 +68,7 @@ async function pollOutbox(): Promise<void> {
             SET status = 'pending', available_at = NOW(), dispatched_at = NULL
             WHERE status = 'dispatching'
               AND attempts < max_attempts
-              AND dispatched_at < NOW() - INTERVAL '2 minutes'
+              AND (dispatched_at IS NULL OR dispatched_at < NOW() - INTERVAL '2 minutes')
             RETURNING id
           )
           SELECT COUNT(*)::text AS count FROM recovered_dispatching
