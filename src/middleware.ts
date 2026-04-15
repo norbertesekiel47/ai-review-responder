@@ -63,7 +63,23 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  // 5. Owner pages (future -- not built yet, but guard is in place)
+  // 5. Owner API routes
+  if (pathname.startsWith('/api/dashboard')) {
+    if (!authUser) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    const { data } = await supabaseAdmin
+      .from('users')
+      .select('role, business_id')
+      .eq('auth_id', authUser.id)
+      .limit(1)
+      .single();
+    if (!data || data.role !== 'owner' || !data.business_id) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+  }
+
+  // 6. Owner pages
   if (pathname.startsWith('/dashboard') || pathname.startsWith('/settings')) {
     if (!authUser) {
       return redirectToLogin(request);
@@ -102,6 +118,7 @@ export const config = {
   matcher: [
     '/admin/:path((?!login).*)',  // /admin/* except /admin/login
     '/api/admin/:path*',
+    '/api/dashboard/:path*',
     '/dashboard/:path*',
     '/settings/:path*',
   ],
