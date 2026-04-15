@@ -57,6 +57,7 @@ import { startWeeklySummaryScheduler, stopWeeklySummaryScheduler } from './jobs/
 import { startArchivalPoller, stopArchivalPoller } from './jobs/ArchivalPoller';
 import { handleMonthlyImpact } from './jobs/MonthlyImpactWorker';
 import { startMonthlyImpactScheduler, stopMonthlyImpactScheduler } from './jobs/MonthlyImpactScheduler';
+import { startEngagementMonitorPoller, stopEngagementMonitorPoller } from './jobs/EngagementMonitorPoller';
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
 
@@ -152,6 +153,7 @@ async function main(): Promise<void> {
   startWeeklySummaryScheduler();
   startArchivalPoller();
   startMonthlyImpactScheduler();
+  startEngagementMonitorPoller();
   console.log(`Worker service running on port ${PORT}`);
 }
 
@@ -166,6 +168,7 @@ async function shutdown(): Promise<void> {
   stopWeeklySummaryScheduler();
   stopArchivalPoller();
   stopMonthlyImpactScheduler();
+  stopEngagementMonitorPoller();
   await Promise.all(workers.map((w) => w.close()));
   await Promise.all(Object.values(queues).map((q) => q.close()));
   await app.close();
