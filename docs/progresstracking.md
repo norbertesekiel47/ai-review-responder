@@ -1723,6 +1723,58 @@ Improvements discovered during end-to-end manual testing of the full system afte
 **Test count:** 322/322 passing across 25 files (was 312)
 **New test file:** `src/app/api/dashboard/__tests__/route.test.ts`
 
+### Phase 5A.3 — Engagement Detection & Re-engagement (Prompt 19d) (2026-04-14)
+
+**Status:** COMPLETE
+
+**What was done:**
+
+1. **Extracted `createApprovalLink()`** (`src/lib/approval/create-link.ts`):
+   - Shared approval link creation logic (randomUUID → SHA-256 hash stored, raw token returned)
+   - Handles orphaned link revocation (crash before email send)
+   - Used by NotificationWorker (refactored) and EngagementAlertWorker (new)
+
+2. **EngagementMonitorPoller** (`worker/jobs/EngagementMonitorPoller.ts`):
+   - Daily poller (24h default, configurable via `ENGAGEMENT_MONITOR_INTERVAL_MS`)
+   - Single grouped SQL query computes 5 metrics per active business: days_since_approval, pending_count, oldest_pending_age_days, notified_count (30d), approved_count (30d)
+   - 4 engagement rules with cooldown dedup via notification_deliveries:
+     - `owner_nudge`: activity_age >= 3d AND pending > 0 (3-day cooldown)
+     - `partner_engagement_alert`: activity_age >= 7d AND pending > 0 (7-day cooldown)
+     - `partner_escalation_alert`: activity_age >= 14d AND (pending > 0 OR notified > 0) (14-day cooldown)
+     - `partner_low_engagement`: approval_rate < 50% AND notified >= 3 (7-day cooldown)
+   - `activity_age_days = days_since_approval ?? oldest_pending_age_days`
+   - Creates `engagement_alert` outbox entries
+   - 10 tests
+
+3. **EngagementAlertWorker** (`worker/jobs/EngagementAlertWorker.ts`):
+   - Processes `engagement_alert` outbox entries
+   - `owner_nudge`: queries pending reviews, creates fresh approval links per review via `createApprovalLink()`, sends nudge email to owner with review list + approval URLs
+   - `partner_engagement_alert`: sends internal email to admin — "hasn't engaged in N days", owner contact info, suggested check-in
+   - `partner_escalation_alert`: sends escalation email — "at risk, no engagement in 2+ weeks", suggests phone call/visit
+   - `partner_low_engagement`: sends low-engagement email — "approval rate dropped to X%"
+   - Records notification delivery for all alert types
+   - 12 tests
+
+4. **4 Email Templates** (`src/lib/notifications/email.ts`):
+   - `buildOwnerNudgeEmailHtml()` — customer-facing, 600px card, lists pending reviews with stars + approval buttons
+   - `buildPartnerEngagementAlertHtml()` — internal, plain styling, metrics + contact info
+   - `buildPartnerEscalationAlertHtml()` — internal, red accent border, urgency framing
+   - `buildPartnerLowEngagementAlertHtml()` — internal, amber accent border
+   - 42 template tests
+
+5. **Queue + Payload Registration**:
+   - `EngagementAlertType` union type + `EngagementAlertPayload` interface in worker-types.ts
+   - `ENGAGEMENT_ALERT` queue name, instance, topic mapping in queues.ts
+   - Worker + poller registered in worker/index.ts (11 workers + 7 pollers total)
+
+6. **NotificationWorker Refactored**:
+   - Inline approval link creation replaced with `createApprovalLink()` call
+   - Removed unused crypto imports
+   - All existing tests still pass
+
+**Test count:** 386/386 passing across 28 files (was 322)
+**New test files:** `EngagementMonitorPoller.test.ts`, `EngagementAlertWorker.test.ts`, `engagement-email-templates.test.ts`
+
 ---
 
 ## Sprint 6: Scale to $1K MRR
