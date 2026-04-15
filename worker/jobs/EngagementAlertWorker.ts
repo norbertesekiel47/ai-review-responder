@@ -86,7 +86,7 @@ async function handleOwnerNudge(
     WHERE business_id = ${businessId}
       AND template = 'owner_nudge'
       AND sent_at IS NOT NULL
-      AND sent_at > NOW() - INTERVAL '1 day'
+      AND sent_at > NOW() - INTERVAL '3 days'
     LIMIT 1
   `;
   if (existingNudge) {
@@ -135,7 +135,7 @@ async function handleOwnerNudge(
     const { rawToken } = await createApprovalLink({
       responseId: row.response_id,
       businessId,
-      revokeMode: 'always',
+      revokeMode: 'orphaned_only',
     });
     pendingReviews.push({
       reviewerName: row.reviewer_name,
@@ -220,14 +220,15 @@ async function handlePartnerAlert(
       break;
     }
     case 'partner_low_engagement': {
+      const approvalRateDisplay = metrics.approval_rate ?? 0;
       bodyHtml = buildPartnerLowEngagementAlertHtml({
         businessName: business.name,
-        approvalRate: metrics.approval_rate ?? 0,
+        approvalRate: approvalRateDisplay,
         pendingCount: metrics.pending_count,
         ownerEmail: business.owner_email,
         ownerPhone: business.owner_phone,
       });
-      subject = `Customer ${business.name} approval rate is ${metrics.approval_rate}%`;
+      subject = `Customer ${business.name} approval rate is ${approvalRateDisplay}%`;
       break;
     }
   }

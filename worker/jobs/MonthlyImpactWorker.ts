@@ -56,7 +56,7 @@ export async function handleMonthlyImpact(
   // ── 3. Upsert monthly_impact_emails row (idempotent) ──────────────
   // Allow reclaim of stale claims (>15 min) so a crashed worker doesn't
   // permanently block the email.
-  const STALE_CLAIM_INTERVAL = "15 minutes";
+  const STALE_CLAIM_MINUTES = 15;
   const [upsertRow] = await sql<{ sent_at: string | null; summary_text: string | null }[]>`
     INSERT INTO monthly_impact_emails (id, business_id, month_start_date)
     VALUES (${uuidv7()}, ${business_id}, ${month_start_date}::date)
@@ -64,7 +64,7 @@ export async function handleMonthlyImpact(
     DO UPDATE SET business_id = monthly_impact_emails.business_id
     WHERE monthly_impact_emails.sent_at IS NULL
       AND (monthly_impact_emails.claimed_at IS NULL
-           OR monthly_impact_emails.claimed_at < NOW() - INTERVAL '${STALE_CLAIM_INTERVAL}')
+           OR monthly_impact_emails.claimed_at < NOW() - (${STALE_CLAIM_MINUTES} * INTERVAL '1 minute'))
     RETURNING sent_at, summary_text
   `;
 
@@ -94,7 +94,7 @@ export async function handleMonthlyImpact(
       AND month_start_date = ${month_start_date}::date
       AND sent_at IS NULL
       AND (claimed_at IS NULL
-           OR claimed_at < NOW() - INTERVAL '${STALE_CLAIM_INTERVAL}')
+           OR claimed_at < NOW() - (${STALE_CLAIM_MINUTES} * INTERVAL '1 minute'))
     RETURNING id
   `;
   if (!claimed) {
@@ -226,8 +226,9 @@ export async function handleMonthlyImpact(
     WHERE business_id = ${business_id} AND role = 'owner' AND auth_id IS NOT NULL
     LIMIT 1
   `;
-  const dashboardUrl = ownerWithAuth
-    ? `${process.env.NEXT_PUBLIC_APP_URL}/dashboard`
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+  const dashboardUrl = ownerWithAuth && appUrl
+    ? `${appUrl}/dashboard`
     : null;
 
   // ── 10. Compute values ───────────────────────────────────────────
@@ -286,12 +287,8 @@ export async function handleMonthlyImpact(
     messageId = result.messageId;
   } catch (err) {
     console.error(`${LOG_PREFIX} Failed to send monthly impact report for ${business.name} (month ${month_start_date}): ${err instanceof Error ? err.message : err}`);
-    // Clear sent_at + claimed_at so retries can reclaim this report
-    await sql`
-      UPDATE monthly_impact_emails
-      SET sent_at = NULL, claimed_at = NULL
-      WHERE business_id = ${business_id} AND month_start_date = ${month_start_date}::date
-    `;
+    // Keep sent_at set — Resend may have accepted the email before the error.
+    // Clearing would risk a duplicate if the scheduler re-queues this business.
     await markOutboxFailed(outboxId, err instanceof Error ? err.message : String(err));
     return;
   }
