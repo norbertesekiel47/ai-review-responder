@@ -78,6 +78,7 @@ function mockBusinessRow(overrides: Record<string, unknown> = {}) {
     initial_review_count: 50,
     initial_responded_count: 10,
     baseline_captured_at: new Date('2026-01-01'),
+    subscription_tier: 'standard',
     ...overrides,
   };
 }
@@ -88,7 +89,7 @@ function mockBusinessRow(overrides: Record<string, unknown> = {}) {
  * Query order:
  *  1. business SELECT
  *  2. upsert RETURNING
- *  3. claim UPDATE (sent_at = NOW() WHERE sent_at IS NULL)
+ *  3. claim UPDATE (claimed_at = NOW() WHERE claimed_at IS NULL AND sent_at IS NULL)
  *  4. review count
  *  5. responded count
  *  6. best review of month
@@ -97,6 +98,7 @@ function mockBusinessRow(overrides: Record<string, unknown> = {}) {
  *  9. latest ranking snapshot
  * 10. initial ranking snapshot — only if latest exists
  * 11. dashboard eligibility (users with auth_id)
+ * 12. UPDATE sent_at (always, before email send)
  */
 function pushHappyPathSqlQueue(opts: {
   business?: Record<string, unknown>;
@@ -139,6 +141,7 @@ function pushHappyPathSqlQueue(opts: {
     sqlReturnQueue.push(opts.initialRanking ?? [{ rank_position: 8 }]);   // 10. initial ranking
   }
   sqlReturnQueue.push(opts.ownerWithAuth ?? []);                           // 11. dashboard eligibility
+  sqlReturnQueue.push([]);                                                  // 12. UPDATE sent_at
 }
 
 describe('MonthlyImpactWorker – handleMonthlyImpact', () => {

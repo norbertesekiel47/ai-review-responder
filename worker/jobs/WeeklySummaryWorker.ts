@@ -26,9 +26,11 @@ export async function handleWeeklySummary(
     initial_review_count: number | null;
     initial_responded_count: number | null;
     baseline_captured_at: Date | null;
+    subscription_tier: string;
   }[]>`
     SELECT id, name, owner_email, subscription_status, updated_at,
-           initial_review_count, initial_responded_count, baseline_captured_at
+           initial_review_count, initial_responded_count, baseline_captured_at,
+           subscription_tier
     FROM businesses WHERE id = ${business_id}
   `;
 
@@ -101,6 +103,7 @@ export async function handleWeeklySummary(
       AND detected_at >= ${week_start_date}::date
       AND detected_at < ${weekEndDate}::date
       AND review_text IS NOT NULL
+      AND star_rating IS NOT NULL
     ORDER BY detected_at DESC
     LIMIT 30
   `;
@@ -164,7 +167,7 @@ export async function handleWeeklySummary(
       total_reviews = EXCLUDED.total_reviews,
       total_responded = EXCLUDED.total_responded,
       notable_reviews = EXCLUDED.notable_reviews
-    WHERE weekly_summaries.sent_at IS NULL
+    WHERE weekly_summaries.sent_at IS NULL AND weekly_summaries.claimed_at IS NULL
     RETURNING sent_at, summary_text
   `;
 
@@ -176,7 +179,7 @@ export async function handleWeeklySummary(
     return;
   }
 
-  // ── 5b. Claim: atomically set sent_at to prevent duplicate sends ──
+  // ── 5b. Claim: atomically set claimed_at to prevent duplicate sends ──
   // The upsert above auto-commits and does NOT hold a lock across the
   // rest of the worker. Without this claim, two concurrent jobs could
   // both pass the upsert (both see sent_at IS NULL) and both proceed
@@ -184,9 +187,10 @@ export async function handleWeeklySummary(
   // atomic — only one concurrent job wins the claim.
   const [claimed] = await sql<{ id: string }[]>`
     UPDATE weekly_summaries
-    SET sent_at = NOW()
+    SET claimed_at = NOW()
     WHERE business_id = ${business_id}
       AND week_start_date = ${week_start_date}::date
+      AND claimed_at IS NULL
       AND sent_at IS NULL
     RETURNING id
   `;
@@ -206,6 +210,7 @@ export async function handleWeeklySummary(
         reviewText: r.review_text,
       })),
       business_id,
+      business.subscription_tier,
     );
     intelligenceBrief = summaryResult?.summaryText ?? null;
 
@@ -251,9 +256,14 @@ export async function handleWeeklySummary(
     dashboardUrl,
   });
 
-  // sent_at already claimed in step 5b (crash-safe: set before send)
+  // ── 9. Mark sent_at just before Resend call (crash-safe) ──────────
+  await sql`
+    UPDATE weekly_summaries
+    SET sent_at = NOW()
+    WHERE business_id = ${business_id} AND week_start_date = ${week_start_date}::date
+  `;
 
-  // ── 9. Send email ─────────────────────────────────────────────────
+  // ── 10. Send email ────────────────────────────────────────────────
   const weekLabel = `${week_start_date} to ${weekEndDate}`;
   let messageId: string;
   try {

@@ -78,6 +78,7 @@ function mockBusinessRow(overrides: Record<string, unknown> = {}) {
     initial_review_count: 50,
     initial_responded_count: 10,
     baseline_captured_at: new Date('2026-01-01'),
+    subscription_tier: 'standard',
     ...overrides,
   };
 }
@@ -96,8 +97,9 @@ function mockBusinessRow(overrides: Record<string, unknown> = {}) {
  *  8. initial ranking snapshot (only if latest exists)
  *  9. dashboard eligibility (users with auth_id)
  * 10. upsert RETURNING
- * 11. claim UPDATE (sent_at = NOW() WHERE sent_at IS NULL)
+ * 11. claim UPDATE (claimed_at = NOW() WHERE claimed_at IS NULL AND sent_at IS NULL)
  * 12. UPDATE summary_text (only if LLM called)
+ * 13. UPDATE sent_at (always, before email send)
  */
 function pushHappyPathSqlQueue(opts: {
   business?: Record<string, unknown>;
@@ -129,6 +131,7 @@ function pushHappyPathSqlQueue(opts: {
   if (!opts.summaryText && (opts.reviewsForSummary === undefined || opts.reviewsForSummary.length > 0)) {
     sqlReturnQueue.push([]);                                                // 12. UPDATE summary_text
   }
+  sqlReturnQueue.push([]);                                                  // 13. UPDATE sent_at
 }
 
 describe('WeeklySummaryWorker – handleWeeklySummary', () => {
@@ -182,6 +185,7 @@ describe('WeeklySummaryWorker – handleWeeklySummary', () => {
         { starRating: 2, reviewText: 'Could be better' },
       ],
       'biz-1',
+      'standard',
     );
   });
 

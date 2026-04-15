@@ -26,9 +26,11 @@ export async function handleMonthlyImpact(
     initial_review_count: number | null;
     initial_responded_count: number | null;
     baseline_captured_at: Date | null;
+    subscription_tier: string;
   }[]>`
     SELECT id, name, owner_email, subscription_status, updated_at,
-           initial_review_count, initial_responded_count, baseline_captured_at
+           initial_review_count, initial_responded_count, baseline_captured_at,
+           subscription_tier
     FROM businesses WHERE id = ${business_id}
   `;
 
@@ -57,7 +59,7 @@ export async function handleMonthlyImpact(
     VALUES (${uuidv7()}, ${business_id}, ${month_start_date}::date)
     ON CONFLICT (business_id, month_start_date)
     DO UPDATE SET business_id = monthly_impact_emails.business_id
-    WHERE monthly_impact_emails.sent_at IS NULL
+    WHERE monthly_impact_emails.sent_at IS NULL AND monthly_impact_emails.claimed_at IS NULL
     RETURNING sent_at, summary_text
   `;
 
@@ -67,7 +69,7 @@ export async function handleMonthlyImpact(
     return;
   }
 
-  // ── 3b. Claim: atomically set sent_at to prevent duplicate sends ──
+  // ── 3b. Claim: atomically set claimed_at to prevent duplicate sends ──
   // The upsert above auto-commits and does NOT hold a lock across the
   // rest of the worker. Without this claim, two concurrent jobs could
   // both pass the upsert (both see sent_at IS NULL) and both proceed
@@ -75,9 +77,10 @@ export async function handleMonthlyImpact(
   // atomic — only one concurrent job wins the claim.
   const [claimed] = await sql<{ id: string }[]>`
     UPDATE monthly_impact_emails
-    SET sent_at = NOW()
+    SET claimed_at = NOW()
     WHERE business_id = ${business_id}
       AND month_start_date = ${month_start_date}::date
+      AND claimed_at IS NULL
       AND sent_at IS NULL
     RETURNING id
   `;
@@ -128,7 +131,8 @@ export async function handleMonthlyImpact(
       AND r.detected_at >= ${month_start_date}::date
       AND r.detected_at < ${monthEndDate}::date
       AND r.review_text IS NOT NULL
-    ORDER BY r.star_rating DESC, LENGTH(r.review_text) DESC
+      AND r.star_rating IS NOT NULL
+    ORDER BY r.star_rating DESC NULLS LAST, LENGTH(r.review_text) DESC
     LIMIT 1
   `;
 
@@ -154,6 +158,7 @@ export async function handleMonthlyImpact(
         AND detected_at >= ${month_start_date}::date
         AND detected_at < ${monthEndDate}::date
         AND review_text IS NOT NULL
+        AND star_rating IS NOT NULL
       ORDER BY detected_at DESC
       LIMIT 30
     `;
@@ -165,6 +170,7 @@ export async function handleMonthlyImpact(
           reviewText: r.review_text,
         })),
         business_id,
+        business.subscription_tier,
       );
       intelligenceBrief = summaryResult?.summaryText ?? null;
 
@@ -250,9 +256,14 @@ export async function handleMonthlyImpact(
     dashboardUrl,
   });
 
-  // sent_at already claimed in step 3b (crash-safe: set before send)
+  // ── 12. Mark sent_at just before Resend call (crash-safe) ─────────
+  await sql`
+    UPDATE monthly_impact_emails
+    SET sent_at = NOW()
+    WHERE business_id = ${business_id} AND month_start_date = ${month_start_date}::date
+  `;
 
-  // ── 12. Send email ───────────────────────────────────────────────
+  // ── 13. Send email ───────────────────────────────────────────────
   let messageId: string;
   try {
     const result = await sendInternalEmail({

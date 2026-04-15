@@ -185,6 +185,7 @@ describe('generateReviewSummary', () => {
     const generateReviewSummary = await getSut();
     await generateReviewSummary(makeReviews(3), 'biz-001');
 
+    // Default tier is 'standard' when not specified
     expect(mockReserveCost).toHaveBeenCalledWith('biz-001', 'standard');
     expect(mockFinalizeCost).toHaveBeenCalledWith('biz-001', expect.any(Number), '2026-04-14');
     expect(mockReleaseCost).not.toHaveBeenCalled();
