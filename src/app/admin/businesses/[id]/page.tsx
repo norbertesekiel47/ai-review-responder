@@ -24,6 +24,11 @@ interface BusinessDetail {
   ownerName: string;
   ownerEmail: string;
   lastSyncAt: string | null;
+  churnScore?: {
+    score: number;
+    level: 'healthy' | 'watch' | 'at_risk';
+    breakdown: Array<{ signal: string; value: string; contribution: number }>;
+  };
 }
 
 interface ReviewRow {
@@ -48,6 +53,20 @@ interface DetailData {
 
 function renderStars(rating: number): string {
   return '\u2605'.repeat(rating) + '\u2606'.repeat(5 - rating);
+}
+
+function HealthBadge({ level, score }: { level: string; score: number }) {
+  const styles: Record<string, string> = {
+    healthy: 'bg-green-100 text-green-800',
+    watch: 'bg-amber-100 text-amber-800',
+    at_risk: 'bg-red-100 text-red-800',
+  };
+  const labels: Record<string, string> = { healthy: 'Healthy', watch: 'Watch', at_risk: 'At Risk' };
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${styles[level] ?? styles.healthy}`}>
+      {labels[level] ?? level} <span className="opacity-60">{score}</span>
+    </span>
+  );
 }
 
 function ResponseBadge({ status }: { status: string | null }) {
@@ -350,7 +369,12 @@ export default function BusinessDetailPage() {
           Back to Overview
         </Link>
         <div className="mt-2">
-          <h1 className="text-2xl font-bold text-gray-900">{business.name}</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold text-gray-900">{business.name}</h1>
+            {business.churnScore && (
+              <HealthBadge level={business.churnScore.level} score={business.churnScore.score} />
+            )}
+          </div>
           <div className="mt-2 flex flex-wrap gap-2 text-sm text-gray-500 items-center">
             <span className="rounded bg-gray-100 px-2 py-0.5 font-medium text-gray-700">
               {business.subscriptionStatus.replace(/_/g, ' ')}
@@ -424,6 +448,38 @@ export default function BusinessDetailPage() {
             </div>
           )}
         </section>
+
+        {/* Engagement / churn risk */}
+        {business.churnScore && (
+          <section className="mt-8 rounded-lg border border-gray-200 bg-white p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <h2 className="text-lg font-semibold text-gray-900">Engagement</h2>
+              <HealthBadge level={business.churnScore.level} score={business.churnScore.score} />
+            </div>
+            <div className="space-y-3">
+              {business.churnScore.breakdown.map((item) => (
+                <div key={item.signal} className="flex items-center justify-between text-sm">
+                  <div>
+                    <span className="font-medium text-gray-700">{item.signal}:</span>{' '}
+                    <span className="text-gray-500">{item.value}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="h-2 w-24 rounded bg-gray-100 overflow-hidden">
+                      <div
+                        className={`h-full rounded ${
+                          item.contribution > 15 ? 'bg-red-400' :
+                          item.contribution > 5 ? 'bg-amber-400' : 'bg-green-400'
+                        }`}
+                        style={{ width: `${Math.min(item.contribution * 3, 100)}%` }}
+                      />
+                    </div>
+                    <span className="text-xs text-gray-400 w-8 text-right">{item.contribution}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
 
         {/* Awaiting Manual Post */}
         {awaitingPost.length > 0 && (
