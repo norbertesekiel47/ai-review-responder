@@ -1640,8 +1640,68 @@ Improvements discovered during end-to-end manual testing of the full system afte
     - Unique constraint on (business_id, month_start_date) for idempotency
     - Index on notification_deliveries (business_id, template, sent_at DESC) for cooldown checks
 
-**Test count:** 307/307 passing across 24 files (was 253)
+**Test count:** 312/312 passing across 24 files (was 253)
 **New test files:** `review-summary.test.ts`, `email-templates.test.ts`, `WeeklySummaryWorker.test.ts`, `MonthlyImpactWorker.test.ts`
+
+### Post-19a Robustness Fixes (2026-04-14)
+
+**Status:** COMPLETE
+
+1. Cost guard in `review-summary.ts`: `reserveCost`/`finalizeCost`/`releaseCost` lifecycle, budget-exceeded degrades gracefully
+2. `claimed_at`/`sent_at` split: migration 009 adds `claimed_at` to `weekly_summaries` + `monthly_impact_emails`, atomic claim before processing, `sent_at` set just before Resend
+3. Stale claim recovery: claims older than 15 min are reclaimable, prevents permanently stuck reports from crashed workers
+4. Defensive try/finally in `generateReviewSummary`: `finalized` flag matches production generator pattern
+5. Prompt injection hardening: system prompt treats review text as raw data
+6. `subscription_tier` pass-through: workers query tier and pass to `generateReviewSummary`
+7. Response-rate fix: joined query counts period reviews with responses (not independent counts)
+8. Time-saved copy: templates use `totalResponded` consistently
+9. 4-week average: upper bound changed to `week_start_date` (previous 4 completed weeks)
+10. Nullable guards: `rank_position IS NOT NULL` on ranking queries, `star_rating IS NOT NULL` on summary queries, `NULLS LAST` on best-review ORDER BY
+11. Best review threshold removed: `star_rating >= 4` filter dropped per spec
+
+### Phase 5A.2 — Read-Only Owner Dashboard (Prompt 19c) (2026-04-14)
+
+**Status:** COMPLETE
+
+**What was done:**
+
+1. **recharts installed** (v3.8.1) for bar and line charts
+
+2. **Dashboard Data API** (`src/app/api/dashboard/route.ts`):
+   - Single `GET` endpoint returns all dashboard data in one payload
+   - Defense-in-depth: `requireRole(request, 'owner')` + `businessId` null check
+   - 8 parallel SQL queries via `Promise.all()`: business info + baseline, total reviews, total responded (joined), 8-week velocity, ranking snapshots, last 10 reviews with latest response, monthly brief, weekly brief
+   - Derived fields: response rate, baseline rate, time saved, ranking grouped by keyword, latest brief (monthly preferred)
+   - Exports `DashboardData` interface for client component typing
+
+3. **Middleware update** (`src/middleware.ts`):
+   - `/api/dashboard` paths protected for `role='owner'` with `business_id` check
+   - Added to `config.matcher`
+
+4. **OwnerNav component** (`src/components/OwnerNav.tsx`):
+   - Dashboard link + business name (hidden on mobile) + Sign out button
+   - Same styling family as AdminNav
+   - Uses `createBrowserSupabaseClient()` for sign out
+
+5. **Authenticated layout** (`src/app/(authenticated)/layout.tsx`):
+   - Async server component reads Supabase session from cookies
+   - Queries business name for OwnerNav
+   - Redirects to login if unauthenticated
+   - Wraps children in max-w-4xl container
+
+6. **DashboardContent client component** (`src/components/DashboardContent.tsx`):
+   - Fetches `GET /api/dashboard` on mount
+   - Section A: Value Summary Banner (blue gradient, reviews handled, time saved, response rate with baseline)
+   - Section B: Review Velocity BarChart (recharts, last 8 weeks, formatted dates)
+   - Section C: Ranking LineChart (conditional, Y-axis inverted, one line per keyword)
+   - Section D: Recent Reviews (status badges, expandable response text, "check email" for pending)
+   - Section E: Latest Intelligence Brief (monthly preferred, blue left border styling)
+   - Loading and error states
+
+7. **Dashboard page** (`src/app/(authenticated)/dashboard/page.tsx`):
+   - Replaced placeholder with `DashboardContent`
+
+**Test count:** 312/312 passing across 24 files (unchanged — UI components, no new test files for this prompt)
 
 ---
 
