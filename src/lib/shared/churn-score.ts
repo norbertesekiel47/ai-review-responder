@@ -3,6 +3,7 @@
 // business metrics and returns a 0-100 risk score with breakdown.
 
 export interface BusinessMetrics {
+  /** 0-1 fraction (e.g., 0.85 = 85%), NOT 0-100 percentage. Null when no notifications exist. */
   approvalRate: number | null;
   notifiedResponseCount30d: number;
   pendingResponseCount: number;
@@ -32,11 +33,13 @@ function scoreApprovalRate(metrics: BusinessMetrics): { raw: number; value: stri
   if (metrics.approvalRate === null || metrics.notifiedResponseCount30d < 3) {
     return { raw: 0, value: metrics.approvalRate === null ? 'no data' : `${metrics.notifiedResponseCount30d} notified (insufficient)` };
   }
-  const pct = Math.round(metrics.approvalRate * 100);
+  // Defensive: if caller passes 0-100 by mistake, clamp to 0-1
+  const rate = metrics.approvalRate > 1 ? metrics.approvalRate / 100 : metrics.approvalRate;
+  const pct = Math.round(rate * 100);
   const label = `${pct}%`;
-  if (metrics.approvalRate >= 1) return { raw: 0, value: label };
-  if (metrics.approvalRate >= 0.8) return { raw: 20, value: label };
-  if (metrics.approvalRate >= 0.5) return { raw: 50, value: label };
+  if (rate >= 1) return { raw: 0, value: label };
+  if (rate >= 0.8) return { raw: 20, value: label };
+  if (rate >= 0.5) return { raw: 50, value: label };
   return { raw: 100, value: label };
 }
 

@@ -153,6 +153,7 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
 
   it('owner_nudge: sends nudge email with pending reviews and approval links', async () => {
     sqlReturnQueue.push([mockBusinessRow()]); // business
+    sqlReturnQueue.push([]);                  // idempotency check (no existing nudge)
     pushPendingReviewRows(2);                 // 2 pending reviews
 
     await handleEngagementAlert(makeJob({ alert_type: 'owner_nudge' }));
@@ -226,6 +227,7 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
 
   it('owner_nudge: uses singular "review" for count of 1', async () => {
     sqlReturnQueue.push([mockBusinessRow()]); // business
+    sqlReturnQueue.push([]);                  // idempotency check
     pushPendingReviewRows(1);                 // 1 pending review
 
     await handleEngagementAlert(makeJob({ alert_type: 'owner_nudge' }));
@@ -387,6 +389,7 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
 
   it('throws on email send failure (BullMQ retries)', async () => {
     sqlReturnQueue.push([mockBusinessRow()]); // business
+    sqlReturnQueue.push([]);                  // idempotency check
     pushPendingReviewRows(1);                 // pending reviews
     mockSendInternalEmail.mockRejectedValueOnce(new Error('Resend API error'));
 

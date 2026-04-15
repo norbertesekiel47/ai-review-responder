@@ -80,6 +80,21 @@ async function handleOwnerNudge(
     return;
   }
 
+  // Idempotency: skip if a nudge delivery was already recorded for this business recently
+  const [existingNudge] = await sql<{ id: string }[]>`
+    SELECT id FROM notification_deliveries
+    WHERE business_id = ${businessId}
+      AND template = 'owner_nudge'
+      AND sent_at IS NOT NULL
+      AND sent_at > NOW() - INTERVAL '1 day'
+    LIMIT 1
+  `;
+  if (existingNudge) {
+    console.log(`${LOG_PREFIX} Owner nudge already sent for business ${businessId} recently — skipping`);
+    await markOutboxCompleted(outboxId);
+    return;
+  }
+
   // Query pending reviews with their response IDs + total count
   const pendingRows = await sql<{
     response_id: string;
@@ -207,7 +222,7 @@ async function handlePartnerAlert(
     case 'partner_low_engagement': {
       bodyHtml = buildPartnerLowEngagementAlertHtml({
         businessName: business.name,
-        approvalRate: metrics.approval_rate!,
+        approvalRate: metrics.approval_rate ?? 0,
         pendingCount: metrics.pending_count,
         ownerEmail: business.owner_email,
         ownerPhone: business.owner_phone,

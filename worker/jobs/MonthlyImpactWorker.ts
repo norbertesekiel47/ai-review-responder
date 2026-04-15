@@ -286,6 +286,12 @@ export async function handleMonthlyImpact(
     messageId = result.messageId;
   } catch (err) {
     console.error(`${LOG_PREFIX} Failed to send monthly impact report for ${business.name} (month ${month_start_date}): ${err instanceof Error ? err.message : err}`);
+    // Clear sent_at + claimed_at so retries can reclaim this report
+    await sql`
+      UPDATE monthly_impact_emails
+      SET sent_at = NULL, claimed_at = NULL
+      WHERE business_id = ${business_id} AND month_start_date = ${month_start_date}::date
+    `;
     await markOutboxFailed(outboxId, err instanceof Error ? err.message : String(err));
     return;
   }
