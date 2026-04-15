@@ -65,7 +65,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   try {
-    const limit = Math.min(parseInt(request.nextUrl.searchParams.get('limit') ?? '20', 10) || 20, 100);
+    const rawLimit = parseInt(request.nextUrl.searchParams.get('limit') ?? '20', 10);
+    const limit = Math.min(Math.max(Number.isFinite(rawLimit) ? rawLimit : 20, 1), 100);
     const offset = Math.max(parseInt(request.nextUrl.searchParams.get('offset') ?? '0', 10) || 0, 0);
 
     const [
@@ -209,7 +210,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     });
 
     // Sort by risk score descending (most at-risk first), then paginate
-    allBusinesses.sort((a, b) => b.churnScore.score - a.churnScore.score);
+    allBusinesses.sort(
+      (a, b) =>
+        b.churnScore.score - a.churnScore.score ||
+        b.pendingApprovalCount - a.pendingApprovalCount ||
+        a.name.localeCompare(b.name) ||
+        a.id.localeCompare(b.id),
+    );
     const paginatedBusinesses = allBusinesses.slice(offset, offset + limit);
 
     const data: OverviewData = {
