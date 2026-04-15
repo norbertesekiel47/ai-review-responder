@@ -65,6 +65,7 @@ export async function middleware(request: NextRequest) {
 
   // 5. Owner API routes
   if (pathname.startsWith('/api/dashboard')) {
+    // Keep literal here to avoid expanding the Edge middleware import graph.
     const noStoreHeaders = { 'Cache-Control': 'no-store, private' };
     if (!authUser) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: noStoreHeaders });
