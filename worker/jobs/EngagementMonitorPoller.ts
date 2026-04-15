@@ -143,27 +143,35 @@ export async function runEngagementCheck(): Promise<void> {
           },
         };
 
-        const inserted = await sql`
-          INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-          SELECT
-            ${uuidv7()}, 'engagement_alert', 'business', ${row.business_id},
-            ${JSON.stringify(payload)}::jsonb, 'pending'
-          WHERE NOT EXISTS (
-            SELECT 1 FROM notification_deliveries
-            WHERE business_id = ${row.business_id}
-              AND template = ${rule.type}
-              AND sent_at > NOW() - ${cooldownDays} * INTERVAL '1 day'
-          )
-          AND NOT EXISTS (
-            SELECT 1 FROM job_outbox
-            WHERE topic = 'engagement_alert'
-              AND aggregate_id = ${row.business_id}
-              AND status IN ('pending', 'dispatched')
-              AND payload->>'alert_type' = ${rule.type}
-          )
-        `;
+        let insertedCount = 0;
+        try {
+          const inserted = await sql`
+            INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+            SELECT
+              ${uuidv7()}, 'engagement_alert', 'business', ${row.business_id},
+              ${JSON.stringify(payload)}::jsonb, 'pending'
+            WHERE NOT EXISTS (
+              SELECT 1 FROM notification_deliveries
+              WHERE business_id = ${row.business_id}
+                AND template = ${rule.type}
+                AND sent_at > NOW() - ${cooldownDays} * INTERVAL '1 day'
+            )
+            AND NOT EXISTS (
+              SELECT 1 FROM job_outbox
+              WHERE topic = 'engagement_alert'
+                AND aggregate_id = ${row.business_id}
+                AND status IN ('pending', 'dispatched')
+                AND payload->>'alert_type' = ${rule.type}
+            )
+          `;
+          insertedCount = inserted.count;
+        } catch (insertErr: unknown) {
+          const code = (insertErr as { code?: string }).code;
+          if (code === '23505') continue; // lost the race — another process already queued this alert
+          throw insertErr;
+        }
 
-        if (inserted.count > 0) {
+        if (insertedCount > 0) {
           totalAlerts++;
           businessesAlerted.add(row.business_id);
         }

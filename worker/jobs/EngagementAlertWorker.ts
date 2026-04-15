@@ -80,14 +80,19 @@ async function handleOwnerNudge(
     return;
   }
 
-  // Query pending reviews with their response IDs
+  // Query pending reviews with their response IDs + total count
   const pendingRows = await sql<{
     response_id: string;
     reviewer_name: string;
-    star_rating: number;
+    star_rating: number | null;
     review_text: string | null;
+    total_pending: number;
   }[]>`
-    SELECT resp.id AS response_id, r.reviewer_name, r.star_rating, r.review_text
+    SELECT resp.id AS response_id,
+           COALESCE(r.reviewer_name, 'Anonymous') AS reviewer_name,
+           r.star_rating,
+           r.review_text,
+           COUNT(*) OVER ()::int AS total_pending
     FROM responses resp
     JOIN reviews r ON r.id = resp.review_id
     WHERE resp.business_id = ${businessId}
@@ -103,9 +108,10 @@ async function handleOwnerNudge(
   }
 
   // Create approval links for each pending review
+  const totalPending = pendingRows[0]?.total_pending ?? 0;
   const pendingReviews: Array<{
     reviewerName: string;
-    starRating: number;
+    starRating: number | null;
     reviewText: string | null;
     approvalUrl: string;
   }> = [];
@@ -129,8 +135,7 @@ async function handleOwnerNudge(
     pendingReviews,
   });
 
-  const count = pendingReviews.length;
-  const subject = `You have ${count} review${count !== 1 ? 's' : ''} waiting for your approval`;
+  const subject = `You have ${totalPending} review${totalPending !== 1 ? 's' : ''} waiting for your approval`;
 
   const { messageId } = await sendInternalEmail({
     to: business.owner_email,
@@ -147,7 +152,7 @@ async function handleOwnerNudge(
   });
 
   await markOutboxCompleted(outboxId);
-  console.log(`${LOG_PREFIX} Owner nudge sent to ${business.owner_email} (${count} pending reviews)`);
+  console.log(`${LOG_PREFIX} Owner nudge sent to ${business.owner_email} (${totalPending} pending reviews)`);
 }
 
 // ── Partner alerts: email the admin about customer engagement ────────
@@ -169,25 +174,27 @@ async function handlePartnerAlert(
   let bodyHtml: string;
   let subject: string;
 
-  const daysLabel = metrics.days_since_approval ?? metrics.oldest_pending_age_days;
+  const activityAgeDays = metrics.days_since_approval ?? metrics.oldest_pending_age_days;
 
   switch (alertType) {
     case 'partner_engagement_alert': {
       bodyHtml = buildPartnerEngagementAlertHtml({
         businessName: business.name,
         daysSinceApproval: metrics.days_since_approval,
+        activityAgeDays,
         pendingCount: metrics.pending_count,
         approvalRate: metrics.approval_rate,
         ownerEmail: business.owner_email,
         ownerPhone: business.owner_phone,
       });
-      subject = `Customer ${business.name} hasn't engaged in ${daysLabel} days`;
+      subject = `Customer ${business.name} hasn't engaged in ${activityAgeDays} days`;
       break;
     }
     case 'partner_escalation_alert': {
       bodyHtml = buildPartnerEscalationAlertHtml({
         businessName: business.name,
         daysSinceApproval: metrics.days_since_approval,
+        activityAgeDays,
         pendingCount: metrics.pending_count,
         approvalRate: metrics.approval_rate,
         ownerEmail: business.owner_email,

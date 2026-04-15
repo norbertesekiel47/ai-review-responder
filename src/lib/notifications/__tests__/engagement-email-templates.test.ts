@@ -34,6 +34,7 @@ function baseEngagementParams(overrides: Partial<PartnerEngagementAlertParams> =
   return {
     businessName: 'Acme Bakery',
     daysSinceApproval: 5,
+    activityAgeDays: overrides.activityAgeDays ?? overrides.daysSinceApproval ?? 5,
     pendingCount: 3,
     approvalRate: 60,
     ownerEmail: 'owner@acme.com',
@@ -165,8 +166,8 @@ describe('buildPartnerEngagementAlertHtml', () => {
     expect(html).not.toContain('1 days');
   });
 
-  it('shows "unknown" when daysSinceApproval is null', () => {
-    const html = buildPartnerEngagementAlertHtml(baseEngagementParams({ daysSinceApproval: null }));
+  it('shows "unknown" when activityAgeDays is null', () => {
+    const html = buildPartnerEngagementAlertHtml(baseEngagementParams({ daysSinceApproval: null, activityAgeDays: null }));
     expect(html).toContain('unknown');
   });
 

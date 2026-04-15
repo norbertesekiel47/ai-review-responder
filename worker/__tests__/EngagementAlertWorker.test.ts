@@ -97,12 +97,14 @@ function mockBusinessRow(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function pushPendingReviewRows(count: number = 2) {
+function pushPendingReviewRows(count: number = 2, totalPending?: number) {
+  const total = totalPending ?? count;
   const rows = Array.from({ length: count }, (_, i) => ({
     response_id: `resp-${i + 1}`,
     reviewer_name: `Reviewer ${i + 1}`,
     star_rating: 4 + (i % 2),
     review_text: i % 2 === 0 ? `Great review ${i + 1}` : null,
+    total_pending: total,
   }));
   sqlReturnQueue.push(rows);
 }

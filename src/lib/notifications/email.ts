@@ -500,7 +500,7 @@ export interface OwnerNudgeEmailParams {
   businessName: string;
   pendingReviews: Array<{
     reviewerName: string;
-    starRating: number;
+    starRating: number | null;
     reviewText: string | null;
     approvalUrl: string;
   }>;
@@ -512,7 +512,7 @@ export function buildOwnerNudgeEmailHtml(params: OwnerNudgeEmailParams): string 
   const count = pendingReviews.length;
 
   const reviewRows = pendingReviews.map((review) => {
-    const stars = renderStars(review.starRating);
+    const stars = review.starRating != null ? renderStars(review.starRating) : '';
     const safeReviewer = escapeHtml(review.reviewerName);
     const reviewBody = review.reviewText
       ? escapeHtml(truncate(review.reviewText, 50))
@@ -559,6 +559,8 @@ export function buildOwnerNudgeEmailHtml(params: OwnerNudgeEmailParams): string 
 export interface PartnerEngagementAlertParams {
   businessName: string;
   daysSinceApproval: number | null;
+  /** Fallback: days_since_approval ?? oldest_pending_age_days. Used for display. */
+  activityAgeDays: number | null;
   pendingCount: number;
   approvalRate: number | null;
   ownerEmail: string;
@@ -570,8 +572,8 @@ export function buildPartnerEngagementAlertHtml(params: PartnerEngagementAlertPa
   const safeEmail = escapeHtml(params.ownerEmail);
   const safePhone = params.ownerPhone ? escapeHtml(params.ownerPhone) : null;
 
-  const daysText = params.daysSinceApproval !== null
-    ? `${params.daysSinceApproval} day${params.daysSinceApproval !== 1 ? 's' : ''}`
+  const daysText = params.activityAgeDays !== null
+    ? `${params.activityAgeDays} day${params.activityAgeDays !== 1 ? 's' : ''}`
     : 'unknown';
 
   const approvalRateText = params.approvalRate !== null
@@ -609,8 +611,8 @@ export function buildPartnerEscalationAlertHtml(params: PartnerEngagementAlertPa
   const safeEmail = escapeHtml(params.ownerEmail);
   const safePhone = params.ownerPhone ? escapeHtml(params.ownerPhone) : null;
 
-  const daysText = params.daysSinceApproval !== null
-    ? `${params.daysSinceApproval} day${params.daysSinceApproval !== 1 ? 's' : ''}`
+  const daysText = params.activityAgeDays !== null
+    ? `${params.activityAgeDays} day${params.activityAgeDays !== 1 ? 's' : ''}`
     : 'unknown';
 
   const approvalRateText = params.approvalRate !== null
