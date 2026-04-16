@@ -2146,7 +2146,21 @@ Created `supabase/migrations/014_retention_expansion.sql`:
 
 ---
 
-**Sprint 5B: COMPLETE** — All 5 prompts (19b Automated Ranking, 19c-5B Settings + Dashboard Actions, 19d-5B Satisfaction Alert, 19e Onboarding Drips, 19g Satisfaction Pulse) implemented with all review findings addressed across 12+ review rounds. 569 tests across 39 files.
+### Post-19g Review Fixes (2026-04-16)
+
+**Status:** COMPLETE
+
+1. **Index conflict** (Medium): Catch 23505 from broad `idx_jo_engagement_alert_inflight` index (migration 011) on outbox INSERT. The satisfaction_responses upsert still commits even when a pending alert from a different week conflicts with the broad `(aggregate_id, alert_type)` index.
+2. **Stale alerts** (Medium): `handleSatisfactionAlert` in EngagementAlertWorker now re-reads `satisfaction_responses` for business + week before sending. If the owner changed their rating from `not_great` to `ok`/`great`, the alert is skipped. Uses live comment from DB, not stale outbox payload.
+3. **Sig validation** (Medium): `verifyFeedback` validates sig matches `/^[0-9a-f]{64}$/i` before `Buffer.from`. Uses `'hex'` encoding on both operands. Prevents `RangeError` from non-ASCII 64-char strings.
+4. **Date + UUID validation** (Low): Round-trip calendar date validation + UUID format check before DB writes. Rejects `2026-99-99` and malformed UUIDs with 400.
+5. **URL escaping** (Low): Feedback URLs in weekly email escaped with `&amp;`/`&quot;` for href attributes.
+
+**Test count:** 570/570 passing across 39 files (was 569 — 1 new test for rating-changed skip)
+
+---
+
+**Sprint 5B: COMPLETE** — All 5 prompts (19b Automated Ranking, 19c-5B Settings + Dashboard Actions, 19d-5B Satisfaction Alert, 19e Onboarding Drips, 19g Satisfaction Pulse) implemented with all review findings addressed across 14+ review rounds. 570 tests across 39 files.
 
 ---
 
