@@ -62,4 +62,36 @@ describe('checkRateLimit', () => {
 
     expect(result).toEqual({ allowed: false, remaining: 0 });
   });
+
+  it('allows request when Redis fails in default (fail-open) mode', async () => {
+    mockEval.mockRejectedValue(new Error('ECONNREFUSED'));
+
+    const result = await checkRateLimit('test:key', 5, 60);
+
+    expect(result).toEqual({ allowed: true, remaining: 5 });
+  });
+
+  it('throws when Redis fails in strict mode', async () => {
+    mockEval.mockRejectedValue(new Error('ECONNREFUSED'));
+
+    await expect(
+      checkRateLimit('test:key', 5, 60, { strict: true }),
+    ).rejects.toThrow('ECONNREFUSED');
+  });
+
+  it('throws when REDIS_CACHE_URL is missing in strict mode', async () => {
+    delete process.env.REDIS_CACHE_URL;
+
+    await expect(
+      checkRateLimit('test:key', 5, 60, { strict: true }),
+    ).rejects.toThrow('cannot enforce budget');
+  });
+
+  it('allows request when REDIS_CACHE_URL is missing in default mode', async () => {
+    delete process.env.REDIS_CACHE_URL;
+
+    const result = await checkRateLimit('test:key', 5, 60);
+
+    expect(result).toEqual({ allowed: true, remaining: 5 });
+  });
 });

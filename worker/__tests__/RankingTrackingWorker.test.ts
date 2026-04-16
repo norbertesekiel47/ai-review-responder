@@ -174,9 +174,22 @@ describe('RankingTrackingWorker', () => {
     expect(mockGetJson).not.toHaveBeenCalled();
   });
 
-  it('marks outbox completed when REDIS_CACHE_URL is missing (fail-closed)', async () => {
+  it('marks outbox completed when REDIS_CACHE_URL is missing (strict fail-closed)', async () => {
     delete process.env.REDIS_CACHE_URL;
     sqlReturnQueue.push([mockBusinessRow()]);
+    // checkRateLimit with { strict: true } throws when REDIS_CACHE_URL is unset
+    mockCheckRateLimit.mockRejectedValueOnce(new Error('REDIS_CACHE_URL not configured'));
+
+    await handleTrackRanking(makeJob());
+
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-rank-1');
+    expect(mockGetJson).not.toHaveBeenCalled();
+  });
+
+  it('marks outbox completed when Redis is configured but unavailable (strict fail-closed)', async () => {
+    sqlReturnQueue.push([mockBusinessRow()]);
+    // Simulates Redis connection failure propagated through strict mode
+    mockCheckRateLimit.mockRejectedValueOnce(new Error('ECONNREFUSED'));
 
     await handleTrackRanking(makeJob());
 

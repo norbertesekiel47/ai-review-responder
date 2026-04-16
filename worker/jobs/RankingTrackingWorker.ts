@@ -75,20 +75,15 @@ export async function handleTrackRanking(job: Job<TrackRankingPayload>): Promise
   // Sprint 5B initial rollout: limit to 1 keyword per business
   const keywords = rawKeywords.slice(0, 1);
 
-  // ── Step 4: Monthly SerpAPI budget (fail-closed) ──────────────────
-  // checkRateLimit fails OPEN by design (user-facing defense-in-depth).
-  // For paid automated API calls, we must fail CLOSED: no Redis = no ranking.
-  if (!process.env.REDIS_CACHE_URL) {
-    console.warn(`${LOG_PREFIX} REDIS_CACHE_URL not set — cannot enforce SerpAPI budget, skipping`);
-    await markOutboxCompleted(outboxId);
-    return;
-  }
-
+  // ── Step 4: Monthly SerpAPI budget (fail-closed via strict mode) ───
+  // Using { strict: true } makes checkRateLimit throw on Redis unavailability
+  // instead of failing open. This prevents ranking spend when the budget
+  // enforcer is down — critical for paid automated API calls.
   let budgetCheck: { allowed: boolean; remaining: number };
   try {
-    budgetCheck = await checkRateLimit('serpapi:ranking:monthly', 100, 30 * 24 * 3600);
-  } catch {
-    console.warn(`${LOG_PREFIX} Redis unavailable — cannot enforce SerpAPI budget, skipping`);
+    budgetCheck = await checkRateLimit('serpapi:ranking:monthly', 100, 30 * 24 * 3600, { strict: true });
+  } catch (err) {
+    console.warn(`${LOG_PREFIX} Cannot enforce SerpAPI budget (Redis unavailable or not configured), skipping:`, err instanceof Error ? err.message : err);
     await markOutboxCompleted(outboxId);
     return;
   }

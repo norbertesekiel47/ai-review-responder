@@ -163,24 +163,36 @@ CREATE INDEX IF NOT EXISTS idx_businesses_ranking_ready
 
 -- =============================================================================
 -- PARTIAL UNIQUE INDEX: prevent duplicate track_ranking outbox entries
--- Uses (aggregate_id, payload->>'run_date') so two scheduler instances or a
--- restart during the same 22:00 UTC window cannot enqueue multiple jobs for
--- the same business + run date. The ranking_snapshots upsert prevents duplicate
--- rows, but NOT duplicate SerpAPI spend — this index prevents both.
+-- Uses (aggregate_id, payload->>'run_date') so two scheduler instances, a
+-- restart during the same 22:00 UTC window, or a fast-completing job cannot
+-- enqueue multiple jobs for the same business + run date.
+--
+-- Covers ALL statuses except 'failed' (which should allow a retry via a new
+-- outbox entry). Completed jobs ARE included — if a job completed for this
+-- business+date, another one must not be created. Retries for transient
+-- failures go through BullMQ's built-in retry mechanism on the existing
+-- outbox entry, not by inserting a new row.
 -- =============================================================================
 
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_outbox_track_ranking_run
   ON job_outbox(aggregate_id, (payload->>'run_date'))
   WHERE topic = 'track_ranking'
-    AND status NOT IN ('completed', 'failed');
+    AND status <> 'failed';
 
 -- =============================================================================
 -- CHECK CONSTRAINT: tracked_keywords must be a JSONB array
 -- Prevents malformed values that would crash the worker on parse.
+-- Idempotent: only adds if the constraint does not already exist.
 -- =============================================================================
 
-ALTER TABLE businesses
-  ADD CONSTRAINT chk_tracked_keywords_array
-  CHECK (jsonb_typeof(tracked_keywords) = 'array');
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'chk_tracked_keywords_array'
+  ) THEN
+    ALTER TABLE businesses
+      ADD CONSTRAINT chk_tracked_keywords_array
+      CHECK (jsonb_typeof(tracked_keywords) = 'array');
+  END IF;
+END $$;
 
 COMMIT;
