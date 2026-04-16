@@ -24,6 +24,11 @@ interface BusinessDetail {
   ownerName: string;
   ownerEmail: string;
   lastSyncAt: string | null;
+  trackedKeywords: string[];
+  googlePlaceLat: number | null;
+  googlePlaceLng: number | null;
+  rankingSearchLocation: string | null;
+  googlePlaceAddress: string | null;
   churnScore?: {
     score: number;
     level: 'healthy' | 'watch' | 'at_risk';
@@ -46,9 +51,17 @@ interface ReviewRow {
   responseVersion: number | null;
 }
 
+interface RankingSnapshot {
+  keyword: string;
+  rankPosition: number | null;
+  snapshotDate: string;
+  source: string;
+}
+
 interface DetailData {
   business: BusinessDetail;
   reviews: ReviewRow[];
+  rankingSnapshots: RankingSnapshot[];
 }
 
 function renderStars(rating: number): string {
@@ -311,6 +324,237 @@ function ProfileEditor({ business, businessId, onSaved }: ProfileEditorProps) {
   );
 }
 
+function TrackedKeywordsSection({ businessId, keywords: initialKeywords }: { businessId: string; keywords: string[] }) {
+  const queryClient = useQueryClient();
+  const [keywords, setKeywords] = useState<string[]>(initialKeywords);
+  const [newKeyword, setNewKeyword] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const save = async (updated: string[]) => {
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/businesses/${businessId}/keywords`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ keywords: updated }),
+      });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        throw new Error((json as { error?: string }).error ?? `HTTP ${res.status}`);
+      }
+      setKeywords(updated);
+      void queryClient.invalidateQueries({ queryKey: ['admin-business', businessId] });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Save failed');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const addKeyword = () => {
+    const trimmed = newKeyword.trim().toLowerCase();
+    if (!trimmed) return;
+    if (keywords.includes(trimmed)) {
+      setError('Keyword already exists');
+      return;
+    }
+    if (keywords.length >= 5) {
+      setError('Maximum 5 keywords allowed');
+      return;
+    }
+    setNewKeyword('');
+    void save([...keywords, trimmed]);
+  };
+
+  const removeKeyword = (kw: string) => {
+    void save(keywords.filter((k) => k !== kw));
+  };
+
+  return (
+    <section className="mt-8 rounded-lg border border-gray-200 bg-white p-6">
+      <h2 className="text-lg font-semibold text-gray-800 mb-1">Tracked Keywords</h2>
+      <p className="text-sm text-gray-500 mb-4">
+        Keywords used for local ranking checks. Maximum 5.
+      </p>
+      <div className="flex flex-wrap gap-2 mb-4">
+        {keywords.map((kw) => (
+          <span key={kw} className="inline-flex items-center gap-1 bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm">
+            {kw}
+            <button
+              onClick={() => removeKeyword(kw)}
+              disabled={saving}
+              className="ml-1 text-blue-500 hover:text-blue-700 disabled:opacity-50"
+              aria-label={`Remove ${kw}`}
+            >
+              &times;
+            </button>
+          </span>
+        ))}
+        {keywords.length === 0 && (
+          <span className="text-sm text-gray-400">No keywords tracked yet.</span>
+        )}
+      </div>
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={newKeyword}
+          onChange={(e) => { setNewKeyword(e.target.value); setError(null); }}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addKeyword(); } }}
+          placeholder="e.g. best tacos near me"
+          className="flex-1 rounded border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          disabled={saving}
+        />
+        <button
+          onClick={addKeyword}
+          disabled={saving || !newKeyword.trim()}
+          className="rounded bg-blue-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+        >
+          Add
+        </button>
+      </div>
+      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+    </section>
+  );
+}
+
+function ManualRankingSection({ businessId, snapshots }: { businessId: string; snapshots: RankingSnapshot[] }) {
+  const queryClient = useQueryClient();
+  const [keyword, setKeyword] = useState('');
+  const [rankPosition, setRankPosition] = useState('');
+  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmedKeyword = keyword.trim();
+    if (!trimmedKeyword) return;
+
+    setSaving(true);
+    setError(null);
+    setSuccess(false);
+    try {
+      const res = await fetch(`/api/admin/businesses/${businessId}/ranking`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          keyword: trimmedKeyword,
+          rankPosition: rankPosition.trim() ? parseInt(rankPosition, 10) : null,
+          date,
+        }),
+      });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        throw new Error((json as { error?: string }).error ?? `HTTP ${res.status}`);
+      }
+      setKeyword('');
+      setRankPosition('');
+      setDate(new Date().toISOString().slice(0, 10));
+      setSuccess(true);
+      void queryClient.invalidateQueries({ queryKey: ['admin-business', businessId] });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Save failed');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const recent = snapshots.slice(0, 10);
+
+  return (
+    <section className="mt-8 rounded-lg border border-gray-200 bg-white p-6">
+      <h2 className="text-lg font-semibold text-gray-800 mb-4">Ranking</h2>
+
+      {recent.length > 0 && (
+        <div className="mb-6 overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-200 text-left text-gray-500">
+                <th className="pb-2 font-medium">Date</th>
+                <th className="pb-2 font-medium">Keyword</th>
+                <th className="pb-2 font-medium">Rank</th>
+                <th className="pb-2 font-medium">Source</th>
+              </tr>
+            </thead>
+            <tbody>
+              {recent.map((snap, idx) => (
+                <tr key={`${snap.keyword}-${snap.snapshotDate}-${idx}`} className="border-b border-gray-100">
+                  <td className="py-2 text-gray-700">{new Date(snap.snapshotDate).toLocaleDateString()}</td>
+                  <td className="py-2 text-gray-700">{snap.keyword}</td>
+                  <td className="py-2 text-gray-700">
+                    {snap.rankPosition !== null ? `#${snap.rankPosition}` : 'Not found'}
+                  </td>
+                  <td className="py-2">
+                    <span className={`text-xs px-2 py-0.5 rounded ${
+                      snap.source === 'serpapi' ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-600'
+                    }`}>
+                      {snap.source}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {recent.length === 0 && (
+        <p className="mb-6 text-sm text-gray-400">No ranking data yet.</p>
+      )}
+
+      <h3 className="text-sm font-medium text-gray-700 mb-3">Manual Entry</h3>
+      <form onSubmit={submit} className="flex flex-wrap gap-3 items-end">
+        <div className="flex-1 min-w-[160px]">
+          <label className="block text-xs text-gray-500 mb-1">Keyword</label>
+          <input
+            type="text"
+            value={keyword}
+            onChange={(e) => { setKeyword(e.target.value); setError(null); setSuccess(false); }}
+            placeholder="e.g. plumber downtown"
+            className="w-full rounded border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            disabled={saving}
+            required
+          />
+        </div>
+        <div className="w-24">
+          <label className="block text-xs text-gray-500 mb-1">Rank</label>
+          <input
+            type="number"
+            value={rankPosition}
+            onChange={(e) => { setRankPosition(e.target.value); setError(null); setSuccess(false); }}
+            placeholder="e.g. 3"
+            min={1}
+            className="w-full rounded border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            disabled={saving}
+          />
+        </div>
+        <div className="w-40">
+          <label className="block text-xs text-gray-500 mb-1">Date</label>
+          <input
+            type="date"
+            value={date}
+            onChange={(e) => { setDate(e.target.value); setError(null); setSuccess(false); }}
+            className="w-full rounded border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            disabled={saving}
+            required
+          />
+        </div>
+        <button
+          type="submit"
+          disabled={saving || !keyword.trim()}
+          className="rounded bg-gray-800 px-4 py-1.5 text-sm font-medium text-white hover:bg-gray-900 disabled:opacity-50"
+        >
+          {saving ? 'Saving...' : 'Save'}
+        </button>
+      </form>
+      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+      {success && <p className="mt-2 text-sm text-green-600">Ranking saved</p>}
+    </section>
+  );
+}
+
 export default function BusinessDetailPage() {
   const { id: businessId } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
@@ -347,7 +591,7 @@ export default function BusinessDetailPage() {
     );
   }
 
-  const { business, reviews } = data;
+  const { business, reviews, rankingSnapshots } = data;
   const awaitingPost = reviews.filter((r) => r.responseStatus === 'awaiting_manual_post');
 
   const mapsUrl = business.googlePlaceId
@@ -480,6 +724,12 @@ export default function BusinessDetailPage() {
             </div>
           </section>
         )}
+
+        {/* Tracked Keywords */}
+        <TrackedKeywordsSection businessId={businessId} keywords={business.trackedKeywords} />
+
+        {/* Ranking */}
+        <ManualRankingSection businessId={businessId} snapshots={rankingSnapshots ?? []} />
 
         {/* Awaiting Manual Post */}
         {awaitingPost.length > 0 && (
