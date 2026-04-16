@@ -2031,6 +2031,44 @@ Created `supabase/migrations/014_retention_expansion.sql`:
 
 ---
 
+### Prompt 19e — Onboarding Drip Emails (2026-04-16)
+
+**Status:** COMPLETE
+
+**What was built:**
+
+1. **Stripe Webhook Update** (`worker/ingress/stripe.ts`):
+   - `subscription_activated_at = COALESCE(subscription_activated_at, NOW())` on checkout.session.completed
+   - `COALESCE` preserves the original activation date on re-activation from past_due → active
+
+2. **OnboardingDripScheduler** (`worker/jobs/OnboardingDripScheduler.ts`):
+   - Hourly setInterval poller (configurable via `ONBOARDING_DRIP_INTERVAL_MS`)
+   - Queries active businesses with `subscription_activated_at IS NOT NULL`
+   - Checks 3 drip offsets: day_1 (1 day), day_7 (7 days), day_30 (30 days)
+   - Double dedup: `onboarding_drip_log` table + pending outbox entries
+   - 23505 constraint handling, mock mode skip, double-start guard
+
+3. **OnboardingDripWorker** (`worker/jobs/OnboardingDripWorker.ts`):
+   - **day_1**: Welcome email — how it works (3-step list), 30-second approval, weekly report mention, conditional dashboard link (only if owner has auth mapping)
+   - **day_7**: First week recap — reviews handled + time saved + response rate, highlight review+response pair (longest text), edit acknowledgment ("learning your voice"), pending reviews with fresh approval links via `createApprovalLink({ revokeMode: 'orphaned_only' })`, zero-review graceful fallback
+   - **day_30**: Monthly impact — total reviews, response rate before → now (from baseline), time saved, ranking change (if data), sales partner sign-off
+   - Strict active-only subscription guard
+   - Crash-safe: outbox completed BEFORE email send
+   - Idempotent: `INSERT INTO onboarding_drip_log ... ON CONFLICT (business_id, drip_type) DO NOTHING`
+   - Records notification delivery with template `onboarding_drip_day_1` etc.
+
+4. **Email Templates** (appended to `src/lib/notifications/email.ts`):
+   - `buildOnboardingDay1Html()` — warm welcome, no jargon, 3-step explainer
+   - `buildOnboardingDay7Html()` — stats, highlight review, edit ack, pending CTA buttons
+   - `buildOnboardingDay30Html()` — milestone framing, response rate lift, ranking change, partner sign-off
+
+5. **Queue + Registration**: `ONBOARDING_DRIP` in QUEUE_NAMES, queue/topicToQueue, Worker instance, scheduler start/stop in main/shutdown
+
+**Test count:** 543/543 passing across 37 files (was 520/35)
+**New test files:** `OnboardingDripScheduler.test.ts` (12 tests), `OnboardingDripWorker.test.ts` (11 tests)
+
+---
+
 ## Sprint 6: Scale to $1K MRR
 
 **Status:** NOT STARTED
