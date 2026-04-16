@@ -1833,6 +1833,152 @@ Improvements discovered during end-to-end manual testing of the full system afte
 
 ---
 
+## Sprint 5B: Retention Expansion
+
+**Status:** IN PROGRESS
+
+### Migration 014: Retention Expansion (2026-04-16)
+
+**Status:** COMPLETE (created, not yet applied to production)
+
+Created `supabase/migrations/014_retention_expansion.sql`:
+- New table: `onboarding_drip_log` (business_id, drip_type CHECK day_1/day_7/day_30, UNIQUE business+drip_type)
+- New table: `satisfaction_responses` (business_id, week_start_date, rating CHECK great/ok/not_great, comment, UNIQUE business+week)
+- ALTER businesses: `subscription_activated_at`, `tracked_keywords` (JSONB NOT NULL DEFAULT '[]'), `google_place_address`, `google_place_lat`, `google_place_lng`, `ranking_search_location`, `weekly_summary_enabled` (BOOLEAN DEFAULT TRUE), `monthly_impact_enabled` (BOOLEAN DEFAULT TRUE)
+- ALTER approval_audit_log: DROP NOT NULL on `token_hash`, ADD `actor_user_id` (FK users), ADD `auth_method` (CHECK token/owner_session, DEFAULT 'token')
+- Unique index: `uniq_ranking_snapshots_business_keyword_date`
+- Partial unique index: `uniq_outbox_track_ranking_run` (aggregate_id, payload->>'run_date') WHERE topic='track_ranking' AND status <> 'failed'
+- Partial index: `idx_businesses_ranking_ready` for ranking-eligible businesses
+- CHECK constraint: `chk_tracked_keywords_array` (jsonb_typeof = 'array', idempotent via DO $$ IF NOT EXISTS $$)
+- Backfills: `subscription_activated_at` from `updated_at` for active businesses, `tracked_keywords` NULLs → '[]'
+- RLS enabled on both new tables
+
+### Prompt 19b — Automated Ranking Tracking (2026-04-16)
+
+**Status:** COMPLETE
+
+**What was built:**
+
+1. **RankingTrackingScheduler** (`worker/jobs/RankingTrackingScheduler.ts`):
+   - setInterval poller (default 1 hour), fires biweekly on even-week Sundays at 22:xx UTC
+   - Feature-flagged: `RANKING_TRACKING_ENABLED !== 'true'` → silent return
+   - ISO 8601 week number calculation for biweekly cadence
+   - Queries eligible businesses: active + place_id_verified + non-empty tracked_keywords + has location data (coords OR ranking_search_location)
+   - Dedup guard: NOT EXISTS pending/dispatched track_ranking outbox entry + ON CONFLICT DO NOTHING
+   - `run_date` in payload for partial unique index dedup
+   - Double-start guard: `if (pollerInterval) return`
+
+2. **RankingTrackingWorker** (`worker/jobs/RankingTrackingWorker.ts`):
+   - Strict active-only subscription check (not `checkSubscription` which allows past_due grace)
+   - Re-checks google_place_id before SerpAPI call
+   - Safe tracked_keywords parser (try/catch, Array.isArray, empty string filter)
+   - 1 keyword per business limit (Sprint 5B initial rollout)
+   - Strict fail-closed SerpAPI budget: `checkRateLimit('serpapi:ranking:monthly', 100, ..., { strict: true })`
+   - SerpAPI `engine=google_maps` search with `ll=@lat,lng,15z` (coords) or `location=` (text)
+   - Uses SerpAPI `position` field when available, falls back to `index + 1`
+   - Mock mode: random rank 1-10
+   - Upsert to `ranking_snapshots` with ON CONFLICT (business_id, keyword, snapshot_date)
+
+3. **Keywords API** (`src/app/api/admin/businesses/[id]/keywords/route.ts`):
+   - PUT — Zod validated `.trim().min(1)` (whitespace-only rejected), max 5 keywords
+   - Admin/sales_partner auth, returns 404 if business not found
+
+4. **Ranking API** (`src/app/api/admin/businesses/[id]/ranking/route.ts`):
+   - POST — manual rank entry with Zod validation, calendar date validation, default today
+   - ON CONFLICT upsert with source='manual'
+   - FK violation (23503) → 404
+
+5. **Business Detail API** extended to return `trackedKeywords`, `rankingSnapshots`, location columns
+
+6. **Admin Business Detail Page** — TrackedKeywordsSection (editable keyword pills, add/remove, max 5) + ManualRankingSection (recent snapshots table + manual entry form with date/keyword/rank)
+
+7. **Rate Limiter** (`src/lib/shared/rate-limit.ts`): added `{ strict: true }` option — throws on Redis errors/missing instead of failing open. Used by ranking worker for cost-sensitive budget enforcement.
+
+8. **Queue Registration**: `TRACK_RANKING` in QUEUE_NAMES, queue instance, topicToQueue, Worker instance, scheduler start/stop in main/shutdown
+
+9. **Env**: `RANKING_TRACKING_ENABLED=false` added to `.env.example` and `.env.local`
+
+**Post-19b review fixes (14 findings across 2 review rounds):**
+- Critical: outbox dedup via `run_date` + partial unique index with ON CONFLICT DO NOTHING
+- Critical: `checkRateLimit({ strict: true })` fail-closed for paid API calls
+- Critical: widened unique index to `status <> 'failed'` (was `NOT IN ('completed','failed')` — fast-completing jobs allowed duplicate same-day entries)
+- Medium: Zod `.trim().min(1)` ordering (whitespace-only keywords rejected)
+- Medium: safe JSONB parser with try/catch + Array.isArray + empty string filter + DB CHECK constraint
+- Medium: use SerpAPI `position` field over array index
+- Medium: strict `active`-only subscription (not `checkSubscription('summary')` which allows past_due)
+- Medium: re-check google_place_id in worker before SerpAPI call
+- Medium: calendar date validation before SQL + FK violation → 404
+- Medium: render snapshot dates as YYYY-MM-DD strings (not `Date.toLocaleDateString()` which shifts timezone)
+- Low: double-start guard on scheduler
+- Low: `.env.example` updated
+- Low: rank input uses `Number()` not `parseInt`, `max=100 step=1`
+- Low: idempotent CHECK constraint via `DO $$ IF NOT EXISTS $$`
+
+**Test count:** 484/484 passing across 33 files (was 427/29)
+**New test files:** `RankingTrackingScheduler.test.ts` (19 tests), `RankingTrackingWorker.test.ts` (16 tests), `keywords/route.test.ts` (6 tests), `ranking/route.test.ts` (7 tests), + 4 new rate-limit strict mode tests
+
+---
+
+### Prompt 19c-5B — Owner Settings + Dashboard Approval Actions (2026-04-16)
+
+**Status:** COMPLETE
+
+**What was built:**
+
+1. **ApprovalService Refactor** (`src/lib/approval/service.ts`):
+   - `SessionAuditContext` interface (actorUserId, ipAddress — no token)
+   - `insertAuditLogSession()` — writes `auth_method='owner_session'`, `actor_user_id`, `token_hash=NULL`
+   - `approveBySession()` — locks pending response, sets approved, revokes open approval links, enqueues publish_response
+   - `editBySession()` — locks pending, computes Levenshtein distance, sets edited, revokes links, enqueues publish
+   - `regenerateBySession()` — locks pending, sets superseded, revokes links, enqueues generate_response with version+1
+   - `revokeOpenLinksForResponse()` — revokes ALL open/unconsumed/unexpired links for a response (session actions have no "current link" to exclude)
+   - Existing token-based methods completely untouched
+
+2. **Dashboard Approval API Routes**:
+   - `POST /api/dashboard/reviews/[reviewId]/approve` — session-auth approve
+   - `POST /api/dashboard/reviews/[reviewId]/edit` — session-auth edit (Zod: editedText 1-2000 chars)
+   - `POST /api/dashboard/reviews/[reviewId]/regenerate` — session-auth regenerate
+   - All: `requireRole('owner')`, business ownership check, 404/403/409 error handling
+
+3. **Settings API** (`src/app/api/settings/route.ts`):
+   - PUT endpoint, Zod validated (tone, productsServices, avoidFacts max 20, sampleResponses max 10, notificationPreference email/sms/both, ownerPhone, weeklySummaryEnabled, monthlyImpactEnabled)
+   - Owner-scoped via `user.businessId` — never accepts business_id from body
+   - SMS validation: checks stored phone from DB when request omits ownerPhone (partial-update safe)
+   - Dynamic SQL SET clause with `sql.unsafe()`
+
+4. **Scheduler Opt-out**:
+   - `WeeklySummaryScheduler`: added `AND (b.weekly_summary_enabled IS NULL OR b.weekly_summary_enabled = TRUE)` to business query
+   - `MonthlyImpactScheduler`: added `AND (b.monthly_impact_enabled IS NULL OR b.monthly_impact_enabled = TRUE)` to business query
+
+5. **Owner Settings Page** (`src/app/(authenticated)/settings/page.tsx`):
+   - Section A: Business Profile — read-only (name, category, placeId) + editable (tone, productsServices, avoidFacts, sampleResponses as line-separated textareas)
+   - Section B: Notification Preferences — channel radio (email/sms/both), conditional phone input, weekly/monthly report toggles
+   - Section C: Save — single button, diffs against initial state, sends only changed fields, green success banner (3s auto-dismiss)
+   - Fetches from `GET /api/dashboard`, saves to `PUT /api/settings`
+
+6. **Dashboard Approval UI** (`src/components/DashboardContent.tsx`):
+   - `ReviewActions` component with state machine (idle/loading/editing/success/error)
+   - Approve (green), Edit (blue, inline textarea), Regenerate (gray outline)
+   - Guard: only renders when `review.responseStatus === 'pending_approval' && review.responseText` (not `displayStatus` fallback)
+   - Refetches dashboard data on success
+
+7. **OwnerNav** — added Settings link next to Dashboard
+8. **Middleware** — `/api/settings` added to owner protection
+9. **Dashboard API** — extended to return `settings` object (tone, productsServices, avoidFacts, sampleResponses, notificationPreference, ownerPhone, ownerEmail, weeklySummaryEnabled, monthlyImpactEnabled, category, googlePlaceId)
+
+**Post-19c-5B review fixes (5 findings):**
+- Critical: escaped unescaped apostrophe in settings page JSX (blocked `pnpm build`)
+- Medium: session actions revoke open approval links via `revokeOpenLinksForResponse()`
+- Medium: action buttons guard on `responseStatus` not `displayStatus` (prevents 404s during regeneration gap)
+- Low: avoidFacts max 20, sampleResponses max 10, SMS-requires-phone with stored-phone DB fallback
+- Low: SMS validation checks stored phone before rejecting (partial-update safe)
+
+**Test count:** 512/512 passing across 35 files (was 484/33)
+**New test files:** `actions.test.ts` (17 tests), `settings/route.test.ts` (11 tests)
+**Build:** `pnpm build` succeeds
+
+---
+
 ## Sprint 6: Scale to $1K MRR
 
 **Status:** NOT STARTED
