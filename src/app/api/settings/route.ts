@@ -19,17 +19,7 @@ const UpdateSettingsSchema = z
   })
   .refine((data) => Object.keys(data).length > 0, {
     message: 'At least one field must be provided',
-  })
-  .refine(
-    (data) => {
-      // If setting sms/both, ownerPhone must be provided and non-empty
-      if (data.notificationPreference === 'sms' || data.notificationPreference === 'both') {
-        return data.ownerPhone != null && data.ownerPhone.trim().length > 0;
-      }
-      return true;
-    },
-    { message: 'Phone number is required when notification channel includes SMS', path: ['ownerPhone'] },
-  );
+  });
 
 const FIELD_TO_COLUMN: Record<string, string> = {
   tone: 'tone',
@@ -80,6 +70,25 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
   }
 
   const data = parsed.data;
+
+  // If switching to sms/both, ensure a phone number will exist after the update.
+  // Check both the request payload and the stored value — the owner may already
+  // have a phone on file from onboarding and only be changing the channel.
+  if (data.notificationPreference === 'sms' || data.notificationPreference === 'both') {
+    const phoneInRequest = data.ownerPhone?.trim();
+    if (!phoneInRequest) {
+      const [biz] = await sql<{ owner_phone: string | null }[]>`
+        SELECT owner_phone FROM businesses WHERE id = ${user.businessId}
+      `;
+      if (!biz?.owner_phone?.trim()) {
+        return jsonResponse(
+          { error: 'Phone number is required when notification channel includes SMS' },
+          400,
+        );
+      }
+    }
+  }
+
   const fields = Object.keys(data) as (keyof typeof data)[];
 
   // $1 reserved for businessId, fields start at $2.
