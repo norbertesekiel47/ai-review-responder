@@ -2094,6 +2094,16 @@ Created `supabase/migrations/014_retention_expansion.sql`:
 
 **Test count:** 543/543 (tests updated for claim-first + sent_at flow)
 
+### Post-19e Review Round 3 (2026-04-16)
+
+**Status:** COMPLETE
+
+1. **Recoverable stale claims** (Medium): Worker now checks existing drip_log row's `sent_at` — only skips when `IS NOT NULL` (actually sent). Stale claims (`sent_at IS NULL` from failed previous attempt) allow retry. Scheduler query also updated to `AND dl.sent_at IS NOT NULL`.
+2. **Migration 015 dedupe** (Medium): Added ROW_NUMBER() CTE to mark duplicate non-failed `onboarding_drip` outbox rows as `'failed'` before creating the unique index. Prevents index creation failure in environments with pre-existing duplicates.
+3. **Index-friendly predicate** (Low): Scheduler due-check rewritten from `activated_at + interval <= NOW()` to `activated_at <= NOW() - interval` for better Postgres index range scan utilization.
+
+**Test count:** 543/543
+
 ---
 
 ## Sprint 6: Scale to $1K MRR
