@@ -272,3 +272,129 @@ export async function regenerate(
 
   await insertAuditLog(tx, link.response_id, link.business_id, 'regenerate', audit);
 }
+
+// ---------------------------------------------------------------------------
+// Session-authenticated approval (owner dashboard)
+// ---------------------------------------------------------------------------
+
+export interface SessionAuditContext {
+  actorUserId: string;
+  ipAddress: string | null;
+}
+
+async function insertAuditLogSession(
+  tx: TxClient,
+  responseId: string,
+  businessId: string,
+  action: string,
+  audit: SessionAuditContext,
+  metadata?: Record<string, unknown>,
+): Promise<void> {
+  await tx`
+    INSERT INTO approval_audit_log (id, response_id, business_id, token_hash, device_cookie_hash, action, ip_address, metadata, actor_user_id, auth_method)
+    VALUES (
+      ${uuidv7()}, ${responseId}, ${businessId}, ${null}, ${null},
+      ${action}, ${audit.ipAddress}, ${JSON.stringify(metadata ?? {})}::jsonb,
+      ${audit.actorUserId}, 'owner_session'
+    )
+  `;
+}
+
+/**
+ * Approve a response via authenticated owner session (dashboard).
+ * No link/device operations — the owner is authenticated via Supabase session.
+ */
+export async function approveBySession(
+  tx: TxClient,
+  responseId: string,
+  businessId: string,
+  audit: SessionAuditContext,
+): Promise<void> {
+  await lockPendingResponse(tx, responseId);
+
+  await tx`
+    UPDATE responses
+    SET status = 'approved', approved_at = NOW(), approved_text = response_text
+    WHERE id = ${responseId}
+  `;
+
+  const payload: PublishResponsePayload = {
+    response_id: responseId,
+    business_id: businessId,
+  };
+
+  await tx`
+    INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+    VALUES (${uuidv7()}, 'publish_response', 'response', ${responseId}, ${JSON.stringify(payload)}::jsonb, 'pending')
+  `;
+
+  await insertAuditLogSession(tx, responseId, businessId, 'approve', audit);
+}
+
+/**
+ * Approve with owner edits via authenticated session (dashboard).
+ * Computes edit distance, stores edited text, and enqueues publish_response.
+ */
+export async function editBySession(
+  tx: TxClient,
+  responseId: string,
+  businessId: string,
+  editedText: string,
+  audit: SessionAuditContext,
+): Promise<void> {
+  const resp = await lockPendingResponse(tx, responseId);
+
+  const editDist = distance(resp.original_draft_text, editedText);
+
+  await tx`
+    UPDATE responses
+    SET status = 'edited',
+        approved_at = NOW(),
+        approved_text = ${editedText},
+        edited_text = ${editedText},
+        edit_distance = ${editDist}
+    WHERE id = ${responseId}
+  `;
+
+  const payload: PublishResponsePayload = {
+    response_id: responseId,
+    business_id: businessId,
+  };
+
+  await tx`
+    INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+    VALUES (${uuidv7()}, 'publish_response', 'response', ${responseId}, ${JSON.stringify(payload)}::jsonb, 'pending')
+  `;
+
+  await insertAuditLogSession(tx, responseId, businessId, 'edit', audit, { edit_distance: editDist });
+}
+
+/**
+ * Request regeneration via authenticated session (dashboard).
+ * Supersedes the current response and enqueues generate_response with version+1.
+ */
+export async function regenerateBySession(
+  tx: TxClient,
+  responseId: string,
+  businessId: string,
+  audit: SessionAuditContext,
+): Promise<void> {
+  const resp = await lockPendingResponse(tx, responseId);
+
+  await tx`
+    UPDATE responses SET status = 'superseded' WHERE id = ${responseId}
+  `;
+
+  const payload: GenerateResponsePayload = {
+    review_id: resp.review_id,
+    business_id: businessId,
+    version: resp.version + 1,
+  };
+
+  await tx`
+    INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+    VALUES (${uuidv7()}, 'generate_response', 'review', ${resp.review_id}, ${JSON.stringify(payload)}::jsonb, 'pending')
+  `;
+
+  await insertAuditLogSession(tx, responseId, businessId, 'regenerate', audit);
+}

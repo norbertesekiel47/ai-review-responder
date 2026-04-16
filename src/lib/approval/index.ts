@@ -4,9 +4,12 @@ export {
   approve,
   edit,
   regenerate,
+  approveBySession,
+  editBySession,
+  regenerateBySession,
 } from './service';
 
-export type { ApprovalLink, AuditContext } from './service';
+export type { ApprovalLink, AuditContext, SessionAuditContext } from './service';
 
 export {
   setDeviceCookie,
