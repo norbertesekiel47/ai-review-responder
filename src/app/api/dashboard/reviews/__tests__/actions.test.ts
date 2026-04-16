@@ -97,10 +97,12 @@ function ownerUser(overrides?: { businessId?: string | null }) {
   };
 }
 
-function makeRequest(url: string, options?: RequestInit): NextRequest {
+function makeRequest(url: string, body?: unknown, rawBody?: string): NextRequest {
+  const bodyStr = rawBody ?? (body != null ? JSON.stringify(body) : undefined);
   return new NextRequest(`http://localhost:3000${url}`, {
     method: 'POST',
-    ...options,
+    body: bodyStr,
+    headers: bodyStr != null ? { 'Content-Type': 'application/json' } : undefined,
   });
 }
 
@@ -231,10 +233,7 @@ describe('POST /api/dashboard/reviews/[reviewId]/edit', () => {
 
     const { POST } = await import('../[reviewId]/edit/route');
     const res = await POST(
-      makeRequest(`/api/dashboard/reviews/${REVIEW_ID}/edit`, {
-        body: JSON.stringify({ editedText: 'Thank you for your feedback!' }),
-        headers: { 'Content-Type': 'application/json' },
-      }),
+      makeRequest(`/api/dashboard/reviews/${REVIEW_ID}/edit`, { editedText: 'Thank you for your feedback!' }),
       makeParams(REVIEW_ID),
     );
 
@@ -249,10 +248,7 @@ describe('POST /api/dashboard/reviews/[reviewId]/edit', () => {
 
     const { POST } = await import('../[reviewId]/edit/route');
     const res = await POST(
-      makeRequest(`/api/dashboard/reviews/${REVIEW_ID}/edit`, {
-        body: JSON.stringify({ editedText: '' }),
-        headers: { 'Content-Type': 'application/json' },
-      }),
+      makeRequest(`/api/dashboard/reviews/${REVIEW_ID}/edit`, { editedText: '' }),
       makeParams(REVIEW_ID),
     );
 
@@ -266,10 +262,7 @@ describe('POST /api/dashboard/reviews/[reviewId]/edit', () => {
 
     const { POST } = await import('../[reviewId]/edit/route');
     const res = await POST(
-      makeRequest(`/api/dashboard/reviews/${REVIEW_ID}/edit`, {
-        body: JSON.stringify({ editedText: 'x'.repeat(2001) }),
-        headers: { 'Content-Type': 'application/json' },
-      }),
+      makeRequest(`/api/dashboard/reviews/${REVIEW_ID}/edit`, { editedText: 'x'.repeat(2001) }),
       makeParams(REVIEW_ID),
     );
 
@@ -283,10 +276,7 @@ describe('POST /api/dashboard/reviews/[reviewId]/edit', () => {
 
     const { POST } = await import('../[reviewId]/edit/route');
     const res = await POST(
-      makeRequest(`/api/dashboard/reviews/${REVIEW_ID}/edit`, {
-        body: 'not json',
-        headers: { 'Content-Type': 'application/json' },
-      }),
+      makeRequest(`/api/dashboard/reviews/${REVIEW_ID}/edit`, undefined, 'not json'),
       makeParams(REVIEW_ID),
     );
 
@@ -301,10 +291,7 @@ describe('POST /api/dashboard/reviews/[reviewId]/edit', () => {
 
     const { POST } = await import('../[reviewId]/edit/route');
     const res = await POST(
-      makeRequest(`/api/dashboard/reviews/${REVIEW_ID}/edit`, {
-        body: JSON.stringify({ editedText: 'Some edit' }),
-        headers: { 'Content-Type': 'application/json' },
-      }),
+      makeRequest(`/api/dashboard/reviews/${REVIEW_ID}/edit`, { editedText: 'Some edit' }),
       makeParams(REVIEW_ID),
     );
 
@@ -317,10 +304,7 @@ describe('POST /api/dashboard/reviews/[reviewId]/edit', () => {
 
     const { POST } = await import('../[reviewId]/edit/route');
     const res = await POST(
-      makeRequest(`/api/dashboard/reviews/${REVIEW_ID}/edit`, {
-        body: JSON.stringify({ editedText: 'Some edit' }),
-        headers: { 'Content-Type': 'application/json' },
-      }),
+      makeRequest(`/api/dashboard/reviews/${REVIEW_ID}/edit`, { editedText: 'Some edit' }),
       makeParams(REVIEW_ID),
     );
 
@@ -336,10 +320,7 @@ describe('POST /api/dashboard/reviews/[reviewId]/edit', () => {
 
     const { POST } = await import('../[reviewId]/edit/route');
     const res = await POST(
-      makeRequest(`/api/dashboard/reviews/${REVIEW_ID}/edit`, {
-        body: JSON.stringify({ editedText: 'Edited response' }),
-        headers: { 'Content-Type': 'application/json' },
-      }),
+      makeRequest(`/api/dashboard/reviews/${REVIEW_ID}/edit`, { editedText: 'Edited response' }),
       makeParams(REVIEW_ID),
     );
 

@@ -88,7 +88,7 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
   const query = `UPDATE businesses SET ${setClause} WHERE id = $1`;
 
   try {
-    const result = await sql.unsafe(query, values);
+    const result = await sql.unsafe(query, values as (string | string[] | boolean | null)[]);
 
     if (result.count === 0) {
       return jsonResponse({ error: 'Business not found' }, 404);
