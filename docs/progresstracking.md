@@ -2067,6 +2067,20 @@ Created `supabase/migrations/014_retention_expansion.sql`:
 **Test count:** 543/543 passing across 37 files (was 520/35)
 **New test files:** `OnboardingDripScheduler.test.ts` (12 tests), `OnboardingDripWorker.test.ts` (11 tests)
 
+### Post-19e Review Fixes (2026-04-16)
+
+**Status:** COMPLETE
+
+1. **Claim-before-send idempotency** (Medium): Worker now claims drip_log entry via `INSERT ... ON CONFLICT DO NOTHING RETURNING id` before sending email. If no row returned, another job already claimed — skips without sending. Eliminates duplicate sends from BullMQ retries or manual requeue.
+2. **Scheduler outbox dedup** (Medium): Added partial unique index `uniq_outbox_onboarding_drip` on `(aggregate_id, payload->>'drip_type') WHERE topic='onboarding_drip' AND status <> 'failed'`. Scheduler uses `ON CONFLICT DO NOTHING` instead of check-then-insert race.
+3. **Window-bounded metrics** (Medium): Day 7 queries bounded to `[activatedAt, activatedAt + 7 days)`, day 30 to `[activatedAt, activatedAt + 30 days)`. Prevents claiming pre-activation or post-window data as "first week/month" results.
+4. **Business-scoped sales partner** (Medium): Lookup changed from global `WHERE role IN ('admin','sales_partner') LIMIT 1` to `JOIN businesses ON onboarded_by = users.id`. Prevents wrong partner name in customer emails.
+5. **Strict NEXT_PUBLIC_APP_URL for day_7** (Medium): Throws when pending reviews exist but app URL is not configured (matches owner-nudge strict behavior). Allows BullMQ retry after config fix.
+6. **Day 1 copy fix** (Low): Changed "We post it to Google on your behalf" to "Your approved response is queued for posting to Google" (accurate for SerpAPI manual-post mode).
+7. **Single-query scheduler** (Low): Consolidated from N+1 per-business loops into single `CROSS JOIN + NOT EXISTS` query. Eliminates per-business/per-drip SQL round trips.
+
+**Test count:** 543/543 (tests updated to match new single-query + claim patterns)
+
 ---
 
 ## Sprint 6: Scale to $1K MRR
