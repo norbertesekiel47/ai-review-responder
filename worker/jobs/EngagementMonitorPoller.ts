@@ -14,12 +14,14 @@ import type { EngagementAlertPayload, EngagementAlertType } from '../../src/lib/
 const LOG_PREFIX = '[EngagementMonitorPoller]';
 const DEFAULT_INTERVAL_MS = 86_400_000; // 24 hours
 
-const COOLDOWNS: Record<EngagementAlertType, number> = {
+// Cooldowns in days per alert type. partner_satisfaction_alert is NOT listed here —
+// its dedup is handled by the satisfaction pulse producer (Prompt 19g) + the worker's
+// own idempotency check on notification_deliveries, not by this poller.
+const COOLDOWNS: Partial<Record<EngagementAlertType, number>> = {
   owner_nudge: 3,
   partner_engagement_alert: 7,
   partner_escalation_alert: 14,
   partner_low_engagement: 7,
-  partner_satisfaction_alert: 7, // Satisfaction pulse alerts are created by the pulse handler, not this poller
 };
 
 let pollerInterval: ReturnType<typeof setInterval> | null = null;
@@ -135,7 +137,7 @@ export async function runEngagementCheck(): Promise<void> {
       for (const rule of RULES) {
         if (!rule.shouldFire(metrics)) continue;
 
-        const cooldownDays = COOLDOWNS[rule.type];
+        const cooldownDays = COOLDOWNS[rule.type] ?? 7;
 
         const payload: EngagementAlertPayload = {
           business_id: row.business_id,

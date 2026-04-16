@@ -57,6 +57,11 @@ export async function handleEngagementAlert(job: Job<EngagementAlertPayload>): P
     const satisfaction = (job.data as EngagementAlertPayload).satisfaction;
     await handleSatisfactionAlert(outboxId, business_id, business, satisfaction ?? null);
   } else {
+    if (!metrics) {
+      console.warn(`${LOG_PREFIX} ${alert_type} missing metrics for business ${business_id}`);
+      await markOutboxFailed(outboxId, 'missing metrics payload');
+      return;
+    }
     await handlePartnerAlert(outboxId, business_id, alert_type, metrics, business);
   }
 }
@@ -181,7 +186,7 @@ async function handlePartnerAlert(
   outboxId: string,
   businessId: string,
   alertType: 'partner_engagement_alert' | 'partner_escalation_alert' | 'partner_low_engagement',
-  metrics: EngagementAlertPayload['metrics'],
+  metrics: NonNullable<EngagementAlertPayload['metrics']>,
   business: { name: string; owner_email: string; owner_phone: string | null },
 ): Promise<void> {
   const adminEmail = process.env.ADMIN_NOTIFICATION_EMAIL;
@@ -273,6 +278,39 @@ async function handleSatisfactionAlert(
   if (!satisfaction) {
     console.warn(`${LOG_PREFIX} partner_satisfaction_alert missing satisfaction data for business ${businessId}`);
     await markOutboxFailed(outboxId, 'missing satisfaction payload');
+    return;
+  }
+
+  // Runtime validation — JSONB payloads are not type-checked by TypeScript
+  const validRatings = ['great', 'ok', 'not_great'] as const;
+  if (!validRatings.includes(satisfaction.rating as typeof validRatings[number])) {
+    console.warn(`${LOG_PREFIX} Invalid satisfaction rating: ${String(satisfaction.rating)}`);
+    await markOutboxFailed(outboxId, `invalid satisfaction rating: ${String(satisfaction.rating)}`);
+    return;
+  }
+  if (typeof satisfaction.week_start_date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(satisfaction.week_start_date)) {
+    console.warn(`${LOG_PREFIX} Invalid satisfaction week_start_date: ${String(satisfaction.week_start_date)}`);
+    await markOutboxFailed(outboxId, `invalid satisfaction week_start_date`);
+    return;
+  }
+  if (satisfaction.comment !== null && typeof satisfaction.comment !== 'string') {
+    console.warn(`${LOG_PREFIX} Invalid satisfaction comment type: ${typeof satisfaction.comment}`);
+    await markOutboxFailed(outboxId, 'invalid satisfaction comment type');
+    return;
+  }
+
+  // Idempotency: skip if a satisfaction alert was already sent for this business + week
+  const [existingDelivery] = await sql<{ id: string }[]>`
+    SELECT id FROM notification_deliveries
+    WHERE business_id = ${businessId}
+      AND template = 'partner_satisfaction_alert'
+      AND sent_at IS NOT NULL
+      AND sent_at > NOW() - INTERVAL '7 days'
+    LIMIT 1
+  `;
+  if (existingDelivery) {
+    console.log(`${LOG_PREFIX} Satisfaction alert already sent for business ${businessId} recently — skipping`);
+    await markOutboxCompleted(outboxId);
     return;
   }
 

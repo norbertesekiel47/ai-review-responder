@@ -62,7 +62,8 @@ export type EngagementAlertType =
 export interface EngagementAlertPayload {
   business_id: string;
   alert_type: EngagementAlertType;
-  metrics: {
+  /** Required for all alert types except partner_satisfaction_alert. */
+  metrics?: {
     days_since_approval: number | null;
     oldest_pending_age_days: number | null;
     pending_count: number;
