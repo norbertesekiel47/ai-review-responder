@@ -2081,6 +2081,19 @@ Created `supabase/migrations/014_retention_expansion.sql`:
 
 **Test count:** 543/543 (tests updated to match new single-query + claim patterns)
 
+### Post-19e Review Round 2 (2026-04-16)
+
+**Status:** COMPLETE
+
+1. **Claim-before-build** (Medium): Drip_log INSERT moved before switch/build phase. No side effects (approval link creation/revocation) run before the idempotency gate. Prevents duplicate day_7 jobs from revoking each other's tokens.
+2. **Claim/sent state separation** (Medium): Migration 015 makes `sent_at` nullable with no default. INSERT claims with `sent_at=NULL`, UPDATE to `NOW()` only after `sendInternalEmail()` succeeds. If send fails, outbox stays retryable and stale claims are observable.
+3. **Business-scoped sales partner** (Medium): Uses ResponsePublisherWorker's scoped chain: business-scoped admin/sales_partner → `onboarded_by` with `role IN ('admin','sales_partner')` check → null. No global LIMIT 1.
+4. **New migration 015** (Medium): `015_drip_log_claim_state.sql` — ALTER sent_at DROP NOT NULL + DROP DEFAULT, adds `uniq_outbox_onboarding_drip` index (IF NOT EXISTS for 014 compat), adds `idx_businesses_drip_ready` performance index.
+5. **Validated subscription_activated_at** (Low): day_7 and day_30 check for null `subscription_activated_at` before build phase — `markOutboxFailed` with clear reason instead of blank email.
+6. **Scheduler performance index** (Low): `idx_businesses_drip_ready` on `(subscription_activated_at) WHERE subscription_status = 'active' AND subscription_activated_at IS NOT NULL`.
+
+**Test count:** 543/543 (tests updated for claim-first + sent_at flow)
+
 ---
 
 ## Sprint 6: Scale to $1K MRR
