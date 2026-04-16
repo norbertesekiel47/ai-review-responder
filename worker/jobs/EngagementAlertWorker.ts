@@ -8,6 +8,7 @@ import {
   buildPartnerEngagementAlertHtml,
   buildPartnerEscalationAlertHtml,
   buildPartnerLowEngagementAlertHtml,
+  buildPartnerSatisfactionAlertHtml,
 } from '../../src/lib/notifications/email';
 import { recordNotificationDelivery } from '../../src/lib/notifications/delivery';
 import { createApprovalLink } from '../../src/lib/approval/create-link';
@@ -52,6 +53,9 @@ export async function handleEngagementAlert(job: Job<EngagementAlertPayload>): P
 
   if (alert_type === 'owner_nudge') {
     await handleOwnerNudge(outboxId, business_id, business, markOutboxFailed);
+  } else if (alert_type === 'partner_satisfaction_alert') {
+    const satisfaction = (job.data as EngagementAlertPayload).satisfaction;
+    await handleSatisfactionAlert(outboxId, business_id, business, satisfaction ?? null);
   } else {
     await handlePartnerAlert(outboxId, business_id, alert_type, metrics, business);
   }
@@ -249,4 +253,55 @@ async function handlePartnerAlert(
 
   await markOutboxCompleted(outboxId);
   console.log(`${LOG_PREFIX} ${alertType} sent to ${adminEmail} for business ${business.name}`);
+}
+
+// ── Partner satisfaction alert: triggered by "not great" pulse response ─
+
+async function handleSatisfactionAlert(
+  outboxId: string,
+  businessId: string,
+  business: { name: string; owner_email: string; owner_phone: string | null },
+  satisfaction: EngagementAlertPayload['satisfaction'] | null,
+): Promise<void> {
+  const adminEmail = process.env.ADMIN_NOTIFICATION_EMAIL;
+  if (!adminEmail) {
+    console.error(`${LOG_PREFIX} ADMIN_NOTIFICATION_EMAIL not set — cannot send satisfaction alert`);
+    await markOutboxFailed(outboxId, 'ADMIN_NOTIFICATION_EMAIL not configured');
+    return;
+  }
+
+  if (!satisfaction) {
+    console.warn(`${LOG_PREFIX} partner_satisfaction_alert missing satisfaction data for business ${businessId}`);
+    await markOutboxFailed(outboxId, 'missing satisfaction payload');
+    return;
+  }
+
+  const bodyHtml = buildPartnerSatisfactionAlertHtml({
+    businessName: business.name,
+    rating: satisfaction.rating,
+    comment: satisfaction.comment,
+    weekStartDate: satisfaction.week_start_date,
+    ownerEmail: business.owner_email,
+    ownerPhone: business.owner_phone,
+  });
+
+  const ratingLabel = satisfaction.rating === 'not_great' ? 'Not great' : satisfaction.rating === 'ok' ? 'OK' : 'Great';
+  const subject = `Satisfaction pulse: ${business.name} rated "${ratingLabel}"`;
+
+  const { messageId } = await sendInternalEmail({
+    to: adminEmail,
+    subject,
+    bodyHtml,
+  });
+
+  await recordNotificationDelivery({
+    businessId,
+    channel: 'email',
+    recipient: adminEmail,
+    template: 'partner_satisfaction_alert',
+    externalMessageId: messageId,
+  });
+
+  await markOutboxCompleted(outboxId);
+  console.log(`${LOG_PREFIX} partner_satisfaction_alert sent to ${adminEmail} for business ${business.name} (rating: ${satisfaction.rating})`);
 }

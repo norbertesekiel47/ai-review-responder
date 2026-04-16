@@ -19,6 +19,7 @@ const COOLDOWNS: Record<EngagementAlertType, number> = {
   partner_engagement_alert: 7,
   partner_escalation_alert: 14,
   partner_low_engagement: 7,
+  partner_satisfaction_alert: 7, // Satisfaction pulse alerts are created by the pulse handler, not this poller
 };
 
 let pollerInterval: ReturnType<typeof setInterval> | null = null;

@@ -13,6 +13,7 @@ const {
   mockBuildPartnerEngagementAlertHtml,
   mockBuildPartnerEscalationAlertHtml,
   mockBuildPartnerLowEngagementAlertHtml,
+  mockBuildPartnerSatisfactionAlertHtml,
   mockRecordNotificationDelivery,
   mockCreateApprovalLink,
 } = vi.hoisted(() => {
@@ -37,6 +38,7 @@ const {
     mockBuildPartnerEngagementAlertHtml: vi.fn(() => '<html>engagement</html>'),
     mockBuildPartnerEscalationAlertHtml: vi.fn(() => '<html>escalation</html>'),
     mockBuildPartnerLowEngagementAlertHtml: vi.fn(() => '<html>low-engagement</html>'),
+    mockBuildPartnerSatisfactionAlertHtml: vi.fn(() => '<html>satisfaction</html>'),
     mockRecordNotificationDelivery: vi.fn(),
     mockCreateApprovalLink: vi.fn().mockImplementation(() => {
       linkCounter++;
@@ -56,6 +58,7 @@ vi.mock('../../src/lib/notifications/email', () => ({
   buildPartnerEngagementAlertHtml: mockBuildPartnerEngagementAlertHtml,
   buildPartnerEscalationAlertHtml: mockBuildPartnerEscalationAlertHtml,
   buildPartnerLowEngagementAlertHtml: mockBuildPartnerLowEngagementAlertHtml,
+  buildPartnerSatisfactionAlertHtml: mockBuildPartnerSatisfactionAlertHtml,
 }));
 vi.mock('../../src/lib/notifications/delivery', () => ({
   recordNotificationDelivery: mockRecordNotificationDelivery,
@@ -397,5 +400,81 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
 
     expect(mockRecordNotificationDelivery).not.toHaveBeenCalled();
     expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
+  });
+
+  // ── Partner satisfaction alert ──────────────────────────────────────
+
+  it('sends satisfaction alert to admin with rating and comment', async () => {
+    process.env.ADMIN_NOTIFICATION_EMAIL = 'admin@test.com';
+    sqlReturnQueue.push([mockBusinessRow()]); // business
+
+    await handleEngagementAlert(makeJob({
+      alert_type: 'partner_satisfaction_alert',
+      satisfaction: {
+        rating: 'not_great',
+        comment: 'Response took too long',
+        week_start_date: '2026-04-13',
+      },
+    }));
+
+    expect(mockBuildPartnerSatisfactionAlertHtml).toHaveBeenCalledWith(expect.objectContaining({
+      businessName: 'Test Biz',
+      rating: 'not_great',
+      comment: 'Response took too long',
+      weekStartDate: '2026-04-13',
+    }));
+    expect(mockSendInternalEmail).toHaveBeenCalledWith(expect.objectContaining({
+      to: 'admin@test.com',
+      subject: expect.stringContaining('Not great'),
+    }));
+    expect(mockRecordNotificationDelivery).toHaveBeenCalledWith(expect.objectContaining({
+      template: 'partner_satisfaction_alert',
+    }));
+    expect(mockMarkOutboxCompleted).toHaveBeenCalled();
+  });
+
+  it('sends satisfaction alert without comment', async () => {
+    process.env.ADMIN_NOTIFICATION_EMAIL = 'admin@test.com';
+    sqlReturnQueue.push([mockBusinessRow()]);
+
+    await handleEngagementAlert(makeJob({
+      alert_type: 'partner_satisfaction_alert',
+      satisfaction: {
+        rating: 'ok',
+        comment: null,
+        week_start_date: '2026-04-13',
+      },
+    }));
+
+    expect(mockBuildPartnerSatisfactionAlertHtml).toHaveBeenCalledWith(expect.objectContaining({
+      rating: 'ok',
+      comment: null,
+    }));
+    expect(mockMarkOutboxCompleted).toHaveBeenCalled();
+  });
+
+  it('fails satisfaction alert when satisfaction data is missing', async () => {
+    process.env.ADMIN_NOTIFICATION_EMAIL = 'admin@test.com';
+    sqlReturnQueue.push([mockBusinessRow()]);
+
+    await handleEngagementAlert(makeJob({
+      alert_type: 'partner_satisfaction_alert',
+      // no satisfaction field
+    }));
+
+    expect(mockMarkOutboxFailed).toHaveBeenCalledWith(expect.any(String), 'missing satisfaction payload');
+    expect(mockSendInternalEmail).not.toHaveBeenCalled();
+  });
+
+  it('fails satisfaction alert when ADMIN_NOTIFICATION_EMAIL not set', async () => {
+    delete process.env.ADMIN_NOTIFICATION_EMAIL;
+    sqlReturnQueue.push([mockBusinessRow()]);
+
+    await handleEngagementAlert(makeJob({
+      alert_type: 'partner_satisfaction_alert',
+      satisfaction: { rating: 'not_great', comment: null, week_start_date: '2026-04-13' },
+    }));
+
+    expect(mockMarkOutboxFailed).toHaveBeenCalledWith(expect.any(String), expect.stringContaining('ADMIN_NOTIFICATION_EMAIL'));
   });
 });

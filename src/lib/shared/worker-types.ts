@@ -56,7 +56,8 @@ export type EngagementAlertType =
   | 'owner_nudge'
   | 'partner_engagement_alert'
   | 'partner_escalation_alert'
-  | 'partner_low_engagement';
+  | 'partner_low_engagement'
+  | 'partner_satisfaction_alert';
 
 export interface EngagementAlertPayload {
   business_id: string;
@@ -67,6 +68,12 @@ export interface EngagementAlertPayload {
     pending_count: number;
     approval_rate: number | null;
     notified_count: number;
+  };
+  /** Present only for partner_satisfaction_alert — carries the satisfaction pulse response data. */
+  satisfaction?: {
+    rating: 'great' | 'ok' | 'not_great';
+    comment: string | null;
+    week_start_date: string;
   };
 }
 
