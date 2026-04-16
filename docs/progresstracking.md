@@ -1979,6 +1979,35 @@ Created `supabase/migrations/014_retention_expansion.sql`:
 
 ---
 
+### Prompt 19d-5B — Partner Satisfaction Alert (2026-04-16)
+
+**Status:** COMPLETE
+
+**What was built:**
+
+1. **EngagementAlertType** (`src/lib/shared/worker-types.ts`):
+   - Added `'partner_satisfaction_alert'` to the union type
+   - Added optional `satisfaction` field to `EngagementAlertPayload`: `{ rating: 'great' | 'ok' | 'not_great'; comment: string | null; week_start_date: string }`
+
+2. **Email Template** (`src/lib/notifications/email.ts`):
+   - `buildPartnerSatisfactionAlertHtml()` — internal email to sales partner
+   - Red accent (`#dc2626`) for "not_great" rating, amber (`#d97706`) for "ok"
+   - Shows: rating label, optional owner comment in highlighted box, week start date, owner email + phone
+   - Suggested action: "Reach out to the owner to understand their concern"
+
+3. **Worker Handler** (`worker/jobs/EngagementAlertWorker.ts`):
+   - `handleSatisfactionAlert()` — validates satisfaction payload, sends email to ADMIN_NOTIFICATION_EMAIL, records delivery with `template='partner_satisfaction_alert'`
+   - Fails gracefully when satisfaction data is missing (markOutboxFailed)
+   - Routed from `handleEngagementAlert()` when `alert_type === 'partner_satisfaction_alert'`
+
+4. **Cooldown Map** (`worker/jobs/EngagementMonitorPoller.ts`):
+   - Added `partner_satisfaction_alert: 7` to COOLDOWNS record (satisfies `Record<EngagementAlertType, number>`)
+
+**Test count:** 516/516 passing across 35 files (was 512)
+**New tests:** 4 tests added to `EngagementAlertWorker.test.ts` (sends with rating+comment, sends without comment, fails on missing data, fails without admin email)
+
+---
+
 ## Sprint 6: Scale to $1K MRR
 
 **Status:** NOT STARTED
