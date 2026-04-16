@@ -79,22 +79,31 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
     }
   }
 
-  // ── 5. Mark outbox completed BEFORE sending (crash-safe) ──────────
+  // ── 5. Claim drip log entry BEFORE sending (idempotent gate) ───────
+  // INSERT ... ON CONFLICT DO NOTHING RETURNING id — if no row returned,
+  // another job already claimed this drip. Skip without sending.
+  const [claimed] = await sql<{ id: string }[]>`
+    INSERT INTO onboarding_drip_log (id, business_id, drip_type)
+    VALUES (${uuidv7()}, ${business_id}, ${drip_type})
+    ON CONFLICT (business_id, drip_type) DO NOTHING
+    RETURNING id
+  `;
+
+  if (!claimed) {
+    console.log(`${LOG_PREFIX} ${drip_type} already sent for ${business_id} — skipping`);
+    await markOutboxCompleted(outboxId);
+    return;
+  }
+
+  // ── 6. Mark outbox completed BEFORE sending (crash-safe) ──────────
   await markOutboxCompleted(outboxId);
 
-  // ── 6. Send email ─────────────────────────────────────────────────
+  // ── 7. Send email ─────────────────────────────────────────────────
   const { messageId } = await sendInternalEmail({
     to: business.owner_email,
     subject,
     bodyHtml: html,
   });
-
-  // ── 7. Record in drip log (idempotent) ────────────────────────────
-  await sql`
-    INSERT INTO onboarding_drip_log (id, business_id, drip_type)
-    VALUES (${uuidv7()}, ${business_id}, ${drip_type})
-    ON CONFLICT (business_id, drip_type) DO NOTHING
-  `;
 
   // ── 8. Record delivery ────────────────────────────────────────────
   await recordNotificationDelivery({
@@ -138,19 +147,25 @@ async function buildDay7(
   business: BusinessRow,
   appUrl: string | undefined,
 ): Promise<{ html: string; subject: string }> {
-  const activatedAt = business.subscription_activated_at ?? business.id; // fallback shouldn't happen
+  const activatedAt = business.subscription_activated_at;
+  if (!activatedAt) {
+    return { html: '', subject: '' };
+  }
+  // Window: activation → activation + 7 days
+  const windowEnd = new Date(new Date(activatedAt).getTime() + 7 * 86_400_000);
 
-  // Reviews handled (approved/edited/posted/awaiting_manual_post)
+  // Reviews handled within first-week window
   const [reviewsRow] = await sql<{ reviews_handled: number }[]>`
     SELECT COUNT(DISTINCT resp.review_id)::int AS reviews_handled
     FROM responses resp
     WHERE resp.business_id = ${business.id}
       AND resp.status IN ('approved','edited','posted','awaiting_manual_post')
       AND resp.created_at >= ${activatedAt}
+      AND resp.created_at < ${windowEnd}
   `;
   const reviewsHandled = reviewsRow?.reviews_handled ?? 0;
 
-  // Highlight review (longest review text among handled responses)
+  // Highlight review within first-week window (longest review text)
   const [highlight] = await sql<{
     reviewer_name: string;
     star_rating: number;
@@ -162,6 +177,8 @@ async function buildDay7(
     WHERE resp.business_id = ${business.id}
       AND resp.status IN ('approved','edited','posted','awaiting_manual_post')
       AND r.review_text IS NOT NULL
+      AND resp.created_at >= ${activatedAt}
+      AND resp.created_at < ${windowEnd}
     ORDER BY LENGTH(r.review_text) DESC LIMIT 1
   `;
   const highlightReview = highlight
@@ -173,11 +190,13 @@ async function buildDay7(
       }
     : null;
 
-  // Has edits
+  // Has edits within first-week window
   const [hasEditsRow] = await sql<{ exists: number }[]>`
     SELECT 1 AS exists FROM responses
     WHERE business_id = ${business.id}
       AND edited_text IS NOT NULL AND status IN ('edited','posted')
+      AND created_at >= ${activatedAt}
+      AND created_at < ${windowEnd}
     LIMIT 1
   `;
   const hasEdits = !!hasEditsRow;
@@ -195,7 +214,12 @@ async function buildDay7(
   `;
 
   // Create approval links for pending reviews
+  // If pending reviews exist but NEXT_PUBLIC_APP_URL is missing, fail so retry
+  // can succeed after config is fixed (matches owner-nudge strict behavior)
   const pendingReviews: Array<{ reviewerName: string; starRating: number | null; approvalUrl: string }> = [];
+  if (pendingRows.length > 0 && !appUrl) {
+    throw new Error('NEXT_PUBLIC_APP_URL not configured — cannot create approval links for day_7 drip');
+  }
   if (appUrl) {
     for (const row of pendingRows) {
       const { rawToken } = await createApprovalLink({
@@ -211,9 +235,12 @@ async function buildDay7(
     }
   }
 
-  // Response rate: total reviews for this business
+  // Total reviews within first-week window for response rate
   const [totalRow] = await sql<{ total: number }[]>`
-    SELECT COUNT(*)::int AS total FROM reviews WHERE business_id = ${business.id}
+    SELECT COUNT(*)::int AS total FROM reviews
+    WHERE business_id = ${business.id}
+      AND detected_at >= ${activatedAt}
+      AND detected_at < ${windowEnd}
   `;
   const totalReviews = totalRow?.total ?? 0;
   const responseRate = totalReviews > 0 ? Math.round((reviewsHandled / totalReviews) * 100) : 0;
@@ -237,17 +264,29 @@ async function buildDay7(
 async function buildDay30(
   business: BusinessRow,
 ): Promise<{ html: string; subject: string }> {
-  // Total reviews
+  const activatedAt = business.subscription_activated_at;
+  if (!activatedAt) {
+    return { html: '', subject: '' };
+  }
+  // Window: activation → activation + 30 days
+  const windowEnd = new Date(new Date(activatedAt).getTime() + 30 * 86_400_000);
+
+  // Total reviews within first-month window
   const [totalRow] = await sql<{ total: number }[]>`
-    SELECT COUNT(*)::int AS total FROM reviews WHERE business_id = ${business.id}
+    SELECT COUNT(*)::int AS total FROM reviews
+    WHERE business_id = ${business.id}
+      AND detected_at >= ${activatedAt}
+      AND detected_at < ${windowEnd}
   `;
   const totalReviews = totalRow?.total ?? 0;
 
-  // Responded (non-superseded, non-failed)
+  // Responded within first-month window
   const [respondedRow] = await sql<{ responded: number }[]>`
     SELECT COUNT(DISTINCT review_id)::int AS responded
     FROM responses WHERE business_id = ${business.id}
       AND status IN ('approved','edited','posted','awaiting_manual_post')
+      AND created_at >= ${activatedAt}
+      AND created_at < ${windowEnd}
   `;
   const responded = respondedRow?.responded ?? 0;
 
@@ -288,9 +327,12 @@ async function buildDay30(
     }
   }
 
-  // Sales partner name
+  // Sales partner name — scoped to who onboarded this business, then fallback
   const [salesPartner] = await sql<{ name: string }[]>`
-    SELECT name FROM users WHERE role IN ('admin','sales_partner') LIMIT 1
+    SELECT u.name FROM users u
+    JOIN businesses b ON b.onboarded_by = u.id
+    WHERE b.id = ${business.id}
+    LIMIT 1
   `;
   const salesPartnerName = salesPartner?.name ?? null;
 

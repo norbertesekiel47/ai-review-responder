@@ -6,12 +6,6 @@ import type { OnboardingDripPayload } from '../../src/lib/shared/worker-types';
 const LOG_PREFIX = '[OnboardingDripScheduler]';
 const DEFAULT_INTERVAL_MS = 3_600_000; // 1 hour
 
-const DRIP_OFFSETS: { type: OnboardingDripPayload['drip_type']; days: number }[] = [
-  { type: 'day_1', days: 1 },
-  { type: 'day_7', days: 7 },
-  { type: 'day_30', days: 30 },
-];
-
 let pollerInterval: ReturnType<typeof setInterval> | null = null;
 let isPolling = false;
 
@@ -32,66 +26,57 @@ export async function checkAndSchedule(): Promise<void> {
       return;
     }
 
-    const businesses = await sql<{ id: string; subscription_activated_at: string }[]>`
-      SELECT id, subscription_activated_at FROM businesses
-      WHERE subscription_status = 'active'
-        AND subscription_activated_at IS NOT NULL
+    // Single query: find all (business, drip_type) pairs that are due, not yet
+    // sent (no drip_log row), and not yet queued (no non-failed outbox row).
+    // Uses VALUES to cross-join drip offsets, avoiding N+1 per-business loops.
+    const dueDrips = await sql<{ business_id: string; drip_type: string }[]>`
+      SELECT b.id AS business_id, d.drip_type
+      FROM businesses b
+      CROSS JOIN (VALUES ('day_1', 1), ('day_7', 7), ('day_30', 30)) AS d(drip_type, days)
+      WHERE b.subscription_status = 'active'
+        AND b.subscription_activated_at IS NOT NULL
+        AND b.subscription_activated_at + (d.days || ' days')::interval <= NOW()
+        AND NOT EXISTS (
+          SELECT 1 FROM onboarding_drip_log dl
+          WHERE dl.business_id = b.id AND dl.drip_type = d.drip_type
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM job_outbox jo
+          WHERE jo.topic = 'onboarding_drip'
+            AND jo.aggregate_id = b.id
+            AND jo.status <> 'failed'
+            AND jo.payload->>'drip_type' = d.drip_type
+        )
     `;
 
-    if (businesses.length === 0) return;
+    if (dueDrips.length === 0) return;
 
-    const now = Date.now();
     let queued = 0;
+    for (const row of dueDrips) {
+      const payload: OnboardingDripPayload = {
+        business_id: row.business_id,
+        drip_type: row.drip_type as OnboardingDripPayload['drip_type'],
+      };
 
-    for (const biz of businesses) {
-      const activatedAt = new Date(biz.subscription_activated_at).getTime();
-
-      for (const drip of DRIP_OFFSETS) {
-        const dueAt = activatedAt + drip.days * 24 * 60 * 60 * 1000;
-        if (now < dueAt) continue;
-
-        // Check drip log — skip if already sent
-        const logRows = await sql<{ id: string }[]>`
-          SELECT id FROM onboarding_drip_log
-          WHERE business_id = ${biz.id} AND drip_type = ${drip.type}
-          LIMIT 1
+      try {
+        // ON CONFLICT uses uniq_outbox_onboarding_drip partial unique index
+        const inserted = await sql`
+          INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+          VALUES (
+            ${uuidv7()},
+            'onboarding_drip',
+            'business',
+            ${row.business_id},
+            ${JSON.stringify(payload)}::jsonb,
+            'pending'
+          )
+          ON CONFLICT DO NOTHING
         `;
-        if (logRows.length > 0) continue;
-
-        // Check outbox — skip if already queued
-        const outboxRows = await sql<{ id: string }[]>`
-          SELECT id FROM job_outbox
-          WHERE topic = 'onboarding_drip'
-            AND aggregate_id = ${biz.id}
-            AND status IN ('pending', 'dispatched')
-            AND payload->>'drip_type' = ${drip.type}
-          LIMIT 1
-        `;
-        if (outboxRows.length > 0) continue;
-
-        const payload: OnboardingDripPayload = {
-          business_id: biz.id,
-          drip_type: drip.type,
-        };
-
-        try {
-          const inserted = await sql`
-            INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-            VALUES (
-              ${uuidv7()},
-              'onboarding_drip',
-              'business',
-              ${biz.id},
-              ${JSON.stringify(payload)}::jsonb,
-              'pending'
-            )
-          `;
-          if (inserted.count > 0) queued++;
-        } catch (err: unknown) {
-          const code = (err as { code?: string }).code;
-          if (code === '23505') continue;
-          console.error(`${LOG_PREFIX} Failed to queue ${drip.type} for business ${biz.id}:`, err);
-        }
+        if (inserted.count > 0) queued++;
+      } catch (err: unknown) {
+        const code = (err as { code?: string }).code;
+        if (code === '23505') continue;
+        console.error(`${LOG_PREFIX} Failed to queue ${row.drip_type} for business ${row.business_id}:`, err);
       }
     }
 

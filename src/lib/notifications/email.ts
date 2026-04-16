@@ -733,7 +733,7 @@ export function buildOnboardingDay1Html(params: OnboardingDay1Params): string {
           <ol style="margin:0 0 16px;padding-left:20px;font-size:14px;color:#374151;line-height:1.8;">
             <li>A new review comes in — we draft a personalized response</li>
             <li>You review and approve (or edit) the draft</li>
-            <li>We post it to Google on your behalf</li>
+            <li>Your approved response is queued for posting to Google</li>
           </ol>
           <p style="margin:0 0 16px;font-size:14px;color:#374151;line-height:1.5;">Each approval takes about 30 seconds.</p>
           <p style="margin:0 0 0;font-size:14px;color:#374151;line-height:1.5;">You will also receive a weekly value report every Monday.</p>

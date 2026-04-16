@@ -195,4 +195,16 @@ DO $$ BEGIN
   END IF;
 END $$;
 
+-- =============================================================================
+-- PARTIAL UNIQUE INDEX: prevent duplicate onboarding_drip outbox entries
+-- Uses (aggregate_id, payload->>'drip_type') so concurrent schedulers or
+-- restarts cannot enqueue duplicate drip jobs for the same business + type.
+-- Excludes only 'failed' — completed rows block re-insertion (drip is one-shot).
+-- =============================================================================
+
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_outbox_onboarding_drip
+  ON job_outbox(aggregate_id, (payload->>'drip_type'))
+  WHERE topic = 'onboarding_drip'
+    AND status <> 'failed';
+
 COMMIT;
