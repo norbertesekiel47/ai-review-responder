@@ -73,4 +73,6 @@ export interface EngagementAlertPayload {
 export interface TrackRankingPayload {
   business_id: string;
   google_place_id: string;
+  /** ISO date 'YYYY-MM-DD' — the scheduler run that created this job. Used for outbox dedup. */
+  run_date: string;
 }

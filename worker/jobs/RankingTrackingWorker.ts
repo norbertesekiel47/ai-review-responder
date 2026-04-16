@@ -3,7 +3,6 @@ import { v7 as uuidv7 } from 'uuid';
 import { getJson } from 'serpapi';
 import { sql } from '../../src/lib/db/server';
 import { markOutboxCompleted, markOutboxFailed } from '../../src/lib/shared/outbox';
-import { checkSubscription } from '../../src/lib/shared/subscription-guard';
 import { checkRateLimit } from '../../src/lib/shared/rate-limit';
 import { isMockMode } from '../../src/lib/shared/mock-mode';
 import type { TrackRankingPayload } from '../../src/lib/shared/worker-types';
@@ -36,23 +35,36 @@ export async function handleTrackRanking(job: Job<TrackRankingPayload>): Promise
     return;
   }
 
-  // ── Step 2: Subscription guard ────────────────────────────────────
-  const subCheck = checkSubscription(
-    business.subscription_status,
-    new Date(business.updated_at),
-    'summary',
-  );
-
-  if (!subCheck.allowed) {
-    console.log(`${LOG_PREFIX} Business ${business_id} skipped: ${subCheck.reason}`);
+  // ── Step 2: Strict active-only guard (ranking costs real SerpAPI spend) ──
+  // Unlike notification/summary workers that use checkSubscription (allows past_due grace),
+  // ranking requires strictly active — no paid API calls for non-paying businesses.
+  if (business.subscription_status !== 'active') {
+    console.log(`${LOG_PREFIX} Business ${business_id} skipped: subscription_status=${business.subscription_status}`);
     await markOutboxCompleted(outboxId);
     return;
   }
 
-  // ── Step 3: Parse tracked_keywords (JSONB guard) ──────────────────
-  const rawKeywords: string[] = typeof business.tracked_keywords === 'string'
-    ? JSON.parse(business.tracked_keywords)
-    : (business.tracked_keywords as string[] | null) ?? [];
+  // Re-check google_place_id — may have been cleared or changed since scheduling
+  if (!business.google_place_id) {
+    console.log(`${LOG_PREFIX} Business ${business_id} skipped: no google_place_id`);
+    await markOutboxCompleted(outboxId);
+    return;
+  }
+
+  // ── Step 3: Parse tracked_keywords (JSONB guard + shape validation) ─
+  let rawKeywords: string[];
+  try {
+    const parsed = typeof business.tracked_keywords === 'string'
+      ? JSON.parse(business.tracked_keywords)
+      : business.tracked_keywords;
+    // Ensure it's an array of non-empty strings
+    rawKeywords = Array.isArray(parsed)
+      ? parsed.filter((k): k is string => typeof k === 'string' && k.trim().length > 0)
+      : [];
+  } catch {
+    console.warn(`${LOG_PREFIX} Business ${business_id}: malformed tracked_keywords, treating as empty`);
+    rawKeywords = [];
+  }
 
   if (rawKeywords.length === 0) {
     console.log(`${LOG_PREFIX} Business ${business_id} has no tracked keywords`);
@@ -63,8 +75,24 @@ export async function handleTrackRanking(job: Job<TrackRankingPayload>): Promise
   // Sprint 5B initial rollout: limit to 1 keyword per business
   const keywords = rawKeywords.slice(0, 1);
 
-  // ── Step 4: Monthly SerpAPI budget ────────────────────────────────
-  const budgetCheck = await checkRateLimit('serpapi:ranking:monthly', 100, 30 * 24 * 3600);
+  // ── Step 4: Monthly SerpAPI budget (fail-closed) ──────────────────
+  // checkRateLimit fails OPEN by design (user-facing defense-in-depth).
+  // For paid automated API calls, we must fail CLOSED: no Redis = no ranking.
+  if (!process.env.REDIS_CACHE_URL) {
+    console.warn(`${LOG_PREFIX} REDIS_CACHE_URL not set — cannot enforce SerpAPI budget, skipping`);
+    await markOutboxCompleted(outboxId);
+    return;
+  }
+
+  let budgetCheck: { allowed: boolean; remaining: number };
+  try {
+    budgetCheck = await checkRateLimit('serpapi:ranking:monthly', 100, 30 * 24 * 3600);
+  } catch {
+    console.warn(`${LOG_PREFIX} Redis unavailable — cannot enforce SerpAPI budget, skipping`);
+    await markOutboxCompleted(outboxId);
+    return;
+  }
+
   if (!budgetCheck.allowed) {
     console.log(`${LOG_PREFIX} Monthly SerpAPI ranking budget exhausted`);
     await markOutboxCompleted(outboxId);
@@ -119,11 +147,18 @@ export async function handleTrackRanking(job: Job<TrackRankingPayload>): Promise
       const localResults: Array<{ place_id?: string; title?: string; position?: number }> =
         response.local_results ?? [];
 
-      const matchIndex = localResults.findIndex(
+      const match = localResults.find(
         (r) => r.place_id === business.google_place_id,
       );
 
-      rankPosition = matchIndex >= 0 ? matchIndex + 1 : null;
+      if (match) {
+        // Prefer SerpAPI's position field (handles non-contiguous results, ads, mixed groups).
+        // Fall back to array index + 1 only if position is missing or non-integer.
+        const idx = localResults.indexOf(match);
+        rankPosition = Number.isInteger(match.position) ? match.position! : idx + 1;
+      } else {
+        rankPosition = null;
+      }
 
       console.log(
         `${LOG_PREFIX} keyword="${keyword}" place_id=${business.google_place_id} ` +

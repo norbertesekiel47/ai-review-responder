@@ -8,7 +8,7 @@ import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 export const dynamic = 'force-dynamic';
 
 const RankingSchema = z.object({
-  keyword: z.string().min(1).max(255).trim(),
+  keyword: z.string().trim().min(1, 'Keyword cannot be empty').max(255),
   rankPosition: z.number().int().min(1).max(100).nullable(),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be YYYY-MM-DD').optional(),
 });
@@ -44,6 +44,21 @@ export async function POST(
   }
 
   const snapshotDate = parsed.date ?? new Date().toISOString().slice(0, 10);
+
+  // Validate the date is a real calendar date (regex only checks format, not validity)
+  const dateParts = snapshotDate.split('-').map(Number);
+  const dateObj = new Date(Date.UTC(dateParts[0]!, dateParts[1]! - 1, dateParts[2]!));
+  if (
+    dateObj.getUTCFullYear() !== dateParts[0]! ||
+    dateObj.getUTCMonth() !== dateParts[1]! - 1 ||
+    dateObj.getUTCDate() !== dateParts[2]!
+  ) {
+    return NextResponse.json(
+      { error: 'Invalid date' },
+      { status: 400, headers: NO_STORE_HEADERS },
+    );
+  }
+
   const id = uuidv7();
 
   try {
@@ -60,6 +75,14 @@ export async function POST(
       { headers: NO_STORE_HEADERS },
     );
   } catch (error) {
+    // FK violation (23503) — unknown business_id → 404
+    const code = (error as { code?: string }).code;
+    if (code === '23503') {
+      return NextResponse.json(
+        { error: 'Business not found' },
+        { status: 404, headers: NO_STORE_HEADERS },
+      );
+    }
     console.error('[api/ranking] Failed to upsert ranking snapshot:', error);
     return NextResponse.json(
       { error: 'Failed to save ranking snapshot' },

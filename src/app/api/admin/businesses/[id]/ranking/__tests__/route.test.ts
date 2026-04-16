@@ -104,4 +104,20 @@ describe('POST /api/admin/businesses/[id]/ranking', () => {
     const body = await res.json();
     expect(body.success).toBe(true);
   });
+
+  it('returns 400 for invalid calendar date (2026-99-99)', async () => {
+    const res = await POST(
+      makeRequest({ keyword: 'pizza', rankPosition: 3, date: '2026-99-99' }),
+      { params: makeParams() },
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 400 for whitespace-only keyword', async () => {
+    const res = await POST(
+      makeRequest({ keyword: '   ', rankPosition: 3 }),
+      { params: makeParams() },
+    );
+    expect(res.status).toBe(400);
+  });
 });

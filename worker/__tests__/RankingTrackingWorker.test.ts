@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Job } from 'bullmq';
 import type { TrackRankingPayload } from '../../src/lib/shared/worker-types';
 
@@ -37,9 +37,6 @@ vi.mock('../../src/lib/shared/outbox', () => ({
   markOutboxCompleted: mockMarkOutboxCompleted,
   markOutboxFailed: mockMarkOutboxFailed,
 }));
-vi.mock('../../src/lib/shared/subscription-guard', () => ({
-  checkSubscription: vi.fn().mockReturnValue({ allowed: true }),
-}));
 vi.mock('../../src/lib/shared/rate-limit', () => ({
   checkRateLimit: mockCheckRateLimit,
 }));
@@ -54,7 +51,6 @@ vi.mock('uuid', () => ({
 }));
 
 import { handleTrackRanking } from '../jobs/RankingTrackingWorker';
-import { checkSubscription } from '../../src/lib/shared/subscription-guard';
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
@@ -63,6 +59,7 @@ function makeJob(overrides: Partial<TrackRankingPayload> = {}): Job<TrackRanking
     data: {
       business_id: 'biz-rank-1',
       google_place_id: 'ChIJ_test_place',
+      run_date: '2026-04-19',
       ...overrides,
     },
     id: 'outbox-rank-1',
@@ -92,8 +89,13 @@ describe('RankingTrackingWorker', () => {
     mockCheckRateLimit.mockResolvedValue({ allowed: true, remaining: 99 });
     mockGetJson.mockResolvedValue({ local_results: [] });
     mockIsMockMode.mockReturnValue(false);
-    (checkSubscription as ReturnType<typeof vi.fn>).mockReturnValue({ allowed: true });
     process.env.SERPAPI_API_KEY = 'test-key';
+    process.env.REDIS_CACHE_URL = 'redis://localhost:6379/0'; // Required for fail-closed budget
+  });
+
+  afterEach(() => {
+    delete process.env.SERPAPI_API_KEY;
+    delete process.env.REDIS_CACHE_URL;
   });
 
   it('marks outbox failed when business not found', async () => {
@@ -105,12 +107,26 @@ describe('RankingTrackingWorker', () => {
     expect(mockGetJson).not.toHaveBeenCalled();
   });
 
-  it('marks outbox completed when subscription is cancelled', async () => {
+  it('marks outbox completed when subscription is not active', async () => {
     sqlReturnQueue.push([mockBusinessRow({ subscription_status: 'cancelled' })]);
-    (checkSubscription as ReturnType<typeof vi.fn>).mockReturnValue({
-      allowed: false,
-      reason: 'cancelled',
-    });
+
+    await handleTrackRanking(makeJob());
+
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-rank-1');
+    expect(mockGetJson).not.toHaveBeenCalled();
+  });
+
+  it('marks outbox completed when subscription is past_due (strict active-only)', async () => {
+    sqlReturnQueue.push([mockBusinessRow({ subscription_status: 'past_due' })]);
+
+    await handleTrackRanking(makeJob());
+
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-rank-1');
+    expect(mockGetJson).not.toHaveBeenCalled();
+  });
+
+  it('marks outbox completed when google_place_id is null', async () => {
+    sqlReturnQueue.push([mockBusinessRow({ google_place_id: null })]);
 
     await handleTrackRanking(makeJob());
 
@@ -136,9 +152,36 @@ describe('RankingTrackingWorker', () => {
     await handleTrackRanking(makeJob());
 
     expect(mockGetJson).toHaveBeenCalled();
-    // Verify upsert was called (second sql call)
     expect(mockSql).toHaveBeenCalledTimes(2);
     expect(mockMarkOutboxCompleted).toHaveBeenCalled();
+  });
+
+  it('filters out empty strings from tracked_keywords', async () => {
+    sqlReturnQueue.push([mockBusinessRow({ tracked_keywords: ['', '  ', 'valid keyword'] })]);
+    mockGetJson.mockResolvedValue({ local_results: [] });
+
+    await handleTrackRanking(makeJob());
+
+    expect(mockGetJson).toHaveBeenCalledWith(expect.objectContaining({ q: 'valid keyword' }));
+  });
+
+  it('handles malformed tracked_keywords JSON gracefully', async () => {
+    sqlReturnQueue.push([mockBusinessRow({ tracked_keywords: '{not-valid-json' })]);
+
+    await handleTrackRanking(makeJob());
+
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-rank-1');
+    expect(mockGetJson).not.toHaveBeenCalled();
+  });
+
+  it('marks outbox completed when REDIS_CACHE_URL is missing (fail-closed)', async () => {
+    delete process.env.REDIS_CACHE_URL;
+    sqlReturnQueue.push([mockBusinessRow()]);
+
+    await handleTrackRanking(makeJob());
+
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-rank-1');
+    expect(mockGetJson).not.toHaveBeenCalled();
   });
 
   it('marks outbox completed when monthly budget exhausted', async () => {
@@ -205,24 +248,39 @@ describe('RankingTrackingWorker', () => {
     );
   });
 
-  it('records rank when business found in results (index + 1)', async () => {
+  it('uses SerpAPI position field when available', async () => {
     sqlReturnQueue.push([mockBusinessRow()]);
     mockGetJson.mockResolvedValue({
       local_results: [
         { place_id: 'ChIJ_other_1', title: 'Other 1', position: 1 },
         { place_id: 'ChIJ_other_2', title: 'Other 2', position: 2 },
-        { place_id: 'ChIJ_test_place', title: 'Test Biz', position: 3 },
+        { place_id: 'ChIJ_test_place', title: 'Test Biz', position: 5 }, // position != index+1
       ],
     });
 
     await handleTrackRanking(makeJob());
 
-    // Second sql call is the upsert — tagged template: sql`...${id}, ${biz}, ${kw}, ${rank}, ...`
-    // mockSql.mock.calls[1] = [templateStrings, id, business_id, keyword, rank_position, ...]
+    // Should use position (5) not index+1 (3)
     const upsertCall = mockSql.mock.calls[1];
-    const rankPosition = upsertCall[4]; // 4th interpolated value (index 4 in call args)
-    expect(rankPosition).toBe(3);
+    const rankPosition = upsertCall[4];
+    expect(rankPosition).toBe(5);
     expect(mockMarkOutboxCompleted).toHaveBeenCalled();
+  });
+
+  it('falls back to index+1 when position field is missing', async () => {
+    sqlReturnQueue.push([mockBusinessRow()]);
+    mockGetJson.mockResolvedValue({
+      local_results: [
+        { place_id: 'ChIJ_other_1', title: 'Other 1' },
+        { place_id: 'ChIJ_test_place', title: 'Test Biz' },
+      ],
+    });
+
+    await handleTrackRanking(makeJob());
+
+    const upsertCall = mockSql.mock.calls[1];
+    const rankPosition = upsertCall[4];
+    expect(rankPosition).toBe(2); // index 1 + 1
   });
 
   it('records NULL rank when business NOT found in results', async () => {
@@ -237,7 +295,7 @@ describe('RankingTrackingWorker', () => {
     await handleTrackRanking(makeJob());
 
     const upsertCall = mockSql.mock.calls[1];
-    const rankPosition = upsertCall[4]; // 4th interpolated value
+    const rankPosition = upsertCall[4];
     expect(rankPosition).toBeNull();
     expect(mockMarkOutboxCompleted).toHaveBeenCalled();
   });
@@ -249,10 +307,9 @@ describe('RankingTrackingWorker', () => {
     await handleTrackRanking(makeJob());
 
     expect(mockGetJson).not.toHaveBeenCalled();
-    // Should still upsert (second sql call)
     expect(mockSql).toHaveBeenCalledTimes(2);
     const upsertCall = mockSql.mock.calls[1];
-    const rankPosition = upsertCall[4]; // 4th interpolated value
+    const rankPosition = upsertCall[4];
     expect(rankPosition).toBeGreaterThanOrEqual(1);
     expect(rankPosition).toBeLessThanOrEqual(10);
     expect(mockMarkOutboxCompleted).toHaveBeenCalled();
@@ -266,10 +323,8 @@ describe('RankingTrackingWorker', () => {
 
     await handleTrackRanking(makeJob());
 
-    // Only 1 SerpAPI call despite 3 keywords
     expect(mockGetJson).toHaveBeenCalledTimes(1);
     expect(mockGetJson).toHaveBeenCalledWith(expect.objectContaining({ q: 'pizza near me' }));
-    // business query + 1 upsert = 2 sql calls
     expect(mockSql).toHaveBeenCalledTimes(2);
   });
 

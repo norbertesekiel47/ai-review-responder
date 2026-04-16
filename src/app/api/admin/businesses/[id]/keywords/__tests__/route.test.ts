@@ -96,4 +96,12 @@ describe('PUT /api/admin/businesses/[id]/keywords', () => {
     );
     expect(res.status).toBe(404);
   });
+
+  it('returns 400 for whitespace-only keywords', async () => {
+    const res = await PUT(
+      makeRequest({ keywords: ['   ', '  \t  '] }),
+      { params: makeParams() },
+    );
+    expect(res.status).toBe(400);
+  });
 });

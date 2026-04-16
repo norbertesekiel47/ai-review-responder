@@ -442,7 +442,7 @@ function ManualRankingSection({ businessId, snapshots }: { businessId: string; s
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           keyword: trimmedKeyword,
-          rankPosition: rankPosition.trim() ? parseInt(rankPosition, 10) : null,
+          rankPosition: rankPosition.trim() ? Number(rankPosition) : null,
           date,
         }),
       });
@@ -482,7 +482,7 @@ function ManualRankingSection({ businessId, snapshots }: { businessId: string; s
             <tbody>
               {recent.map((snap, idx) => (
                 <tr key={`${snap.keyword}-${snap.snapshotDate}-${idx}`} className="border-b border-gray-100">
-                  <td className="py-2 text-gray-700">{new Date(snap.snapshotDate).toLocaleDateString()}</td>
+                  <td className="py-2 text-gray-700">{snap.snapshotDate}</td>
                   <td className="py-2 text-gray-700">{snap.keyword}</td>
                   <td className="py-2 text-gray-700">
                     {snap.rankPosition !== null ? `#${snap.rankPosition}` : 'Not found'}
@@ -526,6 +526,8 @@ function ManualRankingSection({ businessId, snapshots }: { businessId: string; s
             onChange={(e) => { setRankPosition(e.target.value); setError(null); setSuccess(false); }}
             placeholder="e.g. 3"
             min={1}
+            max={100}
+            step={1}
             className="w-full rounded border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             disabled={saving}
           />

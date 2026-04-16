@@ -71,35 +71,37 @@ export async function runRankingCheck(): Promise<void> {
 
     if (candidates.length === 0) return;
 
+    const runDate = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+
     let queued = 0;
     for (const biz of candidates) {
       const payload: TrackRankingPayload = {
         business_id: biz.id,
         google_place_id: biz.google_place_id,
+        run_date: runDate,
       };
 
       try {
+        // ON CONFLICT uses uniq_outbox_track_ranking_run partial unique index:
+        // (aggregate_id, payload->>'run_date') WHERE topic='track_ranking' AND status NOT IN ('completed','failed')
+        // This prevents duplicate SerpAPI spend even under concurrent schedulers or restarts.
         const inserted = await sql`
           INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-          SELECT
+          VALUES (
             ${uuidv7()},
             'track_ranking',
             'business',
             ${biz.id},
             ${JSON.stringify(payload)}::jsonb,
             'pending'
-          WHERE NOT EXISTS (
-            SELECT 1 FROM job_outbox jo
-            WHERE jo.topic = 'track_ranking'
-              AND jo.aggregate_id = ${biz.id}
-              AND jo.status IN ('pending', 'dispatched')
           )
+          ON CONFLICT DO NOTHING
         `;
 
         if (inserted.count > 0) queued++;
       } catch (err: unknown) {
         const code = (err as { code?: string }).code;
-        if (code === '23505') continue;
+        if (code === '23505') continue; // Extra safety for other unique constraints
         throw err;
       }
     }
@@ -117,6 +119,7 @@ export async function runRankingCheck(): Promise<void> {
 }
 
 export function startRankingTrackingScheduler(): void {
+  if (pollerInterval) return; // Prevent duplicate intervals on double-start
   const intervalMs = getIntervalMs();
   console.log(`${LOG_PREFIX} Starting (interval=${intervalMs}ms)`);
   runRankingCheck().catch(console.error);

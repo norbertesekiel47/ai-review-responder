@@ -7,7 +7,8 @@ import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 export const dynamic = 'force-dynamic';
 
 const KeywordsSchema = z.object({
-  keywords: z.array(z.string().min(1).max(255).trim()).max(5, 'Maximum 5 keywords'),
+  // trim() BEFORE min(1) so whitespace-only strings become "" and fail validation
+  keywords: z.array(z.string().trim().min(1, 'Keyword cannot be empty').max(255)).max(5, 'Maximum 5 keywords'),
 });
 
 export async function PUT(
