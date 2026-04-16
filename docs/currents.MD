@@ -515,6 +515,185 @@ This is the complete working flow as of today:
 
 ---
 
+## Sprint 5B Workflows
+
+These are the new workflows added in Sprint 5B. Each one runs independently alongside the core review pipeline above.
+
+### Automated Ranking Tracking
+
+```
+1. RankingTrackingScheduler (hourly, fires biweekly on even-week Sunday 22 UTC)
+   → Checks RANKING_TRACKING_ENABLED === 'true' (skips silently if not)
+   → Checks mock mode (skips if true)
+   → Checks current time is Sunday, hour 22, ISO week number is even
+   → Single query: finds active businesses with verified place ID +
+     tracked keywords + location data (coords or search location)
+   → Inserts track_ranking outbox entries with run_date for dedup
+   → ON CONFLICT DO NOTHING (partial unique index prevents duplicates)
+
+2. OutboxPoller dispatches to BullMQ
+
+3. RankingTrackingWorker
+   → Loads business, checks subscription_status === 'active' (strict — no past_due grace)
+   → Re-checks google_place_id is still set
+   → Parses tracked_keywords (JSONB guard + filters empty strings)
+   → Limits to 1 keyword per business (Sprint 5B initial rollout)
+   → Per-keyword: checks monthly SerpAPI budget via checkRateLimit({ strict: true })
+     (fails closed when Redis unavailable — no ranking without budget enforcement)
+   → In mock mode: generates random rank 1-10
+   → In real mode: calls SerpAPI engine=google_maps with ll= (coords) or location= (text)
+   → Finds business by matching place_id in local_results
+   → Uses SerpAPI position field when available, falls back to index + 1
+   → Upserts into ranking_snapshots ON CONFLICT (business_id, keyword, snapshot_date)
+   → Marks outbox completed
+```
+
+### Owner Settings
+
+```
+1. Owner navigates to /settings (requires owner auth)
+
+2. Page fetches GET /api/dashboard (includes settings data)
+   → Shows read-only fields: name, category, Google Place ID
+   → Shows editable fields: tone, products/services, avoid facts, sample responses
+   → Shows notification preferences: channel (email/sms/both), phone, weekly/monthly toggles
+
+3. Owner makes changes, clicks "Save Changes"
+   → PUT /api/settings (Zod validated, owner-scoped by session — never accepts business_id in body)
+   → Only sends changed fields (diff against initial values)
+   → SMS channel requires phone number (checks stored phone for partial updates)
+   → Success: green banner, auto-dismiss after 3 seconds
+
+4. Opt-out takes effect:
+   → WeeklySummaryScheduler skips businesses where weekly_summary_enabled = FALSE
+   → MonthlyImpactScheduler skips businesses where monthly_impact_enabled = FALSE
+```
+
+### Dashboard Approval Actions
+
+```
+1. Owner navigates to /dashboard
+
+2. Pending reviews show Approve / Edit / Regenerate buttons
+   (only when review.responseStatus === 'pending_approval' AND responseText exists)
+
+3. Owner clicks Approve:
+   → POST /api/dashboard/reviews/{reviewId}/approve
+   → requireRole('owner') + query scoped by business_id (prevents IDOR)
+   → sql.begin: approveBySession() → lockPendingResponse + revokeOpenLinksForResponse
+     + UPDATE status='approved' + INSERT publish_response outbox
+   → approval_audit_log: auth_method='owner_session', actor_user_id, token_hash=NULL
+   → ResponsePublisherWorker picks up (same manual-post flow as email-based approval)
+
+4. Owner clicks Edit:
+   → Textarea appears pre-filled with draft text
+   → Owner modifies, clicks "Save & Approve"
+   → POST /api/dashboard/reviews/{reviewId}/edit with { editedText }
+   → Same flow as approve but computes Levenshtein distance, sets status='edited'
+
+5. Owner clicks Regenerate:
+   → POST /api/dashboard/reviews/{reviewId}/regenerate
+   → Old response set to 'superseded', new generate_response outbox entry created
+   → Owner sees "New draft requested — check your email"
+
+Note: The existing email-based token approval flow is completely unchanged.
+Dashboard actions are a parallel entry point using session auth, converging
+on the same core response mutation logic.
+```
+
+### Onboarding Drip Emails
+
+```
+1. Business subscribes via Stripe
+   → checkout.session.completed webhook fires
+   → Sets subscription_activated_at = COALESCE(subscription_activated_at, NOW())
+     (COALESCE preserves the anchor if re-activating from past_due)
+
+2. OnboardingDripScheduler (hourly)
+   → Single CROSS JOIN query: finds all (business, drip_type) pairs where:
+     - subscription_status = 'active'
+     - subscription_activated_at <= NOW() - interval (1/7/30 days)
+     - No sent drip_log entry (sent_at IS NOT NULL)
+     - No in-flight outbox entry
+   → Inserts onboarding_drip outbox entries ON CONFLICT DO NOTHING
+
+3. OutboxPoller dispatches to BullMQ
+
+4. OnboardingDripWorker
+   → Loads business, checks subscription_status === 'active'
+   → Validates subscription_activated_at is not null (day 7/30)
+   → Claims drip_log entry BEFORE any side effects:
+     INSERT ... ON CONFLICT DO NOTHING RETURNING id
+     If row exists: atomic UPDATE takeover if same outbox_id OR claim > 15 min stale
+     If sent_at IS NOT NULL: skip (already sent)
+   → Checks owner has auth (for dashboard URL)
+   → Branches by drip_type:
+
+   Day 1 (Welcome):
+     → Sends welcome email: how it works, 30-second approval, weekly report mention
+     → Conditional dashboard link (only if owner has auth mapping)
+
+   Day 7 (First Week Recap):
+     → Queries first-week stats bounded to [activatedAt, activatedAt + 7 days):
+       reviews handled, time saved, response rate, highlight review, has edits
+     → If pending reviews exist: creates fresh approval links via createApprovalLink()
+       (throws if NEXT_PUBLIC_APP_URL missing — strict, matches owner-nudge behavior)
+     → If zero reviews: "No reviews came in — we're watching"
+
+   Day 30 (First Month Impact):
+     → Queries first-month stats bounded to [activatedAt, activatedAt + 30 days)
+     → Response rate before → now (from ROI baseline)
+     → Ranking change if ranking_snapshots data exists
+     → Sales partner sign-off (business-scoped via onboarded_by with role check)
+
+   → Sends email via Resend (or mock)
+   → Updates onboarding_drip_log.sent_at = NOW()
+   → Records notification delivery
+   → Marks outbox completed
+```
+
+### Satisfaction Pulse
+
+```
+1. WeeklySummaryWorker sends Weekly Value Report email
+   → If CSRF_SECRET is configured:
+     Builds 3 HMAC-signed feedback URLs (great / ok / not_great)
+     HMAC input: business_id + rating + week_start_date
+     Adds satisfaction pulse section at bottom of email:
+     [Great]  [OK]  [Not great]
+
+2. Owner clicks one of the three buttons
+   → Opens GET /api/feedback?business_id=X&rating=Y&week=YYYY-MM-DD&sig=HMAC
+   → Route validates: HMAC signature, UUID format, calendar date
+   → Renders lightweight HTML confirmation page (NOT a Next.js page)
+   → Shows rating label + "Submit Feedback" button
+   → For "Not great": shows optional comment textarea
+   → NEVER writes to database (email scanners prefetch GET URLs)
+
+3. Owner clicks "Submit Feedback"
+   → POST /api/feedback (HTML form submission, not JSON)
+   → Re-validates HMAC from hidden form fields
+   → Single sql.begin() transaction:
+     a. Upsert satisfaction_responses ON CONFLICT (business_id, week_start_date)
+        DO UPDATE SET rating, comment
+     b. If rating = 'not_great':
+        SELECT dedup check (existing alert for same business + week?)
+        INSERT engagement_alert outbox ON CONFLICT DO NOTHING
+        (ON CONFLICT prevents broad index from aborting the transaction)
+   → Redirects 303 to /feedback/thanks
+
+4. If "Not great" alert was queued:
+   → OutboxPoller dispatches to BullMQ
+   → EngagementAlertWorker.handleSatisfactionAlert()
+     → Validates JSONB payload at runtime (rating, date, comment types)
+     → Re-reads satisfaction_responses from DB (skips if owner changed to ok/great)
+     → Checks week-scoped idempotency (template='partner_satisfaction_alert:YYYY-MM-DD')
+     → Sends partner alert email with rating + comment + owner contact
+     → Records delivery
+```
+
+---
+
 ## Page Workflow — What Links Where
 
 This documents every page-to-page navigation path in the application.
