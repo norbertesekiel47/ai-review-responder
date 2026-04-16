@@ -2114,6 +2114,42 @@ Created `supabase/migrations/014_retention_expansion.sql`:
 
 ---
 
+### Prompt 19g — Satisfaction Pulse (2026-04-16)
+
+**Status:** COMPLETE
+
+**What was built:**
+
+1. **HMAC Helper** (`src/lib/shared/feedback-hmac.ts`):
+   - `signFeedback(businessId, rating, weekStartDate)` — HMAC-SHA256 with `CSRF_SECRET`
+   - `verifyFeedback(...)` — constant-time comparison via `timingSafeEqual`
+   - `buildFeedbackUrl(appUrl, businessId, rating, weekStartDate)` — signed URL with query params
+
+2. **Feedback API Route** (`src/app/api/feedback/route.ts`):
+   - **GET**: validates HMAC, renders lightweight HTML confirmation form (no DB write — scanner-safe). Shows optional comment textarea for `not_great`. Hidden fields: business_id, rating, week, sig.
+   - **POST**: re-validates HMAC from form data. Single `sql.begin()` transaction: upserts `satisfaction_responses` on `(business_id, week_start_date)` + conditionally inserts `engagement_alert` outbox entry for `not_great` (with per-business/week cooldown dedup via `WHERE NOT EXISTS`). Redirects 303 to `/feedback/thanks`.
+
+3. **Thank-You Page** (`src/app/(public)/feedback/thanks/page.tsx`):
+   - Static page with Tailwind styling
+
+4. **Weekly Email Template** (`src/lib/notifications/email.ts`):
+   - `WeeklyValueReportParams` extended with `feedbackUrls: { great, ok, notGreat } | null`
+   - Satisfaction pulse section added before footer: three styled buttons (green/amber/red)
+   - Conditional — only renders when `feedbackUrls` is non-null
+
+5. **WeeklySummaryWorker** (`worker/jobs/WeeklySummaryWorker.ts`):
+   - Imports `buildFeedbackUrl`, builds HMAC-signed URLs when `NEXT_PUBLIC_APP_URL` + `CSRF_SECRET` configured
+   - Passes `feedbackUrls` to template
+
+**Test count:** 569/569 passing across 39 files (was 544/37)
+**New test files:** `feedback-hmac.test.ts` (8 tests), `feedback/route.test.ts` (17 tests)
+
+---
+
+**Sprint 5B: COMPLETE** — All 5 prompts (19b Automated Ranking, 19c-5B Settings + Dashboard Actions, 19d-5B Satisfaction Alert, 19e Onboarding Drips, 19g Satisfaction Pulse) implemented with all review findings addressed across 12+ review rounds. 569 tests across 39 files.
+
+---
+
 ## Sprint 6: Scale to $1K MRR
 
 **Status:** NOT STARTED

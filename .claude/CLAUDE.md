@@ -201,6 +201,9 @@ The architecture was designed so this is a mechanical swap — same outbox, same
   - New files: `worker/jobs/OnboardingDripScheduler.ts`, `worker/jobs/OnboardingDripWorker.ts`
   - New env var: `ONBOARDING_DRIP_INTERVAL_MS` (optional, default 1 hour)
   - Post-19e fixes (17 findings across 4 rounds): atomic claim ownership via `claimed_by_outbox_id` + `claimed_at` (prevents concurrent duplicate sends — only same outbox retry or stale claim > 15 min can proceed), claim-before-build idempotency, recoverable stale claims, drip_log claim/sent state separation (migration 015), scheduler only suppresses sent drips, migration 015 deduplicates existing outbox rows, index-friendly predicate, partial unique index, day_7/30 window-bounded metrics, business-scoped sales partner, day_7 strict app URL, subscription_activated_at validation, day_1 copy fix, scheduler CROSS JOIN, performance index. 544/544 tests.
+  - Prompt 19g (Satisfaction Pulse): COMPLETE (2026-04-16) — HMAC-signed feedback links (signFeedback/verifyFeedback/buildFeedbackUrl using CSRF_SECRET), GET /api/feedback (scanner-safe confirmation page, validates HMAC, renders form with hidden signed fields, optional comment textarea for not_great, NEVER writes to DB), POST /api/feedback (validates HMAC again, single sql.begin() transaction: upserts satisfaction_responses + conditionally inserts engagement_alert outbox with per-business/week cooldown dedup), redirects to /feedback/thanks. Weekly value report email template extended with feedbackUrls (Great/OK/Not great buttons, conditional on CSRF_SECRET). WeeklySummaryWorker builds and passes HMAC-signed URLs. Static /feedback/thanks page. 569/569 tests across 39 files.
+  - New files: `src/lib/shared/feedback-hmac.ts`, `src/app/api/feedback/route.ts`, `src/app/(public)/feedback/thanks/page.tsx`
+- **Sprint 5B: COMPLETE** — All prompts (19b, 19c-5B, 19d-5B, 19e, 19g) done.
 - GBP API: NOT APPLIED FOR
 
 ## Lab notes
