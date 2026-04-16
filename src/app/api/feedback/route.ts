@@ -160,43 +160,45 @@ export async function POST(request: NextRequest) {
       DO UPDATE SET rating = EXCLUDED.rating, comment = EXCLUDED.comment
     `;
 
-    // 2. If not_great, queue engagement alert with cooldown dedup.
-    // Catch 23505 from the broad engagement-alert unique index (migration 011)
-    // which keys on (aggregate_id, alert_type) without week — a pending alert
-    // from a different week would otherwise abort the entire transaction and
-    // lose the satisfaction_responses upsert.
+    // 2. If not_great, queue engagement alert with week-scoped dedup.
+    // Two-step approach to avoid aborting the transaction:
+    //   a) SELECT to check week-scoped dedup (is there already an alert for this week?)
+    //   b) INSERT ON CONFLICT DO NOTHING to handle the broad idx_jo_engagement_alert_inflight
+    //      index (migration 011) which keys on (aggregate_id, alert_type) without week.
+    // ON CONFLICT DO NOTHING prevents a Postgres statement error from aborting the
+    // transaction — the satisfaction_responses upsert always commits.
     if (rating === 'not_great') {
-      const payload: EngagementAlertPayload = {
-        business_id: businessId,
-        alert_type: 'partner_satisfaction_alert',
-        satisfaction: {
-          rating: 'not_great',
-          comment,
-          week_start_date: week,
-        },
-      };
+      // Week-scoped dedup check
+      const [existing] = await tx<{ id: string }[]>`
+        SELECT id FROM job_outbox
+        WHERE topic = 'engagement_alert'
+          AND aggregate_id = ${businessId}
+          AND status <> 'failed'
+          AND payload->>'alert_type' = 'partner_satisfaction_alert'
+          AND payload->'satisfaction'->>'week_start_date' = ${week}
+        LIMIT 1
+      `;
 
-      try {
+      if (!existing) {
+        const payload: EngagementAlertPayload = {
+          business_id: businessId,
+          alert_type: 'partner_satisfaction_alert',
+          satisfaction: {
+            rating: 'not_great',
+            comment,
+            week_start_date: week,
+          },
+        };
+
+        // ON CONFLICT DO NOTHING: if the broad (aggregate_id, alert_type) index
+        // blocks this insert (e.g. pending alert from a different week), the
+        // statement succeeds with 0 rows instead of throwing 23505.
         await tx`
           INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-          SELECT ${uuidv7()}, 'engagement_alert', 'business', ${businessId},
-                 ${JSON.stringify(payload)}::jsonb, 'pending'
-          WHERE NOT EXISTS (
-            SELECT 1 FROM job_outbox
-            WHERE topic = 'engagement_alert'
-              AND aggregate_id = ${businessId}
-              AND status <> 'failed'
-              AND payload->>'alert_type' = 'partner_satisfaction_alert'
-              AND payload->'satisfaction'->>'week_start_date' = ${week}
-          )
+          VALUES (${uuidv7()}, 'engagement_alert', 'business', ${businessId},
+                  ${JSON.stringify(payload)}::jsonb, 'pending')
+          ON CONFLICT DO NOTHING
         `;
-      } catch (err: unknown) {
-        if ((err as { code?: string }).code === '23505') {
-          // Duplicate from broad index — alert already queued, satisfaction upsert still committed
-          console.log(`[feedback] partner_satisfaction_alert already queued for ${businessId} — skipping outbox insert`);
-        } else {
-          throw err;
-        }
       }
     }
   });

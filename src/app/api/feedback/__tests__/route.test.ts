@@ -185,8 +185,8 @@ describe('POST /api/feedback', () => {
 
     await POST(req);
 
-    // 2 sql calls in transaction: upsert + outbox insert
-    expect(mockSqlCalls).toHaveLength(2);
+    // 3 sql calls in transaction: upsert + dedup SELECT + outbox INSERT ON CONFLICT DO NOTHING
+    expect(mockSqlCalls).toHaveLength(3);
   });
 
   it('does NOT include outbox INSERT for great rating', async () => {
@@ -234,10 +234,8 @@ describe('POST /api/feedback', () => {
 
     await POST(req);
 
-    // The upsert call is mockSqlCalls[0] — it's a tagged template call
-    // with template strings + values. The comment is passed as a param.
-    // We verify the outbox call includes the trimmed comment in the payload.
-    expect(mockSqlCalls).toHaveLength(2);
+    // 3 sql calls: upsert + dedup SELECT + outbox INSERT
+    expect(mockSqlCalls).toHaveLength(3);
   });
 
   it('stores null for empty comment', async () => {
@@ -247,8 +245,8 @@ describe('POST /api/feedback', () => {
 
     await POST(req);
 
-    // Transaction should still run (upsert + outbox)
-    expect(mockSqlCalls).toHaveLength(2);
+    // Transaction should still run (upsert + dedup SELECT + outbox INSERT)
+    expect(mockSqlCalls).toHaveLength(3);
     expect(mockBeginCallback.fn).not.toBeNull();
   });
 
