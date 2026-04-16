@@ -56,20 +56,33 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
   }
 
   // ── 4. Claim drip log entry BEFORE any side effects ───────────────
-  // INSERT with sent_at = NULL (claimed but not yet sent). ON CONFLICT
-  // DO NOTHING RETURNING id — if no row returned, another job already
-  // claimed this drip. Skip without building email or creating approval links.
-  const [claimed] = await sql<{ id: string }[]>`
+  // Try INSERT first. On conflict, check if the existing row was already
+  // sent (sent_at IS NOT NULL) — if so, skip. If sent_at IS NULL (stale
+  // claim from a failed previous attempt), allow retry by returning its id.
+  let claimId: string;
+  const [inserted] = await sql<{ id: string }[]>`
     INSERT INTO onboarding_drip_log (id, business_id, drip_type, sent_at)
     VALUES (${uuidv7()}, ${business_id}, ${drip_type}, NULL)
     ON CONFLICT (business_id, drip_type) DO NOTHING
     RETURNING id
   `;
 
-  if (!claimed) {
-    console.log(`${LOG_PREFIX} ${drip_type} already claimed for ${business_id} — skipping`);
-    await markOutboxCompleted(outboxId);
-    return;
+  if (inserted) {
+    claimId = inserted.id;
+  } else {
+    // Row exists — check if already sent
+    const [existing] = await sql<{ id: string; sent_at: Date | null }[]>`
+      SELECT id, sent_at FROM onboarding_drip_log
+      WHERE business_id = ${business_id} AND drip_type = ${drip_type}
+    `;
+    if (!existing || existing.sent_at !== null) {
+      console.log(`${LOG_PREFIX} ${drip_type} already sent for ${business_id} — skipping`);
+      await markOutboxCompleted(outboxId);
+      return;
+    }
+    // Stale claim (sent_at IS NULL) — retry sending
+    claimId = existing.id;
+    console.log(`${LOG_PREFIX} ${drip_type} retrying stale claim for ${business_id}`);
   }
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL;
@@ -112,7 +125,7 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
 
   // ── 8. Mark sent_at after successful delivery ─────────────────────
   await sql`
-    UPDATE onboarding_drip_log SET sent_at = NOW() WHERE id = ${claimed.id}
+    UPDATE onboarding_drip_log SET sent_at = NOW() WHERE id = ${claimId}
   `;
 
   // ── 9. Mark outbox completed + record delivery ────────────────────

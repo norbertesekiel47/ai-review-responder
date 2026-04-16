@@ -35,10 +35,11 @@ export async function checkAndSchedule(): Promise<void> {
       CROSS JOIN (VALUES ('day_1', 1), ('day_7', 7), ('day_30', 30)) AS d(drip_type, days)
       WHERE b.subscription_status = 'active'
         AND b.subscription_activated_at IS NOT NULL
-        AND b.subscription_activated_at + (d.days || ' days')::interval <= NOW()
+        AND b.subscription_activated_at <= NOW() - (d.days || ' days')::interval
         AND NOT EXISTS (
           SELECT 1 FROM onboarding_drip_log dl
           WHERE dl.business_id = b.id AND dl.drip_type = d.drip_type
+            AND dl.sent_at IS NOT NULL
         )
         AND NOT EXISTS (
           SELECT 1 FROM job_outbox jo
