@@ -2018,6 +2018,17 @@ Created `supabase/migrations/014_retention_expansion.sql`:
 **Test count:** 519/519 passing across 35 files (was 516)
 **New tests:** 3 additional tests (invalid rating, invalid week_start_date, idempotency skip)
 
+### Post-19d-5B Review Round 2 (2026-04-16)
+
+**Status:** COMPLETE
+
+1. **Week-scoped idempotency** (Medium): template tag changed from `'partner_satisfaction_alert'` with 7-day time window to `'partner_satisfaction_alert:YYYY-MM-DD'` with exact week match. Prevents suppressing legitimate alerts for adjacent weeks when timing drifts.
+2. **Crash-safe send** (Medium): outbox entry marked `completed` BEFORE calling Resend (same pattern as WeeklySummaryWorker/MonthlyImpactWorker). Tradeoff: rare missed internal partner alert vs duplicate sends on retry.
+3. **Calendar date validation**: round-trip parse via `new Date(date + 'T00:00:00Z')` + `toISOString().slice(0,10)` comparison. Rejects impossible dates like `2026-99-99` that pass the regex.
+
+**Test count:** 520/520 passing across 35 files (was 519)
+**New test:** impossible calendar date validation test
+
 ---
 
 ## Sprint 6: Scale to $1K MRR
