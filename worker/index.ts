@@ -59,6 +59,8 @@ import { handleMonthlyImpact } from './jobs/MonthlyImpactWorker';
 import { startMonthlyImpactScheduler, stopMonthlyImpactScheduler } from './jobs/MonthlyImpactScheduler';
 import { startEngagementMonitorPoller, stopEngagementMonitorPoller } from './jobs/EngagementMonitorPoller';
 import { handleEngagementAlert } from './jobs/EngagementAlertWorker';
+import { startRankingTrackingScheduler, stopRankingTrackingScheduler } from './jobs/RankingTrackingScheduler';
+import { handleTrackRanking } from './jobs/RankingTrackingWorker';
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
 
@@ -100,7 +102,9 @@ const monthlyImpactWorker = new Worker(QUEUE_NAMES.SEND_MONTHLY_IMPACT, handleMo
 
 const engagementAlertWorker = new Worker(QUEUE_NAMES.ENGAGEMENT_ALERT, handleEngagementAlert, workerOpts);
 
-const workers = [demoWorker, reviewSyncWorker, responseGenWorker, notificationWorker, publisherWorker, adminExceptionWorker, weeklySummaryWorker, placeIdValidationWorker, monthlyImpactWorker, engagementAlertWorker];
+const rankingTrackingWorker = new Worker(QUEUE_NAMES.TRACK_RANKING, handleTrackRanking, workerOpts);
+
+const workers = [demoWorker, reviewSyncWorker, responseGenWorker, notificationWorker, publisherWorker, adminExceptionWorker, weeklySummaryWorker, placeIdValidationWorker, monthlyImpactWorker, engagementAlertWorker, rankingTrackingWorker];
 
 // Sentry breadcrumbs on job lifecycle
 for (const worker of workers) {
@@ -157,6 +161,7 @@ async function main(): Promise<void> {
   startArchivalPoller();
   startMonthlyImpactScheduler();
   startEngagementMonitorPoller();
+  startRankingTrackingScheduler();
   console.log(`Worker service running on port ${PORT}`);
 }
 
@@ -172,6 +177,7 @@ async function shutdown(): Promise<void> {
   stopArchivalPoller();
   stopMonthlyImpactScheduler();
   stopEngagementMonitorPoller();
+  stopRankingTrackingScheduler();
   await Promise.all(workers.map((w) => w.close()));
   await Promise.all(Object.values(queues).map((q) => q.close()));
   await app.close();
