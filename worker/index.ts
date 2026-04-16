@@ -61,6 +61,8 @@ import { startEngagementMonitorPoller, stopEngagementMonitorPoller } from './job
 import { handleEngagementAlert } from './jobs/EngagementAlertWorker';
 import { startRankingTrackingScheduler, stopRankingTrackingScheduler } from './jobs/RankingTrackingScheduler';
 import { handleTrackRanking } from './jobs/RankingTrackingWorker';
+import { startOnboardingDripScheduler, stopOnboardingDripScheduler } from './jobs/OnboardingDripScheduler';
+import { handleOnboardingDrip } from './jobs/OnboardingDripWorker';
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
 
@@ -104,7 +106,9 @@ const engagementAlertWorker = new Worker(QUEUE_NAMES.ENGAGEMENT_ALERT, handleEng
 
 const rankingTrackingWorker = new Worker(QUEUE_NAMES.TRACK_RANKING, handleTrackRanking, workerOpts);
 
-const workers = [demoWorker, reviewSyncWorker, responseGenWorker, notificationWorker, publisherWorker, adminExceptionWorker, weeklySummaryWorker, placeIdValidationWorker, monthlyImpactWorker, engagementAlertWorker, rankingTrackingWorker];
+const onboardingDripWorker = new Worker(QUEUE_NAMES.ONBOARDING_DRIP, handleOnboardingDrip, workerOpts);
+
+const workers = [demoWorker, reviewSyncWorker, responseGenWorker, notificationWorker, publisherWorker, adminExceptionWorker, weeklySummaryWorker, placeIdValidationWorker, monthlyImpactWorker, engagementAlertWorker, rankingTrackingWorker, onboardingDripWorker];
 
 // Sentry breadcrumbs on job lifecycle
 for (const worker of workers) {
@@ -162,6 +166,7 @@ async function main(): Promise<void> {
   startMonthlyImpactScheduler();
   startEngagementMonitorPoller();
   startRankingTrackingScheduler();
+  startOnboardingDripScheduler();
   console.log(`Worker service running on port ${PORT}`);
 }
 
@@ -178,6 +183,7 @@ async function shutdown(): Promise<void> {
   stopMonthlyImpactScheduler();
   stopEngagementMonitorPoller();
   stopRankingTrackingScheduler();
+  stopOnboardingDripScheduler();
   await Promise.all(workers.map((w) => w.close()));
   await Promise.all(Object.values(queues).map((q) => q.close()));
   await app.close();
