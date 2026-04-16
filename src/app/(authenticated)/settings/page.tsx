@@ -224,7 +224,7 @@ export default function SettingsPage() {
             className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
             placeholder="One per line"
           />
-          <p className="mt-1 text-xs text-gray-400">One per line. Example responses to guide the AI's style.</p>
+          <p className="mt-1 text-xs text-gray-400">One per line. Example responses to guide the AI response style.</p>
         </div>
       </div>
 

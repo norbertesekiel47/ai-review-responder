@@ -364,7 +364,7 @@ export function DashboardContent() {
                       {review.reviewText && (
                         <p className="mt-1 text-sm text-gray-600">{review.reviewText}</p>
                       )}
-                      {displayStatus === 'pending_approval' && (
+                      {review.responseStatus === 'pending_approval' && review.responseText && (
                         <ReviewActions
                           reviewId={review.id}
                           responseText={review.responseText}

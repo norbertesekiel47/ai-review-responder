@@ -8,18 +8,28 @@ export const dynamic = 'force-dynamic';
 
 const UpdateSettingsSchema = z
   .object({
-    tone: z.string().max(100).optional(),
+    tone: z.string().trim().max(100).optional(),
     productsServices: z.string().max(2000).nullable().optional(),
-    avoidFacts: z.array(z.string().max(500)).optional(),
-    sampleResponses: z.array(z.string().max(2000)).optional(),
+    avoidFacts: z.array(z.string().trim().max(500)).max(20, 'Maximum 20 avoid facts').optional(),
+    sampleResponses: z.array(z.string().trim().max(2000)).max(10, 'Maximum 10 sample responses').optional(),
     notificationPreference: z.enum(['email', 'sms', 'both']).optional(),
-    ownerPhone: z.string().max(20).nullable().optional(),
+    ownerPhone: z.string().trim().max(20).nullable().optional(),
     weeklySummaryEnabled: z.boolean().optional(),
     monthlyImpactEnabled: z.boolean().optional(),
   })
   .refine((data) => Object.keys(data).length > 0, {
     message: 'At least one field must be provided',
-  });
+  })
+  .refine(
+    (data) => {
+      // If setting sms/both, ownerPhone must be provided and non-empty
+      if (data.notificationPreference === 'sms' || data.notificationPreference === 'both') {
+        return data.ownerPhone != null && data.ownerPhone.trim().length > 0;
+      }
+      return true;
+    },
+    { message: 'Phone number is required when notification channel includes SMS', path: ['ownerPhone'] },
+  );
 
 const FIELD_TO_COLUMN: Record<string, string> = {
   tone: 'tone',

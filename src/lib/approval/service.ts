@@ -273,6 +273,22 @@ export async function regenerate(
   await insertAuditLog(tx, link.response_id, link.business_id, 'regenerate', audit);
 }
 
+/**
+ * Revoke ALL open (unconsumed, unrevoked, unexpired) approval links for a response.
+ * Used by session-based dashboard actions where there is no "current link" to exclude.
+ * Token-based actions use revokeSiblings() which excludes the consumed link.
+ */
+async function revokeOpenLinksForResponse(tx: TxClient, responseId: string): Promise<void> {
+  await tx`
+    UPDATE approval_links
+    SET revoked_at = NOW()
+    WHERE response_id = ${responseId}
+      AND consumed_at IS NULL
+      AND revoked_at IS NULL
+      AND expires_at > NOW()
+  `;
+}
+
 // ---------------------------------------------------------------------------
 // Session-authenticated approval (owner dashboard)
 // ---------------------------------------------------------------------------
@@ -311,6 +327,7 @@ export async function approveBySession(
   audit: SessionAuditContext,
 ): Promise<void> {
   await lockPendingResponse(tx, responseId);
+  await revokeOpenLinksForResponse(tx, responseId);
 
   await tx`
     UPDATE responses
@@ -343,6 +360,7 @@ export async function editBySession(
   audit: SessionAuditContext,
 ): Promise<void> {
   const resp = await lockPendingResponse(tx, responseId);
+  await revokeOpenLinksForResponse(tx, responseId);
 
   const editDist = distance(resp.original_draft_text, editedText);
 
@@ -380,6 +398,7 @@ export async function regenerateBySession(
   audit: SessionAuditContext,
 ): Promise<void> {
   const resp = await lockPendingResponse(tx, responseId);
+  await revokeOpenLinksForResponse(tx, responseId);
 
   await tx`
     UPDATE responses SET status = 'superseded' WHERE id = ${responseId}
