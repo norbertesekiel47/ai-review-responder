@@ -133,9 +133,10 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
   // ── Day 1 ──────────────────────────────────────────────────────────
 
   it('day_1: sends welcome email with dashboard URL when owner has auth', async () => {
-    sqlReturnQueue.push([mockBusinessRow()]); // business
-    sqlReturnQueue.push([{ id: 'user-1' }]); // owner with auth
-    sqlReturnQueue.push([{ id: 'drip-log-id' }]); // claim drip_log — success
+    sqlReturnQueue.push([mockBusinessRow()]);       // 1. business
+    sqlReturnQueue.push([{ id: 'drip-log-id' }]);   // 2. claim drip_log — success
+    sqlReturnQueue.push([{ id: 'user-1' }]);         // 3. owner with auth
+    sqlReturnQueue.push([]);                          // 4. UPDATE sent_at
 
     await handleOnboardingDrip(makeJob({ drip_type: 'day_1' }));
 
@@ -163,9 +164,10 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
   });
 
   it('day_1: sends without dashboard URL when no auth mapping', async () => {
-    sqlReturnQueue.push([mockBusinessRow()]); // business
-    sqlReturnQueue.push([]);                  // no owner with auth
-    sqlReturnQueue.push([{ id: 'drip-log-id' }]); // claim drip_log — success
+    sqlReturnQueue.push([mockBusinessRow()]);       // 1. business
+    sqlReturnQueue.push([{ id: 'drip-log-id' }]);   // 2. claim drip_log — success
+    sqlReturnQueue.push([]);                          // 3. no owner with auth
+    sqlReturnQueue.push([]);                          // 4. UPDATE sent_at
 
     await handleOnboardingDrip(makeJob({ drip_type: 'day_1' }));
 
@@ -182,21 +184,22 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
   // ── Day 7 ──────────────────────────────────────────────────────────
 
   it('day_7: sends recap with stats and highlight review', async () => {
-    sqlReturnQueue.push([mockBusinessRow()]); // business
-    sqlReturnQueue.push([{ id: 'user-1' }]); // owner with auth
+    sqlReturnQueue.push([mockBusinessRow()]);       // 1. business
+    sqlReturnQueue.push([{ id: 'drip-log-id' }]);   // 2. claim drip_log — success
+    sqlReturnQueue.push([{ id: 'user-1' }]);         // 3. owner with auth
 
     // day_7 queries:
-    sqlReturnQueue.push([{ reviews_handled: 5 }]);         // reviews handled
-    sqlReturnQueue.push([{                                  // highlight review
+    sqlReturnQueue.push([{ reviews_handled: 5 }]);         // 4. reviews handled
+    sqlReturnQueue.push([{                                  // 5. highlight review
       reviewer_name: 'Alice',
       star_rating: 5,
       review_text: 'Amazing service!',
       approved_text: 'Thank you Alice!',
     }]);
-    sqlReturnQueue.push([{ exists: 1 }]);                   // has edits
-    sqlReturnQueue.push([]);                                 // no pending reviews
-    sqlReturnQueue.push([{ total: 6 }]);                    // total reviews for rate
-    sqlReturnQueue.push([{ id: 'drip-log-id' }]);           // claim drip_log — success
+    sqlReturnQueue.push([{ exists: 1 }]);                   // 6. has edits
+    sqlReturnQueue.push([]);                                 // 7. no pending reviews
+    sqlReturnQueue.push([{ total: 6 }]);                    // 8. total reviews for rate
+    sqlReturnQueue.push([]);                                 // 9. UPDATE sent_at
 
     await handleOnboardingDrip(makeJob({ drip_type: 'day_7' }));
 
@@ -232,18 +235,19 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
   });
 
   it('day_7: creates approval links for pending reviews', async () => {
-    sqlReturnQueue.push([mockBusinessRow()]); // business
-    sqlReturnQueue.push([{ id: 'user-1' }]); // owner with auth
+    sqlReturnQueue.push([mockBusinessRow()]);       // 1. business
+    sqlReturnQueue.push([{ id: 'drip-log-id' }]);   // 2. claim drip_log — success
+    sqlReturnQueue.push([{ id: 'user-1' }]);         // 3. owner with auth
 
-    sqlReturnQueue.push([{ reviews_handled: 2 }]);          // reviews handled
-    sqlReturnQueue.push([]);                                 // no highlight
-    sqlReturnQueue.push([]);                                 // no edits
-    sqlReturnQueue.push([                                    // 2 pending reviews
+    sqlReturnQueue.push([{ reviews_handled: 2 }]);          // 4. reviews handled
+    sqlReturnQueue.push([]);                                 // 5. no highlight
+    sqlReturnQueue.push([]);                                 // 6. no edits
+    sqlReturnQueue.push([                                    // 7. 2 pending reviews
       { response_id: 'resp-p1', reviewer_name: 'Bob', star_rating: 3 },
       { response_id: 'resp-p2', reviewer_name: 'Carol', star_rating: null },
     ]);
-    sqlReturnQueue.push([{ total: 4 }]);                    // total reviews
-    sqlReturnQueue.push([{ id: 'drip-log-id' }]);           // claim drip_log — success
+    sqlReturnQueue.push([{ total: 4 }]);                    // 8. total reviews
+    sqlReturnQueue.push([]);                                 // 9. UPDATE sent_at
 
     await handleOnboardingDrip(makeJob({ drip_type: 'day_7' }));
 
@@ -268,15 +272,16 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
   });
 
   it('day_7: handles zero reviews gracefully', async () => {
-    sqlReturnQueue.push([mockBusinessRow()]); // business
-    sqlReturnQueue.push([{ id: 'user-1' }]); // owner with auth
+    sqlReturnQueue.push([mockBusinessRow()]);       // 1. business
+    sqlReturnQueue.push([{ id: 'drip-log-id' }]);   // 2. claim drip_log — success
+    sqlReturnQueue.push([{ id: 'user-1' }]);         // 3. owner with auth
 
-    sqlReturnQueue.push([{ reviews_handled: 0 }]);          // no reviews handled
-    sqlReturnQueue.push([]);                                 // no highlight
-    sqlReturnQueue.push([]);                                 // no edits
-    sqlReturnQueue.push([]);                                 // no pending reviews
-    sqlReturnQueue.push([{ total: 0 }]);                    // total reviews = 0
-    sqlReturnQueue.push([{ id: 'drip-log-id' }]);           // claim drip_log — success
+    sqlReturnQueue.push([{ reviews_handled: 0 }]);          // 4. no reviews handled
+    sqlReturnQueue.push([]);                                 // 5. no highlight
+    sqlReturnQueue.push([]);                                 // 6. no edits
+    sqlReturnQueue.push([]);                                 // 7. no pending reviews
+    sqlReturnQueue.push([{ total: 0 }]);                    // 8. total reviews = 0
+    sqlReturnQueue.push([]);                                 // 9. UPDATE sent_at
 
     await handleOnboardingDrip(makeJob({ drip_type: 'day_7' }));
 
@@ -295,16 +300,17 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
   // ── Day 30 ─────────────────────────────────────────────────────────
 
   it('day_30: sends impact with ranking change when data exists', async () => {
-    sqlReturnQueue.push([mockBusinessRow()]); // business
-    sqlReturnQueue.push([{ id: 'user-1' }]); // owner with auth
+    sqlReturnQueue.push([mockBusinessRow()]);       // 1. business
+    sqlReturnQueue.push([{ id: 'drip-log-id' }]);   // 2. claim drip_log — success
+    sqlReturnQueue.push([{ id: 'user-1' }]);         // 3. owner with auth (unused by day_30 but still queried)
 
     // day_30 queries:
-    sqlReturnQueue.push([{ total: 15 }]);                   // total reviews
-    sqlReturnQueue.push([{ responded: 12 }]);               // responded
-    sqlReturnQueue.push([{ keyword: 'pizza near me', rank_position: 3 }]); // latest ranking
-    sqlReturnQueue.push([{ rank_position: 8 }]);            // earliest ranking
-    sqlReturnQueue.push([{ name: 'Sales Pat' }]);           // sales partner
-    sqlReturnQueue.push([{ id: 'drip-log-id' }]);           // claim drip_log — success
+    sqlReturnQueue.push([{ total: 15 }]);                   // 4. total reviews
+    sqlReturnQueue.push([{ responded: 12 }]);               // 5. responded
+    sqlReturnQueue.push([{ keyword: 'pizza near me', rank_position: 3 }]); // 6. latest ranking
+    sqlReturnQueue.push([{ rank_position: 8 }]);            // 7. earliest ranking
+    sqlReturnQueue.push([{ name: 'Sales Pat' }]);           // 8. sales partner (scoped)
+    sqlReturnQueue.push([]);                                 // 9. UPDATE sent_at
 
     await handleOnboardingDrip(makeJob({ drip_type: 'day_30' }));
 
@@ -338,14 +344,16 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
     sqlReturnQueue.push([mockBusinessRow({
       initial_review_count: null,
       initial_responded_count: null,
-    })]); // business — no baseline
-    sqlReturnQueue.push([{ id: 'user-1' }]); // owner with auth
+    })]);                                    // 1. business — no baseline
+    sqlReturnQueue.push([{ id: 'drip-log-id' }]); // 2. claim drip_log — success
+    sqlReturnQueue.push([{ id: 'user-1' }]); // 3. owner with auth
 
-    sqlReturnQueue.push([{ total: 3 }]);  // total reviews
-    sqlReturnQueue.push([{ responded: 3 }]); // responded
-    sqlReturnQueue.push([]);               // no ranking
-    sqlReturnQueue.push([]);               // no sales partner
-    sqlReturnQueue.push([{ id: 'drip-log-id' }]); // claim drip_log — success
+    sqlReturnQueue.push([{ total: 3 }]);     // 4. total reviews
+    sqlReturnQueue.push([{ responded: 3 }]); // 5. responded
+    sqlReturnQueue.push([]);                  // 6. no latest ranking (skips earliest)
+    sqlReturnQueue.push([]);                  // 7. no scoped sales partner
+    sqlReturnQueue.push([]);                  // 8. no onboarder fallback
+    sqlReturnQueue.push([]);                  // 9. UPDATE sent_at
 
     await handleOnboardingDrip(makeJob({ drip_type: 'day_30' }));
 
@@ -366,9 +374,8 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
   // ── Drip log idempotency ───────────────────────────────────────────
 
   it('skips sending when drip_log already claimed (ON CONFLICT DO NOTHING returns empty)', async () => {
-    sqlReturnQueue.push([mockBusinessRow()]); // business
-    sqlReturnQueue.push([{ id: 'user-1' }]); // owner with auth
-    sqlReturnQueue.push([]);                  // claim drip_log — already claimed (no row returned)
+    sqlReturnQueue.push([mockBusinessRow()]); // 1. business
+    sqlReturnQueue.push([]);                  // 2. claim drip_log — already claimed (no row returned)
 
     await handleOnboardingDrip(makeJob({ drip_type: 'day_1' }));
 
