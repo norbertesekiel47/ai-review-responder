@@ -69,3 +69,8 @@ export interface EngagementAlertPayload {
     notified_count: number;
   };
 }
+
+export interface TrackRankingPayload {
+  business_id: string;
+  google_place_id: string;
+}
