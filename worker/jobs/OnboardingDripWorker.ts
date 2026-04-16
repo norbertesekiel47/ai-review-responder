@@ -48,9 +48,33 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
     return;
   }
 
+  // ── 3. Validate subscription_activated_at for day_7/day_30 ─────────
+  if ((drip_type === 'day_7' || drip_type === 'day_30') && !business.subscription_activated_at) {
+    console.warn(`${LOG_PREFIX} ${drip_type} skipped: subscription_activated_at is null for ${business_id}`);
+    await markOutboxFailed(outboxId, 'subscription_activated_at is null');
+    return;
+  }
+
+  // ── 4. Claim drip log entry BEFORE any side effects ───────────────
+  // INSERT with sent_at = NULL (claimed but not yet sent). ON CONFLICT
+  // DO NOTHING RETURNING id — if no row returned, another job already
+  // claimed this drip. Skip without building email or creating approval links.
+  const [claimed] = await sql<{ id: string }[]>`
+    INSERT INTO onboarding_drip_log (id, business_id, drip_type, sent_at)
+    VALUES (${uuidv7()}, ${business_id}, ${drip_type}, NULL)
+    ON CONFLICT (business_id, drip_type) DO NOTHING
+    RETURNING id
+  `;
+
+  if (!claimed) {
+    console.log(`${LOG_PREFIX} ${drip_type} already claimed for ${business_id} — skipping`);
+    await markOutboxCompleted(outboxId);
+    return;
+  }
+
   const appUrl = process.env.NEXT_PUBLIC_APP_URL;
 
-  // ── 3. Check owner has auth (for dashboard URL) ───────────────────
+  // ── 5. Check owner has auth (for dashboard URL) ───────────────────
   const [ownerWithAuth] = await sql<{ id: string }[]>`
     SELECT id FROM users
     WHERE business_id = ${business_id} AND role = 'owner' AND auth_id IS NOT NULL
@@ -58,7 +82,7 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
   `;
   const dashboardUrl = ownerWithAuth && appUrl ? `${appUrl}/dashboard` : null;
 
-  // ── 4. Branch on drip type ────────────────────────────────────────
+  // ── 6. Branch on drip type and build email ────────────────────────
   let html: string;
   let subject: string;
 
@@ -79,25 +103,6 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
     }
   }
 
-  // ── 5. Claim drip log entry BEFORE sending (idempotent gate) ───────
-  // INSERT ... ON CONFLICT DO NOTHING RETURNING id — if no row returned,
-  // another job already claimed this drip. Skip without sending.
-  const [claimed] = await sql<{ id: string }[]>`
-    INSERT INTO onboarding_drip_log (id, business_id, drip_type)
-    VALUES (${uuidv7()}, ${business_id}, ${drip_type})
-    ON CONFLICT (business_id, drip_type) DO NOTHING
-    RETURNING id
-  `;
-
-  if (!claimed) {
-    console.log(`${LOG_PREFIX} ${drip_type} already sent for ${business_id} — skipping`);
-    await markOutboxCompleted(outboxId);
-    return;
-  }
-
-  // ── 6. Mark outbox completed BEFORE sending (crash-safe) ──────────
-  await markOutboxCompleted(outboxId);
-
   // ── 7. Send email ─────────────────────────────────────────────────
   const { messageId } = await sendInternalEmail({
     to: business.owner_email,
@@ -105,7 +110,14 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
     bodyHtml: html,
   });
 
-  // ── 8. Record delivery ────────────────────────────────────────────
+  // ── 8. Mark sent_at after successful delivery ─────────────────────
+  await sql`
+    UPDATE onboarding_drip_log SET sent_at = NOW() WHERE id = ${claimed.id}
+  `;
+
+  // ── 9. Mark outbox completed + record delivery ────────────────────
+  await markOutboxCompleted(outboxId);
+
   await recordNotificationDelivery({
     businessId: business_id,
     channel: 'email',
@@ -327,14 +339,27 @@ async function buildDay30(
     }
   }
 
-  // Sales partner name — scoped to who onboarded this business, then fallback
-  const [salesPartner] = await sql<{ name: string }[]>`
-    SELECT u.name FROM users u
-    JOIN businesses b ON b.onboarded_by = u.id
-    WHERE b.id = ${business.id}
+  // Sales partner name — same scoped chain as ResponsePublisherWorker:
+  // 1. Business-scoped admin/sales_partner
+  // 2. Onboarding partner via businesses.onboarded_by with role check
+  // 3. null (no sign-off)
+  let salesPartnerName: string | null = null;
+  const [scopedPartner] = await sql<{ name: string }[]>`
+    SELECT name FROM users
+    WHERE role IN ('admin', 'sales_partner') AND business_id = ${business.id}
     LIMIT 1
   `;
-  const salesPartnerName = salesPartner?.name ?? null;
+  if (scopedPartner) {
+    salesPartnerName = scopedPartner.name;
+  } else {
+    const [onboarder] = await sql<{ name: string }[]>`
+      SELECT u.name FROM users u
+      JOIN businesses b ON b.onboarded_by = u.id
+      WHERE b.id = ${business.id} AND u.role IN ('admin', 'sales_partner')
+      LIMIT 1
+    `;
+    salesPartnerName = onboarder?.name ?? null;
+  }
 
   const timeSavedMinutes = responded * 7;
 
