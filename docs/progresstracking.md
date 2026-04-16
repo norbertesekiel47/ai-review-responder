@@ -2104,6 +2104,14 @@ Created `supabase/migrations/014_retention_expansion.sql`:
 
 **Test count:** 543/543
 
+### Post-19e Review Round 4 (2026-04-16)
+
+**Status:** COMPLETE
+
+1. **Atomic claim ownership** (Medium): Added `claimed_by_outbox_id` and `claimed_at` to `onboarding_drip_log` (migration 015). INSERT sets owner. On conflict, atomic UPDATE only succeeds when `claimed_by_outbox_id` matches (same outbox retry) OR `claimed_at` > 15 min stale. Fresh claims owned by another active job are rejected — prevents concurrent duplicate sends from watchdog redispatch or pre-existing queued jobs.
+
+**Test count:** 544/544 (2 new claim tests: sent/fresh-claim skip + stale takeover retry)
+
 ---
 
 ## Sprint 6: Scale to $1K MRR
