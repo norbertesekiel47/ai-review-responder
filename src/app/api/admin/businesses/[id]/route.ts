@@ -39,6 +39,18 @@ interface BusinessRow {
   owner_name: string | null;
   owner_email: string | null;
   last_sync_at: Date | null;
+  tracked_keywords: unknown;
+  google_place_lat: number | null;
+  google_place_lng: number | null;
+  ranking_search_location: string | null;
+  google_place_address: string | null;
+}
+
+interface RankingSnapshotRow {
+  keyword: string;
+  rank_position: number | null;
+  snapshot_date: string;
+  source: string;
 }
 
 interface ReviewRow {
@@ -73,12 +85,14 @@ export async function GET(
   }
 
   try {
-    const [businessRows, reviewRows] = await Promise.all([
+    const [businessRows, reviewRows, rankingSnapshots] = await Promise.all([
       sql<BusinessRow[]>`
         SELECT
           id, name, category, google_place_id, tone, products_services,
           staff_names, highlight_facts, avoid_facts, sample_responses,
-          subscription_status, subscription_tier, owner_name, owner_email, last_sync_at
+          subscription_status, subscription_tier, owner_name, owner_email, last_sync_at,
+          tracked_keywords, google_place_lat, google_place_lng,
+          ranking_search_location, google_place_address
         FROM businesses
         WHERE id = ${businessId}
       `,
@@ -97,6 +111,13 @@ export async function GET(
         ) resp ON true
         WHERE r.business_id = ${businessId}
         ORDER BY r.detected_at DESC
+      `,
+      sql<RankingSnapshotRow[]>`
+        SELECT keyword, rank_position, snapshot_date::text, source
+        FROM ranking_snapshots
+        WHERE business_id = ${businessId}
+        ORDER BY snapshot_date DESC
+        LIMIT 50
       `,
     ]);
 
@@ -190,8 +211,19 @@ export async function GET(
         ownerName: business.owner_name ?? null,
         ownerEmail: business.owner_email ?? null,
         lastSyncAt: business.last_sync_at ? business.last_sync_at.toISOString() : null,
+        trackedKeywords: parseArray(business.tracked_keywords),
+        googlePlaceLat: business.google_place_lat,
+        googlePlaceLng: business.google_place_lng,
+        rankingSearchLocation: business.ranking_search_location,
+        googlePlaceAddress: business.google_place_address,
         churnScore,
       },
+      rankingSnapshots: rankingSnapshots.map((s) => ({
+        keyword: s.keyword,
+        rankPosition: s.rank_position,
+        snapshotDate: s.snapshot_date,
+        source: s.source,
+      })),
       reviews: reviewRows.map((row) => ({
         id: row.id,
         reviewerName: row.reviewer_name,

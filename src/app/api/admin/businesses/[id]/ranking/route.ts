@@ -56,7 +56,7 @@ export async function POST(
     `;
 
     return NextResponse.json(
-      { success: true, id: rows[0].id },
+      { success: true, id: rows[0]?.id },
       { headers: NO_STORE_HEADERS },
     );
   } catch (error) {
