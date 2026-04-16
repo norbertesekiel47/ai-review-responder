@@ -56,13 +56,16 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
   }
 
   // ── 4. Claim drip log entry BEFORE any side effects ───────────────
-  // Try INSERT first. On conflict, check if the existing row was already
-  // sent (sent_at IS NOT NULL) — if so, skip. If sent_at IS NULL (stale
-  // claim from a failed previous attempt), allow retry by returning its id.
+  // Three-way claim: INSERT new → own outbox retry → stale takeover.
+  // Only the claim owner can proceed to build/send. Concurrent duplicates
+  // see a fresh claim owned by another outbox_id and skip.
+  const STALE_CLAIM_MINUTES = 15;
   let claimId: string;
+
+  // Try INSERT first
   const [inserted] = await sql<{ id: string }[]>`
-    INSERT INTO onboarding_drip_log (id, business_id, drip_type, sent_at)
-    VALUES (${uuidv7()}, ${business_id}, ${drip_type}, NULL)
+    INSERT INTO onboarding_drip_log (id, business_id, drip_type, sent_at, claimed_at, claimed_by_outbox_id)
+    VALUES (${uuidv7()}, ${business_id}, ${drip_type}, NULL, NOW(), ${outboxId})
     ON CONFLICT (business_id, drip_type) DO NOTHING
     RETURNING id
   `;
@@ -70,19 +73,30 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
   if (inserted) {
     claimId = inserted.id;
   } else {
-    // Row exists — check if already sent
-    const [existing] = await sql<{ id: string; sent_at: Date | null }[]>`
-      SELECT id, sent_at FROM onboarding_drip_log
+    // Row exists — try atomic takeover for own retry or stale claim.
+    // Conditions: sent_at IS NULL (not yet sent) AND either same outbox owns it
+    // or the claim is older than STALE_CLAIM_MINUTES (previous attempt abandoned).
+    const [taken] = await sql<{ id: string }[]>`
+      UPDATE onboarding_drip_log
+      SET claimed_at = NOW(), claimed_by_outbox_id = ${outboxId}
       WHERE business_id = ${business_id} AND drip_type = ${drip_type}
+        AND sent_at IS NULL
+        AND (
+          claimed_by_outbox_id = ${outboxId}
+          OR claimed_at < NOW() - ${STALE_CLAIM_MINUTES} * INTERVAL '1 minute'
+        )
+      RETURNING id
     `;
-    if (!existing || existing.sent_at !== null) {
-      console.log(`${LOG_PREFIX} ${drip_type} already sent for ${business_id} — skipping`);
+
+    if (taken) {
+      claimId = taken.id;
+      console.log(`${LOG_PREFIX} ${drip_type} claim taken over for ${business_id}`);
+    } else {
+      // Either already sent or owned by another active job — skip
+      console.log(`${LOG_PREFIX} ${drip_type} already claimed/sent for ${business_id} — skipping`);
       await markOutboxCompleted(outboxId);
       return;
     }
-    // Stale claim (sent_at IS NULL) — retry sending
-    claimId = existing.id;
-    console.log(`${LOG_PREFIX} ${drip_type} retrying stale claim for ${business_id}`);
   }
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL;

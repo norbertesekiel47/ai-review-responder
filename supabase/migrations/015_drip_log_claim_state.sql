@@ -13,6 +13,15 @@
 ALTER TABLE onboarding_drip_log ALTER COLUMN sent_at DROP NOT NULL;
 ALTER TABLE onboarding_drip_log ALTER COLUMN sent_at DROP DEFAULT;
 
+-- Add claim ownership columns for concurrent-safe retry.
+-- claimed_at: when this row was claimed (INSERT or UPDATE takeover).
+-- claimed_by_outbox_id: the outbox job that owns this claim.
+-- Only the owning outbox job or a stale takeover (claimed_at older than threshold)
+-- can proceed to send. Prevents concurrent duplicate jobs from double-sending.
+ALTER TABLE onboarding_drip_log
+  ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  ADD COLUMN IF NOT EXISTS claimed_by_outbox_id TEXT;
+
 -- Collapse any duplicate non-failed onboarding_drip outbox rows that may have
 -- been created before the unique index existed. Keep the oldest row per
 -- (aggregate_id, drip_type) and mark the rest as 'failed'.

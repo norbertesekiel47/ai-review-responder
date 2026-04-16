@@ -373,15 +373,29 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
 
   // ── Drip log idempotency ───────────────────────────────────────────
 
-  it('skips sending when drip_log already claimed (ON CONFLICT DO NOTHING returns empty)', async () => {
+  it('skips when drip_log already sent or claimed by another fresh job', async () => {
     sqlReturnQueue.push([mockBusinessRow()]); // 1. business
-    sqlReturnQueue.push([]);                  // 2. claim drip_log — already claimed (no row returned)
+    sqlReturnQueue.push([]);                  // 2. INSERT conflict — row exists
+    sqlReturnQueue.push([]);                  // 3. UPDATE takeover fails (sent or fresh claim by other outbox)
 
     await handleOnboardingDrip(makeJob({ drip_type: 'day_1' }));
 
-    // Outbox completed but no email sent
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-drip-1');
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
     expect(mockRecordNotificationDelivery).not.toHaveBeenCalled();
+  });
+
+  it('retries stale claim and sends successfully', async () => {
+    sqlReturnQueue.push([mockBusinessRow()]); // 1. business
+    sqlReturnQueue.push([]);                  // 2. INSERT conflict — row exists
+    sqlReturnQueue.push([{ id: 'stale-id' }]); // 3. UPDATE takeover succeeds (stale or same outbox)
+    sqlReturnQueue.push([{ id: 'auth-user' }]); // 4. owner auth check
+    sqlReturnQueue.push([]);                  // 5. UPDATE sent_at
+
+    await handleOnboardingDrip(makeJob({ drip_type: 'day_1' }));
+
+    expect(mockSendInternalEmail).toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).toHaveBeenCalled();
+    expect(mockRecordNotificationDelivery).toHaveBeenCalled();
   });
 });
