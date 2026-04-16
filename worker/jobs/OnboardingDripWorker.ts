@@ -142,9 +142,8 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
     UPDATE onboarding_drip_log SET sent_at = NOW() WHERE id = ${claimId}
   `;
 
-  // ── 9. Mark outbox completed + record delivery ────────────────────
-  await markOutboxCompleted(outboxId);
-
+  // ── 9. Record delivery BEFORE outbox completion — ensures cooldown
+  // checks in other workers can see this delivery record.
   await recordNotificationDelivery({
     businessId: business_id,
     channel: 'email',
@@ -152,6 +151,8 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
     template: `onboarding_drip_${drip_type}`,
     externalMessageId: messageId,
   });
+
+  await markOutboxCompleted(outboxId);
 
   console.log(`${LOG_PREFIX} ${drip_type} sent to ${business.owner_email} for ${business.name}`);
 }

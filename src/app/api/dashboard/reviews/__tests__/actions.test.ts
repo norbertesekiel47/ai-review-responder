@@ -159,9 +159,9 @@ describe('POST /api/dashboard/reviews/[reviewId]/approve', () => {
     expect(body.error).toContain('No actionable response');
   });
 
-  it('returns 403 when response belongs to a different business', async () => {
+  it('returns 404 when response belongs to a different business (query scoped by business_id)', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
-    setResponseLookup([{ id: RESPONSE_ID, business_id: OTHER_BUSINESS_ID, status: 'pending_approval' }]);
+    setResponseLookup([]); // Query filters by owner's business_id, so wrong-business review returns empty
 
     const { POST } = await import('../[reviewId]/approve/route');
     const res = await POST(
@@ -169,9 +169,7 @@ describe('POST /api/dashboard/reviews/[reviewId]/approve', () => {
       makeParams(REVIEW_ID),
     );
 
-    expect(res.status).toBe(403);
-    const body = await res.json();
-    expect(body.error).toBe('Forbidden');
+    expect(res.status).toBe(404);
   });
 
   it('returns 401 when not authenticated', async () => {
@@ -298,9 +296,9 @@ describe('POST /api/dashboard/reviews/[reviewId]/edit', () => {
     expect(res.status).toBe(404);
   });
 
-  it('returns 403 when response belongs to a different business', async () => {
+  it('returns 404 when response belongs to a different business (query scoped by business_id)', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
-    setResponseLookup([{ id: RESPONSE_ID, business_id: OTHER_BUSINESS_ID, status: 'pending_approval' }]);
+    setResponseLookup([]); // Query filters by owner's business_id, so wrong-business review returns empty
 
     const { POST } = await import('../[reviewId]/edit/route');
     const res = await POST(
@@ -308,7 +306,7 @@ describe('POST /api/dashboard/reviews/[reviewId]/edit', () => {
       makeParams(REVIEW_ID),
     );
 
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(404);
   });
 
   it('returns 409 when response is no longer pending', async () => {
@@ -367,9 +365,9 @@ describe('POST /api/dashboard/reviews/[reviewId]/regenerate', () => {
     expect(res.status).toBe(404);
   });
 
-  it('returns 403 when response belongs to a different business', async () => {
+  it('returns 404 when response belongs to a different business (query scoped by business_id)', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
-    setResponseLookup([{ id: RESPONSE_ID, business_id: OTHER_BUSINESS_ID, status: 'pending_approval' }]);
+    setResponseLookup([]); // Query filters by owner's business_id, so wrong-business review returns empty
 
     const { POST } = await import('../[reviewId]/regenerate/route');
     const res = await POST(
@@ -377,7 +375,7 @@ describe('POST /api/dashboard/reviews/[reviewId]/regenerate', () => {
       makeParams(REVIEW_ID),
     );
 
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(404);
   });
 
   it('returns 409 when response is no longer pending', async () => {

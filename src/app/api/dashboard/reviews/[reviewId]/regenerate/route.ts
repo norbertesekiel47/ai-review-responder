@@ -32,17 +32,15 @@ export async function POST(
     SELECT r.id, r.business_id, r.status
     FROM responses r
     JOIN reviews rv ON rv.id = r.review_id
-    WHERE rv.id = ${reviewId} AND r.status NOT IN ('superseded', 'failed')
+    WHERE rv.id = ${reviewId}
+      AND rv.business_id = ${user.businessId}
+      AND r.status NOT IN ('superseded', 'failed')
     ORDER BY r.version DESC LIMIT 1
   `;
 
   const response = rows[0];
   if (!response) {
     return NextResponse.json({ error: 'No actionable response found for this review' }, { status: 404, headers: NO_STORE_HEADERS });
-  }
-
-  if (response.business_id !== user.businessId) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403, headers: NO_STORE_HEADERS });
   }
 
   const ip = request.headers.get('x-forwarded-for') ?? null;

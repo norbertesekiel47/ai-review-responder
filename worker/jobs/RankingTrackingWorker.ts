@@ -75,26 +75,7 @@ export async function handleTrackRanking(job: Job<TrackRankingPayload>): Promise
   // Sprint 5B initial rollout: limit to 1 keyword per business
   const keywords = rawKeywords.slice(0, 1);
 
-  // ── Step 4: Monthly SerpAPI budget (fail-closed via strict mode) ───
-  // Using { strict: true } makes checkRateLimit throw on Redis unavailability
-  // instead of failing open. This prevents ranking spend when the budget
-  // enforcer is down — critical for paid automated API calls.
-  let budgetCheck: { allowed: boolean; remaining: number };
-  try {
-    budgetCheck = await checkRateLimit('serpapi:ranking:monthly', 100, 30 * 24 * 3600, { strict: true });
-  } catch (err) {
-    console.warn(`${LOG_PREFIX} Cannot enforce SerpAPI budget (Redis unavailable or not configured), skipping:`, err instanceof Error ? err.message : err);
-    await markOutboxCompleted(outboxId);
-    return;
-  }
-
-  if (!budgetCheck.allowed) {
-    console.log(`${LOG_PREFIX} Monthly SerpAPI ranking budget exhausted`);
-    await markOutboxCompleted(outboxId);
-    return;
-  }
-
-  // ── Step 5: Location check ────────────────────────────────────────
+  // ── Step 4: Location check ────────────────────────────────────────
   const hasCoords = business.google_place_lat != null && business.google_place_lng != null;
   const hasSearchLocation = !!business.ranking_search_location;
 
@@ -110,6 +91,23 @@ export async function handleTrackRanking(job: Job<TrackRankingPayload>): Promise
     : business.ranking_search_location!;
 
   for (const keyword of keywords) {
+    // Per-keyword budget check (fail-closed via strict mode).
+    // Checked inside the loop so each keyword consumes one budget slot —
+    // safe when MAX_KEYWORDS_PER_BUSINESS is raised above 1.
+    let budgetCheck: { allowed: boolean; remaining: number };
+    try {
+      budgetCheck = await checkRateLimit('serpapi:ranking:monthly', 100, 30 * 24 * 3600, { strict: true });
+    } catch (err) {
+      console.warn(`${LOG_PREFIX} Cannot enforce SerpAPI budget (Redis unavailable or not configured), skipping:`, err instanceof Error ? err.message : err);
+      await markOutboxCompleted(outboxId);
+      return;
+    }
+
+    if (!budgetCheck.allowed) {
+      console.log(`${LOG_PREFIX} Monthly SerpAPI ranking budget exhausted at keyword "${keyword}"`);
+      break; // Stop processing keywords but still mark outbox completed for keywords already done
+    }
+
     let rankPosition: number | null;
 
     if (isMockMode()) {
