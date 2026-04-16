@@ -429,7 +429,7 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
       subject: expect.stringContaining('Not great'),
     }));
     expect(mockRecordNotificationDelivery).toHaveBeenCalledWith(expect.objectContaining({
-      template: 'partner_satisfaction_alert',
+      template: 'partner_satisfaction_alert:2026-04-13',
     }));
     expect(mockMarkOutboxCompleted).toHaveBeenCalled();
   });
@@ -493,7 +493,7 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
   });
 
-  it('fails satisfaction alert with invalid week_start_date', async () => {
+  it('fails satisfaction alert with non-date-format week_start_date', async () => {
     process.env.ADMIN_NOTIFICATION_EMAIL = 'admin@test.com';
     sqlReturnQueue.push([mockBusinessRow()]);
 
@@ -506,7 +506,20 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
   });
 
-  it('skips satisfaction alert if already sent for this business recently', async () => {
+  it('fails satisfaction alert with impossible calendar date (2026-99-99)', async () => {
+    process.env.ADMIN_NOTIFICATION_EMAIL = 'admin@test.com';
+    sqlReturnQueue.push([mockBusinessRow()]);
+
+    await handleEngagementAlert(makeJob({
+      alert_type: 'partner_satisfaction_alert',
+      satisfaction: { rating: 'not_great', comment: null, week_start_date: '2026-99-99' },
+    }));
+
+    expect(mockMarkOutboxFailed).toHaveBeenCalledWith(expect.any(String), expect.stringContaining('not a real date'));
+    expect(mockSendInternalEmail).not.toHaveBeenCalled();
+  });
+
+  it('skips satisfaction alert if already sent for this business + week', async () => {
     process.env.ADMIN_NOTIFICATION_EMAIL = 'admin@test.com';
     sqlReturnQueue.push([mockBusinessRow()]);
     sqlReturnQueue.push([{ id: 'existing-delivery' }]); // idempotency check — existing delivery found

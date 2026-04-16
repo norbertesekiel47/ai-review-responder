@@ -290,7 +290,14 @@ async function handleSatisfactionAlert(
   }
   if (typeof satisfaction.week_start_date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(satisfaction.week_start_date)) {
     console.warn(`${LOG_PREFIX} Invalid satisfaction week_start_date: ${String(satisfaction.week_start_date)}`);
-    await markOutboxFailed(outboxId, `invalid satisfaction week_start_date`);
+    await markOutboxFailed(outboxId, 'invalid satisfaction week_start_date');
+    return;
+  }
+  // Round-trip validation: reject impossible dates like 2026-99-99
+  const parsedDate = new Date(satisfaction.week_start_date + 'T00:00:00Z');
+  if (Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== satisfaction.week_start_date) {
+    console.warn(`${LOG_PREFIX} Invalid calendar date in week_start_date: ${satisfaction.week_start_date}`);
+    await markOutboxFailed(outboxId, 'invalid satisfaction week_start_date (not a real date)');
     return;
   }
   if (satisfaction.comment !== null && typeof satisfaction.comment !== 'string') {
@@ -299,17 +306,19 @@ async function handleSatisfactionAlert(
     return;
   }
 
-  // Idempotency: skip if a satisfaction alert was already sent for this business + week
+  // Idempotency: skip if a satisfaction alert was already sent for this business + specific week.
+  // Uses the week_start_date from the payload to scope the check precisely — a 7-day time
+  // window would suppress legitimate alerts for adjacent weeks if timing drifts.
+  const weekTag = `partner_satisfaction_alert:${satisfaction.week_start_date}`;
   const [existingDelivery] = await sql<{ id: string }[]>`
     SELECT id FROM notification_deliveries
     WHERE business_id = ${businessId}
-      AND template = 'partner_satisfaction_alert'
+      AND template = ${weekTag}
       AND sent_at IS NOT NULL
-      AND sent_at > NOW() - INTERVAL '7 days'
     LIMIT 1
   `;
   if (existingDelivery) {
-    console.log(`${LOG_PREFIX} Satisfaction alert already sent for business ${businessId} recently — skipping`);
+    console.log(`${LOG_PREFIX} Satisfaction alert already sent for business ${businessId} week ${satisfaction.week_start_date} — skipping`);
     await markOutboxCompleted(outboxId);
     return;
   }
@@ -326,20 +335,26 @@ async function handleSatisfactionAlert(
   const ratingLabel = satisfaction.rating === 'not_great' ? 'Not great' : satisfaction.rating === 'ok' ? 'OK' : 'Great';
   const subject = `Satisfaction pulse: ${business.name} rated "${ratingLabel}"`;
 
+  // Mark outbox completed BEFORE sending the email. This is the same crash-safe
+  // pattern used by WeeklySummaryWorker and MonthlyImpactWorker: if the worker
+  // crashes after marking completed but before Resend accepts, we lose one
+  // internal partner alert (acceptable) rather than sending duplicates on retry.
+  await markOutboxCompleted(outboxId);
+
   const { messageId } = await sendInternalEmail({
     to: adminEmail,
     subject,
     bodyHtml,
   });
 
+  // Record delivery with week-scoped template tag for future idempotency checks
   await recordNotificationDelivery({
     businessId,
     channel: 'email',
     recipient: adminEmail,
-    template: 'partner_satisfaction_alert',
+    template: weekTag,
     externalMessageId: messageId,
   });
 
-  await markOutboxCompleted(outboxId);
-  console.log(`${LOG_PREFIX} partner_satisfaction_alert sent to ${adminEmail} for business ${business.name} (rating: ${satisfaction.rating})`);
+  console.log(`${LOG_PREFIX} partner_satisfaction_alert sent to ${adminEmail} for business ${business.name} (rating: ${satisfaction.rating}, week: ${satisfaction.week_start_date})`);
 }
