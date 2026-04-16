@@ -2006,6 +2006,18 @@ Created `supabase/migrations/014_retention_expansion.sql`:
 **Test count:** 516/516 passing across 35 files (was 512)
 **New tests:** 4 tests added to `EngagementAlertWorker.test.ts` (sends with rating+comment, sends without comment, fails on missing data, fails without admin email)
 
+### Post-19d-5B Review Fixes (2026-04-16)
+
+**Status:** COMPLETE
+
+1. **Idempotency** (Medium): `handleSatisfactionAlert` now checks `notification_deliveries` for existing delivery with `template='partner_satisfaction_alert'` within 7 days before sending — prevents duplicate emails on BullMQ/watchdog retry after Resend accepts but before outbox completion.
+2. **JSONB validation** (Medium): Runtime validation of `satisfaction` payload — rejects invalid `rating` values (not in `['great','ok','not_great']`), malformed `week_start_date` (not `YYYY-MM-DD`), and non-string `comment`. Prevents silent fallthrough to "Great" label and `escapeHtml()` crashes on non-string input.
+3. **Dead cooldown** (Low): Removed `partner_satisfaction_alert: 7` from EngagementMonitorPoller `COOLDOWNS` — changed type to `Partial<Record<EngagementAlertType, number>>` with `?? 7` fallback at usage. Satisfaction dedup is the worker's responsibility, not the poller's.
+4. **Optional metrics** (Low): `EngagementAlertPayload.metrics` made optional — satisfaction alerts don't need to fabricate unused metric values. Non-satisfaction alert paths guard with explicit null check + `markOutboxFailed`.
+
+**Test count:** 519/519 passing across 35 files (was 516)
+**New tests:** 3 additional tests (invalid rating, invalid week_start_date, idempotency skip)
+
 ---
 
 ## Sprint 6: Scale to $1K MRR
