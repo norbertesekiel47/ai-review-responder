@@ -245,6 +245,12 @@ export interface WeeklyValueReportParams {
   fourWeekAvgReviews: number;
   ranking: { keyword: string; currentRank: number; initialRank: number } | null;
   dashboardUrl: string | null;
+  /** HMAC-signed feedback URLs for satisfaction pulse. null if CSRF_SECRET not configured. */
+  feedbackUrls: {
+    great: string;
+    ok: string;
+    notGreat: string;
+  } | null;
 }
 
 export function buildWeeklyValueReportHtml(params: WeeklyValueReportParams): string {
@@ -252,7 +258,7 @@ export function buildWeeklyValueReportHtml(params: WeeklyValueReportParams): str
     businessName, weekStartDate, weekEndDate,
     totalReviews, totalResponded, notableReviews,
     intelligenceBrief, baselineResponseRate, fourWeekAvgReviews,
-    ranking, dashboardUrl,
+    ranking, dashboardUrl, feedbackUrls,
   } = params;
 
   const safeName = escapeHtml(businessName);
@@ -316,6 +322,27 @@ export function buildWeeklyValueReportHtml(params: WeeklyValueReportParams): str
     </td></tr>`
     : '';
 
+  // Satisfaction pulse (conditional)
+  const pulseSection = feedbackUrls
+    ? `
+        <tr><td style="padding:20px 24px 0;">
+          <p style="margin:0 0 12px;font-size:14px;color:#374151;text-align:center;">How was your experience this week?</p>
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+            <tr>
+              <td align="center" width="33%" style="padding:0 4px;">
+                <a href="${feedbackUrls.great}" style="display:block;padding:10px 4px;background:#d1fae5;color:#065f46;border-radius:6px;font-size:14px;font-weight:600;text-decoration:none;text-align:center;">Great</a>
+              </td>
+              <td align="center" width="33%" style="padding:0 4px;">
+                <a href="${feedbackUrls.ok}" style="display:block;padding:10px 4px;background:#fef3c7;color:#92400e;border-radius:6px;font-size:14px;font-weight:600;text-decoration:none;text-align:center;">OK</a>
+              </td>
+              <td align="center" width="33%" style="padding:0 4px;">
+                <a href="${feedbackUrls.notGreat}" style="display:block;padding:10px 4px;background:#fee2e2;color:#991b1b;border-radius:6px;font-size:14px;font-weight:600;text-decoration:none;text-align:center;">Not great</a>
+              </td>
+            </tr>
+          </table>
+        </td></tr>`
+    : '';
+
   return `<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
@@ -358,6 +385,7 @@ export function buildWeeklyValueReportHtml(params: WeeklyValueReportParams): str
         ${briefHtml}
         ${notableHtml}
         ${dashboardHtml}
+        ${pulseSection}
         <tr><td style="padding:24px;">
           <p style="margin:0;font-size:12px;color:#9ca3af;text-align:center;">Powered by RepWorth — automated review responses for your business.</p>
         </td></tr>

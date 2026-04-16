@@ -7,6 +7,7 @@ import { sendInternalEmail, buildWeeklyValueReportHtml } from '../../src/lib/not
 import { recordNotificationDelivery } from '../../src/lib/notifications/delivery';
 import { generateReviewSummary } from '../../src/lib/responses/review-summary';
 import type { WeeklySummaryPayload } from '../../src/lib/shared/worker-types';
+import { buildFeedbackUrl } from '../../src/lib/shared/feedback-hmac';
 
 const LOG_PREFIX = '[WeeklySummaryWorker]';
 
@@ -252,7 +253,17 @@ export async function handleWeeklySummary(
     );
   }
 
-  // ── 8. Build email ────────────────────────────────────────────────
+  // ── 8. Build feedback URLs (satisfaction pulse) ───────────────────
+  let feedbackUrls: { great: string; ok: string; notGreat: string } | null = null;
+  if (appUrl && process.env.CSRF_SECRET) {
+    feedbackUrls = {
+      great: buildFeedbackUrl(appUrl, business_id, 'great', week_start_date),
+      ok: buildFeedbackUrl(appUrl, business_id, 'ok', week_start_date),
+      notGreat: buildFeedbackUrl(appUrl, business_id, 'not_great', week_start_date),
+    };
+  }
+
+  // ── 9. Build email ────────────────────────────────────────────────
   const html = buildWeeklyValueReportHtml({
     businessName: business.name,
     weekStartDate: week_start_date,
@@ -269,6 +280,7 @@ export async function handleWeeklySummary(
     fourWeekAvgReviews,
     ranking,
     dashboardUrl,
+    feedbackUrls,
   });
 
   // ── 9. Mark sent_at just before Resend call (crash-safe) ──────────

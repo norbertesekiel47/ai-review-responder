@@ -19,6 +19,7 @@ function baseWeeklyParams(overrides: Partial<WeeklyValueReportParams> = {}): Wee
     fourWeekAvgReviews: 9,
     ranking: null,
     dashboardUrl: null,
+    feedbackUrls: null,
     ...overrides,
   };
 }
