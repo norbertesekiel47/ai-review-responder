@@ -64,7 +64,7 @@ export async function middleware(request: NextRequest) {
   }
 
   // 5. Owner API routes
-  if (pathname.startsWith('/api/dashboard')) {
+  if (pathname.startsWith('/api/dashboard') || pathname.startsWith('/api/settings')) {
     // Keep literal here to avoid expanding the Edge middleware import graph.
     const noStoreHeaders = { 'Cache-Control': 'no-store, private' };
     if (!authUser) {
@@ -121,6 +121,7 @@ export const config = {
     '/admin/:path((?!login).*)',  // /admin/* except /admin/login
     '/api/admin/:path*',
     '/api/dashboard/:path*',
+    '/api/settings/:path*',
     '/dashboard/:path*',
     '/settings/:path*',
   ],
