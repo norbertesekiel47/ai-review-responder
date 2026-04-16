@@ -2169,7 +2169,20 @@ Created `supabase/migrations/014_retention_expansion.sql`:
 
 ---
 
-**Sprint 5B: COMPLETE** — All 5 prompts (19b Automated Ranking, 19c-5B Settings + Dashboard Actions, 19d-5B Satisfaction Alert, 19e Onboarding Drips, 19g Satisfaction Pulse) implemented with all review findings addressed across 14+ review rounds. 570 tests across 39 files.
+### Sprint 5B Final Code Review Fixes (2026-04-16)
+
+**Status:** COMPLETE
+
+1. **IDOR enumeration** (Important/Security): Dashboard approval routes (approve/edit/regenerate) now scope the response query by `rv.business_id = ${user.businessId}`. Returns 404 for non-owned reviews instead of 403, preventing attackers from learning whether a reviewId exists in another business.
+2. **Per-keyword budget** (Important/Scalability): Ranking worker budget check moved inside the per-keyword loop. Each keyword consumes one rate-limit slot — prevents budget bypass when `MAX_KEYWORDS_PER_BUSINESS` is raised above 1.
+3. **Delivery ordering** (Important/Correctness): Drip worker records `notification_deliveries` before `markOutboxCompleted`, ensuring cooldown checks in other workers can see the delivery record.
+4. **Settings sql.unsafe** (Important/Maintainability): Accepted as-is — the `FIELD_TO_COLUMN` allowlist is static and values are parameterized. Same pattern as admin PATCH route from Sprint 3.
+
+**Test count:** 570/570 (tests updated for 404 instead of 403 on cross-business review access)
+
+---
+
+**Sprint 5B: COMPLETE** — All 5 prompts (19b Automated Ranking, 19c-5B Settings + Dashboard Actions, 19d-5B Satisfaction Alert, 19e Onboarding Drips, 19g Satisfaction Pulse) implemented with all review findings addressed across 16 review rounds. 570 tests across 39 files.
 
 ---
 
