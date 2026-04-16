@@ -135,6 +135,7 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
   it('day_1: sends welcome email with dashboard URL when owner has auth', async () => {
     sqlReturnQueue.push([mockBusinessRow()]); // business
     sqlReturnQueue.push([{ id: 'user-1' }]); // owner with auth
+    sqlReturnQueue.push([{ id: 'drip-log-id' }]); // claim drip_log — success
 
     await handleOnboardingDrip(makeJob({ drip_type: 'day_1' }));
 
@@ -152,8 +153,6 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
       bodyHtml: '<html>day1</html>',
     });
 
-    // Drip log insertion (the SQL call after outbox + email)
-    // Verify recordNotificationDelivery was called
     expect(mockRecordNotificationDelivery).toHaveBeenCalledWith({
       businessId: 'biz-drip-1',
       channel: 'email',
@@ -166,6 +165,7 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
   it('day_1: sends without dashboard URL when no auth mapping', async () => {
     sqlReturnQueue.push([mockBusinessRow()]); // business
     sqlReturnQueue.push([]);                  // no owner with auth
+    sqlReturnQueue.push([{ id: 'drip-log-id' }]); // claim drip_log — success
 
     await handleOnboardingDrip(makeJob({ drip_type: 'day_1' }));
 
@@ -196,6 +196,7 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
     sqlReturnQueue.push([{ exists: 1 }]);                   // has edits
     sqlReturnQueue.push([]);                                 // no pending reviews
     sqlReturnQueue.push([{ total: 6 }]);                    // total reviews for rate
+    sqlReturnQueue.push([{ id: 'drip-log-id' }]);           // claim drip_log — success
 
     await handleOnboardingDrip(makeJob({ drip_type: 'day_7' }));
 
@@ -242,6 +243,7 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
       { response_id: 'resp-p2', reviewer_name: 'Carol', star_rating: null },
     ]);
     sqlReturnQueue.push([{ total: 4 }]);                    // total reviews
+    sqlReturnQueue.push([{ id: 'drip-log-id' }]);           // claim drip_log — success
 
     await handleOnboardingDrip(makeJob({ drip_type: 'day_7' }));
 
@@ -274,6 +276,7 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
     sqlReturnQueue.push([]);                                 // no edits
     sqlReturnQueue.push([]);                                 // no pending reviews
     sqlReturnQueue.push([{ total: 0 }]);                    // total reviews = 0
+    sqlReturnQueue.push([{ id: 'drip-log-id' }]);           // claim drip_log — success
 
     await handleOnboardingDrip(makeJob({ drip_type: 'day_7' }));
 
@@ -301,6 +304,7 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
     sqlReturnQueue.push([{ keyword: 'pizza near me', rank_position: 3 }]); // latest ranking
     sqlReturnQueue.push([{ rank_position: 8 }]);            // earliest ranking
     sqlReturnQueue.push([{ name: 'Sales Pat' }]);           // sales partner
+    sqlReturnQueue.push([{ id: 'drip-log-id' }]);           // claim drip_log — success
 
     await handleOnboardingDrip(makeJob({ drip_type: 'day_30' }));
 
@@ -341,6 +345,7 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
     sqlReturnQueue.push([{ responded: 3 }]); // responded
     sqlReturnQueue.push([]);               // no ranking
     sqlReturnQueue.push([]);               // no sales partner
+    sqlReturnQueue.push([{ id: 'drip-log-id' }]); // claim drip_log — success
 
     await handleOnboardingDrip(makeJob({ drip_type: 'day_30' }));
 
@@ -360,20 +365,16 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
 
   // ── Drip log idempotency ───────────────────────────────────────────
 
-  it('records drip log with ON CONFLICT DO NOTHING', async () => {
+  it('skips sending when drip_log already claimed (ON CONFLICT DO NOTHING returns empty)', async () => {
     sqlReturnQueue.push([mockBusinessRow()]); // business
     sqlReturnQueue.push([{ id: 'user-1' }]); // owner with auth
+    sqlReturnQueue.push([]);                  // claim drip_log — already claimed (no row returned)
 
     await handleOnboardingDrip(makeJob({ drip_type: 'day_1' }));
 
-    // The SQL mock was called with drip log insertion.
-    // Verify the INSERT call includes ON CONFLICT wording by checking
-    // that the sql function was called with template strings containing drip_log insert.
-    // We can't inspect template string content directly, but we verify
-    // the full flow completed without error and delivery was recorded.
+    // Outbox completed but no email sent
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-drip-1');
-    expect(mockRecordNotificationDelivery).toHaveBeenCalledWith(
-      expect.objectContaining({ template: 'onboarding_drip_day_1' }),
-    );
+    expect(mockSendInternalEmail).not.toHaveBeenCalled();
+    expect(mockRecordNotificationDelivery).not.toHaveBeenCalled();
   });
 });

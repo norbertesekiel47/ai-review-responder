@@ -57,27 +57,21 @@ describe('OnboardingDripScheduler', () => {
     // Activated 2 days ago
     const now = new Date('2026-04-16T12:00:00Z');
     vi.setSystemTime(now);
-    const activatedAt = new Date('2026-04-14T12:00:00Z').toISOString();
 
-    // Business query returns one business
-    sqlReturnQueue.push([{ id: 'biz-1', subscription_activated_at: activatedAt }]);
-    // day_1 drip_log check — not sent
-    sqlReturnQueue.push([]);
-    // day_1 outbox check — not queued
-    sqlReturnQueue.push([]);
-    // day_1 INSERT — success
+    // Single query returns due (business_id, drip_type) pairs
+    sqlReturnQueue.push([{ business_id: 'biz-1', drip_type: 'day_1' }]);
+    // INSERT into job_outbox — success
     sqlReturnQueue.push(Object.assign([], { count: 1 }));
 
     const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     const mod = await import('../jobs/OnboardingDripScheduler');
     await mod.checkAndSchedule();
 
-    // 1 business query + (drip_log + outbox + INSERT) for day_1 = 4
-    // day_7 not due (2 < 7), day_30 not due (2 < 30) — skipped before any SQL
-    expect(mockSql).toHaveBeenCalledTimes(4);
+    // 1 main query + 1 INSERT = 2
+    expect(mockSql).toHaveBeenCalledTimes(2);
 
     // Verify the INSERT call contains onboarding_drip
-    const insertCall = mockSql.mock.calls[3];
+    const insertCall = mockSql.mock.calls[1];
     const insertText = Array.from(insertCall[0] as TemplateStringsArray).join('');
     expect(insertText).toContain('INSERT');
     expect(insertText).toContain('onboarding_drip');
@@ -90,52 +84,40 @@ describe('OnboardingDripScheduler', () => {
   });
 
   it('does NOT queue day_7 when only 3 days have passed', async () => {
-    // Activated 3 days ago — day_1 is due, day_7 and day_30 are not
+    // Activated 3 days ago — day_1 already sent, day_7 and day_30 not due
     const now = new Date('2026-04-16T12:00:00Z');
     vi.setSystemTime(now);
-    const activatedAt = new Date('2026-04-13T12:00:00Z').toISOString();
 
-    // Business query
-    sqlReturnQueue.push([{ id: 'biz-1', subscription_activated_at: activatedAt }]);
-    // day_1 drip_log — already sent
-    sqlReturnQueue.push([{ id: 'log-1' }]);
-    // day_7 and day_30 are not due, so no further SQL calls
+    // Single query returns empty — day_1 has drip_log, day_7/day_30 not due
+    sqlReturnQueue.push([]);
 
     const mod = await import('../jobs/OnboardingDripScheduler');
     await mod.checkAndSchedule();
 
-    // 1 business query + 1 drip_log check for day_1 = 2
-    // day_7 (3 < 7) and day_30 (3 < 30) skipped by time check
-    expect(mockSql).toHaveBeenCalledTimes(2);
+    // 1 main query only, returns empty so no INSERTs
+    expect(mockSql).toHaveBeenCalledTimes(1);
   });
 
   it('queues both day_1 and day_7 when 8 days have passed and neither sent', async () => {
     const now = new Date('2026-04-16T12:00:00Z');
     vi.setSystemTime(now);
-    const activatedAt = new Date('2026-04-08T12:00:00Z').toISOString();
 
-    // Business query
-    sqlReturnQueue.push([{ id: 'biz-1', subscription_activated_at: activatedAt }]);
-    // day_1 drip_log — not sent
-    sqlReturnQueue.push([]);
-    // day_1 outbox — not queued
-    sqlReturnQueue.push([]);
+    // Single query returns both due drips
+    sqlReturnQueue.push([
+      { business_id: 'biz-1', drip_type: 'day_1' },
+      { business_id: 'biz-1', drip_type: 'day_7' },
+    ]);
     // day_1 INSERT
     sqlReturnQueue.push(Object.assign([], { count: 1 }));
-    // day_7 drip_log — not sent
-    sqlReturnQueue.push([]);
-    // day_7 outbox — not queued
-    sqlReturnQueue.push([]);
     // day_7 INSERT
     sqlReturnQueue.push(Object.assign([], { count: 1 }));
-    // day_30 not due (8 < 30) — skipped
 
     const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     const mod = await import('../jobs/OnboardingDripScheduler');
     await mod.checkAndSchedule();
 
-    // 1 business + 3 per drip * 2 drips = 7
-    expect(mockSql).toHaveBeenCalledTimes(7);
+    // 1 main query + 2 INSERTs = 3
+    expect(mockSql).toHaveBeenCalledTimes(3);
 
     expect(consoleSpy).toHaveBeenCalledWith(
       expect.stringContaining('Queued 2 onboarding_drip outbox entries'),
@@ -147,58 +129,41 @@ describe('OnboardingDripScheduler', () => {
   it('skips when drip_log entry already exists', async () => {
     const now = new Date('2026-04-16T12:00:00Z');
     vi.setSystemTime(now);
-    const activatedAt = new Date('2026-04-14T12:00:00Z').toISOString();
 
-    // Business query
-    sqlReturnQueue.push([{ id: 'biz-1', subscription_activated_at: activatedAt }]);
-    // day_1 drip_log — already sent (row exists)
-    sqlReturnQueue.push([{ id: 'existing-log' }]);
-    // day_7 and day_30 not due — no further calls
+    // Single query excludes drips with existing drip_log via NOT EXISTS — returns empty
+    sqlReturnQueue.push([]);
 
     const mod = await import('../jobs/OnboardingDripScheduler');
     await mod.checkAndSchedule();
 
-    // 1 business query + 1 drip_log check = 2 (no outbox check, no INSERT)
-    expect(mockSql).toHaveBeenCalledTimes(2);
+    // 1 main query only, returns empty so no INSERTs
+    expect(mockSql).toHaveBeenCalledTimes(1);
   });
 
   it('skips when outbox entry already pending', async () => {
     const now = new Date('2026-04-16T12:00:00Z');
     vi.setSystemTime(now);
-    const activatedAt = new Date('2026-04-14T12:00:00Z').toISOString();
 
-    // Business query
-    sqlReturnQueue.push([{ id: 'biz-1', subscription_activated_at: activatedAt }]);
-    // day_1 drip_log — not sent
+    // Single query excludes drips with pending outbox via NOT EXISTS — returns empty
     sqlReturnQueue.push([]);
-    // day_1 outbox — already queued (row exists)
-    sqlReturnQueue.push([{ id: 'pending-outbox' }]);
-    // day_7 and day_30 not due — no further calls
 
     const mod = await import('../jobs/OnboardingDripScheduler');
     await mod.checkAndSchedule();
 
-    // 1 business query + 1 drip_log + 1 outbox = 3 (no INSERT)
-    expect(mockSql).toHaveBeenCalledTimes(3);
+    // 1 main query only, returns empty so no INSERTs
+    expect(mockSql).toHaveBeenCalledTimes(1);
   });
 
   it('handles 23505 unique constraint gracefully', async () => {
     const now = new Date('2026-04-16T12:00:00Z');
     vi.setSystemTime(now);
-    const activatedAt = new Date('2026-04-14T12:00:00Z').toISOString();
 
-    // Business query
-    sqlReturnQueue.push([{ id: 'biz-1', subscription_activated_at: activatedAt }]);
-    // day_1 drip_log — not sent
-    sqlReturnQueue.push([]);
-    // day_1 outbox — not queued
-    sqlReturnQueue.push([]);
+    // Single query returns one due drip
+    sqlReturnQueue.push([{ business_id: 'biz-1', drip_type: 'day_1' }]);
 
     // Override mockSql for the INSERT to throw 23505
-    // First 3 calls use queue, 4th throws
+    // First call uses queue (main query), 2nd throws
     mockSql
-      .mockImplementationOnce(() => Promise.resolve(sqlReturnQueue.shift()))
-      .mockImplementationOnce(() => Promise.resolve(sqlReturnQueue.shift()))
       .mockImplementationOnce(() => Promise.resolve(sqlReturnQueue.shift()))
       .mockImplementationOnce(() => Promise.reject({ code: '23505' }));
 
