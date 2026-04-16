@@ -5,6 +5,20 @@ import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 
 export const dynamic = 'force-dynamic';
 
+export interface DashboardSettings {
+  tone: string;
+  productsServices: string;
+  avoidFacts: string[];
+  sampleResponses: string[];
+  notificationPreference: string;
+  ownerPhone: string;
+  ownerEmail: string;
+  weeklySummaryEnabled: boolean;
+  monthlyImpactEnabled: boolean;
+  category: string;
+  googlePlaceId: string;
+}
+
 export interface DashboardData {
   business: { name: string; createdAt: string };
   valueSummary: {
@@ -33,6 +47,16 @@ export interface DashboardData {
     type: 'monthly' | 'weekly';
     periodLabel: string;
   } | null;
+  settings: DashboardSettings;
+}
+
+/** PgBouncer can return TEXT[] as JSON strings. */
+function parseArray(val: unknown): string[] {
+  if (Array.isArray(val)) return val;
+  if (typeof val === 'string') {
+    try { return JSON.parse(val); } catch { return []; }
+  }
+  return [];
 }
 
 /** All dashboard responses use no-store headers — owner-specific data. */
@@ -68,9 +92,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       monthlyBriefRows,
       weeklyBriefRows,
     ] = await Promise.all([
-      // Business info
+      // Business info + settings
       sql`
-        SELECT name, created_at, initial_review_count, initial_responded_count, baseline_captured_at
+        SELECT name, created_at, initial_review_count, initial_responded_count, baseline_captured_at,
+               tone, products_services, avoid_facts, sample_responses,
+               notification_preference, owner_phone, owner_email,
+               weekly_summary_enabled, monthly_impact_enabled,
+               category, google_place_id
         FROM businesses
         WHERE id = ${businessId}
         LIMIT 1
@@ -267,6 +295,19 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         responseStatus: (row.response_status as string) ?? null,
       })),
       latestBrief,
+      settings: {
+        tone: (business.tone as string) ?? 'professional and friendly',
+        productsServices: (business.products_services as string) ?? '',
+        avoidFacts: parseArray(business.avoid_facts),
+        sampleResponses: parseArray(business.sample_responses),
+        notificationPreference: (business.notification_preference as string) ?? 'email',
+        ownerPhone: (business.owner_phone as string) ?? '',
+        ownerEmail: (business.owner_email as string) ?? '',
+        weeklySummaryEnabled: (business.weekly_summary_enabled as boolean) ?? true,
+        monthlyImpactEnabled: (business.monthly_impact_enabled as boolean) ?? true,
+        category: (business.category as string) ?? '',
+        googlePlaceId: (business.google_place_id as string) ?? '',
+      },
     };
 
     return jsonResponse(data);
