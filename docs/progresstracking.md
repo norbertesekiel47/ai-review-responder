@@ -2158,6 +2158,15 @@ Created `supabase/migrations/014_retention_expansion.sql`:
 
 **Test count:** 570/570 passing across 39 files (was 569 — 1 new test for rating-changed skip)
 
+### Post-19g Review Round 2 (2026-04-16)
+
+**Status:** COMPLETE
+
+1. **Transaction-safe outbox insert** (Medium): Replaced try/catch 23505 with SELECT dedup check + `INSERT ... ON CONFLICT DO NOTHING`. Catching 23505 in JS doesn't help because Postgres has already aborted the transaction at the statement level. `ON CONFLICT DO NOTHING` prevents the statement error entirely — the satisfaction_responses upsert always commits.
+2. **Migration 016** (`016_satisfaction_alert_index.sql`): Drops broad `idx_jo_engagement_alert_inflight` and recreates it excluding `partner_satisfaction_alert`. Adds week-scoped `idx_jo_satisfaction_alert_weekly` keyed on `(aggregate_id, payload->'satisfaction'->>'week_start_date')` for satisfaction alerts specifically.
+
+**Test count:** 570/570
+
 ---
 
 **Sprint 5B: COMPLETE** — All 5 prompts (19b Automated Ranking, 19c-5B Settings + Dashboard Actions, 19d-5B Satisfaction Alert, 19e Onboarding Drips, 19g Satisfaction Pulse) implemented with all review findings addressed across 14+ review rounds. 570 tests across 39 files.
