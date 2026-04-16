@@ -408,6 +408,7 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
     process.env.ADMIN_NOTIFICATION_EMAIL = 'admin@test.com';
     sqlReturnQueue.push([mockBusinessRow()]); // business
     sqlReturnQueue.push([]);                  // idempotency check — no existing delivery
+    sqlReturnQueue.push([{ rating: 'not_great', comment: 'Response took too long' }]); // live satisfaction_responses re-read
 
     await handleEngagementAlert(makeJob({
       alert_type: 'partner_satisfaction_alert',
@@ -434,24 +435,44 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
     expect(mockMarkOutboxCompleted).toHaveBeenCalled();
   });
 
-  it('sends satisfaction alert without comment', async () => {
+  it('sends satisfaction alert without comment (not_great, no comment)', async () => {
     process.env.ADMIN_NOTIFICATION_EMAIL = 'admin@test.com';
     sqlReturnQueue.push([mockBusinessRow()]); // business
     sqlReturnQueue.push([]);                  // idempotency check
+    sqlReturnQueue.push([{ rating: 'not_great', comment: null }]); // live re-read
 
     await handleEngagementAlert(makeJob({
       alert_type: 'partner_satisfaction_alert',
       satisfaction: {
-        rating: 'ok',
+        rating: 'not_great',
         comment: null,
         week_start_date: '2026-04-13',
       },
     }));
 
     expect(mockBuildPartnerSatisfactionAlertHtml).toHaveBeenCalledWith(expect.objectContaining({
-      rating: 'ok',
+      rating: 'not_great',
       comment: null,
     }));
+    expect(mockMarkOutboxCompleted).toHaveBeenCalled();
+  });
+
+  it('skips alert when owner changed rating from not_great to ok', async () => {
+    process.env.ADMIN_NOTIFICATION_EMAIL = 'admin@test.com';
+    sqlReturnQueue.push([mockBusinessRow()]); // business
+    sqlReturnQueue.push([]);                  // idempotency check
+    sqlReturnQueue.push([{ rating: 'ok', comment: null }]); // live re-read — rating changed!
+
+    await handleEngagementAlert(makeJob({
+      alert_type: 'partner_satisfaction_alert',
+      satisfaction: {
+        rating: 'not_great',
+        comment: 'was bad',
+        week_start_date: '2026-04-13',
+      },
+    }));
+
+    expect(mockSendInternalEmail).not.toHaveBeenCalled();
     expect(mockMarkOutboxCompleted).toHaveBeenCalled();
   });
 

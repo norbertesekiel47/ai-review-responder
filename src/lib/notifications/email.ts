@@ -322,7 +322,8 @@ export function buildWeeklyValueReportHtml(params: WeeklyValueReportParams): str
     </td></tr>`
     : '';
 
-  // Satisfaction pulse (conditional)
+  // Satisfaction pulse (conditional) — escape URLs for href attributes
+  const esc = (url: string) => url.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
   const pulseSection = feedbackUrls
     ? `
         <tr><td style="padding:20px 24px 0;">
@@ -330,13 +331,13 @@ export function buildWeeklyValueReportHtml(params: WeeklyValueReportParams): str
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
             <tr>
               <td align="center" width="33%" style="padding:0 4px;">
-                <a href="${feedbackUrls.great}" style="display:block;padding:10px 4px;background:#d1fae5;color:#065f46;border-radius:6px;font-size:14px;font-weight:600;text-decoration:none;text-align:center;">Great</a>
+                <a href="${esc(feedbackUrls.great)}" style="display:block;padding:10px 4px;background:#d1fae5;color:#065f46;border-radius:6px;font-size:14px;font-weight:600;text-decoration:none;text-align:center;">Great</a>
               </td>
               <td align="center" width="33%" style="padding:0 4px;">
-                <a href="${feedbackUrls.ok}" style="display:block;padding:10px 4px;background:#fef3c7;color:#92400e;border-radius:6px;font-size:14px;font-weight:600;text-decoration:none;text-align:center;">OK</a>
+                <a href="${esc(feedbackUrls.ok)}" style="display:block;padding:10px 4px;background:#fef3c7;color:#92400e;border-radius:6px;font-size:14px;font-weight:600;text-decoration:none;text-align:center;">OK</a>
               </td>
               <td align="center" width="33%" style="padding:0 4px;">
-                <a href="${feedbackUrls.notGreat}" style="display:block;padding:10px 4px;background:#fee2e2;color:#991b1b;border-radius:6px;font-size:14px;font-weight:600;text-decoration:none;text-align:center;">Not great</a>
+                <a href="${esc(feedbackUrls.notGreat)}" style="display:block;padding:10px 4px;background:#fee2e2;color:#991b1b;border-radius:6px;font-size:14px;font-weight:600;text-decoration:none;text-align:center;">Not great</a>
               </td>
             </tr>
           </table>

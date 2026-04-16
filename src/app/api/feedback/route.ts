@@ -32,6 +32,15 @@ function validateParams(
   if (!WEEK_PATTERN.test(week)) {
     return { error: 'Invalid week format. Must be YYYY-MM-DD' };
   }
+  // Round-trip calendar date validation (rejects impossible dates like 2026-99-99)
+  const parsed = new Date(week + 'T00:00:00Z');
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== week) {
+    return { error: 'Invalid calendar date' };
+  }
+  // UUID format validation for business_id
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(businessId)) {
+    return { error: 'Invalid business_id format' };
+  }
   if (!verifyFeedback(businessId, rating, week, sig)) {
     return { error: 'Invalid signature' };
   }
@@ -151,7 +160,11 @@ export async function POST(request: NextRequest) {
       DO UPDATE SET rating = EXCLUDED.rating, comment = EXCLUDED.comment
     `;
 
-    // 2. If not_great, queue engagement alert with cooldown dedup
+    // 2. If not_great, queue engagement alert with cooldown dedup.
+    // Catch 23505 from the broad engagement-alert unique index (migration 011)
+    // which keys on (aggregate_id, alert_type) without week — a pending alert
+    // from a different week would otherwise abort the entire transaction and
+    // lose the satisfaction_responses upsert.
     if (rating === 'not_great') {
       const payload: EngagementAlertPayload = {
         business_id: businessId,
@@ -163,19 +176,28 @@ export async function POST(request: NextRequest) {
         },
       };
 
-      await tx`
-        INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-        SELECT ${uuidv7()}, 'engagement_alert', 'business', ${businessId},
-               ${JSON.stringify(payload)}::jsonb, 'pending'
-        WHERE NOT EXISTS (
-          SELECT 1 FROM job_outbox
-          WHERE topic = 'engagement_alert'
-            AND aggregate_id = ${businessId}
-            AND status <> 'failed'
-            AND payload->>'alert_type' = 'partner_satisfaction_alert'
-            AND payload->'satisfaction'->>'week_start_date' = ${week}
-        )
-      `;
+      try {
+        await tx`
+          INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+          SELECT ${uuidv7()}, 'engagement_alert', 'business', ${businessId},
+                 ${JSON.stringify(payload)}::jsonb, 'pending'
+          WHERE NOT EXISTS (
+            SELECT 1 FROM job_outbox
+            WHERE topic = 'engagement_alert'
+              AND aggregate_id = ${businessId}
+              AND status <> 'failed'
+              AND payload->>'alert_type' = 'partner_satisfaction_alert'
+              AND payload->'satisfaction'->>'week_start_date' = ${week}
+          )
+        `;
+      } catch (err: unknown) {
+        if ((err as { code?: string }).code === '23505') {
+          // Duplicate from broad index — alert already queued, satisfaction upsert still committed
+          console.log(`[feedback] partner_satisfaction_alert already queued for ${businessId} — skipping outbox insert`);
+        } else {
+          throw err;
+        }
+      }
     }
   });
 

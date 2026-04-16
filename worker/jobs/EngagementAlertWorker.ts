@@ -323,16 +323,33 @@ async function handleSatisfactionAlert(
     return;
   }
 
+  // Re-read the current satisfaction_responses row — the owner may have changed
+  // their feedback (e.g. not_great → great) after this outbox entry was created.
+  // Use the live DB state, not the stale outbox payload.
+  const [currentResponse] = await sql<{ rating: string; comment: string | null }[]>`
+    SELECT rating, comment FROM satisfaction_responses
+    WHERE business_id = ${businessId} AND week_start_date = ${satisfaction.week_start_date}::date
+  `;
+
+  if (!currentResponse || currentResponse.rating !== 'not_great') {
+    console.log(`${LOG_PREFIX} Satisfaction rating changed to '${currentResponse?.rating ?? 'deleted'}' for ${businessId} week ${satisfaction.week_start_date} — skipping alert`);
+    await markOutboxCompleted(outboxId);
+    return;
+  }
+
+  // Use live comment from DB, not stale payload
+  const liveComment = currentResponse.comment;
+
   const bodyHtml = buildPartnerSatisfactionAlertHtml({
     businessName: business.name,
-    rating: satisfaction.rating,
-    comment: satisfaction.comment,
+    rating: 'not_great',
+    comment: liveComment,
     weekStartDate: satisfaction.week_start_date,
     ownerEmail: business.owner_email,
     ownerPhone: business.owner_phone,
   });
 
-  const ratingLabel = satisfaction.rating === 'not_great' ? 'Not great' : satisfaction.rating === 'ok' ? 'OK' : 'Great';
+  const ratingLabel = 'Not great';
   const subject = `Satisfaction pulse: ${business.name} rated "${ratingLabel}"`;
 
   // Mark outbox completed BEFORE sending the email. This is the same crash-safe

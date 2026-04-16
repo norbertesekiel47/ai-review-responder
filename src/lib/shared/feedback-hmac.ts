@@ -19,10 +19,15 @@ export function signFeedback(businessId: string, rating: string, weekStartDate: 
 /**
  * Verify feedback HMAC. Uses constant-time comparison to prevent timing attacks.
  */
+const HEX_64_PATTERN = /^[0-9a-f]{64}$/i;
+
 export function verifyFeedback(businessId: string, rating: string, weekStartDate: string, sig: string): boolean {
+  // Reject non-hex or wrong-length signatures before comparison.
+  // Without this, non-ASCII 64-char strings pass the length check but produce
+  // different byte lengths in Buffer.from(), causing timingSafeEqual to throw.
+  if (!HEX_64_PATTERN.test(sig)) return false;
   const expected = signFeedback(businessId, rating, weekStartDate);
-  if (expected.length !== sig.length) return false;
-  return timingSafeEqual(Buffer.from(expected), Buffer.from(sig));
+  return timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(sig, 'hex'));
 }
 
 /**
