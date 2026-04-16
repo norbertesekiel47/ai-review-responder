@@ -2,7 +2,7 @@
 
 This file explains what is actually built in the repository today, how it maps to the implementation plan, and what is left to build.
 
-Last updated: 2026-04-15 (after Sprint 5A completion)
+Last updated: 2026-04-16 (after Sprint 5B completion)
 
 ---
 
@@ -506,6 +506,12 @@ This is the complete working flow as of today:
 - EngagementMonitorPoller (every 24h) → EngagementAlertWorker → owner nudges with fresh approval links + partner escalation alerts
 - ArchivalPoller (every 24h) — cleans up old completed outbox entries, processed events, and expired demos
 - Churn risk scoring on admin overview + business detail pages
+- RankingTrackingScheduler (biweekly, feature-flagged) → RankingTrackingWorker → SerpAPI ranking search + upsert (strict fail-closed budget)
+- OnboardingDripScheduler (hourly) → OnboardingDripWorker → day 1/7/30 onboarding emails with claim-before-send idempotency
+- Owner settings page with notification opt-out (weekly/monthly toggle)
+- Dashboard approval actions (approve/edit/regenerate via session auth, separate from token-based routes)
+- Satisfaction pulse in weekly email (HMAC-signed links → scanner-safe GET confirmation → POST upsert + partner alert for "Not great")
+- Admin keyword management + manual ranking entry on business detail page
 
 ---
 
@@ -540,9 +546,18 @@ Approval Page (/approve/[token])
 ├── Value Summary Banner (reviews handled, time saved, response rate with baseline)
 ├── Review Velocity bar chart (last 8 weeks)
 ├── Google Maps Ranking chart (conditional — only if ranking data exists)
-├── Recent Reviews list (last 10, expandable responses, "check email" for pending)
+├── Recent Reviews list (last 10, expandable responses)
+│   └── Pending reviews: Approve / Edit / Regenerate buttons (session-auth, not token-based)
 ├── Latest Intelligence Brief (most recent monthly or weekly)
-└── OwnerNav: "Sign out" → /admin/login
+└── OwnerNav: "Dashboard" | "Settings" | "Sign out"
+
+/settings
+├── Business Profile (read-only: name/category/placeId, editable: tone/products/avoid-facts/samples)
+├── Notification Preferences (email/sms/both, phone, weekly summary on/off, monthly impact on/off)
+└── "Save Changes" → PUT /api/settings → success toast
+
+/feedback/thanks (public, no auth)
+└── Static "Thank you" page after satisfaction pulse submission
 ```
 
 ### Admin Pages (requires admin/sales_partner auth)
@@ -566,6 +581,9 @@ Approval Page (/approve/[token])
 /admin/businesses/[id] (detail)
 ├── Inline-editable profile fields → PATCH /api/admin/businesses/[id]
 ├── Review list with status badges (read-only)
+├── Churn risk badge + Engagement signal breakdown
+├── Tracked Keywords section (add/remove pills, max 5) → PUT /api/admin/businesses/[id]/keywords
+├── Ranking section (recent snapshots table + manual entry form) → POST /api/admin/businesses/[id]/ranking
 ├── "Copy to Clipboard" → copies approved response text
 └── "Mark as Posted" → POST /api/admin/businesses/[id]/mark-posted
 
@@ -584,12 +602,174 @@ Approval Page (/approve/[token])
 Approval email → owner clicks "Review & Approve" → /approve/[token]
 Manual-post email → admin reads instructions → opens Google Maps manually
 Weekly Value Report email → owner reads stats → optional "See your full dashboard →" link → /dashboard (if owner has auth)
+Weekly Value Report email → satisfaction pulse buttons → GET /api/feedback?...&sig=HMAC → confirmation page → POST → /feedback/thanks
 Monthly Impact Report email → owner reads cumulative stats → optional dashboard link
 Owner nudge email → owner clicks "Review & Approve →" → /approve/[token] (fresh link)
+Onboarding drip day 1 → owner reads welcome email → optional dashboard link
+Onboarding drip day 7 → owner reads recap → approval links for pending reviews → /approve/[token]
+Onboarding drip day 30 → owner reads impact milestone
 Partner engagement/escalation/low-engagement alert → admin reads alert (no app link)
+Partner satisfaction alert → admin reads alert when owner rated "Not great" (no app link)
 Admin exception alert → admin reads alert (no app link)
 Notification failover → re-sends approval email → /approve/[token]
 ```
+
+### Sprint 5B: Retention Expansion (Prompts 19b, 19c-5B, 19d-5B, 19e, 19g)
+
+We built the remaining retention features — automated ranking tracking, owner settings with notification opt-out, dashboard approval actions, onboarding drip emails, and satisfaction pulse feedback.
+
+**What it does:** Google Maps ranking is tracked automatically every two weeks via SerpAPI (feature-flagged, budget-capped). Business owners can now edit their profile and toggle weekly/monthly email preferences from a settings page. They can also approve, edit, or regenerate review responses directly from the dashboard (without needing the email link). New customers receive onboarding emails at day 1, 7, and 30 after subscribing. The weekly value report email now includes a satisfaction pulse — three buttons (Great / OK / Not great) that let the owner rate their experience without logging in. A "Not great" response triggers an alert to the sales partner.
+
+**Automated Ranking Tracking (Prompt 19b):**
+- RankingTrackingScheduler — runs hourly, fires biweekly on even-week Sundays at 22:00 UTC. Feature-flagged via `RANKING_TRACKING_ENABLED` env var (disabled by default). Queries eligible businesses (active, verified place ID, has coordinates or search location, non-empty tracked keywords).
+- RankingTrackingWorker — calls SerpAPI `engine=google_maps` with the business's tracked keyword, finds the business by matching `place_id` in the results, and upserts the rank into `ranking_snapshots`. Uses SerpAPI's `position` field when available, falls back to array index. Strict active-only subscription check (no past_due grace for paid API calls).
+- Monthly SerpAPI budget enforced via `checkRateLimit({ strict: true })` — fails closed when Redis is unavailable (unlike user-facing rate limits which fail open). Budget check is per-keyword, inside the loop — safe when keyword limit is raised.
+- Admin business detail page has two new sections: Tracked Keywords (editable pill list, max 5, add/remove) and Ranking (recent snapshots table + manual entry form with keyword/rank/date).
+- PUT `/api/admin/businesses/:id/keywords` — Zod validated, `.trim().min(1)` rejects whitespace-only
+- POST `/api/admin/businesses/:id/ranking` — manual rank upsert with calendar date validation + FK→404
+
+**Owner Settings + Dashboard Approval Actions (Prompt 19c-5B):**
+- Owner settings page at `/settings` — two sections: Business Profile (read-only name/category/placeId, editable tone/products/avoid-facts/sample-responses) and Notification Preferences (email/sms/both channel toggle, phone number, weekly summary on/off, monthly impact on/off). Single "Save Changes" button sends only changed fields.
+- PUT `/api/settings` — Zod validated, owner-scoped via `user.businessId` (never from request body). SMS channel requires phone number (checks stored phone from DB for partial updates).
+- WeeklySummaryScheduler and MonthlyImpactScheduler respect `weekly_summary_enabled` / `monthly_impact_enabled` columns — businesses that opt out are skipped.
+- ApprovalService refactored: new `approveBySession()`, `editBySession()`, `regenerateBySession()` methods share the same core mutation helpers as token-based methods but write `auth_method='owner_session'` + `actor_user_id` to audit log. Token-based routes untouched.
+- Three new dashboard API routes: POST `/api/dashboard/reviews/[reviewId]/approve|edit|regenerate` — `requireRole('owner')`, business ownership check (query scoped by `business_id` to prevent IDOR), 409 for non-pending responses.
+- Session-based actions revoke all open approval links for the response via `revokeOpenLinksForResponse()`.
+- DashboardContent upgraded with Approve/Edit/Regenerate buttons on pending reviews (guard on `responseStatus === 'pending_approval'`, not `displayStatus` fallback).
+- OwnerNav updated with Settings link.
+
+**Partner Satisfaction Alert (Prompt 19d-5B):**
+- `partner_satisfaction_alert` added to `EngagementAlertType` union
+- `EngagementAlertPayload.satisfaction` optional field carries rating/comment/week_start_date
+- `EngagementAlertPayload.metrics` made optional (satisfaction alerts don't need engagement metrics)
+- `handleSatisfactionAlert()` in EngagementAlertWorker — validates JSONB payload at runtime (rating enum, date format, comment type), re-reads `satisfaction_responses` before sending (skips if owner changed rating from not_great), week-scoped idempotency via `template='partner_satisfaction_alert:YYYY-MM-DD'`, crash-safe outbox-completed-before-send
+- `buildPartnerSatisfactionAlertHtml()` — red accent for not_great, amber for ok, shows comment + owner contact
+
+**Onboarding Drip Emails (Prompt 19e):**
+- Stripe webhook handler sets `subscription_activated_at = COALESCE(subscription_activated_at, NOW())` when activating — preserves anchor on re-activation from past_due.
+- OnboardingDripScheduler — hourly poller, single CROSS JOIN query finds all (business, drip_type) pairs that are due. Index-friendly predicate (`activated_at <= NOW() - interval`). Only suppresses drips where `sent_at IS NOT NULL` (allows stale claim recovery).
+- OnboardingDripWorker — three-way claim system: INSERT new claim → own-outbox retry → stale takeover (>15 min). Prevents concurrent duplicate sends via `claimed_by_outbox_id` column. Claims BEFORE any side effects (approval link creation).
+  - Day 1: Welcome email — how it works (3-step list), 30-second approval, weekly report mention, conditional dashboard link
+  - Day 7: First-week recap — reviews handled + time saved + response rate (all window-bounded to activation + 7 days), highlight review+response pair, edit acknowledgment, pending reviews with fresh approval links via `createApprovalLink()`. Throws when `NEXT_PUBLIC_APP_URL` missing and pending reviews exist.
+  - Day 30: Monthly impact — total reviews, response rate before → now, time saved, ranking change if data exists. Business-scoped sales partner lookup (via `onboarded_by` with role check).
+- `sent_at` set only after `sendInternalEmail()` succeeds. Delivery recorded before outbox completion.
+
+**Satisfaction Pulse (Prompt 19g):**
+- Weekly Value Report email now includes a satisfaction pulse section at the bottom: three HMAC-signed buttons (Great / OK / Not great). Links use `CSRF_SECRET` for signing. Only rendered when `CSRF_SECRET` is configured.
+- HMAC helper (`src/lib/shared/feedback-hmac.ts`) — `signFeedback()`, `verifyFeedback()` (hex pattern validation + `Buffer.from(sig, 'hex')` + `timingSafeEqual`), `buildFeedbackUrl()`.
+- GET `/api/feedback` — validates HMAC + UUID format + calendar date, renders lightweight HTML confirmation page with hidden signed fields. Shows optional comment textarea for not_great. **Never writes to DB** (email scanners prefetch GET URLs).
+- POST `/api/feedback` — re-validates HMAC, single `sql.begin()` transaction: upserts `satisfaction_responses` on `(business_id, week_start_date)` + conditionally inserts `engagement_alert` outbox entry for not_great. Uses SELECT dedup + `INSERT ON CONFLICT DO NOTHING` to avoid aborting the transaction from the broad engagement-alert index. Redirects 303 to `/feedback/thanks`.
+- Migration 016 replaces the broad `idx_jo_engagement_alert_inflight` index (which blocked different-week satisfaction alerts) with two indexes: one excluding `partner_satisfaction_alert`, one week-scoped for satisfaction alerts specifically.
+- Static `/feedback/thanks` page.
+
+**New database objects (3 migrations):**
+- Migration 014: `onboarding_drip_log` table, `satisfaction_responses` table, 8 new columns on `businesses` (subscription_activated_at, tracked_keywords, google_place_address/lat/lng, ranking_search_location, weekly_summary_enabled, monthly_impact_enabled), `approval_audit_log` alterations (nullable token_hash, actor_user_id, auth_method), ranking dedup indexes, JSONB array CHECK constraint
+- Migration 015: `onboarding_drip_log` claim/sent state separation (nullable sent_at, claimed_at, claimed_by_outbox_id), outbox dedup index for onboarding_drip, scheduler performance index
+- Migration 016: Week-scoped satisfaction alert index (replaces broad engagement alert dedup)
+
+---
+
+## Every File In The Project
+
+*(Additions and changes from Sprint 5B are marked with 🆕 for new files and 📝 for modified files)*
+
+### Database (`supabase/migrations/`) — Sprint 5B additions
+
+| File | What it does |
+|---|---|
+| 🆕 `014_retention_expansion.sql` | 2 new tables, 8 business columns, audit log alterations, ranking indexes, JSONB constraint |
+| 🆕 `015_drip_log_claim_state.sql` | Drip log claim/sent separation, outbox dedup index, scheduler performance index |
+| 🆕 `016_satisfaction_alert_index.sql` | Week-scoped satisfaction alert index, fixes broad engagement dedup |
+
+### Worker Process (`worker/`) — Sprint 5B additions
+
+| File | What it does | Status |
+|---|---|---|
+| 🆕 `jobs/RankingTrackingScheduler.ts` | Biweekly poller (even-week Sunday 22 UTC). Feature-flagged. Single query with dedup. | Working |
+| 🆕 `jobs/RankingTrackingWorker.ts` | SerpAPI google_maps search, place_id matching, ranking_snapshots upsert. Strict fail-closed budget. | Working |
+| 🆕 `jobs/OnboardingDripScheduler.ts` | Hourly poller. Single CROSS JOIN query finds due drips. Only suppresses sent drips. | Working |
+| 🆕 `jobs/OnboardingDripWorker.ts` | Three-way claim (INSERT/retry/stale takeover). Day 1 welcome, day 7 recap with approval links, day 30 impact. | Working |
+| 📝 `jobs/EngagementAlertWorker.ts` | Added `handleSatisfactionAlert()` — validates JSONB, re-reads DB before sending, week-scoped idempotency | Working |
+| 📝 `jobs/EngagementMonitorPoller.ts` | COOLDOWNS changed to Partial (satisfaction alerts excluded — dedup is in the worker) | Working |
+| 📝 `jobs/WeeklySummaryWorker.ts` | Passes HMAC-signed feedback URLs to the weekly email template | Working |
+| 📝 `jobs/WeeklySummaryScheduler.ts` | Respects `weekly_summary_enabled` opt-out flag | Working |
+| 📝 `jobs/MonthlyImpactScheduler.ts` | Respects `monthly_impact_enabled` opt-out flag | Working |
+| 📝 `ingress/stripe.ts` | Sets `subscription_activated_at = COALESCE(subscription_activated_at, NOW())` on activation | Working |
+| 📝 `index.ts` | Registers 4 new workers/schedulers (ranking + drip) with start/stop lifecycle | Working |
+| 📝 `queues.ts` | Added `TRACK_RANKING` and `ONBOARDING_DRIP` queues | Working |
+
+### Worker Tests — Sprint 5B additions
+
+| File | Tests |
+|---|---|
+| 🆕 `__tests__/RankingTrackingScheduler.test.ts` | Feature flag, mock mode, time gates, eligible business query, dedup, ISO week, lifecycle (19 tests) |
+| 🆕 `__tests__/RankingTrackingWorker.test.ts` | Subscription guard, empty keywords, JSONB guard, budget cap, Redis unavailable, coords vs location, SerpAPI position, NULL rank, mock mode, keyword limit, SerpAPI error (16 tests) |
+| 🆕 `__tests__/OnboardingDripScheduler.test.ts` | Mock mode, day offsets, drip_log/outbox dedup, multi-drip queuing, lifecycle (12 tests) |
+| 🆕 `__tests__/OnboardingDripWorker.test.ts` | Day 1/7/30 emails, auth check, approval links, zero reviews, ranking, claim idempotency, stale takeover, subscription guard (12 tests) |
+| 📝 `__tests__/EngagementAlertWorker.test.ts` | Added satisfaction alert tests: send with rating+comment, no comment, missing data, invalid rating/date, idempotency skip, rating changed skip, admin email missing (added 9 tests, total 23) |
+
+### Next.js Pages — Sprint 5B additions
+
+| File | What it does | Status |
+|---|---|---|
+| 📝 `(authenticated)/settings/page.tsx` | Owner settings page — profile editing + notification preferences + opt-out toggles | Working |
+| 🆕 `(public)/feedback/thanks/page.tsx` | Static thank-you page after satisfaction pulse submission | Working |
+| 📝 `admin/businesses/[id]/page.tsx` | Added TrackedKeywordsSection (editable pills) + ManualRankingSection (table + form) | Working |
+
+### API Routes — Sprint 5B additions
+
+| File | What it does | Status |
+|---|---|---|
+| 🆕 `admin/businesses/[id]/keywords/route.ts` | PUT: update tracked keywords (max 5, Zod validated) | Working |
+| 🆕 `admin/businesses/[id]/ranking/route.ts` | POST: manual rank entry with date validation + FK→404 | Working |
+| 🆕 `dashboard/reviews/[reviewId]/approve/route.ts` | POST: session-auth approve (owner scoped) | Working |
+| 🆕 `dashboard/reviews/[reviewId]/edit/route.ts` | POST: session-auth edit with Zod validation | Working |
+| 🆕 `dashboard/reviews/[reviewId]/regenerate/route.ts` | POST: session-auth regenerate | Working |
+| 🆕 `settings/route.ts` | PUT: owner settings update with SMS phone validation | Working |
+| 🆕 `feedback/route.ts` | GET: HMAC-validated confirmation page (no DB write). POST: upsert satisfaction_responses + outbox | Working |
+| 📝 `admin/businesses/[id]/route.ts` | Returns trackedKeywords + rankingSnapshots + location data in GET | Working |
+| 📝 `dashboard/route.ts` | Returns settings data (tone, prefs, opt-out flags) in GET | Working |
+
+### API Route Tests — Sprint 5B additions
+
+| File | Tests |
+|---|---|
+| 🆕 `admin/businesses/[id]/keywords/__tests__/route.test.ts` | Non-array, >5, valid, empty, 404, whitespace (6 tests) |
+| 🆕 `admin/businesses/[id]/ranking/__tests__/route.test.ts` | Missing keyword, rank 0, valid, default date, null rank, invalid date, whitespace (7 tests) |
+| 🆕 `dashboard/reviews/__tests__/actions.test.ts` | All 3 routes: auth, 404, business scoping, validation, 409 not pending (17 tests) |
+| 🆕 `settings/__tests__/route.test.ts` | No business, empty body, tone, prefs, toggles, invalid enum, body injection (11 tests) |
+| 🆕 `feedback/__tests__/route.test.ts` | GET valid/invalid/missing, POST upsert/not_great outbox/great no outbox, redirect, comment trim (17 tests) |
+
+### Shared Business Logic — Sprint 5B additions
+
+| File | What it does |
+|---|---|
+| 🆕 `src/lib/shared/feedback-hmac.ts` | HMAC sign/verify for satisfaction pulse links (SHA-256, CSRF_SECRET, hex validation, constant-time compare) |
+| 📝 `src/lib/shared/rate-limit.ts` | Added `{ strict: true }` option — throws on Redis errors instead of failing open |
+| 📝 `src/lib/shared/worker-types.ts` | Added TrackRankingPayload, OnboardingDripPayload, EngagementAlertPayload.satisfaction field, metrics made optional |
+| 📝 `src/lib/approval/service.ts` | Added approveBySession/editBySession/regenerateBySession + SessionAuditContext + revokeOpenLinksForResponse |
+| 📝 `src/lib/notifications/email.ts` | Added 6 templates: 3 onboarding drip + satisfaction pulse section in weekly report + partner satisfaction alert |
+
+### Shared Tests — Sprint 5B additions
+
+| File | Tests |
+|---|---|
+| 🆕 `src/lib/shared/__tests__/feedback-hmac.test.ts` | Consistent signing, verify valid/tampered/wrong-length, buildFeedbackUrl (8 tests) |
+| 📝 `src/lib/shared/__tests__/rate-limit.test.ts` | Added strict mode tests: Redis fail throws, REDIS_CACHE_URL missing throws, default mode still allows (4 tests) |
+
+### Components — Sprint 5B changes
+
+| File | What changed |
+|---|---|
+| 📝 `src/components/DashboardContent.tsx` | Added ReviewActions component with Approve/Edit/Regenerate buttons for pending reviews |
+| 📝 `src/components/OwnerNav.tsx` | Added Settings link |
+
+### Other — Sprint 5B changes
+
+| File | What changed |
+|---|---|
+| 📝 `src/middleware.ts` | Added `/api/settings` to owner route protection |
+| 📝 `.env.example` | Added `RANKING_TRACKING_ENABLED=false` and `RANKING_TRACKING_INTERVAL_MS` |
 
 ---
 
@@ -598,22 +778,15 @@ Notification failover → re-sends approval email → /approve/[token]
 ### Sprint 3: COMPLETE ✓
 ### Sprint 4: COMPLETE ✓
 ### Sprint 5A: COMPLETE ✓
+### Sprint 5B: COMPLETE ✓
 
-Everything through Sprint 5A is built and working. See next section for what remains.
+Everything through Sprint 5B is built and working. See next section for what remains.
 
 ### Deferred from Sprint 4 to Sprint 6:
 - Correlation IDs across service boundaries (Sentry breadcrumbs + log prefixes sufficient at 10 businesses)
 - PostHog analytics (zero paying customers = zero analytics value)
 - Load testing with k6/Artillery (10 businesses × 10 reviews/month doesn't warrant it yet)
 - DB-backed integration tests (requires dedicated test database in CI)
-
-### Sprint 5B: Deferred Retention Features
-
-- Automated ranking tracking (SerpAPI, feature-flagged, biweekly, cost-capped)
-- Satisfaction pulse (weekly email with great/ok/not_great response — GET confirms, POST mutates)
-- Onboarding drip emails (day 1, 7, 30 — only for `active` businesses, based on `subscription_activated_at`)
-- Owner settings page (notification preferences, dashboard approval actions)
-- Low-engagement trend direction (requires historical approval_rate snapshots)
 
 ### Sprint 6: Scale to $1K MRR (Prompt 20)
 
