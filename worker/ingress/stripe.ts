@@ -53,6 +53,7 @@ async function processCheckoutSessionCompleted(session: Stripe.Checkout.Session)
       subscription_status = 'active',
       stripe_customer_id = ${customerId},
       stripe_subscription_id = ${subscriptionId},
+      subscription_activated_at = COALESCE(subscription_activated_at, NOW()),
       updated_at = NOW()
     WHERE id = ${businessId}::uuid
       AND subscription_status IN ('pending_payment', 'past_due')

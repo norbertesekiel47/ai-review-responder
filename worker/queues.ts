@@ -50,6 +50,7 @@ export const QUEUE_NAMES = {
   SEND_MONTHLY_IMPACT: 'send_monthly_impact',
   ENGAGEMENT_ALERT: 'engagement_alert',
   TRACK_RANKING: 'track_ranking',
+  ONBOARDING_DRIP: 'onboarding_drip',
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -80,6 +81,7 @@ export const queues = {
   sendMonthlyImpact: new Queue(QUEUE_NAMES.SEND_MONTHLY_IMPACT, { connection: opts, defaultJobOptions }),
   engagementAlert: new Queue(QUEUE_NAMES.ENGAGEMENT_ALERT, { connection: opts, defaultJobOptions }),
   trackRanking: new Queue(QUEUE_NAMES.TRACK_RANKING, { connection: opts, defaultJobOptions }),
+  onboardingDrip: new Queue(QUEUE_NAMES.ONBOARDING_DRIP, { connection: opts, defaultJobOptions }),
 } as const;
 
 // Lookup table: outbox topic string → Queue instance
@@ -95,4 +97,5 @@ export const topicToQueue: Record<string, Queue> = {
   [QUEUE_NAMES.SEND_MONTHLY_IMPACT]: queues.sendMonthlyImpact,
   [QUEUE_NAMES.ENGAGEMENT_ALERT]: queues.engagementAlert,
   [QUEUE_NAMES.TRACK_RANKING]: queues.trackRanking,
+  [QUEUE_NAMES.ONBOARDING_DRIP]: queues.onboardingDrip,
 };

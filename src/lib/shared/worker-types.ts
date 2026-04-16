@@ -84,3 +84,8 @@ export interface TrackRankingPayload {
   /** ISO date 'YYYY-MM-DD' — the scheduler run that created this job. Used for outbox dedup. */
   run_date: string;
 }
+
+export interface OnboardingDripPayload {
+  business_id: string;
+  drip_type: 'day_1' | 'day_7' | 'day_30';
+}
