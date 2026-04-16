@@ -1569,9 +1569,267 @@ Improvements discovered during end-to-end manual testing of the full system afte
 
 ---
 
-## Sprint 5: Churn Killers
+## Sprint 5: Churn Killers (Retention Stack)
 
-**Status:** NOT STARTED
+**Status:** IN PROGRESS
+
+### Phase 5A.1 — Weekly Value Report + Monthly Impact Email (Prompt 19a) (2026-04-14)
+
+**Status:** COMPLETE
+
+**What was done:**
+
+1. **Review Summary LLM Helper** (`src/lib/responses/review-summary.ts`):
+   - Dedicated helper for generating multi-review intelligence briefs
+   - OpenAI (gpt-4o-mini) primary, Anthropic (claude-haiku-4-5-20251001) fallback
+   - Caps input to 30 reviews, truncates each review text to 200 chars
+   - Best-effort cost audit via `recordApiCost()` (swallows audit write failures)
+   - Mock mode returns canned summary with provider='mock', costUsd=0
+   - Both providers failing returns null (graceful degradation)
+   - 7 tests covering all paths
+
+2. **Notification Delivery Extended** (`src/lib/notifications/delivery.ts`):
+   - `responseId` made optional (`string | null | undefined`) to support business-level notifications
+   - Weekly value report and monthly impact emails have no specific response — pass null
+   - Backward-compatible: existing callers unaffected
+
+3. **Queue Registration** (`worker/queues.ts`, `src/lib/shared/worker-types.ts`):
+   - `SendMonthlyImpactPayload` interface: `{ business_id, month_start_date }`
+   - `SEND_MONTHLY_IMPACT` queue name, queue instance, topic-to-queue mapping
+
+4. **Weekly Value Report Email Template** (`src/lib/notifications/email.ts`):
+   - New `buildWeeklyValueReportHtml()` replacing old `buildWeeklySummaryEmailHtml()`
+   - Sections: AI Intelligence Brief (blue left border, light blue bg), Value Delivered header (reviews × 7 min), Response Rate Lift (with baseline comparison), Review Velocity (4-week average), Conditional Ranking, Notable Reviews, Conditional Dashboard Link
+   - Old template and interface removed
+
+5. **Monthly Impact Email Template** (`src/lib/notifications/email.ts`):
+   - New `buildMonthlyImpactEmailHtml()` with Monthly Intelligence Brief, value delivered in hours, response rate with baseline, ranking change, best review of the month (with approved response), dashboard link
+   - 24 tests for both email templates
+
+6. **Upgraded WeeklySummaryWorker** (`worker/jobs/WeeklySummaryWorker.ts`):
+   - Expanded business query to include ROI baseline fields
+   - New queries: reviews for LLM summary (30 max), 4-week average review count, ranking snapshots (latest + initial), dashboard eligibility (owner has auth_id)
+   - Intelligence brief: reuses existing `summary_text` from weekly_summaries if present (idempotent), otherwise calls `generateReviewSummary()` and persists
+   - Records notification delivery with `template='weekly_value_report'` after successful send
+   - Email subject changed to "Weekly Value Report"
+   - 12 tests covering all paths
+
+7. **MonthlyImpactScheduler** (`worker/jobs/MonthlyImpactScheduler.ts`):
+   - Hourly setInterval poller, fires 1st of month 9-10 AM UTC
+   - Queries active/past_due businesses without sent monthly_impact_emails for previous month
+   - Dedup guard: checks both monthly_impact_emails table and in-flight outbox entries
+   - Same patterns as WeeklySummaryScheduler
+
+8. **MonthlyImpactWorker** (`worker/jobs/MonthlyImpactWorker.ts`):
+   - Processes `send_monthly_impact` outbox entries
+   - Idempotent upsert into monthly_impact_emails (sent_at IS NULL guard)
+   - Queries month stats, best review (highest star + longest text), reviews for LLM brief
+   - Reuses existing `summary_text` if present (no re-LLM on retry)
+   - Conditional ranking snapshots (latest vs initial)
+   - Dashboard URL only when owner has auth_id
+   - Crash-safe: marks sent_at BEFORE Resend call
+   - Records notification delivery with `template='monthly_impact'`
+   - 13 tests covering all paths
+
+9. **Worker Registration** (`worker/index.ts`):
+   - MonthlyImpactWorker added to BullMQ workers array (10 workers total)
+   - MonthlyImpactScheduler added to startup/shutdown lifecycle (6 pollers total)
+
+10. **Migration 008** (`supabase/migrations/008_retention_core.sql`):
+    - `monthly_impact_emails` table (UUIDv7 PK, business_id FK, month_start_date, summary_text, sent_at)
+    - Unique constraint on (business_id, month_start_date) for idempotency
+    - Index on notification_deliveries (business_id, template, sent_at DESC) for cooldown checks
+
+**Test count:** 312/312 passing across 24 files (was 253)
+**New test files:** `review-summary.test.ts`, `email-templates.test.ts`, `WeeklySummaryWorker.test.ts`, `MonthlyImpactWorker.test.ts`
+
+### Post-19a Robustness Fixes (2026-04-14)
+
+**Status:** COMPLETE
+
+1. Cost guard in `review-summary.ts`: `reserveCost`/`finalizeCost`/`releaseCost` lifecycle, budget-exceeded degrades gracefully
+2. `claimed_at`/`sent_at` split: migration 009 adds `claimed_at` to `weekly_summaries` + `monthly_impact_emails`, atomic claim before processing, `sent_at` set just before Resend
+3. Stale claim recovery: claims older than 15 min are reclaimable, prevents permanently stuck reports from crashed workers
+4. Defensive try/finally in `generateReviewSummary`: `finalized` flag matches production generator pattern
+5. Prompt injection hardening: system prompt treats review text as raw data
+6. `subscription_tier` pass-through: workers query tier and pass to `generateReviewSummary`
+7. Response-rate fix: joined query counts period reviews with responses (not independent counts)
+8. Time-saved copy: templates use `totalResponded` consistently
+9. 4-week average: upper bound changed to `week_start_date` (previous 4 completed weeks)
+10. Nullable guards: `rank_position IS NOT NULL` on ranking queries, `star_rating IS NOT NULL` on summary queries, `NULLS LAST` on best-review ORDER BY
+11. Best review threshold removed: `star_rating >= 4` filter dropped per spec
+
+### Phase 5A.2 — Read-Only Owner Dashboard (Prompt 19c) (2026-04-14)
+
+**Status:** COMPLETE
+
+**What was done:**
+
+1. **recharts installed** (v3.8.1) for bar and line charts
+
+2. **Dashboard Data API** (`src/app/api/dashboard/route.ts`):
+   - Single `GET` endpoint returns all dashboard data in one payload
+   - Defense-in-depth: `requireRole(request, 'owner')` + `businessId` null check
+   - 8 parallel SQL queries via `Promise.all()`: business info + baseline, total reviews, total responded (joined), 8-week velocity, ranking snapshots, last 10 reviews with latest response, monthly brief, weekly brief
+   - Derived fields: response rate, baseline rate, time saved, ranking grouped by keyword, latest brief (monthly preferred)
+   - Exports `DashboardData` interface for client component typing
+
+3. **Middleware update** (`src/middleware.ts`):
+   - `/api/dashboard` paths protected for `role='owner'` with `business_id` check
+   - Added to `config.matcher`
+
+4. **OwnerNav component** (`src/components/OwnerNav.tsx`):
+   - Dashboard link + business name (hidden on mobile) + Sign out button
+   - Same styling family as AdminNav
+   - Uses `createBrowserSupabaseClient()` for sign out
+
+5. **Authenticated layout** (`src/app/(authenticated)/layout.tsx`):
+   - Async server component reads Supabase session from cookies
+   - Queries business name for OwnerNav
+   - Redirects to login if unauthenticated
+   - Wraps children in max-w-4xl container
+
+6. **DashboardContent client component** (`src/components/DashboardContent.tsx`):
+   - Fetches `GET /api/dashboard` on mount
+   - Section A: Value Summary Banner (blue gradient, reviews handled, time saved, response rate with baseline)
+   - Section B: Review Velocity BarChart (recharts, last 8 weeks, formatted dates)
+   - Section C: Ranking LineChart (conditional, Y-axis inverted, one line per keyword)
+   - Section D: Recent Reviews (status badges, expandable response text, "check email" for pending)
+   - Section E: Latest Intelligence Brief (monthly preferred, blue left border styling)
+   - Loading and error states
+
+7. **Dashboard page** (`src/app/(authenticated)/dashboard/page.tsx`):
+   - Replaced placeholder with `DashboardContent`
+
+### Post-19c Dashboard Robustness Fixes (2026-04-14)
+
+**Status:** COMPLETE
+
+1. ROI metrics: changed to explicit `IN ('posted', 'approved', 'edited', 'awaiting_manual_post')` — excludes pending_approval from "handled" count
+2. Edited response display: `COALESCE(approved_text, response_text)` in lateral join shows owner-approved text
+3. UTC date formatting: all chart date parsing uses `T00:00:00Z` suffix + `timeZone: 'UTC'`
+4. Zero-review weeks: velocity query uses `generate_series` to fill missing weeks with zero counts
+5. Brief recency: compares `sent_at` timestamps instead of period start dates
+6. Dashboard index: migration 010 adds `(business_id, detected_at DESC)` composite index
+7. Ranking limit: snapshots bounded to last 12 months
+8. Dashboard tests: 9 API route tests covering auth, scoping, empty states, brief recency, pending reviews
+9. Null review_date: returns empty string instead of current date
+10. No-store headers: all dashboard responses (success + error) use `NO_STORE_HEADERS` via `jsonResponse` helper; middleware `/api/dashboard` 401/403 also include no-store
+11. Pending reviews: lateral join includes `pending_approval` so UI shows "check your email" reminder
+12. Sign-out: only redirects on success, shows error state on failure, uses `router.refresh()`
+13. Status badges: added `edited` and `generating` to badge color map
+14. Nullable star_rating: typed as `number | null`, renders "No rating" when absent
+
+**Test count:** 322/322 passing across 25 files (was 312)
+**New test file:** `src/app/api/dashboard/__tests__/route.test.ts`
+
+### Phase 5A.3 — Engagement Detection & Re-engagement (Prompt 19d) (2026-04-14)
+
+**Status:** COMPLETE
+
+**What was done:**
+
+1. **Extracted `createApprovalLink()`** (`src/lib/approval/create-link.ts`):
+   - Shared approval link creation logic (randomUUID → SHA-256 hash stored, raw token returned)
+   - Handles orphaned link revocation (crash before email send)
+   - Used by NotificationWorker (refactored) and EngagementAlertWorker (new)
+
+2. **EngagementMonitorPoller** (`worker/jobs/EngagementMonitorPoller.ts`):
+   - Daily poller (24h default, configurable via `ENGAGEMENT_MONITOR_INTERVAL_MS`)
+   - Single grouped SQL query computes 5 metrics per active business: days_since_approval, pending_count, oldest_pending_age_days, notified_count (30d), approved_count (30d)
+   - 4 engagement rules with cooldown dedup via notification_deliveries:
+     - `owner_nudge`: activity_age >= 3d AND pending > 0 (3-day cooldown)
+     - `partner_engagement_alert`: activity_age >= 7d AND pending > 0 (7-day cooldown)
+     - `partner_escalation_alert`: activity_age >= 14d AND (pending > 0 OR notified > 0) (14-day cooldown)
+     - `partner_low_engagement`: approval_rate < 50% AND notified >= 3 (7-day cooldown)
+   - `activity_age_days = days_since_approval ?? oldest_pending_age_days`
+   - Creates `engagement_alert` outbox entries
+   - 10 tests
+
+3. **EngagementAlertWorker** (`worker/jobs/EngagementAlertWorker.ts`):
+   - Processes `engagement_alert` outbox entries
+   - `owner_nudge`: queries pending reviews, creates fresh approval links per review via `createApprovalLink()`, sends nudge email to owner with review list + approval URLs
+   - `partner_engagement_alert`: sends internal email to admin — "hasn't engaged in N days", owner contact info, suggested check-in
+   - `partner_escalation_alert`: sends escalation email — "at risk, no engagement in 2+ weeks", suggests phone call/visit
+   - `partner_low_engagement`: sends low-engagement email — "approval rate dropped to X%"
+   - Records notification delivery for all alert types
+   - 12 tests
+
+4. **4 Email Templates** (`src/lib/notifications/email.ts`):
+   - `buildOwnerNudgeEmailHtml()` — customer-facing, 600px card, lists pending reviews with stars + approval buttons
+   - `buildPartnerEngagementAlertHtml()` — internal, plain styling, metrics + contact info
+   - `buildPartnerEscalationAlertHtml()` — internal, red accent border, urgency framing
+   - `buildPartnerLowEngagementAlertHtml()` — internal, amber accent border
+   - 42 template tests
+
+5. **Queue + Payload Registration**:
+   - `EngagementAlertType` union type + `EngagementAlertPayload` interface in worker-types.ts
+   - `ENGAGEMENT_ALERT` queue name, instance, topic mapping in queues.ts
+   - Worker + poller registered in worker/index.ts (11 workers + 7 pollers total)
+
+6. **NotificationWorker Refactored**:
+   - Inline approval link creation replaced with `createApprovalLink()` call
+   - Removed unused crypto imports
+   - All existing tests still pass
+
+**Test count:** 386/386 passing across 28 files (was 322)
+**New test files:** `EngagementMonitorPoller.test.ts`, `EngagementAlertWorker.test.ts`, `engagement-email-templates.test.ts`
+
+---
+
+### Phase 5A.4 — Churn Risk Score System (Prompt 19f) (2026-04-15)
+
+**Status:** COMPLETE
+
+**What was done:**
+
+1. **Churn Risk Score Function** (`src/lib/shared/churn-score.ts`):
+   - Pure function `computeChurnRiskScore(metrics)` — no DB calls, no side effects
+   - 5 weighted signals: approval rate (30%), days since approval (25%), satisfaction pulse (20%), response time trend (15%), account age (10%)
+   - Levels: 0-30 = healthy, 31-60 = watch, 61-100 = at_risk
+   - Returns score, level, and breakdown array with signal name, value, and contribution
+   - Weights and thresholds exported as constants for tuning
+   - 39 comprehensive tests covering each signal independently, edge cases, boundary values, combined scoring
+
+2. **Admin Overview API** (`src/app/api/admin/overview/route.ts`):
+   - Added grouped metrics CTE query for all returned business IDs (one query, not N+1)
+   - Computes approval rate, notified/pending counts, days since approval, account age, response time trend
+   - Runs each through `computeChurnRiskScore()` and adds `churnScore` to response
+
+3. **Admin Overview Page** (`src/app/admin/overview/page.tsx`):
+   - Added Health column with HealthBadge (green=Healthy, amber=Watch, red=At Risk)
+   - Shows numeric score alongside level badge
+   - Default sort: risk score descending (most at-risk at top)
+
+4. **Business Detail API** (`src/app/api/admin/businesses/[id]/route.ts`):
+   - Added same metrics CTE query (scoped to single business)
+   - Computes and returns `churnScore` in GET response
+
+5. **Business Detail Page** (`src/app/admin/businesses/[id]/page.tsx`):
+   - Risk badge next to business name in header
+   - New Engagement section with score breakdown
+   - Each signal shows: name, value, contribution bar (color-coded green/amber/red), numeric contribution
+
+**Test count:** 427/427 passing across 29 files (was 388)
+**New test file:** `churn-score.test.ts` (39 tests)
+
+### Post-19f Robustness Fixes (2026-04-15)
+
+**Status:** COMPLETE
+
+1. Detail API contract: moved `churnScore` inside `business` object (was top-level — page expected `business.churnScore`, badge/engagement section never rendered)
+2. Overview API: fetch all businesses, sort by churn score server-side, then paginate (was sorting only the post-pagination page)
+3. Negative limit bypass: clamped to `[1, 100]` with `Math.max(..., 1)`
+4. Deterministic sort tie-breaker: score → pending count → name → id (prevents unstable pagination with tied scores)
+5. Migration 013: composite indexes `(business_id, status, created_at)` and `(business_id, approved_at DESC)` for churn metrics queries
+6. Email send failure recovery: WeeklySummaryWorker + MonthlyImpactWorker clear `sent_at` + `claimed_at` on send failure so retries can reclaim the report (was permanently stuck as "already sent")
+7. Owner nudge idempotency: checks for existing delivery within 1 day before creating approval links (prevents DB churn on BullMQ retries)
+8. `approvalRate` contract: documented as 0-1 fraction on `BusinessMetrics`, added defensive auto-correction guard for accidental 0-100 values
+9. Non-null assertion replaced with `?? 0` fallback on `metrics.approval_rate` in low-engagement alert
+
+---
+
+**Sprint 5A: COMPLETE** — All 4 prompts (19a Weekly Value Report + Monthly Impact Email, 19c Read-Only Owner Dashboard, 19d Engagement Detection & Re-engagement, 19f Churn Risk Score) implemented with all review findings addressed across 7 review rounds. 427 tests across 29 files.
 
 ---
 

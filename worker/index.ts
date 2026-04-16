@@ -55,6 +55,10 @@ import { handleStripeWebhook } from './ingress/stripe';
 import { startNotificationFailoverPoller, stopNotificationFailoverPoller } from './jobs/NotificationFailoverPoller';
 import { startWeeklySummaryScheduler, stopWeeklySummaryScheduler } from './jobs/WeeklySummaryScheduler';
 import { startArchivalPoller, stopArchivalPoller } from './jobs/ArchivalPoller';
+import { handleMonthlyImpact } from './jobs/MonthlyImpactWorker';
+import { startMonthlyImpactScheduler, stopMonthlyImpactScheduler } from './jobs/MonthlyImpactScheduler';
+import { startEngagementMonitorPoller, stopEngagementMonitorPoller } from './jobs/EngagementMonitorPoller';
+import { handleEngagementAlert } from './jobs/EngagementAlertWorker';
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
 
@@ -92,7 +96,11 @@ const weeklySummaryWorker = new Worker(QUEUE_NAMES.WEEKLY_SUMMARY, handleWeeklyS
 
 const placeIdValidationWorker = new Worker(QUEUE_NAMES.VALIDATE_PLACE_ID, handlePlaceIdValidation, workerOpts);
 
-const workers = [demoWorker, reviewSyncWorker, responseGenWorker, notificationWorker, publisherWorker, adminExceptionWorker, weeklySummaryWorker, placeIdValidationWorker];
+const monthlyImpactWorker = new Worker(QUEUE_NAMES.SEND_MONTHLY_IMPACT, handleMonthlyImpact, workerOpts);
+
+const engagementAlertWorker = new Worker(QUEUE_NAMES.ENGAGEMENT_ALERT, handleEngagementAlert, workerOpts);
+
+const workers = [demoWorker, reviewSyncWorker, responseGenWorker, notificationWorker, publisherWorker, adminExceptionWorker, weeklySummaryWorker, placeIdValidationWorker, monthlyImpactWorker, engagementAlertWorker];
 
 // Sentry breadcrumbs on job lifecycle
 for (const worker of workers) {
@@ -147,6 +155,8 @@ async function main(): Promise<void> {
   startNotificationFailoverPoller();
   startWeeklySummaryScheduler();
   startArchivalPoller();
+  startMonthlyImpactScheduler();
+  startEngagementMonitorPoller();
   console.log(`Worker service running on port ${PORT}`);
 }
 
@@ -160,6 +170,8 @@ async function shutdown(): Promise<void> {
   stopNotificationFailoverPoller();
   stopWeeklySummaryScheduler();
   stopArchivalPoller();
+  stopMonthlyImpactScheduler();
+  stopEngagementMonitorPoller();
   await Promise.all(workers.map((w) => w.close()));
   await Promise.all(Object.values(queues).map((q) => q.close()));
   await app.close();

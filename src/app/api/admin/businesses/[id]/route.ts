@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
 import { UpdateBusinessSchema } from '@/lib/shared/schemas';
 import { requireRole, AuthError } from '@/lib/db/auth';
+import { computeChurnRiskScore, type ChurnScore } from '@/lib/shared/churn-score';
 
 export const dynamic = 'force-dynamic';
 
@@ -104,6 +105,74 @@ export async function GET(
       return NextResponse.json({ error: 'Business not found' }, { status: 404 });
     }
 
+    const [metrics] = await sql<{
+      approval_rate: number | null;
+      notified_count: number;
+      pending_count: number;
+      days_since_approval: number | null;
+      account_age_days: number;
+      avg_hours_current: number | null;
+      avg_hours_prev: number | null;
+    }[]>`
+      WITH notif AS (
+        SELECT
+          COUNT(DISTINCT nd.response_id)::int AS notified_count,
+          COUNT(DISTINCT nd.response_id) FILTER (
+            WHERE r.status IN ('approved','edited','posted','awaiting_manual_post')
+          )::int AS approved_count
+        FROM notification_deliveries nd
+        JOIN responses r ON r.id = nd.response_id
+        WHERE nd.business_id = ${businessId}
+          AND nd.template = 'approval_request'
+          AND nd.sent_at IS NOT NULL
+          AND nd.sent_at >= CURRENT_DATE - 30
+      ),
+      resp AS (
+        SELECT
+          COUNT(*) FILTER (WHERE rp.status = 'pending_approval')::int AS pending_count,
+          EXTRACT(DAY FROM CURRENT_TIMESTAMP - MAX(rp.approved_at)
+            FILTER (WHERE rp.status IN ('approved','edited','posted','awaiting_manual_post'))
+          )::int AS days_since_approval,
+          AVG(EXTRACT(EPOCH FROM rp.approved_at - rp.created_at) / 3600.0)
+            FILTER (WHERE rp.approved_at IS NOT NULL AND rp.created_at >= CURRENT_DATE - 7)::float AS avg_hours_current,
+          AVG(EXTRACT(EPOCH FROM rp.approved_at - rp.created_at) / 3600.0)
+            FILTER (WHERE rp.approved_at IS NOT NULL AND rp.created_at >= CURRENT_DATE - 35 AND rp.created_at < CURRENT_DATE - 7)::float AS avg_hours_prev
+        FROM responses rp
+        WHERE rp.business_id = ${businessId}
+      )
+      SELECT
+        CASE WHEN COALESCE(n.notified_count, 0) >= 3
+             THEN n.approved_count::float / NULLIF(n.notified_count, 0)
+             ELSE NULL END AS approval_rate,
+        COALESCE(n.notified_count, 0)::int AS notified_count,
+        COALESCE(r.pending_count, 0)::int AS pending_count,
+        r.days_since_approval,
+        EXTRACT(DAY FROM CURRENT_TIMESTAMP - b.created_at)::int AS account_age_days,
+        r.avg_hours_current,
+        r.avg_hours_prev
+      FROM businesses b
+      CROSS JOIN notif n
+      CROSS JOIN resp r
+      WHERE b.id = ${businessId}
+    `;
+
+    let responseTimeTrend: 'faster_or_stable' | 'slower' | 'stopped' | null = null;
+    if (metrics?.avg_hours_current != null && metrics?.avg_hours_prev != null) {
+      responseTimeTrend = metrics.avg_hours_current > metrics.avg_hours_prev * 1.5 ? 'slower' : 'faster_or_stable';
+    } else if (metrics && metrics.pending_count > 0 && metrics.days_since_approval != null && metrics.days_since_approval > 7) {
+      responseTimeTrend = 'stopped';
+    }
+
+    const churnScore = computeChurnRiskScore({
+      approvalRate: metrics?.approval_rate ?? null,
+      notifiedResponseCount30d: metrics?.notified_count ?? 0,
+      pendingResponseCount: metrics?.pending_count ?? 0,
+      daysSinceLastApproval: metrics?.days_since_approval ?? null,
+      satisfactionResponses: null,
+      responseTimeTrend,
+      accountAgeDays: metrics?.account_age_days ?? 0,
+    });
+
     return NextResponse.json({
       business: {
         id: business.id,
@@ -121,6 +190,7 @@ export async function GET(
         ownerName: business.owner_name ?? null,
         ownerEmail: business.owner_email ?? null,
         lastSyncAt: business.last_sync_at ? business.last_sync_at.toISOString() : null,
+        churnScore,
       },
       reviews: reviewRows.map((row) => ({
         id: row.id,

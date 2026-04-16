@@ -8,7 +8,7 @@ import { sql } from '@/lib/db/server';
  */
 export async function recordNotificationDelivery(params: {
   businessId: string;
-  responseId: string;
+  responseId?: string | null;
   channel: 'email' | 'sms';
   recipient: string;
   template: string;
@@ -17,7 +17,7 @@ export async function recordNotificationDelivery(params: {
   await sql`
     INSERT INTO notification_deliveries (id, business_id, response_id, channel, recipient, template, sent_at, external_message_id)
     VALUES (
-      ${uuidv7()}, ${params.businessId}, ${params.responseId}, ${params.channel},
+      ${uuidv7()}, ${params.businessId}, ${params.responseId ?? null}, ${params.channel},
       ${params.recipient}, ${params.template}, NOW(), ${params.externalMessageId}
     )
   `;

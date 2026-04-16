@@ -59,13 +59,16 @@ async function pollOutbox(): Promise<void> {
         const recoveredCount = parseInt(recovered?.count ?? '0', 10);
         const terminatedCount = parseInt(terminated?.count ?? '0', 10);
 
-        // Recover stale 'dispatching' rows (claimed but process crashed before dispatch)
+        // Recover stale 'dispatching' rows (claimed but process crashed before dispatch).
+        // Only recover rows older than 2 minutes — active claims from other processes
+        // use dispatching + dispatched_at = NOW() and should not be reset.
         const [staleDispatching] = await tx<{ count: string }[]>`
           WITH recovered_dispatching AS (
             UPDATE job_outbox
             SET status = 'pending', available_at = NOW(), dispatched_at = NULL
             WHERE status = 'dispatching'
               AND attempts < max_attempts
+              AND (dispatched_at IS NULL OR dispatched_at < NOW() - INTERVAL '2 minutes')
             RETURNING id
           )
           SELECT COUNT(*)::text AS count FROM recovered_dispatching
@@ -86,7 +89,7 @@ async function pollOutbox(): Promise<void> {
     // ── Phase 2: Claim pending rows (atomic, outside BullMQ) ────────
     const entries = await sql<OutboxEntry[]>`
       UPDATE job_outbox
-      SET status = 'dispatching', attempts = attempts + 1
+      SET status = 'dispatching', attempts = attempts + 1, dispatched_at = NOW()
       WHERE id IN (
         SELECT id FROM job_outbox
         WHERE status = 'pending'

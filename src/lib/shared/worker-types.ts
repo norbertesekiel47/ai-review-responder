@@ -45,3 +45,27 @@ export interface ValidatePlaceIdPayload {
   business_id: string;
   google_maps_url: string;
 }
+
+export interface SendMonthlyImpactPayload {
+  business_id: string;
+  /** ISO date 'YYYY-MM-DD' — always the 1st of the month being summarized. */
+  month_start_date: string;
+}
+
+export type EngagementAlertType =
+  | 'owner_nudge'
+  | 'partner_engagement_alert'
+  | 'partner_escalation_alert'
+  | 'partner_low_engagement';
+
+export interface EngagementAlertPayload {
+  business_id: string;
+  alert_type: EngagementAlertType;
+  metrics: {
+    days_since_approval: number | null;
+    oldest_pending_age_days: number | null;
+    pending_count: number;
+    approval_rate: number | null;
+    notified_count: number;
+  };
+}
