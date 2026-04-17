@@ -283,6 +283,7 @@ export async function handleMonthlyImpact(
       to: business.owner_email,
       subject: `Monthly Impact Report — ${business.name} (${monthLabel})`,
       bodyHtml: html,
+      category: 'marketing',
     });
     messageId = result.messageId;
   } catch (err) {

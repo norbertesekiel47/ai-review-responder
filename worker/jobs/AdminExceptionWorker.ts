@@ -76,6 +76,7 @@ export async function handleAdminException(
       to: adminEmail,
       subject: `Review exception: ${exception.business_name} — ${exception.type}`,
       bodyHtml,
+      category: 'internal',
     });
   } catch (err) {
     // Throw for BullMQ retry

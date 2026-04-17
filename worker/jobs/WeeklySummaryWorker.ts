@@ -298,6 +298,7 @@ export async function handleWeeklySummary(
       to: business.owner_email,
       subject: `Weekly Value Report — ${business.name} (${weekLabel})`,
       bodyHtml: html,
+      category: 'marketing',
     });
     messageId = result.messageId;
   } catch (err) {

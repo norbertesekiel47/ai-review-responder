@@ -135,6 +135,7 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
     to: business.owner_email,
     subject,
     bodyHtml: html,
+    category: 'marketing',
   });
 
   // ── 8. Mark sent_at after successful delivery ─────────────────────

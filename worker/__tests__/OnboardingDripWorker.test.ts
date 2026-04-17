@@ -152,6 +152,7 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
       to: 'jane@test.com',
       subject: 'Welcome to RepWorth, Jane!',
       bodyHtml: '<html>day1</html>',
+      category: 'marketing',
     });
 
     expect(mockRecordNotificationDelivery).toHaveBeenCalledWith({
@@ -223,6 +224,7 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
       to: 'jane@test.com',
       subject: 'Your first week with RepWorth — Drip Test Biz',
       bodyHtml: '<html>day7</html>',
+      category: 'marketing',
     });
 
     expect(mockRecordNotificationDelivery).toHaveBeenCalledWith({
@@ -329,6 +331,7 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
       to: 'jane@test.com',
       subject: 'Your first month with RepWorth — Drip Test Biz',
       bodyHtml: '<html>day30</html>',
+      category: 'marketing',
     });
 
     expect(mockRecordNotificationDelivery).toHaveBeenCalledWith({

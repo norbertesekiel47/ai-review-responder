@@ -77,6 +77,7 @@ async function checkFailedNotifications(): Promise<void> {
               to: adminEmail,
               subject: `Notification failure: ${row.business_name} — all delivery attempts failed`,
               bodyHtml: `<p>All approval email delivery attempts have failed for a response to <strong>${escapeHtml(row.reviewer_name)}</strong>'s ${row.star_rating}-star review of <strong>${escapeHtml(row.business_name)}</strong>.</p><p>The system will re-attempt delivery. Please check the Resend dashboard for bounce/complaint details.</p>`,
+              category: 'internal',
             });
             await recordNotificationDelivery({
               businessId: row.business_id,

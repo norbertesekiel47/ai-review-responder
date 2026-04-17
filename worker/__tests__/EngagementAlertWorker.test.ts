@@ -181,6 +181,7 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
       to: 'owner@test.com',
       subject: 'You have 2 reviews waiting for your approval',
       bodyHtml: '<html>nudge</html>',
+      category: 'marketing',
     });
 
     // Recorded delivery
@@ -268,6 +269,7 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
       to: 'admin@repworth.com',
       subject: "Customer Test Biz hasn't engaged in 10 days",
       bodyHtml: '<html>engagement</html>',
+      category: 'internal',
     });
 
     expect(mockRecordNotificationDelivery).toHaveBeenCalledWith({
@@ -324,6 +326,7 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
       to: 'admin@repworth.com',
       subject: 'Customer Test Biz may be at risk',
       bodyHtml: '<html>escalation</html>',
+      category: 'internal',
     });
 
     expect(mockRecordNotificationDelivery).toHaveBeenCalledWith({
@@ -365,6 +368,7 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
       to: 'admin@repworth.com',
       subject: 'Customer Test Biz approval rate is 25%',
       bodyHtml: '<html>low-engagement</html>',
+      category: 'internal',
     });
 
     expect(mockRecordNotificationDelivery).toHaveBeenCalledWith({

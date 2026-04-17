@@ -192,6 +192,7 @@ export async function handlePublishResponse(
     to: adminEmail,
     subject: `Manual post needed: ${businessName}`,
     bodyHtml,
+    category: 'internal',
   });
 
   // Record delivery so retries can detect the email was already sent

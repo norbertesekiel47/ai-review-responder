@@ -167,6 +167,7 @@ async function handleOwnerNudge(
     to: business.owner_email,
     subject,
     bodyHtml,
+    category: 'marketing',
   });
 
   await recordNotificationDelivery({
@@ -248,6 +249,7 @@ async function handlePartnerAlert(
     to: adminEmail,
     subject,
     bodyHtml,
+    category: 'internal',
   });
 
   await recordNotificationDelivery({
@@ -365,6 +367,7 @@ async function handleSatisfactionAlert(
     to: adminEmail,
     subject,
     bodyHtml,
+    category: 'internal',
   });
 
   // Record delivery with week-scoped template tag for future idempotency checks
