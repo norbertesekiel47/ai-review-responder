@@ -15,6 +15,7 @@ const FormSchema = z.object({
   googlePlaceId: z.string().optional(),
   googlePlaceAddress: z.string().optional(),
   googleMapsUrl: z.string().optional(),
+  website: z.string().url('Invalid URL').max(500).optional().or(z.literal('')),
   ownerName: z.string().min(1, 'Owner name is required').max(255),
   ownerEmail: z.string().email('Valid email is required').max(255),
   ownerPhone: z.string().max(20).optional(),
@@ -94,6 +95,7 @@ export default function NewBusinessPage() {
     register,
     handleSubmit,
     setValue,
+    getValues,
     clearErrors,
     formState: { errors },
   } = useForm<FormData>({
@@ -105,16 +107,55 @@ export default function NewBusinessPage() {
     },
   });
 
+  const [prefilling, setPrefilling] = useState(false);
+
+  async function triggerPrefill(placeId: string) {
+    setPrefilling(true);
+    try {
+      const res = await fetch(
+        `/api/admin/businesses/prefill?place_id=${encodeURIComponent(placeId)}`,
+      );
+      if (!res.ok) return; // Silent failure — fields remain empty for manual entry
+      const prefill = (await res.json()) as {
+        category: string | null;
+        phone: string | null;
+        website: string | null;
+        hours: string | null;
+        fullAddress: string | null;
+      };
+      // Only fill fields that are STILL empty at the moment the response
+      // arrives. This prevents overwriting text the user typed while the
+      // request was in flight. getValues() reads the CURRENT form state,
+      // not the state at request time.
+      const current = getValues();
+      if (prefill.category && !current.category) {
+        setValue('category', prefill.category, { shouldDirty: false });
+      }
+      if (prefill.phone && !current.ownerPhone) {
+        setValue('ownerPhone', prefill.phone, { shouldDirty: false });
+      }
+      if (prefill.website && !current.website) {
+        setValue('website', prefill.website, { shouldDirty: false });
+      }
+    } catch {
+      // Network error — silently degrade to manual entry
+    } finally {
+      setPrefilling(false);
+    }
+  }
+
   async function onSubmit(data: FormData) {
     setSubmitting(true);
     setServerError(null);
 
     try {
       // Build payload from inputMode, not hidden field presence
-      const { googlePlaceId, googlePlaceAddress, googleMapsUrl, ...rest } = data;
+      const { googlePlaceId, googlePlaceAddress, googleMapsUrl, website, ...rest } = data;
+      // Normalize empty website string to null (Zod schema accepts either).
+      const normalizedWebsite = website && website.trim().length > 0 ? website.trim() : null;
       const payload = inputMode === 'autocomplete'
-        ? { ...rest, googlePlaceId, googlePlaceAddress }
-        : { ...rest, googleMapsUrl };
+        ? { ...rest, googlePlaceId, googlePlaceAddress, website: normalizedWebsite }
+        : { ...rest, googleMapsUrl, website: normalizedWebsite };
 
       const res = await fetch('/api/admin/businesses', {
         method: 'POST',
@@ -171,12 +212,29 @@ export default function NewBusinessPage() {
               />
             </Field>
 
-            <Field label="Category" error={errors.category?.message}>
+            <Field
+              label="Category"
+              error={errors.category?.message}
+              hint={prefilling ? 'Fetching suggestions from Google Maps…' : undefined}
+            >
               <input
                 {...register('category')}
                 type="text"
                 className={inputClass}
                 placeholder="Restaurant, Salon, Dentist..."
+              />
+            </Field>
+
+            <Field
+              label="Website"
+              error={errors.website?.message}
+              hint={prefilling ? 'Fetching suggestions from Google Maps…' : undefined}
+            >
+              <input
+                {...register('website')}
+                type="url"
+                className={inputClass}
+                placeholder="https://example.com"
               />
             </Field>
 
@@ -195,6 +253,9 @@ export default function NewBusinessPage() {
                     setValue('googlePlaceId', sel.placeId);
                     setValue('googlePlaceAddress', sel.formattedAddress);
                     clearErrors('googlePlaceId');
+                    // Auto-trigger prefill. This runs async and fills empty
+                    // category/ownerPhone/website fields when the response arrives.
+                    triggerPrefill(sel.placeId);
                   }}
                   onClear={() => {
                     setValue('googlePlaceId', '');
@@ -252,7 +313,11 @@ export default function NewBusinessPage() {
               />
             </Field>
 
-            <Field label="Phone" error={errors.ownerPhone?.message}>
+            <Field
+              label="Phone"
+              error={errors.ownerPhone?.message}
+              hint={prefilling ? 'Fetching suggestions from Google Maps…' : undefined}
+            >
               <input
                 {...register('ownerPhone')}
                 type="tel"
