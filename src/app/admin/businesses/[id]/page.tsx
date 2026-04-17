@@ -12,6 +12,7 @@ interface BusinessDetail {
   id: string;
   name: string;
   category: string | null;
+  website: string | null;
   googlePlaceId: string | null;
   tone: string;
   productsServices: string | null;
@@ -114,6 +115,7 @@ function ProfileEditor({ business, businessId, onSaved }: ProfileEditorProps) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(business.name);
   const [category, setCategory] = useState(business.category ?? '');
+  const [website, setWebsite] = useState(business.website ?? '');
   const [tone, setTone] = useState(business.tone);
   const [productsServices, setProductsServices] = useState(business.productsServices ?? '');
   const [staffNames, setStaffNames] = useState(business.staffNames.join(', '));
@@ -126,6 +128,7 @@ function ProfileEditor({ business, businessId, onSaved }: ProfileEditorProps) {
       const body = {
         name: name.trim(),
         category: category.trim() || null,
+        website: website.trim() || null,
         tone: tone.trim(),
         productsServices: productsServices.trim() || null,
         staffNames: staffNames
@@ -164,6 +167,7 @@ function ProfileEditor({ business, businessId, onSaved }: ProfileEditorProps) {
   const handleCancel = () => {
     setName(business.name);
     setCategory(business.category ?? '');
+    setWebsite(business.website ?? '');
     setTone(business.tone);
     setProductsServices(business.productsServices ?? '');
     setStaffNames(business.staffNames.join(', '));
@@ -197,6 +201,16 @@ function ProfileEditor({ business, businessId, onSaved }: ProfileEditorProps) {
           <div>
             <dt className="font-medium text-gray-500">Category</dt>
             <dd className="text-gray-900">{business.category ?? '—'}</dd>
+          </div>
+          <div>
+            <dt className="font-medium text-gray-500">Website</dt>
+            <dd className="text-gray-900">
+              {business.website ? (
+                <a href={business.website} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline">
+                  {business.website}
+                </a>
+              ) : '—'}
+            </dd>
           </div>
           <div>
             <dt className="font-medium text-gray-500">Tone</dt>
@@ -248,6 +262,16 @@ function ProfileEditor({ business, businessId, onSaved }: ProfileEditorProps) {
             type="text"
             value={category}
             onChange={(e) => setCategory(e.target.value)}
+            className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700">Website</label>
+          <input
+            type="url"
+            value={website}
+            onChange={(e) => setWebsite(e.target.value)}
+            placeholder="https://example.com"
             className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>

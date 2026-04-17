@@ -27,6 +27,7 @@ interface BusinessRow {
   id: string;
   name: string;
   category: string | null;
+  website: string | null;
   google_place_id: string | null;
   tone: string | null;
   products_services: string | null;
@@ -88,7 +89,7 @@ export async function GET(
     const [businessRows, reviewRows, rankingSnapshots] = await Promise.all([
       sql<BusinessRow[]>`
         SELECT
-          id, name, category, google_place_id, tone, products_services,
+          id, name, category, website, google_place_id, tone, products_services,
           staff_names, highlight_facts, avoid_facts, sample_responses,
           subscription_status, subscription_tier, owner_name, owner_email, last_sync_at,
           tracked_keywords, google_place_lat, google_place_lng,
@@ -199,6 +200,7 @@ export async function GET(
         id: business.id,
         name: business.name,
         category: business.category ?? null,
+        website: business.website ?? null,
         googlePlaceId: business.google_place_id ?? null,
         tone: business.tone ?? null,
         productsServices: business.products_services ?? null,
