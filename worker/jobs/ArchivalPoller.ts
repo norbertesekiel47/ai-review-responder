@@ -107,6 +107,23 @@ async function runArchival(): Promise<void> {
       SELECT COUNT(*)::text AS count FROM deleted
     `;
 
+    // 5. notification_deliveries older than 90 days — straight delete.
+    // Cooldown/dedup checks in EngagementMonitor/NotificationFailover use much
+    // shorter windows (24h, 3-7d), so permanent delivery records older than 90d
+    // have no operational value.
+    const [notificationsResult] = await sql<{ count: string }[]>`
+      WITH candidates AS (
+        SELECT id FROM notification_deliveries
+        WHERE created_at < NOW() - INTERVAL '90 days'
+        LIMIT 5000
+      ),
+      deleted AS (
+        DELETE FROM notification_deliveries WHERE id IN (SELECT id FROM candidates)
+        RETURNING id
+      )
+      SELECT COUNT(*)::text AS count FROM deleted
+    `;
+
     const outboxCount = parseInt(outboxResult?.count ?? '0', 10);
     const eventsCount = parseInt(eventsResult?.count ?? '0', 10);
     const demosCount = parseInt(demosResult?.count ?? '0', 10);
