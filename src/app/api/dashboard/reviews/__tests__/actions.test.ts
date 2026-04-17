@@ -129,6 +129,7 @@ describe('POST /api/dashboard/reviews/[reviewId]/approve', () => {
   it('returns 200 when owner approves their own review response', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
     setResponseLookup([{ id: RESPONSE_ID, business_id: BUSINESS_ID, status: 'pending_approval' }]);
+    mockSqlResults.push([{ correlation_id: 'upstream-corr-abc' }]);
     mockApproveBySession.mockResolvedValue(undefined);
 
     const { POST } = await import('../[reviewId]/approve/route');
@@ -202,6 +203,7 @@ describe('POST /api/dashboard/reviews/[reviewId]/approve', () => {
   it('returns 409 when response is no longer pending', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
     setResponseLookup([{ id: RESPONSE_ID, business_id: BUSINESS_ID, status: 'pending_approval' }]);
+    mockSqlResults.push([{ correlation_id: 'upstream-corr-abc' }]);
 
     const { ResponseNotPendingError } = await import('@/lib/approval/errors');
     mockApproveBySession.mockRejectedValue(new ResponseNotPendingError('approved'));
@@ -227,6 +229,7 @@ describe('POST /api/dashboard/reviews/[reviewId]/edit', () => {
   it('returns 200 with valid edited text', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
     setResponseLookup([{ id: RESPONSE_ID, business_id: BUSINESS_ID, status: 'pending_approval' }]);
+    mockSqlResults.push([{ correlation_id: 'upstream-corr-abc' }]);
     mockEditBySession.mockResolvedValue(undefined);
 
     const { POST } = await import('../[reviewId]/edit/route');
@@ -312,6 +315,7 @@ describe('POST /api/dashboard/reviews/[reviewId]/edit', () => {
   it('returns 409 when response is no longer pending', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
     setResponseLookup([{ id: RESPONSE_ID, business_id: BUSINESS_ID, status: 'pending_approval' }]);
+    mockSqlResults.push([{ correlation_id: 'upstream-corr-abc' }]);
 
     const { ResponseNotPendingError } = await import('@/lib/approval/errors');
     mockEditBySession.mockRejectedValue(new ResponseNotPendingError('posted'));
@@ -337,6 +341,7 @@ describe('POST /api/dashboard/reviews/[reviewId]/regenerate', () => {
   it('returns 200 on successful regeneration request', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
     setResponseLookup([{ id: RESPONSE_ID, business_id: BUSINESS_ID, status: 'pending_approval' }]);
+    mockSqlResults.push([{ correlation_id: 'upstream-corr-abc' }]);
     mockRegenerateBySession.mockResolvedValue(undefined);
 
     const { POST } = await import('../[reviewId]/regenerate/route');
@@ -381,6 +386,7 @@ describe('POST /api/dashboard/reviews/[reviewId]/regenerate', () => {
   it('returns 409 when response is no longer pending', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
     setResponseLookup([{ id: RESPONSE_ID, business_id: BUSINESS_ID, status: 'pending_approval' }]);
+    mockSqlResults.push([{ correlation_id: 'upstream-corr-abc' }]);
 
     const { ResponseNotPendingError } = await import('@/lib/approval/errors');
     mockRegenerateBySession.mockRejectedValue(new ResponseNotPendingError('approved'));
