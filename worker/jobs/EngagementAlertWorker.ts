@@ -178,7 +178,7 @@ async function handleOwnerNudge(
   });
 
   await markOutboxCompleted(outboxId);
-  logger.log(`Owner nudge sent to ${business.owner_email} (${totalPending} pending reviews)`);
+  logger.log(`Owner nudge sent for business ${businessId} (${totalPending} pending reviews)`);
 }
 
 // ── Partner alerts: email the admin about customer engagement ────────
@@ -259,7 +259,7 @@ async function handlePartnerAlert(
   });
 
   await markOutboxCompleted(outboxId);
-  logger.log(`${alertType} sent to ${adminEmail} for business ${business.name}`);
+  logger.log(`${alertType} sent for business ${businessId}`);
 }
 
 // ── Partner satisfaction alert: triggered by "not great" pulse response ─
@@ -376,5 +376,5 @@ async function handleSatisfactionAlert(
     externalMessageId: messageId,
   });
 
-  logger.log(`partner_satisfaction_alert sent to ${adminEmail} for business ${business.name} (rating: ${satisfaction.rating}, week: ${satisfaction.week_start_date})`);
+  logger.log(`partner_satisfaction_alert sent for business ${businessId} (rating: ${satisfaction.rating}, week: ${satisfaction.week_start_date})`);
 }

@@ -205,7 +205,7 @@ export async function handlePublishResponse(
   });
 
   logger.log(
-    `Manual-post email sent to ${adminEmail} for response ${response_id}`,
+    `Manual-post email sent for response ${response_id} (business ${business_id})`,
   );
 
   // ── Step 8: Complete outbox ────────────────────────────────────────

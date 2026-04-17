@@ -154,7 +154,7 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
 
   await markOutboxCompleted(outboxId);
 
-  logger.log(`${drip_type} sent to ${business.owner_email} for ${business.name}`);
+  logger.log(`${drip_type} sent for business ${business_id}`);
 }
 
 // ── Day 1: Welcome email ────────────────────────────────────────────

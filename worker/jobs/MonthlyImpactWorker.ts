@@ -286,7 +286,7 @@ export async function handleMonthlyImpact(
     });
     messageId = result.messageId;
   } catch (err) {
-    logger.error(`Failed to send monthly impact report for ${business.name} (month ${month_start_date}): ${err instanceof Error ? err.message : err}`);
+    logger.error(`Failed to send monthly impact report for business ${business_id} (month ${month_start_date}): ${err instanceof Error ? err.message : err}`);
     // Keep sent_at set — Resend may have accepted the email before the error.
     // Clearing would risk a duplicate if the scheduler re-queues this business.
     await markOutboxFailed(outboxId, err instanceof Error ? err.message : String(err));
@@ -303,5 +303,5 @@ export async function handleMonthlyImpact(
   });
 
   await markOutboxCompleted(outboxId);
-  logger.log(`Monthly impact report sent for ${business.name} (month ${month_start_date})`);
+  logger.log(`Monthly impact report sent for business ${business_id} (month ${month_start_date})`);
 }

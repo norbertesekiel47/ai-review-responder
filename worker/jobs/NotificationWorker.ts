@@ -170,5 +170,5 @@ export async function handleSendNotification(
   // Raw token only existed in memory during this function.
   // NEVER log it, NEVER store it in outbox payloads.
   await markOutboxCompleted(outboxId);
-  logger.log(`Approval email sent for response ${response_id} to ${business.owner_email}`);
+  logger.log(`Approval email sent for response ${response_id} (business ${business_id})`);
 }

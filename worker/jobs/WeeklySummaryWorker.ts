@@ -301,7 +301,7 @@ export async function handleWeeklySummary(
     });
     messageId = result.messageId;
   } catch (err) {
-    logger.error(`Failed to send weekly value report for ${business.name} (week ${week_start_date}): ${err instanceof Error ? err.message : err}`);
+    logger.error(`Failed to send weekly value report for business ${business_id} (week ${week_start_date}): ${err instanceof Error ? err.message : err}`);
     // Keep sent_at set — Resend may have accepted the email before the error.
     // Clearing would risk a duplicate if the scheduler re-queues this business.
     // Prompt 19a accepts the rare missed-email risk over duplicate sends.
@@ -319,5 +319,5 @@ export async function handleWeeklySummary(
   });
 
   await markOutboxCompleted(outboxId);
-  logger.log(`Weekly value report sent for ${business.name} (week ${week_start_date})`);
+  logger.log(`Weekly value report sent for business ${business_id} (week ${week_start_date})`);
 }
