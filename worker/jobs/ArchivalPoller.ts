@@ -63,6 +63,50 @@ async function runArchival(): Promise<void> {
       SELECT COUNT(*)::text AS count FROM deleted
     `;
 
+    // 4. api_costs older than 90 days — aggregate into rollups, then delete detail rows.
+    // Single atomic CTE: candidates → aggregate → upsert → delete.
+    // ON CONFLICT DO UPDATE is additive so batched runs across multiple cycles
+    // accumulate correctly without double-counting.
+    const [costsResult] = await sql<{ count: string }[]>`
+      WITH candidates AS (
+        SELECT id, business_id, provider, created_at::date AS cost_date,
+               cost_usd,
+               COALESCE(input_tokens, 0) AS input_tokens,
+               COALESCE(output_tokens, 0) AS output_tokens
+        FROM api_costs
+        WHERE created_at < NOW() - INTERVAL '90 days'
+        LIMIT 5000
+      ),
+      aggregated AS (
+        SELECT business_id, provider, cost_date,
+               SUM(cost_usd) AS total_cost_usd,
+               SUM(input_tokens)::int AS total_input_tokens,
+               SUM(output_tokens)::int AS total_output_tokens,
+               COUNT(*)::int AS call_count
+        FROM candidates
+        GROUP BY business_id, provider, cost_date
+      ),
+      upserted AS (
+        INSERT INTO api_costs_daily_rollups
+          (id, business_id, provider, rollup_date,
+           total_cost_usd, total_input_tokens, total_output_tokens, call_count)
+        SELECT gen_random_uuid(), business_id, provider, cost_date,
+               total_cost_usd, total_input_tokens, total_output_tokens, call_count
+        FROM aggregated
+        ON CONFLICT ON CONSTRAINT uniq_cost_rollups_business_provider_date DO UPDATE SET
+          total_cost_usd = api_costs_daily_rollups.total_cost_usd + EXCLUDED.total_cost_usd,
+          total_input_tokens = api_costs_daily_rollups.total_input_tokens + EXCLUDED.total_input_tokens,
+          total_output_tokens = api_costs_daily_rollups.total_output_tokens + EXCLUDED.total_output_tokens,
+          call_count = api_costs_daily_rollups.call_count + EXCLUDED.call_count
+        RETURNING id
+      ),
+      deleted AS (
+        DELETE FROM api_costs WHERE id IN (SELECT id FROM candidates)
+        RETURNING id
+      )
+      SELECT COUNT(*)::text AS count FROM deleted
+    `;
+
     const outboxCount = parseInt(outboxResult?.count ?? '0', 10);
     const eventsCount = parseInt(eventsResult?.count ?? '0', 10);
     const demosCount = parseInt(demosResult?.count ?? '0', 10);
