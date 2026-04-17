@@ -2,10 +2,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const { sqlReturnQueue, mockSql, mockSendInternalEmail } = vi.hoisted(() => {
   const sqlReturnQueue: unknown[] = [];
+  // Preserve vi.fn() type so .mock.calls is accessible for assertions.
   const mockSql = vi.fn((_s: TemplateStringsArray, ..._v: unknown[]) => {
     const result = sqlReturnQueue.shift() ?? [];
     return Promise.resolve(Array.isArray(result) ? result : [result]);
-  }) as unknown as ((_s: TemplateStringsArray, ..._v: unknown[]) => Promise<unknown>) & { count?: number };
+  });
   const mockSendInternalEmail = vi.fn().mockResolvedValue({ messageId: 'mock' });
   return { sqlReturnQueue, mockSql, mockSendInternalEmail };
 });
@@ -17,7 +18,11 @@ vi.mock('../../src/lib/notifications/email', () => ({
 
 import { handleResendWebhook } from '../ingress/resend';
 
-function makeReq(body: unknown, headers: Record<string, string | undefined> = {}) {
+// Cast through `any` because FastifyRequest has a generics-heavy type surface
+// that's awkward to satisfy from an ad-hoc test object. The handler only reads
+// .body, .headers, and .rawBody — the test mock supplies all three.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function makeReq(body: unknown, headers: Record<string, string | undefined> = {}): any {
   return {
     body,
     headers: {
@@ -27,7 +32,7 @@ function makeReq(body: unknown, headers: Record<string, string | undefined> = {}
       ...headers,
     },
     rawBody: JSON.stringify(body),
-  } as unknown as import('fastify').FastifyRequest;
+  };
 }
 
 function makeReply() {
