@@ -79,7 +79,7 @@ describe('ArchivalPoller', () => {
 
     await runOneCycle();
 
-    const archivedLog = logSpy.mock.calls.find((call) =>
+    const archivedLog = logSpy.mock.calls.find((call: unknown[]) =>
       typeof call[0] === 'string' && (call[0] as string).includes('Archived:'),
     );
     expect(archivedLog).toBeDefined();
@@ -96,7 +96,7 @@ describe('ArchivalPoller', () => {
 
     await runOneCycle();
 
-    const nothingLog = logSpy.mock.calls.find((call) =>
+    const nothingLog = logSpy.mock.calls.find((call: unknown[]) =>
       typeof call[0] === 'string' && (call[0] as string).includes('Nothing to archive'),
     );
     expect(nothingLog).toBeDefined();
