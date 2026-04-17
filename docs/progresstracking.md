@@ -2229,4 +2229,30 @@ User identified 5 findings after review. All validated and fixed across 7 tasks.
 
 **Commits (7):** `7064330` (migration 017), `399b217` (dispatching guards), `c2af9c7` (correlation chain), `ce8d69e` (orphaned service.ts recovery), `1540ed4` (PII removed), `f0f5d71` (correlation assertions), `6d9c255` (PlaceIdValidationWorker test).
 
+**Follow-up (2026-04-17):** Migration 017 renamed → 018 (vacate 017 for Sprint 6 main migration). Added cleanup CTE before `CREATE UNIQUE INDEX` (migration 004 pattern). Added `idx_jo_generate_response_by_review` for `recoverCorrelationId` lookup. Added 4 token approval route correlation tests, worker-chain runtime test (Part A + Part B in ResponseGeneratorWorker). Fixed pre-existing implicit-any type errors in `service.test.ts`. 590/590 tests across 44 files.
+
+---
+
+### Prompt 20b — Archival Expansion + Cost Rollups (2026-04-17)
+
+**Status:** COMPLETE
+
+**Migration 017:** `api_costs_daily_rollups` table (UUID PK, `UNIQUE NULLS NOT DISTINCT` constraint on `(business_id, provider, rollup_date)`, 3 indexes for admin costs query patterns: business/date, provider/date, date), `businesses.website`, `businesses.owner_email_bounced`, `notification_deliveries(created_at)` index for archival DELETE scans.
+
+**ArchivalPoller:** Added `api_costs` aggregate+delete via atomic CTE — single statement: candidates (LIMIT 5000) → aggregate by (business_id, provider, date) → upsert into rollups with additive `ON CONFLICT DO UPDATE` → delete candidates. Batched cycles don't double-count because UPSERT is additive. Added `notification_deliveries` straight delete (>90d). 5-target logging: `outbox, events, demos, api_costs, notifications`. Per-target saturation warning lists exactly which tables hit the 5000 batch limit.
+
+**Admin costs API:** Days cap raised 90→365 (rejects >365 with 400). When `days > 90`, queries both `api_costs` and `api_costs_daily_rollups` in parallel. Merge strategy:
+- `byProvider`: sum detail + rollup totals per provider
+- `byDay`: non-overlapping ranges by construction (rollup: `< CURRENT_DATE - 90d`, detail: `>= CURRENT_DATE - days`); defensive collision check (detail wins)
+- `byBusiness`: enriches paginated detail rows with rollup tail totals; `todayUsd` + `pctOfDailyLimit` stay detail-only
+- `todayTotalUsd`: detail-only (today is always < 90d)
+
+**Bug fix during implementation:** The existing route had `parseInt(rawDays ?? '7', 10) || 7` which treated `days=0` as falsy and silently defaulted to 7, defeating the `Math.max(·, 1)` clamp. Fixed by checking `Number.isNaN(rawParsed)` explicitly so 0 and negatives reach the clamp.
+
+**Test count:** 610/610 across 46 files (+20 new: 9 ArchivalPoller, 11 costs API; +2 extra coverage for `days=-5` and `days=abc`).
+
+**Commits (9):** `3201d35` (migration 017), `4a88a4b` (api_costs CTE), `b792d05` (notifications delete), `bafbee9` (5-target logging), `2ad9287` (ArchivalPoller tests), `30d2556` (costs API merge), `b8afb48` (type fix), `2c4bf82` (costs API tests), `4773949` (days=0 clamp fix).
+
+**Migrations ready to apply (in order):** `017_sprint6_scale.sql`, `018_correlation_and_dispatching_indexes.sql`. Neither has been applied yet.
+
 ---
