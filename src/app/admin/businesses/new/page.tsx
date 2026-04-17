@@ -119,6 +119,24 @@ export default function NewBusinessPage() {
   const prefillAbortRef = useRef<AbortController | null>(null);
   const latestPlaceIdRef = useRef<string | null>(null);
 
+  /**
+   * Cancels any in-flight prefill and clears the "latest place" guard.
+   * Called when the user:
+   *   - clears the PlaceAutocomplete selection
+   *   - switches from autocomplete mode to URL-paste mode
+   * Without this, a Place A request that was launched before the clear/switch
+   * can resolve AFTER the user abandoned that place and still auto-fill
+   * stale data into empty fields.
+   */
+  function cancelPrefill() {
+    latestPlaceIdRef.current = null;
+    if (prefillAbortRef.current) {
+      prefillAbortRef.current.abort();
+      prefillAbortRef.current = null;
+    }
+    setPrefilling(false);
+  }
+
   async function triggerPrefill(placeId: string) {
     // Cancel any in-flight request — this is the primary defense.
     if (prefillAbortRef.current) {
@@ -290,6 +308,9 @@ export default function NewBusinessPage() {
                     triggerPrefill(sel.placeId);
                   }}
                   onClear={() => {
+                    // Cancel before clearing so a still-in-flight Place A response
+                    // can't auto-fill the form after the user abandoned that place.
+                    cancelPrefill();
                     setValue('googlePlaceId', '');
                     setValue('googlePlaceAddress', '');
                   }}
@@ -306,6 +327,10 @@ export default function NewBusinessPage() {
                 type="button"
                 onClick={() => {
                   if (inputMode === 'autocomplete') {
+                    // Switching away from autocomplete — cancel any in-flight
+                    // prefill so its response can't arrive and populate fields
+                    // after the user has moved to URL-paste mode.
+                    cancelPrefill();
                     setValue('googlePlaceId', '');
                     setValue('googlePlaceAddress', '');
                     clearErrors('googlePlaceId');
