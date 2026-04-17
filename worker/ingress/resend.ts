@@ -2,6 +2,8 @@ import type { FastifyRequest, FastifyReply } from 'fastify';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { v7 as uuidv7 } from 'uuid';
 import { sql } from '../../src/lib/db/server';
+import { sendInternalEmail } from '../../src/lib/notifications/email';
+import { escapeHtml } from '../../src/lib/shared/html';
 
 const LOG_PREFIX = '[ingress/resend]';
 
@@ -68,6 +70,42 @@ function verifySignature(rawBody: string, headers: Record<string, string | undef
   });
 }
 
+/**
+ * Extracts the bounce type string from a Resend email.bounced payload.
+ * Supports multiple payload shapes defensively:
+ *   - data.bounce.type     (Resend documented shape)
+ *   - data.reason          (legacy/alternate)
+ *   - data.status          (legacy/alternate)
+ * Returns lowercase string, or 'unknown' if nothing matches.
+ */
+function extractBounceType(data: unknown): string {
+  if (!data || typeof data !== 'object') return 'unknown';
+  const d = data as Record<string, unknown>;
+  const bounce = d.bounce;
+  if (bounce && typeof bounce === 'object') {
+    const t = (bounce as Record<string, unknown>).type;
+    if (typeof t === 'string' && t.length > 0) return t.toLowerCase();
+  }
+  if (typeof d.reason === 'string' && d.reason.length > 0) return d.reason.toLowerCase();
+  if (typeof d.status === 'string' && d.status.length > 0) return d.status.toLowerCase();
+  return 'unknown';
+}
+
+/**
+ * Returns true if the bounce type indicates a hard/permanent failure.
+ * 'unknown' is treated as soft to avoid flagging businesses on ambiguity.
+ */
+function isHardBounceType(type: string): boolean {
+  const t = type.toLowerCase();
+  return (
+    t === 'permanent' ||
+    t === 'hard' ||
+    t === 'hardbounce' ||
+    t === 'permanent_failure' ||
+    t.includes('permanent')
+  );
+}
+
 export async function handleResendWebhook(
   request: FastifyRequest<{ Body: ResendWebhookBody }>,
   reply: FastifyReply,
@@ -110,13 +148,54 @@ export async function handleResendWebhook(
           `;
           break;
 
-        case 'email.bounced':
         case 'email.complained': {
-          const reason = eventType === 'email.bounced' ? 'bounced' : 'complained';
           await sql`
-            UPDATE notification_deliveries SET failed_at = NOW(), failure_reason = ${reason}
+            UPDATE notification_deliveries SET failed_at = NOW(), failure_reason = 'complained'
             WHERE external_message_id = ${emailId}
           `;
+          break;
+        }
+
+        case 'email.bounced': {
+          // Defensively extract bounce type from multiple possible payload shapes.
+          const bounceType = extractBounceType(body.data);
+          const isHardBounce = isHardBounceType(bounceType);
+
+          // Look up the business_id via notification_deliveries BEFORE the UPDATE
+          // targets the same row (we want the current business_id).
+          const [delivery] = await sql<{ business_id: string }[]>`
+            SELECT business_id FROM notification_deliveries
+            WHERE external_message_id = ${emailId}
+            LIMIT 1
+          `;
+
+          await sql`
+            UPDATE notification_deliveries
+            SET failed_at = NOW(), failure_reason = ${`bounced:${bounceType}`}
+            WHERE external_message_id = ${emailId}
+          `;
+
+          if (isHardBounce && delivery?.business_id) {
+            await sql`
+              UPDATE businesses
+              SET owner_email_bounced = TRUE, updated_at = NOW()
+              WHERE id = ${delivery.business_id}
+            `;
+
+            const adminEmail = process.env.ADMIN_NOTIFICATION_EMAIL;
+            if (adminEmail) {
+              try {
+                await sendInternalEmail({
+                  to: adminEmail,
+                  subject: `Hard bounce detected — business flagged`,
+                  bodyHtml: `<p>A hard bounce (type: <code>${escapeHtml(bounceType)}</code>) was reported by Resend for business ID <code>${escapeHtml(delivery.business_id)}</code>.</p><p>The business has been flagged (<code>owner_email_bounced=true</code>) and owner-directed emails (approval, weekly, monthly, drips, nudges) will be skipped until an admin verifies/updates the address and clears the flag.</p><p>Partner/admin alerts are unaffected.</p>`,
+                  category: 'internal',
+                });
+              } catch (alertErr) {
+                console.error(`${LOG_PREFIX} Failed to send admin hard-bounce alert:`, alertErr);
+              }
+            }
+          }
           break;
         }
       }
