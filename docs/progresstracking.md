@@ -2256,3 +2256,54 @@ User identified 5 findings after review. All validated and fixed across 7 tasks.
 **Migrations ready to apply (in order):** `017_sprint6_scale.sql`, `018_correlation_and_dispatching_indexes.sql`. Neither has been applied yet.
 
 ---
+
+### Prompt 20b Post-Implementation Review Fixes (2026-04-17)
+
+**Status:** COMPLETE
+
+7 findings validated and fixed.
+
+1. **Critical — Cost archival double-count race under concurrent workers.** Candidates SELECT had no row locks; two workers could both SELECT same rows, both upsert additively, only one DELETE succeeds → doubled totals. **Fix:** DELETE-first claim pattern. Candidates CTE uses `FOR UPDATE SKIP LOCKED` with deterministic `ORDER BY created_at, id`. DELETE's RETURNING feeds the aggregate — each source row claimed and counted exactly once.
+2. **Medium — Archived-only businesses disappearing from admin cost reporting.** byBusiness was paginated from detail rows, rollup only enriched already-returned rows. **Fix:** Initially combined in-memory then sort/paginate; later moved to server-side UNION CTE for scalability.
+3. **Medium — byDay undercount on dates with both detail + rollup rows.** Drop-on-collision (detail "win") was fragile during partial archival. **Fix:** Additive merge. Safe because detail/rollup never reference the same source row (archival is atomic delete-then-upsert).
+4. **Medium — Rollup numeric types too narrow.** `DECIMAL(10,6)` caps at $9,999.99 per row; INTEGER token totals/call_count can overflow at 2.1B. **Fix:** `NUMERIC(14,6)` + `BIGINT`. Migration 017 edited in place (not yet applied).
+5. **Low — Negative limit produced 500 errors.** `Math.min(-5, 100) = -5` → `LIMIT -5` Postgres error. **Fix:** Parse once, `Number.isNaN` check, `Math.max` clamp.
+6. **Medium — call_count `::int` casts narrow BIGINT storage.** Admin API used `SUM(call_count)::int` which overflows at 2.1B cumulative. **Fix:** All 6 casts changed to `::float` (JS safe integer handles 2^53).
+7. **Medium — byBusiness pagination was app-side.** Loaded all business aggregates into Node before paginating. **Fix:** Server-side UNION CTE when `needsRollup`: `api_costs` aggregate UNIONed with rollup aggregate, grouped by business_id, JOINed with businesses, `ORDER BY ... LIMIT OFFSET` in SQL. Detail-only path is direct JOIN.
+
+**Test count:** 618/618 across 46 files (+8 new regression cases).
+
+**Commits (3):** `dc99b3a` (5 findings), `7a83084` (call_count + pagination).
+
+---
+
+### Prompt 20c — Onboarding Automation + SerpAPI Pre-fill (2026-04-17)
+
+**Status:** COMPLETE
+
+**New modules:**
+- `src/lib/reviews/serpapi-prefill.ts` — wraps SerpAPI `engine=google_maps`, normalizes response into fixed `BusinessPrefill` shape (category/phone/website/hours/fullAddress). NEVER throws — returns all-null on any failure (API error, malformed payload, timeout, missing key, cache failure). 7-day Redis cache by place_id (skipped when `REDIS_CACHE_URL` unset, graceful on cache failures). Records platform-level `api_costs` row (`business_id=NULL` via widened `recordApiCost`). Mock-mode returns canned `MOCK_PREFILL`.
+- `src/app/api/admin/businesses/prefill/route.ts` — GET endpoint. Requires admin/sales_partner via `requireRole`. Validates place_id via `isPlaceId()` (400 if missing or malformed). Rate-limited `prefill:minute:{user.id}` at 10/min in strict mode (503 on Redis failure to prevent uncapped SerpAPI spend). `Cache-Control: no-store` on all responses.
+
+**Schema changes:**
+- Widened `recordApiCost.businessId` to `string | null` (backward-compatible widening).
+- Added `website` to `OnboardBusinessSchema` and `UpdateBusinessSchema` (Zod URL, max 500, nullable, optional).
+- Added `website` column to businesses INSERT in POST handler.
+- Added `website: 'website'` to `FIELD_TO_COLUMN` mapping in PATCH handler.
+
+**UI changes:**
+- Onboarding form (`/admin/businesses/new`): added `website` input (URL or empty) + auto-trigger prefill after PlaceAutocomplete selection. Uses `getValues()` at response-time (not request-time) so in-flight user typing is preserved — only fills empty fields. `setValue('field', value, { shouldDirty: false })` keeps form state clean. `prefilling` state drives "Fetching suggestions from Google Maps…" hint on category/phone/website fields. Website normalized `empty string → null` in submit payload.
+- Business detail page (`/admin/businesses/[id]`): added `website` to `BusinessDetail` interface. ProfileEditor has `website` useState, PATCH body field, `handleCancel` reset. Read-only view shows website as clickable link (opens in new tab with `rel="noopener noreferrer"`). Edit form has `type="url"` input between Category and Tone.
+- GET `/api/admin/businesses/[id]` route returns `website` in response.
+
+**Tests (21 new):**
+- 13 prefill module: full response, partial response, API error, malformed payload, `http://` preservation, bare domain `→ https://` normalization, malformed URL `→ null`, cost recording with null business_id, mock mode short-circuit, Redis cache hit (no SerpAPI call), cache write failure (still returns data), `REDIS_CACHE_URL` unset (skip cache entirely), missing `SERPAPI_API_KEY` (returns empty).
+- 8 route: 200 happy path, 400 missing place_id, 400 invalid place_id, 401 unauth, 403 wrong role, 429 rate limit exceeded, 503 Redis unavailable (strict mode rethrows), rate limit key format.
+
+**Test count:** 639/639 across 48 files (+21 new).
+
+**Commits (6):** `d30d4b2` (widen recordApiCost), `627b244` (prefill module), `f6284b5` (prefill API route), `26f26fc` (schemas + INSERT + PATCH), `e6642a5` (onboarding form + auto-prefill), `1d7b335` (business detail website).
+
+**Migration prerequisite:** `017_sprint6_scale.sql` must be applied to Supabase before running against production (adds `businesses.website` column). Not yet applied.
+
+---
