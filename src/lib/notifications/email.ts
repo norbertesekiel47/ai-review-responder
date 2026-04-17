@@ -159,11 +159,16 @@ export async function sendApprovalEmail(
   const resend = getResend();
   const html = buildApprovalEmailHtml(params);
 
+  // Approval emails are transactional: no List-Unsubscribe header. They are
+  // necessary for service operation, not marketing, so bulk-sender rules
+  // don't require (and shouldn't include) an unsubscribe link.
+  const category: EmailCategory = 'transactional';
   const { data, error } = await resend.emails.send({
     from: params.from,
     to: params.to,
     subject: `New review for ${params.businessName} — response ready`,
     html,
+    tags: getEmailTags(category),
   });
 
   if (error) {
@@ -239,6 +244,12 @@ export interface InternalEmailParams {
   to: string;
   subject: string;
   bodyHtml: string;
+  /**
+   * Email category for headers + Resend tags. Defaults to 'internal'
+   * (admin-facing, no List-Unsubscribe). Use 'marketing' for owner-
+   * directed recurring emails (weekly reports, drips, nudges).
+   */
+  category?: EmailCategory;
 }
 
 export async function sendInternalEmail(
@@ -249,9 +260,12 @@ export async function sendInternalEmail(
 
   if (isMockMode()) {
     const mockId = `mock-${randomUUID()}`;
-    console.log(`${LOG_PREFIX} [MOCK] Internal email to=${params.to} subject="${params.subject}" messageId=${mockId}`);
+    console.log(`${LOG_PREFIX} [MOCK] Internal email to=${params.to} subject="${params.subject}" category=${params.category ?? 'internal'} messageId=${mockId}`);
     return { messageId: mockId };
   }
+
+  const category: EmailCategory = params.category ?? 'internal';
+  const headers = getEmailHeaders(category);
 
   const resend = getResend();
   const { data, error } = await resend.emails.send({
@@ -259,6 +273,10 @@ export async function sendInternalEmail(
     to: params.to,
     subject: params.subject,
     html: params.bodyHtml,
+    tags: getEmailTags(category),
+    // Only pass headers when non-empty — empty object still adds no value
+    // but avoids passing an unused property to Resend's JSON body.
+    ...(Object.keys(headers).length > 0 ? { headers } : {}),
   });
 
   if (error) {
