@@ -2188,4 +2188,45 @@ Created `supabase/migrations/014_retention_expansion.sql`:
 
 ## Sprint 6: Scale to $1K MRR
 
-**Status:** NOT STARTED
+**Status:** IN PROGRESS
+
+### Prompt 20a — Correlation IDs + Structured Logging (2026-04-17)
+
+**Status:** COMPLETE
+
+Eight-task implementation delivered end-to-end traceability through the outbox payload JSONB field.
+
+1. **Structured logger** (`src/lib/shared/logger.ts`): `createWorkerLogger(prefix, correlationId?)` returns `{ log, warn, error }` that prepends `[WorkerName] [corr-id]` to every log line. 6 unit tests.
+2. **BasePayload types** (`src/lib/shared/worker-types.ts` + `src/lib/demos/types.ts`): All 12 payload interfaces now extend `BasePayload { correlation_id?: string }` — optional for backward compat with existing outbox rows.
+3. **Entry point generation** — 7 pollers/schedulers (ReconciliationPoller, WeeklySummaryScheduler, MonthlyImpactScheduler, EngagementMonitorPoller, RankingTrackingScheduler, OnboardingDripScheduler, NotificationFailoverPoller) generate `correlation_id: uuidv7()` per outbox entry. 3 API routes (admin/businesses onboard, admin/demos/generate, feedback for partner_satisfaction_alert) add correlation IDs at user-facing entry points.
+4. **Cross-outbox propagation** — `processReview` accepts `correlationId?` and threads it into all 5 internal outbox payloads. `ReviewSyncWorker` passes `job.data.correlation_id` into `processReview`. `ResponseGeneratorWorker` threads through `persistResponseAndNotify` into `SendNotificationPayload`. `PlaceIdValidationWorker.enqueueSyncReviews` accepts `correlationId?` from caller.
+5. **Approval service** — 6 methods (`approve`, `edit`, `regenerate` + session variants) accept optional `correlationId?` and carry into their outbox payloads. All 6 corresponding API routes pass response_id as the correlation value.
+6. **Worker log migration** — All 12 BullMQ handlers replaced `console.log(\`${LOG_PREFIX} ...\`)` with `createWorkerLogger`. Pollers/schedulers/ingress retain their `LOG_PREFIX` pattern (they don't process BullMQ jobs).
+
+**Queryability:** `SELECT * FROM job_outbox WHERE payload->>'correlation_id' = '<id>' ORDER BY created_at` returns the full chain.
+
+**Test count:** 576/576 across 40 files.
+
+### Prompt 20a Post-Implementation Review Fixes (2026-04-17)
+
+**Status:** COMPLETE
+
+User identified 5 findings after review. All validated and fixed across 7 tasks.
+
+1. **Finding 1 (Medium) — Approval/publish correlation chain break.** Approval routes were passing `link.response_id` as correlation_id, breaking the "one query traces full chain" goal. Fix: new helper `src/lib/approval/correlation.ts` `recoverCorrelationId(tx, {reviewId, responseId})` queries the most recent `generate_response` outbox row for the review and returns its correlation_id (falls back to responseId when no upstream exists). All 6 approval API routes updated. 3 new unit tests for the helper.
+
+2. **Finding 2 (Medium) — Dispatching-race in outbox dedupe guards.** OutboxPoller sets `status = 'dispatching'` during the claim window, but 9 producer dedupe checks only covered `('pending', 'dispatched')`. Migration 004's unique index had the same gap. Fix: (a) migration 017 drops and recreates `idx_jo_sync_reviews_inflight` with `'dispatching'` included; (b) 9 code sites across 6 files updated.
+
+3. **Finding 3 (Medium) — PII in correlation-tagged logs.** 4 cited log lines contained email addresses; audit found 10 total (emails + business names). All replaced with `business_id` / `response_id` operational identifiers.
+
+4. **Finding 4 (Low) — Test coverage gaps.** Service tests passed `correlationId` transparently without asserting it — added explicit assertions that parse outbox payload JSON. Dashboard tests updated to assert correlation arg index. Created `worker/__tests__/PlaceIdValidationWorker.test.ts` with 3 test cases.
+
+5. **Finding 5 (Low) — No expression index on correlation_id.** Migration 017 adds `idx_jo_correlation_id ON job_outbox ((payload->>'correlation_id')) WHERE payload ? 'correlation_id'`.
+
+**Also recovered:** One orphaned commit from Prompt 20a Task 6 — subagent claimed to commit `src/lib/approval/service.ts` correlationId parameter additions but didn't. Committed as `ce8d69e` during Fix Task 3 review.
+
+**Test count:** 582/582 across 42 files.
+
+**Commits (7):** `7064330` (migration 017), `399b217` (dispatching guards), `c2af9c7` (correlation chain), `ce8d69e` (orphaned service.ts recovery), `1540ed4` (PII removed), `f0f5d71` (correlation assertions), `6d9c255` (PlaceIdValidationWorker test).
+
+---
