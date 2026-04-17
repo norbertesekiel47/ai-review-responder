@@ -188,6 +188,7 @@ export async function POST(request: NextRequest) {
             comment,
             week_start_date: week,
           },
+          correlation_id: `feedback:${businessId}:${week}`,
         };
 
         // ON CONFLICT DO NOTHING: if the broad (aggregate_id, alert_type) index

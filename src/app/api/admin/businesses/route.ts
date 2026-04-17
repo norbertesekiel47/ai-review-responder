@@ -230,11 +230,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         )
       `;
 
+      const correlationId = uuidv7();
+
       if (placeIdVerified) {
         // Queue sync_reviews directly — Place ID is canonical
         const syncPayload: SyncReviewsPayload = {
           business_id: businessId,
           google_place_id: placeId!,
+          correlation_id: correlationId,
         };
         await tx`
           INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
@@ -252,6 +255,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         const validatePayload: ValidatePlaceIdPayload = {
           business_id: businessId,
           google_maps_url: data.googleMapsUrl!,
+          correlation_id: correlationId,
         };
         await tx`
           INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)

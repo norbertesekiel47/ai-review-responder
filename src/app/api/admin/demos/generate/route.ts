@@ -100,6 +100,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     businessName,
     category,
     googleMapsUrl,
+    correlation_id: uuidv7(),
   };
 
   // Transactional outbox: demo + outbox entry in ONE transaction
