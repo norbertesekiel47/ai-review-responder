@@ -171,6 +171,7 @@ export async function approve(
   link: ApprovalLink,
   deviceCookieHash: string,
   audit: AuditContext,
+  correlationId?: string,
 ): Promise<void> {
   verifyDevice(link, deviceCookieHash);
   await lockPendingResponse(tx, link.response_id);
@@ -187,6 +188,7 @@ export async function approve(
   const payload: PublishResponsePayload = {
     response_id: link.response_id,
     business_id: link.business_id,
+    correlation_id: correlationId,
   };
 
   await tx`
@@ -207,6 +209,7 @@ export async function edit(
   editedText: string,
   deviceCookieHash: string,
   audit: AuditContext,
+  correlationId?: string,
 ): Promise<void> {
   verifyDevice(link, deviceCookieHash);
   const resp = await lockPendingResponse(tx, link.response_id);
@@ -229,6 +232,7 @@ export async function edit(
   const payload: PublishResponsePayload = {
     response_id: link.response_id,
     business_id: link.business_id,
+    correlation_id: correlationId,
   };
 
   await tx`
@@ -249,6 +253,7 @@ export async function regenerate(
   link: ApprovalLink,
   deviceCookieHash: string,
   audit: AuditContext,
+  correlationId?: string,
 ): Promise<void> {
   verifyDevice(link, deviceCookieHash);
   const resp = await lockPendingResponse(tx, link.response_id);
@@ -263,6 +268,7 @@ export async function regenerate(
     review_id: resp.review_id,
     business_id: link.business_id,
     version: resp.version + 1,
+    correlation_id: correlationId,
   };
 
   await tx`
@@ -325,6 +331,7 @@ export async function approveBySession(
   responseId: string,
   businessId: string,
   audit: SessionAuditContext,
+  correlationId?: string,
 ): Promise<void> {
   await lockPendingResponse(tx, responseId);
   await revokeOpenLinksForResponse(tx, responseId);
@@ -338,6 +345,7 @@ export async function approveBySession(
   const payload: PublishResponsePayload = {
     response_id: responseId,
     business_id: businessId,
+    correlation_id: correlationId,
   };
 
   await tx`
@@ -358,6 +366,7 @@ export async function editBySession(
   businessId: string,
   editedText: string,
   audit: SessionAuditContext,
+  correlationId?: string,
 ): Promise<void> {
   const resp = await lockPendingResponse(tx, responseId);
   await revokeOpenLinksForResponse(tx, responseId);
@@ -377,6 +386,7 @@ export async function editBySession(
   const payload: PublishResponsePayload = {
     response_id: responseId,
     business_id: businessId,
+    correlation_id: correlationId,
   };
 
   await tx`
@@ -396,6 +406,7 @@ export async function regenerateBySession(
   responseId: string,
   businessId: string,
   audit: SessionAuditContext,
+  correlationId?: string,
 ): Promise<void> {
   const resp = await lockPendingResponse(tx, responseId);
   await revokeOpenLinksForResponse(tx, responseId);
@@ -408,6 +419,7 @@ export async function regenerateBySession(
     review_id: resp.review_id,
     business_id: businessId,
     version: resp.version + 1,
+    correlation_id: correlationId,
   };
 
   await tx`
