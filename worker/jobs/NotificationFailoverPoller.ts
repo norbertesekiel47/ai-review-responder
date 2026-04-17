@@ -96,6 +96,7 @@ async function checkFailedNotifications(): Promise<void> {
         response_id: row.response_id,
         business_id: row.business_id,
         failover: { reason: 'all_deliveries_failed' },
+        correlation_id: uuidv7(),
       };
       try {
         await sql`
@@ -153,6 +154,7 @@ async function checkFailedNotifications(): Promise<void> {
         response_id: row.response_id,
         business_id: row.business_id,
         failover: { reason: 'stale_no_delivery' },
+        correlation_id: uuidv7(),
       };
       try {
         const inserted = await sql`

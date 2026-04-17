@@ -79,6 +79,7 @@ export async function runRankingCheck(): Promise<void> {
         business_id: biz.id,
         google_place_id: biz.google_place_id,
         run_date: runDate,
+        correlation_id: uuidv7(),
       };
 
       try {

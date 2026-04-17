@@ -50,6 +50,7 @@ async function checkAndSchedule(): Promise<void> {
       const payload: SendMonthlyImpactPayload = {
         business_id: biz.id,
         month_start_date: monthStartDate,
+        correlation_id: uuidv7(),
       };
       try {
         const inserted = await sql`

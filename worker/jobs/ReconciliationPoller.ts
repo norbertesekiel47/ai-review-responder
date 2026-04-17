@@ -45,6 +45,7 @@ async function pollBusinesses(): Promise<void> {
       const payload: SyncReviewsPayload = {
         business_id: biz.id,
         google_place_id: biz.google_place_id,
+        correlation_id: uuidv7(),
       };
 
       try {

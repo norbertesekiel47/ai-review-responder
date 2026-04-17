@@ -149,6 +149,7 @@ export async function runEngagementCheck(): Promise<void> {
             approval_rate: approvalRate,
             notified_count: row.notified_count,
           },
+          correlation_id: uuidv7(),
         };
 
         let insertedCount = 0;

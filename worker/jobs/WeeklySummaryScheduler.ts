@@ -63,6 +63,7 @@ async function checkAndSchedule(): Promise<void> {
       const payload: WeeklySummaryPayload = {
         business_id: biz.id,
         week_start_date: weekStartDate,
+        correlation_id: uuidv7(),
       };
 
       try {

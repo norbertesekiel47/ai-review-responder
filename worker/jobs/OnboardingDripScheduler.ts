@@ -57,6 +57,7 @@ export async function checkAndSchedule(): Promise<void> {
       const payload: OnboardingDripPayload = {
         business_id: row.business_id,
         drip_type: row.drip_type as OnboardingDripPayload['drip_type'],
+        correlation_id: uuidv7(),
       };
 
       try {
