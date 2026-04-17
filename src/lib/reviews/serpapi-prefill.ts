@@ -7,6 +7,9 @@ const LOG_PREFIX = '[serpapi-prefill]';
 const CACHE_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
 const CACHE_KEY_PREFIX = 'serpapi:prefill:';
 const SERPAPI_PREFILL_COST_USD = 0.005; // ~$0.005 per SerpAPI search at $50/5000 plan
+// Vercel route is invoked synchronously from the onboarding form's PlaceAutocomplete
+// callback. A stalled SerpAPI call must not hang the UI — time out at 2s.
+const SERPAPI_TIMEOUT_MS = 2_000;
 
 export interface BusinessPrefill {
   category: string | null;
@@ -58,14 +61,24 @@ export async function fetchBusinessDetails(placeId: string): Promise<BusinessPre
     return emptyPrefill();
   }
 
-  // 4. SerpAPI call (wrapped in try/catch — never throws upward)
+  // 4. SerpAPI call with timeout. The serpapi package doesn't support
+  //    AbortController, so use Promise.race as the timeout primitive. The
+  //    loser of the race never resolves — GC cleans it up eventually.
   let rawResponse: unknown;
   try {
-    rawResponse = await getJson({
-      engine: 'google_maps',
-      place_id: placeId,
-      api_key: apiKey,
-    });
+    rawResponse = await Promise.race([
+      getJson({
+        engine: 'google_maps',
+        place_id: placeId,
+        api_key: apiKey,
+      }),
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error(`SerpAPI timeout after ${SERPAPI_TIMEOUT_MS}ms`)),
+          SERPAPI_TIMEOUT_MS,
+        ),
+      ),
+    ]);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`${LOG_PREFIX} SerpAPI call failed for ${placeId}: ${message}`);
@@ -75,23 +88,41 @@ export async function fetchBusinessDetails(placeId: string): Promise<BusinessPre
   // 5. Normalize response
   const prefill = normalizeResponse(rawResponse);
 
-  // 6. Record cost (fire-and-forget; failure must not block return)
-  recordApiCost({
-    businessId: null,
-    provider: 'serpapi',
-    endpoint: 'google_maps_prefill',
-    inputTokens: 0,
-    outputTokens: 0,
-    costUsd: SERPAPI_PREFILL_COST_USD,
-    responseId: null,
-  }).catch((err) => {
-    console.warn(`${LOG_PREFIX} Failed to record api_costs row: ${err instanceof Error ? err.message : err}`);
-  });
-
-  // 7. Write to cache (fire-and-forget)
-  writeCache(placeId, prefill).catch((err) => {
-    console.warn(`${LOG_PREFIX} Cache write failed: ${err instanceof Error ? err.message : err}`);
-  });
+  // 6. Record cost AND write cache — AWAIT both so the serverless function
+  //    doesn't terminate before the writes complete. Vercel freezes/drops
+  //    background work once the response is returned, so fire-and-forget
+  //    silently corrupts cost accounting and causes repeated SerpAPI calls
+  //    for the same place_id. Latency cost: ~20-100ms in exchange for
+  //    durable cost tracking and working cache.
+  //    Promise.allSettled never rejects; individual failures get logged.
+  const backgroundResults = await Promise.allSettled([
+    recordApiCost({
+      businessId: null,
+      provider: 'serpapi',
+      endpoint: 'google_maps_prefill',
+      inputTokens: 0,
+      outputTokens: 0,
+      costUsd: SERPAPI_PREFILL_COST_USD,
+      responseId: null,
+    }),
+    writeCache(placeId, prefill),
+  ]);
+  if (backgroundResults[0].status === 'rejected') {
+    console.warn(
+      `${LOG_PREFIX} Failed to record api_costs row:`,
+      backgroundResults[0].reason instanceof Error
+        ? backgroundResults[0].reason.message
+        : backgroundResults[0].reason,
+    );
+  }
+  if (backgroundResults[1].status === 'rejected') {
+    console.warn(
+      `${LOG_PREFIX} Cache write failed:`,
+      backgroundResults[1].reason instanceof Error
+        ? backgroundResults[1].reason.message
+        : backgroundResults[1].reason,
+    );
+  }
 
   return prefill;
 }
@@ -127,11 +158,14 @@ function normalizeWebsite(raw: unknown): string | null {
   if (typeof raw !== 'string' || raw.trim().length === 0) return null;
   const trimmed = raw.trim();
 
-  // Already has a scheme — validate by URL constructor and return as-is.
-  if (/^https?:\/\//i.test(trimmed)) {
+  // Already has a scheme — ONLY http/https allowed. javascript:, data:, ftp:
+  // etc. are rejected even if the URL constructor parses them successfully,
+  // because they become XSS/phishing vectors when rendered as anchor hrefs.
+  if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) {
     try {
       const url = new URL(trimmed);
-      return url.toString().replace(/\/$/, ''); // strip trailing slash for cleanliness
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+      return url.toString().replace(/\/$/, '');
     } catch {
       return null;
     }
@@ -159,13 +193,53 @@ function formatHours(raw: unknown): string | null {
   return entries.map(([day, time]) => `${day}: ${time}`).join(', ');
 }
 
+/**
+ * Runtime type guard for cached BusinessPrefill payloads. A stale or
+ * tampered cache value can bypass normalizeResponse if we type-assert
+ * without checking — this guard rejects any payload that doesn't match
+ * the exact { category, phone, website, hours, fullAddress }: string|null shape.
+ */
+function isValidBusinessPrefill(data: unknown): data is BusinessPrefill {
+  if (!data || typeof data !== 'object') return false;
+  const p = data as Record<string, unknown>;
+  const fields = ['category', 'phone', 'website', 'hours', 'fullAddress'] as const;
+  for (const key of fields) {
+    const val = p[key];
+    if (val !== null && typeof val !== 'string') return false;
+  }
+  return true;
+}
+
 async function readCache(placeId: string): Promise<BusinessPrefill | null> {
   if (!process.env.REDIS_CACHE_URL) return null;
   try {
     const redis = getCacheRedis();
-    const raw = await redis.get(`${CACHE_KEY_PREFIX}${placeId}`);
+    const key = `${CACHE_KEY_PREFIX}${placeId}`;
+    const raw = await redis.get(key);
     if (!raw) return null;
-    return JSON.parse(raw) as BusinessPrefill;
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      console.warn(`${LOG_PREFIX} Invalid JSON in cache for ${placeId} — deleting entry`);
+      redis.del(key).catch(() => {});
+      return null;
+    }
+    if (!isValidBusinessPrefill(parsed)) {
+      console.warn(`${LOG_PREFIX} Cached payload for ${placeId} fails shape validation — deleting entry`);
+      redis.del(key).catch(() => {});
+      return null;
+    }
+
+    // Defense-in-depth: re-normalize the cached website URL in case the
+    // cache predates a normalization bug fix or was written by a version
+    // that permitted unsafe schemes. normalizeWebsite is idempotent for
+    // already-normalized http(s) URLs.
+    return {
+      ...parsed,
+      website: parsed.website !== null ? normalizeWebsite(parsed.website) : null,
+    };
   } catch (err) {
     console.warn(`${LOG_PREFIX} Cache read failed: ${err instanceof Error ? err.message : err}`);
     return null;

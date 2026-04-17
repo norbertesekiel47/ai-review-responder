@@ -69,6 +69,25 @@ function renderStars(rating: number): string {
   return '\u2605'.repeat(rating) + '\u2606'.repeat(5 - rating);
 }
 
+/**
+ * Defensive anchor href sanitizer. The schema validator rejects non-http(s)
+ * schemes at write time, but existing DB rows or manual SQL inserts could
+ * still contain unsafe URLs. Any anchor rendered with an external href must
+ * go through this function — returns null for schemes other than http/https.
+ */
+function safeHttpUrl(url: string | null): string | null {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+      return parsed.toString();
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 function HealthBadge({ level, score }: { level: string; score: number }) {
   const styles: Record<string, string> = {
     healthy: 'bg-green-100 text-green-800',
@@ -205,11 +224,19 @@ function ProfileEditor({ business, businessId, onSaved }: ProfileEditorProps) {
           <div>
             <dt className="font-medium text-gray-500">Website</dt>
             <dd className="text-gray-900">
-              {business.website ? (
-                <a href={business.website} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline">
-                  {business.website}
-                </a>
-              ) : '—'}
+              {(() => {
+                const safeHref = safeHttpUrl(business.website);
+                if (safeHref) {
+                  return (
+                    <a href={safeHref} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline">
+                      {business.website}
+                    </a>
+                  );
+                }
+                // Display raw value as plain text if it failed the safety check,
+                // so the admin can see + fix it without it being clickable.
+                return business.website ?? '—';
+              })()}
             </dd>
           </div>
           <div>

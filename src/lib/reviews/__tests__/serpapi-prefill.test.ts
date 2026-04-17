@@ -50,6 +50,7 @@ function makeRedisMock(cacheHit?: string) {
   return {
     get: vi.fn().mockResolvedValue(cacheHit ?? null),
     setex: vi.fn().mockResolvedValue('OK'),
+    del: vi.fn().mockResolvedValue(1),
   };
 }
 
@@ -197,5 +198,157 @@ describe('fetchBusinessDetails', () => {
     const result = await fetchBusinessDetails('ChIJ_no_key');
     expect(result.category).toBeNull();
     expect(mockGetJson).not.toHaveBeenCalled();
+  });
+
+  // ── Regression: Finding 1 — unsafe URL schemes ─────────────────────
+  it('rejects javascript: URLs from SerpAPI response (returns null website)', async () => {
+    mockGetJson.mockResolvedValue({
+      place_results: { type: 'Sketchy shop', website: 'javascript:alert(1)' },
+    });
+    const result = await fetchBusinessDetails('ChIJ_js');
+    expect(result.website).toBeNull();
+  });
+
+  it('rejects ftp:// URLs from SerpAPI response', async () => {
+    mockGetJson.mockResolvedValue({
+      place_results: { type: 'Shop', website: 'ftp://example.com' },
+    });
+    const result = await fetchBusinessDetails('ChIJ_ftp');
+    expect(result.website).toBeNull();
+  });
+
+  it('rejects data: URLs from SerpAPI response', async () => {
+    mockGetJson.mockResolvedValue({
+      place_results: { type: 'Shop', website: 'data:text/html,<script>alert(1)</script>' },
+    });
+    const result = await fetchBusinessDetails('ChIJ_data');
+    expect(result.website).toBeNull();
+  });
+
+  it('rejects mailto: URLs', async () => {
+    mockGetJson.mockResolvedValue({
+      place_results: { type: 'Shop', website: 'mailto:owner@example.com' },
+    });
+    const result = await fetchBusinessDetails('ChIJ_mailto');
+    expect(result.website).toBeNull();
+  });
+
+  // ── Regression: Finding 2 — SerpAPI timeout ────────────────────────
+  it('returns empty prefill if SerpAPI call exceeds timeout', async () => {
+    // Simulate a hanging SerpAPI call with a promise that never resolves
+    // within the module's 2000ms timeout window. We use a real timer but
+    // keep the promise pending — the timeout race in serpapi-prefill.ts
+    // will reject, triggering the emptyPrefill path.
+    mockGetJson.mockImplementation(
+      () => new Promise(() => { /* never resolves */ }),
+    );
+
+    const result = await fetchBusinessDetails('ChIJ_timeout');
+    expect(result).toEqual({
+      category: null,
+      phone: null,
+      website: null,
+      hours: null,
+      fullAddress: null,
+    });
+  }, 10_000); // Extend test timeout well past the 2s module timeout
+
+  // ── Regression: Finding 3 — durable cost audit + cache write ───────
+  it('awaits both recordApiCost and writeCache before returning', async () => {
+    // Track the order of async resolutions by using delayed promises.
+    let costRecordedAt: number | null = null;
+    let cacheWrittenAt: number | null = null;
+    let returnedAt: number | null = null;
+
+    mockGetJson.mockResolvedValue(FULL_SERPAPI_RESPONSE);
+    mockRecordApiCost.mockImplementation(() =>
+      new Promise((resolve) =>
+        setTimeout(() => {
+          costRecordedAt = Date.now();
+          resolve('cost-id');
+        }, 50),
+      ),
+    );
+    const redisMock = makeRedisMock();
+    redisMock.setex.mockImplementation(() =>
+      new Promise((resolve) =>
+        setTimeout(() => {
+          cacheWrittenAt = Date.now();
+          resolve('OK');
+        }, 50),
+      ),
+    );
+    mockGetCacheRedis.mockReturnValue(redisMock);
+
+    await fetchBusinessDetails('ChIJ_await_bg');
+    returnedAt = Date.now();
+
+    // Both background operations must have resolved BEFORE the function returned.
+    expect(costRecordedAt).not.toBeNull();
+    expect(cacheWrittenAt).not.toBeNull();
+    expect(costRecordedAt!).toBeLessThanOrEqual(returnedAt!);
+    expect(cacheWrittenAt!).toBeLessThanOrEqual(returnedAt!);
+  });
+
+  it('returns even if both recordApiCost and writeCache fail', async () => {
+    mockGetJson.mockResolvedValue(FULL_SERPAPI_RESPONSE);
+    mockRecordApiCost.mockRejectedValue(new Error('DB down'));
+    const redisMock = makeRedisMock();
+    redisMock.setex.mockRejectedValue(new Error('Redis down'));
+    mockGetCacheRedis.mockReturnValue(redisMock);
+
+    const result = await fetchBusinessDetails('ChIJ_bg_fails');
+    // Prefill data still returned even though both background writes failed.
+    expect(result.category).toBe('Mexican restaurant');
+  });
+
+  // ── Regression: Finding 5 — cached payload shape validation ────────
+  it('ignores cached payload that fails shape validation and deletes the entry', async () => {
+    const badCache = JSON.stringify({ nonsense: 'not the expected shape' });
+    const redisMock = makeRedisMock(badCache);
+    mockGetCacheRedis.mockReturnValue(redisMock);
+    mockGetJson.mockResolvedValue(FULL_SERPAPI_RESPONSE);
+
+    const result = await fetchBusinessDetails('ChIJ_bad_cache');
+
+    // Cache was ignored — SerpAPI was called — and result is normalized.
+    expect(mockGetJson).toHaveBeenCalled();
+    expect(result.category).toBe('Mexican restaurant');
+    // Bad cache entry was deleted.
+    expect(redisMock.del).toHaveBeenCalledWith('serpapi:prefill:ChIJ_bad_cache');
+  });
+
+  it('ignores cached payload that is invalid JSON and deletes the entry', async () => {
+    const redisMock = makeRedisMock('{"not-valid-json:');
+    mockGetCacheRedis.mockReturnValue(redisMock);
+    mockGetJson.mockResolvedValue(FULL_SERPAPI_RESPONSE);
+
+    const result = await fetchBusinessDetails('ChIJ_bad_json');
+
+    expect(mockGetJson).toHaveBeenCalled();
+    expect(result.category).toBe('Mexican restaurant');
+    expect(redisMock.del).toHaveBeenCalledWith('serpapi:prefill:ChIJ_bad_json');
+  });
+
+  it('re-normalizes cached website URLs (defense against pre-patch cache entries)', async () => {
+    // Simulate a cache entry that was written BEFORE the unsafe-scheme block
+    // was added — it contains a javascript: URL. The cache reader should
+    // normalize it out on read.
+    const unsafeCache = JSON.stringify({
+      category: 'Old entry',
+      phone: null,
+      website: 'javascript:alert(1)',
+      hours: null,
+      fullAddress: null,
+    });
+    const redisMock = makeRedisMock(unsafeCache);
+    mockGetCacheRedis.mockReturnValue(redisMock);
+
+    const result = await fetchBusinessDetails('ChIJ_unsafe_cache');
+
+    // Cache was used (SerpAPI not called), but the unsafe URL was stripped.
+    expect(mockGetJson).not.toHaveBeenCalled();
+    expect(result.category).toBe('Old entry');
+    expect(result.website).toBeNull();
   });
 });

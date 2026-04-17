@@ -5,9 +5,10 @@
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { z } from 'zod';
 import { PlaceAutocomplete } from '@/components/PlaceAutocomplete';
+import { websiteUrlSchema } from '@/lib/shared/schemas';
 
 const FormSchema = z.object({
   name: z.string().min(1, 'Business name is required').max(255),
@@ -15,7 +16,9 @@ const FormSchema = z.object({
   googlePlaceId: z.string().optional(),
   googlePlaceAddress: z.string().optional(),
   googleMapsUrl: z.string().optional(),
-  website: z.string().url('Invalid URL').max(500).optional().or(z.literal('')),
+  // websiteUrlSchema only permits http:// or https:// — blocks javascript:,
+  // data:, ftp:, etc. .or(z.literal('')) keeps empty string valid for the form.
+  website: websiteUrlSchema.or(z.literal('')).optional(),
   ownerName: z.string().min(1, 'Owner name is required').max(255),
   ownerEmail: z.string().email('Valid email is required').max(255),
   ownerPhone: z.string().max(20).optional(),
@@ -97,7 +100,7 @@ export default function NewBusinessPage() {
     setValue,
     getValues,
     clearErrors,
-    formState: { errors },
+    formState: { errors, dirtyFields },
   } = useForm<FormData>({
     resolver: zodResolver(FormSchema),
     defaultValues: {
@@ -108,13 +111,31 @@ export default function NewBusinessPage() {
   });
 
   const [prefilling, setPrefilling] = useState(false);
+  // Guards against the stale-response race: user selects Place A, then quickly
+  // selects Place B before A's request resolves. Without guards, A's response
+  // can overwrite B's empty fields with A's data. We track the latest
+  // AbortController so we can cancel in-flight requests, AND the latest
+  // selected placeId so we can reject stale responses that somehow still arrive.
+  const prefillAbortRef = useRef<AbortController | null>(null);
+  const latestPlaceIdRef = useRef<string | null>(null);
 
   async function triggerPrefill(placeId: string) {
+    // Cancel any in-flight request — this is the primary defense.
+    if (prefillAbortRef.current) {
+      prefillAbortRef.current.abort();
+    }
+    const controller = new AbortController();
+    prefillAbortRef.current = controller;
+    latestPlaceIdRef.current = placeId;
+
     setPrefilling(true);
     try {
       const res = await fetch(
         `/api/admin/businesses/prefill?place_id=${encodeURIComponent(placeId)}`,
+        { signal: controller.signal },
       );
+      // Secondary defense: if a newer selection happened, discard this response.
+      if (latestPlaceIdRef.current !== placeId) return;
       if (!res.ok) return; // Silent failure — fields remain empty for manual entry
       const prefill = (await res.json()) as {
         category: string | null;
@@ -123,24 +144,35 @@ export default function NewBusinessPage() {
         hours: string | null;
         fullAddress: string | null;
       };
-      // Only fill fields that are STILL empty at the moment the response
-      // arrives. This prevents overwriting text the user typed while the
-      // request was in flight. getValues() reads the CURRENT form state,
-      // not the state at request time.
+      // Check AGAIN after awaiting body parse — the user could have selected
+      // a different place between headers arriving and body parsing.
+      if (latestPlaceIdRef.current !== placeId) return;
+
+      // Only fill fields that are (1) currently empty AND (2) have never been
+      // touched by the user. dirtyFields tracks whether the user modified a
+      // field — even if they then cleared it, dirtyFields stays true and we
+      // must respect that.
       const current = getValues();
-      if (prefill.category && !current.category) {
+      if (prefill.category && !current.category && !dirtyFields.category) {
         setValue('category', prefill.category, { shouldDirty: false });
       }
-      if (prefill.phone && !current.ownerPhone) {
+      if (prefill.phone && !current.ownerPhone && !dirtyFields.ownerPhone) {
         setValue('ownerPhone', prefill.phone, { shouldDirty: false });
       }
-      if (prefill.website && !current.website) {
+      if (prefill.website && !current.website && !dirtyFields.website) {
         setValue('website', prefill.website, { shouldDirty: false });
       }
-    } catch {
-      // Network error — silently degrade to manual entry
+    } catch (err) {
+      // AbortError is expected when the user quickly selects a different place.
+      // Any other error (network, parse) silently degrades to manual entry.
+      if (err instanceof DOMException && err.name === 'AbortError') return;
     } finally {
-      setPrefilling(false);
+      // Only clear the UI spinner if this call is still the latest.
+      // If a newer call is in flight, keep showing the spinner for it.
+      if (prefillAbortRef.current === controller) {
+        setPrefilling(false);
+        prefillAbortRef.current = null;
+      }
     }
   }
 
