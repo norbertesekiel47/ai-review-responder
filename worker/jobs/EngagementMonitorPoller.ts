@@ -29,6 +29,7 @@ let isPolling = false;
 
 interface BusinessMetrics {
   business_id: string;
+  owner_email_bounced: boolean;
   days_since_approval: number | null;
   pending_count: number;
   oldest_pending_age_days: number | null;
@@ -80,7 +81,7 @@ export async function runEngagementCheck(): Promise<void> {
   try {
     const rows = await sql<BusinessMetrics[]>`
       WITH active_biz AS (
-        SELECT id FROM businesses WHERE subscription_status = 'active'
+        SELECT id, owner_email_bounced FROM businesses WHERE subscription_status = 'active'
       ),
       response_metrics AS (
         SELECT
@@ -109,6 +110,7 @@ export async function runEngagementCheck(): Promise<void> {
       )
       SELECT
         ab.id AS business_id,
+        ab.owner_email_bounced,
         EXTRACT(DAY FROM CURRENT_TIMESTAMP - rm.last_approval)::int AS days_since_approval,
         COALESCE(rm.pending_count, 0) AS pending_count,
         EXTRACT(DAY FROM CURRENT_TIMESTAMP - rm.oldest_pending_at)::int AS oldest_pending_age_days,
@@ -136,6 +138,11 @@ export async function runEngagementCheck(): Promise<void> {
 
       for (const rule of RULES) {
         if (!rule.shouldFire(metrics)) continue;
+
+        // owner_nudge emails go to the business owner — skip if their email has bounced.
+        // Partner rules still fire: the admin needs to know about engagement issues even
+        // when the owner's email is undeliverable.
+        if (rule.type === 'owner_nudge' && row.owner_email_bounced) continue;
 
         const cooldownDays = COOLDOWNS[rule.type] ?? 7;
 
