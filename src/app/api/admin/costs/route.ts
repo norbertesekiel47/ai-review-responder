@@ -77,10 +77,19 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   try {
     const rawDays = request.nextUrl.searchParams.get('days');
-    const days = Math.min(Math.max(parseInt(rawDays ?? '7', 10) || 7, 1), 90);
+    const parsedDays = parseInt(rawDays ?? '7', 10) || 7;
+    if (parsedDays > 365) {
+      return NextResponse.json(
+        { error: 'days parameter must be 365 or less' },
+        { status: 400 },
+      );
+    }
+    const days = Math.min(Math.max(parsedDays, 1), 365);
     const limit = Math.min(parseInt(request.nextUrl.searchParams.get('limit') ?? '20', 10) || 20, 100);
     const offset = Math.max(parseInt(request.nextUrl.searchParams.get('offset') ?? '0', 10) || 0, 0);
+    const needsRollup = days > 90;
 
+    // Detail queries always run — cover the most recent up-to-90 days.
     const [providerRows, businessRows, businessCountRows, dayRows, todayRows] = await Promise.all([
       sql<ProviderRow[]>`
         SELECT provider, SUM(cost_usd)::float AS total_usd, COUNT(*)::int AS call_count
@@ -126,36 +135,110 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       `,
     ]);
 
+    // Rollup queries only when range extends beyond 90 days.
+    // Rollups cover the archived tail: [startDate, CURRENT_DATE - 90d).
+    // Detail covers: [CURRENT_DATE - min(days, 90), CURRENT_DATE].
+    let rollupProvider: ProviderRow[] = [];
+    let rollupDay: DayRow[] = [];
+    const rollupBusinessTotals = new Map<string, { total_usd: number; call_count: number }>();
+
+    if (needsRollup) {
+      const [provRes, dayRes, bizRes] = await Promise.all([
+        sql<ProviderRow[]>`
+          SELECT provider, SUM(total_cost_usd)::float AS total_usd, SUM(call_count)::int AS call_count
+          FROM api_costs_daily_rollups
+          WHERE rollup_date >= CURRENT_DATE - ${days}::int * INTERVAL '1 day'
+            AND rollup_date < CURRENT_DATE - INTERVAL '90 days'
+          GROUP BY provider
+        `,
+        sql<DayRow[]>`
+          SELECT rollup_date::text AS day, SUM(total_cost_usd)::float AS total_usd, SUM(call_count)::int AS call_count
+          FROM api_costs_daily_rollups
+          WHERE rollup_date >= CURRENT_DATE - ${days}::int * INTERVAL '1 day'
+            AND rollup_date < CURRENT_DATE - INTERVAL '90 days'
+          GROUP BY rollup_date
+        `,
+        sql<{ business_id: string; total_usd: number; call_count: number }[]>`
+          SELECT business_id, SUM(total_cost_usd)::float AS total_usd, SUM(call_count)::int AS call_count
+          FROM api_costs_daily_rollups
+          WHERE rollup_date >= CURRENT_DATE - ${days}::int * INTERVAL '1 day'
+            AND rollup_date < CURRENT_DATE - INTERVAL '90 days'
+            AND business_id IS NOT NULL
+          GROUP BY business_id
+        `,
+      ]);
+      rollupProvider = provRes;
+      rollupDay = dayRes;
+      for (const row of bizRes) {
+        rollupBusinessTotals.set(row.business_id, {
+          total_usd: row.total_usd,
+          call_count: row.call_count,
+        });
+      }
+    }
+
+    // Merge byProvider: sum detail + rollup by provider key.
+    const providerMap = new Map<string, { totalUsd: number; callCount: number }>();
+    for (const row of providerRows) {
+      providerMap.set(row.provider, { totalUsd: row.total_usd, callCount: row.call_count });
+    }
+    for (const row of rollupProvider) {
+      const existing = providerMap.get(row.provider);
+      if (existing) {
+        existing.totalUsd += row.total_usd;
+        existing.callCount += row.call_count;
+      } else {
+        providerMap.set(row.provider, { totalUsd: row.total_usd, callCount: row.call_count });
+      }
+    }
+    const byProvider = Array.from(providerMap.entries())
+      .map(([provider, v]) => ({ provider, totalUsd: v.totalUsd, callCount: v.callCount }))
+      .sort((a, b) => b.totalUsd - a.totalUsd);
+
+    // Merge byDay: one row per date, detail OR rollup (the two ranges do not overlap).
+    const dayMap = new Map<string, { totalUsd: number; callCount: number }>();
+    for (const row of dayRows) {
+      dayMap.set(row.day, { totalUsd: row.total_usd, callCount: row.call_count });
+    }
+    for (const row of rollupDay) {
+      // Detail and rollup ranges are non-overlapping by construction.
+      // Defensively: if a key collides, detail wins (already set above).
+      if (!dayMap.has(row.day)) {
+        dayMap.set(row.day, { totalUsd: row.total_usd, callCount: row.call_count });
+      }
+    }
+    const byDay = Array.from(dayMap.entries())
+      .map(([day, v]) => ({ day, totalUsd: v.totalUsd, callCount: v.callCount }))
+      .sort((a, b) => b.day.localeCompare(a.day));
+
+    // Merge byBusiness: add rollup totals to the paginated detail rows.
+    const byBusiness = businessRows.map((row) => {
+      const limitCents = tierLimitCents(row.subscription_tier);
+      const limitUsd = limitCents / 100;
+      const rollupExtra = rollupBusinessTotals.get(row.business_id);
+      const totalUsd = row.total_usd + (rollupExtra?.total_usd ?? 0);
+      const callCount = row.call_count + (rollupExtra?.call_count ?? 0);
+      const pctOfDailyLimit = Math.round((row.today_usd / limitUsd) * 100);
+      return {
+        businessId: row.business_id,
+        businessName: row.business_name,
+        subscriptionTier: row.subscription_tier,
+        totalUsd,
+        callCount,
+        todayUsd: row.today_usd,
+        dailyLimitUsd: limitUsd,
+        pctOfDailyLimit,
+      };
+    });
+
     const data: CostData = {
       days,
       totalBusinesses: businessCountRows[0]?.total ?? 0,
       limit,
       offset,
-      byProvider: providerRows.map((row) => ({
-        provider: row.provider,
-        totalUsd: row.total_usd,
-        callCount: row.call_count,
-      })),
-      byBusiness: businessRows.map((row) => {
-        const limitCents = tierLimitCents(row.subscription_tier);
-        const limitUsd = limitCents / 100;
-        const pctOfDailyLimit = Math.round((row.today_usd / limitUsd) * 100);
-        return {
-          businessId: row.business_id,
-          businessName: row.business_name,
-          subscriptionTier: row.subscription_tier,
-          totalUsd: row.total_usd,
-          callCount: row.call_count,
-          todayUsd: row.today_usd,
-          dailyLimitUsd: limitUsd,
-          pctOfDailyLimit,
-        };
-      }),
-      byDay: dayRows.map((row) => ({
-        day: row.day,
-        totalUsd: row.total_usd,
-        callCount: row.call_count,
-      })),
+      byProvider,
+      byBusiness,
+      byDay,
       todayTotalUsd: todayRows[0]?.total ?? 0,
       globalDailyLimitUsd: GLOBAL_DAILY_LIMIT_CENTS / 100,
     };
