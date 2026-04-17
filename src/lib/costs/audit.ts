@@ -35,7 +35,7 @@ export function calculateCostUsd(
  * can later call linkApiCostToResponse() after inserting the response row.
  */
 export async function recordApiCost(params: {
-  businessId: string;
+  businessId: string | null;
   provider: string;
   endpoint: string;
   inputTokens: number;
