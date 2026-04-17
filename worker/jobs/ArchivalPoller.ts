@@ -127,13 +127,28 @@ async function runArchival(): Promise<void> {
     const outboxCount = parseInt(outboxResult?.count ?? '0', 10);
     const eventsCount = parseInt(eventsResult?.count ?? '0', 10);
     const demosCount = parseInt(demosResult?.count ?? '0', 10);
+    const costsCount = parseInt(costsResult?.count ?? '0', 10);
+    const notificationsCount = parseInt(notificationsResult?.count ?? '0', 10);
 
-    if (outboxCount + eventsCount + demosCount > 0) {
+    const totalArchived = outboxCount + eventsCount + demosCount + costsCount + notificationsCount;
+
+    if (totalArchived > 0) {
       console.log(
-        `${LOG_PREFIX} Archived: ${outboxCount} outbox entries, ${eventsCount} inbound events, ${demosCount} expired demos`,
+        `${LOG_PREFIX} Archived: ${outboxCount} outbox, ${eventsCount} events, ${demosCount} demos, ${costsCount} api_costs, ${notificationsCount} notifications`,
       );
-      if (outboxCount >= 5000 || eventsCount >= 5000 || demosCount >= 5000) {
-        console.warn(`${LOG_PREFIX} Batch limit (5000) reached — more rows may remain. Next cycle will continue cleanup.`);
+
+      const BATCH_LIMIT = 5000;
+      const saturated: string[] = [];
+      if (outboxCount >= BATCH_LIMIT) saturated.push('outbox');
+      if (eventsCount >= BATCH_LIMIT) saturated.push('events');
+      if (demosCount >= BATCH_LIMIT) saturated.push('demos');
+      if (costsCount >= BATCH_LIMIT) saturated.push('api_costs');
+      if (notificationsCount >= BATCH_LIMIT) saturated.push('notifications');
+
+      if (saturated.length > 0) {
+        console.warn(
+          `${LOG_PREFIX} Batch limit (${BATCH_LIMIT}) reached for: ${saturated.join(', ')} — more rows may remain. Next cycle will continue cleanup.`,
+        );
       }
     } else {
       console.log(`${LOG_PREFIX} Nothing to archive`);
