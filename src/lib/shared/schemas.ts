@@ -32,6 +32,7 @@ export const OnboardBusinessSchema = z
     avoidFacts: z.string().max(2000).optional(),
     sampleResponses: z.string().max(5000).optional(),
     subscriptionTier: z.enum(['founding', 'standard']).default('standard'),
+    website: z.string().url().max(500).optional().nullable(),
   })
   .refine(
     (data) => Boolean(data.googlePlaceId) || Boolean(data.googleMapsUrl),
@@ -49,6 +50,7 @@ export const UpdateBusinessSchema = z
     staffNames: staffNamesArraySchema.optional(),
     highlightFacts: highlightFactsArraySchema.optional(),
     avoidFacts: avoidFactsArraySchema.optional(),
+    website: z.string().url().max(500).nullable().optional(),
   })
   .refine((data) => Object.keys(data).length > 0, {
     message: 'At least one field must be provided',

@@ -258,6 +258,7 @@ const FIELD_TO_COLUMN: Record<string, string> = {
   staffNames: 'staff_names',
   highlightFacts: 'highlight_facts',
   avoidFacts: 'avoid_facts',
+  website: 'website',
 };
 
 export async function PATCH(

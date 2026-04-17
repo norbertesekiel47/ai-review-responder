@@ -195,7 +195,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           owner_email,
           owner_phone,
           subscription_tier,
-          subscription_status
+          subscription_status,
+          website
         ) VALUES (
           ${businessId},
           ${data.name},
@@ -214,7 +215,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           ${data.ownerEmail},
           ${data.ownerPhone ?? null},
           ${data.subscriptionTier},
-          'pending_payment'
+          'pending_payment',
+          ${data.website ?? null}
         )
       `;
 
