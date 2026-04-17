@@ -204,10 +204,26 @@ describe('GET /api/admin/costs', () => {
   it('days clamped to [1, 365] when out of range below', async () => {
     queueDetailOnlyResults();
     const { GET } = await import('../route');
-    // Use -5 (truthy, bypasses the `|| 7` fallback) so we exercise the Math.max(·, 1) clamp.
+    // days=0 must clamp to 1 (not silently default to 7 via ||-short-circuit).
+    const res = await GET(makeRequest('/api/admin/costs?days=0'));
+    const body = await res.json();
+    expect(body.days).toBe(1);
+  });
+
+  it('days clamped to [1, 365] when negative', async () => {
+    queueDetailOnlyResults();
+    const { GET } = await import('../route');
     const res = await GET(makeRequest('/api/admin/costs?days=-5'));
     const body = await res.json();
     expect(body.days).toBe(1);
+  });
+
+  it('falls back to default 7 when days param is not a number', async () => {
+    queueDetailOnlyResults();
+    const { GET } = await import('../route');
+    const res = await GET(makeRequest('/api/admin/costs?days=abc'));
+    const body = await res.json();
+    expect(body.days).toBe(7);
   });
 
   it('returns 401 when auth fails', async () => {

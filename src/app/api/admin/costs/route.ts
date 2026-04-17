@@ -77,7 +77,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   try {
     const rawDays = request.nextUrl.searchParams.get('days');
-    const parsedDays = parseInt(rawDays ?? '7', 10) || 7;
+    const rawParsed = parseInt(rawDays ?? '7', 10);
+    // Fall back to 7 only when parse FAILS (NaN). Preserve 0 / negatives so the
+    // clamp below can correctly bring them to 1 instead of silently defaulting.
+    const parsedDays = Number.isNaN(rawParsed) ? 7 : rawParsed;
     if (parsedDays > 365) {
       return NextResponse.json(
         { error: 'days parameter must be 365 or less' },
