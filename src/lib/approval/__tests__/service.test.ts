@@ -162,7 +162,7 @@ describe('approve', () => {
       [],
     ]);
 
-    await approve(tx, link, 'device-hash-abc', AUDIT);
+    await approve(tx, link, 'device-hash-abc', AUDIT, 'test-correlation-xyz');
 
     expect(tx).toHaveBeenCalledTimes(6);
 
@@ -180,6 +180,17 @@ describe('approve', () => {
     const parsed = JSON.parse(payloadArg!);
     expect(parsed.response_id).toBe('resp-1');
     expect(parsed.business_id).toBe('biz-1');
+
+    // Verify correlation_id propagates into the publish_response outbox payload.
+    const jsonArgs = tx.mock.calls
+      .flat()
+      .filter((arg: unknown): arg is string => typeof arg === 'string' && arg.startsWith('{'));
+    const outboxPayloads = jsonArgs.map((s) => JSON.parse(s) as Record<string, unknown>);
+    const publishPayload = outboxPayloads.find(
+      (p) => p.response_id === link.response_id && !('satisfaction' in p),
+    );
+    expect(publishPayload).toBeDefined();
+    expect(publishPayload!.correlation_id).toBe('test-correlation-xyz');
   });
 });
 
@@ -209,7 +220,7 @@ describe('edit', () => {
       [],
     ]);
 
-    await edit(tx, link, editedText, 'device-hash-abc', AUDIT);
+    await edit(tx, link, editedText, 'device-hash-abc', AUDIT, 'test-correlation-xyz');
 
     expect(tx).toHaveBeenCalledTimes(6);
 
@@ -233,6 +244,17 @@ describe('edit', () => {
     );
     expect(payloadArg).toBeDefined();
     expect(allStringArgs).toContain(editedText);
+
+    // Verify correlation_id propagates into the publish_response outbox payload.
+    const jsonArgs = tx.mock.calls
+      .flat()
+      .filter((arg: unknown): arg is string => typeof arg === 'string' && arg.startsWith('{'));
+    const outboxPayloads = jsonArgs.map((s) => JSON.parse(s) as Record<string, unknown>);
+    const publishPayload = outboxPayloads.find(
+      (p) => p.response_id === link.response_id && !('satisfaction' in p),
+    );
+    expect(publishPayload).toBeDefined();
+    expect(publishPayload!.correlation_id).toBe('test-correlation-xyz');
   });
 });
 
@@ -261,7 +283,7 @@ describe('regenerate', () => {
       [],
     ]);
 
-    await regenerate(tx, link, 'device-hash-abc', AUDIT);
+    await regenerate(tx, link, 'device-hash-abc', AUDIT, 'test-correlation-xyz');
 
     expect(tx).toHaveBeenCalledTimes(6);
 
@@ -280,5 +302,16 @@ describe('regenerate', () => {
     expect(parsed.version).toBe(2);
     expect(parsed.review_id).toBe('rev-1');
     expect(parsed.business_id).toBe('biz-1');
+
+    // Verify correlation_id propagates into the generate_response outbox payload.
+    const jsonArgs = tx.mock.calls
+      .flat()
+      .filter((arg: unknown): arg is string => typeof arg === 'string' && arg.startsWith('{'));
+    const outboxPayloads = jsonArgs.map((s) => JSON.parse(s) as Record<string, unknown>);
+    const regeneratePayload = outboxPayloads.find(
+      (p) => typeof p.review_id === 'string' && typeof p.version === 'number',
+    );
+    expect(regeneratePayload).toBeDefined();
+    expect(regeneratePayload!.correlation_id).toBe('test-correlation-xyz');
   });
 });

@@ -143,6 +143,9 @@ describe('POST /api/dashboard/reviews/[reviewId]/approve', () => {
     expect(body.success).toBe(true);
     expect(res.headers.get('Cache-Control')).toBe('no-store, private');
     expect(mockApproveBySession).toHaveBeenCalledOnce();
+    // Signature: approveBySession(tx, responseId, businessId, audit, correlationId)
+    const callArgs = mockApproveBySession.mock.calls[0];
+    expect(callArgs?.[4]).toBe('upstream-corr-abc');
   });
 
   it('returns 404 when no response found for review', async () => {
@@ -242,6 +245,9 @@ describe('POST /api/dashboard/reviews/[reviewId]/edit', () => {
     const body = await res.json();
     expect(body.success).toBe(true);
     expect(mockEditBySession).toHaveBeenCalledOnce();
+    // Signature: editBySession(tx, responseId, businessId, editedText, audit, correlationId)
+    const callArgs = mockEditBySession.mock.calls[0];
+    expect(callArgs?.[5]).toBe('upstream-corr-abc');
   });
 
   it('returns 400 when editedText is empty', async () => {
@@ -355,6 +361,9 @@ describe('POST /api/dashboard/reviews/[reviewId]/regenerate', () => {
     expect(body.success).toBe(true);
     expect(res.headers.get('Cache-Control')).toBe('no-store, private');
     expect(mockRegenerateBySession).toHaveBeenCalledOnce();
+    // Signature: regenerateBySession(tx, responseId, businessId, audit, correlationId)
+    const callArgs = mockRegenerateBySession.mock.calls[0];
+    expect(callArgs?.[4]).toBe('upstream-corr-abc');
   });
 
   it('returns 404 when no response found', async () => {
