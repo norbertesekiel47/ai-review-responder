@@ -24,13 +24,14 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
     name: string;
     owner_name: string;
     owner_email: string;
+    owner_email_bounced: boolean;
     subscription_status: string;
     updated_at: Date;
     initial_review_count: number | null;
     initial_responded_count: number | null;
     subscription_activated_at: Date | null;
   }[]>`
-    SELECT id, name, owner_name, owner_email, subscription_status, updated_at,
+    SELECT id, name, owner_name, owner_email, owner_email_bounced, subscription_status, updated_at,
            initial_review_count, initial_responded_count, subscription_activated_at
     FROM businesses WHERE id = ${business_id}
   `;
@@ -44,6 +45,15 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
   // ── 2. Only active subscriptions get drip emails ──────────────────
   if (business.subscription_status !== 'active') {
     logger.log(`Business ${business_id} not active (${business.subscription_status}) — skipping ${drip_type}`);
+    await markOutboxCompleted(outboxId);
+    return;
+  }
+
+  // ── Hard bounce check ──────────────────────────────────
+  // Skip owner-directed emails when the owner's email has hard-bounced.
+  // Admin verifies and clears owner_email_bounced manually from /admin/businesses/[id].
+  if (business.owner_email_bounced) {
+    logger.log(`Business ${business_id} owner email bounced — skipping ${drip_type}`);
     await markOutboxCompleted(outboxId);
     return;
   }

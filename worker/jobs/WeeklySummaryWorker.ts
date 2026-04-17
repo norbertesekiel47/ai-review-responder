@@ -22,6 +22,7 @@ export async function handleWeeklySummary(
     id: string;
     name: string;
     owner_email: string;
+    owner_email_bounced: boolean;
     subscription_status: string;
     updated_at: Date;
     initial_review_count: number | null;
@@ -29,7 +30,7 @@ export async function handleWeeklySummary(
     baseline_captured_at: Date | null;
     subscription_tier: string;
   }[]>`
-    SELECT id, name, owner_email, subscription_status, updated_at,
+    SELECT id, name, owner_email, owner_email_bounced, subscription_status, updated_at,
            initial_review_count, initial_responded_count, baseline_captured_at,
            subscription_tier
     FROM businesses WHERE id = ${business_id}
@@ -50,6 +51,15 @@ export async function handleWeeklySummary(
 
   if (!subCheck.allowed) {
     logger.log(`Business ${business_id} skipped: ${subCheck.reason}`);
+    await markOutboxCompleted(outboxId);
+    return;
+  }
+
+  // ── Hard bounce check ──────────────────────────────────
+  // Skip owner-directed emails when the owner's email has hard-bounced.
+  // Admin verifies and clears owner_email_bounced manually from /admin/businesses/[id].
+  if (business.owner_email_bounced) {
+    logger.log(`Business ${business_id} owner email bounced — skipping`);
     await markOutboxCompleted(outboxId);
     return;
   }

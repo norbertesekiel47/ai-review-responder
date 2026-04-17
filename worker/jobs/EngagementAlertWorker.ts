@@ -24,11 +24,12 @@ export async function handleEngagementAlert(job: Job<EngagementAlertPayload>): P
   const [business] = await sql<{
     name: string;
     owner_email: string;
+    owner_email_bounced: boolean;
     owner_phone: string | null;
     subscription_status: string;
     updated_at: Date;
   }[]>`
-    SELECT name, owner_email, owner_phone, subscription_status, updated_at
+    SELECT name, owner_email, owner_email_bounced, owner_phone, subscription_status, updated_at
     FROM businesses WHERE id = ${business_id}
   `;
 
@@ -71,7 +72,7 @@ export async function handleEngagementAlert(job: Job<EngagementAlertPayload>): P
 async function handleOwnerNudge(
   outboxId: string,
   businessId: string,
-  business: { name: string; owner_email: string },
+  business: { name: string; owner_email: string; owner_email_bounced: boolean },
   markOutboxFailedFn: typeof markOutboxFailed,
   logger: WorkerLogger,
 ): Promise<void> {
@@ -87,6 +88,15 @@ async function handleOwnerNudge(
   if (!fromEmail) {
     logger.error(`RESEND_FROM_EMAIL not set — cannot send owner nudge`);
     await markOutboxFailedFn(outboxId, 'RESEND_FROM_EMAIL not configured');
+    return;
+  }
+
+  // ── Hard bounce check ──────────────────────────────────
+  // Skip owner-directed nudges when the owner's email has hard-bounced.
+  // Admin verifies and clears owner_email_bounced manually from /admin/businesses/[id].
+  if (business.owner_email_bounced) {
+    logger.log(`Business ${businessId} owner email bounced — skipping owner nudge`);
+    await markOutboxCompleted(outboxId);
     return;
   }
 

@@ -60,10 +60,11 @@ export async function handleSendNotification(
     owner_email: string;
     owner_name: string;
     name: string;
+    owner_email_bounced: boolean;
     subscription_status: string;
     updated_at: Date;
   }[]>`
-    SELECT owner_email, owner_name, name, subscription_status, updated_at
+    SELECT owner_email, owner_name, name, owner_email_bounced, subscription_status, updated_at
     FROM businesses WHERE id = ${business_id}
   `;
 
@@ -82,6 +83,15 @@ export async function handleSendNotification(
 
   if (!subCheck.allowed) {
     logger.log(`Business ${business_id} skipped: ${subCheck.reason}`);
+    await markOutboxCompleted(outboxId);
+    return;
+  }
+
+  // ── Hard bounce check ──────────────────────────────────
+  // Skip owner-directed emails when the owner's email has hard-bounced.
+  // Admin verifies and clears owner_email_bounced manually from /admin/businesses/[id].
+  if (business.owner_email_bounced) {
+    logger.log(`Business ${business_id} owner email bounced — skipping`);
     await markOutboxCompleted(outboxId);
     return;
   }
