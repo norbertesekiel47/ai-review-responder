@@ -80,7 +80,7 @@ async function checkAndSchedule(): Promise<void> {
             SELECT 1 FROM job_outbox jo
             WHERE jo.topic = 'weekly_summary'
               AND jo.aggregate_id = ${biz.id}
-              AND jo.status IN ('pending', 'dispatched')
+              AND jo.status IN ('pending', 'dispatching', 'dispatched')
               AND jo.payload->>'week_start_date' = ${weekStartDate}
           )
         `;

@@ -56,7 +56,7 @@ async function checkFailedNotifications(): Promise<void> {
           SELECT 1 FROM job_outbox jo
           WHERE jo.topic = 'send_notification'
             AND jo.aggregate_id = resp.id
-            AND jo.status IN ('pending', 'dispatched')
+            AND jo.status IN ('pending', 'dispatching', 'dispatched')
         )
     `;
 
@@ -112,7 +112,7 @@ async function checkFailedNotifications(): Promise<void> {
             SELECT 1 FROM job_outbox jo
             WHERE jo.topic = 'send_notification'
               AND jo.aggregate_id = ${row.response_id}
-              AND jo.status IN ('pending', 'dispatched')
+              AND jo.status IN ('pending', 'dispatching', 'dispatched')
           )
         `;
       } catch (err: unknown) {
@@ -144,7 +144,7 @@ async function checkFailedNotifications(): Promise<void> {
           SELECT 1 FROM job_outbox jo
           WHERE jo.topic = 'send_notification'
             AND jo.aggregate_id = resp.id
-            AND jo.status IN ('pending', 'dispatched')
+            AND jo.status IN ('pending', 'dispatching', 'dispatched')
         )
     `;
 
@@ -170,7 +170,7 @@ async function checkFailedNotifications(): Promise<void> {
             SELECT 1 FROM job_outbox jo
             WHERE jo.topic = 'send_notification'
               AND jo.aggregate_id = ${row.response_id}
-              AND jo.status IN ('pending', 'dispatched')
+              AND jo.status IN ('pending', 'dispatching', 'dispatched')
           )
         `;
         if (inserted.count > 0) staleQueued++;

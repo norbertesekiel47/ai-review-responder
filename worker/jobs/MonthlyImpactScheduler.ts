@@ -60,7 +60,7 @@ async function checkAndSchedule(): Promise<void> {
             SELECT 1 FROM job_outbox jo
             WHERE jo.topic = 'send_monthly_impact'
               AND jo.aggregate_id = ${biz.id}
-              AND jo.status IN ('pending', 'dispatched')
+              AND jo.status IN ('pending', 'dispatching', 'dispatched')
               AND jo.payload->>'month_start_date' = ${monthStartDate}
           )
         `;

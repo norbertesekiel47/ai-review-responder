@@ -62,7 +62,7 @@ async function pollBusinesses(): Promise<void> {
             SELECT 1 FROM job_outbox jo
             WHERE jo.topic = 'sync_reviews'
               AND jo.aggregate_id = ${biz.id}
-              AND jo.status IN ('pending', 'dispatched')
+              AND jo.status IN ('pending', 'dispatching', 'dispatched')
           )
         `;
 

@@ -65,7 +65,7 @@ export async function runRankingCheck(): Promise<void> {
           SELECT 1 FROM job_outbox jo
           WHERE jo.topic = 'track_ranking'
             AND jo.aggregate_id = b.id
-            AND jo.status IN ('pending', 'dispatched')
+            AND jo.status IN ('pending', 'dispatching', 'dispatched')
         )
     `;
 

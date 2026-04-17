@@ -117,7 +117,7 @@ async function enqueueSyncReviews(
       SELECT 1 FROM job_outbox jo
       WHERE jo.topic = 'sync_reviews'
         AND jo.aggregate_id = ${businessId}
-        AND jo.status IN ('pending', 'dispatched')
+        AND jo.status IN ('pending', 'dispatching', 'dispatched')
     )
   `;
 }
