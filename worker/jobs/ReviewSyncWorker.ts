@@ -124,7 +124,7 @@ export async function handleReviewSync(
 
   for (const monitored of reviews) {
     try {
-      const result = await processReview(monitored, business_id);
+      const result = await processReview(monitored, business_id, job.data.correlation_id);
 
       switch (result) {
         case 'new':

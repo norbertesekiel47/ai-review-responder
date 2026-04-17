@@ -42,7 +42,7 @@ export async function handlePlaceIdValidation(
         WHERE id = ${business_id}
       `;
 
-      await enqueueSyncReviews(tx, business_id, urlData.placeId!);
+      await enqueueSyncReviews(tx, business_id, urlData.placeId!, job.data.correlation_id);
     });
 
     await markOutboxCompleted(outboxId);
@@ -62,7 +62,7 @@ export async function handlePlaceIdValidation(
         WHERE id = ${business_id}
       `;
 
-      await enqueueSyncReviews(tx, business_id, resolvedPlaceId);
+      await enqueueSyncReviews(tx, business_id, resolvedPlaceId, job.data.correlation_id);
     });
 
     await markOutboxCompleted(outboxId);
@@ -96,10 +96,12 @@ async function enqueueSyncReviews(
   tx: TxClient,
   businessId: string,
   placeId: string,
+  correlationId?: string,
 ): Promise<void> {
   const syncPayload: SyncReviewsPayload = {
     business_id: businessId,
     google_place_id: placeId,
+    correlation_id: correlationId,
   };
 
   await tx`

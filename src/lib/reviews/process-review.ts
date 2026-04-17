@@ -18,6 +18,7 @@ export type ProcessResult = 'new' | 'updated' | 'unchanged';
 export async function processReview(
   monitored: MonitoredReview,
   businessId: string,
+  correlationId?: string,
 ): Promise<ProcessResult> {
   const { review, identity, contentHash } = monitored;
 
@@ -56,6 +57,7 @@ export async function processReview(
         review_id: reviewId,
         business_id: businessId,
         version: 1,
+        correlation_id: correlationId,
       };
 
       await tx`
@@ -108,6 +110,7 @@ export async function processReview(
         review_id: existing.id,
         business_id: businessId,
         version: 1,
+        correlation_id: correlationId,
       };
 
       await tx`
@@ -134,6 +137,7 @@ export async function processReview(
         review_id: existing.id,
         business_id: businessId,
         version: nextVersion,
+        correlation_id: correlationId,
       };
 
       await tx`
@@ -173,6 +177,7 @@ export async function processReview(
         const notifyPayload: NotifyAdminExceptionPayload = {
           review_exception_id: exceptionId,
           business_id: businessId,
+          correlation_id: correlationId,
         };
 
         await tx`
@@ -199,6 +204,7 @@ export async function processReview(
       review_id: existing.id,
       business_id: businessId,
       version: nextVersion,
+      correlation_id: correlationId,
     };
 
     await tx`

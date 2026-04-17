@@ -192,7 +192,7 @@ export async function handleResponseGeneration(
 
   // ── Step 9: Persist response + outbox + cost link in one transaction ─
   const responseId = await persistResponseAndNotify(
-    result, review_id, business_id, version,
+    result, review_id, business_id, version, job.data.correlation_id,
   );
   // DB transaction failure throws for BullMQ retry (transient)
 
@@ -277,6 +277,7 @@ async function persistResponseAndNotify(
   reviewId: string,
   businessId: string,
   version: number,
+  correlationId?: string,
 ): Promise<string> {
   const responseId = uuidv7();
 
@@ -309,6 +310,7 @@ async function persistResponseAndNotify(
     const notifyPayload: SendNotificationPayload = {
       response_id: responseId,
       business_id: businessId,
+      correlation_id: correlationId,
     };
 
     await tx`
