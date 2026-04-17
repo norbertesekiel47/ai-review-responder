@@ -94,33 +94,117 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const needsRollup = days > 90;
 
     // Detail queries always run — cover the most recent up-to-90 days.
-    // byBusiness aggregation no longer pre-joins/paginates here; we merge with
-    // rollup totals below and paginate on combined totals so businesses with
-    // only archived activity don't disappear from reporting.
-    const [providerRows, detailBusinessRows, dayRows, todayRows] = await Promise.all([
+    // byBusiness is now fully server-side: UNION of detail + rollup inside a
+    // CTE, aggregated by business_id, sorted and paginated in SQL. This avoids
+    // loading all business aggregates into Node at larger scale.
+    //
+    // call_count is returned as ::float (not ::int) to preserve full precision
+    // for aggregated BIGINT values. Postgres INTEGER tops out at 2.1B; at
+    // platform scale cumulative call counts could cross that. JS numbers
+    // safely represent integers up to 2^53 so ::float handles realistic totals.
+    const [providerRows, byBusinessRows, businessCountRows, dayRows, todayRows] = await Promise.all([
       sql<ProviderRow[]>`
-        SELECT provider, SUM(cost_usd)::float AS total_usd, COUNT(*)::int AS call_count
+        SELECT provider, SUM(cost_usd)::float AS total_usd, COUNT(*)::float AS call_count
         FROM api_costs
         WHERE created_at >= CURRENT_DATE - ${days}::int * INTERVAL '1 day'
         GROUP BY provider
         ORDER BY total_usd DESC
       `,
-      sql<{ business_id: string; total_usd: number; call_count: number; today_usd: number }[]>`
-        SELECT
-          business_id,
-          SUM(cost_usd)::float AS total_usd,
-          COUNT(*)::int AS call_count,
-          SUM(CASE WHEN created_at >= CURRENT_DATE THEN cost_usd ELSE 0 END)::float AS today_usd
-        FROM api_costs
-        WHERE created_at >= CURRENT_DATE - ${days}::int * INTERVAL '1 day'
-          AND business_id IS NOT NULL
-        GROUP BY business_id
-      `,
+      // byBusiness: server-side aggregation + pagination.
+      // When needsRollup: UNION detail + rollup, sum per business, sort, paginate.
+      // When not: direct aggregate from api_costs only.
+      needsRollup
+        ? sql<{
+            business_id: string;
+            name: string;
+            subscription_tier: string;
+            total_usd: number;
+            call_count: number;
+            today_usd: number;
+          }[]>`
+            WITH combined AS (
+              SELECT business_id,
+                     SUM(cost_usd)::float AS total_usd,
+                     COUNT(*)::float AS call_count,
+                     SUM(CASE WHEN created_at >= CURRENT_DATE THEN cost_usd ELSE 0 END)::float AS today_usd
+              FROM api_costs
+              WHERE created_at >= CURRENT_DATE - ${days}::int * INTERVAL '1 day'
+                AND business_id IS NOT NULL
+              GROUP BY business_id
+              UNION ALL
+              SELECT business_id,
+                     SUM(total_cost_usd)::float AS total_usd,
+                     SUM(call_count)::float AS call_count,
+                     0::float AS today_usd
+              FROM api_costs_daily_rollups
+              WHERE rollup_date >= CURRENT_DATE - ${days}::int * INTERVAL '1 day'
+                AND rollup_date < CURRENT_DATE - INTERVAL '90 days'
+                AND business_id IS NOT NULL
+              GROUP BY business_id
+            ),
+            business_totals AS (
+              SELECT business_id,
+                     SUM(total_usd)::float AS total_usd,
+                     SUM(call_count)::float AS call_count,
+                     SUM(today_usd)::float AS today_usd
+              FROM combined
+              GROUP BY business_id
+            )
+            SELECT bt.business_id, b.name, b.subscription_tier,
+                   bt.total_usd, bt.call_count, bt.today_usd
+            FROM business_totals bt
+            JOIN businesses b ON b.id = bt.business_id
+            ORDER BY bt.total_usd DESC, bt.business_id ASC
+            LIMIT ${limit} OFFSET ${offset}
+          `
+        : sql<{
+            business_id: string;
+            name: string;
+            subscription_tier: string;
+            total_usd: number;
+            call_count: number;
+            today_usd: number;
+          }[]>`
+            SELECT ac.business_id, b.name, b.subscription_tier,
+                   SUM(ac.cost_usd)::float AS total_usd,
+                   COUNT(ac.id)::float AS call_count,
+                   SUM(CASE WHEN ac.created_at >= CURRENT_DATE THEN ac.cost_usd ELSE 0 END)::float AS today_usd
+            FROM api_costs ac
+            JOIN businesses b ON b.id = ac.business_id
+            WHERE ac.created_at >= CURRENT_DATE - ${days}::int * INTERVAL '1 day'
+            GROUP BY ac.business_id, b.name, b.subscription_tier
+            ORDER BY total_usd DESC, ac.business_id ASC
+            LIMIT ${limit} OFFSET ${offset}
+          `,
+      // Total business count for pagination metadata: counts DISTINCT
+      // business_ids across detail ∪ rollup when rollup is active.
+      needsRollup
+        ? sql<{ total: number }[]>`
+            WITH combined AS (
+              SELECT business_id FROM api_costs
+              WHERE created_at >= CURRENT_DATE - ${days}::int * INTERVAL '1 day'
+                AND business_id IS NOT NULL
+              GROUP BY business_id
+              UNION
+              SELECT business_id FROM api_costs_daily_rollups
+              WHERE rollup_date >= CURRENT_DATE - ${days}::int * INTERVAL '1 day'
+                AND rollup_date < CURRENT_DATE - INTERVAL '90 days'
+                AND business_id IS NOT NULL
+              GROUP BY business_id
+            )
+            SELECT COUNT(*)::int AS total FROM combined
+          `
+        : sql<{ total: number }[]>`
+            SELECT COUNT(DISTINCT business_id)::int AS total
+            FROM api_costs
+            WHERE created_at >= CURRENT_DATE - ${days}::int * INTERVAL '1 day'
+              AND business_id IS NOT NULL
+          `,
       sql<DayRow[]>`
         SELECT
           DATE(created_at)::text AS day,
           SUM(cost_usd)::float AS total_usd,
-          COUNT(*)::int AS call_count
+          COUNT(*)::float AS call_count
         FROM api_costs
         WHERE created_at >= CURRENT_DATE - ${days}::int * INTERVAL '1 day'
         GROUP BY DATE(created_at)
@@ -133,49 +217,34 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       `,
     ]);
 
-    // Rollup queries only when range extends beyond 90 days.
-    // Rollups cover the archived tail: [startDate, CURRENT_DATE - 90d).
-    // Detail covers: [CURRENT_DATE - min(days, 90), CURRENT_DATE].
+    // Rollup queries for byProvider and byDay only when range extends beyond 90 days.
+    // byBusiness rollup is already handled server-side in the byBusinessRows query above.
     let rollupProvider: ProviderRow[] = [];
     let rollupDay: DayRow[] = [];
-    const rollupBusinessTotals = new Map<string, { total_usd: number; call_count: number }>();
 
     if (needsRollup) {
-      const [provRes, dayRes, bizRes] = await Promise.all([
+      const [provRes, dayRes] = await Promise.all([
         sql<ProviderRow[]>`
-          SELECT provider, SUM(total_cost_usd)::float AS total_usd, SUM(call_count)::int AS call_count
+          SELECT provider, SUM(total_cost_usd)::float AS total_usd, SUM(call_count)::float AS call_count
           FROM api_costs_daily_rollups
           WHERE rollup_date >= CURRENT_DATE - ${days}::int * INTERVAL '1 day'
             AND rollup_date < CURRENT_DATE - INTERVAL '90 days'
           GROUP BY provider
         `,
         sql<DayRow[]>`
-          SELECT rollup_date::text AS day, SUM(total_cost_usd)::float AS total_usd, SUM(call_count)::int AS call_count
+          SELECT rollup_date::text AS day, SUM(total_cost_usd)::float AS total_usd, SUM(call_count)::float AS call_count
           FROM api_costs_daily_rollups
           WHERE rollup_date >= CURRENT_DATE - ${days}::int * INTERVAL '1 day'
             AND rollup_date < CURRENT_DATE - INTERVAL '90 days'
           GROUP BY rollup_date
         `,
-        sql<{ business_id: string; total_usd: number; call_count: number }[]>`
-          SELECT business_id, SUM(total_cost_usd)::float AS total_usd, SUM(call_count)::int AS call_count
-          FROM api_costs_daily_rollups
-          WHERE rollup_date >= CURRENT_DATE - ${days}::int * INTERVAL '1 day'
-            AND rollup_date < CURRENT_DATE - INTERVAL '90 days'
-            AND business_id IS NOT NULL
-          GROUP BY business_id
-        `,
       ]);
       rollupProvider = provRes;
       rollupDay = dayRes;
-      for (const row of bizRes) {
-        rollupBusinessTotals.set(row.business_id, {
-          total_usd: row.total_usd,
-          call_count: row.call_count,
-        });
-      }
     }
 
     // Merge byProvider: sum detail + rollup by provider key.
+    // Provider count is bounded (~5), so app-side merge is fine.
     const providerMap = new Map<string, { totalUsd: number; callCount: number }>();
     for (const row of providerRows) {
       providerMap.set(row.provider, { totalUsd: row.total_usd, callCount: row.call_count });
@@ -196,9 +265,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // Merge byDay: ADDITIVE. Detail and rollup never reference the same source
     // row (archival deletes from detail atomically as it writes to rollup), so
     // their per-day sums are always over disjoint row sets and can be summed
-    // without double-counting. This is robust to partial archival batches,
-    // backlog catch-up, and edge cases where a single day has rows in both
-    // tables simultaneously.
+    // without double-counting. Day count is bounded (~365), so app-side merge is fine.
     const dayMap = new Map<string, { totalUsd: number; callCount: number }>();
     for (const row of dayRows) {
       dayMap.set(row.day, { totalUsd: row.total_usd, callCount: row.call_count });
@@ -216,72 +283,24 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       .map(([day, v]) => ({ day, totalUsd: v.totalUsd, callCount: v.callCount }))
       .sort((a, b) => b.day.localeCompare(a.day));
 
-    // Build combined byBusiness aggregate (detail + rollup), THEN sort and paginate.
-    // This ensures businesses with only archived activity still appear, and ordering
-    // reflects combined totals — not detail-only totals.
-    // today_usd stays detail-only (today is always within the last 90d).
-    type BusinessAgg = { total_usd: number; call_count: number; today_usd: number };
-    const combinedBusiness = new Map<string, BusinessAgg>();
-    for (const row of detailBusinessRows) {
-      combinedBusiness.set(row.business_id, {
-        total_usd: row.total_usd,
-        call_count: row.call_count,
-        today_usd: row.today_usd,
-      });
-    }
-    for (const [bizId, rollup] of rollupBusinessTotals) {
-      const existing = combinedBusiness.get(bizId);
-      if (existing) {
-        existing.total_usd += rollup.total_usd;
-        existing.call_count += rollup.call_count;
-      } else {
-        combinedBusiness.set(bizId, {
-          total_usd: rollup.total_usd,
-          call_count: rollup.call_count,
-          today_usd: 0,
-        });
-      }
-    }
-
-    // Sort by combined total_usd DESC, then paginate.
-    const sortedBusinessIds = Array.from(combinedBusiness.entries())
-      .sort((a, b) => b[1].total_usd - a[1].total_usd)
-      .map(([id]) => id);
-    const totalBusinesses = sortedBusinessIds.length;
-    const pageBusinessIds = sortedBusinessIds.slice(offset, offset + limit);
-
-    // Fetch names + tiers for just the paginated page.
-    const pageBusinesses = pageBusinessIds.length > 0
-      ? await sql<{ id: string; name: string; subscription_tier: string }[]>`
-          SELECT id, name, subscription_tier
-          FROM businesses
-          WHERE id IN ${sql(pageBusinessIds)}
-        `
-      : [];
-    const bizInfoMap = new Map(pageBusinesses.map((b) => [b.id, b]));
-
-    // Build byBusiness preserving the paginated order.
-    const byBusiness = pageBusinessIds
-      .map((bizId) => {
-        const info = bizInfoMap.get(bizId);
-        if (!info) return null; // Business row missing (deleted mid-query) — skip.
-        const agg = combinedBusiness.get(bizId);
-        if (!agg) return null;
-        const limitCents = tierLimitCents(info.subscription_tier);
-        const limitUsd = limitCents / 100;
-        const pctOfDailyLimit = Math.round((agg.today_usd / limitUsd) * 100);
-        return {
-          businessId: bizId,
-          businessName: info.name,
-          subscriptionTier: info.subscription_tier,
-          totalUsd: agg.total_usd,
-          callCount: agg.call_count,
-          todayUsd: agg.today_usd,
-          dailyLimitUsd: limitUsd,
-          pctOfDailyLimit,
-        };
-      })
-      .filter((r): r is NonNullable<typeof r> => r !== null);
+    // byBusiness is already sorted and paginated by SQL above.
+    // Compute pctOfDailyLimit and map to API shape.
+    const totalBusinesses = businessCountRows[0]?.total ?? 0;
+    const byBusiness = byBusinessRows.map((row) => {
+      const limitCents = tierLimitCents(row.subscription_tier);
+      const limitUsd = limitCents / 100;
+      const pctOfDailyLimit = Math.round((row.today_usd / limitUsd) * 100);
+      return {
+        businessId: row.business_id,
+        businessName: row.name,
+        subscriptionTier: row.subscription_tier,
+        totalUsd: row.total_usd,
+        callCount: row.call_count,
+        todayUsd: row.today_usd,
+        dailyLimitUsd: limitUsd,
+        pctOfDailyLimit,
+      };
+    });
 
     const data: CostData = {
       days,
