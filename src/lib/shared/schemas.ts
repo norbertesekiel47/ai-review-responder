@@ -73,6 +73,7 @@ export const UpdateBusinessSchema = z
     highlightFacts: highlightFactsArraySchema.optional(),
     avoidFacts: avoidFactsArraySchema.optional(),
     website: websiteUrlSchema.nullable().optional(),
+    ownerEmailBounced: z.boolean().optional(),
   })
   .refine((data) => Object.keys(data).length > 0, {
     message: 'At least one field must be provided',

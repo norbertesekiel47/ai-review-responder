@@ -45,6 +45,7 @@ interface BusinessRow {
   google_place_lng: number | null;
   ranking_search_location: string | null;
   google_place_address: string | null;
+  owner_email_bounced: boolean | null;
 }
 
 interface RankingSnapshotRow {
@@ -93,7 +94,7 @@ export async function GET(
           staff_names, highlight_facts, avoid_facts, sample_responses,
           subscription_status, subscription_tier, owner_name, owner_email, last_sync_at,
           tracked_keywords, google_place_lat, google_place_lng,
-          ranking_search_location, google_place_address
+          ranking_search_location, google_place_address, owner_email_bounced
         FROM businesses
         WHERE id = ${businessId}
       `,
@@ -218,6 +219,7 @@ export async function GET(
         googlePlaceLng: business.google_place_lng,
         rankingSearchLocation: business.ranking_search_location,
         googlePlaceAddress: business.google_place_address,
+        ownerEmailBounced: business.owner_email_bounced ?? false,
         churnScore,
       },
       rankingSnapshots: rankingSnapshots.map((s) => ({
@@ -261,6 +263,7 @@ const FIELD_TO_COLUMN: Record<string, string> = {
   highlightFacts: 'highlight_facts',
   avoidFacts: 'avoid_facts',
   website: 'website',
+  ownerEmailBounced: 'owner_email_bounced',
 };
 
 export async function PATCH(
@@ -298,7 +301,7 @@ export async function PATCH(
 
   // Build dynamic SET clause: $1 reserved for businessId, fields start at $2.
   const setClauses: string[] = [];
-  const values: (string | string[] | null)[] = [businessId];
+  const values: (string | string[] | boolean | null)[] = [businessId];
 
   for (const field of fields) {
     const column = FIELD_TO_COLUMN[field];

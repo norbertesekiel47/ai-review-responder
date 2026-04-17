@@ -30,6 +30,7 @@ interface BusinessDetail {
   googlePlaceLng: number | null;
   rankingSearchLocation: string | null;
   googlePlaceAddress: string | null;
+  ownerEmailBounced: boolean;
   churnScore?: {
     score: number;
     level: 'healthy' | 'watch' | 'at_risk';
@@ -692,6 +693,42 @@ export default function BusinessDetailPage() {
             )}
           </div>
         </div>
+
+        {business.ownerEmailBounced && (
+          <div className="mt-4 mb-4 rounded-lg border border-red-300 bg-red-50 p-4">
+            <p className="text-sm font-semibold text-red-800">
+              ⚠ Owner email is bouncing
+            </p>
+            <p className="mt-1 text-sm text-red-700">
+              Approval emails, weekly reports, monthly impact, drip emails, and owner nudges
+              are skipped for <code className="rounded bg-red-100 px-1">{business.ownerEmail}</code>.
+              Partner/admin alerts still send.
+            </p>
+            <p className="mt-2 text-sm text-red-700">
+              Verify the email address with the owner. Update it above if needed, then clear
+              this flag below. See <code>docs/email-deliverability.md</code> for the full runbook.
+            </p>
+            <button
+              type="button"
+              onClick={async () => {
+                if (!confirm('Clear the bounce flag? Only do this after verifying the address is valid.')) return;
+                const res = await fetch(`/api/admin/businesses/${business.id}`, {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ ownerEmailBounced: false }),
+                });
+                if (res.ok) {
+                  queryClient.invalidateQueries({ queryKey: ['admin-business', business.id] });
+                } else {
+                  alert('Failed to clear flag. See console.');
+                }
+              }}
+              className="mt-3 rounded bg-red-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-800"
+            >
+              Clear bounce flag (after verifying address)
+            </button>
+          </div>
+        )}
 
         {/* Profile editor */}
         <ProfileEditor
