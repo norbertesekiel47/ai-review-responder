@@ -15,6 +15,15 @@ interface OverviewData {
     failedJobs: number;
     todayCostUsd: number;
     notificationFailures24h: number;
+    emailHealth: {
+      sent24h: number;
+      delivered24h: number;
+      bounces7d: number;
+      hardBounces7d: number;
+      complaints7d: number;
+      deliveryRate24h: number;
+      redState: boolean;
+    };
   };
   totalBusinesses: number;
   limit: number;
@@ -188,7 +197,7 @@ export default function AdminOverviewPage() {
           <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
             System Health
           </h2>
-          <div className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <div className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
             <HealthCard
               label="Pending Outbox"
               value={String(systemHealth.pendingOutbox)}
@@ -209,6 +218,33 @@ export default function AdminOverviewPage() {
               value={String(systemHealth.notificationFailures24h)}
               warn={systemHealth.notificationFailures24h > 0}
             />
+            <div
+              className={`rounded-lg border p-4 ${
+                systemHealth.emailHealth.redState
+                  ? 'border-red-300 bg-red-50'
+                  : 'border-green-200 bg-green-50'
+              }`}
+            >
+              <p
+                className={`text-sm font-medium ${
+                  systemHealth.emailHealth.redState ? 'text-red-700' : 'text-green-700'
+                }`}
+              >
+                Email Health
+              </p>
+              <p
+                className={`mt-1 text-2xl font-bold ${
+                  systemHealth.emailHealth.redState ? 'text-red-800' : 'text-green-800'
+                }`}
+              >
+                {systemHealth.emailHealth.deliveryRate24h}%
+              </p>
+              <p className="mt-1 text-xs text-gray-500">
+                {systemHealth.emailHealth.sent24h} sent (24h) ·{' '}
+                {systemHealth.emailHealth.hardBounces7d} hard bounces ·{' '}
+                {systemHealth.emailHealth.complaints7d} complaints (7d)
+              </p>
+            </div>
           </div>
         </section>
 
