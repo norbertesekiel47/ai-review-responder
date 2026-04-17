@@ -19,12 +19,12 @@ import {
 import type { GenerateResponsePayload, SendNotificationPayload } from '../../src/lib/shared/worker-types';
 import type { NormalizedReview } from '../../src/lib/reviews/types';
 import type { BusinessContext, GenerationResult, VoiceExample } from '../../src/lib/responses/types';
-
-const LOG_PREFIX = '[ResponseGeneratorWorker]';
+import { createWorkerLogger, type WorkerLogger } from '../../src/lib/shared/logger';
 
 export async function handleResponseGeneration(
   job: Job<GenerateResponsePayload>,
 ): Promise<void> {
+  const logger = createWorkerLogger('[ResponseGeneratorWorker]', job.data.correlation_id);
   const { review_id, business_id, version } = job.data;
   const outboxId = (job.data as unknown as { outbox_id?: string }).outbox_id ?? job.id!;
 
@@ -42,7 +42,7 @@ export async function handleResponseGeneration(
   `;
 
   if (!review) {
-    console.warn(`${LOG_PREFIX} Review ${review_id} not found`);
+    logger.warn(`Review ${review_id} not found`);
     await markOutboxFailed(outboxId, 'review_not_found');
     return;
   }
@@ -68,7 +68,7 @@ export async function handleResponseGeneration(
   `;
 
   if (!business) {
-    console.warn(`${LOG_PREFIX} Business ${business_id} not found`);
+    logger.warn(`Business ${business_id} not found`);
     await markOutboxFailed(outboxId, 'business_not_found');
     return;
   }
@@ -81,7 +81,7 @@ export async function handleResponseGeneration(
   );
 
   if (!subCheck.allowed) {
-    console.log(`${LOG_PREFIX} Business ${business_id} skipped: ${subCheck.reason}`);
+    logger.log(`Business ${business_id} skipped: ${subCheck.reason}`);
     await markOutboxCompleted(outboxId);
     return;
   }
@@ -128,7 +128,7 @@ export async function handleResponseGeneration(
   `;
 
   if (existingResponse) {
-    console.log(`${LOG_PREFIX} Response already exists for review ${review_id} v${version}, completing outbox`);
+    logger.log(`Response already exists for review ${review_id} v${version}, completing outbox`);
     await markOutboxCompleted(outboxId);
     return;
   }
@@ -142,7 +142,7 @@ export async function handleResponseGeneration(
       await checkRegenBudget(review_id);
     } catch (err) {
       if (err instanceof RegenBudgetExceededError) {
-        console.warn(`${LOG_PREFIX} Regen budget exceeded for review ${review_id}`);
+        logger.warn(`Regen budget exceeded for review ${review_id}`);
         await markOutboxFailed(outboxId, err.message);
         return;
       }
@@ -170,7 +170,7 @@ export async function handleResponseGeneration(
     }
   } catch (err) {
     if (err instanceof CostLimitExceededError || err instanceof GlobalCostLimitExceededError) {
-      console.warn(`${LOG_PREFIX} Cost limit exceeded for business ${business_id}: ${err.message}`);
+      logger.warn(`Cost limit exceeded for business ${business_id}: ${err.message}`);
       await markOutboxFailed(outboxId, err.message);
       return;
     }
@@ -179,7 +179,7 @@ export async function handleResponseGeneration(
       throw err;
     }
     // LLM failures (both providers down) or other errors
-    console.error(`${LOG_PREFIX} Generation failed for review ${review_id}: ${err instanceof Error ? err.message : err}`);
+    logger.error(`Generation failed for review ${review_id}: ${err instanceof Error ? err.message : err}`);
     await markOutboxFailed(outboxId, `generation_failed: ${err instanceof Error ? err.message : err}`);
     return;
   }
@@ -188,6 +188,7 @@ export async function handleResponseGeneration(
   result = await applyAvoidFactsGuardrail(
     result, businessContext, normalizedReview, voiceExamples,
     { reviewId: review_id, version, businessId: business_id },
+    logger,
   );
 
   // ── Step 9: Persist response + outbox + cost link in one transaction ─
@@ -198,7 +199,7 @@ export async function handleResponseGeneration(
 
   // ── Step 10: Complete outbox ─────────────────────────────────────────
   await markOutboxCompleted(outboxId);
-  console.log(`${LOG_PREFIX} Response ${responseId} generated for review ${review_id} (v${version})`);
+  logger.log(`Response ${responseId} generated for review ${review_id} (v${version})`);
 }
 
 // ── Avoid-facts guardrail ───────────────────────────────────────────────
@@ -209,6 +210,7 @@ async function applyAvoidFactsGuardrail(
   normalizedReview: NormalizedReview,
   voiceExamples: VoiceExample[],
   ids: { reviewId: string; version: number; businessId: string },
+  logger: WorkerLogger,
 ): Promise<GenerationResult> {
   const { avoidFacts } = businessContext;
   if (avoidFacts.length === 0) return result;
@@ -216,7 +218,7 @@ async function applyAvoidFactsGuardrail(
   const violation = findAvoidFactViolation(result.responseText, avoidFacts);
   if (!violation) return result;
 
-  console.warn(`${LOG_PREFIX} Avoid-fact violation for review ${ids.reviewId}: "${violation}". Regenerating once.`);
+  logger.warn(`Avoid-fact violation for review ${ids.reviewId}: "${violation}". Regenerating once.`);
 
   try {
     const retryOpts = {

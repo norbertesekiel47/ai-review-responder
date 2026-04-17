@@ -7,14 +7,14 @@ import type { ValidatePlaceIdPayload, SyncReviewsPayload } from '../../src/lib/s
 import { parseGoogleMapsUrl, isPlaceId } from '../../src/lib/reviews/url-parser';
 import { resolvePlaceId } from '../../src/lib/reviews/place-id-resolver';
 import { ExceptionType } from '../../src/lib/shared/constants';
+import { createWorkerLogger } from '../../src/lib/shared/logger';
 
 type TxClient = postgres.TransactionSql;
-
-const LOG_PREFIX = '[PlaceIdValidationWorker]';
 
 export async function handlePlaceIdValidation(
   job: Job<ValidatePlaceIdPayload>,
 ): Promise<void> {
+  const logger = createWorkerLogger('[PlaceIdValidationWorker]', job.data.correlation_id);
   const { business_id, google_maps_url } = job.data;
   const outboxId = (job.data as unknown as { outbox_id?: string }).outbox_id ?? job.id!;
 
@@ -24,7 +24,7 @@ export async function handlePlaceIdValidation(
   `;
 
   if (!business) {
-    console.warn(`${LOG_PREFIX} Business ${business_id} not found`);
+    logger.warn(`Business ${business_id} not found`);
     await markOutboxCompleted(outboxId);
     return;
   }
@@ -46,7 +46,7 @@ export async function handlePlaceIdValidation(
     });
 
     await markOutboxCompleted(outboxId);
-    console.log(`${LOG_PREFIX} Business ${business_id} verified (canonical ID in URL)`);
+    logger.log(`Business ${business_id} verified (canonical ID in URL)`);
     return;
   }
 
@@ -66,18 +66,18 @@ export async function handlePlaceIdValidation(
     });
 
     await markOutboxCompleted(outboxId);
-    console.log(`${LOG_PREFIX} Business ${business_id} resolved to ${resolvedPlaceId}`);
+    logger.log(`Business ${business_id} resolved to ${resolvedPlaceId}`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
 
     // Transient errors (SerpAPI down) → throw for BullMQ retry
     if (message.includes('SerpAPI search error')) {
-      console.error(`${LOG_PREFIX} Transient error for ${business_id}: ${message}`);
+      logger.error(`Transient error for ${business_id}: ${message}`);
       throw error;
     }
 
     // Permanent errors (no match, rate limit, bad data) → fail outbox + log exception
-    console.error(`${LOG_PREFIX} Permanent resolution failure for ${business_id}: ${message}`);
+    logger.error(`Permanent resolution failure for ${business_id}: ${message}`);
 
     await sql`
       INSERT INTO review_exceptions (id, business_id, review_id, type, status, payload)

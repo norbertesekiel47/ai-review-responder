@@ -13,10 +13,10 @@ import {
 import { recordNotificationDelivery } from '../../src/lib/notifications/delivery';
 import { createApprovalLink } from '../../src/lib/approval/create-link';
 import type { EngagementAlertPayload } from '../../src/lib/shared/worker-types';
-
-const LOG_PREFIX = '[EngagementAlertWorker]';
+import { createWorkerLogger, type WorkerLogger } from '../../src/lib/shared/logger';
 
 export async function handleEngagementAlert(job: Job<EngagementAlertPayload>): Promise<void> {
+  const logger = createWorkerLogger('[EngagementAlertWorker]', job.data.correlation_id);
   const { business_id, alert_type, metrics } = job.data;
   const outboxId = (job.data as unknown as { outbox_id?: string }).outbox_id ?? job.id!;
 
@@ -33,7 +33,7 @@ export async function handleEngagementAlert(job: Job<EngagementAlertPayload>): P
   `;
 
   if (!business) {
-    console.warn(`${LOG_PREFIX} Business ${business_id} not found`);
+    logger.warn(`Business ${business_id} not found`);
     await markOutboxFailed(outboxId, 'business_not_found');
     return;
   }
@@ -46,23 +46,23 @@ export async function handleEngagementAlert(job: Job<EngagementAlertPayload>): P
   );
 
   if (!subCheck.allowed) {
-    console.log(`${LOG_PREFIX} Business ${business_id} skipped: ${subCheck.reason}`);
+    logger.log(`Business ${business_id} skipped: ${subCheck.reason}`);
     await markOutboxCompleted(outboxId);
     return;
   }
 
   if (alert_type === 'owner_nudge') {
-    await handleOwnerNudge(outboxId, business_id, business, markOutboxFailed);
+    await handleOwnerNudge(outboxId, business_id, business, markOutboxFailed, logger);
   } else if (alert_type === 'partner_satisfaction_alert') {
     const satisfaction = (job.data as EngagementAlertPayload).satisfaction;
-    await handleSatisfactionAlert(outboxId, business_id, business, satisfaction ?? null);
+    await handleSatisfactionAlert(outboxId, business_id, business, satisfaction ?? null, logger);
   } else {
     if (!metrics) {
-      console.warn(`${LOG_PREFIX} ${alert_type} missing metrics for business ${business_id}`);
+      logger.warn(`${alert_type} missing metrics for business ${business_id}`);
       await markOutboxFailed(outboxId, 'missing metrics payload');
       return;
     }
-    await handlePartnerAlert(outboxId, business_id, alert_type, metrics, business);
+    await handlePartnerAlert(outboxId, business_id, alert_type, metrics, business, logger);
   }
 }
 
@@ -73,18 +73,19 @@ async function handleOwnerNudge(
   businessId: string,
   business: { name: string; owner_email: string },
   markOutboxFailedFn: typeof markOutboxFailed,
+  logger: WorkerLogger,
 ): Promise<void> {
   // Validate config before creating any approval links
   const appUrl = process.env.NEXT_PUBLIC_APP_URL;
   if (!appUrl) {
-    console.error(`${LOG_PREFIX} NEXT_PUBLIC_APP_URL not set — cannot send owner nudge`);
+    logger.error(`NEXT_PUBLIC_APP_URL not set — cannot send owner nudge`);
     await markOutboxFailedFn(outboxId, 'NEXT_PUBLIC_APP_URL not configured');
     return;
   }
 
   const fromEmail = process.env.RESEND_FROM_EMAIL;
   if (!fromEmail) {
-    console.error(`${LOG_PREFIX} RESEND_FROM_EMAIL not set — cannot send owner nudge`);
+    logger.error(`RESEND_FROM_EMAIL not set — cannot send owner nudge`);
     await markOutboxFailedFn(outboxId, 'RESEND_FROM_EMAIL not configured');
     return;
   }
@@ -99,7 +100,7 @@ async function handleOwnerNudge(
     LIMIT 1
   `;
   if (existingNudge) {
-    console.log(`${LOG_PREFIX} Owner nudge already sent for business ${businessId} recently — skipping`);
+    logger.log(`Owner nudge already sent for business ${businessId} recently — skipping`);
     await markOutboxCompleted(outboxId);
     return;
   }
@@ -126,7 +127,7 @@ async function handleOwnerNudge(
   `;
 
   if (pendingRows.length === 0) {
-    console.log(`${LOG_PREFIX} No pending reviews for business ${businessId} — skipping nudge`);
+    logger.log(`No pending reviews for business ${businessId} — skipping nudge`);
     await markOutboxCompleted(outboxId);
     return;
   }
@@ -177,7 +178,7 @@ async function handleOwnerNudge(
   });
 
   await markOutboxCompleted(outboxId);
-  console.log(`${LOG_PREFIX} Owner nudge sent to ${business.owner_email} (${totalPending} pending reviews)`);
+  logger.log(`Owner nudge sent to ${business.owner_email} (${totalPending} pending reviews)`);
 }
 
 // ── Partner alerts: email the admin about customer engagement ────────
@@ -188,10 +189,11 @@ async function handlePartnerAlert(
   alertType: 'partner_engagement_alert' | 'partner_escalation_alert' | 'partner_low_engagement',
   metrics: NonNullable<EngagementAlertPayload['metrics']>,
   business: { name: string; owner_email: string; owner_phone: string | null },
+  logger: WorkerLogger,
 ): Promise<void> {
   const adminEmail = process.env.ADMIN_NOTIFICATION_EMAIL;
   if (!adminEmail) {
-    console.error(`${LOG_PREFIX} ADMIN_NOTIFICATION_EMAIL not set — cannot send partner alert`);
+    logger.error(`ADMIN_NOTIFICATION_EMAIL not set — cannot send partner alert`);
     await markOutboxFailed(outboxId, 'ADMIN_NOTIFICATION_EMAIL not configured');
     return;
   }
@@ -257,7 +259,7 @@ async function handlePartnerAlert(
   });
 
   await markOutboxCompleted(outboxId);
-  console.log(`${LOG_PREFIX} ${alertType} sent to ${adminEmail} for business ${business.name}`);
+  logger.log(`${alertType} sent to ${adminEmail} for business ${business.name}`);
 }
 
 // ── Partner satisfaction alert: triggered by "not great" pulse response ─
@@ -267,16 +269,17 @@ async function handleSatisfactionAlert(
   businessId: string,
   business: { name: string; owner_email: string; owner_phone: string | null },
   satisfaction: EngagementAlertPayload['satisfaction'] | null,
+  logger: WorkerLogger,
 ): Promise<void> {
   const adminEmail = process.env.ADMIN_NOTIFICATION_EMAIL;
   if (!adminEmail) {
-    console.error(`${LOG_PREFIX} ADMIN_NOTIFICATION_EMAIL not set — cannot send satisfaction alert`);
+    logger.error(`ADMIN_NOTIFICATION_EMAIL not set — cannot send satisfaction alert`);
     await markOutboxFailed(outboxId, 'ADMIN_NOTIFICATION_EMAIL not configured');
     return;
   }
 
   if (!satisfaction) {
-    console.warn(`${LOG_PREFIX} partner_satisfaction_alert missing satisfaction data for business ${businessId}`);
+    logger.warn(`partner_satisfaction_alert missing satisfaction data for business ${businessId}`);
     await markOutboxFailed(outboxId, 'missing satisfaction payload');
     return;
   }
@@ -284,24 +287,24 @@ async function handleSatisfactionAlert(
   // Runtime validation — JSONB payloads are not type-checked by TypeScript
   const validRatings = ['great', 'ok', 'not_great'] as const;
   if (!validRatings.includes(satisfaction.rating as typeof validRatings[number])) {
-    console.warn(`${LOG_PREFIX} Invalid satisfaction rating: ${String(satisfaction.rating)}`);
+    logger.warn(`Invalid satisfaction rating: ${String(satisfaction.rating)}`);
     await markOutboxFailed(outboxId, `invalid satisfaction rating: ${String(satisfaction.rating)}`);
     return;
   }
   if (typeof satisfaction.week_start_date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(satisfaction.week_start_date)) {
-    console.warn(`${LOG_PREFIX} Invalid satisfaction week_start_date: ${String(satisfaction.week_start_date)}`);
+    logger.warn(`Invalid satisfaction week_start_date: ${String(satisfaction.week_start_date)}`);
     await markOutboxFailed(outboxId, 'invalid satisfaction week_start_date');
     return;
   }
   // Round-trip validation: reject impossible dates like 2026-99-99
   const parsedDate = new Date(satisfaction.week_start_date + 'T00:00:00Z');
   if (Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== satisfaction.week_start_date) {
-    console.warn(`${LOG_PREFIX} Invalid calendar date in week_start_date: ${satisfaction.week_start_date}`);
+    logger.warn(`Invalid calendar date in week_start_date: ${satisfaction.week_start_date}`);
     await markOutboxFailed(outboxId, 'invalid satisfaction week_start_date (not a real date)');
     return;
   }
   if (satisfaction.comment !== null && typeof satisfaction.comment !== 'string') {
-    console.warn(`${LOG_PREFIX} Invalid satisfaction comment type: ${typeof satisfaction.comment}`);
+    logger.warn(`Invalid satisfaction comment type: ${typeof satisfaction.comment}`);
     await markOutboxFailed(outboxId, 'invalid satisfaction comment type');
     return;
   }
@@ -318,7 +321,7 @@ async function handleSatisfactionAlert(
     LIMIT 1
   `;
   if (existingDelivery) {
-    console.log(`${LOG_PREFIX} Satisfaction alert already sent for business ${businessId} week ${satisfaction.week_start_date} — skipping`);
+    logger.log(`Satisfaction alert already sent for business ${businessId} week ${satisfaction.week_start_date} — skipping`);
     await markOutboxCompleted(outboxId);
     return;
   }
@@ -332,7 +335,7 @@ async function handleSatisfactionAlert(
   `;
 
   if (!currentResponse || currentResponse.rating !== 'not_great') {
-    console.log(`${LOG_PREFIX} Satisfaction rating changed to '${currentResponse?.rating ?? 'deleted'}' for ${businessId} week ${satisfaction.week_start_date} — skipping alert`);
+    logger.log(`Satisfaction rating changed to '${currentResponse?.rating ?? 'deleted'}' for ${businessId} week ${satisfaction.week_start_date} — skipping alert`);
     await markOutboxCompleted(outboxId);
     return;
   }
@@ -373,5 +376,5 @@ async function handleSatisfactionAlert(
     externalMessageId: messageId,
   });
 
-  console.log(`${LOG_PREFIX} partner_satisfaction_alert sent to ${adminEmail} for business ${business.name} (rating: ${satisfaction.rating}, week: ${satisfaction.week_start_date})`);
+  logger.log(`partner_satisfaction_alert sent to ${adminEmail} for business ${business.name} (rating: ${satisfaction.rating}, week: ${satisfaction.week_start_date})`);
 }

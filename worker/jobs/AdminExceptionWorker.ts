@@ -4,12 +4,12 @@ import { markOutboxCompleted } from '../../src/lib/shared/outbox';
 import { sendInternalEmail } from '../../src/lib/notifications/email';
 import type { NotifyAdminExceptionPayload } from '../../src/lib/shared/worker-types';
 import { escapeHtml } from '../../src/lib/shared/html';
-
-const LOG_PREFIX = '[AdminExceptionWorker]';
+import { createWorkerLogger } from '../../src/lib/shared/logger';
 
 export async function handleAdminException(
   job: Job<NotifyAdminExceptionPayload>,
 ): Promise<void> {
+  const logger = createWorkerLogger('[AdminExceptionWorker]', job.data.correlation_id);
   const { review_exception_id, business_id } = job.data;
   const outboxId = (job.data as unknown as { outbox_id?: string }).outbox_id ?? job.id!;
 
@@ -34,14 +34,14 @@ export async function handleAdminException(
   `;
 
   if (!exception) {
-    console.warn(`${LOG_PREFIX} Exception ${review_exception_id} not found`);
+    logger.warn(`Exception ${review_exception_id} not found`);
     await markOutboxCompleted(outboxId);
     return;
   }
 
   // Already resolved — another worker got there first
   if (exception.status !== 'open') {
-    console.log(`${LOG_PREFIX} Exception ${review_exception_id} already ${exception.status}`);
+    logger.log(`Exception ${review_exception_id} already ${exception.status}`);
     await markOutboxCompleted(outboxId);
     return;
   }
@@ -53,7 +53,7 @@ export async function handleAdminException(
 
   const adminEmail = process.env.ADMIN_NOTIFICATION_EMAIL;
   if (!adminEmail) {
-    console.error(`${LOG_PREFIX} ADMIN_NOTIFICATION_EMAIL not set — cannot send alert`);
+    logger.error(`ADMIN_NOTIFICATION_EMAIL not set — cannot send alert`);
     await markOutboxCompleted(outboxId);
     return;
   }
@@ -79,10 +79,10 @@ export async function handleAdminException(
     });
   } catch (err) {
     // Throw for BullMQ retry
-    console.error(`${LOG_PREFIX} Failed to send alert for exception ${review_exception_id}: ${err instanceof Error ? err.message : err}`);
+    logger.error(`Failed to send alert for exception ${review_exception_id}: ${err instanceof Error ? err.message : err}`);
     throw err;
   }
 
   await markOutboxCompleted(outboxId);
-  console.log(`${LOG_PREFIX} Alert sent for exception ${review_exception_id} (${exception.type})`);
+  logger.log(`Alert sent for exception ${review_exception_id} (${exception.type})`);
 }

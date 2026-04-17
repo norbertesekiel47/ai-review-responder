@@ -6,12 +6,12 @@ import { markOutboxCompleted, markOutboxFailed } from '../../src/lib/shared/outb
 import { sendApprovalEmail } from '../../src/lib/notifications/email';
 import { recordNotificationDelivery } from '../../src/lib/notifications/delivery';
 import type { SendNotificationPayload } from '../../src/lib/shared/worker-types';
-
-const LOG_PREFIX = '[NotificationWorker]';
+import { createWorkerLogger } from '../../src/lib/shared/logger';
 
 export async function handleSendNotification(
   job: Job<SendNotificationPayload>,
 ): Promise<void> {
+  const logger = createWorkerLogger('[NotificationWorker]', job.data.correlation_id);
   const { response_id, business_id } = job.data;
   const outboxId = (job.data as unknown as { outbox_id?: string }).outbox_id ?? job.id!;
 
@@ -39,19 +39,19 @@ export async function handleSendNotification(
   `;
 
   if (!responseRow) {
-    console.warn(`${LOG_PREFIX} Response ${response_id} not found`);
+    logger.warn(`Response ${response_id} not found`);
     await markOutboxFailed(outboxId, 'response_not_found');
     return;
   }
 
   if (responseRow.resp_business_id !== business_id) {
-    console.error(`${LOG_PREFIX} Response ${response_id} belongs to business ${responseRow.resp_business_id}, not ${business_id}`);
+    logger.error(`Response ${response_id} belongs to business ${responseRow.resp_business_id}, not ${business_id}`);
     await markOutboxFailed(outboxId, 'business_id_mismatch');
     return;
   }
 
   if (responseRow.status !== 'pending_approval') {
-    console.warn(`${LOG_PREFIX} Response ${response_id} is ${responseRow.status}, not pending_approval — skipping notification`);
+    logger.warn(`Response ${response_id} is ${responseRow.status}, not pending_approval — skipping notification`);
     await markOutboxCompleted(outboxId);
     return;
   }
@@ -68,7 +68,7 @@ export async function handleSendNotification(
   `;
 
   if (!business) {
-    console.warn(`${LOG_PREFIX} Business ${business_id} not found`);
+    logger.warn(`Business ${business_id} not found`);
     await markOutboxFailed(outboxId, 'business_not_found');
     return;
   }
@@ -81,7 +81,7 @@ export async function handleSendNotification(
   );
 
   if (!subCheck.allowed) {
-    console.log(`${LOG_PREFIX} Business ${business_id} skipped: ${subCheck.reason}`);
+    logger.log(`Business ${business_id} skipped: ${subCheck.reason}`);
     await markOutboxCompleted(outboxId);
     return;
   }
@@ -99,11 +99,11 @@ export async function handleSendNotification(
         AND delivered_at IS NOT NULL
     `;
     if (deliveredRow) {
-      console.log(`${LOG_PREFIX} Failover: delivery already confirmed for response ${response_id}, skipping`);
+      logger.log(`Failover: delivery already confirmed for response ${response_id}, skipping`);
       await markOutboxCompleted(outboxId);
       return;
     }
-    console.log(`${LOG_PREFIX} Failover: re-sending notification for response ${response_id} (reason: ${job.data.failover!.reason})`);
+    logger.log(`Failover: re-sending notification for response ${response_id} (reason: ${job.data.failover!.reason})`);
   } else {
     // Normal mode: skip if any delivery record with sent_at exists (email was sent).
     const [existingDelivery] = await sql<{ id: string }[]>`
@@ -111,7 +111,7 @@ export async function handleSendNotification(
       WHERE response_id = ${response_id} AND template = 'approval_request' AND sent_at IS NOT NULL
     `;
     if (existingDelivery) {
-      console.log(`${LOG_PREFIX} Delivery already exists for response ${response_id}, skipping`);
+      logger.log(`Delivery already exists for response ${response_id}, skipping`);
       await markOutboxCompleted(outboxId);
       return;
     }
@@ -120,7 +120,7 @@ export async function handleSendNotification(
   // ── Step 4: Validate config before creating any state ───────────────
   const fromEmail = process.env.RESEND_FROM_EMAIL;
   if (!fromEmail) {
-    console.error(`${LOG_PREFIX} RESEND_FROM_EMAIL not set — cannot send approval email`);
+    logger.error(`RESEND_FROM_EMAIL not set — cannot send approval email`);
     await markOutboxFailed(outboxId, 'RESEND_FROM_EMAIL not configured');
     return;
   }
@@ -153,7 +153,7 @@ export async function handleSendNotification(
     // The approval link exists in DB. On retry, the idempotency check
     // finds no delivery record, revokes the orphaned link, creates a
     // new one with a fresh token, and retries the email.
-    console.error(`${LOG_PREFIX} Failed to send email for response ${response_id}: ${err instanceof Error ? err.message : err}`);
+    logger.error(`Failed to send email for response ${response_id}: ${err instanceof Error ? err.message : err}`);
     throw err;
   }
 
@@ -170,5 +170,5 @@ export async function handleSendNotification(
   // Raw token only existed in memory during this function.
   // NEVER log it, NEVER store it in outbox payloads.
   await markOutboxCompleted(outboxId);
-  console.log(`${LOG_PREFIX} Approval email sent for response ${response_id} to ${business.owner_email}`);
+  logger.log(`Approval email sent for response ${response_id} to ${business.owner_email}`);
 }

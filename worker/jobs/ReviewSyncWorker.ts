@@ -10,12 +10,12 @@ import {
   captureRoiBaseline,
   isPermanentSerpApiError,
 } from '../../src/lib/reviews/process-review';
-
-const LOG_PREFIX = '[ReviewSyncWorker]';
+import { createWorkerLogger } from '../../src/lib/shared/logger';
 
 export async function handleReviewSync(
   job: Job<SyncReviewsPayload>,
 ): Promise<void> {
+  const logger = createWorkerLogger('[ReviewSyncWorker]', job.data.correlation_id);
   const { business_id, google_place_id } = job.data;
   const outboxId = (job.data as unknown as { outbox_id?: string }).outbox_id ?? job.id!;
 
@@ -34,19 +34,19 @@ export async function handleReviewSync(
   `;
 
   if (!business) {
-    console.warn(`${LOG_PREFIX} Business ${business_id} not found`);
+    logger.warn(`Business ${business_id} not found`);
     await markOutboxCompleted(outboxId);
     return;
   }
 
   if (!business.google_place_id) {
-    console.warn(`${LOG_PREFIX} Business ${business_id} has no google_place_id`);
+    logger.warn(`Business ${business_id} has no google_place_id`);
     await markOutboxCompleted(outboxId);
     return;
   }
 
   if (!business.place_id_verified) {
-    console.warn(`${LOG_PREFIX} Business ${business_id} place_id not verified, skipping`);
+    logger.warn(`Business ${business_id} place_id not verified, skipping`);
     await markOutboxCompleted(outboxId);
     return;
   }
@@ -58,7 +58,7 @@ export async function handleReviewSync(
   );
 
   if (!subCheck.allowed) {
-    console.warn(`${LOG_PREFIX} Business ${business_id} subscription blocked: ${subCheck.reason}`);
+    logger.warn(`Business ${business_id} subscription blocked: ${subCheck.reason}`);
     await markOutboxCompleted(outboxId);
     return;
   }
@@ -73,13 +73,13 @@ export async function handleReviewSync(
     const message = error instanceof Error ? error.message : String(error);
 
     if (isPermanentSerpApiError(message)) {
-      console.error(`${LOG_PREFIX} Permanent SerpAPI error for business ${business_id}: ${message}`);
+      logger.error(`Permanent SerpAPI error for business ${business_id}: ${message}`);
       await markOutboxFailed(outboxId, `serpapi_permanent: ${message}`);
       return;
     }
 
     // Transient error — throw so BullMQ retries with backoff
-    console.error(`${LOG_PREFIX} Transient SerpAPI error for business ${business_id}: ${message}`);
+    logger.error(`Transient SerpAPI error for business ${business_id}: ${message}`);
     throw error;
   }
 
@@ -87,8 +87,8 @@ export async function handleReviewSync(
 
   // ── Step 3: Store identity collisions in review_exceptions ──────────
   for (const collision of collisions) {
-    console.warn(
-      `${LOG_PREFIX} Identity collision for business ${business_id}: ` +
+    logger.warn(
+      `Identity collision for business ${business_id}: ` +
         `providerReviewId=${collision.identity.providerReviewId} ` +
         `strategy=${collision.identity.identityStrategy}`,
     );
@@ -112,7 +112,7 @@ export async function handleReviewSync(
         DO NOTHING
       `;
     } catch (err) {
-      console.error(`${LOG_PREFIX} Failed to store identity collision: ${err instanceof Error ? err.message : err}`);
+      logger.error(`Failed to store identity collision: ${err instanceof Error ? err.message : err}`);
     }
   }
 
@@ -140,15 +140,15 @@ export async function handleReviewSync(
     } catch (error) {
       errorCount++;
       const message = error instanceof Error ? error.message : String(error);
-      console.error(
-        `${LOG_PREFIX} Error processing review ${monitored.identity.providerReviewId} ` +
+      logger.error(
+        `Error processing review ${monitored.identity.providerReviewId} ` +
           `for business ${business_id}: ${message}`,
       );
     }
   }
 
-  console.log(
-    `${LOG_PREFIX} Business ${business_id}: ` +
+  logger.log(
+    `Business ${business_id}: ` +
       `new=${newCount} updated=${updatedCount} unchanged=${unchangedCount} errors=${errorCount} ` +
       `collisions=${collisions.length}`,
   );

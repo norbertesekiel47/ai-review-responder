@@ -5,10 +5,12 @@ import type { DemoJobPayload } from '../../src/lib/demos/types';
 import { markOutboxCompleted } from '../../src/lib/shared/outbox';
 import { isPlaceId, parseGoogleMapsUrl } from '../../src/lib/reviews/url-parser';
 import { resolvePlaceId } from '../../src/lib/reviews/place-id-resolver';
+import { createWorkerLogger } from '../../src/lib/shared/logger';
 
 export async function handleDemoGeneration(
   job: Job<DemoJobPayload>,
 ): Promise<void> {
+  const logger = createWorkerLogger('[DemoGenerationWorker]', job.data.correlation_id);
   const { demoId, businessName, category } = job.data;
   let { googlePlaceId } = job.data;
   const googleMapsUrl = job.data.googleMapsUrl;
@@ -20,15 +22,15 @@ export async function handleDemoGeneration(
   `;
 
   if (!demo) {
-    console.warn(`[DemoGenerationWorker] Demo ${demoId} not found, completing outbox`);
+    logger.warn(`Demo ${demoId} not found, completing outbox`);
     await markOutboxCompleted(outboxId);
     return;
   }
 
   // Terminal states — nothing to do
   if (demo.generation_status === 'completed' || demo.generation_status === 'failed') {
-    console.warn(
-      `[DemoGenerationWorker] Demo ${demoId} already ${demo.generation_status}, completing outbox`,
+    logger.warn(
+      `Demo ${demoId} already ${demo.generation_status}, completing outbox`,
     );
     await markOutboxCompleted(outboxId);
     return;
@@ -43,8 +45,8 @@ export async function handleDemoGeneration(
     demo.started_at &&
     Date.now() - new Date(demo.started_at).getTime() > STALE_THRESHOLD_MS
   ) {
-    console.warn(
-      `[DemoGenerationWorker] Demo ${demoId} stuck in running for >5min, resetting to queued`,
+    logger.warn(
+      `Demo ${demoId} stuck in running for >5min, resetting to queued`,
     );
     await sql`
       UPDATE prospect_demos
@@ -69,7 +71,7 @@ export async function handleDemoGeneration(
   `;
 
   if (updated.count === 0) {
-    console.warn(`[DemoGenerationWorker] Demo ${demoId} already claimed, completing outbox`);
+    logger.warn(`Demo ${demoId} already claimed, completing outbox`);
     await markOutboxCompleted(outboxId);
     return;
   }
@@ -107,15 +109,15 @@ export async function handleDemoGeneration(
       `;
     });
 
-    console.log(
-      `[DemoGenerationWorker] Demo ${demoId} completed: ${result.metadata.successfulResponses}/${result.metadata.totalReviews} responses in ${result.metadata.generationDurationMs}ms`,
+    logger.log(
+      `Demo ${demoId} completed: ${result.metadata.successfulResponses}/${result.metadata.totalReviews} responses in ${result.metadata.generationDurationMs}ms`,
     );
   } catch (error) {
     const message =
       error instanceof Error ? error.message : String(error);
 
-    console.error(
-      `[DemoGenerationWorker] Demo ${demoId} failed: ${message}`,
+    logger.error(
+      `Demo ${demoId} failed: ${message}`,
     );
 
     // Failure: update both in one transaction
@@ -140,8 +142,8 @@ export async function handleDemoGeneration(
     } catch (txError) {
       // If the failure transaction itself fails, re-throw so BullMQ retries.
       // The idempotency check at the top will catch the retry.
-      console.error(
-        `[DemoGenerationWorker] Failed to record failure for demo ${demoId}:`,
+      logger.error(
+        `Failed to record failure for demo ${demoId}:`,
         txError,
       );
       throw txError;
