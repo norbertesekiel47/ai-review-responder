@@ -15,10 +15,16 @@ CREATE TABLE IF NOT EXISTS api_costs_daily_rollups (
   business_id UUID REFERENCES businesses(id) ON DELETE CASCADE,
   provider VARCHAR(20) NOT NULL,
   rollup_date DATE NOT NULL,
-  total_cost_usd DECIMAL(10,6) NOT NULL,
-  total_input_tokens INTEGER NOT NULL DEFAULT 0,
-  total_output_tokens INTEGER NOT NULL DEFAULT 0,
-  call_count INTEGER NOT NULL DEFAULT 0,
+  -- NUMERIC(14,6) accommodates up to $99,999,999.999999 per rollup row.
+  -- DECIMAL(10,6) would cap at $9,999.99 per (business, provider, date) which
+  -- could overflow at platform scale for high-volume providers.
+  total_cost_usd NUMERIC(14,6) NOT NULL,
+  -- BIGINT on token totals and call_count prevents overflow when cumulative
+  -- aggregates span years of history per (business, provider, date). INTEGER
+  -- caps at 2.1B which could theoretically be exceeded at scale.
+  total_input_tokens BIGINT NOT NULL DEFAULT 0,
+  total_output_tokens BIGINT NOT NULL DEFAULT 0,
+  call_count BIGINT NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   CONSTRAINT uniq_cost_rollups_business_provider_date
     UNIQUE NULLS NOT DISTINCT (business_id, provider, rollup_date)

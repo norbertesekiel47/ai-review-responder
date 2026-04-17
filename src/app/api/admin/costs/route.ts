@@ -10,15 +10,6 @@ interface ProviderRow {
   call_count: number;
 }
 
-interface BusinessRow {
-  business_id: string;
-  business_name: string;
-  subscription_tier: string;
-  total_usd: number;
-  call_count: number;
-  today_usd: number;
-}
-
 interface DayRow {
   day: string;
   total_usd: number;
@@ -88,12 +79,25 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       );
     }
     const days = Math.min(Math.max(parsedDays, 1), 365);
-    const limit = Math.min(parseInt(request.nextUrl.searchParams.get('limit') ?? '20', 10) || 20, 100);
-    const offset = Math.max(parseInt(request.nextUrl.searchParams.get('offset') ?? '0', 10) || 0, 0);
+
+    // Parse limit/offset: NaN → default, negatives → clamp (not silently pass through).
+    // parseInt('-5') returns -5 which is truthy; `|| 20` wouldn't fire, so a naïve
+    // Math.min(-5, 100) would produce LIMIT -5 and crash the query.
+    const rawLimit = request.nextUrl.searchParams.get('limit');
+    const parsedLimit = parseInt(rawLimit ?? '20', 10);
+    const limit = Number.isNaN(parsedLimit) ? 20 : Math.min(Math.max(parsedLimit, 1), 100);
+
+    const rawOffset = request.nextUrl.searchParams.get('offset');
+    const parsedOffset = parseInt(rawOffset ?? '0', 10);
+    const offset = Number.isNaN(parsedOffset) ? 0 : Math.max(parsedOffset, 0);
+
     const needsRollup = days > 90;
 
     // Detail queries always run — cover the most recent up-to-90 days.
-    const [providerRows, businessRows, businessCountRows, dayRows, todayRows] = await Promise.all([
+    // byBusiness aggregation no longer pre-joins/paginates here; we merge with
+    // rollup totals below and paginate on combined totals so businesses with
+    // only archived activity don't disappear from reporting.
+    const [providerRows, detailBusinessRows, dayRows, todayRows] = await Promise.all([
       sql<ProviderRow[]>`
         SELECT provider, SUM(cost_usd)::float AS total_usd, COUNT(*)::int AS call_count
         FROM api_costs
@@ -101,25 +105,16 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         GROUP BY provider
         ORDER BY total_usd DESC
       `,
-      sql<BusinessRow[]>`
+      sql<{ business_id: string; total_usd: number; call_count: number; today_usd: number }[]>`
         SELECT
-          b.id AS business_id,
-          b.name AS business_name,
-          b.subscription_tier,
-          SUM(ac.cost_usd)::float AS total_usd,
-          COUNT(ac.id)::int AS call_count,
-          SUM(CASE WHEN ac.created_at >= CURRENT_DATE THEN ac.cost_usd ELSE 0 END)::float AS today_usd
-        FROM api_costs ac
-        JOIN businesses b ON ac.business_id = b.id
-        WHERE ac.created_at >= CURRENT_DATE - ${days}::int * INTERVAL '1 day'
-        GROUP BY b.id, b.name, b.subscription_tier
-        ORDER BY total_usd DESC
-        LIMIT ${limit} OFFSET ${offset}
-      `,
-      sql<{ total: number }[]>`
-        SELECT COUNT(DISTINCT b.id)::int AS total
-        FROM api_costs ac JOIN businesses b ON ac.business_id = b.id
-        WHERE ac.created_at >= CURRENT_DATE - ${days}::int * INTERVAL '1 day'
+          business_id,
+          SUM(cost_usd)::float AS total_usd,
+          COUNT(*)::int AS call_count,
+          SUM(CASE WHEN created_at >= CURRENT_DATE THEN cost_usd ELSE 0 END)::float AS today_usd
+        FROM api_costs
+        WHERE created_at >= CURRENT_DATE - ${days}::int * INTERVAL '1 day'
+          AND business_id IS NOT NULL
+        GROUP BY business_id
       `,
       sql<DayRow[]>`
         SELECT
@@ -198,15 +193,22 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       .map(([provider, v]) => ({ provider, totalUsd: v.totalUsd, callCount: v.callCount }))
       .sort((a, b) => b.totalUsd - a.totalUsd);
 
-    // Merge byDay: one row per date, detail OR rollup (the two ranges do not overlap).
+    // Merge byDay: ADDITIVE. Detail and rollup never reference the same source
+    // row (archival deletes from detail atomically as it writes to rollup), so
+    // their per-day sums are always over disjoint row sets and can be summed
+    // without double-counting. This is robust to partial archival batches,
+    // backlog catch-up, and edge cases where a single day has rows in both
+    // tables simultaneously.
     const dayMap = new Map<string, { totalUsd: number; callCount: number }>();
     for (const row of dayRows) {
       dayMap.set(row.day, { totalUsd: row.total_usd, callCount: row.call_count });
     }
     for (const row of rollupDay) {
-      // Detail and rollup ranges are non-overlapping by construction.
-      // Defensively: if a key collides, detail wins (already set above).
-      if (!dayMap.has(row.day)) {
+      const existing = dayMap.get(row.day);
+      if (existing) {
+        existing.totalUsd += row.total_usd;
+        existing.callCount += row.call_count;
+      } else {
         dayMap.set(row.day, { totalUsd: row.total_usd, callCount: row.call_count });
       }
     }
@@ -214,29 +216,76 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       .map(([day, v]) => ({ day, totalUsd: v.totalUsd, callCount: v.callCount }))
       .sort((a, b) => b.day.localeCompare(a.day));
 
-    // Merge byBusiness: add rollup totals to the paginated detail rows.
-    const byBusiness = businessRows.map((row) => {
-      const limitCents = tierLimitCents(row.subscription_tier);
-      const limitUsd = limitCents / 100;
-      const rollupExtra = rollupBusinessTotals.get(row.business_id);
-      const totalUsd = row.total_usd + (rollupExtra?.total_usd ?? 0);
-      const callCount = row.call_count + (rollupExtra?.call_count ?? 0);
-      const pctOfDailyLimit = Math.round((row.today_usd / limitUsd) * 100);
-      return {
-        businessId: row.business_id,
-        businessName: row.business_name,
-        subscriptionTier: row.subscription_tier,
-        totalUsd,
-        callCount,
-        todayUsd: row.today_usd,
-        dailyLimitUsd: limitUsd,
-        pctOfDailyLimit,
-      };
-    });
+    // Build combined byBusiness aggregate (detail + rollup), THEN sort and paginate.
+    // This ensures businesses with only archived activity still appear, and ordering
+    // reflects combined totals — not detail-only totals.
+    // today_usd stays detail-only (today is always within the last 90d).
+    type BusinessAgg = { total_usd: number; call_count: number; today_usd: number };
+    const combinedBusiness = new Map<string, BusinessAgg>();
+    for (const row of detailBusinessRows) {
+      combinedBusiness.set(row.business_id, {
+        total_usd: row.total_usd,
+        call_count: row.call_count,
+        today_usd: row.today_usd,
+      });
+    }
+    for (const [bizId, rollup] of rollupBusinessTotals) {
+      const existing = combinedBusiness.get(bizId);
+      if (existing) {
+        existing.total_usd += rollup.total_usd;
+        existing.call_count += rollup.call_count;
+      } else {
+        combinedBusiness.set(bizId, {
+          total_usd: rollup.total_usd,
+          call_count: rollup.call_count,
+          today_usd: 0,
+        });
+      }
+    }
+
+    // Sort by combined total_usd DESC, then paginate.
+    const sortedBusinessIds = Array.from(combinedBusiness.entries())
+      .sort((a, b) => b[1].total_usd - a[1].total_usd)
+      .map(([id]) => id);
+    const totalBusinesses = sortedBusinessIds.length;
+    const pageBusinessIds = sortedBusinessIds.slice(offset, offset + limit);
+
+    // Fetch names + tiers for just the paginated page.
+    const pageBusinesses = pageBusinessIds.length > 0
+      ? await sql<{ id: string; name: string; subscription_tier: string }[]>`
+          SELECT id, name, subscription_tier
+          FROM businesses
+          WHERE id IN ${sql(pageBusinessIds)}
+        `
+      : [];
+    const bizInfoMap = new Map(pageBusinesses.map((b) => [b.id, b]));
+
+    // Build byBusiness preserving the paginated order.
+    const byBusiness = pageBusinessIds
+      .map((bizId) => {
+        const info = bizInfoMap.get(bizId);
+        if (!info) return null; // Business row missing (deleted mid-query) — skip.
+        const agg = combinedBusiness.get(bizId);
+        if (!agg) return null;
+        const limitCents = tierLimitCents(info.subscription_tier);
+        const limitUsd = limitCents / 100;
+        const pctOfDailyLimit = Math.round((agg.today_usd / limitUsd) * 100);
+        return {
+          businessId: bizId,
+          businessName: info.name,
+          subscriptionTier: info.subscription_tier,
+          totalUsd: agg.total_usd,
+          callCount: agg.call_count,
+          todayUsd: agg.today_usd,
+          dailyLimitUsd: limitUsd,
+          pctOfDailyLimit,
+        };
+      })
+      .filter((r): r is NonNullable<typeof r> => r !== null);
 
     const data: CostData = {
       days,
-      totalBusinesses: businessCountRows[0]?.total ?? 0,
+      totalBusinesses,
       limit,
       offset,
       byProvider,

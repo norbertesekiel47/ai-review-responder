@@ -150,6 +150,27 @@ describe('ArchivalPoller', () => {
     expect(fullSql).toContain('LIMIT 5000');
   });
 
+  // Regression: Finding 1 — concurrent workers must not double-count.
+  // The fix is a DELETE-first claim pattern: candidates CTE uses
+  // FOR UPDATE SKIP LOCKED and the aggregate reads from DELETE RETURNING,
+  // so each source row is claimed and counted exactly once.
+  it('api_costs query uses FOR UPDATE SKIP LOCKED and DELETE RETURNING claim pattern', async () => {
+    queueArchivalResults({ outbox: 0, events: 0, demos: 0, costs: 0, notifications: 0 });
+
+    await runOneCycle();
+
+    const apiCostsCall = mockSql.mock.calls[3];
+    const templateStrings = apiCostsCall![0] as TemplateStringsArray;
+    const fullSql = templateStrings.join(' ');
+    // Candidates use FOR UPDATE SKIP LOCKED to claim rows exclusively
+    expect(fullSql).toContain('FOR UPDATE SKIP LOCKED');
+    // DELETE ... RETURNING feeds the aggregate — not a separate SELECT
+    expect(fullSql).toContain('DELETE FROM api_costs');
+    expect(fullSql).toContain('FROM deleted');
+    // Deterministic ordering for the claim
+    expect(fullSql).toContain('ORDER BY created_at, id');
+  });
+
   it('notification_deliveries query filters rows older than 90 days', async () => {
     queueArchivalResults({ outbox: 0, events: 0, demos: 0, costs: 0, notifications: 0 });
 

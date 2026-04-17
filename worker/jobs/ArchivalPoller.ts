@@ -63,27 +63,39 @@ async function runArchival(): Promise<void> {
       SELECT COUNT(*)::text AS count FROM deleted
     `;
 
-    // 4. api_costs older than 90 days — aggregate into rollups, then delete detail rows.
-    // Single atomic CTE: candidates → aggregate → upsert → delete.
-    // ON CONFLICT DO UPDATE is additive so batched runs across multiple cycles
-    // accumulate correctly without double-counting.
+    // 4. api_costs older than 90 days — claim via DELETE-RETURNING, then aggregate into rollups.
+    //
+    // DELETE-first pattern prevents double-counting under concurrent workers:
+    // - candidates CTE uses FOR UPDATE SKIP LOCKED to claim rows exclusively
+    // - DELETE returns the claimed row data as authoritative (a row can only
+    //   be deleted once, so it can only be aggregated once)
+    // - aggregated reads from DELETE's RETURNING, not a separate SELECT
+    // - additive ON CONFLICT DO UPDATE still lets multi-cycle batches accumulate
+    //   correctly because each cycle claims a DIFFERENT set of rows
+    //
+    // Ordering by (created_at, id) makes claiming deterministic and index-friendly.
     const [costsResult] = await sql<{ count: string }[]>`
       WITH candidates AS (
-        SELECT id, business_id, provider, created_at::date AS cost_date,
-               cost_usd,
-               COALESCE(input_tokens, 0) AS input_tokens,
-               COALESCE(output_tokens, 0) AS output_tokens
-        FROM api_costs
+        SELECT id FROM api_costs
         WHERE created_at < NOW() - INTERVAL '90 days'
+        ORDER BY created_at, id
         LIMIT 5000
+        FOR UPDATE SKIP LOCKED
+      ),
+      deleted AS (
+        DELETE FROM api_costs WHERE id IN (SELECT id FROM candidates)
+        RETURNING business_id, provider, created_at::date AS cost_date,
+                  cost_usd,
+                  COALESCE(input_tokens, 0)::bigint AS input_tokens,
+                  COALESCE(output_tokens, 0)::bigint AS output_tokens
       ),
       aggregated AS (
         SELECT business_id, provider, cost_date,
                SUM(cost_usd) AS total_cost_usd,
-               SUM(input_tokens)::int AS total_input_tokens,
-               SUM(output_tokens)::int AS total_output_tokens,
-               COUNT(*)::int AS call_count
-        FROM candidates
+               SUM(input_tokens)::bigint AS total_input_tokens,
+               SUM(output_tokens)::bigint AS total_output_tokens,
+               COUNT(*)::bigint AS call_count
+        FROM deleted
         GROUP BY business_id, provider, cost_date
       ),
       upserted AS (
@@ -98,10 +110,6 @@ async function runArchival(): Promise<void> {
           total_input_tokens = api_costs_daily_rollups.total_input_tokens + EXCLUDED.total_input_tokens,
           total_output_tokens = api_costs_daily_rollups.total_output_tokens + EXCLUDED.total_output_tokens,
           call_count = api_costs_daily_rollups.call_count + EXCLUDED.call_count
-        RETURNING id
-      ),
-      deleted AS (
-        DELETE FROM api_costs WHERE id IN (SELECT id FROM candidates)
         RETURNING id
       )
       SELECT COUNT(*)::text AS count FROM deleted
