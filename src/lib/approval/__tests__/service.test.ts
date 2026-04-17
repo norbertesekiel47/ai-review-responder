@@ -185,9 +185,9 @@ describe('approve', () => {
     const jsonArgs = tx.mock.calls
       .flat()
       .filter((arg: unknown): arg is string => typeof arg === 'string' && arg.startsWith('{'));
-    const outboxPayloads = jsonArgs.map((s) => JSON.parse(s) as Record<string, unknown>);
+    const outboxPayloads = jsonArgs.map((s: string) => JSON.parse(s) as Record<string, unknown>);
     const publishPayload = outboxPayloads.find(
-      (p) => p.response_id === link.response_id && !('satisfaction' in p),
+      (p: Record<string, unknown>) => p.response_id === link.response_id && !('satisfaction' in p),
     );
     expect(publishPayload).toBeDefined();
     expect(publishPayload!.correlation_id).toBe('test-correlation-xyz');
@@ -249,9 +249,9 @@ describe('edit', () => {
     const jsonArgs = tx.mock.calls
       .flat()
       .filter((arg: unknown): arg is string => typeof arg === 'string' && arg.startsWith('{'));
-    const outboxPayloads = jsonArgs.map((s) => JSON.parse(s) as Record<string, unknown>);
+    const outboxPayloads = jsonArgs.map((s: string) => JSON.parse(s) as Record<string, unknown>);
     const publishPayload = outboxPayloads.find(
-      (p) => p.response_id === link.response_id && !('satisfaction' in p),
+      (p: Record<string, unknown>) => p.response_id === link.response_id && !('satisfaction' in p),
     );
     expect(publishPayload).toBeDefined();
     expect(publishPayload!.correlation_id).toBe('test-correlation-xyz');
@@ -307,9 +307,9 @@ describe('regenerate', () => {
     const jsonArgs = tx.mock.calls
       .flat()
       .filter((arg: unknown): arg is string => typeof arg === 'string' && arg.startsWith('{'));
-    const outboxPayloads = jsonArgs.map((s) => JSON.parse(s) as Record<string, unknown>);
+    const outboxPayloads = jsonArgs.map((s: string) => JSON.parse(s) as Record<string, unknown>);
     const regeneratePayload = outboxPayloads.find(
-      (p) => typeof p.review_id === 'string' && typeof p.version === 'number',
+      (p: Record<string, unknown>) => typeof p.review_id === 'string' && typeof p.version === 'number',
     );
     expect(regeneratePayload).toBeDefined();
     expect(regeneratePayload!.correlation_id).toBe('test-correlation-xyz');

@@ -167,6 +167,41 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-gen-1');
   });
 
+  // 1b. Correlation propagation into send_notification payload
+  it('propagates incoming correlation_id into the serialized send_notification outbox payload', async () => {
+    const INCOMING_CORRELATION = 'upstream-corr-propagation-test';
+    sqlReturnQueue.push([mockReviewRow()]);
+    sqlReturnQueue.push([mockBusinessRow()]);
+    mockGenerateResponse.mockResolvedValueOnce(MOCK_RESULT);
+
+    await handleResponseGeneration(makeJob({ correlation_id: INCOMING_CORRELATION }));
+
+    // Extract all JSON-serialized payload strings from tx template-arg calls.
+    // The INSERT INTO job_outbox for send_notification passes JSON.stringify(notifyPayload)
+    // as one of the interpolated template values.
+    const txJsonArgs = mockTx.mock.calls
+      .flat()
+      .filter((arg): arg is string => typeof arg === 'string' && arg.startsWith('{') && arg.endsWith('}'));
+    const payloads = txJsonArgs
+      .map((s) => {
+        try { return JSON.parse(s) as Record<string, unknown>; } catch { return null; }
+      })
+      .filter((p): p is Record<string, unknown> => p !== null);
+
+    // send_notification payload shape: { response_id, business_id, correlation_id }
+    // Distinguish from any other payloads by the exact key set.
+    const sendNotificationPayload = payloads.find(
+      (p) =>
+        typeof p.response_id === 'string' &&
+        typeof p.business_id === 'string' &&
+        !('version' in p) && // not a GenerateResponsePayload
+        !('review_id' in p), // not a GenerateResponsePayload
+    );
+
+    expect(sendNotificationPayload).toBeDefined();
+    expect(sendNotificationPayload!.correlation_id).toBe(INCOMING_CORRELATION);
+  });
+
   // 2. Subscription cancelled
   it('completes the outbox without generating when subscription is cancelled', async () => {
     sqlReturnQueue.push([mockReviewRow()]);

@@ -15,10 +15,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Job } from 'bullmq';
-import type {
-  SyncReviewsPayload,
-  GenerateResponsePayload,
-} from '../../src/lib/shared/worker-types';
+import type { SyncReviewsPayload } from '../../src/lib/shared/worker-types';
 import type { MonitorResult } from '../../src/lib/reviews/types';
 
 const UPSTREAM_CORRELATION = 'upstream-corr-chain-xyz';
@@ -131,6 +128,7 @@ function makeMonitorResult(): MonitorResult {
           providerReviewId: 'sha-256-identity',
           providerReviewName: 'serpapi://place/reviews/sha-256-identity',
           providerLocationName: 'serpapi://place',
+          identityStrategy: 'name_date_hash',
         },
         contentHash: 'content-hash-abc',
       },
@@ -208,40 +206,10 @@ describe('correlation chain — Part A: ReviewSyncWorker propagates to generate_
 
 // ─── Part B: generate_response → send_notification boundary ─────────
 //
-// ResponseGeneratorWorker has heavier dependencies (cost guards, LLM calls,
-// voice learning, Redis). A full unit test is out of scope here. Instead we
-// test the smaller seam — the exact outbox INSERT site — directly by reading
-// the implementation. The important invariant is: `persistResponseAndNotify`
-// takes a correlationId argument and puts it into the send_notification
-// payload. This is already exercised by `ResponseGeneratorWorker.test.ts`
-// and is covered at the type level (SendNotificationPayload extends BasePayload).
-//
-// To close the chain proof without rebuilding the worker's full mock surface,
-// we assert the boundary via the outbox payload type + the existing
-// ResponseGeneratorWorker test suite. Below is a narrow structural test that
-// confirms ResponseGeneratorWorker's known handler constructs a payload
-// containing the incoming correlation_id field name.
-
-describe('correlation chain — Part B: boundary contract on SendNotificationPayload', () => {
-  it('SendNotificationPayload carries a correlation_id field (structural guarantee)', async () => {
-    // TypeScript-level guarantee: SendNotificationPayload extends BasePayload
-    // which declares correlation_id?: string. If this ever drifts, tsc fails.
-    // Runtime assertion: construct a payload and verify the field accepts a string.
-    const payload: import('../../src/lib/shared/worker-types').SendNotificationPayload = {
-      response_id: 'resp-001',
-      business_id: 'biz-001',
-      correlation_id: UPSTREAM_CORRELATION,
-    };
-    expect(payload.correlation_id).toBe(UPSTREAM_CORRELATION);
-  });
-
-  it('GenerateResponsePayload (incoming to ResponseGenerator) carries correlation_id', async () => {
-    const payload: GenerateResponsePayload = {
-      review_id: 'rev-001',
-      business_id: 'biz-001',
-      version: 1,
-      correlation_id: UPSTREAM_CORRELATION,
-    };
-    expect(payload.correlation_id).toBe(UPSTREAM_CORRELATION);
-  });
-});
+// The runtime assertion for this hop lives in ResponseGeneratorWorker.test.ts
+// (test: "propagates incoming correlation_id into the serialized
+// send_notification outbox payload"). That test runs the full handler path
+// with mocked dependencies and parses the JSON-serialized payload from the
+// tx mock call args to verify correlation_id matches the incoming job's value.
+// Together with Part A above, the chain is proven at runtime through both
+// worker boundaries.
