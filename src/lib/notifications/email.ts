@@ -42,17 +42,55 @@ function extractMailbox(fromEmail: string | undefined): string | null {
  * Returns additional email headers for a given category.
  * Only 'marketing' emails get List-Unsubscribe headers — required by
  * Gmail/Outlook bulk-sender compliance rules.
+ *
+ * RFC 8058 one-click compliance:
+ * `List-Unsubscribe-Post: List-Unsubscribe=One-Click` ONLY works when the
+ * `List-Unsubscribe` header contains an HTTPS URL — mail clients POST to
+ * that URL to execute the unsubscribe without a user round-trip. A
+ * mailto-only header falls back to composing an email (not one-click),
+ * and including `List-Unsubscribe-Post` alongside it is misleading (and
+ * ignored by compliant clients per RFC 8058 §3).
+ *
+ * Env-var contract:
+ *   LIST_UNSUBSCRIBE_URL   — https://... one-click endpoint (optional)
+ *   LIST_UNSUBSCRIBE_EMAIL — mailto fallback recipient (optional)
+ * If an HTTPS URL is configured, we send both forms plus the Post header.
+ * Otherwise we send ONLY the mailto form — still valid per the pre-RFC-8058
+ * standard, which Gmail/Outlook accept as a fallback for low-volume senders.
  */
 export function getEmailHeaders(category: EmailCategory): Record<string, string> {
   if (category !== 'marketing') return {};
 
-  const explicit = process.env.LIST_UNSUBSCRIBE_EMAIL?.trim();
+  const explicitUrl = process.env.LIST_UNSUBSCRIBE_URL?.trim();
+  const explicitMailbox = process.env.LIST_UNSUBSCRIBE_EMAIL?.trim();
   const derived = extractMailbox(process.env.RESEND_FROM_EMAIL);
-  const mailbox = explicit || derived || 'unsubscribe@repworth.example.com';
+  const mailbox = explicitMailbox || derived || 'unsubscribe@repworth.example.com';
 
+  // Validate URL is http(s) before trusting it — never emit a header that
+  // could redirect users to javascript:/data:/mailto: etc. if env is
+  // misconfigured.
+  let httpsUrl: string | null = null;
+  if (explicitUrl) {
+    try {
+      const u = new URL(explicitUrl);
+      if (u.protocol === 'https:' || u.protocol === 'http:') {
+        httpsUrl = u.toString();
+      }
+    } catch {
+      httpsUrl = null;
+    }
+  }
+
+  if (httpsUrl) {
+    return {
+      'List-Unsubscribe': `<${httpsUrl}>, <mailto:${mailbox}>`,
+      'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+    };
+  }
+
+  // Mailto-only fallback: no Post header (it wouldn't function anyway).
   return {
     'List-Unsubscribe': `<mailto:${mailbox}>`,
-    'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
   };
 }
 

@@ -4,6 +4,28 @@ import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { isPlaceId } from '@/lib/reviews/url-parser';
 import { fetchBusinessDetails } from '@/lib/reviews/serpapi-prefill';
 
+// ── Documented invariant exception ───────────────────────────────────
+// CLAUDE.md invariant: "Vercel serves UI only. All SLA-critical compute
+// runs on Railway." This route makes an outbound SerpAPI call from a
+// Vercel serverless function, which is an EXCEPTION to that rule. It is
+// justified because:
+//   1. The call is admin-only and user-triggered (a human selects a
+//      place in the PlaceAutocomplete UI; not triggered automatically).
+//   2. The admin is sitting in front of the form and needs sub-second
+//      feedback — shipping this to Railway would add round-trip latency
+//      to the only code path that demands it.
+//   3. A 2s Promise.race timeout bounds worst-case latency (see
+//      `SERPAPI_TIMEOUT_MS` in `serpapi-prefill.ts`).
+//   4. A 10/min per-admin strict rate limit (fail-closed when Redis is
+//      unavailable — see `checkRateLimit` below) prevents uncapped
+//      SerpAPI spend even under malicious or buggy client loops.
+//   5. Cost is recorded to `api_costs` (business_id=NULL) on every
+//      outbound call, including timeouts and API errors, so spend is
+//      visible in `/admin/costs` and subject to the same audit trail
+//      as Railway-originated calls.
+// If volume ever becomes a concern, the call can be moved behind a
+// Railway endpoint without changing the API contract.
+
 export const dynamic = 'force-dynamic';
 
 const NO_STORE = { 'Cache-Control': 'no-store' } as const;

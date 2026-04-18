@@ -53,7 +53,7 @@ WHERE id IN (
 -- production table later, rewrite as CONCURRENTLY outside a transaction block.
 DROP INDEX IF EXISTS idx_jo_sync_reviews_inflight;
 
-CREATE UNIQUE INDEX idx_jo_sync_reviews_inflight
+CREATE UNIQUE INDEX IF NOT EXISTS idx_jo_sync_reviews_inflight
   ON job_outbox (topic, aggregate_id)
   WHERE topic = 'sync_reviews'
     AND status IN ('pending', 'dispatching', 'dispatched');

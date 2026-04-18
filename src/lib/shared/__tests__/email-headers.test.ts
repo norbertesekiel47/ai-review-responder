@@ -3,23 +3,54 @@ import { getEmailHeaders, getEmailTags } from '../../notifications/email';
 
 describe('getEmailHeaders', () => {
   const originalListUnsub = process.env.LIST_UNSUBSCRIBE_EMAIL;
+  const originalListUnsubUrl = process.env.LIST_UNSUBSCRIBE_URL;
   const originalFromEmail = process.env.RESEND_FROM_EMAIL;
 
   beforeEach(() => {
     delete process.env.LIST_UNSUBSCRIBE_EMAIL;
+    delete process.env.LIST_UNSUBSCRIBE_URL;
     process.env.RESEND_FROM_EMAIL = 'RepWorth <notifications@repworth.example>';
   });
 
   afterEach(() => {
     if (originalListUnsub !== undefined) process.env.LIST_UNSUBSCRIBE_EMAIL = originalListUnsub;
+    else delete process.env.LIST_UNSUBSCRIBE_EMAIL;
+    if (originalListUnsubUrl !== undefined) process.env.LIST_UNSUBSCRIBE_URL = originalListUnsubUrl;
+    else delete process.env.LIST_UNSUBSCRIBE_URL;
     if (originalFromEmail !== undefined) process.env.RESEND_FROM_EMAIL = originalFromEmail;
   });
 
-  it('returns List-Unsubscribe headers for marketing emails', () => {
+  it('returns mailto-only List-Unsubscribe for marketing when no URL is configured (no One-Click Post header)', () => {
     const headers = getEmailHeaders('marketing');
     expect(headers['List-Unsubscribe']).toBeDefined();
     expect(headers['List-Unsubscribe']).toMatch(/^<mailto:/);
+    // Per RFC 8058, One-Click Post requires an HTTPS URL — emitting the Post
+    // header with only a mailto is non-functional and misleading.
+    expect(headers['List-Unsubscribe-Post']).toBeUndefined();
+  });
+
+  it('returns both forms + One-Click Post header when LIST_UNSUBSCRIBE_URL is configured', () => {
+    process.env.LIST_UNSUBSCRIBE_URL = 'https://repworth.example/api/unsubscribe?token=abc';
+    const headers = getEmailHeaders('marketing');
+    expect(headers['List-Unsubscribe']).toMatch(
+      /^<https:\/\/repworth\.example\/api\/unsubscribe\?token=abc>,\s*<mailto:/,
+    );
     expect(headers['List-Unsubscribe-Post']).toBe('List-Unsubscribe=One-Click');
+  });
+
+  it('rejects non-http(s) LIST_UNSUBSCRIBE_URL and falls back to mailto-only', () => {
+    process.env.LIST_UNSUBSCRIBE_URL = 'javascript:alert(1)';
+    const headers = getEmailHeaders('marketing');
+    expect(headers['List-Unsubscribe']).toMatch(/^<mailto:/);
+    expect(headers['List-Unsubscribe']).not.toContain('javascript');
+    expect(headers['List-Unsubscribe-Post']).toBeUndefined();
+  });
+
+  it('rejects malformed LIST_UNSUBSCRIBE_URL and falls back to mailto-only', () => {
+    process.env.LIST_UNSUBSCRIBE_URL = 'not a url';
+    const headers = getEmailHeaders('marketing');
+    expect(headers['List-Unsubscribe']).toMatch(/^<mailto:/);
+    expect(headers['List-Unsubscribe-Post']).toBeUndefined();
   });
 
   it('returns empty headers for transactional emails (approval links are not marketing)', () => {

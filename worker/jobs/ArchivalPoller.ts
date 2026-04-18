@@ -119,11 +119,18 @@ async function runArchival(): Promise<void> {
     // Cooldown/dedup checks in EngagementMonitor/NotificationFailover use much
     // shorter windows (24h, 3-7d), so permanent delivery records older than 90d
     // have no operational value.
+    //
+    // FOR UPDATE SKIP LOCKED protects against concurrent archival cycles
+    // (e.g. brief overlap during Railway zero-downtime redeploy): two
+    // processes wouldn't corrupt each other, but both would SELECT the
+    // same candidate IDs and the duplicate DELETE no-op would make the
+    // returned count misleading (saturation warnings could miss-fire).
     const [notificationsResult] = await sql<{ count: string }[]>`
       WITH candidates AS (
         SELECT id FROM notification_deliveries
         WHERE created_at < NOW() - INTERVAL '90 days'
         LIMIT 5000
+        FOR UPDATE SKIP LOCKED
       ),
       deleted AS (
         DELETE FROM notification_deliveries WHERE id IN (SELECT id FROM candidates)

@@ -113,6 +113,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       // byBusiness: server-side aggregation + pagination.
       // When needsRollup: UNION detail + rollup, sum per business, sort, paginate.
       // When not: direct aggregate from api_costs only.
+      //
+      // Boundary semantics: ArchivalPoller archives rows with
+      // `created_at < NOW() - INTERVAL '90 days'`. On any archival-run day,
+      // the boundary day (CURRENT_DATE - 90 days) is SPLIT: morning hours go
+      // into the rollup row for that date, remaining hours stay in api_costs.
+      // The rollup-side filter must be `rollup_date <= CURRENT_DATE - 90`
+      // (inclusive), or that boundary day's archived portion becomes
+      // invisible. Detail and rollup rows are row-disjoint, so no double-count.
       needsRollup
         ? sql<{
             business_id: string;
@@ -138,7 +146,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
                      0::float AS today_usd
               FROM api_costs_daily_rollups
               WHERE rollup_date >= CURRENT_DATE - ${days}::int * INTERVAL '1 day'
-                AND rollup_date < CURRENT_DATE - INTERVAL '90 days'
+                AND rollup_date <= CURRENT_DATE - INTERVAL '90 days'
                 AND business_id IS NOT NULL
               GROUP BY business_id
             ),
@@ -188,7 +196,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
               UNION
               SELECT business_id FROM api_costs_daily_rollups
               WHERE rollup_date >= CURRENT_DATE - ${days}::int * INTERVAL '1 day'
-                AND rollup_date < CURRENT_DATE - INTERVAL '90 days'
+                AND rollup_date <= CURRENT_DATE - INTERVAL '90 days'
                 AND business_id IS NOT NULL
               GROUP BY business_id
             )
@@ -228,14 +236,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           SELECT provider, SUM(total_cost_usd)::float AS total_usd, SUM(call_count)::float AS call_count
           FROM api_costs_daily_rollups
           WHERE rollup_date >= CURRENT_DATE - ${days}::int * INTERVAL '1 day'
-            AND rollup_date < CURRENT_DATE - INTERVAL '90 days'
+            AND rollup_date <= CURRENT_DATE - INTERVAL '90 days'
           GROUP BY provider
         `,
         sql<DayRow[]>`
           SELECT rollup_date::text AS day, SUM(total_cost_usd)::float AS total_usd, SUM(call_count)::float AS call_count
           FROM api_costs_daily_rollups
           WHERE rollup_date >= CURRENT_DATE - ${days}::int * INTERVAL '1 day'
-            AND rollup_date < CURRENT_DATE - INTERVAL '90 days'
+            AND rollup_date <= CURRENT_DATE - INTERVAL '90 days'
           GROUP BY rollup_date
         `,
       ]);

@@ -34,7 +34,7 @@ const MOCK_PREFILL: BusinessPrefill = {
  * - NEVER throws — returns partial/empty data on any failure (API error,
  *   malformed response, timeout, missing key, cache failure).
  * - Caches by place_id for 7 days when Redis is available.
- * - Records a platform-level api_costs row (business_id=NULL) on success.
+ * - Records a platform-level api_costs row (business_id=NULL) for each live SerpAPI call, including failures. 
  * - Returns canned deterministic data in mock mode.
  *
  * Normalization rules:
@@ -238,12 +238,12 @@ async function readCache(placeId: string): Promise<BusinessPrefill | null> {
       parsed = JSON.parse(raw);
     } catch {
       console.warn(`${LOG_PREFIX} Invalid JSON in cache for ${placeId} — deleting entry`);
-      redis.del(key).catch(() => {});
+      redis.del(key).catch(() => { });
       return null;
     }
     if (!isValidBusinessPrefill(parsed)) {
       console.warn(`${LOG_PREFIX} Cached payload for ${placeId} fails shape validation — deleting entry`);
-      redis.del(key).catch(() => {});
+      redis.del(key).catch(() => { });
       return null;
     }
 
