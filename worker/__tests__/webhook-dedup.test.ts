@@ -17,7 +17,7 @@ const { sqlReturnQueue, sqlCalls, mockSql } = vi.hoisted(() => {
   return { sqlReturnQueue, sqlCalls, mockSql };
 });
 
-vi.mock('../../src/lib/db/server', () => ({ sql: mockSql }));
+vi.mock('../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
 vi.mock('uuid', () => ({ v7: vi.fn(() => 'test-uuid') }));
 
 // Mock Stripe SDK

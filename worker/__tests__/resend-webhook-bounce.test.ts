@@ -11,7 +11,7 @@ const { sqlReturnQueue, mockSql, mockSendInternalEmail } = vi.hoisted(() => {
   return { sqlReturnQueue, mockSql, mockSendInternalEmail };
 });
 
-vi.mock('../../src/lib/db/server', () => ({ sql: mockSql }));
+vi.mock('../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
 vi.mock('../../src/lib/notifications/email', () => ({
   sendInternalEmail: (...args: unknown[]) => mockSendInternalEmail(...args),
 }));

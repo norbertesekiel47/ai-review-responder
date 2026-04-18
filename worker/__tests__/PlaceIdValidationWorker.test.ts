@@ -43,8 +43,7 @@ const {
 
 // ── Module mocks (hoisted by vitest) ───────────────────────────────────
 vi.mock('../../src/lib/db/server', () => ({
-  sql: mockSql,
-}));
+  sql: mockSql, jsonb: (v: unknown) => v }));
 
 vi.mock('../../src/lib/shared/outbox', () => ({
   markOutboxCompleted: mockMarkOutboxCompleted,
@@ -89,19 +88,23 @@ function findSyncReviewsPayload(): Record<string, unknown> | undefined {
     ...mockSql.mock.calls.flat(),
     ...mockTx.mock.calls.flat(),
   ];
-  const jsonStrings = allCalls.filter(
-    (arg: unknown): arg is string => typeof arg === 'string' && arg.startsWith('{'),
+  // Current form: jsonb(payload) passes the OBJECT through in the test mock.
+  const objectArg = allCalls.find(
+    (arg): arg is Record<string, unknown> =>
+      !!arg && typeof arg === 'object' && !Array.isArray(arg) && 'google_place_id' in (arg as Record<string, unknown>),
   );
-  const payloads = jsonStrings
-    .map((s) => {
-      try {
-        return JSON.parse(s) as Record<string, unknown>;
-      } catch {
-        return null;
-      }
-    })
-    .filter((p): p is Record<string, unknown> => p !== null);
-  return payloads.find((p) => 'google_place_id' in p);
+  if (objectArg) return objectArg;
+  // Legacy form: JSON.stringify(payload) produces a string starting with `{`.
+  const jsonString = allCalls.find(
+    (arg): arg is string => typeof arg === 'string' && arg.startsWith('{'),
+  );
+  if (!jsonString) return undefined;
+  try {
+    const parsed = JSON.parse(jsonString) as Record<string, unknown>;
+    return 'google_place_id' in parsed ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────

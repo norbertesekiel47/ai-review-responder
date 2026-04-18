@@ -25,7 +25,7 @@ const {
   };
 });
 
-vi.mock('../../src/lib/db/server', () => ({ sql: mockSql }));
+vi.mock('../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
 vi.mock('../../src/lib/notifications/email', () => ({
   sendInternalEmail: mockSendInternalEmail,
 }));
@@ -175,13 +175,13 @@ describe('NotificationFailoverPoller', () => {
       },
     );
     expect(insertCall).toBeDefined();
-    // Payload is passed as a JSON string, interpolated via ${JSON.stringify(payload)}
+    // Payload is now bound via jsonb(payload) — test mock returns the OBJECT
+    // pass-through, so look for the object arg with a correlation_id property.
     const payloadArg = insertCall!.find((arg: any) =>
-      typeof arg === 'string' && arg.includes('correlation_id'),
+      arg && typeof arg === 'object' && !Array.isArray(arg) && 'correlation_id' in arg,
     );
     expect(payloadArg).toBeDefined();
-    const parsed = JSON.parse(payloadArg as string);
-    expect(parsed.correlation_id).toBe(upstreamCorrelationId);
+    expect((payloadArg as { correlation_id: string }).correlation_id).toBe(upstreamCorrelationId);
 
     mod.stopNotificationFailoverPoller();
   });
@@ -213,10 +213,10 @@ describe('NotificationFailoverPoller', () => {
     );
     expect(insertCall).toBeDefined();
     const payloadArg = insertCall!.find((arg: any) =>
-      typeof arg === 'string' && arg.includes('correlation_id'),
+      arg && typeof arg === 'object' && !Array.isArray(arg) && 'correlation_id' in arg,
     );
-    const parsed = JSON.parse(payloadArg as string);
-    expect(parsed.correlation_id).toBe(upstreamCorrelationId);
+    expect(payloadArg).toBeDefined();
+    expect((payloadArg as { correlation_id: string }).correlation_id).toBe(upstreamCorrelationId);
 
     mod.stopNotificationFailoverPoller();
   });

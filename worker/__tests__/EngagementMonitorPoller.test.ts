@@ -17,7 +17,7 @@ const { sqlReturnQueue, mockSql } = vi.hoisted(() => {
   return { sqlReturnQueue, mockSql };
 });
 
-vi.mock('../../src/lib/db/server', () => ({ sql: mockSql }));
+vi.mock('../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
 vi.mock('uuid', () => ({ v7: vi.fn(() => 'test-uuid') }));
 
 function metricsRow(overrides: Record<string, unknown> = {}) {

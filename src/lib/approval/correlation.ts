@@ -30,7 +30,7 @@ export async function recoverCorrelationId(
   input: RecoveryInput,
 ): Promise<string> {
   const rows = await tx<{ correlation_id: string | null }[]>`
-    SELECT payload->>'correlation_id' AS correlation_id
+    SELECT (payload#>>'{}')::jsonb->>'correlation_id' AS correlation_id
     FROM job_outbox
     WHERE topic = 'generate_response'
       AND aggregate_id = ${input.reviewId}

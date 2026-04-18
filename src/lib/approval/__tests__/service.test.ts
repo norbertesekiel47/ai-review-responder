@@ -3,6 +3,14 @@ import { createHash } from 'node:crypto';
 
 vi.mock('uuid', () => ({ v7: vi.fn(() => 'test-uuid') }));
 
+// Mock db/server so imports from service.ts resolve without requiring a
+// live Postgres/Supabase connection. `jsonb` passes the value through —
+// the tests inspect the raw payload object via the mock tx call args.
+vi.mock('@/lib/db/server', () => ({
+  sql: () => Promise.resolve([]),
+  jsonb: (v: unknown) => v,
+}));
+
 import {
   lockValidLink,
   establishApprovalSession,
@@ -167,27 +175,25 @@ describe('approve', () => {
     expect(tx).toHaveBeenCalledTimes(6);
 
     // Verify the outbox INSERT received the correct publish_response payload.
-    // The outbox INSERT interpolates: uuidv7(), link.response_id, JSON.stringify(payload)
-    // Literal strings like 'publish_response' are part of the template, not interpolated.
-    const allStringArgs = tx.mock.calls
+    // The outbox INSERT binds payload via jsonb(payload) — the test mock of
+    // db/server returns the OBJECT pass-through, so we look for object args.
+    const objectPayloads = tx.mock.calls
       .flat()
-      .filter((arg: unknown): arg is string => typeof arg === 'string');
+      .filter(
+        (arg: unknown): arg is Record<string, unknown> =>
+          !!arg && typeof arg === 'object' && !Array.isArray(arg) && 'response_id' in (arg as Record<string, unknown>),
+      );
 
-    const payloadArg = allStringArgs.find(
-      (arg: string) => arg.includes('"response_id"') && arg.includes('"business_id"'),
+    const payload = objectPayloads.find(
+      (p) => p.business_id === 'biz-1',
     );
-    expect(payloadArg).toBeDefined();
-    const parsed = JSON.parse(payloadArg!);
-    expect(parsed.response_id).toBe('resp-1');
-    expect(parsed.business_id).toBe('biz-1');
+    expect(payload).toBeDefined();
+    expect(payload!.response_id).toBe('resp-1');
+    expect(payload!.business_id).toBe('biz-1');
 
     // Verify correlation_id propagates into the publish_response outbox payload.
-    const jsonArgs = tx.mock.calls
-      .flat()
-      .filter((arg: unknown): arg is string => typeof arg === 'string' && arg.startsWith('{'));
-    const outboxPayloads = jsonArgs.map((s: string) => JSON.parse(s) as Record<string, unknown>);
-    const publishPayload = outboxPayloads.find(
-      (p: Record<string, unknown>) => p.response_id === link.response_id && !('satisfaction' in p),
+    const publishPayload = objectPayloads.find(
+      (p) => p.response_id === link.response_id && !('satisfaction' in p),
     );
     expect(publishPayload).toBeDefined();
     expect(publishPayload!.correlation_id).toBe('test-correlation-xyz');
@@ -238,20 +244,22 @@ describe('edit', () => {
     const allStringArgs = tx.mock.calls
       .flat()
       .filter((arg: unknown): arg is string => typeof arg === 'string');
+    const allObjectArgs = tx.mock.calls
+      .flat()
+      .filter(
+        (arg: unknown): arg is Record<string, unknown> =>
+          !!arg && typeof arg === 'object' && !Array.isArray(arg) && 'response_id' in (arg as Record<string, unknown>),
+      );
 
-    const payloadArg = allStringArgs.find(
-      (arg: string) => arg.includes('"response_id"') && arg.includes('"business_id"'),
+    const payloadArg = allObjectArgs.find(
+      (p) => 'business_id' in p,
     );
     expect(payloadArg).toBeDefined();
     expect(allStringArgs).toContain(editedText);
 
     // Verify correlation_id propagates into the publish_response outbox payload.
-    const jsonArgs = tx.mock.calls
-      .flat()
-      .filter((arg: unknown): arg is string => typeof arg === 'string' && arg.startsWith('{'));
-    const outboxPayloads = jsonArgs.map((s: string) => JSON.parse(s) as Record<string, unknown>);
-    const publishPayload = outboxPayloads.find(
-      (p: Record<string, unknown>) => p.response_id === link.response_id && !('satisfaction' in p),
+    const publishPayload = allObjectArgs.find(
+      (p) => p.response_id === link.response_id && !('satisfaction' in p),
     );
     expect(publishPayload).toBeDefined();
     expect(publishPayload!.correlation_id).toBe('test-correlation-xyz');
@@ -290,28 +298,23 @@ describe('regenerate', () => {
     // Verify the outbox INSERT received the correct generate_response payload.
     // Literal SQL strings like 'generate_response' are part of the template, not interpolated.
     // Interpolated values in the outbox INSERT: uuidv7(), current.review_id, JSON payload
-    const allStringArgs = tx.mock.calls
+    // Payloads are now bound via jsonb(x) — test mock passes objects through.
+    const objectPayloads = tx.mock.calls
       .flat()
-      .filter((arg: unknown): arg is string => typeof arg === 'string');
+      .filter(
+        (arg: unknown): arg is Record<string, unknown> =>
+          !!arg && typeof arg === 'object' && !Array.isArray(arg) && 'version' in (arg as Record<string, unknown>),
+      );
 
-    const payloadArg = allStringArgs.find(
-      (arg: string) => arg.includes('"version"') && arg.includes('"review_id"'),
+    const parsed = objectPayloads.find(
+      (p) => typeof p.review_id === 'string' && typeof p.version === 'number',
     );
-    expect(payloadArg).toBeDefined();
-    const parsed = JSON.parse(payloadArg!);
-    expect(parsed.version).toBe(2);
-    expect(parsed.review_id).toBe('rev-1');
-    expect(parsed.business_id).toBe('biz-1');
+    expect(parsed).toBeDefined();
+    expect(parsed!.version).toBe(2);
+    expect(parsed!.review_id).toBe('rev-1');
+    expect(parsed!.business_id).toBe('biz-1');
 
     // Verify correlation_id propagates into the generate_response outbox payload.
-    const jsonArgs = tx.mock.calls
-      .flat()
-      .filter((arg: unknown): arg is string => typeof arg === 'string' && arg.startsWith('{'));
-    const outboxPayloads = jsonArgs.map((s: string) => JSON.parse(s) as Record<string, unknown>);
-    const regeneratePayload = outboxPayloads.find(
-      (p: Record<string, unknown>) => typeof p.review_id === 'string' && typeof p.version === 'number',
-    );
-    expect(regeneratePayload).toBeDefined();
-    expect(regeneratePayload!.correlation_id).toBe('test-correlation-xyz');
+    expect(parsed!.correlation_id).toBe('test-correlation-xyz');
   });
 });

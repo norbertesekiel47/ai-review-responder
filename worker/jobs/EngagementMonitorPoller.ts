@@ -8,7 +8,7 @@
 // the low-engagement email template.
 
 import { v7 as uuidv7 } from 'uuid';
-import { sql } from '../../src/lib/db/server';
+import { sql, jsonb } from '../../src/lib/db/server';
 import type { EngagementAlertPayload, EngagementAlertType } from '../../src/lib/shared/worker-types';
 
 const LOG_PREFIX = '[EngagementMonitorPoller]';
@@ -165,7 +165,7 @@ export async function runEngagementCheck(): Promise<void> {
             INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
             SELECT
               ${uuidv7()}, 'engagement_alert', 'business', ${row.business_id},
-              ${JSON.stringify(payload)}::jsonb, 'pending'
+              ${jsonb(payload)}, 'pending'
             WHERE NOT EXISTS (
               SELECT 1 FROM notification_deliveries
               WHERE business_id = ${row.business_id}

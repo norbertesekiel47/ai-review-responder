@@ -31,7 +31,7 @@ vi.mock('@/lib/db/server', () => {
       return callback(txProxy);
     },
   });
-  return { sql: sqlProxy };
+  return { sql: sqlProxy, jsonb: (v: unknown) => v };
 });
 
 // Import AFTER mocks

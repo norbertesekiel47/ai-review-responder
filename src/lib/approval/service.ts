@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { v7 as uuidv7 } from 'uuid';
 import { distance } from 'fastest-levenshtein';
 import type postgres from 'postgres';
+import { jsonb } from '@/lib/db/server';
 import {
   InvalidTokenError,
   ExpiredTokenError,
@@ -58,7 +59,7 @@ async function insertAuditLog(
       ${audit.deviceCookieHash},
       ${action},
       ${audit.ipAddress},
-      ${JSON.stringify(metadata ?? {})}::jsonb
+      ${jsonb(metadata ?? {})}
     )
   `;
 }
@@ -193,7 +194,7 @@ export async function approve(
 
   await tx`
     INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-    VALUES (${uuidv7()}, 'publish_response', 'response', ${link.response_id}, ${JSON.stringify(payload)}::jsonb, 'pending')
+    VALUES (${uuidv7()}, 'publish_response', 'response', ${link.response_id}, ${jsonb(payload)}, 'pending')
   `;
 
   await insertAuditLog(tx, link.response_id, link.business_id, 'approve', audit);
@@ -237,7 +238,7 @@ export async function edit(
 
   await tx`
     INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-    VALUES (${uuidv7()}, 'publish_response', 'response', ${link.response_id}, ${JSON.stringify(payload)}::jsonb, 'pending')
+    VALUES (${uuidv7()}, 'publish_response', 'response', ${link.response_id}, ${jsonb(payload)}, 'pending')
   `;
 
   await insertAuditLog(tx, link.response_id, link.business_id, 'edit', audit, { edit_distance: editDist });
@@ -273,7 +274,7 @@ export async function regenerate(
 
   await tx`
     INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-    VALUES (${uuidv7()}, 'generate_response', 'review', ${resp.review_id}, ${JSON.stringify(payload)}::jsonb, 'pending')
+    VALUES (${uuidv7()}, 'generate_response', 'review', ${resp.review_id}, ${jsonb(payload)}, 'pending')
   `;
 
   await insertAuditLog(tx, link.response_id, link.business_id, 'regenerate', audit);
@@ -316,7 +317,7 @@ async function insertAuditLogSession(
     INSERT INTO approval_audit_log (id, response_id, business_id, token_hash, device_cookie_hash, action, ip_address, metadata, actor_user_id, auth_method)
     VALUES (
       ${uuidv7()}, ${responseId}, ${businessId}, ${null}, ${null},
-      ${action}, ${audit.ipAddress}, ${JSON.stringify(metadata ?? {})}::jsonb,
+      ${action}, ${audit.ipAddress}, ${jsonb(metadata ?? {})},
       ${audit.actorUserId}, 'owner_session'
     )
   `;
@@ -350,7 +351,7 @@ export async function approveBySession(
 
   await tx`
     INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-    VALUES (${uuidv7()}, 'publish_response', 'response', ${responseId}, ${JSON.stringify(payload)}::jsonb, 'pending')
+    VALUES (${uuidv7()}, 'publish_response', 'response', ${responseId}, ${jsonb(payload)}, 'pending')
   `;
 
   await insertAuditLogSession(tx, responseId, businessId, 'approve', audit);
@@ -391,7 +392,7 @@ export async function editBySession(
 
   await tx`
     INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-    VALUES (${uuidv7()}, 'publish_response', 'response', ${responseId}, ${JSON.stringify(payload)}::jsonb, 'pending')
+    VALUES (${uuidv7()}, 'publish_response', 'response', ${responseId}, ${jsonb(payload)}, 'pending')
   `;
 
   await insertAuditLogSession(tx, responseId, businessId, 'edit', audit, { edit_distance: editDist });
@@ -424,7 +425,7 @@ export async function regenerateBySession(
 
   await tx`
     INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-    VALUES (${uuidv7()}, 'generate_response', 'review', ${resp.review_id}, ${JSON.stringify(payload)}::jsonb, 'pending')
+    VALUES (${uuidv7()}, 'generate_response', 'review', ${resp.review_id}, ${jsonb(payload)}, 'pending')
   `;
 
   await insertAuditLogSession(tx, responseId, businessId, 'regenerate', audit);

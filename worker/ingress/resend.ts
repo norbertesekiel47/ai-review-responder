@@ -1,7 +1,7 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { v7 as uuidv7 } from 'uuid';
-import { sql } from '../../src/lib/db/server';
+import { sql, jsonb } from '../../src/lib/db/server';
 import { sendInternalEmail } from '../../src/lib/notifications/email';
 import { escapeHtml } from '../../src/lib/shared/html';
 
@@ -180,7 +180,7 @@ export async function handleResendWebhook(
   // Deduplicate via inbound_events
   const inserted = await sql`
     INSERT INTO inbound_events (id, source, external_event_key, event_type, payload, status)
-    VALUES (${uuidv7()}, 'resend', ${svixId}, ${eventType}, ${JSON.stringify(body)}::jsonb, 'received')
+    VALUES (${uuidv7()}, 'resend', ${svixId}, ${eventType}, ${jsonb(body)}, 'received')
     ON CONFLICT (external_event_key) DO NOTHING
   `;
 

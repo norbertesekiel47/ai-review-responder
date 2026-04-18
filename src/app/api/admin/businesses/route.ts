@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { v7 as uuidv7 } from 'uuid';
 import { OnboardBusinessSchema } from '@/lib/shared/schemas';
-import { sql } from '@/lib/db/server';
+import { sql, jsonb } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { isPlaceId, extractPlaceId } from '@/lib/reviews/url-parser';
 import type { SyncReviewsPayload, ValidatePlaceIdPayload } from '@/lib/shared/worker-types';
@@ -248,7 +248,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             'sync_reviews',
             'business',
             ${businessId},
-            ${JSON.stringify(syncPayload)}::jsonb,
+            ${jsonb(syncPayload)},
             'pending'
           )
         `;
@@ -266,7 +266,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             'validate_place_id',
             'business',
             ${businessId},
-            ${JSON.stringify(validatePayload)}::jsonb,
+            ${jsonb(validatePayload)},
             'pending'
           )
         `;

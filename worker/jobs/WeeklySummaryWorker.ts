@@ -1,6 +1,6 @@
 import type { Job } from 'bullmq';
 import { v7 as uuidv7 } from 'uuid';
-import { sql } from '../../src/lib/db/server';
+import { sql, jsonb } from '../../src/lib/db/server';
 import { checkSubscription } from '../../src/lib/shared/subscription-guard';
 import { markOutboxCompleted, markOutboxFailed } from '../../src/lib/shared/outbox';
 import { sendInternalEmail, buildWeeklyValueReportHtml } from '../../src/lib/notifications/email';
@@ -175,7 +175,7 @@ export async function handleWeeklySummary(
     VALUES (
       ${uuidv7()}, ${business_id}, ${week_start_date}::date,
       ${totalReviews}, ${totalResponded},
-      ${JSON.stringify(notableReviews)}::jsonb
+      ${jsonb(notableReviews)}
     )
     ON CONFLICT (business_id, week_start_date)
     DO UPDATE SET

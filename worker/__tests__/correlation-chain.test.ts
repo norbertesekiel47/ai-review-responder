@@ -68,8 +68,7 @@ const {
 // ─── Common mocks ────────────────────────────────────────────────────
 
 vi.mock('../../src/lib/db/server', () => ({
-  sql: mockSqlA,
-}));
+  sql: mockSqlA, jsonb: (v: unknown) => v }));
 
 vi.mock('../../src/lib/shared/outbox', () => ({
   markOutboxCompleted: mockMarkOutboxCompletedA,
@@ -138,29 +137,38 @@ function makeMonitorResult(): MonitorResult {
 }
 
 /**
- * Scan all SQL and TX template-arg calls for JSON-serialized payload strings
- * and return parsed objects. Used to verify outbox INSERT payloads.
+ * Scan all SQL and TX template-arg calls for outbox payloads.
+ * Handles both the legacy JSON-string form and the current object form
+ * (bound via `jsonb(payload)` — the test mock passes the object through
+ * as-is, so it shows up as a plain object in the call args).
  */
 function collectOutboxPayloads(mockFns: Array<{ mock: { calls: unknown[][] } }>): Record<string, unknown>[] {
-  const jsonArgs: string[] = [];
+  const collected: Record<string, unknown>[] = [];
   for (const fn of mockFns) {
     for (const call of fn.mock.calls) {
       for (const arg of call) {
+        // Object form (current): bound via jsonb(payload) — mock pass-through.
+        if (arg && typeof arg === 'object' && !Array.isArray(arg)) {
+          // Skip template-strings arrays and other non-payload objects.
+          // Payload shape carries at least business_id or review_id + correlation_id.
+          const o = arg as Record<string, unknown>;
+          if ('correlation_id' in o || 'business_id' in o || 'review_id' in o || 'response_id' in o) {
+            collected.push(o);
+          }
+          continue;
+        }
+        // Legacy JSON-string form — kept for backward compat.
         if (typeof arg === 'string' && arg.startsWith('{') && arg.endsWith('}')) {
-          jsonArgs.push(arg);
+          try {
+            collected.push(JSON.parse(arg) as Record<string, unknown>);
+          } catch {
+            // ignore malformed
+          }
         }
       }
     }
   }
-  return jsonArgs
-    .map((s) => {
-      try {
-        return JSON.parse(s) as Record<string, unknown>;
-      } catch {
-        return null;
-      }
-    })
-    .filter((p): p is Record<string, unknown> => p !== null);
+  return collected;
 }
 
 // ─── Part A: sync_reviews → generate_response boundary ──────────────

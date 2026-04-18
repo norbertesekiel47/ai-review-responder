@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { sql } from '@/lib/db/server';
+import { sql, jsonb } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 
@@ -44,7 +44,7 @@ export async function PUT(
   try {
     const rows = await sql`
       UPDATE businesses
-      SET tracked_keywords = ${JSON.stringify(parsed.keywords)}::jsonb,
+      SET tracked_keywords = ${jsonb(parsed.keywords)},
           updated_at = NOW()
       WHERE id = ${businessId}
       RETURNING id

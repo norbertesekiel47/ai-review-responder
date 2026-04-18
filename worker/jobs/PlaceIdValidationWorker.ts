@@ -1,7 +1,7 @@
 import type { Job } from 'bullmq';
 import type postgres from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
-import { sql } from '../../src/lib/db/server';
+import { sql, jsonb } from '../../src/lib/db/server';
 import { markOutboxCompleted, markOutboxFailed } from '../../src/lib/shared/outbox';
 import type { ValidatePlaceIdPayload, SyncReviewsPayload } from '../../src/lib/shared/worker-types';
 import { parseGoogleMapsUrl, isPlaceId } from '../../src/lib/reviews/url-parser';
@@ -83,7 +83,7 @@ export async function handlePlaceIdValidation(
       INSERT INTO review_exceptions (id, business_id, review_id, type, status, payload)
       VALUES (
         ${uuidv7()}, ${business_id}, NULL, ${ExceptionType.PLACE_ID_RESOLUTION_FAILED}, 'open',
-        ${JSON.stringify({ reason: message, google_maps_url })}::jsonb
+        ${jsonb({ reason: message, google_maps_url })}
       )
     `;
 
@@ -111,7 +111,7 @@ async function enqueueSyncReviews(
       'sync_reviews',
       'business',
       ${businessId},
-      ${JSON.stringify(syncPayload)}::jsonb,
+      ${jsonb(syncPayload)},
       'pending'
     WHERE NOT EXISTS (
       SELECT 1 FROM job_outbox jo

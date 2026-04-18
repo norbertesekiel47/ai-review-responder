@@ -52,7 +52,7 @@ vi.mock('@/lib/db/server', () => {
       return undefined;
     },
   }) as unknown;
-  return { sql: sqlProxy };
+  return { sql: sqlProxy , jsonb: (v: unknown) => v };
 });
 
 // ── Mock Approval Service ───────────────────────────────────────────

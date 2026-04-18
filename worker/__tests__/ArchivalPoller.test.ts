@@ -14,8 +14,7 @@ const { sqlReturnQueue, mockSql } = vi.hoisted(() => {
 });
 
 vi.mock('../../src/lib/db/server', () => ({
-  sql: mockSql,
-}));
+  sql: mockSql, jsonb: (v: unknown) => v }));
 
 // Import AFTER mocks are wired
 import { startArchivalPoller, stopArchivalPoller } from '../jobs/ArchivalPoller';

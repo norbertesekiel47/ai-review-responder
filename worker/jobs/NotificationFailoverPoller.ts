@@ -1,5 +1,5 @@
 import { v7 as uuidv7 } from 'uuid';
-import { sql } from '../../src/lib/db/server';
+import { sql, jsonb } from '../../src/lib/db/server';
 import { sendInternalEmail } from '../../src/lib/notifications/email';
 import { recordNotificationDelivery } from '../../src/lib/notifications/delivery';
 import { escapeHtml } from '../../src/lib/shared/html';
@@ -148,7 +148,7 @@ async function checkFailedNotifications(): Promise<void> {
             'send_notification',
             'response',
             ${row.response_id},
-            ${JSON.stringify(payload)}::jsonb,
+            ${jsonb(payload)},
             'pending'
           WHERE NOT EXISTS (
             SELECT 1 FROM job_outbox jo
@@ -206,7 +206,7 @@ async function checkFailedNotifications(): Promise<void> {
             'send_notification',
             'response',
             ${row.response_id},
-            ${JSON.stringify(payload)}::jsonb,
+            ${jsonb(payload)},
             'pending'
           WHERE NOT EXISTS (
             SELECT 1 FROM job_outbox jo

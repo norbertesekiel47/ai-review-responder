@@ -28,6 +28,7 @@ vi.mock('@/lib/db/server', () => ({
   sql: new Proxy(() => {}, {
     apply: () => Promise.resolve(mockSqlReturn.value),
   }),
+  jsonb: (v: unknown) => v,
 }));
 
 import { PUT } from '../route';

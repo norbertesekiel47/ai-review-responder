@@ -32,7 +32,7 @@ vi.mock('@/lib/db/server', () => {
   const sqlProxy = Object.assign(() => {}, {
     unsafe: (...args: unknown[]) => mockSqlUnsafe(...args),
   });
-  return { sql: sqlProxy };
+  return { sql: sqlProxy , jsonb: (v: unknown) => v };
 });
 
 // Import AFTER mocks

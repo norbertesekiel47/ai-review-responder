@@ -111,6 +111,77 @@ describe('fetchBusinessDetails', () => {
     });
   });
 
+  // ── Regression: category field-name variants in SerpAPI responses ──────
+  it('reads category from `types` array when `type` string is absent', async () => {
+    mockGetJson.mockResolvedValue({
+      place_results: {
+        types: ['Warehouse store', 'Supermarket'],
+        phone: '+1 408-000-0000',
+      },
+    });
+    const result = await fetchBusinessDetails('ChIJ_types_array');
+    expect(result.category).toBe('Warehouse store');
+  });
+
+  it('reads category from `category` string when `type` is absent', async () => {
+    mockGetJson.mockResolvedValue({
+      place_results: { category: 'Dentist' },
+    });
+    const result = await fetchBusinessDetails('ChIJ_category_str');
+    expect(result.category).toBe('Dentist');
+  });
+
+  it('reads category from `categories` array as a last resort', async () => {
+    mockGetJson.mockResolvedValue({
+      place_results: { categories: ['Law firm', 'Legal services'] },
+    });
+    const result = await fetchBusinessDetails('ChIJ_categories_array');
+    expect(result.category).toBe('Law firm');
+  });
+
+  it('prefers `type` string over `types` array when both are present', async () => {
+    mockGetJson.mockResolvedValue({
+      place_results: {
+        type: 'Coffee shop',
+        types: ['Cafe', 'Restaurant'],
+      },
+    });
+    const result = await fetchBusinessDetails('ChIJ_type_wins');
+    expect(result.category).toBe('Coffee shop');
+  });
+
+  it('trims category whitespace and skips empty array entries', async () => {
+    mockGetJson.mockResolvedValue({
+      place_results: { types: ['', '   ', 'Hardware store'] },
+    });
+    const result = await fetchBusinessDetails('ChIJ_trim_skip');
+    expect(result.category).toBe('Hardware store');
+  });
+
+  // ── Regression: hours field-name + shape variants ──────────────────────
+  it('formats hours from an array-of-strings shape', async () => {
+    mockGetJson.mockResolvedValue({
+      place_results: {
+        hours: ['Monday: 9 AM - 9 PM', 'Tuesday: 9 AM - 9 PM'],
+      },
+    });
+    const result = await fetchBusinessDetails('ChIJ_hours_array');
+    expect(result.hours).toBe('Monday: 9 AM - 9 PM, Tuesday: 9 AM - 9 PM');
+  });
+
+  it('formats hours from nested {open, close} objects', async () => {
+    mockGetJson.mockResolvedValue({
+      place_results: {
+        operating_hours: {
+          monday: { open: '9am', close: '9pm' },
+          tuesday: { open: '10am', close: '6pm' },
+        },
+      },
+    });
+    const result = await fetchBusinessDetails('ChIJ_hours_nested');
+    expect(result.hours).toBe('monday: 9am-9pm, tuesday: 10am-6pm');
+  });
+
   it('normalizes website to https:// when given a bare URL', async () => {
     mockGetJson.mockResolvedValue({
       place_results: { type: 'Shop', website: 'example.com' },

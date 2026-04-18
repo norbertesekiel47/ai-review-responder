@@ -1,6 +1,6 @@
 import type { Job } from 'bullmq';
 import { v7 as uuidv7 } from 'uuid';
-import { sql } from '../../src/lib/db/server';
+import { sql, jsonb } from '../../src/lib/db/server';
 import { checkSubscription } from '../../src/lib/shared/subscription-guard';
 import { markOutboxCompleted, markOutboxFailed } from '../../src/lib/shared/outbox';
 import { isMockMode } from '../../src/lib/shared/mock-mode';
@@ -319,7 +319,7 @@ async function persistResponseAndNotify(
       INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
       VALUES (
         ${uuidv7()}, 'send_notification', 'response', ${responseId},
-        ${JSON.stringify(notifyPayload)}::jsonb, 'pending'
+        ${jsonb(notifyPayload)}, 'pending'
       )
     `;
   });

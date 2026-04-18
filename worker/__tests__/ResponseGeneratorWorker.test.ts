@@ -51,8 +51,7 @@ const {
 
 // ── Module mocks (hoisted by vitest) ───────────────────────────────────
 vi.mock('../../src/lib/db/server', () => ({
-  sql: mockSql,
-}));
+  sql: mockSql, jsonb: (v: unknown) => v }));
 
 vi.mock('../../src/lib/shared/outbox', () => ({
   markOutboxCompleted: mockMarkOutboxCompleted,
@@ -176,17 +175,15 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
 
     await handleResponseGeneration(makeJob({ correlation_id: INCOMING_CORRELATION }));
 
-    // Extract all JSON-serialized payload strings from tx template-arg calls.
-    // The INSERT INTO job_outbox for send_notification passes JSON.stringify(notifyPayload)
-    // as one of the interpolated template values.
-    const txJsonArgs = mockTx.mock.calls
+    // Extract outbox payloads from tx template-arg calls. The INSERT INTO
+    // job_outbox now binds via jsonb(notifyPayload) — in the test mock that
+    // passes the OBJECT through, so we look for object args directly.
+    const payloads = mockTx.mock.calls
       .flat()
-      .filter((arg): arg is string => typeof arg === 'string' && arg.startsWith('{') && arg.endsWith('}'));
-    const payloads = txJsonArgs
-      .map((s) => {
-        try { return JSON.parse(s) as Record<string, unknown>; } catch { return null; }
-      })
-      .filter((p): p is Record<string, unknown> => p !== null);
+      .filter(
+        (arg): arg is Record<string, unknown> =>
+          !!arg && typeof arg === 'object' && !Array.isArray(arg) && 'correlation_id' in (arg as Record<string, unknown>),
+      );
 
     // send_notification payload shape: { response_id, business_id, correlation_id }
     // Distinguish from any other payloads by the exact key set.

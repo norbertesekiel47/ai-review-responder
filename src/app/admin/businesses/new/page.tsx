@@ -100,6 +100,7 @@ export default function NewBusinessPage() {
     setValue,
     getValues,
     getFieldState,
+    resetField,
     clearErrors,
     formState,
   } = useForm<FormData>({
@@ -330,6 +331,15 @@ export default function NewBusinessPage() {
                     cancelPrefill();
                     setValue('googlePlaceId', '');
                     setValue('googlePlaceAddress', '');
+                    // Also reset any fields the prefill populated so the form
+                    // looks fresh. `resetField` clears both value AND dirty
+                    // state — important because the prefill "only fills empty +
+                    // undirty" check (see triggerPrefill) would otherwise block
+                    // the next selection from filling a field that the user
+                    // didn't manually touch.
+                    resetField('category');
+                    resetField('ownerPhone');
+                    resetField('website');
                   }}
                 />
               ) : (

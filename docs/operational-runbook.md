@@ -215,25 +215,15 @@ So if you have a **response_id** (e.g. from `/admin/businesses/<id>`),
 either start from `send_notification`, or join through `responses.review_id`
 first. The canonical lookup helper lives at `src/lib/approval/correlation.ts`.
 
-**About the payload extraction form below:** the `payload` column is JSONB,
-and the normal form `payload->>'correlation_id'` works when the row contains
-a proper JSONB object. Some older rows or rows written through certain
-tooling have `payload` stored as a JSONB scalar string (double-encoded);
-on those rows, the direct form returns NULL. The queries below use the
-resilient form `(payload#>>'{}')::jsonb->>'correlation_id'` which works
-for both shapes. It's slightly slower (no index lookup on the correlation
-expression index) but correct in all cases — which matters more for ad-hoc
-ops queries. Lab note in `.claude/CLAUDE.md` tracks the underlying quirk.
-
 ```sql
 -- Starting from a response_id — fastest: use send_notification
-SELECT (payload#>>'{}')::jsonb->>'correlation_id' AS correlation_id
+SELECT payload->>'correlation_id' AS correlation_id
 FROM job_outbox
 WHERE aggregate_id = '<response_id>' AND topic = 'send_notification'
 ORDER BY created_at DESC LIMIT 1;
 
 -- Or join responses → review → generate_response (matches correlation.ts)
-SELECT (jo.payload#>>'{}')::jsonb->>'correlation_id' AS correlation_id
+SELECT jo.payload->>'correlation_id' AS correlation_id
 FROM responses r
 JOIN job_outbox jo
   ON jo.aggregate_id = r.review_id
@@ -242,15 +232,15 @@ WHERE r.id = '<response_id>'
 ORDER BY jo.created_at DESC LIMIT 1;
 
 -- Starting from a review_id — direct
-SELECT (payload#>>'{}')::jsonb->>'correlation_id' AS correlation_id
+SELECT payload->>'correlation_id' AS correlation_id
 FROM job_outbox
 WHERE aggregate_id = '<review_id>' AND topic = 'generate_response'
 ORDER BY created_at DESC LIMIT 1;
 
--- Once you have the correlation_id, trace every step
+-- Once you have the correlation_id, trace every step (uses idx_jo_correlation_id)
 SELECT id, topic, status, attempts, created_at, last_error
 FROM job_outbox
-WHERE (payload#>>'{}')::jsonb->>'correlation_id' = '<correlation_id>'
+WHERE payload->>'correlation_id' = '<correlation_id>'
 ORDER BY created_at ASC;
 ```
 

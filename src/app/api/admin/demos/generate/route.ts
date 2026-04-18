@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { v7 as uuidv7 } from 'uuid';
 import { nanoid } from 'nanoid';
-import { sql } from '@/lib/db/server';
+import { sql, jsonb } from '@/lib/db/server';
 import { isPlaceId, extractPlaceId } from '@/lib/reviews/url-parser';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
@@ -113,7 +113,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
       await tx`
         INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-        VALUES (${outboxId}, 'generate_demo', 'demo', ${demoId}, ${JSON.stringify(payload)}::jsonb, 'pending')
+        VALUES (${outboxId}, 'generate_demo', 'demo', ${demoId}, ${jsonb(payload)}, 'pending')
       `;
     });
   } catch (error) {

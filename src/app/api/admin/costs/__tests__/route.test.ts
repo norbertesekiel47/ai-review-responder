@@ -51,7 +51,7 @@ vi.mock('@/lib/db/server', () => {
       return Promise.resolve(result);
     },
   }) as unknown;
-  return { sql: sqlProxy };
+  return { sql: sqlProxy, jsonb: (v: unknown) => v };
 });
 
 // ── Helpers ─────────────────────────────────────────────────────────

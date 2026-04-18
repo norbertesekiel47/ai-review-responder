@@ -1,5 +1,5 @@
 import { v7 as uuidv7 } from 'uuid';
-import { sql } from '@/lib/db/server';
+import { sql, jsonb } from '@/lib/db/server';
 import type { MonitoredReview } from './types';
 import type {
   GenerateResponsePayload,
@@ -64,7 +64,7 @@ export async function processReview(
         INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
         VALUES (
           ${uuidv7()}, 'generate_response', 'review', ${reviewId},
-          ${JSON.stringify(outboxPayload)}::jsonb, 'pending'
+          ${jsonb(outboxPayload)}, 'pending'
         )
       `;
 
@@ -117,7 +117,7 @@ export async function processReview(
         INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
         VALUES (
           ${uuidv7()}, 'generate_response', 'review', ${existing.id},
-          ${JSON.stringify(outboxPayload)}::jsonb, 'pending'
+          ${jsonb(outboxPayload)}, 'pending'
         )
       `;
 
@@ -144,7 +144,7 @@ export async function processReview(
         INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
         VALUES (
           ${uuidv7()}, 'generate_response', 'review', ${existing.id},
-          ${JSON.stringify(outboxPayload)}::jsonb, 'pending'
+          ${jsonb(outboxPayload)}, 'pending'
         )
       `;
 
@@ -184,7 +184,7 @@ export async function processReview(
           INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
           VALUES (
             ${uuidv7()}, 'notify_admin_review_exception', 'review', ${existing.id},
-            ${JSON.stringify(notifyPayload)}::jsonb, 'pending'
+            ${jsonb(notifyPayload)}, 'pending'
           )
         `;
       }
@@ -211,7 +211,7 @@ export async function processReview(
       INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
       VALUES (
         ${uuidv7()}, 'generate_response', 'review', ${existing.id},
-        ${JSON.stringify(outboxPayload)}::jsonb, 'pending'
+        ${jsonb(outboxPayload)}, 'pending'
       )
     `;
 

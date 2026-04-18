@@ -28,8 +28,7 @@ const {
 
 // ── Module mocks (hoisted by vitest) ───────────────────────────────────
 vi.mock('../../src/lib/db/server', () => ({
-  sql: mockSql,
-}));
+  sql: mockSql, jsonb: (v: unknown) => v }));
 
 vi.mock('../../src/lib/shared/outbox', () => ({
   markOutboxCompleted: mockMarkOutboxCompleted,

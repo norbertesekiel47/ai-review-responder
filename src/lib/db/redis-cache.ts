@@ -10,11 +10,19 @@ export function getCacheRedisOptions(): RedisOptions {
 
   // Shared options: fail fast so rate limiter catch blocks fire instead of
   // hanging indefinitely when Redis is unreachable (e.g. local dev without Docker).
+  //
+  // `enableOfflineQueue: true` (default) lets the client buffer commands
+  // briefly while ioredis completes its async handshake. Without it, the
+  // first request after a fresh dev-server boot races the TCP connect and
+  // fails with "Stream isn't writeable" — causing a spurious 503 on every
+  // first prefill. Fail-fast on TRULY-dead Redis is still guaranteed by
+  // `connectTimeout: 3_000` plus the retry strategy returning null after
+  // two attempts (~600ms), which transitions the client to "end" state so
+  // queued commands fail with "Connection is closed" within ~1s.
   const sharedOpts: Partial<RedisOptions> = {
     maxRetriesPerRequest: 1,
     connectTimeout: 3_000,
     retryStrategy: (times) => (times > 2 ? null : Math.min(times * 200, 1_000)),
-    enableOfflineQueue: false,
   };
 
   // Upstash REST URL → extract host and use Redis protocol over TLS

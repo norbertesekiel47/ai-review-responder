@@ -1,7 +1,7 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import Stripe from 'stripe';
 import { v7 as uuidv7 } from 'uuid';
-import { sql } from '../../src/lib/db/server';
+import { sql, jsonb } from '../../src/lib/db/server';
 
 const LOG_PREFIX = '[ingress/stripe]';
 
@@ -178,7 +178,7 @@ export async function handleStripeWebhook(request: FastifyRequest, reply: Fastif
       'stripe',
       ${event.id},
       ${event.type},
-      ${JSON.stringify(event)}::jsonb,
+      ${jsonb(event)},
       'received'
     )
     ON CONFLICT (external_event_key) DO NOTHING

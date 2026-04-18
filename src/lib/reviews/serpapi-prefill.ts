@@ -8,8 +8,11 @@ const CACHE_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
 const CACHE_KEY_PREFIX = 'serpapi:prefill:';
 const SERPAPI_PREFILL_COST_USD = 0.005; // ~$0.005 per SerpAPI search at $50/5000 plan
 // Vercel route is invoked synchronously from the onboarding form's PlaceAutocomplete
-// callback. A stalled SerpAPI call must not hang the UI — time out at 2s.
-const SERPAPI_TIMEOUT_MS = 2_000;
+// callback. A stalled SerpAPI call must not hang the UI — default 2s.
+// Override via SERPAPI_TIMEOUT_MS env var for staging timeout testing.
+const SERPAPI_TIMEOUT_MS = process.env.SERPAPI_TIMEOUT_MS
+  ? Math.max(1, parseInt(process.env.SERPAPI_TIMEOUT_MS, 10))
+  : 2_000;
 
 export interface BusinessPrefill {
   category: string | null;
@@ -90,6 +93,7 @@ export async function fetchBusinessDetails(placeId: string): Promise<BusinessPre
     callFailed = err instanceof Error ? err.message : String(err);
     console.error(`${LOG_PREFIX} SerpAPI call failed for ${placeId}: ${callFailed}`);
   }
+  //console.log('[serpapi-prefill] raw place_results:', JSON.stringify((rawResponse as { place_results?: unknown })?.place_results, null, 2));
 
   // 5. Normalize response (empty on failure — normalizeResponse handles null).
   const prefill = callFailed ? emptyPrefill() : normalizeResponse(rawResponse);
@@ -161,12 +165,31 @@ function normalizeResponse(raw: unknown): BusinessPrefill {
 
   const p = place as Record<string, unknown>;
   return {
-    category: typeof p.type === 'string' ? p.type : null,
+    category: extractCategory(p),
     phone: typeof p.phone === 'string' ? p.phone : null,
     website: normalizeWebsite(p.website),
-    hours: formatHours(p.operating_hours),
+    hours: formatHours(p.hours ?? p.operating_hours),
     fullAddress: typeof p.address === 'string' ? p.address : null,
   };
+}
+
+/**
+ * SerpAPI's `engine=google_maps` response uses different field names depending
+ * on the place type. Individual businesses typically get `type: "Coffee shop"`
+ * (singular string), while chains or multi-category places may return
+ * `types: ["Warehouse store", "Supermarket"]` or `categories: [...]`. Some
+ * responses expose `category` (string) as well.
+ *
+ * Try each shape in order; first non-empty string wins. Fallback null.
+ */
+function extractCategory(p: Record<string, unknown>): string | null {
+  if (typeof p.type === 'string' && p.type.trim()) return p.type.trim();
+  if (typeof p.category === 'string' && p.category.trim()) return p.category.trim();
+  const firstString = (val: unknown): string | null =>
+    Array.isArray(val)
+      ? (val.find((v) => typeof v === 'string' && v.trim()) as string | undefined)?.trim() ?? null
+      : null;
+  return firstString(p.types) ?? firstString(p.categories);
 }
 
 function normalizeWebsite(raw: unknown): string | null {
@@ -200,10 +223,39 @@ function normalizeWebsite(raw: unknown): string | null {
 }
 
 function formatHours(raw: unknown): string | null {
-  if (!raw || typeof raw !== 'object') return null;
-  const entries = Object.entries(raw as Record<string, unknown>).filter(
-    (entry): entry is [string, string] => typeof entry[1] === 'string',
-  );
+  if (!raw) return null;
+
+  // Shape A: array of strings like ["Monday: 9 AM - 9 PM", ...]
+  if (Array.isArray(raw)) {
+    const lines = raw.filter((v): v is string => typeof v === 'string' && v.trim().length > 0);
+    if (lines.length === 0) return null;
+    return lines.join(', ');
+  }
+
+  // Shape B: array of { day, hours } objects.
+  // Shape C: object map like { monday: "9am-9pm", tuesday: ... }.
+  if (typeof raw !== 'object') return null;
+
+  if (Array.isArray((raw as { hours?: unknown[] }).hours)) {
+    raw = (raw as { hours: unknown[] }).hours;
+    // Recurse — we now have an array.
+    return formatHours(raw);
+  }
+
+  const entries = Object.entries(raw as Record<string, unknown>)
+    .map(([day, time]): [string, string] | null => {
+      if (typeof time === 'string') return [day, time];
+      // Nested shape: { monday: { open: "9am", close: "9pm" } }
+      if (time && typeof time === 'object') {
+        const t = time as Record<string, unknown>;
+        const open = typeof t.open === 'string' ? t.open : null;
+        const close = typeof t.close === 'string' ? t.close : null;
+        if (open && close) return [day, `${open}-${close}`];
+      }
+      return null;
+    })
+    .filter((e): e is [string, string] => e !== null);
+
   if (entries.length === 0) return null;
   return entries.map(([day, time]) => `${day}: ${time}`).join(', ');
 }

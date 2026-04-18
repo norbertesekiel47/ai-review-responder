@@ -1,5 +1,5 @@
 import { v7 as uuidv7 } from 'uuid';
-import { sql } from '../../src/lib/db/server';
+import { sql, jsonb } from '../../src/lib/db/server';
 import { isMockMode } from '../../src/lib/shared/mock-mode';
 import type { OnboardingDripPayload } from '../../src/lib/shared/worker-types';
 
@@ -69,7 +69,7 @@ export async function checkAndSchedule(): Promise<void> {
             'onboarding_drip',
             'business',
             ${row.business_id},
-            ${JSON.stringify(payload)}::jsonb,
+            ${jsonb(payload)},
             'pending'
           )
           ON CONFLICT DO NOTHING

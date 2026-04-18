@@ -1,5 +1,5 @@
 import type { Job } from 'bullmq';
-import { sql } from '../../src/lib/db/server';
+import { sql, jsonb } from '../../src/lib/db/server';
 import { generateDemo } from '../../src/lib/demos/generator';
 import type { DemoJobPayload } from '../../src/lib/demos/types';
 import { markOutboxCompleted } from '../../src/lib/shared/outbox';
@@ -95,8 +95,8 @@ export async function handleDemoGeneration(
     await sql.begin(async (tx) => {
       await tx`
         UPDATE prospect_demos
-        SET reviews_snapshot = ${JSON.stringify(result.reviews)}::jsonb,
-            generated_responses = ${JSON.stringify(result.responses)}::jsonb,
+        SET reviews_snapshot = ${jsonb(result.reviews)},
+            generated_responses = ${jsonb(result.responses)},
             generation_status = 'completed',
             completed_at = NOW()
         WHERE id = ${demoId}
