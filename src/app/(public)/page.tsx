@@ -93,7 +93,7 @@ export default function LandingPage() {
   };
 
   return (
-    <div ref={containerRef} className="min-h-screen bg-[#D2E0D3] relative overflow-hidden">
+    <div ref={containerRef} className="min-h-screen bg-[#D2E0D3] relative">
       {/* ── Parallax Background ───────────────────────────────────── */}
       <div className="fixed inset-0 pointer-events-none">
         <div className="absolute inset-0 backdrop-blur-sm bg-[#D2E0D3]/80" />

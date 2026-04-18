@@ -66,7 +66,7 @@ export function HowItWorksCarousel({ steps }: HowItWorksCarouselProps) {
 
         {/* Card Container */}
         <div className="w-96 h-[28rem] relative">
-          <AnimatePresence mode="wait" initial={false} custom={direction}>
+          <AnimatePresence mode="wait" initial={false}>
             <motion.div
               key={currentStep}
               initial={{

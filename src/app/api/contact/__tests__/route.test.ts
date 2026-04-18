@@ -103,7 +103,7 @@ describe('POST /api/contact', () => {
     expect(res.status).toBe(200);
     expect(mockResendSend).toHaveBeenCalledOnce();
 
-    const callArg = mockResendSend.mock.calls[0][0];
+    const callArg = mockResendSend.mock.calls[0]?.[0] as Parameters<typeof mockResendSend>[0];
     expect(callArg.to).toBe('norbertesekiel@gmail.com');
     expect(callArg.subject).toContain('Demo Request');
     expect(callArg.text).toContain('Alice');
