@@ -28,11 +28,17 @@ function LoginSkeleton() {
 function LoginForm() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const searchParams = useSearchParams();
   const router = useRouter();
   const rawFrom = searchParams.get('from') ?? '';
+  // Initial error from ?error=... query param (e.g. account_incomplete
+  // redirect from the auth callback when the app users row is missing).
+  const initialError =
+    searchParams.get('error') === 'account_incomplete'
+      ? 'Your account is not set up yet. Contact your administrator.'
+      : '';
+  const [error, setError] = useState(initialError);
   // Restrict `from` to safe internal paths only (no //, no external URLs).
   // We do NOT force `/admin/*` here — owners come through this page too,
   // and forcing /admin/overview for an owner causes a post-login redirect
@@ -91,9 +97,18 @@ function LoginForm() {
       } else if (role === 'admin' || role === 'sales_partner') {
         destination = fromIsAdmin ? from : adminDefault;
       } else {
-        // Unknown / missing role — send admin default and let middleware
-        // bounce back if wrong.
-        destination = from || adminDefault;
+        // Authenticated with Supabase but no row in the app `users` table, or
+        // the role column is NULL/unexpected. Redirecting blindly triggers a
+        // middleware-redirect loop (every destination the user reaches gets
+        // bounced back to this page). Sign the user out and surface an
+        // explicit, actionable error instead. This is only reachable during
+        // an incomplete onboarding or after a data-integrity issue — NOT for
+        // normal users.
+        await supabase.auth.signOut();
+        setError(
+          'Your account is not set up yet. Contact your administrator.',
+        );
+        return;
       }
 
       router.push(destination);

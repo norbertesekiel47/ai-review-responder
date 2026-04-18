@@ -75,7 +75,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   } else if (role === 'admin' || role === 'sales_partner') {
     destination = nextIsAdmin ? requestedNext : '/admin/overview';
   } else {
-    destination = requestedNext || '/admin/overview';
+    // Authenticated with Supabase but no app `users` row / unknown role.
+    // Redirecting anywhere causes a middleware-redirect loop. Send them
+    // back to the login page with an account_incomplete flag so the page
+    // can surface a user-facing error. Sign them out first so they can
+    // retry cleanly with a different account if needed.
+    await supabase.auth.signOut();
+    return NextResponse.redirect(
+      new URL('/admin/login?error=account_incomplete', origin),
+    );
   }
 
   // Build a fresh redirect response with the resolved destination, copying

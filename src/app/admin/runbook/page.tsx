@@ -15,7 +15,17 @@ interface Scenario {
  * Otherwise they render as `<code>` text per original plan intent —
  * oncall engineers with a local clone can still find them by path.
  */
-const DOCS_BASE_URL = process.env.NEXT_PUBLIC_DOCS_BASE_URL ?? '';
+// Validate the base URL at module load. NEXT_PUBLIC_DOCS_BASE_URL is a
+// build-time env var controlled by operators, but a misconfiguration like
+// `javascript:alert(1)//` would otherwise produce clickable anchors that
+// execute on click. Require http:// or https:// explicitly — anything else
+// falls back to the plain <code> rendering.
+const RAW_DOCS_BASE_URL = process.env.NEXT_PUBLIC_DOCS_BASE_URL ?? '';
+const DOCS_BASE_URL =
+  RAW_DOCS_BASE_URL.startsWith('http://') ||
+  RAW_DOCS_BASE_URL.startsWith('https://')
+    ? RAW_DOCS_BASE_URL
+    : '';
 
 function DocRef({ filename }: { filename: string }) {
   const codeEl = (
