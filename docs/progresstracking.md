@@ -2307,3 +2307,74 @@ User identified 5 findings after review. All validated and fixed across 7 tasks.
 **Migration prerequisite:** `017_sprint6_scale.sql` must be applied to Supabase before running against production (adds `businesses.website` column). Not yet applied.
 
 ---
+
+### Prompt 20c Post-Implementation Review Fixes (2026-04-17)
+
+**Status:** COMPLETE
+
+6 findings validated and fixed.
+
+1. **Medium — Unsafe URL schemes** (javascript:, data:, ftp:, mailto:). Fix: new shared `websiteUrlSchema` enforces `http:`/`https:` via `new URL().protocol`. `normalizeWebsite` in prefill module also blocks non-http(s) schemes. Business detail page uses `safeHttpUrl()` defensive render sanitizer — unsafe URLs display as plain text.
+2. **Medium — SerpAPI call no timeout.** Fix: `Promise.race` with 2000ms timer. Hanging SerpAPI calls reject into the existing catch → empty prefill.
+3. **Medium — Fire-and-forget cost/cache writes on Vercel.** Fix: `await Promise.allSettled([recordApiCost, writeCache])` before returning — Vercel freezes post-response work. ~20-100ms latency for durable writes.
+4. **Medium — Stale-response race on rapid place selection.** Fix: AbortController + `latestPlaceIdRef` + `dirtyFields` check (never overwrite touched fields, even if user then cleared).
+5. **Low — Cached payloads trusted without validation.** Fix: `isValidBusinessPrefill` type guard + website re-normalization on cache read + `redis.del` of invalid entries.
+6. **Medium — Clearing/switching PlaceAutocomplete did not cancel in-flight prefill.** Fix: `cancelPrefill()` helper called from `onClear` and mode-switch button.
+
+**Test count:** 660/660 across 49 files (+21 new regression tests).
+
+---
+
+### Prompt 20d — Email Deliverability + Hard Bounce Handling (2026-04-17)
+
+**Status:** COMPLETE
+
+**Email categorization:**
+- New `EmailCategory` type: `'transactional' | 'marketing' | 'internal'`.
+- `getEmailHeaders(category)`: marketing gets `List-Unsubscribe: <mailto:...>` + `List-Unsubscribe-Post: List-Unsubscribe=One-Click`. Others empty.
+- `getEmailTags(category)`: single Resend tag `[{ name: 'category', value }]`.
+- `sendApprovalEmail`: transactional (no unsubscribe header — service-necessary, not marketing).
+- `sendInternalEmail(params: { ..., category? })`: defaults to `internal`. Pass `'marketing'` for owner-directed recurring emails.
+
+**Worker call-sites:**
+- Marketing: WeeklySummaryWorker, MonthlyImpactWorker, OnboardingDripWorker, EngagementAlertWorker.handleOwnerNudge
+- Internal: EngagementAlertWorker.handlePartnerAlert + handleSatisfactionAlert, ResponsePublisherWorker, AdminExceptionWorker, NotificationFailoverPoller
+
+**Hard bounce handling (`worker/ingress/resend.ts`):**
+- Defensive bounce-type extraction from `data.bounce.type`, `data.reason`, `data.status` (lowercase, fallback `'unknown'`).
+- `isHardBounceType` matches `permanent`, `hard`, `hardbounce`, `permanent_failure`, or any string containing `permanent`. `unknown` is treated as soft.
+- Hard bounces: UPDATE `businesses.owner_email_bounced = TRUE` + send admin alert to `ADMIN_NOTIFICATION_EMAIL` with category `'internal'`.
+- `notification_deliveries.failure_reason` set to `bounced:<type>` for attribution.
+- Complaints set `failure_reason = 'complained'` but do NOT flag the business.
+
+**Skip-if-bounced guards:**
+- 5 workers SELECT `owner_email_bounced` and skip (+ markOutboxCompleted) if true: NotificationWorker, WeeklySummaryWorker, MonthlyImpactWorker, OnboardingDripWorker, EngagementAlertWorker.handleOwnerNudge.
+- EngagementMonitorPoller excludes bounced businesses from `owner_nudge` rule at query time; partner/satisfaction rules still fire.
+- Manual-post/exception/partner alerts unaffected — they go to admin.
+
+**Admin visibility:**
+- Admin overview shows Email Health card: 24h delivery rate (% + green/red), 24h sent count, 7d hard-bounce count, 7d complaint count. Red state when delivery rate <95% (with ≥5 sends) OR any complaint in 7d OR any hard bounce in 7d.
+- Business detail page shows red warning banner when `ownerEmailBounced=true` (impact explanation + "Clear bounce flag" button that PATCHes `ownerEmailBounced: false`).
+
+**Schema + API:**
+- `UpdateBusinessSchema` accepts `ownerEmailBounced: z.boolean().optional()`.
+- `FIELD_TO_COLUMN` maps `ownerEmailBounced → owner_email_bounced` for PATCH.
+- GET `/api/admin/businesses/[id]` returns `ownerEmailBounced: row.owner_email_bounced ?? false`.
+
+**Documentation:**
+- `docs/email-deliverability.md`: DNS auth (SPF/DKIM/DMARC), warmup schedule (stagger 2-3 customers/week first month), daily/weekly monitoring, troubleshooting table, hard bounce flow, env vars, List-Unsubscribe compliance rationale.
+
+**Tests:** +23 new tests across 5 files.
+- 8 `email-headers.test.ts` — marketing vs transactional/internal headers, LIST_UNSUBSCRIBE_EMAIL precedence, RESEND_FROM_EMAIL mailbox extraction (display name + bare), fallback.
+- 4 `email-send.test.ts` — transactional tags with no headers, internal default, marketing with headers, explicit internal.
+- 5 `resend-webhook-bounce.test.ts` — permanent bounce flags + alerts, transient does not, unknown treated as soft, `data.reason=permanent_failure` path, complained records status without flagging.
+- 4 `bounced-skip.test.ts` — each of 4 owner-directed workers skips when `owner_email_bounced=true`.
+- 2 `EngagementMonitorPoller.test.ts` — owner_nudge suppressed for bounced, partner rules still fire for bounced.
+
+**Test count:** 683/683 across 53 files.
+
+**Commits (10):** `daae866` (EmailCategory helpers), `bac5b31` (send functions), `41ea3ac` (worker call-sites), `d07eaf0` (hard bounce detection), `365b625` (skip guards), `b9bea94` (EngagementMonitorPoller exclusion), `833b1f8` (Email Health card), `54c4ac8` (type check fix), `9f851bc` (business detail banner), `8f1e295` (deliverability docs).
+
+**Migration prerequisite:** `017_sprint6_scale.sql` adds `businesses.owner_email_bounced` (also `businesses.website` from Prompt 20c). Not yet applied to Supabase.
+
+---
