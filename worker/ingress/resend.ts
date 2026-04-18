@@ -177,14 +177,27 @@ export async function handleResendWebhook(
   const emailId = body.data?.email_id;
   const svixId = headers['svix-id'] ?? `resend-${Date.now()}`;
 
-  // Deduplicate via inbound_events. If a row was inserted, this is a new
-  // event and we process it. If NOT inserted, an event with the same svix-id
-  // already exists — its status tells us whether processing finished:
-  //   - 'processed'  → truly a duplicate, acknowledge 200 silently
-  //   - 'failed'     → previous attempt errored (likely transient DB failure);
-  //                    reclaim the row and retry processing
-  //   - 'received'   → in-flight concurrent delivery of the same event;
-  //                    acknowledge 200, the other invocation will finish it
+  // Deduplicate via inbound_events using an explicit processing lease.
+  //
+  // Row lifecycle:
+  //   INSERT (status='received', received_at=NOW())
+  //     → this invocation owns the claim; proceed to process
+  //   On success: UPDATE status='processed', processed_at=NOW()
+  //   On failure: UPDATE status='failed', error_message=...
+  //
+  // When a webhook retry lands on a row that already exists:
+  //   status='processed' → truly a duplicate, acknowledge 200 silently
+  //   status='received' + received_at < NOW() - 2min → STALE. The original
+  //     handler crashed or timed out without transitioning to processed/failed.
+  //     Reclaim via atomic UPDATE so we own the retry.
+  //   status='failed' → previous attempt errored (likely transient DB failure).
+  //     Reclaim via the same UPDATE and retry.
+  //   status='received' + received_at fresh → another invocation is actively
+  //     processing. Acknowledge 200 in_flight and let it finish.
+  //
+  // The 2-minute stale threshold matches Resend's default retry cadence — a
+  // handler that hasn't completed within 2 minutes is almost certainly dead,
+  // and the event can be safely reclaimed.
   const inserted = await sql`
     INSERT INTO inbound_events (id, source, external_event_key, event_type, payload, status)
     VALUES (${uuidv7()}, 'resend', ${svixId}, ${eventType}, ${jsonb(body)}, 'received')
@@ -192,26 +205,33 @@ export async function handleResendWebhook(
   `;
 
   if (inserted.count === 0) {
-    const [existing] = await sql<{ status: string }[]>`
-      SELECT status FROM inbound_events WHERE external_event_key = ${svixId} LIMIT 1
+    // Atomic claim: reset received_at (refresh lease) AND clear any prior
+    // error. Only claims rows that are (a) failed, or (b) received but stale.
+    // A row returned means we own the claim and can proceed.
+    const reclaimed = await sql<{ id: string }[]>`
+      UPDATE inbound_events
+      SET received_at = NOW(), status = 'received', error_message = NULL
+      WHERE external_event_key = ${svixId}
+        AND (
+          status = 'failed'
+          OR (status = 'received' AND received_at < NOW() - INTERVAL '2 minutes')
+        )
+      RETURNING id
     `;
-    if (!existing || existing.status === 'processed') {
-      reply.status(200).send({ received: true, duplicate: true });
-      return;
-    }
-    if (existing.status === 'received') {
-      // Concurrent delivery — the other invocation is responsible. Don't
-      // double-process; return 200 so Resend stops retrying.
+    if (reclaimed.length === 0) {
+      // Either processed (true duplicate — ack silently) or received with a
+      // fresh lease (another invocation is working — ack in_flight).
+      const [existing] = await sql<{ status: string }[]>`
+        SELECT status FROM inbound_events WHERE external_event_key = ${svixId} LIMIT 1
+      `;
+      if (!existing || existing.status === 'processed') {
+        reply.status(200).send({ received: true, duplicate: true });
+        return;
+      }
       reply.status(200).send({ received: true, in_flight: true });
       return;
     }
-    // existing.status === 'failed' → reclaim and retry below.
-    // Reset to 'received' so this invocation owns the retry attempt.
-    await sql`
-      UPDATE inbound_events
-      SET status = 'received', error_message = NULL
-      WHERE external_event_key = ${svixId} AND status = 'failed'
-    `;
+    // Successfully reclaimed — fall through to process.
   }
 
   // Process the event

@@ -41,13 +41,18 @@ export interface CostData {
   globalDailyLimitUsd: number;
 }
 
-// Guard against malformed env vars (non-numeric, negative, NaN) that would
-// otherwise silently disable the admin dashboard's limit math. Matches the
-// safeParseLimitCents pattern in src/lib/costs/tracker.ts.
+// Strict non-negative integer parse — mirrors `safeParseLimitCents` in
+// src/lib/costs/tracker.ts. parseInt is too permissive (accepts prefixes,
+// truncates decimals, stops at underscores), so a value like "1000abc" or
+// "10_000" or "12.5" would silently apply the WRONG budget math on the
+// admin dashboard. Require digits-only, validate as a safe integer, else
+// fall back to default.
 function safeLimit(envVal: string | undefined, fallback: number): number {
-  if (!envVal) return fallback;
-  const parsed = parseInt(envVal, 10);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+  if (envVal === undefined || envVal === null) return fallback;
+  const trimmed = envVal.trim();
+  if (trimmed === '' || !/^\d+$/.test(trimmed)) return fallback;
+  const parsed = Number(trimmed);
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : fallback;
 }
 
 const TIER_LIMITS_CENTS: Record<string, number> = {

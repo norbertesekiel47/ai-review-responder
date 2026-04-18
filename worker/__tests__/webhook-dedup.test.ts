@@ -172,11 +172,13 @@ describe('Resend webhook dedup — handleResendWebhook', () => {
     } as any;
   }
 
-  it('returns duplicate:true when ON CONFLICT DO NOTHING returns count=0 AND prior event was processed', async () => {
-    // 1: INSERT returns count=0 (duplicate)
+  it('returns duplicate:true when prior event was processed', async () => {
+    // 1: INSERT conflict (count=0)
     const dupResult: any = []; dupResult.count = 0;
     sqlReturnQueue.push(dupResult);
-    // 2: status lookup — previously processed
+    // 2: atomic reclaim UPDATE returns [] (no row matched — already processed)
+    sqlReturnQueue.push([]);
+    // 3: status lookup — confirm processed
     sqlReturnQueue.push([{ status: 'processed' }]);
 
     const { handleResendWebhook } = await import('../ingress/resend');
@@ -187,16 +189,15 @@ describe('Resend webhook dedup — handleResendWebhook', () => {
     expect(reply.send).toHaveBeenCalledWith(
       expect.objectContaining({ duplicate: true }),
     );
-    // 2 SQL calls: the failed INSERT + the status lookup that confirms prior success.
-    // No UPDATE — processing is skipped because prior attempt already finished.
-    expect(sqlCalls).toHaveLength(2);
   });
 
-  it('acks 200 with in_flight:true when prior event is still being processed (status=received)', async () => {
+  it('acks 200 with in_flight:true when another invocation holds a fresh lease', async () => {
     // 1: INSERT conflict
     const dupResult: any = []; dupResult.count = 0;
     sqlReturnQueue.push(dupResult);
-    // 2: status lookup — another invocation is still processing
+    // 2: atomic reclaim UPDATE returns [] (not stale yet — in-flight)
+    sqlReturnQueue.push([]);
+    // 3: status lookup — received (fresh)
     sqlReturnQueue.push([{ status: 'received' }]);
 
     const { handleResendWebhook } = await import('../ingress/resend');
@@ -213,13 +214,11 @@ describe('Resend webhook dedup — handleResendWebhook', () => {
     // 1: INSERT conflict
     const dupResult: any = []; dupResult.count = 0;
     sqlReturnQueue.push(dupResult);
-    // 2: status lookup — prior attempt failed
-    sqlReturnQueue.push([{ status: 'failed' }]);
-    // 3: UPDATE inbound_events back to 'received' (reclaim)
+    // 2: atomic reclaim UPDATE returns [{id:...}] (reclaimed)
+    sqlReturnQueue.push([{ id: 'claim-x' }]);
+    // 3: UPDATE notification_deliveries SET delivered_at
     sqlReturnQueue.push([]);
-    // 4: UPDATE notification_deliveries SET delivered_at
-    sqlReturnQueue.push([]);
-    // 5: UPDATE inbound_events SET status='processed'
+    // 4: UPDATE inbound_events SET status='processed'
     sqlReturnQueue.push([]);
 
     const { handleResendWebhook } = await import('../ingress/resend');
@@ -227,11 +226,49 @@ describe('Resend webhook dedup — handleResendWebhook', () => {
     await handleResendWebhook(makeResendRequest(), reply);
 
     expect(reply.status).toHaveBeenCalledWith(200);
-    // Processing happened — should see a reclaim UPDATE + the actual UPDATEs
+    // Verify the reclaim UPDATE includes both the failed AND stale-received
+    // takeover conditions — this is the core guarantee that prevents a
+    // crashed handler from permanently stranding the event in 'received'.
     const reclaimCall = sqlCalls.find(
-      (c) => c.text.includes('inbound_events') && c.text.includes("status = 'received'"),
+      (c) =>
+        c.text.includes('inbound_events') &&
+        c.text.includes("SET received_at = NOW()") &&
+        c.text.includes("status = 'failed'") &&
+        c.text.includes("received_at < NOW()") &&
+        c.text.includes("INTERVAL '2 minutes'"),
     );
     expect(reclaimCall).toBeDefined();
+  });
+
+  // Regression for the specific bug the reviewer flagged: a row stuck in
+  // 'received' beyond the 2-minute lease MUST be reclaimable. Before the
+  // lease fix, every future webhook retry would have returned in_flight
+  // indefinitely and the bounce/delivery update would have been lost.
+  it('reclaims a STALE received prior event (crashed handler scenario)', async () => {
+    // 1: INSERT conflict
+    const dupResult: any = []; dupResult.count = 0;
+    sqlReturnQueue.push(dupResult);
+    // 2: atomic reclaim UPDATE returns [{id:...}] — stale lease takeover
+    sqlReturnQueue.push([{ id: 'stale-claim' }]);
+    // 3: UPDATE notification_deliveries
+    sqlReturnQueue.push([]);
+    // 4: UPDATE inbound_events SET status='processed'
+    sqlReturnQueue.push([]);
+
+    const { handleResendWebhook } = await import('../ingress/resend');
+    const reply = makeReply();
+    await handleResendWebhook(makeResendRequest(), reply);
+
+    // Event was reprocessed, not stuck as in_flight
+    expect(reply.send).not.toHaveBeenCalledWith(
+      expect.objectContaining({ in_flight: true }),
+    );
+    expect(reply.status).toHaveBeenCalledWith(200);
+    // Must have run the actual processing UPDATE after reclaim
+    const processUpdate = sqlCalls.find(
+      (c) => c.text.includes("notification_deliveries") && c.text.includes("delivered_at"),
+    );
+    expect(processUpdate).toBeDefined();
   });
 
   it('processes event and updates delivery status when INSERT succeeds', async () => {

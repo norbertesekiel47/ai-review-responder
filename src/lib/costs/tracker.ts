@@ -73,17 +73,35 @@ function regenBudgetKey(reviewId: string): string {
 // ── Tier limit resolution ────────────────────────────────────────────
 
 /**
- * parseInt can return NaN when the env var is malformed (e.g. set to "true"
- * or containing whitespace). Downstream comparisons like `total > NaN`
- * always return false — so a typo in an env var would SILENTLY DISABLE
- * the budget guardrail. Always validate and fall back to the default.
+ * Strict non-negative integer parse for cost-limit env vars.
+ *
+ * parseInt is too permissive: it accepts prefixes (`'1000abc'` → 1000),
+ * truncates decimals (`'12.5'` → 12), and parses `'10_000'` as 10. Any of
+ * those would silently apply the WRONG budget — someone copying a
+ * JS-style numeric literal into `.env` could unknowingly cap limits at
+ * an order of magnitude smaller than intended.
+ *
+ * This parser requires the value to be:
+ *   - only decimal digits after trimming (no letters, dots, underscores)
+ *   - a safe integer (fits in a JS number without precision loss)
+ *   - non-negative
+ * Any deviation falls back to the default and logs a warning so the
+ * misconfiguration is visible in worker logs.
  */
 function safeParseLimitCents(envVal: string | undefined, fallback: number): number {
-  if (!envVal) return fallback;
-  const parsed = parseInt(envVal, 10);
-  if (!Number.isFinite(parsed) || parsed < 0) {
+  if (envVal === undefined || envVal === null) return fallback;
+  const trimmed = envVal.trim();
+  if (trimmed === '') return fallback;
+  if (!/^\d+$/.test(trimmed)) {
     console.warn(
-      `[cost-tracker] Invalid cost limit env var "${envVal}" — falling back to ${fallback}`,
+      `[cost-tracker] Invalid cost limit env var "${envVal}" (must be a non-negative integer) — falling back to ${fallback}`,
+    );
+    return fallback;
+  }
+  const parsed = Number(trimmed);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    console.warn(
+      `[cost-tracker] Cost limit env var "${envVal}" out of safe-integer range — falling back to ${fallback}`,
     );
     return fallback;
   }
