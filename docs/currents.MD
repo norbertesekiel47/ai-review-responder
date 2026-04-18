@@ -696,102 +696,257 @@ on the same core response mutation logic.
 
 ## Page Workflow — What Links Where
 
-This documents every page-to-page navigation path in the application.
+This documents every page-to-page navigation path in the application,
+verified against the source as of 2026-04-18.
 
-### Public Pages (no auth required)
+### From the Landing Page — Full Traversal Map
 
-```
-Landing Page (/)
-├── Nav: "Admin Login" → /admin/login
-├── Hero: "Get Started" → /admin/login
-├── Hero: "See How It Works" → #how-it-works (scroll)
-└── Footer: "Admin" → /admin/login
-
-Demo Viewer (/demo/[slug])
-├── Standalone — no outbound links to other app pages
-└── CTA at bottom (Calendly link when configured)
-
-Approval Page (/approve/[token])
-├── Standalone — owner lands here from email link
-├── "Approve" button → POST /api/approve/[token]/approve → success message
-├── "Edit" button → shows textarea → "Save & Approve" → POST /api/approve/[token]/edit → success
-└── "Regenerate" button → POST /api/approve/[token]/regenerate → success message
-```
-
-### Owner Pages (requires owner auth)
+The landing page `/` is the single entry point for both admins (via
+`/admin/login`) and prospects. Below is the complete tree of what's
+reachable from there, annotated with auth requirements and redirects.
 
 ```
-/dashboard
-├── Value Summary Banner (reviews handled, time saved, response rate with baseline)
-├── Review Velocity bar chart (last 8 weeks)
-├── Google Maps Ranking chart (conditional — only if ranking data exists)
-├── Recent Reviews list (last 10, expandable responses)
-│   └── Pending reviews: Approve / Edit / Regenerate buttons (session-auth, not token-based)
-├── Latest Intelligence Brief (most recent monthly or weekly)
-└── OwnerNav: "Dashboard" | "Settings" | "Sign out"
+/ (landing page, public)
+│
+├─[click "Admin Login" / "Get Started" / "Admin"]→ /admin/login
+│
+└─[click "See How It Works"]→ #how-it-works anchor (same page)
 
-/settings
-├── Business Profile (read-only: name/category/placeId, editable: tone/products/avoid-facts/samples)
-├── Notification Preferences (email/sms/both, phone, weekly summary on/off, monthly impact on/off)
-└── "Save Changes" → PUT /api/settings → success toast
 
-/feedback/thanks (public, no auth)
-└── Static "Thank you" page after satisfaction pulse submission
-```
+/admin/login (public, shared login for ALL roles — not admin-only despite the URL)
+│
+├─[sign-in succeeds, role = 'admin' or 'sales_partner']→
+│      → honors ?from= if it's under /admin/*
+│      → else → /admin/overview
+│
+├─[sign-in succeeds, role = 'owner']→
+│      → honors ?from= if it's under /dashboard/* or /settings/*
+│      → else → /dashboard
+│
+└─[sign-in succeeds, role unknown / missing]→ /admin/overview
+       (middleware will bounce if role doesn't fit)
 
-### Admin Pages (requires admin/sales_partner auth)
 
-```
-/admin/login
-└── On success → /admin/overview
+───── Admin branch (role = admin | sales_partner) ────────────────────
 
-/admin/overview (CRM home)
-├── Business table rows → /admin/businesses/[id]
-├── Nav links → /admin/costs, /admin/notifications, /admin/jobs, /admin/demos
-└── "Add Business" → /admin/businesses/new
+/admin/overview (the admin CRM home)
+│ Landed here after admin sign-in. Shows system health cards + business
+│ table sorted by churn risk. Has top AdminNav bar present on every
+│ /admin/* page (except /admin/login and /admin/payment-success).
+│
+├─[AdminNav links]→ /admin/overview, /admin/businesses, /admin/demos,
+│                   /admin/costs, /admin/notifications, /admin/jobs,
+│                   /admin/runbook
+├─[business table row click]→ /admin/businesses/[id]
+├─[health "Demos" / "Manage" shortcut]→ /admin/demos / /admin/businesses
+└─["Add Business" button]→ /admin/businesses/new
 
-/admin/businesses (list)
-├── Table rows → /admin/businesses/[id]
-└── "Add Business" → /admin/businesses/new
+
+/admin/businesses (business list — paginated)
+├─[AdminNav]→ same 7 admin links as above
+├─[table row click]→ /admin/businesses/[id]
+└─["Add Business" button]→ /admin/businesses/new
+
 
 /admin/businesses/new (onboarding form)
-└── On submit → /admin/businesses/[id] (redirects to new business detail)
+│ react-hook-form + Zod. Creates business + owner user + initial
+│ sync outbox in one atomic transaction. Returns Stripe Payment Link.
+│
+├─[form submit, paymentUrl returned]→ window.location = paymentUrl
+│                                    (external — leaves the app to
+│                                     Stripe Checkout)
+├─[form submit, no paymentUrl]→ /admin/businesses/[id] (new detail page)
+└─[AdminNav]→ same 7 admin links
 
-/admin/businesses/[id] (detail)
-├── Inline-editable profile fields → PATCH /api/admin/businesses/[id]
-├── Review list with status badges (read-only)
-├── Churn risk badge + Engagement signal breakdown
-├── Tracked Keywords section (add/remove pills, max 5) → PUT /api/admin/businesses/[id]/keywords
-├── Ranking section (recent snapshots table + manual entry form) → POST /api/admin/businesses/[id]/ranking
-├── "Copy to Clipboard" → copies approved response text
-└── "Mark as Posted" → POST /api/admin/businesses/[id]/mark-posted
 
-/admin/demos (demo generator)
-├── "Generate Demo" → POST /api/admin/demos/generate → polls for completion
-└── Demo list: "Copy Link" → copies /demo/[slug] URL to clipboard
+/admin/businesses/[id] (business detail + review CRM)
+│ Editable profile, review list with status badges, churn risk badge,
+│ engagement breakdown, tracked keywords, ranking, manual-post section.
+│
+├─[inline profile editor save]→ PATCH /api/admin/businesses/[id]
+│                               (no navigation — updates in place)
+├─["Back to overview" link in header]→ /admin/overview
+├─[Google Maps link]→ external maps.google.com
+├─[Clear bounce flag button]→ PATCH {ownerEmailBounced:false}
+│                            (no navigation)
+├─[Manual Post Section "Copy to Clipboard"]→ clipboard only
+├─[Manual Post Section "Mark as Posted"]→ POST .../mark-posted
+│                                        (no navigation)
+├─[Keywords PUT]→ PUT .../keywords (no navigation)
+├─[Ranking manual entry]→ POST .../ranking (no navigation)
+└─[AdminNav]→ same 7 admin links
 
-/admin/costs → standalone dashboard (no outbound links)
-/admin/notifications → standalone dashboard (no outbound links)
-/admin/jobs → standalone dashboard (no outbound links)
+
+/admin/demos (prospect demo generator)
+├─["Generate Demo" button]→ POST /api/admin/demos/generate → polls
+│                          /api/admin/demos for completion (no navigation)
+├─[Demo list "Copy Link"]→ clipboard: /demo/<slug> URL
+├─[Demo list slug link]→ /demo/[slug] (new tab)
+└─[AdminNav]→ same 7 admin links
+
+
+/admin/costs (cost monitoring — standalone dashboard)
+├─[Day range selector]→ re-query via /api/admin/costs (no navigation)
+└─[AdminNav]→ same 7 admin links
+
+
+/admin/notifications (delivery log — standalone dashboard)
+├─[Filter controls + pagination]→ re-query (no navigation)
+└─[AdminNav]→ same 7 admin links
+
+
+/admin/jobs (queue health — standalone dashboard)
+├─[Shows 5 counters: Pending / Dispatching / Dispatched / Failed / Completed Today]
+├─[Failed jobs pagination]→ re-query (no navigation)
+└─[AdminNav]→ same 7 admin links
+
+
+/admin/runbook (static quick-reference page)
+├─[5-scenario "Customer says X" table — read only, no actions]
+├─[Footer refs]→ docs/operational-runbook.md, docs/smoke-test-checklist.md,
+│                docs/email-deliverability.md
+│                (clickable anchors when NEXT_PUBLIC_DOCS_BASE_URL is set,
+│                else rendered as <code> filenames)
+└─[AdminNav]→ same 7 admin links
+
+
+/admin/payment-success (post-Stripe-checkout landing)
+│ Stripe redirects back here after the customer pays. Polls the
+│ payment-success API by session_id to find the activated business.
+│
+├─[business found]→ router.push(/admin/businesses/[id])
+├─["Go to business"/"Continue" buttons]→ /admin/businesses/[id]
+└─["Go to overview"]→ /admin/overview
+    (no AdminNav on this page — it's a transient landing)
+
+
+───── Owner branch (role = owner) ────────────────────────────────────
+
+/dashboard (owner home)
+│ Landed here after owner sign-in. Has top OwnerNav bar present on
+│ /dashboard and /settings.
+│
+├─[OwnerNav "Dashboard"]→ /dashboard
+├─[OwnerNav "Settings"]→ /settings
+├─[OwnerNav "Sign out"]→ router.push('/admin/login')
+│                       (shared login page; on re-sign-in, role-aware
+│                        redirect sends them back to /dashboard)
+├─[Recent Reviews: Approve / Edit / Regenerate buttons on pending rows]→
+│      POST /api/dashboard/reviews/[reviewId]/{approve,edit,regenerate}
+│      (no navigation — content updates in place)
+└─[No direct link to any public pages]
+
+
+/settings (owner settings — profile + notification prefs)
+├─[OwnerNav]→ same 3 items (/dashboard, /settings, Sign out)
+├─["Save Changes"]→ PUT /api/settings (no navigation, shows toast)
+└─[No links to other pages]
+
+
+───── Email-triggered entry points (public URLs owners land on) ──────
+
+Every approval email contains a token-authenticated URL that owners
+click WITHOUT logging in. These are all public routes protected by
+the HMAC/token in the URL itself.
+
+/approve/[token] (approval page)
+│ Owner lands here from an approval email. No auth UI — device cookie
+│ + CSRF handle trust. Page is standalone (no nav bar).
+│
+├─["Approve" button]→ POST /api/approve/[token]/approve → success state
+├─["Edit" button]→ textarea appears → "Save & Approve" →
+│                  POST /api/approve/[token]/edit → success state
+├─["Regenerate" button]→ POST /api/approve/[token]/regenerate → success state
+├─[expired link]→ static "this link has expired" message
+└─[already-consumed]→ static "already been approved" message
+
+
+/demo/[slug] (prospect demo viewer)
+│ Sales partner shares this URL with prospects. Renders their reviews
+│ with AI-generated responses.
+│
+└─[CTA at bottom]→ mailto: link (NEXT_PUBLIC_CONTACT_EMAIL)
+
+
+/api/feedback?business_id=X&rating=Y&week=...&sig=HMAC
+│ Satisfaction pulse URLs in weekly value report emails. Validates
+│ HMAC, renders a confirmation page. NOT a Next.js page — served
+│ directly by the API route as HTML.
+│
+└─["Submit Feedback" button]→ POST /api/feedback → 303 redirect to
+                              /feedback/thanks
+
+
+/feedback/thanks (static thank-you page after satisfaction submission)
+└─[No outbound links]
 ```
 
-### Email-Triggered Flows (no direct page links)
 
-```
-Approval email → owner clicks "Review & Approve" → /approve/[token]
-Manual-post email → admin reads instructions → opens Google Maps manually
-Weekly Value Report email → owner reads stats → optional "See your full dashboard →" link → /dashboard (if owner has auth)
-Weekly Value Report email → satisfaction pulse buttons → GET /api/feedback?...&sig=HMAC → confirmation page → POST → /feedback/thanks
-Monthly Impact Report email → owner reads cumulative stats → optional dashboard link
-Owner nudge email → owner clicks "Review & Approve →" → /approve/[token] (fresh link)
-Onboarding drip day 1 → owner reads welcome email → optional dashboard link
-Onboarding drip day 7 → owner reads recap → approval links for pending reviews → /approve/[token]
-Onboarding drip day 30 → owner reads impact milestone
-Partner engagement/escalation/low-engagement alert → admin reads alert (no app link)
-Partner satisfaction alert → admin reads alert when owner rated "Not great" (no app link)
-Admin exception alert → admin reads alert (no app link)
-Notification failover → re-sends approval email → /approve/[token]
-```
+### Email → App Entry Points
+
+These are the URLs embedded in customer-facing emails. All of them
+land on the routes described above but originate from a worker's
+email send, so they don't appear in any page-level navigation graph.
+
+| Email | Button / link | Destination |
+|---|---|---|
+| Approval request (transactional) | "Review & Approve" | `/approve/[token]` |
+| Manual-post alert (internal to admin) | *(read-only instructions)* | *(admin opens Google Maps manually)* |
+| Weekly Value Report (marketing) | "See your full dashboard" | `/dashboard` (conditional on owner having auth) |
+| Weekly Value Report (marketing) | Great / OK / Not great buttons | `GET /api/feedback?...&sig=HMAC` → submit → `/feedback/thanks` |
+| Monthly Impact Report (marketing) | Dashboard link | `/dashboard` |
+| Owner nudge (marketing) | "Review & Approve" (one per pending review) | `/approve/[token]` (fresh link) |
+| Onboarding drip day 1 (marketing) | Dashboard link | `/dashboard` (conditional) |
+| Onboarding drip day 7 (marketing) | Approval link per pending review | `/approve/[token]` |
+| Onboarding drip day 30 (marketing) | *(read-only milestone)* | *(no link)* |
+| Partner engagement / escalation / low-engagement alert (internal) | *(read-only)* | *(admin reads alert)* |
+| Partner satisfaction alert (internal) | *(read-only)* | *(admin reads alert)* |
+| Admin exception alert (internal) | *(read-only)* | *(admin reads alert)* |
+| Notification failover re-send (transactional) | "Review & Approve" | `/approve/[token]` (replacement link) |
+
+
+### Middleware Redirect Behavior
+
+`src/middleware.ts` guards every page and API route. The behavior
+matters for knowing where unauthenticated requests end up:
+
+| Route pattern | Unauthenticated / wrong role | Authenticated with correct role |
+|---|---|---|
+| `/admin/login` | allowed | allowed (but the page itself sends you elsewhere on submit) |
+| `/admin/*` (any other) | 302 → `/admin/login?from=<path>` | allowed |
+| `/api/admin/*` | 401 | allowed |
+| `/dashboard/*`, `/settings/*` | 302 → `/admin/login?from=<path>` | allowed |
+| `/api/dashboard/*`, `/api/settings/*` | 401 / 403 | allowed |
+| `/approve/*`, `/demo/*`, `/feedback/*`, `/` | always allowed (public) | — |
+| `/api/approve/*`, `/api/feedback` | always allowed (token/HMAC auth) | — |
+
+The login page (`/admin/login`) and the auth callback (`/api/auth/callback`)
+are role-aware: after a successful sign-in they look up the user's role
+and route to `/dashboard` for owner or `/admin/overview` for
+admin/sales_partner. A requested `?from=` is honored only if the path
+matches the user's role scope — otherwise the role default wins. This
+prevents the post-sign-in redirect loop an owner would otherwise hit
+when `?from` pointed into `/admin/*`.
+
+
+### Known Navigation Observations (not bugs)
+
+- **`/admin/login` is the shared login page for all roles.** The URL
+  is misleading but changing it would break existing bookmarks and email
+  templates. The page title is "RepWorth Admin" but actually accepts any
+  role. The post-sign-in redirect is role-aware.
+- **OwnerNav "Sign out" routes to `/admin/login`.** This is intentional
+  (single login page for the whole app). After signing back in, the
+  role-aware redirect sends owners to `/dashboard`.
+- **No "back to landing" link anywhere inside the app.** Admins and
+  owners are expected to stay inside their respective branches.
+- **`/admin/runbook` references `docs/*.md` by filename.** These are
+  clickable anchors only if `NEXT_PUBLIC_DOCS_BASE_URL` is set to the
+  GitHub blob URL or similar. Otherwise they render as `<code>` text
+  for oncall engineers with a local clone.
+- **`/admin/payment-success` is transient.** It has no AdminNav (Stripe
+  redirects here before the full admin shell is in play). It polls the
+  payment-success API then redirects to the business detail page.
 
 ### Sprint 5B: Retention Expansion (Prompts 19b, 19c-5B, 19d-5B, 19e, 19g)
 

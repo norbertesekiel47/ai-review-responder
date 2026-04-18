@@ -11,15 +11,21 @@ import { createServerClient } from '@supabase/ssr';
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get('code');
-  const rawNext = searchParams.get('next') ?? '/admin/overview';
-  // Restrict redirect to safe internal paths to prevent open redirects
-  const next = rawNext.startsWith('/') && !rawNext.startsWith('//') ? rawNext : '/admin/overview';
+  const rawNext = searchParams.get('next') ?? '';
+  // Restrict redirect to safe internal paths (no //, no external URLs).
+  // Do NOT default to /admin/overview — we don't know the user's role yet.
+  // The role-aware fallback below picks /dashboard vs /admin/overview AFTER
+  // the session is established and we can look up the user's role.
+  const nextIsSafe =
+    rawNext.startsWith('/') && !rawNext.startsWith('//');
+  const requestedNext = nextIsSafe ? rawNext : '';
 
   if (!code) {
     return NextResponse.redirect(new URL('/admin/login', origin));
   }
 
-  const response = NextResponse.redirect(new URL(next, origin));
+  // Temporary redirect target — will be rewritten after role lookup below.
+  const response = NextResponse.redirect(new URL('/admin/overview', origin));
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -38,10 +44,45 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     },
   );
 
-  const { error } = await supabase.auth.exchangeCodeForSession(code);
+  const { error, data } = await supabase.auth.exchangeCodeForSession(code);
   if (error) {
     return NextResponse.redirect(new URL('/admin/login', origin));
   }
 
-  return response;
+  // Role-aware post-callback redirect. An owner arriving via an email link
+  // must go to /dashboard, not /admin/overview (which they can't access).
+  // If `next` points to a role-appropriate path, honor it; otherwise fall
+  // back to the role's home page.
+  const authId = data.user?.id;
+  let role: string | null = null;
+  if (authId) {
+    const { data: userRow } = await supabase
+      .from('users')
+      .select('role')
+      .eq('auth_id', authId)
+      .limit(1)
+      .single();
+    role = (userRow as { role: string } | null)?.role ?? null;
+  }
+
+  const nextIsAdmin = requestedNext.startsWith('/admin');
+  const nextIsOwner =
+    requestedNext.startsWith('/dashboard') ||
+    requestedNext.startsWith('/settings');
+  let destination: string;
+  if (role === 'owner') {
+    destination = nextIsOwner ? requestedNext : '/dashboard';
+  } else if (role === 'admin' || role === 'sales_partner') {
+    destination = nextIsAdmin ? requestedNext : '/admin/overview';
+  } else {
+    destination = requestedNext || '/admin/overview';
+  }
+
+  // Build a fresh redirect response with the resolved destination, copying
+  // the session cookies that `exchangeCodeForSession` wrote via setAll above.
+  const finalResponse = NextResponse.redirect(new URL(destination, origin));
+  for (const cookie of response.cookies.getAll()) {
+    finalResponse.cookies.set(cookie);
+  }
+  return finalResponse;
 }

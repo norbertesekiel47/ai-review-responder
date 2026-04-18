@@ -32,9 +32,15 @@ function LoginForm() {
   const [loading, setLoading] = useState(false);
   const searchParams = useSearchParams();
   const router = useRouter();
-  const rawFrom = searchParams.get('from') ?? '/admin/overview';
-  // Restrict redirect to safe internal paths to prevent open redirects
-  const from = rawFrom.startsWith('/admin') ? rawFrom : '/admin/overview';
+  const rawFrom = searchParams.get('from') ?? '';
+  // Restrict `from` to safe internal paths only (no //, no external URLs).
+  // We do NOT force `/admin/*` here — owners come through this page too,
+  // and forcing /admin/overview for an owner causes a post-login redirect
+  // loop (middleware rejects the owner from /admin/*). The role-aware
+  // fallback below picks /dashboard vs /admin/overview when `from` is
+  // missing or unsafe.
+  const from =
+    rawFrom.startsWith('/') && !rawFrom.startsWith('//') ? rawFrom : '';
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -43,7 +49,7 @@ function LoginForm() {
 
     try {
       const supabase = createBrowserSupabaseClient();
-      const { error: authError } = await supabase.auth.signInWithPassword({
+      const { error: authError, data } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
@@ -53,9 +59,44 @@ function LoginForm() {
         return;
       }
 
-      // Session cookie is set automatically by @supabase/ssr.
-      // Redirect to the originally requested page.
-      router.push(from);
+      // Session cookie is set automatically by @supabase/ssr. Decide where
+      // to send the user:
+      //   1. If `from` is a safe internal path AND the user's role can
+      //      reach it → honor it.
+      //   2. Otherwise → role-based default (owner → /dashboard,
+      //      admin/sales_partner → /admin/overview).
+      // Role is looked up via a tiny select on the users table keyed by
+      // auth_id. If the lookup fails we fall back to the admin overview
+      // (which middleware will redirect from if the role doesn't fit).
+      let destination: string = from;
+      const authId = data?.user?.id;
+      let role: string | null = null;
+      if (authId) {
+        const { data: userRow } = await supabase
+          .from('users')
+          .select('role')
+          .eq('auth_id', authId)
+          .limit(1)
+          .single();
+        role = (userRow as { role: string } | null)?.role ?? null;
+      }
+
+      const ownerDefault = '/dashboard';
+      const adminDefault = '/admin/overview';
+      const fromIsAdmin = from.startsWith('/admin');
+      const fromIsOwner = from.startsWith('/dashboard') || from.startsWith('/settings');
+
+      if (role === 'owner') {
+        destination = fromIsOwner ? from : ownerDefault;
+      } else if (role === 'admin' || role === 'sales_partner') {
+        destination = fromIsAdmin ? from : adminDefault;
+      } else {
+        // Unknown / missing role — send admin default and let middleware
+        // bounce back if wrong.
+        destination = from || adminDefault;
+      }
+
+      router.push(destination);
       router.refresh(); // Force middleware to re-evaluate with new session
     } catch {
       setError('Connection failed');
