@@ -172,10 +172,12 @@ describe('Resend webhook dedup — handleResendWebhook', () => {
     } as any;
   }
 
-  it('returns duplicate:true when ON CONFLICT DO NOTHING returns count=0', async () => {
+  it('returns duplicate:true when ON CONFLICT DO NOTHING returns count=0 AND prior event was processed', async () => {
     // 1: INSERT returns count=0 (duplicate)
     const dupResult: any = []; dupResult.count = 0;
     sqlReturnQueue.push(dupResult);
+    // 2: status lookup — previously processed
+    sqlReturnQueue.push([{ status: 'processed' }]);
 
     const { handleResendWebhook } = await import('../ingress/resend');
     const reply = makeReply();
@@ -185,8 +187,51 @@ describe('Resend webhook dedup — handleResendWebhook', () => {
     expect(reply.send).toHaveBeenCalledWith(
       expect.objectContaining({ duplicate: true }),
     );
-    // Only 1 SQL call (the INSERT that hit conflict), no UPDATE
-    expect(sqlCalls).toHaveLength(1);
+    // 2 SQL calls: the failed INSERT + the status lookup that confirms prior success.
+    // No UPDATE — processing is skipped because prior attempt already finished.
+    expect(sqlCalls).toHaveLength(2);
+  });
+
+  it('acks 200 with in_flight:true when prior event is still being processed (status=received)', async () => {
+    // 1: INSERT conflict
+    const dupResult: any = []; dupResult.count = 0;
+    sqlReturnQueue.push(dupResult);
+    // 2: status lookup — another invocation is still processing
+    sqlReturnQueue.push([{ status: 'received' }]);
+
+    const { handleResendWebhook } = await import('../ingress/resend');
+    const reply = makeReply();
+    await handleResendWebhook(makeResendRequest(), reply);
+
+    expect(reply.status).toHaveBeenCalledWith(200);
+    expect(reply.send).toHaveBeenCalledWith(
+      expect.objectContaining({ in_flight: true }),
+    );
+  });
+
+  it('reclaims a failed prior event and reprocesses on retry', async () => {
+    // 1: INSERT conflict
+    const dupResult: any = []; dupResult.count = 0;
+    sqlReturnQueue.push(dupResult);
+    // 2: status lookup — prior attempt failed
+    sqlReturnQueue.push([{ status: 'failed' }]);
+    // 3: UPDATE inbound_events back to 'received' (reclaim)
+    sqlReturnQueue.push([]);
+    // 4: UPDATE notification_deliveries SET delivered_at
+    sqlReturnQueue.push([]);
+    // 5: UPDATE inbound_events SET status='processed'
+    sqlReturnQueue.push([]);
+
+    const { handleResendWebhook } = await import('../ingress/resend');
+    const reply = makeReply();
+    await handleResendWebhook(makeResendRequest(), reply);
+
+    expect(reply.status).toHaveBeenCalledWith(200);
+    // Processing happened — should see a reclaim UPDATE + the actual UPDATEs
+    const reclaimCall = sqlCalls.find(
+      (c) => c.text.includes('inbound_events') && c.text.includes("status = 'received'"),
+    );
+    expect(reclaimCall).toBeDefined();
   });
 
   it('processes event and updates delivery status when INSERT succeeds', async () => {

@@ -72,15 +72,32 @@ function regenBudgetKey(reviewId: string): string {
 
 // ── Tier limit resolution ────────────────────────────────────────────
 
+/**
+ * parseInt can return NaN when the env var is malformed (e.g. set to "true"
+ * or containing whitespace). Downstream comparisons like `total > NaN`
+ * always return false — so a typo in an env var would SILENTLY DISABLE
+ * the budget guardrail. Always validate and fall back to the default.
+ */
+function safeParseLimitCents(envVal: string | undefined, fallback: number): number {
+  if (!envVal) return fallback;
+  const parsed = parseInt(envVal, 10);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    console.warn(
+      `[cost-tracker] Invalid cost limit env var "${envVal}" — falling back to ${fallback}`,
+    );
+    return fallback;
+  }
+  return parsed;
+}
+
 function getTierLimitCents(tier: string): number {
   const envKey = `DAILY_COST_LIMIT_CENTS_${tier.toUpperCase()}`;
-  const envVal = process.env[envKey];
-  if (envVal) return parseInt(envVal, 10);
-  return DEFAULT_TIER_LIMITS_CENTS[tier] ?? DEFAULT_TIER_LIMITS_CENTS.standard!;
+  const fallback = DEFAULT_TIER_LIMITS_CENTS[tier] ?? DEFAULT_TIER_LIMITS_CENTS.standard!;
+  return safeParseLimitCents(process.env[envKey], fallback);
 }
 
 function getGlobalLimitCents(): number {
-  return parseInt(process.env.GLOBAL_DAILY_COST_LIMIT_CENTS ?? '10000', 10);
+  return safeParseLimitCents(process.env.GLOBAL_DAILY_COST_LIMIT_CENTS, 10_000);
 }
 
 // ── Phase 1: Reservation ─────────────────────────────────────────────

@@ -15,6 +15,11 @@ export const dynamic = 'force-dynamic';
 
 interface OutboxSummaryRow {
   pending: number;
+  // `dispatching` is the intermediate two-phase-claim state OutboxPoller
+  // transitions rows through (pending → dispatching → dispatched). Stale
+  // dispatching rows (>2 min) are recovered by the poller's watchdog, but
+  // before 20e they were invisible in this summary, which hid stuck claims.
+  dispatching: number;
   dispatched: number;
   failed: number;
   completed_today: number;
@@ -36,6 +41,7 @@ interface FailedCountRow {
 export interface JobsData {
   outbox: {
     pending: number;
+    dispatching: number;
     dispatched: number;
     failed: number;
     completedToday: number;
@@ -74,6 +80,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       sql<OutboxSummaryRow[]>`
         SELECT
           COUNT(CASE WHEN status = 'pending' THEN 1 END)::int AS pending,
+          COUNT(CASE WHEN status = 'dispatching' THEN 1 END)::int AS dispatching,
           COUNT(CASE WHEN status = 'dispatched' THEN 1 END)::int AS dispatched,
           COUNT(CASE WHEN status = 'failed' THEN 1 END)::int AS failed,
           COUNT(CASE WHEN status = 'completed' AND completed_at >= CURRENT_DATE THEN 1 END)::int AS completed_today
@@ -91,7 +98,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       `,
     ]);
 
-    const summary = summaryRows[0] ?? { pending: 0, dispatched: 0, failed: 0, completed_today: 0 };
+    const summary = summaryRows[0] ?? { pending: 0, dispatching: 0, dispatched: 0, failed: 0, completed_today: 0 };
     const failedTotal = countRows[0]?.total ?? 0;
 
     let queueHealth: Record<string, Record<string, number>> | { unavailable: true };
@@ -121,6 +128,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const data: JobsData = {
       outbox: {
         pending: summary.pending,
+        dispatching: summary.dispatching,
         dispatched: summary.dispatched,
         failed: summary.failed,
         completedToday: summary.completed_today,

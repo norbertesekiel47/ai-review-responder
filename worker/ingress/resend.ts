@@ -177,7 +177,14 @@ export async function handleResendWebhook(
   const emailId = body.data?.email_id;
   const svixId = headers['svix-id'] ?? `resend-${Date.now()}`;
 
-  // Deduplicate via inbound_events
+  // Deduplicate via inbound_events. If a row was inserted, this is a new
+  // event and we process it. If NOT inserted, an event with the same svix-id
+  // already exists — its status tells us whether processing finished:
+  //   - 'processed'  → truly a duplicate, acknowledge 200 silently
+  //   - 'failed'     → previous attempt errored (likely transient DB failure);
+  //                    reclaim the row and retry processing
+  //   - 'received'   → in-flight concurrent delivery of the same event;
+  //                    acknowledge 200, the other invocation will finish it
   const inserted = await sql`
     INSERT INTO inbound_events (id, source, external_event_key, event_type, payload, status)
     VALUES (${uuidv7()}, 'resend', ${svixId}, ${eventType}, ${jsonb(body)}, 'received')
@@ -185,12 +192,30 @@ export async function handleResendWebhook(
   `;
 
   if (inserted.count === 0) {
-    // Already processed — return 200 so Resend doesn't retry
-    reply.status(200).send({ received: true, duplicate: true });
-    return;
+    const [existing] = await sql<{ status: string }[]>`
+      SELECT status FROM inbound_events WHERE external_event_key = ${svixId} LIMIT 1
+    `;
+    if (!existing || existing.status === 'processed') {
+      reply.status(200).send({ received: true, duplicate: true });
+      return;
+    }
+    if (existing.status === 'received') {
+      // Concurrent delivery — the other invocation is responsible. Don't
+      // double-process; return 200 so Resend stops retrying.
+      reply.status(200).send({ received: true, in_flight: true });
+      return;
+    }
+    // existing.status === 'failed' → reclaim and retry below.
+    // Reset to 'received' so this invocation owns the retry attempt.
+    await sql`
+      UPDATE inbound_events
+      SET status = 'received', error_message = NULL
+      WHERE external_event_key = ${svixId} AND status = 'failed'
+    `;
   }
 
   // Process the event
+  let processingFailed = false;
   try {
     if (emailId) {
       switch (eventType) {
@@ -289,8 +314,18 @@ export async function handleResendWebhook(
       UPDATE inbound_events SET status = 'failed', error_message = ${err instanceof Error ? err.message : String(err)}
       WHERE external_event_key = ${svixId}
     `;
+    processingFailed = true;
   }
 
-  // Always return 200 — Resend expects 2xx
+  if (processingFailed) {
+    // Return 5xx so Resend retries delivery. The replay branch above will
+    // see status='failed', reclaim the row, and retry processing.
+    // Without this, transient DB failures would permanently drop bounce
+    // and delivery updates.
+    reply.status(503).send({ received: true, retry: true });
+    return;
+  }
+
+  // Always return 200 on success — Resend expects 2xx
   reply.status(200).send({ received: true });
 }

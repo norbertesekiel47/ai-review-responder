@@ -184,16 +184,14 @@ describe('approve', () => {
           !!arg && typeof arg === 'object' && !Array.isArray(arg) && 'response_id' in (arg as Record<string, unknown>),
       );
 
-    const payload = objectPayloads.find(
-      (p) => p.business_id === 'biz-1',
+    const payload = objectPayloads.find((p: Record<string, unknown>) => p.business_id === 'biz-1',
     );
     expect(payload).toBeDefined();
     expect(payload!.response_id).toBe('resp-1');
     expect(payload!.business_id).toBe('biz-1');
 
     // Verify correlation_id propagates into the publish_response outbox payload.
-    const publishPayload = objectPayloads.find(
-      (p) => p.response_id === link.response_id && !('satisfaction' in p),
+    const publishPayload = objectPayloads.find((p: Record<string, unknown>) => p.response_id === link.response_id && !('satisfaction' in p),
     );
     expect(publishPayload).toBeDefined();
     expect(publishPayload!.correlation_id).toBe('test-correlation-xyz');
@@ -251,15 +249,13 @@ describe('edit', () => {
           !!arg && typeof arg === 'object' && !Array.isArray(arg) && 'response_id' in (arg as Record<string, unknown>),
       );
 
-    const payloadArg = allObjectArgs.find(
-      (p) => 'business_id' in p,
+    const payloadArg = allObjectArgs.find((p: Record<string, unknown>) => 'business_id' in p,
     );
     expect(payloadArg).toBeDefined();
     expect(allStringArgs).toContain(editedText);
 
     // Verify correlation_id propagates into the publish_response outbox payload.
-    const publishPayload = allObjectArgs.find(
-      (p) => p.response_id === link.response_id && !('satisfaction' in p),
+    const publishPayload = allObjectArgs.find((p: Record<string, unknown>) => p.response_id === link.response_id && !('satisfaction' in p),
     );
     expect(publishPayload).toBeDefined();
     expect(publishPayload!.correlation_id).toBe('test-correlation-xyz');
@@ -306,8 +302,7 @@ describe('regenerate', () => {
           !!arg && typeof arg === 'object' && !Array.isArray(arg) && 'version' in (arg as Record<string, unknown>),
       );
 
-    const parsed = objectPayloads.find(
-      (p) => typeof p.review_id === 'string' && typeof p.version === 'number',
+    const parsed = objectPayloads.find((p: Record<string, unknown>) => typeof p.review_id === 'string' && typeof p.version === 'number',
     );
     expect(parsed).toBeDefined();
     expect(parsed!.version).toBe(2);

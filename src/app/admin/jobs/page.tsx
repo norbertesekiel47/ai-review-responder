@@ -8,6 +8,7 @@ import { useQuery } from '@tanstack/react-query';
 interface JobsData {
   outbox: {
     pending: number;
+    dispatching: number;
     dispatched: number;
     failed: number;
     completedToday: number;
@@ -129,6 +130,7 @@ export default function JobsPage() {
         {/* Outbox summary */}
         <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
           <SummaryCard label="Pending" value={data.outbox.pending} color="yellow" />
+          <SummaryCard label="Dispatching" value={data.outbox.dispatching} color="yellow" />
           <SummaryCard label="Dispatched" value={data.outbox.dispatched} color="blue" />
           <SummaryCard label="Failed" value={data.outbox.failed} color="red" />
           <SummaryCard label="Completed Today" value={data.outbox.completedToday} color="green" />

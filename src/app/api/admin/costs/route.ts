@@ -41,15 +41,24 @@ export interface CostData {
   globalDailyLimitUsd: number;
 }
 
+// Guard against malformed env vars (non-numeric, negative, NaN) that would
+// otherwise silently disable the admin dashboard's limit math. Matches the
+// safeParseLimitCents pattern in src/lib/costs/tracker.ts.
+function safeLimit(envVal: string | undefined, fallback: number): number {
+  if (!envVal) return fallback;
+  const parsed = parseInt(envVal, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
 const TIER_LIMITS_CENTS: Record<string, number> = {
-  founding: parseInt(process.env.DAILY_COST_LIMIT_CENTS_FOUNDING ?? '500', 10),
-  standard: parseInt(process.env.DAILY_COST_LIMIT_CENTS_STANDARD ?? '1000', 10),
-  premium: parseInt(process.env.DAILY_COST_LIMIT_CENTS_PREMIUM ?? '2000', 10),
+  founding: safeLimit(process.env.DAILY_COST_LIMIT_CENTS_FOUNDING, 500),
+  standard: safeLimit(process.env.DAILY_COST_LIMIT_CENTS_STANDARD, 1000),
+  premium: safeLimit(process.env.DAILY_COST_LIMIT_CENTS_PREMIUM, 2000),
 };
 
-const GLOBAL_DAILY_LIMIT_CENTS = parseInt(
-  process.env.GLOBAL_DAILY_COST_LIMIT_CENTS ?? '10000',
-  10,
+const GLOBAL_DAILY_LIMIT_CENTS = safeLimit(
+  process.env.GLOBAL_DAILY_COST_LIMIT_CENTS,
+  10_000,
 );
 
 function tierLimitCents(tier: string): number {

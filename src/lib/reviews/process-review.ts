@@ -163,11 +163,11 @@ export async function processReview(
         VALUES (
           ${exceptionId}, ${businessId}, ${existing.id}, ${activeResponse.id},
           'review_edited_after_post', 'open',
-          ${JSON.stringify({
+          ${jsonb({
             old_content_hash: existingHash,
             new_content_hash: contentHash,
             response_status: activeResponse.status,
-          })}::jsonb
+          })}
         )
         ON CONFLICT (review_id, type) WHERE status = 'open'
         DO NOTHING

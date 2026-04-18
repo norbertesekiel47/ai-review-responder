@@ -185,11 +185,24 @@ export async function handleResponseGeneration(
   }
 
   // ── Step 8: Avoid-facts guardrail ───────────────────────────────────
-  result = await applyAvoidFactsGuardrail(
-    result, businessContext, normalizedReview, voiceExamples,
-    { reviewId: review_id, version, businessId: business_id },
-    logger,
-  );
+  // Guardrail errors (retry still violates, or retry LLM call itself fails)
+  // must mark the outbox failed and RETURN — not throw. Throwing causes
+  // BullMQ to retry the whole job while the outbox stays non-terminal
+  // until the watchdog recovers it, and each retry spends more on LLM
+  // calls for a problem that won't resolve on its own (the avoid_facts
+  // config needs an admin fix, not a retry).
+  try {
+    result = await applyAvoidFactsGuardrail(
+      result, businessContext, normalizedReview, voiceExamples,
+      { reviewId: review_id, version, businessId: business_id },
+      logger,
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error(`Avoid-facts guardrail failed for review ${review_id}: ${message}`);
+    await markOutboxFailed(outboxId, `guardrail_failed: ${message}`);
+    return;
+  }
 
   // ── Step 9: Persist response + outbox + cost link in one transaction ─
   const responseId = await persistResponseAndNotify(

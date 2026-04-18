@@ -1,6 +1,6 @@
 import type { Job } from 'bullmq';
 import { v7 as uuidv7 } from 'uuid';
-import { sql } from '../../src/lib/db/server';
+import { sql, jsonb } from '../../src/lib/db/server';
 import { checkSubscription } from '../../src/lib/shared/subscription-guard';
 import { markOutboxCompleted, markOutboxFailed } from '../../src/lib/shared/outbox';
 import { getReviewMonitor } from '../../src/lib/shared/mock-mode';
@@ -98,14 +98,14 @@ export async function handleReviewSync(
         INSERT INTO review_exceptions (id, business_id, review_id, type, status, payload)
         VALUES (
           ${uuidv7()}, ${business_id}, NULL, 'identity_collision', 'open',
-          ${JSON.stringify({
+          ${jsonb({
             provider_review_id: collision.identity.providerReviewId,
             identity_strategy: collision.identity.identityStrategy,
             content_hash: collision.contentHash,
             collides_with_content_hash: collision.collidesWithContentHash,
             reviewer_name: collision.review.reviewerName,
             review_date: collision.review.reviewDate,
-          })}::jsonb
+          })}
         )
         ON CONFLICT (business_id, type, (payload->>'provider_review_id'))
           WHERE status = 'open' AND review_id IS NULL
