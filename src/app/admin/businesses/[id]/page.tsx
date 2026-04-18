@@ -137,6 +137,7 @@ function ProfileEditor({ business, businessId, onSaved }: ProfileEditorProps) {
   const [category, setCategory] = useState(business.category ?? '');
   const [website, setWebsite] = useState(business.website ?? '');
   const [tone, setTone] = useState(business.tone);
+  const [ownerEmail, setOwnerEmail] = useState(business.ownerEmail);
   const [productsServices, setProductsServices] = useState(business.productsServices ?? '');
   const [staffNames, setStaffNames] = useState(business.staffNames.join(', '));
   const [highlightFacts, setHighlightFacts] = useState(business.highlightFacts.join('\n'));
@@ -145,7 +146,8 @@ function ProfileEditor({ business, businessId, onSaved }: ProfileEditorProps) {
 
   const mutation = useMutation({
     mutationFn: async () => {
-      const body = {
+      const trimmedEmail = ownerEmail.trim();
+      const body: Record<string, unknown> = {
         name: name.trim(),
         category: category.trim() || null,
         website: website.trim() || null,
@@ -164,6 +166,11 @@ function ProfileEditor({ business, businessId, onSaved }: ProfileEditorProps) {
           .map((s) => s.trim())
           .filter(Boolean),
       };
+      // Only send ownerEmail if it actually changed — UpdateBusinessSchema
+      // rejects empty strings, and sending an unchanged value is wasted work.
+      if (trimmedEmail && trimmedEmail !== business.ownerEmail) {
+        body.ownerEmail = trimmedEmail;
+      }
       const res = await fetch(`/api/admin/businesses/${businessId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -189,6 +196,7 @@ function ProfileEditor({ business, businessId, onSaved }: ProfileEditorProps) {
     setCategory(business.category ?? '');
     setWebsite(business.website ?? '');
     setTone(business.tone);
+    setOwnerEmail(business.ownerEmail);
     setProductsServices(business.productsServices ?? '');
     setStaffNames(business.staffNames.join(', '));
     setHighlightFacts(business.highlightFacts.join('\n'));
@@ -311,6 +319,19 @@ function ProfileEditor({ business, businessId, onSaved }: ProfileEditorProps) {
             onChange={(e) => setTone(e.target.value)}
             className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700">Owner Email</label>
+          <input
+            type="email"
+            value={ownerEmail}
+            onChange={(e) => setOwnerEmail(e.target.value)}
+            placeholder="owner@example.com"
+            className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          <p className="mt-1 text-xs text-gray-500">
+            Updating this address does not clear a hard-bounce flag — use the banner above to clear it after verifying.
+          </p>
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700">Products / Services</label>
@@ -705,8 +726,9 @@ export default function BusinessDetailPage() {
               Partner/admin alerts still send.
             </p>
             <p className="mt-2 text-sm text-red-700">
-              Verify the email address with the owner. Update it above if needed, then clear
-              this flag below. See <code>docs/email-deliverability.md</code> for the full runbook.
+              Verify the email address with the owner. If it changed, update it in the
+              Business Profile section below (Edit → Owner Email), then clear the flag with
+              the button below. See <code>docs/email-deliverability.md</code> for the full runbook.
             </p>
             <button
               type="button"

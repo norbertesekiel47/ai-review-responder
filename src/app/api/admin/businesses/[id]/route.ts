@@ -263,6 +263,7 @@ const FIELD_TO_COLUMN: Record<string, string> = {
   highlightFacts: 'highlight_facts',
   avoidFacts: 'avoid_facts',
   website: 'website',
+  ownerEmail: 'owner_email',
   ownerEmailBounced: 'owner_email_bounced',
 };
 

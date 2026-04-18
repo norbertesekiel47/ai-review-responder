@@ -94,6 +94,13 @@ function extractBounceType(data: unknown): string {
 /**
  * Returns true if the bounce type indicates a hard/permanent failure.
  * 'unknown' is treated as soft to avoid flagging businesses on ambiguity.
+ *
+ * Matches: permanent, hard, hardbounce, hard_bounce, permanent_failure,
+ * or any string containing "permanent" (e.g. smtp_permanent_failure).
+ *
+ * NOTE: The admin overview SQL in src/app/api/admin/overview/route.ts
+ * MUST filter on the normalized prefix 'bounced:hard:' so its red-state
+ * metrics match this function's decision. See `classifyBounce()` below.
  */
 function isHardBounceType(type: string): boolean {
   const t = type.toLowerCase();
@@ -101,9 +108,55 @@ function isHardBounceType(type: string): boolean {
     t === 'permanent' ||
     t === 'hard' ||
     t === 'hardbounce' ||
+    t === 'hard_bounce' ||
     t === 'permanent_failure' ||
     t.includes('permanent')
   );
+}
+
+/**
+ * Owner-directed notification_deliveries.template values. Only these
+ * templates go to the business owner's email — so only hard bounces
+ * on these templates should flag `businesses.owner_email_bounced`.
+ *
+ * Admin/partner templates (admin_manual_post, admin_exception,
+ * partner_engagement_alert, etc.) also have a business_id on the
+ * delivery row but their recipient is ADMIN_NOTIFICATION_EMAIL —
+ * a bounce there means the ADMIN's email is bad, not the owner's.
+ */
+const OWNER_DIRECTED_TEMPLATES = new Set([
+  'approval_request',
+  'weekly_value_report',
+  'monthly_impact',
+  'owner_nudge',
+]);
+
+/**
+ * True if the delivery row's template is owner-directed.
+ * Covers both exact matches and the onboarding_drip_* family
+ * (onboarding_drip_day_1, onboarding_drip_day_7, onboarding_drip_day_30).
+ */
+function isOwnerDirectedTemplate(template: string | null | undefined): boolean {
+  if (!template) return false;
+  if (OWNER_DIRECTED_TEMPLATES.has(template)) return true;
+  if (template.startsWith('onboarding_drip_')) return true;
+  return false;
+}
+
+/**
+ * Normalizes a raw Resend bounce type into one of two stored kinds:
+ *   bounced:hard:<raw>   — flags the business, counts in admin red state
+ *   bounced:soft:<raw>   — transient/unknown, logged but no flag
+ * Centralizing the classification here guarantees the webhook and the
+ * admin red-state query never disagree.
+ */
+function classifyBounce(rawType: string): { reason: string; isHard: boolean } {
+  const isHard = isHardBounceType(rawType);
+  const kind = isHard ? 'hard' : 'soft';
+  return {
+    reason: `bounced:${kind}:${rawType}`,
+    isHard,
+  };
 }
 
 export async function handleResendWebhook(
@@ -157,44 +210,69 @@ export async function handleResendWebhook(
         }
 
         case 'email.bounced': {
-          // Defensively extract bounce type from multiple possible payload shapes.
+          // Defensively extract bounce type from multiple possible payload shapes,
+          // then classify into normalized 'bounced:hard:<raw>' or 'bounced:soft:<raw>'.
+          // Storing the normalized kind guarantees the admin red-state SQL cannot
+          // disagree with the webhook's flagging decision.
           const bounceType = extractBounceType(body.data);
-          const isHardBounce = isHardBounceType(bounceType);
+          const { reason, isHard } = classifyBounce(bounceType);
 
-          // Look up the business_id via notification_deliveries BEFORE the UPDATE
-          // targets the same row (we want the current business_id).
-          const [delivery] = await sql<{ business_id: string }[]>`
-            SELECT business_id FROM notification_deliveries
+          // Load business_id AND template from the delivery row so we can decide:
+          //   - whether to flag businesses.owner_email_bounced (owner-directed only)
+          //   - whether to alert admin
+          // Admin/partner templates (admin_manual_post, admin_exception, etc.)
+          // also carry a business_id but their recipient is the admin, not the
+          // owner — so an admin-email bounce must NOT flag the business owner.
+          const [delivery] = await sql<{ business_id: string; template: string | null }[]>`
+            SELECT business_id, template FROM notification_deliveries
             WHERE external_message_id = ${emailId}
             LIMIT 1
           `;
 
           await sql`
             UPDATE notification_deliveries
-            SET failed_at = NOW(), failure_reason = ${`bounced:${bounceType}`}
+            SET failed_at = NOW(), failure_reason = ${reason}
             WHERE external_message_id = ${emailId}
           `;
 
-          if (isHardBounce && delivery?.business_id) {
-            await sql`
+          if (
+            isHard &&
+            delivery?.business_id &&
+            isOwnerDirectedTemplate(delivery.template)
+          ) {
+            // Transition guard: only mark the row as changed (and alert admin)
+            // when the flag actually flips from FALSE to TRUE. Concurrent bounce
+            // webhooks for the same already-flagged business don't spam the admin.
+            const transitioned = await sql<{ id: string }[]>`
               UPDATE businesses
               SET owner_email_bounced = TRUE, updated_at = NOW()
               WHERE id = ${delivery.business_id}
+                AND owner_email_bounced IS DISTINCT FROM TRUE
+              RETURNING id
             `;
 
-            const adminEmail = process.env.ADMIN_NOTIFICATION_EMAIL;
-            if (adminEmail) {
-              try {
-                await sendInternalEmail({
-                  to: adminEmail,
-                  subject: `Hard bounce detected — business flagged`,
-                  bodyHtml: `<p>A hard bounce (type: <code>${escapeHtml(bounceType)}</code>) was reported by Resend for business ID <code>${escapeHtml(delivery.business_id)}</code>.</p><p>The business has been flagged (<code>owner_email_bounced=true</code>) and owner-directed emails (approval, weekly, monthly, drips, nudges) will be skipped until an admin verifies/updates the address and clears the flag.</p><p>Partner/admin alerts are unaffected.</p>`,
-                  category: 'internal',
-                });
-              } catch (alertErr) {
-                console.error(`${LOG_PREFIX} Failed to send admin hard-bounce alert:`, alertErr);
+            if (transitioned.length > 0) {
+              const adminEmail = process.env.ADMIN_NOTIFICATION_EMAIL;
+              if (adminEmail) {
+                try {
+                  await sendInternalEmail({
+                    to: adminEmail,
+                    subject: `Hard bounce detected — business flagged`,
+                    bodyHtml: `<p>A hard bounce (type: <code>${escapeHtml(bounceType)}</code>) was reported by Resend for business ID <code>${escapeHtml(delivery.business_id)}</code> on template <code>${escapeHtml(delivery.template ?? 'unknown')}</code>.</p><p>The business has been flagged (<code>owner_email_bounced=true</code>) and owner-directed emails (approval, weekly, monthly, drips, nudges) will be skipped until an admin verifies/updates the address and clears the flag.</p><p>Partner/admin alerts are unaffected.</p>`,
+                    category: 'internal',
+                  });
+                } catch (alertErr) {
+                  console.error(`${LOG_PREFIX} Failed to send admin hard-bounce alert:`, alertErr);
+                }
               }
             }
+          } else if (isHard && delivery?.business_id) {
+            // Hard bounce on an admin/partner-directed template. The owner's
+            // email is NOT at fault — log and move on. If this is ADMIN_NOTIFICATION_EMAIL
+            // bouncing, the admin will notice their own inbox silence.
+            console.warn(
+              `${LOG_PREFIX} Hard bounce on admin/partner template '${delivery.template ?? 'null'}' for business ${delivery.business_id} — NOT flagging owner`,
+            );
           }
           break;
         }

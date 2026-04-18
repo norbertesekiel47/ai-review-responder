@@ -229,6 +229,33 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
   });
 
+  it('owner_nudge: bounced owner short-circuits to completed BEFORE env validation (config outage safe)', async () => {
+    // Regression: Finding 6 — a missing NEXT_PUBLIC_APP_URL must NOT mark a
+    // bounced-owner nudge as failed. Bounced owners should always complete,
+    // regardless of env state, because they will never be contacted anyway.
+    delete process.env.NEXT_PUBLIC_APP_URL;
+    delete process.env.RESEND_FROM_EMAIL;
+    sqlReturnQueue.push([mockBusinessRow({ owner_email_bounced: true })]);
+
+    await handleEngagementAlert(makeJob({ alert_type: 'owner_nudge' }));
+
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ea-1');
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+    expect(mockCreateApprovalLink).not.toHaveBeenCalled();
+    expect(mockSendInternalEmail).not.toHaveBeenCalled();
+  });
+
+  it('owner_nudge: bounced owner short-circuits even when env is set (no email sent)', async () => {
+    sqlReturnQueue.push([mockBusinessRow({ owner_email_bounced: true })]);
+
+    await handleEngagementAlert(makeJob({ alert_type: 'owner_nudge' }));
+
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ea-1');
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+    expect(mockCreateApprovalLink).not.toHaveBeenCalled();
+    expect(mockSendInternalEmail).not.toHaveBeenCalled();
+  });
+
   it('owner_nudge: uses singular "review" for count of 1', async () => {
     sqlReturnQueue.push([mockBusinessRow()]); // business
     sqlReturnQueue.push([]);                  // idempotency check

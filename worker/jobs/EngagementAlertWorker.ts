@@ -76,6 +76,18 @@ async function handleOwnerNudge(
   markOutboxFailedFn: typeof markOutboxFailed,
   logger: WorkerLogger,
 ): Promise<void> {
+  // ── Hard bounce check (must come BEFORE env validation) ──
+  // Skip owner-directed nudges when the owner's email has hard-bounced.
+  // Admin verifies and clears owner_email_bounced manually from /admin/businesses/[id].
+  // Doing this BEFORE env validation ensures a config outage can't mark a
+  // bounced-owner nudge as failed — bounced owners should always short-circuit
+  // to completed so they never retry or alert, regardless of env state.
+  if (business.owner_email_bounced) {
+    logger.log(`Business ${businessId} owner email bounced — skipping owner nudge`);
+    await markOutboxCompleted(outboxId);
+    return;
+  }
+
   // Validate config before creating any approval links
   const appUrl = process.env.NEXT_PUBLIC_APP_URL;
   if (!appUrl) {
@@ -88,15 +100,6 @@ async function handleOwnerNudge(
   if (!fromEmail) {
     logger.error(`RESEND_FROM_EMAIL not set — cannot send owner nudge`);
     await markOutboxFailedFn(outboxId, 'RESEND_FROM_EMAIL not configured');
-    return;
-  }
-
-  // ── Hard bounce check ──────────────────────────────────
-  // Skip owner-directed nudges when the owner's email has hard-bounced.
-  // Admin verifies and clears owner_email_bounced manually from /admin/businesses/[id].
-  if (business.owner_email_bounced) {
-    logger.log(`Business ${businessId} owner email bounced — skipping owner nudge`);
-    await markOutboxCompleted(outboxId);
     return;
   }
 

@@ -109,8 +109,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         SELECT
           COUNT(*) FILTER (WHERE sent_at >= NOW() - INTERVAL '24 hours')::int AS sent_24h,
           COUNT(*) FILTER (WHERE delivered_at IS NOT NULL AND sent_at >= NOW() - INTERVAL '24 hours')::int AS delivered_24h,
-          COUNT(*) FILTER (WHERE failure_reason LIKE 'bounced%' AND failed_at >= NOW() - INTERVAL '7 days')::int AS bounces_7d,
-          COUNT(*) FILTER (WHERE (failure_reason LIKE 'bounced:permanent%' OR failure_reason LIKE 'bounced:hard%' OR failure_reason = 'bounced:permanent_failure') AND failed_at >= NOW() - INTERVAL '7 days')::int AS hard_bounces_7d,
+          COUNT(*) FILTER (WHERE failure_reason LIKE 'bounced:%' AND failed_at >= NOW() - INTERVAL '7 days')::int AS bounces_7d,
+          COUNT(*) FILTER (WHERE failure_reason LIKE 'bounced:hard:%' AND failed_at >= NOW() - INTERVAL '7 days')::int AS hard_bounces_7d,
           COUNT(*) FILTER (WHERE failure_reason = 'complained' AND failed_at >= NOW() - INTERVAL '7 days')::int AS complaints_7d
         FROM notification_deliveries
       `,
