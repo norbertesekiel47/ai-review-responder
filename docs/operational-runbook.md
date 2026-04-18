@@ -113,16 +113,44 @@ Five scenarios a customer is likely to surface. Each one lists the
 2. `subscription_status` — `cancelled` or `past_due` (after grace)
    stops the ReconciliationPoller from including this business.
 3. `place_id_verified` — if FALSE, ReviewSyncWorker skips. Look for
-   a `review_exceptions` row with `type='place_id_resolution_required'`.
+   a `review_exceptions` row with `type IN ('place_id_resolution_required',
+   'place_id_resolution_failed')`. The first is written by migration 007
+   for grandfathered hex-CID businesses; the second is written by
+   `PlaceIdValidationWorker` when resolution permanently fails.
 4. `/admin/jobs` — any failed `sync_reviews` outbox entries? Read
    `last_error`.
 
 **Fix:**
 - SerpAPI quota exhausted → check SerpAPI dashboard. Wait for daily
   reset or top up.
-- Place ID not verified → re-enter via the onboarding PlaceAutocomplete
-  (admin can PATCH `google_place_id` and trigger a re-validation outbox
-  entry).
+- Place ID not verified → today there is no admin "revalidate" button
+  and the business PATCH allowlist does not include `googlePlaceId`.
+  Options, in order of preference:
+  1. Re-onboard the business via `/admin/businesses/new` using the
+     PlaceAutocomplete (cleanest path — creates a fresh validated
+     record).
+  2. Fix the place ID by direct SQL + enqueue a validation job:
+     ```sql
+     UPDATE businesses
+     SET google_place_id = '<canonical_place_id>',
+         place_id_verified = FALSE,
+         updated_at = NOW()
+     WHERE id = '<business_id>';
+
+     INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+     VALUES (
+       gen_random_uuid(), 'validate_place_id', 'business', '<business_id>',
+       jsonb_build_object(
+         'business_id', '<business_id>',
+         'google_place_id', '<canonical_place_id>',
+         'google_maps_url', NULL,
+         'correlation_id', gen_random_uuid()::text
+       ),
+       'pending'
+     );
+     ```
+  The `PlaceIdValidationWorker` picks this up, confirms the Place ID
+  via SerpAPI, sets `place_id_verified=TRUE`, and enqueues `sync_reviews`.
 - Subscription issue → resolve billing via Stripe, `subscription_status`
   transitions on webhook.
 
@@ -157,14 +185,37 @@ Every outbox entry tagged in Sprint 6+ carries a `correlation_id` in
 its `payload` JSONB. One review's entire chain (sync → generate →
 notify → publish) shares the same ID.
 
+**Note the aggregate_id varies by topic:**
+- `sync_reviews`, `generate_response` → `aggregate_id = review_id`
+- `send_notification`, `publish_response` → `aggregate_id = response_id`
+
+So if you have a **response_id** (e.g. from `/admin/businesses/<id>`),
+either start from `send_notification`, or join through `responses.review_id`
+first. The canonical lookup helper lives at `src/lib/approval/correlation.ts`.
+
 ```sql
--- Find the correlation_id from a response
+-- Starting from a response_id — fastest: use send_notification
 SELECT payload->>'correlation_id' AS correlation_id
 FROM job_outbox
-WHERE aggregate_id = '<response_id>' AND topic = 'generate_response'
+WHERE aggregate_id = '<response_id>' AND topic = 'send_notification'
 ORDER BY created_at DESC LIMIT 1;
 
--- Trace every step
+-- Or join responses → review → generate_response (matches correlation.ts)
+SELECT jo.payload->>'correlation_id' AS correlation_id
+FROM responses r
+JOIN job_outbox jo
+  ON jo.aggregate_id = r.review_id
+ AND jo.topic = 'generate_response'
+WHERE r.id = '<response_id>'
+ORDER BY jo.created_at DESC LIMIT 1;
+
+-- Starting from a review_id — direct
+SELECT payload->>'correlation_id' AS correlation_id
+FROM job_outbox
+WHERE aggregate_id = '<review_id>' AND topic = 'generate_response'
+ORDER BY created_at DESC LIMIT 1;
+
+-- Once you have the correlation_id, trace every step
 SELECT id, topic, status, attempts, created_at, last_error
 FROM job_outbox
 WHERE payload->>'correlation_id' = '<correlation_id>'
@@ -273,16 +324,21 @@ need to do by hand.
 - Rate limiter: falls open in mock mode, fails closed (503) in
   production for demo generation and SerpAPI pre-fill to prevent
   uncapped third-party spend.
-- Cost guard: graceful degradation — if Redis is unreachable, LLM
-  calls still succeed but pessimistic reservation is skipped. The
-  DB `api_costs` audit trail still records actual spend.
+- Cost guard (`reserveCost` in `src/lib/costs/tracker.ts`): uses Redis
+  directly and THROWS on Redis failure — so `ResponseGeneratorWorker`
+  fails its outbox entry BEFORE making any LLM call. Generation is
+  effectively blocked until Redis returns. This is a safety feature
+  (no spend without budget accounting), not degraded mode.
 
 **Manual:**
 1. Check Upstash dashboard for the outage.
 2. When Redis returns, BullMQ + pollers resume automatically.
-3. Reconcile `api_costs` audit against today's budget — if spend
-   exceeded daily limit due to cost-guard skip, pause workers
-   (scale Railway to 0) until next day.
+3. Failed outbox entries from the outage window sit in `status='failed'`
+   with `last_error` mentioning the Redis failure. Reset them following
+   Section C4 once Redis is stable — OutboxPoller will re-dispatch.
+4. If you want to unblock generation during a prolonged Redis outage,
+   the only safe option is to raise the code path into DB-only mode
+   intentionally — there is no runtime toggle today.
 
 ### D3. Supabase unavailable
 

@@ -29,11 +29,15 @@ against real external services in Stripe test mode with real API keys.
 
 - [ ] Onboard via `/admin/businesses/new`. Use the PlaceAutocomplete
       input to select the business. Verify the SerpAPI pre-fill
-      populates `category`, `phone`, `website`, `hours` within 2
+      populates `category`, `ownerPhone`, and `website` within 2
       seconds. Empty fields get filled; fields you already edited
-      are preserved.
-- [ ] Copy the Payment Link from the success message. Pay via Stripe
-      test card `4242 4242 4242 4242` (any future date, any CVC).
+      are preserved. (Hours/full address are returned by the API but
+      not currently surfaced in the form — do not assert on them.)
+- [ ] Submit the form. The app automatically redirects the browser
+      to the Stripe Payment Link (no intermediate success page). Pay
+      via Stripe test card `4242 4242 4242 4242` (any future date,
+      any CVC). If redirect does not happen, inspect the onboarding
+      POST response for `paymentUrl`.
 - [ ] Confirm `subscription_status` transitions to `active` on
       `/admin/businesses/<id>` within 30s (Stripe webhook).
 - [ ] Initial sync fires. Confirm `reviews` rows appear on the
@@ -87,9 +91,14 @@ against real external services in Stripe test mode with real API keys.
       minutes of the last approval. Failed jobs = 0.
 - [ ] Email Health card shows green: delivery rate ≥95%, 0 complaints,
       0 hard bounces.
-- [ ] `/admin/costs` shows cost entries for every provider used
-      (openai, anthropic, serpapi, resend). All three businesses
-      appear in the per-business breakdown.
+- [ ] `/admin/costs` shows cost entries for every provider actually
+      invoked during the run. In the happy path that means `serpapi`
+      (sync + any pre-fill) and `openai` (response generation). The
+      `anthropic` provider only appears if OpenAI fell back during the
+      run. `resend` is NOT tracked via `api_costs` today — email
+      spend is reconciled via the Resend dashboard. All three
+      businesses should appear in the per-business breakdown for the
+      providers that did run.
 - [ ] `/admin/notifications` lists approval email deliveries for
       all three businesses with `delivered_at` populated.
 - [ ] Wait ≥4 hours. Confirm `NotificationFailoverPoller` has not

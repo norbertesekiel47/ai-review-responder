@@ -9,6 +9,32 @@ interface Scenario {
   fix: string;
 }
 
+/**
+ * When `NEXT_PUBLIC_DOCS_BASE_URL` is set (e.g. the GitHub blob URL for
+ * the docs/ folder on main), doc filenames below become clickable links.
+ * Otherwise they render as `<code>` text per original plan intent —
+ * oncall engineers with a local clone can still find them by path.
+ */
+const DOCS_BASE_URL = process.env.NEXT_PUBLIC_DOCS_BASE_URL ?? '';
+
+function DocRef({ filename }: { filename: string }) {
+  const codeEl = (
+    <code className="rounded bg-white px-1 text-xs">{filename}</code>
+  );
+  if (!DOCS_BASE_URL) return codeEl;
+  const href = `${DOCS_BASE_URL.replace(/\/$/, '')}/${filename.replace(/^docs\//, '')}`;
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="underline decoration-dotted underline-offset-2 hover:decoration-solid"
+    >
+      {codeEl}
+    </a>
+  );
+}
+
 const SCENARIOS: Scenario[] = [
   {
     id: 'A1',
@@ -56,10 +82,7 @@ export default function RunbookPage() {
           Quick reference for the five most common customer-facing issues.
           For the full runbook (daily health check, debugging SQL,
           incident response, weekly maintenance), see{' '}
-          <code className="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-800">
-            docs/operational-runbook.md
-          </code>{' '}
-          in the repo.
+          <DocRef filename="docs/operational-runbook.md" /> in the repo.
         </p>
       </header>
 
@@ -122,22 +145,15 @@ export default function RunbookPage() {
         <ul className="mt-2 list-inside list-disc space-y-1">
           <li>
             Daily health check, debugging SQL, incident response, weekly
-            maintenance →{' '}
-            <code className="rounded bg-white px-1 text-xs">
-              docs/operational-runbook.md
-            </code>
+            maintenance → <DocRef filename="docs/operational-runbook.md" />
           </li>
           <li>
             Pre-launch verification →{' '}
-            <code className="rounded bg-white px-1 text-xs">
-              docs/smoke-test-checklist.md
-            </code>
+            <DocRef filename="docs/smoke-test-checklist.md" />
           </li>
           <li>
             Email deliverability &amp; DNS →{' '}
-            <code className="rounded bg-white px-1 text-xs">
-              docs/email-deliverability.md
-            </code>
+            <DocRef filename="docs/email-deliverability.md" />
           </li>
         </ul>
       </section>
