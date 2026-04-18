@@ -3,14 +3,19 @@ import { NextRequest } from 'next/server';
 
 // ── Hoisted mocks ────────────────────────────────────────────────────
 
-const { mockResendSend } = vi.hoisted(() => ({
+const { mockResendSend, mockCheckRateLimit } = vi.hoisted(() => ({
   mockResendSend: vi.fn(),
+  mockCheckRateLimit: vi.fn(),
 }));
 
 vi.mock('resend', () => ({
   Resend: vi.fn().mockImplementation(function () {
     return { emails: { send: mockResendSend } };
   }),
+}));
+
+vi.mock('@/lib/shared/rate-limit', () => ({
+  checkRateLimit: mockCheckRateLimit,
 }));
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -23,6 +28,14 @@ function makeRequest(body: unknown): NextRequest {
   });
 }
 
+function makeRawRequest(rawBody: string): NextRequest {
+  return new NextRequest('http://localhost:3000/api/contact', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: rawBody,
+  });
+}
+
 // ── Tests ────────────────────────────────────────────────────────────
 
 describe('POST /api/contact', () => {
@@ -30,6 +43,7 @@ describe('POST /api/contact', () => {
     vi.clearAllMocks();
     delete process.env.RESEND_API_KEY;
     delete process.env.RESEND_FROM_EMAIL;
+    mockCheckRateLimit.mockResolvedValue({ allowed: true, remaining: 9 });
   });
 
   it('returns 400 when name is missing', async () => {
@@ -106,5 +120,34 @@ describe('POST /api/contact', () => {
     const req = makeRequest({ name: 'Alice', email: 'a@b.com', businessName: 'Acme' });
     const res = await POST(req);
     expect(res.status).toBe(500);
+  });
+
+  it('returns 400 when body is not an object (null)', async () => {
+    const { POST } = await import('../route');
+    const req = makeRawRequest('null');
+    const res = await POST(req);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toMatch(/invalid json/i);
+  });
+
+  it('returns 400 when body is not an object (array)', async () => {
+    const { POST } = await import('../route');
+    const req = makeRawRequest('[1,2,3]');
+    const res = await POST(req);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toMatch(/invalid json/i);
+  });
+
+  it('returns 429 when rate limit is exceeded', async () => {
+    mockCheckRateLimit.mockResolvedValue({ allowed: false, remaining: 0 });
+
+    const { POST } = await import('../route');
+    const req = makeRequest({ name: 'Alice', email: 'a@b.com', businessName: 'Acme' });
+    const res = await POST(req);
+    expect(res.status).toBe(429);
+    const body = await res.json();
+    expect(body.error).toMatch(/too many/i);
   });
 });

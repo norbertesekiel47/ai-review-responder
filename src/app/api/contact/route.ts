@@ -1,14 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Resend } from 'resend';
+import { checkRateLimit } from '@/lib/shared/rate-limit';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const NOTIFY_TO = 'norbertesekiel@gmail.com';
+const NOTIFY_TO = process.env.CONTACT_NOTIFY_TO ?? 'norbertesekiel@gmail.com';
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown';
+  const rateCheck = await checkRateLimit(`contact:hour:${ip}`, 10, 3600);
+  if (!rateCheck.allowed) {
+    return NextResponse.json({ error: 'Too many submissions. Try again later.' }, { status: 429 });
+  }
+
   let body: unknown;
   try {
     body = await req.json();
   } catch {
+    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+  }
+
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
