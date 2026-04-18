@@ -18,6 +18,47 @@ function getIntervalMs(): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_INTERVAL_MS;
 }
 
+/**
+ * Recover the correlation_id from the upstream review chain so a failover
+ * send_notification job shows up under the SAME correlation key as the
+ * original sync/generate/notify chain in `payload->>'correlation_id'`
+ * queries. Without this, every failover breaks Sprint 6's single-query
+ * traceability promise.
+ *
+ * Lookup order:
+ *   1. Most recent send_notification row for this response_id — if a prior
+ *      attempt already carried a correlation_id, reuse it.
+ *   2. Most recent generate_response row for the response's review_id —
+ *      this is the canonical anchor used by `recoverCorrelationId` in
+ *      src/lib/approval/correlation.ts.
+ *   3. Fresh uuidv7() — graceful fallback for pre-20a rows with no
+ *      correlation payload.
+ */
+async function recoverFailoverCorrelationId(responseId: string): Promise<string> {
+  const [existingSend] = await sql<{ correlation_id: string | null }[]>`
+    SELECT payload->>'correlation_id' AS correlation_id
+    FROM job_outbox
+    WHERE topic = 'send_notification' AND aggregate_id = ${responseId}
+    ORDER BY created_at DESC
+    LIMIT 1
+  `;
+  if (existingSend?.correlation_id) return existingSend.correlation_id;
+
+  const [upstream] = await sql<{ correlation_id: string | null }[]>`
+    SELECT jo.payload->>'correlation_id' AS correlation_id
+    FROM responses r
+    JOIN job_outbox jo
+      ON jo.topic = 'generate_response'
+     AND jo.aggregate_id = r.review_id
+    WHERE r.id = ${responseId}
+    ORDER BY jo.created_at DESC
+    LIMIT 1
+  `;
+  if (upstream?.correlation_id) return upstream.correlation_id;
+
+  return uuidv7();
+}
+
 async function checkFailedNotifications(): Promise<void> {
   if (isPolling) return;
   isPolling = true;
@@ -97,7 +138,7 @@ async function checkFailedNotifications(): Promise<void> {
         response_id: row.response_id,
         business_id: row.business_id,
         failover: { reason: 'all_deliveries_failed' },
-        correlation_id: uuidv7(),
+        correlation_id: await recoverFailoverCorrelationId(row.response_id),
       };
       try {
         await sql`
@@ -155,7 +196,7 @@ async function checkFailedNotifications(): Promise<void> {
         response_id: row.response_id,
         business_id: row.business_id,
         failover: { reason: 'stale_no_delivery' },
-        correlation_id: uuidv7(),
+        correlation_id: await recoverFailoverCorrelationId(row.response_id),
       };
       try {
         const inserted = await sql`

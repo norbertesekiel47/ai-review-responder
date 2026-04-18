@@ -3,19 +3,13 @@ import { Queue } from 'bullmq';
 import type { RedisOptions } from 'ioredis';
 import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
+import { ALL_QUEUE_NAMES } from '@/lib/shared/queue-names';
 
-// Queue names defined locally to avoid importing worker/queues.ts, which
-// constructs Queue instances at module scope and crashes if REDIS_QUEUE_URL is missing.
-const QUEUE_NAMES = [
-  'sync_reviews',
-  'generate_response',
-  'send_notification',
-  'publish_response',
-  'generate_demo',
-  'weekly_summary',
-  'notify_admin_review_exception',
-  'validate_place_id',
-] as const;
+// Queue names come from the shared registry (src/lib/shared/queue-names.ts)
+// so this list cannot drift behind worker/queues.ts. Importing worker/queues.ts
+// directly is unsafe from a Next.js route because it instantiates BullMQ
+// Queues at module scope and would crash if REDIS_QUEUE_URL is missing.
+const QUEUE_NAMES = ALL_QUEUE_NAMES;
 
 export const dynamic = 'force-dynamic';
 

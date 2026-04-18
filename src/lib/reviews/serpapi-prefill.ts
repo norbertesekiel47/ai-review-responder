@@ -63,8 +63,15 @@ export async function fetchBusinessDetails(placeId: string): Promise<BusinessPre
 
   // 4. SerpAPI call with timeout. The serpapi package doesn't support
   //    AbortController, so use Promise.race as the timeout primitive. The
-  //    loser of the race never resolves — GC cleans it up eventually.
-  let rawResponse: unknown;
+  //    loser of the race never resolves — GC cleans it up eventually, and
+  //    SerpAPI may still consume quota for the losing request.
+  //    Because the real request may have gone out regardless of which side
+  //    of the race won, we ALWAYS record the cost once we attempted to call
+  //    SerpAPI — including on timeout and API errors. Without this, admin
+  //    cost dashboards would underreport quota burn exactly when something
+  //    is going wrong.
+  let rawResponse: unknown = null;
+  let callFailed: string | null = null;
   try {
     rawResponse = await Promise.race([
       getJson({
@@ -80,47 +87,55 @@ export async function fetchBusinessDetails(placeId: string): Promise<BusinessPre
       ),
     ]);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error(`${LOG_PREFIX} SerpAPI call failed for ${placeId}: ${message}`);
-    return emptyPrefill();
+    callFailed = err instanceof Error ? err.message : String(err);
+    console.error(`${LOG_PREFIX} SerpAPI call failed for ${placeId}: ${callFailed}`);
   }
 
-  // 5. Normalize response
-  const prefill = normalizeResponse(rawResponse);
+  // 5. Normalize response (empty on failure — normalizeResponse handles null).
+  const prefill = callFailed ? emptyPrefill() : normalizeResponse(rawResponse);
 
-  // 6. Record cost AND write cache — AWAIT both so the serverless function
-  //    doesn't terminate before the writes complete. Vercel freezes/drops
-  //    background work once the response is returned, so fire-and-forget
-  //    silently corrupts cost accounting and causes repeated SerpAPI calls
-  //    for the same place_id. Latency cost: ~20-100ms in exchange for
-  //    durable cost tracking and working cache.
+  // 6. Record cost always; cache only on success.
+  //    Cost recording happens even on timeout/API failure because the outbound
+  //    SerpAPI request may already have been sent and may still consume quota.
+  //    Cache write is skipped on failure so the empty response isn't held for
+  //    7 days and the next selection gets a real retry.
+  //    AWAIT both so the serverless function doesn't terminate before the
+  //    writes complete. Vercel freezes/drops background work once the response
+  //    is returned, so fire-and-forget silently corrupts cost accounting.
   //    Promise.allSettled never rejects; individual failures get logged.
-  const backgroundResults = await Promise.allSettled([
+  const tasks: Promise<unknown>[] = [
     recordApiCost({
       businessId: null,
       provider: 'serpapi',
-      endpoint: 'google_maps_prefill',
+      endpoint: callFailed
+        ? 'google_maps_prefill:failed'
+        : 'google_maps_prefill',
       inputTokens: 0,
       outputTokens: 0,
       costUsd: SERPAPI_PREFILL_COST_USD,
       responseId: null,
     }),
-    writeCache(placeId, prefill),
-  ]);
-  if (backgroundResults[0].status === 'rejected') {
+  ];
+  if (!callFailed) {
+    tasks.push(writeCache(placeId, prefill));
+  }
+  const backgroundResults = await Promise.allSettled(tasks);
+  const costResult = backgroundResults[0];
+  if (costResult && costResult.status === 'rejected') {
     console.warn(
       `${LOG_PREFIX} Failed to record api_costs row:`,
-      backgroundResults[0].reason instanceof Error
-        ? backgroundResults[0].reason.message
-        : backgroundResults[0].reason,
+      costResult.reason instanceof Error
+        ? costResult.reason.message
+        : costResult.reason,
     );
   }
-  if (backgroundResults[1].status === 'rejected') {
+  const cacheResult = backgroundResults[1];
+  if (!callFailed && cacheResult && cacheResult.status === 'rejected') {
     console.warn(
       `${LOG_PREFIX} Cache write failed:`,
-      backgroundResults[1].reason instanceof Error
-        ? backgroundResults[1].reason.message
-        : backgroundResults[1].reason,
+      cacheResult.reason instanceof Error
+        ? cacheResult.reason.message
+        : cacheResult.reason,
     );
   }
 

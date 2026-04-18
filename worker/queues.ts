@@ -1,5 +1,10 @@
 import { Queue } from 'bullmq';
 import type { RedisOptions } from 'ioredis';
+import { QUEUE_NAMES, type QueueName } from '../src/lib/shared/queue-names';
+
+// Re-export for existing callers (worker entry points, tests).
+export { QUEUE_NAMES };
+export type { QueueName };
 
 // ---------------------------------------------------------------------------
 // Redis connection options for BullMQ
@@ -36,25 +41,10 @@ export function getRedisOptions(): RedisOptions {
 }
 
 // ---------------------------------------------------------------------------
-// Queue names — each maps 1:1 to a job_outbox.topic value
-// ---------------------------------------------------------------------------
-export const QUEUE_NAMES = {
-  SYNC_REVIEWS: 'sync_reviews',
-  GENERATE_RESPONSE: 'generate_response',
-  SEND_NOTIFICATION: 'send_notification',
-  PUBLISH_RESPONSE: 'publish_response',
-  GENERATE_DEMO: 'generate_demo',
-  WEEKLY_SUMMARY: 'weekly_summary',
-  NOTIFY_ADMIN: 'notify_admin_review_exception',
-  VALIDATE_PLACE_ID: 'validate_place_id',
-  SEND_MONTHLY_IMPACT: 'send_monthly_impact',
-  ENGAGEMENT_ALERT: 'engagement_alert',
-  TRACK_RANKING: 'track_ranking',
-  ONBOARDING_DRIP: 'onboarding_drip',
-} as const;
-
-export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
-
+// Queue names — each maps 1:1 to a job_outbox.topic value. The canonical
+// registry lives in src/lib/shared/queue-names.ts (imported above) so the
+// admin API can read it without pulling in BullMQ/ioredis module-scope
+// side effects. Do NOT redeclare here.
 // ---------------------------------------------------------------------------
 // Queue instances — one per topic
 // BullMQ creates its own Redis connections from the options

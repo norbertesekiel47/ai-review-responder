@@ -99,8 +99,9 @@ export default function NewBusinessPage() {
     handleSubmit,
     setValue,
     getValues,
+    getFieldState,
     clearErrors,
-    formState: { errors, dirtyFields },
+    formState,
   } = useForm<FormData>({
     resolver: zodResolver(FormSchema),
     defaultValues: {
@@ -109,6 +110,7 @@ export default function NewBusinessPage() {
       subscriptionTier: 'founding',
     },
   });
+  const { errors } = formState;
 
   const [prefilling, setPrefilling] = useState(false);
   // Guards against the stale-response race: user selects Place A, then quickly
@@ -167,17 +169,32 @@ export default function NewBusinessPage() {
       if (latestPlaceIdRef.current !== placeId) return;
 
       // Only fill fields that are (1) currently empty AND (2) have never been
-      // touched by the user. dirtyFields tracks whether the user modified a
-      // field — even if they then cleared it, dirtyFields stays true and we
-      // must respect that.
+      // touched by the user. We use `getFieldState(name).isDirty` instead of
+      // a destructured `dirtyFields` object because the destructured value is
+      // captured at render time — the user could have typed (and cleared) a
+      // field WHILE the prefill request was in flight, and a captured
+      // `dirtyFields.category === false` snapshot would overwrite their work.
+      // `getFieldState` reads the live form state at call time.
       const current = getValues();
-      if (prefill.category && !current.category && !dirtyFields.category) {
+      if (
+        prefill.category &&
+        !current.category &&
+        !getFieldState('category').isDirty
+      ) {
         setValue('category', prefill.category, { shouldDirty: false });
       }
-      if (prefill.phone && !current.ownerPhone && !dirtyFields.ownerPhone) {
+      if (
+        prefill.phone &&
+        !current.ownerPhone &&
+        !getFieldState('ownerPhone').isDirty
+      ) {
         setValue('ownerPhone', prefill.phone, { shouldDirty: false });
       }
-      if (prefill.website && !current.website && !dirtyFields.website) {
+      if (
+        prefill.website &&
+        !current.website &&
+        !getFieldState('website').isDirty
+      ) {
         setValue('website', prefill.website, { shouldDirty: false });
       }
     } catch (err) {

@@ -253,6 +253,43 @@ describe('fetchBusinessDetails', () => {
     });
   }, 10_000); // Extend test timeout well past the 2s module timeout
 
+  // ── Regression: cost IS recorded on timeout (quota may still be consumed) ──
+  it('records api_costs row even when SerpAPI times out', async () => {
+    mockGetJson.mockImplementation(
+      () => new Promise(() => { /* never resolves */ }),
+    );
+
+    await fetchBusinessDetails('ChIJ_timeout_cost');
+
+    // Cost row recorded with the :failed endpoint variant so dashboards
+    // can distinguish successful prefills from quota burn on failures.
+    expect(mockRecordApiCost).toHaveBeenCalledOnce();
+    const args = mockRecordApiCost.mock.calls[0]![0] as Record<string, unknown>;
+    expect(args.provider).toBe('serpapi');
+    expect(args.endpoint).toBe('google_maps_prefill:failed');
+    expect(args.businessId).toBeNull();
+  }, 10_000);
+
+  it('records api_costs row when SerpAPI rejects with an error', async () => {
+    mockGetJson.mockRejectedValue(new Error('SerpAPI 5xx'));
+
+    await fetchBusinessDetails('ChIJ_err_cost');
+
+    expect(mockRecordApiCost).toHaveBeenCalledOnce();
+    const args = mockRecordApiCost.mock.calls[0]![0] as Record<string, unknown>;
+    expect(args.endpoint).toBe('google_maps_prefill:failed');
+  });
+
+  it('does NOT write cache on SerpAPI failure (so next call can retry)', async () => {
+    mockGetJson.mockRejectedValue(new Error('SerpAPI 5xx'));
+    const redisMock = makeRedisMock();
+    mockGetCacheRedis.mockReturnValue(redisMock);
+
+    await fetchBusinessDetails('ChIJ_no_cache_on_fail');
+
+    expect(redisMock.setex).not.toHaveBeenCalled();
+  });
+
   // ── Regression: Finding 3 — durable cost audit + cache write ───────
   it('awaits both recordApiCost and writeCache before returning', async () => {
     // Track the order of async resolutions by using delayed promises.
