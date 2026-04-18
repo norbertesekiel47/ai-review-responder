@@ -33,6 +33,7 @@ export function HowItWorksCarousel({ steps }: HowItWorksCarouselProps) {
   };
 
   const goTo = (index: number) => {
+    if (index === currentStep) return;
     setDirection(index > currentStep ? 1 : -1);
     setCurrentStep(index);
   };
@@ -68,7 +69,6 @@ export function HowItWorksCarousel({ steps }: HowItWorksCarouselProps) {
           <AnimatePresence mode="wait" initial={false} custom={direction}>
             <motion.div
               key={currentStep}
-              custom={direction}
               initial={{
                 rotateY: direction > 0 ? 90 : -90,
                 opacity: 0,
