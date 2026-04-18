@@ -2378,3 +2378,51 @@ User identified 5 findings after review. All validated and fixed across 7 tasks.
 **Migration prerequisite:** `017_sprint6_scale.sql` adds `businesses.owner_email_bounced` (also `businesses.website` from Prompt 20c). Not yet applied to Supabase.
 
 ---
+
+## Sprint 6 — Prompt 20d Post-Review Fixes (2026-04-17)
+
+Six findings from the Prompt 20d post-implementation review.
+
+**Fixes (9 files, commit `3800247`):**
+- **#1 Critical — admin/partner template bounces incorrectly flagged owner.** Webhook now SELECTs `business_id AND template` from the delivery row and only flags `owner_email_bounced` when the template is owner-directed (`approval_request`, `weekly_value_report`, `monthly_impact`, `owner_nudge`, `onboarding_drip_*`). Bounces on admin/partner templates (`admin_manual_post`, `partner_engagement_alert`, etc.) log-and-skip.
+- **#2 Medium — duplicate admin alerts on repeated bounces.** `UPDATE businesses SET owner_email_bounced = TRUE WHERE ... AND owner_email_bounced IS DISTINCT FROM TRUE RETURNING id`. Admin alert fires only on the FALSE→TRUE transition.
+- **#3 Medium — missing indexes.** Migration `019_notification_delivery_bounce_indexes.sql` — partial indexes on `notification_deliveries(external_message_id)`, `(sent_at)`, `(failed_at, failure_reason)`.
+- **#4 Medium — bounce classification disagreement.** Centralized `classifyBounce()` normalizes raw types into `bounced:hard:<raw>` or `bounced:soft:<raw>`. Admin overview SQL filters on `bounced:hard:%` prefix.
+- **#5 Medium — bounce banner pointed nowhere useful.** `ownerEmail` added to `UpdateBusinessSchema`, `FIELD_TO_COLUMN`, and the admin Business Profile editor.
+- **#6 Low — bounced-owner + missing env marked nudge failed.** `EngagementAlertWorker.handleOwnerNudge` bounce check moved BEFORE env validation.
+
+**Tests (+6 new):** regression for `admin_manual_post` / `partner_engagement_alert` templates (must NOT flag), `onboarding_drip_day_7` (MUST flag via prefix), transition-guard duplicate-alert suppression, bounced-owner + missing env safety. 689/689 across 53 files.
+
+---
+
+## Sprint 6 — Prompt 20e (Launch Readiness Documentation) 2026-04-17
+
+Final prompt of Sprint 6. Docs + lightweight UI only — no worker, DB schema, API, or middleware changes.
+
+**Deliverables:**
+- **`docs/operational-runbook.md`** — authoritative ops reference for sales partner + oncall engineer. 5 sections:
+  - **A.** "Customer says X" troubleshooting × 5 scenarios (no approval email, tone mismatch, not posted on Google, too many emails, reviews not picked up).
+  - **B.** Daily health check (2 min): six-row table with metric, where to look, green state.
+  - **C.** Debugging SQL × 7 queries: correlation-id trace, stuck outbox, business activity, reset stuck entry, today's cost, bounced businesses, manual-post backlog.
+  - **D.** Incident response × 7 scenarios: worker crash, Redis down, Supabase down, SerpAPI quota, LLM outage, cost circuit breaker, Resend degraded. Each splits Auto vs. Manual.
+  - **E.** Weekly maintenance × 5 checkbox tasks: Resend reputation, Stripe invoices, `/admin/costs` drill-down, SerpAPI quota, outbox/archive health.
+- **`docs/smoke-test-checklist.md`** — pre-launch manual E2E gate against real services in Stripe test mode. 3 businesses: A (happy path), B (edit + concurrent onboarding), C (regenerate + correlation trace). System health across all 3, throughput sanity (200 seeded outbox entries, non-prod), mobile approval perf (<2s FCP on throttled 3G).
+- **`src/app/admin/runbook/page.tsx`** — admin-facing quick-reference page at `/admin/runbook`. Static client component, no data fetches. 4-column table populated from typed `SCENARIOS: Scenario[]` (A1–A5). Bottom "Need more?" callout links to the three markdown docs.
+- **AdminNav `Runbook` link** — one entry added to `navItems`.
+
+**Post-implementation review fixes (3 findings inline):**
+- Runbook referenced nonexistent `DAILY_COST_LIMIT_USD` — replaced with actual `GLOBAL_DAILY_COST_LIMIT_CENTS` + per-tier `DAILY_COST_LIMIT_CENTS_{FOUNDING,STANDARD,PREMIUM}`.
+- Runbook page `#` column header added `font-mono` to match mono body cells.
+- Runbook page `<th>` elements got `scope="col"` for screen-reader support.
+
+**Tests:** 689/689 passing across 53 files. No new test files (no logic changes). `pnpm tsc --noEmit` clean. `pnpm build` clean; `/admin/runbook` static-rendered (2.12 kB).
+
+**Commits:** `cfabb6e` (runbook doc), `8cdb651` (runbook env-var fix), `456c429` (smoke checklist), `1458d06` (nav link), `8ed763a` (runbook page), `705aa20` (runbook page a11y + font-mono).
+
+---
+
+## Sprint 6 — COMPLETE (2026-04-17)
+
+All five prompts shipped: 20a (correlation IDs + logging), 20b (archival + cost rollups), 20c (SerpAPI pre-fill), 20d (email deliverability + hard bounces), 20e (launch readiness docs). 689/689 tests, 53 files, clean build. Ready for the pre-launch smoke test gate and first paid customer.
+
+---
