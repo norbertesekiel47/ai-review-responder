@@ -28,7 +28,9 @@ interface CostData {
   globalDailyLimitUsd: number;
 }
 
-const DAY_OPTIONS = [7, 30, 90] as const;
+// 180/365 exercise the api_costs_daily_rollups path added in Prompt 20b —
+// the API merges detail rows (<90d) with rollup rows (>=90d archived).
+const DAY_OPTIONS = [7, 30, 90, 180, 365] as const;
 
 export default function CostsPage() {
   const [days, setDays] = useState<number>(7);

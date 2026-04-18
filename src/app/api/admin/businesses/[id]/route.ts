@@ -27,6 +27,7 @@ interface BusinessRow {
   id: string;
   name: string;
   category: string | null;
+  website: string | null;
   google_place_id: string | null;
   tone: string | null;
   products_services: string | null;
@@ -44,6 +45,7 @@ interface BusinessRow {
   google_place_lng: number | null;
   ranking_search_location: string | null;
   google_place_address: string | null;
+  owner_email_bounced: boolean | null;
 }
 
 interface RankingSnapshotRow {
@@ -88,11 +90,11 @@ export async function GET(
     const [businessRows, reviewRows, rankingSnapshots] = await Promise.all([
       sql<BusinessRow[]>`
         SELECT
-          id, name, category, google_place_id, tone, products_services,
+          id, name, category, website, google_place_id, tone, products_services,
           staff_names, highlight_facts, avoid_facts, sample_responses,
           subscription_status, subscription_tier, owner_name, owner_email, last_sync_at,
           tracked_keywords, google_place_lat, google_place_lng,
-          ranking_search_location, google_place_address
+          ranking_search_location, google_place_address, owner_email_bounced
         FROM businesses
         WHERE id = ${businessId}
       `,
@@ -199,6 +201,7 @@ export async function GET(
         id: business.id,
         name: business.name,
         category: business.category ?? null,
+        website: business.website ?? null,
         googlePlaceId: business.google_place_id ?? null,
         tone: business.tone ?? null,
         productsServices: business.products_services ?? null,
@@ -216,6 +219,7 @@ export async function GET(
         googlePlaceLng: business.google_place_lng,
         rankingSearchLocation: business.ranking_search_location,
         googlePlaceAddress: business.google_place_address,
+        ownerEmailBounced: business.owner_email_bounced ?? false,
         churnScore,
       },
       rankingSnapshots: rankingSnapshots.map((s) => ({
@@ -258,6 +262,9 @@ const FIELD_TO_COLUMN: Record<string, string> = {
   staffNames: 'staff_names',
   highlightFacts: 'highlight_facts',
   avoidFacts: 'avoid_facts',
+  website: 'website',
+  ownerEmail: 'owner_email',
+  ownerEmailBounced: 'owner_email_bounced',
 };
 
 export async function PATCH(
@@ -295,7 +302,7 @@ export async function PATCH(
 
   // Build dynamic SET clause: $1 reserved for businessId, fields start at $2.
   const setClauses: string[] = [];
-  const values: (string | string[] | null)[] = [businessId];
+  const values: (string | string[] | boolean | null)[] = [businessId];
 
   for (const field of fields) {
     const column = FIELD_TO_COLUMN[field];

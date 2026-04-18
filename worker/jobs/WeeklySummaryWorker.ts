@@ -1,6 +1,6 @@
 import type { Job } from 'bullmq';
 import { v7 as uuidv7 } from 'uuid';
-import { sql } from '../../src/lib/db/server';
+import { sql, jsonb } from '../../src/lib/db/server';
 import { checkSubscription } from '../../src/lib/shared/subscription-guard';
 import { markOutboxCompleted, markOutboxFailed } from '../../src/lib/shared/outbox';
 import { sendInternalEmail, buildWeeklyValueReportHtml } from '../../src/lib/notifications/email';
@@ -8,12 +8,12 @@ import { recordNotificationDelivery } from '../../src/lib/notifications/delivery
 import { generateReviewSummary } from '../../src/lib/responses/review-summary';
 import type { WeeklySummaryPayload } from '../../src/lib/shared/worker-types';
 import { buildFeedbackUrl } from '../../src/lib/shared/feedback-hmac';
-
-const LOG_PREFIX = '[WeeklySummaryWorker]';
+import { createWorkerLogger } from '../../src/lib/shared/logger';
 
 export async function handleWeeklySummary(
   job: Job<WeeklySummaryPayload>,
 ): Promise<void> {
+  const logger = createWorkerLogger('[WeeklySummaryWorker]', job.data.correlation_id);
   const { business_id, week_start_date } = job.data;
   const outboxId = (job.data as unknown as { outbox_id?: string }).outbox_id ?? job.id!;
 
@@ -22,6 +22,7 @@ export async function handleWeeklySummary(
     id: string;
     name: string;
     owner_email: string;
+    owner_email_bounced: boolean;
     subscription_status: string;
     updated_at: Date;
     initial_review_count: number | null;
@@ -29,14 +30,14 @@ export async function handleWeeklySummary(
     baseline_captured_at: Date | null;
     subscription_tier: string;
   }[]>`
-    SELECT id, name, owner_email, subscription_status, updated_at,
+    SELECT id, name, owner_email, owner_email_bounced, subscription_status, updated_at,
            initial_review_count, initial_responded_count, baseline_captured_at,
            subscription_tier
     FROM businesses WHERE id = ${business_id}
   `;
 
   if (!business) {
-    console.warn(`${LOG_PREFIX} Business ${business_id} not found`);
+    logger.warn(`Business ${business_id} not found`);
     await markOutboxFailed(outboxId, 'business_not_found');
     return;
   }
@@ -49,7 +50,16 @@ export async function handleWeeklySummary(
   );
 
   if (!subCheck.allowed) {
-    console.log(`${LOG_PREFIX} Business ${business_id} skipped: ${subCheck.reason}`);
+    logger.log(`Business ${business_id} skipped: ${subCheck.reason}`);
+    await markOutboxCompleted(outboxId);
+    return;
+  }
+
+  // ── Hard bounce check ──────────────────────────────────
+  // Skip owner-directed emails when the owner's email has hard-bounced.
+  // Admin verifies and clears owner_email_bounced manually from /admin/businesses/[id].
+  if (business.owner_email_bounced) {
+    logger.log(`Business ${business_id} owner email bounced — skipping`);
     await markOutboxCompleted(outboxId);
     return;
   }
@@ -165,7 +175,7 @@ export async function handleWeeklySummary(
     VALUES (
       ${uuidv7()}, ${business_id}, ${week_start_date}::date,
       ${totalReviews}, ${totalResponded},
-      ${JSON.stringify(notableReviews)}::jsonb
+      ${jsonb(notableReviews)}
     )
     ON CONFLICT (business_id, week_start_date)
     DO UPDATE SET
@@ -186,11 +196,11 @@ export async function handleWeeklySummary(
       WHERE business_id = ${business_id} AND week_start_date = ${week_start_date}::date
     `;
     if (existing?.sent_at) {
-      console.log(`${LOG_PREFIX} Weekly summary for ${business_id} week ${week_start_date} already sent`);
+      logger.log(`Weekly summary for ${business_id} week ${week_start_date} already sent`);
       await markOutboxCompleted(outboxId);
     } else {
       // Freshly claimed by another worker — throw so BullMQ retries after backoff
-      console.log(`${LOG_PREFIX} Weekly summary for ${business_id} week ${week_start_date} claimed by another worker, will retry`);
+      logger.log(`Weekly summary for ${business_id} week ${week_start_date} claimed by another worker, will retry`);
       throw new Error('Report claimed by another worker');
     }
     return;
@@ -212,7 +222,7 @@ export async function handleWeeklySummary(
   `;
   if (!claimed) {
     // Another worker just claimed it between the upsert and this UPDATE — retry
-    console.log(`${LOG_PREFIX} Weekly summary for ${business_id} week ${week_start_date} claimed by another worker, will retry`);
+    logger.log(`Weekly summary for ${business_id} week ${week_start_date} claimed by another worker, will retry`);
     throw new Error('Report claimed by another worker');
   }
 
@@ -298,10 +308,11 @@ export async function handleWeeklySummary(
       to: business.owner_email,
       subject: `Weekly Value Report — ${business.name} (${weekLabel})`,
       bodyHtml: html,
+      category: 'marketing',
     });
     messageId = result.messageId;
   } catch (err) {
-    console.error(`${LOG_PREFIX} Failed to send weekly value report for ${business.name} (week ${week_start_date}): ${err instanceof Error ? err.message : err}`);
+    logger.error(`Failed to send weekly value report for business ${business_id} (week ${week_start_date}): ${err instanceof Error ? err.message : err}`);
     // Keep sent_at set — Resend may have accepted the email before the error.
     // Clearing would risk a duplicate if the scheduler re-queues this business.
     // Prompt 19a accepts the rare missed-email risk over duplicate sends.
@@ -319,5 +330,5 @@ export async function handleWeeklySummary(
   });
 
   await markOutboxCompleted(outboxId);
-  console.log(`${LOG_PREFIX} Weekly value report sent for ${business.name} (week ${week_start_date})`);
+  logger.log(`Weekly value report sent for business ${business_id} (week ${week_start_date})`);
 }

@@ -7,12 +7,12 @@ import { sendInternalEmail, buildMonthlyImpactEmailHtml } from '../../src/lib/no
 import { recordNotificationDelivery } from '../../src/lib/notifications/delivery';
 import { generateReviewSummary } from '../../src/lib/responses/review-summary';
 import type { SendMonthlyImpactPayload } from '../../src/lib/shared/worker-types';
-
-const LOG_PREFIX = '[MonthlyImpactWorker]';
+import { createWorkerLogger } from '../../src/lib/shared/logger';
 
 export async function handleMonthlyImpact(
   job: Job<SendMonthlyImpactPayload>,
 ): Promise<void> {
+  const logger = createWorkerLogger('[MonthlyImpactWorker]', job.data.correlation_id);
   const { business_id, month_start_date } = job.data;
   const outboxId = (job.data as unknown as { outbox_id?: string }).outbox_id ?? job.id!;
 
@@ -21,6 +21,7 @@ export async function handleMonthlyImpact(
     id: string;
     name: string;
     owner_email: string;
+    owner_email_bounced: boolean;
     subscription_status: string;
     updated_at: Date;
     initial_review_count: number | null;
@@ -28,14 +29,14 @@ export async function handleMonthlyImpact(
     baseline_captured_at: Date | null;
     subscription_tier: string;
   }[]>`
-    SELECT id, name, owner_email, subscription_status, updated_at,
+    SELECT id, name, owner_email, owner_email_bounced, subscription_status, updated_at,
            initial_review_count, initial_responded_count, baseline_captured_at,
            subscription_tier
     FROM businesses WHERE id = ${business_id}
   `;
 
   if (!business) {
-    console.warn(`${LOG_PREFIX} Business ${business_id} not found`);
+    logger.warn(`Business ${business_id} not found`);
     await markOutboxFailed(outboxId, 'business_not_found');
     return;
   }
@@ -48,7 +49,16 @@ export async function handleMonthlyImpact(
   );
 
   if (!subCheck.allowed) {
-    console.log(`${LOG_PREFIX} Business ${business_id} skipped: ${subCheck.reason}`);
+    logger.log(`Business ${business_id} skipped: ${subCheck.reason}`);
+    await markOutboxCompleted(outboxId);
+    return;
+  }
+
+  // ── Hard bounce check ──────────────────────────────────
+  // Skip owner-directed emails when the owner's email has hard-bounced.
+  // Admin verifies and clears owner_email_bounced manually from /admin/businesses/[id].
+  if (business.owner_email_bounced) {
+    logger.log(`Business ${business_id} owner email bounced — skipping`);
     await markOutboxCompleted(outboxId);
     return;
   }
@@ -74,10 +84,10 @@ export async function handleMonthlyImpact(
       WHERE business_id = ${business_id} AND month_start_date = ${month_start_date}::date
     `;
     if (existing?.sent_at) {
-      console.log(`${LOG_PREFIX} Monthly impact for ${business_id} month ${month_start_date} already sent`);
+      logger.log(`Monthly impact for ${business_id} month ${month_start_date} already sent`);
       await markOutboxCompleted(outboxId);
     } else {
-      console.log(`${LOG_PREFIX} Monthly impact for ${business_id} month ${month_start_date} claimed by another worker, will retry`);
+      logger.log(`Monthly impact for ${business_id} month ${month_start_date} claimed by another worker, will retry`);
       throw new Error('Report claimed by another worker');
     }
     return;
@@ -98,7 +108,7 @@ export async function handleMonthlyImpact(
     RETURNING id
   `;
   if (!claimed) {
-    console.log(`${LOG_PREFIX} Monthly impact for ${business_id} month ${month_start_date} claimed by another worker, will retry`);
+    logger.log(`Monthly impact for ${business_id} month ${month_start_date} claimed by another worker, will retry`);
     throw new Error('Report claimed by another worker');
   }
 
@@ -283,10 +293,11 @@ export async function handleMonthlyImpact(
       to: business.owner_email,
       subject: `Monthly Impact Report — ${business.name} (${monthLabel})`,
       bodyHtml: html,
+      category: 'marketing',
     });
     messageId = result.messageId;
   } catch (err) {
-    console.error(`${LOG_PREFIX} Failed to send monthly impact report for ${business.name} (month ${month_start_date}): ${err instanceof Error ? err.message : err}`);
+    logger.error(`Failed to send monthly impact report for business ${business_id} (month ${month_start_date}): ${err instanceof Error ? err.message : err}`);
     // Keep sent_at set — Resend may have accepted the email before the error.
     // Clearing would risk a duplicate if the scheduler re-queues this business.
     await markOutboxFailed(outboxId, err instanceof Error ? err.message : String(err));
@@ -303,5 +314,5 @@ export async function handleMonthlyImpact(
   });
 
   await markOutboxCompleted(outboxId);
-  console.log(`${LOG_PREFIX} Monthly impact report sent for ${business.name} (month ${month_start_date})`);
+  logger.log(`Monthly impact report sent for business ${business_id} (month ${month_start_date})`);
 }

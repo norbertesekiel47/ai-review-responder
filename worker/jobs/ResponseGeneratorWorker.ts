@@ -1,6 +1,6 @@
 import type { Job } from 'bullmq';
 import { v7 as uuidv7 } from 'uuid';
-import { sql } from '../../src/lib/db/server';
+import { sql, jsonb } from '../../src/lib/db/server';
 import { checkSubscription } from '../../src/lib/shared/subscription-guard';
 import { markOutboxCompleted, markOutboxFailed } from '../../src/lib/shared/outbox';
 import { isMockMode } from '../../src/lib/shared/mock-mode';
@@ -19,12 +19,12 @@ import {
 import type { GenerateResponsePayload, SendNotificationPayload } from '../../src/lib/shared/worker-types';
 import type { NormalizedReview } from '../../src/lib/reviews/types';
 import type { BusinessContext, GenerationResult, VoiceExample } from '../../src/lib/responses/types';
-
-const LOG_PREFIX = '[ResponseGeneratorWorker]';
+import { createWorkerLogger, type WorkerLogger } from '../../src/lib/shared/logger';
 
 export async function handleResponseGeneration(
   job: Job<GenerateResponsePayload>,
 ): Promise<void> {
+  const logger = createWorkerLogger('[ResponseGeneratorWorker]', job.data.correlation_id);
   const { review_id, business_id, version } = job.data;
   const outboxId = (job.data as unknown as { outbox_id?: string }).outbox_id ?? job.id!;
 
@@ -42,7 +42,7 @@ export async function handleResponseGeneration(
   `;
 
   if (!review) {
-    console.warn(`${LOG_PREFIX} Review ${review_id} not found`);
+    logger.warn(`Review ${review_id} not found`);
     await markOutboxFailed(outboxId, 'review_not_found');
     return;
   }
@@ -68,7 +68,7 @@ export async function handleResponseGeneration(
   `;
 
   if (!business) {
-    console.warn(`${LOG_PREFIX} Business ${business_id} not found`);
+    logger.warn(`Business ${business_id} not found`);
     await markOutboxFailed(outboxId, 'business_not_found');
     return;
   }
@@ -81,7 +81,7 @@ export async function handleResponseGeneration(
   );
 
   if (!subCheck.allowed) {
-    console.log(`${LOG_PREFIX} Business ${business_id} skipped: ${subCheck.reason}`);
+    logger.log(`Business ${business_id} skipped: ${subCheck.reason}`);
     await markOutboxCompleted(outboxId);
     return;
   }
@@ -128,7 +128,7 @@ export async function handleResponseGeneration(
   `;
 
   if (existingResponse) {
-    console.log(`${LOG_PREFIX} Response already exists for review ${review_id} v${version}, completing outbox`);
+    logger.log(`Response already exists for review ${review_id} v${version}, completing outbox`);
     await markOutboxCompleted(outboxId);
     return;
   }
@@ -142,7 +142,7 @@ export async function handleResponseGeneration(
       await checkRegenBudget(review_id);
     } catch (err) {
       if (err instanceof RegenBudgetExceededError) {
-        console.warn(`${LOG_PREFIX} Regen budget exceeded for review ${review_id}`);
+        logger.warn(`Regen budget exceeded for review ${review_id}`);
         await markOutboxFailed(outboxId, err.message);
         return;
       }
@@ -170,7 +170,7 @@ export async function handleResponseGeneration(
     }
   } catch (err) {
     if (err instanceof CostLimitExceededError || err instanceof GlobalCostLimitExceededError) {
-      console.warn(`${LOG_PREFIX} Cost limit exceeded for business ${business_id}: ${err.message}`);
+      logger.warn(`Cost limit exceeded for business ${business_id}: ${err.message}`);
       await markOutboxFailed(outboxId, err.message);
       return;
     }
@@ -179,26 +179,40 @@ export async function handleResponseGeneration(
       throw err;
     }
     // LLM failures (both providers down) or other errors
-    console.error(`${LOG_PREFIX} Generation failed for review ${review_id}: ${err instanceof Error ? err.message : err}`);
+    logger.error(`Generation failed for review ${review_id}: ${err instanceof Error ? err.message : err}`);
     await markOutboxFailed(outboxId, `generation_failed: ${err instanceof Error ? err.message : err}`);
     return;
   }
 
   // ── Step 8: Avoid-facts guardrail ───────────────────────────────────
-  result = await applyAvoidFactsGuardrail(
-    result, businessContext, normalizedReview, voiceExamples,
-    { reviewId: review_id, version, businessId: business_id },
-  );
+  // Guardrail errors (retry still violates, or retry LLM call itself fails)
+  // must mark the outbox failed and RETURN — not throw. Throwing causes
+  // BullMQ to retry the whole job while the outbox stays non-terminal
+  // until the watchdog recovers it, and each retry spends more on LLM
+  // calls for a problem that won't resolve on its own (the avoid_facts
+  // config needs an admin fix, not a retry).
+  try {
+    result = await applyAvoidFactsGuardrail(
+      result, businessContext, normalizedReview, voiceExamples,
+      { reviewId: review_id, version, businessId: business_id },
+      logger,
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error(`Avoid-facts guardrail failed for review ${review_id}: ${message}`);
+    await markOutboxFailed(outboxId, `guardrail_failed: ${message}`);
+    return;
+  }
 
   // ── Step 9: Persist response + outbox + cost link in one transaction ─
   const responseId = await persistResponseAndNotify(
-    result, review_id, business_id, version,
+    result, review_id, business_id, version, job.data.correlation_id,
   );
   // DB transaction failure throws for BullMQ retry (transient)
 
   // ── Step 10: Complete outbox ─────────────────────────────────────────
   await markOutboxCompleted(outboxId);
-  console.log(`${LOG_PREFIX} Response ${responseId} generated for review ${review_id} (v${version})`);
+  logger.log(`Response ${responseId} generated for review ${review_id} (v${version})`);
 }
 
 // ── Avoid-facts guardrail ───────────────────────────────────────────────
@@ -209,6 +223,7 @@ async function applyAvoidFactsGuardrail(
   normalizedReview: NormalizedReview,
   voiceExamples: VoiceExample[],
   ids: { reviewId: string; version: number; businessId: string },
+  logger: WorkerLogger,
 ): Promise<GenerationResult> {
   const { avoidFacts } = businessContext;
   if (avoidFacts.length === 0) return result;
@@ -216,7 +231,7 @@ async function applyAvoidFactsGuardrail(
   const violation = findAvoidFactViolation(result.responseText, avoidFacts);
   if (!violation) return result;
 
-  console.warn(`${LOG_PREFIX} Avoid-fact violation for review ${ids.reviewId}: "${violation}". Regenerating once.`);
+  logger.warn(`Avoid-fact violation for review ${ids.reviewId}: "${violation}". Regenerating once.`);
 
   try {
     const retryOpts = {
@@ -277,6 +292,7 @@ async function persistResponseAndNotify(
   reviewId: string,
   businessId: string,
   version: number,
+  correlationId?: string,
 ): Promise<string> {
   const responseId = uuidv7();
 
@@ -309,13 +325,14 @@ async function persistResponseAndNotify(
     const notifyPayload: SendNotificationPayload = {
       response_id: responseId,
       business_id: businessId,
+      correlation_id: correlationId,
     };
 
     await tx`
       INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
       VALUES (
         ${uuidv7()}, 'send_notification', 'response', ${responseId},
-        ${JSON.stringify(notifyPayload)}::jsonb, 'pending'
+        ${jsonb(notifyPayload)}, 'pending'
       )
     `;
   });

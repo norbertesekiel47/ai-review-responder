@@ -12,6 +12,7 @@ interface BusinessDetail {
   id: string;
   name: string;
   category: string | null;
+  website: string | null;
   googlePlaceId: string | null;
   tone: string;
   productsServices: string | null;
@@ -29,6 +30,7 @@ interface BusinessDetail {
   googlePlaceLng: number | null;
   rankingSearchLocation: string | null;
   googlePlaceAddress: string | null;
+  ownerEmailBounced: boolean;
   churnScore?: {
     score: number;
     level: 'healthy' | 'watch' | 'at_risk';
@@ -66,6 +68,25 @@ interface DetailData {
 
 function renderStars(rating: number): string {
   return '\u2605'.repeat(rating) + '\u2606'.repeat(5 - rating);
+}
+
+/**
+ * Defensive anchor href sanitizer. The schema validator rejects non-http(s)
+ * schemes at write time, but existing DB rows or manual SQL inserts could
+ * still contain unsafe URLs. Any anchor rendered with an external href must
+ * go through this function — returns null for schemes other than http/https.
+ */
+function safeHttpUrl(url: string | null): string | null {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+      return parsed.toString();
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 function HealthBadge({ level, score }: { level: string; score: number }) {
@@ -114,7 +135,9 @@ function ProfileEditor({ business, businessId, onSaved }: ProfileEditorProps) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(business.name);
   const [category, setCategory] = useState(business.category ?? '');
+  const [website, setWebsite] = useState(business.website ?? '');
   const [tone, setTone] = useState(business.tone);
+  const [ownerEmail, setOwnerEmail] = useState(business.ownerEmail);
   const [productsServices, setProductsServices] = useState(business.productsServices ?? '');
   const [staffNames, setStaffNames] = useState(business.staffNames.join(', '));
   const [highlightFacts, setHighlightFacts] = useState(business.highlightFacts.join('\n'));
@@ -123,9 +146,11 @@ function ProfileEditor({ business, businessId, onSaved }: ProfileEditorProps) {
 
   const mutation = useMutation({
     mutationFn: async () => {
-      const body = {
+      const trimmedEmail = ownerEmail.trim();
+      const body: Record<string, unknown> = {
         name: name.trim(),
         category: category.trim() || null,
+        website: website.trim() || null,
         tone: tone.trim(),
         productsServices: productsServices.trim() || null,
         staffNames: staffNames
@@ -141,6 +166,11 @@ function ProfileEditor({ business, businessId, onSaved }: ProfileEditorProps) {
           .map((s) => s.trim())
           .filter(Boolean),
       };
+      // Only send ownerEmail if it actually changed — UpdateBusinessSchema
+      // rejects empty strings, and sending an unchanged value is wasted work.
+      if (trimmedEmail && trimmedEmail !== business.ownerEmail) {
+        body.ownerEmail = trimmedEmail;
+      }
       const res = await fetch(`/api/admin/businesses/${businessId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -164,7 +194,9 @@ function ProfileEditor({ business, businessId, onSaved }: ProfileEditorProps) {
   const handleCancel = () => {
     setName(business.name);
     setCategory(business.category ?? '');
+    setWebsite(business.website ?? '');
     setTone(business.tone);
+    setOwnerEmail(business.ownerEmail);
     setProductsServices(business.productsServices ?? '');
     setStaffNames(business.staffNames.join(', '));
     setHighlightFacts(business.highlightFacts.join('\n'));
@@ -197,6 +229,24 @@ function ProfileEditor({ business, businessId, onSaved }: ProfileEditorProps) {
           <div>
             <dt className="font-medium text-gray-500">Category</dt>
             <dd className="text-gray-900">{business.category ?? '—'}</dd>
+          </div>
+          <div>
+            <dt className="font-medium text-gray-500">Website</dt>
+            <dd className="text-gray-900">
+              {(() => {
+                const safeHref = safeHttpUrl(business.website);
+                if (safeHref) {
+                  return (
+                    <a href={safeHref} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline">
+                      {business.website}
+                    </a>
+                  );
+                }
+                // Display raw value as plain text if it failed the safety check,
+                // so the admin can see + fix it without it being clickable.
+                return business.website ?? '—';
+              })()}
+            </dd>
           </div>
           <div>
             <dt className="font-medium text-gray-500">Tone</dt>
@@ -252,6 +302,16 @@ function ProfileEditor({ business, businessId, onSaved }: ProfileEditorProps) {
           />
         </div>
         <div>
+          <label className="block text-sm font-medium text-gray-700">Website</label>
+          <input
+            type="url"
+            value={website}
+            onChange={(e) => setWebsite(e.target.value)}
+            placeholder="https://example.com"
+            className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+        <div>
           <label className="block text-sm font-medium text-gray-700">Tone</label>
           <input
             type="text"
@@ -259,6 +319,19 @@ function ProfileEditor({ business, businessId, onSaved }: ProfileEditorProps) {
             onChange={(e) => setTone(e.target.value)}
             className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700">Owner Email</label>
+          <input
+            type="email"
+            value={ownerEmail}
+            onChange={(e) => setOwnerEmail(e.target.value)}
+            placeholder="owner@example.com"
+            className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          <p className="mt-1 text-xs text-gray-500">
+            Updating this address does not clear a hard-bounce flag — use the banner above to clear it after verifying.
+          </p>
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700">Products / Services</label>
@@ -641,6 +714,43 @@ export default function BusinessDetailPage() {
             )}
           </div>
         </div>
+
+        {business.ownerEmailBounced && (
+          <div className="mt-4 mb-4 rounded-lg border border-red-300 bg-red-50 p-4">
+            <p className="text-sm font-semibold text-red-800">
+              ⚠ Owner email is bouncing
+            </p>
+            <p className="mt-1 text-sm text-red-700">
+              Approval emails, weekly reports, monthly impact, drip emails, and owner nudges
+              are skipped for <code className="rounded bg-red-100 px-1">{business.ownerEmail}</code>.
+              Partner/admin alerts still send.
+            </p>
+            <p className="mt-2 text-sm text-red-700">
+              Verify the email address with the owner. If it changed, update it in the
+              Business Profile section below (Edit → Owner Email), then clear the flag with
+              the button below. See <code>docs/email-deliverability.md</code> for the full runbook.
+            </p>
+            <button
+              type="button"
+              onClick={async () => {
+                if (!confirm('Clear the bounce flag? Only do this after verifying the address is valid.')) return;
+                const res = await fetch(`/api/admin/businesses/${business.id}`, {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ ownerEmailBounced: false }),
+                });
+                if (res.ok) {
+                  queryClient.invalidateQueries({ queryKey: ['admin-business', business.id] });
+                } else {
+                  alert('Failed to clear flag. See console.');
+                }
+              }}
+              className="mt-3 rounded bg-red-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-800"
+            >
+              Clear bounce flag (after verifying address)
+            </button>
+          </div>
+        )}
 
         {/* Profile editor */}
         <ProfileEditor

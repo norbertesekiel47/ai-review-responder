@@ -31,6 +31,15 @@ export interface OverviewData {
     failedJobs: number;
     todayCostUsd: number;
     notificationFailures24h: number;
+    emailHealth: {
+      sent24h: number;
+      delivered24h: number;
+      bounces7d: number;
+      hardBounces7d: number;
+      complaints7d: number;
+      deliveryRate24h: number;
+      redState: boolean;
+    };
   };
   totalBusinesses: number;
   limit: number;
@@ -74,6 +83,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       failedJobsRows,
       todayCostRows,
       notifFailureRows,
+      emailHealthRows,
       businessRows,
       businessCountRows,
     ] = await Promise.all([
@@ -88,6 +98,21 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       `,
       sql<SystemHealthRow[]>`
         SELECT COUNT(*)::int AS count FROM notification_deliveries WHERE failed_at IS NOT NULL AND failed_at >= NOW() - INTERVAL '24 hours'
+      `,
+      sql<{
+        sent_24h: number;
+        delivered_24h: number;
+        bounces_7d: number;
+        hard_bounces_7d: number;
+        complaints_7d: number;
+      }[]>`
+        SELECT
+          COUNT(*) FILTER (WHERE sent_at >= NOW() - INTERVAL '24 hours')::int AS sent_24h,
+          COUNT(*) FILTER (WHERE delivered_at IS NOT NULL AND sent_at >= NOW() - INTERVAL '24 hours')::int AS delivered_24h,
+          COUNT(*) FILTER (WHERE failure_reason LIKE 'bounced:%' AND failed_at >= NOW() - INTERVAL '7 days')::int AS bounces_7d,
+          COUNT(*) FILTER (WHERE failure_reason LIKE 'bounced:hard:%' AND failed_at >= NOW() - INTERVAL '7 days')::int AS hard_bounces_7d,
+          COUNT(*) FILTER (WHERE failure_reason = 'complained' AND failed_at >= NOW() - INTERVAL '7 days')::int AS complaints_7d
+        FROM notification_deliveries
       `,
       // Fetch ALL businesses (no LIMIT/OFFSET) so we can sort by churn score
       // server-side before paginating. At MVP scale (10-50 businesses) this is fine.
@@ -219,12 +244,35 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     );
     const paginatedBusinesses = allBusinesses.slice(offset, offset + limit);
 
+    const eh = emailHealthRows[0];
+    const sent24h = eh?.sent_24h ?? 0;
+    const delivered24h = eh?.delivered_24h ?? 0;
+    const deliveryRate24h = sent24h > 0 ? Math.round((delivered24h / sent24h) * 100) : 100;
+    const bounces7d = eh?.bounces_7d ?? 0;
+    const hardBounces7d = eh?.hard_bounces_7d ?? 0;
+    const complaints7d = eh?.complaints_7d ?? 0;
+
+    // Red state: delivery rate < 95% with at least 5 sends, OR any complaint in 7d, OR any hard bounce in 7d.
+    const redState =
+      (sent24h >= 5 && deliveryRate24h < 95) ||
+      complaints7d > 0 ||
+      hardBounces7d > 0;
+
     const data: OverviewData = {
       systemHealth: {
         pendingOutbox: pendingOutboxRows[0]?.count ?? 0,
         failedJobs: failedJobsRows[0]?.count ?? 0,
         todayCostUsd: todayCostRows[0]?.total ?? 0,
         notificationFailures24h: notifFailureRows[0]?.count ?? 0,
+        emailHealth: {
+          sent24h,
+          delivered24h,
+          bounces7d,
+          hardBounces7d,
+          complaints7d,
+          deliveryRate24h,
+          redState,
+        },
       },
       totalBusinesses: businessCountRows[0]?.total ?? 0,
       limit,

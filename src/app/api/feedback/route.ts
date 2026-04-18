@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { v7 as uuidv7 } from 'uuid';
-import { sql } from '@/lib/db/server';
+import { sql, jsonb } from '@/lib/db/server';
 import { verifyFeedback } from '@/lib/shared/feedback-hmac';
 import type { EngagementAlertPayload } from '@/lib/shared/worker-types';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
@@ -188,6 +188,7 @@ export async function POST(request: NextRequest) {
             comment,
             week_start_date: week,
           },
+          correlation_id: `feedback:${businessId}:${week}`,
         };
 
         // ON CONFLICT DO NOTHING: if the broad (aggregate_id, alert_type) index
@@ -196,7 +197,7 @@ export async function POST(request: NextRequest) {
         await tx`
           INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
           VALUES (${uuidv7()}, 'engagement_alert', 'business', ${businessId},
-                  ${JSON.stringify(payload)}::jsonb, 'pending')
+                  ${jsonb(payload)}, 'pending')
           ON CONFLICT DO NOTHING
         `;
       }

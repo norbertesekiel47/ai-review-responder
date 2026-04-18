@@ -45,6 +45,7 @@ vi.mock('@/lib/db/server', () => ({
   sql: new Proxy(mockSqlTagged, {
     apply: (_target, _thisArg, args) => mockSqlTagged(...args),
   }),
+  jsonb: (v: unknown) => v,
 }));
 
 // ── Mock uuid ────────────────────────────────────────────────────────

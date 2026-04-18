@@ -6,10 +6,10 @@ import { markOutboxCompleted, markOutboxFailed } from '../../src/lib/shared/outb
 import { checkRateLimit } from '../../src/lib/shared/rate-limit';
 import { isMockMode } from '../../src/lib/shared/mock-mode';
 import type { TrackRankingPayload } from '../../src/lib/shared/worker-types';
-
-const LOG_PREFIX = '[RankingTrackingWorker]';
+import { createWorkerLogger } from '../../src/lib/shared/logger';
 
 export async function handleTrackRanking(job: Job<TrackRankingPayload>): Promise<void> {
+  const logger = createWorkerLogger('[RankingTrackingWorker]', job.data.correlation_id);
   const { business_id } = job.data;
   const outboxId = (job.data as unknown as { outbox_id?: string }).outbox_id ?? job.id!;
 
@@ -30,7 +30,7 @@ export async function handleTrackRanking(job: Job<TrackRankingPayload>): Promise
   `;
 
   if (!business) {
-    console.warn(`${LOG_PREFIX} Business ${business_id} not found`);
+    logger.warn(`Business ${business_id} not found`);
     await markOutboxFailed(outboxId, 'business_not_found');
     return;
   }
@@ -39,14 +39,14 @@ export async function handleTrackRanking(job: Job<TrackRankingPayload>): Promise
   // Unlike notification/summary workers that use checkSubscription (allows past_due grace),
   // ranking requires strictly active — no paid API calls for non-paying businesses.
   if (business.subscription_status !== 'active') {
-    console.log(`${LOG_PREFIX} Business ${business_id} skipped: subscription_status=${business.subscription_status}`);
+    logger.log(`Business ${business_id} skipped: subscription_status=${business.subscription_status}`);
     await markOutboxCompleted(outboxId);
     return;
   }
 
   // Re-check google_place_id — may have been cleared or changed since scheduling
   if (!business.google_place_id) {
-    console.log(`${LOG_PREFIX} Business ${business_id} skipped: no google_place_id`);
+    logger.log(`Business ${business_id} skipped: no google_place_id`);
     await markOutboxCompleted(outboxId);
     return;
   }
@@ -62,12 +62,12 @@ export async function handleTrackRanking(job: Job<TrackRankingPayload>): Promise
       ? parsed.filter((k): k is string => typeof k === 'string' && k.trim().length > 0)
       : [];
   } catch {
-    console.warn(`${LOG_PREFIX} Business ${business_id}: malformed tracked_keywords, treating as empty`);
+    logger.warn(`Business ${business_id}: malformed tracked_keywords, treating as empty`);
     rawKeywords = [];
   }
 
   if (rawKeywords.length === 0) {
-    console.log(`${LOG_PREFIX} Business ${business_id} has no tracked keywords`);
+    logger.log(`Business ${business_id} has no tracked keywords`);
     await markOutboxCompleted(outboxId);
     return;
   }
@@ -80,7 +80,7 @@ export async function handleTrackRanking(job: Job<TrackRankingPayload>): Promise
   const hasSearchLocation = !!business.ranking_search_location;
 
   if (!hasCoords && !hasSearchLocation) {
-    console.log(`${LOG_PREFIX} Business ${business_id} has no location data for ranking search`);
+    logger.log(`Business ${business_id} has no location data for ranking search`);
     await markOutboxCompleted(outboxId);
     return;
   }
@@ -98,13 +98,13 @@ export async function handleTrackRanking(job: Job<TrackRankingPayload>): Promise
     try {
       budgetCheck = await checkRateLimit('serpapi:ranking:monthly', 100, 30 * 24 * 3600, { strict: true });
     } catch (err) {
-      console.warn(`${LOG_PREFIX} Cannot enforce SerpAPI budget (Redis unavailable or not configured), skipping:`, err instanceof Error ? err.message : err);
+      logger.warn(`Cannot enforce SerpAPI budget (Redis unavailable or not configured), skipping:`, err instanceof Error ? err.message : err);
       await markOutboxCompleted(outboxId);
       return;
     }
 
     if (!budgetCheck.allowed) {
-      console.log(`${LOG_PREFIX} Monthly SerpAPI ranking budget exhausted at keyword "${keyword}"`);
+      logger.log(`Monthly SerpAPI ranking budget exhausted at keyword "${keyword}"`);
       break; // Stop processing keywords but still mark outbox completed for keywords already done
     }
 
@@ -113,7 +113,7 @@ export async function handleTrackRanking(job: Job<TrackRankingPayload>): Promise
     if (isMockMode()) {
       // ── Mock mode: random rank 1-10, skip SerpAPI ───────────────
       rankPosition = Math.floor(Math.random() * 10) + 1;
-      console.log(`${LOG_PREFIX} [mock] keyword="${keyword}" rank=${rankPosition}`);
+      logger.log(`[mock] keyword="${keyword}" rank=${rankPosition}`);
     } else {
       // ── Step 6: SerpAPI call ────────────────────────────────────
       const params: Record<string, unknown> = {
@@ -153,8 +153,8 @@ export async function handleTrackRanking(job: Job<TrackRankingPayload>): Promise
         rankPosition = null;
       }
 
-      console.log(
-        `${LOG_PREFIX} keyword="${keyword}" place_id=${business.google_place_id} ` +
+      logger.log(
+        `keyword="${keyword}" place_id=${business.google_place_id} ` +
         `rank=${rankPosition ?? 'not found'} (${localResults.length} results)`,
       );
     }
@@ -169,5 +169,5 @@ export async function handleTrackRanking(job: Job<TrackRankingPayload>): Promise
   }
 
   await markOutboxCompleted(outboxId);
-  console.log(`${LOG_PREFIX} Ranking tracking complete for business ${business_id}`);
+  logger.log(`Ranking tracking complete for business ${business_id}`);
 }

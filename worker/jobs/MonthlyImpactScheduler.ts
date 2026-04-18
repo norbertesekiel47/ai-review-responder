@@ -1,5 +1,5 @@
 import { v7 as uuidv7 } from 'uuid';
-import { sql } from '../../src/lib/db/server';
+import { sql, jsonb } from '../../src/lib/db/server';
 import type { SendMonthlyImpactPayload } from '../../src/lib/shared/worker-types';
 
 const LOG_PREFIX = '[MonthlyImpactScheduler]';
@@ -50,16 +50,17 @@ async function checkAndSchedule(): Promise<void> {
       const payload: SendMonthlyImpactPayload = {
         business_id: biz.id,
         month_start_date: monthStartDate,
+        correlation_id: uuidv7(),
       };
       try {
         const inserted = await sql`
           INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-          SELECT ${uuidv7()}, 'send_monthly_impact', 'business', ${biz.id}, ${JSON.stringify(payload)}::jsonb, 'pending'
+          SELECT ${uuidv7()}, 'send_monthly_impact', 'business', ${biz.id}, ${jsonb(payload)}, 'pending'
           WHERE NOT EXISTS (
             SELECT 1 FROM job_outbox jo
             WHERE jo.topic = 'send_monthly_impact'
               AND jo.aggregate_id = ${biz.id}
-              AND jo.status IN ('pending', 'dispatched')
+              AND jo.status IN ('pending', 'dispatching', 'dispatched')
               AND jo.payload->>'month_start_date' = ${monthStartDate}
           )
         `;

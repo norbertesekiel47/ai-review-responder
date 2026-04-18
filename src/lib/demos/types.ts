@@ -1,9 +1,10 @@
+import type { BasePayload } from '@/lib/shared/worker-types';
 import type { NormalizedReview } from '@/lib/reviews/types';
 import type { GenerationResult } from '@/lib/responses/types';
 
 // ── Job payload (outbox → BullMQ → worker) ──────────────────────────
 
-export interface DemoJobPayload {
+export interface DemoJobPayload extends BasePayload {
   demoId: string;
   googlePlaceId: string;
   businessName: string;

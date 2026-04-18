@@ -1,5 +1,5 @@
 import { v7 as uuidv7 } from 'uuid';
-import { sql } from '../../src/lib/db/server';
+import { sql, jsonb } from '../../src/lib/db/server';
 import { isMockMode } from '../../src/lib/shared/mock-mode';
 import type { OnboardingDripPayload } from '../../src/lib/shared/worker-types';
 
@@ -57,6 +57,7 @@ export async function checkAndSchedule(): Promise<void> {
       const payload: OnboardingDripPayload = {
         business_id: row.business_id,
         drip_type: row.drip_type as OnboardingDripPayload['drip_type'],
+        correlation_id: uuidv7(),
       };
 
       try {
@@ -68,7 +69,7 @@ export async function checkAndSchedule(): Promise<void> {
             'onboarding_drip',
             'business',
             ${row.business_id},
-            ${JSON.stringify(payload)}::jsonb,
+            ${jsonb(payload)},
             'pending'
           )
           ON CONFLICT DO NOTHING

@@ -37,6 +37,7 @@ vi.mock('@/lib/db/server', () => ({
       return Promise.resolve(result);
     },
   }),
+  jsonb: (v: unknown) => v,
 }));
 
 // Import AFTER mocks are set up

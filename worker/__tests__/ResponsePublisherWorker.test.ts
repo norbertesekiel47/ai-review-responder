@@ -29,7 +29,7 @@ const {
 });
 
 // ── Module mocks ─────────────────────────────────────────────────────────
-vi.mock('../../src/lib/db/server', () => ({ sql: mockSql }));
+vi.mock('../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
 vi.mock('../../src/lib/shared/outbox', () => ({
   markOutboxCompleted: mockMarkOutboxCompleted,
   markOutboxFailed: mockMarkOutboxFailed,

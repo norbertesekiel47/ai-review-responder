@@ -47,7 +47,7 @@ const {
   };
 });
 
-vi.mock('../../src/lib/db/server', () => ({ sql: mockSql }));
+vi.mock('../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
 vi.mock('../../src/lib/shared/outbox', () => ({
   markOutboxCompleted: mockMarkOutboxCompleted,
   markOutboxFailed: mockMarkOutboxFailed,
@@ -181,6 +181,7 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
       to: 'owner@test.com',
       subject: 'You have 2 reviews waiting for your approval',
       bodyHtml: '<html>nudge</html>',
+      category: 'marketing',
     });
 
     // Recorded delivery
@@ -228,6 +229,33 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
   });
 
+  it('owner_nudge: bounced owner short-circuits to completed BEFORE env validation (config outage safe)', async () => {
+    // Regression: Finding 6 — a missing NEXT_PUBLIC_APP_URL must NOT mark a
+    // bounced-owner nudge as failed. Bounced owners should always complete,
+    // regardless of env state, because they will never be contacted anyway.
+    delete process.env.NEXT_PUBLIC_APP_URL;
+    delete process.env.RESEND_FROM_EMAIL;
+    sqlReturnQueue.push([mockBusinessRow({ owner_email_bounced: true })]);
+
+    await handleEngagementAlert(makeJob({ alert_type: 'owner_nudge' }));
+
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ea-1');
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+    expect(mockCreateApprovalLink).not.toHaveBeenCalled();
+    expect(mockSendInternalEmail).not.toHaveBeenCalled();
+  });
+
+  it('owner_nudge: bounced owner short-circuits even when env is set (no email sent)', async () => {
+    sqlReturnQueue.push([mockBusinessRow({ owner_email_bounced: true })]);
+
+    await handleEngagementAlert(makeJob({ alert_type: 'owner_nudge' }));
+
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ea-1');
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+    expect(mockCreateApprovalLink).not.toHaveBeenCalled();
+    expect(mockSendInternalEmail).not.toHaveBeenCalled();
+  });
+
   it('owner_nudge: uses singular "review" for count of 1', async () => {
     sqlReturnQueue.push([mockBusinessRow()]); // business
     sqlReturnQueue.push([]);                  // idempotency check
@@ -268,6 +296,7 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
       to: 'admin@repworth.com',
       subject: "Customer Test Biz hasn't engaged in 10 days",
       bodyHtml: '<html>engagement</html>',
+      category: 'internal',
     });
 
     expect(mockRecordNotificationDelivery).toHaveBeenCalledWith({
@@ -324,6 +353,7 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
       to: 'admin@repworth.com',
       subject: 'Customer Test Biz may be at risk',
       bodyHtml: '<html>escalation</html>',
+      category: 'internal',
     });
 
     expect(mockRecordNotificationDelivery).toHaveBeenCalledWith({
@@ -365,6 +395,7 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
       to: 'admin@repworth.com',
       subject: 'Customer Test Biz approval rate is 25%',
       bodyHtml: '<html>low-engagement</html>',
+      category: 'internal',
     });
 
     expect(mockRecordNotificationDelivery).toHaveBeenCalledWith({

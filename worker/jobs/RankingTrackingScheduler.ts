@@ -1,5 +1,5 @@
 import { v7 as uuidv7 } from 'uuid';
-import { sql } from '../../src/lib/db/server';
+import { sql, jsonb } from '../../src/lib/db/server';
 import { isMockMode } from '../../src/lib/shared/mock-mode';
 import type { TrackRankingPayload } from '../../src/lib/shared/worker-types';
 
@@ -65,7 +65,7 @@ export async function runRankingCheck(): Promise<void> {
           SELECT 1 FROM job_outbox jo
           WHERE jo.topic = 'track_ranking'
             AND jo.aggregate_id = b.id
-            AND jo.status IN ('pending', 'dispatched')
+            AND jo.status IN ('pending', 'dispatching', 'dispatched')
         )
     `;
 
@@ -79,6 +79,7 @@ export async function runRankingCheck(): Promise<void> {
         business_id: biz.id,
         google_place_id: biz.google_place_id,
         run_date: runDate,
+        correlation_id: uuidv7(),
       };
 
       try {
@@ -92,7 +93,7 @@ export async function runRankingCheck(): Promise<void> {
             'track_ranking',
             'business',
             ${biz.id},
-            ${JSON.stringify(payload)}::jsonb,
+            ${jsonb(payload)},
             'pending'
           )
           ON CONFLICT DO NOTHING

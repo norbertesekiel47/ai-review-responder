@@ -1,5 +1,5 @@
 import { v7 as uuidv7 } from 'uuid';
-import { sql } from '@/lib/db/server';
+import { sql, jsonb } from '@/lib/db/server';
 import type { MonitoredReview } from './types';
 import type {
   GenerateResponsePayload,
@@ -18,6 +18,7 @@ export type ProcessResult = 'new' | 'updated' | 'unchanged';
 export async function processReview(
   monitored: MonitoredReview,
   businessId: string,
+  correlationId?: string,
 ): Promise<ProcessResult> {
   const { review, identity, contentHash } = monitored;
 
@@ -56,13 +57,14 @@ export async function processReview(
         review_id: reviewId,
         business_id: businessId,
         version: 1,
+        correlation_id: correlationId,
       };
 
       await tx`
         INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
         VALUES (
           ${uuidv7()}, 'generate_response', 'review', ${reviewId},
-          ${JSON.stringify(outboxPayload)}::jsonb, 'pending'
+          ${jsonb(outboxPayload)}, 'pending'
         )
       `;
 
@@ -108,13 +110,14 @@ export async function processReview(
         review_id: existing.id,
         business_id: businessId,
         version: 1,
+        correlation_id: correlationId,
       };
 
       await tx`
         INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
         VALUES (
           ${uuidv7()}, 'generate_response', 'review', ${existing.id},
-          ${JSON.stringify(outboxPayload)}::jsonb, 'pending'
+          ${jsonb(outboxPayload)}, 'pending'
         )
       `;
 
@@ -134,13 +137,14 @@ export async function processReview(
         review_id: existing.id,
         business_id: businessId,
         version: nextVersion,
+        correlation_id: correlationId,
       };
 
       await tx`
         INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
         VALUES (
           ${uuidv7()}, 'generate_response', 'review', ${existing.id},
-          ${JSON.stringify(outboxPayload)}::jsonb, 'pending'
+          ${jsonb(outboxPayload)}, 'pending'
         )
       `;
 
@@ -159,11 +163,11 @@ export async function processReview(
         VALUES (
           ${exceptionId}, ${businessId}, ${existing.id}, ${activeResponse.id},
           'review_edited_after_post', 'open',
-          ${JSON.stringify({
+          ${jsonb({
             old_content_hash: existingHash,
             new_content_hash: contentHash,
             response_status: activeResponse.status,
-          })}::jsonb
+          })}
         )
         ON CONFLICT (review_id, type) WHERE status = 'open'
         DO NOTHING
@@ -173,13 +177,14 @@ export async function processReview(
         const notifyPayload: NotifyAdminExceptionPayload = {
           review_exception_id: exceptionId,
           business_id: businessId,
+          correlation_id: correlationId,
         };
 
         await tx`
           INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
           VALUES (
             ${uuidv7()}, 'notify_admin_review_exception', 'review', ${existing.id},
-            ${JSON.stringify(notifyPayload)}::jsonb, 'pending'
+            ${jsonb(notifyPayload)}, 'pending'
           )
         `;
       }
@@ -199,13 +204,14 @@ export async function processReview(
       review_id: existing.id,
       business_id: businessId,
       version: nextVersion,
+      correlation_id: correlationId,
     };
 
     await tx`
       INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
       VALUES (
         ${uuidv7()}, 'generate_response', 'review', ${existing.id},
-        ${JSON.stringify(outboxPayload)}::jsonb, 'pending'
+        ${jsonb(outboxPayload)}, 'pending'
       )
     `;
 

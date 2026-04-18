@@ -12,6 +12,28 @@ export const staffNamesArraySchema = z.array(z.string().max(100));
 export const highlightFactsArraySchema = z.array(z.string().max(500));
 export const avoidFactsArraySchema = z.array(z.string().max(500));
 
+/**
+ * URL validator that ONLY permits http: and https: schemes.
+ * z.string().url() accepts javascript:, data:, ftp:, mailto: — any of
+ * which become XSS/phishing vectors when rendered as anchor hrefs on
+ * admin-facing pages. This schema rejects anything other than http://
+ * or https:// regardless of the rest of the URL validity.
+ */
+export const websiteUrlSchema = z
+  .string()
+  .max(500)
+  .refine(
+    (val) => {
+      try {
+        const url = new URL(val);
+        return url.protocol === 'http:' || url.protocol === 'https:';
+      } catch {
+        return false;
+      }
+    },
+    { message: 'Website must be a valid http:// or https:// URL' },
+  );
+
 // ── Onboarding schema (POST /api/admin/businesses) ─────────────────
 
 export const OnboardBusinessSchema = z
@@ -32,6 +54,7 @@ export const OnboardBusinessSchema = z
     avoidFacts: z.string().max(2000).optional(),
     sampleResponses: z.string().max(5000).optional(),
     subscriptionTier: z.enum(['founding', 'standard']).default('standard'),
+    website: websiteUrlSchema.optional().nullable(),
   })
   .refine(
     (data) => Boolean(data.googlePlaceId) || Boolean(data.googleMapsUrl),
@@ -49,6 +72,9 @@ export const UpdateBusinessSchema = z
     staffNames: staffNamesArraySchema.optional(),
     highlightFacts: highlightFactsArraySchema.optional(),
     avoidFacts: avoidFactsArraySchema.optional(),
+    website: websiteUrlSchema.nullable().optional(),
+    ownerEmail: ownerEmailSchema.optional(),
+    ownerEmailBounced: z.boolean().optional(),
   })
   .refine((data) => Object.keys(data).length > 0, {
     message: 'At least one field must be provided',

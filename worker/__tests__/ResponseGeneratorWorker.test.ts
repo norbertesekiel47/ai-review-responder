@@ -51,8 +51,7 @@ const {
 
 // ── Module mocks (hoisted by vitest) ───────────────────────────────────
 vi.mock('../../src/lib/db/server', () => ({
-  sql: mockSql,
-}));
+  sql: mockSql, jsonb: (v: unknown) => v }));
 
 vi.mock('../../src/lib/shared/outbox', () => ({
   markOutboxCompleted: mockMarkOutboxCompleted,
@@ -165,6 +164,39 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
     const txCallArgs = mockTx.mock.calls.map((c) => c.slice(1)).flat();
     expect(txCallArgs).toContain('cost-1');
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-gen-1');
+  });
+
+  // 1b. Correlation propagation into send_notification payload
+  it('propagates incoming correlation_id into the serialized send_notification outbox payload', async () => {
+    const INCOMING_CORRELATION = 'upstream-corr-propagation-test';
+    sqlReturnQueue.push([mockReviewRow()]);
+    sqlReturnQueue.push([mockBusinessRow()]);
+    mockGenerateResponse.mockResolvedValueOnce(MOCK_RESULT);
+
+    await handleResponseGeneration(makeJob({ correlation_id: INCOMING_CORRELATION }));
+
+    // Extract outbox payloads from tx template-arg calls. The INSERT INTO
+    // job_outbox now binds via jsonb(notifyPayload) — in the test mock that
+    // passes the OBJECT through, so we look for object args directly.
+    const payloads = mockTx.mock.calls
+      .flat()
+      .filter(
+        (arg): arg is Record<string, unknown> =>
+          !!arg && typeof arg === 'object' && !Array.isArray(arg) && 'correlation_id' in (arg as Record<string, unknown>),
+      );
+
+    // send_notification payload shape: { response_id, business_id, correlation_id }
+    // Distinguish from any other payloads by the exact key set.
+    const sendNotificationPayload = payloads.find(
+      (p) =>
+        typeof p.response_id === 'string' &&
+        typeof p.business_id === 'string' &&
+        !('version' in p) && // not a GenerateResponsePayload
+        !('review_id' in p), // not a GenerateResponsePayload
+    );
+
+    expect(sendNotificationPayload).toBeDefined();
+    expect(sendNotificationPayload!.correlation_id).toBe(INCOMING_CORRELATION);
   });
 
   // 2. Subscription cancelled

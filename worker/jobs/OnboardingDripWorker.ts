@@ -11,10 +11,10 @@ import {
 import { recordNotificationDelivery } from '../../src/lib/notifications/delivery';
 import { createApprovalLink } from '../../src/lib/approval/create-link';
 import type { OnboardingDripPayload } from '../../src/lib/shared/worker-types';
-
-const LOG_PREFIX = '[OnboardingDripWorker]';
+import { createWorkerLogger } from '../../src/lib/shared/logger';
 
 export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Promise<void> {
+  const logger = createWorkerLogger('[OnboardingDripWorker]', job.data.correlation_id);
   const { business_id, drip_type } = job.data;
   const outboxId = (job.data as unknown as { outbox_id?: string }).outbox_id ?? job.id!;
 
@@ -24,33 +24,43 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
     name: string;
     owner_name: string;
     owner_email: string;
+    owner_email_bounced: boolean;
     subscription_status: string;
     updated_at: Date;
     initial_review_count: number | null;
     initial_responded_count: number | null;
     subscription_activated_at: Date | null;
   }[]>`
-    SELECT id, name, owner_name, owner_email, subscription_status, updated_at,
+    SELECT id, name, owner_name, owner_email, owner_email_bounced, subscription_status, updated_at,
            initial_review_count, initial_responded_count, subscription_activated_at
     FROM businesses WHERE id = ${business_id}
   `;
 
   if (!business) {
-    console.warn(`${LOG_PREFIX} Business ${business_id} not found`);
+    logger.warn(`Business ${business_id} not found`);
     await markOutboxFailed(outboxId, 'business_not_found');
     return;
   }
 
   // ── 2. Only active subscriptions get drip emails ──────────────────
   if (business.subscription_status !== 'active') {
-    console.log(`${LOG_PREFIX} Business ${business_id} not active (${business.subscription_status}) — skipping ${drip_type}`);
+    logger.log(`Business ${business_id} not active (${business.subscription_status}) — skipping ${drip_type}`);
+    await markOutboxCompleted(outboxId);
+    return;
+  }
+
+  // ── Hard bounce check ──────────────────────────────────
+  // Skip owner-directed emails when the owner's email has hard-bounced.
+  // Admin verifies and clears owner_email_bounced manually from /admin/businesses/[id].
+  if (business.owner_email_bounced) {
+    logger.log(`Business ${business_id} owner email bounced — skipping ${drip_type}`);
     await markOutboxCompleted(outboxId);
     return;
   }
 
   // ── 3. Validate subscription_activated_at for day_7/day_30 ─────────
   if ((drip_type === 'day_7' || drip_type === 'day_30') && !business.subscription_activated_at) {
-    console.warn(`${LOG_PREFIX} ${drip_type} skipped: subscription_activated_at is null for ${business_id}`);
+    logger.warn(`${drip_type} skipped: subscription_activated_at is null for ${business_id}`);
     await markOutboxFailed(outboxId, 'subscription_activated_at is null');
     return;
   }
@@ -90,10 +100,10 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
 
     if (taken) {
       claimId = taken.id;
-      console.log(`${LOG_PREFIX} ${drip_type} claim taken over for ${business_id}`);
+      logger.log(`${drip_type} claim taken over for ${business_id}`);
     } else {
       // Either already sent or owned by another active job — skip
-      console.log(`${LOG_PREFIX} ${drip_type} already claimed/sent for ${business_id} — skipping`);
+      logger.log(`${drip_type} already claimed/sent for ${business_id} — skipping`);
       await markOutboxCompleted(outboxId);
       return;
     }
@@ -124,7 +134,7 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
       ({ html, subject } = await buildDay30(business));
       break;
     default: {
-      console.warn(`${LOG_PREFIX} Unknown drip_type: ${drip_type}`);
+      logger.warn(`Unknown drip_type: ${drip_type}`);
       await markOutboxFailed(outboxId, `unknown drip_type: ${drip_type}`);
       return;
     }
@@ -135,6 +145,7 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
     to: business.owner_email,
     subject,
     bodyHtml: html,
+    category: 'marketing',
   });
 
   // ── 8. Mark sent_at after successful delivery ─────────────────────
@@ -154,7 +165,7 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
 
   await markOutboxCompleted(outboxId);
 
-  console.log(`${LOG_PREFIX} ${drip_type} sent to ${business.owner_email} for ${business.name}`);
+  logger.log(`${drip_type} sent for business ${business_id}`);
 }
 
 // ── Day 1: Welcome email ────────────────────────────────────────────

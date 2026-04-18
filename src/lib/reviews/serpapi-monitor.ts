@@ -54,7 +54,12 @@ export class SerpApiMonitor {
       throw new Error(`SerpAPI error: ${errorMsg}`);
     }
 
-    const rawReviews: Record<string, unknown>[] = response.reviews ?? [];
+    // Defensive: SerpAPI usually returns an array at `reviews`, but guard
+    // against shape drift (null, object, etc.) so a single upstream change
+    // doesn't throw at `.slice()` and abort the whole sync job.
+    const rawReviews: Record<string, unknown>[] = Array.isArray(response.reviews)
+      ? (response.reviews as Record<string, unknown>[])
+      : [];
     return this.processReviews(rawReviews.slice(0, count), placeId);
   }
 
@@ -67,9 +72,24 @@ export class SerpApiMonitor {
     const seenIdentities = new Map<string, string>(); // providerReviewId → contentHash
 
     for (const raw of rawReviews) {
-      const review = normalizeSerpApiReview(raw);
-      const identity = buildIdentity(raw, placeId);
-      const contentHash = computeContentHash(review);
+      // Per-review isolation: a single malformed review (missing rating,
+      // missing iso_date, or API shape drift) must not abort the whole
+      // batch. Skip the bad row, keep processing valid ones, and log
+      // the error so drift is visible in monitoring.
+      let review;
+      let identity;
+      let contentHash;
+      try {
+        review = normalizeSerpApiReview(raw);
+        identity = buildIdentity(raw, placeId);
+        contentHash = computeContentHash(review);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.warn(
+          `[SerpApiMonitor] Skipping malformed review for place ${placeId}: ${message}`,
+        );
+        continue;
+      }
 
       const existingHash = seenIdentities.get(identity.providerReviewId);
 

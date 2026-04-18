@@ -5,6 +5,7 @@ import { requireRole, AuthError } from '@/lib/db/auth';
 import { editBySession } from '@/lib/approval/service';
 import { ResponseNotPendingError } from '@/lib/approval/errors';
 import type { SessionAuditContext } from '@/lib/approval/service';
+import { recoverCorrelationId } from '@/lib/approval/correlation';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 
 export const dynamic = 'force-dynamic';
@@ -68,7 +69,11 @@ export async function POST(
 
   try {
     await sql.begin(async (tx) => {
-      await editBySession(tx, response.id as string, user.businessId!, parsed.data.editedText, audit);
+      const correlationId = await recoverCorrelationId(tx, {
+        reviewId: reviewId,
+        responseId: response.id as string,
+      });
+      await editBySession(tx, response.id as string, user.businessId!, parsed.data.editedText, audit, correlationId);
     });
 
     return NextResponse.json(

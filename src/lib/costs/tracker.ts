@@ -72,15 +72,50 @@ function regenBudgetKey(reviewId: string): string {
 
 // ── Tier limit resolution ────────────────────────────────────────────
 
+/**
+ * Strict non-negative integer parse for cost-limit env vars.
+ *
+ * parseInt is too permissive: it accepts prefixes (`'1000abc'` → 1000),
+ * truncates decimals (`'12.5'` → 12), and parses `'10_000'` as 10. Any of
+ * those would silently apply the WRONG budget — someone copying a
+ * JS-style numeric literal into `.env` could unknowingly cap limits at
+ * an order of magnitude smaller than intended.
+ *
+ * This parser requires the value to be:
+ *   - only decimal digits after trimming (no letters, dots, underscores)
+ *   - a safe integer (fits in a JS number without precision loss)
+ *   - non-negative
+ * Any deviation falls back to the default and logs a warning so the
+ * misconfiguration is visible in worker logs.
+ */
+function safeParseLimitCents(envVal: string | undefined, fallback: number): number {
+  if (envVal === undefined || envVal === null) return fallback;
+  const trimmed = envVal.trim();
+  if (trimmed === '') return fallback;
+  if (!/^\d+$/.test(trimmed)) {
+    console.warn(
+      `[cost-tracker] Invalid cost limit env var "${envVal}" (must be a non-negative integer) — falling back to ${fallback}`,
+    );
+    return fallback;
+  }
+  const parsed = Number(trimmed);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    console.warn(
+      `[cost-tracker] Cost limit env var "${envVal}" out of safe-integer range — falling back to ${fallback}`,
+    );
+    return fallback;
+  }
+  return parsed;
+}
+
 function getTierLimitCents(tier: string): number {
   const envKey = `DAILY_COST_LIMIT_CENTS_${tier.toUpperCase()}`;
-  const envVal = process.env[envKey];
-  if (envVal) return parseInt(envVal, 10);
-  return DEFAULT_TIER_LIMITS_CENTS[tier] ?? DEFAULT_TIER_LIMITS_CENTS.standard!;
+  const fallback = DEFAULT_TIER_LIMITS_CENTS[tier] ?? DEFAULT_TIER_LIMITS_CENTS.standard!;
+  return safeParseLimitCents(process.env[envKey], fallback);
 }
 
 function getGlobalLimitCents(): number {
-  return parseInt(process.env.GLOBAL_DAILY_COST_LIMIT_CENTS ?? '10000', 10);
+  return safeParseLimitCents(process.env.GLOBAL_DAILY_COST_LIMIT_CENTS, 10_000);
 }
 
 // ── Phase 1: Reservation ─────────────────────────────────────────────

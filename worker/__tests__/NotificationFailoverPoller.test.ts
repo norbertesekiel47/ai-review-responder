@@ -25,7 +25,7 @@ const {
   };
 });
 
-vi.mock('../../src/lib/db/server', () => ({ sql: mockSql }));
+vi.mock('../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
 vi.mock('../../src/lib/notifications/email', () => ({
   sendInternalEmail: mockSendInternalEmail,
 }));
@@ -57,7 +57,11 @@ describe('NotificationFailoverPoller', () => {
     sqlReturnQueue.push([]);
     // 2: stale query → one response
     sqlReturnQueue.push([{ response_id: 'resp-1', business_id: 'biz-1' }]);
-    // 3: INSERT outbox for stale
+    // 3: recoverFailoverCorrelationId → existingSend lookup (none)
+    sqlReturnQueue.push([]);
+    // 4: recoverFailoverCorrelationId → upstream generate_response lookup (none)
+    sqlReturnQueue.push([]);
+    // 5: INSERT outbox for stale
     const insertResult: any = []; insertResult.count = 1;
     sqlReturnQueue.push(insertResult);
 
@@ -88,10 +92,14 @@ describe('NotificationFailoverPoller', () => {
     }]);
     // 2: admin alert dedup check → no recent alert
     sqlReturnQueue.push([]);
-    // 3: INSERT outbox for all-failed
+    // 3: recoverFailoverCorrelationId → existingSend lookup (none)
+    sqlReturnQueue.push([]);
+    // 4: recoverFailoverCorrelationId → upstream generate_response lookup (none)
+    sqlReturnQueue.push([]);
+    // 5: INSERT outbox for all-failed
     const insertResult: any = []; insertResult.count = 1;
     sqlReturnQueue.push(insertResult);
-    // 4: stale query → empty (the all-failed response now has an in-flight outbox)
+    // 6: stale query → empty (the all-failed response now has an in-flight outbox)
     sqlReturnQueue.push([]);
 
     const mod = await import('../jobs/NotificationFailoverPoller');
@@ -117,10 +125,14 @@ describe('NotificationFailoverPoller', () => {
     }]);
     // 2: admin alert dedup check → existing alert found
     sqlReturnQueue.push([{ id: 'existing-alert' }]);
-    // 3: INSERT outbox for all-failed (still created — only admin email is deduped)
+    // 3: recoverFailoverCorrelationId → existingSend lookup (none)
+    sqlReturnQueue.push([]);
+    // 4: recoverFailoverCorrelationId → upstream generate_response lookup (none)
+    sqlReturnQueue.push([]);
+    // 5: INSERT outbox for all-failed (still created — only admin email is deduped)
     const insertResult: any = []; insertResult.count = 1;
     sqlReturnQueue.push(insertResult);
-    // 4: stale query → empty
+    // 6: stale query → empty
     sqlReturnQueue.push([]);
 
     const mod = await import('../jobs/NotificationFailoverPoller');
@@ -128,6 +140,83 @@ describe('NotificationFailoverPoller', () => {
     await vi.advanceTimersByTimeAsync(0);
 
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
+
+    mod.stopNotificationFailoverPoller();
+  });
+
+  // ── Regression: Sprint 6 correlation preservation ──────────────────
+  // Failover send_notification jobs must carry the ORIGINAL correlation_id
+  // from the upstream review chain, not a fresh uuidv7(). Otherwise a
+  // `SELECT ... WHERE payload->>'correlation_id' = ?` trace misses the
+  // failover step.
+  it('preserves upstream correlation_id from existing send_notification', async () => {
+    const upstreamCorrelationId = 'upstream-corr-abc';
+
+    // 1: all-failed query → empty
+    sqlReturnQueue.push([]);
+    // 2: stale query → one response
+    sqlReturnQueue.push([{ response_id: 'resp-corr', business_id: 'biz-corr' }]);
+    // 3: existingSend lookup → a prior send_notification carried the ID
+    sqlReturnQueue.push([{ correlation_id: upstreamCorrelationId }]);
+    //    (upstream query NOT issued because lookup #3 already resolved)
+    // 4: INSERT outbox
+    const insertResult: any = []; insertResult.count = 1;
+    sqlReturnQueue.push(insertResult);
+
+    const mod = await import('../jobs/NotificationFailoverPoller');
+    mod.startNotificationFailoverPoller();
+    await vi.advanceTimersByTimeAsync(0);
+
+    // Find the INSERT call and inspect its payload param
+    const insertCall = mockSql.mock.calls.find(
+      (call: any[]) => {
+        const text = Array.from(call[0] as TemplateStringsArray).join('');
+        return text.includes('INSERT') && text.includes('send_notification');
+      },
+    );
+    expect(insertCall).toBeDefined();
+    // Payload is now bound via jsonb(payload) — test mock returns the OBJECT
+    // pass-through, so look for the object arg with a correlation_id property.
+    const payloadArg = insertCall!.find((arg: any) =>
+      arg && typeof arg === 'object' && !Array.isArray(arg) && 'correlation_id' in arg,
+    );
+    expect(payloadArg).toBeDefined();
+    expect((payloadArg as { correlation_id: string }).correlation_id).toBe(upstreamCorrelationId);
+
+    mod.stopNotificationFailoverPoller();
+  });
+
+  it('falls back to upstream generate_response correlation when no prior send_notification', async () => {
+    const upstreamCorrelationId = 'gen-resp-corr-xyz';
+
+    // 1: all-failed query → empty
+    sqlReturnQueue.push([]);
+    // 2: stale query → one response
+    sqlReturnQueue.push([{ response_id: 'resp-no-prior', business_id: 'biz-xyz' }]);
+    // 3: existingSend lookup → none
+    sqlReturnQueue.push([]);
+    // 4: upstream generate_response lookup → carries the ID
+    sqlReturnQueue.push([{ correlation_id: upstreamCorrelationId }]);
+    // 5: INSERT outbox
+    const insertResult: any = []; insertResult.count = 1;
+    sqlReturnQueue.push(insertResult);
+
+    const mod = await import('../jobs/NotificationFailoverPoller');
+    mod.startNotificationFailoverPoller();
+    await vi.advanceTimersByTimeAsync(0);
+
+    const insertCall = mockSql.mock.calls.find(
+      (call: any[]) => {
+        const text = Array.from(call[0] as TemplateStringsArray).join('');
+        return text.includes('INSERT') && text.includes('send_notification');
+      },
+    );
+    expect(insertCall).toBeDefined();
+    const payloadArg = insertCall!.find((arg: any) =>
+      arg && typeof arg === 'object' && !Array.isArray(arg) && 'correlation_id' in arg,
+    );
+    expect(payloadArg).toBeDefined();
+    expect((payloadArg as { correlation_id: string }).correlation_id).toBe(upstreamCorrelationId);
 
     mod.stopNotificationFailoverPoller();
   });

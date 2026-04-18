@@ -17,12 +17,13 @@ const { sqlReturnQueue, mockSql } = vi.hoisted(() => {
   return { sqlReturnQueue, mockSql };
 });
 
-vi.mock('../../src/lib/db/server', () => ({ sql: mockSql }));
+vi.mock('../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
 vi.mock('uuid', () => ({ v7: vi.fn(() => 'test-uuid') }));
 
 function metricsRow(overrides: Record<string, unknown> = {}) {
   return {
     business_id: 'biz-1',
+    owner_email_bounced: false,
     days_since_approval: null,
     pending_count: 0,
     oldest_pending_age_days: null,
@@ -146,6 +147,40 @@ describe('EngagementMonitorPoller', () => {
       return text.includes('INSERT');
     });
     expect(insertCalls).toHaveLength(0);
+  });
+
+  it('does NOT fire owner_nudge when owner_email_bounced is true', async () => {
+    // activity_age=5, pending=2 would normally trigger owner_nudge, but email bounced
+    sqlReturnQueue.push([metricsRow({ days_since_approval: 5, pending_count: 2, owner_email_bounced: true })]);
+
+    const mod = await import('../jobs/EngagementMonitorPoller');
+    mod.startEngagementMonitorPoller();
+    await vi.advanceTimersByTimeAsync(0);
+    mod.stopEngagementMonitorPoller();
+
+    const insertCalls = mockSql.mock.calls.filter((call: any[]) => {
+      const text = Array.from(call[0] as TemplateStringsArray).join('');
+      return text.includes('job_outbox') && text.includes('INSERT');
+    });
+    expect(insertCalls).toHaveLength(0);
+  });
+
+  it('still fires partner rules when owner_email_bounced is true', async () => {
+    // activity_age=8, pending=1: owner_nudge + partner_engagement would fire normally,
+    // but bounce suppresses owner_nudge — only partner_engagement_alert should fire
+    sqlReturnQueue.push([metricsRow({ days_since_approval: 8, pending_count: 1, owner_email_bounced: true })]);
+    sqlReturnQueue.push(Object.assign([], { count: 1 })); // partner_engagement_alert inserted
+
+    const mod = await import('../jobs/EngagementMonitorPoller');
+    mod.startEngagementMonitorPoller();
+    await vi.advanceTimersByTimeAsync(0);
+    mod.stopEngagementMonitorPoller();
+
+    const insertCalls = mockSql.mock.calls.filter((call: any[]) => {
+      const text = Array.from(call[0] as TemplateStringsArray).join('');
+      return text.includes('job_outbox') && text.includes('INSERT');
+    });
+    expect(insertCalls).toHaveLength(1);
   });
 
   it('does NOT fire low_engagement when notified_count < 3 (insufficient sample)', async () => {

@@ -7,12 +7,12 @@ import { sendInternalEmail, buildManualPostEmailHtml } from '../../src/lib/notif
 import { recordNotificationDelivery } from '../../src/lib/notifications/delivery';
 import { buildGoogleMapsUrl } from '../../src/lib/shared/constants';
 import type { PublishResponsePayload } from '../../src/lib/shared/worker-types';
-
-const LOG_PREFIX = '[ResponsePublisherWorker]';
+import { createWorkerLogger } from '../../src/lib/shared/logger';
 
 export async function handlePublishResponse(
   job: Job<PublishResponsePayload>,
 ): Promise<void> {
+  const logger = createWorkerLogger('[ResponsePublisherWorker]', job.data.correlation_id);
   const { response_id, business_id } = job.data;
   const outboxId = (job.data as unknown as { outbox_id?: string }).outbox_id ?? job.id!;
 
@@ -30,13 +30,13 @@ export async function handlePublishResponse(
   `;
 
   if (!response) {
-    console.error(`${LOG_PREFIX} Response ${response_id} not found`);
+    logger.error(`Response ${response_id} not found`);
     await markOutboxFailed(outboxId, `response_not_found: ${response_id}`);
     return;
   }
 
   if (response.business_id !== business_id) {
-    console.error(`${LOG_PREFIX} Response ${response_id} belongs to business ${response.business_id}, not ${business_id}`);
+    logger.error(`Response ${response_id} belongs to business ${response.business_id}, not ${business_id}`);
     await markOutboxFailed(outboxId, 'business_id_mismatch');
     return;
   }
@@ -64,7 +64,7 @@ export async function handlePublishResponse(
   `;
 
   if (!business) {
-    console.error(`${LOG_PREFIX} Business ${business_id} not found`);
+    logger.error(`Business ${business_id} not found`);
     await markOutboxFailed(outboxId, `business_not_found: ${business_id}`);
     return;
   }
@@ -74,7 +74,7 @@ export async function handlePublishResponse(
   // may not have sent the email (crash between UPDATE and send). Allow
   // it to continue to the email path so the retry actually delivers.
   if (response.status === 'posted') {
-    console.log(`${LOG_PREFIX} Response ${response_id} already posted, skipping`);
+    logger.log(`Response ${response_id} already posted, skipping`);
     await markOutboxCompleted(outboxId);
     return;
   }
@@ -87,8 +87,8 @@ export async function handlePublishResponse(
   );
 
   if (!subCheck.allowed) {
-    console.warn(
-      `${LOG_PREFIX} Business ${business_id} subscription blocked: ${subCheck.reason}`,
+    logger.warn(
+      `Business ${business_id} subscription blocked: ${subCheck.reason}`,
     );
     await markOutboxCompleted(outboxId);
     return;
@@ -108,15 +108,15 @@ export async function handlePublishResponse(
     `;
 
     if (updated.count === 0) {
-      console.warn(
-        `${LOG_PREFIX} Response ${response_id} not in approved/edited state (current: ${response.status}), skipping`,
+      logger.warn(
+        `Response ${response_id} not in approved/edited state (current: ${response.status}), skipping`,
       );
       await markOutboxCompleted(outboxId);
       return;
     }
   }
 
-  console.log(`${LOG_PREFIX} Response ${response_id} set to awaiting_manual_post`);
+  logger.log(`Response ${response_id} set to awaiting_manual_post`);
 
   // ── Step 5: Check if admin email was already sent (idempotent retry) ──
   const [existingDelivery] = await sql<{ id: string }[]>`
@@ -125,7 +125,7 @@ export async function handlePublishResponse(
   `;
 
   if (existingDelivery) {
-    console.log(`${LOG_PREFIX} Admin email already sent for response ${response_id}, skipping`);
+    logger.log(`Admin email already sent for response ${response_id}, skipping`);
     await markOutboxCompleted(outboxId);
     return;
   }
@@ -157,8 +157,8 @@ export async function handlePublishResponse(
   adminEmail = adminEmail ?? process.env.ADMIN_NOTIFICATION_EMAIL;
 
   if (!adminEmail) {
-    console.warn(
-      `${LOG_PREFIX} No admin email found for business ${business_id}, skipping notification`,
+    logger.warn(
+      `No admin email found for business ${business_id}, skipping notification`,
     );
     await markOutboxCompleted(outboxId);
     return;
@@ -167,7 +167,7 @@ export async function handlePublishResponse(
   // ── Step 6: Build email and send ───────────────────────────────────
   const approvedText = response.approved_text ?? '';
   if (!response.approved_text) {
-    console.warn(`${LOG_PREFIX} Response ${response_id} has null approved_text — email will contain empty response`);
+    logger.warn(`Response ${response_id} has null approved_text — email will contain empty response`);
   }
   const reviewerName = review?.reviewer_name ?? 'Unknown reviewer';
   const starRating = review?.star_rating ?? 0;
@@ -192,6 +192,7 @@ export async function handlePublishResponse(
     to: adminEmail,
     subject: `Manual post needed: ${businessName}`,
     bodyHtml,
+    category: 'internal',
   });
 
   // Record delivery so retries can detect the email was already sent
@@ -204,8 +205,8 @@ export async function handlePublishResponse(
     externalMessageId: messageId,
   });
 
-  console.log(
-    `${LOG_PREFIX} Manual-post email sent to ${adminEmail} for response ${response_id}`,
+  logger.log(
+    `Manual-post email sent for response ${response_id} (business ${business_id})`,
   );
 
   // ── Step 8: Complete outbox ────────────────────────────────────────

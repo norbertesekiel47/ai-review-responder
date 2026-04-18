@@ -1,5 +1,5 @@
 import { v7 as uuidv7 } from 'uuid';
-import { sql } from '../../src/lib/db/server';
+import { sql, jsonb } from '../../src/lib/db/server';
 import { isMockMode } from '../../src/lib/shared/mock-mode';
 import type { SyncReviewsPayload } from '../../src/lib/shared/worker-types';
 
@@ -45,6 +45,7 @@ async function pollBusinesses(): Promise<void> {
       const payload: SyncReviewsPayload = {
         business_id: biz.id,
         google_place_id: biz.google_place_id,
+        correlation_id: uuidv7(),
       };
 
       try {
@@ -55,13 +56,13 @@ async function pollBusinesses(): Promise<void> {
             'sync_reviews',
             'business',
             ${biz.id},
-            ${JSON.stringify(payload)}::jsonb,
+            ${jsonb(payload)},
             'pending'
           WHERE NOT EXISTS (
             SELECT 1 FROM job_outbox jo
             WHERE jo.topic = 'sync_reviews'
               AND jo.aggregate_id = ${biz.id}
-              AND jo.status IN ('pending', 'dispatched')
+              AND jo.status IN ('pending', 'dispatching', 'dispatched')
           )
         `;
 

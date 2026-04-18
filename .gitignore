@@ -46,6 +46,14 @@ next-env.d.ts
 /docs
 .superpowers
 
+# firecrawl scrape output (market research, not code)
+.firecrawl/
+
+# Claude Code per-machine settings (permissions, custom hooks). Contains
+# user-specific allow lists — never shared across teammates. The rest of
+# .claude/ (CLAUDE.md and skills/) IS tracked.
+.claude/settings.local.json
+
 test-results/
 playwright-report/
 *.err.log

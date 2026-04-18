@@ -5,9 +5,10 @@
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { z } from 'zod';
 import { PlaceAutocomplete } from '@/components/PlaceAutocomplete';
+import { websiteUrlSchema } from '@/lib/shared/schemas';
 
 const FormSchema = z.object({
   name: z.string().min(1, 'Business name is required').max(255),
@@ -15,6 +16,9 @@ const FormSchema = z.object({
   googlePlaceId: z.string().optional(),
   googlePlaceAddress: z.string().optional(),
   googleMapsUrl: z.string().optional(),
+  // websiteUrlSchema only permits http:// or https:// — blocks javascript:,
+  // data:, ftp:, etc. .or(z.literal('')) keeps empty string valid for the form.
+  website: websiteUrlSchema.or(z.literal('')).optional(),
   ownerName: z.string().min(1, 'Owner name is required').max(255),
   ownerEmail: z.string().email('Valid email is required').max(255),
   ownerPhone: z.string().max(20).optional(),
@@ -94,8 +98,11 @@ export default function NewBusinessPage() {
     register,
     handleSubmit,
     setValue,
+    getValues,
+    getFieldState,
+    resetField,
     clearErrors,
-    formState: { errors },
+    formState,
   } = useForm<FormData>({
     resolver: zodResolver(FormSchema),
     defaultValues: {
@@ -104,6 +111,106 @@ export default function NewBusinessPage() {
       subscriptionTier: 'founding',
     },
   });
+  const { errors } = formState;
+
+  const [prefilling, setPrefilling] = useState(false);
+  // Guards against the stale-response race: user selects Place A, then quickly
+  // selects Place B before A's request resolves. Without guards, A's response
+  // can overwrite B's empty fields with A's data. We track the latest
+  // AbortController so we can cancel in-flight requests, AND the latest
+  // selected placeId so we can reject stale responses that somehow still arrive.
+  const prefillAbortRef = useRef<AbortController | null>(null);
+  const latestPlaceIdRef = useRef<string | null>(null);
+
+  /**
+   * Cancels any in-flight prefill and clears the "latest place" guard.
+   * Called when the user:
+   *   - clears the PlaceAutocomplete selection
+   *   - switches from autocomplete mode to URL-paste mode
+   * Without this, a Place A request that was launched before the clear/switch
+   * can resolve AFTER the user abandoned that place and still auto-fill
+   * stale data into empty fields.
+   */
+  function cancelPrefill() {
+    latestPlaceIdRef.current = null;
+    if (prefillAbortRef.current) {
+      prefillAbortRef.current.abort();
+      prefillAbortRef.current = null;
+    }
+    setPrefilling(false);
+  }
+
+  async function triggerPrefill(placeId: string) {
+    // Cancel any in-flight request — this is the primary defense.
+    if (prefillAbortRef.current) {
+      prefillAbortRef.current.abort();
+    }
+    const controller = new AbortController();
+    prefillAbortRef.current = controller;
+    latestPlaceIdRef.current = placeId;
+
+    setPrefilling(true);
+    try {
+      const res = await fetch(
+        `/api/admin/businesses/prefill?place_id=${encodeURIComponent(placeId)}`,
+        { signal: controller.signal },
+      );
+      // Secondary defense: if a newer selection happened, discard this response.
+      if (latestPlaceIdRef.current !== placeId) return;
+      if (!res.ok) return; // Silent failure — fields remain empty for manual entry
+      const prefill = (await res.json()) as {
+        category: string | null;
+        phone: string | null;
+        website: string | null;
+        hours: string | null;
+        fullAddress: string | null;
+      };
+      // Check AGAIN after awaiting body parse — the user could have selected
+      // a different place between headers arriving and body parsing.
+      if (latestPlaceIdRef.current !== placeId) return;
+
+      // Only fill fields that are (1) currently empty AND (2) have never been
+      // touched by the user. We use `getFieldState(name).isDirty` instead of
+      // a destructured `dirtyFields` object because the destructured value is
+      // captured at render time — the user could have typed (and cleared) a
+      // field WHILE the prefill request was in flight, and a captured
+      // `dirtyFields.category === false` snapshot would overwrite their work.
+      // `getFieldState` reads the live form state at call time.
+      const current = getValues();
+      if (
+        prefill.category &&
+        !current.category &&
+        !getFieldState('category').isDirty
+      ) {
+        setValue('category', prefill.category, { shouldDirty: false });
+      }
+      if (
+        prefill.phone &&
+        !current.ownerPhone &&
+        !getFieldState('ownerPhone').isDirty
+      ) {
+        setValue('ownerPhone', prefill.phone, { shouldDirty: false });
+      }
+      if (
+        prefill.website &&
+        !current.website &&
+        !getFieldState('website').isDirty
+      ) {
+        setValue('website', prefill.website, { shouldDirty: false });
+      }
+    } catch (err) {
+      // AbortError is expected when the user quickly selects a different place.
+      // Any other error (network, parse) silently degrades to manual entry.
+      if (err instanceof DOMException && err.name === 'AbortError') return;
+    } finally {
+      // Only clear the UI spinner if this call is still the latest.
+      // If a newer call is in flight, keep showing the spinner for it.
+      if (prefillAbortRef.current === controller) {
+        setPrefilling(false);
+        prefillAbortRef.current = null;
+      }
+    }
+  }
 
   async function onSubmit(data: FormData) {
     setSubmitting(true);
@@ -111,10 +218,12 @@ export default function NewBusinessPage() {
 
     try {
       // Build payload from inputMode, not hidden field presence
-      const { googlePlaceId, googlePlaceAddress, googleMapsUrl, ...rest } = data;
+      const { googlePlaceId, googlePlaceAddress, googleMapsUrl, website, ...rest } = data;
+      // Normalize empty website string to null (Zod schema accepts either).
+      const normalizedWebsite = website && website.trim().length > 0 ? website.trim() : null;
       const payload = inputMode === 'autocomplete'
-        ? { ...rest, googlePlaceId, googlePlaceAddress }
-        : { ...rest, googleMapsUrl };
+        ? { ...rest, googlePlaceId, googlePlaceAddress, website: normalizedWebsite }
+        : { ...rest, googleMapsUrl, website: normalizedWebsite };
 
       const res = await fetch('/api/admin/businesses', {
         method: 'POST',
@@ -171,12 +280,29 @@ export default function NewBusinessPage() {
               />
             </Field>
 
-            <Field label="Category" error={errors.category?.message}>
+            <Field
+              label="Category"
+              error={errors.category?.message}
+              hint={prefilling ? 'Fetching suggestions from Google Maps…' : undefined}
+            >
               <input
                 {...register('category')}
                 type="text"
                 className={inputClass}
                 placeholder="Restaurant, Salon, Dentist..."
+              />
+            </Field>
+
+            <Field
+              label="Website"
+              error={errors.website?.message}
+              hint={prefilling ? 'Fetching suggestions from Google Maps…' : undefined}
+            >
+              <input
+                {...register('website')}
+                type="url"
+                className={inputClass}
+                placeholder="https://example.com"
               />
             </Field>
 
@@ -195,10 +321,25 @@ export default function NewBusinessPage() {
                     setValue('googlePlaceId', sel.placeId);
                     setValue('googlePlaceAddress', sel.formattedAddress);
                     clearErrors('googlePlaceId');
+                    // Auto-trigger prefill. This runs async and fills empty
+                    // category/ownerPhone/website fields when the response arrives.
+                    triggerPrefill(sel.placeId);
                   }}
                   onClear={() => {
+                    // Cancel before clearing so a still-in-flight Place A response
+                    // can't auto-fill the form after the user abandoned that place.
+                    cancelPrefill();
                     setValue('googlePlaceId', '');
                     setValue('googlePlaceAddress', '');
+                    // Also reset any fields the prefill populated so the form
+                    // looks fresh. `resetField` clears both value AND dirty
+                    // state — important because the prefill "only fills empty +
+                    // undirty" check (see triggerPrefill) would otherwise block
+                    // the next selection from filling a field that the user
+                    // didn't manually touch.
+                    resetField('category');
+                    resetField('ownerPhone');
+                    resetField('website');
                   }}
                 />
               ) : (
@@ -213,6 +354,10 @@ export default function NewBusinessPage() {
                 type="button"
                 onClick={() => {
                   if (inputMode === 'autocomplete') {
+                    // Switching away from autocomplete — cancel any in-flight
+                    // prefill so its response can't arrive and populate fields
+                    // after the user has moved to URL-paste mode.
+                    cancelPrefill();
                     setValue('googlePlaceId', '');
                     setValue('googlePlaceAddress', '');
                     clearErrors('googlePlaceId');
@@ -252,7 +397,11 @@ export default function NewBusinessPage() {
               />
             </Field>
 
-            <Field label="Phone" error={errors.ownerPhone?.message}>
+            <Field
+              label="Phone"
+              error={errors.ownerPhone?.message}
+              hint={prefilling ? 'Fetching suggestions from Google Maps…' : undefined}
+            >
               <input
                 {...register('ownerPhone')}
                 type="tel"

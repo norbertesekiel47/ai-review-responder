@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
 import { lockValidLink, approve } from '@/lib/approval/service';
 import type { AuditContext } from '@/lib/approval/service';
+import { recoverCorrelationId } from '@/lib/approval/correlation';
 import { getDeviceCookieHash, validateCsrf, verifyDeviceCookie } from '@/lib/approval/cookies';
 import { handleApprovalError } from '@/lib/approval/http-errors';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
@@ -38,7 +39,13 @@ export async function POST(
     await sql.begin(async (tx) => {
       const link = await lockValidLink(tx, rawToken);
       const audit: AuditContext = { tokenHash: link.token_hash, deviceCookieHash, ipAddress: ip };
-      await approve(tx, link, deviceCookieHash, audit);
+      const [response] = await tx<{ review_id: string }[]>`
+        SELECT review_id FROM responses WHERE id = ${link.response_id}
+      `;
+      const correlationId = response
+        ? await recoverCorrelationId(tx, { reviewId: response.review_id, responseId: link.response_id })
+        : link.response_id;
+      await approve(tx, link, deviceCookieHash, audit, correlationId);
     });
 
     return NextResponse.json(
