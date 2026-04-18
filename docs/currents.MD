@@ -2,7 +2,7 @@
 
 This file explains what is actually built in the repository today, how it maps to the implementation plan, and what is left to build.
 
-Last updated: 2026-04-16 (after Sprint 5B completion)
+Last updated: 2026-04-18 (after Sprint 6 completion)
 
 ---
 
@@ -952,27 +952,386 @@ We built the remaining retention features — automated ranking tracking, owner 
 
 ---
 
+### Sprint 6: Scale + Operational Polish (Prompts 20a-20e)
+
+We built the infrastructure and polish needed to operate the system at 10-20 paying customers without ops firefights — end-to-end request tracing, automatic archival of old cost data, auto-fill on the onboarding form, hard bounce detection for email compliance, and a full launch-readiness runbook.
+
+**What it does:** Every review now carries an ID that threads through the entire pipeline, so oncall can trace a single review from sync → generate → notify → publish with one SQL query. Cost records older than 90 days are automatically rolled up into daily aggregates and the detail rows deleted, so `api_costs` stops growing unbounded. When a sales partner onboards a business, SerpAPI pre-fills the category, phone, and website — the admin just picks a place and most of the form is already filled. If an email hard-bounces, the system detects it from the Resend webhook, flags the business so it stops getting emails, and alerts the admin. There is now a written runbook explaining what to do when things break and a smoke-test checklist to validate the whole pipeline before the first real customer.
+
+**Correlation IDs + Structured Logging (Prompt 20a):**
+- New `createWorkerLogger()` helper wraps every worker's logs with a consistent prefix and an optional correlation ID tag. One ID follows a single review's whole chain: `sync_reviews → generate_response → send_notification → publish_response`.
+- `BasePayload` interface added to all 12 outbox payload types with a `correlation_id?: string` field. IDs generated at every entry point: 7 pollers/schedulers (using `uuidv7()`), 3 admin API routes, and at every outbox INSERT inside the workers.
+- `recoverCorrelationId()` helper in `src/lib/approval/correlation.ts` looks up the upstream `generate_response` payload by `review_id` when the approval flow crosses the token/session boundary, so approve/edit/regenerate actions stay on the original ID instead of generating a new one.
+- 12 workers replaced `console.log` with `createWorkerLogger`. All PII (emails, names) scrubbed from correlation-tagged logs — only business_id / response_id appears.
+- Migration 018 adds `idx_jo_correlation_id` (expression index on `payload->>'correlation_id'`) + rebuilds `idx_jo_sync_reviews_inflight` to include the `'dispatching'` status + adds `idx_jo_generate_response_by_review` for the canonical correlation-recovery lookup.
+- Single trace SQL: `SELECT id, topic, status, attempts FROM job_outbox WHERE payload->>'correlation_id' = '<id>' ORDER BY created_at`.
+
+**Archival Expansion + Cost Rollups (Prompt 20b):**
+- New `api_costs_daily_rollups` table aggregates `api_costs` rows older than 90 days into one row per `(business_id, provider, rollup_date)`. Uses Postgres 15's `UNIQUE NULLS NOT DISTINCT` so platform-level costs (business_id=NULL, like SerpAPI prefill) aggregate correctly too.
+- ArchivalPoller extended: new `api_costs` branch uses a DELETE-first CTE pattern (`FOR UPDATE SKIP LOCKED` → `DELETE ... RETURNING` → aggregate from RETURNING → upsert with additive `ON CONFLICT DO UPDATE`). This is atomic — no matter how many archival cycles overlap, each row is counted exactly once.
+- `notification_deliveries` older than 90 days are straight-deleted (no rollup — the operational dedup windows are much shorter).
+- Admin `/admin/costs` page now supports date ranges up to 365 days. The API merges detail rows (<90 days) with rollup rows (>=90 days) via a server-side UNION CTE — detail takes precedence on any same-date collision. `todayTotalUsd` stays detail-only.
+- Schema also adds `businesses.website` (used by Prompt 20c) and `businesses.owner_email_bounced` (used by Prompt 20d).
+- Fixes during review round: `days=0` clamping bug, negative `limit` handling, NUMERIC(14,6) widening for cost, BIGINT for tokens, server-side pagination via UNION CTE.
+
+**Onboarding Automation + SerpAPI Pre-fill (Prompt 20c):**
+- New `src/lib/reviews/serpapi-prefill.ts` module: takes a Google Place ID, calls SerpAPI `engine=google_maps`, returns a normalized `BusinessPrefill` object `{ category, phone, website, hours, fullAddress }`. Never throws — returns all-nulls on any failure.
+- 7-day Redis cache by place_id. Cost tracked in `api_costs` with `business_id=NULL` (platform-level) on every outbound SerpAPI call including timeouts/errors (so admin dashboards don't underreport quota burn).
+- 2-second `Promise.race` timeout so a stalled SerpAPI doesn't hang the onboarding UI.
+- New admin-only route `/api/admin/businesses/prefill` with a 10/min per-user strict rate limit (returns 503 when Redis unavailable — prevents uncapped SerpAPI spend).
+- Onboarding form at `/admin/businesses/new` auto-triggers prefill after PlaceAutocomplete selection. Uses `getFieldState(name).isDirty` at response-apply time (not captured at render time) so a user editing mid-flight never gets their edits overwritten. Clear button resets prefilled fields so the next selection starts fresh.
+- Website field added to the form, onboarding INSERT, `FIELD_TO_COLUMN` PATCH mapping, business detail display + edit form.
+- New `websiteUrlSchema` in `src/lib/shared/schemas.ts` — only accepts `http://` or `https://`, rejects `javascript:`/`data:`/`mailto:` etc. Defense-in-depth `safeHttpUrl()` at render time.
+- During this prompt's development we also extended `normalizeResponse` to read `type`/`types`/`category`/`categories` variants for category (SerpAPI returns different field names for chains vs individual places) and to handle both object and array shapes for hours.
+
+**Email Deliverability + Hard Bounce Handling (Prompt 20d):**
+- New `EmailCategory` type: `'transactional' | 'marketing' | 'internal'`. Each send path tags its category explicitly.
+- Marketing emails (weekly/monthly/drip/nudge) get RFC-8058-compliant `List-Unsubscribe` headers — required by Gmail and Yahoo's Feb-2024 bulk-sender rules. If `LIST_UNSUBSCRIBE_URL` is set, emits both the HTTPS form and the `List-Unsubscribe-Post: One-Click` header. Otherwise falls back to mailto-only (still valid). URL validation rejects unsafe schemes.
+- Resend webhook (`worker/ingress/resend.ts`) upgraded: classifies bounce types defensively (reads `data.bounce.type`, `data.reason`, `data.status` — whichever SerpAPI sends), normalizes into `bounced:hard:<raw>` or `bounced:soft:<raw>`. Only flags `businesses.owner_email_bounced=TRUE` when the bounced template is owner-directed (approval_request / weekly_value_report / monthly_impact / owner_nudge / onboarding_drip_*). Admin-directed template bounces (admin_manual_post, partner_* alerts) log-and-skip. `UPDATE ... IS DISTINCT FROM TRUE RETURNING id` transition guard means the admin alert fires only on the flag's FALSE→TRUE flip — no duplicates from replayed webhooks.
+- Skip-if-bounced guards in 5 owner-directed workers: NotificationWorker, WeeklySummaryWorker, MonthlyImpactWorker, OnboardingDripWorker, EngagementAlertWorker.handleOwnerNudge. EngagementMonitorPoller excludes bounced businesses from `owner_nudge` at query time. Partner/admin alerts still send to the admin regardless of the owner's bounce state.
+- Admin `/admin/overview` gets a new Email Health card: 24h delivery rate (%, green/red), 7d bounces / hard bounces / complaints. Red state when delivery rate drops below 95% (with ≥5 sends) OR any complaint/hard bounce in the last 7 days.
+- Business detail page shows a red "Owner email is bouncing" banner with a "Clear bounce flag" button when `owner_email_bounced=true`. Banner explains exactly which emails are being skipped.
+- Owner email is now editable via the admin profile editor (added to `UpdateBusinessSchema` + `FIELD_TO_COLUMN` + the Edit form). Banner points admins to the editor.
+- Migration 019 adds partial indexes on `notification_deliveries(external_message_id)`, `(sent_at)`, `(failed_at, failure_reason)` — all scoped to `WHERE ... IS NOT NULL` so they stay small.
+- New `docs/email-deliverability.md` — full runbook covering SPF/DKIM/DMARC DNS setup, warmup schedule (2-3 customers/week first month), monitoring, troubleshooting table, hard-bounce flow, env vars, List-Unsubscribe compliance rationale.
+
+**Launch Readiness Documentation (Prompt 20e):**
+- New `docs/operational-runbook.md` — 5 sections: "Customer says X" troubleshooting (5 scenarios), daily 2-minute health check, debugging SQL queries (correlation-id trace + 6 others), incident response (7 scenarios with Auto vs Manual columns), weekly maintenance tasks.
+- New `docs/smoke-test-checklist.md` — manual pre-launch E2E test across 3 real businesses (happy path, edit + concurrent onboarding, regenerate + correlation trace). Includes throughput sanity check and mobile approval performance check.
+- New admin page at `/admin/runbook` — static client component, renders 5 "Customer says X" scenarios as a quick-reference table. Links to the full markdown files by filename (clickable if `NEXT_PUBLIC_DOCS_BASE_URL` env is set).
+- AdminNav gains a "Runbook" link.
+- Fixes from review: correlation-trace SQL corrected for actual `aggregate_id` semantics (sync_reviews uses business_id, generate_response uses review_id, send_notification/publish_response use response_id), smoke checklist cost assertions rewritten to match what the app actually records, place-id recovery procedure documented with real SQL, D2 Redis guidance corrected to reflect `reserveCost` throwing on Redis failure.
+
+**Cross-cutting fixes (post-Sprint-6 cleanup):**
+- **JSONB double-encoding fix (migration 020).** Root cause: `${JSON.stringify(payload)}::jsonb` in Postgres.js v3 double-encodes — when a string is bound to a jsonb position, Postgres.js wraps it in additional JSON quotes, producing a JSONB scalar string instead of a JSONB object. Result: `payload->>'correlation_id'` returned NULL on every row, runbook C1 trace was broken, correlation index was useless, 20% storage bloat. Fix: new `jsonb()` helper in `src/lib/db/server.ts` wraps `sql.json(value)` with a type cast — at runtime Postgres.js sends the object as a Parameter with OID 3802, serialized exactly once. All 34 call sites across 19 files swept. Migration 020 normalizes existing scalar-string rows across 8 JSONB columns.
+- **Redis cache client first-request race fix.** `enableOfflineQueue: false` was too aggressive — the FIRST prefill request after dev-server boot would error with "Stream isn't writeable" before ioredis finished the TCP handshake. Flipped to the default `true`. Fail-fast on a truly-dead Redis is still guaranteed by `connectTimeout: 3s` + `retryStrategy` returning null after 2 retries.
+- **Queue-name registry extracted.** Moved `QUEUE_NAMES` to `src/lib/shared/queue-names.ts` (pure constants, no BullMQ imports). Both `worker/queues.ts` and the admin `/api/admin/jobs` route now import from the same source of truth — the list can't drift again.
+- **NotificationFailoverPoller correlation preservation.** Failover jobs used to generate a fresh uuidv7(), breaking the traceability chain. New `recoverFailoverCorrelationId()` helper looks up the prior `send_notification` row first, falls back to the upstream `generate_response` row, only uses a fresh ID as a last resort.
+- **SerpAPI prefill cost on timeout.** Cost is now recorded even on timeout/error (endpoint tagged `:failed`). Without this, admin cost dashboards underreported quota burn exactly when something was going wrong. Cache write is skipped on failure so the next selection retries.
+- **Admin cost boundary-day bug.** Rollup query used strict `<` against `CURRENT_DATE - 90 days`, silently losing the morning portion of the archived boundary day. Fixed to `<=` across 4 query locations. Regression test asserts the boundary operator.
+- **List-Unsubscribe-Post compliance.** The Post header was emitted without an HTTPS URL, which per RFC 8058 is non-functional (and misleading to Gmail/Outlook). Now conditional on `LIST_UNSUBSCRIBE_URL` being set.
+
+**New database objects (4 migrations):**
+- Migration 017 (`sprint6_scale.sql`): `api_costs_daily_rollups` table with `UNIQUE NULLS NOT DISTINCT` + 3 indexes, `businesses.website`, `businesses.owner_email_bounced`, `idx_nd_created_at`
+- Migration 018 (`correlation_and_dispatching_indexes.sql`): correlation expression index, sync_reviews in-flight index rebuilt to include `'dispatching'`, generate_response lookup index for correlation recovery
+- Migration 019 (`notification_delivery_bounce_indexes.sql`): partial indexes on external_message_id / sent_at / (failed_at, failure_reason)
+- Migration 020 (`normalize_jsonb_scalar_strings.sql`): one-time data repair — converts JSONB scalar strings back to proper objects across 8 columns (`UPDATE ... SET col = (col#>>'{}')::jsonb WHERE jsonb_typeof(col) = 'string'`)
+
+---
+
+## Sprint 6 Workflows
+
+### End-to-End Correlation Trace
+
+```
+1. Entry point generates correlation_id
+   → ReconciliationPoller inserts sync_reviews with correlation_id = uuidv7()
+   → Or: approval API route generates correlation_id and passes it forward
+
+2. ReviewSyncWorker reads payload.correlation_id
+   → Propagates it into every generate_response outbox entry it creates
+   → Same ID appears in the worker's structured logs (createWorkerLogger)
+
+3. ResponseGeneratorWorker
+   → Reads correlation_id from job payload
+   → Passes it into the send_notification outbox entry
+
+4. NotificationWorker / ResponsePublisherWorker
+   → Same propagation pattern: read from payload, write to next outbox
+
+5. Approval flow crosses a boundary
+   → recoverCorrelationId(tx, { reviewId, responseId }) looks up the upstream
+     generate_response payload and reuses its correlation_id
+   → publish_response outbox entry carries the ORIGINAL chain ID, not a fresh one
+
+6. Oncall trace query
+   → SELECT * FROM job_outbox WHERE payload->>'correlation_id' = '<id>'
+     ORDER BY created_at
+   → Uses idx_jo_correlation_id (expression index, fast)
+   → Returns every hop of the review chain in chronological order
+```
+
+### Archival + Cost Rollup
+
+```
+1. ArchivalPoller fires every 24 hours
+
+2. For each of 5 targets (outbox, inbound_events, prospect_demos,
+   api_costs, notification_deliveries):
+
+   a. outbox: DELETE completed entries >7 days old (batch 5000)
+   b. inbound_events: DELETE processed events >30 days (batch 5000)
+   c. prospect_demos: DELETE expired >30 days past expiry (batch 5000)
+
+   d. api_costs (NEW): atomic claim-and-aggregate CTE
+      → candidates CTE: SELECT id FROM api_costs
+        WHERE created_at < NOW() - INTERVAL '90 days'
+        ORDER BY created_at, id LIMIT 5000
+        FOR UPDATE SKIP LOCKED
+      → deleted CTE: DELETE FROM api_costs WHERE id IN (candidates)
+        RETURNING business_id, provider, created_at::date, cost_usd, tokens
+      → aggregated CTE: SUM by (business_id, provider, cost_date)
+      → INSERT INTO api_costs_daily_rollups
+        ON CONFLICT ON CONSTRAINT uniq_cost_rollups_business_provider_date
+        DO UPDATE SET total_cost_usd = existing + EXCLUDED (additive)
+
+   e. notification_deliveries (NEW): DELETE >90 days old (batch 5000)
+
+3. Logs per-target counts with saturation warning at 80% of batch size
+
+4. Admin /admin/costs query logic:
+   → If days <= 90: detail-only UNION CTE (single query)
+   → If days > 90: detail + rollup UNION CTE
+     - Detail rows authoritative on same-date collision
+     - byBusiness pagination is server-side (SQL UNION + GROUP BY + LIMIT)
+     - byDay is additive merge (rollup morning + detail afternoon)
+```
+
+### SerpAPI Prefill on Onboarding
+
+```
+1. Admin navigates to /admin/businesses/new
+
+2. Admin selects a place in the PlaceAutocomplete widget
+   → onPlaceSelect fires with { placeId, formattedAddress, lat, lng }
+   → triggerPrefill(placeId) called async
+
+3. triggerPrefill:
+   → AbortController cancels any previous in-flight request
+   → latestPlaceIdRef = placeId (guard against stale responses)
+   → GET /api/admin/businesses/prefill?place_id=...
+
+4. /api/admin/businesses/prefill route:
+   → requireRole('admin', 'sales_partner')
+   → checkRateLimit('prefill:minute:<userId>', 10, 60, { strict: true })
+     → Returns 503 if Redis unavailable (no uncapped spend)
+   → Calls fetchBusinessDetails(placeId)
+
+5. fetchBusinessDetails:
+   → Mock mode: return canned data
+   → Cache read: 7-day TTL by place_id → return cached if hit
+   → SerpAPI key guard: return empty if missing
+   → Promise.race: getJson(engine=google_maps) vs 2s timeout
+   → Record cost (always, even on failure) with endpoint = google_maps_prefill
+     or google_maps_prefill:failed
+   → Cache write (only on success)
+   → Return { category, phone, website, hours, fullAddress } or all-nulls
+
+6. Client response-apply:
+   → Check latestPlaceIdRef === placeId (discard stale)
+   → For each fillable field: check getFieldState(name).isDirty LIVE (not
+     captured) — only fill if empty AND untouched by user
+   → setValue('category', prefill.category, { shouldDirty: false })
+
+7. Clear button:
+   → cancelPrefill() aborts in-flight, clears latestPlaceIdRef
+   → Resets googlePlaceId + googlePlaceAddress + prefilled fields via
+     resetField() (also clears dirty state for next selection)
+```
+
+### Hard Bounce Handling
+
+```
+1. Resend sends an email. Some time later the recipient's MTA rejects it.
+
+2. Resend POSTs to /ingress/resend on the Railway worker
+   → Svix signature verification, stale-timestamp check, dedup via inbound_events
+   → Body includes type='email.bounced' and a bounce classification
+
+3. Worker extracts bounce type defensively
+   → Tries data.bounce.type, data.reason, data.status (first one wins)
+   → Normalizes via classifyBounce() into:
+     - bounced:hard:<raw>  (matches 'permanent', 'hard', 'hardbounce', 'hard_bounce',
+                             'permanent_failure', or anything containing 'permanent')
+     - bounced:soft:<raw>  (everything else — including the 'unknown' fallback)
+
+4. Worker looks up the delivery row by external_message_id
+   → Gets business_id AND template
+
+5. Worker UPDATEs notification_deliveries.failure_reason = normalized reason
+
+6. If isHard AND template is owner-directed (approval_request,
+   weekly_value_report, monthly_impact, owner_nudge, onboarding_drip_*):
+   → UPDATE businesses SET owner_email_bounced = TRUE
+     WHERE id = business_id AND owner_email_bounced IS DISTINCT FROM TRUE
+     RETURNING id
+   → If the transition fired (row returned): send admin alert via sendInternalEmail
+   → Otherwise (already flagged): silent — no duplicate admin spam
+
+7. Next owner-directed worker run for that business:
+   → NotificationWorker / WeeklySummaryWorker / MonthlyImpactWorker /
+     OnboardingDripWorker / EngagementAlertWorker.handleOwnerNudge all
+     SELECT owner_email_bounced and skip-if-bounced
+   → EngagementMonitorPoller also excludes bounced businesses from owner_nudge
+   → Admin + partner alerts continue — they're not sent to the owner
+
+8. Admin sees the red "Clear bounce flag" banner on /admin/businesses/<id>
+   → Verifies the email address, updates it via the Business Profile editor if wrong
+   → Clicks "Clear bounce flag" → PATCH { ownerEmailBounced: false }
+   → Owner-directed emails resume on the next worker cycle
+```
+
+### /admin/runbook — Quick Reference
+
+```
+1. Admin has a customer-facing issue.
+
+2. Opens /admin/runbook (5-scenario table rendered from static data).
+
+3. Finds the matching "Customer says X" row:
+   - A1: I never got the approval email
+   - A2: The response doesn't sound like me
+   - A3: I approved it but it's not posted on Google
+   - A4: I'm getting too many emails
+   - A5: My reviews aren't being picked up
+
+4. Reads the "First check" and "Fix" columns for immediate action.
+
+5. If more detail needed, clicks the `docs/operational-runbook.md` reference
+   → Full runbook covers daily health check, debugging SQL (correlation
+     trace, stuck outbox, business activity, reset stuck entry, today's cost,
+     bounced businesses, manual-post backlog), incident response (worker
+     crash, Redis down, Supabase down, SerpAPI quota, LLM down, cost breaker,
+     Resend degraded), and weekly maintenance tasks.
+```
+
+---
+
+## Every File In The Project
+
+*(Additions and changes from Sprint 6 are marked with 🆕 for new files and 📝 for modified files)*
+
+### Database (`supabase/migrations/`) — Sprint 6 additions
+
+| File | What it does |
+|---|---|
+| 🆕 `017_sprint6_scale.sql` | `api_costs_daily_rollups` table, `businesses.website`, `businesses.owner_email_bounced`, `idx_nd_created_at` |
+| 🆕 `018_correlation_and_dispatching_indexes.sql` | Correlation expression index, sync_reviews in-flight index rebuilt, generate_response lookup index |
+| 🆕 `019_notification_delivery_bounce_indexes.sql` | Partial indexes on external_message_id / sent_at / (failed_at, failure_reason) |
+| 🆕 `020_normalize_jsonb_scalar_strings.sql` | One-time data repair — converts JSONB scalar strings back to objects across 8 columns |
+
+### Worker Process (`worker/`) — Sprint 6 changes
+
+| File | What changed | Status |
+|---|---|---|
+| 📝 All 12 workers | Replaced `console.log` with `createWorkerLogger`. PII scrubbed from correlation-tagged logs. Read `correlation_id` from payload and propagate it to downstream outbox entries. | Working |
+| 📝 `jobs/ArchivalPoller.ts` | Added api_costs DELETE-first CTE (FOR UPDATE SKIP LOCKED → aggregate from RETURNING → additive upsert). Added notification_deliveries >90d delete. 5-target logging with saturation warnings. | Working |
+| 📝 `jobs/NotificationFailoverPoller.ts` | Added `recoverFailoverCorrelationId()` — preserves upstream correlation_id from prior send_notification or generate_response. Falls back to uuidv7 only as last resort. | Working |
+| 📝 `ingress/resend.ts` | Defensive bounce-type extraction + normalized `classifyBounce()`. Template-gated owner flag (only flags for owner-directed templates). Transition guard prevents duplicate admin alerts. | Working |
+
+### Worker Tests — Sprint 6 additions
+
+| File | Tests |
+|---|---|
+| 🆕 `__tests__/correlation-chain.test.ts` | Proves correlation_id flows through sync_reviews → generate_response → send_notification chain |
+| 🆕 `__tests__/webhook-dedup.test.ts` | Resend webhook dedup via external_event_key |
+| 🆕 `__tests__/resend-webhook-bounce.test.ts` | 8 tests: hard bounce flags + alerts, soft bounces don't, template-gated (admin_manual_post + partner_engagement_alert don't flag), onboarding_drip_day_7 DOES flag, transition guard prevents duplicate alerts |
+| 🆕 `__tests__/bounced-skip.test.ts` | 4 owner-directed workers skip-if-bounced |
+| 📝 `__tests__/NotificationFailoverPoller.test.ts` | Added 2 regression tests: correlation recovery from existing send_notification + fallback to generate_response |
+| 📝 `__tests__/ArchivalPoller.test.ts` | Added api_costs rollup path tests + concurrent-archival race safety |
+
+### Next.js Pages — Sprint 6 additions
+
+| File | What it does | Status |
+|---|---|---|
+| 🆕 `admin/runbook/page.tsx` | Static quick-reference page — 5-scenario "Customer says X" table, links to markdown runbook | Working |
+| 📝 `admin/businesses/[id]/page.tsx` | Red "Owner email bouncing" banner + "Clear bounce flag" button + editable ownerEmail field in profile editor | Working |
+| 📝 `admin/businesses/new/page.tsx` | SerpAPI prefill on place selection with AbortController + live `getFieldState` dirty check. Clear button resets prefilled fields. | Working |
+| 📝 `admin/overview/page.tsx` | Email Health card (24h delivery rate + 7d bounces/hard-bounces/complaints, red state when <95% or any 7d complaint/hard) | Working |
+| 📝 `admin/costs/page.tsx` | Added 180 and 365 day range options (exercises the rollup-backed path) | Working |
+
+### API Routes — Sprint 6 additions
+
+| File | What it does | Status |
+|---|---|---|
+| 🆕 `admin/businesses/prefill/route.ts` | GET: admin-only SerpAPI prefill by place_id. 10/min strict rate limit. | Working |
+| 📝 `api/admin/costs/route.ts` | Days cap raised to 365. Server-side UNION CTE merges detail + rollup. byDay additive merge. Boundary filter uses `<=` (not `<`) against `CURRENT_DATE - 90 days`. | Working |
+| 📝 `api/admin/overview/route.ts` | Email Health query (24h delivery + 7d bounces). Grouped CTE includes email health fields. | Working |
+| 📝 `api/admin/jobs/route.ts` | Imports `ALL_QUEUE_NAMES` from the shared registry so the list can't drift behind worker/queues.ts | Working |
+| 📝 `api/admin/businesses/[id]/route.ts` | Added `ownerEmail` + `ownerEmailBounced` to GET and PATCH allowlist | Working |
+
+### Shared Business Logic — Sprint 6 additions
+
+| File | What it does |
+|---|---|
+| 🆕 `src/lib/shared/logger.ts` | `createWorkerLogger(prefix, correlationId?)` — structured logs with optional correlation tag |
+| 🆕 `src/lib/shared/queue-names.ts` | `QUEUE_NAMES` + `ALL_QUEUE_NAMES` constants. Pure — no BullMQ imports. Shared by worker/queues.ts AND /api/admin/jobs. |
+| 🆕 `src/lib/approval/correlation.ts` | `recoverCorrelationId(tx, { reviewId, responseId })` — looks up upstream generate_response for approval-flow boundary |
+| 🆕 `src/lib/reviews/serpapi-prefill.ts` | `fetchBusinessDetails(placeId)` — 7-day Redis cache, cost tracking (even on failure), 2s timeout, never throws |
+| 📝 `src/lib/db/server.ts` | Added `jsonb<T>(value)` helper — wraps `sql.json(value)` so typed payloads satisfy Postgres.js's strict JSONValue. Used everywhere instead of `${JSON.stringify(x)}::jsonb` (which double-encodes). |
+| 📝 `src/lib/db/redis-cache.ts` | Removed `enableOfflineQueue: false` (fixes first-request race on dev boot) |
+| 📝 `src/lib/notifications/email.ts` | Added `EmailCategory` type, `getEmailHeaders()` (RFC 8058 compliant), `getEmailTags()`, 5 new templates for bounce banner + onboarding drip + satisfaction alert |
+| 📝 `src/lib/shared/worker-types.ts` | `BasePayload` with `correlation_id?` — all 12 payload types extend it |
+| 📝 `src/lib/shared/schemas.ts` | `websiteUrlSchema` (http/https only). `ownerEmail` + `website` added to `UpdateBusinessSchema`. |
+
+### Shared Tests — Sprint 6 additions
+
+| File | Tests |
+|---|---|
+| 🆕 `src/lib/shared/__tests__/email-headers.test.ts` | 8 tests: marketing vs transactional/internal, LIST_UNSUBSCRIBE_URL precedence, mailto fallback, unsafe scheme rejection |
+| 🆕 `src/lib/notifications/__tests__/email-send.test.ts` | 4 tests: transactional tags, internal default, marketing with HTTPS URL, marketing mailto-only (no Post header) |
+| 🆕 `src/lib/reviews/__tests__/serpapi-prefill.test.ts` | 33 tests: normalization variants (type/types/category/categories), hours shapes (array/object/nested), timeout cost recording, cache validation |
+
+### Components — Sprint 6 changes
+
+| File | What changed |
+|---|---|
+| 📝 `src/components/AdminNav.tsx` | Added "Runbook" link |
+| 📝 `src/components/PlaceAutocomplete.tsx` | onClear callback now also cancels in-flight prefill |
+
+### Documentation — Sprint 6 additions
+
+| File | What it does |
+|---|---|
+| 🆕 `docs/operational-runbook.md` | Authoritative ops reference — 5 sections: Customer-says-X, daily health check, debugging SQL, incident response, weekly maintenance |
+| 🆕 `docs/smoke-test-checklist.md` | Pre-launch manual E2E checklist — 3 businesses, throughput sanity, mobile approval perf |
+| 🆕 `docs/email-deliverability.md` | SPF/DKIM/DMARC setup, warmup schedule, monitoring, troubleshooting table, hard bounce flow, List-Unsubscribe compliance |
+
+### Test Infrastructure — Sprint 6 additions
+
+| File | What changed |
+|---|---|
+| 🆕 `vitest.setup.ts` | Sets dummy SUPABASE_URL / SUPABASE_SERVICE_KEY / DATABASE_POOL_URL so unit tests that transitively import db/server can load |
+| 📝 `vitest.config.ts` | Added `setupFiles: ['./vitest.setup.ts']` |
+| 📝 ~30 test files | Added `jsonb: (v: unknown) => v` pass-through to all db/server `vi.mock` calls |
+
+### Other — Sprint 6 changes
+
+| File | What changed |
+|---|---|
+| 📝 `.env.example` | Added `LIST_UNSUBSCRIBE_URL` (optional) and `NEXT_PUBLIC_DOCS_BASE_URL` (optional — makes runbook filenames clickable anchors) |
+
+---
+
 ## What's Left To Build
 
 ### Sprint 3: COMPLETE ✓
 ### Sprint 4: COMPLETE ✓
 ### Sprint 5A: COMPLETE ✓
 ### Sprint 5B: COMPLETE ✓
+### Sprint 6: COMPLETE ✓
 
-Everything through Sprint 5B is built and working. See next section for what remains.
+Everything through Sprint 6 is built and working.
 
-### Deferred from Sprint 4 to Sprint 6:
-- Correlation IDs across service boundaries (Sentry breadcrumbs + log prefixes sufficient at 10 businesses)
+### Still deferred (not yet needed):
 - PostHog analytics (zero paying customers = zero analytics value)
 - Load testing with k6/Artillery (10 businesses × 10 reviews/month doesn't warrant it yet)
 - DB-backed integration tests (requires dedicated test database in CI)
+- Voice learning activation (code is in place; activates naturally once ≥5 edited+posted responses exist per business)
 
-### Sprint 6: Scale to $1K MRR (Prompt 20)
+### Known residual risks (shipped as-is)
 
-- Voice learning activation (uses real owner edits as few-shot examples)
-- Onboarding automation (pre-fill business details from SerpAPI)
-- Customer health scoring
-- Data archival for old records
+Two real-but-narrow issues from the post-Sprint-6 review that were accepted rather than fixed. Full detail in `.claude/CLAUDE.md` under "Known residual risks":
+- **Approval email crash-after-send race** — duplicate emails possible in a millisecond race between Resend-ack and DB-write. Partially covered by `NotificationFailoverPoller`.
+- **`past_due` grace period based on mutable `updated_at`** — unrelated admin edits can reset the 7-day grace window. Low exploit risk. Planned for the next billing-focused sprint as a dedicated `subscription_status_changed_at` column.
+
+### GBP API Integration (When Google Approves)
+
+- OAuth flow for business onboarding
+- Google Pub/Sub for real-time review notifications
+- Automated response posting via GBP API (replaces manual copy-paste)
+- Adaptive polling intervals
+- Migrate existing customers from SerpAPI to GBP API
 
 ### GBP API Integration (When Google Approves)
 
