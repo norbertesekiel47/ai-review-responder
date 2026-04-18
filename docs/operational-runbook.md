@@ -129,28 +129,49 @@ Five scenarios a customer is likely to surface. Each one lists the
   1. Re-onboard the business via `/admin/businesses/new` using the
      PlaceAutocomplete (cleanest path — creates a fresh validated
      record).
-  2. Fix the place ID by direct SQL + enqueue a validation job:
+  2. If you already know the canonical Place ID, set it + verified
+     flag directly and enqueue `sync_reviews` in one transaction.
+     This skips `validate_place_id` entirely (its worker reads
+     `google_maps_url` from the payload, not `google_place_id`, and
+     will crash on NULL — so you cannot use it as a plain
+     "revalidate" hook).
      ```sql
+     BEGIN;
+
      UPDATE businesses
      SET google_place_id = '<canonical_place_id>',
-         place_id_verified = FALSE,
+         place_id_verified = TRUE,
          updated_at = NOW()
      WHERE id = '<business_id>';
 
      INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
      VALUES (
-       gen_random_uuid(), 'validate_place_id', 'business', '<business_id>',
+       gen_random_uuid(), 'sync_reviews', 'business', '<business_id>',
        jsonb_build_object(
          'business_id', '<business_id>',
          'google_place_id', '<canonical_place_id>',
-         'google_maps_url', NULL,
+         'correlation_id', gen_random_uuid()::text
+       ),
+       'pending'
+     );
+
+     COMMIT;
+     ```
+  3. If you ONLY have a Google Maps URL and need the worker to resolve
+     it, queue `validate_place_id` with a non-null URL (the worker
+     will parse the URL and populate the place ID itself):
+     ```sql
+     INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+     VALUES (
+       gen_random_uuid(), 'validate_place_id', 'business', '<business_id>',
+       jsonb_build_object(
+         'business_id', '<business_id>',
+         'google_maps_url', '<full https://maps.google.com/... URL>',
          'correlation_id', gen_random_uuid()::text
        ),
        'pending'
      );
      ```
-  The `PlaceIdValidationWorker` picks this up, confirms the Place ID
-  via SerpAPI, sets `place_id_verified=TRUE`, and enqueues `sync_reviews`.
 - Subscription issue → resolve billing via Stripe, `subscription_status`
   transitions on webhook.
 
@@ -186,7 +207,8 @@ its `payload` JSONB. One review's entire chain (sync → generate →
 notify → publish) shares the same ID.
 
 **Note the aggregate_id varies by topic:**
-- `sync_reviews`, `generate_response` → `aggregate_id = review_id`
+- `sync_reviews` → `aggregate_id = business_id`
+- `generate_response` → `aggregate_id = review_id`
 - `send_notification`, `publish_response` → `aggregate_id = response_id`
 
 So if you have a **response_id** (e.g. from `/admin/businesses/<id>`),
@@ -376,9 +398,23 @@ Costs are tracked separately in `api_costs.provider`.
 
 ### D6. Cost circuit breaker tripped (daily limit reached)
 
-**Auto:** Cost guard rejects new LLM + SerpAPI calls once the daily
-limit is hit. Workers log the rejection, outbox entries fail with
-`last_error='cost_limit_exceeded'`.
+**Auto:** The Redis daily cost guard (`src/lib/costs/tracker.ts`)
+rejects **response-generation** LLM calls once the per-business or
+global limit is hit. `ResponseGeneratorWorker` logs the rejection
+and its outbox entry fails with `last_error='cost_limit_exceeded'`.
+
+SerpAPI is **not** behind this same breaker:
+- **Review sync** (`ReviewSyncWorker`) calls SerpAPI and records
+  cost into `api_costs` after the fact — no pre-reservation.
+- **Pre-fill** (`serpapi-prefill.ts`) calls SerpAPI directly, then
+  records cost. A `strict` rate limiter (10/min per admin user, 75/day
+  global) provides the ceiling.
+- **Ranking** (`RankingTrackingWorker`) uses a separate monthly rate
+  limit, not the daily cost guard.
+
+So hitting the cost circuit stops new response generation, but
+SerpAPI paths have independent quotas. Watch `/admin/costs` to see
+aggregate spend across all providers.
 
 **Manual:**
 1. Verify via `/admin/costs` — confirm today's total is at/over the
