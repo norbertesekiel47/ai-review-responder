@@ -139,7 +139,7 @@ If anything is red, jump to Section D for the matching incident.
 | Pending outbox | System Health card | `< 50` |
 | Dispatched > 1h old | `/admin/jobs` → failed list (check `created_at`) | `0` |
 | Notification failures (24h) | System Health card | `0` |
-| Today's cost | System Health card | `< 80%` of `DAILY_COST_LIMIT_USD` |
+| Today's cost | System Health card | `< 80%` of daily limit (env `GLOBAL_DAILY_COST_LIMIT_CENTS`, in cents; overview shows USD) |
 | Email health card | Overview page | `Green` (delivery ≥95%, no 7d hard bounces/complaints) |
 
 If all six are green, you're done. Total time: 2 minutes.
@@ -325,10 +325,12 @@ limit is hit. Workers log the rejection, outbox entries fail with
 `last_error='cost_limit_exceeded'`.
 
 **Manual:**
-1. Verify via `/admin/costs` — confirm today's total is at/over
-   `DAILY_COST_LIMIT_USD`.
-2. If legitimate traffic, increase `DAILY_COST_LIMIT_USD` env var
-   and redeploy. Failed outbox entries will retry after reset.
+1. Verify via `/admin/costs` — confirm today's total is at/over the
+   configured cap. The global default is `GLOBAL_DAILY_COST_LIMIT_CENTS`
+   (10000 cents = $100/day). Per-tier overrides:
+   `DAILY_COST_LIMIT_CENTS_FOUNDING` / `_STANDARD` / `_PREMIUM`.
+2. If legitimate traffic, increase the relevant `*_CENTS` env var and
+   redeploy. Failed outbox entries will retry after reset.
 3. If abuse/runaway loop, find the source (check `api_costs` by
    `business_id` and `created_at`) before raising the limit.
 
