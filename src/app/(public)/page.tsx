@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef } from 'react';
+import Link from 'next/link';
 import { motion, useScroll, useTransform } from 'motion/react';
 import { HowItWorksCarousel } from './components/landing/HowItWorksCarousel';
 import type { CarouselStep } from './components/landing/HowItWorksCarousel';
@@ -75,7 +76,6 @@ export default function LandingPage() {
   const heroRef = useRef<HTMLDivElement>(null);
   const featuresRef = useRef<HTMLDivElement>(null);
   const howItWorksRef = useRef<HTMLDivElement>(null);
-  const platformsRef = useRef<HTMLDivElement>(null);
   const ctaRef = useRef<HTMLDivElement>(null);
 
   const { scrollYProgress } = useScroll({
@@ -128,7 +128,6 @@ export default function LandingPage() {
           { ref: heroRef, label: 'Hero' },
           { ref: featuresRef, label: 'Features' },
           { ref: howItWorksRef, label: 'How it works' },
-          { ref: platformsRef, label: 'Platforms' },
           { ref: ctaRef, label: 'Book a Demo' },
         ].map(({ ref, label }) => (
           <button
@@ -150,23 +149,21 @@ export default function LandingPage() {
         >
           {/* Nav */}
           <nav className="px-8 py-4 border-b border-[#97B3AE]/10 flex items-center justify-between">
-            <div className="flex items-center gap-8">
+            <div className="hidden sm:flex items-center gap-8">
               {[
-                { label: 'Features', ref: featuresRef },
-                { label: 'How it works', ref: howItWorksRef },
-                { label: 'Platforms', ref: platformsRef },
-              ].map(({ label, ref }) => (
-                <button
+                { label: 'Features', href: '/features' },
+                { label: 'How it works', href: '/how-it-works' },
+                { label: 'Pricing', href: '/pricing' },
+                { label: 'Book a Demo', href: '/book-a-demo' },
+              ].map(({ label, href }) => (
+                <Link
                   key={label}
-                  onClick={() => scrollTo(ref)}
+                  href={href}
                   className="text-sm text-[#6a6a6a] hover:text-[#97B3AE] transition-colors"
                 >
                   {label}
-                </button>
+                </Link>
               ))}
-              <a href="/pricing" className="text-sm text-[#6a6a6a] hover:text-[#97B3AE] transition-colors">
-                Pricing
-              </a>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#97B3AE] to-[#97B3AE]/80" />
@@ -269,7 +266,7 @@ export default function LandingPage() {
           </section>
 
           {/* Platforms */}
-          <section ref={platformsRef} className="px-12 py-20 bg-gradient-to-b from-white to-[#F0EEEA]/30">
+          <section className="px-12 py-20 bg-gradient-to-b from-white to-[#F0EEEA]/30">
             <div className="max-w-4xl mx-auto">
               <div className="text-center mb-12">
                 <motion.h2
