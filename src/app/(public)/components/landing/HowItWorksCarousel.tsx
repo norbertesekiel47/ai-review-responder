@@ -38,9 +38,8 @@ export function HowItWorksCarousel({ steps }: HowItWorksCarouselProps) {
     setCurrentStep(index);
   };
 
-  // Safe: currentStep is always in [0, steps.length - 1] due to boundary guards
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-  const step = steps[currentStep]!;
+  const step = steps[currentStep];
+  if (!step) return null;
 
   return (
     <div>
