@@ -385,7 +385,7 @@ export default function FeaturesPage() {
             </p>
           </motion.div>
           <motion.div
-            className="bg-[#F0EEEA]/50 rounded-2xl border border-[#97B3AE]/10 p-6 shadow-lg opacity-70"
+            className="bg-[#F0EEEA]/50 rounded-2xl border border-[#97B3AE]/10 p-6 shadow-lg"
             initial={{ opacity: 0, x: 20 }}
             whileInView={{ opacity: 0.7, x: 0 }}
             viewport={{ once: true, margin: '-100px' }}
