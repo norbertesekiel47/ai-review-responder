@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Resend } from 'resend';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 
+export const dynamic = 'force-dynamic';
+
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const NOTIFY_TO = process.env.CONTACT_NOTIFY_TO ?? 'norbertesekiel@gmail.com';
 
