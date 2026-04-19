@@ -166,23 +166,29 @@ export default function PricingPage() {
                 <span className="text-[#6a6a6a] text-sm">/month</span>
               </div>
 
-              <Link href="/book-a-demo">
-                <motion.span
-                  className={`block w-full text-center py-3 rounded-full font-medium text-sm mb-6 cursor-pointer ${
-                    plan.highlight
-                      ? 'bg-[#97B3AE] text-white shadow-lg'
-                      : 'bg-[#F0EEEA] text-[#2a2a2a] border border-[#97B3AE]/10'
-                  }`}
-                  whileHover={plan.comingSoon ? {} : { scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                >
+              {plan.comingSoon ? (
+                <span className="block w-full text-center py-3 rounded-full font-medium text-sm mb-6 bg-[#F0EEEA] text-[#6a6a6a]/50 border border-[#97B3AE]/10 cursor-not-allowed">
                   {plan.cta}
-                </motion.span>
-              </Link>
+                </span>
+              ) : (
+                <Link href="/book-a-demo">
+                  <motion.span
+                    className={`block w-full text-center py-3 rounded-full font-medium text-sm mb-6 cursor-pointer ${
+                      plan.highlight
+                        ? 'bg-[#97B3AE] text-white shadow-lg'
+                        : 'bg-[#F0EEEA] text-[#2a2a2a] border border-[#97B3AE]/10'
+                    }`}
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                  >
+                    {plan.cta}
+                  </motion.span>
+                </Link>
+              )}
 
               <ul className="space-y-3 flex-1">
-                {plan.features.map((f, j) => (
-                  <li key={j} className="flex items-start gap-2 text-sm text-[#6a6a6a]">
+                {plan.features.map((f) => (
+                  <li key={f} className="flex items-start gap-2 text-sm text-[#6a6a6a]">
                     <svg className="w-4 h-4 text-[#97B3AE] shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
                     </svg>
@@ -210,7 +216,7 @@ export default function PricingPage() {
           <div className="grid sm:grid-cols-2 gap-4">
             {INCLUDED.map((item, i) => (
               <motion.div
-                key={i}
+                key={item}
                 className="flex items-start gap-3 bg-white rounded-xl p-4 border border-[#97B3AE]/10 shadow-sm"
                 initial={{ opacity: 0, y: 10 }}
                 whileInView={{ opacity: 1, y: 0 }}
@@ -260,12 +266,12 @@ export default function PricingPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-[#F0EEEA]/60 border-b border-[#97B3AE]/10">
-                  <th className="text-left px-6 py-4 font-medium text-[#2a2a2a]">Solution</th>
-                  <th className="text-left px-6 py-4 font-medium text-[#2a2a2a]">Cost</th>
-                  <th className="text-left px-6 py-4 font-medium text-[#2a2a2a]">AI responses</th>
-                  <th className="text-left px-6 py-4 font-medium text-[#2a2a2a]">Owner approval</th>
-                  <th className="text-left px-6 py-4 font-medium text-[#2a2a2a]">Multilingual</th>
-                  <th className="text-left px-6 py-4 font-medium text-[#2a2a2a]">Setup</th>
+                  <th scope="col" className="text-left px-6 py-4 font-medium text-[#2a2a2a]">Solution</th>
+                  <th scope="col" className="text-left px-6 py-4 font-medium text-[#2a2a2a]">Cost</th>
+                  <th scope="col" className="text-left px-6 py-4 font-medium text-[#2a2a2a]">AI responses</th>
+                  <th scope="col" className="text-left px-6 py-4 font-medium text-[#2a2a2a]">Owner approval</th>
+                  <th scope="col" className="text-left px-6 py-4 font-medium text-[#2a2a2a]">Multilingual</th>
+                  <th scope="col" className="text-left px-6 py-4 font-medium text-[#2a2a2a]">Setup</th>
                 </tr>
               </thead>
               <tbody>
