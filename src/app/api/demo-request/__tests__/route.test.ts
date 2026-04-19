@@ -94,4 +94,17 @@ describe('POST /api/demo-request', () => {
     const res = await POST(makeRequest({ name: 'Alice', email: 'a@b.com', businessName: 'Acme', googleMapsUrl: '' }));
     expect(res.status).toBe(500);
   });
+
+  it('returns 400 when googleMapsUrl is not https', async () => {
+    const { POST } = await import('../route');
+    const res = await POST(makeRequest({ name: 'Alice', email: 'a@b.com', businessName: 'Acme', googleMapsUrl: 'http://maps.google.com' }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/https/i);
+  });
+
+  it('accepts valid https googleMapsUrl', async () => {
+    const { POST } = await import('../route');
+    const res = await POST(makeRequest({ name: 'Alice', email: 'a@b.com', businessName: 'Acme', googleMapsUrl: 'https://maps.google.com/maps?cid=123' }));
+    expect(res.status).toBe(200);
+  });
 });

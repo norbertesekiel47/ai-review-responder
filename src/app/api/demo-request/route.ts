@@ -7,6 +7,10 @@ export const dynamic = 'force-dynamic';
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const NOTIFY_TO = process.env.CONTACT_NOTIFY_TO ?? 'norbertesekiel@gmail.com';
 
+const MAX_NAME_LEN = 200;
+const MAX_BUSINESS_NAME_LEN = 300;
+const MAX_URL_LEN = 2048;
+
 export async function POST(req: NextRequest): Promise<NextResponse> {
   const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown';
   const rateCheck = await checkRateLimit(`demo-request:hour:${ip}`, 5, 3600);
@@ -37,11 +41,31 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'businessName is required' }, { status: 400 });
   }
 
+  if (name.trim().length > MAX_NAME_LEN) {
+    return NextResponse.json({ error: 'name is too long' }, { status: 400 });
+  }
+  if (businessName.trim().length > MAX_BUSINESS_NAME_LEN) {
+    return NextResponse.json({ error: 'businessName is too long' }, { status: 400 });
+  }
+
+  const rawUrl = typeof googleMapsUrl === 'string' ? googleMapsUrl.trim() : '';
+  if (rawUrl) {
+    if (rawUrl.length > MAX_URL_LEN) {
+      return NextResponse.json({ error: 'googleMapsUrl is too long' }, { status: 400 });
+    }
+    try {
+      const parsed = new URL(rawUrl);
+      if (parsed.protocol !== 'https:') throw new Error();
+    } catch {
+      return NextResponse.json({ error: 'googleMapsUrl must be a valid https URL' }, { status: 400 });
+    }
+  }
+
   const submission = {
     name: name.trim(),
     email: email.trim(),
     businessName: businessName.trim(),
-    googleMapsUrl: typeof googleMapsUrl === 'string' ? googleMapsUrl.trim() : '',
+    googleMapsUrl: rawUrl,
     timestamp: new Date().toISOString(),
   };
 
