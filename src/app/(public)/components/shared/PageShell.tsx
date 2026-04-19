@@ -1,10 +1,10 @@
 'use client';
 
-import { useRef } from 'react';
+import { useRef, type RefObject } from 'react';
 import { motion, useScroll, useTransform } from 'motion/react';
 
 export interface PageSection {
-  ref: React.RefObject<HTMLDivElement | null>;
+  ref: RefObject<HTMLDivElement | null>;
   label: string;
 }
 
@@ -73,7 +73,7 @@ export function PageShell({ sections, children }: PageShellProps) {
       {/* Island wrapper */}
       <div className="relative z-10 min-h-screen py-20 px-4 flex items-center justify-center">
         <motion.div
-          className="w-full max-w-5xl bg-white rounded-[3rem] shadow-2xl overflow-hidden"
+          className="w-full max-w-5xl bg-white rounded-[3rem] shadow-2xl"
           initial={{ opacity: 0, y: 40, scale: 0.95 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           transition={{ duration: 0.8, ease: 'easeOut' }}
