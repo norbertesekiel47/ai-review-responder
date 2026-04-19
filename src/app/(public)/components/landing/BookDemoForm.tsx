@@ -86,6 +86,8 @@ export function BookDemoForm() {
         disabled={state === 'loading'}
         className={inputClass}
         autoComplete="name"
+        aria-label="Your name"
+        name="name"
       />
       <input
         type="email"
@@ -95,6 +97,8 @@ export function BookDemoForm() {
         disabled={state === 'loading'}
         className={inputClass}
         autoComplete="email"
+        aria-label="Email address"
+        name="email"
       />
       <input
         type="text"
@@ -104,15 +108,19 @@ export function BookDemoForm() {
         disabled={state === 'loading'}
         className={inputClass}
         autoComplete="organization"
+        aria-label="Business name"
+        name="organization"
       />
       <input
-        type="url"
+        type="text"
         placeholder="Google Maps link (optional — helps us prep your demo)"
         value={googleMapsUrl}
         onChange={(e) => setGoogleMapsUrl(e.target.value)}
         disabled={state === 'loading'}
         className={inputClass}
         autoComplete="url"
+        aria-label="Google Maps link"
+        name="url"
       />
 
       {state === 'error' && errorMsg && (
