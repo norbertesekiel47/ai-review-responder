@@ -10,7 +10,7 @@ const NAV_LINKS = [
 export function SiteNav() {
   return (
     <nav className="px-8 py-4 border-b border-[#97B3AE]/10 flex items-center justify-between">
-      <div className="flex items-center gap-6">
+      <div className="hidden sm:flex items-center gap-6">
         {NAV_LINKS.map(({ label, href }) => (
           <Link
             key={label}

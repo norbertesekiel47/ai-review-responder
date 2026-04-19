@@ -13,6 +13,7 @@ export default function FeaturesPage() {
   const voiceRef = useRef<HTMLDivElement>(null);
   const briefRef = useRef<HTMLDivElement>(null);
   const roiRef = useRef<HTMLDivElement>(null);
+  const competitorRef = useRef<HTMLDivElement>(null);
 
   const sections = [
     { ref: aiRef, label: 'AI' },
@@ -21,6 +22,7 @@ export default function FeaturesPage() {
     { ref: voiceRef, label: 'Voice' },
     { ref: briefRef, label: 'Brief' },
     { ref: roiRef, label: 'ROI' },
+    { ref: competitorRef, label: 'Competitor' },
   ];
 
   return (
@@ -362,7 +364,7 @@ export default function FeaturesPage() {
       </section>
 
       {/* Feature 7: Competitor monitoring */}
-      <section aria-label="Competitor monitoring" className="px-8 py-16 bg-white">
+      <section ref={competitorRef} aria-label="Competitor monitoring" className="px-8 py-16 bg-white">
         <div className="max-w-4xl mx-auto grid md:grid-cols-2 gap-12 items-center">
           <motion.div
             initial={{ opacity: 0, x: -20 }}
