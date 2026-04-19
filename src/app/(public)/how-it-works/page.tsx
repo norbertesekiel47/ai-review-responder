@@ -72,7 +72,7 @@ export default function HowItWorksPage() {
       <SiteNav />
 
       {/* Hero */}
-      <section className="px-8 py-16 md:py-20 text-center bg-gradient-to-b from-white to-[#F0EEEA]/30">
+      <section aria-label="Page hero" className="px-8 py-16 md:py-20 text-center bg-gradient-to-b from-white to-[#F0EEEA]/30">
         <motion.p
           className="text-sm tracking-wider uppercase text-[#97B3AE] mb-4"
           initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
@@ -97,7 +97,7 @@ export default function HowItWorksPage() {
       </section>
 
       {/* Steps */}
-      <section ref={stepsRef} className="px-8 py-16 bg-white">
+      <section ref={stepsRef} aria-label="How it works steps" className="px-8 py-16 bg-white">
         <div className="max-w-4xl mx-auto space-y-6">
           {STEPS.map((step, i) => (
             <motion.div
@@ -122,7 +122,7 @@ export default function HowItWorksPage() {
       </section>
 
       {/* Example: sample review + response */}
-      <section ref={exampleRef} className="px-8 py-16 bg-gradient-to-b from-white to-[#F0EEEA]/30">
+      <section ref={exampleRef} aria-label="Example review and response" className="px-8 py-16 bg-gradient-to-b from-white to-[#F0EEEA]/30">
         <div className="max-w-4xl mx-auto">
           <motion.h2
             className="text-3xl md:text-4xl font-medium text-[#2a2a2a] mb-4 text-center"
@@ -153,12 +153,12 @@ export default function HowItWorksPage() {
               transition={{ duration: 0.6, delay: 0.2 }}
             >
               <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#D2E0D3] to-[#D2E0D3]/50" />
+                <div aria-hidden="true" className="w-10 h-10 rounded-full bg-gradient-to-br from-[#D2E0D3] to-[#D2E0D3]/50" />
                 <div>
                   <p className="font-medium text-[#2a2a2a] text-sm">Maria G.</p>
-                  <div className="flex gap-0.5">
+                  <div className="flex gap-0.5" role="img" aria-label="5 out of 5 stars">
                     {[0, 1, 2, 3, 4].map((j) => (
-                      <svg key={j} className="w-3.5 h-3.5 text-yellow-400" fill="currentColor" viewBox="0 0 20 20">
+                      <svg key={j} aria-hidden="true" className="w-3.5 h-3.5 text-yellow-400" fill="currentColor" viewBox="0 0 20 20">
                         <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
                       </svg>
                     ))}
@@ -200,7 +200,7 @@ export default function HowItWorksPage() {
       </section>
 
       {/* FAQ */}
-      <section ref={faqRef} className="px-8 py-16 bg-white">
+      <section ref={faqRef} aria-label="Frequently asked questions" className="px-8 py-16 bg-white">
         <div className="max-w-3xl mx-auto">
           <motion.h2
             className="text-3xl md:text-4xl font-medium text-[#2a2a2a] mb-10 text-center"
@@ -230,7 +230,7 @@ export default function HowItWorksPage() {
       </section>
 
       {/* CTA */}
-      <section className="px-8 py-20 bg-gradient-to-br from-[#97B3AE] to-[#97B3AE]/80 text-white rounded-b-[3rem] text-center">
+      <section aria-label="Book a demo call to action" className="px-8 py-20 bg-gradient-to-br from-[#97B3AE] to-[#97B3AE]/80 text-white rounded-b-[3rem] text-center">
         <motion.h2
           className="text-4xl md:text-5xl font-medium mb-4"
           initial={{ opacity: 0, y: 20 }}
