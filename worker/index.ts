@@ -63,8 +63,32 @@ import { startRankingTrackingScheduler, stopRankingTrackingScheduler } from './j
 import { handleTrackRanking } from './jobs/RankingTrackingWorker';
 import { startOnboardingDripScheduler, stopOnboardingDripScheduler } from './jobs/OnboardingDripScheduler';
 import { handleOnboardingDrip } from './jobs/OnboardingDripWorker';
+import { isMockMode } from '../src/lib/shared/mock-mode';
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
+
+// NotificationFailoverPoller gate (Phase 0 update).
+//
+// Stale detection now gates on notification_deliveries.sent_at (written by
+// the dispatcher on every successful send), not delivered_at — so the
+// Resend delivery webhook is no longer a prerequisite. The stale branch
+// alerts admin directly instead of re-dispatching, so missing delivery
+// webhooks no longer cause email re-send spam.
+//
+// We still short-circuit in mock mode (no real sends happening) and respect
+// the explicit NOTIFICATION_FAILOVER_DISABLED escape hatch for local-dev
+// ergonomics. RESEND_WEBHOOK_SECRET is no longer consulted here.
+//
+// See docs/adding-communication-channels.md §3.5.
+function shouldRunFailoverPoller(): { run: boolean; reason?: string } {
+  if (process.env.NOTIFICATION_FAILOVER_DISABLED === 'true') {
+    return { run: false, reason: 'NOTIFICATION_FAILOVER_DISABLED=true' };
+  }
+  if (isMockMode()) {
+    return { run: false, reason: 'MOCK_EXTERNAL_APIS=true (no real sends)' };
+  }
+  return { run: true };
+}
 
 // ---------------------------------------------------------------------------
 // Fastify server — health check + webhook ingress
@@ -160,7 +184,12 @@ async function main(): Promise<void> {
   await app.listen({ port: PORT, host: '0.0.0.0' });
   startOutboxPoller();
   startReconciliationPoller();
-  startNotificationFailoverPoller();
+  const failoverDecision = shouldRunFailoverPoller();
+  if (failoverDecision.run) {
+    startNotificationFailoverPoller();
+  } else {
+    console.log(`[NotificationFailover] Skipped — ${failoverDecision.reason}`);
+  }
   startWeeklySummaryScheduler();
   startArchivalPoller();
   startMonthlyImpactScheduler();
