@@ -81,3 +81,24 @@ describe('EmailChannel', () => {
     ).rejects.toThrow(/Resend 5xx/);
   });
 });
+
+import { getChannel } from '../index';
+import type { ChannelId } from '../types';
+
+describe('getChannel factory', () => {
+  it('returns an EmailChannel for id "email"', () => {
+    const ch = getChannel('email');
+    expect(ch.id).toBe('email');
+    expect(ch).toBeInstanceOf(EmailChannel);
+  });
+
+  it('throws for an unknown channel id', () => {
+    expect(() => getChannel('discord' as ChannelId)).toThrow(/unknown channel/i);
+  });
+
+  it('throws for a not-yet-implemented channel (sms, telegram, whatsapp)', () => {
+    for (const id of ['sms', 'telegram', 'whatsapp'] as const) {
+      expect(() => getChannel(id)).toThrow(/not yet implemented/i);
+    }
+  });
+});
