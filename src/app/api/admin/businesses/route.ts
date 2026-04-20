@@ -235,6 +235,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         )
       `;
 
+      const enrollmentId = uuidv7();
+      await tx`
+        INSERT INTO channel_enrollments (id, business_id, channel, handle, status, verified_at)
+        VALUES (${enrollmentId}, ${businessId}, 'email', ${data.ownerEmail}, 'verified', NOW())
+        ON CONFLICT (business_id, channel) DO NOTHING
+      `;
+
       const correlationId = uuidv7();
 
       if (placeIdVerified) {
