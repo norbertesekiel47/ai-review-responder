@@ -22,7 +22,6 @@ const FormSchema = z.object({
   ownerName: z.string().min(1, 'Owner name is required').max(255),
   ownerEmail: z.string().email('Valid email is required').max(255),
   ownerPhone: z.string().max(20).optional(),
-  notificationPreference: z.enum(['email', 'sms', 'both']),
   tone: z.string().max(100),
   productsServices: z.string().max(5000).optional(),
   staffNames: z.string().max(2000).optional(),
@@ -106,7 +105,6 @@ export default function NewBusinessPage() {
   } = useForm<FormData>({
     resolver: zodResolver(FormSchema),
     defaultValues: {
-      notificationPreference: 'email',
       tone: 'professional and friendly',
       subscriptionTier: 'founding',
     },
@@ -410,16 +408,6 @@ export default function NewBusinessPage() {
               />
             </Field>
 
-            <Field
-              label="Notification Preference"
-              error={errors.notificationPreference?.message}
-            >
-              <select {...register('notificationPreference')} className={inputClass}>
-                <option value="email">Email</option>
-                <option value="sms">SMS</option>
-                <option value="both">Both</option>
-              </select>
-            </Field>
           </SectionCard>
 
           {/* Section 3 — Voice & Context */}
