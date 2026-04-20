@@ -257,11 +257,13 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
     expect(mockCreateApprovalLink).toHaveBeenCalledWith({
       responseId: 'resp-p1',
       businessId: 'biz-drip-1',
+      channel: 'email',
       revokeMode: 'orphaned_only',
     });
     expect(mockCreateApprovalLink).toHaveBeenCalledWith({
       responseId: 'resp-p2',
       businessId: 'biz-drip-1',
+      channel: 'email',
       revokeMode: 'orphaned_only',
     });
 

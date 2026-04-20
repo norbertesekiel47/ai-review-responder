@@ -158,6 +158,7 @@ async function handleOwnerNudge(
     const { rawToken } = await createApprovalLink({
       responseId: row.response_id,
       businessId,
+      channel: 'email',
       revokeMode: 'orphaned_only',
     });
     pendingReviews.push({

@@ -139,6 +139,7 @@ export async function handleSendNotification(
   const { rawToken } = await createApprovalLink({
     responseId: response_id,
     businessId: business_id,
+    channel: 'email',
   });
 
   // ── Step 7: Send email ─────────────────────────────────────────────
