@@ -29,7 +29,9 @@ export interface SendNotificationPayload extends BasePayload {
   business_id: string;
   /** Present only when re-queued by the NotificationFailoverPoller. */
   failover?: {
-    reason: 'stale_no_delivery' | 'all_deliveries_failed';
+    reason: 'all_deliveries_failed';
+    // 'stale_no_delivery' was removed in Phase 0 — the poller alerts admin
+    // directly instead of re-dispatching. See docs/adding-communication-channels.md §3.5.
   };
 }
 

@@ -240,7 +240,7 @@ describe('NotificationWorker – handleSendNotification', () => {
   // 5. Failover skips when delivery already succeeded
   it('failover: completes without sending when delivered_at exists', async () => {
     const job = makeJob();
-    (job.data as any).failover = { reason: 'stale_no_delivery' as const };
+    (job.data as any).failover = { reason: 'all_deliveries_failed' as const };
 
     stubEmailChannel();
     mockGetVerifiedEnrollments.mockResolvedValue([
@@ -263,7 +263,7 @@ describe('NotificationWorker – handleSendNotification', () => {
   // 6. Failover re-sends even when old sent_at delivery exists (the key distinction)
   it('failover: re-sends when sent_at exists but no delivered_at', async () => {
     const job = makeJob();
-    (job.data as any).failover = { reason: 'stale_no_delivery' as const };
+    (job.data as any).failover = { reason: 'all_deliveries_failed' as const };
 
     stubEmailChannel();
     mockGetVerifiedEnrollments.mockResolvedValue([

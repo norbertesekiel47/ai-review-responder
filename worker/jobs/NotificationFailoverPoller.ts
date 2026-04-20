@@ -59,7 +59,7 @@ async function recoverFailoverCorrelationId(responseId: string): Promise<string>
   return uuidv7();
 }
 
-async function checkFailedNotifications(): Promise<void> {
+export async function runFailoverPollerOnce(): Promise<void> {
   if (isPolling) return;
   isPolling = true;
 
@@ -168,19 +168,36 @@ async function checkFailedNotifications(): Promise<void> {
       console.log(`${LOG_PREFIX} Processed ${allFailedResponses.length} all-failed responses`);
     }
 
-    // ── 2. Stale: pending_approval >4h, no confirmed delivery, no in-flight outbox ──
-    // Runs AFTER all-failed so those responses already have outbox entries and are
-    // excluded by the in-flight check here.
-    const staleResponses = await sql<{ response_id: string; business_id: string }[]>`
-      SELECT resp.id AS response_id, resp.business_id
+    // ── 2. Stale: pending_approval >4h, at least one send attempted, no approval ──
+    //
+    // Query gates on sent_at (we tried to notify), NOT delivered_at. Telegram
+    // Bot API has no "delivered to recipient" callback, and SMS/WhatsApp
+    // delivery webhooks are unreliable in some regions — gating on
+    // delivered_at would false-alert on every Telegram-enrolled owner.
+    //
+    // Multi-channel era: re-sending has already happened across every enrolled
+    // channel on initial dispatch. If the owner hasn't approved after 4h on
+    // ANY channel, resending is unlikely to help — escalate to admin instead.
+    // See docs/adding-communication-channels.md §3.5.
+    const staleResponses = await sql<{
+      response_id: string;
+      business_id: string;
+      business_name: string;
+      reviewer_name: string;
+      star_rating: number;
+    }[]>`
+      SELECT resp.id AS response_id, resp.business_id,
+             b.name AS business_name, r.reviewer_name, r.star_rating
       FROM responses resp
+      JOIN businesses b ON resp.business_id = b.id
+      JOIN reviews r ON resp.review_id = r.id
       WHERE resp.status = 'pending_approval'
         AND resp.created_at < NOW() - INTERVAL '4 hours'
-        AND NOT EXISTS (
+        AND EXISTS (
           SELECT 1 FROM notification_deliveries nd
           WHERE nd.response_id = resp.id
             AND nd.template = 'approval_request'
-            AND nd.delivered_at IS NOT NULL
+            AND nd.sent_at IS NOT NULL
         )
         AND NOT EXISTS (
           SELECT 1 FROM job_outbox jo
@@ -190,41 +207,48 @@ async function checkFailedNotifications(): Promise<void> {
         )
     `;
 
-    let staleQueued = 0;
+    const adminEmail = process.env.ADMIN_NOTIFICATION_EMAIL;
+    let alertedCount = 0;
     for (const row of staleResponses) {
-      const payload: SendNotificationPayload = {
-        response_id: row.response_id,
-        business_id: row.business_id,
-        failover: { reason: 'stale_no_delivery' },
-        correlation_id: await recoverFailoverCorrelationId(row.response_id),
-      };
+      if (!adminEmail) {
+        console.warn(`${LOG_PREFIX} Stuck response ${row.response_id} detected but ADMIN_NOTIFICATION_EMAIL not set — no alert sent`);
+        continue;
+      }
+
+      const [recentAlert] = await sql<{ id: string }[]>`
+        SELECT id FROM notification_deliveries
+        WHERE response_id = ${row.response_id}
+          AND template = 'approval_responsiveness_alert'
+          AND recipient = ${adminEmail}
+          AND created_at > NOW() - INTERVAL '24 hours'
+      `;
+      if (recentAlert) continue;
+
       try {
-        const inserted = await sql`
-          INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-          SELECT
-            ${uuidv7()},
-            'send_notification',
-            'response',
-            ${row.response_id},
-            ${jsonb(payload)},
-            'pending'
-          WHERE NOT EXISTS (
-            SELECT 1 FROM job_outbox jo
-            WHERE jo.topic = 'send_notification'
-              AND jo.aggregate_id = ${row.response_id}
-              AND jo.status IN ('pending', 'dispatching', 'dispatched')
-          )
-        `;
-        if (inserted.count > 0) staleQueued++;
-      } catch (err: unknown) {
-        const code = (err as { code?: string }).code;
-        if (code === '23505') continue;
-        console.error(`${LOG_PREFIX} Failed to queue failover for response ${row.response_id}:`, err);
+        const { messageId } = await sendInternalEmail({
+          to: adminEmail,
+          subject: `Approval stuck: ${row.business_name} — no response in 4+ hours`,
+          bodyHtml: `<p>A draft response to <strong>${escapeHtml(row.reviewer_name)}</strong>'s ${row.star_rating}-star review of <strong>${escapeHtml(row.business_name)}</strong> has been waiting for owner approval for more than 4 hours.</p>
+            <p>Every enrolled channel was notified successfully; the owner simply hasn't responded. Consider a check-in call.</p>
+            <p><em>Response ID: ${row.response_id}</em></p>`,
+          category: 'internal',
+        });
+        await recordNotificationDelivery({
+          businessId: row.business_id,
+          responseId: row.response_id,
+          channel: 'email',
+          recipient: adminEmail,
+          template: 'approval_responsiveness_alert',
+          externalMessageId: messageId,
+        });
+        alertedCount++;
+      } catch (err) {
+        console.error(`${LOG_PREFIX} Failed to send responsiveness alert for response ${row.response_id}:`, err);
       }
     }
 
-    if (staleQueued > 0) {
-      console.log(`${LOG_PREFIX} Queued ${staleQueued} stale failover entries (${staleResponses.length} candidates)`);
+    if (alertedCount > 0) {
+      console.log(`${LOG_PREFIX} Sent ${alertedCount} responsiveness alerts (${staleResponses.length} stuck candidates)`);
     }
   } catch (error) {
     console.error(`${LOG_PREFIX} Poll cycle failed:`, error);
@@ -236,9 +260,9 @@ async function checkFailedNotifications(): Promise<void> {
 export function startNotificationFailoverPoller(): void {
   const intervalMs = getIntervalMs();
   console.log(`${LOG_PREFIX} Starting (interval=${intervalMs}ms)`);
-  checkFailedNotifications().catch(console.error);
+  runFailoverPollerOnce().catch(console.error);
   pollerInterval = setInterval(() => {
-    checkFailedNotifications().catch(console.error);
+    runFailoverPollerOnce().catch(console.error);
   }, intervalMs);
 }
 
