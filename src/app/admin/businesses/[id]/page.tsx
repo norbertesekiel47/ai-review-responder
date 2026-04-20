@@ -66,6 +66,27 @@ interface DetailData {
   rankingSnapshots: RankingSnapshot[];
 }
 
+interface ChannelEnrollmentRow {
+  channel: 'email' | 'sms' | 'telegram' | 'whatsapp';
+  handle: string;
+  status: 'pending_verification' | 'verified' | 'disabled' | 'unsubscribed';
+  verified_at: string | null;
+  disabled_at: string | null;
+  unsubscribed_at: string | null;
+  unsubscribed_reason: string | null;
+  last_activity_at: string | null;
+}
+
+function StatusBadge({ status }: { status: ChannelEnrollmentRow['status'] }) {
+  const styles: Record<ChannelEnrollmentRow['status'], string> = {
+    verified: 'bg-green-100 text-green-800',
+    pending_verification: 'bg-yellow-100 text-yellow-800',
+    disabled: 'bg-gray-100 text-gray-800',
+    unsubscribed: 'bg-red-100 text-red-800',
+  };
+  return <span className={`px-2 py-0.5 rounded text-xs ${styles[status]}`}>{status}</span>;
+}
+
 function renderStars(rating: number): string {
   return '\u2605'.repeat(rating) + '\u2606'.repeat(5 - rating);
 }
@@ -646,6 +667,19 @@ export default function BusinessDetailPage() {
     },
   });
 
+  const { data: channelsData } = useQuery<{ enrollments: ChannelEnrollmentRow[] }>({
+    queryKey: ['admin-business-channels', businessId],
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/businesses/${businessId}/channels`);
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        throw new Error((json as { error?: string }).error ?? `HTTP ${res.status}`);
+      }
+      return res.json() as Promise<{ enrollments: ChannelEnrollmentRow[] }>;
+    },
+  });
+  const enrollments = channelsData?.enrollments ?? [];
+
   const invalidate = () => {
     void queryClient.invalidateQueries({ queryKey: ['admin-business', businessId] });
   };
@@ -842,6 +876,41 @@ export default function BusinessDetailPage() {
 
         {/* Ranking */}
         <ManualRankingSection businessId={businessId} snapshots={rankingSnapshots ?? []} />
+
+        {/* Channels */}
+        <section className="mt-8 rounded-lg border border-gray-200 bg-white p-6">
+          <h2 className="text-lg font-semibold text-gray-800 mb-3">Channels</h2>
+          {enrollments.length === 0 ? (
+            <p className="text-sm text-gray-500">
+              No channel enrollments — business cannot receive approval notifications.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-200 text-left text-gray-500">
+                    <th className="pb-2 font-medium">Channel</th>
+                    <th className="pb-2 font-medium">Handle</th>
+                    <th className="pb-2 font-medium">Status</th>
+                    <th className="pb-2 font-medium">Last activity</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {enrollments.map((e) => (
+                    <tr key={e.channel} className="border-b border-gray-100">
+                      <td className="py-2 text-gray-700">{e.channel}</td>
+                      <td className="py-2 font-mono text-gray-700">{e.handle}</td>
+                      <td className="py-2"><StatusBadge status={e.status} /></td>
+                      <td className="py-2 text-gray-700">
+                        {e.last_activity_at ? new Date(e.last_activity_at).toLocaleString() : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
 
         {/* Awaiting Manual Post */}
         {awaitingPost.length > 0 && (
