@@ -1,5 +1,6 @@
 import { v7 as uuidv7 } from 'uuid';
 import { sql } from '@/lib/db/server';
+import type { ChannelId } from '@/lib/notifications/channels/types';
 
 /**
  * Records a notification delivery in the notification_deliveries table.
@@ -9,7 +10,7 @@ import { sql } from '@/lib/db/server';
 export async function recordNotificationDelivery(params: {
   businessId: string;
   responseId?: string | null;
-  channel: 'email' | 'sms';
+  channel: ChannelId;                       // widened from 'email' | 'sms'
   recipient: string;
   template: string;
   externalMessageId: string;

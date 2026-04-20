@@ -1,0 +1,53 @@
+// src/lib/notifications/channels/types.ts
+//
+// Pluggable transport interface for approval notifications. Mirrors the
+// ReviewSource pattern in src/lib/reviews/. Each implementation wraps exactly
+// one provider (Resend, Twilio, Telegram Bot API, etc.) and produces a
+// deterministic external_message_id for delivery tracking.
+//
+// See docs/adding-communication-channels.md §1 for rationale.
+
+export type ChannelId = 'email' | 'sms' | 'telegram' | 'whatsapp';
+
+export interface SendApprovalParams {
+  /** Per-enrollment recipient: email address, E.164 phone, or telegram chat_id. */
+  handle: string;
+  businessName: string;
+  reviewerName: string;
+  starRating: number;
+  reviewText: string | null;
+  reviewDate: string;
+  responsePreview: string;
+  /**
+   * Always provided. Link-based channels use this as the message body CTA.
+   * Inline-capable channels use it as the "Edit" URL button target.
+   * Contains the raw approval token in the URL path — legitimate for URLs
+   * (matches existing email flow), but MUST NOT appear in inline-button
+   * callback payloads.
+   */
+  approvalUrl: string;
+  /**
+   * UUIDv7 of the approval_links row. Used by inline-capable channels
+   * (Telegram, WhatsApp) as the button callback payload. Non-secret.
+   * Safe to persist in inbound_events.payload. See spec §3.2.
+   *
+   * Supersedes the original plan's `rawToken` field, which would have
+   * leaked raw approval tokens into inbound_events via webhook bodies —
+   * violating the "approval tokens NEVER stored raw" invariant.
+   */
+  approvalLinkId: string;
+}
+
+export interface SendApprovalResult {
+  /** Provider-assigned message ID. Stored in notification_deliveries.external_message_id. */
+  externalMessageId: string;
+}
+
+export interface NotificationChannel {
+  readonly id: ChannelId;
+  /** True if the channel supports inline buttons for approve/regenerate. */
+  readonly supportsInlineActions: boolean;
+  /** True if owner must initiate contact before we can send (Telegram, WhatsApp). */
+  readonly requiresOptInHandshake: boolean;
+  sendApprovalRequest(p: SendApprovalParams): Promise<SendApprovalResult>;
+}
