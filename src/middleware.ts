@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { createClient } from '@supabase/supabase-js';
+import { isProtectedRoute } from '@/lib/shared/protected-routes';
 
 // Service-role client for role lookups (HTTP-based, Edge-compatible).
 // Middleware can't use Postgres.js (TCP sockets not available on Edge Runtime).
@@ -10,7 +11,29 @@ const supabaseAdmin = createClient(
 );
 
 export async function middleware(request: NextRequest) {
-  // 1. Create a Supabase client that reads/writes auth cookies
+  const host = request.headers.get('host') ?? '';
+
+  // ── repworth.net: short-circuit before any Supabase work ─────────
+  if (host === 'repworth.net') {
+    const { pathname } = request.nextUrl;
+    const normalised = pathname.endsWith('/') && pathname !== '/' ? pathname.slice(0, -1) : pathname;
+
+    if (normalised === '/' || normalised === '/privacy' || normalised === '/terms') {
+      const requestHeaders = new Headers(request.headers);
+      requestHeaders.set('x-coming-soon', '1');
+      return NextResponse.next({ request: { headers: requestHeaders } });
+    }
+
+    return NextResponse.redirect(new URL('https://repworth.net/'), 307);
+  }
+
+  // ── All other hosts: skip Supabase for public paths ───────────────
+  const { pathname } = request.nextUrl;
+  if (!isProtectedRoute(pathname)) {
+    return NextResponse.next({ request });
+  }
+
+  // ── Protected paths: existing Supabase auth logic ─────────────────
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(
@@ -34,12 +57,9 @@ export async function middleware(request: NextRequest) {
     },
   );
 
-  // 2. Refresh the session (validates token with Supabase Auth server)
   const {
     data: { user: authUser },
   } = await supabase.auth.getUser();
-
-  const pathname = request.nextUrl.pathname;
 
   // 3. Admin pages (except /admin/login)
   if (pathname.startsWith('/admin') && pathname !== '/admin/login') {
@@ -65,7 +85,6 @@ export async function middleware(request: NextRequest) {
 
   // 5. Owner API routes
   if (pathname.startsWith('/api/dashboard') || pathname.startsWith('/api/settings')) {
-    // Keep literal here to avoid expanding the Edge middleware import graph.
     const noStoreHeaders = { 'Cache-Control': 'no-store, private' };
     if (!authUser) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: noStoreHeaders });
@@ -117,12 +136,5 @@ function redirectToLogin(request: NextRequest): NextResponse {
 }
 
 export const config = {
-  matcher: [
-    '/admin/:path((?!login).*)',  // /admin/* except /admin/login
-    '/api/admin/:path*',
-    '/api/dashboard/:path*',
-    '/api/settings/:path*',
-    '/dashboard/:path*',
-    '/settings/:path*',
-  ],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
 };
