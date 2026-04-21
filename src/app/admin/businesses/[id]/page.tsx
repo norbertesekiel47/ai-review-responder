@@ -682,6 +682,9 @@ export default function BusinessDetailPage() {
 
   const invalidate = () => {
     void queryClient.invalidateQueries({ queryKey: ['admin-business', businessId] });
+    // Owner-email edits upsert channel_enrollments inside the PATCH txn; the
+    // Channels table must refresh to show the new handle.
+    void queryClient.invalidateQueries({ queryKey: ['admin-business-channels', businessId] });
   };
 
   if (isLoading) {

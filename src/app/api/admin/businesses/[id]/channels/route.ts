@@ -64,8 +64,12 @@ function maskHandle(channel: string, handle: string | null): string {
   if (handle === null) return '(pending verification)';
   if (channel === 'email') return handle;
   if (channel === 'sms' || channel === 'whatsapp') {
+    // Show first 3 + last 4, mask the rest. For short handles (<= 7 chars),
+    // the hidden section becomes zero-width — must clamp to avoid
+    // `'•'.repeat(-1)` which throws RangeError.
     if (handle.length <= 4) return handle;
-    return handle.slice(0, 3) + '•'.repeat(handle.length - 7) + handle.slice(-4);
+    const hidden = Math.max(0, handle.length - 7);
+    return handle.slice(0, 3) + '•'.repeat(hidden) + handle.slice(-4);
   }
   if (channel === 'telegram') return '(telegram chat)';
   return handle;
