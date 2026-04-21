@@ -11,7 +11,7 @@ const supabaseAdmin = createClient(
 );
 
 export async function middleware(request: NextRequest) {
-  const host = request.headers.get('host') ?? '';
+  const host = (request.headers.get('host') ?? '').toLowerCase().replace(/:\d+$/, '');
 
   // ── repworth.net: short-circuit before any Supabase work ─────────
   // Also handle www.repworth.net in case Vercel's www→apex redirect isn't in place.
