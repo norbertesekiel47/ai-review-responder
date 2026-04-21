@@ -16,8 +16,9 @@ export async function middleware(request: NextRequest) {
   // ── repworth.net: short-circuit before any Supabase work ─────────
   if (host === 'repworth.net') {
     const { pathname } = request.nextUrl;
+    const normalised = pathname.endsWith('/') && pathname !== '/' ? pathname.slice(0, -1) : pathname;
 
-    if (pathname === '/' || pathname === '/privacy' || pathname === '/terms') {
+    if (normalised === '/' || normalised === '/privacy' || normalised === '/terms') {
       const requestHeaders = new Headers(request.headers);
       requestHeaders.set('x-coming-soon', '1');
       return NextResponse.next({ request: { headers: requestHeaders } });
