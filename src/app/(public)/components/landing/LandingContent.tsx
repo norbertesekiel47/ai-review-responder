@@ -6,6 +6,7 @@ import { motion, useScroll, useTransform } from 'motion/react';
 import { HowItWorksCarousel } from './HowItWorksCarousel';
 import type { CarouselStep } from './HowItWorksCarousel';
 import { ContactForm } from './ContactForm';
+import { SiteNav } from '../shared/SiteNav';
 
 const STEPS: CarouselStep[] = [
   {
@@ -92,12 +93,6 @@ export function LandingContent({ comingSoon }: LandingContentProps) {
     ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
-  const navLinks = [
-    { label: 'Features', href: '/features' },
-    { label: 'How it works', href: '/how-it-works' },
-    ...(comingSoon ? [] : [{ label: 'Book a Demo', href: '/book-a-demo' }]),
-  ];
-
   const dotNavItems = [
     { ref: heroRef, label: 'Hero' },
     { ref: featuresRef, label: 'Features' },
@@ -156,23 +151,7 @@ export function LandingContent({ comingSoon }: LandingContentProps) {
           transition={{ duration: 0.8, ease: 'easeOut' }}
         >
           {/* Nav */}
-          <nav className="px-8 py-4 border-b border-[#97B3AE]/10 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#97B3AE] to-[#97B3AE]/80" />
-              <span className="text-sm tracking-wider uppercase text-[#97B3AE]">RepWorth</span>
-            </div>
-            <div className="hidden sm:flex items-center gap-8">
-              {navLinks.map(({ label, href }) => (
-                <Link
-                  key={label}
-                  href={href}
-                  className="text-sm text-[#6a6a6a] hover:text-[#97B3AE] transition-colors"
-                >
-                  {label}
-                </Link>
-              ))}
-            </div>
-          </nav>
+          <SiteNav comingSoon={comingSoon} />
 
           {/* Hero */}
           <section ref={heroRef} className="px-12 py-20 text-center relative">

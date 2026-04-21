@@ -13,6 +13,10 @@ export function SiteNav({ comingSoon = false }: SiteNavProps) {
 
   return (
     <nav className="px-8 py-4 border-b border-[#97B3AE]/10 flex items-center justify-between">
+      <Link href="/" className="flex items-center gap-2">
+        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#97B3AE] to-[#97B3AE]/80" />
+        <span className="text-sm tracking-wider uppercase text-[#97B3AE]">RepWorth</span>
+      </Link>
       <div className="hidden sm:flex items-center gap-6">
         {navLinks.map(({ label, href }) => (
           <Link
@@ -24,10 +28,6 @@ export function SiteNav({ comingSoon = false }: SiteNavProps) {
           </Link>
         ))}
       </div>
-      <Link href="/" className="flex items-center gap-2">
-        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#97B3AE] to-[#97B3AE]/80" />
-        <span className="text-sm tracking-wider uppercase text-[#97B3AE]">RepWorth</span>
-      </Link>
     </nav>
   );
 }
