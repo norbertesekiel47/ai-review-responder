@@ -8,11 +8,19 @@ const { sqlReturnQueue, mockSql, mockTx, updateCalls, insertCalls } = vi.hoisted
     const queryText = template.join('?');
     if (queryText.match(/UPDATE approval_links/i)) {
       updateCalls.push(queryText);
+      return Promise.resolve([]);
     }
     if (queryText.match(/INSERT INTO approval_links/i)) {
       insertCalls.push({ queryText, values });
+      return Promise.resolve([]);
     }
-    return Promise.resolve([]);
+    // pg_advisory_xact_lock is a no-op lock acquisition — always [].
+    if (queryText.match(/pg_advisory_xact_lock/i)) {
+      return Promise.resolve([]);
+    }
+    // Delivery-check SELECT (and any future tx-level SELECT) dequeues from
+    // the test-staged return queue.
+    return Promise.resolve(sqlReturnQueue.shift() ?? []);
   });
   const mockSql: any = vi.fn((_t: TemplateStringsArray, ..._v: unknown[]) =>
     Promise.resolve(sqlReturnQueue.shift() ?? []));

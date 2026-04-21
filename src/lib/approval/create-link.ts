@@ -31,20 +31,37 @@ export async function createApprovalLink(params: {
   const approvalLinkId = uuidv7();
   const revokeMode = params.revokeMode ?? 'orphaned_only';
 
-  let shouldRevoke = revokeMode === 'always';
-  if (!shouldRevoke && revokeMode === 'orphaned_only') {
-    const [existingDelivery] = await sql<{ id: string }[]>`
-      SELECT id FROM notification_deliveries
-      WHERE response_id = ${responseId}
-        AND channel = ${channel}
-        AND template = 'approval_request'
-        AND sent_at IS NOT NULL
-      LIMIT 1
-    `;
-    shouldRevoke = !existingDelivery;
-  }
-
+  // Serialize concurrent link creation per (response_id, channel) to prevent a
+  // TOCTOU race: without the lock, two workers can both (a) observe no prior
+  // delivery, (b) start their own transactions, and (c) have one worker's
+  // revoke statement clobber the other worker's freshly-inserted link — the
+  // owner then receives an approval URL whose link has already been revoked.
+  //
+  // pg_advisory_xact_lock is transaction-scoped (auto-released on commit/abort),
+  // process-agnostic, and costs nothing when there's no contention. The lock
+  // key is a hash of (responseId || ':' || channel) so concurrent calls for
+  // DIFFERENT responses or DIFFERENT channels do not serialize on each other.
+  //
+  // The delivery-check + revoke + insert all run INSIDE the transaction under
+  // the lock so every concurrent caller observes a consistent state.
   await sql.begin(async (tx) => {
+    await tx`
+      SELECT pg_advisory_xact_lock(hashtext(${responseId + ':' + channel}))
+    `;
+
+    let shouldRevoke = revokeMode === 'always';
+    if (!shouldRevoke && revokeMode === 'orphaned_only') {
+      const [existingDelivery] = await tx<{ id: string }[]>`
+        SELECT id FROM notification_deliveries
+        WHERE response_id = ${responseId}
+          AND channel = ${channel}
+          AND template = 'approval_request'
+          AND sent_at IS NOT NULL
+        LIMIT 1
+      `;
+      shouldRevoke = !existingDelivery;
+    }
+
     if (shouldRevoke) {
       await tx`
         UPDATE approval_links SET revoked_at = NOW()
