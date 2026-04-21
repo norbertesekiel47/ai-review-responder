@@ -34,6 +34,72 @@ function getIntervalMs(): number {
  *   3. Fresh uuidv7() — graceful fallback for pre-20a rows with no
  *      correlation payload.
  */
+type AlertOutcome = 'sent' | 'deduped' | 'send_error';
+
+/**
+ * Race-safe admin-alert claim helper.
+ *
+ * Two failover-poller processes (multi-instance deployments) can both pass a
+ * time-windowed dedup SELECT and send duplicate admin emails. This helper
+ * serializes per (response_id, template, recipient) via a transaction-scoped
+ * advisory lock: the dedup re-check, the email send, and the delivery-row
+ * insert all run INSIDE one `sql.begin` holding the lock. A second process
+ * arriving concurrently waits for the lock, then sees the delivery row on
+ * re-check and skips.
+ *
+ * The email send happens inside the transaction — the connection is held
+ * during the Resend/Twilio round-trip. Acceptable for the admin-alert
+ * volume (low-throughput, seconds-level latency). Revisit if connection
+ * pool exhaustion becomes observable.
+ *
+ * Returns:
+ *   'sent'       — we acquired the claim and the provider accepted the message
+ *   'deduped'    — a prior alert in the 24h window already exists (no-op)
+ *   'send_error' — the provider rejected the send (transaction rolled back;
+ *                  next poll will retry since no delivery row persisted)
+ */
+async function tryClaimAlert(
+  responseId: string,
+  template: string,
+  recipient: string,
+  sendFn: () => Promise<string>,
+  ctx: { businessId: string; responseId: string },
+): Promise<AlertOutcome> {
+  let outcome: AlertOutcome = 'deduped';
+  try {
+    await sql.begin(async (tx) => {
+      await tx`
+        SELECT pg_advisory_xact_lock(hashtext(${`${responseId}:${template}:${recipient}`}))
+      `;
+      const [recentAlert] = await tx<{ id: string }[]>`
+        SELECT id FROM notification_deliveries
+        WHERE response_id = ${responseId}
+          AND template = ${template}
+          AND recipient = ${recipient}
+          AND created_at > NOW() - INTERVAL '24 hours'
+        LIMIT 1
+      `;
+      if (recentAlert) {
+        outcome = 'deduped';
+        return;
+      }
+      const messageId = await sendFn();
+      await tx`
+        INSERT INTO notification_deliveries
+          (id, business_id, response_id, channel, recipient, template, sent_at, external_message_id)
+        VALUES (
+          ${uuidv7()}, ${ctx.businessId}, ${ctx.responseId}, 'email',
+          ${recipient}, ${template}, NOW(), ${messageId}
+        )
+      `;
+      outcome = 'sent';
+    });
+  } catch {
+    outcome = 'send_error';
+  }
+  return outcome;
+}
+
 async function recoverFailoverCorrelationId(responseId: string): Promise<string> {
   const [existingSend] = await sql<{ correlation_id: string | null }[]>`
     SELECT payload->>'correlation_id' AS correlation_id
@@ -104,33 +170,31 @@ export async function runFailoverPollerOnce(): Promise<void> {
     for (const row of allFailedResponses) {
       const adminEmail = process.env.ADMIN_NOTIFICATION_EMAIL;
       if (adminEmail) {
-        const [recentAlert] = await sql<{ id: string }[]>`
-          SELECT id FROM notification_deliveries
-          WHERE response_id = ${row.response_id}
-            AND template = 'admin_notification_failover'
-            AND recipient = ${adminEmail}
-            AND created_at > NOW() - INTERVAL '24 hours'
-        `;
-
-        if (!recentAlert) {
-          try {
+        // Serialize concurrent failover pollers (multi-instance deployments)
+        // on the (response_id, template, recipient) key so only ONE worker
+        // fires the admin alert per 24h window. The advisory lock is held for
+        // the duration of the dedup-check + send + record, so a second worker
+        // arriving in the middle either waits or finds the row on re-check.
+        const claimed = await tryClaimAlert(
+          row.response_id,
+          'admin_notification_failover',
+          adminEmail,
+          async () => {
             const { messageId } = await sendInternalEmail({
               to: adminEmail,
               subject: `Notification failure: ${row.business_name} — all delivery attempts failed`,
               bodyHtml: `<p>All approval email delivery attempts have failed for a response to <strong>${escapeHtml(row.reviewer_name)}</strong>'s ${row.star_rating}-star review of <strong>${escapeHtml(row.business_name)}</strong>.</p><p>The system will re-attempt delivery. Please check the Resend dashboard for bounce/complaint details.</p>`,
               category: 'internal',
             });
-            await recordNotificationDelivery({
-              businessId: row.business_id,
-              responseId: row.response_id,
-              channel: 'email',
-              recipient: adminEmail,
-              template: 'admin_notification_failover',
-              externalMessageId: messageId,
-            });
-          } catch (emailErr) {
-            console.error(`${LOG_PREFIX} Failed to send admin alert for response ${row.response_id}:`, emailErr);
-          }
+            return messageId;
+          },
+          {
+            businessId: row.business_id,
+            responseId: row.response_id,
+          },
+        );
+        if (claimed === 'send_error') {
+          console.error(`${LOG_PREFIX} Failed to send admin alert for response ${row.response_id}`);
         }
       }
 
@@ -215,35 +279,29 @@ export async function runFailoverPollerOnce(): Promise<void> {
         continue;
       }
 
-      const [recentAlert] = await sql<{ id: string }[]>`
-        SELECT id FROM notification_deliveries
-        WHERE response_id = ${row.response_id}
-          AND template = 'approval_responsiveness_alert'
-          AND recipient = ${adminEmail}
-          AND created_at > NOW() - INTERVAL '24 hours'
-      `;
-      if (recentAlert) continue;
-
-      try {
-        const { messageId } = await sendInternalEmail({
-          to: adminEmail,
-          subject: `Approval stuck: ${row.business_name} — no response in 4+ hours`,
-          bodyHtml: `<p>A draft response to <strong>${escapeHtml(row.reviewer_name)}</strong>'s ${row.star_rating}-star review of <strong>${escapeHtml(row.business_name)}</strong> has been waiting for owner approval for more than 4 hours.</p>
-            <p>Every enrolled channel was notified successfully; the owner simply hasn't responded. Consider a check-in call.</p>
-            <p><em>Response ID: ${row.response_id}</em></p>`,
-          category: 'internal',
-        });
-        await recordNotificationDelivery({
+      const outcome = await tryClaimAlert(
+        row.response_id,
+        'approval_responsiveness_alert',
+        adminEmail,
+        async () => {
+          const { messageId } = await sendInternalEmail({
+            to: adminEmail,
+            subject: `Approval stuck: ${row.business_name} — no response in 4+ hours`,
+            bodyHtml: `<p>A draft response to <strong>${escapeHtml(row.reviewer_name)}</strong>'s ${row.star_rating}-star review of <strong>${escapeHtml(row.business_name)}</strong> has been waiting for owner approval for more than 4 hours.</p>
+              <p>At least one enrolled channel was notified; the owner simply hasn't responded. Check the delivery log for partial failures. Consider a check-in call.</p>
+              <p><em>Response ID: ${row.response_id}</em></p>`,
+            category: 'internal',
+          });
+          return messageId;
+        },
+        {
           businessId: row.business_id,
           responseId: row.response_id,
-          channel: 'email',
-          recipient: adminEmail,
-          template: 'approval_responsiveness_alert',
-          externalMessageId: messageId,
-        });
-        alertedCount++;
-      } catch (err) {
-        console.error(`${LOG_PREFIX} Failed to send responsiveness alert for response ${row.response_id}:`, err);
+        },
+      );
+      if (outcome === 'sent') alertedCount++;
+      if (outcome === 'send_error') {
+        console.error(`${LOG_PREFIX} Failed to send responsiveness alert for response ${row.response_id}`);
       }
     }
 

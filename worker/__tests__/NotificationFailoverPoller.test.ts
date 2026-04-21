@@ -9,7 +9,13 @@ const {
 } = vi.hoisted(() => {
   const sqlReturnQueue: unknown[] = [];
 
-  const mockSql: any = vi.fn((_s: TemplateStringsArray, ..._v: unknown[]) => {
+  const mockSql: any = vi.fn((template: TemplateStringsArray, ..._v: unknown[]) => {
+    // pg_advisory_xact_lock is a no-op lock acquisition in tests — return
+    // [] without dequeuing so the sqlReturnQueue staging stays aligned with
+    // the test's explicit SELECT/INSERT ordering.
+    if (template && template[0] && template[0].includes('pg_advisory_xact_lock')) {
+      return Promise.resolve([]);
+    }
     const result = sqlReturnQueue.shift() ?? [];
     if (Array.isArray(result)) {
       (result as any).count = result.length > 0 ? 1 : 0;
@@ -168,15 +174,17 @@ describe('NotificationFailoverPoller', () => {
       reviewer_name: 'Tester',
       star_rating: 4,
     }]);
-    // 2: admin alert dedup check → no recent alert
+    // 2: admin alert dedup check (inside tryClaimAlert) → no recent alert
     sqlReturnQueue.push([]);
-    // 3: recoverFailoverCorrelationId → existingSend lookup resolves immediately
+    // 3: INSERT notification_deliveries (claim row inside tryClaimAlert)
+    sqlReturnQueue.push([]);
+    // 4: recoverFailoverCorrelationId → existingSend lookup resolves immediately
     sqlReturnQueue.push([{ correlation_id: upstreamCorrelationId }]);
-    //    (upstream query NOT issued because lookup #3 already resolved)
-    // 4: INSERT outbox for all-failed
+    //    (upstream query NOT issued because lookup #4 already resolved)
+    // 5: INSERT outbox for all-failed
     const insertResult: any = []; insertResult.count = 1;
     sqlReturnQueue.push(insertResult);
-    // 5: stale query → empty
+    // 6: stale query → empty
     sqlReturnQueue.push([]);
 
     const mod = await import('../jobs/NotificationFailoverPoller');
@@ -213,16 +221,18 @@ describe('NotificationFailoverPoller', () => {
       reviewer_name: 'Reviewer',
       star_rating: 1,
     }]);
-    // 2: admin alert dedup check → no recent alert
+    // 2: admin alert dedup check (inside tryClaimAlert) → no recent alert
     sqlReturnQueue.push([]);
-    // 3: existingSend lookup → none
+    // 3: INSERT notification_deliveries (claim row inside tryClaimAlert)
     sqlReturnQueue.push([]);
-    // 4: upstream generate_response lookup → carries the ID
+    // 4: existingSend lookup → none
+    sqlReturnQueue.push([]);
+    // 5: upstream generate_response lookup → carries the ID
     sqlReturnQueue.push([{ correlation_id: upstreamCorrelationId }]);
-    // 5: INSERT outbox for all-failed
+    // 6: INSERT outbox for all-failed
     const insertResult: any = []; insertResult.count = 1;
     sqlReturnQueue.push(insertResult);
-    // 6: stale query → empty
+    // 7: stale query → empty
     sqlReturnQueue.push([]);
 
     const mod = await import('../jobs/NotificationFailoverPoller');
