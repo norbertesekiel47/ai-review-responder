@@ -3,6 +3,8 @@ import { createServerClient } from '@supabase/ssr';
 import { createClient } from '@supabase/supabase-js';
 import { isProtectedRoute } from '@/lib/shared/protected-routes';
 
+// Service-role client for role lookups (HTTP-based, Edge-compatible).
+// Middleware can't use Postgres.js (TCP sockets not available on Edge Runtime).
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_KEY!,
