@@ -23,7 +23,7 @@ export async function middleware(request: NextRequest) {
     const { pathname } = request.nextUrl;
     const normalised = pathname.endsWith('/') && pathname !== '/' ? pathname.slice(0, -1) : pathname;
 
-    if (normalised === '/' || normalised === '/privacy' || normalised === '/terms') {
+    if (normalised === '/' || normalised === '/privacy' || normalised === '/terms' || normalised === '/features' || normalised === '/how-it-works') {
       const requestHeaders = new Headers(request.headers);
       requestHeaders.set('x-coming-soon', '1');
       return NextResponse.next({ request: { headers: requestHeaders } });

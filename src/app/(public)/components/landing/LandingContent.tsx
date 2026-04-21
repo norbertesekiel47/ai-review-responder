@@ -95,7 +95,6 @@ export function LandingContent({ comingSoon }: LandingContentProps) {
   const navLinks = [
     { label: 'Features', href: '/features' },
     { label: 'How it works', href: '/how-it-works' },
-    { label: 'Pricing', href: '/pricing' },
     ...(comingSoon ? [] : [{ label: 'Book a Demo', href: '/book-a-demo' }]),
   ];
 
@@ -459,6 +458,14 @@ export function LandingContent({ comingSoon }: LandingContentProps) {
               </div>
             </section>
           )}
+          {/* Footer */}
+          <footer className="px-8 py-6 border-t border-[#97B3AE]/10 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-[#6a6a6a]">
+            <span>© {new Date().getFullYear()} RepWorth. All rights reserved.</span>
+            <div className="flex items-center gap-6">
+              <Link href="/privacy" className="hover:text-[#97B3AE] transition-colors">Privacy Policy</Link>
+              <Link href="/terms" className="hover:text-[#97B3AE] transition-colors">Terms &amp; Conditions</Link>
+            </div>
+          </footer>
         </motion.div>
       </div>
     </div>
