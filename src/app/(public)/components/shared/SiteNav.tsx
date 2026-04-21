@@ -1,17 +1,21 @@
 import Link from 'next/link';
 
-const NAV_LINKS = [
-  { label: 'Features', href: '/features' },
-  { label: 'How it works', href: '/how-it-works' },
-  { label: 'Pricing', href: '/pricing' },
-  { label: 'Book a Demo', href: '/book-a-demo' },
-] as const;
+interface SiteNavProps {
+  comingSoon?: boolean;
+}
 
-export function SiteNav() {
+export function SiteNav({ comingSoon = false }: SiteNavProps) {
+  const navLinks = [
+    { label: 'Features', href: '/features' },
+    { label: 'How it works', href: '/how-it-works' },
+    { label: 'Pricing', href: '/pricing' },
+    ...(comingSoon ? [] : [{ label: 'Book a Demo', href: '/book-a-demo' }]),
+  ];
+
   return (
     <nav className="px-8 py-4 border-b border-[#97B3AE]/10 flex items-center justify-between">
       <div className="hidden sm:flex items-center gap-6">
-        {NAV_LINKS.map(({ label, href }) => (
+        {navLinks.map(({ label, href }) => (
           <Link
             key={label}
             href={href}
