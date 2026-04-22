@@ -53,11 +53,37 @@ vi.mock('uuid', () => ({
   v7: vi.fn(() => 'test-uuid'),
 }));
 
-const { mockGetVerifiedEnrollments, mockGetChannel, mockChannelSend } = vi.hoisted(() => ({
-  mockGetVerifiedEnrollments: vi.fn(),
-  mockGetChannel: vi.fn(),
-  mockChannelSend: vi.fn(),
-}));
+const {
+  mockGetVerifiedEnrollments,
+  mockGetChannel,
+  mockChannelSend,
+  mockReserveSmsCost,
+  mockRefundSmsCost,
+  DailySmsLimitExceededError,
+  SmsRecipientUnsubscribedError,
+} = vi.hoisted(() => {
+  class DailySmsLimitExceededError extends Error {
+    constructor(public readonly scope: 'per_business' | 'global') {
+      super(`sms_cap:${scope}`);
+      this.name = 'DailySmsLimitExceededError';
+    }
+  }
+  class SmsRecipientUnsubscribedError extends Error {
+    constructor() {
+      super('sms_recipient_unsubscribed');
+      this.name = 'SmsRecipientUnsubscribedError';
+    }
+  }
+  return {
+    mockGetVerifiedEnrollments: vi.fn(),
+    mockGetChannel: vi.fn(),
+    mockChannelSend: vi.fn(),
+    mockReserveSmsCost: vi.fn().mockResolvedValue('2026-04-21'),
+    mockRefundSmsCost: vi.fn().mockResolvedValue(undefined),
+    DailySmsLimitExceededError,
+    SmsRecipientUnsubscribedError,
+  };
+});
 
 vi.mock('../../src/lib/notifications/enrollments', () => ({
   getVerifiedEnrollments: mockGetVerifiedEnrollments,
@@ -65,6 +91,13 @@ vi.mock('../../src/lib/notifications/enrollments', () => ({
 
 vi.mock('../../src/lib/notifications/channels', () => ({
   getChannel: mockGetChannel,
+  SmsRecipientUnsubscribedError,
+}));
+
+vi.mock('../../src/lib/costs/sms-tracker', () => ({
+  reserveSmsCost: mockReserveSmsCost,
+  refundSmsCost: mockRefundSmsCost,
+  DailySmsLimitExceededError,
 }));
 
 const { mockCreateApprovalLink } = vi.hoisted(() => ({
@@ -139,6 +172,8 @@ function beforeEachSetup() {
   mockGetVerifiedEnrollments.mockReset();
   mockGetChannel.mockReset();
   mockChannelSend.mockReset();
+  mockReserveSmsCost.mockReset().mockResolvedValue('2026-04-21');
+  mockRefundSmsCost.mockReset().mockResolvedValue(undefined);
   mockCreateApprovalLink.mockReset().mockResolvedValue({
     rawToken: 'raw-tok-fixture',
     tokenHash: 'hash-fixture',
@@ -146,6 +181,8 @@ function beforeEachSetup() {
   });
   process.env.RESEND_FROM_EMAIL = 'RepWorth <notifications@example.com>';
   process.env.NEXT_PUBLIC_APP_URL = 'https://repworth.example.com';
+  process.env.CHANNELS_SMS_ENABLED = 'true';
+  process.env.TWILIO_MESSAGING_SERVICE_SID = 'MG-test-sid';
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────

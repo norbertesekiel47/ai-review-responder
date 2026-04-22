@@ -12,11 +12,16 @@ import type { Job } from 'bullmq';
 import { sql } from '../../src/lib/db/server';
 import { checkSubscription } from '../../src/lib/shared/subscription-guard';
 import { markOutboxCompleted, markOutboxFailed } from '../../src/lib/shared/outbox';
-import { recordNotificationDelivery } from '../../src/lib/notifications/delivery';
+import { recordNotificationDelivery, insertFailedDelivery } from '../../src/lib/notifications/delivery';
 import { getVerifiedEnrollments } from '../../src/lib/notifications/enrollments';
-import { getChannel } from '../../src/lib/notifications/channels';
+import { getChannel, SmsRecipientUnsubscribedError } from '../../src/lib/notifications/channels';
 import type { ChannelId } from '../../src/lib/notifications/channels/types';
 import { createApprovalLink } from '../../src/lib/approval/create-link';
+import {
+  reserveSmsCost,
+  refundSmsCost,
+  DailySmsLimitExceededError,
+} from '../../src/lib/costs/sms-tracker';
 import type { SendNotificationPayload } from '../../src/lib/shared/worker-types';
 import { createWorkerLogger } from '../../src/lib/shared/logger';
 
@@ -110,6 +115,11 @@ export async function handleSendNotification(
       continue;
     }
 
+    if (channelId === 'sms' && process.env.CHANNELS_SMS_ENABLED !== 'true') {
+      logger.log(`SMS channel disabled by flag — skipping enrollment for business ${business_id}`);
+      continue;
+    }
+
     let existing: { id: string } | undefined;
     if (isFailover) {
       // Failover mode: only skip if a delivery was actually confirmed (delivered_at set).
@@ -138,52 +148,114 @@ export async function handleSendNotification(
       continue;
     }
 
-    const { rawToken, approvalLinkId } = await createApprovalLink({
-      responseId: response_id,
-      businessId: business_id,
-      channel: channelId,
-    });
-
-    const approvalUrl = `${appUrl}/approve/${rawToken}`;
-    attempted++;
-    let externalMessageId: string;
-    try {
-      const result = await getChannel(channelId).sendApprovalRequest({
-        handle: enrollment.handle,
-        businessName: business.name,
-        reviewerName: responseRow.reviewer_name,
-        starRating: responseRow.star_rating,
-        reviewText: responseRow.review_text,
-        reviewDate: responseRow.review_date,
-        responsePreview: responseRow.response_text,
-        approvalUrl,
-        approvalLinkId,
-      });
-      externalMessageId = result.externalMessageId;
-    } catch (err) {
-      const reason = err instanceof Error ? err.message : String(err);
-      logger.error(`${channelId} send failed for response ${response_id}: ${reason}`);
-      await sql`
-        INSERT INTO notification_deliveries
-          (id, business_id, response_id, channel, recipient, template, failed_at, failure_reason)
-        VALUES (
-          ${uuidv7()}, ${business_id}, ${response_id}, ${channelId},
-          ${enrollment.handle}, 'approval_request', NOW(), ${`send_error:${reason}`}
-        )
-      `;
-      continue;
+    // SMS cost reservation. The cap-rejection branch auto-refunds inside
+    // reserveSmsCost, so we only need to refund on downstream failure paths.
+    let smsReservationDate: string | null = null;
+    if (channelId === 'sms') {
+      try {
+        smsReservationDate = await reserveSmsCost(business_id);
+      } catch (err) {
+        if (err instanceof DailySmsLimitExceededError) {
+          logger.warn(`SMS cap reached for business ${business_id} (${err.scope})`);
+          attempted++;
+          await insertFailedDelivery(
+            business_id,
+            response_id,
+            'sms',
+            enrollment.handle,
+            `daily_sms_limit_exceeded:${err.scope}`,
+          );
+          continue;
+        }
+        throw err;
+      }
     }
 
-    await recordNotificationDelivery({
-      businessId: business_id,
-      responseId: response_id,
-      channel: channelId,
-      recipient: enrollment.handle,
-      template: 'approval_request',
-      externalMessageId,
-    });
-    succeeded++;
-    logger.log(`${channelId} approval notification sent for response ${response_id} (business ${business_id})`);
+    // sendAccepted flips to true ONLY after the provider returns a SID.
+    // The finally block refunds iff we reserved and did NOT get that ack.
+    // A crash AFTER the provider ack but before recordNotificationDelivery
+    // intentionally commits the cost — the message was sent.
+    let sendAccepted = false;
+    try {
+      const { rawToken, approvalLinkId } = await createApprovalLink({
+        responseId: response_id,
+        businessId: business_id,
+        channel: channelId,
+      });
+      const approvalUrl = `${appUrl}/approve/${rawToken}`;
+      attempted++;
+
+      let externalMessageId: string;
+      try {
+        const result = await getChannel(channelId).sendApprovalRequest({
+          handle: enrollment.handle,
+          businessName: business.name,
+          reviewerName: responseRow.reviewer_name,
+          starRating: responseRow.star_rating,
+          reviewText: responseRow.review_text,
+          reviewDate: responseRow.review_date,
+          responsePreview: responseRow.response_text,
+          approvalUrl,
+          approvalLinkId,
+        });
+        externalMessageId = result.externalMessageId;
+        sendAccepted = true;
+      } catch (err) {
+        // Sender-wide 21610 handling: Twilio rejected because the handle is
+        // blocked at the Messaging Service level. Flip all matching active
+        // enrollments and record durable audit evidence in one transaction.
+        if (err instanceof SmsRecipientUnsubscribedError) {
+          const msid = process.env.TWILIO_MESSAGING_SERVICE_SID!;
+          await sql.begin(async (tx) => {
+            await tx`
+              INSERT INTO sms_sender_opt_outs (messaging_service_sid, handle, opted_out_at, opted_in_at, last_event_at)
+              VALUES (${msid}, ${enrollment.handle}, NOW(), NULL, NOW())
+              ON CONFLICT (messaging_service_sid, handle) DO UPDATE
+                SET opted_out_at = EXCLUDED.opted_out_at,
+                    opted_in_at = NULL,
+                    last_event_at = EXCLUDED.last_event_at
+            `;
+            await tx`
+              INSERT INTO sms_sender_opt_out_events (id, messaging_service_sid, handle, event_type, source, inbound_event_id)
+              VALUES (${uuidv7()}, ${msid}, ${enrollment.handle}, '21610_at_send', 'twilio_21610', NULL)
+            `;
+            await tx`
+              UPDATE channel_enrollments
+              SET status = 'unsubscribed',
+                  unsubscribed_at = COALESCE(unsubscribed_at, NOW()),
+                  unsubscribed_reason = COALESCE(unsubscribed_reason, 'twilio_21610_at_send'),
+                  updated_at = NOW()
+              WHERE handle = ${enrollment.handle} AND channel = 'sms' AND archived_at IS NULL
+            `;
+          });
+        }
+        const reason = err instanceof Error ? err.message : String(err);
+        logger.error(`${channelId} send failed for response ${response_id}: ${reason}`);
+        await insertFailedDelivery(
+          business_id,
+          response_id,
+          channelId,
+          enrollment.handle,
+          err instanceof SmsRecipientUnsubscribedError ? 'twilio_21610_at_send' : `send_error:${reason}`,
+        );
+        continue; // `finally` runs before continue, so refund still triggers when sendAccepted=false.
+      }
+
+      await recordNotificationDelivery({
+        businessId: business_id,
+        responseId: response_id,
+        channel: channelId,
+        recipient: enrollment.handle,
+        template: 'approval_request',
+        externalMessageId,
+      });
+      succeeded++;
+      logger.log(`${channelId} approval notification sent for response ${response_id} (business ${business_id})`);
+    } finally {
+      if (channelId === 'sms' && smsReservationDate && !sendAccepted) {
+        await refundSmsCost(business_id, smsReservationDate);
+      }
+    }
   }
 
   if (attempted > 0 && succeeded === 0) {
