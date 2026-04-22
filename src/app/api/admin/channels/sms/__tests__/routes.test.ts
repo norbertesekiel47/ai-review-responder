@@ -80,8 +80,9 @@ vi.mock('twilio', () => ({
   validateRequest: vi.fn(),
 }));
 
-// Route under test — imported after all vi.mock() calls above.
+// Routes under test — imported after all vi.mock() calls above.
 import { POST as verifyPOST } from '../verify/route';
+import { POST as confirmPOST } from '../confirm/route';
 
 function adminReq(body: unknown): NextRequest {
   return new NextRequest('http://localhost/api/admin/channels/sms/verify', {
@@ -107,6 +108,7 @@ function resetMocks() {
   mockVerifyCreate.mockReset();
   mockVerifyCreate.mockResolvedValue({ status: 'pending' });
   mockVerificationCheckCreate.mockReset();
+  mockVerificationCheckCreate.mockResolvedValue({ status: 'approved' });
   process.env.CHANNELS_SMS_ENABLED = 'true';
   process.env.TWILIO_ACCOUNT_SID = 'ACtest';
   process.env.TWILIO_AUTH_TOKEN = 't';
@@ -262,5 +264,128 @@ describe('POST /api/admin/channels/sms/verify', () => {
     expect(raw).not.toMatch(/INSERT INTO channel_enrollments/);
     expect(raw).not.toMatch(/UPDATE channel_enrollments/);
     expect(mockVerifyCreate).toHaveBeenCalled();
+  });
+});
+
+describe('POST /api/admin/channels/sms/confirm', () => {
+  beforeEach(resetMocks);
+
+  function confirmReq(body: unknown): NextRequest {
+    return new NextRequest('http://localhost/api/admin/channels/sms/confirm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  }
+
+  it('404 when flag is off', async () => {
+    process.env.CHANNELS_SMS_ENABLED = 'false';
+    const res = await confirmPOST(confirmReq({ business_id: 'biz', code: '123456' }));
+    expect(res.status).toBe(404);
+  });
+
+  it('400 missing_fields when code omitted', async () => {
+    const res = await confirmPOST(confirmReq({ business_id: 'biz' }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).reason).toBe('missing_fields');
+  });
+
+  it('403 when subscription not active', async () => {
+    sqlReturnQueue.push([{ subscription_status: 'pending_payment' }]);
+    const res = await confirmPOST(confirmReq({ business_id: 'biz', code: '123456' }));
+    expect(res.status).toBe(403);
+  });
+
+  it('400 no_pending_verification when no active row', async () => {
+    sqlReturnQueue.push([{ subscription_status: 'active' }]);
+    sqlReturnQueue.push([]);                 // advisory lock
+    sqlReturnQueue.push([]);                 // no active row
+    const res = await confirmPOST(confirmReq({ business_id: 'biz', code: '123456' }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).reason).toBe('no_pending_verification');
+  });
+
+  it('409 sender_opted_out_during_verification (mid-flow STOP race)', async () => {
+    sqlReturnQueue.push([{ subscription_status: 'active' }]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([{ handle: '+14155552671', status: 'pending_verification' }]);
+    sqlReturnQueue.push([{ opted_out_at: new Date(), opted_in_at: null }]); // opted out!
+    const res = await confirmPOST(confirmReq({ business_id: 'biz', code: '123456' }));
+    expect(res.status).toBe(409);
+    expect((await res.json()).reason).toBe('sender_opted_out_during_verification');
+    expect(mockVerificationCheckCreate).not.toHaveBeenCalled();
+  });
+
+  it('409 row_not_pending when row is verified', async () => {
+    sqlReturnQueue.push([{ subscription_status: 'active' }]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([{ handle: '+14155552671', status: 'verified' }]);
+    sqlReturnQueue.push([]); // opt-out check — clean
+    const res = await confirmPOST(confirmReq({ business_id: 'biz', code: '123456' }));
+    expect(res.status).toBe(409);
+    expect((await res.json()).reason).toBe('row_not_pending');
+    expect(mockVerificationCheckCreate).not.toHaveBeenCalled();
+  });
+
+  it('409 row_not_pending when row is disabled', async () => {
+    sqlReturnQueue.push([{ subscription_status: 'active' }]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([{ handle: '+14155552671', status: 'disabled' }]);
+    sqlReturnQueue.push([]);
+    const res = await confirmPOST(confirmReq({ business_id: 'biz', code: '123456' }));
+    expect(res.status).toBe(409);
+  });
+
+  it('400 invalid_code_or_expired when Twilio returns non-approved', async () => {
+    sqlReturnQueue.push([{ subscription_status: 'active' }]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([{ handle: '+14155552671', status: 'pending_verification' }]);
+    sqlReturnQueue.push([]);                 // opt-out check — clean
+    mockVerificationCheckCreate.mockResolvedValueOnce({ status: 'pending' });
+    const res = await confirmPOST(confirmReq({ business_id: 'biz', code: 'wrong' }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).reason).toBe('invalid_code_or_expired');
+  });
+
+  it('200 on approved: UPDATE flips to verified + clears unsub fields', async () => {
+    sqlReturnQueue.push([{ subscription_status: 'active' }]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([{ handle: '+14155552671', status: 'pending_verification' }]);
+    sqlReturnQueue.push([]);                 // opt-out check — clean
+    sqlReturnQueue.push([{ id: 'enr-1' }]);  // UPDATE RETURNING
+    const res = await confirmPOST(confirmReq({ business_id: 'biz', code: '123456' }));
+    expect(res.status).toBe(200);
+    expect((await res.json()).ok).toBe(true);
+    const raw = sqlCallsLog.map((c) => c.raw).join('\n');
+    expect(raw).toMatch(/UPDATE channel_enrollments/);
+    expect(raw).toMatch(/status = 'verified'/);
+    expect(raw).toMatch(/unsubscribed_at = NULL/);
+    expect(raw).toMatch(/unsubscribed_reason = NULL/);
+  });
+
+  it('confirm does NOT touch sms_sender_opt_outs', async () => {
+    sqlReturnQueue.push([{ subscription_status: 'active' }]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([{ handle: '+14155552671', status: 'pending_verification' }]);
+    // Opted back in — confirm proceeds. We then assert no writes to opt-out tables.
+    sqlReturnQueue.push([
+      { opted_out_at: new Date('2026-04-01'), opted_in_at: new Date('2026-04-02') },
+    ]);
+    sqlReturnQueue.push([{ id: 'enr-1' }]);
+    await confirmPOST(confirmReq({ business_id: 'biz', code: '123456' }));
+    const raw = sqlCallsLog.map((c) => c.raw).join('\n');
+    expect(raw).not.toMatch(/UPDATE sms_sender_opt_outs/);
+    expect(raw).not.toMatch(/INSERT INTO sms_sender_opt_outs/);
+    expect(raw).not.toMatch(/INSERT INTO sms_sender_opt_out_events/);
+  });
+
+  it('409 race_conflict if UPDATE affects 0 rows', async () => {
+    sqlReturnQueue.push([{ subscription_status: 'active' }]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([{ handle: '+14155552671', status: 'pending_verification' }]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([]); // UPDATE RETURNING — empty (concurrent cancel)
+    const res = await confirmPOST(confirmReq({ business_id: 'biz', code: '123456' }));
+    expect(res.status).toBe(409);
   });
 });
