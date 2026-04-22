@@ -23,3 +23,31 @@ export async function recordNotificationDelivery(params: {
     )
   `;
 }
+
+/**
+ * Records a FAILED delivery. Used when a channel send threw before returning
+ * an external message ID (Twilio rejected, Resend errored, cost-cap blocked),
+ * or when a pre-send guard rejected the send. Mirrors recordNotificationDelivery
+ * but sets failed_at + failure_reason and leaves external_message_id NULL.
+ *
+ * Defaults template to 'approval_request' since that's the primary use site
+ * (the dispatcher's per-channel catch block). Owner-directed non-approval
+ * templates (e.g., 'weekly_value_report') should pass the template explicitly.
+ */
+export async function insertFailedDelivery(
+  businessId: string,
+  responseId: string | null,
+  channel: ChannelId,
+  recipient: string,
+  failureReason: string,
+  template: string = 'approval_request',
+): Promise<void> {
+  await sql`
+    INSERT INTO notification_deliveries
+      (id, business_id, response_id, channel, recipient, template, failed_at, failure_reason)
+    VALUES (
+      ${uuidv7()}, ${businessId}, ${responseId}, ${channel},
+      ${recipient}, ${template}, NOW(), ${failureReason}
+    )
+  `;
+}
