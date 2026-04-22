@@ -85,6 +85,7 @@ import { POST as verifyPOST } from '../verify/route';
 import { POST as confirmPOST } from '../confirm/route';
 import { POST as cancelPOST } from '../cancel/route';
 import { POST as disablePOST } from '../disable/route';
+import { POST as deletePOST } from '../delete/route';
 
 function adminReq(body: unknown): NextRequest {
   return new NextRequest('http://localhost/api/admin/channels/sms/verify', {
@@ -499,5 +500,73 @@ describe('POST /api/admin/channels/sms/disable', () => {
     const res = await disablePOST(disableReq({ business_id: 'biz' }));
     expect(res.status).toBe(409);
     expect((await res.json()).reason).toBe('not_verified');
+  });
+});
+
+describe('POST /api/admin/channels/sms/delete', () => {
+  beforeEach(resetMocks);
+
+  function deleteReq(body: unknown): NextRequest {
+    return new NextRequest('http://localhost/api/admin/channels/sms/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  }
+
+  it('404 when flag off', async () => {
+    process.env.CHANNELS_SMS_ENABLED = 'false';
+    const res = await deletePOST(deleteReq({ business_id: 'biz', confirm: true }));
+    expect(res.status).toBe(404);
+  });
+
+  it('400 confirmation_required when confirm missing', async () => {
+    const res = await deletePOST(deleteReq({ business_id: 'biz' }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).reason).toBe('confirmation_required');
+  });
+
+  it('400 confirmation_required when confirm is false', async () => {
+    const res = await deletePOST(deleteReq({ business_id: 'biz', confirm: false }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).reason).toBe('confirmation_required');
+  });
+
+  it('400 confirmation_required when confirm is a truthy non-true value', async () => {
+    // Strict true check — catches typos like confirm: 'true' string.
+    const res = await deletePOST(deleteReq({ business_id: 'biz', confirm: 'true' }));
+    expect(res.status).toBe(400);
+  });
+
+  it('200 soft-deletes: UPDATE with archived_at + archive_reason', async () => {
+    sqlReturnQueue.push([{ subscription_status: 'active' }]);
+    sqlReturnQueue.push([]);                // advisory lock
+    sqlReturnQueue.push([]);                // UPDATE
+    const res = await deletePOST(deleteReq({ business_id: 'biz', confirm: true }));
+    expect(res.status).toBe(200);
+    const raw = sqlCallsLog.map(c => c.raw).join('\n');
+    expect(raw).toMatch(/UPDATE channel_enrollments/);
+    expect(raw).toMatch(/archived_at = NOW\(\)/);
+    expect(raw).toMatch(/archive_reason = 'admin_delete'/);
+    expect(raw).toMatch(/archived_at IS NULL/); // WHERE guard
+  });
+
+  it('does NOT touch sms_sender_opt_outs or audit events (TCPA retention)', async () => {
+    sqlReturnQueue.push([{ subscription_status: 'active' }]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([]);
+    await deletePOST(deleteReq({ business_id: 'biz', confirm: true }));
+    const raw = sqlCallsLog.map(c => c.raw).join('\n');
+    expect(raw).not.toMatch(/sms_sender_opt_outs/);
+    expect(raw).not.toMatch(/sms_sender_opt_out_events/);
+  });
+
+  it('does NOT delete channel_enrollments (soft-delete only)', async () => {
+    sqlReturnQueue.push([{ subscription_status: 'active' }]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([]);
+    await deletePOST(deleteReq({ business_id: 'biz', confirm: true }));
+    const raw = sqlCallsLog.map(c => c.raw).join('\n');
+    expect(raw).not.toMatch(/DELETE FROM channel_enrollments/);
   });
 });
