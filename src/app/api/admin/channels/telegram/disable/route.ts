@@ -1,0 +1,45 @@
+// src/app/api/admin/channels/telegram/disable — admin disables a verified enrollment.
+// Returns 404 if no verified row matches (user-facing signal that there's nothing to disable).
+//
+// Handler order: flag → env → auth → businessId.
+
+import { NextRequest, NextResponse } from 'next/server';
+import { sql } from '@/lib/db/server';
+import { requireRole, AuthError } from '@/lib/db/auth';
+import { isTelegramEnabled, flagOff, assertTelegramEnvReady } from '../_shared';
+
+export async function POST(req: NextRequest): Promise<NextResponse> {
+  if (!isTelegramEnabled()) return flagOff();
+
+  const envErr = assertTelegramEnvReady();
+  if (envErr) return envErr;
+
+  try {
+    await requireRole(req, 'admin', 'sales_partner');
+  } catch (e) {
+    if (e instanceof AuthError) {
+      return NextResponse.json({ error: e.message }, { status: e.statusCode });
+    }
+    throw e;
+  }
+
+  const body = (await req.json().catch(() => null)) as { businessId?: string } | null;
+  const businessId = body?.businessId;
+  if (!businessId) return NextResponse.json({ error: 'businessId required' }, { status: 400 });
+
+  const updated = await sql<{ id: string }[]>`
+    UPDATE channel_enrollments
+    SET status = 'disabled', disabled_at = NOW(), updated_at = NOW()
+    WHERE business_id = ${businessId}
+      AND channel = 'telegram'
+      AND status = 'verified'
+      AND archived_at IS NULL
+    RETURNING id
+  `;
+
+  if (updated.length === 0) {
+    return NextResponse.json({ error: 'not_found' }, { status: 404 });
+  }
+
+  return NextResponse.json({ ok: true });
+}
