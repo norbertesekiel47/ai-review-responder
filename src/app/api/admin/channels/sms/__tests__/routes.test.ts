@@ -83,6 +83,7 @@ vi.mock('twilio', () => ({
 // Routes under test — imported after all vi.mock() calls above.
 import { POST as verifyPOST } from '../verify/route';
 import { POST as confirmPOST } from '../confirm/route';
+import { POST as cancelPOST } from '../cancel/route';
 
 function adminReq(body: unknown): NextRequest {
   return new NextRequest('http://localhost/api/admin/channels/sms/verify', {
@@ -387,5 +388,74 @@ describe('POST /api/admin/channels/sms/confirm', () => {
     sqlReturnQueue.push([]); // UPDATE RETURNING — empty (concurrent cancel)
     const res = await confirmPOST(confirmReq({ business_id: 'biz', code: '123456' }));
     expect(res.status).toBe(409);
+  });
+});
+
+describe('POST /api/admin/channels/sms/cancel', () => {
+  beforeEach(resetMocks);
+
+  function cancelReq(body: unknown): NextRequest {
+    return new NextRequest('http://localhost/api/admin/channels/sms/cancel', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  }
+
+  it('404 when flag off', async () => {
+    process.env.CHANNELS_SMS_ENABLED = 'false';
+    const res = await cancelPOST(cancelReq({ business_id: 'biz' }));
+    expect(res.status).toBe(404);
+  });
+
+  it('400 business_id_required when missing', async () => {
+    const res = await cancelPOST(cancelReq({}));
+    expect(res.status).toBe(400);
+  });
+
+  it('403 when subscription not active', async () => {
+    sqlReturnQueue.push([{ subscription_status: 'pending_payment' }]);
+    const res = await cancelPOST(cancelReq({ business_id: 'biz' }));
+    expect(res.status).toBe(403);
+  });
+
+  it('200 issues the state-revert CTE (UPDATE + DELETE subquery)', async () => {
+    sqlReturnQueue.push([{ subscription_status: 'active' }]);
+    sqlReturnQueue.push([]); // advisory lock
+    sqlReturnQueue.push([]); // CTE result (empty — no active rows)
+    const res = await cancelPOST(cancelReq({ business_id: 'biz' }));
+    expect(res.status).toBe(200);
+    expect((await res.json()).ok).toBe(true);
+
+    const raw = sqlCallsLog.map(c => c.raw).join('\n');
+    expect(raw).toMatch(/WITH reverted AS/);
+    expect(raw).toMatch(/UPDATE channel_enrollments/);
+    expect(raw).toMatch(/CASE\s+WHEN unsubscribed_at IS NOT NULL THEN 'unsubscribed'/);
+    expect(raw).toMatch(/WHEN disabled_at\s+IS NOT NULL THEN 'disabled'/);
+    expect(raw).toMatch(/WHEN verified_at\s+IS NOT NULL THEN 'verified'/);
+    expect(raw).toMatch(/DELETE FROM channel_enrollments/);
+    expect(raw).toMatch(/WHERE id IN \(SELECT id FROM reverted WHERE status = 'pending_verification'\)/);
+    expect(raw).toMatch(/archived_at IS NULL/);
+    expect(raw).toMatch(/status = 'pending_verification'/);
+  });
+
+  it('does NOT touch sms_sender_opt_outs or sms_sender_opt_out_events', async () => {
+    sqlReturnQueue.push([{ subscription_status: 'active' }]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([]);
+    await cancelPOST(cancelReq({ business_id: 'biz' }));
+    const raw = sqlCallsLog.map(c => c.raw).join('\n');
+    expect(raw).not.toMatch(/sms_sender_opt_outs/);
+    expect(raw).not.toMatch(/sms_sender_opt_out_events/);
+  });
+
+  it('acquires advisory lock scoped to business_id', async () => {
+    sqlReturnQueue.push([{ subscription_status: 'active' }]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([]);
+    await cancelPOST(cancelReq({ business_id: 'biz-42' }));
+    const lockCall = sqlCallsLog.find(c => /pg_advisory_xact_lock/.test(c.raw));
+    expect(lockCall).toBeDefined();
+    expect(lockCall!.values).toContain('sms_enroll:biz-42');
   });
 });
