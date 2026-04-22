@@ -32,6 +32,7 @@ interface BusinessDetail {
   rankingSearchLocation: string | null;
   googlePlaceAddress: string | null;
   ownerEmailBounced: boolean;
+  smsEnabled: boolean;
   churnScore?: {
     score: number;
     level: 'healthy' | 'watch' | 'at_risk';
@@ -917,7 +918,7 @@ export default function BusinessDetailPage() {
         </section>
 
         {/* SMS enrollment (flag-gated) */}
-        {process.env.NEXT_PUBLIC_CHANNELS_SMS_ENABLED === 'true' && (
+        {business.smsEnabled && (
           <section className="mt-8 rounded-lg border border-gray-200 bg-white p-6">
             <h2 className="text-lg font-semibold text-gray-800 mb-3">SMS enrollment</h2>
             {business.subscriptionStatus !== 'active' ? (

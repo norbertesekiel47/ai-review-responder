@@ -221,6 +221,7 @@ export async function GET(
         rankingSearchLocation: business.ranking_search_location,
         googlePlaceAddress: business.google_place_address,
         ownerEmailBounced: business.owner_email_bounced ?? false,
+        smsEnabled: process.env.CHANNELS_SMS_ENABLED === 'true',
         churnScore,
       },
       rankingSnapshots: rankingSnapshots.map((s) => ({

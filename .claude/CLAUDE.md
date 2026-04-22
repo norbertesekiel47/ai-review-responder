@@ -171,8 +171,7 @@ Next number: **023**. Inventory: 001 (schema), 002 (P2 fixes), 003 (audit_log RL
 - `CONTACT_NOTIFY_TO` — optional; overrides the hardcoded notification email for `/api/contact` form submissions (default: `norbertesekiel@gmail.com`)
 - `NOTIFICATION_FAILOVER_DISABLED=true` — skip failover poller entirely (local dev / mock mode auto-skips too; RESEND_WEBHOOK_SECRET no longer consulted)
 - `NOTIFICATION_FAILOVER_INTERVAL_MS` — optional, default 7200000 (2 hours)
-- `CHANNELS_SMS_ENABLED` — gates factory, dispatcher, admin API routes, widget. Default off.
-- `NEXT_PUBLIC_CHANNELS_SMS_ENABLED` — UI visibility companion (client bundle). Must match `CHANNELS_SMS_ENABLED`.
+- `CHANNELS_SMS_ENABLED` — gates factory, dispatcher, admin API routes, widget. Default off. Server-authoritative single source of truth; the admin page reads it via the business detail API (no `NEXT_PUBLIC_*` companion).
 - `WORKER_PUBLIC_URL` — required when SMS enabled; statusCallback base + Twilio signature verification path component. Must match Twilio console config exactly (scheme, host, no trailing slash).
 - `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_MESSAGING_SERVICE_SID`, `TWILIO_VERIFY_SERVICE_SID` — required when SMS enabled (worker startup assertion fails otherwise, except in `MOCK_EXTERNAL_APIS=true`).
 - `SMS_DAILY_LIMIT_CENTS_PER_BUSINESS` (default 10) / `SMS_DAILY_LIMIT_CENTS_GLOBAL` (default 500) — SMS cost guard ceilings.
