@@ -22,6 +22,28 @@ export function flagOff(): NextResponse {
   return NextResponse.json({ error: 'not_found' }, { status: 404 });
 }
 
+/**
+ * Returns a 503 NextResponse if CHANNELS_SMS_ENABLED=true but the required
+ * Twilio env vars are missing. Returns null if env is ready (route should
+ * proceed). Mirrors the worker-side startup assertion pattern.
+ *
+ * MOCK_EXTERNAL_APIS=true bypasses this check (local dev).
+ */
+export function assertSmsEnvReady(): NextResponse | null {
+  if (process.env.MOCK_EXTERNAL_APIS === 'true') return null;
+  const required = [
+    'WORKER_PUBLIC_URL',
+    'TWILIO_ACCOUNT_SID',
+    'TWILIO_AUTH_TOKEN',
+    'TWILIO_MESSAGING_SERVICE_SID',
+    'TWILIO_VERIFY_SERVICE_SID',
+  ];
+  const missing = required.filter((k) => !process.env[k] || process.env[k]!.trim().length === 0);
+  if (missing.length === 0) return null;
+  console.error(`[sms-admin] CHANNELS_SMS_ENABLED=true but missing env vars: ${missing.join(', ')}`);
+  return NextResponse.json({ ok: false, reason: 'sms_env_not_ready', missing }, { status: 503 });
+}
+
 // ── Subscription gate ────────────────────────────────────────────────
 
 /** Loads the business subscription_status. Returns null if the business doesn't exist. */

@@ -31,6 +31,7 @@ import { requireRole, AuthError } from '@/lib/db/auth';
 import {
   isSmsEnabled,
   flagOff,
+  assertSmsEnvReady,
   loadBusinessSubscriptionStatus,
   subscriptionNotActive,
   withSmsEnrollmentLock,
@@ -45,6 +46,8 @@ interface ConfirmBody {
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   if (!isSmsEnabled()) return flagOff();
+  const envError = assertSmsEnvReady();
+  if (envError) return envError;
 
   try {
     await requireRole(request, 'admin');
@@ -86,7 +89,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (
       opt &&
       opt.opted_out_at &&
-      (!opt.opted_in_at || opt.opted_in_at < opt.opted_out_at)
+      (!opt.opted_in_at || opt.opted_in_at <= opt.opted_out_at)
     ) {
       return conflict('sender_opted_out_during_verification');
     }

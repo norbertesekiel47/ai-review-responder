@@ -21,6 +21,7 @@ import { requireRole, AuthError } from '@/lib/db/auth';
 import {
   isSmsEnabled,
   flagOff,
+  assertSmsEnvReady,
   loadBusinessSubscriptionStatus,
   subscriptionNotActive,
   withSmsEnrollmentLock,
@@ -34,6 +35,8 @@ interface DeleteBody {
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   if (!isSmsEnabled()) return flagOff();
+  const envError = assertSmsEnvReady();
+  if (envError) return envError;
 
   try {
     await requireRole(request, 'admin');

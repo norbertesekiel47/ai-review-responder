@@ -20,7 +20,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { sql } from '@/lib/db/server';
-import { isSmsEnabled, flagOff, badRequest } from '../_shared';
+import { isSmsEnabled, flagOff, assertSmsEnvReady, badRequest } from '../_shared';
 
 interface StatusRow {
   status: string;
@@ -35,6 +35,8 @@ interface StatusRow {
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   if (!isSmsEnabled()) return flagOff();
+  const envError = assertSmsEnvReady();
+  if (envError) return envError;
 
   try {
     await requireRole(request, 'admin');

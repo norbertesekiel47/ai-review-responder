@@ -114,11 +114,88 @@ function resetMocks() {
   mockVerificationCheckCreate.mockReset();
   mockVerificationCheckCreate.mockResolvedValue({ status: 'approved' });
   process.env.CHANNELS_SMS_ENABLED = 'true';
+  process.env.WORKER_PUBLIC_URL = 'https://worker.test';
   process.env.TWILIO_ACCOUNT_SID = 'ACtest';
   process.env.TWILIO_AUTH_TOKEN = 't';
   process.env.TWILIO_MESSAGING_SERVICE_SID = 'MGtest';
   process.env.TWILIO_VERIFY_SERVICE_SID = 'VAtest';
+  delete process.env.MOCK_EXTERNAL_APIS;
 }
+
+// ── H2: env-readiness 503 across all 6 routes ─────────────────────────
+// When CHANNELS_SMS_ENABLED=true but a required Twilio env var is missing,
+// every admin route must 503 with `reason: 'sms_env_not_ready'` BEFORE
+// touching auth or DB. Table-driven: one case per route × env var combo.
+describe('SMS admin routes: env-readiness 503 (H2)', () => {
+  beforeEach(resetMocks);
+
+  const cases: Array<{
+    name: string;
+    run: () => Promise<Response>;
+  }> = [
+    {
+      name: 'verify',
+      run: () => verifyPOST(adminReq({ business_id: 'biz', phone: '+14155552671' })),
+    },
+    {
+      name: 'confirm',
+      run: () => confirmPOST(adminReq({ business_id: 'biz', code: '123456' })),
+    },
+    {
+      name: 'cancel',
+      run: () => cancelPOST(adminReq({ business_id: 'biz' })),
+    },
+    {
+      name: 'disable',
+      run: () => disablePOST(adminReq({ business_id: 'biz' })),
+    },
+    {
+      name: 'delete',
+      run: () => deletePOST(adminReq({ business_id: 'biz', confirm: true })),
+    },
+    {
+      name: 'status',
+      run: () =>
+        statusGET(
+          new NextRequest('http://localhost/api/admin/channels/sms/status?business_id=biz', {
+            method: 'GET',
+          }),
+        ),
+    },
+  ];
+
+  for (const c of cases) {
+    it(`${c.name}: 503 sms_env_not_ready when TWILIO_ACCOUNT_SID is missing`, async () => {
+      delete process.env.TWILIO_ACCOUNT_SID;
+      const res = await c.run();
+      expect(res.status).toBe(503);
+      const json = await res.json();
+      expect(json.reason).toBe('sms_env_not_ready');
+      expect(Array.isArray(json.missing)).toBe(true);
+      expect(json.missing).toContain('TWILIO_ACCOUNT_SID');
+      // Auth was never consulted — 503 fires before requireRole.
+      expect(mockRequireRole).not.toHaveBeenCalled();
+    });
+  }
+
+  it('MOCK_EXTERNAL_APIS=true bypasses the 503 check', async () => {
+    delete process.env.TWILIO_ACCOUNT_SID;
+    process.env.MOCK_EXTERNAL_APIS = 'true';
+    try {
+      // Prime enough for the status route to complete successfully.
+      sqlReturnQueue.push([]);
+      const res = await statusGET(
+        new NextRequest('http://localhost/api/admin/channels/sms/status?business_id=biz', {
+          method: 'GET',
+        }),
+      );
+      // Not 503 — the env check bypassed.
+      expect(res.status).not.toBe(503);
+    } finally {
+      delete process.env.MOCK_EXTERNAL_APIS;
+    }
+  });
+});
 
 describe('POST /api/admin/channels/sms/verify', () => {
   beforeEach(resetMocks);
@@ -219,6 +296,7 @@ describe('POST /api/admin/channels/sms/verify', () => {
     sqlReturnQueue.push([]);
     sqlReturnQueue.push([]);
     sqlReturnQueue.push([]);                       // opt-out — not present
+    sqlReturnQueue.push([]);                       // post-Twilio opt-out re-check
     sqlReturnQueue.push([]);                       // INSERT
     const res = await verifyPOST(adminReq({ business_id: 'biz', phone: '+14155552671' }));
     expect(res.status).toBe(200);
@@ -238,6 +316,7 @@ describe('POST /api/admin/channels/sms/verify', () => {
     sqlReturnQueue.push([]);
     sqlReturnQueue.push([{ handle: '+14155552671', status: 'disabled' }]);
     sqlReturnQueue.push([]);                       // opt-out check — none
+    sqlReturnQueue.push([]);                       // post-Twilio opt-out re-check
     sqlReturnQueue.push([{ id: 'enr-1' }]);        // UPDATE RETURNING id
     const res = await verifyPOST(adminReq({ business_id: 'biz' })); // no phone — uses row.handle
     expect(res.status).toBe(200);
@@ -251,6 +330,7 @@ describe('POST /api/admin/channels/sms/verify', () => {
     sqlReturnQueue.push([]);
     sqlReturnQueue.push([{ handle: '+14155552671', status: 'disabled' }]);
     sqlReturnQueue.push([]);
+    sqlReturnQueue.push([]);                       // post-Twilio opt-out re-check
     sqlReturnQueue.push([]);                       // UPDATE RETURNING — empty!
     const res = await verifyPOST(adminReq({ business_id: 'biz' }));
     expect(res.status).toBe(409);
@@ -261,6 +341,7 @@ describe('POST /api/admin/channels/sms/verify', () => {
     sqlReturnQueue.push([]);
     sqlReturnQueue.push([{ handle: '+14155552671', status: 'pending_verification' }]);
     sqlReturnQueue.push([]);                       // opt-out check
+    sqlReturnQueue.push([]);                       // post-Twilio opt-out re-check
     // NO INSERT or UPDATE expected
     const res = await verifyPOST(adminReq({ business_id: 'biz' }));
     expect(res.status).toBe(200);
@@ -268,6 +349,42 @@ describe('POST /api/admin/channels/sms/verify', () => {
     expect(raw).not.toMatch(/INSERT INTO channel_enrollments/);
     expect(raw).not.toMatch(/UPDATE channel_enrollments/);
     expect(mockVerifyCreate).toHaveBeenCalled();
+  });
+
+  // H3: post-Twilio STOP race. The pre-Twilio opt-out check is clean, Twilio
+  // Verify succeeds, but between the API roundtrip and the DB mutation, a STOP
+  // webhook wrote sms_sender_opt_outs. The post-Twilio re-check must catch it
+  // and return 409 sender_opted_out_during_verification instead of flipping
+  // the row to pending_verification (which would overwrite unsubscribed).
+  it('H3: 409 sender_opted_out_during_verification on post-Twilio STOP race', async () => {
+    sqlReturnQueue.push([{ subscription_status: 'active' }]); // subscription
+    sqlReturnQueue.push([]);                                    // advisory lock
+    sqlReturnQueue.push([{ handle: '+14155552671', status: 'disabled' }]); // active row
+    sqlReturnQueue.push([]);                                    // pre-Twilio opt-out — clean
+    sqlReturnQueue.push([{ opted_out_at: new Date(), opted_in_at: null }]); // post-Twilio — opted out!
+    // Verify succeeds — Twilio call happened before STOP arrived.
+    mockVerifyCreate.mockResolvedValueOnce({ status: 'pending' });
+    const res = await verifyPOST(adminReq({ business_id: 'biz' }));
+    expect(res.status).toBe(409);
+    expect((await res.json()).reason).toBe('sender_opted_out_during_verification');
+    // No UPDATE should have fired — row stays in unsubscribed state the STOP set.
+    const raw = sqlCallsLog.map((c) => c.raw).join('\n');
+    expect(raw).not.toMatch(/UPDATE channel_enrollments/);
+  });
+
+  // H4: equal timestamps must be treated as still opted out (matches /status
+  // semantics `opted_in_at > opted_out_at`). Before the fix, `<` allowed equal
+  // to pass — contradiction with /status.
+  it('H4: 400 sender_opt_in_required when opted_in_at == opted_out_at', async () => {
+    const sameTime = new Date('2026-04-20T10:00:00Z');
+    sqlReturnQueue.push([{ subscription_status: 'active' }]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([]);                       // no active row
+    sqlReturnQueue.push([{ opted_out_at: sameTime, opted_in_at: sameTime }]); // equal!
+    const res = await verifyPOST(adminReq({ business_id: 'biz', phone: '+14155552671' }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).reason).toBe('sender_opt_in_required');
+    expect(mockVerifyCreate).not.toHaveBeenCalled();
   });
 });
 
@@ -391,6 +508,19 @@ describe('POST /api/admin/channels/sms/confirm', () => {
     sqlReturnQueue.push([]); // UPDATE RETURNING — empty (concurrent cancel)
     const res = await confirmPOST(confirmReq({ business_id: 'biz', code: '123456' }));
     expect(res.status).toBe(409);
+  });
+
+  // H4: equal timestamps treated as still opted out (matches /verify + /status).
+  it('H4: 409 sender_opted_out_during_verification when opted_in_at == opted_out_at', async () => {
+    const sameTime = new Date('2026-04-20T10:00:00Z');
+    sqlReturnQueue.push([{ subscription_status: 'active' }]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([{ handle: '+14155552671', status: 'pending_verification' }]);
+    sqlReturnQueue.push([{ opted_out_at: sameTime, opted_in_at: sameTime }]); // equal!
+    const res = await confirmPOST(confirmReq({ business_id: 'biz', code: '123456' }));
+    expect(res.status).toBe(409);
+    expect((await res.json()).reason).toBe('sender_opted_out_during_verification');
+    expect(mockVerificationCheckCreate).not.toHaveBeenCalled();
   });
 });
 
