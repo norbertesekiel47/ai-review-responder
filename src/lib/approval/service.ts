@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { v7 as uuidv7 } from 'uuid';
 import { distance } from 'fastest-levenshtein';
 import type postgres from 'postgres';
-import { jsonb } from '@/lib/db/server';
+import { sql, jsonb } from '@/lib/db/server';
 import {
   InvalidTokenError,
   ExpiredTokenError,
@@ -10,7 +10,12 @@ import {
   ConsumedTokenError,
   DeviceConflictError,
   ResponseNotPendingError,
+  ConsumedLinkError,
+  RevokedLinkError,
+  ExpiredLinkError,
+  ChannelMismatchError,
 } from './errors';
+import { recoverCorrelationId } from './correlation';
 import type { PublishResponsePayload, GenerateResponsePayload } from '@/lib/shared/worker-types';
 
 /**
@@ -429,4 +434,131 @@ export async function regenerateBySession(
   `;
 
   await insertAuditLogSession(tx, responseId, businessId, 'regenerate', audit);
+}
+
+// ---------------------------------------------------------------------------
+// Inline-callback approval (Telegram / future WhatsApp button taps)
+// ---------------------------------------------------------------------------
+
+export interface CallbackAuditContext {
+  updateId: number;
+  ipAddress: string | null;
+}
+
+export interface CallbackApprovalInput {
+  approvalLinkId: string;
+  chatHandle: string;
+  viaChannel: 'telegram' | 'whatsapp';
+  audit: CallbackAuditContext;
+}
+
+async function lockLinkByIdForCallback(
+  tx: TxClient,
+  approvalLinkId: string,
+  expectedChannel: string,
+): Promise<ApprovalLink> {
+  const rows = await tx<ApprovalLink[]>`
+    SELECT id, response_id, business_id, token_hash, channel, expires_at, consumed_at, revoked_at, device_cookie_hash, created_at
+    FROM approval_links
+    WHERE id = ${approvalLinkId}
+    FOR UPDATE
+  `;
+  const link = rows[0];
+  if (!link) throw new InvalidTokenError();
+  if (link.channel !== expectedChannel) throw new ChannelMismatchError(expectedChannel, link.channel);
+  if (link.consumed_at !== null) throw new ConsumedLinkError();
+  if (link.revoked_at !== null) throw new RevokedLinkError();
+  if (new Date(link.expires_at) <= new Date()) throw new ExpiredLinkError();
+  return link;
+}
+
+function buildCallbackAudit(
+  link: ApprovalLink,
+  input: CallbackApprovalInput,
+  correlationId: string,
+): { audit: AuditContext; metadata: Record<string, unknown> } {
+  const chatHandleHash = createHash('sha256').update(input.chatHandle).digest('hex');
+  return {
+    audit: {
+      tokenHash: link.token_hash,
+      deviceCookieHash: null,
+      ipAddress: input.audit.ipAddress,
+    },
+    metadata: {
+      via_channel: input.viaChannel,
+      chat_handle_hash: chatHandleHash,
+      update_id: input.audit.updateId,
+      correlation_id: correlationId,
+    },
+  };
+}
+
+/**
+ * Approve via inline-button callback (Telegram / WhatsApp).
+ * Authorization is provider-signature + sender-handle bound in the ingress layer.
+ * Throws typed link-state errors for caller classification.
+ */
+export async function approveViaCallback(input: CallbackApprovalInput): Promise<void> {
+  await sql.begin(async (tx) => {
+    const link = await lockLinkByIdForCallback(tx, input.approvalLinkId, input.viaChannel);
+    const response = await lockPendingResponse(tx, link.response_id);
+    await consumeLink(tx, link.id);
+    await tx`
+      UPDATE responses
+      SET status = 'approved', approved_at = NOW(), approved_text = response_text
+      WHERE id = ${link.response_id}
+    `;
+    await revokeSiblings(tx, link.response_id, link.id);
+
+    const correlationId = await recoverCorrelationId(tx, {
+      reviewId: response.review_id,
+      responseId: link.response_id,
+    });
+
+    const payload: PublishResponsePayload = {
+      response_id: link.response_id,
+      business_id: link.business_id,
+      correlation_id: correlationId,
+    };
+    await tx`
+      INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+      VALUES (${uuidv7()}, 'publish_response', 'response', ${link.response_id}, ${jsonb(payload)}, 'pending')
+    `;
+
+    const { audit, metadata } = buildCallbackAudit(link, input, correlationId);
+    await insertAuditLog(tx, link.response_id, link.business_id, `approved_via_${input.viaChannel}`, audit, metadata);
+  });
+}
+
+/**
+ * Regenerate via inline-button callback. Marks current response superseded,
+ * enqueues generate_response. A new approval cycle will follow.
+ */
+export async function regenerateViaCallback(input: CallbackApprovalInput): Promise<void> {
+  await sql.begin(async (tx) => {
+    const link = await lockLinkByIdForCallback(tx, input.approvalLinkId, input.viaChannel);
+    const response = await lockPendingResponse(tx, link.response_id);
+    await consumeLink(tx, link.id);
+    await revokeSiblings(tx, link.response_id, link.id);
+    await tx`UPDATE responses SET status = 'superseded' WHERE id = ${link.response_id}`;
+
+    const correlationId = await recoverCorrelationId(tx, {
+      reviewId: response.review_id,
+      responseId: link.response_id,
+    });
+
+    const payload: GenerateResponsePayload = {
+      review_id: response.review_id,
+      business_id: link.business_id,
+      version: response.version + 1,
+      correlation_id: correlationId,
+    };
+    await tx`
+      INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+      VALUES (${uuidv7()}, 'generate_response', 'review', ${response.review_id}, ${jsonb(payload)}, 'pending')
+    `;
+
+    const { audit, metadata } = buildCallbackAudit(link, input, correlationId);
+    await insertAuditLog(tx, link.response_id, link.business_id, `regenerated_via_${input.viaChannel}`, audit, metadata);
+  });
 }
