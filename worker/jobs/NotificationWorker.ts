@@ -245,6 +245,9 @@ export async function handleSendNotification(
           continue; // `finally` runs before continue, so refund still triggers when sendAccepted=false.
         }
         if (err instanceof TelegramRecipientBlockedError) {
+          // Filter by handle too (mirrors SMS 21610 pattern) so a stale send
+          // failure cannot stomp a freshly-re-enrolled handle if the admin
+          // disabled + re-enrolled during the in-flight send.
           await sql.begin(async (tx) => {
             await tx`
               UPDATE channel_enrollments
@@ -254,6 +257,7 @@ export async function handleSendNotification(
                   updated_at = NOW()
               WHERE business_id = ${business_id}
                 AND channel = 'telegram'
+                AND handle = ${enrollment.handle}
                 AND archived_at IS NULL
             `;
           });
@@ -262,6 +266,7 @@ export async function handleSendNotification(
           continue; // `finally` runs before continue, so any refund still triggers when sendAccepted=false.
         }
         if (err instanceof TelegramChatNotFoundError) {
+          // Same handle-scoped filter as the blocked branch above.
           await sql.begin(async (tx) => {
             await tx`
               UPDATE channel_enrollments
@@ -270,6 +275,7 @@ export async function handleSendNotification(
                   updated_at = NOW()
               WHERE business_id = ${business_id}
                 AND channel = 'telegram'
+                AND handle = ${enrollment.handle}
                 AND archived_at IS NULL
             `;
           });

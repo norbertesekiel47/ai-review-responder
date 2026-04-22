@@ -1,12 +1,22 @@
 // src/app/api/admin/channels/telegram/__tests__/start.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const sqlQueue: unknown[] = [];
-vi.mock('@/lib/db/server', () => ({
-  sql: async () => {
-    const next = sqlQueue.shift();
+// Hoisted so vi.mock factory can reference the shared queue + consumer.
+const { sqlQueue, consume } = vi.hoisted(() => {
+  const q: unknown[] = [];
+  const c = async () => {
+    const next = q.shift();
     return Array.isArray(next) ? next : [];
-  },
+  };
+  return { sqlQueue: q, consume: c };
+});
+
+vi.mock('@/lib/db/server', () => ({
+  // Bare sql() calls + tx calls inside sql.begin share the same queue so
+  // fixtures read out in statement order regardless of tx boundaries.
+  sql: Object.assign(consume, {
+    begin: async (fn: (tx: unknown) => Promise<unknown>) => fn(consume),
+  }),
   jsonb: (v: unknown) => v,
 }));
 

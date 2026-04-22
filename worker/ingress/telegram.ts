@@ -100,17 +100,37 @@ async function handleEnrollment(
   }
 
   const tokenHash = createHash('sha256').update(rawToken).digest('hex');
-  const rows = await sql<{ id: string; business_id: string }[]>`
-    SELECT id, business_id
-    FROM channel_enrollments
-    WHERE verification_token_hash = ${tokenHash}
-      AND channel = 'telegram'
-      AND status = 'pending_verification'
-      AND verification_token_expires_at > NOW()
-    FOR UPDATE
-  `;
 
-  const enrollment = rows[0];
+  // SELECT FOR UPDATE + UPDATE must run in one transaction so the row lock is
+  // held across both statements. A bare sql`...FOR UPDATE` releases the lock
+  // at end-of-statement, leaving a window where two concurrent /start updates
+  // with the same token could both pass the select.
+  const enrollment = await sql.begin(async (tx) => {
+    const rows = await tx<{ id: string; business_id: string }[]>`
+      SELECT id, business_id
+      FROM channel_enrollments
+      WHERE verification_token_hash = ${tokenHash}
+        AND channel = 'telegram'
+        AND status = 'pending_verification'
+        AND verification_token_expires_at > NOW()
+      FOR UPDATE
+    `;
+    const row = rows[0];
+    if (!row) return null;
+
+    await tx`
+      UPDATE channel_enrollments
+      SET handle = ${chatId},
+          status = 'verified',
+          verified_at = NOW(),
+          verification_token_hash = NULL,
+          verification_token_expires_at = NULL,
+          updated_at = NOW()
+      WHERE id = ${row.id}
+    `;
+    return row;
+  });
+
   if (!enrollment) {
     await markProcessed(dedupKey);
     await client.sendMessage({ chat_id: chatId, text: 'This link is invalid or expired. Please request a new one from your RepWorth admin.' })
@@ -118,16 +138,6 @@ async function handleEnrollment(
     return;
   }
 
-  await sql`
-    UPDATE channel_enrollments
-    SET handle = ${chatId},
-        status = 'verified',
-        verified_at = NOW(),
-        verification_token_hash = NULL,
-        verification_token_expires_at = NULL,
-        updated_at = NOW()
-    WHERE id = ${enrollment.id}
-  `;
   // State already mutated — mark processed before confirmation send so a
   // sendMessage failure does not cause the outer catch to call markFailed.
   await markProcessed(dedupKey);
@@ -193,7 +203,7 @@ async function handleCallback(
     return;
   }
 
-  // Invariant: sender must be a verified enrollment for this business
+  // Invariant: sender must be a verified, non-archived enrollment for this business
   const senderId = String(cb.from.id);
   const enrollmentRows = await sql<{ handle: string }[]>`
     SELECT handle FROM channel_enrollments
@@ -201,6 +211,7 @@ async function handleCallback(
       AND channel = 'telegram'
       AND status = 'verified'
       AND handle = ${senderId}
+      AND archived_at IS NULL
   `;
   if (enrollmentRows.length === 0) {
     // Permanent — sender not enrolled; mark processed before UX send

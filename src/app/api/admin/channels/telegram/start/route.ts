@@ -53,53 +53,62 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'subscription_not_active' }, { status: 403 });
   }
 
-  // Advisory lock to serialize concurrent starts on (business_id, 'telegram').
-  // pg_advisory_xact_lock releases at end of transaction (connection idle here).
+  // Advisory lock + enrollment state machine run in a single transaction so
+  // the lock is held across the SELECT + UPDATE/INSERT. pg_advisory_xact_lock
+  // releases at tx end; a bare call outside sql.begin would release immediately
+  // and leave the state machine unprotected against concurrent starts.
   const lockKey = createHash('sha256')
     .update(`telegram_enroll:${businessId}`)
     .digest()
     .readBigInt64BE(0)
     .toString();
-  await sql`SELECT pg_advisory_xact_lock(${lockKey}::bigint)`;
-
-  const existing = await sql<{ id: string; status: string }[]>`
-    SELECT id, status FROM channel_enrollments
-    WHERE business_id = ${businessId} AND channel = 'telegram' AND archived_at IS NULL
-  `;
-
-  const existingRow = existing[0];
-
-  if (existingRow?.status === 'verified') {
-    return NextResponse.json({ error: 'already_verified' }, { status: 409 });
-  }
-
   const rawToken = randomUUID();
   const tokenHash = createHash('sha256').update(rawToken).digest('hex');
   const expiresAt = new Date(Date.now() + TOKEN_TTL_MS);
 
-  if (existingRow) {
-    // Reset any non-verified state to pending_verification with a fresh token.
-    // Clears handle (Telegram handle isn't known until owner taps /start),
-    // unsubscribed fields, and disabled_at so the enrollment starts clean.
-    await sql`
-      UPDATE channel_enrollments
-      SET status                       = 'pending_verification',
-          handle                       = NULL,
-          verification_token_hash      = ${tokenHash},
-          verification_token_expires_at = ${expiresAt},
-          disabled_at                  = NULL,
-          unsubscribed_at              = NULL,
-          unsubscribed_reason          = NULL,
-          updated_at                   = NOW()
-      WHERE id = ${existingRow.id}
+  const result = await sql.begin(async (tx) => {
+    await tx`SELECT pg_advisory_xact_lock(${lockKey}::bigint)`;
+
+    const existing = await tx<{ id: string; status: string }[]>`
+      SELECT id, status FROM channel_enrollments
+      WHERE business_id = ${businessId} AND channel = 'telegram' AND archived_at IS NULL
     `;
-  } else {
-    await sql`
-      INSERT INTO channel_enrollments
-        (id, business_id, channel, status, verification_token_hash, verification_token_expires_at)
-      VALUES
-        (${uuidv7()}, ${businessId}, 'telegram', 'pending_verification', ${tokenHash}, ${expiresAt})
-    `;
+    const existingRow = existing[0];
+
+    if (existingRow?.status === 'verified') {
+      return { kind: 'already_verified' as const };
+    }
+
+    if (existingRow) {
+      // Reset any non-verified state to pending_verification with a fresh token.
+      // Clears handle (Telegram handle isn't known until owner taps /start),
+      // unsubscribed fields, and disabled_at so the enrollment starts clean.
+      await tx`
+        UPDATE channel_enrollments
+        SET status                       = 'pending_verification',
+            handle                       = NULL,
+            verification_token_hash      = ${tokenHash},
+            verification_token_expires_at = ${expiresAt},
+            disabled_at                  = NULL,
+            unsubscribed_at              = NULL,
+            unsubscribed_reason          = NULL,
+            updated_at                   = NOW()
+        WHERE id = ${existingRow.id}
+      `;
+    } else {
+      await tx`
+        INSERT INTO channel_enrollments
+          (id, business_id, channel, status, verification_token_hash, verification_token_expires_at)
+        VALUES
+          (${uuidv7()}, ${businessId}, 'telegram', 'pending_verification', ${tokenHash}, ${expiresAt})
+      `;
+    }
+
+    return { kind: 'ok' as const };
+  });
+
+  if (result.kind === 'already_verified') {
+    return NextResponse.json({ error: 'already_verified' }, { status: 409 });
   }
 
   const botUsername = process.env.TELEGRAM_BOT_USERNAME ?? 'RepWorthBot';

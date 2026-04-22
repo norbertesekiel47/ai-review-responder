@@ -49,7 +49,22 @@ vi.mock('../../../src/lib/db/server', () => ({
       arr.count = typeof next === 'number' ? next : 0;
       return arr;
     },
-    { begin: async (fn: (tx: unknown) => Promise<unknown>) => fn(null) },
+    {
+      // tx consumes the shared sqlQueue in the same order as bare sql calls
+      // so handleEnrollment's SELECT FOR UPDATE + UPDATE (now wrapped in
+      // sql.begin) reads from the same fixture as pre-tx code.
+      begin: async (fn: (tx: unknown) => Promise<unknown>) => {
+        const tx = async (strings: TemplateStringsArray) => {
+          sqlCalls.push({ sql: strings.join('?') });
+          const next = sqlQueue.shift();
+          if (Array.isArray(next)) return next;
+          const arr: unknown[] & { count?: number } = [];
+          arr.count = typeof next === 'number' ? next : 0;
+          return arr;
+        };
+        return fn(tx);
+      },
+    },
   ),
   jsonb: (v: unknown) => v,
 }));
