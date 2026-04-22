@@ -39,3 +39,34 @@ export class ResponseNotPendingError extends Error {
     this.name = 'ResponseNotPendingError';
   }
 }
+
+export class ConsumedLinkError extends Error {
+  constructor() {
+    super('This approval link has already been used');
+    this.name = 'ConsumedLinkError';
+  }
+}
+
+export class RevokedLinkError extends Error {
+  constructor() {
+    super('This approval link has been revoked');
+    this.name = 'RevokedLinkError';
+  }
+}
+
+export class ExpiredLinkError extends Error {
+  constructor() {
+    super('This approval link has expired');
+    this.name = 'ExpiredLinkError';
+  }
+}
+
+export class ChannelMismatchError extends Error {
+  constructor(
+    public readonly expectedChannel: string,
+    public readonly actualChannel: string,
+  ) {
+    super(`Approval link channel mismatch — expected ${expectedChannel}, got ${actualChannel}`);
+    this.name = 'ChannelMismatchError';
+  }
+}
