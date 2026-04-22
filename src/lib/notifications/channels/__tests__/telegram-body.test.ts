@@ -32,6 +32,31 @@ describe('formatApprovalTelegram', () => {
     expect(text).not.toContain('<>');
   });
 
+  it('HTML-escapes reviewText and responsePreview', () => {
+    const { text } = formatApprovalTelegram(
+      sample({
+        reviewText: 'Loved the <b>service</b> & price',
+        responsePreview: 'Thanks for <3',
+      }),
+    );
+    expect(text).toContain('&lt;b&gt;service&lt;/b&gt;');
+    expect(text).toContain('&amp;');
+    expect(text).toContain('Thanks for &lt;3');
+    expect(text).not.toContain('<b>service</b>');
+  });
+
+  it('escapes AFTER truncating, so entities cannot be cut mid-sequence', () => {
+    // Build a string where the 400th-char boundary would fall inside an
+    // HTML entity if escape happened before truncate. If the implementation
+    // ever flips the order, the entity '&amp;' will be sliced and the test
+    // will see a stray '&am' fragment.
+    const padding = 'x'.repeat(399);
+    const { text } = formatApprovalTelegram(sample({ reviewText: padding + '&' }));
+    // The final char (&) must either be fully escaped to &amp; or dropped by
+    // truncation — never a fragmented entity like '&am' / '&a' / '&'.
+    expect(text).not.toMatch(/&(?!amp;|lt;|gt;)[a-z]{0,3}[^;\w]/);
+  });
+
   it('handles null reviewText gracefully', () => {
     const { text } = formatApprovalTelegram(sample({ reviewText: null }));
     expect(text).not.toContain('null');
