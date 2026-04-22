@@ -141,8 +141,8 @@ When Google Business Profile API access is approved, follow Phase 5 in `docs/Imp
 
 ## Current status
 
-**Shipped:** Sprints 1–6 COMPLETE + Communication Channels Phase 0 (multi-channel dispatcher, `channel_enrollments`, admin Channels UI) + Communication Channels Phase 1 SMS (code-complete, flag-gated off pending Twilio 10DLC brand/campaign registration). Branch `feat/communication-channels` — not yet merged.
-**Next:** Enable Phase 1 SMS after 10DLC registration completes. Then Phase 2 (Telegram), Phase 3 (WhatsApp). Billing sprint (subscription_status_changed_at) also pending.
+**Shipped:** Sprints 1–6 COMPLETE + Communication Channels Phase 0 (multi-channel dispatcher, `channel_enrollments`, admin Channels UI) + Communication Channels Phase 1 SMS (code-complete, merged to main 2026-04-22, flag-gated off pending Twilio 10DLC brand/campaign registration). 906 tests passing. See §"What each sprint shipped" below for detail.
+**Next:** Run manual ship gate (real-phone end-to-end walkthrough, spec §15), then enable Phase 1 SMS after 10DLC registration completes. Then Phase 2 (Telegram), Phase 3 (WhatsApp). Billing sprint (subscription_status_changed_at) also pending.
 
 ### What each sprint shipped
 
@@ -155,6 +155,7 @@ When Google Business Profile API access is approved, follow Phase 5 in `docs/Imp
 - **S5B** — Automated ranking tracking, owner settings + dashboard approval actions, partner satisfaction alert, onboarding drip (day 1/7/30), satisfaction pulse (HMAC feedback links) (19b, 19c-5B, 19d-5B, 19e, 19g)
 - **S6** — Correlation IDs + structured logging, archival expansion + `api_costs_daily_rollups`, SerpAPI onboarding pre-fill, email deliverability + hard-bounce handling, launch runbook (20a–20e)
 - **Channels Phase 0** — `channel_enrollments` table (migration 021), `NotificationChannel` interface + `EmailChannel`, `getChannel` factory, `getVerifiedEnrollments`, multi-channel `NotificationWorker` dispatcher, `createApprovalLink` channel-scoped with advisory lock, failover poller stale branch → admin alert (`tryClaimAlert`), admin Channels section UI + API, removed `notification_preference` field (2026-04-20/21)
+- **Channels Phase 1 (SMS)** — migration 022 (soft-delete + `sms_sender_opt_outs` / `sms_sender_opt_out_events` tables, partial unique index on `channel_enrollments`), `SmsChannel` (Twilio Messaging Service wrapper), sms-body formatter (GSM-7 single-segment, two-tier fallback), sms-tracker cost guard (per-biz + global Redis ceilings), Twilio ingress (`/status` callback with terminal-precedence + race-safe retry, `/inbound` STOP/START with sender-wide opt-out fan-out + TCPA audit log), 6 admin API routes (verify/confirm/cancel/disable/delete/status, advisory-lock-serialized, Twilio-first ordering, env-readiness 503), `SmsEnrollmentWidget` (7-state machine + polling, server-authoritative flag), `NotificationWorker` cost-reservation try/finally + 21610 sender-wide handling. Merged to main 2026-04-22. Flag gated off (`CHANNELS_SMS_ENABLED=false`) pending 10DLC registration.
 
 ### Migrations (`supabase/migrations/`)
 
