@@ -56,11 +56,29 @@ export class TelegramClient {
   }
 
   private async call<T>(method: string, body: Record<string, unknown>): Promise<T> {
-    const res = await fetch(`${this.baseUrl}/${method}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
+    // M4: bound the fetch at 10s so a hung Bot API call cannot stall the
+    // BullMQ worker (or exceed Telegram's 30s webhook timeout when called
+    // from an ingress handler). On abort we throw TelegramApiError so the
+    // failure funnels through the same typed-error contract as other
+    // network errors.
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10_000);
+    let res: Response;
+    try {
+      res = await fetch(`${this.baseUrl}/${method}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+    } catch (err) {
+      clearTimeout(timeout);
+      if ((err as { name?: string } | null)?.name === 'AbortError') {
+        throw new TelegramApiError(0, `telegram_timeout: ${method}`);
+      }
+      throw new TelegramApiError(0, `telegram_network_error: ${(err as Error).message ?? 'unknown'}`);
+    }
+    clearTimeout(timeout);
     let payload: TelegramResponse<T>;
     try {
       payload = (await res.json()) as TelegramResponse<T>;

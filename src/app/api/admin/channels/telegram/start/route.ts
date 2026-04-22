@@ -107,13 +107,22 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return { kind: 'ok' as const };
   });
 
+  // M6: the response body carries the raw verification token via deepLink +
+  // qrDataUrl. Set no-store so no intermediate proxy or browser cache retains
+  // the secret. The token has a 1h TTL in the DB, but cache layers can be
+  // longer-lived.
+  const noStore = { 'Cache-Control': 'no-store, private' };
+
   if (result.kind === 'already_verified') {
-    return NextResponse.json({ error: 'already_verified' }, { status: 409 });
+    return NextResponse.json({ error: 'already_verified' }, { status: 409, headers: noStore });
   }
 
   const botUsername = process.env.TELEGRAM_BOT_USERNAME ?? 'RepWorthBot';
   const deepLink = `https://t.me/${botUsername}?start=${rawToken}`;
   const qrDataUrl = await QRCode.toDataURL(deepLink, { margin: 1, width: 256 });
 
-  return NextResponse.json({ deepLink, qrDataUrl, expiresAt: expiresAt.toISOString() });
+  return NextResponse.json(
+    { deepLink, qrDataUrl, expiresAt: expiresAt.toISOString() },
+    { headers: noStore },
+  );
 }

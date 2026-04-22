@@ -37,9 +37,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     RETURNING id
   `;
 
+  // M6: no-store for consistency across admin telegram routes.
+  const noStore = { 'Cache-Control': 'no-store, private' };
+
   if (updated.length === 0) {
-    return NextResponse.json({ error: 'not_found' }, { status: 404 });
+    return NextResponse.json({ error: 'not_found' }, { status: 404, headers: noStore });
   }
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true }, { headers: noStore });
 }

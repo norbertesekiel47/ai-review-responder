@@ -40,5 +40,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       AND archived_at IS NULL
   `;
 
-  return NextResponse.json({ ok: true });
+  // M6: no-store for consistency with start/disable routes (admin-action results
+  // must not be cached by proxies or the browser).
+  return NextResponse.json({ ok: true }, { headers: { 'Cache-Control': 'no-store, private' } });
 }

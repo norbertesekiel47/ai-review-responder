@@ -29,11 +29,20 @@ function maskChatId(chatId: string): string {
   return `••• ${chatId.slice(-4)}`;
 }
 
-async function fetchTelegramEnrollment(businessId: string): Promise<ChannelEnrollment | null> {
+// Three-way result so callers can distinguish "no telegram enrollment"
+// from "session expired / server error" (M5). Previously any non-OK
+// response collapsed into `null` and silently reset the widget to idle.
+type FetchResult =
+  | { kind: 'ok'; enrollment: ChannelEnrollment | null }
+  | { kind: 'auth_expired' }
+  | { kind: 'error'; status: number };
+
+async function fetchTelegramEnrollment(businessId: string): Promise<FetchResult> {
   const res = await fetch(`/api/admin/businesses/${businessId}/channels`);
-  if (!res.ok) return null;
+  if (res.status === 401 || res.status === 403) return { kind: 'auth_expired' };
+  if (!res.ok) return { kind: 'error', status: res.status };
   const data = await res.json() as { enrollments: ChannelEnrollment[] };
-  return data.enrollments.find((e) => e.channel === 'telegram') ?? null;
+  return { kind: 'ok', enrollment: data.enrollments.find((e) => e.channel === 'telegram') ?? null };
 }
 
 export function TelegramEnrollmentWidget({ businessId }: { businessId: string }) {
@@ -41,7 +50,16 @@ export function TelegramEnrollmentWidget({ businessId }: { businessId: string })
   const [, setEnrollment] = useState<ChannelEnrollment | null>(null);
 
   const refresh = useCallback(async () => {
-    const e = await fetchTelegramEnrollment(businessId);
+    const result = await fetchTelegramEnrollment(businessId);
+    if (result.kind === 'auth_expired') {
+      setState({ kind: 'error', message: 'Session expired — please reload the page.' });
+      return;
+    }
+    if (result.kind === 'error') {
+      setState({ kind: 'error', message: `Could not load Telegram enrollment (${result.status}).` });
+      return;
+    }
+    const e = result.enrollment;
     setEnrollment(e);
     if (!e) { setState({ kind: 'idle' }); return; }
     if (e.status === 'verified') {
@@ -59,7 +77,12 @@ export function TelegramEnrollmentWidget({ businessId }: { businessId: string })
   useEffect(() => {
     if (state.kind !== 'awaiting_scan') return;
     const interval = setInterval(async () => {
-      const e = await fetchTelegramEnrollment(businessId);
+      const result = await fetchTelegramEnrollment(businessId);
+      // During polling, ignore transient errors — the manual "Refresh
+      // status" button will surface them and the QR countdown handles
+      // expiry independently.
+      if (result.kind !== 'ok') return;
+      const e = result.enrollment;
       if (e?.status === 'verified') {
         setEnrollment(e);
         setState({ kind: 'verified', maskedHandle: e.handle ? maskChatId(e.handle) : '•••' });
