@@ -96,8 +96,8 @@ describe('getChannel factory', () => {
     expect(() => getChannel('discord' as ChannelId)).toThrow(/unknown channel/i);
   });
 
-  it('throws for a not-yet-implemented channel (sms, telegram, whatsapp)', () => {
-    for (const id of ['sms', 'telegram', 'whatsapp'] as const) {
+  it('throws for a not-yet-implemented channel (telegram, whatsapp)', () => {
+    for (const id of ['telegram', 'whatsapp'] as const) {
       expect(() => getChannel(id)).toThrow(/not yet implemented/i);
     }
   });
