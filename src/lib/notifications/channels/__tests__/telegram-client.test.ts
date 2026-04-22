@@ -90,4 +90,22 @@ describe('TelegramClient', () => {
     expect(body.callback_query_id).toBe('cb1');
     expect(body.text).toBe('Approving…');
   });
+
+  it('converts non-JSON response bodies to TelegramApiError (e.g., 502 HTML page)', async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValueOnce(
+      new Response('<html><body>502 Bad Gateway</body></html>', {
+        status: 502,
+        headers: { 'Content-Type': 'text/html' },
+      }),
+    );
+    const client = new TelegramClient();
+    try {
+      await client.sendMessage({ chat_id: '1', text: 'x' });
+      throw new Error('should have thrown');
+    } catch (err) {
+      expect(err).toBeInstanceOf(TelegramApiError);
+      expect((err as TelegramApiError).errorCode).toBe(502);
+      expect((err as TelegramApiError).description).toMatch(/non-json/i);
+    }
+  });
 });

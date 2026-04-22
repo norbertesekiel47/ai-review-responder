@@ -61,7 +61,12 @@ export class TelegramClient {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    const payload = (await res.json()) as TelegramResponse<T>;
+    let payload: TelegramResponse<T>;
+    try {
+      payload = (await res.json()) as TelegramResponse<T>;
+    } catch {
+      throw new TelegramApiError(res.status, `non-json response (status ${res.status})`);
+    }
     if (payload.ok && payload.result !== undefined) return payload.result;
     const code = payload.error_code ?? res.status;
     const desc = payload.description ?? 'unknown telegram error';
