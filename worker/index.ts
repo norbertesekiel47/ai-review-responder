@@ -53,7 +53,8 @@ import { handlePlaceIdValidation } from './jobs/PlaceIdValidationWorker';
 import { handleResendWebhook } from './ingress/resend';
 import { handleStripeWebhook } from './ingress/stripe';
 import { handleTwilioStatusCallback, handleTwilioInbound } from './ingress/twilio';
-import { assertChannelsSmsEnv } from './startup-assert';
+import { handleTelegramWebhook } from './ingress/telegram';
+import { assertChannelsSmsEnv, assertChannelsTelegramEnv } from './startup-assert';
 import { startNotificationFailoverPoller, stopNotificationFailoverPoller } from './jobs/NotificationFailoverPoller';
 import { startWeeklySummaryScheduler, stopWeeklySummaryScheduler } from './jobs/WeeklySummaryScheduler';
 import { startArchivalPoller, stopArchivalPoller } from './jobs/ArchivalPoller';
@@ -152,7 +153,7 @@ for (const worker of workers) {
 // Re-export for use by other modules (ingress handlers, tests)
 export { queues, QUEUE_NAMES } from './queues';
 export { sql } from '../src/lib/db/server';
-export { assertChannelsSmsEnv } from './startup-assert';
+export { assertChannelsSmsEnv, assertChannelsTelegramEnv } from './startup-assert';
 
 // ---------------------------------------------------------------------------
 // Startup — register plugins, routes, then listen
@@ -169,6 +170,7 @@ async function main(): Promise<void> {
   // Fail fast on missing Twilio config when SMS channel is enabled.
   try {
     assertChannelsSmsEnv();
+    assertChannelsTelegramEnv();
   } catch (err) {
     console.error(`[worker] Startup assertion failed: ${err instanceof Error ? err.message : err}`);
     process.exit(1);
@@ -195,6 +197,9 @@ async function main(): Promise<void> {
   // Twilio webhooks — status callbacks + inbound SMS (STOP/START)
   app.post('/ingress/twilio/status', { config: { rawBody: true } }, handleTwilioStatusCallback);
   app.post('/ingress/twilio/inbound', { config: { rawBody: true } }, handleTwilioInbound);
+
+  // Telegram webhook ingress
+  app.post('/ingress/telegram', { config: { rawBody: true } }, handleTelegramWebhook);
 
   await app.listen({ port: PORT, host: '0.0.0.0' });
   startOutboxPoller();
