@@ -27,8 +27,9 @@ export async function claimInboundEvent(
     INSERT INTO inbound_events (id, source, external_event_key, event_type, payload, status)
     VALUES (${uuidv7()}, ${source}, ${dedupKey}, ${eventType}, ${jsonb(payload)}, 'received')
     ON CONFLICT (external_event_key) DO NOTHING
-  ` as unknown as { count: number };
+  `;
 
+  // count > 0 → INSERT landed; count === 0 → conflict, fall through to reclaim.
   if (inserted.count !== 0) return 'claimed';
 
   const reclaimed = await sql<{ id: string }[]>`
