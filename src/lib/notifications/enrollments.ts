@@ -25,6 +25,7 @@ export async function getVerifiedEnrollments(
     WHERE business_id = ${businessId}
       AND status = 'verified'
       AND unsubscribed_at IS NULL
+      AND archived_at IS NULL
     ORDER BY created_at ASC
   `;
   return rows;
