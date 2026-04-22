@@ -25,3 +25,18 @@ export function assertChannelsSmsEnv(): void {
     throw new Error(`CHANNELS_SMS_ENABLED=true but missing required env vars: ${missing.join(', ')}`);
   }
 }
+
+/**
+ * Boot-time assertion. When CHANNELS_TELEGRAM_ENABLED=true, verifies all required
+ * Telegram env vars are set. Fail fast at startup rather than on first webhook.
+ * No-op when the flag is off or MOCK_EXTERNAL_APIS=true.
+ */
+export function assertChannelsTelegramEnv(): void {
+  if (process.env.CHANNELS_TELEGRAM_ENABLED !== 'true') return;
+  if (process.env.MOCK_EXTERNAL_APIS === 'true') return;
+  const required = ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_WEBHOOK_SECRET'];
+  const missing = required.filter((k) => !process.env[k] || process.env[k]!.trim().length === 0);
+  if (missing.length > 0) {
+    throw new Error(`CHANNELS_TELEGRAM_ENABLED=true but missing required env vars: ${missing.join(', ')}`);
+  }
+}
