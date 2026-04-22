@@ -84,6 +84,7 @@ vi.mock('twilio', () => ({
 import { POST as verifyPOST } from '../verify/route';
 import { POST as confirmPOST } from '../confirm/route';
 import { POST as cancelPOST } from '../cancel/route';
+import { POST as disablePOST } from '../disable/route';
 
 function adminReq(body: unknown): NextRequest {
   return new NextRequest('http://localhost/api/admin/channels/sms/verify', {
@@ -457,5 +458,46 @@ describe('POST /api/admin/channels/sms/cancel', () => {
     const lockCall = sqlCallsLog.find(c => /pg_advisory_xact_lock/.test(c.raw));
     expect(lockCall).toBeDefined();
     expect(lockCall!.values).toContain('sms_enroll:biz-42');
+  });
+});
+
+describe('POST /api/admin/channels/sms/disable', () => {
+  beforeEach(resetMocks);
+
+  function disableReq(body: unknown): NextRequest {
+    return new NextRequest('http://localhost/api/admin/channels/sms/disable', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  }
+
+  it('404 when flag off', async () => {
+    process.env.CHANNELS_SMS_ENABLED = 'false';
+    const res = await disablePOST(disableReq({ business_id: 'biz' }));
+    expect(res.status).toBe(404);
+  });
+
+  it('200 UPDATEs verified → disabled', async () => {
+    sqlReturnQueue.push([{ subscription_status: 'active' }]);
+    sqlReturnQueue.push([]);                // advisory lock
+    sqlReturnQueue.push([{ id: 'enr-1' }]); // UPDATE RETURNING
+    const res = await disablePOST(disableReq({ business_id: 'biz' }));
+    expect(res.status).toBe(200);
+    const raw = sqlCallsLog.map(c => c.raw).join('\n');
+    expect(raw).toMatch(/UPDATE channel_enrollments/);
+    expect(raw).toMatch(/status = 'disabled'/);
+    expect(raw).toMatch(/disabled_at = NOW\(\)/);
+    expect(raw).toMatch(/status = 'verified'/);   // WHERE guard
+    expect(raw).toMatch(/archived_at IS NULL/);
+  });
+
+  it('409 not_verified when row is not in verified state', async () => {
+    sqlReturnQueue.push([{ subscription_status: 'active' }]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([]);                // UPDATE RETURNING — empty
+    const res = await disablePOST(disableReq({ business_id: 'biz' }));
+    expect(res.status).toBe(409);
+    expect((await res.json()).reason).toBe('not_verified');
   });
 });
