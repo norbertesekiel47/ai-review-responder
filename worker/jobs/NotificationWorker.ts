@@ -216,6 +216,7 @@ export async function handleSendNotification(
         // enrollments and record durable audit evidence in one transaction.
         if (err instanceof SmsRecipientUnsubscribedError) {
           const msid = process.env.TWILIO_MESSAGING_SERVICE_SID!;
+          const reason = err instanceof Error ? err.message : String(err);
           await sql.begin(async (tx) => {
             await tx`
               INSERT INTO sms_sender_opt_outs (messaging_service_sid, handle, opted_out_at, opted_in_at, last_event_at)
@@ -239,6 +240,7 @@ export async function handleSendNotification(
             `;
           });
           logger.log(`SMS enrollment flipped to unsubscribed (twilio_21610_at_send) for business ${business_id}`);
+          logger.error(`[NotificationWorker] SMS 21610: ${reason}`);
           await insertFailedDelivery(business_id, response_id, 'sms', enrollment.handle, 'twilio_21610_at_send');
           continue; // `finally` runs before continue, so refund still triggers when sendAccepted=false.
         }
@@ -247,7 +249,7 @@ export async function handleSendNotification(
             await tx`
               UPDATE channel_enrollments
               SET status = 'unsubscribed',
-                  unsubscribed_at = NOW(),
+                  unsubscribed_at = COALESCE(unsubscribed_at, NOW()),
                   unsubscribed_reason = COALESCE(unsubscribed_reason, 'telegram_blocked'),
                   updated_at = NOW()
               WHERE business_id = ${business_id}
