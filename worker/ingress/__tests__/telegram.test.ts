@@ -113,6 +113,11 @@ beforeEach(() => {
   mockApprove.mockReset(); mockRegenerate.mockReset();
   mockAck.mockReset(); mockSendMsg.mockReset();
   mockEditText.mockReset(); mockEditMarkup.mockReset();
+  // sendMessage/ack/edit calls are awaited with .catch() — default to resolved Promise
+  mockSendMsg.mockResolvedValue(undefined);
+  mockAck.mockResolvedValue(undefined);
+  mockEditText.mockResolvedValue(undefined);
+  mockEditMarkup.mockResolvedValue(undefined);
   process.env.TELEGRAM_BOT_TOKEN = 'bot-test';
   process.env.TELEGRAM_WEBHOOK_SECRET = 'good-secret';
 });
@@ -280,6 +285,33 @@ describe('telegram ingress — enrollment (/start)', () => {
     expect(mockSendMsg).toHaveBeenCalledTimes(1);
     const text = (mockSendMsg.mock.calls[0]![0] as { text: string }).text;
     expect(text).toMatch(/invalid|expired/i);
+    expect(reply.code).toHaveBeenCalledWith(200);
+  });
+});
+
+describe('telegram ingress — sendMessage failure does not reclassify permanent errors', () => {
+  it('permanent error: if sendMessage throws AFTER a permanent link-state error, still marks processed (not failed)', async () => {
+    mockVerify.mockReturnValueOnce(true);
+    mockClaim.mockResolvedValueOnce('claimed');
+    sqlQueue.push([{ id: 'link-q', business_id: 'biz-1', channel: 'telegram', consumed_at: null, revoked_at: null, expires_at: new Date(Date.now() + 60_000) }]);
+    sqlQueue.push([{ handle: '111' }]);
+    mockApprove.mockRejectedValueOnce(new ConsumedLinkError());
+    sqlQueue.push([]); // mark processed (must happen BEFORE sendMessage throws)
+    mockSendMsg.mockRejectedValueOnce(new Error('network down'));
+
+    const reply = mkReply();
+    await handleTelegramWebhook(mkRequest({
+      update_id: 99,
+      callback_query: { id: 'cb-q', from: { id: 111 }, data: 'a:link-q', message: { chat: { id: 111 }, message_id: 1 } },
+    }), reply);
+
+    // inbound_events must be marked processed even though sendMessage failed
+    const markProcessedCall = sqlCalls.find((c) => c.sql.includes('processed_at = NOW()'));
+    expect(markProcessedCall).toBeDefined();
+    // and NOT marked failed
+    const markFailedCall = sqlCalls.find((c) => c.sql.includes("status = 'failed'"));
+    expect(markFailedCall).toBeUndefined();
+    // Response should still be 200 (terminal state reached)
     expect(reply.code).toHaveBeenCalledWith(200);
   });
 });

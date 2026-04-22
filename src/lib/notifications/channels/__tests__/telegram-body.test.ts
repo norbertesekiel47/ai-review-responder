@@ -76,15 +76,15 @@ describe('formatApprovalTelegram', () => {
     expect(inline_keyboard).toHaveLength(2);
     expect(inline_keyboard[0]).toHaveLength(2);
     expect(inline_keyboard[1]).toHaveLength(1);
-    expect(inline_keyboard[0][0]).toMatchObject({ callback_data: expect.stringMatching(/^a:/) });
-    expect(inline_keyboard[0][1]).toMatchObject({ callback_data: expect.stringMatching(/^r:/) });
-    expect(inline_keyboard[1][0]).toMatchObject({ url: expect.stringContaining('/approve/') });
+    expect(inline_keyboard[0]![0]).toMatchObject({ callback_data: expect.stringMatching(/^a:/) });
+    expect(inline_keyboard[0]![1]).toMatchObject({ callback_data: expect.stringMatching(/^r:/) });
+    expect(inline_keyboard[1]![0]).toMatchObject({ url: expect.stringContaining('/approve/') });
   });
 
   it('callback_data is within Telegram 64-byte limit', () => {
     const { inline_keyboard } = formatApprovalTelegram(sample());
-    const approveData = inline_keyboard[0][0].callback_data!;
-    const regenData = inline_keyboard[0][1].callback_data!;
+    const approveData = inline_keyboard[0]![0]!.callback_data!;
+    const regenData = inline_keyboard[0]![1]!.callback_data!;
     expect(Buffer.byteLength(approveData, 'utf8')).toBeLessThanOrEqual(64);
     expect(Buffer.byteLength(regenData, 'utf8')).toBeLessThanOrEqual(64);
   });
@@ -92,7 +92,7 @@ describe('formatApprovalTelegram', () => {
   it('callback_data embeds the approvalLinkId', () => {
     const id = '01932b55-5555-7f60-9abc-abcdefabcdef';
     const { inline_keyboard } = formatApprovalTelegram(sample({ approvalLinkId: id }));
-    expect(inline_keyboard[0][0].callback_data).toBe(`a:${id}`);
-    expect(inline_keyboard[0][1].callback_data).toBe(`r:${id}`);
+    expect(inline_keyboard[0]![0]!.callback_data).toBe(`a:${id}`);
+    expect(inline_keyboard[0]![1]!.callback_data).toBe(`r:${id}`);
   });
 });

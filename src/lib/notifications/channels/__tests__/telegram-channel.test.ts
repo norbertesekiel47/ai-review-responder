@@ -50,7 +50,9 @@ describe('TelegramChannel', () => {
   it('passes chat_id from handle and includes inline_keyboard in reply_markup', async () => {
     mockSendMessage.mockResolvedValueOnce({ message_id: 1, chat: { id: 1 } });
     await new TelegramChannel().sendApprovalRequest(sampleParams());
-    const [[args]] = mockSendMessage.mock.calls;
+    const firstCall = mockSendMessage.mock.calls[0];
+    if (!firstCall) throw new Error('expected sendMessage call');
+    const [args] = firstCall;
     expect(args.chat_id).toBe('123456789');
     expect(args.reply_markup.inline_keyboard).toBeDefined();
     expect(args.reply_markup.inline_keyboard[0]).toHaveLength(2);

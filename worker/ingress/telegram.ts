@@ -85,9 +85,17 @@ async function handleEnrollment(
   const rawToken = text.slice(7).trim(); // strip '/start '
   const chatId = String(message.from?.id ?? message.chat?.id ?? '');
 
-  if (!rawToken || !chatId) {
-    await client.sendMessage({ chat_id: chatId, text: 'This link is invalid or expired. Please request a new one from your RepWorth admin.' });
+  if (!chatId) {
+    // Malformed update with no sender — mark processed (permanent, no retry)
+    // and skip sendMessage since there's no recipient.
     await markProcessed(dedupKey);
+    return;
+  }
+
+  if (!rawToken) {
+    await markProcessed(dedupKey);
+    await client.sendMessage({ chat_id: chatId, text: 'This link is invalid or expired. Please request a new one from your RepWorth admin.' })
+      .catch(() => {});
     return;
   }
 
@@ -104,8 +112,9 @@ async function handleEnrollment(
 
   const enrollment = rows[0];
   if (!enrollment) {
-    await client.sendMessage({ chat_id: chatId, text: 'This link is invalid or expired. Please request a new one from your RepWorth admin.' });
     await markProcessed(dedupKey);
+    await client.sendMessage({ chat_id: chatId, text: 'This link is invalid or expired. Please request a new one from your RepWorth admin.' })
+      .catch(() => {});
     return;
   }
 
@@ -119,11 +128,13 @@ async function handleEnrollment(
         updated_at = NOW()
     WHERE id = ${enrollment.id}
   `;
+  // State already mutated — mark processed before confirmation send so a
+  // sendMessage failure does not cause the outer catch to call markFailed.
+  await markProcessed(dedupKey);
   await client.sendMessage({
     chat_id: chatId,
     text: "✅ You're connected to RepWorth — we'll ping you here when a review needs approval.",
-  });
-  await markProcessed(dedupKey);
+  }).catch(() => { /* UX degraded but enrollment is complete */ });
 }
 
 function messageForLinkError(err: Error): string {
@@ -150,11 +161,12 @@ async function handleCallback(
   const chatId = String(cb.message?.chat.id ?? cb.from.id);
   const messageId = cb.message?.message_id ?? 0;
 
-  // Parse callback data
+  // Parse callback data — invalid action is a permanent client error
   const parsed = cb.data ? parseCallbackData(cb.data) : null;
   if (!parsed) {
-    await client.answerCallbackQuery({ callback_query_id: cb.id, text: 'Invalid action' });
     await markProcessed(dedupKey);
+    await client.answerCallbackQuery({ callback_query_id: cb.id, text: 'Invalid action' })
+      .catch(() => {});
     reply.code(200).send({ ok: true });
     return;
   }
@@ -173,8 +185,10 @@ async function handleCallback(
     && new Date(link.expires_at) > new Date();
 
   if (!linkLive) {
-    await client.answerCallbackQuery({ callback_query_id: cb.id, text: 'This approval is no longer valid — it may have been handled on another channel.' });
+    // Permanent — link is terminal; mark processed before UX send
     await markProcessed(dedupKey);
+    await client.answerCallbackQuery({ callback_query_id: cb.id, text: 'This approval is no longer valid — it may have been handled on another channel.' })
+      .catch(() => {});
     reply.code(200).send({ ok: true });
     return;
   }
@@ -189,8 +203,10 @@ async function handleCallback(
       AND handle = ${senderId}
   `;
   if (enrollmentRows.length === 0) {
-    await client.answerCallbackQuery({ callback_query_id: cb.id, text: 'This approval is no longer valid — it may have been handled on another channel.' });
+    // Permanent — sender not enrolled; mark processed before UX send
     await markProcessed(dedupKey);
+    await client.answerCallbackQuery({ callback_query_id: cb.id, text: 'This approval is no longer valid — it may have been handled on another channel.' })
+      .catch(() => {});
     reply.code(200).send({ ok: true });
     return;
   }
@@ -224,8 +240,9 @@ async function handleCallback(
       || e instanceof ChannelMismatchError;
 
     if (isPermanent) {
-      await client.sendMessage({ chat_id: chatId, text: messageForLinkError(e) });
       await markProcessed(dedupKey);
+      await client.sendMessage({ chat_id: chatId, text: messageForLinkError(e) })
+        .catch(() => { /* UX degraded but state is terminal */ });
       reply.code(200).send({ ok: true });
       return;
     }

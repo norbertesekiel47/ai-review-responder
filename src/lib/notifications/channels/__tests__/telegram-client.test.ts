@@ -76,6 +76,7 @@ describe('TelegramClient', () => {
     const client = new TelegramClient();
     await client.editMessageReplyMarkup({ chat_id: '1', message_id: 99, reply_markup: { inline_keyboard: [] } });
     const call = fetchMock.mock.calls[0];
+    if (!call) throw new Error('expected fetch call');
     const body = JSON.parse((call[1] as RequestInit).body as string);
     expect(body.reply_markup.inline_keyboard).toEqual([]);
   });
@@ -86,7 +87,9 @@ describe('TelegramClient', () => {
     );
     const client = new TelegramClient();
     await client.answerCallbackQuery({ callback_query_id: 'cb1', text: 'Approving…' });
-    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    const answerCall = fetchMock.mock.calls[0];
+    if (!answerCall) throw new Error('expected fetch call');
+    const body = JSON.parse((answerCall[1] as RequestInit).body as string);
     expect(body.callback_query_id).toBe('cb1');
     expect(body.text).toBe('Approving…');
   });
