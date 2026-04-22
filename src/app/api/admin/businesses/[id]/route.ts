@@ -334,7 +334,7 @@ export async function PATCH(
             (id, business_id, channel, handle, status, verified_at)
           VALUES
             (${uuidv7()}, ${businessId}, 'email', ${data.ownerEmail}, 'verified', NOW())
-          ON CONFLICT (business_id, channel) DO UPDATE SET
+          ON CONFLICT (business_id, channel) WHERE archived_at IS NULL DO UPDATE SET
             handle              = EXCLUDED.handle,
             status              = 'verified',
             verified_at         = NOW(),

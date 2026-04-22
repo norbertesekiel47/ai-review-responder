@@ -239,7 +239,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       await tx`
         INSERT INTO channel_enrollments (id, business_id, channel, handle, status, verified_at)
         VALUES (${enrollmentId}, ${businessId}, 'email', ${data.ownerEmail}, 'verified', NOW())
-        ON CONFLICT (business_id, channel) DO NOTHING
+        ON CONFLICT (business_id, channel) WHERE archived_at IS NULL DO NOTHING
       `;
 
       const correlationId = uuidv7();
