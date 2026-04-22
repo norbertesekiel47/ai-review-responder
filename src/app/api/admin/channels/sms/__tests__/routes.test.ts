@@ -86,6 +86,7 @@ import { POST as confirmPOST } from '../confirm/route';
 import { POST as cancelPOST } from '../cancel/route';
 import { POST as disablePOST } from '../disable/route';
 import { POST as deletePOST } from '../delete/route';
+import { GET as statusGET } from '../status/route';
 
 function adminReq(body: unknown): NextRequest {
   return new NextRequest('http://localhost/api/admin/channels/sms/verify', {
@@ -568,5 +569,79 @@ describe('POST /api/admin/channels/sms/delete', () => {
     await deletePOST(deleteReq({ business_id: 'biz', confirm: true }));
     const raw = sqlCallsLog.map(c => c.raw).join('\n');
     expect(raw).not.toMatch(/DELETE FROM channel_enrollments/);
+  });
+});
+
+describe('GET /api/admin/channels/sms/status', () => {
+  beforeEach(resetMocks);
+
+  function statusReq(businessId?: string): NextRequest {
+    const url = businessId
+      ? `http://localhost/api/admin/channels/sms/status?business_id=${businessId}`
+      : 'http://localhost/api/admin/channels/sms/status';
+    return new NextRequest(url, { method: 'GET' });
+  }
+
+  it('404 when flag off', async () => {
+    process.env.CHANNELS_SMS_ENABLED = 'false';
+    const res = await statusGET(statusReq('biz'));
+    expect(res.status).toBe(404);
+  });
+
+  it('400 business_id_required when missing', async () => {
+    const res = await statusGET(statusReq());
+    expect(res.status).toBe(400);
+  });
+
+  it('returns enrollment:null when no active row', async () => {
+    sqlReturnQueue.push([]); // empty result set
+    const res = await statusGET(statusReq('biz'));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ enrollment: null });
+  });
+
+  it('returns enrollment with sender_opt_in_cleared=true when opted back in', async () => {
+    sqlReturnQueue.push([{
+      status: 'verified',
+      handle: '+14155552671',
+      verified_at: new Date('2026-04-15'),
+      disabled_at: null,
+      unsubscribed_at: null,
+      unsubscribed_reason: null,
+      archived_at: null,
+      sender_opt_in_cleared: true,
+    }]);
+    const res = await statusGET(statusReq('biz'));
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.enrollment.sender_opt_in_cleared).toBe(true);
+    expect(json.enrollment.status).toBe('verified');
+  });
+
+  it('query uses LEFT JOIN scoped to TWILIO_MESSAGING_SERVICE_SID', async () => {
+    sqlReturnQueue.push([]);
+    await statusGET(statusReq('biz-42'));
+    const queryCall = sqlCallsLog.find(c => /channel_enrollments/.test(c.raw))!;
+    expect(queryCall.raw).toMatch(/LEFT JOIN sms_sender_opt_outs so/);
+    expect(queryCall.raw).toMatch(/so\.messaging_service_sid = /);
+    expect(queryCall.values).toContain('MGtest'); // from resetMocks()
+    expect(queryCall.values).toContain('biz-42');
+  });
+
+  it('query filters archived rows (archived_at IS NULL)', async () => {
+    sqlReturnQueue.push([]);
+    await statusGET(statusReq('biz'));
+    const queryCall = sqlCallsLog.find(c => /channel_enrollments/.test(c.raw))!;
+    expect(queryCall.raw).toMatch(/ce\.archived_at IS NULL/);
+    expect(queryCall.raw).toMatch(/LIMIT 1/);
+  });
+
+  it('derived sender_opt_in_cleared CASE uses opted_in_at > opted_out_at', async () => {
+    sqlReturnQueue.push([]);
+    await statusGET(statusReq('biz'));
+    const queryCall = sqlCallsLog.find(c => /sender_opt_in_cleared/.test(c.raw))!;
+    expect(queryCall.raw).toMatch(/WHEN so\.handle IS NULL THEN TRUE/);
+    expect(queryCall.raw).toMatch(/WHEN so\.opted_in_at IS NOT NULL AND so\.opted_in_at > so\.opted_out_at THEN TRUE/);
+    expect(queryCall.raw).toMatch(/ELSE FALSE/);
   });
 });
