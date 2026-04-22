@@ -96,9 +96,12 @@ describe('getChannel factory', () => {
     expect(() => getChannel('discord' as ChannelId)).toThrow(/unknown channel/i);
   });
 
-  it('throws for a not-yet-implemented channel (telegram, whatsapp)', () => {
-    for (const id of ['telegram', 'whatsapp'] as const) {
-      expect(() => getChannel(id)).toThrow(/not yet implemented/i);
-    }
+  it('throws for a not-yet-implemented channel (whatsapp)', () => {
+    expect(() => getChannel('whatsapp')).toThrow(/not yet implemented/i);
+  });
+
+  it('throws for telegram when flag is disabled', () => {
+    delete process.env.CHANNELS_TELEGRAM_ENABLED;
+    expect(() => getChannel('telegram')).toThrow(/CHANNELS_TELEGRAM_ENABLED/);
   });
 });

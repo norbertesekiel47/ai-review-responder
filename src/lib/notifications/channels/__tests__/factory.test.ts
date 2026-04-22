@@ -28,13 +28,34 @@ describe('getChannel', () => {
     expect(ch.requiresOptInHandshake).toBe(false);
   });
 
-  it('throws not-yet-implemented for telegram regardless of flag', () => {
-    process.env.CHANNELS_SMS_ENABLED = 'true';
-    expect(() => getChannel('telegram')).toThrow(/not yet implemented/);
-  });
-
   it('throws not-yet-implemented for whatsapp regardless of flag', () => {
     process.env.CHANNELS_SMS_ENABLED = 'true';
     expect(() => getChannel('whatsapp')).toThrow(/not yet implemented/);
+  });
+
+  describe('getChannel — telegram', () => {
+    const saved = { ...process.env };
+    beforeEach(() => {
+      process.env.TELEGRAM_BOT_TOKEN = 'test-token';
+    });
+    afterEach(() => {
+      process.env = { ...saved };
+    });
+
+    it('returns TelegramChannel when flag on', async () => {
+      process.env.CHANNELS_TELEGRAM_ENABLED = 'true';
+      const { getChannel, TelegramChannel } = await import('../index');
+      expect(getChannel('telegram')).toBeInstanceOf(TelegramChannel);
+    });
+
+    it('throws with clear message when flag off', () => {
+      process.env.CHANNELS_TELEGRAM_ENABLED = 'false';
+      expect(() => getChannel('telegram')).toThrow(/CHANNELS_TELEGRAM_ENABLED/);
+    });
+
+    it('throws with clear message when flag unset', () => {
+      delete process.env.CHANNELS_TELEGRAM_ENABLED;
+      expect(() => getChannel('telegram')).toThrow(/CHANNELS_TELEGRAM_ENABLED/);
+    });
   });
 });
