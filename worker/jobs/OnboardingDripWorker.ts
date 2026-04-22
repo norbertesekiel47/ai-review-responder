@@ -276,6 +276,7 @@ async function buildDay7(
       const { rawToken } = await createApprovalLink({
         responseId: row.response_id,
         businessId: business.id,
+        channel: 'email',
         revokeMode: 'orphaned_only',
       });
       pendingReviews.push({

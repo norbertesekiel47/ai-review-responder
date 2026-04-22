@@ -52,6 +52,8 @@ import { handleWeeklySummary } from './jobs/WeeklySummaryWorker';
 import { handlePlaceIdValidation } from './jobs/PlaceIdValidationWorker';
 import { handleResendWebhook } from './ingress/resend';
 import { handleStripeWebhook } from './ingress/stripe';
+import { handleTwilioStatusCallback, handleTwilioInbound } from './ingress/twilio';
+import { assertChannelsSmsEnv } from './startup-assert';
 import { startNotificationFailoverPoller, stopNotificationFailoverPoller } from './jobs/NotificationFailoverPoller';
 import { startWeeklySummaryScheduler, stopWeeklySummaryScheduler } from './jobs/WeeklySummaryScheduler';
 import { startArchivalPoller, stopArchivalPoller } from './jobs/ArchivalPoller';
@@ -63,8 +65,32 @@ import { startRankingTrackingScheduler, stopRankingTrackingScheduler } from './j
 import { handleTrackRanking } from './jobs/RankingTrackingWorker';
 import { startOnboardingDripScheduler, stopOnboardingDripScheduler } from './jobs/OnboardingDripScheduler';
 import { handleOnboardingDrip } from './jobs/OnboardingDripWorker';
+import { isMockMode } from '../src/lib/shared/mock-mode';
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
+
+// NotificationFailoverPoller gate (Phase 0 update).
+//
+// Stale detection now gates on notification_deliveries.sent_at (written by
+// the dispatcher on every successful send), not delivered_at — so the
+// Resend delivery webhook is no longer a prerequisite. The stale branch
+// alerts admin directly instead of re-dispatching, so missing delivery
+// webhooks no longer cause email re-send spam.
+//
+// We still short-circuit in mock mode (no real sends happening) and respect
+// the explicit NOTIFICATION_FAILOVER_DISABLED escape hatch for local-dev
+// ergonomics. RESEND_WEBHOOK_SECRET is no longer consulted here.
+//
+// See docs/adding-communication-channels.md §3.5.
+function shouldRunFailoverPoller(): { run: boolean; reason?: string } {
+  if (process.env.NOTIFICATION_FAILOVER_DISABLED === 'true') {
+    return { run: false, reason: 'NOTIFICATION_FAILOVER_DISABLED=true' };
+  }
+  if (isMockMode()) {
+    return { run: false, reason: 'MOCK_EXTERNAL_APIS=true (no real sends)' };
+  }
+  return { run: true };
+}
 
 // ---------------------------------------------------------------------------
 // Fastify server — health check + webhook ingress
@@ -126,6 +152,7 @@ for (const worker of workers) {
 // Re-export for use by other modules (ingress handlers, tests)
 export { queues, QUEUE_NAMES } from './queues';
 export { sql } from '../src/lib/db/server';
+export { assertChannelsSmsEnv } from './startup-assert';
 
 // ---------------------------------------------------------------------------
 // Startup — register plugins, routes, then listen
@@ -138,6 +165,14 @@ async function main(): Promise<void> {
     encoding: 'utf8',
     runFirst: true,
   });
+
+  // Fail fast on missing Twilio config when SMS channel is enabled.
+  try {
+    assertChannelsSmsEnv();
+  } catch (err) {
+    console.error(`[worker] Startup assertion failed: ${err instanceof Error ? err.message : err}`);
+    process.exit(1);
+  }
 
   // Security headers on all worker responses
   app.addHook('onSend', async (_request, reply) => {
@@ -157,10 +192,19 @@ async function main(): Promise<void> {
   // Resend delivery webhook — real handler
   app.post('/ingress/resend', { config: { rawBody: true } }, handleResendWebhook);
 
+  // Twilio webhooks — status callbacks + inbound SMS (STOP/START)
+  app.post('/ingress/twilio/status', { config: { rawBody: true } }, handleTwilioStatusCallback);
+  app.post('/ingress/twilio/inbound', { config: { rawBody: true } }, handleTwilioInbound);
+
   await app.listen({ port: PORT, host: '0.0.0.0' });
   startOutboxPoller();
   startReconciliationPoller();
-  startNotificationFailoverPoller();
+  const failoverDecision = shouldRunFailoverPoller();
+  if (failoverDecision.run) {
+    startNotificationFailoverPoller();
+  } else {
+    console.log(`[NotificationFailover] Skipped — ${failoverDecision.reason}`);
+  }
   startWeeklySummaryScheduler();
   startArchivalPoller();
   startMonthlyImpactScheduler();

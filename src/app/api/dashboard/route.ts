@@ -10,7 +10,6 @@ export interface DashboardSettings {
   productsServices: string;
   avoidFacts: string[];
   sampleResponses: string[];
-  notificationPreference: string;
   ownerPhone: string;
   ownerEmail: string;
   weeklySummaryEnabled: boolean;
@@ -96,7 +95,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       sql`
         SELECT name, created_at, initial_review_count, initial_responded_count, baseline_captured_at,
                tone, products_services, avoid_facts, sample_responses,
-               notification_preference, owner_phone, owner_email,
+               owner_phone, owner_email,
                weekly_summary_enabled, monthly_impact_enabled,
                category, google_place_id
         FROM businesses
@@ -300,7 +299,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         productsServices: (business.products_services as string) ?? '',
         avoidFacts: parseArray(business.avoid_facts),
         sampleResponses: parseArray(business.sample_responses),
-        notificationPreference: (business.notification_preference as string) ?? 'email',
         ownerPhone: (business.owner_phone as string) ?? '',
         ownerEmail: (business.owner_email as string) ?? '',
         weeklySummaryEnabled: (business.weekly_summary_enabled as boolean) ?? true,

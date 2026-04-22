@@ -12,7 +12,6 @@ const UpdateSettingsSchema = z
     productsServices: z.string().max(2000).nullable().optional(),
     avoidFacts: z.array(z.string().trim().max(500)).max(20, 'Maximum 20 avoid facts').optional(),
     sampleResponses: z.array(z.string().trim().max(2000)).max(10, 'Maximum 10 sample responses').optional(),
-    notificationPreference: z.enum(['email', 'sms', 'both']).optional(),
     ownerPhone: z.string().trim().max(20).nullable().optional(),
     weeklySummaryEnabled: z.boolean().optional(),
     monthlyImpactEnabled: z.boolean().optional(),
@@ -26,7 +25,6 @@ const FIELD_TO_COLUMN: Record<string, string> = {
   productsServices: 'products_services',
   avoidFacts: 'avoid_facts',
   sampleResponses: 'sample_responses',
-  notificationPreference: 'notification_preference',
   ownerPhone: 'owner_phone',
   weeklySummaryEnabled: 'weekly_summary_enabled',
   monthlyImpactEnabled: 'monthly_impact_enabled',
@@ -70,24 +68,6 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
   }
 
   const data = parsed.data;
-
-  // If switching to sms/both, ensure a phone number will exist after the update.
-  // Check both the request payload and the stored value — the owner may already
-  // have a phone on file from onboarding and only be changing the channel.
-  if (data.notificationPreference === 'sms' || data.notificationPreference === 'both') {
-    const phoneInRequest = data.ownerPhone?.trim();
-    if (!phoneInRequest) {
-      const [biz] = await sql<{ owner_phone: string | null }[]>`
-        SELECT owner_phone FROM businesses WHERE id = ${user.businessId}
-      `;
-      if (!biz?.owner_phone?.trim()) {
-        return jsonResponse(
-          { error: 'Phone number is required when notification channel includes SMS' },
-          400,
-        );
-      }
-    }
-  }
 
   const fields = Object.keys(data) as (keyof typeof data)[];
 

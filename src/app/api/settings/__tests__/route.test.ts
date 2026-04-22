@@ -109,21 +109,6 @@ describe('PUT /api/settings', () => {
     expect(values[1]).toBe('professional');
   });
 
-  it('returns 200 for updating notification preferences', async () => {
-    mockRequireRole.mockResolvedValue(ownerUser());
-
-    const res = await PUT(
-      makeRequest({ notificationPreference: 'sms', ownerPhone: '+1234567890' }),
-    );
-    expect(res.status).toBe(200);
-
-    const [query, values] = mockSqlUnsafe.mock.calls[0] as [string, unknown[]];
-    expect(query).toContain('notification_preference = $2');
-    expect(query).toContain('owner_phone = $3');
-    expect(values[1]).toBe('sms');
-    expect(values[2]).toBe('+1234567890');
-  });
-
   it('returns 200 for toggling weeklySummaryEnabled to false', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
 
@@ -144,13 +129,6 @@ describe('PUT /api/settings', () => {
     const [query, values] = mockSqlUnsafe.mock.calls[0] as [string, unknown[]];
     expect(query).toContain('monthly_impact_enabled = $2');
     expect(values[1]).toBe(false);
-  });
-
-  it('returns 400 for invalid notificationPreference value', async () => {
-    mockRequireRole.mockResolvedValue(ownerUser());
-
-    const res = await PUT(makeRequest({ notificationPreference: 'carrier_pigeon' }));
-    expect(res.status).toBe(400);
   });
 
   it('ignores business_id in body and uses user.businessId', async () => {

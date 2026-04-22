@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { v7 as uuidv7 } from 'uuid';
 import { sql } from '@/lib/db/server';
 import { UpdateBusinessSchema } from '@/lib/shared/schemas';
 import { requireRole, AuthError } from '@/lib/db/auth';
@@ -220,6 +221,7 @@ export async function GET(
         rankingSearchLocation: business.ranking_search_location,
         googlePlaceAddress: business.google_place_address,
         ownerEmailBounced: business.owner_email_bounced ?? false,
+        smsEnabled: process.env.CHANNELS_SMS_ENABLED === 'true',
         churnScore,
       },
       rankingSnapshots: rankingSnapshots.map((s) => ({
@@ -252,6 +254,8 @@ export async function GET(
 // ---------------------------------------------------------------------------
 // PATCH /api/admin/businesses/[id] — update business settings
 // ---------------------------------------------------------------------------
+
+class BusinessNotFoundError extends Error {}
 
 // Column name mapping from camelCase API fields to snake_case DB columns.
 const FIELD_TO_COLUMN: Record<string, string> = {
@@ -316,14 +320,45 @@ export async function PATCH(
   const query = `UPDATE businesses SET ${setClause} WHERE id = $1`;
 
   try {
-    const result = await sql.unsafe(query, values);
-
-    if (result.count === 0) {
-      return NextResponse.json({ error: 'Business not found' }, { status: 404 });
-    }
+    await sql.begin(async (tx) => {
+      const result = await tx.unsafe(query, values);
+      if (result.count === 0) {
+        throw new BusinessNotFoundError();
+      }
+      if (data.ownerEmail !== undefined) {
+        // Upsert: if the email enrollment row was previously disabled/
+        // unsubscribed, a fresh owner_email edit is an explicit admin action
+        // to re-enable the channel — refresh to verified state in the same
+        // transaction as the business UPDATE.
+        await tx`
+          INSERT INTO channel_enrollments
+            (id, business_id, channel, handle, status, verified_at)
+          VALUES
+            (${uuidv7()}, ${businessId}, 'email', ${data.ownerEmail}, 'verified', NOW())
+          ON CONFLICT (business_id, channel) WHERE archived_at IS NULL DO UPDATE SET
+            handle              = EXCLUDED.handle,
+            status              = 'verified',
+            verified_at         = NOW(),
+            disabled_at         = NULL,
+            unsubscribed_at     = NULL,
+            unsubscribed_reason = NULL,
+            updated_at          = NOW()
+        `;
+      }
+    });
 
     return NextResponse.json({ success: true });
   } catch (error) {
+    if (error instanceof BusinessNotFoundError) {
+      return NextResponse.json({ error: 'Business not found' }, { status: 404 });
+    }
+    // Duplicate email constraint (users.email or channel_enrollments UNIQUE) —
+    // match the POST route's 409 semantics at src/app/api/admin/businesses/route.ts:281-287.
+    // MUST come before the generic 500 fallback.
+    const pgError = error as { code?: string };
+    if (pgError.code === '23505') {
+      return NextResponse.json({ error: 'Email already in use' }, { status: 409 });
+    }
     console.error('[api/admin/businesses/[id] PATCH] Failed:', error);
     return NextResponse.json({ error: 'Failed to update business' }, { status: 500 });
   }

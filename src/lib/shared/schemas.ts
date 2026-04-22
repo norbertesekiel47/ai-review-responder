@@ -46,7 +46,6 @@ export const OnboardBusinessSchema = z
     ownerName: ownerNameSchema,
     ownerEmail: ownerEmailSchema,
     ownerPhone: ownerPhoneSchema.optional(),
-    notificationPreference: z.enum(['email', 'sms', 'both']).default('email'),
     tone: toneSchema.default('professional and friendly'),
     productsServices: z.string().max(5000).optional(),
     staffNames: z.string().max(2000).optional(),

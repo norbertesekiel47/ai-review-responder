@@ -163,8 +163,8 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
 
     // Created approval links for each pending review with revokeMode: 'orphaned_only'
     expect(mockCreateApprovalLink).toHaveBeenCalledTimes(2);
-    expect(mockCreateApprovalLink).toHaveBeenCalledWith({ responseId: 'resp-1', businessId: 'biz-1', revokeMode: 'orphaned_only' });
-    expect(mockCreateApprovalLink).toHaveBeenCalledWith({ responseId: 'resp-2', businessId: 'biz-1', revokeMode: 'orphaned_only' });
+    expect(mockCreateApprovalLink).toHaveBeenCalledWith({ responseId: 'resp-1', businessId: 'biz-1', channel: 'email', revokeMode: 'orphaned_only' });
+    expect(mockCreateApprovalLink).toHaveBeenCalledWith({ responseId: 'resp-2', businessId: 'biz-1', channel: 'email', revokeMode: 'orphaned_only' });
 
     // Built nudge email with correct params
     expect(mockBuildOwnerNudgeEmailHtml).toHaveBeenCalledOnce();

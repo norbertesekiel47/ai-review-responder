@@ -195,7 +195,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           highlight_facts,
           avoid_facts,
           sample_responses,
-          notification_preference,
           owner_name,
           owner_email,
           owner_phone,
@@ -215,7 +214,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           ${highlightFacts},
           ${avoidFacts},
           ${sampleResponses},
-          ${data.notificationPreference},
           ${data.ownerName},
           ${data.ownerEmail},
           ${data.ownerPhone ?? null},
@@ -235,6 +233,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           'owner',
           ${businessId}
         )
+      `;
+
+      const enrollmentId = uuidv7();
+      await tx`
+        INSERT INTO channel_enrollments (id, business_id, channel, handle, status, verified_at)
+        VALUES (${enrollmentId}, ${businessId}, 'email', ${data.ownerEmail}, 'verified', NOW())
+        ON CONFLICT (business_id, channel) WHERE archived_at IS NULL DO NOTHING
       `;
 
       const correlationId = uuidv7();

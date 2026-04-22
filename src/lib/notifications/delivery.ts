@@ -1,5 +1,6 @@
 import { v7 as uuidv7 } from 'uuid';
 import { sql } from '@/lib/db/server';
+import type { ChannelId } from '@/lib/notifications/channels/types';
 
 /**
  * Records a notification delivery in the notification_deliveries table.
@@ -9,7 +10,7 @@ import { sql } from '@/lib/db/server';
 export async function recordNotificationDelivery(params: {
   businessId: string;
   responseId?: string | null;
-  channel: 'email' | 'sms';
+  channel: ChannelId;                       // widened from 'email' | 'sms'
   recipient: string;
   template: string;
   externalMessageId: string;
@@ -19,6 +20,34 @@ export async function recordNotificationDelivery(params: {
     VALUES (
       ${uuidv7()}, ${params.businessId}, ${params.responseId ?? null}, ${params.channel},
       ${params.recipient}, ${params.template}, NOW(), ${params.externalMessageId}
+    )
+  `;
+}
+
+/**
+ * Records a FAILED delivery. Used when a channel send threw before returning
+ * an external message ID (Twilio rejected, Resend errored, cost-cap blocked),
+ * or when a pre-send guard rejected the send. Mirrors recordNotificationDelivery
+ * but sets failed_at + failure_reason and leaves external_message_id NULL.
+ *
+ * Defaults template to 'approval_request' since that's the primary use site
+ * (the dispatcher's per-channel catch block). Owner-directed non-approval
+ * templates (e.g., 'weekly_value_report') should pass the template explicitly.
+ */
+export async function insertFailedDelivery(
+  businessId: string,
+  responseId: string | null,
+  channel: ChannelId,
+  recipient: string,
+  failureReason: string,
+  template: string = 'approval_request',
+): Promise<void> {
+  await sql`
+    INSERT INTO notification_deliveries
+      (id, business_id, response_id, channel, recipient, template, failed_at, failure_reason)
+    VALUES (
+      ${uuidv7()}, ${businessId}, ${responseId}, ${channel},
+      ${recipient}, ${template}, NOW(), ${failureReason}
     )
   `;
 }
