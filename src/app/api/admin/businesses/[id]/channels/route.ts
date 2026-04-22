@@ -49,6 +49,7 @@ export async function GET(
            AND nd.channel = e.channel) AS last_activity_at
     FROM channel_enrollments e
     WHERE e.business_id = ${businessId}
+      AND e.archived_at IS NULL
     ORDER BY e.created_at ASC
   `;
 
