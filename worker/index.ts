@@ -52,6 +52,8 @@ import { handleWeeklySummary } from './jobs/WeeklySummaryWorker';
 import { handlePlaceIdValidation } from './jobs/PlaceIdValidationWorker';
 import { handleResendWebhook } from './ingress/resend';
 import { handleStripeWebhook } from './ingress/stripe';
+import { handleTwilioStatusCallback, handleTwilioInbound } from './ingress/twilio';
+import { assertChannelsSmsEnv } from './startup-assert';
 import { startNotificationFailoverPoller, stopNotificationFailoverPoller } from './jobs/NotificationFailoverPoller';
 import { startWeeklySummaryScheduler, stopWeeklySummaryScheduler } from './jobs/WeeklySummaryScheduler';
 import { startArchivalPoller, stopArchivalPoller } from './jobs/ArchivalPoller';
@@ -150,6 +152,7 @@ for (const worker of workers) {
 // Re-export for use by other modules (ingress handlers, tests)
 export { queues, QUEUE_NAMES } from './queues';
 export { sql } from '../src/lib/db/server';
+export { assertChannelsSmsEnv } from './startup-assert';
 
 // ---------------------------------------------------------------------------
 // Startup — register plugins, routes, then listen
@@ -162,6 +165,14 @@ async function main(): Promise<void> {
     encoding: 'utf8',
     runFirst: true,
   });
+
+  // Fail fast on missing Twilio config when SMS channel is enabled.
+  try {
+    assertChannelsSmsEnv();
+  } catch (err) {
+    console.error(`[worker] Startup assertion failed: ${err instanceof Error ? err.message : err}`);
+    process.exit(1);
+  }
 
   // Security headers on all worker responses
   app.addHook('onSend', async (_request, reply) => {
@@ -180,6 +191,10 @@ async function main(): Promise<void> {
 
   // Resend delivery webhook — real handler
   app.post('/ingress/resend', { config: { rawBody: true } }, handleResendWebhook);
+
+  // Twilio webhooks — status callbacks + inbound SMS (STOP/START)
+  app.post('/ingress/twilio/status', { config: { rawBody: true } }, handleTwilioStatusCallback);
+  app.post('/ingress/twilio/inbound', { config: { rawBody: true } }, handleTwilioInbound);
 
   await app.listen({ port: PORT, host: '0.0.0.0' });
   startOutboxPoller();
