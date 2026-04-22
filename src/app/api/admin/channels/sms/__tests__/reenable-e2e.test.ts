@@ -33,14 +33,11 @@ import { NextRequest } from 'next/server';
 const { sqlCallsLog, sqlReturnQueue, mockSql } = vi.hoisted(() => {
   const sqlCallsLog: Array<{ raw: string; values: unknown[] }> = [];
   const sqlReturnQueue: unknown[] = [];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const mockSql: any = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
     sqlCallsLog.push({ raw: strings.join('?'), values });
     const next = sqlReturnQueue.shift();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const arr: any = Array.isArray(next) ? next : [];
     if (next && typeof next === 'object' && 'count' in (next as object)) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       Object.assign(arr, { count: (next as any).count });
     }
     return Promise.resolve(arr);
@@ -88,7 +85,6 @@ const { mockVerifyCreate, mockVerificationCheckCreate } = vi.hoisted(() => ({
 }));
 vi.mock('twilio', async () => {
   const actual = await vi.importActual<typeof import('twilio')>('twilio');
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const client: any = vi.fn(() => ({
     verify: {
       v2: {
@@ -113,9 +109,7 @@ import { handleTwilioInbound } from '../../../../../../../worker/ingress/twilio'
 import { buildInboundRequest } from '../../../../../../../worker/ingress/__tests__/helpers';
 
 // Shape-cast for the Fastify request/reply contract used by the handler.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyReq = any;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyReply = any;
 
 function adminReq(path: 'verify' | 'confirm', body: unknown): NextRequest {
