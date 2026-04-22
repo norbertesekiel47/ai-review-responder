@@ -1,11 +1,13 @@
 # RepWorth (AI Review Responder) — Claude Code Context
 
 ## What this project is
+
 An automated service for small businesses that monitors Google reviews via SerpAPI polling (MVP) and generates personalized, multilingual AI response drafts for owner approval. Built with Next.js 14 + Railway workers + Supabase + BullMQ.
 
 **MVP mode**: SerpAPI polling + manual copy-paste posting. When GBP API access is approved, Phase 5 in `docs/Implementation_Phases_SerpAPI_First.md` upgrades to automated ingestion and posting — a mechanical swap, not a rewrite.
 
 ## Architecture invariants — NEVER violate these
+
 - **Vercel serves UI only.** All SLA-critical compute (review sync, response generation, notifications, publishing) runs on Railway workers. NEVER put LLM calls, external API calls, or long-running operations in Next.js API routes.
 - **Transactional outbox for all async work.** Every state change + its follow-up work are written in the SAME Postgres transaction via the `job_outbox` table. NEVER write to Postgres and then separately enqueue a BullMQ job — if the enqueue fails, work is lost silently.
 - **Third-party ingress terminates on Railway.** Stripe, Resend, future Twilio, and future Google Pub/Sub push requests should hit `worker/ingress/*` directly in production. Do NOT proxy production webhooks through Next.js routes unless you are in local development and explicitly documenting the exception.
@@ -17,6 +19,7 @@ An automated service for small businesses that monitors Google reviews via SerpA
 - **Use Node.js native `crypto` for all hashing.** `import { createHash, randomUUID } from 'node:crypto'`. Never use `crypto-js` — it's slower and redundant.
 
 ## Tech stack
+
 - **Runtime**: Node.js 20 LTS, TypeScript 5 strict mode
 - **Framework**: Next.js 14 App Router (Vercel)
 - **Worker**: Standalone Node.js process (Railway) — Fastify HTTP server (`fastify` + `fastify-raw-body`) for webhook ingress + BullMQ consumers + OutboxPoller
@@ -32,6 +35,7 @@ An automated service for small businesses that monitors Google reviews via SerpA
 - **Testing**: Vitest (unit/integration), Playwright (E2E)
 
 ## Directory structure
+
 ```
 src/
 ├── app/                    # Next.js pages (Vercel)
@@ -58,20 +62,24 @@ worker/                     # Railway worker (separate process, at project root)
 │   └── OutboxPoller.ts     # 10s interval, FOR UPDATE SKIP LOCKED, dispatches to BullMQ
 └── ingress/                # Webhook handlers: Stripe, Resend (direct Railway endpoints)
 ```
+
 Configure tsconfig paths so `worker/` can import shared code: `"@/lib/*": ["./src/lib/*"]`, `"@/types/*": ["./src/types/*"]`.
 
 ## Database
+
 All tables use UUIDv7 (time-ordered). Full schema is in `supabase/migrations/001_initial_schema.sql`.
 
 Key tables: `businesses` (includes `last_sync_at` for SerpAPI polling), `google_connections`, `reviews`, `responses`, `approval_links`, `job_outbox`, `inbound_events`, `prospect_demos`, `notification_deliveries`, `api_costs`, `review_exceptions`, `weekly_summaries`, `users`, `approval_audit_log`
 
 ### Response status values
+
 `'pending_approval'` | `'approved'` | `'edited'` | `'superseded'` | `'awaiting_manual_post'` | `'posted'` | `'failed'`
 
 - `superseded`: terminal — the owner requested a regeneration and this draft was replaced by a newer version. **At most one non-terminal response per review at a time.**
 - `awaiting_manual_post`: SerpAPI-mode state after approval but before sales partner manually posts to Google. When GBP API arrives, the ResponsePublisherWorker branches: if `google_connections` exists, auto-post; otherwise, manual post.
 
 ### Business subscription lifecycle
+
 `'pending_payment'` (default) → `'active'` (Stripe confirms) → `'past_due'` | `'cancelled'`
 
 Businesses start in `pending_payment`. Stripe's `checkout.session.completed` webhook transitions to `active`. The ReconciliationPoller only polls `active` businesses.
@@ -79,12 +87,14 @@ Businesses start in `pending_payment`. Stripe's `checkout.session.completed` web
 **`pending_payment` trial scope:** The onboarding form triggers ONE initial sync. Reviews are ingested and responses are generated (visible in admin UI during the sales call). But `NotificationWorker` and `ResponsePublisherWorker` MUST skip `pending_payment` — no approval emails or posting instructions until payment confirms.
 
 **Subscription guard in ALL customer-facing workers:** Every worker that produces customer-visible output must check `subscription_status` early:
+
 - `cancelled` → no-op, complete outbox entry
 - `past_due` → 7-day grace period, then treat as cancelled
 - `pending_payment` → `NotificationWorker` and `ResponsePublisherWorker` skip; `ResponseGeneratorWorker` is allowed (for admin-visible demo drafts)
 - Apply to: `ResponseGeneratorWorker`, `NotificationWorker`, `ResponsePublisherWorker`, `WeeklySummaryWorker`
 
 ## Key patterns to follow
+
 - **Cost guard**: Redis INCRBY for pessimistic cost reservation BEFORE LLM calls. DECRBY to refund on failure. DB `api_costs` table is the audit trail, reconciled hourly. See `.claude/skills/cost-guard.md`.
 - **Approval flow**: GET is read-only (renders page). POST /api/approval/session binds device cookie. POST approve/edit/regenerate requires device cookie + CSRF. Email scanners prefetch GET but never POST. See `.claude/skills/approval-security.md`.
 - **Outbox pattern**: State change + follow-up work in the SAME Postgres transaction. OutboxPoller dispatches to BullMQ. See `.claude/skills/outbox-pattern.md`.
@@ -103,21 +113,25 @@ Businesses start in `pending_payment`. Stripe's `checkout.session.completed` web
 - **Error handling**: all workers are idempotent. Replaying an outbox entry must produce the same result. Use unique constraints + ON CONFLICT for deduplication.
 
 ## GBP API migration path
+
 When Google Business Profile API access is approved, follow Phase 5 in `docs/Implementation_Phases_SerpAPI_First.md`. Key changes:
+
 1. Build OAuth flow for business onboarding (`google_connections` table populated)
 2. Set up Pub/Sub for real-time notifications
 3. Add `gbp-api-source.ts` ReviewSource implementation
 4. Update ResponsePublisherWorker to auto-post via GBP API (with `google_connections` check for backward compat)
 5. Switch ReconciliationPoller to adaptive intervals (60/120/240 min)
 6. Migrate existing customers from `provider='serpapi_poll'` to `provider='google'`
-The architecture was designed so this is a mechanical swap — same outbox, same workers, same approval flow.
+   The architecture was designed so this is a mechanical swap — same outbox, same workers, same approval flow.
 
 ## Testing approach
+
 - Unit tests (Vitest): business logic, cost calculation, token hashing, dedup logic
 - Integration tests (Vitest + real Supabase): full pipeline flows, outbox recovery, idempotency
 - E2E tests (Playwright): approval page flows, demo generation, admin pages
 
 ## Dev commands
+
 - `pnpm dev` — Next.js dev server (port 3000)
 - `pnpm worker` — Railway worker via tsx (port 3001)
 - `pnpm test` — Run Vitest unit tests
@@ -127,10 +141,11 @@ The architecture was designed so this is a mechanical swap — same outbox, same
 
 ## Current status
 
-**Shipped:** Sprints 1–6 COMPLETE. MVP is feature-complete pending GBP API (not applied for).
-**Next:** No active sprint. Billing-focused sprint planned — see Known residual risks.
+**Shipped:** Sprints 1–6 COMPLETE + Communication Channels Phase 0 (multi-channel dispatcher, `channel_enrollments`, admin Channels UI) + Communication Channels Phase 1 SMS (code-complete, flag-gated off pending Twilio 10DLC brand/campaign registration). Branch `feat/communication-channels` — not yet merged.
+**Next:** Enable Phase 1 SMS after 10DLC registration completes. Then Phase 2 (Telegram), Phase 3 (WhatsApp). Billing sprint (subscription_status_changed_at) also pending.
 
 ### What each sprint shipped
+
 - **S1** — Demo pipeline + outbox foundation (P1–6)
 - **S2** — 7 BullMQ workers incl. OutboxPoller, approval flow, manual posting (P7–13)
 - **S3** — Supabase Auth, admin CRM pages, business onboarding, Stripe, Sentry + security headers (P14a–16)
@@ -139,11 +154,14 @@ The architecture was designed so this is a mechanical swap — same outbox, same
 - **S5A** — Weekly Value Report + Monthly Impact, owner dashboard, engagement detection + re-engagement, churn risk score (19a, 19c, 19d, 19f)
 - **S5B** — Automated ranking tracking, owner settings + dashboard approval actions, partner satisfaction alert, onboarding drip (day 1/7/30), satisfaction pulse (HMAC feedback links) (19b, 19c-5B, 19d-5B, 19e, 19g)
 - **S6** — Correlation IDs + structured logging, archival expansion + `api_costs_daily_rollups`, SerpAPI onboarding pre-fill, email deliverability + hard-bounce handling, launch runbook (20a–20e)
+- **Channels Phase 0** — `channel_enrollments` table (migration 021), `NotificationChannel` interface + `EmailChannel`, `getChannel` factory, `getVerifiedEnrollments`, multi-channel `NotificationWorker` dispatcher, `createApprovalLink` channel-scoped with advisory lock, failover poller stale branch → admin alert (`tryClaimAlert`), admin Channels section UI + API, removed `notification_preference` field (2026-04-20/21)
 
 ### Migrations (`supabase/migrations/`)
-Next number: **021**. Inventory: 001 (schema), 002 (P2 fixes), 003 (audit_log RLS), 004 (sync_reviews dedup constraint), 005 (review_exception nullable review_id), 006 (users RLS), 007 (place_id_verified), 008 (retention core + monthly_impact_emails), 009 (report claim/sent columns), 010 (dashboard indexes), 011 (engagement_alert dedup), 012 (outbox_status doc), 013 (churn query indexes), 014 (retention expansion), 015 (drip_log claim state), 016 (satisfaction_alert index), 017 (S6 scale: `api_costs_daily_rollups` + `businesses.website` + `owner_email_bounced`), 018 (correlation + `'dispatching'` indexes), 019 (notification_deliveries bounce indexes), 020 (JSONB scalar-string repair — see lab note 2026-04-18).
+
+Next number: **023**. Inventory: 001 (schema), 002 (P2 fixes), 003 (audit_log RLS), 004 (sync_reviews dedup constraint), 005 (review_exception nullable review_id), 006 (users RLS), 007 (place_id_verified), 008 (retention core + monthly_impact_emails), 009 (report claim/sent columns), 010 (dashboard indexes), 011 (engagement_alert dedup), 012 (outbox_status doc), 013 (churn query indexes), 014 (retention expansion), 015 (drip_log claim state), 016 (satisfaction_alert index), 017 (S6 scale: `api_costs_daily_rollups` + `businesses.website` + `owner_email_bounced`), 018 (correlation + `'dispatching'` indexes), 019 (notification_deliveries bounce indexes), 020 (JSONB scalar-string repair — see lab note 2026-04-18), 021 (channel_enrollments + email backfill), 022 (channels Phase 1: drop notification_preference, soft-delete + partial unique index on channel_enrollments, sms_sender_opt_outs + sms_sender_opt_out_events with RLS + CHECK constraints, handle lookup index).
 
 ### Feature flags / non-obvious env vars
+
 - `MOCK_EXTERNAL_APIS=true` — bypass SerpAPI + LLM locally
 - `RANKING_TRACKING_ENABLED=false` — ranking worker off by default
 - `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` — required for onboarding PlaceAutocomplete (Essentials tier)
@@ -151,8 +169,16 @@ Next number: **021**. Inventory: 001 (schema), 002 (P2 fixes), 003 (audit_log RL
 - `NEXT_PUBLIC_DOCS_BASE_URL` — optional; makes `/admin/runbook` doc names clickable links
 - `TEST_DATABASE_POOL_URL` — E2E tests skip gracefully when unset
 - `CONTACT_NOTIFY_TO` — optional; overrides the hardcoded notification email for `/api/contact` form submissions (default: `norbertesekiel@gmail.com`)
+- `NOTIFICATION_FAILOVER_DISABLED=true` — skip failover poller entirely (local dev / mock mode auto-skips too; RESEND_WEBHOOK_SECRET no longer consulted)
+- `NOTIFICATION_FAILOVER_INTERVAL_MS` — optional, default 7200000 (2 hours)
+- `CHANNELS_SMS_ENABLED` — gates factory, dispatcher, admin API routes, widget. Default off.
+- `NEXT_PUBLIC_CHANNELS_SMS_ENABLED` — UI visibility companion (client bundle). Must match `CHANNELS_SMS_ENABLED`.
+- `WORKER_PUBLIC_URL` — required when SMS enabled; statusCallback base + Twilio signature verification path component. Must match Twilio console config exactly (scheme, host, no trailing slash).
+- `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_MESSAGING_SERVICE_SID`, `TWILIO_VERIFY_SERVICE_SID` — required when SMS enabled (worker startup assertion fails otherwise, except in `MOCK_EXTERNAL_APIS=true`).
+- `SMS_DAILY_LIMIT_CENTS_PER_BUSINESS` (default 10) / `SMS_DAILY_LIMIT_CENTS_GLOBAL` (default 500) — SMS cost guard ceilings.
 
 ### GBP API
+
 Not applied for. Mechanical swap plan lives in Phase 5 of `docs/Implementation_Phases_SerpAPI_First.md`.
 
 ## Known residual risks (shipped as-is, tracked for later)
@@ -164,6 +190,7 @@ These are real bugs accepted with current mitigations. Not landmines — documen
 - **`past_due` grace period based on mutable `businesses.updated_at` (2026-04-18).** `checkSubscription` in `src/lib/shared/subscription-guard.ts` computes the 7-day grace window from `businessUpdatedAt`, but any unrelated write to the businesses row (admin profile edit, keyword change, bounce flag, tier update) resets `updated_at` and extends the grace indefinitely. Low exploit risk because admins editing a `past_due` business are typically trying to help them pay, not exploit grace. **Planned for the next billing-focused sprint:** add a dedicated `subscription_status_changed_at` column, write it only in the Stripe webhook on actual status transitions, update every `checkSubscription` caller to pass it instead of `updated_at`.
 
 ## Lab notes
+
 - [2026-04-09] Postgres.js returns JSONB columns as strings (not parsed objects) when using `DATABASE_POOL_URL` with PgBouncer. Always guard with `typeof x === 'string' ? JSON.parse(x) : x` when reading JSONB columns. Hit this in OutboxPoller (payload) and demo viewer (reviews_snapshot, generated_responses).
 - [2026-04-11] SerpAPI Google Maps Reviews rejects `num` parameter on the initial page unless `next_page_token` is also set. Always returns 8 results on first page. Removed `num` from both `SerpApiSource` and `SerpApiMonitor`; results are sliced client-side after fetch.
 - [2026-04-11] Anthropic model `claude-3-5-haiku-latest` was deprecated and returns 404. Updated to `claude-haiku-4-5-20251001` in generator and cost tracker.
@@ -176,14 +203,14 @@ These are real bugs accepted with current mitigations. Not landmines — documen
 - [2026-04-13] Google Maps Platform pricing changed March 2025 to tier-based (Essentials/Pro/Enterprise) with Free Usage Caps (10,000/month baseline). `displayName` field is Pro tier; `id` + `formattedAddress` + `location` are Essentials tier. Stay in Essentials to minimize costs.
 - [2026-04-13] `@googlemaps/js-api-loader` v2 `setOptions()` accesses `window` — crashes during Next.js SSR. Guard with `if (typeof window !== 'undefined')`. The deprecated `google.maps.places.Autocomplete` class is blocked for new customers since March 2025; use `PlaceAutocompleteElement` instead.
 - [2026-04-14] Stripe webhook stores the full **event** object in `inbound_events.payload`. The session ID is at `payload->'data'->'object'->>'id'`, NOT `payload->>'id'` (which is the event ID like `evt_...`). The payment-success route was querying the wrong JSON path, causing perpetual 404s.
-- [2026-04-18] `${JSON.stringify(payload)}::jsonb` in Postgres.js v3 DOUBLE-ENCODES JSONB values into scalar strings. When you pass a JS string to a position cast with `::jsonb`, Postgres.js's JSON type adapter wraps the already-stringified JSON in additional JSON quotes — so `{"a":1}` becomes `"{\"a\":1}"`, which Postgres parses as a JSONB scalar string (a jsonb value that is itself a string), NOT as a JSONB object. `jsonb_typeof(payload)` returns `'string'` on these rows, and `payload->>'correlation_id'` returns NULL. **Correct pattern:** pass the OBJECT directly via the `jsonb()` helper from `src/lib/db/server.ts`: `await sql\`INSERT INTO t (col) VALUES (${jsonb(payload)})\`` — the helper wraps `sql.json(value)` and returns a Parameter with OID 3802 (jsonb), so Postgres.js sends the object serialized exactly once. Never use `${JSON.stringify(x)}::jsonb` anywhere. Migration 020 normalizes legacy rows by running `payload = (payload#>>'{}')::jsonb WHERE jsonb_typeof(payload) = 'string'` across every JSONB column.
+- [2026-04-18] `${JSON.stringify(payload)}::jsonb` in Postgres.js v3 DOUBLE-ENCODES JSONB values into scalar strings. When you pass a JS string to a position cast with `::jsonb`, Postgres.js's JSON type adapter wraps the already-stringified JSON in additional JSON quotes — so `{"a":1}` becomes `"{\"a\":1}"`, which Postgres parses as a JSONB scalar string (a jsonb value that is itself a string), NOT as a JSONB object. `jsonb_typeof(payload)` returns `'string'` on these rows, and `payload->>'correlation_id'` returns NULL. **Correct pattern:** pass the OBJECT directly via the `jsonb()` helper from `src/lib/db/server.ts`: `await sql\`INSERT INTO t (col) VALUES (${jsonb(payload)})\`` — the helper wraps `sql.json(value)` and returns a Parameter with OID 3802 (jsonb), so Postgres.js sends the object serialized exactly once. Never use `${JSON.stringify(x)}::jsonb`anywhere. Migration 020 normalizes legacy rows by running`payload = (payload#>>'{}')::jsonb WHERE jsonb_typeof(payload) = 'string'` across every JSONB column.
 
 ## MCP Usage Reference
 
-| MCP | When to use | Sprint |
-|---|---|---|
-| **Supabase** | Database queries, migrations, checking table data, debugging data issues | All sprints |
-| **Context7** | Looking up library docs (SerpAPI, BullMQ, Resend, Stripe SDKs, Next.js App Router) before implementing | Sprints 1-3 |
-| **Playwright** | Writing and running E2E tests for approval flow, demo pages, admin pages | Sprints 2-4 |
-| **Sentry** | Setting up error tracking, checking error reports, debugging production issues | Sprints 3+ |
-| **Google Chrome Dev** | Debugging approval page rendering, mobile responsiveness, performance profiling | Sprints 2-4 |
+| MCP                   | When to use                                                                                            | Sprint      |
+| --------------------- | ------------------------------------------------------------------------------------------------------ | ----------- |
+| **Supabase**          | Database queries, migrations, checking table data, debugging data issues                               | All sprints |
+| **Context7**          | Looking up library docs (SerpAPI, BullMQ, Resend, Stripe SDKs, Next.js App Router) before implementing | Sprints 1-3 |
+| **Playwright**        | Writing and running E2E tests for approval flow, demo pages, admin pages                               | Sprints 2-4 |
+| **Sentry**            | Setting up error tracking, checking error reports, debugging production issues                         | Sprints 3+  |
+| **Google Chrome Dev** | Debugging approval page rendering, mobile responsiveness, performance profiling                        | Sprints 2-4 |
