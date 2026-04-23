@@ -50,7 +50,7 @@ describe('WhatsAppClient.sendTemplate error classification', () => {
   function assertNoTokenLeak() {
     for (const spy of [logSpy, errSpy, warnSpy]) {
       for (const call of spy.mock.calls) {
-        const serialized = call.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ');
+        const serialized = call.map((a: unknown) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ');
         expect(serialized).not.toContain(RAW_TOKEN);
       }
     }

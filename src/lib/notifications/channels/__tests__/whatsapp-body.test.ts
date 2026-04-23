@@ -115,13 +115,13 @@ describe('formatApprovalWhatsApp', () => {
   it('truncates long review text to 400 chars', () => {
     const long = 'x'.repeat(1000);
     const { contentVariables } = formatApprovalWhatsApp({ ...baseParams, reviewText: long }, 'HX_test');
-    expect(contentVariables['5'].length).toBeLessThanOrEqual(400);
+    expect(contentVariables['5']!.length).toBeLessThanOrEqual(400);
   });
 
   it('truncates long response preview to 400 chars', () => {
     const long = 'y'.repeat(1000);
     const { contentVariables } = formatApprovalWhatsApp({ ...baseParams, responsePreview: long }, 'HX_test');
-    expect(contentVariables['6'].length).toBeLessThanOrEqual(400);
+    expect(contentVariables['6']!.length).toBeLessThanOrEqual(400);
   });
 
   it('returns contentSid from passed-in value (testable without env mutation)', () => {

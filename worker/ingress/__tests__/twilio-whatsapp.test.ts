@@ -18,7 +18,7 @@ const {
   return {
     sqlQueue,
     sqlCalls,
-    mockClaimInboundEvent: vi.fn(async () => 'claimed' as const),
+    mockClaimInboundEvent: vi.fn(async (): Promise<'claimed' | 'duplicate'> => 'claimed'),
     mockVerifyTwilioSignature: vi.fn(() => true),
     mockSendFreeform: vi.fn(),
     mockApproveViaCallback: vi.fn(),
