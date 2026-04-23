@@ -14,6 +14,7 @@ import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '../../src/lib/db/server';
 import { claimInboundEvent } from './shared';
 import { parseTwilioBody, verifyTwilioSignature } from './twilio-verify';
+import { classifyIntent } from './twilio-intent';
 
 const LOG_PREFIX = '[ingress/twilio]';
 
@@ -140,39 +141,6 @@ export async function handleTwilioStatusCallback(
 // ─────────────────────────────────────────────────────────────────────
 // Inbound SMS handler (STOP/START + miscellaneous)
 // ─────────────────────────────────────────────────────────────────────
-
-/**
- * STOP keyword set: Twilio's built-in keywords plus common English synonyms
- * and Spanish equivalents (Twilio natively handles ES STOP keywords on
- * Messaging Services in ES locale; we mirror them here so the handler works
- * identically if OptOutType is absent, e.g. some regional carrier routes).
- */
-const STOP_KEYWORDS = new Set([
-  'STOP', 'STOPALL', 'UNSUBSCRIBE', 'CANCEL', 'END', 'QUIT', 'REVOKE', 'OPTOUT',
-  'PARE', 'PARAR', 'PARARLO', 'CANCELAR', 'DESUSCRIBIR', 'DETENER',
-]);
-const START_KEYWORDS = new Set(['START', 'UNSTOP', 'YES', 'ARRANCAR']);
-
-type InboundIntent = 'stop' | 'start' | 'none';
-type IntentSource = 'twilio_optouttype' | 'twilio_inbound_keyword' | '';
-
-function classifyIntent(
-  params: Record<string, string>,
-): { intent: InboundIntent; source: IntentSource } {
-  const optOutType = params.OptOutType;
-  if (optOutType === 'STOP') return { intent: 'stop', source: 'twilio_optouttype' };
-  if (optOutType === 'START' || optOutType === 'UNSTOP') {
-    return { intent: 'start', source: 'twilio_optouttype' };
-  }
-
-  // Strip leading/trailing non-letters to handle punctuation like "STOP!" or
-  // "  stop.", then take the first whitespace-delimited token.
-  const body = (params.Body ?? '').trim().toUpperCase().replace(/^[^A-Z]+|[^A-Z]+$/g, '');
-  const first = body.split(/\s+/)[0] ?? '';
-  if (STOP_KEYWORDS.has(first)) return { intent: 'stop', source: 'twilio_inbound_keyword' };
-  if (START_KEYWORDS.has(first)) return { intent: 'start', source: 'twilio_inbound_keyword' };
-  return { intent: 'none', source: '' };
-}
 
 /**
  * Redact Body before persisting: inbound_events.payload retains every other
