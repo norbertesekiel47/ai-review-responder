@@ -134,6 +134,11 @@ export function WhatsAppEnrollmentWidget({ businessId }: { businessId: string })
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ businessId }),
     });
+    // Force local state to idle immediately. `refresh()` alone would leave the
+    // awaiting_scan view up because the server row stays in pending_verification
+    // (with cleared token) and the refresh handler no-ops state transitions out
+    // of awaiting_scan to preserve the QR during polling.
+    setState({ kind: 'idle' });
     await refresh();
   };
 

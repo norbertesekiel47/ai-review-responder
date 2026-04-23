@@ -34,10 +34,12 @@ export function toWaRecipient(handle: string): string {
 
 /**
  * Parse the raw approval token from a dispatcher-constructed approval URL.
- * Uses the real URL parser — NOT a naive split('/').pop() — and rejects
- * empty / malformed / trailing-slash / query-string-corrupted inputs so the
- * send path fails loud on an upstream bug rather than silently shipping a
- * broken URL button.
+ *
+ * REQUIRED shape: `<scheme>://<host>/approve/<token>` with no query string,
+ * no hash fragment, and a non-empty token. Any deviation throws — staging /
+ * local misconfiguration that generates a different URL base fails loud here
+ * rather than shipping a broken URL button into a Meta-approved template
+ * whose URL suffix variable is wired to the raw token only.
  */
 export function extractTokenFromApprovalUrl(url: string): string {
   if (!url) throw new Error('extractTokenFromApprovalUrl: empty URL');
@@ -47,14 +49,22 @@ export function extractTokenFromApprovalUrl(url: string): string {
   } catch {
     throw new Error(`extractTokenFromApprovalUrl: malformed URL: ${url}`);
   }
-  // Reject trailing-slash URLs before filtering: a pathname ending in '/'
-  // means the last intended segment is empty (e.g. /approve/ → token missing).
-  if (parsed.pathname.endsWith('/')) {
-    throw new Error(`extractTokenFromApprovalUrl: empty path segment (trailing slash): ${url}`);
+  if (parsed.search) {
+    throw new Error(`extractTokenFromApprovalUrl: query string not permitted: ${url}`);
   }
-  const last = parsed.pathname.split('/').filter(Boolean).at(-1);
-  if (!last) throw new Error(`extractTokenFromApprovalUrl: empty path segment: ${url}`);
-  return last;
+  if (parsed.hash) {
+    throw new Error(`extractTokenFromApprovalUrl: hash fragment not permitted: ${url}`);
+  }
+  // Expected pathname: /approve/<token> with exactly one segment after approve.
+  const segments = parsed.pathname.split('/').filter(Boolean);
+  if (segments.length !== 2 || segments[0] !== 'approve') {
+    throw new Error(`extractTokenFromApprovalUrl: expected /approve/<token> shape, got pathname: ${parsed.pathname}`);
+  }
+  const token = segments[1]!;
+  if (!token) {
+    throw new Error(`extractTokenFromApprovalUrl: empty token: ${url}`);
+  }
+  return token;
 }
 
 /**

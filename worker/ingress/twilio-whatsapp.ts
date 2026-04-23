@@ -145,12 +145,24 @@ import { WhatsAppClient } from '../../src/lib/notifications/channels/whatsapp-cl
 import { stripWaPrefix, toWaRecipient } from '../../src/lib/notifications/channels/whatsapp-body';
 import { classifyIntent } from './twilio-intent';
 
+// UUID v7 rendered with `v7()` from the `uuid` package produces the canonical
+// 8-4-4-4-12 hex form. Validate the suffix shape before hitting the DB — the
+// approval_links.id column is UUID, and a malformed string would raise a
+// Postgres "invalid input syntax for type uuid" error that escapes the
+// post-claim happy path. Malformed payloads route to the same processed/200
+// path as an unrecognised `a:`/`r:` prefix.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function parseButtonPayload(
   data: string,
 ): { action: 'approve' | 'regenerate'; approvalLinkId: string } | null {
-  if (data.startsWith('a:')) return { action: 'approve', approvalLinkId: data.slice(2) };
-  if (data.startsWith('r:')) return { action: 'regenerate', approvalLinkId: data.slice(2) };
-  return null;
+  let action: 'approve' | 'regenerate' | null = null;
+  let rest = '';
+  if (data.startsWith('a:')) { action = 'approve'; rest = data.slice(2); }
+  else if (data.startsWith('r:')) { action = 'regenerate'; rest = data.slice(2); }
+  if (action === null) return null;
+  if (!UUID_RE.test(rest)) return null;
+  return { action, approvalLinkId: rest };
 }
 
 async function markProcessed(dedupKey: string): Promise<void> {
@@ -203,6 +215,15 @@ export async function handleTwilioWhatsAppInbound(
   const senderHandle = stripWaPrefix(From);
   const client = new WhatsAppClient();
 
+  // Post-claim work runs inside an outer try/catch. The inbound_events row is
+  // already in `received` status after claimInboundEvent; if ANY post-claim
+  // DB call (approval_links lookup, enrollment lookup, STOP update, enrollment
+  // tx) throws before we reach a markProcessed / markFailed, the row would be
+  // stuck in `received`. Twilio retries within the 2-minute reclaim window
+  // would land as `duplicate` per shared.ts — effectively losing the webhook.
+  // The outer catch guarantees the row always terminates in processed or
+  // failed, matching the invariants in twilio.ts.
+  try {
   // ── Path 1: button tap (Approve / Regenerate) ───────────────────────────
   if (ButtonPayload) {
     const parsed = parseButtonPayload(ButtonPayload);
@@ -381,4 +402,19 @@ export async function handleTwilioWhatsAppInbound(
   console.log(`${LOG_PREFIX} unrecognised inbound from ${senderHandle} (MessageSid=${MessageSid})`);
   await markProcessed(dedupKey);
   reply.status(200).send({ received: true });
+  } catch (err) {
+    // Post-claim safety net — see the outer try block for rationale.
+    // Any DB/network throw in the pre-callback paths (link lookup, enrollment
+    // lookup, STOP update, enrollment tx) lands here. Mark failed so the
+    // inbound_events reclaim path picks it up on Twilio's retry instead of
+    // getting a silent duplicate-200.
+    const e = err as Error;
+    console.error(`${LOG_PREFIX} unexpected post-claim error: ${e.message}`);
+    try {
+      await markFailed(dedupKey, `post_claim_unexpected:${e.message}`);
+    } catch (markErr) {
+      console.error(`${LOG_PREFIX} also failed to markFailed: ${(markErr as Error).message}`);
+    }
+    reply.status(503).send({ received: true, retry: true });
+  }
 }

@@ -44,6 +44,7 @@ vi.mock('../../../src/lib/db/server', () => {
   const sqlFn = async (strings: TemplateStringsArray, ...values: unknown[]) => {
     sqlCalls.push({ sql: strings.join('?') });
     const next = sqlQueue.shift();
+    if (next instanceof Error) throw next;
     if (Array.isArray(next)) return next;
     const arr: unknown[] & { count?: number } = [];
     arr.count = typeof next === 'number' ? next : 0;
@@ -53,6 +54,7 @@ vi.mock('../../../src/lib/db/server', () => {
     const tx = async (strings: TemplateStringsArray, ...values: unknown[]) => {
       sqlCalls.push({ sql: strings.join('?') });
       const next = sqlQueue.shift();
+      if (next instanceof Error) throw next;
       if (Array.isArray(next)) return next;
       const arr: unknown[] & { count?: number } = [];
       arr.count = typeof next === 'number' ? next : 0;
@@ -267,7 +269,7 @@ describe('handleTwilioWhatsAppInbound — enrollment path (start-<token>)', () =
 
 describe('handleTwilioWhatsAppInbound — button tap path', () => {
   it('invokes approveViaCallback with viaChannel=whatsapp and twilioMessageSid populated', async () => {
-    sqlQueue.push([{ id: 'link-1', business_id: 'biz-1' }]); // link lookup
+    sqlQueue.push([{ id: '019db8c1-c3f4-7668-b353-2b8b718ec603', business_id: 'biz-1' }]); // link lookup
     sqlQueue.push([{ handle: '+15551234567' }]);               // enrollment lookup
     mockApproveViaCallback.mockResolvedValueOnce(undefined);
     sqlQueue.push([]); // markProcessed
@@ -275,13 +277,13 @@ describe('handleTwilioWhatsAppInbound — button tap path', () => {
     const req = buildRequest({
       MessageSid: 'SM_button1',
       From: 'whatsapp:+15551234567',
-      ButtonPayload: 'a:link-1',
+      ButtonPayload: 'a:019db8c1-c3f4-7668-b353-2b8b718ec603',
     });
     const reply = buildReply();
     await handleTwilioWhatsAppInbound(req, reply);
 
     expect(mockApproveViaCallback).toHaveBeenCalledWith(expect.objectContaining({
-      approvalLinkId: 'link-1',
+      approvalLinkId: '019db8c1-c3f4-7668-b353-2b8b718ec603',
       chatHandle: '+15551234567',
       viaChannel: 'whatsapp',
       audit: expect.objectContaining({
@@ -296,13 +298,13 @@ describe('handleTwilioWhatsAppInbound — button tap path', () => {
   });
 
   it('classifies ResponseNotPendingError as permanent (markProcessed, friendly message, 200)', async () => {
-    sqlQueue.push([{ id: 'link-1', business_id: 'biz-1' }]);
+    sqlQueue.push([{ id: '019db8c1-c3f4-7668-b353-2b8b718ec603', business_id: 'biz-1' }]);
     sqlQueue.push([{ handle: '+15551234567' }]);
     mockApproveViaCallback.mockRejectedValueOnce(new ResponseNotPendingError('approved'));
     sqlQueue.push([]); // markProcessed
 
     const req = buildRequest({
-      MessageSid: 'SM_rnp', From: 'whatsapp:+15551234567', ButtonPayload: 'a:link-1',
+      MessageSid: 'SM_rnp', From: 'whatsapp:+15551234567', ButtonPayload: 'a:019db8c1-c3f4-7668-b353-2b8b718ec603',
     });
     const reply = buildReply();
     await handleTwilioWhatsAppInbound(req, reply);
@@ -314,13 +316,13 @@ describe('handleTwilioWhatsAppInbound — button tap path', () => {
   });
 
   it('classifies ConsumedLinkError as permanent', async () => {
-    sqlQueue.push([{ id: 'link-1', business_id: 'biz-1' }]);
+    sqlQueue.push([{ id: '019db8c1-c3f4-7668-b353-2b8b718ec603', business_id: 'biz-1' }]);
     sqlQueue.push([{ handle: '+15551234567' }]);
     mockApproveViaCallback.mockRejectedValueOnce(new ConsumedLinkError());
     sqlQueue.push([]); // markProcessed
 
     const req = buildRequest({
-      MessageSid: 'SM_cl', From: 'whatsapp:+15551234567', ButtonPayload: 'a:link-1',
+      MessageSid: 'SM_cl', From: 'whatsapp:+15551234567', ButtonPayload: 'a:019db8c1-c3f4-7668-b353-2b8b718ec603',
     });
     const reply = buildReply();
     await handleTwilioWhatsAppInbound(req, reply);
@@ -328,24 +330,29 @@ describe('handleTwilioWhatsAppInbound — button tap path', () => {
   });
 
   it('unexpected error routes to failed + 503 for reclaim', async () => {
-    sqlQueue.push([{ id: 'link-1', business_id: 'biz-1' }]);
+    sqlQueue.push([{ id: '019db8c1-c3f4-7668-b353-2b8b718ec603', business_id: 'biz-1' }]);
     sqlQueue.push([{ handle: '+15551234567' }]);
     mockApproveViaCallback.mockRejectedValueOnce(new Error('db timeout'));
     sqlQueue.push([]); // markFailed
 
     const req = buildRequest({
-      MessageSid: 'SM_err', From: 'whatsapp:+15551234567', ButtonPayload: 'a:link-1',
+      MessageSid: 'SM_err', From: 'whatsapp:+15551234567', ButtonPayload: 'a:019db8c1-c3f4-7668-b353-2b8b718ec603',
     });
     const reply = buildReply();
     await handleTwilioWhatsAppInbound(req, reply);
     expect(reply.status).toHaveBeenCalledWith(503);
   });
 
-  it('rejects when no live approval_link matches', async () => {
+  it('rejects when no live approval_link matches (valid UUID, no DB row)', async () => {
     sqlQueue.push([]); // link lookup empty
+    sqlQueue.push([]); // markProcessed
 
     const req = buildRequest({
-      MessageSid: 'SM_nolink', From: 'whatsapp:+15551234567', ButtonPayload: 'a:nonexistent',
+      // Valid UUID shape but no DB row matches — the link-lookup SELECT
+      // returns [], which routes to the "handled on another channel" message.
+      MessageSid: 'SM_nolink',
+      From: 'whatsapp:+15551234567',
+      ButtonPayload: 'a:00000000-0000-7000-8000-000000000000',
     });
     const reply = buildReply();
     await handleTwilioWhatsAppInbound(req, reply);
@@ -358,11 +365,11 @@ describe('handleTwilioWhatsAppInbound — button tap path', () => {
   });
 
   it('rejects button tap when sender handle does not match any verified enrollment', async () => {
-    sqlQueue.push([{ id: 'link-1', business_id: 'biz-1' }]); // link found
+    sqlQueue.push([{ id: '019db8c1-c3f4-7668-b353-2b8b718ec603', business_id: 'biz-1' }]); // link found
     sqlQueue.push([]);                                          // no matching enrollment
 
     const req = buildRequest({
-      MessageSid: 'SM_forged', From: 'whatsapp:+19999999999', ButtonPayload: 'a:link-1',
+      MessageSid: 'SM_forged', From: 'whatsapp:+19999999999', ButtonPayload: 'a:019db8c1-c3f4-7668-b353-2b8b718ec603',
     });
     const reply = buildReply();
     await handleTwilioWhatsAppInbound(req, reply);
@@ -375,7 +382,7 @@ describe('handleTwilioWhatsAppInbound — button tap path', () => {
 
 describe('handleTwilioWhatsAppInbound — STOP keyword', () => {
   it('flips enrollment to unsubscribed with whatsapp_stop reason', async () => {
-    sqlQueue.push([]); // UPDATE inside sql.begin tx
+    sqlQueue.push([]); // UPDATE channel_enrollments (single-statement, no tx)
     sqlQueue.push([]); // markProcessed
 
     const req = buildRequest({
@@ -388,5 +395,79 @@ describe('handleTwilioWhatsAppInbound — STOP keyword', () => {
     // The tx must have run (UPDATE channel_enrollments)
     const unsubCall = sqlCalls.find((c) => c.sql.includes('unsubscribed'));
     expect(unsubCall).toBeDefined();
+  });
+});
+
+describe('handleTwilioWhatsAppInbound — UUID validation on button payload', () => {
+  it('treats non-UUID link id as malformed (processed 200, no DB lookup)', async () => {
+    sqlQueue.push([]); // markProcessed
+
+    const req = buildRequest({
+      MessageSid: 'SM_bad_uuid', From: 'whatsapp:+15551234567',
+      ButtonPayload: 'a:not-a-uuid',  // malformed — no DB query should happen
+    });
+    const reply = buildReply();
+    await handleTwilioWhatsAppInbound(req, reply);
+
+    expect(reply.status).toHaveBeenCalledWith(200);
+    expect(mockApproveViaCallback).not.toHaveBeenCalled();
+    // Only markProcessed should have run — no approval_links SELECT
+    const linkLookup = sqlCalls.find((c) => c.sql.includes('approval_links'));
+    expect(linkLookup).toBeUndefined();
+  });
+
+  it('treats empty link id as malformed (a: with no suffix)', async () => {
+    sqlQueue.push([]); // markProcessed
+
+    const req = buildRequest({
+      MessageSid: 'SM_empty_uuid', From: 'whatsapp:+15551234567',
+      ButtonPayload: 'a:',
+    });
+    const reply = buildReply();
+    await handleTwilioWhatsAppInbound(req, reply);
+
+    expect(reply.status).toHaveBeenCalledWith(200);
+    expect(mockApproveViaCallback).not.toHaveBeenCalled();
+  });
+});
+
+describe('handleTwilioWhatsAppInbound — post-claim safety net', () => {
+  it('routes SQL failure during link lookup to markFailed + 503 (not stuck received)', async () => {
+    // Push an Error into the queue — the sql mock throws Errors instead of returning rows
+    sqlQueue.push(new Error('db timeout on approval_links SELECT'));
+    sqlQueue.push([]); // markFailed
+
+    const req = buildRequest({
+      MessageSid: 'SM_sqlfail',
+      From: 'whatsapp:+15551234567',
+      ButtonPayload: 'a:019db8c1-c3f4-7668-b353-2b8b718ec603',
+    });
+    const reply = buildReply();
+    await handleTwilioWhatsAppInbound(req, reply);
+
+    expect(reply.status).toHaveBeenCalledWith(503);
+    expect(mockApproveViaCallback).not.toHaveBeenCalled();
+    // markFailed must have run (post_claim_unexpected:...)
+    const failCall = sqlCalls.find((c) =>
+      c.sql.includes('inbound_events') && c.sql.includes('failed')
+    );
+    expect(failCall).toBeDefined();
+  });
+
+  it('routes SQL failure during STOP UPDATE to markFailed + 503', async () => {
+    sqlQueue.push(new Error('db timeout on channel_enrollments UPDATE'));
+    sqlQueue.push([]); // markFailed
+
+    const req = buildRequest({
+      MessageSid: 'SM_stopfail', From: 'whatsapp:+15551234567', Body: 'STOP',
+    });
+    const reply = buildReply();
+    await handleTwilioWhatsAppInbound(req, reply);
+
+    expect(reply.status).toHaveBeenCalledWith(503);
+    const failCall = sqlCalls.find((c) =>
+      c.sql.includes('inbound_events') && c.sql.includes('failed')
+    );
+    expect(failCall).toBeDefined();
   });
 });

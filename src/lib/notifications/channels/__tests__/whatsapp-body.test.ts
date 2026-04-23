@@ -46,23 +46,31 @@ describe('toWaRecipient', () => {
 });
 
 describe('extractTokenFromApprovalUrl', () => {
-  it('extracts token from clean approval URL', () => {
+  it('extracts token from clean /approve/<token> URL', () => {
     expect(extractTokenFromApprovalUrl('https://app.repworth.com/approve/abc123'))
       .toBe('abc123');
   });
-  it('throws on trailing slash (empty last segment)', () => {
+  it('throws on trailing slash (empty token)', () => {
     expect(() => extractTokenFromApprovalUrl('https://app.repworth.com/approve/'))
-      .toThrow(/empty|malformed/i);
+      .toThrow(/approve\/<token>|empty/i);
   });
-  it('handles query string on the URL', () => {
-    expect(extractTokenFromApprovalUrl('https://app.repworth.com/approve/abc123?x=1'))
-      .toBe('abc123');
+  it('throws when URL has a query string', () => {
+    expect(() => extractTokenFromApprovalUrl('https://app.repworth.com/approve/abc123?x=1'))
+      .toThrow(/query string/i);
   });
-  it('extracts last path segment for URL without /approve/', () => {
-    // Documented behavior: returns the last non-empty path segment.
-    // The send path trusts the dispatcher to construct a correct URL.
-    expect(extractTokenFromApprovalUrl('https://app.repworth.com/somewhere/else'))
-      .toBe('else');
+  it('throws when URL has a hash fragment', () => {
+    expect(() => extractTokenFromApprovalUrl('https://app.repworth.com/approve/abc123#frag'))
+      .toThrow(/hash fragment/i);
+  });
+  it('throws for URL without /approve/ segment', () => {
+    // Safety: Meta-approved template has URL base `.../approve/`. A URL
+    // that doesn't follow that shape would produce a broken button.
+    expect(() => extractTokenFromApprovalUrl('https://app.repworth.com/somewhere/else'))
+      .toThrow(/approve\/<token>/i);
+  });
+  it('throws for /approve/ with trailing extra segment', () => {
+    expect(() => extractTokenFromApprovalUrl('https://app.repworth.com/approve/abc/extra'))
+      .toThrow(/approve\/<token>/i);
   });
   it('throws on URL with no path', () => {
     expect(() => extractTokenFromApprovalUrl('https://app.repworth.com/')).toThrow();
