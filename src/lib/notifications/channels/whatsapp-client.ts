@@ -56,6 +56,8 @@ export class WhatsAppRateLimitError extends Error {
 }
 
 export class WhatsAppTimeoutError extends Error {
+  /** Uniform with sibling error classes so dispatcher + logging can read `.code` on any WhatsApp*Error. */
+  readonly code = 'TIMEOUT' as const;
   constructor() {
     super('whatsapp_timeout');
     this.name = 'WhatsAppTimeoutError';
