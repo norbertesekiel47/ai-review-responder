@@ -104,3 +104,75 @@ describe('assertChannelsTelegramEnv', () => {
     expect(() => assertChannelsTelegramEnv()).not.toThrow();
   });
 });
+
+import { assertChannelsWhatsAppEnv } from '../startup-assert';
+
+describe('assertChannelsWhatsAppEnv', () => {
+  const SNAP: Record<string, string | undefined> = {};
+  const KEYS = [
+    'CHANNELS_WHATSAPP_ENABLED', 'MOCK_EXTERNAL_APIS',
+    'TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_WHATSAPP_NUMBER',
+    'WHATSAPP_APPROVAL_TEMPLATE_SID', 'WHATSAPP_APPROVAL_URL_BASE',
+    'WORKER_PUBLIC_URL', 'NEXT_PUBLIC_APP_URL',
+  ];
+
+  beforeEach(() => {
+    for (const k of KEYS) { SNAP[k] = process.env[k]; delete process.env[k]; }
+  });
+  afterEach(() => {
+    for (const k of KEYS) {
+      if (SNAP[k] === undefined) delete process.env[k]; else process.env[k] = SNAP[k];
+    }
+  });
+
+  it('is a no-op when flag is off', () => {
+    expect(() => assertChannelsWhatsAppEnv()).not.toThrow();
+  });
+
+  it('is a no-op in MOCK_EXTERNAL_APIS=true', () => {
+    process.env.CHANNELS_WHATSAPP_ENABLED = 'true';
+    process.env.MOCK_EXTERNAL_APIS = 'true';
+    expect(() => assertChannelsWhatsAppEnv()).not.toThrow();
+  });
+
+  it('throws when required env vars are missing', () => {
+    process.env.CHANNELS_WHATSAPP_ENABLED = 'true';
+    expect(() => assertChannelsWhatsAppEnv()).toThrow(/missing required env vars/);
+  });
+
+  it('throws if TWILIO_WHATSAPP_NUMBER is not whatsapp:+<digits>', () => {
+    process.env.CHANNELS_WHATSAPP_ENABLED = 'true';
+    process.env.TWILIO_ACCOUNT_SID = 'AC';
+    process.env.TWILIO_AUTH_TOKEN = 'tok';
+    process.env.TWILIO_WHATSAPP_NUMBER = '+15551234567';  // missing 'whatsapp:' prefix
+    process.env.WHATSAPP_APPROVAL_TEMPLATE_SID = 'HX';
+    process.env.WHATSAPP_APPROVAL_URL_BASE = 'https://app.repworth.com/approve/';
+    process.env.WORKER_PUBLIC_URL = 'https://worker';
+    process.env.NEXT_PUBLIC_APP_URL = 'https://app.repworth.com';
+    expect(() => assertChannelsWhatsAppEnv()).toThrow(/TWILIO_WHATSAPP_NUMBER/);
+  });
+
+  it('throws if WHATSAPP_APPROVAL_URL_BASE does not equal NEXT_PUBLIC_APP_URL + "/approve/"', () => {
+    process.env.CHANNELS_WHATSAPP_ENABLED = 'true';
+    process.env.TWILIO_ACCOUNT_SID = 'AC';
+    process.env.TWILIO_AUTH_TOKEN = 'tok';
+    process.env.TWILIO_WHATSAPP_NUMBER = 'whatsapp:+15551234567';
+    process.env.WHATSAPP_APPROVAL_TEMPLATE_SID = 'HX';
+    process.env.WHATSAPP_APPROVAL_URL_BASE = 'https://OTHER.example.com/approve/';
+    process.env.WORKER_PUBLIC_URL = 'https://worker';
+    process.env.NEXT_PUBLIC_APP_URL = 'https://app.repworth.com';
+    expect(() => assertChannelsWhatsAppEnv()).toThrow(/WHATSAPP_APPROVAL_URL_BASE/);
+  });
+
+  it('passes with all vars set correctly', () => {
+    process.env.CHANNELS_WHATSAPP_ENABLED = 'true';
+    process.env.TWILIO_ACCOUNT_SID = 'AC';
+    process.env.TWILIO_AUTH_TOKEN = 'tok';
+    process.env.TWILIO_WHATSAPP_NUMBER = 'whatsapp:+15551234567';
+    process.env.WHATSAPP_APPROVAL_TEMPLATE_SID = 'HX';
+    process.env.WHATSAPP_APPROVAL_URL_BASE = 'https://app.repworth.com/approve/';
+    process.env.WORKER_PUBLIC_URL = 'https://worker';
+    process.env.NEXT_PUBLIC_APP_URL = 'https://app.repworth.com';
+    expect(() => assertChannelsWhatsAppEnv()).not.toThrow();
+  });
+});
