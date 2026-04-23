@@ -69,6 +69,33 @@ describe('TelegramClient', () => {
     await expect(client.sendMessage({ chat_id: '1', text: 'x' })).rejects.toThrow(/Internal server error/);
   });
 
+  it('editMessageText defaults to empty inline_keyboard so stale buttons are dropped', async () => {
+    const fetchMock = vi.spyOn(global, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true, result: true }), { status: 200 }),
+    );
+    const client = new TelegramClient();
+    await client.editMessageText({ chat_id: '1', message_id: 10, text: 'hi' });
+    const call = fetchMock.mock.calls[0];
+    if (!call) throw new Error('expected fetch call');
+    const body = JSON.parse((call[1] as RequestInit).body as string);
+    expect(body.reply_markup).toEqual({ inline_keyboard: [] });
+    expect(body.text).toBe('hi');
+    expect(body.parse_mode).toBe('HTML');
+  });
+
+  it('editMessageText uses caller-provided reply_markup when supplied', async () => {
+    const fetchMock = vi.spyOn(global, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true, result: true }), { status: 200 }),
+    );
+    const client = new TelegramClient();
+    const customKb = { inline_keyboard: [[{ text: 'x', callback_data: 'y' }]] };
+    await client.editMessageText({ chat_id: '1', message_id: 10, text: 'hi', reply_markup: customKb });
+    const call = fetchMock.mock.calls[0];
+    if (!call) throw new Error('expected fetch call');
+    const body = JSON.parse((call[1] as RequestInit).body as string);
+    expect(body.reply_markup).toEqual(customKb);
+  });
+
   it('editMessageReplyMarkup posts with empty keyboard correctly', async () => {
     const fetchMock = vi.spyOn(global, 'fetch').mockResolvedValueOnce(
       new Response(JSON.stringify({ ok: true, result: true }), { status: 200 }),

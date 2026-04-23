@@ -107,12 +107,23 @@ export class TelegramClient {
     });
   }
 
-  async editMessageText(p: { chat_id: string; message_id: number; text: string }): Promise<boolean> {
+  async editMessageText(p: {
+    chat_id: string;
+    message_id: number;
+    text: string;
+    reply_markup?: { inline_keyboard: unknown[][] };
+  }): Promise<boolean> {
+    // Telegram's editMessageText preserves the existing reply_markup when the
+    // field is omitted from the request. To strip stale buttons on the same
+    // round-trip, callers must pass reply_markup explicitly — we default to an
+    // empty inline_keyboard so buttons are removed unless the caller provides
+    // a replacement set.
     return this.call<boolean>('editMessageText', {
       chat_id: p.chat_id,
       message_id: p.message_id,
       text: p.text,
       parse_mode: 'HTML',
+      reply_markup: p.reply_markup ?? { inline_keyboard: [] },
     });
   }
 
