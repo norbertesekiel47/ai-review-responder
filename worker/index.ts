@@ -53,8 +53,9 @@ import { handlePlaceIdValidation } from './jobs/PlaceIdValidationWorker';
 import { handleResendWebhook } from './ingress/resend';
 import { handleStripeWebhook } from './ingress/stripe';
 import { handleTwilioStatusCallback, handleTwilioInbound } from './ingress/twilio';
+import { handleTwilioWhatsAppInbound, handleTwilioWhatsAppStatus } from './ingress/twilio-whatsapp';
 import { handleTelegramWebhook } from './ingress/telegram';
-import { assertChannelsSmsEnv, assertChannelsTelegramEnv } from './startup-assert';
+import { assertChannelsSmsEnv, assertChannelsTelegramEnv, assertChannelsWhatsAppEnv } from './startup-assert';
 import { startNotificationFailoverPoller, stopNotificationFailoverPoller } from './jobs/NotificationFailoverPoller';
 import { startWeeklySummaryScheduler, stopWeeklySummaryScheduler } from './jobs/WeeklySummaryScheduler';
 import { startArchivalPoller, stopArchivalPoller } from './jobs/ArchivalPoller';
@@ -153,7 +154,7 @@ for (const worker of workers) {
 // Re-export for use by other modules (ingress handlers, tests)
 export { queues, QUEUE_NAMES } from './queues';
 export { sql } from '../src/lib/db/server';
-export { assertChannelsSmsEnv, assertChannelsTelegramEnv } from './startup-assert';
+export { assertChannelsSmsEnv, assertChannelsTelegramEnv, assertChannelsWhatsAppEnv } from './startup-assert';
 
 // ---------------------------------------------------------------------------
 // Startup — register plugins, routes, then listen
@@ -167,10 +168,11 @@ async function main(): Promise<void> {
     runFirst: true,
   });
 
-  // Fail fast on missing Twilio config when SMS channel is enabled.
+  // Fail fast on missing Twilio config when SMS/WhatsApp channels are enabled.
   try {
     assertChannelsSmsEnv();
     assertChannelsTelegramEnv();
+    assertChannelsWhatsAppEnv();
   } catch (err) {
     console.error(`[worker] Startup assertion failed: ${err instanceof Error ? err.message : err}`);
     process.exit(1);
@@ -200,6 +202,10 @@ async function main(): Promise<void> {
 
   // Telegram webhook ingress
   app.post('/ingress/telegram', { config: { rawBody: true } }, handleTelegramWebhook);
+
+  // Twilio webhooks — status callbacks + inbound WhatsApp
+  app.post('/ingress/twilio/whatsapp-inbound', { config: { rawBody: true } }, handleTwilioWhatsAppInbound);
+  app.post('/ingress/twilio/whatsapp-status', { config: { rawBody: true } }, handleTwilioWhatsAppStatus);
 
   await app.listen({ port: PORT, host: '0.0.0.0' });
   startOutboxPoller();
