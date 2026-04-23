@@ -222,6 +222,7 @@ export async function GET(
         googlePlaceAddress: business.google_place_address,
         ownerEmailBounced: business.owner_email_bounced ?? false,
         smsEnabled: process.env.CHANNELS_SMS_ENABLED === 'true',
+        telegramEnabled: process.env.CHANNELS_TELEGRAM_ENABLED === 'true',
         churnScore,
       },
       rankingSnapshots: rankingSnapshots.map((s) => ({

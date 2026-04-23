@@ -8,6 +8,7 @@ import Link from 'next/link';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import ManualPostSection from './manual-post-section';
 import { SmsEnrollmentWidget } from '@/components/admin/SmsEnrollmentWidget';
+import { TelegramEnrollmentWidget } from '@/components/admin/TelegramEnrollmentWidget';
 
 interface BusinessDetail {
   id: string;
@@ -33,6 +34,7 @@ interface BusinessDetail {
   googlePlaceAddress: string | null;
   ownerEmailBounced: boolean;
   smsEnabled: boolean;
+  telegramEnabled: boolean;
   churnScore?: {
     score: number;
     level: 'healthy' | 'watch' | 'at_risk';
@@ -927,6 +929,20 @@ export default function BusinessDetailPage() {
               </p>
             ) : (
               <SmsEnrollmentWidget businessId={businessId} />
+            )}
+          </section>
+        )}
+
+        {/* Telegram enrollment (flag-gated) */}
+        {business.telegramEnabled && (
+          <section className="mt-8 rounded-lg border border-gray-200 bg-white p-6">
+            <h2 className="text-lg font-semibold text-gray-800 mb-3">Telegram enrollment</h2>
+            {business.subscriptionStatus !== 'active' ? (
+              <p className="text-sm text-gray-500">
+                Complete payment first — Telegram enrollment unlocks once the business&apos;s subscription transitions to active.
+              </p>
+            ) : (
+              <TelegramEnrollmentWidget businessId={businessId} />
             )}
           </section>
         )}

@@ -1,0 +1,84 @@
+// src/app/api/admin/channels/telegram/__tests__/start.test.ts
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+// Hoisted so vi.mock factory can reference the shared queue + consumer.
+const { sqlQueue, consume } = vi.hoisted(() => {
+  const q: unknown[] = [];
+  const c = async () => {
+    const next = q.shift();
+    return Array.isArray(next) ? next : [];
+  };
+  return { sqlQueue: q, consume: c };
+});
+
+vi.mock('@/lib/db/server', () => ({
+  // Bare sql() calls + tx calls inside sql.begin share the same queue so
+  // fixtures read out in statement order regardless of tx boundaries.
+  sql: Object.assign(consume, {
+    begin: async (fn: (tx: unknown) => Promise<unknown>) => fn(consume),
+  }),
+  jsonb: (v: unknown) => v,
+}));
+
+vi.mock('@/lib/db/auth', () => ({
+  requireRole: vi.fn(async () => ({ userId: 'admin-1', role: 'admin' })),
+  AuthError: class extends Error {},
+}));
+
+import { POST } from '../start/route';
+
+function mkReq(body: unknown) {
+  return new Request('http://localhost/api/admin/channels/telegram/start', {
+    method: 'POST',
+    body: JSON.stringify(body),
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+beforeEach(() => {
+  sqlQueue.length = 0;
+  delete process.env.CHANNELS_TELEGRAM_ENABLED;
+  delete process.env.TELEGRAM_BOT_TOKEN;
+  delete process.env.TELEGRAM_WEBHOOK_SECRET;
+  delete process.env.TELEGRAM_BOT_USERNAME;
+  process.env.MOCK_EXTERNAL_APIS = 'true'; // skip env readiness check in unit tests
+});
+
+describe('POST /api/admin/channels/telegram/start', () => {
+  it('returns 404 when flag is off', async () => {
+    const res = await POST(mkReq({ businessId: 'biz-1' }) as any);
+    expect(res.status).toBe(404);
+  });
+
+  it('returns 503 when flag on but env missing (and not in mock mode)', async () => {
+    process.env.CHANNELS_TELEGRAM_ENABLED = 'true';
+    delete process.env.MOCK_EXTERNAL_APIS;
+    const res = await POST(mkReq({ businessId: 'biz-1' }) as any);
+    expect(res.status).toBe(503);
+  });
+
+  it('happy path: inserts pending enrollment and returns deepLink + qrDataUrl + expiresAt', async () => {
+    process.env.CHANNELS_TELEGRAM_ENABLED = 'true';
+    process.env.TELEGRAM_BOT_USERNAME = 'RepWorthBot';
+    sqlQueue.push([{ subscription_status: 'active' }]); // subscription check
+    sqlQueue.push([]); // advisory lock
+    sqlQueue.push([]); // SELECT existing enrollment (none)
+    sqlQueue.push([]); // INSERT enrollment
+    const res = await POST(mkReq({ businessId: 'biz-1' }) as any);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.deepLink).toMatch(/^https:\/\/t\.me\/RepWorthBot\?start=/);
+    expect(json.qrDataUrl).toMatch(/^data:image\/png;base64,/);
+    expect(json.expiresAt).toBeDefined();
+  });
+
+  it('returns 409 when enrollment is already verified', async () => {
+    process.env.CHANNELS_TELEGRAM_ENABLED = 'true';
+    process.env.TELEGRAM_BOT_USERNAME = 'RepWorthBot';
+    sqlQueue.push([{ subscription_status: 'active' }]);
+    sqlQueue.push([]);
+    sqlQueue.push([{ id: 'enrl-1', status: 'verified' }]); // existing verified row
+    const res = await POST(mkReq({ businessId: 'biz-1' }) as any);
+    expect(res.status).toBe(409);
+  });
+});

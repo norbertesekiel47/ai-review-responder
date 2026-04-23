@@ -12,47 +12,13 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '../../src/lib/db/server';
+import { claimInboundEvent } from './shared';
 import { parseTwilioBody, verifyTwilioSignature } from './twilio-verify';
 
 const LOG_PREFIX = '[ingress/twilio]';
 
 function fullUrl(request: FastifyRequest): string {
   return `${process.env.WORKER_PUBLIC_URL}${request.url}`;
-}
-
-/**
- * Claim an inbound_events row for this dedup key.
- *
- *   'claimed'   — we own processing; caller proceeds.
- *   'duplicate' — another processor already handled this (status='processed').
- *                 Caller should reply 200 without doing work.
- *
- * Reclaim logic mirrors worker/ingress/resend.ts: a row stuck in
- * status='received' for > 2min, or explicitly 'failed', is reclaimable.
- */
-export async function claimInboundEvent(
-  dedupKey: string,
-  eventType: string,
-  payload: unknown,
-): Promise<'claimed' | 'duplicate'> {
-  const inserted = await sql`
-    INSERT INTO inbound_events (id, source, external_event_key, event_type, payload, status)
-    VALUES (${uuidv7()}, 'twilio', ${dedupKey}, ${eventType}, ${jsonb(payload)}, 'received')
-    ON CONFLICT (external_event_key) DO NOTHING
-  `;
-  // count === 0 means ON CONFLICT triggered — another invocation already owns
-  // the row. Fall through to the reclaim path. count > 0 (typically 1) means
-  // our INSERT landed — we own the claim. Mirrors worker/ingress/resend.ts.
-  if (inserted.count !== 0) return 'claimed';
-
-  const reclaimed = await sql<{ id: string }[]>`
-    UPDATE inbound_events
-    SET received_at = NOW(), status = 'received', error_message = NULL
-    WHERE external_event_key = ${dedupKey}
-      AND (status = 'failed' OR (status = 'received' AND received_at < NOW() - INTERVAL '2 minutes'))
-    RETURNING id
-  `;
-  return reclaimed.length > 0 ? 'claimed' : 'duplicate';
 }
 
 /**
@@ -101,7 +67,7 @@ export async function handleTwilioStatusCallback(
   }
 
   const dedupKey = `${MessageSid}:${MessageStatus}`;
-  const claim = await claimInboundEvent(dedupKey, `status:${MessageStatus}`, params);
+  const claim = await claimInboundEvent('twilio', dedupKey, `status:${MessageStatus}`, params);
   if (claim === 'duplicate') {
     reply.status(200).send({ received: true, duplicate: true });
     return;
@@ -259,7 +225,7 @@ export async function handleTwilioInbound(
   const msid = MessagingServiceSid || process.env.TWILIO_MESSAGING_SERVICE_SID || '';
 
   const dedupKey = MessageSid;
-  const claim = await claimInboundEvent(dedupKey, 'inbound_sms', redactedPayload(params));
+  const claim = await claimInboundEvent('twilio', dedupKey, 'inbound_sms', redactedPayload(params));
   if (claim === 'duplicate') {
     reply.status(200).send({ received: true, duplicate: true });
     return;

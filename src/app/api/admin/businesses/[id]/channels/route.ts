@@ -72,6 +72,11 @@ function maskHandle(channel: string, handle: string | null): string {
     const hidden = Math.max(0, handle.length - 7);
     return handle.slice(0, 3) + '•'.repeat(hidden) + handle.slice(-4);
   }
-  if (channel === 'telegram') return '(telegram chat)';
+  if (channel === 'telegram') {
+    // Telegram chat_id is a numeric identifier. Show last 4 digits for admin
+    // recognition — not PII-sensitive (the owner voluntarily enrolled via QR).
+    if (handle.length <= 4) return handle;
+    return '••• ' + handle.slice(-4);
+  }
   return handle;
 }

@@ -14,7 +14,12 @@ import { checkSubscription } from '../../src/lib/shared/subscription-guard';
 import { markOutboxCompleted, markOutboxFailed } from '../../src/lib/shared/outbox';
 import { recordNotificationDelivery, insertFailedDelivery } from '../../src/lib/notifications/delivery';
 import { getVerifiedEnrollments } from '../../src/lib/notifications/enrollments';
-import { getChannel, SmsRecipientUnsubscribedError } from '../../src/lib/notifications/channels';
+import {
+  getChannel,
+  SmsRecipientUnsubscribedError,
+  TelegramRecipientBlockedError,
+  TelegramChatNotFoundError,
+} from '../../src/lib/notifications/channels';
 import type { ChannelId } from '../../src/lib/notifications/channels/types';
 import { createApprovalLink } from '../../src/lib/approval/create-link';
 import {
@@ -120,6 +125,11 @@ export async function handleSendNotification(
       continue;
     }
 
+    if (channelId === 'telegram' && process.env.CHANNELS_TELEGRAM_ENABLED !== 'true') {
+      logger.log(`Telegram channel disabled by flag — skipping enrollment for business ${business_id}`);
+      continue;
+    }
+
     let existing: { id: string } | undefined;
     if (isFailover) {
       // Failover mode: only skip if a delivery was actually confirmed (delivered_at set).
@@ -206,6 +216,7 @@ export async function handleSendNotification(
         // enrollments and record durable audit evidence in one transaction.
         if (err instanceof SmsRecipientUnsubscribedError) {
           const msid = process.env.TWILIO_MESSAGING_SERVICE_SID!;
+          const reason = err instanceof Error ? err.message : String(err);
           await sql.begin(async (tx) => {
             await tx`
               INSERT INTO sms_sender_opt_outs (messaging_service_sid, handle, opted_out_at, opted_in_at, last_event_at)
@@ -228,6 +239,49 @@ export async function handleSendNotification(
               WHERE handle = ${enrollment.handle} AND channel = 'sms' AND archived_at IS NULL
             `;
           });
+          logger.log(`SMS enrollment flipped to unsubscribed (twilio_21610_at_send) for business ${business_id}`);
+          logger.error(`[NotificationWorker] SMS 21610: ${reason}`);
+          await insertFailedDelivery(business_id, response_id, 'sms', enrollment.handle, 'twilio_21610_at_send');
+          continue; // `finally` runs before continue, so refund still triggers when sendAccepted=false.
+        }
+        if (err instanceof TelegramRecipientBlockedError) {
+          // Filter by handle too (mirrors SMS 21610 pattern) so a stale send
+          // failure cannot stomp a freshly-re-enrolled handle if the admin
+          // disabled + re-enrolled during the in-flight send.
+          await sql.begin(async (tx) => {
+            await tx`
+              UPDATE channel_enrollments
+              SET status = 'unsubscribed',
+                  unsubscribed_at = COALESCE(unsubscribed_at, NOW()),
+                  unsubscribed_reason = COALESCE(unsubscribed_reason, 'telegram_blocked'),
+                  updated_at = NOW()
+              WHERE business_id = ${business_id}
+                AND channel = 'telegram'
+                AND handle = ${enrollment.handle}
+                AND archived_at IS NULL
+            `;
+          });
+          logger.log(`Telegram enrollment flipped to unsubscribed (telegram_blocked) for business ${business_id}`);
+          await insertFailedDelivery(business_id, response_id, 'telegram', enrollment.handle, 'telegram_blocked');
+          continue; // `finally` runs before continue, so any refund still triggers when sendAccepted=false.
+        }
+        if (err instanceof TelegramChatNotFoundError) {
+          // Same handle-scoped filter as the blocked branch above.
+          await sql.begin(async (tx) => {
+            await tx`
+              UPDATE channel_enrollments
+              SET status = 'disabled',
+                  disabled_at = COALESCE(disabled_at, NOW()),
+                  updated_at = NOW()
+              WHERE business_id = ${business_id}
+                AND channel = 'telegram'
+                AND handle = ${enrollment.handle}
+                AND archived_at IS NULL
+            `;
+          });
+          logger.log(`Telegram enrollment flipped to disabled (chat_not_found) for business ${business_id}`);
+          await insertFailedDelivery(business_id, response_id, 'telegram', enrollment.handle, 'telegram_chat_not_found');
+          continue; // `finally` runs before continue, so any refund still triggers when sendAccepted=false.
         }
         const reason = err instanceof Error ? err.message : String(err);
         logger.error(`${channelId} send failed for response ${response_id}: ${reason}`);
@@ -236,7 +290,7 @@ export async function handleSendNotification(
           response_id,
           channelId,
           enrollment.handle,
-          err instanceof SmsRecipientUnsubscribedError ? 'twilio_21610_at_send' : `send_error:${reason}`,
+          `send_error:${reason}`,
         );
         continue; // `finally` runs before continue, so refund still triggers when sendAccepted=false.
       }

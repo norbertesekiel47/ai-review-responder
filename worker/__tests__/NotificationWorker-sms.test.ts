@@ -30,6 +30,8 @@ const {
   mockRefundSmsCost,
   DailySmsLimitExceededError,
   SmsRecipientUnsubscribedError,
+  TelegramRecipientBlockedError,
+  TelegramChatNotFoundError,
 } = vi.hoisted(() => {
   class DailySmsLimitExceededError extends Error {
     constructor(public readonly scope: 'per_business' | 'global') {
@@ -41,6 +43,18 @@ const {
     constructor() {
       super('sms_recipient_unsubscribed');
       this.name = 'SmsRecipientUnsubscribedError';
+    }
+  }
+  class TelegramRecipientBlockedError extends Error {
+    constructor() {
+      super('telegram_recipient_blocked');
+      this.name = 'TelegramRecipientBlockedError';
+    }
+  }
+  class TelegramChatNotFoundError extends Error {
+    constructor() {
+      super('telegram_chat_not_found');
+      this.name = 'TelegramChatNotFoundError';
     }
   }
 
@@ -69,6 +83,8 @@ const {
     mockRefundSmsCost: vi.fn(),
     DailySmsLimitExceededError,
     SmsRecipientUnsubscribedError,
+    TelegramRecipientBlockedError,
+    TelegramChatNotFoundError,
   };
 });
 
@@ -89,6 +105,8 @@ vi.mock('../../src/lib/notifications/enrollments', () => ({
 vi.mock('../../src/lib/notifications/channels', () => ({
   getChannel: mockGetChannel,
   SmsRecipientUnsubscribedError,
+  TelegramRecipientBlockedError,
+  TelegramChatNotFoundError,
 }));
 
 vi.mock('../../src/lib/notifications/delivery', () => ({
