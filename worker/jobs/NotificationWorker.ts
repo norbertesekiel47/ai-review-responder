@@ -19,6 +19,12 @@ import {
   SmsRecipientUnsubscribedError,
   TelegramRecipientBlockedError,
   TelegramChatNotFoundError,
+  WhatsAppRecipientBlockedError,
+  WhatsAppInvalidRecipientError,
+  WhatsAppTemplateConfigError,
+  WhatsAppSessionWindowError,
+  WhatsAppRateLimitError,
+  WhatsAppTimeoutError,
 } from '../../src/lib/notifications/channels';
 import type { ChannelId } from '../../src/lib/notifications/channels/types';
 import { createApprovalLink } from '../../src/lib/approval/create-link';
@@ -127,6 +133,11 @@ export async function handleSendNotification(
 
     if (channelId === 'telegram' && process.env.CHANNELS_TELEGRAM_ENABLED !== 'true') {
       logger.log(`Telegram channel disabled by flag — skipping enrollment for business ${business_id}`);
+      continue;
+    }
+
+    if (channelId === 'whatsapp' && process.env.CHANNELS_WHATSAPP_ENABLED !== 'true') {
+      logger.log(`WhatsApp channel disabled by flag — skipping enrollment for business ${business_id}`);
       continue;
     }
 
@@ -282,6 +293,74 @@ export async function handleSendNotification(
           logger.log(`Telegram enrollment flipped to disabled (chat_not_found) for business ${business_id}`);
           await insertFailedDelivery(business_id, response_id, 'telegram', enrollment.handle, 'telegram_chat_not_found');
           continue; // `finally` runs before continue, so any refund still triggers when sendAccepted=false.
+        }
+        if (err instanceof WhatsAppRecipientBlockedError) {
+          // OWNER-INTENT: recipient blocked WhatsApp messages from us.
+          // Filter by handle (same handle-scoped guard as SMS/Telegram) so a
+          // stale send failure cannot stomp a freshly re-enrolled handle.
+          await sql.begin(async (tx) => {
+            await tx`
+              UPDATE channel_enrollments
+              SET status = 'unsubscribed',
+                  unsubscribed_at = COALESCE(unsubscribed_at, NOW()),
+                  unsubscribed_reason = COALESCE(unsubscribed_reason, 'whatsapp_blocked'),
+                  updated_at = NOW()
+              WHERE business_id = ${business_id}
+                AND channel = 'whatsapp'
+                AND handle = ${enrollment.handle}
+                AND archived_at IS NULL
+            `;
+          });
+          logger.log(`WhatsApp enrollment flipped to unsubscribed (whatsapp_blocked) for business ${business_id}`);
+          await insertFailedDelivery(business_id, response_id, 'whatsapp', enrollment.handle, 'whatsapp_blocked');
+          continue;
+        }
+        if (err instanceof WhatsAppInvalidRecipientError) {
+          // OWNER-INTENT: number doesn't exist or isn't a WhatsApp account.
+          await sql.begin(async (tx) => {
+            await tx`
+              UPDATE channel_enrollments
+              SET status = 'disabled',
+                  disabled_at = COALESCE(disabled_at, NOW()),
+                  updated_at = NOW()
+              WHERE business_id = ${business_id}
+                AND channel = 'whatsapp'
+                AND handle = ${enrollment.handle}
+                AND archived_at IS NULL
+            `;
+          });
+          logger.log(`WhatsApp enrollment flipped to disabled (invalid_recipient) for business ${business_id}`);
+          await insertFailedDelivery(business_id, response_id, 'whatsapp', enrollment.handle, 'whatsapp_invalid_recipient');
+          continue;
+        }
+        if (err instanceof WhatsAppTemplateConfigError) {
+          // CONFIG-ERROR: template paused/disabled/broken — RepWorth ops problem,
+          // NOT owner intent. Enrollment stays verified. NotificationFailoverPoller
+          // alerts admin if WA + every other channel also fail.
+          logger.error(`WhatsApp template config error for business ${business_id}: code=${err.code}`);
+          await insertFailedDelivery(business_id, response_id, 'whatsapp', enrollment.handle, `whatsapp_template_config:${err.code}`);
+          continue;
+        }
+        if (err instanceof WhatsAppSessionWindowError) {
+          // CONFIG-ERROR: 63016 means outside 24h window AND no template approved.
+          // We always pass contentSid on approval sends, so this indicates a
+          // dispatcher or template config bug. Log loudly; enrollment stays verified.
+          logger.error(`WhatsApp session-window error (dispatcher bug?) for business ${business_id}: code=${err.code}`);
+          await insertFailedDelivery(business_id, response_id, 'whatsapp', enrollment.handle, `whatsapp_session_window:${err.code}`);
+          continue;
+        }
+        if (err instanceof WhatsAppRateLimitError) {
+          // TRANSIENT: BullMQ queue-level backoff handles retry via
+          // defaultJobOptions (worker/queues.ts). retry_after recorded in
+          // failure_reason but NOT applied as a per-job delay — out of scope.
+          logger.warn(`WhatsApp rate limit for business ${business_id}: ${err.code}`);
+          await insertFailedDelivery(business_id, response_id, 'whatsapp', enrollment.handle, `whatsapp_rate_limit:${err.code}`);
+          continue;
+        }
+        if (err instanceof WhatsAppTimeoutError) {
+          logger.warn(`WhatsApp timeout for business ${business_id}`);
+          await insertFailedDelivery(business_id, response_id, 'whatsapp', enrollment.handle, 'whatsapp_timeout');
+          continue;
         }
         const reason = err instanceof Error ? err.message : String(err);
         logger.error(`${channelId} send failed for response ${response_id}: ${reason}`);
