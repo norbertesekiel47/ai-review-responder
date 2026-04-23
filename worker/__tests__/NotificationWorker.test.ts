@@ -63,6 +63,12 @@ const {
   SmsRecipientUnsubscribedError,
   TelegramRecipientBlockedError,
   TelegramChatNotFoundError,
+  WhatsAppRecipientBlockedError,
+  WhatsAppInvalidRecipientError,
+  WhatsAppTemplateConfigError,
+  WhatsAppSessionWindowError,
+  WhatsAppRateLimitError,
+  WhatsAppTimeoutError,
 } = vi.hoisted(() => {
   class DailySmsLimitExceededError extends Error {
     constructor(public readonly scope: 'per_business' | 'global') {
@@ -88,6 +94,30 @@ const {
       this.name = 'TelegramChatNotFoundError';
     }
   }
+  class WhatsAppRecipientBlockedError extends Error {
+    readonly code: number;
+    constructor(code = 63014) { super(`whatsapp_blocked:${code}`); this.name = 'WhatsAppRecipientBlockedError'; this.code = code; }
+  }
+  class WhatsAppInvalidRecipientError extends Error {
+    readonly code: number;
+    constructor(code = 63024) { super(`whatsapp_invalid_recipient:${code}`); this.name = 'WhatsAppInvalidRecipientError'; this.code = code; }
+  }
+  class WhatsAppTemplateConfigError extends Error {
+    readonly code: number;
+    constructor(code = 63040) { super(`whatsapp_template_config:${code}`); this.name = 'WhatsAppTemplateConfigError'; this.code = code; }
+  }
+  class WhatsAppSessionWindowError extends Error {
+    readonly code: number;
+    constructor(code = 63016) { super(`whatsapp_session_window:${code}`); this.name = 'WhatsAppSessionWindowError'; this.code = code; }
+  }
+  class WhatsAppRateLimitError extends Error {
+    readonly code: number | 'HTTP_429';
+    constructor(code: number | 'HTTP_429' = 63017) { super(`whatsapp_rate_limit:${code}`); this.name = 'WhatsAppRateLimitError'; this.code = code; }
+  }
+  class WhatsAppTimeoutError extends Error {
+    readonly code = 'TIMEOUT' as const;
+    constructor() { super('whatsapp_timeout'); this.name = 'WhatsAppTimeoutError'; }
+  }
   return {
     mockGetVerifiedEnrollments: vi.fn(),
     mockGetChannel: vi.fn(),
@@ -98,6 +128,12 @@ const {
     SmsRecipientUnsubscribedError,
     TelegramRecipientBlockedError,
     TelegramChatNotFoundError,
+    WhatsAppRecipientBlockedError,
+    WhatsAppInvalidRecipientError,
+    WhatsAppTemplateConfigError,
+    WhatsAppSessionWindowError,
+    WhatsAppRateLimitError,
+    WhatsAppTimeoutError,
   };
 });
 
@@ -110,6 +146,12 @@ vi.mock('../../src/lib/notifications/channels', () => ({
   SmsRecipientUnsubscribedError,
   TelegramRecipientBlockedError,
   TelegramChatNotFoundError,
+  WhatsAppRecipientBlockedError,
+  WhatsAppInvalidRecipientError,
+  WhatsAppTemplateConfigError,
+  WhatsAppSessionWindowError,
+  WhatsAppRateLimitError,
+  WhatsAppTimeoutError,
 }));
 
 vi.mock('../../src/lib/costs/sms-tracker', () => ({

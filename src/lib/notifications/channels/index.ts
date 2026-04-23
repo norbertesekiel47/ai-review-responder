@@ -2,8 +2,7 @@
 //
 // Channel factory. Each channel implementation is imported lazily-safe
 // (top-level imports are fine; the classes themselves don't call provider
-// SDKs at construction time). Subsequent phases add Telegram / WhatsApp
-// cases here.
+// SDKs at construction time).
 
 import type { NotificationChannel, ChannelId } from './types';
 
@@ -16,13 +15,22 @@ export {
   TelegramRateLimitError,
   TelegramApiError,
 } from './telegram-client';
+export { WhatsAppChannel } from './whatsapp-channel';
+export {
+  WhatsAppRecipientBlockedError,
+  WhatsAppInvalidRecipientError,
+  WhatsAppTemplateConfigError,
+  WhatsAppSessionWindowError,
+  WhatsAppRateLimitError,
+  WhatsAppTimeoutError,
+  WhatsAppApiError,
+} from './whatsapp-client';
 export type { NotificationChannel, ChannelId, SendApprovalParams, SendApprovalResult } from './types';
 
 import { EmailChannel } from './email-channel';
 import { SmsChannel } from './sms-channel';
 import { TelegramChannel } from './telegram-channel';
-
-const NOT_YET_IMPLEMENTED: ReadonlySet<ChannelId> = new Set(['whatsapp']);
+import { WhatsAppChannel } from './whatsapp-channel';
 
 export function getChannel(id: ChannelId): NotificationChannel {
   if (id === 'email') return new EmailChannel();
@@ -38,8 +46,11 @@ export function getChannel(id: ChannelId): NotificationChannel {
     }
     return new TelegramChannel();
   }
-  if (NOT_YET_IMPLEMENTED.has(id)) {
-    throw new Error(`Channel "${id}" not yet implemented — scheduled for a later phase`);
+  if (id === 'whatsapp') {
+    if (process.env.CHANNELS_WHATSAPP_ENABLED !== 'true') {
+      throw new Error('WhatsApp channel disabled by CHANNELS_WHATSAPP_ENABLED env flag');
+    }
+    return new WhatsAppChannel();
   }
   throw new Error(`Unknown channel "${id}"`);
 }

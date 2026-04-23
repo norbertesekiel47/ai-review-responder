@@ -40,3 +40,43 @@ export function assertChannelsTelegramEnv(): void {
     throw new Error(`CHANNELS_TELEGRAM_ENABLED=true but missing required env vars: ${missing.join(', ')}`);
   }
 }
+
+/**
+ * Boot-time assertion for WhatsApp. Self-contained — does NOT depend on
+ * assertChannelsSmsEnv (which early-returns when SMS flag is off). A
+ * WA-on / SMS-off deployment otherwise boots with unverified Twilio config.
+ *
+ * When CHANNELS_WHATSAPP_ENABLED=true:
+ *   - verify all 7 required env vars non-empty
+ *   - verify TWILIO_WHATSAPP_NUMBER matches /^whatsapp:\+\d{7,15}$/
+ *   - verify WHATSAPP_APPROVAL_URL_BASE === NEXT_PUBLIC_APP_URL + '/approve/'
+ *
+ * No-op when flag is off or in MOCK_EXTERNAL_APIS=true.
+ */
+export function assertChannelsWhatsAppEnv(): void {
+  if (process.env.CHANNELS_WHATSAPP_ENABLED !== 'true') return;
+  if (process.env.MOCK_EXTERNAL_APIS === 'true') return;
+  const required = [
+    'TWILIO_ACCOUNT_SID',
+    'TWILIO_AUTH_TOKEN',
+    'TWILIO_WHATSAPP_NUMBER',
+    'WHATSAPP_APPROVAL_TEMPLATE_SID',
+    'WHATSAPP_APPROVAL_URL_BASE',
+    'WORKER_PUBLIC_URL',
+    'NEXT_PUBLIC_APP_URL',
+  ];
+  const missing = required.filter((k) => !process.env[k] || process.env[k]!.trim().length === 0);
+  if (missing.length > 0) {
+    throw new Error(`CHANNELS_WHATSAPP_ENABLED=true but missing required env vars: ${missing.join(', ')}`);
+  }
+  // Format check — avoid logging the actual value even in the error message
+  if (!/^whatsapp:\+\d{7,15}$/.test(process.env.TWILIO_WHATSAPP_NUMBER!)) {
+    throw new Error("TWILIO_WHATSAPP_NUMBER must match format 'whatsapp:+<digits>' (7-15 digits)");
+  }
+  const expected = process.env.NEXT_PUBLIC_APP_URL!.replace(/\/$/, '') + '/approve/';
+  if (process.env.WHATSAPP_APPROVAL_URL_BASE !== expected) {
+    throw new Error(
+      `WHATSAPP_APPROVAL_URL_BASE must equal NEXT_PUBLIC_APP_URL + '/approve/' (expected ${expected})`,
+    );
+  }
+}
