@@ -189,7 +189,7 @@ describe('telegram ingress — callback_query happy path', () => {
     expect(mockSendMsg).not.toHaveBeenCalled();
   });
 
-  it('regenerate flow: ack → regenerateViaCallback → editMessageReplyMarkup with empty keyboard', async () => {
+  it('regenerate flow: ack → regenerateViaCallback → editMessageText replaces stale draft', async () => {
     mockVerify.mockReturnValueOnce(true);
     mockClaim.mockResolvedValueOnce('claimed');
     sqlQueue.push([{ id: 'link-2', business_id: 'biz-1', channel: 'telegram', consumed_at: null, revoked_at: null, expires_at: new Date(Date.now() + 60_000) }]);
@@ -204,9 +204,14 @@ describe('telegram ingress — callback_query happy path', () => {
     }), reply);
 
     expect(mockAck).toHaveBeenCalledTimes(1);
-    expect(mockEditMarkup).toHaveBeenCalledWith(expect.objectContaining({
-      reply_markup: { inline_keyboard: [] },
+    // editMessageText replaces the body with a status line; the inline
+    // keyboard is implicitly dropped (reply_markup omitted).
+    expect(mockEditText).toHaveBeenCalledWith(expect.objectContaining({
+      chat_id: '111',
+      message_id: 56,
+      text: expect.stringMatching(/Regenerating/),
     }));
+    expect(mockEditMarkup).not.toHaveBeenCalled();
     expect(mockSendMsg).not.toHaveBeenCalled();
   });
 });

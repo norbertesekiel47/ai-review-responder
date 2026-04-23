@@ -331,7 +331,11 @@ async function handleCallback(
     return;
   }
 
-  // Visible confirmation — edit calls are cosmetic; failures are silently ignored
+  // Visible confirmation — edit calls are cosmetic; failures are silently ignored.
+  // For regenerate: replace the stale draft body with a status line so the owner
+  // isn't left staring at the old draft while the new one is being generated.
+  // editMessageText implicitly drops the inline keyboard when reply_markup is
+  // omitted, so buttons disappear as part of the same call.
   if (parsed.action === 'approve') {
     await client.editMessageText({
       chat_id: chatId,
@@ -339,10 +343,10 @@ async function handleCallback(
       text: "✅ Response approved — we'll post it shortly.",
     }).catch(() => { /* cosmetic */ });
   } else {
-    await client.editMessageReplyMarkup({
+    await client.editMessageText({
       chat_id: chatId,
       message_id: messageId,
-      reply_markup: { inline_keyboard: [] },
+      text: '🔄 Regenerating — a new draft will follow shortly…',
     }).catch(() => { /* cosmetic */ });
   }
 
