@@ -28,9 +28,15 @@ describe('getChannel', () => {
     expect(ch.requiresOptInHandshake).toBe(false);
   });
 
-  it('throws not-yet-implemented for whatsapp regardless of flag', () => {
-    process.env.CHANNELS_SMS_ENABLED = 'true';
-    expect(() => getChannel('whatsapp')).toThrow(/not yet implemented/);
+  it('throws when whatsapp flag is off', () => {
+    delete process.env.CHANNELS_WHATSAPP_ENABLED;
+    expect(() => getChannel('whatsapp')).toThrow(/whatsapp channel disabled/i);
+  });
+
+  it('returns WhatsAppChannel when flag is on', () => {
+    process.env.CHANNELS_WHATSAPP_ENABLED = 'true';
+    const ch = getChannel('whatsapp');
+    expect(ch.id).toBe('whatsapp');
   });
 
   describe('getChannel — telegram', () => {
