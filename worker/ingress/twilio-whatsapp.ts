@@ -307,18 +307,19 @@ export async function handleTwilioWhatsAppInbound(
   const { intent } = classifyIntent(params);
 
   if (intent === 'stop') {
-    await sql.begin(async (tx) => {
-      await tx`
-        UPDATE channel_enrollments
-        SET status = 'unsubscribed',
-            unsubscribed_at = COALESCE(unsubscribed_at, NOW()),
-            unsubscribed_reason = COALESCE(unsubscribed_reason, 'whatsapp_stop'),
-            updated_at = NOW()
-        WHERE handle = ${senderHandle}
-          AND channel = 'whatsapp'
-          AND archived_at IS NULL
-      `;
-    });
+    // Single-statement UPDATE — no need for sql.begin. Scope is intentionally
+    // handle-wide across all businesses (TCPA opt-out semantics); one inbound
+    // STOP unsubscribes the handle everywhere it's verified.
+    await sql`
+      UPDATE channel_enrollments
+      SET status = 'unsubscribed',
+          unsubscribed_at = COALESCE(unsubscribed_at, NOW()),
+          unsubscribed_reason = COALESCE(unsubscribed_reason, 'whatsapp_stop'),
+          updated_at = NOW()
+      WHERE handle = ${senderHandle}
+        AND channel = 'whatsapp'
+        AND archived_at IS NULL
+    `;
     await markProcessed(dedupKey);
     reply.status(200).send({ received: true });
     return;
@@ -365,7 +366,12 @@ export async function handleTwilioWhatsAppInbound(
     const body = result.matched
       ? "✅ You're connected to RepWorth — we'll ping you here when a review needs approval."
       : 'This link is invalid or expired.';
-    await client.sendFreeform({ to: toWaRecipient(senderHandle), body }).catch(() => {});
+    // Enrollment-path confirmation is the ONLY signal the user gets that
+    // verification succeeded. Log failures so they surface in oncall rather
+    // than silently hiding a Twilio outage. The enrollment tx has already
+    // committed — we proceed to markProcessed regardless.
+    await client.sendFreeform({ to: toWaRecipient(senderHandle), body })
+      .catch((err) => console.warn(`${LOG_PREFIX} enrollment confirmation send failed: ${(err as Error).message}`));
     await markProcessed(dedupKey);
     reply.status(200).send({ received: true });
     return;
