@@ -222,7 +222,7 @@ describe('telegram ingress — permanent link-state failures after ack', () => {
     ['revoked', new RevokedLinkError()],
     ['expired', new ExpiredLinkError()],
     ['channel-mismatch', new ChannelMismatchError('telegram', 'sms')],
-  ])('%s → ack success, then sendMessage with friendly copy, processed (not failed)', async (_label, err) => {
+  ])('%s → ack then editMessageText replaces stale draft (no buttons remain), processed', async (_label, err) => {
     mockVerify.mockReturnValueOnce(true);
     mockClaim.mockResolvedValueOnce('claimed');
     sqlQueue.push([{ id: 'link-x', business_id: 'biz-1', channel: 'telegram', consumed_at: null, revoked_at: null, expires_at: new Date(Date.now() + 60_000) }]);
@@ -237,11 +237,39 @@ describe('telegram ingress — permanent link-state failures after ack', () => {
     }), reply);
 
     expect(mockAck).toHaveBeenCalledTimes(1);
-    expect(mockSendMsg).toHaveBeenCalledTimes(1);
-    expect(mockEditText).not.toHaveBeenCalled();
+    // editMessageText replaces the stale draft + implicitly drops the keyboard.
+    // sendMessage is only the fallback when edit fails — default mock resolves
+    // undefined so edit succeeds and sendMessage must NOT fire.
+    expect(mockEditText).toHaveBeenCalledWith(expect.objectContaining({
+      chat_id: '111',
+      message_id: 1,
+      text: expect.any(String),
+    }));
+    expect(mockSendMsg).not.toHaveBeenCalled();
     expect(mockEditMarkup).not.toHaveBeenCalled();
     const markProcessed = sqlCalls.find((c) => c.sql.includes('processed_at = NOW()'));
     expect(markProcessed).toBeDefined();
+  });
+
+  it('edit failure falls back to sendMessage', async () => {
+    mockVerify.mockReturnValueOnce(true);
+    mockClaim.mockResolvedValueOnce('claimed');
+    sqlQueue.push([{ id: 'link-y', business_id: 'biz-1', channel: 'telegram', consumed_at: null, revoked_at: null, expires_at: new Date(Date.now() + 60_000) }]);
+    sqlQueue.push([{ handle: '111' }]);
+    mockApprove.mockRejectedValueOnce(new ConsumedLinkError());
+    mockEditText.mockRejectedValueOnce(new Error('message too old'));
+    sqlQueue.push([]);
+
+    const reply = mkReply();
+    await handleTelegramWebhook(mkRequest({
+      update_id: 11,
+      callback_query: { id: 'cb-y', from: { id: 111 }, data: 'a:link-y', message: { chat: { id: 111 }, message_id: 1 } },
+    }), reply);
+
+    expect(mockEditText).toHaveBeenCalledTimes(1);
+    // Fallback sendMessage fires only when edit rejected.
+    expect(mockSendMsg).toHaveBeenCalledTimes(1);
+    expect(reply.code).toHaveBeenCalledWith(200);
   });
 });
 

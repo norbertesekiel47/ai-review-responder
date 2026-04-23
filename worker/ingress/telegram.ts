@@ -247,10 +247,19 @@ async function handleCallback(
     && new Date(link.expires_at) > new Date();
 
   if (!linkLive) {
-    // Permanent — link is terminal; mark processed before UX send
+    // Permanent — link is terminal; mark processed before UX send.
+    // Ack for the toast banner AND edit the original message so the stale
+    // buttons disappear (repeated taps would otherwise just re-fire the
+    // same "no longer valid" ack against a dead link).
     await markProcessed(dedupKey);
-    await client.answerCallbackQuery({ callback_query_id: cb.id, text: 'This approval is no longer valid — it may have been handled on another channel.' })
+    const deadText = 'This approval is no longer valid — it may have been handled on another channel.';
+    await client.answerCallbackQuery({ callback_query_id: cb.id, text: deadText })
       .catch(() => {});
+    await client.editMessageText({
+      chat_id: chatId,
+      message_id: messageId,
+      text: deadText,
+    }).catch(() => { /* message too old to edit; ack already delivered */ });
     reply.code(200).send({ ok: true });
     return;
   }
@@ -316,8 +325,21 @@ async function handleCallback(
 
     if (isPermanent) {
       await markProcessed(dedupKey);
-      await client.sendMessage({ chat_id: chatId, text: messageForLinkError(e) })
-        .catch(() => { /* UX degraded but state is terminal */ });
+      // Edit the original message in place: replaces the stale draft body
+      // with the status line AND implicitly drops the inline keyboard
+      // (reply_markup omitted) so the approve/regenerate buttons can't
+      // be re-tapped. Fallback to sendMessage if the edit call fails
+      // (e.g., message too old to edit, rate-limit) so the owner still
+      // gets explicit feedback.
+      const statusText = messageForLinkError(e);
+      await client.editMessageText({
+        chat_id: chatId,
+        message_id: messageId,
+        text: statusText,
+      }).catch(async () => {
+        await client.sendMessage({ chat_id: chatId, text: statusText })
+          .catch(() => { /* UX degraded but state is terminal */ });
+      });
       reply.code(200).send({ ok: true });
       return;
     }
