@@ -76,9 +76,12 @@ describe('approveViaCallback', () => {
     expect(metadata).toMatchObject({
       via_channel: 'telegram',
       update_id: 999,
+      provider_event_id: '999',
       correlation_id: 'upstream-corr-id',
     });
     expect((metadata as { chat_handle_hash: string }).chat_handle_hash).toMatch(/^[a-f0-9]{64}$/);
+    // "Never both" invariant: Telegram rows must not carry a WhatsApp message_sid.
+    expect(metadata).not.toHaveProperty('message_sid');
   });
 
   it('throws ConsumedLinkError when consumed_at is set', async () => {
