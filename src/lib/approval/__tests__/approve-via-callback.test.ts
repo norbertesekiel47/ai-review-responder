@@ -68,7 +68,7 @@ describe('approveViaCallback', () => {
       approvalLinkId: 'link-1',
       chatHandle: '123456789',
       viaChannel: 'telegram',
-      audit: { updateId: 999, ipAddress: '1.2.3.4' },
+      audit: { providerEventId: '999', ipAddress: '1.2.3.4', telegramUpdateId: 999 },
     });
     const auditCall = txCalls.find((c) => c.sql.includes('approval_audit_log'));
     expect(auditCall).toBeDefined();
@@ -85,7 +85,7 @@ describe('approveViaCallback', () => {
     txQueue.push(liveLinkRow({ consumed_at: new Date() }));
     await expect(approveViaCallback({
       approvalLinkId: 'link-1', chatHandle: 'h', viaChannel: 'telegram',
-      audit: { updateId: 1, ipAddress: null },
+      audit: { providerEventId: '1', ipAddress: null, telegramUpdateId: 1 },
     })).rejects.toBeInstanceOf(ConsumedLinkError);
   });
 
@@ -93,7 +93,7 @@ describe('approveViaCallback', () => {
     txQueue.push(liveLinkRow({ revoked_at: new Date() }));
     await expect(approveViaCallback({
       approvalLinkId: 'link-1', chatHandle: 'h', viaChannel: 'telegram',
-      audit: { updateId: 1, ipAddress: null },
+      audit: { providerEventId: '1', ipAddress: null, telegramUpdateId: 1 },
     })).rejects.toBeInstanceOf(RevokedLinkError);
   });
 
@@ -101,7 +101,7 @@ describe('approveViaCallback', () => {
     txQueue.push(liveLinkRow({ expires_at: new Date(Date.now() - 60_000) }));
     await expect(approveViaCallback({
       approvalLinkId: 'link-1', chatHandle: 'h', viaChannel: 'telegram',
-      audit: { updateId: 1, ipAddress: null },
+      audit: { providerEventId: '1', ipAddress: null, telegramUpdateId: 1 },
     })).rejects.toBeInstanceOf(ExpiredLinkError);
   });
 
@@ -109,7 +109,7 @@ describe('approveViaCallback', () => {
     txQueue.push(liveLinkRow({ channel: 'sms' }));
     await expect(approveViaCallback({
       approvalLinkId: 'link-1', chatHandle: 'h', viaChannel: 'telegram',
-      audit: { updateId: 1, ipAddress: null },
+      audit: { providerEventId: '1', ipAddress: null, telegramUpdateId: 1 },
     })).rejects.toBeInstanceOf(ChannelMismatchError);
   });
 });
@@ -129,7 +129,7 @@ describe('regenerateViaCallback', () => {
       approvalLinkId: 'link-1',
       chatHandle: '123',
       viaChannel: 'telegram',
-      audit: { updateId: 7, ipAddress: null },
+      audit: { providerEventId: '7', ipAddress: null, telegramUpdateId: 7 },
     });
     const outboxCall = txCalls.find((c) => c.sql.includes('job_outbox') && c.sql.includes('generate_response'));
     expect(outboxCall).toBeDefined();

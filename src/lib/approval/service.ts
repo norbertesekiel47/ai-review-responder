@@ -441,8 +441,13 @@ export async function regenerateBySession(
 // ---------------------------------------------------------------------------
 
 export interface CallbackAuditContext {
-  updateId: number;
+  /** Stable provider event identifier — Telegram update_id as string, Twilio MessageSid. */
+  providerEventId: string;
   ipAddress: string | null;
+  /** Telegram-only: numeric update_id stored in metadata.update_id for forensics continuity. */
+  telegramUpdateId?: number;
+  /** WhatsApp-only: Twilio MessageSid stored in metadata.message_sid. */
+  twilioMessageSid?: string;
 }
 
 export interface CallbackApprovalInput {
@@ -478,18 +483,27 @@ function buildCallbackAudit(
   correlationId: string,
 ): { audit: AuditContext; metadata: Record<string, unknown> } {
   const chatHandleHash = createHash('sha256').update(input.chatHandle).digest('hex');
+  const metadata: Record<string, unknown> = {
+    via_channel: input.viaChannel,
+    chat_handle_hash: chatHandleHash,
+    correlation_id: correlationId,
+  };
+  // Preserve the existing Telegram metadata key (`update_id`) so historical
+  // audit-log queries continue to match. WhatsApp writes `message_sid` instead.
+  // Never both on the same row — `viaChannel` determines which is set.
+  if (input.audit.telegramUpdateId !== undefined) {
+    metadata.update_id = input.audit.telegramUpdateId;
+  }
+  if (input.audit.twilioMessageSid !== undefined) {
+    metadata.message_sid = input.audit.twilioMessageSid;
+  }
   return {
     audit: {
       tokenHash: link.token_hash,
       deviceCookieHash: null,
       ipAddress: input.audit.ipAddress,
     },
-    metadata: {
-      via_channel: input.viaChannel,
-      chat_handle_hash: chatHandleHash,
-      update_id: input.audit.updateId,
-      correlation_id: correlationId,
-    },
+    metadata,
   };
 }
 

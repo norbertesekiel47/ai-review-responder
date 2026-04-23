@@ -301,14 +301,22 @@ async function handleCallback(
         approvalLinkId: link.id,
         chatHandle: senderId,
         viaChannel: 'telegram',
-        audit: { updateId: update.update_id, ipAddress },
+        audit: {
+          providerEventId: String(update.update_id),
+          ipAddress,
+          telegramUpdateId: update.update_id,
+        },
       });
     } else {
       await regenerateViaCallback({
         approvalLinkId: link.id,
         chatHandle: senderId,
         viaChannel: 'telegram',
-        audit: { updateId: update.update_id, ipAddress },
+        audit: {
+          providerEventId: String(update.update_id),
+          ipAddress,
+          telegramUpdateId: update.update_id,
+        },
       });
     }
   } catch (err) {
