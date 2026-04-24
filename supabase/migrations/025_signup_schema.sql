@@ -13,9 +13,11 @@ CREATE INDEX IF NOT EXISTS idx_users_owner_auth_by_business
   ON users (business_id)
   WHERE role = 'owner' AND auth_id IS NOT NULL;
 
-CREATE UNIQUE INDEX IF NOT EXISTS users_auth_id_uniq
-  ON users (auth_id)
-  WHERE auth_id IS NOT NULL;
+COMMENT ON INDEX idx_businesses_pending_unpaid_self_serve_cleanup IS
+  'Covers CleanupAbandonedSignupsPoller scan (self-serve abandoned signups past 7 days). See docs/superpowers/specs/2026-04-23-owner-self-serve-signup-design.md §1.5.';
+
+COMMENT ON INDEX idx_users_owner_auth_by_business IS
+  'Speeds the cleanup-poller JOIN (and dashboard payment-status JOIN) on users.business_id for owner rows with auth_id set. Partial because admin-created owner rows legitimately have auth_id=NULL. See docs/superpowers/specs/2026-04-23-owner-self-serve-signup-design.md §2.2.';
 
 -- ===== Block 2: Email normalization =====
 
