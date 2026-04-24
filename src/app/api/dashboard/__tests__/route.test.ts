@@ -47,7 +47,7 @@ vi.mock('@/lib/payments/payment-link', () => ({
 }));
 
 // Import AFTER mocks are set up
-import { GET, type DashboardData } from '../route';
+import { GET, type DashboardData, type DashboardDataActive } from '../route';
 import { AuthError } from '@/lib/db/auth';
 import { buildPaymentLinkUrl } from '@/lib/payments/payment-link';
 
@@ -289,7 +289,7 @@ describe('GET /api/dashboard', () => {
     const res = await GET(makeRequest());
     expect(res.status).toBe(200);
 
-    const body: DashboardData = await res.json();
+    const body: DashboardDataActive = await res.json();
     expect(body.business.name).toBe('Test Biz');
     expect(body.valueSummary.totalReviewsHandled).toBe(15);
     expect(body.valueSummary.totalTimeSavedMinutes).toBe(105);
@@ -318,7 +318,7 @@ describe('GET /api/dashboard', () => {
     const res = await GET(makeRequest());
     expect(res.status).toBe(200);
 
-    const body: DashboardData = await res.json();
+    const body: DashboardDataActive = await res.json();
     expect(body.ranking).toBeNull();
   });
 
@@ -329,7 +329,7 @@ describe('GET /api/dashboard', () => {
     const res = await GET(makeRequest());
     expect(res.status).toBe(200);
 
-    const body: DashboardData = await res.json();
+    const body: DashboardDataActive = await res.json();
     expect(body.latestBrief).toBeNull();
   });
 
@@ -345,7 +345,7 @@ describe('GET /api/dashboard', () => {
     const res = await GET(makeRequest());
     expect(res.status).toBe(200);
 
-    const body: DashboardData = await res.json();
+    const body: DashboardDataActive = await res.json();
     expect(body.reviewVelocity).toEqual([
       { weekStart: '2025-03-03', count: 0 },
       { weekStart: '2025-03-10', count: 0 },
@@ -366,7 +366,7 @@ describe('GET /api/dashboard', () => {
     const res = await GET(makeRequest());
     expect(res.status).toBe(200);
 
-    const body: DashboardData = await res.json();
+    const body: DashboardDataActive = await res.json();
     expect(body.latestBrief).not.toBeNull();
     expect(body.latestBrief!.type).toBe('weekly');
     expect(body.latestBrief!.text).toBe('Weekly summary');
@@ -392,7 +392,7 @@ describe('GET /api/dashboard', () => {
     const res = await GET(makeRequest());
     expect(res.status).toBe(200);
 
-    const body: DashboardData = await res.json();
+    const body: DashboardDataActive = await res.json();
     expect(body.recentReviews).toHaveLength(1);
     expect(body.recentReviews[0]!.responseStatus).toBe('pending_approval');
     expect(body.recentReviews[0]!.responseText).toBe('Thank you Bob!');

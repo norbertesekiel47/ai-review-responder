@@ -19,7 +19,8 @@ export interface DashboardSettings {
   googlePlaceId: string;
 }
 
-export interface DashboardData {
+export interface DashboardDataActive {
+  subscriptionStatus?: never;
   business: { name: string; createdAt: string };
   valueSummary: {
     totalReviewsHandled: number;
@@ -49,6 +50,15 @@ export interface DashboardData {
   } | null;
   settings: DashboardSettings;
 }
+
+export interface DashboardDataPendingPayment {
+  subscriptionStatus: 'pending_payment';
+  businessId: string;
+  businessName: string;
+  paymentUrl: string | null;
+}
+
+export type DashboardData = DashboardDataActive | DashboardDataPendingPayment;
 
 /** PgBouncer can return TEXT[] as JSON strings. */
 function parseArray(val: unknown): string[] {
@@ -271,7 +281,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         : null;
 
     // Pick whichever brief was sent more recently (by sent_at, not period start)
-    let latestBrief: DashboardData['latestBrief'] = null;
+    let latestBrief: DashboardDataActive['latestBrief'] = null;
     const monthlyBrief = monthlyBriefRows[0];
     const weeklyBrief = weeklyBriefRows[0];
 
