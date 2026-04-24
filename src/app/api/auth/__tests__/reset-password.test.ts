@@ -1,0 +1,251 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { NextRequest } from 'next/server';
+
+// ── Hoisted mocks ───────────────────────────────────────────────────
+
+const {
+  mockCheckRateLimit,
+  mockSql,
+  mockGetUser,
+  mockUpdateUser,
+  mockCreateServerClient,
+} = vi.hoisted(() => {
+  const sqlFn = vi.fn();
+  const getUser = vi.fn();
+  const updateUser = vi.fn();
+  return {
+    mockCheckRateLimit: vi.fn(),
+    mockSql: sqlFn,
+    mockGetUser: getUser,
+    mockUpdateUser: updateUser,
+    mockCreateServerClient: vi.fn(() => ({
+      auth: { getUser, updateUser },
+    })),
+  };
+});
+
+vi.mock('@/lib/shared/rate-limit', () => ({
+  checkRateLimit: mockCheckRateLimit,
+}));
+
+vi.mock('@/lib/db/server', () => ({
+  sql: mockSql,
+  jsonb: (v: unknown) => v,
+  supabaseServer: {
+    // Not used in reset-password — present only to satisfy imports that may
+    // transitively touch this module.
+    auth: { admin: { deleteUser: vi.fn() } },
+  },
+}));
+
+vi.mock('@supabase/ssr', () => ({
+  createServerClient: mockCreateServerClient,
+}));
+
+// Flag + env setup — must be set before importing the route.
+process.env.SELF_SERVE_SIGNUP_ENABLED = 'true';
+process.env.NEXT_PUBLIC_APP_URL = 'https://app.example.com';
+process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://project.supabase.co';
+process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'anon-key';
+
+// Import AFTER mocks + env.
+import { POST } from '../reset-password/route';
+
+// ── Helpers ─────────────────────────────────────────────────────────
+
+function mkReq(
+  body: unknown,
+  headers: Record<string, string> = {},
+): NextRequest {
+  return new NextRequest('https://app.example.com/api/auth/reset-password', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      origin: 'https://app.example.com',
+      ...headers,
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+// Default session user.
+const mockUser = {
+  id: 'auth-uuid-123',
+  email: 'owner@example.com',
+};
+
+beforeEach(() => {
+  mockCheckRateLimit.mockReset();
+  mockCheckRateLimit.mockResolvedValue({ allowed: true, remaining: 4 });
+
+  mockSql.mockReset();
+  // Default: users row returns role='owner'.
+  mockSql.mockResolvedValue([{ role: 'owner' }]);
+
+  mockGetUser.mockReset();
+  mockGetUser.mockResolvedValue({ data: { user: mockUser }, error: null });
+
+  mockUpdateUser.mockReset();
+  mockUpdateUser.mockResolvedValue({ data: { user: mockUser }, error: null });
+
+  mockCreateServerClient.mockReset();
+  mockCreateServerClient.mockImplementation(() => ({
+    auth: { getUser: mockGetUser, updateUser: mockUpdateUser },
+  }));
+
+  process.env.SELF_SERVE_SIGNUP_ENABLED = 'true';
+  process.env.NEXT_PUBLIC_APP_URL = 'https://app.example.com';
+});
+
+// ── Tests ────────────────────────────────────────────────────────────
+
+describe('POST /api/auth/reset-password', () => {
+  // ── CSRF / same-origin ───────────────────────────────────────────
+
+  it('returns 403 when Origin header mismatches NEXT_PUBLIC_APP_URL', async () => {
+    const res = await POST(
+      mkReq(
+        { password: 'a-new-strong-password' },
+        { origin: 'https://evil.example.com' },
+      ),
+    );
+    expect(res.status).toBe(403);
+    expect(mockGetUser).not.toHaveBeenCalled();
+    expect(mockUpdateUser).not.toHaveBeenCalled();
+  });
+
+  // ── Auth / session ───────────────────────────────────────────────
+
+  it('returns 401 when no session cookie (getUser returns { user: null })', async () => {
+    mockGetUser.mockResolvedValueOnce({ data: { user: null }, error: null });
+    const res = await POST(mkReq({ password: 'a-new-strong-password' }));
+    expect(res.status).toBe(401);
+    expect(mockSql).not.toHaveBeenCalled();
+    expect(mockUpdateUser).not.toHaveBeenCalled();
+  });
+
+  it('returns 500 account_incomplete when session exists but no users row for auth_id', async () => {
+    mockSql.mockResolvedValueOnce([]); // no row
+    const res = await POST(mkReq({ password: 'a-new-strong-password' }));
+    expect(res.status).toBe(500);
+    const json = await res.json();
+    expect(json.error).toBe('account_incomplete');
+    expect(mockUpdateUser).not.toHaveBeenCalled();
+  });
+
+  // ── Role-based flag gate ─────────────────────────────────────────
+
+  it('returns 404 when flag off AND session user role=owner', async () => {
+    process.env.SELF_SERVE_SIGNUP_ENABLED = 'false';
+    mockSql.mockResolvedValueOnce([{ role: 'owner' }]);
+
+    const res = await POST(mkReq({ password: 'a-new-strong-password' }));
+    expect(res.status).toBe(404);
+    expect(mockCheckRateLimit).not.toHaveBeenCalled();
+    expect(mockUpdateUser).not.toHaveBeenCalled();
+  });
+
+  it('returns 200 + calls updateUser when flag off AND session role=admin (staff never gated)', async () => {
+    process.env.SELF_SERVE_SIGNUP_ENABLED = 'false';
+    mockSql.mockResolvedValueOnce([{ role: 'admin' }]);
+
+    const res = await POST(mkReq({ password: 'a-new-strong-password' }));
+    expect(res.status).toBe(200);
+    expect(mockUpdateUser).toHaveBeenCalledWith({
+      password: 'a-new-strong-password',
+    });
+    const json = await res.json();
+    expect(json.redirectTo).toBe('/admin/login');
+  });
+
+  it('returns 200 + calls updateUser when flag on AND owner session', async () => {
+    process.env.SELF_SERVE_SIGNUP_ENABLED = 'true';
+    mockSql.mockResolvedValueOnce([{ role: 'owner' }]);
+
+    const res = await POST(mkReq({ password: 'a-new-strong-password' }));
+    expect(res.status).toBe(200);
+    expect(mockUpdateUser).toHaveBeenCalledWith({
+      password: 'a-new-strong-password',
+    });
+    const json = await res.json();
+    expect(json.redirectTo).toBe('/login');
+  });
+
+  // ── Validation ───────────────────────────────────────────────────
+
+  it('returns 400 on weak password (< 8 chars)', async () => {
+    const res = await POST(mkReq({ password: 'short' }));
+    expect(res.status).toBe(400);
+    expect(mockUpdateUser).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 when Supabase updateUser returns error', async () => {
+    mockUpdateUser.mockResolvedValueOnce({
+      data: { user: null },
+      error: { message: 'New password should be different from the old one.' },
+    });
+
+    const res = await POST(mkReq({ password: 'a-new-strong-password' }));
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toBe('New password should be different from the old one.');
+  });
+
+  // ── Role-appropriate redirect ────────────────────────────────────
+
+  it('returns 200 + { redirectTo: "/login" } for owner role', async () => {
+    mockSql.mockResolvedValueOnce([{ role: 'owner' }]);
+
+    const res = await POST(mkReq({ password: 'a-new-strong-password' }));
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.redirectTo).toBe('/login');
+  });
+
+  it('returns 200 + { redirectTo: "/admin/login" } for admin role', async () => {
+    mockSql.mockResolvedValueOnce([{ role: 'admin' }]);
+
+    const res = await POST(mkReq({ password: 'a-new-strong-password' }));
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.redirectTo).toBe('/admin/login');
+  });
+
+  it('returns 200 + { redirectTo: "/admin/login" } for sales_partner role', async () => {
+    mockSql.mockResolvedValueOnce([{ role: 'sales_partner' }]);
+
+    const res = await POST(mkReq({ password: 'a-new-strong-password' }));
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.redirectTo).toBe('/admin/login');
+  });
+
+  // ── Rate limiting ────────────────────────────────────────────────
+
+  it('returns 429 on rate-limit exceeded (per-authId 5/hr)', async () => {
+    mockCheckRateLimit.mockResolvedValueOnce({ allowed: false, remaining: 0 });
+
+    const res = await POST(mkReq({ password: 'a-new-strong-password' }));
+    expect(res.status).toBe(429);
+    expect(mockUpdateUser).not.toHaveBeenCalled();
+  });
+
+  it('uses strict:true with key reset-pw:auth:<authId> at 5/hr', async () => {
+    await POST(mkReq({ password: 'a-new-strong-password' }));
+
+    expect(mockCheckRateLimit).toHaveBeenCalledTimes(1);
+    const call = mockCheckRateLimit.mock.calls[0]!;
+    expect(call[0]).toBe('reset-pw:auth:auth-uuid-123');
+    expect(call[1]).toBe(5);
+    expect(call[2]).toBe(3600);
+    expect(call[3]).toEqual({ strict: true });
+  });
+
+  it('returns 503 on strict rate-limit failure (Redis down)', async () => {
+    mockCheckRateLimit.mockRejectedValueOnce(new Error('ECONNREFUSED'));
+
+    const res = await POST(mkReq({ password: 'a-new-strong-password' }));
+    expect(res.status).toBe(503);
+    expect(mockUpdateUser).not.toHaveBeenCalled();
+  });
+});
