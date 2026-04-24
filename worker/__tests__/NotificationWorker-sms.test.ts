@@ -342,7 +342,7 @@ describe('NotificationWorker — SMS cap rejection', () => {
 describe('NotificationWorker — SMS refund on failure', () => {
   beforeEach(resetAll);
 
-  it('refunds reservation when createApprovalLink throws after reserve', async () => {
+  it('refunds reservation + records failed delivery when createApprovalLink throws after reserve', async () => {
     process.env.CHANNELS_SMS_ENABLED = 'true';
     stubBothChannels();
     mockReserveSmsCost.mockResolvedValue('2026-04-21');
@@ -358,11 +358,20 @@ describe('NotificationWorker — SMS refund on failure', () => {
       [],  // sms idempotency
     );
 
-    // createApprovalLink throws inside try{}, finally refunds, then propagates.
-    await expect(handleSendNotification(makeJob())).rejects.toThrow(/DB down/);
+    // createApprovalLink failure is per-channel: record failed delivery,
+    // refund the SMS reserve, and let the outer "all failed" branch throw
+    // so BullMQ retries the whole job.
+    await expect(handleSendNotification(makeJob())).rejects.toThrow(/All 1 channel send/);
 
     expect(mockRefundSmsCost).toHaveBeenCalledWith('biz-1', '2026-04-21');
     expect(mockSmsSend).not.toHaveBeenCalled();
+    expect(mockInsertFailedDelivery).toHaveBeenCalledWith(
+      'biz-1',
+      'resp-1',
+      'sms',
+      '+15551234567',
+      expect.stringMatching(/^approval_link_error:DB down/),
+    );
   });
 
   it('refunds reservation + records failed delivery on generic Twilio send error', async () => {

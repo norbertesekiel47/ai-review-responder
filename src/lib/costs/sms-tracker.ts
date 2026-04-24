@@ -74,6 +74,37 @@ function getGlobalCapCents(): number {
 
 // ── Public API ───────────────────────────────────────────────────────
 
+// INCRBY + cap check + TTL + rollback collapsed into one atomic Lua script,
+// mirroring the RESERVE_COST_LUA pattern in ./tracker.ts. The separate-
+// pipeline approach left a crash window between the INCRBYs and the EXPIRE
+// that would leave fresh daily keys without a TTL until the next reserve.
+// Return shape: { 'ok' | 'per_business' | 'global', bizTotal, globalTotal }
+const RESERVE_SMS_LUA = `
+local cost = tonumber(ARGV[1])
+local bizCap = tonumber(ARGV[2])
+local globalCap = tonumber(ARGV[3])
+local ttl = tonumber(ARGV[4])
+
+local bizTotal = redis.call('INCRBY', KEYS[1], cost)
+local globalTotal = redis.call('INCRBY', KEYS[2], cost)
+
+if bizTotal > bizCap then
+  redis.call('DECRBY', KEYS[1], cost)
+  redis.call('DECRBY', KEYS[2], cost)
+  return {'per_business', bizTotal, globalTotal}
+end
+
+if globalTotal > globalCap then
+  redis.call('DECRBY', KEYS[1], cost)
+  redis.call('DECRBY', KEYS[2], cost)
+  return {'global', bizTotal, globalTotal}
+end
+
+redis.call('EXPIRE', KEYS[1], ttl)
+redis.call('EXPIRE', KEYS[2], ttl)
+return {'ok', bizTotal, globalTotal}
+`;
+
 /**
  * Reserves 1¢ against both the per-business and global daily SMS budgets.
  * Returns the YYYY-MM-DD date string used for the keys — callers MUST pass
@@ -88,34 +119,27 @@ export async function reserveSmsCost(businessId: string): Promise<string> {
   const bKey = perBusinessKey(businessId, dateStr);
   const gKey = globalKey(dateStr);
 
-  const results = await redis
-    .pipeline()
-    .incrby(bKey, SMS_SEND_COST_CENTS)
-    .incrby(gKey, SMS_SEND_COST_CENTS)
-    .exec();
-
-  const bizTotal = results![0]![1] as number;
-  const globalTotal = results![1]![1] as number;
-
   const perBizCap = getPerBusinessCapCents();
   const globalCap = getGlobalCapCents();
 
-  if (bizTotal > perBizCap || globalTotal > globalCap) {
-    await redis
-      .pipeline()
-      .decrby(bKey, SMS_SEND_COST_CENTS)
-      .decrby(gKey, SMS_SEND_COST_CENTS)
-      .exec();
-    throw new DailySmsLimitExceededError(
-      bizTotal > perBizCap ? 'per_business' : 'global',
-    );
-  }
+  const raw = (await redis.eval(
+    RESERVE_SMS_LUA,
+    2,
+    bKey,
+    gKey,
+    String(SMS_SEND_COST_CENTS),
+    String(perBizCap),
+    String(globalCap),
+    String(TTL_SECONDS),
+  )) as [string, number, number];
 
-  await redis
-    .pipeline()
-    .expire(bKey, TTL_SECONDS)
-    .expire(gKey, TTL_SECONDS)
-    .exec();
+  const status = raw[0];
+  if (status === 'per_business') {
+    throw new DailySmsLimitExceededError('per_business');
+  }
+  if (status === 'global') {
+    throw new DailySmsLimitExceededError('global');
+  }
 
   return dateStr;
 }

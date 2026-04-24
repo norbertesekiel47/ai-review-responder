@@ -198,11 +198,32 @@ export async function handleSendNotification(
     // intentionally commits the cost — the message was sent.
     let sendAccepted = false;
     try {
-      const { rawToken, approvalLinkId } = await createApprovalLink({
-        responseId: response_id,
-        businessId: business_id,
-        channel: channelId,
-      });
+      // Approval-link creation is per-channel — a failure here must NOT
+      // abort the whole dispatch loop (other channels may still succeed).
+      // The outer finally still runs on `continue`, refunding SMS cost.
+      let rawToken: string;
+      let approvalLinkId: string;
+      try {
+        const link = await createApprovalLink({
+          responseId: response_id,
+          businessId: business_id,
+          channel: channelId,
+        });
+        rawToken = link.rawToken;
+        approvalLinkId = link.approvalLinkId;
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        logger.error(`createApprovalLink failed for ${channelId} response ${response_id}: ${reason}`);
+        attempted++;
+        await insertFailedDelivery(
+          business_id,
+          response_id,
+          channelId,
+          enrollment.handle,
+          `approval_link_error:${reason}`,
+        );
+        continue;
+      }
       const approvalUrl = `${appUrl}/approve/${rawToken}`;
       attempted++;
 

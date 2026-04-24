@@ -111,10 +111,12 @@ export async function handleDemoGeneration(
             AND attempts = ${outboxAttempt}
         `;
       } else {
+        // Legacy path — guard on status so we can't regress a terminal row.
         await tx`
           UPDATE job_outbox
           SET status = 'completed', completed_at = NOW()
           WHERE id = ${outboxId}
+            AND status = 'dispatched'
         `;
       }
     });
@@ -152,12 +154,14 @@ export async function handleDemoGeneration(
               AND attempts = ${outboxAttempt}
           `;
         } else {
+          // Legacy path — guard on status so we can't regress a terminal row.
           await tx`
             UPDATE job_outbox
             SET status = 'failed',
                 last_error = ${message},
                 completed_at = NOW()
             WHERE id = ${outboxId}
+              AND status = 'dispatched'
           `;
         }
       });

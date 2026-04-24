@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 
 interface ReviewData {
   review: {
@@ -47,6 +47,10 @@ export default function ApprovalClient({ token }: { token: string }) {
   const [isEditing, setIsEditing] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  // Guard against same-tick double-click: setActionLoading(true) queues a
+  // re-render, so between the first click and the button becoming disabled
+  // a second click can fire. The ref reads synchronously and closes that gap.
+  const actionLockRef = useRef(false);
 
   // Fetch data and bind session on mount
   useEffect(() => {
@@ -91,6 +95,8 @@ export default function ApprovalClient({ token }: { token: string }) {
 
   const handleAction = useCallback(
     async (action: 'approve' | 'edit' | 'regenerate') => {
+      if (actionLockRef.current) return;
+      actionLockRef.current = true;
       setActionLoading(true);
       setError(null);
 
@@ -120,6 +126,7 @@ export default function ApprovalClient({ token }: { token: string }) {
         setError(err instanceof Error ? err.message : 'Action failed');
       } finally {
         setActionLoading(false);
+        actionLockRef.current = false;
       }
     },
     [token, editedText],

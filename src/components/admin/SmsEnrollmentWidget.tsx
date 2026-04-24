@@ -51,26 +51,41 @@ export function SmsEnrollmentWidget({ businessId }: { businessId: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const loadStatus = useCallback(async (): Promise<EnrollmentState | null> => {
-    const res = await fetch(`/api/admin/channels/sms/status?business_id=${businessId}`);
-    if (!res.ok) return null;
-    const json = (await res.json()) as { enrollment: EnrollmentState | null };
-    setEnrollment(json.enrollment);
-    return json.enrollment;
+  const loadStatus = useCallback(async (signal?: AbortSignal): Promise<EnrollmentState | null> => {
+    try {
+      const res = await fetch(`/api/admin/channels/sms/status?business_id=${businessId}`, { signal });
+      if (!res.ok) return null;
+      const json = (await res.json()) as { enrollment: EnrollmentState | null };
+      if (signal?.aborted) return null;
+      setEnrollment(json.enrollment);
+      return json.enrollment;
+    } catch (err) {
+      if ((err as { name?: string } | null)?.name === 'AbortError') return null;
+      // Transient network errors shouldn't break the widget — the next tick
+      // of the polling interval (or a user action) will try again.
+      console.warn('[SmsEnrollmentWidget] loadStatus failed:', err);
+      return null;
+    }
   }, [businessId]);
 
   useEffect(() => {
-    void loadStatus();
+    const controller = new AbortController();
+    void loadStatus(controller.signal);
+    return () => controller.abort();
   }, [loadStatus]);
 
   // Poll every 3s while awaiting START — stop once sender_opt_in_cleared flips to true.
   useEffect(() => {
     if (!awaitingOptIn) return;
     if (enrollment?.sender_opt_in_cleared) return;
+    const controller = new AbortController();
     const interval = setInterval(() => {
-      void loadStatus();
+      void loadStatus(controller.signal);
     }, 3000);
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      controller.abort();
+    };
   }, [awaitingOptIn, enrollment?.sender_opt_in_cleared, loadStatus]);
 
   const state = deriveState(enrollment, awaitingOptIn);

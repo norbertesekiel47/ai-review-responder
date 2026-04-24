@@ -55,10 +55,13 @@ export async function markOutboxCompleted(
     }
     return;
   }
+  // Legacy path: attempt unknown. Still guard on status so a stale caller
+  // can't regress a row that has already moved to 'failed' or 'completed'.
   await sql`
     UPDATE job_outbox
     SET status = 'completed', completed_at = NOW()
     WHERE id = ${outboxId}
+      AND status = 'dispatched'
   `;
 }
 
@@ -87,9 +90,12 @@ export async function markOutboxFailed(
     }
     return;
   }
+  // Legacy path: attempt unknown. Still guard on status so a stale caller
+  // can't regress a row that has already moved to 'failed' or 'completed'.
   await sql`
     UPDATE job_outbox
     SET status = 'failed', last_error = ${error}, completed_at = NOW()
     WHERE id = ${outboxId}
+      AND status = 'dispatched'
   `;
 }
