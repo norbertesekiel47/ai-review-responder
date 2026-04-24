@@ -77,8 +77,13 @@ export async function middleware(request: NextRequest) {
     return (data as { role: string; business_id: string | null } | null) ?? null;
   }
 
-  // 3. Admin pages (except /admin/login)
-  if (pathname.startsWith('/admin') && pathname !== '/admin/login') {
+  // 3. Admin pages (except /admin/login, /admin/forgot-password, /admin/reset-password)
+  if (
+    pathname.startsWith('/admin') &&
+    pathname !== '/admin/login' &&
+    pathname !== '/admin/forgot-password' &&
+    pathname !== '/admin/reset-password'
+  ) {
     if (!authUser) {
       return redirectToLogin(request);
     }
@@ -114,19 +119,32 @@ export async function middleware(request: NextRequest) {
   // 6. Owner pages
   if (pathname.startsWith('/dashboard') || pathname.startsWith('/settings')) {
     if (!authUser) {
-      return redirectToLogin(request);
+      return redirectToLogin(request, 'owner');
     }
     const self = await readSelf();
     if (!self || self.role !== 'owner' || !self.business_id) {
-      return redirectToLogin(request);
+      return redirectToLogin(request, 'owner');
+    }
+  }
+
+  // 7. Onboarding paths require authenticated owner with a users row.
+  // Does NOT require subscription_status='active' — the pages work pre-payment.
+  if (pathname === '/onboarding' || pathname.startsWith('/onboarding/')) {
+    if (!authUser) {
+      return redirectToLogin(request, 'owner');
+    }
+    const self = await readSelf();
+    if (!self || self.role !== 'owner' || !self.business_id) {
+      return redirectToLogin(request, 'owner');
     }
   }
 
   return response;
 }
 
-function redirectToLogin(request: NextRequest): NextResponse {
-  const loginUrl = new URL('/admin/login', request.url);
+function redirectToLogin(request: NextRequest, flow: 'owner' | 'admin' = 'admin'): NextResponse {
+  const loginPath = flow === 'owner' ? '/login' : '/admin/login';
+  const loginUrl = new URL(loginPath, request.url);
   loginUrl.searchParams.set('from', request.nextUrl.pathname);
   return NextResponse.redirect(loginUrl);
 }
