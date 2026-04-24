@@ -48,3 +48,78 @@ avoid conflicts when cleanup is incomplete.
 The signup-password.spec.ts test documents the happy path but harness-required
 steps are commented out pending CI infrastructure. Implement the `harness` helper
 module and uncomment those sections once the above is wired up.
+
+---
+
+## Additional specs (signup-google, forgot-password, reset-password)
+
+### signup-google.spec.ts
+
+Tests the post-OAuth `/signup/finish` → business form → `/onboarding/pay` flow.
+
+**Why session-cookie injection instead of real OAuth:** Playwright cannot interact
+with Google's OAuth consent screen. The workaround is to create a Supabase Auth
+user via the admin API with `email_confirm: true`, then generate a magic-link to
+obtain a valid session, and finally inject the resulting session cookie via
+`context.addCookies(...)` before navigating to `/signup/finish`.
+
+Required harness steps:
+1. `supabase.auth.admin.createUser({ email, email_confirm: true, user_metadata: { full_name } })`
+2. `supabase.auth.admin.generateLink({ type: 'magiclink', email })` — navigate
+   to `action_link` in a headless page to materialise session cookies.
+3. `context.addCookies([{ name: 'sb-<ref>-auth-token', value: '<base64>', ... }])`
+4. Navigate to `/signup/finish` and assert the email field is disabled.
+5. Cleanup: `supabase.auth.admin.deleteUser(uid)` + `DELETE FROM businesses WHERE owner_email = email`.
+
+### forgot-password.spec.ts — cross-portal protection
+
+Four test cases covering the cross-portal invariant:
+
+| Submitted email | Portal URL | Expected outcome |
+|---|---|---|
+| owner | `/forgot-password` | Generic success, email sent |
+| owner | `/admin/forgot-password` | Generic success, **no email** |
+| admin | `/forgot-password` | Generic success, **no email** |
+| owner | `/forgot-password` + recovery link callback | Lands on `/reset-password` |
+
+**Email capture requirement:** To assert "no email sent" for cross-portal cases,
+the harness must count emails dispatched to a given address. Options:
+- Run Supabase locally (`supabase start`) and poll the Inbucket dev inbox at
+  `http://localhost:54324`.
+- Stub the Supabase SMTP settings to a local mailhog/mailpit instance.
+- Use `supabase.auth.admin.generateLink({ type: 'recovery', email })` as a
+  proxy: if the call returns a link, Supabase would have sent an email; if it
+  rejects (wrong portal), treat that as zero emails.
+
+**Recovery link for happy-path callback test:**
+```ts
+const { data } = await supabase.auth.admin.generateLink({
+  type: 'recovery',
+  email: ownerEmail,
+});
+// data.properties.action_link — navigate here instead of waiting for email
+```
+
+### reset-password.spec.ts
+
+Three test cases:
+
+1. **Happy path** — recovery link → `/reset-password` → set password → `/login`
+   → sign in → `/dashboard`.
+2. **Mismatched-portal redirect** — a recovery link for the owner portal must
+   not be accepted at `/admin/reset-password`; the callback handler redirects
+   to the correct portal.
+3. **Expired link** — a stale or replayed link must show an error state with a
+   "request a new link" CTA rather than silently failing.
+
+Required harness utility:
+```ts
+async function getResetUrl(email: string): Promise<string> {
+  const { data } = await supabase.auth.admin.generateLink({
+    type: 'recovery',
+    email,
+    options: { redirectTo: `${APP_URL}/api/auth/callback?flow=owner&next=/reset-password` },
+  });
+  return data.properties.action_link;
+}
+```
