@@ -307,11 +307,22 @@ export async function PATCH(
   const fields = Object.keys(data) as (keyof typeof data)[];
 
   // Build dynamic SET clause: $1 reserved for businessId, fields start at $2.
+  // Values bind via $N placeholders; column names come from the hardcoded
+  // FIELD_TO_COLUMN whitelist. The COLUMN_RE assertion below is defense-in-
+  // depth — if a future refactor ever accepts dynamic column names, this
+  // hard-fails before they reach the SQL string.
+  const COLUMN_RE = /^[a-z][a-z0-9_]*$/;
   const setClauses: string[] = [];
   const values: (string | string[] | boolean | null)[] = [businessId];
 
   for (const field of fields) {
     const column = FIELD_TO_COLUMN[field];
+    if (!column || !COLUMN_RE.test(column)) {
+      return NextResponse.json(
+        { error: `Invalid field: ${field}` },
+        { status: 400 },
+      );
+    }
     const value = data[field] ?? null;
     values.push(value);
     setClauses.push(`${column} = $${values.length}`);

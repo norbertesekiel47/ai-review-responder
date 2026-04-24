@@ -163,45 +163,44 @@ describe('acquireConcurrencySlot', () => {
 describe('finalizeCost', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockPipeline.incrby.mockReturnThis();
-    mockPipelineExec.mockResolvedValueOnce([[null, 1], [null, 1]]);
+    mockRedis.eval.mockResolvedValue('ok');
   });
 
   it('adjusts by (actual - estimated) using the reservation date', async () => {
     const { finalizeCost } = await import('../tracker');
     await finalizeCost('biz-001', 5, '2025-06-15'); // actual 5, estimated 15 → adjustment -10
 
-    // incrby with -10 on the SAME date as reservation
-    expect(mockPipeline.incrby).toHaveBeenCalledWith(
-      'cost:daily:biz-001:2025-06-15',
-      -10,
-    );
-    expect(mockPipeline.incrby).toHaveBeenCalledWith(
-      'cost:global:2025-06-15',
-      -10,
-    );
+    expect(mockRedis.eval).toHaveBeenCalledTimes(1);
+    const evalArgs = mockRedis.eval.mock.calls[0]!;
+    // numKeys slot
+    expect(evalArgs[1]).toBe(2);
+    expect(evalArgs[2]).toBe('cost:daily:biz-001:2025-06-15');
+    expect(evalArgs[3]).toBe('cost:global:2025-06-15');
+    // Adjustment argv is the stringified delta.
+    expect(evalArgs[4]).toBe('-10');
+    // No pipeline fallback was issued.
+    expect(mockPipeline.incrby).not.toHaveBeenCalled();
   });
 });
 
 describe('releaseCost', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockPipeline.decrby.mockReturnThis();
-    mockPipelineExec.mockResolvedValueOnce([[null, 1], [null, 1]]);
+    mockRedis.eval.mockResolvedValue('ok');
   });
 
   it('decrements by pessimistic estimate (15) using the reservation date', async () => {
     const { releaseCost } = await import('../tracker');
     await releaseCost('biz-001', '2025-06-15');
 
-    expect(mockPipeline.decrby).toHaveBeenCalledWith(
-      'cost:daily:biz-001:2025-06-15',
-      15,
-    );
-    expect(mockPipeline.decrby).toHaveBeenCalledWith(
-      'cost:global:2025-06-15',
-      15,
-    );
+    expect(mockRedis.eval).toHaveBeenCalledTimes(1);
+    const evalArgs = mockRedis.eval.mock.calls[0]!;
+    expect(evalArgs[1]).toBe(2);
+    expect(evalArgs[2]).toBe('cost:daily:biz-001:2025-06-15');
+    expect(evalArgs[3]).toBe('cost:global:2025-06-15');
+    // Release = negative pessimistic estimate, routed through the same Lua.
+    expect(evalArgs[4]).toBe('-15');
+    expect(mockPipeline.decrby).not.toHaveBeenCalled();
   });
 });
 

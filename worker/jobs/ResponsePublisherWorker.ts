@@ -215,14 +215,34 @@ export async function handlePublishResponse(
     // BullMQ will retry; the next attempt re-INSERTs and retries sending.
     // Without this rollback the retry would see the claim row and skip,
     // losing the email entirely on any transient Resend failure.
-    await sql`
-      DELETE FROM notification_deliveries
-      WHERE id = ${deliveryId} AND external_message_id IS NULL
-    `.catch((delErr) => {
+    let deleteError: unknown = null;
+    try {
+      await sql`
+        DELETE FROM notification_deliveries
+        WHERE id = ${deliveryId} AND external_message_id IS NULL
+      `;
+    } catch (delErr) {
+      deleteError = delErr;
       logger.error(
         `Failed to roll back delivery claim ${deliveryId} after send error: ${delErr instanceof Error ? delErr.message : delErr}`,
       );
-    });
+    }
+
+    if (deleteError !== null) {
+      // Both the send AND the rollback failed — the claim row is now stuck.
+      // Any future BullMQ retry would see the claim on the INSERT ON CONFLICT
+      // path and skip, silently losing the admin email. Terminate the outbox
+      // with a clear error so operators get a Sentry alert and can manually
+      // clear the delivery row before re-queueing.
+      const sendReason = err instanceof Error ? err.message : String(err);
+      const delReason = deleteError instanceof Error ? deleteError.message : String(deleteError);
+      await markOutboxFailed(
+        outboxId,
+        `send_failed_and_rollback_failed: send=${sendReason} rollback=${delReason}`,
+        outboxAttempt,
+      );
+      return;
+    }
     throw err;
   }
 

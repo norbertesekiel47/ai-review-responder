@@ -118,6 +118,20 @@ async function pollOutbox(): Promise<void> {
 
       if (!queue) {
         console.error(`[OutboxPoller] Unknown topic "${entry.topic}" for outbox entry ${entry.id}`);
+        // Unknown topic means a registration drift between the outbox
+        // producer and the queue registry — an operational bug that would
+        // otherwise silently turn rows into 'failed' without operator
+        // visibility. Capture distinctly (not just a breadcrumb) so it
+        // surfaces in the Sentry issues feed rather than only as attached
+        // context on the next unrelated exception.
+        Sentry.captureMessage(
+          `[OutboxPoller] Unknown topic "${entry.topic}" — queue registration drift`,
+          {
+            level: 'error',
+            tags: { subsystem: 'outbox', topic: entry.topic },
+            extra: { outbox_id: entry.id, attempts: entry.attempts },
+          },
+        );
         await sql`
           UPDATE job_outbox
           SET status = 'failed',

@@ -228,6 +228,17 @@ export async function acquireConcurrencySlot(
 
 // ── Phase 2: Finalization ────────────────────────────────────────────
 
+// Paired INCRBYs in a Lua script so a crash cannot drift the per-business
+// counter out of sync with the global counter. INCRBY accepts negative
+// adjustments, so the same script handles both overshoot-refund and
+// undershoot-topup paths.
+const ADJUST_COST_LUA = `
+local adjustment = tonumber(ARGV[1])
+redis.call('INCRBY', KEYS[1], adjustment)
+redis.call('INCRBY', KEYS[2], adjustment)
+return 'ok'
+`;
+
 export async function finalizeCost(
   businessId: string,
   actualCostCents: number,
@@ -236,11 +247,13 @@ export async function finalizeCost(
   const redis = getCacheRedis();
   const adjustment = actualCostCents - PESSIMISTIC_ESTIMATE_CENTS;
 
-  await redis
-    .pipeline()
-    .incrby(dailyBusinessKey(businessId, reservationDate), adjustment)
-    .incrby(dailyGlobalKey(reservationDate), adjustment)
-    .exec();
+  await redis.eval(
+    ADJUST_COST_LUA,
+    2,
+    dailyBusinessKey(businessId, reservationDate),
+    dailyGlobalKey(reservationDate),
+    String(adjustment),
+  );
 }
 
 export async function setCachedGeneration(
@@ -272,11 +285,15 @@ export async function releaseCost(
   reservationDate: string,
 ): Promise<void> {
   const redis = getCacheRedis();
-  await redis
-    .pipeline()
-    .decrby(dailyBusinessKey(businessId, reservationDate), PESSIMISTIC_ESTIMATE_CENTS)
-    .decrby(dailyGlobalKey(reservationDate), PESSIMISTIC_ESTIMATE_CENTS)
-    .exec();
+  // Release = negative adjustment equal to the pessimistic reservation,
+  // routed through the same atomic Lua script as finalizeCost.
+  await redis.eval(
+    ADJUST_COST_LUA,
+    2,
+    dailyBusinessKey(businessId, reservationDate),
+    dailyGlobalKey(reservationDate),
+    String(-PESSIMISTIC_ESTIMATE_CENTS),
+  );
 }
 
 export async function releaseConcurrencySlot(

@@ -1,5 +1,30 @@
-import { randomUUID, createHash, createHmac } from 'node:crypto';
+import { randomUUID, createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
+
+/**
+ * Constant-time hex-string compare. Returns false for mismatched lengths
+ * without touching timingSafeEqual (which throws on length mismatch).
+ * Wrapping the two paths in one helper keeps the short-circuit at the
+ * same place for every caller so we don't forget elsewhere.
+ */
+function safeHexCompare(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  try {
+    return timingSafeEqual(Buffer.from(a, 'hex'), Buffer.from(b, 'hex'));
+  } catch {
+    // Malformed hex (odd length, non-hex chars) → treat as mismatch.
+    return false;
+  }
+}
+
+/**
+ * Constant-time raw-string compare for tokens that aren't guaranteed to be hex
+ * (e.g. the double-submit CSRF UUID value). Uses UTF-8 bytes.
+ */
+function safeStringCompare(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(Buffer.from(a, 'utf8'), Buffer.from(b, 'utf8'));
+}
 
 const DEVICE_COOKIE_NAME = '__device';
 const CSRF_COOKIE_NAME = '__csrf';
@@ -67,14 +92,7 @@ export function verifyDeviceCookie(request: NextRequest): boolean {
     .update(value)
     .digest('hex');
 
-  // Constant-time comparison to prevent timing attacks
-  if (providedHmac.length !== expectedHmac.length) return false;
-
-  let mismatch = 0;
-  for (let i = 0; i < providedHmac.length; i++) {
-    mismatch |= providedHmac.charCodeAt(i) ^ expectedHmac.charCodeAt(i);
-  }
-  return mismatch === 0;
+  return safeHexCompare(providedHmac, expectedHmac);
 }
 
 // ── CSRF Cookie (double-submit pattern, NOT HttpOnly) ─────────────────
@@ -107,12 +125,5 @@ export function validateCsrf(request: NextRequest): boolean {
   const cookieToken = request.cookies.get(CSRF_COOKIE_NAME)?.value;
 
   if (!headerToken || !cookieToken) return false;
-  if (headerToken.length !== cookieToken.length) return false;
-
-  // Constant-time comparison
-  let mismatch = 0;
-  for (let i = 0; i < headerToken.length; i++) {
-    mismatch |= headerToken.charCodeAt(i) ^ cookieToken.charCodeAt(i);
-  }
-  return mismatch === 0;
+  return safeStringCompare(headerToken, cookieToken);
 }

@@ -90,7 +90,11 @@ export async function processReview(
       WHERE id = ${existing.id}
     `;
 
-    // Find the current non-terminal response for this review
+    // Find the current non-terminal response for this review. FOR UPDATE
+    // serializes against a concurrent approval transaction (which also
+    // SELECTs the row FOR UPDATE in src/lib/approval/service.ts) so we
+    // can't re-read a stale status and then stomp a fresh approval with
+    // status='failed' below.
     const [activeResponse] = await tx<{
       id: string;
       status: string;
@@ -102,6 +106,7 @@ export async function processReview(
         AND status NOT IN ('superseded', 'failed')
       ORDER BY version DESC
       LIMIT 1
+      FOR UPDATE
     `;
 
     if (!activeResponse) {
