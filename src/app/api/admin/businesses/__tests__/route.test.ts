@@ -74,7 +74,13 @@ describe('POST /api/admin/businesses — channel enrollment insert', () => {
   beforeEach(() => {
     mockRequireRole.mockReset();
     mockTxCalls.length = 0;
-    mockRequireRole.mockResolvedValue({ role: 'admin' });
+    mockRequireRole.mockResolvedValue({
+      id: '01890000-0000-7000-8000-000000000001',
+      name: 'Admin User',
+      email: 'admin@repworth.com',
+      role: 'admin',
+      businessId: null,
+    });
   });
 
   it('inserts business + email enrollment inside a single sql.begin transaction', async () => {

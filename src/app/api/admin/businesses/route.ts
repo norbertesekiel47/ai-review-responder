@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { v7 as uuidv7 } from 'uuid';
 import { OnboardBusinessSchema } from '@/lib/shared/schemas';
-import { sql, jsonb } from '@/lib/db/server';
+import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { isPlaceId, extractPlaceId } from '@/lib/reviews/url-parser';
-import type { SyncReviewsPayload, ValidatePlaceIdPayload } from '@/lib/shared/worker-types';
+import {
+  createBusinessTx,
+  DuplicateEmailError,
+  type BusinessTxInput,
+  type PlaceIdInput,
+} from '@/lib/onboarding/create-business';
 
 export const dynamic = 'force-dynamic';
 
@@ -102,27 +106,10 @@ function splitParagraphs(text: string | undefined): string[] {
     .filter(Boolean);
 }
 
-function buildPaymentLinkUrl(tier: string, businessId: string, ownerEmail: string): string | null {
-  const links: Record<string, string | undefined> = {
-    founding: process.env.STRIPE_PAYMENT_LINK_FOUNDING,
-    standard: process.env.STRIPE_PAYMENT_LINK_STANDARD,
-  };
-  const baseUrl = links[tier];
-  if (!baseUrl) return null;
-  try {
-    const url = new URL(baseUrl);
-    url.searchParams.set('client_reference_id', businessId);
-    url.searchParams.set('prefilled_email', ownerEmail);
-    return url.toString();
-  } catch {
-    console.error(`[api/admin/businesses POST] Malformed payment link URL for tier ${tier}: ${baseUrl}`);
-    return null;
-  }
-}
-
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  let authUser;
   try {
-    await requireRole(request, 'admin', 'sales_partner');
+    authUser = await requireRole(request, 'admin', 'sales_partner');
   } catch (err) {
     if (err instanceof AuthError) {
       return NextResponse.json({ error: err.message }, { status: err.statusCode });
@@ -166,136 +153,44 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'Place ID or Google Maps URL required' }, { status: 400 });
   }
 
-  const businessId = uuidv7();
-  const userId = uuidv7();
-  const outboxId = uuidv7();
+  const placeIdInput: PlaceIdInput = placeIdVerified && placeId
+    ? { placeIdVerified: true, placeId, googleMapsUrl: data.googleMapsUrl ?? null }
+    : { placeIdVerified: false, placeId: placeId ?? null, googleMapsUrl: data.googleMapsUrl! };
 
-  // Build payment link URL BEFORE the transaction — if the env var is malformed,
-  // we return null gracefully instead of crashing after the business is created.
-  const paymentUrl = buildPaymentLinkUrl(data.subscriptionTier, businessId, data.ownerEmail);
-
-  const staffNames = splitCommaOrNewline(data.staffNames);
-  const highlightFacts = splitCommaOrNewline(data.highlightFacts);
-  const avoidFacts = splitCommaOrNewline(data.avoidFacts);
-  const sampleResponses = splitParagraphs(data.sampleResponses);
+  const input: BusinessTxInput = {
+    ownerEmail: data.ownerEmail,
+    ownerName: data.ownerName,
+    ownerPhone: data.ownerPhone ?? null,
+    businessName: data.name,
+    category: data.category ?? null,
+    tone: data.tone,
+    productsServices: data.productsServices ?? null,
+    staffNames: splitCommaOrNewline(data.staffNames),
+    highlightFacts: splitCommaOrNewline(data.highlightFacts),
+    avoidFacts: splitCommaOrNewline(data.avoidFacts),
+    sampleResponses: splitParagraphs(data.sampleResponses),
+    subscriptionTier: data.subscriptionTier,
+    website: data.website ?? null,
+    placeId: placeIdInput,
+  };
 
   try {
-    await sql.begin(async (tx) => {
-      await tx`
-        INSERT INTO businesses (
-          id,
-          name,
-          category,
-          google_place_id,
-          place_id_verified,
-          google_maps_url,
-          tone,
-          products_services,
-          staff_names,
-          highlight_facts,
-          avoid_facts,
-          sample_responses,
-          owner_name,
-          owner_email,
-          owner_phone,
-          subscription_tier,
-          subscription_status,
-          website
-        ) VALUES (
-          ${businessId},
-          ${data.name},
-          ${data.category ?? null},
-          ${placeId},
-          ${placeIdVerified},
-          ${data.googleMapsUrl ?? null},
-          ${data.tone},
-          ${data.productsServices ?? null},
-          ${staffNames},
-          ${highlightFacts},
-          ${avoidFacts},
-          ${sampleResponses},
-          ${data.ownerName},
-          ${data.ownerEmail},
-          ${data.ownerPhone ?? null},
-          ${data.subscriptionTier},
-          'pending_payment',
-          ${data.website ?? null}
-        )
-      `;
-
-      await tx`
-        INSERT INTO users (id, name, email, phone, role, business_id)
-        VALUES (
-          ${userId},
-          ${data.ownerName},
-          ${data.ownerEmail},
-          ${data.ownerPhone ?? null},
-          'owner',
-          ${businessId}
-        )
-      `;
-
-      const enrollmentId = uuidv7();
-      await tx`
-        INSERT INTO channel_enrollments (id, business_id, channel, handle, status, verified_at)
-        VALUES (${enrollmentId}, ${businessId}, 'email', ${data.ownerEmail}, 'verified', NOW())
-        ON CONFLICT (business_id, channel) WHERE archived_at IS NULL DO NOTHING
-      `;
-
-      const correlationId = uuidv7();
-
-      if (placeIdVerified) {
-        // Queue sync_reviews directly — Place ID is canonical
-        const syncPayload: SyncReviewsPayload = {
-          business_id: businessId,
-          google_place_id: placeId!,
-          correlation_id: correlationId,
-        };
-        await tx`
-          INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-          VALUES (
-            ${outboxId},
-            'sync_reviews',
-            'business',
-            ${businessId},
-            ${jsonb(syncPayload)},
-            'pending'
-          )
-        `;
-      } else {
-        // Queue validate_place_id first — worker resolves then syncs
-        const validatePayload: ValidatePlaceIdPayload = {
-          business_id: businessId,
-          google_maps_url: data.googleMapsUrl!,
-          correlation_id: correlationId,
-        };
-        await tx`
-          INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-          VALUES (
-            ${outboxId},
-            'validate_place_id',
-            'business',
-            ${businessId},
-            ${jsonb(validatePayload)},
-            'pending'
-          )
-        `;
-      }
+    const result = await createBusinessTx(input, {
+      mode: 'admin',
+      onboardedBy: authUser.id,
     });
-  } catch (error) {
-    const pgError = error as { code?: string };
-    if (pgError.code === '23505') {
+    return NextResponse.json(
+      { id: result.businessId, paymentUrl: result.paymentUrl },
+      { status: 201 },
+    );
+  } catch (err) {
+    if (err instanceof DuplicateEmailError) {
       return NextResponse.json(
         { error: 'A user with this email already exists' },
         { status: 409 },
       );
     }
-    console.error('[api/admin/businesses POST] Transaction failed:', error);
-    return NextResponse.json(
-      { error: 'Failed to onboard business' },
-      { status: 500 },
-    );
+    console.error('[api/admin/businesses POST] createBusinessTx failed:', err);
+    return NextResponse.json({ error: 'Failed to onboard business' }, { status: 500 });
   }
-
-  return NextResponse.json({ id: businessId, paymentUrl }, { status: 201 });
 }
