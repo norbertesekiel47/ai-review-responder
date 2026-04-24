@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
+import { buildPaymentLinkUrl } from '@/lib/payments/payment-link';
 
 export const dynamic = 'force-dynamic';
 
@@ -81,6 +82,34 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const businessId = user.businessId;
 
   try {
+    // Cheap pre-query: determine subscription status before running the 8 heavy queries.
+    const [subRow] = await sql<{
+      name: string;
+      subscription_status: string;
+      subscription_tier: string;
+      owner_email: string;
+    }[]>`
+      SELECT name, subscription_status, subscription_tier, owner_email
+      FROM businesses WHERE id = ${businessId}
+    `;
+    if (!subRow) {
+      return jsonResponse({ error: 'Business not found' }, 404);
+    }
+
+    if (subRow.subscription_status === 'pending_payment') {
+      const paymentUrl = buildPaymentLinkUrl(
+        subRow.subscription_tier as 'founding' | 'standard',
+        businessId,
+        subRow.owner_email,
+      );
+      return jsonResponse({
+        subscriptionStatus: 'pending_payment',
+        businessId,
+        businessName: subRow.name,
+        paymentUrl,
+      });
+    }
+
     const [
       businessRows,
       totalReviewRows,

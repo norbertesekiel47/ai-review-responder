@@ -40,9 +40,18 @@ vi.mock('@/lib/db/server', () => ({
   jsonb: (v: unknown) => v,
 }));
 
+// ── Mock payment-link ────────────────────────────────────────────────
+
+vi.mock('@/lib/payments/payment-link', () => ({
+  buildPaymentLinkUrl: vi.fn(),
+}));
+
 // Import AFTER mocks are set up
 import { GET, type DashboardData } from '../route';
 import { AuthError } from '@/lib/db/auth';
+import { buildPaymentLinkUrl } from '@/lib/payments/payment-link';
+
+const mockBuildPaymentLinkUrl = vi.mocked(buildPaymentLinkUrl);
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -62,8 +71,24 @@ function ownerUser(overrides?: { businessId?: string | null }) {
   };
 }
 
-/** Sets up the 8 sql query results in order matching the Promise.all */
+/**
+ * Default subRow returned by the pre-query (call 0).
+ * For the active path, subscription_status is 'active'.
+ */
+const DEFAULT_SUB_ROW = {
+  name: 'Test Biz',
+  subscription_status: 'active',
+  subscription_tier: 'standard',
+  owner_email: 'owner@test.com',
+};
+
+/**
+ * Sets up sql query results in order.
+ * Call 0 = subRow (pre-query).
+ * Calls 1–8 = the Promise.all 8 queries (active path only).
+ */
 function setDbResults(overrides?: {
+  subRow?: unknown[];
   businessRows?: unknown[];
   totalReviewRows?: unknown[];
   totalRespondedRows?: unknown[];
@@ -76,6 +101,10 @@ function setDbResults(overrides?: {
   mockSqlResults.length = 0;
   sqlCallCounter.value = 0;
 
+  // Call 0: pre-query (subRow — subscription status check)
+  mockSqlResults.push(overrides?.subRow ?? [DEFAULT_SUB_ROW]);
+
+  // Calls 1–8: Promise.all heavy queries (only reached when status !== 'pending_payment')
   mockSqlResults.push(
     overrides?.businessRows ?? [
       {
@@ -152,9 +181,10 @@ describe('GET /api/dashboard', () => {
     expect(body.error).toBe('No business associated with this account');
   });
 
-  it('returns 404 when business not found', async () => {
+  it('returns 404 when pre-query finds no business', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
-    setDbResults({ businessRows: [] });
+    // subRow empty — pre-query returns no rows
+    setDbResults({ subRow: [] });
 
     const res = await GET(makeRequest());
     expect(res.status).toBe(404);
@@ -163,7 +193,96 @@ describe('GET /api/dashboard', () => {
     expect(body.error).toBe('Business not found');
   });
 
-  it('returns full dashboard data for valid owner', async () => {
+  // ── pending_payment early-branch ──────────────────────────────────
+
+  it('returns minimal payload for pending_payment, no heavy queries run', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+    mockBuildPaymentLinkUrl.mockReturnValue('https://pay.stripe.com/test?client_reference_id=...');
+
+    mockSqlResults.length = 0;
+    sqlCallCounter.value = 0;
+    // Only the pre-query result — Promise.all must NOT be reached
+    mockSqlResults.push([
+      {
+        name: 'Pending Biz',
+        subscription_status: 'pending_payment',
+        subscription_tier: 'standard',
+        owner_email: 'owner@pending.com',
+      },
+    ]);
+
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(200);
+
+    const body = await res.json();
+    expect(body.subscriptionStatus).toBe('pending_payment');
+    expect(body.businessId).toBe(BUSINESS_ID);
+    expect(body.businessName).toBe('Pending Biz');
+    expect(body.paymentUrl).toBe('https://pay.stripe.com/test?client_reference_id=...');
+
+    // Minimal shape — full dashboard fields must be absent
+    expect(body.business).toBeUndefined();
+    expect(body.valueSummary).toBeUndefined();
+    expect(body.recentReviews).toBeUndefined();
+
+    // Only 1 sql call (the pre-query). Promise.all 8 queries must not have run.
+    expect(sqlCallCounter.value).toBe(1);
+
+    // No-store header still present
+    expect(res.headers.get('Cache-Control')).toBe('no-store, private');
+  });
+
+  it('calls buildPaymentLinkUrl with tier, businessId, and owner_email', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+    mockBuildPaymentLinkUrl.mockReturnValue('https://pay.stripe.com/founding');
+
+    mockSqlResults.length = 0;
+    sqlCallCounter.value = 0;
+    mockSqlResults.push([
+      {
+        name: 'Founding Biz',
+        subscription_status: 'pending_payment',
+        subscription_tier: 'founding',
+        owner_email: 'founder@example.com',
+      },
+    ]);
+
+    await GET(makeRequest());
+
+    expect(mockBuildPaymentLinkUrl).toHaveBeenCalledOnce();
+    expect(mockBuildPaymentLinkUrl).toHaveBeenCalledWith(
+      'founding',
+      BUSINESS_ID,
+      'founder@example.com',
+    );
+  });
+
+  it('returns paymentUrl: null when buildPaymentLinkUrl returns null (env not set)', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+    mockBuildPaymentLinkUrl.mockReturnValue(null);
+
+    mockSqlResults.length = 0;
+    sqlCallCounter.value = 0;
+    mockSqlResults.push([
+      {
+        name: 'No Env Biz',
+        subscription_status: 'pending_payment',
+        subscription_tier: 'standard',
+        owner_email: 'owner@noenv.com',
+      },
+    ]);
+
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(200);
+
+    const body = await res.json();
+    expect(body.subscriptionStatus).toBe('pending_payment');
+    expect(body.paymentUrl).toBeNull();
+  });
+
+  // ── active path — existing behaviour preserved ─────────────────────
+
+  it('returns full dashboard data for active owner', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
     setDbResults();
 
