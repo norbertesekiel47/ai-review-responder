@@ -1,0 +1,63 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { createServerClient } from '@supabase/ssr';
+import { sql } from '@/lib/db/server';
+
+export const dynamic = 'force-dynamic';
+
+export async function GET(req: NextRequest): Promise<NextResponse> {
+  // 1. Feature flag — hide the route entirely when off.
+  if (process.env.SELF_SERVE_SIGNUP_ENABLED !== 'true') {
+    return NextResponse.json({ error: 'not_found' }, { status: 404 });
+  }
+
+  // 2. Read session via cookie-bound anon client. setAll is a no-op — this
+  //    is a read-only polling endpoint and never rewrites session cookies.
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return req.cookies.getAll();
+        },
+        setAll() {
+          // Read-only — no cookie refresh needed on this polling endpoint.
+        },
+      },
+    },
+  );
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  }
+
+  // 3. Service-role sql query — join users + businesses by auth_id.
+  //    Explicit auth_id scoping: there is no owner-scoped RLS on businesses,
+  //    so we enforce the scope in the WHERE clause.
+  const [row] = await sql<{ subscription_status: string; role: string }[]>`
+    SELECT b.subscription_status, u.role
+    FROM users u
+    JOIN businesses b ON b.id = u.business_id
+    WHERE u.auth_id = ${user.id}
+    LIMIT 1
+  `;
+
+  if (!row) {
+    // Signup flow not yet complete (no users row provisioned yet) or
+    // business not attached — tell the poller to keep waiting.
+    return NextResponse.json({ error: 'account_incomplete' }, { status: 404 });
+  }
+
+  // 4. Return subscription status + role. The /onboarding/payment-success page
+  //    polls this every 2s and redirects to /dashboard when status === 'active'.
+  return NextResponse.json(
+    { subscriptionStatus: row.subscription_status, role: row.role },
+    {
+      status: 200,
+      headers: { 'Cache-Control': 'no-store, private' },
+    },
+  );
+}
