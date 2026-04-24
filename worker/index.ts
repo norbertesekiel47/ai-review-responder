@@ -67,6 +67,7 @@ import { startRankingTrackingScheduler, stopRankingTrackingScheduler } from './j
 import { handleTrackRanking } from './jobs/RankingTrackingWorker';
 import { startOnboardingDripScheduler, stopOnboardingDripScheduler } from './jobs/OnboardingDripScheduler';
 import { handleOnboardingDrip } from './jobs/OnboardingDripWorker';
+import { startCleanupAbandonedSignupsPoller, stopCleanupAbandonedSignupsPoller } from './jobs/CleanupAbandonedSignupsPoller';
 import { isMockMode } from '../src/lib/shared/mock-mode';
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
@@ -222,6 +223,7 @@ async function main(): Promise<void> {
   startEngagementMonitorPoller();
   startRankingTrackingScheduler();
   startOnboardingDripScheduler();
+  startCleanupAbandonedSignupsPoller();
   console.log(`Worker service running on port ${PORT}`);
 }
 
@@ -239,6 +241,7 @@ async function shutdown(): Promise<void> {
   stopEngagementMonitorPoller();
   stopRankingTrackingScheduler();
   stopOnboardingDripScheduler();
+  stopCleanupAbandonedSignupsPoller();
   await Promise.all(workers.map((w) => w.close()));
   await Promise.all(Object.values(queues).map((q) => q.close()));
   await app.close();
