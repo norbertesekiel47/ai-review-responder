@@ -70,9 +70,10 @@ const FEATURES = [
 
 interface LandingContentProps {
   comingSoon: boolean;
+  selfServeEnabled?: boolean;
 }
 
-export function LandingContent({ comingSoon }: LandingContentProps) {
+export function LandingContent({ comingSoon, selfServeEnabled = false }: LandingContentProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const heroRef = useRef<HTMLDivElement>(null);
   const featuresRef = useRef<HTMLDivElement>(null);
@@ -151,7 +152,7 @@ export function LandingContent({ comingSoon }: LandingContentProps) {
           transition={{ duration: 0.8, ease: 'easeOut' }}
         >
           {/* Nav */}
-          <SiteNav comingSoon={comingSoon} />
+          <SiteNav comingSoon={comingSoon} selfServeEnabled={selfServeEnabled} />
 
           {/* Hero */}
           <section ref={heroRef} className="px-12 py-20 text-center relative">

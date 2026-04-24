@@ -186,6 +186,9 @@ Next number: **026**. Inventory: 001 (schema), 002 (P2 fixes), 003 (audit_log RL
 - `TWILIO_WHATSAPP_NUMBER` — WA sender. Format: `whatsapp:+<digits>`. Required when flag on.
 - `WHATSAPP_APPROVAL_TEMPLATE_SID` — Twilio Content SID for `repworth_approval_request_v1`. Required when flag on.
 - `WHATSAPP_APPROVAL_URL_BASE` — must equal `NEXT_PUBLIC_APP_URL + '/approve/'` (boot assertion enforces).
+- `SELF_SERVE_SIGNUP_ENABLED=true` — gates owner self-serve signup/login/reset pages + APIs. Admin surfaces (`/admin/login`, `/admin/forgot-password`, `/admin/reset-password`) never gated. When on, requires `REDIS_CACHE_URL`, `NEXT_PUBLIC_APP_URL`, and both `STRIPE_PAYMENT_LINK_*` env vars (worker startup assertion fails otherwise).
+- `CLEANUP_ABANDONED_SIGNUPS_INTERVAL_MS` — optional, default 24h.
+- `CLEANUP_ABANDONED_SIGNUPS_BATCH_SIZE` — optional, default 100.
 
 ### GBP API
 

@@ -55,7 +55,7 @@ import { handleStripeWebhook } from './ingress/stripe';
 import { handleTwilioStatusCallback, handleTwilioInbound } from './ingress/twilio';
 import { handleTwilioWhatsAppInbound, handleTwilioWhatsAppStatus } from './ingress/twilio-whatsapp';
 import { handleTelegramWebhook } from './ingress/telegram';
-import { assertChannelsSmsEnv, assertChannelsTelegramEnv, assertChannelsWhatsAppEnv } from './startup-assert';
+import { assertChannelsSmsEnv, assertChannelsTelegramEnv, assertChannelsWhatsAppEnv, assertSelfServeSignupEnv } from './startup-assert';
 import { startNotificationFailoverPoller, stopNotificationFailoverPoller } from './jobs/NotificationFailoverPoller';
 import { startWeeklySummaryScheduler, stopWeeklySummaryScheduler } from './jobs/WeeklySummaryScheduler';
 import { startArchivalPoller, stopArchivalPoller } from './jobs/ArchivalPoller';
@@ -155,7 +155,7 @@ for (const worker of workers) {
 // Re-export for use by other modules (ingress handlers, tests)
 export { queues, QUEUE_NAMES } from './queues';
 export { sql } from '../src/lib/db/server';
-export { assertChannelsSmsEnv, assertChannelsTelegramEnv, assertChannelsWhatsAppEnv } from './startup-assert';
+export { assertChannelsSmsEnv, assertChannelsTelegramEnv, assertChannelsWhatsAppEnv, assertSelfServeSignupEnv } from './startup-assert';
 
 // ---------------------------------------------------------------------------
 // Startup — register plugins, routes, then listen
@@ -169,11 +169,12 @@ async function main(): Promise<void> {
     runFirst: true,
   });
 
-  // Fail fast on missing Twilio config when SMS/WhatsApp channels are enabled.
+  // Fail fast on missing env vars when feature flags are enabled.
   try {
     assertChannelsSmsEnv();
     assertChannelsTelegramEnv();
     assertChannelsWhatsAppEnv();
+    assertSelfServeSignupEnv();
   } catch (err) {
     console.error(`[worker] Startup assertion failed: ${err instanceof Error ? err.message : err}`);
     process.exit(1);
