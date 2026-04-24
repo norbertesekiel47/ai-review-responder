@@ -94,6 +94,10 @@ vi.mock('@/lib/notifications/delivery', () => ({
 vi.mock('@/lib/shared/outbox', () => ({
   markOutboxCompleted: mockMarkOutboxCompleted,
   markOutboxFailed: mockMarkOutboxFailed,
+  extractOutboxHandle: (d: any, fallback: string) => ({
+    outboxId: d && typeof d.outbox_id === 'string' ? d.outbox_id : fallback,
+    attempt: d && typeof d.outbox_attempt === 'number' ? d.outbox_attempt : undefined,
+  }),
 }));
 
 vi.mock('@/lib/shared/subscription-guard', () => ({

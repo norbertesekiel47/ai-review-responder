@@ -2,7 +2,7 @@ import type { Job } from 'bullmq';
 import type postgres from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '../../src/lib/db/server';
-import { markOutboxCompleted, markOutboxFailed } from '../../src/lib/shared/outbox';
+import { markOutboxCompleted, markOutboxFailed, extractOutboxHandle } from '../../src/lib/shared/outbox';
 import type { ValidatePlaceIdPayload, SyncReviewsPayload } from '../../src/lib/shared/worker-types';
 import { parseGoogleMapsUrl, isPlaceId } from '../../src/lib/reviews/url-parser';
 import { resolvePlaceId } from '../../src/lib/reviews/place-id-resolver';
@@ -16,7 +16,7 @@ export async function handlePlaceIdValidation(
 ): Promise<void> {
   const logger = createWorkerLogger('[PlaceIdValidationWorker]', job.data.correlation_id);
   const { business_id, google_maps_url } = job.data;
-  const outboxId = (job.data as unknown as { outbox_id?: string }).outbox_id ?? job.id!;
+  const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
 
   // Load business
   const [business] = await sql<{ id: string; google_place_id: string | null }[]>`
@@ -25,7 +25,7 @@ export async function handlePlaceIdValidation(
 
   if (!business) {
     logger.warn(`Business ${business_id} not found`);
-    await markOutboxCompleted(outboxId);
+    await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }
 
@@ -45,7 +45,7 @@ export async function handlePlaceIdValidation(
       await enqueueSyncReviews(tx, business_id, urlData.placeId!, job.data.correlation_id);
     });
 
-    await markOutboxCompleted(outboxId);
+    await markOutboxCompleted(outboxId, outboxAttempt);
     logger.log(`Business ${business_id} verified (canonical ID in URL)`);
     return;
   }
@@ -65,7 +65,7 @@ export async function handlePlaceIdValidation(
       await enqueueSyncReviews(tx, business_id, resolvedPlaceId, job.data.correlation_id);
     });
 
-    await markOutboxCompleted(outboxId);
+    await markOutboxCompleted(outboxId, outboxAttempt);
     logger.log(`Business ${business_id} resolved to ${resolvedPlaceId}`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -87,7 +87,7 @@ export async function handlePlaceIdValidation(
       )
     `;
 
-    await markOutboxFailed(outboxId, message);
+    await markOutboxFailed(outboxId, message, outboxAttempt);
   }
 }
 

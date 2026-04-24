@@ -2,7 +2,7 @@ import type { Job } from 'bullmq';
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '../../src/lib/db/server';
 import { checkSubscription } from '../../src/lib/shared/subscription-guard';
-import { markOutboxCompleted, markOutboxFailed } from '../../src/lib/shared/outbox';
+import { markOutboxCompleted, markOutboxFailed, extractOutboxHandle } from '../../src/lib/shared/outbox';
 import { sendInternalEmail, buildWeeklyValueReportHtml } from '../../src/lib/notifications/email';
 import { recordNotificationDelivery } from '../../src/lib/notifications/delivery';
 import { generateReviewSummary } from '../../src/lib/responses/review-summary';
@@ -15,7 +15,7 @@ export async function handleWeeklySummary(
 ): Promise<void> {
   const logger = createWorkerLogger('[WeeklySummaryWorker]', job.data.correlation_id);
   const { business_id, week_start_date } = job.data;
-  const outboxId = (job.data as unknown as { outbox_id?: string }).outbox_id ?? job.id!;
+  const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
 
   // ── 1. Load business (including ROI baseline fields) ──────────────
   const [business] = await sql<{
@@ -38,7 +38,7 @@ export async function handleWeeklySummary(
 
   if (!business) {
     logger.warn(`Business ${business_id} not found`);
-    await markOutboxFailed(outboxId, 'business_not_found');
+    await markOutboxFailed(outboxId, 'business_not_found', outboxAttempt);
     return;
   }
 
@@ -51,7 +51,7 @@ export async function handleWeeklySummary(
 
   if (!subCheck.allowed) {
     logger.log(`Business ${business_id} skipped: ${subCheck.reason}`);
-    await markOutboxCompleted(outboxId);
+    await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }
 
@@ -60,7 +60,7 @@ export async function handleWeeklySummary(
   // Admin verifies and clears owner_email_bounced manually from /admin/businesses/[id].
   if (business.owner_email_bounced) {
     logger.log(`Business ${business_id} owner email bounced — skipping`);
-    await markOutboxCompleted(outboxId);
+    await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }
 
@@ -197,7 +197,7 @@ export async function handleWeeklySummary(
     `;
     if (existing?.sent_at) {
       logger.log(`Weekly summary for ${business_id} week ${week_start_date} already sent`);
-      await markOutboxCompleted(outboxId);
+      await markOutboxCompleted(outboxId, outboxAttempt);
     } else {
       // Freshly claimed by another worker — throw so BullMQ retries after backoff
       logger.log(`Weekly summary for ${business_id} week ${week_start_date} claimed by another worker, will retry`);
@@ -316,7 +316,7 @@ export async function handleWeeklySummary(
     // Keep sent_at set — Resend may have accepted the email before the error.
     // Clearing would risk a duplicate if the scheduler re-queues this business.
     // Prompt 19a accepts the rare missed-email risk over duplicate sends.
-    await markOutboxFailed(outboxId, err instanceof Error ? err.message : String(err));
+    await markOutboxFailed(outboxId, err instanceof Error ? err.message : String(err), outboxAttempt);
     return;
   }
 
@@ -329,6 +329,6 @@ export async function handleWeeklySummary(
     externalMessageId: messageId,
   });
 
-  await markOutboxCompleted(outboxId);
+  await markOutboxCompleted(outboxId, outboxAttempt);
   logger.log(`Weekly value report sent for business ${business_id} (week ${week_start_date})`);
 }

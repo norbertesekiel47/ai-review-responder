@@ -51,10 +51,22 @@ interface TelegramUpdate {
   };
 }
 
+const CALLBACK_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function parseCallbackData(data: string): { action: 'approve' | 'regenerate'; approvalLinkId: string } | null {
-  if (data.startsWith('a:')) return { action: 'approve', approvalLinkId: data.slice(2) };
-  if (data.startsWith('r:')) return { action: 'regenerate', approvalLinkId: data.slice(2) };
-  return null;
+  let action: 'approve' | 'regenerate';
+  let rest: string;
+  if (data.startsWith('a:')) {
+    action = 'approve';
+    rest = data.slice(2);
+  } else if (data.startsWith('r:')) {
+    action = 'regenerate';
+    rest = data.slice(2);
+  } else {
+    return null;
+  }
+  if (!CALLBACK_UUID_RE.test(rest)) return null;
+  return { action, approvalLinkId: rest };
 }
 
 // Strip PII from the update before persisting to inbound_events.payload.

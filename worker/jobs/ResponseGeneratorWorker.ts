@@ -2,11 +2,11 @@ import type { Job } from 'bullmq';
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '../../src/lib/db/server';
 import { checkSubscription } from '../../src/lib/shared/subscription-guard';
-import { markOutboxCompleted, markOutboxFailed } from '../../src/lib/shared/outbox';
+import { markOutboxCompleted, markOutboxFailed, extractOutboxHandle } from '../../src/lib/shared/outbox';
 import { isMockMode } from '../../src/lib/shared/mock-mode';
 import { sanitizeText } from '../../src/lib/shared/sanitize';
 import { getApprovedResponsePairs } from '../../src/lib/responses/voice-learning';
-import { generateResponse } from '../../src/lib/responses/generator';
+import { generateResponse, TransientLLMError } from '../../src/lib/responses/generator';
 import { generateMockResponse } from '../../src/lib/responses/mock-generator';
 import {
   CostLimitExceededError,
@@ -26,7 +26,7 @@ export async function handleResponseGeneration(
 ): Promise<void> {
   const logger = createWorkerLogger('[ResponseGeneratorWorker]', job.data.correlation_id);
   const { review_id, business_id, version } = job.data;
-  const outboxId = (job.data as unknown as { outbox_id?: string }).outbox_id ?? job.id!;
+  const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
 
   // ── Step 1: Read review and business ─────────────────────────────────
   const [review] = await sql<{
@@ -43,7 +43,7 @@ export async function handleResponseGeneration(
 
   if (!review) {
     logger.warn(`Review ${review_id} not found`);
-    await markOutboxFailed(outboxId, 'review_not_found');
+    await markOutboxFailed(outboxId, 'review_not_found', outboxAttempt);
     return;
   }
 
@@ -69,7 +69,7 @@ export async function handleResponseGeneration(
 
   if (!business) {
     logger.warn(`Business ${business_id} not found`);
-    await markOutboxFailed(outboxId, 'business_not_found');
+    await markOutboxFailed(outboxId, 'business_not_found', outboxAttempt);
     return;
   }
 
@@ -82,7 +82,7 @@ export async function handleResponseGeneration(
 
   if (!subCheck.allowed) {
     logger.log(`Business ${business_id} skipped: ${subCheck.reason}`);
-    await markOutboxCompleted(outboxId);
+    await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }
 
@@ -129,7 +129,7 @@ export async function handleResponseGeneration(
 
   if (existingResponse) {
     logger.log(`Response already exists for review ${review_id} v${version}, completing outbox`);
-    await markOutboxCompleted(outboxId);
+    await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }
 
@@ -143,7 +143,7 @@ export async function handleResponseGeneration(
     } catch (err) {
       if (err instanceof RegenBudgetExceededError) {
         logger.warn(`Regen budget exceeded for review ${review_id}`);
-        await markOutboxFailed(outboxId, err.message);
+        await markOutboxFailed(outboxId, err.message, outboxAttempt);
         return;
       }
       throw err;
@@ -171,16 +171,23 @@ export async function handleResponseGeneration(
   } catch (err) {
     if (err instanceof CostLimitExceededError || err instanceof GlobalCostLimitExceededError) {
       logger.warn(`Cost limit exceeded for business ${business_id}: ${err.message}`);
-      await markOutboxFailed(outboxId, err.message);
+      await markOutboxFailed(outboxId, err.message, outboxAttempt);
       return;
     }
     if (err instanceof ConcurrencyLimitExceededError) {
       // Transient — other jobs will finish, then this one can proceed
       throw err;
     }
-    // LLM failures (both providers down) or other errors
+    if (err instanceof TransientLLMError) {
+      // Provider outage / rate-limit / network — rethrow so BullMQ retries
+      // (3 attempts + exponential backoff) and, if those exhaust, the
+      // outbox watchdog re-dispatches after the 1h stale window.
+      logger.warn(`Transient LLM error for review ${review_id} (will retry): ${err.message}`);
+      throw err;
+    }
+    // Permanent LLM/config error (auth, bad request, validation)
     logger.error(`Generation failed for review ${review_id}: ${err instanceof Error ? err.message : err}`);
-    await markOutboxFailed(outboxId, `generation_failed: ${err instanceof Error ? err.message : err}`);
+    await markOutboxFailed(outboxId, `generation_failed: ${err instanceof Error ? err.message : err}`, outboxAttempt);
     return;
   }
 
@@ -200,7 +207,7 @@ export async function handleResponseGeneration(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logger.error(`Avoid-facts guardrail failed for review ${review_id}: ${message}`);
-    await markOutboxFailed(outboxId, `guardrail_failed: ${message}`);
+    await markOutboxFailed(outboxId, `guardrail_failed: ${message}`, outboxAttempt);
     return;
   }
 
@@ -211,7 +218,7 @@ export async function handleResponseGeneration(
   // DB transaction failure throws for BullMQ retry (transient)
 
   // ── Step 10: Complete outbox ─────────────────────────────────────────
-  await markOutboxCompleted(outboxId);
+  await markOutboxCompleted(outboxId, outboxAttempt);
   logger.log(`Response ${responseId} generated for review ${review_id} (v${version})`);
 }
 

@@ -16,6 +16,7 @@ const { mockRedis } = vi.hoisted(() => {
     exec: vi.fn().mockResolvedValue([]),
     get: vi.fn(),
     set: vi.fn(),
+    eval: vi.fn(),
   };
   return { mockRedis };
 });
@@ -77,10 +78,8 @@ describe('Cost amplification — regen budget', () => {
   });
 
   it('throws RegenBudgetExceededError on 4th regeneration and rolls back', async () => {
-    // Simulate 4th attempt: incr returns 4 (exceeds MAX_REGEN_PER_REVIEW_PER_DAY=3)
-    mockRedis.incr.mockResolvedValueOnce(4);
-    mockRedis.expire.mockResolvedValueOnce(1);
-    mockRedis.decr.mockResolvedValueOnce(3);
+    // Simulate 4th attempt: Lua returns exceeded after rolling back inside Redis.
+    mockRedis.eval.mockResolvedValueOnce(['exceeded', 4]);
 
     const { checkRegenBudget, RegenBudgetExceededError } =
       await import('@/lib/costs/tracker');
@@ -88,8 +87,8 @@ describe('Cost amplification — regen budget', () => {
     await expect(checkRegenBudget('review-sec-test')).rejects.toThrow(
       RegenBudgetExceededError,
     );
-    // Verify rollback: decr was called to release the budget slot
-    expect(mockRedis.decr).toHaveBeenCalledOnce();
+    // Rollback now happens inside the Lua script, so the client call is atomic.
+    expect(mockRedis.eval).toHaveBeenCalledOnce();
   });
 });
 

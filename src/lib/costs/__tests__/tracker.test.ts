@@ -22,6 +22,7 @@ const mockRedis = {
   incr: vi.fn(),
   decr: vi.fn(),
   expire: vi.fn(),
+  eval: vi.fn(),
   pipeline: vi.fn().mockReturnValue(mockPipeline),
 };
 
@@ -32,6 +33,7 @@ vi.mock('ioredis', () => ({
     incr = mockRedis.incr;
     decr = mockRedis.decr;
     expire = mockRedis.expire;
+    eval = mockRedis.eval;
     pipeline = mockRedis.pipeline;
   },
 }));
@@ -96,37 +98,34 @@ describe('reserveCost', () => {
   });
 
   it('increments both business and global keys and returns date string', async () => {
-    mockPipelineExec
-      .mockResolvedValueOnce([[null, 15], [null, 15]])   // incrby results
-      .mockResolvedValueOnce([[null, 1], [null, 1]]);    // expire results
+    // Lua EVAL returns ['ok', biz, global] when both increments stay under limits.
+    mockRedis.eval.mockResolvedValueOnce(['ok', 15, 15]);
 
     const { reserveCost } = await import('../tracker');
     const dateStr = await reserveCost('biz-001', 'standard');
 
-    expect(mockPipeline.incrby).toHaveBeenCalledTimes(2);
+    expect(mockRedis.eval).toHaveBeenCalledTimes(1);
+    // biz + global key are the 2 Redis KEYS slots
+    const evalArgs = mockRedis.eval.mock.calls[0]!;
+    expect(evalArgs[1]).toBe(2);
+    expect(evalArgs[2]).toMatch(/^cost:daily:biz-001:/);
+    expect(evalArgs[3]).toMatch(/^cost:global:/);
     expect(dateStr).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
   it('throws CostLimitExceededError and rolls back when business limit exceeded', async () => {
-    // Simulate business total = 1001 (over 1000 standard limit)
-    mockPipelineExec
-      .mockResolvedValueOnce([[null, 1001], [null, 50]])  // incrby results
-      .mockResolvedValueOnce([[null, 1], [null, 1]]);     // decrby rollback
+    // Lua script returns 'biz_exceeded' after internally rolling back.
+    mockRedis.eval.mockResolvedValueOnce(['biz_exceeded', 1001, 50]);
 
     const { reserveCost, CostLimitExceededError } = await import('../tracker');
     await expect(reserveCost('biz-001', 'standard')).rejects.toThrow(
       CostLimitExceededError,
     );
-
-    // Should have called decrby to rollback
-    expect(mockPipeline.decrby).toHaveBeenCalled();
+    expect(mockRedis.eval).toHaveBeenCalledTimes(1);
   });
 
   it('throws GlobalCostLimitExceededError when global limit exceeded', async () => {
-    // Business OK, global over
-    mockPipelineExec
-      .mockResolvedValueOnce([[null, 100], [null, 10001]])  // incrby results
-      .mockResolvedValueOnce([[null, 1], [null, 1]]);        // decrby rollback
+    mockRedis.eval.mockResolvedValueOnce(['global_exceeded', 100, 10001]);
 
     const { reserveCost, GlobalCostLimitExceededError } = await import('../tracker');
     await expect(reserveCost('biz-001', 'standard')).rejects.toThrow(
@@ -141,68 +140,67 @@ describe('acquireConcurrencySlot', () => {
   });
 
   it('acquires slot when under limit', async () => {
-    mockRedis.incr.mockResolvedValueOnce(1);
-    mockRedis.expire.mockResolvedValueOnce(1);
+    mockRedis.eval.mockResolvedValueOnce(['ok', 1]);
 
     const { acquireConcurrencySlot } = await import('../tracker');
     await expect(acquireConcurrencySlot('biz-001')).resolves.toBeUndefined();
+    expect(mockRedis.eval).toHaveBeenCalledTimes(1);
   });
 
   it('throws ConcurrencyLimitExceededError at max+1 and releases', async () => {
-    mockRedis.incr.mockResolvedValueOnce(4); // over limit of 3
-    mockRedis.decr.mockResolvedValueOnce(3);
+    // Lua script has already rolled back (DECR'd) when it returns 'exceeded'.
+    mockRedis.eval.mockResolvedValueOnce(['exceeded', 4]);
 
     const { acquireConcurrencySlot, ConcurrencyLimitExceededError } =
       await import('../tracker');
     await expect(acquireConcurrencySlot('biz-001')).rejects.toThrow(
       ConcurrencyLimitExceededError,
     );
-    expect(mockRedis.decr).toHaveBeenCalled();
+    expect(mockRedis.eval).toHaveBeenCalledTimes(1);
   });
 });
 
 describe('finalizeCost', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockPipeline.incrby.mockReturnThis();
-    mockPipelineExec.mockResolvedValueOnce([[null, 1], [null, 1]]);
+    mockRedis.eval.mockResolvedValue('ok');
   });
 
   it('adjusts by (actual - estimated) using the reservation date', async () => {
     const { finalizeCost } = await import('../tracker');
     await finalizeCost('biz-001', 5, '2025-06-15'); // actual 5, estimated 15 → adjustment -10
 
-    // incrby with -10 on the SAME date as reservation
-    expect(mockPipeline.incrby).toHaveBeenCalledWith(
-      'cost:daily:biz-001:2025-06-15',
-      -10,
-    );
-    expect(mockPipeline.incrby).toHaveBeenCalledWith(
-      'cost:global:2025-06-15',
-      -10,
-    );
+    expect(mockRedis.eval).toHaveBeenCalledTimes(1);
+    const evalArgs = mockRedis.eval.mock.calls[0]!;
+    // numKeys slot
+    expect(evalArgs[1]).toBe(2);
+    expect(evalArgs[2]).toBe('cost:daily:biz-001:2025-06-15');
+    expect(evalArgs[3]).toBe('cost:global:2025-06-15');
+    // Adjustment argv is the stringified delta.
+    expect(evalArgs[4]).toBe('-10');
+    // No pipeline fallback was issued.
+    expect(mockPipeline.incrby).not.toHaveBeenCalled();
   });
 });
 
 describe('releaseCost', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockPipeline.decrby.mockReturnThis();
-    mockPipelineExec.mockResolvedValueOnce([[null, 1], [null, 1]]);
+    mockRedis.eval.mockResolvedValue('ok');
   });
 
   it('decrements by pessimistic estimate (15) using the reservation date', async () => {
     const { releaseCost } = await import('../tracker');
     await releaseCost('biz-001', '2025-06-15');
 
-    expect(mockPipeline.decrby).toHaveBeenCalledWith(
-      'cost:daily:biz-001:2025-06-15',
-      15,
-    );
-    expect(mockPipeline.decrby).toHaveBeenCalledWith(
-      'cost:global:2025-06-15',
-      15,
-    );
+    expect(mockRedis.eval).toHaveBeenCalledTimes(1);
+    const evalArgs = mockRedis.eval.mock.calls[0]!;
+    expect(evalArgs[1]).toBe(2);
+    expect(evalArgs[2]).toBe('cost:daily:biz-001:2025-06-15');
+    expect(evalArgs[3]).toBe('cost:global:2025-06-15');
+    // Release = negative pessimistic estimate, routed through the same Lua.
+    expect(evalArgs[4]).toBe('-15');
+    expect(mockPipeline.decrby).not.toHaveBeenCalled();
   });
 });
 
@@ -232,24 +230,22 @@ describe('checkRegenBudget', () => {
   });
 
   it('allows up to 3 regenerations', async () => {
-    mockRedis.incr.mockResolvedValueOnce(3);
-    mockRedis.expire.mockResolvedValueOnce(1);
+    mockRedis.eval.mockResolvedValueOnce(['ok', 3]);
 
     const { checkRegenBudget } = await import('../tracker');
     await expect(checkRegenBudget('rev-001')).resolves.toBeUndefined();
+    expect(mockRedis.eval).toHaveBeenCalledTimes(1);
   });
 
   it('throws RegenBudgetExceededError on 4th and releases', async () => {
-    mockRedis.incr.mockResolvedValueOnce(4);
-    mockRedis.decr.mockResolvedValueOnce(3);
-    mockRedis.expire.mockResolvedValueOnce(1);
+    mockRedis.eval.mockResolvedValueOnce(['exceeded', 4]);
 
     const { checkRegenBudget, RegenBudgetExceededError } =
       await import('../tracker');
     await expect(checkRegenBudget('rev-001')).rejects.toThrow(
       RegenBudgetExceededError,
     );
-    expect(mockRedis.decr).toHaveBeenCalled();
+    expect(mockRedis.eval).toHaveBeenCalledTimes(1);
   });
 });
 

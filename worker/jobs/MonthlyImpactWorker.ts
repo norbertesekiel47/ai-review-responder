@@ -2,7 +2,7 @@ import type { Job } from 'bullmq';
 import { v7 as uuidv7 } from 'uuid';
 import { sql } from '../../src/lib/db/server';
 import { checkSubscription } from '../../src/lib/shared/subscription-guard';
-import { markOutboxCompleted, markOutboxFailed } from '../../src/lib/shared/outbox';
+import { markOutboxCompleted, markOutboxFailed, extractOutboxHandle } from '../../src/lib/shared/outbox';
 import { sendInternalEmail, buildMonthlyImpactEmailHtml } from '../../src/lib/notifications/email';
 import { recordNotificationDelivery } from '../../src/lib/notifications/delivery';
 import { generateReviewSummary } from '../../src/lib/responses/review-summary';
@@ -14,7 +14,7 @@ export async function handleMonthlyImpact(
 ): Promise<void> {
   const logger = createWorkerLogger('[MonthlyImpactWorker]', job.data.correlation_id);
   const { business_id, month_start_date } = job.data;
-  const outboxId = (job.data as unknown as { outbox_id?: string }).outbox_id ?? job.id!;
+  const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
 
   // ── 1. Load business (including ROI baseline fields) ──────────────
   const [business] = await sql<{
@@ -37,7 +37,7 @@ export async function handleMonthlyImpact(
 
   if (!business) {
     logger.warn(`Business ${business_id} not found`);
-    await markOutboxFailed(outboxId, 'business_not_found');
+    await markOutboxFailed(outboxId, 'business_not_found', outboxAttempt);
     return;
   }
 
@@ -50,7 +50,7 @@ export async function handleMonthlyImpact(
 
   if (!subCheck.allowed) {
     logger.log(`Business ${business_id} skipped: ${subCheck.reason}`);
-    await markOutboxCompleted(outboxId);
+    await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }
 
@@ -59,7 +59,7 @@ export async function handleMonthlyImpact(
   // Admin verifies and clears owner_email_bounced manually from /admin/businesses/[id].
   if (business.owner_email_bounced) {
     logger.log(`Business ${business_id} owner email bounced — skipping`);
-    await markOutboxCompleted(outboxId);
+    await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }
 
@@ -85,7 +85,7 @@ export async function handleMonthlyImpact(
     `;
     if (existing?.sent_at) {
       logger.log(`Monthly impact for ${business_id} month ${month_start_date} already sent`);
-      await markOutboxCompleted(outboxId);
+      await markOutboxCompleted(outboxId, outboxAttempt);
     } else {
       logger.log(`Monthly impact for ${business_id} month ${month_start_date} claimed by another worker, will retry`);
       throw new Error('Report claimed by another worker');
@@ -300,7 +300,7 @@ export async function handleMonthlyImpact(
     logger.error(`Failed to send monthly impact report for business ${business_id} (month ${month_start_date}): ${err instanceof Error ? err.message : err}`);
     // Keep sent_at set — Resend may have accepted the email before the error.
     // Clearing would risk a duplicate if the scheduler re-queues this business.
-    await markOutboxFailed(outboxId, err instanceof Error ? err.message : String(err));
+    await markOutboxFailed(outboxId, err instanceof Error ? err.message : String(err), outboxAttempt);
     return;
   }
 
@@ -313,6 +313,6 @@ export async function handleMonthlyImpact(
     externalMessageId: messageId,
   });
 
-  await markOutboxCompleted(outboxId);
+  await markOutboxCompleted(outboxId, outboxAttempt);
   logger.log(`Monthly impact report sent for business ${business_id} (month ${month_start_date})`);
 }

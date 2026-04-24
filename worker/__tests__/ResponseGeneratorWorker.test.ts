@@ -56,6 +56,7 @@ vi.mock('../../src/lib/db/server', () => ({
 vi.mock('../../src/lib/shared/outbox', () => ({
   markOutboxCompleted: mockMarkOutboxCompleted,
   markOutboxFailed: mockMarkOutboxFailed,
+  extractOutboxHandle: (d: any, fallback: string) => ({ outboxId: (d && typeof d.outbox_id === 'string') ? d.outbox_id : fallback, attempt: (d && typeof d.outbox_attempt === 'number') ? d.outbox_attempt : undefined }),
 }));
 
 vi.mock('../../src/lib/shared/mock-mode', () => ({
@@ -163,7 +164,7 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
     // with the cost ID from MOCK_RESULT.apiCostId ('cost-1')
     const txCallArgs = mockTx.mock.calls.map((c) => c.slice(1)).flat();
     expect(txCallArgs).toContain('cost-1');
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-gen-1');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-gen-1', undefined);
   });
 
   // 1b. Correlation propagation into send_notification payload
@@ -206,7 +207,7 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
 
     await handleResponseGeneration(makeJob());
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-gen-1');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-gen-1', undefined);
     expect(mockGenerateResponse).not.toHaveBeenCalled();
     expect(mockGenerateMockResponse).not.toHaveBeenCalled();
   });
@@ -221,8 +222,7 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
 
     expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
       'outbox-gen-1',
-      expect.stringContaining('cost limit exceeded'),
-    );
+      expect.stringContaining('cost limit exceeded'), undefined);
     expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
   });
 
@@ -237,7 +237,7 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
 
     expect(mockGenerateMockResponse).toHaveBeenCalledOnce();
     expect(mockGenerateResponse).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-gen-1');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-gen-1', undefined);
   });
 
   // 5. Avoid-facts violation triggers retry
@@ -277,6 +277,6 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
       1,
       expect.stringContaining('Thank you for the kind review!'),
     );
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-gen-1');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-gen-1', undefined);
   });
 });

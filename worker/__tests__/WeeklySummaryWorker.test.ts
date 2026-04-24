@@ -42,6 +42,7 @@ vi.mock('../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) =>
 vi.mock('../../src/lib/shared/outbox', () => ({
   markOutboxCompleted: mockMarkOutboxCompleted,
   markOutboxFailed: mockMarkOutboxFailed,
+  extractOutboxHandle: (d: any, fallback: string) => ({ outboxId: (d && typeof d.outbox_id === 'string') ? d.outbox_id : fallback, attempt: (d && typeof d.outbox_attempt === 'number') ? d.outbox_attempt : undefined }),
 }));
 vi.mock('../../src/lib/notifications/email', () => ({
   sendInternalEmail: mockSendInternalEmail,
@@ -147,7 +148,7 @@ describe('WeeklySummaryWorker – handleWeeklySummary', () => {
 
     await handleWeeklySummary(makeJob());
 
-    expect(mockMarkOutboxFailed).toHaveBeenCalledWith('outbox-ws-1', 'business_not_found');
+    expect(mockMarkOutboxFailed).toHaveBeenCalledWith('outbox-ws-1', 'business_not_found', undefined);
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
   });
 
@@ -157,7 +158,7 @@ describe('WeeklySummaryWorker – handleWeeklySummary', () => {
     await handleWeeklySummary(makeJob());
 
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ws-1');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ws-1', undefined);
   });
 
   it('skips if subscription not allowed (pending_payment)', async () => {
@@ -166,7 +167,7 @@ describe('WeeklySummaryWorker – handleWeeklySummary', () => {
     await handleWeeklySummary(makeJob());
 
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ws-1');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ws-1', undefined);
   });
 
   it('calls generateReviewSummary with week reviews', async () => {
@@ -217,7 +218,7 @@ describe('WeeklySummaryWorker – handleWeeklySummary', () => {
       template: 'weekly_value_report',
       externalMessageId: 'msg-ws-1',
     });
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ws-1');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ws-1', undefined);
   });
 
   it('reuses existing summary_text instead of calling LLM again', async () => {
@@ -257,7 +258,7 @@ describe('WeeklySummaryWorker – handleWeeklySummary', () => {
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
     expect(mockGenerateReviewSummary).not.toHaveBeenCalled();
     expect(mockRecordNotificationDelivery).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ws-1');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ws-1', undefined);
   });
 
   it('throws for retry when claimed by another worker (not yet sent)', async () => {
@@ -332,7 +333,7 @@ describe('WeeklySummaryWorker – handleWeeklySummary', () => {
 
     await handleWeeklySummary(makeJob());
 
-    expect(mockMarkOutboxFailed).toHaveBeenCalledWith('outbox-ws-1', 'Resend API error');
+    expect(mockMarkOutboxFailed).toHaveBeenCalledWith('outbox-ws-1', 'Resend API error', undefined);
     expect(mockRecordNotificationDelivery).not.toHaveBeenCalled();
   });
 });

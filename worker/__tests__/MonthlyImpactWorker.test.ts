@@ -42,6 +42,7 @@ vi.mock('../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) =>
 vi.mock('../../src/lib/shared/outbox', () => ({
   markOutboxCompleted: mockMarkOutboxCompleted,
   markOutboxFailed: mockMarkOutboxFailed,
+  extractOutboxHandle: (d: any, fallback: string) => ({ outboxId: (d && typeof d.outbox_id === 'string') ? d.outbox_id : fallback, attempt: (d && typeof d.outbox_attempt === 'number') ? d.outbox_attempt : undefined }),
 }));
 vi.mock('../../src/lib/notifications/email', () => ({
   sendInternalEmail: mockSendInternalEmail,
@@ -157,7 +158,7 @@ describe('MonthlyImpactWorker – handleMonthlyImpact', () => {
 
     await handleMonthlyImpact(makeJob());
 
-    expect(mockMarkOutboxFailed).toHaveBeenCalledWith('outbox-mi-1', 'business_not_found');
+    expect(mockMarkOutboxFailed).toHaveBeenCalledWith('outbox-mi-1', 'business_not_found', undefined);
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
   });
 
@@ -167,7 +168,7 @@ describe('MonthlyImpactWorker – handleMonthlyImpact', () => {
     await handleMonthlyImpact(makeJob());
 
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-mi-1');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-mi-1', undefined);
   });
 
   it('skips if subscription not allowed (pending_payment)', async () => {
@@ -176,7 +177,7 @@ describe('MonthlyImpactWorker – handleMonthlyImpact', () => {
     await handleMonthlyImpact(makeJob());
 
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-mi-1');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-mi-1', undefined);
   });
 
   it('already-sent report marks outbox completed without sending', async () => {
@@ -189,7 +190,7 @@ describe('MonthlyImpactWorker – handleMonthlyImpact', () => {
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
     expect(mockGenerateReviewSummary).not.toHaveBeenCalled();
     expect(mockRecordNotificationDelivery).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-mi-1');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-mi-1', undefined);
   });
 
   it('throws for retry when claimed by another worker (not yet sent)', async () => {
@@ -236,7 +237,7 @@ describe('MonthlyImpactWorker – handleMonthlyImpact', () => {
       template: 'monthly_impact',
       externalMessageId: 'msg-mi-1',
     });
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-mi-1');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-mi-1', undefined);
   });
 
   it('reuses existing summary_text from upsert (no LLM re-call)', async () => {
@@ -301,7 +302,7 @@ describe('MonthlyImpactWorker – handleMonthlyImpact', () => {
 
     await handleMonthlyImpact(makeJob());
 
-    expect(mockMarkOutboxFailed).toHaveBeenCalledWith('outbox-mi-1', 'Resend API error');
+    expect(mockMarkOutboxFailed).toHaveBeenCalledWith('outbox-mi-1', 'Resend API error', undefined);
     expect(mockRecordNotificationDelivery).not.toHaveBeenCalled();
   });
 

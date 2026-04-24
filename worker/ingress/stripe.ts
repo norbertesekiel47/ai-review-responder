@@ -1,7 +1,7 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import Stripe from 'stripe';
-import { v7 as uuidv7 } from 'uuid';
-import { sql, jsonb } from '../../src/lib/db/server';
+import { sql } from '../../src/lib/db/server';
+import { claimInboundEvent } from './shared';
 
 const LOG_PREFIX = '[ingress/stripe]';
 
@@ -170,31 +170,13 @@ export async function handleStripeWebhook(request: FastifyRequest, reply: Fastif
     return;
   }
 
-  // Atomic dedup: INSERT or skip if already exists.
-  const claimed = await sql`
-    INSERT INTO inbound_events (id, source, external_event_key, event_type, payload, status)
-    VALUES (
-      ${uuidv7()},
-      'stripe',
-      ${event.id},
-      ${event.type},
-      ${jsonb(event)},
-      'received'
-    )
-    ON CONFLICT (external_event_key) DO NOTHING
-    RETURNING id
-  `;
-
-  if (claimed.count === 0) {
-    // Already claimed — check if processed
-    const [existing] = await sql<{ status: string }[]>`
-      SELECT status FROM inbound_events WHERE external_event_key = ${event.id}
-    `;
-    if (existing?.status === 'processed') {
-      console.log(`${LOG_PREFIX} Duplicate event ${event.id} already processed — skipping`);
-    } else {
-      console.log(`${LOG_PREFIX} Event ${event.id} already claimed (status=${existing?.status}) — skipping`);
-    }
+  // Dedup + reclaim: processes first-time events AND failed/stale retries.
+  // Returning 200 duplicate on failed rows would permanently swallow a retry
+  // (Stripe never retries after a 200), so we route failed + stale-received
+  // rows back through processing via claimInboundEvent.
+  const claim = await claimInboundEvent('stripe', event.id, event.type, event);
+  if (claim === 'duplicate') {
+    console.log(`${LOG_PREFIX} Duplicate event ${event.id} — skipping`);
     reply.status(200).send({ received: true, duplicate: true });
     return;
   }

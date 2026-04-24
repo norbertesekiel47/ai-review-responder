@@ -1,7 +1,7 @@
 import type { Job } from 'bullmq';
 import { v7 as uuidv7 } from 'uuid';
 import { sql } from '../../src/lib/db/server';
-import { markOutboxCompleted, markOutboxFailed } from '../../src/lib/shared/outbox';
+import { markOutboxCompleted, markOutboxFailed, extractOutboxHandle } from '../../src/lib/shared/outbox';
 import {
   sendInternalEmail,
   buildOnboardingDay1Html,
@@ -16,7 +16,7 @@ import { createWorkerLogger } from '../../src/lib/shared/logger';
 export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Promise<void> {
   const logger = createWorkerLogger('[OnboardingDripWorker]', job.data.correlation_id);
   const { business_id, drip_type } = job.data;
-  const outboxId = (job.data as unknown as { outbox_id?: string }).outbox_id ?? job.id!;
+  const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
 
   // ── 1. Load business ─────────────────────────────────────────────
   const [business] = await sql<{
@@ -38,14 +38,14 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
 
   if (!business) {
     logger.warn(`Business ${business_id} not found`);
-    await markOutboxFailed(outboxId, 'business_not_found');
+    await markOutboxFailed(outboxId, 'business_not_found', outboxAttempt);
     return;
   }
 
   // ── 2. Only active subscriptions get drip emails ──────────────────
   if (business.subscription_status !== 'active') {
     logger.log(`Business ${business_id} not active (${business.subscription_status}) — skipping ${drip_type}`);
-    await markOutboxCompleted(outboxId);
+    await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }
 
@@ -54,14 +54,14 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
   // Admin verifies and clears owner_email_bounced manually from /admin/businesses/[id].
   if (business.owner_email_bounced) {
     logger.log(`Business ${business_id} owner email bounced — skipping ${drip_type}`);
-    await markOutboxCompleted(outboxId);
+    await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }
 
   // ── 3. Validate subscription_activated_at for day_7/day_30 ─────────
   if ((drip_type === 'day_7' || drip_type === 'day_30') && !business.subscription_activated_at) {
     logger.warn(`${drip_type} skipped: subscription_activated_at is null for ${business_id}`);
-    await markOutboxFailed(outboxId, 'subscription_activated_at is null');
+    await markOutboxFailed(outboxId, 'subscription_activated_at is null', outboxAttempt);
     return;
   }
 
@@ -104,7 +104,7 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
     } else {
       // Either already sent or owned by another active job — skip
       logger.log(`${drip_type} already claimed/sent for ${business_id} — skipping`);
-      await markOutboxCompleted(outboxId);
+      await markOutboxCompleted(outboxId, outboxAttempt);
       return;
     }
   }
@@ -135,7 +135,7 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
       break;
     default: {
       logger.warn(`Unknown drip_type: ${drip_type}`);
-      await markOutboxFailed(outboxId, `unknown drip_type: ${drip_type}`);
+      await markOutboxFailed(outboxId, `unknown drip_type: ${drip_type}`, outboxAttempt);
       return;
     }
   }
@@ -163,7 +163,7 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
     externalMessageId: messageId,
   });
 
-  await markOutboxCompleted(outboxId);
+  await markOutboxCompleted(outboxId, outboxAttempt);
 
   logger.log(`${drip_type} sent for business ${business_id}`);
 }

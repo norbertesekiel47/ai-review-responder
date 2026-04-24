@@ -128,6 +128,36 @@ export async function checkIdempotentCache(
   return redis.get(idempotentCacheKey(reviewId, version));
 }
 
+// INCR + limit check + TTL + rollback collapsed into one atomic Lua script.
+// Separate commands (pipeline or not) left a crash window between INCRBY and
+// EXPIRE that could leave daily budget keys TTL-less forever.
+// Return shape: { status: 'ok' | 'biz_exceeded' | 'global_exceeded', biz, global }
+const RESERVE_COST_LUA = `
+local estimate = tonumber(ARGV[1])
+local bizLimit = tonumber(ARGV[2])
+local globalLimit = tonumber(ARGV[3])
+local ttl = tonumber(ARGV[4])
+
+local biz = redis.call('INCRBY', KEYS[1], estimate)
+local glob = redis.call('INCRBY', KEYS[2], estimate)
+
+if biz > bizLimit then
+  redis.call('DECRBY', KEYS[1], estimate)
+  redis.call('DECRBY', KEYS[2], estimate)
+  return {'biz_exceeded', biz, glob}
+end
+
+if glob > globalLimit then
+  redis.call('DECRBY', KEYS[1], estimate)
+  redis.call('DECRBY', KEYS[2], estimate)
+  return {'global_exceeded', biz, glob}
+end
+
+redis.call('EXPIRE', KEYS[1], ttl)
+redis.call('EXPIRE', KEYS[2], ttl)
+return {'ok', biz, glob}
+`;
+
 /**
  * Reserves pessimistic cost against daily budgets.
  * Returns the date string used for the keys — callers MUST pass this
@@ -141,62 +171,73 @@ export async function reserveCost(
   const dateStr = todayDateStr();
   const bizKey = dailyBusinessKey(businessId, dateStr);
   const globalKey = dailyGlobalKey(dateStr);
-
-  // Atomically increment both counters
-  const pipeline = redis.pipeline();
-  pipeline.incrby(bizKey, PESSIMISTIC_ESTIMATE_CENTS);
-  pipeline.incrby(globalKey, PESSIMISTIC_ESTIMATE_CENTS);
-  const results = await pipeline.exec();
-
-  const bizTotal = results![0]![1] as number;
-  const globalTotal = results![1]![1] as number;
-
-  // Check per-business limit
   const bizLimit = getTierLimitCents(subscriptionTier);
-  if (bizTotal > bizLimit) {
-    await redis
-      .pipeline()
-      .decrby(bizKey, PESSIMISTIC_ESTIMATE_CENTS)
-      .decrby(globalKey, PESSIMISTIC_ESTIMATE_CENTS)
-      .exec();
-    throw new CostLimitExceededError(businessId);
-  }
+  const globalLimit = getGlobalLimitCents();
 
-  // Check global limit
-  if (globalTotal > getGlobalLimitCents()) {
-    await redis
-      .pipeline()
-      .decrby(bizKey, PESSIMISTIC_ESTIMATE_CENTS)
-      .decrby(globalKey, PESSIMISTIC_ESTIMATE_CENTS)
-      .exec();
-    throw new GlobalCostLimitExceededError();
-  }
+  const raw = (await redis.eval(
+    RESERVE_COST_LUA,
+    2,
+    bizKey,
+    globalKey,
+    String(PESSIMISTIC_ESTIMATE_CENTS),
+    String(bizLimit),
+    String(globalLimit),
+    String(CACHE_TTL_SECONDS),
+  )) as [string, number, number];
 
-  // Set TTL on both keys so they auto-expire at end of day
-  await redis
-    .pipeline()
-    .expire(bizKey, CACHE_TTL_SECONDS)
-    .expire(globalKey, CACHE_TTL_SECONDS)
-    .exec();
+  const status = raw[0];
+  if (status === 'biz_exceeded') throw new CostLimitExceededError(businessId);
+  if (status === 'global_exceeded') throw new GlobalCostLimitExceededError();
 
   return dateStr;
 }
+
+// INCR + limit check + TTL + rollback collapsed into one atomic Lua script.
+// Same rationale as RESERVE_COST_LUA — prevents concurrency-slot keys
+// from leaking past their TTL window after a mid-sequence crash.
+const ACQUIRE_CONCURRENCY_LUA = `
+local limit = tonumber(ARGV[1])
+local ttl = tonumber(ARGV[2])
+local cur = redis.call('INCR', KEYS[1])
+if cur > limit then
+  redis.call('DECR', KEYS[1])
+  return {'exceeded', cur}
+end
+redis.call('EXPIRE', KEYS[1], ttl)
+return {'ok', cur}
+`;
 
 export async function acquireConcurrencySlot(
   businessId: string,
 ): Promise<void> {
   const redis = getCacheRedis();
   const key = concurrencyKey(businessId);
-  const current = await redis.incr(key);
-  await redis.expire(key, CONCURRENCY_TTL_SECONDS);
 
-  if (current > MAX_CONCURRENCY_PER_BUSINESS) {
-    await redis.decr(key);
+  const raw = (await redis.eval(
+    ACQUIRE_CONCURRENCY_LUA,
+    1,
+    key,
+    String(MAX_CONCURRENCY_PER_BUSINESS),
+    String(CONCURRENCY_TTL_SECONDS),
+  )) as [string, number];
+
+  if (raw[0] === 'exceeded') {
     throw new ConcurrencyLimitExceededError(businessId);
   }
 }
 
 // ── Phase 2: Finalization ────────────────────────────────────────────
+
+// Paired INCRBYs in a Lua script so a crash cannot drift the per-business
+// counter out of sync with the global counter. INCRBY accepts negative
+// adjustments, so the same script handles both overshoot-refund and
+// undershoot-topup paths.
+const ADJUST_COST_LUA = `
+local adjustment = tonumber(ARGV[1])
+redis.call('INCRBY', KEYS[1], adjustment)
+redis.call('INCRBY', KEYS[2], adjustment)
+return 'ok'
+`;
 
 export async function finalizeCost(
   businessId: string,
@@ -206,11 +247,13 @@ export async function finalizeCost(
   const redis = getCacheRedis();
   const adjustment = actualCostCents - PESSIMISTIC_ESTIMATE_CENTS;
 
-  await redis
-    .pipeline()
-    .incrby(dailyBusinessKey(businessId, reservationDate), adjustment)
-    .incrby(dailyGlobalKey(reservationDate), adjustment)
-    .exec();
+  await redis.eval(
+    ADJUST_COST_LUA,
+    2,
+    dailyBusinessKey(businessId, reservationDate),
+    dailyGlobalKey(reservationDate),
+    String(adjustment),
+  );
 }
 
 export async function setCachedGeneration(
@@ -227,6 +270,14 @@ export async function setCachedGeneration(
   );
 }
 
+export async function clearCachedGeneration(
+  reviewId: string,
+  version: number,
+): Promise<void> {
+  const redis = getCacheRedis();
+  await redis.del(idempotentCacheKey(reviewId, version));
+}
+
 // ── Failure path ─────────────────────────────────────────────────────
 
 export async function releaseCost(
@@ -234,11 +285,15 @@ export async function releaseCost(
   reservationDate: string,
 ): Promise<void> {
   const redis = getCacheRedis();
-  await redis
-    .pipeline()
-    .decrby(dailyBusinessKey(businessId, reservationDate), PESSIMISTIC_ESTIMATE_CENTS)
-    .decrby(dailyGlobalKey(reservationDate), PESSIMISTIC_ESTIMATE_CENTS)
-    .exec();
+  // Release = negative adjustment equal to the pessimistic reservation,
+  // routed through the same atomic Lua script as finalizeCost.
+  await redis.eval(
+    ADJUST_COST_LUA,
+    2,
+    dailyBusinessKey(businessId, reservationDate),
+    dailyGlobalKey(reservationDate),
+    String(-PESSIMISTIC_ESTIMATE_CENTS),
+  );
 }
 
 export async function releaseConcurrencySlot(
@@ -253,14 +308,32 @@ export async function releaseConcurrencySlot(
 
 // ── Regeneration budget ──────────────────────────────────────────────
 
+const REGEN_BUDGET_LUA = `
+local limit = tonumber(ARGV[1])
+local ttl = tonumber(ARGV[2])
+local cur = redis.call('INCR', KEYS[1])
+if cur == 1 then
+  redis.call('EXPIRE', KEYS[1], ttl)
+end
+if cur > limit then
+  redis.call('DECR', KEYS[1])
+  return {'exceeded', cur}
+end
+return {'ok', cur}
+`;
+
 export async function checkRegenBudget(reviewId: string): Promise<void> {
   const redis = getCacheRedis();
   const key = regenBudgetKey(reviewId);
-  const count = await redis.incr(key);
-  await redis.expire(key, CACHE_TTL_SECONDS);
+  const raw = (await redis.eval(
+    REGEN_BUDGET_LUA,
+    1,
+    key,
+    String(MAX_REGEN_PER_REVIEW_PER_DAY),
+    String(CACHE_TTL_SECONDS),
+  )) as [string, number];
 
-  if (count > MAX_REGEN_PER_REVIEW_PER_DAY) {
-    await redis.decr(key);
+  if (raw[0] === 'exceeded') {
     throw new RegenBudgetExceededError(reviewId);
   }
 }

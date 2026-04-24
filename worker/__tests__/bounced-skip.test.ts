@@ -31,6 +31,7 @@ vi.mock('../../src/lib/notifications/email', async () => {
 vi.mock('../../src/lib/shared/outbox', () => ({
   markOutboxCompleted: mockMarkOutboxCompleted,
   markOutboxFailed: mockMarkOutboxFailed,
+  extractOutboxHandle: (d: any, fallback: string) => ({ outboxId: (d && typeof d.outbox_id === 'string') ? d.outbox_id : fallback, attempt: (d && typeof d.outbox_attempt === 'number') ? d.outbox_attempt : undefined }),
 }));
 vi.mock('uuid', () => ({ v7: () => 'test-uuid' }));
 
@@ -79,7 +80,7 @@ describe('NotificationWorker skips bounced owners', () => {
       data: { response_id: 'resp-1', business_id: 'biz-1', outbox_id: 'out-1' },
     } as any);
     expect(mockSendApprovalEmail).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('out-1');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('out-1', undefined);
   });
 });
 
@@ -97,7 +98,7 @@ describe('WeeklySummaryWorker skips bounced owners', () => {
       data: { business_id: 'biz-1', week_start_date: '2026-04-13', outbox_id: 'out-2' },
     } as any);
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('out-2');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('out-2', undefined);
   });
 });
 
@@ -115,7 +116,7 @@ describe('MonthlyImpactWorker skips bounced owners', () => {
       data: { business_id: 'biz-1', month_start_date: '2026-04-01', outbox_id: 'out-3' },
     } as any);
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('out-3');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('out-3', undefined);
   });
 });
 
@@ -133,6 +134,6 @@ describe('OnboardingDripWorker skips bounced owners', () => {
       data: { business_id: 'biz-1', drip_type: 'day_1', outbox_id: 'out-4' },
     } as any);
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('out-4');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('out-4', undefined);
   });
 });

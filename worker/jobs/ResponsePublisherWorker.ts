@@ -2,9 +2,8 @@ import type { Job } from 'bullmq';
 import { v7 as uuidv7 } from 'uuid';
 import { sql } from '../../src/lib/db/server';
 import { checkSubscription } from '../../src/lib/shared/subscription-guard';
-import { markOutboxCompleted, markOutboxFailed } from '../../src/lib/shared/outbox';
+import { markOutboxCompleted, markOutboxFailed, extractOutboxHandle } from '../../src/lib/shared/outbox';
 import { sendInternalEmail, buildManualPostEmailHtml } from '../../src/lib/notifications/email';
-import { recordNotificationDelivery } from '../../src/lib/notifications/delivery';
 import { buildGoogleMapsUrl } from '../../src/lib/shared/constants';
 import type { PublishResponsePayload } from '../../src/lib/shared/worker-types';
 import { createWorkerLogger } from '../../src/lib/shared/logger';
@@ -14,7 +13,7 @@ export async function handlePublishResponse(
 ): Promise<void> {
   const logger = createWorkerLogger('[ResponsePublisherWorker]', job.data.correlation_id);
   const { response_id, business_id } = job.data;
-  const outboxId = (job.data as unknown as { outbox_id?: string }).outbox_id ?? job.id!;
+  const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
 
   // ── Step 1: Load response + review + business ──────────────────────
   const [response] = await sql<{
@@ -31,13 +30,13 @@ export async function handlePublishResponse(
 
   if (!response) {
     logger.error(`Response ${response_id} not found`);
-    await markOutboxFailed(outboxId, `response_not_found: ${response_id}`);
+    await markOutboxFailed(outboxId, `response_not_found: ${response_id}`, outboxAttempt);
     return;
   }
 
   if (response.business_id !== business_id) {
     logger.error(`Response ${response_id} belongs to business ${response.business_id}, not ${business_id}`);
-    await markOutboxFailed(outboxId, 'business_id_mismatch');
+    await markOutboxFailed(outboxId, 'business_id_mismatch', outboxAttempt);
     return;
   }
 
@@ -65,7 +64,7 @@ export async function handlePublishResponse(
 
   if (!business) {
     logger.error(`Business ${business_id} not found`);
-    await markOutboxFailed(outboxId, `business_not_found: ${business_id}`);
+    await markOutboxFailed(outboxId, `business_not_found: ${business_id}`, outboxAttempt);
     return;
   }
 
@@ -75,7 +74,7 @@ export async function handlePublishResponse(
   // it to continue to the email path so the retry actually delivers.
   if (response.status === 'posted') {
     logger.log(`Response ${response_id} already posted, skipping`);
-    await markOutboxCompleted(outboxId);
+    await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }
 
@@ -90,7 +89,7 @@ export async function handlePublishResponse(
     logger.warn(
       `Business ${business_id} subscription blocked: ${subCheck.reason}`,
     );
-    await markOutboxCompleted(outboxId);
+    await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }
 
@@ -111,26 +110,14 @@ export async function handlePublishResponse(
       logger.warn(
         `Response ${response_id} not in approved/edited state (current: ${response.status}), skipping`,
       );
-      await markOutboxCompleted(outboxId);
+      await markOutboxCompleted(outboxId, outboxAttempt);
       return;
     }
   }
 
   logger.log(`Response ${response_id} set to awaiting_manual_post`);
 
-  // ── Step 5: Check if admin email was already sent (idempotent retry) ──
-  const [existingDelivery] = await sql<{ id: string }[]>`
-    SELECT id FROM notification_deliveries
-    WHERE response_id = ${response_id} AND template = 'admin_manual_post' AND sent_at IS NOT NULL
-  `;
-
-  if (existingDelivery) {
-    logger.log(`Admin email already sent for response ${response_id}, skipping`);
-    await markOutboxCompleted(outboxId);
-    return;
-  }
-
-  // ── Step 6: Determine admin email recipient ────────────────────────
+  // ── Step 5: Determine admin email recipient ─────────────────────────
   // Per spec: query users WHERE role IN ('admin','sales_partner') AND
   // business_id = businessId first, then fall back to ADMIN_NOTIFICATION_EMAIL.
   const [businessScopedAdmin] = await sql<{ email: string }[]>`
@@ -160,11 +147,40 @@ export async function handlePublishResponse(
     logger.warn(
       `No admin email found for business ${business_id}, skipping notification`,
     );
-    await markOutboxCompleted(outboxId);
+    await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }
 
-  // ── Step 6: Build email and send ───────────────────────────────────
+  // ── Step 6: Atomically claim the delivery slot BEFORE sending ───────
+  // Closes the send-before-record race. Migration 024's unique index on
+  // (response_id, template) makes INSERT ON CONFLICT DO NOTHING a safe
+  // atomic claim. If another attempt already claimed, `claimed` is empty
+  // and we skip rather than risk a duplicate send. The row is persisted
+  // without sent_at/external_message_id so a crash between this INSERT and
+  // the email send does not falsely count as a sent notification. The NEXT
+  // retry still sees the claim and skips (documented trade-off:
+  // prefer "retry-skip may miss an email the admin can manually retrigger"
+  // over "retry-send may deliver duplicate admin emails").
+  const deliveryId = uuidv7();
+  const claimed = await sql<{ id: string }[]>`
+    INSERT INTO notification_deliveries
+      (id, business_id, response_id, channel, recipient, template)
+    VALUES
+      (${deliveryId}, ${business_id}, ${response_id}, 'email',
+       ${adminEmail}, 'admin_manual_post')
+    ON CONFLICT (response_id, template)
+      WHERE response_id IS NOT NULL AND template = 'admin_manual_post'
+      DO NOTHING
+    RETURNING id
+  `;
+
+  if (claimed.length === 0) {
+    logger.log(`Admin email already claimed for response ${response_id}, skipping`);
+    await markOutboxCompleted(outboxId, outboxAttempt);
+    return;
+  }
+
+  // ── Step 7: Build email and send ─────────────────────────────────────
   const approvedText = response.approved_text ?? '';
   if (!response.approved_text) {
     logger.warn(`Response ${response_id} has null approved_text — email will contain empty response`);
@@ -185,30 +201,62 @@ export async function handlePublishResponse(
     googleMapsUrl,
   });
 
-  // Throw on email failure so BullMQ retries.
-  // The response is already awaiting_manual_post — the idempotency check
-  // at the top prevents a double status update on retry.
-  const { messageId } = await sendInternalEmail({
-    to: adminEmail,
-    subject: `Manual post needed: ${businessName}`,
-    bodyHtml,
-    category: 'internal',
-  });
+  let messageId: string;
+  try {
+    const result = await sendInternalEmail({
+      to: adminEmail,
+      subject: `Manual post needed: ${businessName}`,
+      bodyHtml,
+      category: 'internal',
+    });
+    messageId = result.messageId;
+  } catch (err) {
+    // Send failed — roll back the claim so a retry can re-attempt delivery.
+    // BullMQ will retry; the next attempt re-INSERTs and retries sending.
+    // Without this rollback the retry would see the claim row and skip,
+    // losing the email entirely on any transient Resend failure.
+    let deleteError: unknown = null;
+    try {
+      await sql`
+        DELETE FROM notification_deliveries
+        WHERE id = ${deliveryId} AND external_message_id IS NULL
+      `;
+    } catch (delErr) {
+      deleteError = delErr;
+      logger.error(
+        `Failed to roll back delivery claim ${deliveryId} after send error: ${delErr instanceof Error ? delErr.message : delErr}`,
+      );
+    }
 
-  // Record delivery so retries can detect the email was already sent
-  await recordNotificationDelivery({
-    businessId: business_id,
-    responseId: response_id,
-    channel: 'email',
-    recipient: adminEmail,
-    template: 'admin_manual_post',
-    externalMessageId: messageId,
-  });
+    if (deleteError !== null) {
+      // Both the send AND the rollback failed — the claim row is now stuck.
+      // Any future BullMQ retry would see the claim on the INSERT ON CONFLICT
+      // path and skip, silently losing the admin email. Terminate the outbox
+      // with a clear error so operators get a Sentry alert and can manually
+      // clear the delivery row before re-queueing.
+      const sendReason = err instanceof Error ? err.message : String(err);
+      const delReason = deleteError instanceof Error ? deleteError.message : String(deleteError);
+      await markOutboxFailed(
+        outboxId,
+        `send_failed_and_rollback_failed: send=${sendReason} rollback=${delReason}`,
+        outboxAttempt,
+      );
+      return;
+    }
+    throw err;
+  }
+
+  // Backfill provider message id so the admin can reconcile with Resend.
+  await sql`
+    UPDATE notification_deliveries
+    SET external_message_id = ${messageId}, sent_at = NOW()
+    WHERE id = ${deliveryId}
+  `;
 
   logger.log(
     `Manual-post email sent for response ${response_id} (business ${business_id})`,
   );
 
   // ── Step 8: Complete outbox ────────────────────────────────────────
-  await markOutboxCompleted(outboxId);
+  await markOutboxCompleted(outboxId, outboxAttempt);
 }

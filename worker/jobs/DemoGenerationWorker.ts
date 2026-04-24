@@ -2,7 +2,7 @@ import type { Job } from 'bullmq';
 import { sql, jsonb } from '../../src/lib/db/server';
 import { generateDemo } from '../../src/lib/demos/generator';
 import type { DemoJobPayload } from '../../src/lib/demos/types';
-import { markOutboxCompleted } from '../../src/lib/shared/outbox';
+import { markOutboxCompleted, extractOutboxHandle } from '../../src/lib/shared/outbox';
 import { isPlaceId, parseGoogleMapsUrl } from '../../src/lib/reviews/url-parser';
 import { resolvePlaceId } from '../../src/lib/reviews/place-id-resolver';
 import { createWorkerLogger } from '../../src/lib/shared/logger';
@@ -14,7 +14,7 @@ export async function handleDemoGeneration(
   const { demoId, businessName, category } = job.data;
   let { googlePlaceId } = job.data;
   const googleMapsUrl = job.data.googleMapsUrl;
-  const outboxId = (job.data as unknown as { outbox_id?: string }).outbox_id ?? job.id!;
+  const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
 
   // Idempotency: only process if still in a startable state
   const [demo] = await sql<{ generation_status: string; started_at: Date | null }[]>`
@@ -23,7 +23,7 @@ export async function handleDemoGeneration(
 
   if (!demo) {
     logger.warn(`Demo ${demoId} not found, completing outbox`);
-    await markOutboxCompleted(outboxId);
+    await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }
 
@@ -32,7 +32,7 @@ export async function handleDemoGeneration(
     logger.warn(
       `Demo ${demoId} already ${demo.generation_status}, completing outbox`,
     );
-    await markOutboxCompleted(outboxId);
+    await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }
 
@@ -72,7 +72,7 @@ export async function handleDemoGeneration(
 
   if (updated.count === 0) {
     logger.warn(`Demo ${demoId} already claimed, completing outbox`);
-    await markOutboxCompleted(outboxId);
+    await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }
 
@@ -102,11 +102,23 @@ export async function handleDemoGeneration(
         WHERE id = ${demoId}
       `;
 
-      await tx`
-        UPDATE job_outbox
-        SET status = 'completed', completed_at = NOW()
-        WHERE id = ${outboxId}
-      `;
+      if (typeof outboxAttempt === 'number') {
+        await tx`
+          UPDATE job_outbox
+          SET status = 'completed', completed_at = NOW()
+          WHERE id = ${outboxId}
+            AND status = 'dispatched'
+            AND attempts = ${outboxAttempt}
+        `;
+      } else {
+        // Legacy path — guard on status so we can't regress a terminal row.
+        await tx`
+          UPDATE job_outbox
+          SET status = 'completed', completed_at = NOW()
+          WHERE id = ${outboxId}
+            AND status = 'dispatched'
+        `;
+      }
     });
 
     logger.log(
@@ -131,13 +143,27 @@ export async function handleDemoGeneration(
           WHERE id = ${demoId}
         `;
 
-        await tx`
-          UPDATE job_outbox
-          SET status = 'failed',
-              last_error = ${message},
-              completed_at = NOW()
-          WHERE id = ${outboxId}
-        `;
+        if (typeof outboxAttempt === 'number') {
+          await tx`
+            UPDATE job_outbox
+            SET status = 'failed',
+                last_error = ${message},
+                completed_at = NOW()
+            WHERE id = ${outboxId}
+              AND status = 'dispatched'
+              AND attempts = ${outboxAttempt}
+          `;
+        } else {
+          // Legacy path — guard on status so we can't regress a terminal row.
+          await tx`
+            UPDATE job_outbox
+            SET status = 'failed',
+                last_error = ${message},
+                completed_at = NOW()
+            WHERE id = ${outboxId}
+              AND status = 'dispatched'
+          `;
+        }
       });
     } catch (txError) {
       // If the failure transaction itself fails, re-throw so BullMQ retries.

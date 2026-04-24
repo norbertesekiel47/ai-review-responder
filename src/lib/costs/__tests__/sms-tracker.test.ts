@@ -22,6 +22,7 @@ const mockRedis = {
   incr: vi.fn(),
   decr: vi.fn(),
   expire: vi.fn(),
+  eval: vi.fn(),
   pipeline: vi.fn().mockReturnValue(mockPipeline),
 };
 
@@ -32,6 +33,7 @@ vi.mock('ioredis', () => ({
     incr = mockRedis.incr;
     decr = mockRedis.decr;
     expire = mockRedis.expire;
+    eval = mockRedis.eval;
     pipeline = mockRedis.pipeline;
   },
 }));
@@ -50,84 +52,59 @@ describe('reserveSmsCost', () => {
   });
 
   it('increments per-business and global counters by 1 and returns YYYY-MM-DD', async () => {
-    mockPipelineExec
-      .mockResolvedValueOnce([[null, 1], [null, 1]])   // incrby results
-      .mockResolvedValueOnce([[null, 1], [null, 1]]);  // expire results
+    // Lua EVAL returns ['ok', bizTotal, globalTotal] on success.
+    mockRedis.eval.mockResolvedValueOnce(['ok', 1, 1]);
 
     const { reserveSmsCost } = await import('../sms-tracker');
     const dateStr = await reserveSmsCost('biz-001');
 
     expect(dateStr).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    expect(mockPipeline.incrby).toHaveBeenCalledTimes(2);
-    // Confirm the keys and amount
-    expect(mockPipeline.incrby).toHaveBeenCalledWith(
-      `cost:sms:biz-001:${dateStr}`,
-      1,
-    );
-    expect(mockPipeline.incrby).toHaveBeenCalledWith(
-      `cost:sms:global:${dateStr}`,
-      1,
-    );
-    // expire called on both keys
-    expect(mockPipeline.expire).toHaveBeenCalledWith(
-      `cost:sms:biz-001:${dateStr}`,
-      86_400,
-    );
-    expect(mockPipeline.expire).toHaveBeenCalledWith(
-      `cost:sms:global:${dateStr}`,
-      86_400,
-    );
+    expect(mockRedis.eval).toHaveBeenCalledTimes(1);
+    const evalArgs = mockRedis.eval.mock.calls[0]!;
+    // numKeys slot
+    expect(evalArgs[1]).toBe(2);
+    // KEYS[1] = per-business, KEYS[2] = global
+    expect(evalArgs[2]).toBe(`cost:sms:biz-001:${dateStr}`);
+    expect(evalArgs[3]).toBe(`cost:sms:global:${dateStr}`);
+    // ARGV[1] = cost, ARGV[2] = bizCap (10), ARGV[3] = globalCap (500), ARGV[4] = ttl (86400)
+    expect(evalArgs[4]).toBe('1');
+    expect(evalArgs[5]).toBe('10');
+    expect(evalArgs[6]).toBe('500');
+    expect(evalArgs[7]).toBe('86400');
   });
 
-  it('throws DailySmsLimitExceededError(per_business) and rolls back both counters', async () => {
-    // bizTotal 11 (over default 10), global OK
-    mockPipelineExec
-      .mockResolvedValueOnce([[null, 11], [null, 50]])  // incrby results
-      .mockResolvedValueOnce([[null, 10], [null, 49]]); // decrby rollback
+  it('throws DailySmsLimitExceededError(per_business) when biz cap exceeded', async () => {
+    // Lua script has already rolled back internally when it returns 'per_business'.
+    mockRedis.eval.mockResolvedValueOnce(['per_business', 11, 50]);
 
     const { reserveSmsCost, DailySmsLimitExceededError } = await import('../sms-tracker');
     const err = await reserveSmsCost('biz-001').catch((e) => e);
     expect(err).toBeInstanceOf(DailySmsLimitExceededError);
     expect(err.name).toBe('DailySmsLimitExceededError');
     expect(err.scope).toBe('per_business');
-
-    // Rollback happened — decrby called for both keys
-    expect(mockPipeline.decrby).toHaveBeenCalled();
+    expect(mockRedis.eval).toHaveBeenCalledTimes(1);
   });
 
   it('throws DailySmsLimitExceededError(global) when global cap exceeded', async () => {
-    // Business under cap, global over default 500
-    mockPipelineExec
-      .mockResolvedValueOnce([[null, 5], [null, 501]])   // incrby results
-      .mockResolvedValueOnce([[null, 4], [null, 500]]);  // decrby rollback
+    mockRedis.eval.mockResolvedValueOnce(['global', 5, 501]);
 
     const { reserveSmsCost, DailySmsLimitExceededError } = await import('../sms-tracker');
     const err = await reserveSmsCost('biz-001').catch((e) => e);
     expect(err).toBeInstanceOf(DailySmsLimitExceededError);
     expect(err.scope).toBe('global');
-    expect(mockPipeline.decrby).toHaveBeenCalled();
+    expect(mockRedis.eval).toHaveBeenCalledTimes(1);
   });
 
-  it('auto-rollback on cap exceeded results in net-zero change', async () => {
-    mockPipelineExec
-      .mockResolvedValueOnce([[null, 11], [null, 50]])   // incrby
-      .mockResolvedValueOnce([[null, 10], [null, 49]]);  // decrby rollback
+  it('atomic script issues a single EVAL — no separate pipeline round-trips', async () => {
+    mockRedis.eval.mockResolvedValueOnce(['ok', 1, 1]);
 
     const { reserveSmsCost } = await import('../sms-tracker');
-    await expect(reserveSmsCost('biz-001')).rejects.toThrow();
+    await reserveSmsCost('biz-001');
 
-    // Exactly one incrby pair + one decrby pair → net zero
-    expect(mockPipeline.incrby).toHaveBeenCalledTimes(2);
-    expect(mockPipeline.decrby).toHaveBeenCalledTimes(2);
-  });
-
-  it('does NOT call expire on cap exceeded (avoid TTL side effects on rollback)', async () => {
-    mockPipelineExec
-      .mockResolvedValueOnce([[null, 11], [null, 50]])
-      .mockResolvedValueOnce([[null, 10], [null, 49]]);
-
-    const { reserveSmsCost } = await import('../sms-tracker');
-    await expect(reserveSmsCost('biz-001')).rejects.toThrow();
+    // Exactly one EVAL; no fallback pipeline was issued.
+    expect(mockRedis.eval).toHaveBeenCalledTimes(1);
+    expect(mockPipeline.incrby).not.toHaveBeenCalled();
+    expect(mockPipeline.decrby).not.toHaveBeenCalled();
     expect(mockPipeline.expire).not.toHaveBeenCalled();
   });
 });
@@ -203,60 +180,58 @@ describe('env parsing', () => {
 
   it('falls back to default 10 when SMS_DAILY_LIMIT_CENTS_PER_BUSINESS is malformed', async () => {
     process.env.SMS_DAILY_LIMIT_CENTS_PER_BUSINESS = 'not-a-number';
-    // Going just over the default fallback (10) should trigger per_business cap
-    mockPipelineExec
-      .mockResolvedValueOnce([[null, 11], [null, 50]])
-      .mockResolvedValueOnce([[null, 10], [null, 49]]);
+    // Lua sees the default cap and returns 'per_business' after internal rollback.
+    mockRedis.eval.mockResolvedValueOnce(['per_business', 11, 50]);
 
     const { reserveSmsCost, DailySmsLimitExceededError } = await import('../sms-tracker');
     const err = await reserveSmsCost('biz-001').catch((e) => e);
     expect(err).toBeInstanceOf(DailySmsLimitExceededError);
     expect(err.scope).toBe('per_business');
     expect(warnSpy).toHaveBeenCalled();
+    // Confirm the caps passed to the Lua script match the fallbacks.
+    const evalArgs = mockRedis.eval.mock.calls[0]!;
+    expect(evalArgs[5]).toBe('10');
+    expect(evalArgs[6]).toBe('500');
   });
 
   it('falls back to default 10 when SMS_DAILY_LIMIT_CENTS_PER_BUSINESS is unset', async () => {
     // (already deleted in beforeEach)
-    mockPipelineExec
-      .mockResolvedValueOnce([[null, 11], [null, 50]])
-      .mockResolvedValueOnce([[null, 10], [null, 49]]);
+    mockRedis.eval.mockResolvedValueOnce(['per_business', 11, 50]);
 
     const { reserveSmsCost, DailySmsLimitExceededError } = await import('../sms-tracker');
     const err = await reserveSmsCost('biz-001').catch((e) => e);
     expect(err).toBeInstanceOf(DailySmsLimitExceededError);
     expect(err.scope).toBe('per_business');
+    const evalArgs = mockRedis.eval.mock.calls[0]!;
+    expect(evalArgs[5]).toBe('10');
   });
 
   it('uses default global cap 500 when unset', async () => {
-    // Business under default 10, global just over 500
-    mockPipelineExec
-      .mockResolvedValueOnce([[null, 5], [null, 501]])
-      .mockResolvedValueOnce([[null, 4], [null, 500]]);
+    mockRedis.eval.mockResolvedValueOnce(['global', 5, 501]);
 
     const { reserveSmsCost, DailySmsLimitExceededError } = await import('../sms-tracker');
     const err = await reserveSmsCost('biz-001').catch((e) => e);
     expect(err).toBeInstanceOf(DailySmsLimitExceededError);
     expect(err.scope).toBe('global');
+    const evalArgs = mockRedis.eval.mock.calls[0]!;
+    expect(evalArgs[6]).toBe('500');
   });
 
   it('honours a valid SMS_DAILY_LIMIT_CENTS_PER_BUSINESS override', async () => {
     process.env.SMS_DAILY_LIMIT_CENTS_PER_BUSINESS = '3';
-    // bizTotal 4 (over override 3) → per_business cap
-    mockPipelineExec
-      .mockResolvedValueOnce([[null, 4], [null, 50]])
-      .mockResolvedValueOnce([[null, 3], [null, 49]]);
+    mockRedis.eval.mockResolvedValueOnce(['per_business', 4, 50]);
 
     const { reserveSmsCost, DailySmsLimitExceededError } = await import('../sms-tracker');
     const err = await reserveSmsCost('biz-001').catch((e) => e);
     expect(err).toBeInstanceOf(DailySmsLimitExceededError);
     expect(err.scope).toBe('per_business');
+    const evalArgs = mockRedis.eval.mock.calls[0]!;
+    expect(evalArgs[5]).toBe('3');
   });
 
   it('allows bizTotal equal to the cap (boundary: cap is inclusive)', async () => {
-    // bizTotal 10 (exactly at default 10) → should NOT throw
-    mockPipelineExec
-      .mockResolvedValueOnce([[null, 10], [null, 50]])
-      .mockResolvedValueOnce([[null, 1], [null, 1]]);
+    // bizTotal 10 (exactly at default 10) → Lua returns 'ok' (10 > 10 is false)
+    mockRedis.eval.mockResolvedValueOnce(['ok', 10, 50]);
 
     const { reserveSmsCost } = await import('../sms-tracker');
     await expect(reserveSmsCost('biz-001')).resolves.toMatch(

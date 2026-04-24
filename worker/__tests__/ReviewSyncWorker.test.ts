@@ -49,6 +49,7 @@ vi.mock('../../src/lib/db/server', () => ({
 vi.mock('../../src/lib/shared/outbox', () => ({
   markOutboxCompleted: mockMarkOutboxCompleted,
   markOutboxFailed: mockMarkOutboxFailed,
+  extractOutboxHandle: (d: any, fallback: string) => ({ outboxId: (d && typeof d.outbox_id === 'string') ? d.outbox_id : fallback, attempt: (d && typeof d.outbox_attempt === 'number') ? d.outbox_attempt : undefined }),
 }));
 
 vi.mock('../../src/lib/shared/mock-mode', () => ({
@@ -105,7 +106,7 @@ describe('ReviewSyncWorker – handleReviewSync', () => {
 
     await handleReviewSync(makeJob());
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-test-123');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-test-123', undefined);
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
     expect(mockFetchReviews).not.toHaveBeenCalled();
   });
@@ -116,7 +117,7 @@ describe('ReviewSyncWorker – handleReviewSync', () => {
 
     await handleReviewSync(makeJob());
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-test-123');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-test-123', undefined);
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
     expect(mockFetchReviews).not.toHaveBeenCalled();
   });
@@ -127,7 +128,7 @@ describe('ReviewSyncWorker – handleReviewSync', () => {
 
     await handleReviewSync(makeJob());
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-test-123');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-test-123', undefined);
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
     expect(mockFetchReviews).not.toHaveBeenCalled();
   });
@@ -141,8 +142,7 @@ describe('ReviewSyncWorker – handleReviewSync', () => {
 
     expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
       'outbox-test-123',
-      expect.stringContaining('serpapi_permanent'),
-    );
+      expect.stringContaining('serpapi_permanent'), undefined);
     expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
   });
 
@@ -184,7 +184,7 @@ describe('ReviewSyncWorker – handleReviewSync', () => {
     expect(mockSql.begin).toHaveBeenCalled();
     // tx called at least 3 times: FOR UPDATE, INSERT review, INSERT outbox
     expect(mockTx.mock.calls.length).toBeGreaterThanOrEqual(3);
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-test-123');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-test-123', undefined);
   });
 
   // 7. Unchanged review — no action taken
@@ -212,7 +212,7 @@ describe('ReviewSyncWorker – handleReviewSync', () => {
 
     // Only 1 tx call (the FOR UPDATE select) — no updates or inserts
     expect(txCallCount).toBe(1);
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-test-123');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-test-123', undefined);
   });
 
   // 8. Content changed + pending_approval response → fail old, regenerate
@@ -247,7 +247,7 @@ describe('ReviewSyncWorker – handleReviewSync', () => {
 
     // Should have called tx at least 5 times (FOR UPDATE, UPDATE review, SELECT response, UPDATE response, INSERT outbox)
     expect(txCallCount).toBeGreaterThanOrEqual(5);
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-test-123');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-test-123', undefined);
   });
 
   // 9. Content changed + posted response → exception created
@@ -283,7 +283,7 @@ describe('ReviewSyncWorker – handleReviewSync', () => {
 
     // Should have inserted exception + notify outbox (5 tx calls)
     expect(txCallCount).toBeGreaterThanOrEqual(5);
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-test-123');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-test-123', undefined);
   });
   // 10. Identity collision — inserts into review_exceptions
   it('stores identity collision in review_exceptions', async () => {
@@ -333,7 +333,7 @@ describe('ReviewSyncWorker – handleReviewSync', () => {
       },
     );
     expect(collisionCall).toBeDefined();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-test-123');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-test-123', undefined);
   });
 
   // 11. place_id_verified = false — early return, no SerpAPI call
@@ -342,7 +342,7 @@ describe('ReviewSyncWorker – handleReviewSync', () => {
 
     await handleReviewSync(makeJob());
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-test-123');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-test-123', undefined);
     expect(mockFetchReviews).not.toHaveBeenCalled();
   });
 
@@ -384,7 +384,7 @@ describe('ReviewSyncWorker – handleReviewSync', () => {
     // Should not throw — ON CONFLICT DO NOTHING silently skips
     await handleReviewSync(makeJob());
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-test-123');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-test-123', undefined);
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
   });
 });

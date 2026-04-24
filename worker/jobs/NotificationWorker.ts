@@ -11,7 +11,7 @@ import { v7 as uuidv7 } from 'uuid';
 import type { Job } from 'bullmq';
 import { sql } from '../../src/lib/db/server';
 import { checkSubscription } from '../../src/lib/shared/subscription-guard';
-import { markOutboxCompleted, markOutboxFailed } from '../../src/lib/shared/outbox';
+import { markOutboxCompleted, markOutboxFailed, extractOutboxHandle } from '../../src/lib/shared/outbox';
 import { recordNotificationDelivery, insertFailedDelivery } from '../../src/lib/notifications/delivery';
 import { getVerifiedEnrollments } from '../../src/lib/notifications/enrollments';
 import {
@@ -41,7 +41,7 @@ export async function handleSendNotification(
 ): Promise<void> {
   const logger = createWorkerLogger('[NotificationWorker]', job.data.correlation_id);
   const { response_id, business_id } = job.data;
-  const outboxId = (job.data as unknown as { outbox_id?: string }).outbox_id ?? job.id!;
+  const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
 
   const [responseRow] = await sql<{
     id: string; response_text: string; status: string;
@@ -59,17 +59,17 @@ export async function handleSendNotification(
 
   if (!responseRow) {
     logger.warn(`Response ${response_id} not found`);
-    await markOutboxFailed(outboxId, 'response_not_found');
+    await markOutboxFailed(outboxId, 'response_not_found', outboxAttempt);
     return;
   }
   if (responseRow.resp_business_id !== business_id) {
     logger.error(`Response ${response_id} belongs to business ${responseRow.resp_business_id}, not ${business_id}`);
-    await markOutboxFailed(outboxId, 'business_id_mismatch');
+    await markOutboxFailed(outboxId, 'business_id_mismatch', outboxAttempt);
     return;
   }
   if (responseRow.status !== 'pending_approval') {
     logger.warn(`Response ${response_id} is ${responseRow.status}, not pending_approval — skipping`);
-    await markOutboxCompleted(outboxId);
+    await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }
 
@@ -84,7 +84,7 @@ export async function handleSendNotification(
   `;
   if (!business) {
     logger.warn(`Business ${business_id} not found`);
-    await markOutboxFailed(outboxId, 'business_not_found');
+    await markOutboxFailed(outboxId, 'business_not_found', outboxAttempt);
     return;
   }
 
@@ -95,14 +95,14 @@ export async function handleSendNotification(
   );
   if (!subCheck.allowed) {
     logger.log(`Business ${business_id} skipped: ${subCheck.reason}`);
-    await markOutboxCompleted(outboxId);
+    await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }
 
   const enrollments = await getVerifiedEnrollments(business_id);
   if (enrollments.length === 0) {
     logger.warn(`Business ${business_id} has no verified channel enrollments — skipping`);
-    await markOutboxCompleted(outboxId);
+    await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }
 
@@ -111,7 +111,7 @@ export async function handleSendNotification(
   const appUrl = process.env.NEXT_PUBLIC_APP_URL;
   if (!appUrl) {
     logger.error('NEXT_PUBLIC_APP_URL not set — cannot construct approval URLs');
-    await markOutboxFailed(outboxId, 'NEXT_PUBLIC_APP_URL not configured');
+    await markOutboxFailed(outboxId, 'NEXT_PUBLIC_APP_URL not configured', outboxAttempt);
     return;
   }
 
@@ -198,11 +198,32 @@ export async function handleSendNotification(
     // intentionally commits the cost — the message was sent.
     let sendAccepted = false;
     try {
-      const { rawToken, approvalLinkId } = await createApprovalLink({
-        responseId: response_id,
-        businessId: business_id,
-        channel: channelId,
-      });
+      // Approval-link creation is per-channel — a failure here must NOT
+      // abort the whole dispatch loop (other channels may still succeed).
+      // The outer finally still runs on `continue`, refunding SMS cost.
+      let rawToken: string;
+      let approvalLinkId: string;
+      try {
+        const link = await createApprovalLink({
+          responseId: response_id,
+          businessId: business_id,
+          channel: channelId,
+        });
+        rawToken = link.rawToken;
+        approvalLinkId = link.approvalLinkId;
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        logger.error(`createApprovalLink failed for ${channelId} response ${response_id}: ${reason}`);
+        attempted++;
+        await insertFailedDelivery(
+          business_id,
+          response_id,
+          channelId,
+          enrollment.handle,
+          `approval_link_error:${reason}`,
+        );
+        continue;
+      }
       const approvalUrl = `${appUrl}/approve/${rawToken}`;
       attempted++;
 
@@ -398,5 +419,5 @@ export async function handleSendNotification(
     );
   }
 
-  await markOutboxCompleted(outboxId);
+  await markOutboxCompleted(outboxId, outboxAttempt);
 }

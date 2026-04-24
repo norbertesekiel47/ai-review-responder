@@ -1,7 +1,7 @@
 export { checkSubscription } from './subscription-guard';
 export type { WorkerType, SubscriptionCheckResult } from './subscription-guard';
 
-export { markOutboxCompleted, markOutboxFailed } from './outbox';
+export { markOutboxCompleted, markOutboxFailed, extractOutboxHandle } from './outbox';
 
 export { sanitizeText } from './sanitize';
 

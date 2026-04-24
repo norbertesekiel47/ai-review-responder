@@ -74,8 +74,8 @@ describe('Stripe webhook dedup — handleStripeWebhook', () => {
     // 1: INSERT returns count=0 (conflict — already claimed)
     const dupResult: any = []; dupResult.count = 0;
     sqlReturnQueue.push(dupResult);
-    // 2: SELECT status → processed
-    sqlReturnQueue.push([{ status: 'processed' }]);
+    // 2: reclaim UPDATE returns [] — row is in 'processed' state, not reclaimable.
+    sqlReturnQueue.push([]);
 
     const { handleStripeWebhook } = await import('../ingress/stripe');
     const reply = makeReply();
@@ -85,7 +85,7 @@ describe('Stripe webhook dedup — handleStripeWebhook', () => {
     expect(reply.send).toHaveBeenCalledWith(
       expect.objectContaining({ duplicate: true }),
     );
-    // 2 SQL calls: INSERT (conflict) + SELECT for status log
+    // 2 SQL calls: INSERT (conflict) + reclaim UPDATE
     expect(sqlCalls).toHaveLength(2);
     expect(sqlCalls[0]!.text).toContain('inbound_events');
   });
@@ -114,13 +114,14 @@ describe('Stripe webhook dedup — handleStripeWebhook', () => {
     expect(insertCalls[0]!.values).toContain('evt_test_123');
   });
 
-  it('returns duplicate:true when event is already claimed with status=received', async () => {
+  it('returns duplicate:true when event is already claimed with status=received (fresh in-flight)', async () => {
     setupStripeEvent();
-    // 1: INSERT returns count=0 (conflict — already claimed even if not yet processed)
+    // 1: INSERT returns count=0 (conflict — another worker is processing)
     const dupResult: any = []; dupResult.count = 0;
     sqlReturnQueue.push(dupResult);
-    // 2: SELECT status → received
-    sqlReturnQueue.push([{ status: 'received' }]);
+    // 2: reclaim UPDATE returns [] — row is 'received' but inside the 2-min
+    //    window, so reclaim guard rejects it and caller gets 'duplicate'.
+    sqlReturnQueue.push([]);
 
     const { handleStripeWebhook } = await import('../ingress/stripe');
     const reply = makeReply();
@@ -130,9 +131,36 @@ describe('Stripe webhook dedup — handleStripeWebhook', () => {
     expect(reply.send).toHaveBeenCalledWith(
       expect.objectContaining({ duplicate: true }),
     );
-    // Only the INSERT attempt + SELECT for status log — no business logic calls
+    // Only the INSERT attempt + reclaim UPDATE — no business logic calls
     const businessUpdateCalls = sqlCalls.filter((c) => c.text.includes('UPDATE businesses'));
     expect(businessUpdateCalls).toHaveLength(0);
+  });
+
+  it('reclaims and reprocesses a failed event instead of permanently swallowing it', async () => {
+    setupStripeEvent();
+    // 1: INSERT returns count=0 (row already exists — previous attempt failed)
+    const dupResult: any = []; dupResult.count = 0;
+    sqlReturnQueue.push(dupResult);
+    // 2: reclaim UPDATE returns a row — status='failed' is reclaimable
+    sqlReturnQueue.push([{ id: 'evt-row-id' }]);
+    // 3: UPDATE businesses (checkout.session.completed processing — mode=undefined skips)
+    //    (no SQL since mode check fails)
+    // 4: UPDATE inbound_events SET status='processed'
+    sqlReturnQueue.push([]);
+
+    const { handleStripeWebhook } = await import('../ingress/stripe');
+    const reply = makeReply();
+    await handleStripeWebhook(makeRequest(), reply);
+
+    // Event is reclaimed and reprocessed — not a 200 duplicate
+    expect(reply.status).toHaveBeenCalledWith(200);
+    expect(reply.send).toHaveBeenCalledWith({ received: true });
+
+    // inbound_events must be marked 'processed' on successful reclaim
+    const processedUpdate = sqlCalls.find(
+      (c) => c.text.includes('UPDATE') && c.text.includes('inbound_events') && c.text.includes('processed'),
+    );
+    expect(processedUpdate).toBeDefined();
   });
 
   it('rejects missing stripe-signature with 401', async () => {

@@ -33,6 +33,7 @@ vi.mock('../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) =>
 vi.mock('../../src/lib/shared/outbox', () => ({
   markOutboxCompleted: mockMarkOutboxCompleted,
   markOutboxFailed: mockMarkOutboxFailed,
+  extractOutboxHandle: (d: any, fallback: string) => ({ outboxId: (d && typeof d.outbox_id === 'string') ? d.outbox_id : fallback, attempt: (d && typeof d.outbox_attempt === 'number') ? d.outbox_attempt : undefined }),
 }));
 vi.mock('../../src/lib/notifications/email', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/lib/notifications/email')>();
@@ -81,7 +82,9 @@ function mockBusinessRow(overrides: Record<string, unknown> = {}) {
 // 4. UPDATE responses SET status = 'awaiting_manual_post' (returns count: 1)
 // 5. SELECT users (business-scoped onboarded_by)
 // 6. (if no business admin) SELECT users (global admin)
-// 7. sendInternalEmail
+// 7. INSERT notification_deliveries ... ON CONFLICT DO NOTHING RETURNING id  (delivery claim)
+// 8. sendInternalEmail
+// 9. UPDATE notification_deliveries SET external_message_id
 
 function pushSuccessSequence(responseOverrides: Record<string, unknown> = {}) {
   sqlReturnQueue.push([mockResponseRow(responseOverrides)]);  // 1: response
@@ -90,6 +93,8 @@ function pushSuccessSequence(responseOverrides: Record<string, unknown> = {}) {
   sqlReturnQueue.push(Object.assign([], { count: 1 }));      // 4: UPDATE status
   sqlReturnQueue.push([]);                                    // 5: business-scoped admin (none)
   sqlReturnQueue.push([{ email: 'admin@test.com' }]);         // 6: global admin
+  sqlReturnQueue.push([{ id: 'delivery-1' }]);                // 7: INSERT delivery claim
+  sqlReturnQueue.push([]);                                    // 9: UPDATE external_message_id
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────
@@ -108,7 +113,7 @@ describe('ResponsePublisherWorker', () => {
     await handlePublishResponse(makeJob());
 
     expect(mockSendInternalEmail).toHaveBeenCalledOnce();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
   });
 
   it('completes outbox without email when subscription is cancelled', async () => {
@@ -119,7 +124,7 @@ describe('ResponsePublisherWorker', () => {
     await handlePublishResponse(makeJob());
 
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
   });
 
   it('completes outbox without action when response already posted', async () => {
@@ -130,7 +135,7 @@ describe('ResponsePublisherWorker', () => {
     await handlePublishResponse(makeJob());
 
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
   });
 
   it('throws when sendInternalEmail fails so BullMQ retries', async () => {
@@ -151,10 +156,40 @@ describe('ResponsePublisherWorker', () => {
     // No UPDATE (status is already awaiting_manual_post, skips the UPDATE)
     sqlReturnQueue.push([]);                              // business-scoped admin
     sqlReturnQueue.push([{ email: 'admin@test.com' }]);   // global admin
+    sqlReturnQueue.push([{ id: 'delivery-2' }]);          // INSERT delivery claim
+    sqlReturnQueue.push([]);                              // UPDATE external_message_id
 
     await handlePublishResponse(makeJob());
 
     expect(mockSendInternalEmail).toHaveBeenCalledOnce();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+  });
+
+  it('skips email when delivery claim conflicts (concurrent attempt already sent)', async () => {
+    sqlReturnQueue.push([mockResponseRow()]);
+    sqlReturnQueue.push([mockReviewRow()]);
+    sqlReturnQueue.push([mockBusinessRow()]);
+    sqlReturnQueue.push(Object.assign([], { count: 1 })); // UPDATE status
+    sqlReturnQueue.push([]);                              // biz admin (none)
+    sqlReturnQueue.push([{ email: 'admin@test.com' }]);   // global admin
+    sqlReturnQueue.push([]);                              // INSERT returns no row — conflict
+
+    await handlePublishResponse(makeJob());
+
+    expect(mockSendInternalEmail).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+  });
+
+  it('rolls back delivery claim when email send fails so retry can re-attempt', async () => {
+    pushSuccessSequence();
+    mockSendInternalEmail.mockRejectedValueOnce(new Error('Resend 503'));
+
+    await expect(handlePublishResponse(makeJob())).rejects.toThrow('Resend 503');
+    // Verify the DELETE was issued (rollback). The mockSql call log tracks all
+    // invocations; the 8th call (after 7 queued for success + rollback) should
+    // be the DELETE FROM notification_deliveries.
+    const callArgs = (mockSql as any).mock.calls.map((c: any[]) => (c[0] as TemplateStringsArray).join('?'));
+    const deleteCall = callArgs.find((t: string) => t.includes('DELETE FROM notification_deliveries'));
+    expect(deleteCall).toBeDefined();
   });
 });

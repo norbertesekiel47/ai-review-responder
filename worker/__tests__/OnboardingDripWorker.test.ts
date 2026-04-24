@@ -47,6 +47,7 @@ vi.mock('../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) =>
 vi.mock('../../src/lib/shared/outbox', () => ({
   markOutboxCompleted: mockMarkOutboxCompleted,
   markOutboxFailed: mockMarkOutboxFailed,
+  extractOutboxHandle: (d: any, fallback: string) => ({ outboxId: (d && typeof d.outbox_id === 'string') ? d.outbox_id : fallback, attempt: (d && typeof d.outbox_attempt === 'number') ? d.outbox_attempt : undefined }),
 }));
 vi.mock('../../src/lib/notifications/email', () => ({
   sendInternalEmail: mockSendInternalEmail,
@@ -108,7 +109,7 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
 
     await handleOnboardingDrip(makeJob());
 
-    expect(mockMarkOutboxFailed).toHaveBeenCalledWith('outbox-drip-1', 'business_not_found');
+    expect(mockMarkOutboxFailed).toHaveBeenCalledWith('outbox-drip-1', 'business_not_found', undefined);
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
   });
 
@@ -117,7 +118,7 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
 
     await handleOnboardingDrip(makeJob());
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-drip-1');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-drip-1', undefined);
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
   });
 
@@ -126,7 +127,7 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
 
     await handleOnboardingDrip(makeJob());
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-drip-1');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-drip-1', undefined);
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
   });
 
@@ -146,7 +147,7 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
       dashboardUrl: 'https://app.repworth.com/dashboard',
     });
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-drip-1');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-drip-1', undefined);
 
     expect(mockSendInternalEmail).toHaveBeenCalledWith({
       to: 'jane@test.com',
@@ -385,7 +386,7 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
 
     await handleOnboardingDrip(makeJob({ drip_type: 'day_1' }));
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-drip-1');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-drip-1', undefined);
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
     expect(mockRecordNotificationDelivery).not.toHaveBeenCalled();
   });

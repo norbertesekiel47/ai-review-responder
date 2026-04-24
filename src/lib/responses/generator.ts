@@ -12,6 +12,7 @@ import type {
 import { buildDemoPrompt, buildProductionPrompt } from './prompt-builder';
 import {
   checkIdempotentCache,
+  clearCachedGeneration,
   reserveCost,
   acquireConcurrencySlot,
   finalizeCost,
@@ -45,6 +46,48 @@ interface CachedGeneration {
   model: string;
   promptTokens: number;
   completionTokens: number;
+}
+
+/**
+ * Wraps a transient LLM provider error so callers can rethrow for retry
+ * instead of marking the outbox failed. Permanent errors (auth, bad
+ * request, guardrail) surface as ordinary Errors.
+ */
+export class TransientLLMError extends Error {
+  constructor(public readonly cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause));
+    this.name = 'TransientLLMError';
+  }
+}
+
+// `instanceof` against a class that might be undefined (e.g. when the SDK is
+// mocked without its error subclasses) throws TypeError. Guard each check so
+// a minimal mock can't crash classification.
+function safeInstanceOf(err: unknown, ctor: unknown): boolean {
+  return typeof ctor === 'function' && err instanceof (ctor as new (...args: unknown[]) => unknown);
+}
+
+function isTransientLLMError(err: unknown): boolean {
+  if (safeInstanceOf(err, OpenAI.APIConnectionError)) return true;
+  if (safeInstanceOf(err, OpenAI.APIConnectionTimeoutError)) return true;
+  if (safeInstanceOf(err, OpenAI.RateLimitError)) return true;
+  if (safeInstanceOf(err, OpenAI.InternalServerError)) return true;
+  if (safeInstanceOf(err, Anthropic.APIConnectionError)) return true;
+  if (safeInstanceOf(err, Anthropic.APIConnectionTimeoutError)) return true;
+  if (safeInstanceOf(err, Anthropic.RateLimitError)) return true;
+  if (safeInstanceOf(err, Anthropic.InternalServerError)) return true;
+  // Generic API errors: retry on 5xx and 429
+  if (safeInstanceOf(err, OpenAI.APIError) || safeInstanceOf(err, Anthropic.APIError)) {
+    const status = (err as { status?: number }).status;
+    if (typeof status === 'number' && (status >= 500 || status === 429 || status === 408)) return true;
+  }
+  // Node fetch / undici timeouts + ECONNRESET surface as plain Errors
+  if (err instanceof Error) {
+    const code = (err as { code?: string }).code;
+    if (code === 'ETIMEDOUT' || code === 'ECONNRESET' || code === 'ECONNREFUSED' || code === 'EAI_AGAIN') return true;
+    if (err.name === 'AbortError' || err.name === 'TimeoutError') return true;
+  }
+  return false;
 }
 
 // ── Type guard ───────────────────────────────────────────────────────
@@ -133,19 +176,27 @@ async function runProductionMode(
   if (!options.skipCache) {
     const cached = await checkIdempotentCache(reviewId, version);
     if (cached) {
-      const parsed: CachedGeneration = JSON.parse(cached);
-      return {
-        responseText: parsed.responseText,
-        language: parsed.language,
-        provider: parsed.provider,
-        model: parsed.model,
-        usage: {
-          promptTokens: parsed.promptTokens,
-          completionTokens: parsed.completionTokens,
-        },
-        costUsd: 0,
-        apiCostId: null,
-      };
+      try {
+        const parsed = JSON.parse(cached) as CachedGeneration;
+        return {
+          responseText: parsed.responseText,
+          language: parsed.language,
+          provider: parsed.provider,
+          model: parsed.model,
+          usage: {
+            promptTokens: parsed.promptTokens,
+            completionTokens: parsed.completionTokens,
+          },
+          costUsd: 0,
+          apiCostId: null,
+        };
+      } catch (err) {
+        // Corrupt cache entry — drop it and fall through to fresh generation.
+        console.warn(
+          `[generator] Corrupt cached generation for ${reviewId} v${version}: ${err instanceof Error ? err.message : err}`,
+        );
+        await clearCachedGeneration(reviewId, version).catch(() => { /* best effort */ });
+      }
     }
   }
 
@@ -273,7 +324,18 @@ async function callLLMWithFallback(
     return await callOpenAI(systemPrompt, userPrompt);
   } catch (openaiError) {
     console.error('[generator] OpenAI call failed, falling back to Anthropic:', openaiError);
-    return callAnthropic(systemPrompt, userPrompt);
+    try {
+      return await callAnthropic(systemPrompt, userPrompt);
+    } catch (anthropicError) {
+      // Both providers failed. If either failure is transient (network, 5xx,
+      // rate-limit, timeout), surface as TransientLLMError so the worker
+      // rethrows for BullMQ/outbox retry instead of terminal-failing work
+      // that a provider outage would otherwise lose.
+      if (isTransientLLMError(openaiError) || isTransientLLMError(anthropicError)) {
+        throw new TransientLLMError(anthropicError);
+      }
+      throw anthropicError;
+    }
   }
 }
 
@@ -318,13 +380,18 @@ async function callAnthropic(
     messages: [{ role: 'user', content: userPrompt }],
   });
 
-  const block = response.content[0];
-  if (!block || block.type !== 'text') {
+  const text = response.content
+    .filter((b): b is { type: 'text'; text: string } & typeof b => b.type === 'text')
+    .map((b) => b.text)
+    .join('')
+    .trim();
+
+  if (!text) {
     throw new Error('Anthropic returned empty response');
   }
 
   return {
-    text: block.text,
+    text,
     provider: 'anthropic',
     model: ANTHROPIC_MODEL,
     usage: {

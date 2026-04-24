@@ -2,7 +2,7 @@ import type { Job } from 'bullmq';
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '../../src/lib/db/server';
 import { checkSubscription } from '../../src/lib/shared/subscription-guard';
-import { markOutboxCompleted, markOutboxFailed } from '../../src/lib/shared/outbox';
+import { markOutboxCompleted, markOutboxFailed, extractOutboxHandle } from '../../src/lib/shared/outbox';
 import { getReviewMonitor } from '../../src/lib/shared/mock-mode';
 import type { SyncReviewsPayload } from '../../src/lib/shared/worker-types';
 import {
@@ -17,7 +17,7 @@ export async function handleReviewSync(
 ): Promise<void> {
   const logger = createWorkerLogger('[ReviewSyncWorker]', job.data.correlation_id);
   const { business_id, google_place_id } = job.data;
-  const outboxId = (job.data as unknown as { outbox_id?: string }).outbox_id ?? job.id!;
+  const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
 
   // ── Step 1: Load business and validate ──────────────────────────────
   const [business] = await sql<{
@@ -35,19 +35,19 @@ export async function handleReviewSync(
 
   if (!business) {
     logger.warn(`Business ${business_id} not found`);
-    await markOutboxCompleted(outboxId);
+    await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }
 
   if (!business.google_place_id) {
     logger.warn(`Business ${business_id} has no google_place_id`);
-    await markOutboxCompleted(outboxId);
+    await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }
 
   if (!business.place_id_verified) {
     logger.warn(`Business ${business_id} place_id not verified, skipping`);
-    await markOutboxCompleted(outboxId);
+    await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }
 
@@ -59,7 +59,7 @@ export async function handleReviewSync(
 
   if (!subCheck.allowed) {
     logger.warn(`Business ${business_id} subscription blocked: ${subCheck.reason}`);
-    await markOutboxCompleted(outboxId);
+    await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }
 
@@ -74,7 +74,7 @@ export async function handleReviewSync(
 
     if (isPermanentSerpApiError(message)) {
       logger.error(`Permanent SerpAPI error for business ${business_id}: ${message}`);
-      await markOutboxFailed(outboxId, `serpapi_permanent: ${message}`);
+      await markOutboxFailed(outboxId, `serpapi_permanent: ${message}`, outboxAttempt);
       return;
     }
 
@@ -166,5 +166,5 @@ export async function handleReviewSync(
   }
 
   // ── Step 7: Complete outbox ─────────────────────────────────────────
-  await markOutboxCompleted(outboxId);
+  await markOutboxCompleted(outboxId, outboxAttempt);
 }

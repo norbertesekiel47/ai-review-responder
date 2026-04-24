@@ -37,25 +37,42 @@ type FetchResult =
   | { kind: 'auth_expired' }
   | { kind: 'error'; status: number };
 
-async function fetchTelegramEnrollment(businessId: string): Promise<FetchResult> {
-  const res = await fetch(`/api/admin/businesses/${businessId}/channels`);
-  if (res.status === 401 || res.status === 403) return { kind: 'auth_expired' };
-  if (!res.ok) return { kind: 'error', status: res.status };
-  const data = await res.json() as { enrollments: ChannelEnrollment[] };
-  return { kind: 'ok', enrollment: data.enrollments.find((e) => e.channel === 'telegram') ?? null };
+async function fetchTelegramEnrollment(
+  businessId: string,
+  signal?: AbortSignal,
+): Promise<FetchResult> {
+  try {
+    const res = await fetch(`/api/admin/businesses/${businessId}/channels`, { signal });
+    if (res.status === 401 || res.status === 403) return { kind: 'auth_expired' };
+    if (!res.ok) return { kind: 'error', status: res.status };
+    const data = await res.json() as { enrollments: ChannelEnrollment[] };
+    return { kind: 'ok', enrollment: data.enrollments.find((e) => e.channel === 'telegram') ?? null };
+  } catch (err) {
+    // AbortError is expected on unmount — map to a no-op status so callers
+    // can ignore it. Other transient errors reuse the existing error shape.
+    if ((err as { name?: string } | null)?.name === 'AbortError') {
+      return { kind: 'error', status: 0 };
+    }
+    console.warn('[TelegramEnrollmentWidget] fetch failed:', err);
+    return { kind: 'error', status: 0 };
+  }
 }
 
 export function TelegramEnrollmentWidget({ businessId }: { businessId: string }) {
   const [state, setState] = useState<WidgetState>({ kind: 'idle' });
   const [, setEnrollment] = useState<ChannelEnrollment | null>(null);
 
-  const refresh = useCallback(async () => {
-    const result = await fetchTelegramEnrollment(businessId);
+  const refresh = useCallback(async (signal?: AbortSignal) => {
+    const result = await fetchTelegramEnrollment(businessId, signal);
+    if (signal?.aborted) return;
     if (result.kind === 'auth_expired') {
       setState({ kind: 'error', message: 'Session expired — please reload the page.' });
       return;
     }
     if (result.kind === 'error') {
+      // status=0 indicates AbortError or network failure — do not surface,
+      // the next interaction will retry.
+      if (result.status === 0) return;
       setState({ kind: 'error', message: `Could not load Telegram enrollment (${result.status}).` });
       return;
     }
@@ -71,13 +88,18 @@ export function TelegramEnrollmentWidget({ businessId }: { businessId: string })
     }
   }, [businessId]);
 
-  useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => {
+    const controller = new AbortController();
+    void refresh(controller.signal);
+    return () => controller.abort();
+  }, [refresh]);
 
   // Poll every 3s while awaiting scan
   useEffect(() => {
     if (state.kind !== 'awaiting_scan') return;
+    const controller = new AbortController();
     const interval = setInterval(async () => {
-      const result = await fetchTelegramEnrollment(businessId);
+      const result = await fetchTelegramEnrollment(businessId, controller.signal);
       // During polling, ignore transient errors — the manual "Refresh
       // status" button will surface them and the QR countdown handles
       // expiry independently.
@@ -88,7 +110,10 @@ export function TelegramEnrollmentWidget({ businessId }: { businessId: string })
         setState({ kind: 'verified', maskedHandle: e.handle ? maskChatId(e.handle) : '•••' });
       }
     }, 3000);
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      controller.abort();
+    };
   }, [state.kind, businessId]);
 
   // Expire the QR when TTL elapses
@@ -154,7 +179,7 @@ export function TelegramEnrollmentWidget({ businessId }: { businessId: string })
           <p className="mt-2"><a href={state.deepLink} target="_blank" rel="noreferrer" className="text-blue-600 underline break-all">{state.deepLink}</a></p>
           <p className="text-xs text-gray-500 mt-1">Expires {new Date(state.expiresAt).toLocaleTimeString()}</p>
           <button onClick={onCancel} className="mt-3 px-3 py-1 border rounded">Cancel</button>
-          <button onClick={refresh} className="mt-3 ml-2 px-3 py-1 border rounded">Refresh status</button>
+          <button onClick={() => refresh()} className="mt-3 ml-2 px-3 py-1 border rounded">Refresh status</button>
         </div>
       )}
       {state.kind === 'verified' && (
