@@ -78,3 +78,77 @@ export const UpdateBusinessSchema = z
   .refine((data) => Object.keys(data).length > 0, {
     message: 'At least one field must be provided',
   });
+
+// ── Self-serve signup schemas ─────────────────────────────────────────
+// See docs/superpowers/specs/2026-04-23-owner-self-serve-signup-design.md §2.3, §3.1.
+// Email normalization uses z.preprocess so trim+lower happens BEFORE email validation,
+// letting values like "  Owner@X.com  " parse correctly as "owner@x.com".
+
+const normalizedEmailSchema = z.preprocess(
+  (v) => (typeof v === 'string' ? v.trim().toLowerCase() : v),
+  z.string().email().max(254),
+);
+
+const passwordSchema = z.string().min(8).max(128);
+
+// Shared shape between SignupSchema (password auth) and FinishSignupSchema (Google OAuth).
+// Reuses existing field schemas where constraints match.
+const baseBusinessShape = {
+  businessName: businessNameSchema,
+  category: categorySchema.optional().nullable(),
+  googlePlaceId: z.string().min(1).optional(),
+  googleMapsUrl: z.string().min(1).optional(),
+  tone: toneSchema.optional(),
+  productsServices: z.string().max(5000).optional(),
+  staffNames: z.string().max(2000).optional(),
+  highlightFacts: z.string().max(2000).optional(),
+  avoidFacts: z.string().max(2000).optional(),
+  sampleResponses: z.string().max(5000).optional(),
+  subscriptionTier: z.enum(['founding', 'standard']),
+  website: websiteUrlSchema.optional().nullable(),
+};
+
+export const SignupSchema = z
+  .object({
+    ownerEmail: normalizedEmailSchema,
+    ownerName: ownerNameSchema,
+    ownerPhone: ownerPhoneSchema.optional(),
+    password: passwordSchema,
+    ...baseBusinessShape,
+  })
+  .refine((d) => Boolean(d.googlePlaceId) || Boolean(d.googleMapsUrl), {
+    message: 'Either googlePlaceId or googleMapsUrl is required',
+    path: ['googlePlaceId'],
+  });
+
+export type SignupInput = z.infer<typeof SignupSchema>;
+
+export const FinishSignupSchema = z
+  .object({
+    ownerName: ownerNameSchema,
+    ownerPhone: ownerPhoneSchema.optional(),
+    ...baseBusinessShape,
+  })
+  .refine((d) => Boolean(d.googlePlaceId) || Boolean(d.googleMapsUrl), {
+    message: 'Either googlePlaceId or googleMapsUrl is required',
+    path: ['googlePlaceId'],
+  });
+
+export type FinishSignupInput = z.infer<typeof FinishSignupSchema>;
+
+export const ForgotPasswordSchema = z.object({
+  email: normalizedEmailSchema,
+  role: z.enum(['owner', 'admin']),
+});
+export type ForgotPasswordInput = z.infer<typeof ForgotPasswordSchema>;
+
+export const ResetPasswordSchema = z.object({
+  password: passwordSchema,
+});
+export type ResetPasswordInput = z.infer<typeof ResetPasswordSchema>;
+
+export const ResendConfirmationSchema = z.object({
+  email: normalizedEmailSchema,
+  flow: z.enum(['owner', 'admin']),
+});
+export type ResendConfirmationInput = z.infer<typeof ResendConfirmationSchema>;
