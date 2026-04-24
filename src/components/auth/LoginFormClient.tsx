@@ -21,6 +21,32 @@ export function LoginFormClient(props: LoginFormProps) {
   );
 }
 
+const OWNER_ALLOWED_PREFIXES = ['/dashboard', '/settings', '/onboarding'] as const;
+const ADMIN_AUTH_PAGES = ['/admin/login', '/admin/forgot-password', '/admin/reset-password'] as const;
+
+function resolvePostLoginDestination(
+  portal: AuthFlow,
+  from: string,
+  defaultRoute: string,
+): string {
+  // Must be an absolute internal path, not a protocol-relative URL.
+  if (!from.startsWith('/') || from.startsWith('//')) {
+    return defaultRoute;
+  }
+
+  if (portal === 'owner') {
+    const allowed = OWNER_ALLOWED_PREFIXES.some((prefix) => from.startsWith(prefix));
+    return allowed ? from : defaultRoute;
+  }
+
+  // Admin portal: accept /admin/* except the auth pages themselves (would loop).
+  if (!from.startsWith('/admin')) {
+    return defaultRoute;
+  }
+  const isAuthPage = ADMIN_AUTH_PAGES.some((page) => from === page || from.startsWith(`${page}/`));
+  return isAuthPage ? defaultRoute : from;
+}
+
 function LoginFormInner({
   portal,
   brandName,
@@ -86,7 +112,9 @@ function LoginFormInner({
         return;
       }
 
-      router.push(defaultRoute);
+      const from = searchParams.get('from') ?? '';
+      const destination = resolvePostLoginDestination(portal, from, defaultRoute);
+      router.push(destination);
       router.refresh();
     } catch {
       setError('Connection failed');
