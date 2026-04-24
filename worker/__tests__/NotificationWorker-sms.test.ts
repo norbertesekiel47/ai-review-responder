@@ -132,6 +132,7 @@ vi.mock('../../src/lib/db/server', () => ({
 vi.mock('../../src/lib/shared/outbox', () => ({
   markOutboxCompleted: mockMarkOutboxCompleted,
   markOutboxFailed: mockMarkOutboxFailed,
+  extractOutboxHandle: (d: any, fallback: string) => ({ outboxId: (d && typeof d.outbox_id === 'string') ? d.outbox_id : fallback, attempt: (d && typeof d.outbox_attempt === 'number') ? d.outbox_attempt : undefined }),
 }));
 
 vi.mock('../../src/lib/notifications/enrollments', () => ({
@@ -271,7 +272,7 @@ describe('NotificationWorker — SMS flag gate', () => {
     expect(mockReserveSmsCost).not.toHaveBeenCalled();
     expect(mockSmsSend).not.toHaveBeenCalled();
     expect(mockEmailSend).toHaveBeenCalledTimes(1);
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-notif-1');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-notif-1', undefined);
   });
 });
 
@@ -300,7 +301,7 @@ describe('NotificationWorker — SMS happy path', () => {
     expect(mockRecordDelivery).toHaveBeenCalledTimes(1);
     expect(mockRefundSmsCost).not.toHaveBeenCalled();
     expect(mockInsertFailedDelivery).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-notif-1');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-notif-1', undefined);
   });
 });
 

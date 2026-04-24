@@ -51,6 +51,7 @@ vi.mock('../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) =>
 vi.mock('../../src/lib/shared/outbox', () => ({
   markOutboxCompleted: mockMarkOutboxCompleted,
   markOutboxFailed: mockMarkOutboxFailed,
+  extractOutboxHandle: (d: any, fallback: string) => ({ outboxId: (d && typeof d.outbox_id === 'string') ? d.outbox_id : fallback, attempt: (d && typeof d.outbox_attempt === 'number') ? d.outbox_attempt : undefined }),
 }));
 vi.mock('../../src/lib/notifications/email', () => ({
   sendInternalEmail: mockSendInternalEmail,
@@ -130,7 +131,7 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
 
     await handleEngagementAlert(makeJob());
 
-    expect(mockMarkOutboxFailed).toHaveBeenCalledWith('outbox-ea-1', 'business_not_found');
+    expect(mockMarkOutboxFailed).toHaveBeenCalledWith('outbox-ea-1', 'business_not_found', undefined);
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
   });
 
@@ -140,7 +141,7 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
     await handleEngagementAlert(makeJob());
 
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ea-1');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ea-1', undefined);
   });
 
   it('skips if subscription not allowed (pending_payment)', async () => {
@@ -149,7 +150,7 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
     await handleEngagementAlert(makeJob());
 
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ea-1');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ea-1', undefined);
   });
 
   // ── Owner nudge ───────────────────────────────────────────────────
@@ -193,7 +194,7 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
       externalMessageId: 'msg-ea-1',
     });
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ea-1');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ea-1', undefined);
   });
 
   it('owner_nudge: skips gracefully when no pending reviews', async () => {
@@ -204,7 +205,7 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
 
     expect(mockCreateApprovalLink).not.toHaveBeenCalled();
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ea-1');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ea-1', undefined);
   });
 
   it('owner_nudge: fails outbox if NEXT_PUBLIC_APP_URL not set', async () => {
@@ -213,7 +214,7 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
 
     await handleEngagementAlert(makeJob({ alert_type: 'owner_nudge' }));
 
-    expect(mockMarkOutboxFailed).toHaveBeenCalledWith('outbox-ea-1', 'NEXT_PUBLIC_APP_URL not configured');
+    expect(mockMarkOutboxFailed).toHaveBeenCalledWith('outbox-ea-1', 'NEXT_PUBLIC_APP_URL not configured', undefined);
     expect(mockCreateApprovalLink).not.toHaveBeenCalled();
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
   });
@@ -224,7 +225,7 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
 
     await handleEngagementAlert(makeJob({ alert_type: 'owner_nudge' }));
 
-    expect(mockMarkOutboxFailed).toHaveBeenCalledWith('outbox-ea-1', 'RESEND_FROM_EMAIL not configured');
+    expect(mockMarkOutboxFailed).toHaveBeenCalledWith('outbox-ea-1', 'RESEND_FROM_EMAIL not configured', undefined);
     expect(mockCreateApprovalLink).not.toHaveBeenCalled();
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
   });
@@ -239,7 +240,7 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
 
     await handleEngagementAlert(makeJob({ alert_type: 'owner_nudge' }));
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ea-1');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ea-1', undefined);
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
     expect(mockCreateApprovalLink).not.toHaveBeenCalled();
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
@@ -250,7 +251,7 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
 
     await handleEngagementAlert(makeJob({ alert_type: 'owner_nudge' }));
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ea-1');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ea-1', undefined);
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
     expect(mockCreateApprovalLink).not.toHaveBeenCalled();
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
@@ -307,7 +308,7 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
       externalMessageId: 'msg-ea-1',
     });
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ea-1');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ea-1', undefined);
   });
 
   it('partner_engagement_alert: falls back to oldest_pending_age_days in subject', async () => {
@@ -364,7 +365,7 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
       externalMessageId: 'msg-ea-1',
     });
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ea-1');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ea-1', undefined);
   });
 
   // ── Partner low engagement ────────────────────────────────────────
@@ -406,7 +407,7 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
       externalMessageId: 'msg-ea-1',
     });
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ea-1');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ea-1', undefined);
   });
 
   // ── Error handling ────────────────────────────────────────────────
@@ -417,7 +418,7 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
 
     await handleEngagementAlert(makeJob({ alert_type: 'partner_engagement_alert' }));
 
-    expect(mockMarkOutboxFailed).toHaveBeenCalledWith('outbox-ea-1', 'ADMIN_NOTIFICATION_EMAIL not configured');
+    expect(mockMarkOutboxFailed).toHaveBeenCalledWith('outbox-ea-1', 'ADMIN_NOTIFICATION_EMAIL not configured', undefined);
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
   });
 
@@ -516,7 +517,7 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
       // no satisfaction field
     }));
 
-    expect(mockMarkOutboxFailed).toHaveBeenCalledWith(expect.any(String), 'missing satisfaction payload');
+    expect(mockMarkOutboxFailed).toHaveBeenCalledWith(expect.any(String), 'missing satisfaction payload', undefined);
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
   });
 
@@ -529,7 +530,7 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
       satisfaction: { rating: 'not_great', comment: null, week_start_date: '2026-04-13' },
     }));
 
-    expect(mockMarkOutboxFailed).toHaveBeenCalledWith(expect.any(String), expect.stringContaining('ADMIN_NOTIFICATION_EMAIL'));
+    expect(mockMarkOutboxFailed).toHaveBeenCalledWith(expect.any(String), expect.stringContaining('ADMIN_NOTIFICATION_EMAIL'), undefined);
   });
 
   it('fails satisfaction alert with invalid rating', async () => {
@@ -541,7 +542,7 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
       satisfaction: { rating: 'terrible' as 'not_great', comment: null, week_start_date: '2026-04-13' },
     }));
 
-    expect(mockMarkOutboxFailed).toHaveBeenCalledWith(expect.any(String), expect.stringContaining('invalid satisfaction rating'));
+    expect(mockMarkOutboxFailed).toHaveBeenCalledWith(expect.any(String), expect.stringContaining('invalid satisfaction rating'), undefined);
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
   });
 
@@ -554,7 +555,7 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
       satisfaction: { rating: 'not_great', comment: null, week_start_date: 'not-a-date' },
     }));
 
-    expect(mockMarkOutboxFailed).toHaveBeenCalledWith(expect.any(String), expect.stringContaining('invalid satisfaction week_start_date'));
+    expect(mockMarkOutboxFailed).toHaveBeenCalledWith(expect.any(String), expect.stringContaining('invalid satisfaction week_start_date'), undefined);
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
   });
 
@@ -567,7 +568,7 @@ describe('EngagementAlertWorker – handleEngagementAlert', () => {
       satisfaction: { rating: 'not_great', comment: null, week_start_date: '2026-99-99' },
     }));
 
-    expect(mockMarkOutboxFailed).toHaveBeenCalledWith(expect.any(String), expect.stringContaining('not a real date'));
+    expect(mockMarkOutboxFailed).toHaveBeenCalledWith(expect.any(String), expect.stringContaining('not a real date'), undefined);
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
   });
 

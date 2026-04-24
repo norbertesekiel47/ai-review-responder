@@ -79,6 +79,7 @@ vi.mock('../../src/lib/db/server', () => ({
 vi.mock('../../src/lib/shared/outbox', () => ({
   markOutboxCompleted: mockMarkOutboxCompleted,
   markOutboxFailed: mockMarkOutboxFailed,
+  extractOutboxHandle: (d: any, fallback: string) => ({ outboxId: (d && typeof d.outbox_id === 'string') ? d.outbox_id : fallback, attempt: (d && typeof d.outbox_attempt === 'number') ? d.outbox_attempt : undefined }),
 }));
 
 vi.mock('../../src/lib/notifications/enrollments', () => ({
@@ -222,7 +223,7 @@ describe('NotificationWorker — Telegram flag gate', () => {
 
     // Email must still go through
     expect(mockEmailSend).toHaveBeenCalledTimes(1);
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-notif-1');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-notif-1', undefined);
   });
 });
 
@@ -272,7 +273,7 @@ describe('NotificationWorker — Telegram blocked recipient', () => {
     expect(mockRecordDelivery).toHaveBeenCalledTimes(1);
 
     // Dispatcher must NOT throw — outbox completed
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-notif-1');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-notif-1', undefined);
   });
 });
 
@@ -326,6 +327,6 @@ describe('NotificationWorker — Telegram chat not found', () => {
     expect(mockRecordDelivery).toHaveBeenCalledTimes(1);
 
     // Dispatcher must NOT throw — outbox completed
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-notif-1');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-notif-1', undefined);
   });
 });

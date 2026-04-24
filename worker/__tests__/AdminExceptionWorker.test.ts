@@ -32,6 +32,7 @@ vi.mock('../../src/lib/db/server', () => ({
 
 vi.mock('../../src/lib/shared/outbox', () => ({
   markOutboxCompleted: mockMarkOutboxCompleted,
+  extractOutboxHandle: (d: any, fallback: string) => ({ outboxId: (d && typeof d.outbox_id === 'string') ? d.outbox_id : fallback, attempt: (d && typeof d.outbox_attempt === 'number') ? d.outbox_attempt : undefined }),
 }));
 
 vi.mock('../../src/lib/notifications/email', () => ({
@@ -86,7 +87,7 @@ describe('AdminExceptionWorker – handleAdminException', () => {
     expect(emailArgs.subject).toContain('Review exception');
     expect(emailArgs.subject).toContain('Test Biz');
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-exc-1');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-exc-1', undefined);
   });
 
   // 2. Already resolved — idempotent skip
@@ -95,7 +96,7 @@ describe('AdminExceptionWorker – handleAdminException', () => {
 
     await handleAdminException(makeJob());
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-exc-1');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-exc-1', undefined);
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
   });
 

@@ -63,7 +63,9 @@ export async function resolvePlaceId(data: GoogleMapsUrlData): Promise<string> {
     throw new Error(`SerpAPI search error: ${msg}`);
   }
 
-  const results: SerpApiLocalResult[] = response.local_results ?? [];
+  const results: SerpApiLocalResult[] = Array.isArray(response.local_results)
+    ? response.local_results
+    : [];
   if (results.length === 0) {
     throw new Error('Could not verify business location — try using the search field instead');
   }
@@ -107,6 +109,18 @@ export async function resolvePlaceId(data: GoogleMapsUrlData): Promise<string> {
   return bestMatch.place_id;
 }
 
+// INCR + set-TTL-on-first-increment collapsed into one atomic Lua script.
+// Separate INCR then conditional EXPIRE left a crash window on first
+// increment that would leave the daily budget key TTL-less forever.
+const RESOLUTION_BUDGET_LUA = `
+local ttl = tonumber(ARGV[1])
+local cur = redis.call('INCR', KEYS[1])
+if cur == 1 then
+  redis.call('EXPIRE', KEYS[1], ttl)
+end
+return cur
+`;
+
 /** Fail-closed SerpAPI budget guard. Blocks if Redis is unavailable (unlike checkRateLimit which fails open). */
 async function checkSerpApiResolutionBudget(): Promise<void> {
   if (!process.env.REDIS_CACHE_URL) {
@@ -116,11 +130,12 @@ async function checkSerpApiResolutionBudget(): Promise<void> {
   try {
     const redis = getCacheRedis();
     const key = 'serpapi:resolve:daily';
-    const current = await redis.incr(key);
-
-    if (current === 1) {
-      await redis.expire(key, DAILY_WINDOW_S);
-    }
+    const current = (await redis.eval(
+      RESOLUTION_BUDGET_LUA,
+      1,
+      key,
+      String(DAILY_WINDOW_S),
+    )) as number;
 
     if (current > DAILY_LIMIT) {
       throw new Error('Daily Place ID resolution limit reached — use the search field instead');

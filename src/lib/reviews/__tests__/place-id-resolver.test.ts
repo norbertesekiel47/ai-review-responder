@@ -4,14 +4,19 @@ vi.mock('serpapi', () => ({
   getJson: vi.fn(),
 }));
 
-// Mock Redis for the fail-closed budget guard
+// Mock Redis for the fail-closed budget guard.
+// The production code uses a Lua EVAL that increments + conditionally sets TTL;
+// the test mock replays the INCR semantics via mockIncr so existing tests
+// (counter=1, counter=76 over limit, ECONNREFUSED) keep their meaning.
 const mockIncr = vi.fn().mockResolvedValue(1);
 const mockExpire = vi.fn().mockResolvedValue(1);
+const mockEval = vi.fn(async () => mockIncr());
 
 vi.mock('@/lib/db/redis-cache', () => ({
   getCacheRedis: vi.fn(() => ({
     incr: mockIncr,
     expire: mockExpire,
+    eval: mockEval,
   })),
 }));
 

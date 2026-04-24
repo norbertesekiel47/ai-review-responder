@@ -1,6 +1,6 @@
 import type { Job } from 'bullmq';
 import { sql } from '../../src/lib/db/server';
-import { markOutboxCompleted } from '../../src/lib/shared/outbox';
+import { markOutboxCompleted, extractOutboxHandle } from '../../src/lib/shared/outbox';
 import { sendInternalEmail } from '../../src/lib/notifications/email';
 import type { NotifyAdminExceptionPayload } from '../../src/lib/shared/worker-types';
 import { escapeHtml } from '../../src/lib/shared/html';
@@ -11,7 +11,7 @@ export async function handleAdminException(
 ): Promise<void> {
   const logger = createWorkerLogger('[AdminExceptionWorker]', job.data.correlation_id);
   const { review_exception_id, business_id } = job.data;
-  const outboxId = (job.data as unknown as { outbox_id?: string }).outbox_id ?? job.id!;
+  const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
 
   // Read exception with review + business info
   const [exception] = await sql<{
@@ -35,14 +35,14 @@ export async function handleAdminException(
 
   if (!exception) {
     logger.warn(`Exception ${review_exception_id} not found`);
-    await markOutboxCompleted(outboxId);
+    await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }
 
   // Already resolved — another worker got there first
   if (exception.status !== 'open') {
     logger.log(`Exception ${review_exception_id} already ${exception.status}`);
-    await markOutboxCompleted(outboxId);
+    await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }
 
@@ -54,7 +54,7 @@ export async function handleAdminException(
   const adminEmail = process.env.ADMIN_NOTIFICATION_EMAIL;
   if (!adminEmail) {
     logger.error(`ADMIN_NOTIFICATION_EMAIL not set — cannot send alert`);
-    await markOutboxCompleted(outboxId);
+    await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }
 
@@ -84,6 +84,6 @@ export async function handleAdminException(
     throw err;
   }
 
-  await markOutboxCompleted(outboxId);
+  await markOutboxCompleted(outboxId, outboxAttempt);
   logger.log(`Alert sent for exception ${review_exception_id} (${exception.type})`);
 }

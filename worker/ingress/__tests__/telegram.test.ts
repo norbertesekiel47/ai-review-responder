@@ -168,7 +168,7 @@ describe('telegram ingress — callback_query happy path', () => {
     mockVerify.mockReturnValueOnce(true);
     mockClaim.mockResolvedValueOnce('claimed');
     // invariant check: SELECT approval_links + SELECT enrollment
-    sqlQueue.push([{ id: 'link-1', business_id: 'biz-1', channel: 'telegram', consumed_at: null, revoked_at: null, expires_at: new Date(Date.now() + 60_000) }]);
+    sqlQueue.push([{ id: '00000000-0000-7000-8000-000000000001', business_id: 'biz-1', channel: 'telegram', consumed_at: null, revoked_at: null, expires_at: new Date(Date.now() + 60_000) }]);
     sqlQueue.push([{ handle: '111' }]);
     mockApprove.mockResolvedValueOnce(undefined);
     sqlQueue.push([]); // mark inbound_events processed
@@ -176,7 +176,7 @@ describe('telegram ingress — callback_query happy path', () => {
     const reply = mkReply();
     await handleTelegramWebhook(mkRequest({
       update_id: 2,
-      callback_query: { id: 'cb2', from: { id: 111 }, data: 'a:link-1', message: { chat: { id: 111 }, message_id: 55 } },
+      callback_query: { id: 'cb2', from: { id: 111 }, data: 'a:00000000-0000-7000-8000-000000000001', message: { chat: { id: 111 }, message_id: 55 } },
     }), reply);
 
     const order = mockAck.mock.invocationCallOrder[0]!;
@@ -192,7 +192,7 @@ describe('telegram ingress — callback_query happy path', () => {
   it('regenerate flow: ack → regenerateViaCallback → editMessageText replaces stale draft', async () => {
     mockVerify.mockReturnValueOnce(true);
     mockClaim.mockResolvedValueOnce('claimed');
-    sqlQueue.push([{ id: 'link-2', business_id: 'biz-1', channel: 'telegram', consumed_at: null, revoked_at: null, expires_at: new Date(Date.now() + 60_000) }]);
+    sqlQueue.push([{ id: '00000000-0000-7000-8000-000000000002', business_id: 'biz-1', channel: 'telegram', consumed_at: null, revoked_at: null, expires_at: new Date(Date.now() + 60_000) }]);
     sqlQueue.push([{ handle: '111' }]);
     mockRegenerate.mockResolvedValueOnce(undefined);
     sqlQueue.push([]);
@@ -200,7 +200,7 @@ describe('telegram ingress — callback_query happy path', () => {
     const reply = mkReply();
     await handleTelegramWebhook(mkRequest({
       update_id: 3,
-      callback_query: { id: 'cb3', from: { id: 111 }, data: 'r:link-2', message: { chat: { id: 111 }, message_id: 56 } },
+      callback_query: { id: 'cb3', from: { id: 111 }, data: 'r:00000000-0000-7000-8000-000000000002', message: { chat: { id: 111 }, message_id: 56 } },
     }), reply);
 
     expect(mockAck).toHaveBeenCalledTimes(1);
@@ -225,7 +225,7 @@ describe('telegram ingress — permanent link-state failures after ack', () => {
   ])('%s → ack then editMessageText replaces stale draft (no buttons remain), processed', async (_label, err) => {
     mockVerify.mockReturnValueOnce(true);
     mockClaim.mockResolvedValueOnce('claimed');
-    sqlQueue.push([{ id: 'link-x', business_id: 'biz-1', channel: 'telegram', consumed_at: null, revoked_at: null, expires_at: new Date(Date.now() + 60_000) }]);
+    sqlQueue.push([{ id: '00000000-0000-7000-8000-00000000000a', business_id: 'biz-1', channel: 'telegram', consumed_at: null, revoked_at: null, expires_at: new Date(Date.now() + 60_000) }]);
     sqlQueue.push([{ handle: '111' }]);
     mockApprove.mockRejectedValueOnce(err);
     sqlQueue.push([]);
@@ -233,7 +233,7 @@ describe('telegram ingress — permanent link-state failures after ack', () => {
     const reply = mkReply();
     await handleTelegramWebhook(mkRequest({
       update_id: 10,
-      callback_query: { id: 'cb-x', from: { id: 111 }, data: 'a:link-x', message: { chat: { id: 111 }, message_id: 1 } },
+      callback_query: { id: 'cb-x', from: { id: 111 }, data: 'a:00000000-0000-7000-8000-00000000000a', message: { chat: { id: 111 }, message_id: 1 } },
     }), reply);
 
     expect(mockAck).toHaveBeenCalledTimes(1);
@@ -254,7 +254,7 @@ describe('telegram ingress — permanent link-state failures after ack', () => {
   it('edit failure falls back to sendMessage', async () => {
     mockVerify.mockReturnValueOnce(true);
     mockClaim.mockResolvedValueOnce('claimed');
-    sqlQueue.push([{ id: 'link-y', business_id: 'biz-1', channel: 'telegram', consumed_at: null, revoked_at: null, expires_at: new Date(Date.now() + 60_000) }]);
+    sqlQueue.push([{ id: '00000000-0000-7000-8000-00000000000b', business_id: 'biz-1', channel: 'telegram', consumed_at: null, revoked_at: null, expires_at: new Date(Date.now() + 60_000) }]);
     sqlQueue.push([{ handle: '111' }]);
     mockApprove.mockRejectedValueOnce(new ConsumedLinkError());
     mockEditText.mockRejectedValueOnce(new Error('message too old'));
@@ -263,7 +263,7 @@ describe('telegram ingress — permanent link-state failures after ack', () => {
     const reply = mkReply();
     await handleTelegramWebhook(mkRequest({
       update_id: 11,
-      callback_query: { id: 'cb-y', from: { id: 111 }, data: 'a:link-y', message: { chat: { id: 111 }, message_id: 1 } },
+      callback_query: { id: 'cb-y', from: { id: 111 }, data: 'a:00000000-0000-7000-8000-00000000000b', message: { chat: { id: 111 }, message_id: 1 } },
     }), reply);
 
     expect(mockEditText).toHaveBeenCalledTimes(1);
@@ -277,7 +277,7 @@ describe('telegram ingress — unexpected tx failure', () => {
   it('sends fallback sendMessage without approval URL, marks inbound_events failed, returns 503', async () => {
     mockVerify.mockReturnValueOnce(true);
     mockClaim.mockResolvedValueOnce('claimed');
-    sqlQueue.push([{ id: 'link-z', business_id: 'biz-1', channel: 'telegram', consumed_at: null, revoked_at: null, expires_at: new Date(Date.now() + 60_000) }]);
+    sqlQueue.push([{ id: '00000000-0000-7000-8000-00000000000c', business_id: 'biz-1', channel: 'telegram', consumed_at: null, revoked_at: null, expires_at: new Date(Date.now() + 60_000) }]);
     sqlQueue.push([{ handle: '111' }]);
     mockApprove.mockRejectedValueOnce(new Error('DB timeout'));
     sqlQueue.push([]); // mark failed
@@ -285,7 +285,7 @@ describe('telegram ingress — unexpected tx failure', () => {
     const reply = mkReply();
     await handleTelegramWebhook(mkRequest({
       update_id: 11,
-      callback_query: { id: 'cb-z', from: { id: 111 }, data: 'a:link-z', message: { chat: { id: 111 }, message_id: 1 } },
+      callback_query: { id: 'cb-z', from: { id: 111 }, data: 'a:00000000-0000-7000-8000-00000000000c', message: { chat: { id: 111 }, message_id: 1 } },
     }), reply);
 
     expect(mockAck).toHaveBeenCalledTimes(1);
@@ -341,7 +341,7 @@ describe('telegram ingress — sendMessage failure does not reclassify permanent
   it('permanent error: if sendMessage throws AFTER a permanent link-state error, still marks processed (not failed)', async () => {
     mockVerify.mockReturnValueOnce(true);
     mockClaim.mockResolvedValueOnce('claimed');
-    sqlQueue.push([{ id: 'link-q', business_id: 'biz-1', channel: 'telegram', consumed_at: null, revoked_at: null, expires_at: new Date(Date.now() + 60_000) }]);
+    sqlQueue.push([{ id: '00000000-0000-7000-8000-00000000000d', business_id: 'biz-1', channel: 'telegram', consumed_at: null, revoked_at: null, expires_at: new Date(Date.now() + 60_000) }]);
     sqlQueue.push([{ handle: '111' }]);
     mockApprove.mockRejectedValueOnce(new ConsumedLinkError());
     sqlQueue.push([]); // mark processed (must happen BEFORE sendMessage throws)
@@ -350,7 +350,7 @@ describe('telegram ingress — sendMessage failure does not reclassify permanent
     const reply = mkReply();
     await handleTelegramWebhook(mkRequest({
       update_id: 99,
-      callback_query: { id: 'cb-q', from: { id: 111 }, data: 'a:link-q', message: { chat: { id: 111 }, message_id: 1 } },
+      callback_query: { id: 'cb-q', from: { id: 111 }, data: 'a:00000000-0000-7000-8000-00000000000d', message: { chat: { id: 111 }, message_id: 1 } },
     }), reply);
 
     // inbound_events must be marked processed even though sendMessage failed

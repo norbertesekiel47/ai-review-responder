@@ -11,7 +11,14 @@ interface OutboxEntry {
 }
 
 const POLL_INTERVAL_MS = parseInt(process.env.OUTBOX_POLL_INTERVAL_MS || '30000', 10);
-const BATCH_SIZE = 50;
+
+function readBatchSize(): number {
+  const raw = parseInt(process.env.OUTBOX_BATCH_SIZE || '50', 10);
+  if (!Number.isFinite(raw) || raw < 1) return 50;
+  if (raw > 500) return 500;
+  return raw;
+}
+const BATCH_SIZE = readBatchSize();
 
 let pollerInterval: ReturnType<typeof setInterval> | null = null;
 let isPolling = false;
@@ -116,6 +123,8 @@ async function pollOutbox(): Promise<void> {
           SET status = 'failed',
               last_error = ${'Unknown topic: ' + entry.topic}
           WHERE id = ${entry.id}
+            AND status = 'dispatching'
+            AND attempts = ${entry.attempts}
         `;
         continue;
       }
@@ -134,7 +143,11 @@ async function pollOutbox(): Promise<void> {
         // outbox entry regardless of the BullMQ jobId format.
         // entry.attempts is already incremented by the claim UPDATE above.
         const jobId = `${entry.id}_${entry.attempts}`;
-        await queue.add(entry.topic, { ...payload, outbox_id: entry.id }, { jobId });
+        await queue.add(
+          entry.topic,
+          { ...payload, outbox_id: entry.id, outbox_attempt: entry.attempts },
+          { jobId },
+        );
 
         Sentry.addBreadcrumb({
           category: 'outbox',
@@ -146,6 +159,8 @@ async function pollOutbox(): Promise<void> {
           UPDATE job_outbox
           SET status = 'dispatched', dispatched_at = NOW()
           WHERE id = ${entry.id}
+            AND status = 'dispatching'
+            AND attempts = ${entry.attempts}
         `;
       } catch (dispatchError) {
         console.error(
@@ -168,6 +183,8 @@ async function pollOutbox(): Promise<void> {
             UPDATE job_outbox
             SET status = 'failed', last_error = ${errorMsg}
             WHERE id = ${entry.id}
+              AND status = 'dispatching'
+              AND attempts = ${entry.attempts}
           `;
         } else {
           // Reset to pending for next poll cycle
@@ -175,6 +192,8 @@ async function pollOutbox(): Promise<void> {
             UPDATE job_outbox
             SET status = 'pending', last_error = ${errorMsg}
             WHERE id = ${entry.id}
+              AND status = 'dispatching'
+              AND attempts = ${entry.attempts}
           `;
         }
       }

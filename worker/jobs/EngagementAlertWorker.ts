@@ -1,7 +1,7 @@
 import type { Job } from 'bullmq';
 import { sql } from '../../src/lib/db/server';
 import { checkSubscription } from '../../src/lib/shared/subscription-guard';
-import { markOutboxCompleted, markOutboxFailed } from '../../src/lib/shared/outbox';
+import { markOutboxCompleted, markOutboxFailed, extractOutboxHandle } from '../../src/lib/shared/outbox';
 import {
   sendInternalEmail,
   buildOwnerNudgeEmailHtml,
@@ -18,7 +18,7 @@ import { createWorkerLogger, type WorkerLogger } from '../../src/lib/shared/logg
 export async function handleEngagementAlert(job: Job<EngagementAlertPayload>): Promise<void> {
   const logger = createWorkerLogger('[EngagementAlertWorker]', job.data.correlation_id);
   const { business_id, alert_type, metrics } = job.data;
-  const outboxId = (job.data as unknown as { outbox_id?: string }).outbox_id ?? job.id!;
+  const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
 
   // ── Step 1: Load business ─────────────────────────────────────────
   const [business] = await sql<{
@@ -35,7 +35,7 @@ export async function handleEngagementAlert(job: Job<EngagementAlertPayload>): P
 
   if (!business) {
     logger.warn(`Business ${business_id} not found`);
-    await markOutboxFailed(outboxId, 'business_not_found');
+    await markOutboxFailed(outboxId, 'business_not_found', outboxAttempt);
     return;
   }
 
@@ -48,22 +48,22 @@ export async function handleEngagementAlert(job: Job<EngagementAlertPayload>): P
 
   if (!subCheck.allowed) {
     logger.log(`Business ${business_id} skipped: ${subCheck.reason}`);
-    await markOutboxCompleted(outboxId);
+    await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }
 
   if (alert_type === 'owner_nudge') {
-    await handleOwnerNudge(outboxId, business_id, business, markOutboxFailed, logger);
+    await handleOwnerNudge(outboxId, outboxAttempt, business_id, business, logger);
   } else if (alert_type === 'partner_satisfaction_alert') {
     const satisfaction = (job.data as EngagementAlertPayload).satisfaction;
-    await handleSatisfactionAlert(outboxId, business_id, business, satisfaction ?? null, logger);
+    await handleSatisfactionAlert(outboxId, outboxAttempt, business_id, business, satisfaction ?? null, logger);
   } else {
     if (!metrics) {
       logger.warn(`${alert_type} missing metrics for business ${business_id}`);
-      await markOutboxFailed(outboxId, 'missing metrics payload');
+      await markOutboxFailed(outboxId, 'missing metrics payload', outboxAttempt);
       return;
     }
-    await handlePartnerAlert(outboxId, business_id, alert_type, metrics, business, logger);
+    await handlePartnerAlert(outboxId, outboxAttempt, business_id, alert_type, metrics, business, logger);
   }
 }
 
@@ -71,11 +71,13 @@ export async function handleEngagementAlert(job: Job<EngagementAlertPayload>): P
 
 async function handleOwnerNudge(
   outboxId: string,
+  outboxAttempt: number | undefined,
   businessId: string,
   business: { name: string; owner_email: string; owner_email_bounced: boolean },
-  markOutboxFailedFn: typeof markOutboxFailed,
   logger: WorkerLogger,
 ): Promise<void> {
+  // Local binding so the env-config branches below read naturally.
+  const markOutboxFailedFn = (id: string, err: string) => markOutboxFailed(id, err, outboxAttempt);
   // ── Hard bounce check (must come BEFORE env validation) ──
   // Skip owner-directed nudges when the owner's email has hard-bounced.
   // Admin verifies and clears owner_email_bounced manually from /admin/businesses/[id].
@@ -84,7 +86,7 @@ async function handleOwnerNudge(
   // to completed so they never retry or alert, regardless of env state.
   if (business.owner_email_bounced) {
     logger.log(`Business ${businessId} owner email bounced — skipping owner nudge`);
-    await markOutboxCompleted(outboxId);
+    await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }
 
@@ -114,7 +116,7 @@ async function handleOwnerNudge(
   `;
   if (existingNudge) {
     logger.log(`Owner nudge already sent for business ${businessId} recently — skipping`);
-    await markOutboxCompleted(outboxId);
+    await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }
 
@@ -141,7 +143,7 @@ async function handleOwnerNudge(
 
   if (pendingRows.length === 0) {
     logger.log(`No pending reviews for business ${businessId} — skipping nudge`);
-    await markOutboxCompleted(outboxId);
+    await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }
 
@@ -192,7 +194,7 @@ async function handleOwnerNudge(
     externalMessageId: messageId,
   });
 
-  await markOutboxCompleted(outboxId);
+  await markOutboxCompleted(outboxId, outboxAttempt);
   logger.log(`Owner nudge sent for business ${businessId} (${totalPending} pending reviews)`);
 }
 
@@ -200,6 +202,7 @@ async function handleOwnerNudge(
 
 async function handlePartnerAlert(
   outboxId: string,
+  outboxAttempt: number | undefined,
   businessId: string,
   alertType: 'partner_engagement_alert' | 'partner_escalation_alert' | 'partner_low_engagement',
   metrics: NonNullable<EngagementAlertPayload['metrics']>,
@@ -209,7 +212,7 @@ async function handlePartnerAlert(
   const adminEmail = process.env.ADMIN_NOTIFICATION_EMAIL;
   if (!adminEmail) {
     logger.error(`ADMIN_NOTIFICATION_EMAIL not set — cannot send partner alert`);
-    await markOutboxFailed(outboxId, 'ADMIN_NOTIFICATION_EMAIL not configured');
+    await markOutboxFailed(outboxId, 'ADMIN_NOTIFICATION_EMAIL not configured', outboxAttempt);
     return;
   }
 
@@ -274,7 +277,7 @@ async function handlePartnerAlert(
     externalMessageId: messageId,
   });
 
-  await markOutboxCompleted(outboxId);
+  await markOutboxCompleted(outboxId, outboxAttempt);
   logger.log(`${alertType} sent for business ${businessId}`);
 }
 
@@ -282,6 +285,7 @@ async function handlePartnerAlert(
 
 async function handleSatisfactionAlert(
   outboxId: string,
+  outboxAttempt: number | undefined,
   businessId: string,
   business: { name: string; owner_email: string; owner_phone: string | null },
   satisfaction: EngagementAlertPayload['satisfaction'] | null,
@@ -290,13 +294,13 @@ async function handleSatisfactionAlert(
   const adminEmail = process.env.ADMIN_NOTIFICATION_EMAIL;
   if (!adminEmail) {
     logger.error(`ADMIN_NOTIFICATION_EMAIL not set — cannot send satisfaction alert`);
-    await markOutboxFailed(outboxId, 'ADMIN_NOTIFICATION_EMAIL not configured');
+    await markOutboxFailed(outboxId, 'ADMIN_NOTIFICATION_EMAIL not configured', outboxAttempt);
     return;
   }
 
   if (!satisfaction) {
     logger.warn(`partner_satisfaction_alert missing satisfaction data for business ${businessId}`);
-    await markOutboxFailed(outboxId, 'missing satisfaction payload');
+    await markOutboxFailed(outboxId, 'missing satisfaction payload', outboxAttempt);
     return;
   }
 
@@ -304,24 +308,24 @@ async function handleSatisfactionAlert(
   const validRatings = ['great', 'ok', 'not_great'] as const;
   if (!validRatings.includes(satisfaction.rating as typeof validRatings[number])) {
     logger.warn(`Invalid satisfaction rating: ${String(satisfaction.rating)}`);
-    await markOutboxFailed(outboxId, `invalid satisfaction rating: ${String(satisfaction.rating)}`);
+    await markOutboxFailed(outboxId, `invalid satisfaction rating: ${String(satisfaction.rating)}`, outboxAttempt);
     return;
   }
   if (typeof satisfaction.week_start_date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(satisfaction.week_start_date)) {
     logger.warn(`Invalid satisfaction week_start_date: ${String(satisfaction.week_start_date)}`);
-    await markOutboxFailed(outboxId, 'invalid satisfaction week_start_date');
+    await markOutboxFailed(outboxId, 'invalid satisfaction week_start_date', outboxAttempt);
     return;
   }
   // Round-trip validation: reject impossible dates like 2026-99-99
   const parsedDate = new Date(satisfaction.week_start_date + 'T00:00:00Z');
   if (Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== satisfaction.week_start_date) {
     logger.warn(`Invalid calendar date in week_start_date: ${satisfaction.week_start_date}`);
-    await markOutboxFailed(outboxId, 'invalid satisfaction week_start_date (not a real date)');
+    await markOutboxFailed(outboxId, 'invalid satisfaction week_start_date (not a real date)', outboxAttempt);
     return;
   }
   if (satisfaction.comment !== null && typeof satisfaction.comment !== 'string') {
     logger.warn(`Invalid satisfaction comment type: ${typeof satisfaction.comment}`);
-    await markOutboxFailed(outboxId, 'invalid satisfaction comment type');
+    await markOutboxFailed(outboxId, 'invalid satisfaction comment type', outboxAttempt);
     return;
   }
 
@@ -338,7 +342,7 @@ async function handleSatisfactionAlert(
   `;
   if (existingDelivery) {
     logger.log(`Satisfaction alert already sent for business ${businessId} week ${satisfaction.week_start_date} — skipping`);
-    await markOutboxCompleted(outboxId);
+    await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }
 
@@ -352,7 +356,7 @@ async function handleSatisfactionAlert(
 
   if (!currentResponse || currentResponse.rating !== 'not_great') {
     logger.log(`Satisfaction rating changed to '${currentResponse?.rating ?? 'deleted'}' for ${businessId} week ${satisfaction.week_start_date} — skipping alert`);
-    await markOutboxCompleted(outboxId);
+    await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }
 
@@ -375,7 +379,7 @@ async function handleSatisfactionAlert(
   // pattern used by WeeklySummaryWorker and MonthlyImpactWorker: if the worker
   // crashes after marking completed but before Resend accepts, we lose one
   // internal partner alert (acceptable) rather than sending duplicates on retry.
-  await markOutboxCompleted(outboxId);
+  await markOutboxCompleted(outboxId, outboxAttempt);
 
   const { messageId } = await sendInternalEmail({
     to: adminEmail,

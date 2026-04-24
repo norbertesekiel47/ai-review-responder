@@ -36,6 +36,7 @@ vi.mock('../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) =>
 vi.mock('../../src/lib/shared/outbox', () => ({
   markOutboxCompleted: mockMarkOutboxCompleted,
   markOutboxFailed: mockMarkOutboxFailed,
+  extractOutboxHandle: (d: any, fallback: string) => ({ outboxId: (d && typeof d.outbox_id === 'string') ? d.outbox_id : fallback, attempt: (d && typeof d.outbox_attempt === 'number') ? d.outbox_attempt : undefined }),
 }));
 vi.mock('../../src/lib/shared/rate-limit', () => ({
   checkRateLimit: mockCheckRateLimit,
@@ -103,7 +104,7 @@ describe('RankingTrackingWorker', () => {
 
     await handleTrackRanking(makeJob());
 
-    expect(mockMarkOutboxFailed).toHaveBeenCalledWith('outbox-rank-1', 'business_not_found');
+    expect(mockMarkOutboxFailed).toHaveBeenCalledWith('outbox-rank-1', 'business_not_found', undefined);
     expect(mockGetJson).not.toHaveBeenCalled();
   });
 
@@ -112,7 +113,7 @@ describe('RankingTrackingWorker', () => {
 
     await handleTrackRanking(makeJob());
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-rank-1');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-rank-1', undefined);
     expect(mockGetJson).not.toHaveBeenCalled();
   });
 
@@ -121,7 +122,7 @@ describe('RankingTrackingWorker', () => {
 
     await handleTrackRanking(makeJob());
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-rank-1');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-rank-1', undefined);
     expect(mockGetJson).not.toHaveBeenCalled();
   });
 
@@ -130,7 +131,7 @@ describe('RankingTrackingWorker', () => {
 
     await handleTrackRanking(makeJob());
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-rank-1');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-rank-1', undefined);
     expect(mockGetJson).not.toHaveBeenCalled();
   });
 
@@ -139,7 +140,7 @@ describe('RankingTrackingWorker', () => {
 
     await handleTrackRanking(makeJob());
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-rank-1');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-rank-1', undefined);
     expect(mockGetJson).not.toHaveBeenCalled();
   });
 
@@ -170,7 +171,7 @@ describe('RankingTrackingWorker', () => {
 
     await handleTrackRanking(makeJob());
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-rank-1');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-rank-1', undefined);
     expect(mockGetJson).not.toHaveBeenCalled();
   });
 
@@ -182,7 +183,7 @@ describe('RankingTrackingWorker', () => {
 
     await handleTrackRanking(makeJob());
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-rank-1');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-rank-1', undefined);
     expect(mockGetJson).not.toHaveBeenCalled();
   });
 
@@ -193,7 +194,7 @@ describe('RankingTrackingWorker', () => {
 
     await handleTrackRanking(makeJob());
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-rank-1');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-rank-1', undefined);
     expect(mockGetJson).not.toHaveBeenCalled();
   });
 
@@ -203,7 +204,7 @@ describe('RankingTrackingWorker', () => {
 
     await handleTrackRanking(makeJob());
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-rank-1');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-rank-1', undefined);
     expect(mockGetJson).not.toHaveBeenCalled();
   });
 
@@ -216,7 +217,7 @@ describe('RankingTrackingWorker', () => {
 
     await handleTrackRanking(makeJob());
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-rank-1');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-rank-1', undefined);
     expect(mockGetJson).not.toHaveBeenCalled();
   });
 
@@ -359,6 +360,6 @@ describe('RankingTrackingWorker', () => {
 
     await handleTrackRanking(job);
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('custom-outbox-id');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('custom-outbox-id', undefined);
   });
 });

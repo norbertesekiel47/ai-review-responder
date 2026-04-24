@@ -48,6 +48,7 @@ vi.mock('../../src/lib/db/server', () => ({
 vi.mock('../../src/lib/shared/outbox', () => ({
   markOutboxCompleted: mockMarkOutboxCompleted,
   markOutboxFailed: mockMarkOutboxFailed,
+  extractOutboxHandle: (d: any, fallback: string) => ({ outboxId: (d && typeof d.outbox_id === 'string') ? d.outbox_id : fallback, attempt: (d && typeof d.outbox_attempt === 'number') ? d.outbox_attempt : undefined }),
 }));
 
 vi.mock('../../src/lib/reviews/place-id-resolver', () => ({
@@ -131,7 +132,7 @@ describe('PlaceIdValidationWorker – handlePlaceIdValidation', () => {
     expect(syncPayload!.google_place_id).toBe('ChIJgUbEo8cfqokR5lP9_Wh_DaM');
     expect(syncPayload!.correlation_id).toBe('corr-upstream-abc');
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-test-place-id-001');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-test-place-id-001', undefined);
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
   });
 
@@ -183,8 +184,7 @@ describe('PlaceIdValidationWorker – handlePlaceIdValidation', () => {
     // Failure path should fail the outbox + insert a review_exception
     expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
       'outbox-test-place-id-001',
-      expect.stringContaining('Could not verify business location'),
-    );
+      expect.stringContaining('Could not verify business location'), undefined);
     expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
 
     // No sync_reviews payload should have been built

@@ -43,6 +43,7 @@ vi.mock('../../src/lib/db/server', () => ({
 vi.mock('../../src/lib/shared/outbox', () => ({
   markOutboxCompleted: mockMarkOutboxCompleted,
   markOutboxFailed: mockMarkOutboxFailed,
+  extractOutboxHandle: (d: any, fallback: string) => ({ outboxId: (d && typeof d.outbox_id === 'string') ? d.outbox_id : fallback, attempt: (d && typeof d.outbox_attempt === 'number') ? d.outbox_attempt : undefined }),
 }));
 
 vi.mock('../../src/lib/notifications/email', () => ({
@@ -268,7 +269,7 @@ describe('NotificationWorker – handleSendNotification', () => {
 
     expect(mockCreateApprovalLink).toHaveBeenCalledOnce();
     expect(mockChannelSend).toHaveBeenCalledOnce();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-notif-1');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-notif-1', undefined);
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
   });
 
@@ -285,7 +286,7 @@ describe('NotificationWorker – handleSendNotification', () => {
 
     await handleSendNotification(makeJob());
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-notif-1');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-notif-1', undefined);
     expect(mockChannelSend).not.toHaveBeenCalled();
     expect(mockCreateApprovalLink).not.toHaveBeenCalled();
   });
@@ -305,7 +306,7 @@ describe('NotificationWorker – handleSendNotification', () => {
 
     await handleSendNotification(makeJob());
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-notif-1');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-notif-1', undefined);
     expect(mockChannelSend).not.toHaveBeenCalled();
     expect(mockCreateApprovalLink).not.toHaveBeenCalled();
   });
@@ -352,7 +353,7 @@ describe('NotificationWorker – handleSendNotification', () => {
 
     await handleSendNotification(job);
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-notif-1');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-notif-1', undefined);
     expect(mockChannelSend).not.toHaveBeenCalled();
     expect(mockCreateApprovalLink).not.toHaveBeenCalled();
   });
@@ -378,7 +379,7 @@ describe('NotificationWorker – handleSendNotification', () => {
 
     expect(mockCreateApprovalLink).toHaveBeenCalledOnce();
     expect(mockChannelSend).toHaveBeenCalledOnce();
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-notif-1');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-notif-1', undefined);
   });
 
   // 7. Failover respects subscription guard
@@ -397,7 +398,7 @@ describe('NotificationWorker – handleSendNotification', () => {
 
     await handleSendNotification(job);
 
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-notif-1');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-notif-1', undefined);
     expect(mockChannelSend).not.toHaveBeenCalled();
   });
 });

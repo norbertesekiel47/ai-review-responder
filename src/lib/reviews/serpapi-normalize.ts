@@ -30,14 +30,20 @@ export function normalizeSerpApiReview(
     | Record<string, unknown>
     | undefined;
 
+  const extractString = (v: unknown): string | null => {
+    if (typeof v !== 'string') return null;
+    const trimmed = v.trim();
+    return trimmed.length === 0 ? null : trimmed;
+  };
+
   // Prefer original text over the (possibly machine-translated) snippet
   const reviewText =
-    (extractedSnippet?.original as string | undefined) ??
-    (raw.snippet as string | undefined) ??
+    extractString(extractedSnippet?.original) ??
+    extractString(raw.snippet) ??
     null;
 
   return {
-    reviewerName: (user.name as string) ?? 'Anonymous',
+    reviewerName: extractString(user.name) ?? 'Anonymous',
     starRating: rating,
     reviewText,
     reviewDate: isoDate,

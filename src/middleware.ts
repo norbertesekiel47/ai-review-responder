@@ -1,14 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
-import { createClient } from '@supabase/supabase-js';
 import { isProtectedRoute } from '@/lib/shared/protected-routes';
 
-// Service-role client for role lookups (HTTP-based, Edge-compatible).
-// Middleware can't use Postgres.js (TCP sockets not available on Edge Runtime).
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_KEY!,
-);
+// Role lookups use the cookie-bound anon client below, relying on the
+// users_self_select RLS policy (migration 006) that lets any authenticated
+// user read their own row. Removes SUPABASE_SERVICE_KEY from Edge middleware
+// so a service-role secret isn't required — and doesn't get used — on every
+// protected request.
 
 export async function middleware(request: NextRequest) {
   const host = (request.headers.get('host') ?? '').toLowerCase().replace(/:\d+$/, '');
@@ -66,13 +64,26 @@ export async function middleware(request: NextRequest) {
     data: { user: authUser },
   } = await supabase.auth.getUser();
 
+  // RLS policy `users_self_select` (migration 006) permits self-reads via
+  // auth_id = auth.uid()::text, so the cookie-bound anon client returns the
+  // caller's single row without needing the service-role key.
+  async function readSelf(): Promise<{ role: string; business_id: string | null } | null> {
+    const { data } = await supabase
+      .from('users')
+      .select('role, business_id')
+      .eq('auth_id', authUser!.id)
+      .limit(1)
+      .single();
+    return (data as { role: string; business_id: string | null } | null) ?? null;
+  }
+
   // 3. Admin pages (except /admin/login)
   if (pathname.startsWith('/admin') && pathname !== '/admin/login') {
     if (!authUser) {
       return redirectToLogin(request);
     }
-    const role = await lookupRole(authUser.id);
-    if (!role || !['admin', 'sales_partner'].includes(role)) {
+    const self = await readSelf();
+    if (!self || !['admin', 'sales_partner'].includes(self.role)) {
       return redirectToLogin(request);
     }
   }
@@ -82,8 +93,8 @@ export async function middleware(request: NextRequest) {
     if (!authUser) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    const role = await lookupRole(authUser.id);
-    if (!role || !['admin', 'sales_partner'].includes(role)) {
+    const self = await readSelf();
+    if (!self || !['admin', 'sales_partner'].includes(self.role)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
   }
@@ -94,13 +105,8 @@ export async function middleware(request: NextRequest) {
     if (!authUser) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: noStoreHeaders });
     }
-    const { data } = await supabaseAdmin
-      .from('users')
-      .select('role, business_id')
-      .eq('auth_id', authUser.id)
-      .limit(1)
-      .single();
-    if (!data || data.role !== 'owner' || !data.business_id) {
+    const self = await readSelf();
+    if (!self || self.role !== 'owner' || !self.business_id) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403, headers: noStoreHeaders });
     }
   }
@@ -110,28 +116,13 @@ export async function middleware(request: NextRequest) {
     if (!authUser) {
       return redirectToLogin(request);
     }
-    const { data } = await supabaseAdmin
-      .from('users')
-      .select('role, business_id')
-      .eq('auth_id', authUser.id)
-      .limit(1)
-      .single();
-    if (!data || data.role !== 'owner' || !data.business_id) {
+    const self = await readSelf();
+    if (!self || self.role !== 'owner' || !self.business_id) {
       return redirectToLogin(request);
     }
   }
 
   return response;
-}
-
-async function lookupRole(authId: string): Promise<string | null> {
-  const { data } = await supabaseAdmin
-    .from('users')
-    .select('role')
-    .eq('auth_id', authId)
-    .limit(1)
-    .single();
-  return data?.role ?? null;
 }
 
 function redirectToLogin(request: NextRequest): NextResponse {
