@@ -8,18 +8,21 @@ const {
   mockSql,
   mockGetUser,
   mockUpdateUser,
+  mockSignOut,
   mockCreateServerClient,
 } = vi.hoisted(() => {
   const sqlFn = vi.fn();
   const getUser = vi.fn();
   const updateUser = vi.fn();
+  const signOut = vi.fn();
   return {
     mockCheckRateLimit: vi.fn(),
     mockSql: sqlFn,
     mockGetUser: getUser,
     mockUpdateUser: updateUser,
+    mockSignOut: signOut,
     mockCreateServerClient: vi.fn(() => ({
-      auth: { getUser, updateUser },
+      auth: { getUser, updateUser, signOut },
     })),
   };
 });
@@ -88,9 +91,16 @@ beforeEach(() => {
   mockUpdateUser.mockReset();
   mockUpdateUser.mockResolvedValue({ data: { user: mockUser }, error: null });
 
+  mockSignOut.mockReset();
+  mockSignOut.mockResolvedValue({ error: null });
+
   mockCreateServerClient.mockReset();
   mockCreateServerClient.mockImplementation(() => ({
-    auth: { getUser: mockGetUser, updateUser: mockUpdateUser },
+    auth: {
+      getUser: mockGetUser,
+      updateUser: mockUpdateUser,
+      signOut: mockSignOut,
+    },
   }));
 
   process.env.SELF_SERVE_SIGNUP_ENABLED = 'true';
@@ -189,6 +199,23 @@ describe('POST /api/auth/reset-password', () => {
     expect(res.status).toBe(400);
     const json = await res.json();
     expect(json.error).toBe('New password should be different from the old one.');
+    // Recovery session must remain active on failure so the user can retry.
+    expect(mockSignOut).not.toHaveBeenCalled();
+  });
+
+  // ── Recovery-session termination ─────────────────────────────────
+
+  it('calls signOut after updateUser succeeds (ends recovery session)', async () => {
+    const res = await POST(mkReq({ password: 'a-new-strong-password' }));
+    expect(res.status).toBe(200);
+    expect(mockUpdateUser).toHaveBeenCalledTimes(1);
+    expect(mockSignOut).toHaveBeenCalledTimes(1);
+
+    // Order matters: signOut must run AFTER updateUser. Both resolved
+    // ordering comes from the mock invocation order.
+    const updateCallOrder = mockUpdateUser.mock.invocationCallOrder[0]!;
+    const signOutCallOrder = mockSignOut.mock.invocationCallOrder[0]!;
+    expect(signOutCallOrder).toBeGreaterThan(updateCallOrder);
   });
 
   // ── Role-appropriate redirect ────────────────────────────────────

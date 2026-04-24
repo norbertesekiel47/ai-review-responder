@@ -47,8 +47,8 @@ describe('loginUrlForFlow', () => {
     expect(loginUrlForFlow('owner')).toBe('/login');
   });
 
-  it('returns /login for undefined', () => {
-    expect(loginUrlForFlow(undefined)).toBe('/login');
+  it('returns /admin/login for undefined (legacy admin default — spec §3.5)', () => {
+    expect(loginUrlForFlow(undefined)).toBe('/admin/login');
   });
 });
 

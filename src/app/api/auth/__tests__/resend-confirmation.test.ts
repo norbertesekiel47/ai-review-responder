@@ -113,17 +113,17 @@ describe('POST /api/auth/resend-confirmation', () => {
     expect(mockSupabaseServer.auth.resend).not.toHaveBeenCalled();
   });
 
-  it('returns 200 + proceeds when flag is OFF AND flow=admin (admin never gated)', async () => {
-    process.env.SELF_SERVE_SIGNUP_ENABLED = 'false';
-
+  it('returns 400 when flow=admin (schema now restricts to owner-only)', async () => {
+    // Admin identities are manually provisioned and never use the
+    // confirmation-email flow. Allowing flow=admin here would be a
+    // phishing-adjacent primitive — anyone could trigger confirmation
+    // emails to arbitrary admin addresses. Schema enforces literal 'owner'.
     const res = await POST(
       mkReq({ email: 'admin@example.com', flow: 'admin' }),
     );
-    expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(json.ok).toBe(true);
-    expect(mockCheckRateLimit).toHaveBeenCalled();
-    expect(mockSupabaseServer.auth.resend).toHaveBeenCalled();
+    expect(res.status).toBe(400);
+    expect(mockCheckRateLimit).not.toHaveBeenCalled();
+    expect(mockSupabaseServer.auth.resend).not.toHaveBeenCalled();
   });
 
   // ── Happy paths ──────────────────────────────────────────────────
@@ -143,24 +143,6 @@ describe('POST /api/auth/resend-confirmation', () => {
       options: {
         emailRedirectTo:
           'https://app.example.com/api/auth/callback?flow=owner&next=/onboarding/pay',
-      },
-    });
-  });
-
-  it('returns 200 + correct admin emailRedirectTo (flow=admin&next=/onboarding/pay)', async () => {
-    const res = await POST(
-      mkReq({ email: 'admin@example.com', flow: 'admin' }),
-    );
-    expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(json.ok).toBe(true);
-
-    expect(mockSupabaseServer.auth.resend).toHaveBeenCalledWith({
-      type: 'signup',
-      email: 'admin@example.com',
-      options: {
-        emailRedirectTo:
-          'https://app.example.com/api/auth/callback?flow=admin&next=/onboarding/pay',
       },
     });
   });

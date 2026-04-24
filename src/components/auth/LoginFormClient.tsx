@@ -112,8 +112,34 @@ function LoginFormInner({
         return;
       }
 
+      // Owner post-login routing must honor subscription lifecycle: a
+      // pending-payment owner who lands on /dashboard sees a stub, so we
+      // send them to /onboarding/pay instead. Active / past_due / cancelled
+      // all flow through the standard dashboard (banners handle the latter
+      // two). Admin portal has no subscription context — skip the check.
+      let destinationOverride: string | null = null;
+      if (portal === 'owner') {
+        try {
+          const statusRes = await fetch('/api/auth/signup-status');
+          if (statusRes.ok) {
+            const status = (await statusRes.json()) as {
+              subscriptionStatus?: string;
+            };
+            if (status.subscriptionStatus === 'pending_payment') {
+              destinationOverride = '/onboarding/pay';
+            }
+          }
+        } catch {
+          // Soft-fail — fall back to default routing. A transient status
+          // fetch error shouldn't block login; the dashboard's own guards
+          // will catch pending_payment owners on the next page load.
+        }
+      }
+
       const from = searchParams.get('from') ?? '';
-      const destination = resolvePostLoginDestination(portal, from, defaultRoute);
+      const destination =
+        destinationOverride ??
+        resolvePostLoginDestination(portal, from, defaultRoute);
       router.push(destination);
       router.refresh();
     } catch {

@@ -38,10 +38,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     throw err;
   }
 
-  // 2. Read session via cookie-bound anon client. setAll is a no-op — this
-  //    handler never rewrites session cookies; the post-update redirect to
-  //    /login or /admin/login is what actually ends the recovery session.
-  const supabase = createServerClient(
+  // 2. Read session via cookie-bound anon client. setAll is a no-op for the
+  //    session-read client — we never want getUser() to rewrite cookies. The
+  //    post-update client (step 7) uses a response-backed adapter so signOut
+  //    can actually clear the recovery session.
+  const readOnlySupabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
@@ -58,7 +59,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   const {
     data: { user },
-  } = await supabase.auth.getUser();
+  } = await readOnlySupabase.auth.getUser();
   if (!user) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
@@ -122,11 +123,37 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // 7. Update password against the session-scoped Supabase client. Surfacing
+  // 7. Build the success response up-front so the signOut call below has a
+  //    cookie jar to write cleared session cookies into. Response-backed
+  //    adapter: setAll writes to `response.cookies`. We only reach this point
+  //    when we're about to mutate the session — any earlier exit branch uses
+  //    a fresh NextResponse (no cookies to clear).
+  const redirectTo = isOwner ? '/login' : '/admin/login';
+  const response = NextResponse.json({ redirectTo });
+
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return req.cookies.getAll();
+        },
+        setAll(cookiesToSet) {
+          for (const { name, value, options } of cookiesToSet) {
+            response.cookies.set(name, value, options);
+          }
+        },
+      },
+    },
+  );
+
+  // 8. Update password against the session-scoped Supabase client. Surfacing
   //    Supabase's error message (e.g. "New password should be different from
   //    the old one") is preferable to a generic 400 because the caller has
   //    already been through the recovery-email gauntlet — no enumeration
-  //    concern at this step.
+  //    concern at this step. On error we DO NOT sign out — the recovery
+  //    session must stay active so the user can retry with a valid password.
   const { error: updateError } = await supabase.auth.updateUser({
     password: parsed.data.password,
   });
@@ -134,7 +161,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: updateError.message }, { status: 400 });
   }
 
-  // 8. Role-appropriate redirect. Owner → /login; admin + sales_partner → /admin/login.
-  const redirectTo = isOwner ? '/login' : '/admin/login';
-  return NextResponse.json({ redirectTo });
+  // 9. Explicitly end the recovery session. Without signOut the browser
+  //    cookie still represents the authenticated recovery session and a
+  //    subsequent navigation to /dashboard would bypass the fresh-login
+  //    requirement. signOut's cookie writes flow into `response` via the
+  //    response-backed adapter above.
+  await supabase.auth.signOut();
+
+  return response;
 }

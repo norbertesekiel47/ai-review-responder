@@ -56,6 +56,10 @@ export default async function OnboardingPayPage({
 
   if (!user.email_confirmed_at) redirect('/signup/check-email?from=pay');
   if (row.subscription_status === 'active') redirect('/dashboard');
+  // past_due / cancelled / unknown must NOT see the Payment Link — a click
+  // would create a duplicate Stripe subscription. Billing recovery for these
+  // states lives on the dashboard side (Customer Portal / banner flows).
+  if (row.subscription_status !== 'pending_payment') redirect('/dashboard');
 
   const paymentUrl = buildPaymentLinkUrl(
     row.subscription_tier as 'founding' | 'standard',

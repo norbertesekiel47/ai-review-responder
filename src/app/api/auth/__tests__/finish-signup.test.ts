@@ -91,6 +91,7 @@ const validBody = {
 const mockUser = {
   id: 'auth-uuid-123',
   email: 'owner@example.com',
+  email_confirmed_at: '2026-04-23T12:00:00Z',
 };
 
 beforeEach(() => {
@@ -146,7 +147,13 @@ describe('POST /api/auth/finish-signup', () => {
 
   it('returns 401 account_incomplete when session user has no email', async () => {
     mockGetUser.mockResolvedValueOnce({
-      data: { user: { id: 'auth-no-email', email: null } },
+      data: {
+        user: {
+          id: 'auth-no-email',
+          email: null,
+          email_confirmed_at: '2026-04-23T12:00:00Z',
+        },
+      },
       error: null,
     });
     const res = await POST(mkReq(validBody));
@@ -154,6 +161,25 @@ describe('POST /api/auth/finish-signup', () => {
     const json = await res.json();
     expect(json.error).toBe('account_incomplete');
     expect(mockCheckRateLimit).not.toHaveBeenCalled();
+  });
+
+  it('returns 401 account_incomplete when session user has email but no email_confirmed_at', async () => {
+    mockGetUser.mockResolvedValueOnce({
+      data: {
+        user: {
+          id: 'auth-unconfirmed',
+          email: 'owner@example.com',
+          email_confirmed_at: null,
+        },
+      },
+      error: null,
+    });
+    const res = await POST(mkReq(validBody));
+    expect(res.status).toBe(401);
+    const json = await res.json();
+    expect(json.error).toBe('account_incomplete');
+    expect(mockCheckRateLimit).not.toHaveBeenCalled();
+    expect(mockCreateBusinessTx).not.toHaveBeenCalled();
   });
 
   it('returns 400 on invalid body (missing required fields per FinishSignupSchema)', async () => {
@@ -313,7 +339,13 @@ describe('POST /api/auth/finish-signup', () => {
 
   it('normalizes session email to lowercase + trimmed before passing to createBusinessTx', async () => {
     mockGetUser.mockResolvedValueOnce({
-      data: { user: { id: 'auth-mixed', email: '  Owner@Example.COM  ' } },
+      data: {
+        user: {
+          id: 'auth-mixed',
+          email: '  Owner@Example.COM  ',
+          email_confirmed_at: '2026-04-23T12:00:00Z',
+        },
+      },
       error: null,
     });
     mockCreateBusinessTx.mockResolvedValueOnce({

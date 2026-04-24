@@ -6,7 +6,10 @@ export function isAuthFlow(v: string | null | undefined): v is AuthFlow {
 }
 
 export function loginUrlForFlow(flow: AuthFlow | undefined): string {
-  return flow === 'admin' ? '/admin/login' : '/login';
+  // Default to /admin/login when flow is unset so legacy callers (middleware
+  // redirects, manual URLs without ?flow=) preserve the pre-self-serve admin
+  // default. Owner flows always set flow=owner explicitly — spec §3.5.
+  return flow === 'owner' ? '/login' : '/admin/login';
 }
 
 export function resetPasswordPathForFlow(flow: AuthFlow): string {

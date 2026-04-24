@@ -17,9 +17,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   if (!parsed.success) {
     return NextResponse.json({ error: 'invalid_body' }, { status: 400 });
   }
-  const { email, flow } = parsed.data;
+  const { email } = parsed.data;
 
-  if (flow === 'owner' && process.env.SELF_SERVE_SIGNUP_ENABLED !== 'true') {
+  // Owner-only route — admins are manually provisioned and never need resend.
+  // See ResendConfirmationSchema (literal 'owner') for the rationale.
+  if (process.env.SELF_SERVE_SIGNUP_ENABLED !== 'true') {
     return NextResponse.json({ error: 'not_found' }, { status: 404 });
   }
 
@@ -52,7 +54,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL!;
-  const emailRedirectTo = `${appUrl}/api/auth/callback?flow=${flow}&next=/onboarding/pay`;
+  const emailRedirectTo = `${appUrl}/api/auth/callback?flow=owner&next=/onboarding/pay`;
 
   await supabaseServer.auth
     .resend({ type: 'signup', email, options: { emailRedirectTo } })

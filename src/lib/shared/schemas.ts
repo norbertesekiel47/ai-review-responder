@@ -147,8 +147,13 @@ export const ResetPasswordSchema = z.object({
 });
 export type ResetPasswordInput = z.infer<typeof ResetPasswordSchema>;
 
+// Admin identities are provisioned manually via the Supabase dashboard with
+// `email_confirm: true` and never go through the confirmation-email flow, so
+// resend is owner-only. Accepting `flow: 'admin'` would be a phishing-adjacent
+// primitive — a caller could trigger a "confirm your account" email to any
+// admin address without that address having ever signed up.
 export const ResendConfirmationSchema = z.object({
   email: normalizedEmailSchema,
-  flow: z.enum(['owner', 'admin']),
+  flow: z.literal('owner'),
 });
 export type ResendConfirmationInput = z.infer<typeof ResendConfirmationSchema>;

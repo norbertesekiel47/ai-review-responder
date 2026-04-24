@@ -94,9 +94,13 @@ describe('GET /api/auth/callback', () => {
     expect(mockCreateServerClient).not.toHaveBeenCalled();
   });
 
-  it('redirects to /login when code missing AND no flow (loginUrlForFlow default)', async () => {
+  it('redirects to /admin/login when code missing AND no flow (loginUrlForFlow default — spec §3.5)', async () => {
+    // Legacy callers (middleware redirects, manual URLs without ?flow=) land
+    // on /admin/login. Owner flows always pass flow=owner explicitly.
     const res = await GET(mkReq(buildUrl({})));
-    expect(res.headers.get('Location')).toBe('https://app.example.com/login');
+    expect(res.headers.get('Location')).toBe(
+      'https://app.example.com/admin/login',
+    );
     expect(mockCreateServerClient).not.toHaveBeenCalled();
   });
 

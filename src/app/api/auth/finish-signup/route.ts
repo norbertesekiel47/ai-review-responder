@@ -96,6 +96,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // create a users row without an email.
     return NextResponse.json({ error: 'account_incomplete' }, { status: 401 });
   }
+  if (!user.email_confirmed_at) {
+    // Defensive — Google OAuth always returns confirmed emails, but a future
+    // provider misconfig (or password-signup session landing here by mistake)
+    // must not be allowed to create a users + businesses row. Without this
+    // guard, an unconfirmed session could provision the account before the
+    // confirmation email was even clicked.
+    return NextResponse.json({ error: 'account_incomplete' }, { status: 401 });
+  }
 
   const authId = user.id;
   const ownerEmail = user.email.trim().toLowerCase();
