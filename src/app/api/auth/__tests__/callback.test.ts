@@ -5,12 +5,14 @@ import { NextRequest } from 'next/server';
 
 const {
   mockExchangeCodeForSession,
+  mockVerifyOtp,
   mockSignOut,
   mockSingle,
   mockCreateServerClient,
 } = vi.hoisted(() => {
   const single = vi.fn();
   const exchangeCodeForSession = vi.fn();
+  const verifyOtp = vi.fn();
   const signOut = vi.fn();
 
   // Chainable query builder mock: .from().select().eq().limit().single()
@@ -25,11 +27,13 @@ const {
 
   return {
     mockExchangeCodeForSession: exchangeCodeForSession,
+    mockVerifyOtp: verifyOtp,
     mockSignOut: signOut,
     mockSingle: single,
     mockCreateServerClient: vi.fn(() => ({
       auth: {
         exchangeCodeForSession,
+        verifyOtp,
         signOut,
       },
       from: vi.fn(() => makeQueryBuilder()),
@@ -66,6 +70,12 @@ beforeEach(() => {
     error: null,
   });
 
+  mockVerifyOtp.mockReset();
+  mockVerifyOtp.mockResolvedValue({
+    data: { user: { id: 'auth-uuid-123' } },
+    error: null,
+  });
+
   mockSignOut.mockReset();
   mockSignOut.mockResolvedValue({ error: null });
 
@@ -78,15 +88,15 @@ beforeEach(() => {
 // ── Tests ────────────────────────────────────────────────────────────
 
 describe('GET /api/auth/callback', () => {
-  // ── Missing code branch (role of `flow` on failure redirect URL) ──
+  // ── Missing code/token_hash branch (role of `flow` on failure redirect URL) ──
 
-  it('redirects to /login when code missing AND flow=owner', async () => {
+  it('redirects to /login when code+token_hash missing AND flow=owner', async () => {
     const res = await GET(mkReq(buildUrl({ flow: 'owner' })));
     expect(res.headers.get('Location')).toBe('https://app.example.com/login');
     expect(mockCreateServerClient).not.toHaveBeenCalled();
   });
 
-  it('redirects to /admin/login when code missing AND flow=admin', async () => {
+  it('redirects to /admin/login when code+token_hash missing AND flow=admin', async () => {
     const res = await GET(mkReq(buildUrl({ flow: 'admin' })));
     expect(res.headers.get('Location')).toBe(
       'https://app.example.com/admin/login',
@@ -94,7 +104,7 @@ describe('GET /api/auth/callback', () => {
     expect(mockCreateServerClient).not.toHaveBeenCalled();
   });
 
-  it('redirects to /admin/login when code missing AND no flow (loginUrlForFlow default — spec §3.5)', async () => {
+  it('redirects to /admin/login when code+token_hash missing AND no flow (loginUrlForFlow default — spec §3.5)', async () => {
     // Legacy callers (middleware redirects, manual URLs without ?flow=) land
     // on /admin/login. Owner flows always pass flow=owner explicitly.
     const res = await GET(mkReq(buildUrl({})));
@@ -102,6 +112,128 @@ describe('GET /api/auth/callback', () => {
       'https://app.example.com/admin/login',
     );
     expect(mockCreateServerClient).not.toHaveBeenCalled();
+  });
+
+  // ── token_hash + verifyOtp branch (signup/recovery email links) ──
+
+  it('redirects to /onboarding/pay on successful verifyOtp(type=email) for owner', async () => {
+    mockSingle.mockResolvedValueOnce({ data: { role: 'owner' }, error: null });
+
+    const res = await GET(
+      mkReq(
+        buildUrl({
+          token_hash: 'pkce_abc',
+          type: 'email',
+          flow: 'owner',
+          next: '/onboarding/pay',
+        }),
+      ),
+    );
+
+    expect(mockVerifyOtp).toHaveBeenCalledWith({
+      type: 'email',
+      token_hash: 'pkce_abc',
+    });
+    expect(mockExchangeCodeForSession).not.toHaveBeenCalled();
+    expect(res.headers.get('Location')).toBe(
+      'https://app.example.com/onboarding/pay',
+    );
+  });
+
+  it('verifyOtp(type=signup) is also accepted (older Supabase template format)', async () => {
+    mockSingle.mockResolvedValueOnce({ data: { role: 'owner' }, error: null });
+
+    const res = await GET(
+      mkReq(
+        buildUrl({
+          token_hash: 'pkce_xyz',
+          type: 'signup',
+          flow: 'owner',
+          next: '/onboarding/pay',
+        }),
+      ),
+    );
+
+    expect(mockVerifyOtp).toHaveBeenCalledWith({
+      type: 'signup',
+      token_hash: 'pkce_xyz',
+    });
+    expect(res.headers.get('Location')).toBe(
+      'https://app.example.com/onboarding/pay',
+    );
+  });
+
+  it('verifyOtp(type=recovery) lands on /reset-password without role lookup', async () => {
+    const res = await GET(
+      mkReq(
+        buildUrl({
+          token_hash: 'pkce_rec',
+          type: 'recovery',
+          flow: 'owner',
+          next: '/reset-password',
+        }),
+      ),
+    );
+
+    expect(mockVerifyOtp).toHaveBeenCalledWith({
+      type: 'recovery',
+      token_hash: 'pkce_rec',
+    });
+    expect(res.headers.get('Location')).toBe(
+      'https://app.example.com/reset-password',
+    );
+    expect(mockSingle).not.toHaveBeenCalled();
+  });
+
+  it('rejects token_hash without type', async () => {
+    const res = await GET(
+      mkReq(
+        buildUrl({
+          token_hash: 'pkce_abc',
+          flow: 'owner',
+        }),
+      ),
+    );
+    expect(res.headers.get('Location')).toBe(
+      'https://app.example.com/login?error=auth_callback_failed',
+    );
+    expect(mockVerifyOtp).not.toHaveBeenCalled();
+  });
+
+  it('rejects token_hash with invalid type', async () => {
+    const res = await GET(
+      mkReq(
+        buildUrl({
+          token_hash: 'pkce_abc',
+          type: 'phone_change', // not in VALID_EMAIL_OTP_TYPES
+          flow: 'owner',
+        }),
+      ),
+    );
+    expect(res.headers.get('Location')).toBe(
+      'https://app.example.com/login?error=auth_callback_failed',
+    );
+    expect(mockVerifyOtp).not.toHaveBeenCalled();
+  });
+
+  it('redirects to /login?error=auth_callback_failed on verifyOtp error', async () => {
+    mockVerifyOtp.mockResolvedValueOnce({
+      data: { user: null, session: null },
+      error: { message: 'token expired' },
+    });
+
+    const res = await GET(
+      mkReq(
+        buildUrl({
+          token_hash: 'expired_tok',
+          type: 'email',
+          flow: 'owner',
+        }),
+      ),
+    );
+    expect(res.headers.get('Location')).toBe(
+      'https://app.example.com/login?error=auth_callback_failed',
+    );
   });
 
   // ── exchangeCodeForSession error branch ──

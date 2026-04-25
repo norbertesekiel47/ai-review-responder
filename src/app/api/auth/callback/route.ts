@@ -1,19 +1,33 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
+import type { EmailOtpType } from '@supabase/supabase-js';
 import { isAuthFlow, loginUrlForFlow, type AuthFlow } from '@/lib/shared/auth-flow';
 
 /**
  * Supabase auth callback handler.
  *
- * Exchanges the auth code for a session and sets the cookie. Serves three
- * distinct flows, distinguished by `flow=` and `next=` query params:
+ * Two entry shapes — same role-aware exit:
  *
- *  1. **Email confirmation** (signup `emailRedirectTo`) — `flow=owner|admin`
- *     + `next=/onboarding/pay`. Normal role-lookup-then-redirect flow.
- *  2. **Password recovery** (resetPasswordForEmail `redirectTo`) — `flow=...`
- *     + `next=/reset-password` or `/admin/reset-password`. We skip the role
- *     lookup entirely and just land on the reset page, which reads the
- *     session directly via `supabase.auth.getUser()`.
+ *  - **`?code=...`** (PKCE / OAuth) — Google OAuth uses this. We call
+ *    `exchangeCodeForSession`. The browser SDK stores the code_verifier in a
+ *    cookie before redirecting out, so the cookie-aware server client here
+ *    can complete the exchange.
+ *
+ *  - **`?token_hash=...&type=email|recovery|invite`** (verifyOtp) — Email
+ *    confirmation + password reset use this. The server-side `signUp()` call
+ *    can't do PKCE (no browser to stash a verifier), so we use the SSR-safe
+ *    `verifyOtp` flow instead. Email template emits a URL pointing here with
+ *    the raw `token_hash`; we verify it server-side and the same setAll
+ *    adapter persists session cookies as `exchangeCodeForSession` does.
+ *
+ * After authentication, three sub-flows fork on `next=`:
+ *
+ *  1. **Email confirmation** — `next=/onboarding/pay`. Role-lookup → owner
+ *     redirect. (Pending-payment routing happens in `/api/auth/signup-status`
+ *     once the page mounts.)
+ *  2. **Password recovery** — `next=/reset-password` or `/admin/reset-password`.
+ *     We skip the role lookup entirely; the reset page reads the session
+ *     directly via `supabase.auth.getUser()`.
  *  3. **Google OAuth signup** — `flow=owner` + `next=/signup/finish`. The
  *     Supabase Auth user exists (Google just confirmed it) but there's no
  *     app `users` row yet. Land on `/signup/finish` so the owner can finish
@@ -22,9 +36,21 @@ import { isAuthFlow, loginUrlForFlow, type AuthFlow } from '@/lib/shared/auth-fl
  * Failure redirect target is derived from `flow` via `loginUrlForFlow` so
  * owners land on `/login` and admins on `/admin/login`.
  */
+
+const VALID_EMAIL_OTP_TYPES: ReadonlySet<EmailOtpType> = new Set<EmailOtpType>([
+  'signup',
+  'invite',
+  'magiclink',
+  'recovery',
+  'email_change',
+  'email',
+]);
+
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get('code');
+  const tokenHash = searchParams.get('token_hash');
+  const rawType = searchParams.get('type');
   const rawFlow = searchParams.get('flow');
   const flow: AuthFlow | undefined = isAuthFlow(rawFlow) ? rawFlow : undefined;
   const rawNext = searchParams.get('next') ?? '';
@@ -34,7 +60,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const requestedNext = nextIsSafe ? rawNext : '';
   const loginUrl = loginUrlForFlow(flow);
 
-  if (!code) {
+  if (!code && !tokenHash) {
     return NextResponse.redirect(new URL(loginUrl, origin));
   }
 
@@ -60,11 +86,31 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     },
   );
 
-  const { error, data } = await supabase.auth.exchangeCodeForSession(code);
-  if (error) {
-    return NextResponse.redirect(
-      new URL(`${loginUrl}?error=auth_callback_failed`, origin),
-    );
+  let userId: string | undefined;
+  if (tokenHash) {
+    if (!rawType || !VALID_EMAIL_OTP_TYPES.has(rawType as EmailOtpType)) {
+      return NextResponse.redirect(
+        new URL(`${loginUrl}?error=auth_callback_failed`, origin),
+      );
+    }
+    const { error, data } = await supabase.auth.verifyOtp({
+      type: rawType as EmailOtpType,
+      token_hash: tokenHash,
+    });
+    if (error) {
+      return NextResponse.redirect(
+        new URL(`${loginUrl}?error=auth_callback_failed`, origin),
+      );
+    }
+    userId = data.user?.id;
+  } else {
+    const { error, data } = await supabase.auth.exchangeCodeForSession(code!);
+    if (error) {
+      return NextResponse.redirect(
+        new URL(`${loginUrl}?error=auth_callback_failed`, origin),
+      );
+    }
+    userId = data.user?.id;
   }
 
   // Recovery branches — reset page reads session directly, no role lookup.
@@ -83,13 +129,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   // must go to /dashboard, not /admin/overview (which they can't access).
   // If `next` points to a role-appropriate path, honor it; otherwise fall
   // back to the role's home page.
-  const authId = data.user?.id;
   let role: string | null = null;
-  if (authId) {
+  if (userId) {
     const { data: userRow, error: userErr } = await supabase
       .from('users')
       .select('role')
-      .eq('auth_id', authId)
+      .eq('auth_id', userId)
       .limit(1)
       .single();
     if (userErr && userErr.code === 'PGRST116') {
@@ -99,7 +144,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       // UNIQUE per migration 001, so this would only happen mid-restore or
       // mid-migration. 0 rows is the expected Google-signup case.
       console.warn(
-        `[callback] PGRST116 for auth_id=${authId} — either missing users row or duplicate auth_id. Investigate if duplicate.`,
+        `[callback] PGRST116 for auth_id=${userId} — either missing users row or duplicate auth_id. Investigate if duplicate.`,
       );
       role = null;
     } else {
