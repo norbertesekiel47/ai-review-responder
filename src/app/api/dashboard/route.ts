@@ -64,10 +64,17 @@ export interface DashboardDataPendingAdminHandoff {
   businessName: string;
 }
 
+export interface DashboardDataActivePendingBusiness {
+  subscriptionStatus: 'active_pending_business';
+  businessId: string;
+  businessName: string;
+}
+
 export type DashboardData =
   | DashboardDataActive
   | DashboardDataPendingPayment
-  | DashboardDataPendingAdminHandoff;
+  | DashboardDataPendingAdminHandoff
+  | DashboardDataActivePendingBusiness;
 
 /** PgBouncer can return TEXT[] as JSON strings. */
 function parseArray(val: unknown): string[] {
@@ -101,15 +108,19 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const businessId = user.businessId;
 
   try {
-    // Cheap pre-query: determine subscription status before running the 8 heavy queries.
+    // Cheap pre-query: determine subscription status + onboarding state
+    // before running the 8 heavy queries.
     const [subRow] = await sql<{
       name: string;
       subscription_status: string;
       subscription_tier: string;
       owner_email: string;
       onboarded_by: string | null;
+      place_id_verified: boolean;
+      google_maps_url: string | null;
     }[]>`
-      SELECT name, subscription_status, subscription_tier, owner_email, onboarded_by
+      SELECT name, subscription_status, subscription_tier, owner_email, onboarded_by,
+             place_id_verified, google_maps_url
       FROM businesses WHERE id = ${businessId}
     `;
     if (!subRow) {
@@ -139,6 +150,23 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         businessId,
         businessName: subRow.name,
         paymentUrl,
+      });
+    }
+
+    // Active subscription but the owner skipped or never reached the
+    // /onboarding/business wizard (e.g. bookmarked /dashboard from earlier
+    // or closed the tab during the post-payment redirect). Surface a
+    // CTA-only screen instead of the empty-state dashboard so they have
+    // an obvious next action.
+    if (
+      subRow.subscription_status === 'active' &&
+      !subRow.place_id_verified &&
+      subRow.google_maps_url === null
+    ) {
+      return jsonResponse({
+        subscriptionStatus: 'active_pending_business',
+        businessId,
+        businessName: subRow.name,
       });
     }
 

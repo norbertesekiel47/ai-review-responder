@@ -112,11 +112,13 @@ function LoginFormInner({
         return;
       }
 
-      // Owner post-login routing must honor subscription lifecycle: a
-      // pending-payment owner who lands on /dashboard sees a stub, so we
-      // send them to /onboarding/pay instead. Active / past_due / cancelled
-      // all flow through the standard dashboard (banners handle the latter
-      // two). Admin portal has no subscription context — skip the check.
+      // Owner post-login routing must honor subscription lifecycle:
+      // - pending_payment → /onboarding/pay (dashboard would show a stub)
+      // - active + !businessOnboarded → /onboarding/business (must finish
+      //   the wizard before the dashboard has anything to show)
+      // - active + businessOnboarded / past_due / cancelled → standard
+      //   dashboard routing (banners handle the latter two)
+      // Admin portal has no subscription context — skip the check.
       let destinationOverride: string | null = null;
       if (portal === 'owner') {
         try {
@@ -124,15 +126,22 @@ function LoginFormInner({
           if (statusRes.ok) {
             const status = (await statusRes.json()) as {
               subscriptionStatus?: string;
+              businessOnboarded?: boolean;
             };
             if (status.subscriptionStatus === 'pending_payment') {
               destinationOverride = '/onboarding/pay';
+            } else if (
+              status.subscriptionStatus === 'active' &&
+              status.businessOnboarded === false
+            ) {
+              destinationOverride = '/onboarding/business';
             }
           }
         } catch {
           // Soft-fail — fall back to default routing. A transient status
           // fetch error shouldn't block login; the dashboard's own guards
-          // will catch pending_payment owners on the next page load.
+          // will catch pending_payment / pending-onboarding owners on the
+          // next page load.
         }
       }
 

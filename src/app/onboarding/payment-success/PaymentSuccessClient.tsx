@@ -19,8 +19,19 @@ export function PaymentSuccessClient() {
         const res = await fetch('/api/auth/signup-status');
         if (cancelled) return;
         if (res.ok) {
-          const body = (await res.json()) as { subscriptionStatus: string };
+          const body = (await res.json()) as {
+            subscriptionStatus: string;
+            businessOnboarded: boolean;
+          };
           if (body.subscriptionStatus === 'active') {
+            // The wizard at /onboarding/business is the next required step
+            // for self-serve owners. Push them straight in — no extra
+            // "Welcome!" button — so they don't have a chance to bookmark
+            // a half-onboarded dashboard.
+            if (!body.businessOnboarded) {
+              router.push('/onboarding/business');
+              return;
+            }
             setActive(true);
             return;
           }
