@@ -137,3 +137,106 @@ describe('ResendConfirmationSchema', () => {
     expect(parsed.flow).toBe('owner');
   });
 });
+
+// ── Edge-case coverage ─────────────────────────────────────────────────
+//
+// Defensive tests for the shared `normalizedEmailSchema` preprocessor — the
+// preprocessor only normalizes when the value is a string. Any non-string
+// value falls through to z.string().email().max(254) and must reject.
+
+describe('email normalization edge cases', () => {
+  // Minimal valid extras for SignupSchema so each test isolates the email check.
+  const baseSignupBody = {
+    ownerName: 'Jane',
+    password: 'password123',
+    businessName: 'X',
+    googlePlaceId: 'ChIJtest1234567890ab',
+  };
+
+  it('rejects number as email', () => {
+    expect(() =>
+      SignupSchema.parse({ ...baseSignupBody, ownerEmail: 42 }),
+    ).toThrow();
+  });
+
+  it('rejects whitespace-only email', () => {
+    expect(() =>
+      SignupSchema.parse({ ...baseSignupBody, ownerEmail: '   ' }),
+    ).toThrow();
+  });
+
+  it('rejects null email', () => {
+    expect(() =>
+      SignupSchema.parse({ ...baseSignupBody, ownerEmail: null }),
+    ).toThrow();
+  });
+
+  it('rejects empty-string email', () => {
+    expect(() =>
+      SignupSchema.parse({ ...baseSignupBody, ownerEmail: '' }),
+    ).toThrow();
+  });
+
+  it('also rejects these on ForgotPasswordSchema', () => {
+    expect(() =>
+      ForgotPasswordSchema.parse({ email: 42, role: 'owner' }),
+    ).toThrow();
+    expect(() =>
+      ForgotPasswordSchema.parse({ email: '', role: 'owner' }),
+    ).toThrow();
+    expect(() =>
+      ForgotPasswordSchema.parse({ email: null, role: 'owner' }),
+    ).toThrow();
+  });
+});
+
+describe('place-id validation', () => {
+  const baseBody = {
+    ownerName: 'Jane',
+    password: 'password123',
+    businessName: 'X',
+    ownerEmail: 'a@b.com',
+  };
+
+  it('rejects garbage googlePlaceId string', () => {
+    expect(() =>
+      SignupSchema.parse({ ...baseBody, googlePlaceId: 'garbage' }),
+    ).toThrow();
+  });
+
+  it('rejects too-short googlePlaceId (under 20 chars)', () => {
+    expect(() =>
+      SignupSchema.parse({ ...baseBody, googlePlaceId: 'ChIJabc' }),
+    ).toThrow();
+  });
+
+  it('accepts a canonical ChIJ place ID', () => {
+    const parsed = SignupSchema.parse({
+      ...baseBody,
+      googlePlaceId: 'ChIJgUbEo8cfqokR5lP9_Wh_DaM',
+    });
+    expect(parsed.googlePlaceId).toBe('ChIJgUbEo8cfqokR5lP9_Wh_DaM');
+  });
+});
+
+describe('tone default centralization', () => {
+  it('SignupSchema applies tone default when omitted', () => {
+    const parsed = SignupSchema.parse({
+      ownerEmail: 'a@b.com',
+      ownerName: 'Jane',
+      password: 'password123',
+      businessName: 'X',
+      googlePlaceId: 'ChIJtest1234567890ab',
+    });
+    expect(parsed.tone).toBe('professional and friendly');
+  });
+
+  it('FinishSignupSchema applies tone default when omitted', () => {
+    const parsed = FinishSignupSchema.parse({
+      ownerName: 'Jane',
+      businessName: 'X',
+      googlePlaceId: 'ChIJtest1234567890ab',
+    });
+    expect(parsed.tone).toBe('professional and friendly');
+  });
+});
