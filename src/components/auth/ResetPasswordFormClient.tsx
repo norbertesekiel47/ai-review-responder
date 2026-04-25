@@ -71,6 +71,7 @@ export function ResetPasswordFormClient({ brandName }: ResetPasswordFormProps) {
             <input
               id="new-password"
               type="password"
+              autoComplete="new-password"
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -89,6 +90,7 @@ export function ResetPasswordFormClient({ brandName }: ResetPasswordFormProps) {
             <input
               id="confirm-password"
               type="password"
+              autoComplete="new-password"
               required
               value={confirmPw}
               onChange={(e) => setConfirmPw(e.target.value)}

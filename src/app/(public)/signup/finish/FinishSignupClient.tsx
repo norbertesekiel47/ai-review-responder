@@ -89,22 +89,31 @@ export function FinishSignupClient({
         >
           <fieldset className="space-y-3">
             <legend className="font-medium">Your details</legend>
+            <label htmlFor="finish-email" className="sr-only">Email (from your Google account)</label>
             <input
+              id="finish-email"
               type="email"
+              autoComplete="email"
               disabled
               value={defaultEmail}
               className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-gray-100 text-gray-600"
             />
+            <label htmlFor="finish-name" className="sr-only">Your name</label>
             <input
+              id="finish-name"
               type="text"
+              autoComplete="name"
               required
               placeholder="Your name"
               value={form.ownerName}
               onChange={onChange('ownerName')}
               className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
             />
+            <label htmlFor="finish-phone" className="sr-only">Phone (optional)</label>
             <input
+              id="finish-phone"
               type="tel"
+              autoComplete="tel"
               placeholder="Phone (optional)"
               value={form.ownerPhone}
               onChange={onChange('ownerPhone')}
@@ -114,16 +123,22 @@ export function FinishSignupClient({
 
           <fieldset className="space-y-3">
             <legend className="font-medium">Your business</legend>
+            <label htmlFor="finish-business-name" className="sr-only">Business name</label>
             <input
+              id="finish-business-name"
               type="text"
+              autoComplete="organization"
               required
               placeholder="Business name"
               value={form.businessName}
               onChange={onChange('businessName')}
               className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
             />
+            <label htmlFor="finish-google-maps-url" className="sr-only">Google Maps URL</label>
             <input
+              id="finish-google-maps-url"
               type="url"
+              autoComplete="url"
               required
               placeholder="Google Maps URL for your business"
               value={form.googleMapsUrl}

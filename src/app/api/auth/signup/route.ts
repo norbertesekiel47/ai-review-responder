@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sql, supabaseServer } from '@/lib/db/server';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { SignupSchema } from '@/lib/shared/schemas';
+import { getIpKey } from '@/lib/shared/request-ip';
+import { accountExistsResponse } from '@/lib/shared/auth-responses';
 import {
   createBusinessTx,
   DuplicateEmailError,
@@ -30,26 +32,6 @@ function splitParagraphs(text: string | undefined): string[] {
     .filter(Boolean);
 }
 
-function ipKey(req: NextRequest): string {
-  const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown';
-  return `signup:ip:${ip}`;
-}
-
-// Standard "no enumeration leak" response used for both the advisory-locked
-// pre-check hit and the Supabase signUp error path. Returning the same body
-// from both paths prevents callers from using response timing/content to
-// probe which emails have Supabase Auth identities vs app users rows.
-function accountExistsResponse(): NextResponse {
-  return NextResponse.json(
-    {
-      error: 'account_exists',
-      message:
-        'An account with this email already exists. Try logging in or use forgot password.',
-    },
-    { status: 409 },
-  );
-}
-
 export async function POST(req: NextRequest): Promise<NextResponse> {
   // 1. Feature flag — hide the route entirely when off.
   if (process.env.SELF_SERVE_SIGNUP_ENABLED !== 'true') {
@@ -60,7 +42,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   //    than silently allowing every request through, which would let an
   //    attacker saturate Supabase signUp + our DB during a Redis outage).
   try {
-    const rl = await checkRateLimit(ipKey(req), 5, 3600, { strict: true });
+    const rl = await checkRateLimit(getIpKey(req, 'signup'), 5, 3600, { strict: true });
     if (!rl.allowed) {
       return NextResponse.json({ error: 'rate_limited' }, { status: 429 });
     }

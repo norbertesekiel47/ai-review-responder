@@ -2,13 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sql, supabaseServer } from '@/lib/db/server';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { ForgotPasswordSchema } from '@/lib/shared/schemas';
+import { getIpKey } from '@/lib/shared/request-ip';
 
 export const dynamic = 'force-dynamic';
-
-function ipKey(req: NextRequest): string {
-  const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown';
-  return `forgot-pw:ip:${ip}`;
-}
 
 /**
  * POST /api/auth/forgot-password
@@ -69,7 +65,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   //    burn the owner's reset quota for the rest of the hour. 5/hr is loose
   //    enough not to lock legitimate retry traffic out.
   try {
-    const ipRl = await checkRateLimit(ipKey(req), 3, 3600, { strict: true });
+    const ipRl = await checkRateLimit(getIpKey(req, 'forgot-pw'), 3, 3600, { strict: true });
     if (!ipRl.allowed) {
       return NextResponse.json({ error: 'rate_limited' }, { status: 429 });
     }

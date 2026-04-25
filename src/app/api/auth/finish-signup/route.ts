@@ -4,6 +4,7 @@ import { sql } from '@/lib/db/server';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { FinishSignupSchema } from '@/lib/shared/schemas';
+import { accountExistsResponse } from '@/lib/shared/auth-responses';
 import {
   createBusinessTx,
   DuplicateEmailError,
@@ -30,20 +31,6 @@ function splitParagraphs(text: string | undefined): string[] {
     .split(/\n\n+/)
     .map((s) => s.trim())
     .filter(Boolean);
-}
-
-// Same generic 409 body as the signup route's pre-check path — prevents
-// callers from using the response body to probe which emails are already
-// registered (enumeration defense).
-function accountExistsResponse(): NextResponse {
-  return NextResponse.json(
-    {
-      error: 'account_exists',
-      message:
-        'An account with this email already exists. Use forgot password to recover access.',
-    },
-    { status: 409 },
-  );
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {

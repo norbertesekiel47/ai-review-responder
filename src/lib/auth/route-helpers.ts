@@ -78,8 +78,14 @@ export function withSession(
             return req.cookies.getAll();
           },
           setAll() {
-            // Read-only in auth routes — session cookies are managed by the
-            // browser-side Supabase client, not by these API handlers.
+            // No-op by design. Supabase access-token refresh that would otherwise
+            // write new cookies is silently discarded here. Relies on the browser
+            // Supabase client refreshing via its own cookie writes on the next page
+            // load. Acceptable for short-lived API routes; the trade-off is that
+            // long-hanging routes may see stale access tokens if the browser's
+            // refresh hasn't fired yet. Not a security issue (getUser validates
+            // against Supabase directly), just a potential 401 that triggers a
+            // browser-side refresh round-trip.
           },
         },
       },

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/db/server';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { ResendConfirmationSchema } from '@/lib/shared/schemas';
+import { getIpKey } from '@/lib/shared/request-ip';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,9 +26,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'not_found' }, { status: 404 });
   }
 
-  const ip =
-    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown';
-
   try {
     const emailRl = await checkRateLimit(
       `resend-conf:email:${email}`,
@@ -40,7 +38,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     const ipRl = await checkRateLimit(
-      `resend-conf:ip:${ip}`,
+      getIpKey(req, 'resend-conf'),
       5,
       3600,
       { strict: true },

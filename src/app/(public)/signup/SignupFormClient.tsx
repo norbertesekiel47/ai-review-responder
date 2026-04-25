@@ -107,31 +107,43 @@ export function SignupFormClient() {
         >
           <fieldset className="space-y-3">
             <legend className="font-medium">Your details</legend>
+            <label htmlFor="signup-email" className="sr-only">Email</label>
             <input
+              id="signup-email"
               type="email"
+              autoComplete="email"
               required
               placeholder="Email"
               value={form.ownerEmail}
               onChange={onChange('ownerEmail')}
               className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
             />
+            <label htmlFor="signup-name" className="sr-only">Your name</label>
             <input
+              id="signup-name"
               type="text"
+              autoComplete="name"
               required
               placeholder="Your name"
               value={form.ownerName}
               onChange={onChange('ownerName')}
               className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
             />
+            <label htmlFor="signup-phone" className="sr-only">Phone (optional)</label>
             <input
+              id="signup-phone"
               type="tel"
+              autoComplete="tel"
               placeholder="Phone (optional)"
               value={form.ownerPhone}
               onChange={onChange('ownerPhone')}
               className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
             />
+            <label htmlFor="signup-password" className="sr-only">Password</label>
             <input
+              id="signup-password"
               type="password"
+              autoComplete="new-password"
               required
               minLength={8}
               placeholder="Password (8+ chars)"
@@ -143,16 +155,22 @@ export function SignupFormClient() {
 
           <fieldset className="space-y-3">
             <legend className="font-medium">Your business</legend>
+            <label htmlFor="signup-business-name" className="sr-only">Business name</label>
             <input
+              id="signup-business-name"
               type="text"
+              autoComplete="organization"
               required
               placeholder="Business name"
               value={form.businessName}
               onChange={onChange('businessName')}
               className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
             />
+            <label htmlFor="signup-google-maps-url" className="sr-only">Google Maps URL</label>
             <input
+              id="signup-google-maps-url"
               type="url"
+              autoComplete="url"
               required
               placeholder="Google Maps URL for your business"
               value={form.googleMapsUrl}

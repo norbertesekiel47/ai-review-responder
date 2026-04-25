@@ -77,6 +77,7 @@ export function ForgotPasswordFormClient({
             <input
               id="forgot-email"
               type="email"
+              autoComplete="email"
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
