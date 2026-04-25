@@ -50,8 +50,14 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   // 4. Service-role sql query — join users + businesses by auth_id.
   //    Explicit auth_id scoping: there is no owner-scoped RLS on businesses,
   //    so we enforce the scope in the WHERE clause.
-  const [row] = await sql<{ subscription_status: string; role: string }[]>`
-    SELECT b.subscription_status, u.role
+  //    `business_onboarded` is true once the wizard has either supplied a
+  //    verified Place ID OR a Google Maps URL. Both fields are NULL/false
+  //    on the placeholder row written at signup.
+  const [row] = await sql<
+    { subscription_status: string; role: string; business_onboarded: boolean }[]
+  >`
+    SELECT b.subscription_status, u.role,
+           (b.place_id_verified OR b.google_maps_url IS NOT NULL) AS business_onboarded
     FROM users u
     JOIN businesses b ON b.id = u.business_id
     WHERE u.auth_id = ${user.id}
@@ -64,10 +70,16 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'account_incomplete' }, { status: 404 });
   }
 
-  // 5. Return subscription status + role. The /onboarding/payment-success page
-  //    polls this every 2s and redirects to /dashboard when status === 'active'.
+  // 5. Return subscription status + role + businessOnboarded. The
+  //    /onboarding/payment-success page polls every 2s and redirects to
+  //    /onboarding/business when status === 'active' && !businessOnboarded,
+  //    otherwise to /dashboard.
   return NextResponse.json(
-    { subscriptionStatus: row.subscription_status, role: row.role },
+    {
+      subscriptionStatus: row.subscription_status,
+      role: row.role,
+      businessOnboarded: row.business_onboarded,
+    },
     {
       status: 200,
       headers: { 'Cache-Control': 'no-store, private' },

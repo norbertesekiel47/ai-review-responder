@@ -93,21 +93,22 @@ describe('GET /api/auth/signup-status', () => {
     expect(json.error).toBe('account_incomplete');
   });
 
-  it('returns 200 + { subscriptionStatus, role } with no-store header on success', async () => {
+  it('returns 200 + { subscriptionStatus, role, businessOnboarded } with no-store header on success', async () => {
     mockSql.mockResolvedValueOnce([
-      { subscription_status: 'pending_payment', role: 'owner' },
+      { subscription_status: 'pending_payment', role: 'owner', business_onboarded: false },
     ]);
     const res = await GET(mkReq());
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.subscriptionStatus).toBe('pending_payment');
     expect(json.role).toBe('owner');
+    expect(json.businessOnboarded).toBe(false);
     expect(res.headers.get('Cache-Control')).toBe('no-store, private');
   });
 
   it('returns subscriptionStatus "active" when Stripe has flipped the business', async () => {
     mockSql.mockResolvedValueOnce([
-      { subscription_status: 'active', role: 'owner' },
+      { subscription_status: 'active', role: 'owner', business_onboarded: false },
     ]);
     const res = await GET(mkReq());
     expect(res.status).toBe(200);
@@ -115,9 +116,42 @@ describe('GET /api/auth/signup-status', () => {
     expect(json.subscriptionStatus).toBe('active');
   });
 
+  it('returns businessOnboarded=true when place_id_verified is true (placeAutocomplete path)', async () => {
+    mockSql.mockResolvedValueOnce([
+      { subscription_status: 'active', role: 'owner', business_onboarded: true },
+    ]);
+    const res = await GET(mkReq());
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.businessOnboarded).toBe(true);
+  });
+
+  it('returns businessOnboarded=true when google_maps_url is set (URL fallback path)', async () => {
+    // The SQL expression `b.place_id_verified OR b.google_maps_url IS NOT NULL`
+    // collapses both wizard branches into a single boolean. We assert the
+    // mock returns true and the route preserves that.
+    mockSql.mockResolvedValueOnce([
+      { subscription_status: 'active', role: 'owner', business_onboarded: true },
+    ]);
+    const res = await GET(mkReq());
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.businessOnboarded).toBe(true);
+  });
+
+  it('returns businessOnboarded=false when both place_id_verified=false and google_maps_url=null', async () => {
+    mockSql.mockResolvedValueOnce([
+      { subscription_status: 'pending_payment', role: 'owner', business_onboarded: false },
+    ]);
+    const res = await GET(mkReq());
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.businessOnboarded).toBe(false);
+  });
+
   it('passes the session auth_id as an interpolated value to sql (scoped query)', async () => {
     mockSql.mockResolvedValueOnce([
-      { subscription_status: 'active', role: 'owner' },
+      { subscription_status: 'active', role: 'owner', business_onboarded: true },
     ]);
     await GET(mkReq());
     expect(mockSql).toHaveBeenCalledTimes(1);
@@ -145,7 +179,7 @@ describe('GET /api/auth/signup-status', () => {
     // Non-strict: Redis outage must NOT 503 the polling endpoint.
     mockCheckRateLimit.mockRejectedValueOnce(new Error('ECONNREFUSED'));
     mockSql.mockResolvedValueOnce([
-      { subscription_status: 'active', role: 'owner' },
+      { subscription_status: 'active', role: 'owner', business_onboarded: true },
     ]);
     const res = await GET(mkReq());
     expect(res.status).toBe(200);

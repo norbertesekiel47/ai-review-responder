@@ -1,0 +1,273 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { createServerClient } from '@supabase/ssr';
+import { v7 as uuidv7 } from 'uuid';
+import { sql, jsonb } from '@/lib/db/server';
+import { checkRateLimit } from '@/lib/shared/rate-limit';
+import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
+import { BusinessOnboardingSchema } from '@/lib/shared/schemas';
+import { extractPlaceId } from '@/lib/reviews/url-parser';
+import type {
+  SyncReviewsPayload,
+  ValidatePlaceIdPayload,
+} from '@/lib/shared/worker-types';
+
+export const dynamic = 'force-dynamic';
+
+// ── Local helpers (intentionally duplicated from src/app/api/admin/businesses/route.ts
+//    for isolation — small, isolated string utilities) ───────────────────
+
+function splitCommaOrNewline(text: string | undefined): string[] {
+  if (!text?.trim()) return [];
+  return text
+    .split(/\n|,/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function splitParagraphs(text: string | undefined): string[] {
+  if (!text?.trim()) return [];
+  return text
+    .split(/\n\n+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+const NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
+
+interface BusinessRow {
+  id: string;
+  subscription_status: string;
+  place_id_verified: boolean;
+  google_maps_url: string | null;
+}
+
+export async function POST(req: NextRequest): Promise<NextResponse> {
+  // 1. Feature flag — hide the route entirely when off.
+  if (process.env.SELF_SERVE_SIGNUP_ENABLED !== 'true') {
+    return NextResponse.json({ error: 'not_found' }, { status: 404, headers: NO_STORE });
+  }
+
+  // 2. Same-origin check. CSRF here would weaponize the owner's Supabase
+  //    cookie to fill a placeholder business with attacker-controlled
+  //    Place ID / business name / sample responses.
+  try {
+    assertSameOrigin(req);
+  } catch (err) {
+    if (err instanceof SameOriginError) {
+      return NextResponse.json({ error: 'forbidden' }, { status: 403, headers: NO_STORE });
+    }
+    throw err;
+  }
+
+  // 3. Read session via cookie-bound anon client. setAll is a no-op — no
+  //    cookie refresh on this write endpoint.
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return req.cookies.getAll();
+        },
+        setAll() {
+          // Read-only.
+        },
+      },
+    },
+  );
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json({ error: 'unauthorized' }, { status: 401, headers: NO_STORE });
+  }
+
+  // 4. Look up the business owned by this auth user. Service-role sql
+  //    enforces the auth_id scope in the WHERE clause (no RLS on businesses).
+  const [bizRow] = await sql<BusinessRow[]>`
+    SELECT b.id, b.subscription_status, b.place_id_verified, b.google_maps_url
+    FROM users u
+    JOIN businesses b ON b.id = u.business_id
+    WHERE u.auth_id = ${user.id}
+    LIMIT 1
+  `;
+  if (!bizRow) {
+    // Either no users row yet (signup not finished provisioning) or no
+    // business attached. The wizard's caller should retry or fall through
+    // to /signup/check-email.
+    return NextResponse.json(
+      { error: 'account_incomplete' },
+      { status: 404, headers: NO_STORE },
+    );
+  }
+
+  // 5. Subscription gate — wizard requires `active`. The dashboard pending-
+  //    payment banner steers the owner to /onboarding/pay if they reach this
+  //    flow before Stripe confirms.
+  if (bizRow.subscription_status !== 'active') {
+    return NextResponse.json(
+      { error: 'subscription_inactive', subscriptionStatus: bizRow.subscription_status },
+      { status: 409, headers: NO_STORE },
+    );
+  }
+
+  // 6. Already-onboarded guard (defense-in-depth — the placeholder row has
+  //    place_id_verified=false AND google_maps_url=null; any non-default
+  //    state means the wizard already ran).
+  if (bizRow.place_id_verified || bizRow.google_maps_url) {
+    return NextResponse.json(
+      { error: 'already_onboarded' },
+      { status: 409, headers: NO_STORE },
+    );
+  }
+
+  // 7. Strict per-authId rate limit. Owners typically submit once; 10/hour
+  //    leaves slack for validation-error retries. Redis-down fails closed
+  //    with 503 so the cap can't be bypassed during a cache outage.
+  try {
+    const rl = await checkRateLimit(
+      `onboarding-business:auth:${user.id}`,
+      10,
+      3600,
+      { strict: true },
+    );
+    if (!rl.allowed) {
+      return NextResponse.json({ error: 'rate_limited' }, { status: 429, headers: NO_STORE });
+    }
+  } catch (err) {
+    console.error('[api/onboarding/business] rate-limit strict failure:', err);
+    return NextResponse.json(
+      { error: 'rate_limit_unavailable' },
+      { status: 503, headers: NO_STORE },
+    );
+  }
+
+  // 8. Parse + validate body.
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: 'invalid_json' }, { status: 400, headers: NO_STORE });
+  }
+  const parsed = BusinessOnboardingSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: 'invalid_body', issues: parsed.error.issues },
+      { status: 400, headers: NO_STORE },
+    );
+  }
+  const data = parsed.data;
+
+  // 9. Resolve place id state. PlaceAutocomplete path supplies googlePlaceId
+  //    directly (verified). Maps URL path supplies googleMapsUrl which the
+  //    PlaceIdValidationWorker resolves; we may extract a tentative placeId
+  //    here from the URL but place_id_verified stays false until the worker
+  //    confirms it.
+  let resolvedPlaceId: string | null = null;
+  let placeIdVerified = false;
+  let topic: 'sync_reviews' | 'validate_place_id';
+  let payload: SyncReviewsPayload | ValidatePlaceIdPayload;
+
+  const correlationId = uuidv7();
+  if (data.googlePlaceId) {
+    resolvedPlaceId = data.googlePlaceId;
+    placeIdVerified = true;
+    topic = 'sync_reviews';
+    payload = {
+      business_id: bizRow.id,
+      google_place_id: resolvedPlaceId,
+      correlation_id: correlationId,
+    };
+  } else {
+    // googleMapsUrl branch (BusinessOnboardingSchema's XOR refine guarantees
+    // one of the two is present; we already validated above).
+    const mapsUrl = data.googleMapsUrl!;
+    resolvedPlaceId = extractPlaceId(mapsUrl); // may be null or a hex CID
+    placeIdVerified = false;
+    topic = 'validate_place_id';
+    payload = {
+      business_id: bizRow.id,
+      google_maps_url: mapsUrl,
+      correlation_id: correlationId,
+    };
+  }
+
+  const staffNames = splitCommaOrNewline(data.staffNames);
+  const highlightFacts = splitCommaOrNewline(data.highlightFacts);
+  const avoidFacts = splitCommaOrNewline(data.avoidFacts);
+  const sampleResponses = splitParagraphs(data.sampleResponses);
+
+  // 10. Atomic UPDATE + outbox INSERT.
+  //     Advisory lock matches the Stripe webhook key shape (`<bizId>:activation`)
+  //     so the wizard cannot race against a concurrent webhook delivery for
+  //     the same business — even though the webhook no longer enqueues, future
+  //     callers using the same lock key remain serialized.
+  //     The FOR UPDATE re-read inside the tx is the defense-in-depth: another
+  //     wizard submission in flight may have already onboarded; we silently
+  //     no-op rather than write twice.
+  //     The job_outbox INSERT uses WHERE NOT EXISTS over BOTH topics + all
+  //     non-terminal statuses — defense-in-depth dedup against any race that
+  //     leaves an in-flight outbox row visible.
+  try {
+    await sql.begin(async (tx) => {
+      await tx`SELECT pg_advisory_xact_lock(hashtext(${bizRow.id + ':activation'}))`;
+
+      const [forUpdateRow] = await tx<BusinessRow[]>`
+        SELECT id, subscription_status, place_id_verified, google_maps_url
+        FROM businesses
+        WHERE id = ${bizRow.id}::uuid
+        FOR UPDATE
+      `;
+      if (!forUpdateRow) {
+        // Race: business deleted between the SELECT outside the tx and now.
+        // Treat the whole request as a silent no-op — owner will get a 200,
+        // but the dashboard will surface the missing business when they hit it.
+        return;
+      }
+      if (forUpdateRow.place_id_verified || forUpdateRow.google_maps_url) {
+        // Another wizard submit won — silent no-op so the loser's response is
+        // still 200 and the UI redirect to /dashboard works.
+        return;
+      }
+
+      await tx`
+        UPDATE businesses
+        SET
+          name = ${data.businessName},
+          category = ${data.category ?? null},
+          google_place_id = ${resolvedPlaceId},
+          place_id_verified = ${placeIdVerified},
+          google_maps_url = ${data.googleMapsUrl ?? null},
+          tone = ${data.tone},
+          products_services = ${data.productsServices ?? null},
+          staff_names = ${staffNames},
+          highlight_facts = ${highlightFacts},
+          avoid_facts = ${avoidFacts},
+          sample_responses = ${sampleResponses},
+          website = ${data.website ?? null},
+          updated_at = NOW()
+        WHERE id = ${bizRow.id}::uuid
+      `;
+
+      // INSERT ... SELECT WHERE NOT EXISTS — defense-in-depth dedup over
+      // BOTH topics × non-terminal statuses. Matches the pattern used by
+      // the (about-to-be-removed) Stripe webhook initial-sync block.
+      await tx`
+        INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+        SELECT ${uuidv7()}::uuid, ${topic}, 'business', ${bizRow.id}::uuid, ${jsonb(payload)}, 'pending'
+        WHERE NOT EXISTS (
+          SELECT 1 FROM job_outbox jo
+          WHERE jo.aggregate_id = ${bizRow.id}::uuid
+            AND jo.topic IN ('sync_reviews', 'validate_place_id')
+            AND jo.status IN ('pending', 'dispatching', 'dispatched')
+        )
+      `;
+    });
+  } catch (err) {
+    console.error('[api/onboarding/business] transaction failed:', err);
+    return NextResponse.json({ error: 'internal' }, { status: 500, headers: NO_STORE });
+  }
+
+  return NextResponse.json({ redirectTo: '/dashboard' }, { status: 200, headers: NO_STORE });
+}
