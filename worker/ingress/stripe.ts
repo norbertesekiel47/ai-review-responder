@@ -1,11 +1,6 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import Stripe from 'stripe';
-import { v7 as uuidv7 } from 'uuid';
-import { sql, jsonb } from '../../src/lib/db/server';
-import type {
-  SyncReviewsPayload,
-  ValidatePlaceIdPayload,
-} from '../../src/lib/shared/worker-types';
+import { sql } from '../../src/lib/db/server';
 import { claimInboundEvent } from './shared';
 
 const LOG_PREFIX = '[ingress/stripe]';
@@ -53,19 +48,21 @@ async function processCheckoutSessionCompleted(session: Stripe.Checkout.Session)
   }
 
   // Serialize concurrent checkout.session.completed / customer.subscription.updated
-  // deliveries for the same business on an advisory lock, then decide whether to
-  // enqueue the initial sync based on the ACTUAL pending_payment → active
-  // transition (not past_due → active, not active → active).
+  // deliveries for the same business on an advisory lock. The lock key is
+  // shared with /api/onboarding/business so the wizard cannot race a webhook
+  // delivery for the same business — even though the webhook no longer
+  // enqueues, future activation-adjacent work staying serialized is cheap.
+  //
+  // Initial-sync enqueue moved to /api/onboarding/business (the wizard the
+  // owner submits AFTER Stripe payment confirms). Self-serve businesses
+  // submit business details there; admin-onboarded businesses already had
+  // their outbox row written at signup time. Either way, this webhook only
+  // flips status now.
   await sql.begin(async (tx) => {
     await tx`SELECT pg_advisory_xact_lock(hashtext(${businessId + ':activation'}))`;
 
-    const [bizRow] = await tx<{
-      subscription_status: string;
-      google_place_id: string | null;
-      google_maps_url: string | null;
-      place_id_verified: boolean;
-    }[]>`
-      SELECT subscription_status, google_place_id, google_maps_url, place_id_verified
+    const [bizRow] = await tx<{ subscription_status: string }[]>`
+      SELECT subscription_status
       FROM businesses
       WHERE id = ${businessId}::uuid
       FOR UPDATE
@@ -95,63 +92,6 @@ async function processCheckoutSessionCompleted(session: Stripe.Checkout.Session)
     } else {
       console.warn(`${LOG_PREFIX} Business ${businessId} not activated — current status is not pending_payment or past_due`);
     }
-
-    // Transition gate: only enqueue the initial sync on the actual
-    // pending_payment → active flip. past_due → active is existing-customer
-    // recovery (already had syncs). active → active is a duplicate webhook.
-    if (oldStatus !== 'pending_payment') return;
-
-    // Decide topic + payload based on the business's place-id verification state.
-    const correlationId = uuidv7();
-    let topic: 'sync_reviews' | 'validate_place_id';
-    let payload: SyncReviewsPayload | ValidatePlaceIdPayload;
-
-    if (bizRow.place_id_verified && bizRow.google_place_id) {
-      topic = 'sync_reviews';
-      payload = {
-        business_id: businessId,
-        google_place_id: bizRow.google_place_id,
-        correlation_id: correlationId,
-      };
-    } else if (bizRow.google_maps_url) {
-      topic = 'validate_place_id';
-      payload = {
-        business_id: businessId,
-        google_maps_url: bizRow.google_maps_url,
-        correlation_id: correlationId,
-      };
-    } else {
-      // Data-integrity breach: a business should never reach active without
-      // either a verified place_id or a google_maps_url. Log loudly and skip.
-      console.error(
-        `${LOG_PREFIX} business ${businessId} has neither verified place_id nor google_maps_url; skipping initial sync enqueue. correlation=${correlationId}`,
-      );
-      return;
-    }
-
-    // Single-statement insert:
-    //   - WHERE NOT EXISTS dedup over BOTH topics × non-terminal statuses
-    //     (don't stack a second initial-sync row if one is already queued).
-    //   - EXISTS self-serve scope predicate: admin-onboarded businesses got
-    //     their initial sync at signup time (Task 8). auth_id IS NOT NULL
-    //     confirms this is a real Supabase-Auth owner, not an admin-created row.
-    await tx`
-      INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-      SELECT ${uuidv7()}::uuid, ${topic}, 'business', ${businessId}::uuid, ${jsonb(payload)}, 'pending'
-      WHERE NOT EXISTS (
-        SELECT 1 FROM job_outbox jo
-        WHERE jo.aggregate_id = ${businessId}::uuid
-          AND jo.topic IN ('sync_reviews', 'validate_place_id')
-          AND jo.status IN ('pending', 'dispatching', 'dispatched')
-      )
-      AND EXISTS (
-        SELECT 1 FROM businesses b
-        JOIN users u ON u.business_id = b.id AND u.role = 'owner'
-        WHERE b.id = ${businessId}::uuid
-          AND b.onboarded_by IS NULL
-          AND u.auth_id IS NOT NULL
-      )
-    `;
   });
 }
 
