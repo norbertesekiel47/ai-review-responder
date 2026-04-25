@@ -9,16 +9,19 @@ export function PaymentSuccessClient() {
 
   useEffect(() => {
     let cancelled = false;
+    let timerId: ReturnType<typeof setTimeout> | null = null;
     let delay = 2000;
     const startedAt = Date.now();
 
     async function poll() {
+      if (cancelled) return;
       try {
         const res = await fetch('/api/auth/signup-status');
+        if (cancelled) return;
         if (res.ok) {
           const body = (await res.json()) as { subscriptionStatus: string };
           if (body.subscriptionStatus === 'active') {
-            if (!cancelled) setActive(true);
+            setActive(true);
             return;
           }
         }
@@ -26,16 +29,18 @@ export function PaymentSuccessClient() {
         // transient network error — retry on next tick
       }
 
+      if (cancelled) return;
       const now = Date.now();
       setElapsed(now - startedAt);
       if (now - startedAt > 5 * 60_000) return; // 5-min cap
       delay = Math.min(delay * 1.5, 30_000);
-      setTimeout(poll, delay);
+      timerId = setTimeout(poll, delay);
     }
 
     void poll();
     return () => {
       cancelled = true;
+      if (timerId) clearTimeout(timerId);
     };
   }, []);
 
