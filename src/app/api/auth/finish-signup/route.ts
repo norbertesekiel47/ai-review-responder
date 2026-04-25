@@ -109,12 +109,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const ownerEmail = user.email.trim().toLowerCase();
 
   // 4. Rate limit per authId (strict — Redis down fails closed with 503).
-  //    3/hour is tight because a legitimate owner only completes this once;
-  //    retries after validation errors are cheap enough to fit under that cap.
+  //    10/hour leaves slack for repeated validation-error retries; a legitimate
+  //    owner completes this once but may bounce off the schema several times.
   try {
     const rl = await checkRateLimit(
       `finish-signup:auth:${authId}`,
-      3,
+      10,
       3600,
       { strict: true },
     );
@@ -129,11 +129,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // 5. Advisory-locked pre-checks. hashtext(email + ':signup') MUST MATCH the
-  //    key used by POST /api/auth/signup and the CleanupAbandonedSignupsPoller
-  //    (Task 19) so finish-signup, password-signup, and cleanup all serialize
-  //    through the same row-equivalent lock. Short tx — take lock, two SELECTs,
-  //    commit. createBusinessTx runs in its own independent tx below.
+  // 5. Advisory-locked pre-check — serializes against cleanup-poller's 7-day-old
+  //    candidates only. Simultaneous signups for the same email are defeated by the
+  //    `users.email` UNIQUE constraint + the `DuplicateEmailError` catch below, not
+  //    by this lock. The lock is released at the first tx commit; createBusinessTx
+  //    runs in a fresh tx below.
   const preCheck = await sql.begin(async (tx) => {
     await tx`SELECT pg_advisory_xact_lock(hashtext(${ownerEmail + ':signup'}))`;
     const [byAuth] = await tx<{ id: string }[]>`
@@ -202,7 +202,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     highlightFacts: splitCommaOrNewline(data.highlightFacts),
     avoidFacts: splitCommaOrNewline(data.avoidFacts),
     sampleResponses: splitParagraphs(data.sampleResponses),
-    subscriptionTier: data.subscriptionTier,
+    // Self-serve hardcodes tier. Admin retains founding/standard choice via the admin route.
+    subscriptionTier: 'standard',
     website: data.website ?? null,
     placeId: placeIdInput,
   };

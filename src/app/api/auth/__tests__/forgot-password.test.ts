@@ -275,7 +275,7 @@ describe('POST /api/auth/forgot-password', () => {
     expect(mockSupabaseServer.auth.resetPasswordForEmail).not.toHaveBeenCalled();
   });
 
-  it('returns 429 when email rate limit is exceeded (2/hr)', async () => {
+  it('returns 429 when email rate limit is exceeded (5/hr)', async () => {
     // IP allowed, email denied.
     mockCheckRateLimit.mockResolvedValueOnce({ allowed: true, remaining: 2 });
     mockCheckRateLimit.mockResolvedValueOnce({ allowed: false, remaining: 0 });
@@ -287,7 +287,7 @@ describe('POST /api/auth/forgot-password', () => {
     expect(mockSupabaseServer.auth.resetPasswordForEmail).not.toHaveBeenCalled();
   });
 
-  it('uses strict:true for both IP (3/hr) and email (2/hr) rate-limit keys', async () => {
+  it('uses strict:true for both IP (3/hr) and email (5/hr) rate-limit keys', async () => {
     mockSql.mockResolvedValueOnce([{ role: 'owner' }]);
 
     await POST(mkReq({ email: 'owner@example.com', role: 'owner' }));
@@ -300,9 +300,9 @@ describe('POST /api/auth/forgot-password', () => {
     expect(firstCall[1]).toBe(3);
     expect(firstCall[2]).toBe(3600);
     expect(firstCall[3]).toEqual({ strict: true });
-    // Email key: 2/hr strict, key includes normalized email
+    // Email key: 5/hr strict, key includes normalized email
     expect(secondCall[0]).toBe('forgot-pw:email:owner@example.com');
-    expect(secondCall[1]).toBe(2);
+    expect(secondCall[1]).toBe(5);
     expect(secondCall[2]).toBe(3600);
     expect(secondCall[3]).toEqual({ strict: true });
   });

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { sql } from '@/lib/db/server';
+import { checkRateLimit } from '@/lib/shared/rate-limit';
 
 export const dynamic = 'force-dynamic';
 
@@ -34,7 +35,19 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
-  // 3. Service-role sql query — join users + businesses by auth_id.
+  // 3. Non-strict rate limit. Normal client polls every 2-30s, well under 30/min.
+  //    Only pathological runaway loops get 429'd. Soft-fail if Redis is down so
+  //    a cache outage doesn't break the payment-success poller.
+  const rl = await checkRateLimit(
+    `signup-status:auth:${user.id}`,
+    30,
+    60,
+  ).catch(() => ({ allowed: true, remaining: 30 }));
+  if (!rl.allowed) {
+    return NextResponse.json({ error: 'rate_limited' }, { status: 429 });
+  }
+
+  // 4. Service-role sql query — join users + businesses by auth_id.
   //    Explicit auth_id scoping: there is no owner-scoped RLS on businesses,
   //    so we enforce the scope in the WHERE clause.
   const [row] = await sql<{ subscription_status: string; role: string }[]>`
@@ -51,7 +64,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'account_incomplete' }, { status: 404 });
   }
 
-  // 4. Return subscription status + role. The /onboarding/payment-success page
+  // 5. Return subscription status + role. The /onboarding/payment-success page
   //    polls this every 2s and redirects to /dashboard when status === 'active'.
   return NextResponse.json(
     { subscriptionStatus: row.subscription_status, role: row.role },

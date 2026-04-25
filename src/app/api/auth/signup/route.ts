@@ -88,12 +88,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
   const data = parsed.data;
 
-  // 4. Advisory-locked email pre-check. The lock on hashtext(email + ':signup')
-  //    serializes against the CleanupAbandonedSignupsPoller (Task 19): the
-  //    poller must take the same lock before deleting an abandoned-signup
-  //    auth user, so we can't race with it and create an orphan.
-  //    Short tx — take lock, SELECT, commit. createBusinessTx runs in its
-  //    own independent tx later.
+  // 4. Advisory-locked pre-check — serializes against cleanup-poller's 7-day-old
+  //    candidates only. Simultaneous signups for the same email are defeated by the
+  //    `users.email` UNIQUE constraint + the `DuplicateEmailError` catch below, not
+  //    by this lock. The lock is released at the first tx commit; createBusinessTx
+  //    runs in a fresh tx below.
   const preCheck = await sql.begin(async (tx) => {
     await tx`SELECT pg_advisory_xact_lock(hashtext(${data.ownerEmail + ':signup'}))`;
     const [existing] = await tx<{ id: string }[]>`
@@ -152,7 +151,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     highlightFacts: splitCommaOrNewline(data.highlightFacts),
     avoidFacts: splitCommaOrNewline(data.avoidFacts),
     sampleResponses: splitParagraphs(data.sampleResponses),
-    subscriptionTier: data.subscriptionTier,
+    // Self-serve hardcodes tier. Admin retains founding/standard choice via the admin route.
+    subscriptionTier: 'standard',
     website: data.website ?? null,
     placeId: placeIdInput,
   };
@@ -164,14 +164,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
     await createBusinessTx(input, { mode: 'self_serve', authId });
   } catch (err) {
-    // Compensating cleanup — best-effort. We log delete failures but do not
-    // hide the original error; the user sees the proper 409/500 regardless.
-    await supabaseServer.auth.admin.deleteUser(authId).catch((delErr) => {
+    // Compensating cleanup — awaited so the in-flight delete completes before
+    // the HTTP response returns. We log delete failures but do not hide the
+    // original error; the user sees the proper 409/500 regardless.
+    try {
+      await supabaseServer.auth.admin.deleteUser(authId);
+    } catch (delErr) {
       console.error(
-        `[api/auth/signup] Failed to delete orphan auth user ${authId}:`,
-        delErr,
+        `[signup-cleanup] Failed to delete orphan auth user ${authId}:`,
+        delErr instanceof Error ? delErr.message : delErr,
       );
-    });
+    }
     if (err instanceof DuplicateEmailError) {
       return accountExistsResponse();
     }

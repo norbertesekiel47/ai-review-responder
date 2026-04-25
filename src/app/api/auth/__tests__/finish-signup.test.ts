@@ -289,7 +289,7 @@ describe('POST /api/auth/finish-signup', () => {
     consoleSpy.mockRestore();
   });
 
-  it('returns 429 when rate-limit exceeded (per-authId 3/hour)', async () => {
+  it('returns 429 when rate-limit exceeded (per-authId 10/hour)', async () => {
     mockCheckRateLimit.mockResolvedValueOnce({ allowed: false, remaining: 0 });
     const res = await POST(mkReq(validBody));
     expect(res.status).toBe(429);
@@ -297,7 +297,7 @@ describe('POST /api/auth/finish-signup', () => {
     // Confirm the rate limit key was per-authId.
     expect(mockCheckRateLimit).toHaveBeenCalledWith(
       'finish-signup:auth:auth-uuid-123',
-      3,
+      10,
       3600,
       { strict: true },
     );

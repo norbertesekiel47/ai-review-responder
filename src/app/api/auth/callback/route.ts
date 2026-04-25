@@ -86,13 +86,25 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const authId = data.user?.id;
   let role: string | null = null;
   if (authId) {
-    const { data: userRow } = await supabase
+    const { data: userRow, error: userErr } = await supabase
       .from('users')
       .select('role')
       .eq('auth_id', authId)
       .limit(1)
       .single();
-    role = (userRow as { role: string } | null)?.role ?? null;
+    if (userErr && userErr.code === 'PGRST116') {
+      // PGRST116 = "Expected a single row. Got 0 or >1." We can't distinguish
+      // here, but log both possibilities. >1 would be a data-integrity bug
+      // (duplicate users.auth_id) that should page someone — auth_id is
+      // UNIQUE per migration 001, so this would only happen mid-restore or
+      // mid-migration. 0 rows is the expected Google-signup case.
+      console.warn(
+        `[callback] PGRST116 for auth_id=${authId} — either missing users row or duplicate auth_id. Investigate if duplicate.`,
+      );
+      role = null;
+    } else {
+      role = (userRow as { role: string } | null)?.role ?? null;
+    }
   }
 
   // Google-signup branch: session exists but no users row yet → let the

@@ -60,10 +60,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'not_found' }, { status: 404 });
   }
 
-  // 3. Rate limit on BOTH IP (3/hr) and email (2/hr). Strict mode — Redis down
+  // 3. Rate limit on BOTH IP (3/hr) and email (5/hr). Strict mode — Redis down
   //    fails closed with 503 rather than silently allowing unlimited reset
   //    emails (which Supabase would eventually throttle at the API level, but
-  //    at the cost of flooding the owner's inbox during an outage).
+  //    at the cost of flooding the owner's inbox during an outage). The email
+  //    limit was 2/hr originally, but that turned the endpoint into a DoS
+  //    amplifier for the victim's email budget — 2 attacker requests would
+  //    burn the owner's reset quota for the rest of the hour. 5/hr is loose
+  //    enough not to lock legitimate retry traffic out.
   try {
     const ipRl = await checkRateLimit(ipKey(req), 3, 3600, { strict: true });
     if (!ipRl.allowed) {
@@ -71,7 +75,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
     const emailRl = await checkRateLimit(
       `forgot-pw:email:${email}`,
-      2,
+      5,
       3600,
       { strict: true },
     );
