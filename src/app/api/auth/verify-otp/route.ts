@@ -1,0 +1,171 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { createServerClient } from '@supabase/ssr';
+import { sql } from '@/lib/db/server';
+import { checkRateLimit } from '@/lib/shared/rate-limit';
+import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
+import { VerifyEmailOtpSchema } from '@/lib/shared/schemas';
+import { getIpKey } from '@/lib/shared/request-ip';
+
+export const dynamic = 'force-dynamic';
+
+/**
+ * POST /api/auth/verify-otp
+ *
+ * Owner enters the 6-digit code from the signup confirmation email; this
+ * route calls `supabase.auth.verifyOtp({ email, token, type: 'email' })`
+ * via a cookie-aware server client and returns the post-confirmation
+ * redirect target.
+ *
+ * Why not the email-link/`token_hash` path:
+ *   Server-initiated `signUp()` with `supabase-js` defaults to implicit
+ *   flow (there is no browser to stash a PKCE verifier in), so the email
+ *   link comes back as `#access_token=...` which the server callback
+ *   can't read. Email scanners also frequently consume single-use links
+ *   before the user clicks. A 6-digit code sidesteps both: nothing to
+ *   prefetch, no flow-type dependency, and the same `verifyOtp` ends
+ *   with a session-cookie write through the `setAll` adapter.
+ *
+ * Rate-limit: 8/email/10min (typo retries) + 30/IP/10min (shared NAT).
+ * Both strict — Redis down 503s rather than letting the route through.
+ *
+ * The flow is owner-only — `SELF_SERVE_SIGNUP_ENABLED` gates the entire
+ * route; admin signup never goes through email confirmation (admins are
+ * created via `supabaseServer.auth.admin.createUser({ email_confirm: true })`).
+ */
+export async function POST(req: NextRequest): Promise<NextResponse> {
+  // 1. Feature flag — hide the route entirely when off.
+  if (process.env.SELF_SERVE_SIGNUP_ENABLED !== 'true') {
+    return NextResponse.json({ error: 'not_found' }, { status: 404 });
+  }
+
+  // 2. Same-origin check. verifyOtp on success WRITES a session cookie,
+  //    so a cross-origin caller riding a victim's open `/signup/check-email`
+  //    tab could race-set a session against arbitrary input. Hard-reject.
+  try {
+    assertSameOrigin(req);
+  } catch (err) {
+    if (err instanceof SameOriginError) {
+      return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+    }
+    throw err;
+  }
+
+  // 3. Parse + validate body. Email + 4–10 char alphanumeric token. The
+  //    real bound check is in Supabase — this just keeps junk out.
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: 'invalid_json' }, { status: 400 });
+  }
+  const parsed = VerifyEmailOtpSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: 'invalid_body', issues: parsed.error.issues },
+      { status: 400 },
+    );
+  }
+  const { email, token } = parsed.data;
+
+  // 4. Rate-limit per email (8/10min) + per IP (30/10min). Strict — a
+  //    Redis outage closes the route rather than allowing unbounded
+  //    Supabase verifyOtp calls. Per-email is the tighter bound (a
+  //    legitimate user retypes 1–3 times); per-IP is generous enough
+  //    that a small office on shared NAT isn't blocked.
+  try {
+    const emailRl = await checkRateLimit(
+      `verify-otp:email:${email}`,
+      8,
+      600,
+      { strict: true },
+    );
+    if (!emailRl.allowed) {
+      return NextResponse.json({ error: 'rate_limited' }, { status: 429 });
+    }
+    const ipRl = await checkRateLimit(
+      getIpKey(req, 'verify-otp'),
+      30,
+      600,
+      { strict: true },
+    );
+    if (!ipRl.allowed) {
+      return NextResponse.json({ error: 'rate_limited' }, { status: 429 });
+    }
+  } catch (err) {
+    console.error('[verify-otp] rate-limit strict failure:', err);
+    return NextResponse.json(
+      { error: 'rate_limit_unavailable' },
+      { status: 503 },
+    );
+  }
+
+  // 5. Cookie jar for setAll to write session cookies into. We carry these
+  //    forward to whichever final response we end up returning — success
+  //    response gets the verifyOtp session; error responses (after a
+  //    successful verify but failed role check) get the cleared signOut
+  //    cookies.
+  const cookieJar = NextResponse.json({});
+
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return req.cookies.getAll();
+        },
+        setAll(cookiesToSet) {
+          for (const { name, value, options } of cookiesToSet) {
+            cookieJar.cookies.set(name, value, options);
+          }
+        },
+      },
+    },
+  );
+
+  const { data, error } = await supabase.auth.verifyOtp({
+    email,
+    token,
+    type: 'email',
+  });
+
+  if (error || !data.user) {
+    // Generic message — don't leak whether the email was wrong vs. the
+    // token was wrong vs. the token expired. Supabase's internal error
+    // distinguishes them; we don't.
+    return NextResponse.json(
+      { error: 'invalid_or_expired_code' },
+      { status: 400 },
+    );
+  }
+
+  // 6. Defensive role check. The expected case is role='owner' (the
+  //    only callers who land here are self-serve signups). An admin
+  //    auth_id reaching this route would be a misconfigured email
+  //    template or a manual call — sign out and reject so we don't
+  //    drop the caller into an unexpected redirect.
+  const [row] = await sql<{ role: string }[]>`
+    SELECT role FROM users WHERE auth_id = ${data.user.id} LIMIT 1
+  `;
+  if (!row || row.role !== 'owner') {
+    await supabase.auth.signOut();
+    // signOut wrote cleared cookies into cookieJar via setAll. Copy them
+    // onto the error response so the bad session is actually cleared on
+    // the client.
+    const errorResponse = NextResponse.json(
+      { error: 'account_incomplete' },
+      { status: 500 },
+    );
+    for (const cookie of cookieJar.cookies.getAll()) {
+      errorResponse.cookies.set(cookie);
+    }
+    return errorResponse;
+  }
+
+  // Build the success response carrying the freshly-written session cookies.
+  const successResponse = NextResponse.json({ redirectTo: '/onboarding/pay' });
+  for (const cookie of cookieJar.cookies.getAll()) {
+    successResponse.cookies.set(cookie);
+  }
+  return successResponse;
+}

@@ -120,7 +120,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'internal' }, { status: 500 });
   }
 
-  // 8. Success. Client redirects to the "check your email" screen; the
-  //    Supabase confirmation email contains the real emailRedirectTo link.
-  return NextResponse.json({ redirectTo: '/signup/check-email' }, { status: 201 });
+  // 8. Success. Client redirects to the "check your email" screen with
+  //    the email pre-filled in the OTP entry form.
+  const checkUrl = `/signup/check-email?email=${encodeURIComponent(data.ownerEmail)}`;
+  return NextResponse.json({ redirectTo: checkUrl }, { status: 201 });
 }

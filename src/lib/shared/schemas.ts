@@ -161,3 +161,18 @@ export const ResendConfirmationSchema = z.object({
   flow: z.literal('owner'),
 });
 export type ResendConfirmationInput = z.infer<typeof ResendConfirmationSchema>;
+
+// Email OTP entry — owner enters the 6-digit token Supabase sends in the
+// confirmation email. We accept 4–10 digit/alphanumeric tokens defensively
+// (Supabase has historically used 6-digit numeric, but format isn't
+// contractually frozen). Token validation is ultimately enforced by
+// `supabase.auth.verifyOtp` — this schema just keeps obvious junk out.
+export const VerifyEmailOtpSchema = z.object({
+  email: normalizedEmailSchema,
+  token: z
+    .string()
+    .min(4, 'Code is too short')
+    .max(10, 'Code is too long')
+    .regex(/^[A-Za-z0-9]+$/, 'Code must be alphanumeric'),
+});
+export type VerifyEmailOtpInput = z.infer<typeof VerifyEmailOtpSchema>;

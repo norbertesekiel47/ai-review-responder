@@ -83,7 +83,8 @@ function LoginFormInner({
       if (authError) {
         // Email-not-confirmed UX: route to check-email page instead of raw error.
         if (authError.message.toLowerCase().includes('email not confirmed')) {
-          router.push('/signup/check-email?from=login');
+          const emailParam = encodeURIComponent(email.trim().toLowerCase());
+          router.push(`/signup/check-email?from=login&email=${emailParam}`);
           return;
         }
         setError(authError.message);

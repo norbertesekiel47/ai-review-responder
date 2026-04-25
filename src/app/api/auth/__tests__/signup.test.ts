@@ -146,7 +146,11 @@ describe('POST /api/auth/signup', () => {
     expect(res.status).toBe(201);
 
     const json = await res.json();
-    expect(json.redirectTo).toBe('/signup/check-email');
+    // redirectTo carries the email pre-fill so /signup/check-email can
+    // render the OTP entry form without a typed-twice email step.
+    expect(json.redirectTo).toBe(
+      '/signup/check-email?email=owner%40example.com',
+    );
 
     expect(mockSupabaseServer.auth.signUp).toHaveBeenCalledTimes(1);
     // Identity-only contract: createBusinessTx receives ONLY the three
