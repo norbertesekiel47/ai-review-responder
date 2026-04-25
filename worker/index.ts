@@ -170,11 +170,19 @@ async function main(): Promise<void> {
   });
 
   // Fail fast on missing env vars when feature flags are enabled.
+  // Log per-flag status so operators can see at a glance what's enabled.
   try {
     assertChannelsSmsEnv();
     assertChannelsTelegramEnv();
     assertChannelsWhatsAppEnv();
     assertSelfServeSignupEnv();
+    console.log(
+      `[worker] Feature flags: ` +
+        `SMS=${process.env.CHANNELS_SMS_ENABLED === 'true' ? 'on' : 'off'}, ` +
+        `Telegram=${process.env.CHANNELS_TELEGRAM_ENABLED === 'true' ? 'on' : 'off'}, ` +
+        `WhatsApp=${process.env.CHANNELS_WHATSAPP_ENABLED === 'true' ? 'on' : 'off'}, ` +
+        `SelfServeSignup=${process.env.SELF_SERVE_SIGNUP_ENABLED === 'true' ? 'on' : 'off'}`,
+    );
   } catch (err) {
     console.error(`[worker] Startup assertion failed: ${err instanceof Error ? err.message : err}`);
     process.exit(1);
