@@ -63,4 +63,21 @@ describe('assertSameOrigin', () => {
     });
     expect(() => assertSameOrigin(reqWithoutTrailingSlash)).not.toThrow();
   });
+
+  it('treats subpath APP_URL correctly (compares only origin)', () => {
+    process.env.NEXT_PUBLIC_APP_URL = 'https://app.example.com/prefix';
+    const req = new Request('https://app.example.com/prefix/api/test', {
+      method: 'POST',
+      headers: { Origin: 'https://app.example.com' },
+    });
+    expect(() => assertSameOrigin(req)).not.toThrow();
+  });
+
+  it('rejects malformed Origin', () => {
+    const req = new Request('https://app.example.com/api/test', {
+      method: 'POST',
+      headers: { Origin: 'not a url' },
+    });
+    expect(() => assertSameOrigin(req)).toThrow(SameOriginError);
+  });
 });

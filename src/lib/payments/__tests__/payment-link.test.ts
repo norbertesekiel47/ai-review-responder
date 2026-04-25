@@ -46,4 +46,9 @@ describe('buildPaymentLinkUrl', () => {
     expect(parsed.searchParams.get('client_reference_id')).toBe('biz-002');
     expect(parsed.searchParams.get('utm_source')).toBe('x');
   });
+
+  it('returns null when env var is a malformed URL', () => {
+    process.env.STRIPE_PAYMENT_LINK_FOUNDING = 'not a url';
+    expect(buildPaymentLinkUrl('founding', 'biz-1', 'a@b.com')).toBeNull();
+  });
 });

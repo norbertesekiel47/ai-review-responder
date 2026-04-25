@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isPlaceId } from '@/lib/reviews/url-parser';
 
 // ── Reusable field schemas ──────────────────────────────────────────
 
@@ -93,18 +94,27 @@ const passwordSchema = z.string().min(8).max(128);
 
 // Shared shape between SignupSchema (password auth) and FinishSignupSchema (Google OAuth).
 // Reuses existing field schemas where constraints match.
+//
+// Note: subscriptionTier is intentionally absent here — self-serve hardcodes
+// `'standard'` server-side (spec §11 YAGNI). The admin route uses the
+// separate OnboardBusinessSchema which retains the tier choice. Centralizing
+// `tone` default here means both self-serve schemas emit `'professional and
+// friendly'` without each route having to fall back manually.
 const baseBusinessShape = {
   businessName: businessNameSchema,
   category: categorySchema.optional().nullable(),
-  googlePlaceId: z.string().min(1).optional(),
+  googlePlaceId: z
+    .string()
+    .min(1)
+    .refine((v) => isPlaceId(v), { message: 'Invalid Google Place ID format' })
+    .optional(),
   googleMapsUrl: z.string().min(1).optional(),
-  tone: toneSchema.optional(),
+  tone: toneSchema.default('professional and friendly'),
   productsServices: z.string().max(5000).optional(),
   staffNames: z.string().max(2000).optional(),
   highlightFacts: z.string().max(2000).optional(),
   avoidFacts: z.string().max(2000).optional(),
   sampleResponses: z.string().max(5000).optional(),
-  subscriptionTier: z.enum(['founding', 'standard']),
   website: websiteUrlSchema.optional().nullable(),
 };
 

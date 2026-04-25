@@ -14,8 +14,21 @@ export function assertSameOrigin(request: Request): void {
   if (!origin) {
     throw new SameOriginError('Missing Origin header');
   }
-  const normalize = (u: string) => u.replace(/\/+$/, '');
-  if (normalize(origin) !== normalize(appUrl)) {
+  // Compare URL.origin (scheme + host + port) so subpath APP_URLs like
+  // `https://app.example.com/prefix` still match an Origin header of
+  // `https://app.example.com`. The previous string-trim approach broke
+  // for any non-empty path component.
+  let expectedOrigin: string;
+  let actualOrigin: string;
+  try {
+    expectedOrigin = new URL(appUrl).origin;
+    actualOrigin = new URL(origin).origin;
+  } catch {
+    throw new SameOriginError(
+      `Malformed Origin or APP_URL — origin=${origin}, APP_URL=${appUrl}`,
+    );
+  }
+  if (actualOrigin !== expectedOrigin) {
     throw new SameOriginError(`Origin ${origin} does not match APP_URL ${appUrl}`);
   }
 }
