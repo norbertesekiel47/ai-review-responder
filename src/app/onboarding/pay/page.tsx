@@ -1,6 +1,6 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import { redirect } from 'next/navigation';
+import { redirect, notFound } from 'next/navigation';
 import { sql } from '@/lib/db/server';
 import { buildPaymentLinkUrl } from '@/lib/payments/payment-link';
 
@@ -11,6 +11,11 @@ export default async function OnboardingPayPage({
 }: {
   searchParams: { cancelled?: string };
 }) {
+  // Self-serve signup must hide the entire onboarding flow when the flag is
+  // off — including this server-rendered page. Otherwise a leaked URL could
+  // probe whether self-serve was on.
+  if (process.env.SELF_SERVE_SIGNUP_ENABLED !== 'true') notFound();
+
   const cookieStore = cookies();
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -61,11 +66,15 @@ export default async function OnboardingPayPage({
   // states lives on the dashboard side (Customer Portal / banner flows).
   if (row.subscription_status !== 'pending_payment') redirect('/dashboard');
 
-  const paymentUrl = buildPaymentLinkUrl(
-    row.subscription_tier as 'founding' | 'standard',
-    row.business_id,
-    row.owner_email,
-  );
+  // Validate tier against the allowed set instead of casting blindly. A bad
+  // value in the DB (mid-migration, manual edit) would otherwise produce a
+  // null env-var lookup and a confusing "contact support" screen with no
+  // diagnostic — better to default to 'standard' and let the link work.
+  const tier: 'founding' | 'standard' =
+    row.subscription_tier === 'founding' || row.subscription_tier === 'standard'
+      ? row.subscription_tier
+      : 'standard';
+  const paymentUrl = buildPaymentLinkUrl(tier, row.business_id, row.owner_email);
 
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
@@ -88,7 +97,14 @@ export default async function OnboardingPayPage({
           </a>
         ) : (
           <p className="text-sm text-red-600">
-            Payment link unavailable. Contact support.
+            Payment link unavailable.{' '}
+            <a
+              href={`mailto:support@repworth.com?subject=Payment%20link%20unavailable&body=Business%20ID:%20${row.business_id}`}
+              className="underline"
+            >
+              Contact support
+            </a>
+            .
           </p>
         )}
       </div>

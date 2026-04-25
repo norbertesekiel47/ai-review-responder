@@ -208,6 +208,7 @@ describe('GET /api/dashboard', () => {
         subscription_status: 'pending_payment',
         subscription_tier: 'standard',
         owner_email: 'owner@pending.com',
+        onboarded_by: null, // self-serve — owner sees the payment CTA
       },
     ]);
 
@@ -244,6 +245,7 @@ describe('GET /api/dashboard', () => {
         subscription_status: 'pending_payment',
         subscription_tier: 'founding',
         owner_email: 'founder@example.com',
+        onboarded_by: null,
       },
     ]);
 
@@ -255,6 +257,40 @@ describe('GET /api/dashboard', () => {
       BUSINESS_ID,
       'founder@example.com',
     );
+  });
+
+  it('returns admin-handoff payload when pending_payment + onboarded_by IS NOT NULL', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+    // Spy is in place but should NOT be called — admin-handoff path skips the link.
+    mockBuildPaymentLinkUrl.mockReturnValue('https://pay.stripe.com/should-not-be-called');
+
+    mockSqlResults.length = 0;
+    sqlCallCounter.value = 0;
+    mockSqlResults.push([
+      {
+        name: 'Admin Onboarded Biz',
+        subscription_status: 'pending_payment',
+        subscription_tier: 'founding',
+        owner_email: 'owner@admin-onboarded.com',
+        onboarded_by: 'admin-uuid-1',
+      },
+    ]);
+
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(200);
+
+    const body = await res.json();
+    expect(body.subscriptionStatus).toBe('pending_payment_admin_handoff');
+    expect(body.businessId).toBe(BUSINESS_ID);
+    expect(body.businessName).toBe('Admin Onboarded Biz');
+    // Critical: no paymentUrl in admin-handoff payload (avoids double-charge risk).
+    expect(body.paymentUrl).toBeUndefined();
+
+    // buildPaymentLinkUrl must NOT be called on the admin-handoff branch.
+    expect(mockBuildPaymentLinkUrl).not.toHaveBeenCalled();
+
+    // Pre-query only — Promise.all heavy queries skipped.
+    expect(sqlCallCounter.value).toBe(1);
   });
 
   it('returns paymentUrl: null when buildPaymentLinkUrl returns null (env not set)', async () => {
@@ -269,6 +305,7 @@ describe('GET /api/dashboard', () => {
         subscription_status: 'pending_payment',
         subscription_tier: 'standard',
         owner_email: 'owner@noenv.com',
+        onboarded_by: null,
       },
     ]);
 

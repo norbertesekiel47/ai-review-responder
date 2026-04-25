@@ -75,7 +75,41 @@ export async function runOnce(): Promise<void> {
           return;
         }
 
-        const { error } = await supabaseServer.auth.admin.deleteUser(candidate.auth_id);
+        // Race the Supabase admin call against a 10s timeout. The supabase-js
+        // admin SDK doesn't expose AbortController hooks, so a hung server
+        // would otherwise hold the advisory lock + FOR UPDATE row lock
+        // indefinitely and block subsequent cleanup runs against the same
+        // email. Promise.race rejects → outer catch logs + we move on.
+        let deleteResult: Awaited<
+          ReturnType<typeof supabaseServer.auth.admin.deleteUser>
+        >;
+        try {
+          deleteResult = await Promise.race([
+            supabaseServer.auth.admin.deleteUser(candidate.auth_id),
+            new Promise<never>((_, reject) =>
+              setTimeout(
+                () =>
+                  reject(
+                    Object.assign(new Error('Supabase deleteUser timeout'), {
+                      code: 'TIMEOUT',
+                    }),
+                  ),
+                10_000,
+              ),
+            ),
+          ]);
+        } catch (raceErr) {
+          const errCode = (raceErr as { code?: string } | null)?.code;
+          if (errCode === 'TIMEOUT') {
+            logger.warn(
+              `Supabase deleteUser timeout for ${candidate.auth_id} after 10s`,
+            );
+          }
+          supabaseFailed++;
+          throw raceErr; // rolls back tx
+        }
+
+        const { error } = deleteResult;
         // "User not found" means a prior cleanup deleted the Supabase user but
         // the DB tx didn't commit. Proceed with DB delete to finish the job.
         if (error && !/not[_ ]?found|404/i.test(error.message)) {

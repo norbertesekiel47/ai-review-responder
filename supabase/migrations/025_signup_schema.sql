@@ -51,7 +51,7 @@ BEGIN
   SELECT id INTO placeholder_admin_id
   FROM users
   WHERE role IN ('admin', 'sales_partner')
-  ORDER BY created_at
+  ORDER BY created_at ASC, id ASC  -- deterministic across replicas
   LIMIT 1;
 
   SELECT COUNT(*) INTO affected_businesses

@@ -351,6 +351,40 @@ describe('CleanupAbandonedSignupsPoller', () => {
       const candidatesCall = sqlCalls[0];
       expect(candidatesCall!.values).toContain(100);
     });
+
+    it('Supabase deleteUser timeout: tx rolls back, supabase_failed counted, warn logged', async () => {
+      vi.useFakeTimers();
+      try {
+        sqlQueue.push([makeCandidate()]);
+        seedRefsCollisionRows(false, false); // refs check empty so we proceed past it
+        // refs check returns has_onboarded:false has_demos:false (but seedRefsCollisionRows
+        // pushed advisory + refs only — that's the path we want).
+        // Mock deleteUser to NEVER resolve so the 10s timeout fires.
+        mockSupabaseDeleteUser.mockImplementationOnce(() => new Promise(() => {}));
+
+        const runPromise = runOnce();
+        // Advance past the 10s timeout window.
+        await vi.advanceTimersByTimeAsync(10_001);
+        await runPromise;
+
+        const warnCall = mockLoggerWarn.mock.calls.find((args) =>
+          String(args[0]).includes('timeout for'),
+        );
+        expect(warnCall).toBeDefined();
+
+        // No DB delete issued (tx rolled back)
+        const deleteUsers = sqlCalls.find((c) => c.template.includes('DELETE FROM users'));
+        expect(deleteUsers).toBeUndefined();
+
+        const logCall = mockLoggerLog.mock.calls.find((args) =>
+          String(args[0]).includes('Run complete'),
+        );
+        expect(String(logCall![0])).toContain('supabase_failed=1');
+        expect(String(logCall![0])).toContain('deleted=0');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 
   describe('startCleanupAbandonedSignupsPoller', () => {

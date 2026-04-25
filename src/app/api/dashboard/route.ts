@@ -58,7 +58,16 @@ export interface DashboardDataPendingPayment {
   paymentUrl: string | null;
 }
 
-export type DashboardData = DashboardDataActive | DashboardDataPendingPayment;
+export interface DashboardDataPendingAdminHandoff {
+  subscriptionStatus: 'pending_payment_admin_handoff';
+  businessId: string;
+  businessName: string;
+}
+
+export type DashboardData =
+  | DashboardDataActive
+  | DashboardDataPendingPayment
+  | DashboardDataPendingAdminHandoff;
 
 /** PgBouncer can return TEXT[] as JSON strings. */
 function parseArray(val: unknown): string[] {
@@ -98,8 +107,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       subscription_status: string;
       subscription_tier: string;
       owner_email: string;
+      onboarded_by: string | null;
     }[]>`
-      SELECT name, subscription_status, subscription_tier, owner_email
+      SELECT name, subscription_status, subscription_tier, owner_email, onboarded_by
       FROM businesses WHERE id = ${businessId}
     `;
     if (!subRow) {
@@ -107,11 +117,23 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }
 
     if (subRow.subscription_status === 'pending_payment') {
-      const paymentUrl = buildPaymentLinkUrl(
-        subRow.subscription_tier as 'founding' | 'standard',
-        businessId,
-        subRow.owner_email,
-      );
+      // Admin-onboarded businesses should NOT see the self-serve payment CTA —
+      // they already have a handoff path via the partner. Showing the payment
+      // link here would risk a double-charge if the partner's flow used a
+      // different price point or coupon.
+      if (subRow.onboarded_by !== null) {
+        return jsonResponse({
+          subscriptionStatus: 'pending_payment_admin_handoff',
+          businessId,
+          businessName: subRow.name,
+        });
+      }
+      const tier: 'founding' | 'standard' =
+        subRow.subscription_tier === 'founding' ||
+        subRow.subscription_tier === 'standard'
+          ? subRow.subscription_tier
+          : 'standard';
+      const paymentUrl = buildPaymentLinkUrl(tier, businessId, subRow.owner_email);
       return jsonResponse({
         subscriptionStatus: 'pending_payment',
         businessId,
