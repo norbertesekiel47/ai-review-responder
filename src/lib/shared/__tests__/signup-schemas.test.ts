@@ -2,112 +2,199 @@ import { describe, it, expect } from 'vitest';
 import {
   SignupSchema,
   FinishSignupSchema,
+  BusinessOnboardingSchema,
   ForgotPasswordSchema,
   ResetPasswordSchema,
   ResendConfirmationSchema,
 } from '../schemas';
 
-describe('SignupSchema', () => {
+describe('SignupSchema (identity-only)', () => {
   it('lowercases + trims email before validation', () => {
     const parsed = SignupSchema.parse({
       ownerEmail: '  Owner@Example.COM  ',
       ownerName: 'Jane',
       password: 'password123',
-      businessName: 'Acme',
-      googlePlaceId: 'ChIJtest1234567890ab',
     });
     expect(parsed.ownerEmail).toBe('owner@example.com');
   });
 
   it('rejects empty password', () => {
-    expect(() => SignupSchema.parse({
-      ownerEmail: 'a@b.com', ownerName: 'J', password: '',
-      businessName: 'X', googlePlaceId: 'ChIJtest1234567890ab',
-    })).toThrow();
+    expect(() =>
+      SignupSchema.parse({
+        ownerEmail: 'a@b.com',
+        ownerName: 'J',
+        password: '',
+      }),
+    ).toThrow();
   });
 
   it('requires password >= 8 chars', () => {
-    expect(() => SignupSchema.parse({
-      ownerEmail: 'a@b.com', ownerName: 'J', password: 'short',
-      businessName: 'X', googlePlaceId: 'ChIJtest1234567890ab',
-    })).toThrow();
+    expect(() =>
+      SignupSchema.parse({
+        ownerEmail: 'a@b.com',
+        ownerName: 'J',
+        password: 'short',
+      }),
+    ).toThrow();
   });
 
-  it('requires either googlePlaceId or googleMapsUrl (XOR)', () => {
-    expect(() => SignupSchema.parse({
-      ownerEmail: 'a@b.com', ownerName: 'J', password: 'password123',
+  it('parses successfully with only the three identity fields', () => {
+    const parsed = SignupSchema.parse({
+      ownerEmail: 'a@b.com',
+      ownerName: 'Jane',
+      password: 'password123',
+    });
+    expect(parsed.ownerEmail).toBe('a@b.com');
+    expect(parsed.ownerName).toBe('Jane');
+    expect(parsed.password).toBe('password123');
+  });
+
+  it('accepts optional ownerPhone', () => {
+    const parsed = SignupSchema.parse({
+      ownerEmail: 'a@b.com',
+      ownerName: 'J',
+      password: 'password123',
+      ownerPhone: '+1-555-0100',
+    });
+    expect(parsed.ownerPhone).toBe('+1-555-0100');
+  });
+
+  it('strips legacy business fields silently (Zod default behavior)', () => {
+    const parsed = SignupSchema.parse({
+      ownerEmail: 'a@b.com',
+      ownerName: 'J',
+      password: 'password123',
+      // Stale frontends may still send these — must not error and must not leak through.
+      businessName: 'Acme',
+      googlePlaceId: 'ChIJtest1234567890ab',
+      tone: 'casual',
+    });
+    expect((parsed as { businessName?: string }).businessName).toBeUndefined();
+    expect((parsed as { googlePlaceId?: string }).googlePlaceId).toBeUndefined();
+    expect((parsed as { tone?: string }).tone).toBeUndefined();
+  });
+});
+
+describe('FinishSignupSchema (identity-only — Google session supplies email)', () => {
+  it('parses with only ownerName', () => {
+    const parsed = FinishSignupSchema.parse({ ownerName: 'Jane' });
+    expect(parsed.ownerName).toBe('Jane');
+  });
+
+  it('accepts optional ownerPhone', () => {
+    const parsed = FinishSignupSchema.parse({
+      ownerName: 'Jane',
+      ownerPhone: '+1-555-0100',
+    });
+    expect(parsed.ownerPhone).toBe('+1-555-0100');
+  });
+
+  it('rejects missing ownerName', () => {
+    expect(() => FinishSignupSchema.parse({})).toThrow();
+  });
+
+  it('strips legacy business fields silently', () => {
+    const parsed = FinishSignupSchema.parse({
+      ownerName: 'Jane',
+      businessName: 'Acme',
+      googlePlaceId: 'ChIJtest1234567890ab',
+    });
+    expect((parsed as { businessName?: string }).businessName).toBeUndefined();
+    expect((parsed as { googlePlaceId?: string }).googlePlaceId).toBeUndefined();
+  });
+
+  it('strips ownerEmail if supplied (Google session provides it)', () => {
+    const parsed = FinishSignupSchema.parse({
+      ownerName: 'J',
+      ownerEmail: 'should-be-ignored@example.com',
+    });
+    expect((parsed as { ownerEmail?: string }).ownerEmail).toBeUndefined();
+  });
+});
+
+describe('BusinessOnboardingSchema', () => {
+  it('parses successfully with businessName + googlePlaceId', () => {
+    const parsed = BusinessOnboardingSchema.parse({
+      businessName: 'Acme',
+      googlePlaceId: 'ChIJtest1234567890ab',
+    });
+    expect(parsed.businessName).toBe('Acme');
+    expect(parsed.googlePlaceId).toBe('ChIJtest1234567890ab');
+  });
+
+  it('parses successfully with businessName + googleMapsUrl', () => {
+    const parsed = BusinessOnboardingSchema.parse({
+      businessName: 'Acme',
+      googleMapsUrl: 'https://maps.google.com/?cid=123',
+    });
+    expect(parsed.googleMapsUrl).toBe('https://maps.google.com/?cid=123');
+  });
+
+  it('rejects when neither googlePlaceId nor googleMapsUrl is provided (XOR refine)', () => {
+    expect(() =>
+      BusinessOnboardingSchema.parse({ businessName: 'Acme' }),
+    ).toThrow();
+  });
+
+  it('applies tone default when omitted', () => {
+    const parsed = BusinessOnboardingSchema.parse({
       businessName: 'X',
-    })).toThrow();
-  });
-
-  it('accepts googleMapsUrl when placeId absent', () => {
-    const parsed = SignupSchema.parse({
-      ownerEmail: 'a@b.com', ownerName: 'J', password: 'password123',
-      businessName: 'X', googleMapsUrl: 'https://maps.google.com/?cid=123',
+      googlePlaceId: 'ChIJtest1234567890ab',
     });
-    expect(parsed.googleMapsUrl).toBeTruthy();
-  });
-
-  it('parses successfully without subscriptionTier (server hardcodes "standard")', () => {
-    const parsed = SignupSchema.parse({
-      ownerEmail: 'a@b.com', ownerName: 'J', password: 'password123',
-      businessName: 'X', googlePlaceId: 'ChIJtest1234567890ab',
-    });
-    // subscriptionTier is no longer a schema field — Zod strips unknowns, but
-    // there's nothing to strip here. The server route writes 'standard' itself.
-    expect((parsed as { subscriptionTier?: string }).subscriptionTier).toBeUndefined();
+    expect(parsed.tone).toBe('professional and friendly');
   });
 
   it('rejects garbage googlePlaceId via isPlaceId refine', () => {
-    expect(() => SignupSchema.parse({
-      ownerEmail: 'a@b.com', ownerName: 'J', password: 'password123',
-      businessName: 'X', googlePlaceId: 'garbage',
-    })).toThrow();
+    expect(() =>
+      BusinessOnboardingSchema.parse({
+        businessName: 'X',
+        googlePlaceId: 'garbage',
+      }),
+    ).toThrow();
+  });
+
+  it('rejects too-short googlePlaceId (under 20 chars)', () => {
+    expect(() =>
+      BusinessOnboardingSchema.parse({
+        businessName: 'X',
+        googlePlaceId: 'ChIJabc',
+      }),
+    ).toThrow();
   });
 
   it('accepts a canonical ChIJ place ID', () => {
-    const parsed = SignupSchema.parse({
-      ownerEmail: 'a@b.com', ownerName: 'J', password: 'password123',
-      businessName: 'X', googlePlaceId: 'ChIJgUbEo8cfqokR5lP9_Wh_DaM',
+    const parsed = BusinessOnboardingSchema.parse({
+      businessName: 'X',
+      googlePlaceId: 'ChIJgUbEo8cfqokR5lP9_Wh_DaM',
     });
     expect(parsed.googlePlaceId).toBe('ChIJgUbEo8cfqokR5lP9_Wh_DaM');
   });
 
-  it('applies tone default when omitted', () => {
-    const parsed = SignupSchema.parse({
-      ownerEmail: 'a@b.com', ownerName: 'J', password: 'password123',
-      businessName: 'X', googlePlaceId: 'ChIJtest1234567890ab',
-    });
-    expect(parsed.tone).toBe('professional and friendly');
-  });
-});
-
-describe('FinishSignupSchema', () => {
-  it('strips ownerEmail if supplied (Google session provides it)', () => {
-    // Zod strips unknown keys by default; we just verify the schema parses without ownerEmail.
-    const valid = FinishSignupSchema.parse({
-      ownerName: 'J',
-      businessName: 'X',
+  it('accepts optional category, products, staff, facts, sample responses, website', () => {
+    const parsed = BusinessOnboardingSchema.parse({
+      businessName: 'Acme',
       googlePlaceId: 'ChIJtest1234567890ab',
+      category: 'Restaurant',
+      productsServices: 'Coffee, pastries',
+      staffNames: 'Jane, John',
+      highlightFacts: 'Open 24/7',
+      avoidFacts: 'No parking',
+      sampleResponses: 'Thank you!',
+      website: 'https://example.com',
     });
-    expect((valid as { ownerEmail?: string }).ownerEmail).toBeUndefined();
+    expect(parsed.category).toBe('Restaurant');
+    expect(parsed.productsServices).toBe('Coffee, pastries');
+    expect(parsed.website).toBe('https://example.com');
   });
 
-  it('applies tone default when omitted', () => {
-    const parsed = FinishSignupSchema.parse({
-      ownerName: 'J',
-      businessName: 'X',
-      googlePlaceId: 'ChIJtest1234567890ab',
-    });
-    expect(parsed.tone).toBe('professional and friendly');
-  });
-
-  it('rejects garbage googlePlaceId via isPlaceId refine', () => {
-    expect(() => FinishSignupSchema.parse({
-      ownerName: 'J',
-      businessName: 'X',
-      googlePlaceId: '!!nope!!',
-    })).toThrow();
+  it('rejects javascript: schemes in website (XSS guard)', () => {
+    expect(() =>
+      BusinessOnboardingSchema.parse({
+        businessName: 'Acme',
+        googlePlaceId: 'ChIJtest1234567890ab',
+        website: 'javascript:alert(1)',
+      }),
+    ).toThrow();
   });
 });
 
@@ -139,18 +226,12 @@ describe('ResendConfirmationSchema', () => {
 });
 
 // ── Edge-case coverage ─────────────────────────────────────────────────
-//
-// Defensive tests for the shared `normalizedEmailSchema` preprocessor — the
-// preprocessor only normalizes when the value is a string. Any non-string
-// value falls through to z.string().email().max(254) and must reject.
 
 describe('email normalization edge cases', () => {
   // Minimal valid extras for SignupSchema so each test isolates the email check.
   const baseSignupBody = {
     ownerName: 'Jane',
     password: 'password123',
-    businessName: 'X',
-    googlePlaceId: 'ChIJtest1234567890ab',
   };
 
   it('rejects number as email', () => {
@@ -187,56 +268,5 @@ describe('email normalization edge cases', () => {
     expect(() =>
       ForgotPasswordSchema.parse({ email: null, role: 'owner' }),
     ).toThrow();
-  });
-});
-
-describe('place-id validation', () => {
-  const baseBody = {
-    ownerName: 'Jane',
-    password: 'password123',
-    businessName: 'X',
-    ownerEmail: 'a@b.com',
-  };
-
-  it('rejects garbage googlePlaceId string', () => {
-    expect(() =>
-      SignupSchema.parse({ ...baseBody, googlePlaceId: 'garbage' }),
-    ).toThrow();
-  });
-
-  it('rejects too-short googlePlaceId (under 20 chars)', () => {
-    expect(() =>
-      SignupSchema.parse({ ...baseBody, googlePlaceId: 'ChIJabc' }),
-    ).toThrow();
-  });
-
-  it('accepts a canonical ChIJ place ID', () => {
-    const parsed = SignupSchema.parse({
-      ...baseBody,
-      googlePlaceId: 'ChIJgUbEo8cfqokR5lP9_Wh_DaM',
-    });
-    expect(parsed.googlePlaceId).toBe('ChIJgUbEo8cfqokR5lP9_Wh_DaM');
-  });
-});
-
-describe('tone default centralization', () => {
-  it('SignupSchema applies tone default when omitted', () => {
-    const parsed = SignupSchema.parse({
-      ownerEmail: 'a@b.com',
-      ownerName: 'Jane',
-      password: 'password123',
-      businessName: 'X',
-      googlePlaceId: 'ChIJtest1234567890ab',
-    });
-    expect(parsed.tone).toBe('professional and friendly');
-  });
-
-  it('FinishSignupSchema applies tone default when omitted', () => {
-    const parsed = FinishSignupSchema.parse({
-      ownerName: 'Jane',
-      businessName: 'X',
-      googlePlaceId: 'ChIJtest1234567890ab',
-    });
-    expect(parsed.tone).toBe('professional and friendly');
   });
 });

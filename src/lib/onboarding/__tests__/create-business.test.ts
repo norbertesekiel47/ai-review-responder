@@ -11,14 +11,25 @@ vi.mock('@/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
 vi.mock('uuid', () => ({ v7: vi.fn(() => 'test-uuid') }));
 vi.mock('@/lib/payments/payment-link', () => ({ buildPaymentLinkUrl: mockBuildPaymentLinkUrl }));
 
-import { createBusinessTx, DuplicateEmailError } from '../create-business';
+import {
+  createBusinessTx,
+  DuplicateEmailError,
+  PLACEHOLDER_BUSINESS_NAME,
+  type AdminBusinessTxInput,
+  type SelfServeBusinessTxInput,
+} from '../create-business';
 
-const baseInput = {
+const adminInput: AdminBusinessTxInput = {
   ownerEmail: 'a@b.com',
   ownerName: 'Jane',
   businessName: 'Acme',
-  subscriptionTier: 'standard' as const,
-  placeId: { placeIdVerified: true as const, placeId: 'ChIJtest' },
+  subscriptionTier: 'standard',
+  placeId: { placeIdVerified: true, placeId: 'ChIJtest' },
+};
+
+const selfServeInput: SelfServeBusinessTxInput = {
+  ownerEmail: 'a@b.com',
+  ownerName: 'Jane',
 };
 
 beforeEach(() => {
@@ -31,7 +42,7 @@ beforeEach(() => {
 
 describe('createBusinessTx — admin mode', () => {
   it('writes users.auth_id=NULL and creates outbox entry', async () => {
-    const res = await createBusinessTx(baseInput, { mode: 'admin', onboardedBy: 'admin-1' });
+    const res = await createBusinessTx(adminInput, { mode: 'admin', onboardedBy: 'admin-1' });
     expect(res.businessId).toBeTruthy();
     const calls = mockSql.mock.calls.map((c: any[]) => (c[0] as TemplateStringsArray).join('?'));
     const outboxInsert = calls.find((t: string) => t.includes('INSERT INTO job_outbox'));
@@ -45,7 +56,7 @@ describe('createBusinessTx — admin mode', () => {
   });
 
   it('enqueues sync_reviews when placeIdVerified=true', async () => {
-    await createBusinessTx(baseInput, { mode: 'admin', onboardedBy: 'admin-1' });
+    await createBusinessTx(adminInput, { mode: 'admin', onboardedBy: 'admin-1' });
     const outboxCall = mockSql.mock.calls.find((c: any[]) =>
       (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO job_outbox'))!;
     // 'sync_reviews' is a SQL literal in the template, not a bound value — check the template text.
@@ -53,9 +64,9 @@ describe('createBusinessTx — admin mode', () => {
   });
 
   it('enqueues validate_place_id when placeIdVerified=false', async () => {
-    const input = {
-      ...baseInput,
-      placeId: { placeIdVerified: false as const, googleMapsUrl: 'https://maps.google.com/?cid=1' },
+    const input: AdminBusinessTxInput = {
+      ...adminInput,
+      placeId: { placeIdVerified: false, googleMapsUrl: 'https://maps.google.com/?cid=1' },
     };
     await createBusinessTx(input, { mode: 'admin', onboardedBy: 'admin-1' });
     const outboxCall = mockSql.mock.calls.find((c: any[]) =>
@@ -64,7 +75,7 @@ describe('createBusinessTx — admin mode', () => {
   });
 
   it('writes onboarded_by value to businesses row', async () => {
-    await createBusinessTx(baseInput, { mode: 'admin', onboardedBy: 'admin-xyz-123' });
+    await createBusinessTx(adminInput, { mode: 'admin', onboardedBy: 'admin-xyz-123' });
     const bizCall = mockSql.mock.calls.find((c: any[]) =>
       (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO businesses'))!;
     expect(bizCall.some((a: unknown) => a === 'admin-xyz-123')).toBe(true);
@@ -72,8 +83,8 @@ describe('createBusinessTx — admin mode', () => {
 });
 
 describe('createBusinessTx — self_serve mode', () => {
-  it('writes users.auth_id=authId and skips outbox insert', async () => {
-    await createBusinessTx(baseInput, { mode: 'self_serve', authId: 'auth-xyz' });
+  it('writes users.auth_id=authId, placeholder businesses row, and skips outbox insert', async () => {
+    await createBusinessTx(selfServeInput, { mode: 'self_serve', authId: 'auth-xyz' });
     const calls = mockSql.mock.calls.map((c: any[]) => (c[0] as TemplateStringsArray).join('?'));
     const outboxInsert = calls.find((t: string) => t.includes('INSERT INTO job_outbox'));
     expect(outboxInsert).toBeUndefined();
@@ -84,15 +95,45 @@ describe('createBusinessTx — self_serve mode', () => {
     expect(usersCallArgs.some((a: unknown) => a === 'auth-xyz')).toBe(true);
   });
 
-  it('does NOT enqueue outbox even when placeIdVerified=false', async () => {
-    const input = {
-      ...baseInput,
-      placeId: { placeIdVerified: false as const, googleMapsUrl: 'https://maps.google.com/?cid=1' },
-    };
-    await createBusinessTx(input, { mode: 'self_serve', authId: 'auth-xyz' });
+  it('writes businesses.name as PLACEHOLDER_BUSINESS_NAME', async () => {
+    await createBusinessTx(selfServeInput, { mode: 'self_serve', authId: 'auth-xyz' });
+    const bizCall = mockSql.mock.calls.find((c: any[]) =>
+      (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO businesses'))!;
+    expect(bizCall.some((a: unknown) => a === PLACEHOLDER_BUSINESS_NAME)).toBe(true);
+  });
+
+  it('writes NULL google_place_id and NULL google_maps_url on the placeholder row', async () => {
+    await createBusinessTx(selfServeInput, { mode: 'self_serve', authId: 'auth-xyz' });
+    const bizCall = mockSql.mock.calls.find((c: any[]) =>
+      (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO businesses'))!;
+    // Both google_place_id and google_maps_url are interpolated as null;
+    // ensure the values array contains at least two nulls (place id columns)
+    // alongside the placeholder name. Multiple nulls are expected — category,
+    // products_services, website, onboarded_by also pass null.
+    const nullCount = (bizCall as unknown[]).filter((v) => v === null).length;
+    expect(nullCount).toBeGreaterThanOrEqual(2);
+    expect(bizCall.some((a: unknown) => a === PLACEHOLDER_BUSINESS_NAME)).toBe(true);
+  });
+
+  it('writes place_id_verified=false on the placeholder row', async () => {
+    await createBusinessTx(selfServeInput, { mode: 'self_serve', authId: 'auth-xyz' });
+    const bizCall = mockSql.mock.calls.find((c: any[]) =>
+      (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO businesses'))!;
+    expect(bizCall.some((a: unknown) => a === false)).toBe(true);
+  });
+
+  it('does NOT enqueue outbox in self_serve mode', async () => {
+    await createBusinessTx(selfServeInput, { mode: 'self_serve', authId: 'auth-xyz' });
     const outboxCall = mockSql.mock.calls.find((c: any[]) =>
       (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO job_outbox'));
     expect(outboxCall).toBeUndefined();
+  });
+
+  it('hardcodes subscription_tier=standard regardless of caller intent', async () => {
+    await createBusinessTx(selfServeInput, { mode: 'self_serve', authId: 'auth-xyz' });
+    const bizCall = mockSql.mock.calls.find((c: any[]) =>
+      (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO businesses'))!;
+    expect(bizCall.some((a: unknown) => a === 'standard')).toBe(true);
   });
 });
 
@@ -105,7 +146,7 @@ describe('createBusinessTx — duplicate email', () => {
     });
     mockSql.begin = vi.fn(async (cb: (tx: any) => Promise<unknown>) => cb(mockSql));
     await expect(
-      createBusinessTx(baseInput, { mode: 'self_serve', authId: 'a' }),
+      createBusinessTx(selfServeInput, { mode: 'self_serve', authId: 'a' }),
     ).rejects.toThrow(DuplicateEmailError);
   });
 
@@ -117,16 +158,30 @@ describe('createBusinessTx — duplicate email', () => {
     });
     mockSql.begin = vi.fn(async (cb: (tx: any) => Promise<unknown>) => cb(mockSql));
     await expect(
-      createBusinessTx(baseInput, { mode: 'self_serve', authId: 'a' }),
+      createBusinessTx(selfServeInput, { mode: 'self_serve', authId: 'a' }),
     ).rejects.toThrow('connection timeout');
   });
 });
 
 describe('createBusinessTx — field-name regression', () => {
-  it('maps businessName→businesses.name and ownerName→users.name', async () => {
+  it('maps ownerName→users.name in self_serve mode', async () => {
     await createBusinessTx(
-      { ...baseInput, businessName: 'Acme-Biz', ownerName: 'Jane-Owner' },
+      { ...selfServeInput, ownerName: 'Jane-Owner' },
       { mode: 'self_serve', authId: 'a' },
+    );
+    const bizCall = mockSql.mock.calls.find((c: any[]) =>
+      (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO businesses'))!;
+    const userCall = mockSql.mock.calls.find((c: any[]) =>
+      (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO users'))!;
+    // owner_name on businesses row + users.name both come from input.ownerName.
+    expect(bizCall.some((a: unknown) => a === 'Jane-Owner')).toBe(true);
+    expect(userCall.some((a: unknown) => a === 'Jane-Owner')).toBe(true);
+  });
+
+  it('maps businessName→businesses.name in admin mode', async () => {
+    await createBusinessTx(
+      { ...adminInput, businessName: 'Acme-Biz', ownerName: 'Jane-Owner' },
+      { mode: 'admin', onboardedBy: 'a' },
     );
     const bizCall = mockSql.mock.calls.find((c: any[]) =>
       (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO businesses'))!;
@@ -138,9 +193,9 @@ describe('createBusinessTx — field-name regression', () => {
 });
 
 describe('createBusinessTx — email normalization', () => {
-  it('trims and lowercases ownerEmail before persisting', async () => {
+  it('trims and lowercases ownerEmail before persisting (self_serve)', async () => {
     await createBusinessTx(
-      { ...baseInput, ownerEmail: '  Owner@Example.COM  ' },
+      { ...selfServeInput, ownerEmail: '  Owner@Example.COM  ' },
       { mode: 'self_serve', authId: 'a' },
     );
     const bizCall = mockSql.mock.calls.find((c: any[]) =>
@@ -157,7 +212,7 @@ describe('createBusinessTx — email normalization', () => {
 
 describe('createBusinessTx — channel_enrollments', () => {
   it('inserts email channel_enrollment with verified status and ON CONFLICT guard', async () => {
-    await createBusinessTx(baseInput, { mode: 'self_serve', authId: 'a' });
+    await createBusinessTx(selfServeInput, { mode: 'self_serve', authId: 'a' });
     const enrollCall = mockSql.mock.calls.find((c: any[]) =>
       (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO channel_enrollments'))!;
     expect(enrollCall).toBeDefined();
@@ -173,7 +228,7 @@ describe('createBusinessTx — channel_enrollments', () => {
 describe('createBusinessTx — result', () => {
   it('returns businessId, userId, and paymentUrl from buildPaymentLinkUrl', async () => {
     mockBuildPaymentLinkUrl.mockReturnValue('https://buy.stripe.com/xyz');
-    const res = await createBusinessTx(baseInput, { mode: 'self_serve', authId: 'a' });
+    const res = await createBusinessTx(selfServeInput, { mode: 'self_serve', authId: 'a' });
     expect(res.businessId).toBeTruthy();
     expect(res.userId).toBeTruthy();
     expect(res.paymentUrl).toBe('https://buy.stripe.com/xyz');
@@ -182,7 +237,7 @@ describe('createBusinessTx — result', () => {
 
   it('returns paymentUrl=null when buildPaymentLinkUrl returns null', async () => {
     mockBuildPaymentLinkUrl.mockReturnValue(null);
-    const res = await createBusinessTx(baseInput, { mode: 'self_serve', authId: 'a' });
+    const res = await createBusinessTx(selfServeInput, { mode: 'self_serve', authId: 'a' });
     expect(res.paymentUrl).toBeNull();
   });
 });

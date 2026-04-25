@@ -7,30 +7,10 @@ import { accountExistsResponse } from '@/lib/shared/auth-responses';
 import {
   createBusinessTx,
   DuplicateEmailError,
-  type BusinessTxInput,
-  type PlaceIdInput,
+  type SelfServeBusinessTxInput,
 } from '@/lib/onboarding/create-business';
 
 export const dynamic = 'force-dynamic';
-
-// ── Local helpers (copied from src/app/api/admin/businesses/route.ts
-//    for isolation — intentionally duplicated rather than exported) ──
-
-function splitCommaOrNewline(text: string | undefined): string[] {
-  if (!text?.trim()) return [];
-  return text
-    .split(/\n|,/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
-
-function splitParagraphs(text: string | undefined): string[] {
-  if (!text?.trim()) return [];
-  return text
-    .split(/\n\n+/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   // 1. Feature flag — hide the route entirely when off.
@@ -106,37 +86,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
   const authId = authData.user.id;
 
-  // 6. Build the createBusinessTx input. PlaceIdInput is a discriminated
-  //    union — verified path carries the canonical ID, unverified path
-  //    carries the raw Maps URL for the validator worker to resolve.
-  const placeIdInput: PlaceIdInput = data.googlePlaceId
-    ? {
-        placeIdVerified: true,
-        placeId: data.googlePlaceId,
-        googleMapsUrl: data.googleMapsUrl ?? null,
-      }
-    : {
-        placeIdVerified: false,
-        placeId: null,
-        googleMapsUrl: data.googleMapsUrl!,
-      };
-
-  const input: BusinessTxInput = {
+  // 6. Build the createBusinessTx input — identity-only. Business details
+  //    (name, place ID, tone, etc.) are collected after Stripe payment via
+  //    the /onboarding/business wizard which calls /api/onboarding/business.
+  const input: SelfServeBusinessTxInput = {
     ownerEmail: data.ownerEmail,
     ownerName: data.ownerName,
     ownerPhone: data.ownerPhone ?? null,
-    businessName: data.businessName,
-    category: data.category ?? null,
-    tone: data.tone ?? null,
-    productsServices: data.productsServices ?? null,
-    staffNames: splitCommaOrNewline(data.staffNames),
-    highlightFacts: splitCommaOrNewline(data.highlightFacts),
-    avoidFacts: splitCommaOrNewline(data.avoidFacts),
-    sampleResponses: splitParagraphs(data.sampleResponses),
-    // Self-serve hardcodes tier. Admin retains founding/standard choice via the admin route.
-    subscriptionTier: 'standard',
-    website: data.website ?? null,
-    placeId: placeIdInput,
   };
 
   // 7. Run the business-creation transaction. On ANY failure we must clean

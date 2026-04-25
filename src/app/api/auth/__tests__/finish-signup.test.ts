@@ -82,9 +82,6 @@ function mkReq(
 
 const validBody = {
   ownerName: 'Jane Google',
-  businessName: 'Acme Cafe',
-  googlePlaceId: 'ChIJtest1234567890ab',
-  subscriptionTier: 'standard' as const,
 };
 
 // Default session user — Google-signed-in owner.
@@ -182,8 +179,8 @@ describe('POST /api/auth/finish-signup', () => {
     expect(mockCreateBusinessTx).not.toHaveBeenCalled();
   });
 
-  it('returns 400 on invalid body (missing required fields per FinishSignupSchema)', async () => {
-    const res = await POST(mkReq({ businessName: 'Acme' })); // missing ownerName, etc.
+  it('returns 400 on invalid body (missing required ownerName)', async () => {
+    const res = await POST(mkReq({})); // missing ownerName
     expect(res.status).toBe(400);
     expect(mockCreateBusinessTx).not.toHaveBeenCalled();
   });
@@ -227,7 +224,7 @@ describe('POST /api/auth/finish-signup', () => {
     expect(mockCreateBusinessTx).not.toHaveBeenCalled();
   });
 
-  it('returns 201 + calls createBusinessTx with {mode:"self_serve",authId:<session.user.id>} on happy path', async () => {
+  it('returns 201 + calls createBusinessTx with identity-only input + {mode:"self_serve",authId:<session.user.id>} on happy path', async () => {
     mockCreateBusinessTx.mockResolvedValueOnce({
       businessId: 'biz-1',
       userId: 'u-1',
@@ -240,16 +237,14 @@ describe('POST /api/auth/finish-signup', () => {
     expect(json.redirectTo).toBe('/onboarding/pay');
 
     expect(mockCreateBusinessTx).toHaveBeenCalledTimes(1);
+    // Identity-only contract: business details are deferred to
+    // /api/onboarding/business after Stripe payment.
     expect(mockCreateBusinessTx).toHaveBeenCalledWith(
-      expect.objectContaining({
+      {
         ownerEmail: 'owner@example.com',
         ownerName: 'Jane Google',
-        businessName: 'Acme Cafe',
-        placeId: expect.objectContaining({
-          placeIdVerified: true,
-          placeId: 'ChIJtest1234567890ab',
-        }),
-      }),
+        ownerPhone: null,
+      },
       { mode: 'self_serve', authId: 'auth-uuid-123' },
     );
   });
@@ -310,29 +305,21 @@ describe('POST /api/auth/finish-signup', () => {
     expect(mockCreateBusinessTx).not.toHaveBeenCalled();
   });
 
-  it('builds placeId input from googleMapsUrl when googlePlaceId is absent', async () => {
+  it('passes ownerPhone through when supplied', async () => {
     mockCreateBusinessTx.mockResolvedValueOnce({
       businessId: 'b',
       userId: 'u',
       paymentUrl: null,
     });
 
-    const body: Record<string, unknown> = {
-      ownerName: 'Jane',
-      businessName: 'Acme',
-      googleMapsUrl: 'https://maps.google.com/?cid=123',
-      subscriptionTier: 'standard',
-    };
-
-    const res = await POST(mkReq(body));
+    const res = await POST(mkReq({ ownerName: 'Jane', ownerPhone: '+1-555-0100' }));
     expect(res.status).toBe(201);
     expect(mockCreateBusinessTx).toHaveBeenCalledWith(
-      expect.objectContaining({
-        placeId: expect.objectContaining({
-          placeIdVerified: false,
-          googleMapsUrl: 'https://maps.google.com/?cid=123',
-        }),
-      }),
+      {
+        ownerEmail: 'owner@example.com',
+        ownerName: 'Jane',
+        ownerPhone: '+1-555-0100',
+      },
       expect.objectContaining({ mode: 'self_serve', authId: 'auth-uuid-123' }),
     );
   });
@@ -360,5 +347,32 @@ describe('POST /api/auth/finish-signup', () => {
       expect.objectContaining({ ownerEmail: 'owner@example.com' }),
       { mode: 'self_serve', authId: 'auth-mixed' },
     );
+  });
+});
+
+// Schema test: legacy callers may send business fields in the body — those
+// fields are now silently ignored by FinishSignupSchema (which only declares
+// ownerName + ownerPhone). The route must still parse + accept such payloads
+// because B-track frontend may overlap with shipped backends.
+describe('POST /api/auth/finish-signup — schema tolerance', () => {
+  it('accepts payloads with extra business fields and ignores them', async () => {
+    mockCreateBusinessTx.mockResolvedValueOnce({
+      businessId: 'b',
+      userId: 'u',
+      paymentUrl: null,
+    });
+
+    const legacyBody = {
+      ownerName: 'Jane',
+      businessName: 'Should-Be-Ignored',
+      googlePlaceId: 'ChIJtest1234567890ab',
+    };
+    const res = await POST(mkReq(legacyBody));
+    expect(res.status).toBe(201);
+    // Critical: createBusinessTx must NOT receive businessName / googlePlaceId.
+    const callArgs = mockCreateBusinessTx.mock.calls[0]![0] as Record<string, unknown>;
+    expect(callArgs).not.toHaveProperty('businessName');
+    expect(callArgs).not.toHaveProperty('googlePlaceId');
+    expect(callArgs).not.toHaveProperty('placeId');
   });
 });

@@ -92,59 +92,53 @@ const normalizedEmailSchema = z.preprocess(
 
 const passwordSchema = z.string().min(8).max(128);
 
-// Shared shape between SignupSchema (password auth) and FinishSignupSchema (Google OAuth).
-// Reuses existing field schemas where constraints match.
-//
-// Note: subscriptionTier is intentionally absent here — self-serve hardcodes
-// `'standard'` server-side (spec §11 YAGNI). The admin route uses the
-// separate OnboardBusinessSchema which retains the tier choice. Centralizing
-// `tone` default here means both self-serve schemas emit `'professional and
-// friendly'` without each route having to fall back manually.
-const baseBusinessShape = {
-  businessName: businessNameSchema,
-  category: categorySchema.optional().nullable(),
-  googlePlaceId: z
-    .string()
-    .min(1)
-    .refine((v) => isPlaceId(v), { message: 'Invalid Google Place ID format' })
-    .optional(),
-  googleMapsUrl: z.string().min(1).optional(),
-  tone: toneSchema.default('professional and friendly'),
-  productsServices: z.string().max(5000).optional(),
-  staffNames: z.string().max(2000).optional(),
-  highlightFacts: z.string().max(2000).optional(),
-  avoidFacts: z.string().max(2000).optional(),
-  sampleResponses: z.string().max(5000).optional(),
-  website: websiteUrlSchema.optional().nullable(),
-};
-
-export const SignupSchema = z
-  .object({
-    ownerEmail: normalizedEmailSchema,
-    ownerName: ownerNameSchema,
-    ownerPhone: ownerPhoneSchema.optional(),
-    password: passwordSchema,
-    ...baseBusinessShape,
-  })
-  .refine((d) => Boolean(d.googlePlaceId) || Boolean(d.googleMapsUrl), {
-    message: 'Either googlePlaceId or googleMapsUrl is required',
-    path: ['googlePlaceId'],
-  });
+// Identity-only signup. Business details are collected later via
+// BusinessOnboardingSchema (POST /api/onboarding/business) after Stripe payment.
+export const SignupSchema = z.object({
+  ownerEmail: normalizedEmailSchema,
+  ownerName: ownerNameSchema,
+  ownerPhone: ownerPhoneSchema.optional(),
+  password: passwordSchema,
+});
 
 export type SignupInput = z.infer<typeof SignupSchema>;
 
-export const FinishSignupSchema = z
+// Google OAuth session provides email; collect name + phone only. Business
+// details are deferred to BusinessOnboardingSchema, same as password signup.
+export const FinishSignupSchema = z.object({
+  ownerName: ownerNameSchema,
+  ownerPhone: ownerPhoneSchema.optional(),
+});
+
+export type FinishSignupInput = z.infer<typeof FinishSignupSchema>;
+
+// Submitted by /onboarding/business after Stripe payment confirms.
+// Replaces the business-fields portion of the previous combined SignupSchema.
+export const BusinessOnboardingSchema = z
   .object({
-    ownerName: ownerNameSchema,
-    ownerPhone: ownerPhoneSchema.optional(),
-    ...baseBusinessShape,
+    businessName: businessNameSchema,
+    category: categorySchema.optional().nullable(),
+    googlePlaceId: z
+      .string()
+      .min(1)
+      .refine((v) => isPlaceId(v), { message: 'Invalid Google Place ID format' })
+      .optional(),
+    googlePlaceAddress: z.string().max(500).optional(),
+    googleMapsUrl: z.string().min(1).optional(),
+    tone: toneSchema.default('professional and friendly'),
+    productsServices: z.string().max(5000).optional(),
+    staffNames: z.string().max(2000).optional(),
+    highlightFacts: z.string().max(2000).optional(),
+    avoidFacts: z.string().max(2000).optional(),
+    sampleResponses: z.string().max(5000).optional(),
+    website: websiteUrlSchema.optional().nullable(),
   })
   .refine((d) => Boolean(d.googlePlaceId) || Boolean(d.googleMapsUrl), {
     message: 'Either googlePlaceId or googleMapsUrl is required',
     path: ['googlePlaceId'],
   });
 
-export type FinishSignupInput = z.infer<typeof FinishSignupSchema>;
+export type BusinessOnboardingInput = z.infer<typeof BusinessOnboardingSchema>;
 
 export const ForgotPasswordSchema = z.object({
   email: normalizedEmailSchema,

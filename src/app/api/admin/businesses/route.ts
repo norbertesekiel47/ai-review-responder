@@ -6,7 +6,7 @@ import { isPlaceId, extractPlaceId } from '@/lib/reviews/url-parser';
 import {
   createBusinessTx,
   DuplicateEmailError,
-  type BusinessTxInput,
+  type AdminBusinessTxInput,
   type PlaceIdInput,
 } from '@/lib/onboarding/create-business';
 
@@ -157,7 +157,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     ? { placeIdVerified: true, placeId, googleMapsUrl: data.googleMapsUrl ?? null }
     : { placeIdVerified: false, placeId: placeId ?? null, googleMapsUrl: data.googleMapsUrl! };
 
-  const input: BusinessTxInput = {
+  const input: AdminBusinessTxInput = {
     ownerEmail: data.ownerEmail,
     ownerName: data.ownerName,
     ownerPhone: data.ownerPhone ?? null,

@@ -68,9 +68,6 @@ const validBody = {
   ownerEmail: 'owner@example.com',
   ownerName: 'Jane',
   password: 'password123',
-  businessName: 'Acme',
-  googlePlaceId: 'ChIJtest1234567890ab',
-  subscriptionTier: 'standard' as const,
 };
 
 beforeEach(() => {
@@ -134,7 +131,7 @@ describe('POST /api/auth/signup', () => {
     expect(mockCreateBusinessTx).not.toHaveBeenCalled();
   });
 
-  it('returns 201 + calls createBusinessTx with {mode:"self_serve",authId} on happy path', async () => {
+  it('returns 201 + calls createBusinessTx with identity-only input + {mode:"self_serve",authId} on happy path', async () => {
     mockSupabaseServer.auth.signUp.mockResolvedValueOnce({
       data: { user: { id: 'new-auth-uuid' } },
       error: null,
@@ -152,16 +149,15 @@ describe('POST /api/auth/signup', () => {
     expect(json.redirectTo).toBe('/signup/check-email');
 
     expect(mockSupabaseServer.auth.signUp).toHaveBeenCalledTimes(1);
+    // Identity-only contract: createBusinessTx receives ONLY the three
+    // identity fields. Business details (name, place ID, etc.) are
+    // collected later via /api/onboarding/business after Stripe payment.
     expect(mockCreateBusinessTx).toHaveBeenCalledWith(
-      expect.objectContaining({
+      {
         ownerEmail: 'owner@example.com',
         ownerName: 'Jane',
-        businessName: 'Acme',
-        placeId: expect.objectContaining({
-          placeIdVerified: true,
-          placeId: 'ChIJtest1234567890ab',
-        }),
-      }),
+        ownerPhone: null,
+      },
       { mode: 'self_serve', authId: 'new-auth-uuid' },
     );
   });
@@ -238,33 +234,25 @@ describe('POST /api/auth/signup', () => {
     consoleSpy.mockRestore();
   });
 
-  it('builds placeId input from googleMapsUrl when googlePlaceId is absent', async () => {
+  it('passes ownerPhone through when supplied', async () => {
     mockSupabaseServer.auth.signUp.mockResolvedValueOnce({
-      data: { user: { id: 'auth-url' } },
+      data: { user: { id: 'auth-phone' } },
       error: null,
     });
     mockCreateBusinessTx.mockResolvedValueOnce({
-      businessId: 'b', userId: 'u', paymentUrl: null,
+      businessId: 'b',
+      userId: 'u',
+      paymentUrl: null,
     });
 
-    const body = {
-      ...validBody,
-      googlePlaceId: undefined,
-      googleMapsUrl: 'https://maps.google.com/?cid=123',
-    };
-    // Strip undefined for JSON.
-    const { googlePlaceId: _drop, ...jsonBody } = body;
-    void _drop;
-
-    const res = await POST(mkReq(jsonBody));
+    const res = await POST(mkReq({ ...validBody, ownerPhone: '+1-555-0100' }));
     expect(res.status).toBe(201);
     expect(mockCreateBusinessTx).toHaveBeenCalledWith(
-      expect.objectContaining({
-        placeId: expect.objectContaining({
-          placeIdVerified: false,
-          googleMapsUrl: 'https://maps.google.com/?cid=123',
-        }),
-      }),
+      {
+        ownerEmail: 'owner@example.com',
+        ownerName: 'Jane',
+        ownerPhone: '+1-555-0100',
+      },
       expect.objectContaining({ mode: 'self_serve' }),
     );
   });
