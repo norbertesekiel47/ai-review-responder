@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { isMockMode } from '@/lib/shared/mock-mode';
 import { getResend } from './email/client';
+import { LOG_PREFIX, renderStars, truncate } from './email/templates/shared';
 
 export { getResend } from './email/client';
-
-const LOG_PREFIX = '[email]';
+export * from './email/templates/shared';
 
 export type { EmailCategory } from './email/headers';
 export { getEmailHeaders, getEmailTags } from './email/headers';
@@ -20,15 +20,6 @@ export interface ApprovalEmailParams {
   reviewDate: string;
   responsePreview: string;
   approvalUrl: string;
-}
-
-function renderStars(rating: number): string {
-  return '★'.repeat(rating) + '☆'.repeat(5 - rating);
-}
-
-function truncate(text: string, maxLength: number): string {
-  if (text.length <= maxLength) return text;
-  return text.slice(0, maxLength) + '...';
 }
 
 import { escapeHtml } from '@/lib/shared/html';
