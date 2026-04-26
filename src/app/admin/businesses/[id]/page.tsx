@@ -10,6 +10,7 @@ import ManualPostSection from './manual-post-section';
 import { ProfileEditor } from './components/ProfileEditor';
 import { TrackedKeywordsSection } from './components/TrackedKeywordsSection';
 import { ManualRankingSection } from './components/ManualRankingSection';
+import { ReviewsList } from './components/ReviewsList';
 import { SmsEnrollmentWidget } from '@/components/admin/SmsEnrollmentWidget';
 import { TelegramEnrollmentWidget } from '@/components/admin/TelegramEnrollmentWidget';
 import { WhatsAppEnrollmentWidget } from '@/components/admin/WhatsAppEnrollmentWidget';
@@ -25,10 +26,6 @@ function StatusBadge({ status }: { status: ChannelEnrollmentRow['status'] }) {
   return <span className={`px-2 py-0.5 rounded text-xs ${styles[status]}`}>{status}</span>;
 }
 
-function renderStars(rating: number): string {
-  return '\u2605'.repeat(rating) + '\u2606'.repeat(5 - rating);
-}
-
 function HealthBadge({ level, score }: { level: string; score: number }) {
   const styles: Record<string, string> = {
     healthy: 'bg-green-100 text-green-800',
@@ -42,30 +39,6 @@ function HealthBadge({ level, score }: { level: string; score: number }) {
     </span>
   );
 }
-
-function ResponseBadge({ status }: { status: string | null }) {
-  const displayStatus = status ?? 'new';
-
-  const colorMap: Record<string, string> = {
-    new: 'bg-gray-100 text-gray-600',
-    pending_approval: 'bg-yellow-100 text-yellow-800',
-    approved: 'bg-blue-100 text-blue-800',
-    edited: 'bg-blue-100 text-blue-800',
-    awaiting_manual_post: 'bg-orange-100 text-orange-800',
-    posted: 'bg-green-100 text-green-800',
-    failed: 'bg-red-100 text-red-800',
-  };
-
-  const colorClass = colorMap[displayStatus] ?? 'bg-gray-100 text-gray-700';
-
-  return (
-    <span className={`inline-block rounded px-2 py-0.5 text-xs font-medium ${colorClass}`}>
-      {displayStatus.replace(/_/g, ' ')}
-    </span>
-  );
-}
-
-
 
 export default function BusinessDetailPage() {
   const { id: businessId } = useParams<{ id: string }>();
@@ -213,50 +186,7 @@ export default function BusinessDetailPage() {
         />
 
         {/* Review list */}
-        <section className="mt-8">
-          <h2 className="text-lg font-semibold text-gray-800">
-            Reviews ({reviews.length})
-          </h2>
-          {reviews.length === 0 ? (
-            <p className="mt-2 text-sm text-gray-400">No reviews found.</p>
-          ) : (
-            <div className="mt-4 space-y-3">
-              {reviews.map((review) => (
-                <div
-                  key={review.id}
-                  className="rounded-lg border border-gray-200 bg-white p-4"
-                >
-                  <div className="flex items-center gap-2 text-sm">
-                    <span className="text-yellow-500">{renderStars(review.starRating)}</span>
-                    <span className="font-medium text-gray-700">{review.reviewerName}</span>
-                    {review.reviewDate && (
-                      <span className="text-gray-400">
-                        {new Date(review.reviewDate).toLocaleDateString()}
-                      </span>
-                    )}
-                    {review.detectedLanguage && (
-                      <span className="text-gray-400 uppercase text-xs">
-                        [{review.detectedLanguage}]
-                      </span>
-                    )}
-                    <ResponseBadge status={review.responseStatus} />
-                  </div>
-                  {review.reviewText && (
-                    <p className="mt-1 text-sm text-gray-600 line-clamp-3">
-                      {review.reviewText}
-                    </p>
-                  )}
-                  {review.approvedText && (
-                    <div className="mt-2 rounded bg-blue-50 px-3 py-2 text-sm text-gray-800">
-                      <span className="font-medium text-gray-500">Response: </span>
-                      {review.approvedText}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
+        <ReviewsList reviews={reviews} />
 
         {/* Engagement / churn risk */}
         {business.churnScore && (
