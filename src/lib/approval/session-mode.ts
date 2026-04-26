@@ -1,0 +1,170 @@
+// src/lib/approval/session-mode.ts
+//
+// Session-authenticated approval (owner dashboard). The owner is
+// authenticated via Supabase session — no link/device operations are
+// needed, but any open approval links for the response are revoked
+// to prevent the owner from then clicking an emailed link and double-acting.
+//
+// `establishApprovalSession` lives here too: it's called by the approval
+// page session route to bind the device cookie to a token-flow link.
+// Despite the name overlap with this module's "session", it operates on
+// the same approval_links rows as token-mode. We keep it here because
+// the route under /api/approve/[token]/session calls it.
+
+import { v7 as uuidv7 } from 'uuid';
+import { distance } from 'fastest-levenshtein';
+import type postgres from 'postgres';
+import { jsonb } from '@/lib/db/server';
+import { InvalidTokenError, DeviceConflictError } from './errors';
+import {
+  lockPendingResponse,
+  revokeOpenLinksForResponse,
+} from './locks';
+import {
+  insertAuditLog,
+  insertAuditLogSession,
+  type AuditContext,
+  type SessionAuditContext,
+} from './audit';
+import type { PublishResponsePayload, GenerateResponsePayload } from '@/lib/shared/worker-types';
+
+type TxClient = postgres.TransactionSql;
+
+/**
+ * Bind a device cookie to an approval link, or verify it matches the already-bound device.
+ * First visit binds; repeat visits from the same device are no-ops; different device throws.
+ */
+export async function establishApprovalSession(
+  tx: TxClient,
+  linkId: string,
+  deviceCookieHash: string,
+  audit: AuditContext,
+): Promise<void> {
+  const rows = await tx<{ device_cookie_hash: string | null; response_id: string; business_id: string }[]>`
+    SELECT device_cookie_hash, response_id, business_id
+    FROM approval_links
+    WHERE id = ${linkId}
+    FOR UPDATE
+  `;
+
+  const link = rows[0];
+  if (!link) throw new InvalidTokenError();
+
+  if (link.device_cookie_hash === null) {
+    await tx`
+      UPDATE approval_links SET device_cookie_hash = ${deviceCookieHash} WHERE id = ${linkId}
+    `;
+  } else if (link.device_cookie_hash !== deviceCookieHash) {
+    throw new DeviceConflictError();
+  }
+
+  await insertAuditLog(tx, link.response_id, link.business_id, 'session_bind', audit);
+}
+
+/**
+ * Approve a response via authenticated owner session (dashboard).
+ * No link/device operations — the owner is authenticated via Supabase session.
+ */
+export async function approveBySession(
+  tx: TxClient,
+  responseId: string,
+  businessId: string,
+  audit: SessionAuditContext,
+  correlationId?: string,
+): Promise<void> {
+  await lockPendingResponse(tx, responseId);
+  await revokeOpenLinksForResponse(tx, responseId);
+
+  await tx`
+    UPDATE responses
+    SET status = 'approved', approved_at = NOW(), approved_text = response_text
+    WHERE id = ${responseId}
+  `;
+
+  const payload: PublishResponsePayload = {
+    response_id: responseId,
+    business_id: businessId,
+    correlation_id: correlationId,
+  };
+
+  await tx`
+    INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+    VALUES (${uuidv7()}, 'publish_response', 'response', ${responseId}, ${jsonb(payload)}, 'pending')
+  `;
+
+  await insertAuditLogSession(tx, responseId, businessId, 'approve', audit);
+}
+
+/**
+ * Approve with owner edits via authenticated session (dashboard).
+ * Computes edit distance, stores edited text, and enqueues publish_response.
+ */
+export async function editBySession(
+  tx: TxClient,
+  responseId: string,
+  businessId: string,
+  editedText: string,
+  audit: SessionAuditContext,
+  correlationId?: string,
+): Promise<void> {
+  const resp = await lockPendingResponse(tx, responseId);
+  await revokeOpenLinksForResponse(tx, responseId);
+
+  const editDist = distance(resp.original_draft_text, editedText);
+
+  await tx`
+    UPDATE responses
+    SET status = 'edited',
+        approved_at = NOW(),
+        approved_text = ${editedText},
+        edited_text = ${editedText},
+        edit_distance = ${editDist}
+    WHERE id = ${responseId}
+  `;
+
+  const payload: PublishResponsePayload = {
+    response_id: responseId,
+    business_id: businessId,
+    correlation_id: correlationId,
+  };
+
+  await tx`
+    INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+    VALUES (${uuidv7()}, 'publish_response', 'response', ${responseId}, ${jsonb(payload)}, 'pending')
+  `;
+
+  await insertAuditLogSession(tx, responseId, businessId, 'edit', audit, { edit_distance: editDist });
+}
+
+/**
+ * Request regeneration via authenticated session (dashboard).
+ * Supersedes the current response and enqueues generate_response with version+1.
+ */
+export async function regenerateBySession(
+  tx: TxClient,
+  responseId: string,
+  businessId: string,
+  audit: SessionAuditContext,
+  correlationId?: string,
+): Promise<void> {
+  const resp = await lockPendingResponse(tx, responseId);
+  await revokeOpenLinksForResponse(tx, responseId);
+
+  await tx`
+    UPDATE responses SET status = 'superseded' WHERE id = ${responseId}
+  `;
+
+  const payload: GenerateResponsePayload = {
+    review_id: resp.review_id,
+    business_id: businessId,
+    version: resp.version + 1,
+    correlation_id: correlationId,
+  };
+
+  await tx`
+    INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+    VALUES (${uuidv7()}, 'generate_response', 'review', ${resp.review_id}, ${jsonb(payload)}, 'pending')
+  `;
+
+  await insertAuditLogSession(tx, responseId, businessId, 'regenerate', audit);
+}
