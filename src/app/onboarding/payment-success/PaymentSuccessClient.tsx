@@ -2,6 +2,13 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
+// Single source of truth for the polling cap. Used by both the poll loop
+// (to stop scheduling new ticks) and the UI branch that switches to the
+// "Still processing…" copy. Keeping these synced prevents drift where the
+// loop stops at 5min but the UI keeps showing the spinner indefinitely
+// (or vice versa).
+const MAX_POLL_DURATION_MS = 5 * 60_000;
+
 export function PaymentSuccessClient() {
   const [active, setActive] = useState(false);
   const [elapsed, setElapsed] = useState(0);
@@ -85,7 +92,7 @@ export function PaymentSuccessClient() {
       if (cancelled) return;
       const now = Date.now();
       setElapsed(now - startedAt);
-      if (now - startedAt > 5 * 60_000) return; // 5-min cap
+      if (now - startedAt > MAX_POLL_DURATION_MS) return;
       delay = Math.min(delay * 1.5, 30_000);
       timerId = setTimeout(poll, delay);
     }
@@ -116,7 +123,7 @@ export function PaymentSuccessClient() {
               Go to dashboard
             </button>
           </>
-        ) : elapsed > 5 * 60_000 ? (
+        ) : elapsed > MAX_POLL_DURATION_MS ? (
           <>
             <h1 className="text-xl font-bold mb-4">Still processing...</h1>
             <p className="text-gray-700">

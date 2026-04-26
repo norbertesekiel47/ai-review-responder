@@ -45,7 +45,14 @@ function mkReq(
 ): NextRequest {
   return new NextRequest('https://app.example.com/api/auth/forgot-password', {
     method: 'POST',
-    headers: { 'content-type': 'application/json', ...headers },
+    // Same-origin guard runs first — default the Origin header so tests
+    // that aren't specifically exercising the 403 cross-origin branch
+    // don't trip it. Override per-test when needed.
+    headers: {
+      'content-type': 'application/json',
+      origin: 'https://app.example.com',
+      ...headers,
+    },
     body: JSON.stringify(body),
   });
 }
@@ -99,12 +106,43 @@ describe('POST /api/auth/forgot-password', () => {
       'https://app.example.com/api/auth/forgot-password',
       {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: {
+          'content-type': 'application/json',
+          origin: 'https://app.example.com',
+        },
         body: 'not-json',
       },
     );
     const res = await POST(req);
     expect(res.status).toBe(400);
+  });
+
+  // ── Same-origin (CSRF) guard — runs BEFORE rate limit + body parse ─
+
+  it('returns 403 when Origin header is missing (no rate-limit increment, no DB read, no SMTP)', async () => {
+    const res = await POST(
+      mkReq(
+        { email: 'owner@example.com', role: 'owner' },
+        { origin: '' }, // explicit empty wins over default in spread
+      ),
+    );
+    expect(res.status).toBe(403);
+    expect(mockCheckRateLimit).not.toHaveBeenCalled();
+    expect(mockSql).not.toHaveBeenCalled();
+    expect(mockSupabaseServer.auth.resetPasswordForEmail).not.toHaveBeenCalled();
+  });
+
+  it('returns 403 when Origin header is from a different host', async () => {
+    const res = await POST(
+      mkReq(
+        { email: 'owner@example.com', role: 'owner' },
+        { origin: 'https://attacker.example.net' },
+      ),
+    );
+    expect(res.status).toBe(403);
+    expect(mockCheckRateLimit).not.toHaveBeenCalled();
+    expect(mockSql).not.toHaveBeenCalled();
+    expect(mockSupabaseServer.auth.resetPasswordForEmail).not.toHaveBeenCalled();
   });
 
   // ── Flag gating ──────────────────────────────────────────────────

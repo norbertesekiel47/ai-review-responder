@@ -152,7 +152,23 @@ export const OnboardBusinessSchema = z
   .object({
     name: businessNameSchema,
     category: categorySchema.optional(),
-    googlePlaceId: z.string().min(1).optional(),
+    // Validate Place ID shape at the schema layer — mirrors
+    // BusinessOnboardingSchema (owner-side, line 167–171) so both onboarding
+    // entry points share the same input contract. The admin route
+    // additionally re-checks via `isPlaceId(data.googlePlaceId)` at the
+    // handler layer (route.ts ~142) as belt-and-suspenders, but having the
+    // refine here means: (a) any future caller of
+    // OnboardBusinessSchema.safeParse() — tests, other routes, internal
+    // tooling — gets the validation for free, (b) a refactor that moves
+    // the strict route-level check can't accidentally drop validation
+    // entirely, (c) the schema-level error shape feeds the existing
+    // safeParse error-message handling at route.ts:130 without any
+    // route-side work.
+    googlePlaceId: z
+      .string()
+      .min(1)
+      .refine((v) => isPlaceId(v), { message: 'Invalid Google Place ID format' })
+      .optional(),
     googlePlaceAddress: z.string().optional(),
     googleMapsUrl: googleMapsUrlSchema.optional(),
     ownerName: ownerNameSchema,

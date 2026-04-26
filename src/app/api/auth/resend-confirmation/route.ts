@@ -59,8 +59,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // malformed value (typo `htttps://`, missing scheme, etc.) does the
   // same. URL.parse-validate so the failure is surfaced as a 500 with a
   // log breadcrumb rather than getting swallowed inside Supabase.
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
-  if (!appUrl) {
+  const rawAppUrl = process.env.NEXT_PUBLIC_APP_URL;
+  if (!rawAppUrl || !rawAppUrl.trim()) {
     console.error(
       '[resend-confirmation] NEXT_PUBLIC_APP_URL not set — cannot build emailRedirectTo',
     );
@@ -69,19 +69,24 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       { status: 500 },
     );
   }
+  let parsedAppUrl: URL;
   try {
-    // URL constructor throws on missing scheme, illegal characters, etc.
-    new URL(appUrl);
+    parsedAppUrl = new URL(rawAppUrl.trim());
   } catch {
     console.error(
-      `[resend-confirmation] NEXT_PUBLIC_APP_URL is malformed (${appUrl}) — cannot build emailRedirectTo`,
+      `[resend-confirmation] NEXT_PUBLIC_APP_URL is malformed (${rawAppUrl.trim()}) — cannot build emailRedirectTo`,
     );
     return NextResponse.json(
       { error: 'server_misconfigured' },
       { status: 500 },
     );
   }
-  const emailRedirectTo = `${appUrl}/api/auth/callback?flow=owner&next=/onboarding/pay`;
+  // Use parsed.origin so any path/query/fragment in the env value is
+  // dropped. An env value like `https://yourdomain.com/foo?bar=1#hash`
+  // would otherwise produce `${appUrl}/api/auth/callback?...` =
+  // `https://yourdomain.com/foo?bar=1#hash/api/auth/callback?...` which
+  // is malformed (the callback path appears AFTER the fragment).
+  const emailRedirectTo = `${parsedAppUrl.origin}/api/auth/callback?flow=owner&next=/onboarding/pay`;
 
   await supabaseServer.auth
     .resend({ type: 'signup', email, options: { emailRedirectTo } })

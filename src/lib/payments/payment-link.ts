@@ -34,10 +34,18 @@ export function buildPaymentLinkUrl(
   if (parsed.protocol !== 'https:') {
     return null;
   }
-  const params = new URLSearchParams({
-    client_reference_id: businessId,
-    prefilled_email: ownerEmail,
-  });
-  const sep = baseUrl.includes('?') ? '&' : '?';
-  return `${baseUrl}${sep}${params.toString()}`;
+  // Build the final URL via the parsed instance, not by string-concatenating
+  // the raw env value. Two reasons:
+  //   1. Drops any fragment (parsed.hash). A Stripe Payment Link should
+  //      never have one, but if the env value accidentally contains
+  //      `https://buy.stripe.com/foo#bar`, the manual concatenation would
+  //      mis-place our query params AFTER the fragment, producing a broken
+  //      URL the browser silently strips.
+  //   2. Normalizes whitespace + ensures correct query separator. URL.toString()
+  //      always produces `?a=b&c=d` form regardless of whether the original
+  //      had no query, leading whitespace, or a trailing `?` with no params.
+  parsed.hash = '';
+  parsed.searchParams.append('client_reference_id', businessId);
+  parsed.searchParams.append('prefilled_email', ownerEmail);
+  return parsed.toString();
 }

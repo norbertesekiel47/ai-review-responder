@@ -180,9 +180,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   // half-provisioned business + auth-less users row that the admin can't
   // easily clean up (and our cleanup poller doesn't touch admin-onboarded
   // rows because their `onboarded_by` is non-null). Fail-fast here.
+  //
+  // Normalize the env value before building the redirect:
+  //   - Trim whitespace (leading/trailing — common copy-paste mistake)
+  //   - Parse via URL constructor (rejects missing scheme, illegal chars)
+  //   - Enforce scheme allowlist: https://, OR http://localhost for dev
+  //   - Use parsed.origin so any path/query/fragment in the env is dropped
+  //     (an env value of `https://yourdomain.com/foo?x=1#hash` would
+  //     otherwise produce a malformed inviteRedirectTo)
   const ownerEmailLower = data.ownerEmail.trim().toLowerCase();
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
-  if (!appUrl) {
+  const rawAppUrl = process.env.NEXT_PUBLIC_APP_URL;
+  if (!rawAppUrl || !rawAppUrl.trim()) {
     console.error(
       '[api/admin/businesses POST] NEXT_PUBLIC_APP_URL not set — cannot build invite redirectTo',
     );
@@ -191,7 +199,33 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       { status: 500 },
     );
   }
-  const inviteRedirectTo = `${appUrl}/api/auth/callback?flow=owner&next=/reset-password`;
+  let normalizedAppUrl: URL;
+  try {
+    normalizedAppUrl = new URL(rawAppUrl.trim());
+  } catch {
+    console.error(
+      `[api/admin/businesses POST] NEXT_PUBLIC_APP_URL is malformed (${rawAppUrl.trim()}) — cannot build invite redirectTo`,
+    );
+    return NextResponse.json(
+      { error: 'Server misconfigured (malformed APP_URL)' },
+      { status: 500 },
+    );
+  }
+  const isHttps = normalizedAppUrl.protocol === 'https:';
+  const isLocalHttp =
+    normalizedAppUrl.protocol === 'http:' &&
+    (normalizedAppUrl.hostname === 'localhost' ||
+      normalizedAppUrl.hostname === '127.0.0.1');
+  if (!isHttps && !isLocalHttp) {
+    console.error(
+      `[api/admin/businesses POST] NEXT_PUBLIC_APP_URL has disallowed scheme (${normalizedAppUrl.protocol}) — only https:// or http://localhost permitted`,
+    );
+    return NextResponse.json(
+      { error: 'Server misconfigured (disallowed APP_URL scheme)' },
+      { status: 500 },
+    );
+  }
+  const inviteRedirectTo = `${normalizedAppUrl.origin}/api/auth/callback?flow=owner&next=/reset-password`;
 
   let createdResult: Awaited<ReturnType<typeof createBusinessTx>>;
   try {

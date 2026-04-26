@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 import type { FastifyRequest, FastifyReply } from 'fastify';
 
 // ── Hoisted mocks ───────────────────────────────────────────────────
@@ -36,10 +36,23 @@ vi.mock('stripe', () => {
   };
 });
 
+// Snapshot + restore the env vars we mutate so this test file can't pollute
+// downstream files in the same Vitest worker. STRIPE_SECRET_KEY +
+// STRIPE_WEBHOOK_SECRET need to be set before the dynamic import below
+// (the handler module reads them at import time via a lazy singleton).
+const _origStripeSecretKey = process.env.STRIPE_SECRET_KEY;
+const _origStripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 process.env.STRIPE_SECRET_KEY = 'sk_test_dummy';
 process.env.STRIPE_WEBHOOK_SECRET = 'whsec_dummy';
 
 import { handleStripeWebhook } from '../stripe';
+
+afterAll(() => {
+  if (_origStripeSecretKey === undefined) delete process.env.STRIPE_SECRET_KEY;
+  else process.env.STRIPE_SECRET_KEY = _origStripeSecretKey;
+  if (_origStripeWebhookSecret === undefined) delete process.env.STRIPE_WEBHOOK_SECRET;
+  else process.env.STRIPE_WEBHOOK_SECRET = _origStripeWebhookSecret;
+});
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
@@ -263,7 +276,14 @@ describe('handleStripeWebhook — unhandled event types are safely ignored', () 
         return Promise.resolve([{ subscription_status: 'pending_payment' }]);
       }
       if (/UPDATE\s+businesses/i.test(text)) {
-        return Object.assign(Promise.resolve([]), { count: 1 });
+        // Postgres.js attaches `.count` to the RESOLVED array, not the
+        // Promise wrapper. `Object.assign(Promise.resolve([]), { count: 1 })`
+        // puts count on the Promise itself — `await` discards it and the
+        // handler sees `result.count === undefined`. Build the array first,
+        // attach count, then resolve.
+        const result: any[] = [];
+        (result as any).count = 1;
+        return Promise.resolve(result);
       }
       return Promise.resolve([]);
     });

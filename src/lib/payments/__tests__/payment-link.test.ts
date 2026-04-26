@@ -1,9 +1,30 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { buildPaymentLinkUrl } from '../payment-link';
+
+// Snapshot any pre-existing env values so this test suite can't leak its
+// dummy STRIPE_PAYMENT_LINK_* values into other tests sharing the vitest
+// worker. afterEach restores; setting `undefined` directly would coerce
+// to the literal string "undefined" so we delete keys whose snapshot was
+// undefined.
+const _origFounding = process.env.STRIPE_PAYMENT_LINK_FOUNDING;
+const _origStandard = process.env.STRIPE_PAYMENT_LINK_STANDARD;
 
 beforeEach(() => {
   process.env.STRIPE_PAYMENT_LINK_FOUNDING = 'https://buy.stripe.com/test_F';
   process.env.STRIPE_PAYMENT_LINK_STANDARD = 'https://buy.stripe.com/test_S';
+});
+
+afterEach(() => {
+  if (_origFounding === undefined) {
+    delete process.env.STRIPE_PAYMENT_LINK_FOUNDING;
+  } else {
+    process.env.STRIPE_PAYMENT_LINK_FOUNDING = _origFounding;
+  }
+  if (_origStandard === undefined) {
+    delete process.env.STRIPE_PAYMENT_LINK_STANDARD;
+  } else {
+    process.env.STRIPE_PAYMENT_LINK_STANDARD = _origStandard;
+  }
 });
 
 describe('buildPaymentLinkUrl', () => {

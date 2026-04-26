@@ -39,6 +39,13 @@ import { v7 as uuidv7 } from 'uuid';
  */
 const DEFAULT_INTERVAL_MS = 600_000; // 10 minutes
 const DEFAULT_BATCH_SIZE = 100;
+// Hard ceiling on how many candidates one tick processes. Without this, a
+// misconfigured EMAIL_CHANNEL_RECONCILE_BATCH_SIZE=10000 would issue 10k
+// serial INSERTs holding the worker on its sole runOnce slot for the whole
+// interval and starving any subsequent tick (single-flight skips it). The
+// poller is recovery-only — capping batch size keeps it well-behaved even
+// under operator misconfiguration.
+const MAX_BATCH_SIZE = 1_000;
 
 let timer: ReturnType<typeof setInterval> | null = null;
 // Single-flight guard. Same pattern as CleanupAbandonedSignupsPoller —
@@ -82,10 +89,11 @@ async function runOnceInner(
 }> {
   const envBatch = process.env.EMAIL_CHANNEL_RECONCILE_BATCH_SIZE;
   const parsedBatch = envBatch ? parseInt(envBatch, 10) : NaN;
-  const batchSize =
+  const requestedBatchSize =
     Number.isFinite(parsedBatch) && parsedBatch > 0
       ? parsedBatch
       : DEFAULT_BATCH_SIZE;
+  const batchSize = Math.min(requestedBatchSize, MAX_BATCH_SIZE);
 
   const candidates = await sql<MissingChannelRow[]>`
     SELECT b.id AS business_id, b.owner_email
@@ -191,7 +199,9 @@ export function stopEmailChannelReconcilePoller(): void {
     clearInterval(timer);
     timer = null;
   }
-  // Reset the single-flight flag so a subsequent start() can run cleanly
-  // even if stop() fired mid-runOnce (graceful shutdown path).
-  inProgress = false;
+  // Do NOT reset inProgress. If stop() fires mid-runOnce (graceful
+  // shutdown), the in-flight run's finally{} clears the flag itself.
+  // Racing it from stop() would let a fresh start() schedule a tick
+  // that runs in PARALLEL with the still-executing run, defeating the
+  // single-flight guarantee. Pattern matches CleanupAbandonedSignupsPoller.
 }

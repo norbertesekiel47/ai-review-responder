@@ -666,5 +666,62 @@ describe('CleanupAbandonedSignupsPoller', () => {
       );
       expect(completedCalls).toHaveLength(2);
     });
+
+    // Regression guard: stop() must NOT reset the single-flight flag.
+    // Scenario: a graceful-shutdown signal lands while runOnce() is mid-tx,
+    // stop() clears the timer, then a fresh start() registers a new
+    // interval and its initial runOnce() fires immediately. If stop() had
+    // reset inProgress=false, the new run would race in parallel with the
+    // still-executing original — defeating the single-flight guarantee
+    // that protects against double-deletes on the same candidate. The
+    // expected behavior is: the new initial runOnce() short-circuits with
+    // the "Previous run still in progress — skipping" log; only after the
+    // original finishes can the next tick run.
+    it('stop+restart while a run is in flight does NOT race a parallel run', async () => {
+      process.env.SELF_SERVE_SIGNUP_ENABLED = 'true';
+
+      // Make the FIRST runOnce's candidates query hang.
+      let resolveFirst: (v: unknown[]) => void = () => {};
+      const firstHang = new Promise<unknown[]>((resolve) => {
+        resolveFirst = resolve;
+      });
+      consume.mockImplementationOnce(() => firstHang);
+
+      // Kick off the in-flight runOnce.
+      const firstRun = runOnce();
+
+      // Operator hits SIGTERM mid-run.
+      stopCleanupAbandonedSignupsPoller();
+
+      // Worker restarts: setInterval gets stubbed out so the test stays
+      // deterministic; we only care that the immediate initial runOnce()
+      // launched by start() short-circuits on the still-set flag.
+      const setIntervalSpy = vi
+        .spyOn(global, 'setInterval')
+        .mockImplementation(() => 99999 as any);
+      startCleanupAbandonedSignupsPoller();
+      // Yield so the start()'s initial runOnce promise can advance to its
+      // single-flight check. The check is sync (no awaits before it), so
+      // one microtask is enough.
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // The new start's initial runOnce must have skipped — exactly one
+      // "skipping" log line, zero new candidates queries.
+      const skipCalls = mockLoggerLog.mock.calls.filter((args) =>
+        String(args[0]).includes('Previous run still in progress'),
+      );
+      expect(skipCalls).toHaveLength(1);
+
+      // No second candidates query should have been issued (consume only
+      // got called once — for the still-hung first run).
+      expect(consume).toHaveBeenCalledTimes(1);
+
+      // Drain the first run so cleanup is clean.
+      resolveFirst([]);
+      await firstRun;
+
+      setIntervalSpy.mockRestore();
+    });
   });
 });

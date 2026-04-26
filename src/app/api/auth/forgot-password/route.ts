@@ -3,6 +3,7 @@ import { sql, supabaseServer } from '@/lib/db/server';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { ForgotPasswordSchema } from '@/lib/shared/schemas';
 import { getIpKey } from '@/lib/shared/request-ip';
+import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,6 +31,23 @@ export const dynamic = 'force-dynamic';
  * which addresses have accounts.
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  // 0. Same-origin check FIRST — before any side effects (rate limit
+  //    counter increment, body parse, DB read, Supabase resend). Without
+  //    this guard, a third-party site could submit a CSRF-style POST that
+  //    triggers a password-reset email to any address — both an
+  //    enumeration channel ("does this email get a real-looking reset?")
+  //    and a denial-of-service primitive (mass-trigger SMTP for the
+  //    rate-limit window of arbitrary victims). Pattern matches
+  //    /api/auth/verify-otp + /api/onboarding/* same-origin gates.
+  try {
+    assertSameOrigin(req);
+  } catch (err) {
+    if (err instanceof SameOriginError) {
+      return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+    }
+    throw err;
+  }
+
   // 1. Parse + validate body.
   let body: unknown;
   try {

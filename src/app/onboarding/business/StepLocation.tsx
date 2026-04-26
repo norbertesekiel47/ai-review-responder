@@ -78,26 +78,53 @@ export function StepLocation({
       const prefill = (await res.json()) as PrefillResponse;
       if (latestPlaceIdRef.current !== placeId) return;
 
-      // Apply prefill if either: (a) the field is empty (first-pick case),
-      // OR (b) the incoming prefill value differs from the value we last
-      // applied (re-pick case — a different place was selected). The
-      // dirty flag still wins in both: a value the user typed/edited is
-      // never overwritten regardless of how many places they pick after.
+      // Apply prefill in three modes (per field):
+      //   (a) value present + first-pick (data.X empty) → set it
+      //   (b) value present + re-pick of a DIFFERENT place (lastPrefill differs) → overwrite
+      //   (c) value EXPLICITLY null + previous prefill DID set the field → CLEAR it
+      // Without (c), picking Place A (category='Cafe') and then re-picking
+      // Place B (category=null) would leave the form showing 'Cafe' even
+      // though Place B has no category info — stale prefill data masquerading
+      // as "what Place B says". The dirty flag still wins in all three modes:
+      // a value the user typed/edited is never overwritten or cleared.
       const patch: Partial<WizardFormData> = {};
-      if (
-        prefill.category &&
-        !dirtyRef.current?.category &&
-        (!data.category || prefill.category !== lastPrefillRef.current.category)
-      ) {
-        patch.category = prefill.category;
+
+      // category
+      if (!dirtyRef.current?.category) {
+        if (
+          prefill.category &&
+          (!data.category || prefill.category !== lastPrefillRef.current.category)
+        ) {
+          patch.category = prefill.category;
+        } else if (
+          prefill.category === null &&
+          lastPrefillRef.current.category !== null &&
+          data.category
+        ) {
+          // Previous prefill set the value, this prefill returned null, user
+          // hasn't edited → the value belongs to the OLD place. Clear it.
+          // Use empty string (not null/undefined) to match the WizardFormData
+          // shape and avoid React warning about controlled-input value.
+          patch.category = '';
+        }
       }
-      if (
-        prefill.website &&
-        !dirtyRef.current?.website &&
-        (!data.website || prefill.website !== lastPrefillRef.current.website)
-      ) {
-        patch.website = prefill.website;
+
+      // website
+      if (!dirtyRef.current?.website) {
+        if (
+          prefill.website &&
+          (!data.website || prefill.website !== lastPrefillRef.current.website)
+        ) {
+          patch.website = prefill.website;
+        } else if (
+          prefill.website === null &&
+          lastPrefillRef.current.website !== null &&
+          data.website
+        ) {
+          patch.website = '';
+        }
       }
+
       if (Object.keys(patch).length > 0) update(patch);
       // Always update the snapshot (even when patch is empty) so the next
       // re-pick compares against the latest known prefill values. Use the

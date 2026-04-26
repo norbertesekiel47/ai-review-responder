@@ -76,6 +76,7 @@ async function runOnceInner(
       AND b.onboarded_by IS NULL
       AND u.auth_id IS NOT NULL
       AND b.created_at < NOW() - INTERVAL '7 days'
+    ORDER BY b.created_at ASC, b.id ASC
     LIMIT ${batchSize}
   `;
 
@@ -281,9 +282,11 @@ export function stopCleanupAbandonedSignupsPoller(): void {
     clearInterval(timer);
     timer = null;
   }
-  // Reset the single-flight flag too — a subsequent start() should run
-  // cleanly. Without this, if stop() is called WHILE runOnce() is mid-flight
-  // (graceful shutdown signal), the flag stays true and the next test or
-  // restart in the same process would short-circuit on the first runOnce().
-  inProgress = false;
+  // Do NOT reset inProgress here. If stop() fires while runOnce() is
+  // mid-flight (e.g., graceful shutdown signal lands during a 24h tx),
+  // the in-flight run's finally{} clears the flag itself when it
+  // completes — racing it from stop() would let a fresh start()
+  // schedule a tick that runs in PARALLEL with the still-executing
+  // run, defeating the single-flight guarantee. The flag's only owner
+  // is whoever set it (runOnce); stop() only owns the timer.
 }
