@@ -10,16 +10,15 @@
 import { v7 as uuidv7 } from 'uuid';
 import type { Job } from 'bullmq';
 import { sql } from '../../src/lib/db/server';
-import { checkSubscription } from '../../src/lib/shared/subscription-guard';
 import { markOutboxCompleted, markOutboxFailed, extractOutboxHandle } from '../../src/lib/shared/outbox';
 import { recordNotificationDelivery, insertFailedDelivery } from '../../src/lib/notifications/delivery';
-import { getVerifiedEnrollments } from '../../src/lib/notifications/enrollments';
 import { getChannel } from '../../src/lib/notifications/channels';
 import type { ChannelId } from '../../src/lib/notifications/channels/types';
 import { createApprovalLink } from '../../src/lib/approval/create-link';
 import type { SendNotificationPayload } from '../../src/lib/shared/worker-types';
 import { createWorkerLogger } from '../../src/lib/shared/logger';
 import { classifyChannelError } from './notification/errors';
+import { getEligibleChannels } from './notification/eligibility';
 import {
   reserveSmsCost,
   refundSmsCost,
@@ -78,20 +77,27 @@ export async function handleSendNotification(
     return;
   }
 
-  const subCheck = checkSubscription(
-    business.subscription_status,
-    new Date(business.updated_at),
-    'notification',
+  const eligibility = await getEligibleChannels(
+    {
+      businessId: business_id,
+      subscriptionStatus: business.subscription_status,
+      businessUpdatedAt: new Date(business.updated_at),
+    },
+    logger,
   );
-  if (!subCheck.allowed) {
-    logger.log(`Business ${business_id} skipped: ${subCheck.reason}`);
+  if (!eligibility.ok) {
+    if (eligibility.reason === 'no_verified_enrollments') {
+      logger.warn(`Business ${business_id} has no verified channel enrollments — skipping`);
+    } else {
+      logger.log(`Business ${business_id} skipped: ${eligibility.reason}`);
+    }
     await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }
-
-  const enrollments = await getVerifiedEnrollments(business_id);
+  const enrollments = eligibility.enrollments;
   if (enrollments.length === 0) {
-    logger.warn(`Business ${business_id} has no verified channel enrollments — skipping`);
+    // All enrollments were filtered out by per-channel feature flags.
+    // Outbox completes cleanly — there's no work to do, but no error either.
     await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }
@@ -111,23 +117,11 @@ export async function handleSendNotification(
   for (const enrollment of enrollments) {
     const channelId: ChannelId = enrollment.channel;
 
+    // Per-channel feature flag filtering is done in getEligibleChannels.
+    // owner_email_bounced is checked here because it depends on business
+    // row data the dispatch already has in hand.
     if (channelId === 'email' && business.owner_email_bounced) {
       logger.log(`Email channel skipped for business ${business_id}: owner_email_bounced`);
-      continue;
-    }
-
-    if (channelId === 'sms' && process.env.CHANNELS_SMS_ENABLED !== 'true') {
-      logger.log(`SMS channel disabled by flag — skipping enrollment for business ${business_id}`);
-      continue;
-    }
-
-    if (channelId === 'telegram' && process.env.CHANNELS_TELEGRAM_ENABLED !== 'true') {
-      logger.log(`Telegram channel disabled by flag — skipping enrollment for business ${business_id}`);
-      continue;
-    }
-
-    if (channelId === 'whatsapp' && process.env.CHANNELS_WHATSAPP_ENABLED !== 'true') {
-      logger.log(`WhatsApp channel disabled by flag — skipping enrollment for business ${business_id}`);
       continue;
     }
 
