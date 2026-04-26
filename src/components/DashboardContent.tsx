@@ -1,7 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import type { DashboardData, DashboardDataActive } from '@/lib/dashboard/types';
+import type { DashboardDataActive } from '@/lib/dashboard/types';
 import {
   ActivePendingBusinessScreen,
   PendingAdminHandoffScreen,
@@ -10,28 +9,10 @@ import {
 import { ValueSummary } from '@/components/dashboard/ValueSummary';
 import { ReviewVelocityChart, RankingChart } from '@/components/dashboard/Charts';
 import { ReviewsList } from '@/components/dashboard/ReviewsList';
+import { useDashboardData } from '@/hooks/useDashboardData';
 
 export function DashboardContent() {
-  const [data, setData] = useState<DashboardData | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchDashboard = useCallback(async () => {
-    try {
-      const res = await fetch('/api/dashboard');
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error ?? `Request failed (${res.status})`);
-      }
-      const json: DashboardData = await res.json();
-      setData(json);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load dashboard');
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchDashboard();
-  }, [fetchDashboard]);
+  const { data, error, refresh } = useDashboardData();
 
   if (error) {
     return (
@@ -79,7 +60,7 @@ export function DashboardContent() {
       <RankingChart ranking={ranking} />
 
       {/* Section D: Recent Reviews */}
-      <ReviewsList recentReviews={recentReviews} onActionSuccess={fetchDashboard} />
+      <ReviewsList recentReviews={recentReviews} onActionSuccess={refresh} />
 
       {/* Section E: Latest Intelligence Brief */}
       {latestBrief && (
