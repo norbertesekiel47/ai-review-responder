@@ -17,6 +17,24 @@ import {
 } from './errors';
 import { recoverCorrelationId } from './correlation';
 import type { PublishResponsePayload, GenerateResponsePayload } from '@/lib/shared/worker-types';
+import {
+  insertAuditLog,
+  insertAuditLogSession,
+  buildCallbackAudit,
+  type AuditContext,
+  type SessionAuditContext,
+  type CallbackAuditContext,
+  type CallbackAuditArtifacts,
+} from './audit';
+
+// Re-export the audit module's public API so existing
+// `import { ... } from '@/lib/approval/service'` continues to resolve.
+export {
+  insertAuditLog,
+  insertAuditLogSession,
+  buildCallbackAudit,
+};
+export type { AuditContext, SessionAuditContext, CallbackAuditContext, CallbackAuditArtifacts };
 
 /**
  * Postgres.js TransactionSql type used by sql.begin() callback.
@@ -36,37 +54,8 @@ export interface ApprovalLink {
   created_at: Date;
 }
 
-export interface AuditContext {
-  tokenHash: string;
-  deviceCookieHash: string | null;
-  ipAddress: string | null;
-}
-
 function hashToken(rawToken: string): string {
   return createHash('sha256').update(rawToken).digest('hex');
-}
-
-async function insertAuditLog(
-  tx: TxClient,
-  responseId: string,
-  businessId: string,
-  action: string,
-  audit: AuditContext,
-  metadata?: Record<string, unknown>,
-): Promise<void> {
-  await tx`
-    INSERT INTO approval_audit_log (id, response_id, business_id, token_hash, device_cookie_hash, action, ip_address, metadata)
-    VALUES (
-      ${uuidv7()},
-      ${responseId},
-      ${businessId},
-      ${audit.tokenHash},
-      ${audit.deviceCookieHash},
-      ${action},
-      ${audit.ipAddress},
-      ${jsonb(metadata ?? {})}
-    )
-  `;
 }
 
 /**
@@ -305,29 +294,6 @@ async function revokeOpenLinksForResponse(tx: TxClient, responseId: string): Pro
 // Session-authenticated approval (owner dashboard)
 // ---------------------------------------------------------------------------
 
-export interface SessionAuditContext {
-  actorUserId: string;
-  ipAddress: string | null;
-}
-
-async function insertAuditLogSession(
-  tx: TxClient,
-  responseId: string,
-  businessId: string,
-  action: string,
-  audit: SessionAuditContext,
-  metadata?: Record<string, unknown>,
-): Promise<void> {
-  await tx`
-    INSERT INTO approval_audit_log (id, response_id, business_id, token_hash, device_cookie_hash, action, ip_address, metadata, actor_user_id, auth_method)
-    VALUES (
-      ${uuidv7()}, ${responseId}, ${businessId}, ${null}, ${null},
-      ${action}, ${audit.ipAddress}, ${jsonb(metadata ?? {})},
-      ${audit.actorUserId}, 'owner_session'
-    )
-  `;
-}
-
 /**
  * Approve a response via authenticated owner session (dashboard).
  * No link/device operations — the owner is authenticated via Supabase session.
@@ -440,24 +406,6 @@ export async function regenerateBySession(
 // Inline-callback approval (Telegram / future WhatsApp button taps)
 // ---------------------------------------------------------------------------
 
-interface CallbackAuditContextBase {
-  /** Stable provider event identifier — Telegram update_id as string, Twilio MessageSid. */
-  providerEventId: string;
-  ipAddress: string | null;
-}
-
-export type CallbackAuditContext =
-  | (CallbackAuditContextBase & {
-      /** Telegram-only: numeric update_id stored in metadata.update_id for forensics continuity. */
-      telegramUpdateId: number;
-      twilioMessageSid?: never;
-    })
-  | (CallbackAuditContextBase & {
-      /** WhatsApp-only: Twilio MessageSid stored in metadata.message_sid. */
-      twilioMessageSid: string;
-      telegramUpdateId?: never;
-    });
-
 export interface CallbackApprovalInput {
   approvalLinkId: string;
   chatHandle: string;
@@ -483,40 +431,6 @@ async function lockLinkByIdForCallback(
   if (link.revoked_at !== null) throw new RevokedLinkError();
   if (new Date(link.expires_at) <= new Date()) throw new ExpiredLinkError();
   return link;
-}
-
-function buildCallbackAudit(
-  link: ApprovalLink,
-  input: CallbackApprovalInput,
-  correlationId: string,
-): { audit: AuditContext; metadata: Record<string, unknown> } {
-  const chatHandleHash = createHash('sha256').update(input.chatHandle).digest('hex');
-  const metadata: Record<string, unknown> = {
-    via_channel: input.viaChannel,
-    chat_handle_hash: chatHandleHash,
-    correlation_id: correlationId,
-    // Cross-channel stable identifier — always set regardless of provider.
-    // The channel-specific `update_id` / `message_sid` keys below are kept
-    // for forensics continuity with historical Telegram queries.
-    provider_event_id: input.audit.providerEventId,
-  };
-  // Preserve the existing Telegram metadata key (`update_id`) so historical
-  // audit-log queries continue to match. WhatsApp writes `message_sid` instead.
-  // Never both on the same row — discriminated union enforces this at compile time.
-  if (input.audit.telegramUpdateId !== undefined) {
-    metadata.update_id = input.audit.telegramUpdateId;
-  }
-  if (input.audit.twilioMessageSid !== undefined) {
-    metadata.message_sid = input.audit.twilioMessageSid;
-  }
-  return {
-    audit: {
-      tokenHash: link.token_hash,
-      deviceCookieHash: null,
-      ipAddress: input.audit.ipAddress,
-    },
-    metadata,
-  };
 }
 
 /**
