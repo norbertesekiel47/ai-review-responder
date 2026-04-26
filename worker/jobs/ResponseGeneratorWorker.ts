@@ -20,6 +20,7 @@ import type { GenerateResponsePayload, SendNotificationPayload } from '../../src
 import type { NormalizedReview } from '../../src/lib/reviews/types';
 import type { BusinessContext, GenerationResult, VoiceExample } from '../../src/lib/responses/types';
 import { createWorkerLogger, type WorkerLogger } from '../../src/lib/shared/logger';
+import { parseDbArray } from '../../src/lib/shared/db-array';
 
 export async function handleResponseGeneration(
   job: Job<GenerateResponsePayload>,
@@ -96,25 +97,16 @@ export async function handleResponseGeneration(
   };
 
   // ── Step 4: Build BusinessContext from DB row ────────────────────────
-  // JSONB parsing guard: Postgres.js may return TEXT[] as strings through PgBouncer
-  const parseArray = (val: unknown): string[] => {
-    if (Array.isArray(val)) return val as string[];
-    if (typeof val === 'string') {
-      try { return JSON.parse(val) as string[]; } catch { return []; }
-    }
-    return [];
-  };
-
   const businessContext: BusinessContext = {
     id: business.id,
     name: business.name,
     category: business.category,
     tone: business.tone,
     productsServices: business.products_services,
-    staffNames: parseArray(business.staff_names),
-    highlightFacts: parseArray(business.highlight_facts),
-    avoidFacts: parseArray(business.avoid_facts),
-    sampleResponses: parseArray(business.sample_responses),
+    staffNames: parseDbArray(business.staff_names),
+    highlightFacts: parseDbArray(business.highlight_facts),
+    avoidFacts: parseDbArray(business.avoid_facts),
+    sampleResponses: parseDbArray(business.sample_responses),
     subscriptionTier: business.subscription_tier as BusinessContext['subscriptionTier'],
   };
 

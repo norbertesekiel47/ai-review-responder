@@ -4,21 +4,9 @@ import { sql } from '@/lib/db/server';
 import { UpdateBusinessSchema } from '@/lib/shared/schemas';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { computeChurnRiskScore, type ChurnScore } from '@/lib/shared/churn-score';
+import { parseDbArray } from '@/lib/shared/db-array';
 
 export const dynamic = 'force-dynamic';
-
-// PgBouncer returns text[] columns as JSON strings — guard both shapes.
-const parseArray = (val: unknown): string[] => {
-  if (Array.isArray(val)) return val;
-  if (typeof val === 'string') {
-    try {
-      return JSON.parse(val);
-    } catch {
-      return [];
-    }
-  }
-  return [];
-};
 
 // ---------------------------------------------------------------------------
 // GET /api/admin/businesses/[id] — business detail + reviews + latest responses
@@ -206,16 +194,16 @@ export async function GET(
         googlePlaceId: business.google_place_id ?? null,
         tone: business.tone ?? null,
         productsServices: business.products_services ?? null,
-        staffNames: parseArray(business.staff_names),
-        highlightFacts: parseArray(business.highlight_facts),
-        avoidFacts: parseArray(business.avoid_facts),
-        sampleResponses: parseArray(business.sample_responses),
+        staffNames: parseDbArray(business.staff_names),
+        highlightFacts: parseDbArray(business.highlight_facts),
+        avoidFacts: parseDbArray(business.avoid_facts),
+        sampleResponses: parseDbArray(business.sample_responses),
         subscriptionStatus: business.subscription_status,
         subscriptionTier: business.subscription_tier,
         ownerName: business.owner_name ?? null,
         ownerEmail: business.owner_email ?? null,
         lastSyncAt: business.last_sync_at ? business.last_sync_at.toISOString() : null,
-        trackedKeywords: parseArray(business.tracked_keywords),
+        trackedKeywords: parseDbArray(business.tracked_keywords),
         googlePlaceLat: business.google_place_lat,
         googlePlaceLng: business.google_place_lng,
         rankingSearchLocation: business.ranking_search_location,

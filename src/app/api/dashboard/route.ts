@@ -3,6 +3,7 @@ import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 import { buildPaymentLinkUrl } from '@/lib/payments/payment-link';
+import { parseDbArray } from '@/lib/shared/db-array';
 
 export const dynamic = 'force-dynamic';
 
@@ -76,14 +77,6 @@ export type DashboardData =
   | DashboardDataPendingAdminHandoff
   | DashboardDataActivePendingBusiness;
 
-/** PgBouncer can return TEXT[] as JSON strings. */
-function parseArray(val: unknown): string[] {
-  if (Array.isArray(val)) return val;
-  if (typeof val === 'string') {
-    try { return JSON.parse(val); } catch { return []; }
-  }
-  return [];
-}
 
 /** All dashboard responses use no-store headers — owner-specific data. */
 function jsonResponse(body: unknown, status = 200): NextResponse {
@@ -386,8 +379,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       settings: {
         tone: (business.tone as string) ?? 'professional and friendly',
         productsServices: (business.products_services as string) ?? '',
-        avoidFacts: parseArray(business.avoid_facts),
-        sampleResponses: parseArray(business.sample_responses),
+        avoidFacts: parseDbArray(business.avoid_facts),
+        sampleResponses: parseDbArray(business.sample_responses),
         ownerPhone: (business.owner_phone as string) ?? '',
         ownerEmail: (business.owner_email as string) ?? '',
         weeklySummaryEnabled: (business.weekly_summary_enabled as boolean) ?? true,
