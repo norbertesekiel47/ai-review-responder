@@ -13,7 +13,8 @@ import { v7 as uuidv7 } from 'uuid';
 import { createHash } from 'node:crypto';
 import type postgres from 'postgres';
 import { jsonb } from '@/lib/db/server';
-import type { ApprovalLink, CallbackApprovalInput } from './service';
+import type { ApprovalLink } from './types';
+import type { CallbackApprovalInput } from './service';
 
 type TxClient = postgres.TransactionSql;
 
