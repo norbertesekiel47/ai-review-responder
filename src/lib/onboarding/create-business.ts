@@ -354,11 +354,11 @@ async function runSelfServeTx(args: {
       )
     `;
 
-    await tx`
-      INSERT INTO channel_enrollments (id, business_id, channel, handle, status, verified_at)
-      VALUES (${uuidv7()}, ${businessId}, 'email', ${ownerEmail}, 'verified', NOW())
-      ON CONFLICT (business_id, channel) WHERE archived_at IS NULL DO NOTHING
-    `;
+    // channel_enrollments INSERT deliberately deferred to /api/auth/verify-otp.
+    // At this point the owner has only typed the email — they haven't proven
+    // control of it. Marking the row 'verified' before OTP would mis-state the
+    // data model and would mean any owner who never confirms still appears as
+    // a verified email recipient until cleanup. Created post-OTP instead.
 
     // No job_outbox INSERT here — the /api/onboarding/business handler
     // enqueues sync_reviews / validate_place_id once the owner supplies

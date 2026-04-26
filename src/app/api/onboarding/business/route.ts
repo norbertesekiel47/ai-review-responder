@@ -85,17 +85,27 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   // 4. Look up the business owned by this auth user. Service-role sql
   //    enforces the auth_id scope in the WHERE clause (no RLS on businesses).
+  //
+  //    Defense-in-depth: explicit `u.role = 'owner'` filter. Middleware gates
+  //    /onboarding/* PAGES on role, but middleware doesn't check `/api/onboarding/*`
+  //    — direct API calls from a signed-in admin/sales_partner session would
+  //    otherwise have whatever business their `users.business_id` points at
+  //    (NULL for true admins, but a sales_partner row could be misconfigured).
+  //    Filtering at the SQL boundary makes this an authorization invariant
+  //    that survives middleware refactors.
   const [bizRow] = await sql<BusinessRow[]>`
     SELECT b.id, b.subscription_status, b.place_id_verified, b.google_maps_url
     FROM users u
     JOIN businesses b ON b.id = u.business_id
     WHERE u.auth_id = ${user.id}
+      AND u.role = 'owner'
     LIMIT 1
   `;
   if (!bizRow) {
-    // Either no users row yet (signup not finished provisioning) or no
-    // business attached. The wizard's caller should retry or fall through
-    // to /signup/check-email.
+    // Either no users row yet (signup not finished provisioning), no
+    // business attached, OR the caller is admin/sales_partner posting
+    // directly to this owner-only endpoint. Return 404 either way so we
+    // don't leak whether an admin session has an associated business.
     return NextResponse.json(
       { error: 'account_incomplete' },
       { status: 404, headers: NO_STORE },

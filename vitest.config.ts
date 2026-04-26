@@ -5,7 +5,10 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
-    include: ['src/**/__tests__/**/*.test.ts', 'worker/**/__tests__/**/*.test.ts'],
+    include: [
+      'src/**/__tests__/**/*.test.{ts,tsx}',
+      'worker/**/__tests__/**/*.test.{ts,tsx}',
+    ],
     setupFiles: ['./vitest.setup.ts'],
   },
   resolve: {

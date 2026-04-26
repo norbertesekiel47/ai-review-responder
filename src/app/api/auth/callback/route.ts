@@ -167,11 +167,20 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   // "No users row" in any other flow → sign out + account_incomplete.
   // Redirecting anywhere else causes a middleware-redirect loop. Sign
   // them out so they can retry cleanly with a different account.
+  //
+  // signOut writes cleared session cookies into the `response` jar via
+  // the setAll adapter on lines 80–84. We MUST copy those cookies onto
+  // the redirect we return — without that, the browser keeps the bad
+  // session and bounces in a redirect loop on the next protected request.
   if (role === null) {
     await supabase.auth.signOut();
-    return NextResponse.redirect(
+    const incomplete = NextResponse.redirect(
       new URL(`${loginUrl}?error=account_incomplete`, origin),
     );
+    for (const cookie of response.cookies.getAll()) {
+      incomplete.cookies.set(cookie);
+    }
+    return incomplete;
   }
 
   // Role-aware destination resolution.
@@ -187,12 +196,16 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   } else if (role === 'admin' || role === 'sales_partner') {
     destination = nextIsAdmin ? requestedNext : '/admin/overview';
   } else {
-    // Unknown role — treat as account_incomplete. Same signOut path as the
-    // no-users-row branch above.
+    // Unknown role — treat as account_incomplete. Same signOut + cookie-copy
+    // path as the no-users-row branch above.
     await supabase.auth.signOut();
-    return NextResponse.redirect(
+    const incomplete = NextResponse.redirect(
       new URL(`${loginUrl}?error=account_incomplete`, origin),
     );
+    for (const cookie of response.cookies.getAll()) {
+      incomplete.cookies.set(cookie);
+    }
+    return incomplete;
   }
 
   // Build a fresh redirect response with the resolved destination, copying

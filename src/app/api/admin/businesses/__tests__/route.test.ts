@@ -3,9 +3,27 @@ import { NextRequest } from 'next/server';
 
 // ── Hoisted shared state ────────────────────────────────────────────
 
-const { mockRequireRole, mockTxCalls } = vi.hoisted(() => ({
+const {
+  mockRequireRole,
+  mockTxCalls,
+  mockInviteUserByEmail,
+  mockDeleteUser,
+  mockTopLevelSqlCalls,
+  linkUpdateState,
+} = vi.hoisted(() => ({
   mockRequireRole: vi.fn(),
   mockTxCalls: [] as unknown[][],
+  mockInviteUserByEmail: vi.fn(),
+  mockDeleteUser: vi.fn(() => Promise.resolve({ data: null, error: null })),
+  // Captures top-level (outside-tx) sql tagged-template calls so tests can
+  // assert which SQL ran during the post-createBusinessTx provisioning steps
+  // (auth_id link UPDATE + the rollback `sql.begin` block).
+  mockTopLevelSqlCalls: [] as Array<{ template: string; values: unknown[] }>,
+  // Test-controlled state for the auth_id link UPDATE outcome:
+  //   'success' — returns [{ id: 'returned-user-id' }] (default; happy path)
+  //   'zero_rows' — returns [] (simulates UPDATE matching no rows → rollback)
+  //   'throws' — rejects with a synthetic error (simulates db transient)
+  linkUpdateState: { mode: 'success' as 'success' | 'zero_rows' | 'throws' },
 }));
 
 // ── Mock auth ───────────────────────────────────────────────────────
@@ -33,16 +51,50 @@ vi.mock('@/lib/db/server', () => {
     },
   }) as unknown;
 
+  // Top-level sql calls: route uses `sql\`UPDATE users ... RETURNING id\``
+  // for the auth_id linkage step + tx-wrapped DELETE rollback if that
+  // UPDATE matches 0 rows. Capture every top-level call so tests can
+  // inspect the rollback shape, and route the auth-link UPDATE through
+  // the test-controlled `linkUpdateState` flag.
   const sqlProxy = Object.assign(
-    (_strings: TemplateStringsArray, ..._values: unknown[]) => Promise.resolve([]),
+    (strings: TemplateStringsArray, ...values: unknown[]) => {
+      const text = strings.join('?');
+      mockTopLevelSqlCalls.push({ template: text, values });
+      if (/UPDATE\s+users[\s\S]*RETURNING\s+id/i.test(text)) {
+        if (linkUpdateState.mode === 'throws') {
+          return Promise.reject(new Error('synthetic db transient'));
+        }
+        if (linkUpdateState.mode === 'zero_rows') {
+          return Promise.resolve([]);
+        }
+        return Promise.resolve([{ id: 'returned-user-id' }]);
+      }
+      return Promise.resolve([]);
+    },
     {
       begin: async (callback: (tx: unknown) => Promise<void>) => callback(txProxy),
     },
   );
-  return { sql: sqlProxy, jsonb: (v: unknown) => v };
+  return {
+    sql: sqlProxy,
+    jsonb: (v: unknown) => v,
+    supabaseServer: {
+      auth: {
+        admin: {
+          inviteUserByEmail: mockInviteUserByEmail,
+          // Required for the link-failure rollback path (B17 finding #3 +
+          // B18 finding #2 regression test).
+          deleteUser: mockDeleteUser,
+        },
+      },
+    },
+  };
 });
 
-// Import AFTER mocks
+// inviteUserByEmail success path needs APP_URL to build redirectTo.
+process.env.NEXT_PUBLIC_APP_URL = 'https://app.example.com';
+
+// Import AFTER mocks + env
 import { POST } from '../route';
 
 // ── Helpers ─────────────────────────────────────────────────────────
@@ -74,6 +126,8 @@ describe('POST /api/admin/businesses — channel enrollment insert', () => {
   beforeEach(() => {
     mockRequireRole.mockReset();
     mockTxCalls.length = 0;
+    mockTopLevelSqlCalls.length = 0;
+    linkUpdateState.mode = 'success';
     mockRequireRole.mockResolvedValue({
       id: '01890000-0000-7000-8000-000000000001',
       name: 'Admin User',
@@ -81,6 +135,13 @@ describe('POST /api/admin/businesses — channel enrollment insert', () => {
       role: 'admin',
       businessId: null,
     });
+    mockInviteUserByEmail.mockReset();
+    mockInviteUserByEmail.mockResolvedValue({
+      data: { user: { id: 'invited-auth-uuid-123' } },
+      error: null,
+    });
+    mockDeleteUser.mockReset();
+    mockDeleteUser.mockResolvedValue({ data: null, error: null });
   });
 
   it('inserts business + email enrollment inside a single sql.begin transaction', async () => {
@@ -150,5 +211,119 @@ describe('POST /api/admin/businesses — channel enrollment insert', () => {
     expect(enrollmentInsert).toBeDefined();
     // The email value should appear in the interpolated args
     expect(enrollmentInsert).toContain(email);
+  });
+
+  it('calls inviteUserByEmail with lowercased email + redirectTo /reset-password', async () => {
+    const req = makePostRequest(makeBody({ ownerEmail: 'OWNER@Example.COM' }));
+    const res = await POST(req);
+    expect(res.status).toBe(201);
+    expect(mockInviteUserByEmail).toHaveBeenCalledTimes(1);
+    expect(mockInviteUserByEmail).toHaveBeenCalledWith(
+      'owner@example.com',
+      expect.objectContaining({
+        redirectTo: 'https://app.example.com/api/auth/callback?flow=owner&next=/reset-password',
+      }),
+    );
+  });
+
+  it('returns 500 + does NOT mention business id when invite fails (compensating delete fires)', async () => {
+    mockInviteUserByEmail.mockResolvedValueOnce({
+      data: { user: null },
+      error: { message: 'rate-limited', status: 429 },
+    });
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const req = makePostRequest(makeBody());
+    const res = await POST(req);
+
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.error).toMatch(/owner invite/i);
+    expect(body).not.toHaveProperty('id');
+    expect(consoleSpy).toHaveBeenCalled();
+    consoleSpy.mockRestore();
+  });
+
+  it('returns 500 when NEXT_PUBLIC_APP_URL is missing', async () => {
+    const original = process.env.NEXT_PUBLIC_APP_URL;
+    delete process.env.NEXT_PUBLIC_APP_URL;
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const req = makePostRequest(makeBody());
+    const res = await POST(req);
+
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.error).toMatch(/APP_URL/);
+    expect(mockInviteUserByEmail).not.toHaveBeenCalled();
+
+    process.env.NEXT_PUBLIC_APP_URL = original;
+    consoleSpy.mockRestore();
+  });
+
+  // B18 finding #2 — regression guard for the auth_id link UPDATE
+  // matching 0 rows. Without the rollback the route would have returned
+  // soft 201-with-warning that the UI silently ignored, leaving an
+  // invited owner unable to log in. This test pins the hard-fail behavior:
+  // 500 response, auth.admin.deleteUser called for the orphan invite,
+  // tx-wrapped DELETEs of job_outbox + users + businesses.
+  it('UPDATE auth_id matches 0 rows → 500 + auth.admin.deleteUser + tx-wrapped DB rollback', async () => {
+    linkUpdateState.mode = 'zero_rows';
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const req = makePostRequest(makeBody());
+    const res = await POST(req);
+
+    // Hard-fail surfaces the problem to the admin instead of redirecting
+    // them to Stripe (the previous soft-success behavior).
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.error).toMatch(/link the invited owner|rolled back/i);
+    expect(body).not.toHaveProperty('id');
+    expect(body).not.toHaveProperty('paymentUrl');
+    expect(body).not.toHaveProperty('warning');
+
+    // The orphan auth user gets cleaned up so the next admin retry doesn't
+    // hit a Supabase 422 collision.
+    expect(mockDeleteUser).toHaveBeenCalledTimes(1);
+    expect(mockDeleteUser).toHaveBeenCalledWith('invited-auth-uuid-123');
+
+    // The DB rollback runs inside `sql.begin` (so the 3 deletes commit
+    // atomically). We capture the inside-tx writes via mockTxCalls.
+    // Expect the rollback to issue DELETE FROM job_outbox, users, businesses
+    // — in that order so FK constraints don't trip.
+    const txTemplates = mockTxCalls.map((args) =>
+      (args[0] as string[]).join(''),
+    );
+    const outboxDelete = txTemplates.findIndex((t) =>
+      /DELETE FROM job_outbox/i.test(t),
+    );
+    const usersDelete = txTemplates.findIndex((t) =>
+      /DELETE FROM users/i.test(t),
+    );
+    const businessesDelete = txTemplates.findIndex((t) =>
+      /DELETE FROM businesses/i.test(t),
+    );
+    expect(outboxDelete).toBeGreaterThanOrEqual(0);
+    expect(usersDelete).toBeGreaterThanOrEqual(0);
+    expect(businessesDelete).toBeGreaterThanOrEqual(0);
+    // FK-aware ordering — no FK CASCADE from businesses to job_outbox,
+    // and users.business_id has no CASCADE either.
+    expect(outboxDelete).toBeLessThan(usersDelete);
+    expect(usersDelete).toBeLessThan(businessesDelete);
+
+    consoleSpy.mockRestore();
+  });
+
+  it('UPDATE auth_id throws → same 500 + rollback path (defensive coverage)', async () => {
+    linkUpdateState.mode = 'throws';
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const req = makePostRequest(makeBody());
+    const res = await POST(req);
+
+    expect(res.status).toBe(500);
+    expect(mockDeleteUser).toHaveBeenCalledWith('invited-auth-uuid-123');
+    consoleSpy.mockRestore();
   });
 });

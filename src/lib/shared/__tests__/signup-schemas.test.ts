@@ -122,18 +122,149 @@ describe('BusinessOnboardingSchema', () => {
     expect(parsed.googlePlaceId).toBe('ChIJtest1234567890ab');
   });
 
-  it('parses successfully with businessName + googleMapsUrl', () => {
+  it('parses successfully with businessName + googleMapsUrl (resolver-ready /place/+@coords)', () => {
+    const url =
+      'https://www.google.com/maps/place/Acme+Cafe/@40.7128,-74.0060,15z';
     const parsed = BusinessOnboardingSchema.parse({
       businessName: 'Acme',
-      googleMapsUrl: 'https://maps.google.com/?cid=123',
+      googleMapsUrl: url,
     });
-    expect(parsed.googleMapsUrl).toBe('https://maps.google.com/?cid=123');
+    expect(parsed.googleMapsUrl).toBe(url);
+  });
+
+  it('parses successfully with /maps/place URL containing canonical Place ID in !1s data', () => {
+    const url =
+      'https://www.google.com/maps/place/Acme/@40.7,-74.0,15z/data=!4m6!3m5!1sChIJgUbEo8cfqokR5lP9Wh_DaM';
+    const parsed = BusinessOnboardingSchema.parse({
+      businessName: 'Acme',
+      googleMapsUrl: url,
+    });
+    expect(parsed.googleMapsUrl).toBe(url);
   });
 
   it('rejects when neither googlePlaceId nor googleMapsUrl is provided (XOR refine)', () => {
     expect(() =>
       BusinessOnboardingSchema.parse({ businessName: 'Acme' }),
     ).toThrow();
+  });
+
+  // B18 finding #1 — googleMapsUrl must be resolver-ready, not just a valid
+  // host. The PlaceIdValidationWorker can only resolve URLs that contain
+  // either a Place ID OR (businessName + coordinates).
+  describe('googleMapsUrl resolver-readiness', () => {
+    it('rejects bare https://maps.google.com/ (no resolvable data)', () => {
+      expect(() =>
+        BusinessOnboardingSchema.parse({
+          businessName: 'Acme',
+          googleMapsUrl: 'https://maps.google.com/',
+        }),
+      ).toThrow();
+    });
+
+    it('rejects https://maps.google.com/?cid=123 (cid is not parseable by url-parser)', () => {
+      expect(() =>
+        BusinessOnboardingSchema.parse({
+          businessName: 'Acme',
+          googleMapsUrl: 'https://maps.google.com/?cid=123',
+        }),
+      ).toThrow();
+    });
+
+    it('rejects https://maps.app.goo.gl/<id> (shortlink — needs expansion the worker doesn\'t do)', () => {
+      expect(() =>
+        BusinessOnboardingSchema.parse({
+          businessName: 'Acme',
+          googleMapsUrl: 'https://maps.app.goo.gl/abc123',
+        }),
+      ).toThrow();
+    });
+
+    it('rejects https://goo.gl/maps/<id> (legacy shortlink — same expansion issue)', () => {
+      expect(() =>
+        BusinessOnboardingSchema.parse({
+          businessName: 'Acme',
+          googleMapsUrl: 'https://goo.gl/maps/abc123',
+        }),
+      ).toThrow();
+    });
+
+    it('rejects https://google.com/search?q=... (host shape passes, resolver stage fails)', () => {
+      expect(() =>
+        BusinessOnboardingSchema.parse({
+          businessName: 'Acme',
+          // Note: this URL would already fail the host-shape stage too
+          // (no /maps/), but we assert anyway as defense-in-depth.
+          googleMapsUrl: 'https://google.com/search?q=acme+cafe',
+        }),
+      ).toThrow();
+    });
+
+    it('accepts a real /maps/place/<name>/@<lat>,<lng>/data=...!1s<id> URL', () => {
+      const url =
+        'https://www.google.com/maps/place/Pike+Place+Market/@47.6097,-122.3422,17z/data=!3m1!4b1!4m6!3m5!1sChIJgUbEo8cfqokR5lP9Wh_DaM!8m2!3d47.6097!4d-122.34';
+      expect(() =>
+        BusinessOnboardingSchema.parse({
+          businessName: 'Pike Place',
+          googleMapsUrl: url,
+        }),
+      ).not.toThrow();
+    });
+
+    // B19 finding — schema/worker mismatch: parseGoogleMapsUrl extracts the
+    // ?q=place_id:<x> / ?placeid=<x> / ?place_id=<x> values verbatim, but
+    // the worker's downstream `isPlaceId()` check rejects malformed
+    // identifiers. Schema must mirror the isPlaceId gate to prevent the
+    // "wizard says onboarded, worker says unresolvable" stuck state.
+    it('rejects ?q=place_id:bad (invalid embedded Place ID format)', () => {
+      expect(() =>
+        BusinessOnboardingSchema.parse({
+          businessName: 'Acme',
+          googleMapsUrl:
+            'https://www.google.com/maps/place/?q=place_id:bad',
+        }),
+      ).toThrow();
+    });
+
+    it('rejects ?placeid=bad (invalid embedded Place ID format)', () => {
+      expect(() =>
+        BusinessOnboardingSchema.parse({
+          businessName: 'Acme',
+          googleMapsUrl:
+            'https://www.google.com/maps/place/?placeid=bad',
+        }),
+      ).toThrow();
+    });
+
+    it('rejects ?place_id=bad (invalid embedded Place ID format)', () => {
+      expect(() =>
+        BusinessOnboardingSchema.parse({
+          businessName: 'Acme',
+          googleMapsUrl:
+            'https://www.google.com/maps/place/?place_id=bad',
+        }),
+      ).toThrow();
+    });
+
+    it('rejects ?q=place_id:<too-short> even if alphanumeric (mirrors isPlaceId 20+ char rule)', () => {
+      expect(() =>
+        BusinessOnboardingSchema.parse({
+          businessName: 'Acme',
+          googleMapsUrl:
+            'https://www.google.com/maps/place/?q=place_id:ChIJtoo_short',
+        }),
+      ).toThrow();
+    });
+
+    it('accepts ?q=place_id:<valid 20+ char ID> when no name+coords are present', () => {
+      const url =
+        'https://www.google.com/maps/place/?q=place_id:ChIJgUbEo8cfqokR5lP9Wh_DaM';
+      expect(() =>
+        BusinessOnboardingSchema.parse({
+          businessName: 'Acme',
+          googleMapsUrl: url,
+        }),
+      ).not.toThrow();
+    });
   });
 
   it('applies tone default when omitted', () => {

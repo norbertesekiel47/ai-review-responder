@@ -129,6 +129,35 @@ describe('POST /api/onboarding/business', () => {
     expect(json.error).toBe('account_incomplete');
   });
 
+  it('SQL boundary: lookup query filters on u.role = \'owner\' (B17 #1 — middleware does NOT gate /api/onboarding/*)', async () => {
+    mockSql.mockResolvedValueOnce([activeBizRow]);
+    mockSql.mockResolvedValueOnce([]); // pg_advisory_xact_lock
+    mockSql.mockResolvedValueOnce([activeBizRow]); // FOR UPDATE
+    mockSql.mockResolvedValueOnce([]); // UPDATE
+    mockSql.mockResolvedValueOnce([]); // INSERT outbox
+    const res = await POST(mkReq(validBody));
+    expect(res.status).toBe(200);
+
+    const lookupCall = mockSql.mock.calls.find((c: any[]) => {
+      const text = (c[0] as TemplateStringsArray).join('?');
+      return text.includes('SELECT b.id, b.subscription_status') &&
+        text.includes('FROM users u');
+    });
+    expect(lookupCall).toBeDefined();
+    const lookupText = (lookupCall![0] as TemplateStringsArray).join('?');
+    expect(lookupText).toMatch(/u\.role\s*=\s*'owner'/);
+  });
+
+  it('non-owner session: lookup returns empty (filter excludes admin/sales_partner rows) → 404', async () => {
+    // The SQL filter `u.role = 'owner'` would return empty for an admin/
+    // sales_partner session. We simulate that by returning [] from the lookup.
+    mockSql.mockResolvedValueOnce([]);
+    const res = await POST(mkReq(validBody));
+    expect(res.status).toBe(404);
+    const json = await res.json();
+    expect(json.error).toBe('account_incomplete');
+  });
+
   it('returns 409 subscription_inactive when business is pending_payment', async () => {
     mockSql.mockResolvedValueOnce([
       { ...activeBizRow, subscription_status: 'pending_payment' },
@@ -213,7 +242,10 @@ describe('POST /api/onboarding/business', () => {
 
     const mapsBody = {
       businessName: 'Acme Cafe',
-      googleMapsUrl: 'https://maps.google.com/?cid=1234567890',
+      // Resolver-ready URL: /place/<name>/@<lat>,<lng> shape so the schema's
+      // urlIsResolverReady refine accepts it (B18 finding #1).
+      googleMapsUrl:
+        'https://www.google.com/maps/place/Acme+Cafe/@40.7128,-74.0060,15z',
       tone: 'casual',
     };
     const res = await POST(mkReq(mapsBody));

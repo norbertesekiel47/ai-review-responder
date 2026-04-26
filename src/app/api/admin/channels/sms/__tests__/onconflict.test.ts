@@ -49,7 +49,28 @@ vi.mock('@/lib/db/server', () => ({
   // The POST route uses jsonb() to wrap outbox payloads — identity stub is
   // fine because we never inspect payload shape.
   jsonb: (x: unknown) => x,
+  // POST /api/admin/businesses now calls inviteUserByEmail after
+  // createBusinessTx (B11). Stub a successful invite so the route reaches
+  // the auth_id UPDATE, not the compensating-rollback branch (which would
+  // delete the very INSERT we're asserting on).
+  supabaseServer: {
+    auth: {
+      admin: {
+        inviteUserByEmail: vi.fn(() =>
+          Promise.resolve({
+            data: { user: { id: 'invited-auth-1' } },
+            error: null,
+          }),
+        ),
+      },
+    },
+  },
 }));
+
+// The post-B11 route guards on NEXT_PUBLIC_APP_URL before createBusinessTx
+// so we must populate it BEFORE importing the route (or the route's
+// fail-fast 500 would short-circuit before any SQL fires).
+process.env.NEXT_PUBLIC_APP_URL = 'http://localhost:3000';
 
 vi.mock('@/lib/db/auth', () => ({
   requireRole: vi.fn().mockResolvedValue({

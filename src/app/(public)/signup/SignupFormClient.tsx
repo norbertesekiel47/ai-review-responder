@@ -39,7 +39,27 @@ export function SignupFormClient() {
       });
       const body = await res.json();
       if (!res.ok) {
-        setError(body.message ?? body.error ?? 'Signup failed');
+        // Defense-in-depth client-side fallback. The API now sends a
+        // `message` for every error code (rate_limited, rate_limit_unavailable,
+        // email_rate_limited, account_exists, internal). If a future regression
+        // ships a machine code without one, map known shapes here so the user
+        // never sees `rate_limited` or similar verbatim.
+        const KNOWN_MESSAGES: Record<string, string> = {
+          rate_limited:
+            'Too many signup attempts from your network. Please wait a few minutes and try again.',
+          rate_limit_unavailable:
+            'Signup is temporarily unavailable. Please try again in a moment.',
+          email_rate_limited:
+            'Too many signup attempts for this email recently. Please wait a few minutes and try again.',
+          invalid_json: 'Could not read your submission. Please try again.',
+          invalid_body: 'Some details don\'t look right. Please review and resubmit.',
+          internal: 'Something went wrong on our side. Please try again shortly.',
+        };
+        const machineCode =
+          typeof body.error === 'string' ? body.error : undefined;
+        const fallback =
+          (machineCode && KNOWN_MESSAGES[machineCode]) ?? 'Signup failed';
+        setError(body.message ?? fallback);
         return;
       }
       router.push(body.redirectTo ?? '/signup/check-email');

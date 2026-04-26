@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { isPlaceId } from '@/lib/reviews/url-parser';
+import { isPlaceId, parseGoogleMapsUrl } from '@/lib/reviews/url-parser';
 
 // ── Reusable field schemas ──────────────────────────────────────────
 
@@ -35,6 +35,117 @@ export const websiteUrlSchema = z
     { message: 'Website must be a valid http:// or https:// URL' },
   );
 
+/**
+ * Strict Google Maps URL validator.
+ *
+ * Three reasons this can't be a generic URL field:
+ *   1. The wizard's "already onboarded" guard treats `google_maps_url IS NOT NULL`
+ *      as proof of completion, so any non-empty string lands the user on
+ *      /dashboard with a malformed URL the worker can't resolve. A strict
+ *      schema fails fast at the API boundary instead of leaking that state.
+ *   2. We render this URL on admin pages + email templates. Allowing
+ *      arbitrary domains turns it into a phishing-redirect primitive
+ *      ("I onboarded my business, here's my URL: https://attacker.example").
+ *   3. The downstream Place ID resolver expects either a `/maps/` path on
+ *      a google.* host (it parses `!1s` data segments + CIDs) or a Maps
+ *      shortlink that resolves to one of those. A bare `https://google.com/`
+ *      or `https://google.com/search?q=...` doesn't have anything to resolve
+ *      and the worker would mark the business as `validate_place_id_failed`.
+ *
+ * What we accept:
+ *   - `https://www.google.com/maps/...` (any path containing /maps/)
+ *   - `https://google.<tld>/maps/...` including regional TLDs
+ *   - `https://maps.google.<tld>/...` (any path)
+ *   - `https://maps.app.goo.gl/<id>` (mobile-app shortlink — a Maps-only domain)
+ *   - `https://goo.gl/maps/<id>` (legacy shortlink — `/maps/` segment is required;
+ *     bare `goo.gl/<id>` could be ANY shortlink, so we don't accept it)
+ *
+ * Owners with a non-Maps URL should use the Step 1 PlaceAutocomplete instead
+ * (the preferred path anyway).
+ */
+const MAPS_HOST_RULES: Array<{ host: RegExp; pathRequired?: RegExp }> = [
+  // Canonical Google web — must contain /maps/ in the path.
+  { host: /^(?:www\.)?google\.[a-z]{2,3}(?:\.[a-z]{2})?$/, pathRequired: /\/maps(?:\/|$)/ },
+  // Maps subdomain — any path is fine (path is implicitly /maps/...).
+  { host: /^maps\.google\.[a-z]{2,3}(?:\.[a-z]{2})?$/ },
+  // Mobile-app shortlink — Maps-only domain, any path.
+  { host: /^maps\.app\.goo\.gl$/ },
+  // Legacy shortlink — host alone is multi-purpose, require /maps/ segment.
+  { host: /^goo\.gl$/, pathRequired: /^\/maps(?:\/|$)/ },
+];
+
+/**
+ * Two-stage validation:
+ *
+ *   Stage 1 (host shape) — must be a https:// Google Maps domain (host
+ *   whitelist + path requirement). Rejects obvious phishing redirects.
+ *
+ *   Stage 2 (resolver-readiness) — must yield enough data for the
+ *   PlaceIdValidationWorker to actually resolve a Place ID. The worker
+ *   accepts either:
+ *     - A canonical Place ID embedded in the URL (`!1s<id>` data segment,
+ *       `?placeid=`/`?place_id=`/`?q=place_id:` params), OR
+ *     - Both a business name (from `/place/Name/`) AND coordinates
+ *       (from `@lat,lng`) so it can do a SerpAPI proximity search.
+ *   Anything else (`https://maps.google.com/`, `?cid=...`, bare shortlinks)
+ *   would let the wizard guard treat the business as onboarded while the
+ *   worker silently fails resolution and the owner sits at /dashboard with
+ *   no Place ID. Reject at schema time so the wizard surfaces the error
+ *   to the owner instead of producing a permanently-broken state.
+ *
+ * The owner's recourse for an unparseable URL is the Step 1 PlaceAutocomplete
+ * picker (which writes a Place ID directly), not pasting any Maps URL.
+ */
+function urlIsResolverReady(val: string): boolean {
+  try {
+    const data = parseGoogleMapsUrl(val);
+    // Mirror PlaceIdValidationWorker.ts:36 exactly — `isPlaceId()` must
+    // pass on the embedded value. A URL like
+    //   https://www.google.com/maps/place/?q=place_id:bad
+    // parses to `{ placeId: 'bad' }` but the worker would reject it with
+    // `Cannot resolve Place ID without business name and coordinates` AND
+    // simultaneously not be able to use the bad ID. Without isPlaceId
+    // here, the schema would accept the URL, the row would land with
+    // google_maps_url set (wizard guard treats as onboarded), and the
+    // worker would mark validation permanently failed → owner stuck.
+    if (data.placeId !== null && isPlaceId(data.placeId)) return true;
+    return data.businessName !== null && data.coordinates !== null;
+  } catch {
+    return false;
+  }
+}
+
+export const googleMapsUrlSchema = z
+  .string()
+  .min(1, 'Google Maps URL is required')
+  .max(2048, 'Google Maps URL too long')
+  .refine(
+    (val) => {
+      try {
+        const url = new URL(val.trim());
+        if (url.protocol !== 'https:') return false;
+        const host = url.hostname.toLowerCase();
+        const path = url.pathname;
+        for (const rule of MAPS_HOST_RULES) {
+          if (!rule.host.test(host)) continue;
+          if (rule.pathRequired && !rule.pathRequired.test(path)) continue;
+          return true;
+        }
+        return false;
+      } catch {
+        return false;
+      }
+    },
+    {
+      message:
+        'Must be an https:// Google Maps URL (e.g. https://google.com/maps/place/..., https://maps.google.com/..., https://maps.app.goo.gl/..., or https://goo.gl/maps/...)',
+    },
+  )
+  .refine(urlIsResolverReady, {
+    message:
+      'This URL doesn\'t contain a Place ID or enough data (business name + coordinates) for us to resolve. Use the search field above or paste the full /maps/place/<name>/@<lat>,<lng>/data=...!1s<id> URL.',
+  });
+
 // ── Onboarding schema (POST /api/admin/businesses) ─────────────────
 
 export const OnboardBusinessSchema = z
@@ -43,7 +154,7 @@ export const OnboardBusinessSchema = z
     category: categorySchema.optional(),
     googlePlaceId: z.string().min(1).optional(),
     googlePlaceAddress: z.string().optional(),
-    googleMapsUrl: z.string().min(1).optional(),
+    googleMapsUrl: googleMapsUrlSchema.optional(),
     ownerName: ownerNameSchema,
     ownerEmail: ownerEmailSchema,
     ownerPhone: ownerPhoneSchema.optional(),
@@ -56,9 +167,17 @@ export const OnboardBusinessSchema = z
     subscriptionTier: z.enum(['founding', 'standard']).default('standard'),
     website: websiteUrlSchema.optional().nullable(),
   })
+  // True XOR — exactly one of googlePlaceId / googleMapsUrl, never both.
+  // Allowing both lets the two diverge downstream: createBusinessTx admin
+  // mode prefers googlePlaceId for the placeIdInput shape but the wizard
+  // guard treats either as authoritative. Keep this in lockstep with
+  // BusinessOnboardingSchema (the owner-side equivalent below).
   .refine(
-    (data) => Boolean(data.googlePlaceId) || Boolean(data.googleMapsUrl),
-    { message: 'Either a Place ID or Google Maps URL is required', path: ['googlePlaceId'] },
+    (data) => Boolean(data.googlePlaceId) !== Boolean(data.googleMapsUrl),
+    {
+      message: 'Provide exactly one of googlePlaceId or googleMapsUrl, not both',
+      path: ['googlePlaceId'],
+    },
   );
 
 // ── Update schema (PATCH /api/admin/businesses/:id) ─────────────────
@@ -124,7 +243,7 @@ export const BusinessOnboardingSchema = z
       .refine((v) => isPlaceId(v), { message: 'Invalid Google Place ID format' })
       .optional(),
     googlePlaceAddress: z.string().max(500).optional(),
-    googleMapsUrl: z.string().min(1).optional(),
+    googleMapsUrl: googleMapsUrlSchema.optional(),
     tone: toneSchema.default('professional and friendly'),
     productsServices: z.string().max(5000).optional(),
     staffNames: z.string().max(2000).optional(),
@@ -133,10 +252,18 @@ export const BusinessOnboardingSchema = z
     sampleResponses: z.string().max(5000).optional(),
     website: websiteUrlSchema.optional().nullable(),
   })
-  .refine((d) => Boolean(d.googlePlaceId) || Boolean(d.googleMapsUrl), {
-    message: 'Either googlePlaceId or googleMapsUrl is required',
-    path: ['googlePlaceId'],
-  });
+  // True XOR: exactly one of googlePlaceId or googleMapsUrl must be provided.
+  // Allowing both (the previous .refine just checked at-least-one) creates
+  // ambiguity downstream: createBusinessTx hits a PlaceIdInput branch on
+  // googlePlaceId but the wizard guard treats googleMapsUrl as
+  // authoritative — accepting both lets the two diverge.
+  .refine(
+    (d) => Boolean(d.googlePlaceId) !== Boolean(d.googleMapsUrl),
+    {
+      message: 'Provide exactly one of googlePlaceId or googleMapsUrl, not both',
+      path: ['googlePlaceId'],
+    },
+  );
 
 export type BusinessOnboardingInput = z.infer<typeof BusinessOnboardingSchema>;
 
@@ -176,3 +303,13 @@ export const VerifyEmailOtpSchema = z.object({
     .regex(/^[A-Za-z0-9]+$/, 'Code must be alphanumeric'),
 });
 export type VerifyEmailOtpInput = z.infer<typeof VerifyEmailOtpSchema>;
+
+// Plan selection on /onboarding/pay. Owner picks founding vs standard;
+// the route writes the choice to businesses.subscription_tier and returns
+// the matching Stripe Payment Link. Premium is intentionally excluded —
+// there is no Premium Payment Link and the pricing page marks it
+// "Coming soon".
+export const SelectPlanSchema = z.object({
+  tier: z.enum(['founding', 'standard']),
+});
+export type SelectPlanInput = z.infer<typeof SelectPlanSchema>;

@@ -204,12 +204,41 @@ describe('POST /api/auth/signup', () => {
     expect(mockSupabaseServer.auth.admin.deleteUser).not.toHaveBeenCalled();
   });
 
+  it('returns 429 email_rate_limited when Supabase email send rate limit hit', async () => {
+    mockSupabaseServer.auth.signUp.mockResolvedValueOnce({
+      data: { user: null },
+      error: {
+        code: 'over_email_send_rate_limit',
+        status: 429,
+        message: '429: email rate limit exceeded',
+      },
+    });
+
+    const res = await POST(mkReq(validBody));
+    expect(res.status).toBe(429);
+    const body = await res.json();
+    expect(body.error).toBe('email_rate_limited');
+    expect(body.message).toMatch(/wait/i);
+    expect(mockCreateBusinessTx).not.toHaveBeenCalled();
+    expect(mockSupabaseServer.auth.admin.deleteUser).not.toHaveBeenCalled();
+  });
+
   it('returns 429 when rate-limit is exceeded', async () => {
     mockCheckRateLimit.mockResolvedValueOnce({ allowed: false, remaining: 0 });
     const res = await POST(mkReq(validBody));
     expect(res.status).toBe(429);
     expect(mockSupabaseServer.auth.signUp).not.toHaveBeenCalled();
     expect(mockCreateBusinessTx).not.toHaveBeenCalled();
+
+    // B20 finding #3 — body MUST include a `message` field. Without it,
+    // SignupFormClient renders the raw machine code `rate_limited` to the
+    // user. Verify shape so a future regression doesn't quietly drop the
+    // human-readable copy.
+    const body = await res.json();
+    expect(body.error).toBe('rate_limited');
+    expect(typeof body.message).toBe('string');
+    expect(body.message.length).toBeGreaterThan(0);
+    expect(body.message).not.toBe('rate_limited');
   });
 
   it('returns 503 when rate-limit throws in strict mode (Redis down)', async () => {
@@ -217,6 +246,13 @@ describe('POST /api/auth/signup', () => {
     const res = await POST(mkReq(validBody));
     expect(res.status).toBe(503);
     expect(mockSupabaseServer.auth.signUp).not.toHaveBeenCalled();
+
+    // Same regression guard — 503 body must carry a user-friendly message.
+    const body = await res.json();
+    expect(body.error).toBe('rate_limit_unavailable');
+    expect(typeof body.message).toBe('string');
+    expect(body.message.length).toBeGreaterThan(0);
+    expect(body.message).not.toBe('rate_limit_unavailable');
   });
 
   it('still returns 409 (and logs) when compensating deleteUser itself fails', async () => {

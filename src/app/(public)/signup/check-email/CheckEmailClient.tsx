@@ -2,6 +2,7 @@
 
 import { Suspense, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 
 export function CheckEmailClient() {
   return (
@@ -15,16 +16,15 @@ function CheckEmailInner() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const fromLogin = searchParams.get('from') === 'login';
-  const prefilledEmail = searchParams.get('email') ?? '';
+  const email = (searchParams.get('email') ?? '').trim().toLowerCase();
 
-  const [email, setEmail] = useState(prefilledEmail);
   const [code, setCode] = useState('');
   const [verifying, setVerifying] = useState(false);
   const [verifyError, setVerifyError] = useState('');
 
-  const [resendEmail, setResendEmail] = useState(prefilledEmail);
   const [resendLoading, setResendLoading] = useState(false);
   const [resendSent, setResendSent] = useState(false);
+  const [resendError, setResendError] = useState('');
 
   async function handleVerify(e: React.FormEvent) {
     e.preventDefault();
@@ -34,10 +34,7 @@ function CheckEmailInner() {
       const res = await fetch('/api/auth/verify-otp', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          email: email.trim().toLowerCase(),
-          token: code.trim(),
-        }),
+        body: JSON.stringify({ email, token: code.trim() }),
       });
       const body = await res.json();
       if (!res.ok) {
@@ -58,21 +55,23 @@ function CheckEmailInner() {
     }
   }
 
-  async function handleResend(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleResend() {
+    if (resendLoading || !email) return;
     setResendLoading(true);
+    setResendError('');
     try {
-      await fetch('/api/auth/resend-confirmation', {
+      const res = await fetch('/api/auth/resend-confirmation', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          email: resendEmail.trim().toLowerCase(),
-          flow: 'owner',
-        }),
+        body: JSON.stringify({ email, flow: 'owner' }),
       });
+      if (res.status === 429) {
+        setResendError('Too many resend attempts. Please wait a while.');
+        return;
+      }
       setResendSent(true);
     } catch {
-      // No-enumeration policy: always show success even on connection failure.
+      // No-enumeration policy: show success even on connection failure.
       setResendSent(true);
     } finally {
       setResendLoading(false);
@@ -80,32 +79,25 @@ function CheckEmailInner() {
   }
 
   const heading = fromLogin ? 'Almost there' : 'Check your email';
-  const body = fromLogin
-    ? 'Confirm your email to log in. We sent a 6-digit code to your inbox — enter it below.'
-    : 'We sent a 6-digit code to your inbox. Enter it below to activate your account.';
+  // Supabase Auth → Settings → "Email OTP Length" controls this — production
+  // is configured to 8. If you change it there, also update this copy +
+  // the `placeholder` below.
+  const subtext = fromLogin
+    ? 'Confirm your email to log in. We sent an 8-digit code to your inbox.'
+    : 'We sent an 8-digit code to your inbox. Enter it below to activate your account.';
 
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
       <div className="w-full max-w-md bg-white rounded-lg border border-gray-200 p-8">
         <h1 className="text-2xl font-bold mb-2 text-center">{heading}</h1>
-        <p className="text-gray-700 mb-6 text-center">{body}</p>
+        <p className="text-gray-700 mb-1 text-center">{subtext}</p>
+        {email && (
+          <p className="text-sm text-gray-500 mb-6 text-center">
+            Sent to <span className="font-medium text-gray-700">{email}</span>
+          </p>
+        )}
 
         <form onSubmit={handleVerify} className="space-y-3 mb-6">
-          <div>
-            <label htmlFor="verify-email" className="sr-only">
-              Email
-            </label>
-            <input
-              id="verify-email"
-              type="email"
-              autoComplete="email"
-              required
-              placeholder="Email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
           <div>
             <label htmlFor="verify-code" className="sr-only">
               Confirmation code
@@ -115,11 +107,12 @@ function CheckEmailInner() {
               type="text"
               inputMode="numeric"
               autoComplete="one-time-code"
+              autoFocus
               required
               minLength={4}
               maxLength={10}
               pattern="[A-Za-z0-9]+"
-              placeholder="6-digit code"
+              placeholder="8-digit code"
               value={code}
               onChange={(e) => setCode(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-md text-base text-center tracking-[0.5em] font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -137,34 +130,33 @@ function CheckEmailInner() {
           </button>
         </form>
 
-        <div className="border-t border-gray-200 pt-4">
-          <p className="text-xs text-gray-500 text-center mb-3">
-            Didn&apos;t get a code? Check your spam folder. Codes expire in
-            24 hours.
+        <div className="border-t border-gray-200 pt-4 space-y-3 text-center">
+          <p className="text-xs text-gray-500">
+            Didn&apos;t get a code? Check your spam folder. Codes expire in 24
+            hours.
           </p>
           {resendSent ? (
-            <p className="text-sm text-green-700 text-center">
-              A new code is on its way.
-            </p>
+            <p className="text-sm text-green-700">A new code is on its way.</p>
+          ) : resendError ? (
+            <p className="text-sm text-red-600">{resendError}</p>
           ) : (
-            <form onSubmit={handleResend} className="space-y-2">
-              <input
-                type="email"
-                required
-                placeholder="Your email"
-                value={resendEmail}
-                onChange={(e) => setResendEmail(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
-              />
-              <button
-                type="submit"
-                disabled={resendLoading}
-                className="w-full bg-gray-100 text-gray-700 font-medium py-2 rounded-md text-sm hover:bg-gray-200 disabled:opacity-50"
-              >
-                {resendLoading ? 'Sending...' : 'Resend code'}
-              </button>
-            </form>
+            <button
+              type="button"
+              onClick={handleResend}
+              disabled={resendLoading || !email}
+              className="text-sm text-blue-600 hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {resendLoading ? 'Sending…' : 'Resend code'}
+            </button>
           )}
+          <div>
+            <Link
+              href="/signup"
+              className="text-sm text-gray-500 hover:text-gray-700 hover:underline"
+            >
+              ← Go back and change email
+            </Link>
+          </div>
         </div>
       </div>
     </div>

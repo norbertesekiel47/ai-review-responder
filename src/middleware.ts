@@ -129,12 +129,32 @@ export async function middleware(request: NextRequest) {
 
   // 7. Onboarding paths require authenticated owner with a users row.
   // Does NOT require subscription_status='active' — the pages work pre-payment.
+  //
+  // Three sub-cases (split intentionally — collapsing them sends admins to
+  // the OWNER login page when they accidentally navigate to an owner-flow
+  // URL, which is what the page-level guard already correctly avoids):
+  //   a. No session → owner login (this IS the right destination — they
+  //      need to authenticate as an owner to reach onboarding).
+  //   b. Authenticated as admin/sales_partner → admin home (they're already
+  //      logged in correctly, just on the wrong page; don't make them
+  //      re-authenticate).
+  //   c. Authenticated as owner without business_id → owner login with
+  //      `from=` (signup-not-finished provisioning state).
   if (pathname === '/onboarding' || pathname.startsWith('/onboarding/')) {
     if (!authUser) {
       return redirectToLogin(request, 'owner');
     }
     const self = await readSelf();
-    if (!self || self.role !== 'owner' || !self.business_id) {
+    if (!self) {
+      // No public.users row at all — could be mid-provisioning Google
+      // signup. Owner login lets them retry.
+      return redirectToLogin(request, 'owner');
+    }
+    if (self.role === 'admin' || self.role === 'sales_partner') {
+      // Admin landed here by mistake — bounce to admin home, not owner login.
+      return NextResponse.redirect(new URL('/admin/overview', request.url));
+    }
+    if (self.role !== 'owner' || !self.business_id) {
       return redirectToLogin(request, 'owner');
     }
   }

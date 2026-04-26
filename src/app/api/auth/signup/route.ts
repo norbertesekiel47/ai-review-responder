@@ -24,12 +24,28 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
     const rl = await checkRateLimit(getIpKey(req, 'signup'), 5, 3600, { strict: true });
     if (!rl.allowed) {
-      return NextResponse.json({ error: 'rate_limited' }, { status: 429 });
+      // Include a human-readable `message` so the client doesn't display
+      // the raw `rate_limited` machine code as the form error. Same pattern
+      // as the email_rate_limited branch below + the resend-confirmation
+      // route — every error body the SignupFormClient could render now
+      // carries a `message` field.
+      return NextResponse.json(
+        {
+          error: 'rate_limited',
+          message:
+            'Too many signup attempts from your network. Please wait a few minutes and try again.',
+        },
+        { status: 429 },
+      );
     }
   } catch (err) {
     console.error('[api/auth/signup] rate-limit strict failure:', err);
     return NextResponse.json(
-      { error: 'rate_limit_unavailable' },
+      {
+        error: 'rate_limit_unavailable',
+        message:
+          'Signup is temporarily unavailable. Please try again in a moment.',
+      },
       { status: 503 },
     );
   }
@@ -77,11 +93,64 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     password: data.password,
     options: { emailRedirectTo },
   });
+
+  // Anti-enumeration obfuscation guard.
+  //
+  // Supabase's documented anti-enumeration behavior: when an EMAIL ALREADY
+  // EXISTS as a confirmed user, signUp() returns success with a non-null
+  // user object whose `identities` array is EMPTY. The user object's id is
+  // a fake UUID — calling auth.admin.getUserById(id) returns null. If we
+  // proceed to createBusinessTx with this fake auth_id we'd write a
+  // public.users row with an auth_id pointing at no real Supabase identity.
+  // The owner could never log in, password reset would silently no-op, and
+  // a future admin invite (via inviteUserByEmail) would conflict on email.
+  //
+  // Treat empty identities array the same as account_exists. The real
+  // owner (whose Supabase identity DOES match the email) can still log
+  // in / reset password through normal flows.
+  //
+  // Reference: https://supabase.com/docs/reference/javascript/auth-signup
+  if (authData?.user && Array.isArray(authData.user.identities) && authData.user.identities.length === 0) {
+    console.warn(
+      `[api/auth/signup] Supabase returned obfuscated user (empty identities) for ${data.ownerEmail} — treating as account_exists`,
+    );
+    return accountExistsResponse();
+  }
+
   if (authError || !authData.user) {
+    // Disambiguate Supabase email-send rate limits (most common during dev)
+    // from account-exists. Conflating them yields a confusing "account
+    // exists" message when in fact the inbox is just hot. The auth.users
+    // row is NOT created when this fires, so retrying after the cooldown
+    // is the right path — not "go log in".
+    const code = (authError as { code?: string; status?: number } | null)?.code;
+    const status = (authError as { code?: string; status?: number } | null)?.status;
+    const isRateLimit =
+      code === 'over_email_send_rate_limit' ||
+      code === 'email_send_rate_limit' ||
+      status === 429;
+    if (isRateLimit) {
+      console.warn(
+        `[api/auth/signup] Supabase email rate limit hit for ${data.ownerEmail} (code=${code}, status=${status})`,
+      );
+      return NextResponse.json(
+        {
+          error: 'email_rate_limited',
+          message:
+            'Too many signup attempts for this email recently. Please wait a few minutes and try again.',
+        },
+        { status: 429 },
+      );
+    }
     // Supabase may return "User already registered" (status 422) if the
     // auth_id exists even though our app users row does not — most commonly
     // an admin-created business where the owner never confirmed. Return the
     // same 409 body as the pre-check hit to avoid enumeration leaks.
+    if (authError) {
+      console.warn(
+        `[api/auth/signup] Supabase signUp error for ${data.ownerEmail}: code=${code} status=${status} message=${authError.message}`,
+      );
+    }
     return accountExistsResponse();
   }
   const authId = authData.user.id;

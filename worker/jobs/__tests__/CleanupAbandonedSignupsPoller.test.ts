@@ -106,18 +106,50 @@ function makeCandidate(overrides: Partial<Candidate> = {}): Candidate {
 }
 
 /**
- * Seed the rows for a "clean" (no refs) candidate: advisory lock result + refs-check row.
+ * Seed the rows for a "clean" (no refs) candidate. After the TOCTOU fix the
+ * tx now does:
+ *   1. pg_advisory_xact_lock(:signup)
+ *   2. pg_advisory_xact_lock(:activation)
+ *   3. SELECT businesses ... FOR UPDATE  (re-validate predicates)
+ *   4. SELECT users ... FOR UPDATE       (re-validate role + auth_id)
+ *   5. SELECT EXISTS refs                (no orphan-FK collisions)
+ *   6. supabase.auth.admin.deleteUser    (mocked separately)
+ *   7. DELETE FROM users
+ *   8. DELETE FROM businesses
+ *
  * Caller still provides the candidates list as the first queued row.
  */
 function seedCleanCandidateRows() {
-  sqlQueue.push([{}]); // pg_advisory_xact_lock
+  const oldEnough = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
+  sqlQueue.push([{}]); // pg_advisory_xact_lock(:signup)
+  sqlQueue.push([{}]); // pg_advisory_xact_lock(:activation)
+  sqlQueue.push([
+    {
+      subscription_status: 'pending_payment',
+      stripe_customer_id: null,
+      onboarded_by: null,
+      created_at: oldEnough,
+    },
+  ]); // SELECT businesses FOR UPDATE
+  sqlQueue.push([{ auth_id: 'auth-1', role: 'owner' }]); // SELECT users FOR UPDATE
   sqlQueue.push([{ has_onboarded: false, has_demos: false }]); // refs check
   sqlQueue.push([]); // DELETE FROM users
   sqlQueue.push([]); // DELETE FROM businesses
 }
 
 function seedRefsCollisionRows(has_onboarded: boolean, has_demos: boolean) {
-  sqlQueue.push([{}]); // pg_advisory_xact_lock
+  const oldEnough = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
+  sqlQueue.push([{}]); // pg_advisory_xact_lock(:signup)
+  sqlQueue.push([{}]); // pg_advisory_xact_lock(:activation)
+  sqlQueue.push([
+    {
+      subscription_status: 'pending_payment',
+      stripe_customer_id: null,
+      onboarded_by: null,
+      created_at: oldEnough,
+    },
+  ]); // SELECT businesses FOR UPDATE
+  sqlQueue.push([{ auth_id: 'auth-1', role: 'owner' }]); // SELECT users FOR UPDATE
   sqlQueue.push([{ has_onboarded, has_demos }]); // refs check — skip branch
 }
 
@@ -260,6 +292,93 @@ describe('CleanupAbandonedSignupsPoller', () => {
       expect(String(logCall![0])).toContain('skipped_refs=1');
     });
 
+    // TOCTOU regression guard — without the FOR UPDATE re-check inside the tx,
+    // a Stripe activation between SELECT (line 38) and DELETE (line 125) would
+    // delete a paid customer. This test simulates that race: the candidate
+    // list contains the row, but by the time the tx acquires its locks the
+    // business has flipped to subscription_status='active'. Expect: no DELETE,
+    // no Supabase admin call, run-complete log shows skipped_state_changed=1.
+    it('TOCTOU: state changed (subscription_status active) between SELECT and tx — skipped, no delete', async () => {
+      sqlQueue.push([makeCandidate()]); // candidates query
+      sqlQueue.push([{}]); // pg_advisory_xact_lock(:signup)
+      sqlQueue.push([{}]); // pg_advisory_xact_lock(:activation)
+      // SELECT businesses FOR UPDATE returns the row but with status flipped.
+      sqlQueue.push([
+        {
+          subscription_status: 'active', // ← Stripe activated mid-cycle
+          stripe_customer_id: 'cus_test_1',
+          onboarded_by: null,
+          created_at: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000),
+        },
+      ]);
+      sqlQueue.push([{ auth_id: 'auth-1', role: 'owner' }]); // SELECT users FOR UPDATE
+
+      await runOnce();
+
+      // Critical: no Supabase admin delete must fire — that would destroy a
+      // paying customer's auth user.
+      expect(mockSupabaseDeleteUser).not.toHaveBeenCalled();
+
+      // Critical: no DB DELETE either.
+      const deleteUsers = sqlCalls.find((c) =>
+        c.template.includes('DELETE FROM users'),
+      );
+      const deleteBizzes = sqlCalls.find((c) =>
+        c.template.includes('DELETE FROM businesses'),
+      );
+      expect(deleteUsers).toBeUndefined();
+      expect(deleteBizzes).toBeUndefined();
+
+      const logCall = mockLoggerLog.mock.calls.find((args) =>
+        String(args[0]).includes('Run complete'),
+      );
+      expect(String(logCall![0])).toContain('skipped_state_changed=1');
+      expect(String(logCall![0])).toContain('deleted=0');
+    });
+
+    it('TOCTOU: state changed (stripe_customer_id populated) between SELECT and tx — skipped', async () => {
+      sqlQueue.push([makeCandidate()]);
+      sqlQueue.push([{}]); // pg_advisory_xact_lock(:signup)
+      sqlQueue.push([{}]); // pg_advisory_xact_lock(:activation)
+      sqlQueue.push([
+        {
+          subscription_status: 'pending_payment', // status didn't flip
+          stripe_customer_id: 'cus_test_1', // ← but Stripe attached the customer
+          onboarded_by: null,
+          created_at: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000),
+        },
+      ]);
+      sqlQueue.push([{ auth_id: 'auth-1', role: 'owner' }]);
+
+      await runOnce();
+
+      expect(mockSupabaseDeleteUser).not.toHaveBeenCalled();
+      const deleteUsers = sqlCalls.find((c) =>
+        c.template.includes('DELETE FROM users'),
+      );
+      expect(deleteUsers).toBeUndefined();
+      const logCall = mockLoggerLog.mock.calls.find((args) =>
+        String(args[0]).includes('Run complete'),
+      );
+      expect(String(logCall![0])).toContain('skipped_state_changed=1');
+    });
+
+    it('TOCTOU: business row vanished between SELECT and tx — skipped (cleanly), no delete', async () => {
+      sqlQueue.push([makeCandidate()]);
+      sqlQueue.push([{}]); // pg_advisory_xact_lock(:signup)
+      sqlQueue.push([{}]); // pg_advisory_xact_lock(:activation)
+      sqlQueue.push([]); // SELECT businesses FOR UPDATE returns NO row
+      sqlQueue.push([]); // SELECT users FOR UPDATE also empty
+
+      await runOnce();
+
+      expect(mockSupabaseDeleteUser).not.toHaveBeenCalled();
+      const logCall = mockLoggerLog.mock.calls.find((args) =>
+        String(args[0]).includes('Run complete'),
+      );
+      expect(String(logCall![0])).toContain('skipped_state_changed=1');
+    });
+
     it('Supabase 404: treated as success, proceeds to DB delete', async () => {
       sqlQueue.push([makeCandidate()]);
       seedCleanCandidateRows();
@@ -288,16 +407,37 @@ describe('CleanupAbandonedSignupsPoller', () => {
         makeCandidate({ business_id: 'biz-1', user_id: 'user-1', auth_id: 'auth-1', owner_email: 'a@e.com' }),
         makeCandidate({ business_id: 'biz-2', user_id: 'user-2', auth_id: 'auth-2', owner_email: 'b@e.com' }),
       ]);
-      // Candidate 1: refs-check rows then supabase ERRORS (inside tx — throw rolls back)
-      sqlQueue.push([{}]); // advisory lock (candidate 1)
-      sqlQueue.push([{ has_onboarded: false, has_demos: false }]); // refs check (candidate 1)
+      const oldEnough = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
+      // Candidate 1: passes TOCTOU re-check, refs check, then supabase ERRORS.
+      sqlQueue.push([{}]); // pg_advisory_xact_lock(:signup) (candidate 1)
+      sqlQueue.push([{}]); // pg_advisory_xact_lock(:activation) (candidate 1)
+      sqlQueue.push([
+        {
+          subscription_status: 'pending_payment',
+          stripe_customer_id: null,
+          onboarded_by: null,
+          created_at: oldEnough,
+        },
+      ]); // SELECT businesses FOR UPDATE
+      sqlQueue.push([{ auth_id: 'auth-1', role: 'owner' }]); // SELECT users FOR UPDATE
+      sqlQueue.push([{ has_onboarded: false, has_demos: false }]); // refs check
       mockSupabaseDeleteUser.mockResolvedValueOnce({
         data: null,
         error: { message: 'permission denied', status: 403 } as any,
       });
       // Candidate 2: clean path succeeds
-      sqlQueue.push([{}]); // advisory lock (candidate 2)
-      sqlQueue.push([{ has_onboarded: false, has_demos: false }]); // refs check (candidate 2)
+      sqlQueue.push([{}]); // pg_advisory_xact_lock(:signup) (candidate 2)
+      sqlQueue.push([{}]); // pg_advisory_xact_lock(:activation) (candidate 2)
+      sqlQueue.push([
+        {
+          subscription_status: 'pending_payment',
+          stripe_customer_id: null,
+          onboarded_by: null,
+          created_at: oldEnough,
+        },
+      ]); // SELECT businesses FOR UPDATE (candidate 2)
+      sqlQueue.push([{ auth_id: 'auth-2', role: 'owner' }]); // SELECT users FOR UPDATE (candidate 2)
+      sqlQueue.push([{ has_onboarded: false, has_demos: false }]); // refs check
       sqlQueue.push([]); // DELETE users
       sqlQueue.push([]); // DELETE businesses
       mockSupabaseDeleteUser.mockResolvedValueOnce({ data: null, error: null });

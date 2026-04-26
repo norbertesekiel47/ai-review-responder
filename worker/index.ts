@@ -68,6 +68,7 @@ import { handleTrackRanking } from './jobs/RankingTrackingWorker';
 import { startOnboardingDripScheduler, stopOnboardingDripScheduler } from './jobs/OnboardingDripScheduler';
 import { handleOnboardingDrip } from './jobs/OnboardingDripWorker';
 import { startCleanupAbandonedSignupsPoller, stopCleanupAbandonedSignupsPoller } from './jobs/CleanupAbandonedSignupsPoller';
+import { startEmailChannelReconcilePoller, stopEmailChannelReconcilePoller } from './jobs/EmailChannelReconcilePoller';
 import { isMockMode } from '../src/lib/shared/mock-mode';
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
@@ -233,6 +234,7 @@ async function main(): Promise<void> {
   startRankingTrackingScheduler();
   startOnboardingDripScheduler();
   startCleanupAbandonedSignupsPoller();
+  startEmailChannelReconcilePoller();
   console.log(`Worker service running on port ${PORT}`);
 }
 
@@ -251,6 +253,7 @@ async function shutdown(): Promise<void> {
   stopRankingTrackingScheduler();
   stopOnboardingDripScheduler();
   stopCleanupAbandonedSignupsPoller();
+  stopEmailChannelReconcilePoller();
   await Promise.all(workers.map((w) => w.close()));
   await Promise.all(Object.values(queues).map((q) => q.close()));
   await app.close();

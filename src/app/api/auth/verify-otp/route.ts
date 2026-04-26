@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
+import { v7 as uuidv7 } from 'uuid';
 import { sql } from '@/lib/db/server';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
@@ -139,13 +140,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // 6. Defensive role check. The expected case is role='owner' (the
-  //    only callers who land here are self-serve signups). An admin
-  //    auth_id reaching this route would be a misconfigured email
-  //    template or a manual call — sign out and reject so we don't
-  //    drop the caller into an unexpected redirect.
-  const [row] = await sql<{ role: string }[]>`
-    SELECT role FROM users WHERE auth_id = ${data.user.id} LIMIT 1
+  // 6. Defensive role check + business lookup. The expected case is
+  //    role='owner' (the only callers who land here are self-serve signups).
+  //    An admin auth_id reaching this route would be a misconfigured email
+  //    template or a manual call — sign out and reject so we don't drop
+  //    the caller into an unexpected redirect. business_id is needed for
+  //    step 7 (channel enrollment).
+  const [row] = await sql<{ role: string; business_id: string }[]>`
+    SELECT role, business_id FROM users WHERE auth_id = ${data.user.id} LIMIT 1
   `;
   if (!row || row.role !== 'owner') {
     await supabase.auth.signOut();
@@ -160,6 +162,30 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       errorResponse.cookies.set(cookie);
     }
     return errorResponse;
+  }
+
+  // 7. Mark the email channel verified. The owner has now proven control
+  //    of this inbox by entering the OTP. createBusinessTx deliberately
+  //    skipped this INSERT at signup time, so the row only exists once
+  //    the address is real. Idempotent via the partial-unique ON CONFLICT
+  //    so a re-verify (rare — Supabase consumes the OTP — but possible if
+  //    a previously-archived row is being resurrected) is a no-op.
+  //
+  //    Failure here means the owner has a valid session but no email
+  //    channel. The OTP is already consumed by Supabase, so we can't
+  //    cleanly ask them to retry — log loudly for manual backfill but
+  //    don't block the redirect to /onboarding/pay.
+  try {
+    await sql`
+      INSERT INTO channel_enrollments (id, business_id, channel, handle, status, verified_at)
+      VALUES (${uuidv7()}, ${row.business_id}, 'email', ${email}, 'verified', NOW())
+      ON CONFLICT (business_id, channel) WHERE archived_at IS NULL DO NOTHING
+    `;
+  } catch (err) {
+    console.error(
+      `[verify-otp] channel_enrollments INSERT failed for business ${row.business_id}:`,
+      err instanceof Error ? err.message : err,
+    );
   }
 
   // Build the success response carrying the freshly-written session cookies.

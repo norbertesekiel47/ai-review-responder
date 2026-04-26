@@ -202,26 +202,28 @@ describe('createBusinessTx — email normalization', () => {
       (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO businesses'))!;
     const userCall = mockSql.mock.calls.find((c: any[]) =>
       (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO users'))!;
-    const enrollCall = mockSql.mock.calls.find((c: any[]) =>
-      (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO channel_enrollments'))!;
     expect(bizCall.some((a: unknown) => a === 'owner@example.com')).toBe(true);
     expect(userCall.some((a: unknown) => a === 'owner@example.com')).toBe(true);
-    expect(enrollCall.some((a: unknown) => a === 'owner@example.com')).toBe(true);
   });
 });
 
 describe('createBusinessTx — channel_enrollments', () => {
-  it('inserts email channel_enrollment with verified status and ON CONFLICT guard', async () => {
-    await createBusinessTx(selfServeInput, { mode: 'self_serve', authId: 'a' });
+  it('admin mode still inserts a verified email enrollment (admin-created accounts are pre-verified)', async () => {
+    await createBusinessTx(adminInput, { mode: 'admin', onboardedBy: 'admin-1' });
     const enrollCall = mockSql.mock.calls.find((c: any[]) =>
       (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO channel_enrollments'))!;
     expect(enrollCall).toBeDefined();
-    // 'email' and 'verified' are SQL literals in the template — check the template text.
     const enrollTemplate = (enrollCall[0] as TemplateStringsArray).join('?');
     expect(enrollTemplate).toContain("'email'");
     expect(enrollTemplate).toContain("'verified'");
-    // Guard against regression: must use the existing partial-unique ON CONFLICT
     expect(enrollTemplate).toContain('ON CONFLICT (business_id, channel) WHERE archived_at IS NULL');
+  });
+
+  it('self_serve mode does NOT insert channel_enrollments at signup time (deferred to /api/auth/verify-otp post-OTP)', async () => {
+    await createBusinessTx(selfServeInput, { mode: 'self_serve', authId: 'a' });
+    const enrollCall = mockSql.mock.calls.find((c: any[]) =>
+      (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO channel_enrollments'));
+    expect(enrollCall).toBeUndefined();
   });
 });
 

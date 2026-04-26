@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
+import { v7 as uuidv7 } from 'uuid';
 import { sql } from '@/lib/db/server';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
@@ -157,8 +158,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   //    came from Google OAuth and predates the request. Deleting it would
   //    log the owner out of a legitimate Supabase identity and break any
   //    other app sharing that Supabase project. On error we just surface it.
+  let businessId: string;
   try {
-    await createBusinessTx(input, { mode: 'self_serve', authId });
+    const result = await createBusinessTx(input, { mode: 'self_serve', authId });
+    businessId = result.businessId;
   } catch (err) {
     if (err instanceof DuplicateEmailError) {
       // Race between pre-check and tx — another request completed signup
@@ -170,7 +173,31 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'internal' }, { status: 500 });
   }
 
-  // 9. Success. Google-confirmed email is auto-verified so we skip the
-  //    /signup/check-email detour and go straight to payment.
+  // 9. Mark the email channel verified. Google OAuth users have already
+  //    proven email ownership through Google's identity layer (we asserted
+  //    `user.email_confirmed_at` above), so 'verified' is correct without
+  //    an additional OTP roundtrip. Mirrors the post-OTP INSERT in
+  //    /api/auth/verify-otp — without this row, NotificationWorker has no
+  //    recipient and approval emails silently disappear.
+  //
+  //    Idempotent via the existing partial-unique ON CONFLICT. Failure here
+  //    leaves the owner in a broken state (active business, no channel),
+  //    so we log loudly but don't block the redirect — admin backfill is
+  //    safer than rejecting the request after createBusinessTx committed.
+  try {
+    await sql`
+      INSERT INTO channel_enrollments (id, business_id, channel, handle, status, verified_at)
+      VALUES (${uuidv7()}, ${businessId}, 'email', ${ownerEmail}, 'verified', NOW())
+      ON CONFLICT (business_id, channel) WHERE archived_at IS NULL DO NOTHING
+    `;
+  } catch (err) {
+    console.error(
+      `[api/auth/finish-signup] channel_enrollments INSERT failed for business ${businessId}:`,
+      err instanceof Error ? err.message : err,
+    );
+  }
+
+  // 10. Success. Google-confirmed email is auto-verified so we skip the
+  //     /signup/check-email detour and go straight to payment.
   return NextResponse.json({ redirectTo: '/onboarding/pay' }, { status: 201 });
 }

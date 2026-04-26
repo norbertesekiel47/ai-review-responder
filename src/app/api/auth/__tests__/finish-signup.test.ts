@@ -247,6 +247,41 @@ describe('POST /api/auth/finish-signup', () => {
       },
       { mode: 'self_serve', authId: 'auth-uuid-123' },
     );
+
+    // Email channel enrollment must be inserted post-createBusinessTx.
+    // Without this the dispatcher has no recipient and approval emails
+    // silently disappear — the exact bug that hit the first Google signup.
+    const enrollCall = mockSql.mock.calls.find((c: unknown[]) =>
+      (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO channel_enrollments'),
+    );
+    expect(enrollCall).toBeDefined();
+    const template = (enrollCall![0] as TemplateStringsArray).join('?');
+    expect(template).toContain("'email'");
+    expect(template).toContain("'verified'");
+    expect(enrollCall!.some((a) => a === 'biz-1')).toBe(true);
+    expect(enrollCall!.some((a) => a === 'owner@example.com')).toBe(true);
+  });
+
+  it('still returns 201 when channel_enrollments INSERT throws (logged, non-blocking)', async () => {
+    mockCreateBusinessTx.mockResolvedValueOnce({
+      businessId: 'biz-2',
+      userId: 'u-2',
+      paymentUrl: null,
+    });
+    // First two calls (advisory_xact_lock + 2 SELECTs in pre-check) succeed,
+    // then the INSERT INTO channel_enrollments rejects.
+    mockSql.mockImplementation((tpl: TemplateStringsArray) => {
+      if (tpl.join('?').includes('INSERT INTO channel_enrollments')) {
+        return Promise.reject(new Error('transient db'));
+      }
+      return Promise.resolve([]);
+    });
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const res = await POST(mkReq(validBody));
+    expect(res.status).toBe(201);
+    expect(consoleSpy).toHaveBeenCalled();
+    consoleSpy.mockRestore();
   });
 
   it('returns 409 when createBusinessTx throws DuplicateEmailError (race). NO deleteUser call.', async () => {
