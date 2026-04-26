@@ -3,15 +3,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { DashboardData, DashboardDataActive } from '@/lib/dashboard/types';
 import {
-  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip,
-  LineChart, Line, CartesianGrid,
-} from 'recharts';
-import {
   ActivePendingBusinessScreen,
   PendingAdminHandoffScreen,
   PendingPaymentScreen,
 } from '@/components/dashboard/AccountStateScreens';
 import { ValueSummary } from '@/components/dashboard/ValueSummary';
+import { ReviewVelocityChart, RankingChart } from '@/components/dashboard/Charts';
 
 type ActionState =
   | { kind: 'idle' }
@@ -177,19 +174,10 @@ const STATUS_BADGE_COLORS: Record<string, string> = {
   failed: 'bg-red-100 text-red-700',
 };
 
-const RANKING_LINE_COLORS = [
-  '#2563eb', '#dc2626', '#16a34a', '#9333ea', '#ea580c', '#0891b2',
-];
-
 function formatStatusLabel(status: string): string {
   return status
     .replace(/_/g, ' ')
     .replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
-function formatWeekLabel(dateStr: string): string {
-  const date = new Date(dateStr + 'T00:00:00Z');
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 }
 
 function renderStars(rating: number): string {
@@ -260,68 +248,10 @@ export function DashboardContent() {
       <ValueSummary valueSummary={valueSummary} />
 
       {/* Section B: Review Velocity Chart */}
-      {reviewVelocity.length > 0 && (
-        <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
-          <h2 className="mb-4 text-lg font-semibold text-gray-900">Review Velocity</h2>
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={reviewVelocity}>
-              <XAxis
-                dataKey="weekStart"
-                tickFormatter={formatWeekLabel}
-                tick={{ fontSize: 12 }}
-              />
-              <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
-              <Tooltip
-                labelFormatter={(label) => formatWeekLabel(String(label))}
-                formatter={(value) => [String(value), 'Reviews']}
-              />
-              <Bar
-                dataKey="count"
-                fill="#2563eb"
-                radius={[4, 4, 0, 0]}
-              />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      )}
+      <ReviewVelocityChart reviewVelocity={reviewVelocity} />
 
       {/* Section C: Ranking Chart */}
-      {ranking && ranking.length > 0 && (
-        <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
-          <h2 className="mb-4 text-lg font-semibold text-gray-900">Search Ranking</h2>
-          <ResponsiveContainer width="100%" height={250}>
-            <LineChart>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis
-                dataKey="date"
-                type="category"
-                allowDuplicatedCategory={false}
-                tickFormatter={formatWeekLabel}
-                tick={{ fontSize: 12 }}
-              />
-              <YAxis
-                reversed
-                domain={[1, 'auto']}
-                allowDecimals={false}
-                tick={{ fontSize: 12 }}
-                label={{ value: 'Rank', angle: -90, position: 'insideLeft', fontSize: 12 }}
-              />
-              <Tooltip labelFormatter={(label) => formatWeekLabel(String(label))} />
-              {ranking.map((entry, idx) => (
-                <Line
-                  key={entry.keyword}
-                  data={entry.snapshots}
-                  dataKey="position"
-                  name={entry.keyword}
-                  stroke={RANKING_LINE_COLORS[idx % RANKING_LINE_COLORS.length]}
-                  strokeWidth={2}
-                  dot={{ r: 3 }}
-                />
-              ))}
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      )}
+      <RankingChart ranking={ranking} />
 
       {/* Section D: Recent Reviews */}
       <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
