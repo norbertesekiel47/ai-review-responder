@@ -1,17 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { Resend } from 'resend';
 import { isMockMode } from '@/lib/shared/mock-mode';
+import { getResend } from './email/client';
+
+export { getResend } from './email/client';
 
 const LOG_PREFIX = '[email]';
-
-let _resend: Resend | null = null;
-
-function getResend(): Resend {
-  if (!_resend) {
-    _resend = new Resend(process.env.RESEND_API_KEY);
-  }
-  return _resend;
-}
 
 // ── Email categorization (deliverability + compliance) ──────────────────
 //
