@@ -14,7 +14,7 @@ import { createHash } from 'node:crypto';
 import type postgres from 'postgres';
 import { jsonb } from '@/lib/db/server';
 import type { ApprovalLink } from './types';
-import type { CallbackApprovalInput } from './service';
+import type { CallbackApprovalInput } from './callback-mode';
 
 type TxClient = postgres.TransactionSql;
 
