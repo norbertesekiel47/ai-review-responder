@@ -6,12 +6,12 @@ import { useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import ManualPostSection from './manual-post-section';
 import { ProfileEditor } from './components/ProfileEditor';
 import { TrackedKeywordsSection } from './components/TrackedKeywordsSection';
 import { ManualRankingSection } from './components/ManualRankingSection';
 import { ReviewsList } from './components/ReviewsList';
 import { ChannelsPanel } from './components/ChannelsPanel';
+import { ManualPostFlow } from './components/ManualPostFlow';
 import type { ChannelEnrollmentRow, DetailData } from './types';
 
 function HealthBadge({ level, score }: { level: string; score: number }) {
@@ -218,26 +218,7 @@ export default function BusinessDetailPage() {
         <ChannelsPanel business={business} businessId={businessId} enrollments={enrollments} />
 
         {/* Awaiting Manual Post */}
-        {awaitingPost.length > 0 && (
-          <section className="mt-8">
-            <h2 className="text-lg font-semibold text-gray-800">
-              Awaiting Manual Post ({awaitingPost.length})
-            </h2>
-            <div className="mt-4 space-y-4">
-              {awaitingPost.map((r) => (
-                <ManualPostSection
-                  key={r.responseId}
-                  responseId={r.responseId!}
-                  businessId={businessId}
-                  reviewerName={r.reviewerName}
-                  starRating={r.starRating}
-                  reviewText={r.reviewText}
-                  approvedText={r.approvedText!}
-                />
-              ))}
-            </div>
-          </section>
-        )}
+        <ManualPostFlow businessId={businessId} awaitingPost={awaitingPost} />
       </div>
     </div>
   );
