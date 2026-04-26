@@ -15,23 +15,11 @@ import type { FastifyRequest, FastifyReply } from 'fastify';
 import { sql } from '../../src/lib/db/server';
 import { claimInboundEvent, markInboundEventProcessed, markInboundEventFailed } from './shared';
 import { parseTwilioBody, verifyTwilioSignature } from './twilio-verify';
+import { fullUrl, redactWhatsAppPayload, parseButtonPayload } from './whatsapp-shared';
+
+export { redactWhatsAppPayload };
 
 const LOG_PREFIX = '[ingress/twilio-whatsapp]';
-
-function fullUrl(request: FastifyRequest): string {
-  return `${process.env.WORKER_PUBLIC_URL}${request.url}`;
-}
-
-// Redaction helper (also used by the inbound handler in Task 10). Exported
-// for unit tests.
-export function redactWhatsAppPayload(params: Record<string, string>): Record<string, string> {
-  const out = { ...params };
-  if ('Body' in out) out.Body = '[redacted]';
-  if ('ButtonPayload' in out) out.ButtonPayload = '[redacted]';
-  delete out.ProfileName;
-  delete out.WaId;
-  return out;
-}
 
 /**
  * Status callback for WhatsApp template sends. Mirrors the SMS pattern at
@@ -144,26 +132,6 @@ import {
 import { WhatsAppClient } from '../../src/lib/notifications/channels/whatsapp-client';
 import { stripWaPrefix, toWaRecipient } from '../../src/lib/notifications/channels/whatsapp-body';
 import { classifyIntent } from './twilio-intent';
-
-// UUID v7 rendered with `v7()` from the `uuid` package produces the canonical
-// 8-4-4-4-12 hex form. Validate the suffix shape before hitting the DB — the
-// approval_links.id column is UUID, and a malformed string would raise a
-// Postgres "invalid input syntax for type uuid" error that escapes the
-// post-claim happy path. Malformed payloads route to the same processed/200
-// path as an unrecognised `a:`/`r:` prefix.
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-function parseButtonPayload(
-  data: string,
-): { action: 'approve' | 'regenerate'; approvalLinkId: string } | null {
-  let action: 'approve' | 'regenerate' | null = null;
-  let rest = '';
-  if (data.startsWith('a:')) { action = 'approve'; rest = data.slice(2); }
-  else if (data.startsWith('r:')) { action = 'regenerate'; rest = data.slice(2); }
-  if (action === null) return null;
-  if (!UUID_RE.test(rest)) return null;
-  return { action, approvalLinkId: rest };
-}
 
 export async function handleTwilioWhatsAppInbound(
   request: FastifyRequest,
