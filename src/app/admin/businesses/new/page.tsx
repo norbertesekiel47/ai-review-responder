@@ -10,6 +10,7 @@ import { FormSchema, type FormData } from './schema';
 import { useBusinessPrefill } from './hooks/useBusinessPrefill';
 import { Field, SectionCard, inputClass, textareaClass } from './components/_shared';
 import { BusinessInfoSection } from './components/BusinessInfoSection';
+import { OwnerInfoSection } from './components/OwnerInfoSection';
 
 export default function NewBusinessPage() {
   const router = useRouter();
@@ -113,39 +114,11 @@ export default function NewBusinessPage() {
           />
 
           {/* Section 2 — Owner Info */}
-          <SectionCard title="Owner Info">
-            <Field label="Owner Name *" error={errors.ownerName?.message}>
-              <input
-                {...register('ownerName')}
-                type="text"
-                className={inputClass}
-                placeholder="Jane Smith"
-              />
-            </Field>
-
-            <Field label="Email *" error={errors.ownerEmail?.message}>
-              <input
-                {...register('ownerEmail')}
-                type="email"
-                className={inputClass}
-                placeholder="jane@example.com"
-              />
-            </Field>
-
-            <Field
-              label="Phone"
-              error={errors.ownerPhone?.message}
-              hint={prefilling ? 'Fetching suggestions from Google Maps…' : undefined}
-            >
-              <input
-                {...register('ownerPhone')}
-                type="tel"
-                className={inputClass}
-                placeholder="+1 555 000 0000"
-              />
-            </Field>
-
-          </SectionCard>
+          <OwnerInfoSection
+            register={register}
+            errors={errors}
+            prefilling={prefilling}
+          />
 
           {/* Section 3 — Voice & Context */}
           <SectionCard title="Voice &amp; Context">
