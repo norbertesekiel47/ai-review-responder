@@ -28,6 +28,17 @@ export function StepLocation({
   const [prefilling, setPrefilling] = useState(false);
   const prefillAbortRef = useRef<AbortController | null>(null);
   const latestPlaceIdRef = useRef<string | null>(null);
+  // Track the last prefill values we actually applied per field. Without
+  // this, re-selecting a different place while category/website still hold
+  // the previous place's prefilled value would silently drop the new
+  // prefill (the `!data.X` guard treats already-populated fields as
+  // "user-owned"). With it, an unedited prefilled value is allowed to be
+  // overwritten by a later prefill of a different place — but a value the
+  // user typed/edited stays put because dirtyRef.current.X locks it.
+  const lastPrefillRef = useRef<{
+    category: string | null;
+    website: string | null;
+  }>({ category: null, website: null });
 
   // Cancel any in-flight prefill fetch when the step unmounts so a stale
   // response can't repopulate fields after the user has navigated away.
@@ -39,6 +50,10 @@ export function StepLocation({
 
   function cancelPrefill() {
     latestPlaceIdRef.current = null;
+    // Reset the prefill snapshot too — a clear means "forget what was
+    // applied", so the next place's prefill should fire as a first-pick
+    // (compares against null → falls into the !data.X branch).
+    lastPrefillRef.current = { category: null, website: null };
     if (prefillAbortRef.current) {
       prefillAbortRef.current.abort();
       prefillAbortRef.current = null;
@@ -63,14 +78,36 @@ export function StepLocation({
       const prefill = (await res.json()) as PrefillResponse;
       if (latestPlaceIdRef.current !== placeId) return;
 
+      // Apply prefill if either: (a) the field is empty (first-pick case),
+      // OR (b) the incoming prefill value differs from the value we last
+      // applied (re-pick case — a different place was selected). The
+      // dirty flag still wins in both: a value the user typed/edited is
+      // never overwritten regardless of how many places they pick after.
       const patch: Partial<WizardFormData> = {};
-      if (prefill.category && !dirtyRef.current?.category && !data.category) {
+      if (
+        prefill.category &&
+        !dirtyRef.current?.category &&
+        (!data.category || prefill.category !== lastPrefillRef.current.category)
+      ) {
         patch.category = prefill.category;
       }
-      if (prefill.website && !dirtyRef.current?.website && !data.website) {
+      if (
+        prefill.website &&
+        !dirtyRef.current?.website &&
+        (!data.website || prefill.website !== lastPrefillRef.current.website)
+      ) {
         patch.website = prefill.website;
       }
       if (Object.keys(patch).length > 0) update(patch);
+      // Always update the snapshot (even when patch is empty) so the next
+      // re-pick compares against the latest known prefill values. Use the
+      // PREFILL response, not patch — `data.X` may have been kept by the
+      // dirty flag, but the prefill value still represents what THIS place
+      // would have set.
+      lastPrefillRef.current = {
+        category: prefill.category,
+        website: prefill.website,
+      };
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return;
     } finally {

@@ -20,6 +20,8 @@ export function SignupFormClient() {
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [oauthLoading, setOauthLoading] = useState(false);
+  const [oauthError, setOauthError] = useState('');
   const router = useRouter();
 
   async function handleSubmit(e: React.FormEvent) {
@@ -71,12 +73,40 @@ export function SignupFormClient() {
   }
 
   async function handleGoogle() {
-    const supabase = createBrowserSupabaseClient();
-    const redirectTo = `${window.location.origin}/api/auth/callback?flow=owner&next=/signup/finish`;
-    await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: { redirectTo },
-    });
+    // Guard against duplicate clicks. The OAuth flow normally navigates
+    // away (window.location → Supabase → Google), but if Supabase responds
+    // synchronously with an error (misconfigured provider, network blip)
+    // the user is still on this page — without the loading guard a second
+    // click can race the first.
+    if (oauthLoading || loading) return;
+    setOauthError('');
+    setOauthLoading(true);
+    try {
+      const supabase = createBrowserSupabaseClient();
+      const redirectTo = `${window.location.origin}/api/auth/callback?flow=owner&next=/signup/finish`;
+      const { error: signInError } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: { redirectTo },
+      });
+      // signInWithOAuth returns a result that includes `error`; on success
+      // the browser navigates away before the promise resolves so this
+      // branch is rarely hit. When it IS hit (provider misconfig, redirect
+      // rejected, etc.), surface the message rather than silently failing.
+      if (signInError) {
+        setOauthError(
+          'Could not start Google sign-in. Please try again or use the email form below.',
+        );
+        setOauthLoading(false);
+      }
+      // Don't reset loading on the success path — the page is about to
+      // navigate, and clearing the spinner would briefly flicker the
+      // button to "Continue with Google" right before the redirect.
+    } catch {
+      setOauthError(
+        'Could not start Google sign-in. Please try again or use the email form below.',
+      );
+      setOauthLoading(false);
+    }
   }
 
   const onChange =
@@ -98,12 +128,17 @@ export function SignupFormClient() {
         <button
           type="button"
           onClick={handleGoogle}
-          className="w-full mb-6 bg-white border border-gray-300 py-3 rounded-md font-medium hover:bg-gray-50"
+          disabled={oauthLoading || loading}
+          className="w-full mb-2 bg-white border border-gray-300 py-3 rounded-md font-medium hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          Continue with Google
+          {oauthLoading ? 'Redirecting to Google…' : 'Continue with Google'}
         </button>
 
-        <div className="text-center text-sm text-gray-500 mb-6">
+        {oauthError && (
+          <p className="text-sm text-red-600 mb-4 text-center">{oauthError}</p>
+        )}
+
+        <div className="text-center text-sm text-gray-500 mb-6 mt-4">
           or continue with email
         </div>
 
@@ -176,8 +211,8 @@ export function SignupFormClient() {
 
           <button
             type="submit"
-            disabled={loading}
-            className="w-full bg-blue-600 text-white font-medium py-3 rounded-md hover:bg-blue-700 disabled:opacity-50"
+            disabled={loading || oauthLoading}
+            className="w-full bg-blue-600 text-white font-medium py-3 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {loading ? 'Creating account...' : 'Continue'}
           </button>

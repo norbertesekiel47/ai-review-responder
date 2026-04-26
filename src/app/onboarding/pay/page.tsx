@@ -16,7 +16,11 @@ export default async function OnboardingPayPage({
   // probe whether self-serve was on.
   if (process.env.SELF_SERVE_SIGNUP_ENABLED !== 'true') notFound();
 
-  const cookieStore = cookies();
+  // Use `await cookies()` for forward-compat with Next.js 15 (where it
+  // returns a Promise). On Next 14 the await unwraps a non-Promise to
+  // itself — a runtime no-op — but matches the existing pattern in
+  // src/app/(authenticated)/layout.tsx and src/lib/db/supabase-server.ts.
+  const cookieStore = await cookies();
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,

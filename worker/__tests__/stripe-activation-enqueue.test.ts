@@ -65,6 +65,19 @@ function makeReply() {
   } as any;
 }
 
+// Valid UUIDv7 fixtures. The processCheckoutSessionCompleted handler
+// rejects any client_reference_id that doesn't match the canonical
+// 8-4-4-4-12 hex UUID shape (B23 fix), so test fixtures need to be real
+// UUIDs to exercise the activation path. Pre-B23 tests used readable
+// strings like 'biz-self-1' that would now be skipped before any SQL
+// fires.
+const TEST_BIZ_PENDING = '019dc366-29ce-7000-a000-000000000001';
+const TEST_BIZ_PASTDUE = '019dc366-29ce-7000-a000-000000000002';
+const TEST_BIZ_ACTIVE_DUP = '019dc366-29ce-7000-a000-000000000003';
+const TEST_BIZ_CONCURRENT = '019dc366-29ce-7000-a000-000000000004';
+const TEST_BIZ_DELETED = '019dc366-29ce-7000-a000-000000000005';
+const TEST_BIZ_DEFAULT = '019dc366-29ce-7000-a000-000000000000';
+
 function setCheckoutSessionCompletedEvent(overrides: {
   businessId?: string;
   eventId?: string;
@@ -74,7 +87,7 @@ function setCheckoutSessionCompletedEvent(overrides: {
     type: 'checkout.session.completed',
     data: {
       object: {
-        client_reference_id: overrides.businessId ?? 'biz-1',
+        client_reference_id: overrides.businessId ?? TEST_BIZ_DEFAULT,
         customer: 'cus_1',
         subscription: 'sub_1',
         mode: 'subscription',
@@ -111,7 +124,7 @@ describe('Stripe webhook — status flip only (initial-sync enqueue moved to /ap
   });
 
   it('pending_payment → active flips status and does NOT enqueue any outbox row', async () => {
-    setCheckoutSessionCompletedEvent({ businessId: 'biz-self-1' });
+    setCheckoutSessionCompletedEvent({ businessId: TEST_BIZ_PENDING });
     queueHappyPath('pending_payment');
 
     const { handleStripeWebhook } = await import('../ingress/stripe');
@@ -127,7 +140,7 @@ describe('Stripe webhook — status flip only (initial-sync enqueue moved to /ap
   });
 
   it('past_due → active flips status and does NOT enqueue (recovery, not first sync)', async () => {
-    setCheckoutSessionCompletedEvent({ businessId: 'biz-pastdue' });
+    setCheckoutSessionCompletedEvent({ businessId: TEST_BIZ_PASTDUE });
     queueHappyPath('past_due');
 
     const { handleStripeWebhook } = await import('../ingress/stripe');
@@ -141,7 +154,7 @@ describe('Stripe webhook — status flip only (initial-sync enqueue moved to /ap
   });
 
   it('active → active is a no-op (status guard) and does NOT enqueue', async () => {
-    setCheckoutSessionCompletedEvent({ businessId: 'biz-active-dup' });
+    setCheckoutSessionCompletedEvent({ businessId: TEST_BIZ_ACTIVE_DUP });
     queueHappyPath('active', { updateBusinessesCount: 0 });
 
     const { handleStripeWebhook } = await import('../ingress/stripe');
@@ -151,7 +164,7 @@ describe('Stripe webhook — status flip only (initial-sync enqueue moved to /ap
   });
 
   it('serialization ordering: advisory lock runs before FOR UPDATE select and before UPDATE businesses', async () => {
-    setCheckoutSessionCompletedEvent({ businessId: 'biz-concurrent' });
+    setCheckoutSessionCompletedEvent({ businessId: TEST_BIZ_CONCURRENT });
     queueHappyPath('pending_payment');
 
     const { handleStripeWebhook } = await import('../ingress/stripe');
@@ -175,11 +188,11 @@ describe('Stripe webhook — status flip only (initial-sync enqueue moved to /ap
     // Lock key is hash-stable per business.
     const lockCall = sqlCalls[lockIdx]!;
     expect(lockCall.text).toContain('hashtext');
-    expect(lockCall.values).toContain('biz-concurrent:activation');
+    expect(lockCall.values).toContain(`${TEST_BIZ_CONCURRENT}:activation`);
   });
 
   it('biz-row-deleted race: still completes the outer flow with no enqueue', async () => {
-    setCheckoutSessionCompletedEvent({ businessId: 'biz-deleted' });
+    setCheckoutSessionCompletedEvent({ businessId: TEST_BIZ_DELETED });
     // Inbound INSERT → count=1
     const insertInbound: any = []; insertInbound.count = 1;
     sqlReturnQueue.push(insertInbound);

@@ -23,7 +23,15 @@ const PUBLIC: string[] = [
   '/api/auth/forgot-password',
   '/api/auth/reset-password',
   '/api/auth/resend-confirmation',
+  '/api/auth/verify-otp',
   '/api/auth/callback',
+  // API-side onboarding routes follow the same pattern as /api/auth/*:
+  // middleware classifies them as public (so it doesn't set up a Supabase
+  // client per request) and the route handlers do their own session
+  // reads + role checks internally. NOT under /onboarding/* — that prefix
+  // gates only the SSR pages.
+  '/api/onboarding/business',
+  '/api/onboarding/select-plan',
 ];
 
 const PROTECTED: string[] = [
@@ -47,5 +55,41 @@ describe('isProtectedRoute', () => {
   });
   PROTECTED.forEach((p) => {
     it(`${p} is protected`, () => expect(isProtectedRoute(p)).toBe(true));
+  });
+
+  // Trailing-slash normalization. Next.js's default trailingSlash: false
+  // redirects /x/ → /x, but that runs AFTER middleware sees the path —
+  // without normalization the exemption checks miss and public routes
+  // wrongly fall through to the protected prefix branches.
+  describe('trailing slash normalization', () => {
+    it('exempts /admin/login/ (public auth surface, was wrongly protected)', () => {
+      expect(isProtectedRoute('/admin/login/')).toBe(false);
+    });
+
+    it('exempts /admin/forgot-password/', () => {
+      expect(isProtectedRoute('/admin/forgot-password/')).toBe(false);
+    });
+
+    it('exempts /admin/reset-password/', () => {
+      expect(isProtectedRoute('/admin/reset-password/')).toBe(false);
+    });
+
+    it('still protects /admin/overview/ (trailing slash on a protected page)', () => {
+      expect(isProtectedRoute('/admin/overview/')).toBe(true);
+    });
+
+    it('still protects /onboarding/ (trailing slash on a protected page)', () => {
+      expect(isProtectedRoute('/onboarding/')).toBe(true);
+    });
+
+    it('preserves the root path / (single trailing slash IS the path)', () => {
+      expect(isProtectedRoute('/')).toBe(false);
+    });
+
+    it('handles multiple trailing slashes (/admin/login//)', () => {
+      // Defensive: if a misbehaving client sends /admin/login//, the
+      // /\/+$/ regex strips ALL trailing slashes so the match still works.
+      expect(isProtectedRoute('/admin/login//')).toBe(false);
+    });
   });
 });

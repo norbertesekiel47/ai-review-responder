@@ -60,7 +60,6 @@ playwright-report/
 *.out.log
 error.png
 screenshot.png
-"playwright-report/"
 
 # Chrome DevTools MCP per-session debug snapshots (console logs, page yamls,
 # screenshots). Never useful in source control.

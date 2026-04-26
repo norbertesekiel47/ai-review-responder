@@ -51,7 +51,36 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'rate_limit_unavailable' }, { status: 503 });
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL!;
+  // Validate APP_URL before constructing the redirect target. The
+  // non-null assertion `!` tells TypeScript to trust the value but does
+  // nothing at runtime — a missing env var would produce
+  // `undefined/api/auth/callback?...` and Supabase would silently reject
+  // the resend call (or worse, accept it and email a dead link). A
+  // malformed value (typo `htttps://`, missing scheme, etc.) does the
+  // same. URL.parse-validate so the failure is surfaced as a 500 with a
+  // log breadcrumb rather than getting swallowed inside Supabase.
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+  if (!appUrl) {
+    console.error(
+      '[resend-confirmation] NEXT_PUBLIC_APP_URL not set — cannot build emailRedirectTo',
+    );
+    return NextResponse.json(
+      { error: 'server_misconfigured' },
+      { status: 500 },
+    );
+  }
+  try {
+    // URL constructor throws on missing scheme, illegal characters, etc.
+    new URL(appUrl);
+  } catch {
+    console.error(
+      `[resend-confirmation] NEXT_PUBLIC_APP_URL is malformed (${appUrl}) — cannot build emailRedirectTo`,
+    );
+    return NextResponse.json(
+      { error: 'server_misconfigured' },
+      { status: 500 },
+    );
+  }
   const emailRedirectTo = `${appUrl}/api/auth/callback?flow=owner&next=/onboarding/pay`;
 
   await supabaseServer.auth

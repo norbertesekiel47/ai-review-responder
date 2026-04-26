@@ -26,10 +26,31 @@ function extractSubscriptionId(subscription: string | Stripe.Subscription | null
   return typeof subscription === 'string' ? subscription : subscription.id;
 }
 
+// Canonical UUID 8-4-4-4-12 hex shape — accepts all version digits (we use
+// v7 from the `uuid` package, but legacy admin rows may be v4). Same regex
+// + reasoning as worker/ingress/twilio-whatsapp.ts:154.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 async function processCheckoutSessionCompleted(session: Stripe.Checkout.Session): Promise<void> {
   const businessId = session.client_reference_id ?? session.metadata?.business_id;
   if (!businessId) {
     console.warn(`${LOG_PREFIX} checkout.session.completed missing business_id — skipping`);
+    return;
+  }
+
+  // Validate UUID shape BEFORE the `${businessId}::uuid` cast inside the
+  // tx. Without this, a malformed client_reference_id (Stripe CLI test
+  // event, manual API call, third-party Payment Link configured to point
+  // at our endpoint with a non-UUID metadata field, etc.) would raise a
+  // Postgres `invalid input syntax for type uuid` error that escapes
+  // through to the outer handler — which then marks inbound_events.status
+  // = 'failed' and Stripe retries the event for ~3 days. Cheap upfront
+  // regex, identical to twilio-whatsapp.ts's defensive guard against the
+  // same Postgres-cast-throws-on-bad-input footgun.
+  if (!UUID_RE.test(businessId)) {
+    console.warn(
+      `${LOG_PREFIX} checkout.session.completed has malformed business_id=${JSON.stringify(businessId)} — skipping (Stripe will not retry; inbound_events marked processed)`,
+    );
     return;
   }
 

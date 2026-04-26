@@ -29,6 +29,18 @@ function CheckEmailInner() {
   async function handleVerify(e: React.FormEvent) {
     e.preventDefault();
     setVerifyError('');
+    // Guard against a missing email — happens when someone lands on
+    // /signup/check-email without the ?email= query param (bookmark, manual
+    // URL edit, etc.). Without this the POST fires with email='' and the
+    // server returns a generic 400 invalid_body that maps to "Verification
+    // failed. Please try again." — useless for the user. Surface a clear
+    // dead-end message + skip the wasted round-trip.
+    if (!email) {
+      setVerifyError(
+        'No email on this page — please go back and start signup again.',
+      );
+      return;
+    }
     setVerifying(true);
     try {
       const res = await fetch('/api/auth/verify-otp', {
@@ -56,7 +68,19 @@ function CheckEmailInner() {
   }
 
   async function handleResend() {
-    if (resendLoading || !email) return;
+    if (resendLoading) return;
+    // Same guard as handleVerify — but this branch ALSO reports the error
+    // visibly. The button's `disabled` attr usually keeps users from
+    // clicking when email is empty, but a programmatic call (devtools,
+    // automated test, missing query param + cache state) could still land
+    // here, and silently no-op'ing leaves the user staring at a button
+    // that "works" but does nothing.
+    if (!email) {
+      setResendError(
+        'No email on this page — please go back and start signup again.',
+      );
+      return;
+    }
     setResendLoading(true);
     setResendError('');
     try {
@@ -102,6 +126,19 @@ function CheckEmailInner() {
             <label htmlFor="verify-code" className="sr-only">
               Confirmation code
             </label>
+            {/*
+              Input contract matches Supabase prod's "Email OTP Length = 8".
+              minLength + maxLength + numeric pattern enforce the format
+              client-side so the user gets browser-native validation feedback
+              before submitting.
+
+              Server-side `VerifyEmailOtpSchema` deliberately stays at 4–10
+              alphanumeric (defense-in-depth — if Supabase config flips to
+              6-digit or alphanumeric, the API survives without a redeploy).
+              When the source-of-truth Supabase setting changes, update the
+              minLength + maxLength + pattern + placeholder + the subtext
+              copy above in lockstep.
+            */}
             <input
               id="verify-code"
               type="text"
@@ -109,9 +146,10 @@ function CheckEmailInner() {
               autoComplete="one-time-code"
               autoFocus
               required
-              minLength={4}
-              maxLength={10}
-              pattern="[A-Za-z0-9]+"
+              minLength={8}
+              maxLength={8}
+              pattern="\d{8}"
+              title="Enter the 8-digit code from your email"
               placeholder="8-digit code"
               value={code}
               onChange={(e) => setCode(e.target.value)}

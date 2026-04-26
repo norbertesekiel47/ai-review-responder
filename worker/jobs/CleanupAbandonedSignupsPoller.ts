@@ -5,6 +5,14 @@ const DEFAULT_INTERVAL_MS = 86_400_000; // 24 hours
 const DEFAULT_BATCH_SIZE = 100;
 
 let timer: ReturnType<typeof setInterval> | null = null;
+// Single-flight guard. Prevents two scheduled ticks from running runOnce()
+// concurrently when a run takes longer than the interval (e.g., the 60s
+// test interval from Scenario H, OR a real 24h run that happens to land
+// during a Supabase outage and stalls). Concurrent runs would: (a) race
+// on the same candidate list selected outside any tx, (b) the second run
+// would block on FOR UPDATE locks taken by the first, holding worker
+// resources for nothing. Skip-this-tick is the right answer.
+let inProgress = false;
 
 /**
  * Delete self-serve signups that haven't paid within 7 days.
@@ -29,6 +37,25 @@ let timer: ReturnType<typeof setInterval> | null = null;
  */
 export async function runOnce(): Promise<void> {
   const logger = createWorkerLogger('[CleanupAbandonedSignups]');
+  // Single-flight: if a previous invocation is still executing, skip this
+  // tick. The check + set is safe because the JS event loop is
+  // single-threaded — no atomic-CAS needed. The finally below clears the
+  // flag so a subsequent tick can run even if this one threw.
+  if (inProgress) {
+    logger.log('Previous run still in progress — skipping this tick');
+    return;
+  }
+  inProgress = true;
+  try {
+    return await runOnceInner(logger);
+  } finally {
+    inProgress = false;
+  }
+}
+
+async function runOnceInner(
+  logger: ReturnType<typeof createWorkerLogger>,
+): Promise<void> {
   const envVal = process.env.CLEANUP_ABANDONED_SIGNUPS_BATCH_SIZE;
   const parsedBatchSize = envVal ? parseInt(envVal, 10) : NaN;
   const batchSize = Number.isFinite(parsedBatchSize) && parsedBatchSize > 0
@@ -218,6 +245,17 @@ export function startCleanupAbandonedSignupsPoller(): void {
     return;
   }
 
+  // Idempotent start: if a timer is already registered, this is a duplicate
+  // call (worker hot-reload, mistaken double-init in tests, etc.). Return
+  // early instead of overwriting `timer` — overwriting leaks the previous
+  // setInterval handle so stop() can never clear it.
+  if (timer !== null) {
+    console.log(
+      '[CleanupAbandonedSignups] Already started — ignoring duplicate startCleanupAbandonedSignupsPoller() call',
+    );
+    return;
+  }
+
   const envVal = process.env.CLEANUP_ABANDONED_SIGNUPS_INTERVAL_MS;
   const parsed = envVal ? parseInt(envVal, 10) : NaN;
   const interval = Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_INTERVAL_MS;
@@ -234,8 +272,18 @@ export function startCleanupAbandonedSignupsPoller(): void {
 }
 
 export function stopCleanupAbandonedSignupsPoller(): void {
-  if (timer) {
+  // `if (timer !== null)` — NOT `if (timer)`. setInterval returns
+  // `Timeout` objects in production but tests mock it to return literal
+  // values that may be falsy (e.g., 0). The truthy check would leave
+  // `timer = 0` un-cleared, breaking the start() idempotency guard for
+  // the next test (timer !== null is true, so start() bails).
+  if (timer !== null) {
     clearInterval(timer);
     timer = null;
   }
+  // Reset the single-flight flag too — a subsequent start() should run
+  // cleanly. Without this, if stop() is called WHILE runOnce() is mid-flight
+  // (graceful shutdown signal), the flag stays true and the next test or
+  // restart in the same process would short-circuit on the first runOnce().
+  inProgress = false;
 }

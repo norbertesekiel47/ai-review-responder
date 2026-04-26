@@ -41,6 +41,10 @@ const DEFAULT_INTERVAL_MS = 600_000; // 10 minutes
 const DEFAULT_BATCH_SIZE = 100;
 
 let timer: ReturnType<typeof setInterval> | null = null;
+// Single-flight guard. Same pattern as CleanupAbandonedSignupsPoller —
+// prevents two scheduled ticks from running concurrently if a run takes
+// longer than the interval (Postgres slowness, etc.).
+let inProgress = false;
 
 interface MissingChannelRow {
   business_id: string;
@@ -53,6 +57,29 @@ export async function runOnce(): Promise<{
   failed: number;
 }> {
   const logger = createWorkerLogger('[EmailChannelReconcile]');
+  // Single-flight: if a previous invocation is still executing, skip this
+  // tick and return zero-counts. The check + set is safe because the JS
+  // event loop is single-threaded. The finally below clears the flag so
+  // a subsequent tick can run even if this one threw.
+  if (inProgress) {
+    logger.log('Previous run still in progress — skipping this tick');
+    return { candidates: 0, inserted: 0, failed: 0 };
+  }
+  inProgress = true;
+  try {
+    return await runOnceInner(logger);
+  } finally {
+    inProgress = false;
+  }
+}
+
+async function runOnceInner(
+  logger: ReturnType<typeof createWorkerLogger>,
+): Promise<{
+  candidates: number;
+  inserted: number;
+  failed: number;
+}> {
   const envBatch = process.env.EMAIL_CHANNEL_RECONCILE_BATCH_SIZE;
   const parsedBatch = envBatch ? parseInt(envBatch, 10) : NaN;
   const batchSize =
@@ -93,8 +120,15 @@ export async function runOnce(): Promise<{
       // result.count === 1 → inserted; 0 → another writer raced us, that's fine
       if (result.count > 0) {
         inserted++;
+        // Log only the business_id — never raw owner_email. Worker logs
+        // aggregate into Sentry / Railway / etc. where PII becomes a
+        // permanent record subject to GDPR/CCPA scrubbing requests. If
+        // oncall needs the email for a specific row they can query
+        // `SELECT owner_email FROM businesses WHERE id = '<biz_id>'`.
+        // Same posture as the error + run-complete logs in this file
+        // and the PII-redaction pattern in worker/ingress/telegram.ts.
         logger.log(
-          `Backfilled email channel for business ${row.business_id} (handle=${row.owner_email})`,
+          `Backfilled email channel for business ${row.business_id}`,
         );
       }
     } catch (err) {
@@ -127,6 +161,14 @@ export function startEmailChannelReconcilePoller(): void {
     return;
   }
 
+  // Idempotent start: see CleanupAbandonedSignupsPoller for rationale.
+  if (timer !== null) {
+    console.log(
+      '[EmailChannelReconcile] Already started — ignoring duplicate startEmailChannelReconcilePoller() call',
+    );
+    return;
+  }
+
   const envInterval = process.env.EMAIL_CHANNEL_RECONCILE_INTERVAL_MS;
   const parsed = envInterval ? parseInt(envInterval, 10) : NaN;
   const interval =
@@ -144,8 +186,12 @@ export function startEmailChannelReconcilePoller(): void {
 }
 
 export function stopEmailChannelReconcilePoller(): void {
-  if (timer) {
+  // See CleanupAbandonedSignupsPoller for the !== null vs truthy reasoning.
+  if (timer !== null) {
     clearInterval(timer);
     timer = null;
   }
+  // Reset the single-flight flag so a subsequent start() can run cleanly
+  // even if stop() fired mid-runOnce (graceful shutdown path).
+  inProgress = false;
 }

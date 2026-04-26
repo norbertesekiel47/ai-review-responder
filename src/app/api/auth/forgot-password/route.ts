@@ -105,17 +105,34 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       role === 'admin'
         ? `${appUrl}/api/auth/callback?flow=admin&next=/admin/reset-password`
         : `${appUrl}/api/auth/callback?flow=owner&next=/reset-password`;
-    await supabaseServer.auth
-      .resetPasswordForEmail(email, { redirectTo })
-      .catch((err) => {
-        // Swallow + log: never let a Supabase hiccup leak through as a 500,
-        // because the response body would then differ from the no-user-found
-        // path and give attackers an enumeration signal.
+    // Supabase v2 surfaces most failures (invalid email format, per-email
+    // rate limit, SMTP misconfigured, etc.) in the resolved response's
+    // `error` field rather than rejecting. The previous `.catch()`-only
+    // pattern silently dropped those — we never knew rate-limit errors
+    // were happening in prod. Capture the response, log structured
+    // failures via `if (response.error)`, AND keep the surrounding
+    // try/catch for transport-layer throws (network down, JSON parse).
+    //
+    // Either path swallows the failure response-side: the public response
+    // body must stay identical to the no-user-found path so attackers can't
+    // enumerate which emails are registered by timing or content diffs.
+    try {
+      const response = await supabaseServer.auth.resetPasswordForEmail(
+        email,
+        { redirectTo },
+      );
+      if (response.error) {
         console.error(
-          '[forgot-password] resetPasswordForEmail failed:',
-          err,
+          `[forgot-password] resetPasswordForEmail returned error for role=${role}:`,
+          response.error.message ?? response.error,
         );
-      });
+      }
+    } catch (thrownErr) {
+      console.error(
+        `[forgot-password] resetPasswordForEmail threw for role=${role}:`,
+        thrownErr,
+      );
+    }
   }
 
   // 5. Generic success response — identical on match, mismatch, and unknown.

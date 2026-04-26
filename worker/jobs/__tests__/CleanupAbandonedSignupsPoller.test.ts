@@ -579,7 +579,13 @@ describe('CleanupAbandonedSignupsPoller', () => {
       sqlQueue.push([]);
 
       const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-      const setIntervalSpy = vi.spyOn(global, 'setInterval').mockImplementation(() => 0 as any);
+      // Use a non-zero mock return so `if (timer !== null)` works as
+      // intended in production where setInterval returns Timeout objects.
+      // Returning 0 specifically tests the literal-zero edge case the
+      // !== null check was added to handle.
+      const setIntervalSpy = vi
+        .spyOn(global, 'setInterval')
+        .mockImplementation(() => 12345 as any);
 
       startCleanupAbandonedSignupsPoller();
 
@@ -588,6 +594,77 @@ describe('CleanupAbandonedSignupsPoller', () => {
 
       logSpy.mockRestore();
       setIntervalSpy.mockRestore();
+    });
+
+    // B24 — idempotent start: a second start() call should NOT register
+    // a second interval (which would leak the first since the module
+    // overwrites `timer`). Verify by spying setInterval call count.
+    it('idempotent start: second startCleanupAbandonedSignupsPoller() call is a no-op', () => {
+      process.env.SELF_SERVE_SIGNUP_ENABLED = 'true';
+      sqlQueue.push([]); // initial run from first start
+      sqlQueue.push([]); // (defensive — shouldn't fire from second start)
+
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+      const setIntervalSpy = vi
+        .spyOn(global, 'setInterval')
+        .mockImplementation(() => 67890 as any);
+
+      startCleanupAbandonedSignupsPoller(); // first call — registers
+      startCleanupAbandonedSignupsPoller(); // second call — should bail
+
+      expect(setIntervalSpy).toHaveBeenCalledOnce();
+      // The second call logs the duplicate-guard breadcrumb.
+      expect(
+        logSpy.mock.calls.some((args) =>
+          String(args[0]).includes('Already started'),
+        ),
+      ).toBe(true);
+
+      logSpy.mockRestore();
+      setIntervalSpy.mockRestore();
+    });
+  });
+
+  // B24 — single-flight runOnce: if a previous run is still executing,
+  // the next runOnce() call short-circuits. Critical with sub-interval
+  // tick rates (Scenario H uses 60s) — without this, slow Postgres or
+  // Supabase calls would stack scheduled ticks on top of each other.
+  describe('single-flight runOnce', () => {
+    it('skips if a previous run is still in progress', async () => {
+      // Make the candidates query hang so the first runOnce stays in flight.
+      let resolveFirst: (v: unknown[]) => void = () => {};
+      const firstPromise = new Promise<unknown[]>((resolve) => {
+        resolveFirst = resolve;
+      });
+      consume.mockImplementationOnce(() => firstPromise);
+
+      const firstRun = runOnce();
+
+      // Second runOnce() called while first is still pending.
+      await runOnce();
+
+      // The "skipping this tick" log fires exactly once (from the second
+      // call). The first call hasn't completed its work log yet.
+      const skipCalls = mockLoggerLog.mock.calls.filter((args) =>
+        String(args[0]).includes('Previous run still in progress'),
+      );
+      expect(skipCalls).toHaveLength(1);
+
+      // Let the first run finish so cleanup is clean.
+      resolveFirst([]);
+      await firstRun;
+    });
+
+    it('after first run completes, subsequent runOnce() executes normally', async () => {
+      sqlQueue.push([]); // first run candidates — empty list, completes immediately
+      sqlQueue.push([]); // second run candidates — also empty
+      await runOnce();
+      await runOnce();
+      // Both runs logged "Run complete" — neither was short-circuited.
+      const completedCalls = mockLoggerLog.mock.calls.filter((args) =>
+        String(args[0]).includes('Run complete'),
+      );
+      expect(completedCalls).toHaveLength(2);
     });
   });
 });

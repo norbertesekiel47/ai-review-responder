@@ -304,12 +304,28 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // Best-effort rollback: delete the auth user we just invited, then the
     // DB rows. Errors here only get logged — the route's final 500 is the
     // load-bearing signal regardless of cleanup outcome.
+    //
+    // Supabase v2 admin returns `{ data, error }` instead of throwing on
+    // API-level failures (404 user-not-found, 422 invalid, RLS denial,
+    // etc.). The outer try/catch handles transport-layer throws (network
+    // down, JSON parse fail); the inner `if (error)` handles structured
+    // failures the SDK surfaces in the response. Without both, a real
+    // failure to delete the orphan auth user would silently succeed and
+    // the next admin retry on the same email would 422 from Supabase
+    // (email collision) without any log breadcrumb.
     try {
-      await supabaseServer.auth.admin.deleteUser(invited.user.id);
-    } catch (deleteErr) {
+      const { error: deleteErr } =
+        await supabaseServer.auth.admin.deleteUser(invited.user.id);
+      if (deleteErr) {
+        console.error(
+          `[api/admin/businesses POST] Supabase deleteUser returned error for invited auth user ${invited.user.id} during link-failure rollback:`,
+          deleteErr.message ?? deleteErr,
+        );
+      }
+    } catch (thrownErr) {
       console.error(
-        `[api/admin/businesses POST] Failed to delete invited auth user ${invited.user.id} during link-failure rollback:`,
-        deleteErr,
+        `[api/admin/businesses POST] Supabase deleteUser threw for invited auth user ${invited.user.id} during link-failure rollback:`,
+        thrownErr,
       );
     }
     try {

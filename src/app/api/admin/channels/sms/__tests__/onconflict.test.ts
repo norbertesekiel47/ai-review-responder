@@ -11,7 +11,7 @@
 // Follows the hoisted-mock pattern from
 // src/lib/notifications/__tests__/enrollments.test.ts and
 // src/app/api/admin/businesses/[id]/channels/__tests__/route.test.ts.
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 import { NextRequest } from 'next/server';
 
 const { sqlCalls, mockSql } = vi.hoisted(() => {
@@ -69,7 +69,11 @@ vi.mock('@/lib/db/server', () => ({
 
 // The post-B11 route guards on NEXT_PUBLIC_APP_URL before createBusinessTx
 // so we must populate it BEFORE importing the route (or the route's
-// fail-fast 500 would short-circuit before any SQL fires).
+// fail-fast 500 would short-circuit before any SQL fires). The assignment
+// stays at module scope for that reason; the snapshot + afterAll below
+// restores the prior value so this suite can't leak env state to other
+// tests sharing the vitest worker.
+const _origNextPublicAppUrl = process.env.NEXT_PUBLIC_APP_URL;
 process.env.NEXT_PUBLIC_APP_URL = 'http://localhost:3000';
 
 vi.mock('@/lib/db/auth', () => ({
@@ -90,6 +94,20 @@ vi.mock('@/lib/db/auth', () => ({
 }));
 
 describe('Phase 0 email enrollment upserts — ON CONFLICT regression', () => {
+  // Restore the env var snapshot taken at module scope so this suite can't
+  // leak NEXT_PUBLIC_APP_URL='http://localhost:3000' to subsequent tests
+  // sharing the vitest worker. Branching on `undefined` matters: setting
+  // process.env.X = undefined leaves the literal string "undefined" on the
+  // var, which then trips downstream code that does Boolean checks. Use
+  // delete for the originally-unset case.
+  afterAll(() => {
+    if (_origNextPublicAppUrl === undefined) {
+      delete process.env.NEXT_PUBLIC_APP_URL;
+    } else {
+      process.env.NEXT_PUBLIC_APP_URL = _origNextPublicAppUrl;
+    }
+  });
+
   beforeEach(() => {
     sqlCalls.length = 0;
     mockSql.mockClear();

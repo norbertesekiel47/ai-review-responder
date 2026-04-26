@@ -154,6 +154,93 @@ describe('handleStripeWebhook — unhandled event types are safely ignored', () 
     expect(businessTouches).toEqual([]);
   });
 
+  // B23 — malformed client_reference_id used to trigger the
+  // `${businessId}::uuid` cast inside the tx, raising a Postgres "invalid
+  // input syntax for type uuid" error → handler 500 → inbound_events
+  // marked failed → Stripe retries the event for ~3 days. The UUID_RE
+  // guard returns early (200, no SQL writes, log warn) so Stripe stops
+  // retrying and oncall sees a clean breadcrumb.
+  it('checkout.session.completed with malformed client_reference_id → 200 + no SQL writes + log warn', async () => {
+    mockConstructEvent.mockReturnValue({
+      id: 'evt_checkout_bad_id_1',
+      type: 'checkout.session.completed',
+      data: {
+        object: {
+          id: 'cs_test_bad',
+          mode: 'subscription',
+          payment_status: 'paid',
+          client_reference_id: 'not-a-uuid', // malformed
+          customer: 'cus_test_bad',
+          subscription: 'sub_test_bad',
+        },
+      },
+    });
+    const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const { reply, status } = mkReply();
+    await handleStripeWebhook(mkRequest('checkout.session.completed'), reply);
+
+    // Stripe gets 200 — stops retrying.
+    expect(status).toHaveBeenCalledWith(200);
+
+    // Critical: no business-table SQL fires. The malformed UUID would
+    // have crashed the transaction.
+    const businessTouches = sqlTexts().filter((t) =>
+      /UPDATE\s+businesses|SELECT\s+subscription_status[\s\S]*FROM\s+businesses|DELETE\s+FROM\s+businesses/i.test(t),
+    );
+    expect(businessTouches).toEqual([]);
+
+    // The advisory-lock template should also not fire (we returned before
+    // entering the tx).
+    const lockTouches = sqlTexts().filter((t) =>
+      /pg_advisory_xact_lock/i.test(t),
+    );
+    expect(lockTouches).toEqual([]);
+
+    // Log line tells oncall the event was dropped intentionally.
+    const warnedText = consoleSpy.mock.calls.flat().join(' ');
+    expect(warnedText).toMatch(/malformed business_id/);
+    expect(warnedText).toMatch(/"not-a-uuid"/);
+
+    // inbound_events still gets marked processed at the tail of the
+    // handler (so future replays of the same event id are deduped).
+    expect(
+      sqlTexts().some((t) =>
+        /UPDATE\s+inbound_events[\s\S]*processed/i.test(t),
+      ),
+    ).toBe(true);
+
+    consoleSpy.mockRestore();
+  });
+
+  it('checkout.session.completed with empty-string client_reference_id → 200 + no SQL writes (handled by the existing !businessId guard)', async () => {
+    mockConstructEvent.mockReturnValue({
+      id: 'evt_checkout_empty_id_1',
+      type: 'checkout.session.completed',
+      data: {
+        object: {
+          id: 'cs_test_empty',
+          mode: 'subscription',
+          payment_status: 'paid',
+          client_reference_id: '',
+          customer: 'cus_test',
+          subscription: 'sub_test',
+        },
+      },
+    });
+    const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const { reply, status } = mkReply();
+    await handleStripeWebhook(mkRequest('checkout.session.completed'), reply);
+
+    expect(status).toHaveBeenCalledWith(200);
+    const businessTouches = sqlTexts().filter((t) =>
+      /UPDATE\s+businesses|SELECT\s+subscription_status[\s\S]*FROM\s+businesses/i.test(t),
+    );
+    expect(businessTouches).toEqual([]);
+    consoleSpy.mockRestore();
+  });
+
   it('positive control: checkout.session.completed DOES UPDATE businesses', async () => {
     mockConstructEvent.mockReturnValue({
       id: 'evt_checkout_1',
