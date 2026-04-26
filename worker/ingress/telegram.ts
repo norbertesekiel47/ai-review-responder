@@ -20,7 +20,7 @@
 import { createHash } from 'node:crypto';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { sql } from '../../src/lib/db/server';
-import { claimInboundEvent } from './shared';
+import { claimInboundEvent, markInboundEventProcessed, markInboundEventFailed } from './shared';
 import { verifyTelegramSecret } from './telegram-verify';
 import { approveViaCallback, regenerateViaCallback } from '../../src/lib/approval/service';
 import {
@@ -103,22 +103,6 @@ function redactForAudit(update: TelegramUpdate): Record<string, unknown> {
   return clone;
 }
 
-async function markProcessed(dedupKey: string): Promise<void> {
-  await sql`
-    UPDATE inbound_events
-    SET status = 'processed', processed_at = NOW()
-    WHERE external_event_key = ${dedupKey}
-  `;
-}
-
-async function markFailed(dedupKey: string, reason: string): Promise<void> {
-  await sql`
-    UPDATE inbound_events
-    SET status = 'failed', error_message = ${reason}
-    WHERE external_event_key = ${dedupKey}
-  `;
-}
-
 async function handleEnrollment(
   update: TelegramUpdate,
   dedupKey: string,
@@ -132,7 +116,7 @@ async function handleEnrollment(
   if (!chatId) {
     // Malformed update with no sender — mark processed (permanent, no retry)
     // and skip sendMessage since there's no recipient.
-    await markProcessed(dedupKey);
+    await markInboundEventProcessed(dedupKey);
     return;
   }
 
@@ -142,7 +126,7 @@ async function handleEnrollment(
   // private chat so we know DMs will reach them.
   const chatType = message.chat?.type;
   if (chatType && chatType !== 'private') {
-    await markProcessed(dedupKey);
+    await markInboundEventProcessed(dedupKey);
     await client.sendMessage({
       chat_id: chatId,
       text: 'Please open a direct message with this bot and tap the connection link from there. Group enrollment is not supported.',
@@ -151,7 +135,7 @@ async function handleEnrollment(
   }
 
   if (!rawToken) {
-    await markProcessed(dedupKey);
+    await markInboundEventProcessed(dedupKey);
     await client.sendMessage({ chat_id: chatId, text: 'This link is invalid or expired. Please request a new one from your RepWorth admin.' })
       .catch(() => {});
     return;
@@ -190,7 +174,7 @@ async function handleEnrollment(
   });
 
   if (!enrollment) {
-    await markProcessed(dedupKey);
+    await markInboundEventProcessed(dedupKey);
     await client.sendMessage({ chat_id: chatId, text: 'This link is invalid or expired. Please request a new one from your RepWorth admin.' })
       .catch(() => {});
     return;
@@ -198,7 +182,7 @@ async function handleEnrollment(
 
   // State already mutated — mark processed before confirmation send so a
   // sendMessage failure does not cause the outer catch to call markFailed.
-  await markProcessed(dedupKey);
+  await markInboundEventProcessed(dedupKey);
   await client.sendMessage({
     chat_id: chatId,
     text: "✅ You're connected to RepWorth — we'll ping you here when a review needs approval.",
@@ -238,7 +222,7 @@ async function handleCallback(
   // Parse callback data — invalid action is a permanent client error
   const parsed = cb.data ? parseCallbackData(cb.data) : null;
   if (!parsed) {
-    await markProcessed(dedupKey);
+    await markInboundEventProcessed(dedupKey);
     await client.answerCallbackQuery({ callback_query_id: cb.id, text: 'Invalid action' })
       .catch(() => {});
     reply.code(200).send({ ok: true });
@@ -263,7 +247,7 @@ async function handleCallback(
     // Ack for the toast banner AND edit the original message so the stale
     // buttons disappear (repeated taps would otherwise just re-fire the
     // same "no longer valid" ack against a dead link).
-    await markProcessed(dedupKey);
+    await markInboundEventProcessed(dedupKey);
     const deadText = 'This approval is no longer valid — it may have been handled on another channel.';
     await client.answerCallbackQuery({ callback_query_id: cb.id, text: deadText })
       .catch(() => {});
@@ -288,7 +272,7 @@ async function handleCallback(
   `;
   if (enrollmentRows.length === 0) {
     // Permanent — sender not enrolled; mark processed before UX send
-    await markProcessed(dedupKey);
+    await markInboundEventProcessed(dedupKey);
     await client.answerCallbackQuery({ callback_query_id: cb.id, text: 'This approval is no longer valid — it may have been handled on another channel.' })
       .catch(() => {});
     reply.code(200).send({ ok: true });
@@ -344,7 +328,7 @@ async function handleCallback(
       || e instanceof ResponseNotPendingError;
 
     if (isPermanent) {
-      await markProcessed(dedupKey);
+      await markInboundEventProcessed(dedupKey);
       // Edit the original message in place: replaces the stale draft body
       // with the status line AND implicitly drops the inline keyboard
       // (reply_markup omitted) so the approve/regenerate buttons can't
@@ -368,7 +352,7 @@ async function handleCallback(
     const fallback = '⚠️ Something went wrong on our end. Please tap the Edit link in the approval message above to finish approval in the browser.';
     await client.sendMessage({ chat_id: chatId, text: fallback })
       .catch(() => { /* UX degraded; reclaim retries keep state consistent */ });
-    await markFailed(dedupKey, e.message);
+    await markInboundEventFailed(dedupKey, e.message);
     reply.code(503).send({ ok: false });
     return;
   }
@@ -392,7 +376,7 @@ async function handleCallback(
     }).catch(() => { /* cosmetic */ });
   }
 
-  await markProcessed(dedupKey);
+  await markInboundEventProcessed(dedupKey);
   reply.code(200).send({ ok: true });
 }
 
@@ -437,11 +421,11 @@ export async function handleTelegramWebhook(
       return;
     }
     // Unknown update type — silent 200, mark processed
-    await markProcessed(dedupKey);
+    await markInboundEventProcessed(dedupKey);
     reply.code(200).send({ ok: true });
   } catch (err) {
     const msg = (err as Error).message ?? 'unknown';
-    await markFailed(dedupKey, msg).catch(() => {});
+    await markInboundEventFailed(dedupKey, msg).catch(() => {});
     reply.code(503).send({ ok: false });
   }
 }

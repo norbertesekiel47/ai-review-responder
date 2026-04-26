@@ -13,7 +13,7 @@
 
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { sql } from '../../src/lib/db/server';
-import { claimInboundEvent } from './shared';
+import { claimInboundEvent, markInboundEventProcessed, markInboundEventFailed } from './shared';
 import { parseTwilioBody, verifyTwilioSignature } from './twilio-verify';
 
 const LOG_PREFIX = '[ingress/twilio-whatsapp]';
@@ -165,20 +165,6 @@ function parseButtonPayload(
   return { action, approvalLinkId: rest };
 }
 
-async function markProcessed(dedupKey: string): Promise<void> {
-  await sql`
-    UPDATE inbound_events SET status = 'processed', processed_at = NOW()
-    WHERE external_event_key = ${dedupKey}
-  `;
-}
-
-async function markFailed(dedupKey: string, reason: string): Promise<void> {
-  await sql`
-    UPDATE inbound_events SET status = 'failed', error_message = ${reason}
-    WHERE external_event_key = ${dedupKey}
-  `;
-}
-
 export async function handleTwilioWhatsAppInbound(
   request: FastifyRequest,
   reply: FastifyReply,
@@ -229,7 +215,7 @@ export async function handleTwilioWhatsAppInbound(
     const parsed = parseButtonPayload(ButtonPayload);
     if (!parsed) {
       console.warn(`${LOG_PREFIX} malformed ButtonPayload`);
-      await markProcessed(dedupKey);
+      await markInboundEventProcessed(dedupKey);
       reply.status(200).send({ received: true });
       return;
     }
@@ -250,7 +236,7 @@ export async function handleTwilioWhatsAppInbound(
         to: toWaRecipient(senderHandle),
         body: 'This reply was just handled on another channel.',
       }).catch(() => {});
-      await markProcessed(dedupKey);
+      await markInboundEventProcessed(dedupKey);
       reply.status(200).send({ received: true });
       return;
     }
@@ -270,7 +256,7 @@ export async function handleTwilioWhatsAppInbound(
         to: toWaRecipient(senderHandle),
         body: 'This approval is no longer valid.',
       }).catch(() => {});
-      await markProcessed(dedupKey);
+      await markInboundEventProcessed(dedupKey);
       reply.status(200).send({ received: true });
       return;
     }
@@ -291,7 +277,7 @@ export async function handleTwilioWhatsAppInbound(
         ? "✅ Response approved — we'll post it shortly."
         : '🔄 Regenerating — a new draft will follow shortly.';
       await client.sendFreeform({ to: toWaRecipient(senderHandle), body }).catch(() => {});
-      await markProcessed(dedupKey);
+      await markInboundEventProcessed(dedupKey);
       reply.status(200).send({ received: true });
       return;
     } catch (err) {
@@ -308,7 +294,7 @@ export async function handleTwilioWhatsAppInbound(
           ? 'This approval link has expired — a new draft will arrive on the next review.'
           : 'This reply was just handled on another channel.';
         await client.sendFreeform({ to: toWaRecipient(senderHandle), body }).catch(() => {});
-        await markProcessed(dedupKey);
+        await markInboundEventProcessed(dedupKey);
         reply.status(200).send({ received: true });
         return;
       }
@@ -318,7 +304,7 @@ export async function handleTwilioWhatsAppInbound(
         to: toWaRecipient(senderHandle),
         body: '⚠️ Something went wrong on our end. Please tap the Edit link in the approval message above to finish in browser.',
       }).catch(() => {});
-      await markFailed(dedupKey, e.message);
+      await markInboundEventFailed(dedupKey, e.message);
       reply.status(503).send({ received: true, retry: true });
       return;
     }
@@ -341,14 +327,14 @@ export async function handleTwilioWhatsAppInbound(
         AND channel = 'whatsapp'
         AND archived_at IS NULL
     `;
-    await markProcessed(dedupKey);
+    await markInboundEventProcessed(dedupKey);
     reply.status(200).send({ received: true });
     return;
   }
 
   // START is intentionally a no-op — re-enrollment must go through admin /start.
   if (intent === 'start') {
-    await markProcessed(dedupKey);
+    await markInboundEventProcessed(dedupKey);
     reply.status(200).send({ received: true });
     return;
   }
@@ -393,14 +379,14 @@ export async function handleTwilioWhatsAppInbound(
     // committed — we proceed to markProcessed regardless.
     await client.sendFreeform({ to: toWaRecipient(senderHandle), body })
       .catch((err) => console.warn(`${LOG_PREFIX} enrollment confirmation send failed: ${(err as Error).message}`));
-    await markProcessed(dedupKey);
+    await markInboundEventProcessed(dedupKey);
     reply.status(200).send({ received: true });
     return;
   }
 
   // ── Unrecognised inbound — log and ignore ────────────────────────────────
   console.log(`${LOG_PREFIX} unrecognised inbound from ${senderHandle} (MessageSid=${MessageSid})`);
-  await markProcessed(dedupKey);
+  await markInboundEventProcessed(dedupKey);
   reply.status(200).send({ received: true });
   } catch (err) {
     // Post-claim safety net — see the outer try block for rationale.
@@ -411,7 +397,7 @@ export async function handleTwilioWhatsAppInbound(
     const e = err as Error;
     console.error(`${LOG_PREFIX} unexpected post-claim error: ${e.message}`);
     try {
-      await markFailed(dedupKey, `post_claim_unexpected:${e.message}`);
+      await markInboundEventFailed(dedupKey, `post_claim_unexpected:${e.message}`);
     } catch (markErr) {
       console.error(`${LOG_PREFIX} also failed to markFailed: ${(markErr as Error).message}`);
     }
