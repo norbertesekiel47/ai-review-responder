@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import type { DashboardData, DashboardDataActive } from '@/app/api/dashboard/route';
+import type { DashboardData, DashboardDataActive } from '@/lib/dashboard/types';
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip,
   LineChart, Line, CartesianGrid,
