@@ -17,14 +17,14 @@ import { getVerifiedEnrollments } from '../../src/lib/notifications/enrollments'
 import { getChannel } from '../../src/lib/notifications/channels';
 import type { ChannelId } from '../../src/lib/notifications/channels/types';
 import { createApprovalLink } from '../../src/lib/approval/create-link';
+import type { SendNotificationPayload } from '../../src/lib/shared/worker-types';
+import { createWorkerLogger } from '../../src/lib/shared/logger';
+import { classifyChannelError } from './notification/errors';
 import {
   reserveSmsCost,
   refundSmsCost,
   DailySmsLimitExceededError,
-} from '../../src/lib/costs/sms-tracker';
-import type { SendNotificationPayload } from '../../src/lib/shared/worker-types';
-import { createWorkerLogger } from '../../src/lib/shared/logger';
-import { classifyChannelError } from './notification/errors';
+} from './notification/sms-budget';
 
 export async function handleSendNotification(
   job: Job<SendNotificationPayload>,
