@@ -14,18 +14,7 @@ import { checkSubscription } from '../../src/lib/shared/subscription-guard';
 import { markOutboxCompleted, markOutboxFailed, extractOutboxHandle } from '../../src/lib/shared/outbox';
 import { recordNotificationDelivery, insertFailedDelivery } from '../../src/lib/notifications/delivery';
 import { getVerifiedEnrollments } from '../../src/lib/notifications/enrollments';
-import {
-  getChannel,
-  SmsRecipientUnsubscribedError,
-  TelegramRecipientBlockedError,
-  TelegramChatNotFoundError,
-  WhatsAppRecipientBlockedError,
-  WhatsAppInvalidRecipientError,
-  WhatsAppTemplateConfigError,
-  WhatsAppSessionWindowError,
-  WhatsAppRateLimitError,
-  WhatsAppTimeoutError,
-} from '../../src/lib/notifications/channels';
+import { getChannel } from '../../src/lib/notifications/channels';
 import type { ChannelId } from '../../src/lib/notifications/channels/types';
 import { createApprovalLink } from '../../src/lib/approval/create-link';
 import {
@@ -35,6 +24,7 @@ import {
 } from '../../src/lib/costs/sms-tracker';
 import type { SendNotificationPayload } from '../../src/lib/shared/worker-types';
 import { createWorkerLogger } from '../../src/lib/shared/logger';
+import { classifyChannelError } from './notification/errors';
 
 export async function handleSendNotification(
   job: Job<SendNotificationPayload>,
@@ -243,12 +233,17 @@ export async function handleSendNotification(
         externalMessageId = result.externalMessageId;
         sendAccepted = true;
       } catch (err) {
-        // Sender-wide 21610 handling: Twilio rejected because the handle is
-        // blocked at the Messaging Service level. Flip all matching active
-        // enrollments and record durable audit evidence in one transaction.
-        if (err instanceof SmsRecipientUnsubscribedError) {
+        const directive = classifyChannelError(channelId, err, {
+          businessId: business_id,
+          responseId: response_id,
+        });
+
+        // Apply the enrollment mutation. Each branch writes the SAME SQL
+        // text as the original NotificationWorker — channel names are
+        // literals (not bound) to keep the unit-test SQL-text assertions
+        // (worker/jobs/__tests__/NotificationWorker.whatsapp.test.ts) green.
+        if (directive.kind === 'sms_unsubscribed') {
           const msid = process.env.TWILIO_MESSAGING_SERVICE_SID!;
-          const reason = err instanceof Error ? err.message : String(err);
           await sql.begin(async (tx) => {
             await tx`
               INSERT INTO sms_sender_opt_outs (messaging_service_sid, handle, opted_out_at, opted_in_at, last_event_at)
@@ -271,15 +266,9 @@ export async function handleSendNotification(
               WHERE handle = ${enrollment.handle} AND channel = 'sms' AND archived_at IS NULL
             `;
           });
-          logger.log(`SMS enrollment flipped to unsubscribed (twilio_21610_at_send) for business ${business_id}`);
-          logger.error(`[NotificationWorker] SMS 21610: ${reason}`);
-          await insertFailedDelivery(business_id, response_id, 'sms', enrollment.handle, 'twilio_21610_at_send');
-          continue; // `finally` runs before continue, so refund still triggers when sendAccepted=false.
-        }
-        if (err instanceof TelegramRecipientBlockedError) {
+        } else if (directive.kind === 'telegram_blocked') {
           // Filter by handle too (mirrors SMS 21610 pattern) so a stale send
-          // failure cannot stomp a freshly-re-enrolled handle if the admin
-          // disabled + re-enrolled during the in-flight send.
+          // failure cannot stomp a freshly-re-enrolled handle.
           await sql.begin(async (tx) => {
             await tx`
               UPDATE channel_enrollments
@@ -293,12 +282,7 @@ export async function handleSendNotification(
                 AND archived_at IS NULL
             `;
           });
-          logger.log(`Telegram enrollment flipped to unsubscribed (telegram_blocked) for business ${business_id}`);
-          await insertFailedDelivery(business_id, response_id, 'telegram', enrollment.handle, 'telegram_blocked');
-          continue; // `finally` runs before continue, so any refund still triggers when sendAccepted=false.
-        }
-        if (err instanceof TelegramChatNotFoundError) {
-          // Same handle-scoped filter as the blocked branch above.
+        } else if (directive.kind === 'telegram_chat_not_found') {
           await sql.begin(async (tx) => {
             await tx`
               UPDATE channel_enrollments
@@ -311,14 +295,7 @@ export async function handleSendNotification(
                 AND archived_at IS NULL
             `;
           });
-          logger.log(`Telegram enrollment flipped to disabled (chat_not_found) for business ${business_id}`);
-          await insertFailedDelivery(business_id, response_id, 'telegram', enrollment.handle, 'telegram_chat_not_found');
-          continue; // `finally` runs before continue, so any refund still triggers when sendAccepted=false.
-        }
-        if (err instanceof WhatsAppRecipientBlockedError) {
-          // OWNER-INTENT: recipient blocked WhatsApp messages from us.
-          // Filter by handle (same handle-scoped guard as SMS/Telegram) so a
-          // stale send failure cannot stomp a freshly re-enrolled handle.
+        } else if (directive.kind === 'whatsapp_blocked') {
           await sql.begin(async (tx) => {
             await tx`
               UPDATE channel_enrollments
@@ -332,12 +309,7 @@ export async function handleSendNotification(
                 AND archived_at IS NULL
             `;
           });
-          logger.log(`WhatsApp enrollment flipped to unsubscribed (whatsapp_blocked) for business ${business_id}`);
-          await insertFailedDelivery(business_id, response_id, 'whatsapp', enrollment.handle, 'whatsapp_blocked');
-          continue;
-        }
-        if (err instanceof WhatsAppInvalidRecipientError) {
-          // OWNER-INTENT: number doesn't exist or isn't a WhatsApp account.
+        } else if (directive.kind === 'whatsapp_invalid_recipient') {
           await sql.begin(async (tx) => {
             await tx`
               UPDATE channel_enrollments
@@ -350,49 +322,25 @@ export async function handleSendNotification(
                 AND archived_at IS NULL
             `;
           });
-          logger.log(`WhatsApp enrollment flipped to disabled (invalid_recipient) for business ${business_id}`);
-          await insertFailedDelivery(business_id, response_id, 'whatsapp', enrollment.handle, 'whatsapp_invalid_recipient');
-          continue;
         }
-        if (err instanceof WhatsAppTemplateConfigError) {
-          // CONFIG-ERROR: template paused/disabled/broken — RepWorth ops problem,
-          // NOT owner intent. Enrollment stays verified. NotificationFailoverPoller
-          // alerts admin if WA + every other channel also fail.
-          logger.error(`WhatsApp template config error for business ${business_id}: code=${err.code}`);
-          await insertFailedDelivery(business_id, response_id, 'whatsapp', enrollment.handle, `whatsapp_template_config:${err.code}`);
-          continue;
+        // CONFIG-ERROR (whatsapp_template_config / whatsapp_session_window),
+        // TRANSIENT (whatsapp_rate_limit / whatsapp_timeout), and 'unknown'
+        // intentionally leave channel_enrollments unchanged.
+
+        // Primary log line (preserved verbatim from the original branches).
+        logger[directive.logLevel](directive.logMessage);
+        if (directive.extraLog) {
+          logger[directive.extraLog.level](directive.extraLog.message);
         }
-        if (err instanceof WhatsAppSessionWindowError) {
-          // CONFIG-ERROR: 63016 means outside 24h window AND no template approved.
-          // We always pass contentSid on approval sends, so this indicates a
-          // dispatcher or template config bug. Log loudly; enrollment stays verified.
-          logger.error(`WhatsApp session-window error (dispatcher bug?) for business ${business_id}: code=${err.code}`);
-          await insertFailedDelivery(business_id, response_id, 'whatsapp', enrollment.handle, `whatsapp_session_window:${err.code}`);
-          continue;
-        }
-        if (err instanceof WhatsAppRateLimitError) {
-          // TRANSIENT: BullMQ queue-level backoff handles retry via
-          // defaultJobOptions (worker/queues.ts). retry_after recorded in
-          // failure_reason but NOT applied as a per-job delay — out of scope.
-          logger.warn(`WhatsApp rate limit for business ${business_id}: ${err.code}`);
-          await insertFailedDelivery(business_id, response_id, 'whatsapp', enrollment.handle, `whatsapp_rate_limit:${err.code}`);
-          continue;
-        }
-        if (err instanceof WhatsAppTimeoutError) {
-          logger.warn(`WhatsApp timeout for business ${business_id}`);
-          await insertFailedDelivery(business_id, response_id, 'whatsapp', enrollment.handle, 'whatsapp_timeout');
-          continue;
-        }
-        const reason = err instanceof Error ? err.message : String(err);
-        logger.error(`${channelId} send failed for response ${response_id}: ${reason}`);
+
         await insertFailedDelivery(
           business_id,
           response_id,
           channelId,
           enrollment.handle,
-          `send_error:${reason}`,
+          directive.failureReason,
         );
-        continue; // `finally` runs before continue, so refund still triggers when sendAccepted=false.
+        continue; // `finally` runs before continue, so any refund still triggers when sendAccepted=false.
       }
 
       await recordNotificationDelivery({
