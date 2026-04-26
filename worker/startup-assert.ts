@@ -6,6 +6,24 @@
 // BullMQ Worker construction which opens Redis connections, etc.).
 
 /**
+ * Boot-time assertion. When SELF_SERVE_SIGNUP_ENABLED=true, verifies all
+ * required env vars are set. Fail fast at startup rather than at first
+ * signup attempt. No-op when the flag is off.
+ */
+export function assertSelfServeSignupEnv(): void {
+  if (process.env.SELF_SERVE_SIGNUP_ENABLED !== 'true') return;
+  if (!process.env.REDIS_CACHE_URL) {
+    throw new Error('[startup] SELF_SERVE_SIGNUP_ENABLED=true requires REDIS_CACHE_URL (strict rate-limit mode)');
+  }
+  if (!process.env.NEXT_PUBLIC_APP_URL) {
+    throw new Error('[startup] SELF_SERVE_SIGNUP_ENABLED=true requires NEXT_PUBLIC_APP_URL');
+  }
+  if (!process.env.STRIPE_PAYMENT_LINK_FOUNDING || !process.env.STRIPE_PAYMENT_LINK_STANDARD) {
+    throw new Error('[startup] SELF_SERVE_SIGNUP_ENABLED=true requires STRIPE_PAYMENT_LINK_FOUNDING + STRIPE_PAYMENT_LINK_STANDARD');
+  }
+}
+
+/**
  * Boot-time assertion. When CHANNELS_SMS_ENABLED=true, verifies all required
  * Twilio env vars are set. Fail fast at startup rather than at first enrollment
  * or send. No-op when the flag is off or in MOCK_EXTERNAL_APIS mode.

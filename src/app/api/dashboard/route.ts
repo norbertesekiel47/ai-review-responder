@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
+import { buildPaymentLinkUrl } from '@/lib/payments/payment-link';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,7 +19,8 @@ export interface DashboardSettings {
   googlePlaceId: string;
 }
 
-export interface DashboardData {
+export interface DashboardDataActive {
+  subscriptionStatus?: never;
   business: { name: string; createdAt: string };
   valueSummary: {
     totalReviewsHandled: number;
@@ -48,6 +50,31 @@ export interface DashboardData {
   } | null;
   settings: DashboardSettings;
 }
+
+export interface DashboardDataPendingPayment {
+  subscriptionStatus: 'pending_payment';
+  businessId: string;
+  businessName: string;
+  paymentUrl: string | null;
+}
+
+export interface DashboardDataPendingAdminHandoff {
+  subscriptionStatus: 'pending_payment_admin_handoff';
+  businessId: string;
+  businessName: string;
+}
+
+export interface DashboardDataActivePendingBusiness {
+  subscriptionStatus: 'active_pending_business';
+  businessId: string;
+  businessName: string;
+}
+
+export type DashboardData =
+  | DashboardDataActive
+  | DashboardDataPendingPayment
+  | DashboardDataPendingAdminHandoff
+  | DashboardDataActivePendingBusiness;
 
 /** PgBouncer can return TEXT[] as JSON strings. */
 function parseArray(val: unknown): string[] {
@@ -81,6 +108,68 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const businessId = user.businessId;
 
   try {
+    // Cheap pre-query: determine subscription status + onboarding state
+    // before running the 8 heavy queries.
+    const [subRow] = await sql<{
+      name: string;
+      subscription_status: string;
+      subscription_tier: string;
+      owner_email: string;
+      onboarded_by: string | null;
+      place_id_verified: boolean;
+      google_maps_url: string | null;
+    }[]>`
+      SELECT name, subscription_status, subscription_tier, owner_email, onboarded_by,
+             place_id_verified, google_maps_url
+      FROM businesses WHERE id = ${businessId}
+    `;
+    if (!subRow) {
+      return jsonResponse({ error: 'Business not found' }, 404);
+    }
+
+    if (subRow.subscription_status === 'pending_payment') {
+      // Admin-onboarded businesses should NOT see the self-serve payment CTA —
+      // they already have a handoff path via the partner. Showing the payment
+      // link here would risk a double-charge if the partner's flow used a
+      // different price point or coupon.
+      if (subRow.onboarded_by !== null) {
+        return jsonResponse({
+          subscriptionStatus: 'pending_payment_admin_handoff',
+          businessId,
+          businessName: subRow.name,
+        });
+      }
+      const tier: 'founding' | 'standard' =
+        subRow.subscription_tier === 'founding' ||
+        subRow.subscription_tier === 'standard'
+          ? subRow.subscription_tier
+          : 'standard';
+      const paymentUrl = buildPaymentLinkUrl(tier, businessId, subRow.owner_email);
+      return jsonResponse({
+        subscriptionStatus: 'pending_payment',
+        businessId,
+        businessName: subRow.name,
+        paymentUrl,
+      });
+    }
+
+    // Active subscription but the owner skipped or never reached the
+    // /onboarding/business wizard (e.g. bookmarked /dashboard from earlier
+    // or closed the tab during the post-payment redirect). Surface a
+    // CTA-only screen instead of the empty-state dashboard so they have
+    // an obvious next action.
+    if (
+      subRow.subscription_status === 'active' &&
+      !subRow.place_id_verified &&
+      subRow.google_maps_url === null
+    ) {
+      return jsonResponse({
+        subscriptionStatus: 'active_pending_business',
+        businessId,
+        businessName: subRow.name,
+      });
+    }
+
     const [
       businessRows,
       totalReviewRows,
@@ -242,7 +331,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         : null;
 
     // Pick whichever brief was sent more recently (by sent_at, not period start)
-    let latestBrief: DashboardData['latestBrief'] = null;
+    let latestBrief: DashboardDataActive['latestBrief'] = null;
     const monthlyBrief = monthlyBriefRows[0];
     const weeklyBrief = weeklyBriefRows[0];
 

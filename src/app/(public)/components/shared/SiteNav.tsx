@@ -2,9 +2,10 @@ import Link from 'next/link';
 
 interface SiteNavProps {
   comingSoon?: boolean;
+  selfServeEnabled?: boolean;
 }
 
-export function SiteNav({ comingSoon = false }: SiteNavProps) {
+export function SiteNav({ comingSoon = false, selfServeEnabled = false }: SiteNavProps) {
   const navLinks = [
     { label: 'Features', href: '/features' },
     { label: 'How it works', href: '/how-it-works' },
@@ -27,6 +28,19 @@ export function SiteNav({ comingSoon = false }: SiteNavProps) {
             {label}
           </Link>
         ))}
+        {selfServeEnabled && (
+          <>
+            <Link href="/login" className="text-sm text-[#6a6a6a] hover:text-[#97B3AE] transition-colors">
+              Log In
+            </Link>
+            <Link
+              href="/signup"
+              className="text-sm bg-[#97B3AE] text-white px-4 py-2 rounded-full hover:bg-[#97B3AE]/90 transition-colors"
+            >
+              Sign Up
+            </Link>
+          </>
+        )}
       </div>
     </nav>
   );

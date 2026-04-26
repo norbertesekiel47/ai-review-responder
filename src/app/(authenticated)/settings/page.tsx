@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import type { DashboardData, DashboardSettings } from '@/app/api/dashboard/route';
+import type { DashboardData, DashboardDataActive, DashboardSettings } from '@/app/api/dashboard/route';
 
 type SettingsForm = {
   tone: string;
@@ -44,7 +44,7 @@ function buildPatch(initial: SettingsForm, current: SettingsForm): Record<string
 }
 
 export default function SettingsPage() {
-  const [data, setData] = useState<DashboardData | null>(null);
+  const [data, setData] = useState<DashboardDataActive | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
   const [form, setForm] = useState<SettingsForm | null>(null);
@@ -63,8 +63,15 @@ export default function SettingsPage() {
           throw new Error(body.error ?? `Request failed (${res.status})`);
         }
         const json: DashboardData = await res.json();
-        setData(json);
-        const formData = settingsToForm(json.settings);
+        if (json.subscriptionStatus === 'pending_payment') {
+          // Owner hasn't paid yet — redirect to their payment link if available.
+          const url = json.paymentUrl ?? '/dashboard';
+          window.location.href = url;
+          return;
+        }
+        const activeJson = json as DashboardDataActive;
+        setData(activeJson);
+        const formData = settingsToForm(activeJson.settings);
         setForm(formData);
         setInitialForm(formData);
       } catch (err) {

@@ -1,0 +1,244 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { createServerClient } from '@supabase/ssr';
+import { sql } from '@/lib/db/server';
+import { checkRateLimit } from '@/lib/shared/rate-limit';
+import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
+import { SelectPlanSchema } from '@/lib/shared/schemas';
+import { getIpKey } from '@/lib/shared/request-ip';
+import { buildPaymentLinkUrl } from '@/lib/payments/payment-link';
+
+export const dynamic = 'force-dynamic';
+
+const NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
+
+/**
+ * POST /api/onboarding/select-plan
+ *
+ * Self-serve owner picks a plan (founding | standard) on /onboarding/pay.
+ * We write the choice to `businesses.subscription_tier` BEFORE handing
+ * the owner the matching Stripe Payment Link, so by the time
+ * `checkout.session.completed` fires the DB tier already matches what
+ * they paid for. The Stripe webhook still has a `customer.subscription.updated`
+ * branch that maps price→tier as a defense-in-depth fallback.
+ *
+ * Auth: cookie-bound Supabase session. Caller must be the owner of a
+ * business in `pending_payment` status. Active / past_due / cancelled
+ * are rejected — those states are the dashboard's billing-recovery
+ * surface, not a fresh signup.
+ *
+ * Same-origin: yes — this UPDATEs business state, so a CSRF-driven call
+ * with a victim's cookies could flip them to a different tier.
+ *
+ * Rate-limit: 10/auth-id/10min + 30/IP/10min. The legitimate flow is one
+ * click, but the picker stays on screen and someone may double-click; the
+ * limits are generous enough that two impatient retries don't trip them.
+ */
+export async function POST(req: NextRequest): Promise<NextResponse> {
+  if (process.env.SELF_SERVE_SIGNUP_ENABLED !== 'true') {
+    return NextResponse.json(
+      { error: 'not_found' },
+      { status: 404, headers: NO_STORE },
+    );
+  }
+
+  try {
+    assertSameOrigin(req);
+  } catch (err) {
+    if (err instanceof SameOriginError) {
+      return NextResponse.json(
+        { error: 'forbidden' },
+        { status: 403, headers: NO_STORE },
+      );
+    }
+    throw err;
+  }
+
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json(
+      { error: 'invalid_json' },
+      { status: 400, headers: NO_STORE },
+    );
+  }
+  const parsed = SelectPlanSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: 'invalid_body', issues: parsed.error.issues },
+      { status: 400, headers: NO_STORE },
+    );
+  }
+  const { tier } = parsed.data;
+
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return req.cookies.getAll();
+        },
+        setAll() {
+          // Read-only.
+        },
+      },
+    },
+  );
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json(
+      { error: 'unauthorized' },
+      { status: 401, headers: NO_STORE },
+    );
+  }
+
+  try {
+    const authRl = await checkRateLimit(
+      `select-plan:auth:${user.id}`,
+      10,
+      600,
+      { strict: true },
+    );
+    if (!authRl.allowed) {
+      return NextResponse.json(
+        { error: 'rate_limited' },
+        { status: 429, headers: NO_STORE },
+      );
+    }
+    const ipRl = await checkRateLimit(
+      getIpKey(req, 'select-plan'),
+      30,
+      600,
+      { strict: true },
+    );
+    if (!ipRl.allowed) {
+      return NextResponse.json(
+        { error: 'rate_limited' },
+        { status: 429, headers: NO_STORE },
+      );
+    }
+  } catch (err) {
+    console.error('[select-plan] rate-limit strict failure:', err);
+    return NextResponse.json(
+      { error: 'rate_limit_unavailable' },
+      { status: 503, headers: NO_STORE },
+    );
+  }
+
+  // Lock-then-read pattern.
+  //
+  // Earlier version read status BEFORE taking the activation lock and ran
+  // an unguarded UPDATE — racing a Stripe activation in the gap between
+  // SELECT and lock could let this route return a payment-link URL for
+  // an already-active business, prompting the owner to start a duplicate
+  // Stripe subscription. Fix: take the activation lock FIRST so any
+  // in-flight webhook commits before our re-read; SELECT FOR UPDATE the
+  // business row; check status under the lock; verify UPDATE.count > 0.
+  //
+  // We need the business_id to take the per-business lock, but we don't
+  // know it yet — a single round to find it doesn't need locking because
+  // we re-validate everything once we own the lock.
+  // Owner-only filter at the SQL boundary. Middleware does NOT gate
+  // `/api/onboarding/*` on role, so an admin/sales_partner session
+  // calling this directly would otherwise hit whichever business their
+  // (potentially misconfigured) users.business_id pointed at. Returning
+  // 404 on non-owner sessions keeps this an authorization invariant
+  // independent of middleware.
+  const lookup = await sql<{ id: string; owner_email: string }[]>`
+    SELECT b.id, b.owner_email
+    FROM users u
+    JOIN businesses b ON b.id = u.business_id
+    WHERE u.auth_id = ${user.id}
+      AND u.role = 'owner'
+    LIMIT 1
+  `;
+  if (lookup.length === 0) {
+    return NextResponse.json(
+      { error: 'account_incomplete' },
+      { status: 404, headers: NO_STORE },
+    );
+  }
+  const { id: businessId, owner_email: ownerEmail } = lookup[0]!;
+
+  const result = await sql.begin(async (tx) => {
+    // Lock first, THEN re-read state. Any pending Stripe webhook taking the
+    // same key (worker/ingress/stripe.ts processCheckoutSessionCompleted)
+    // commits before we proceed.
+    await tx`SELECT pg_advisory_xact_lock(hashtext(${businessId + ':activation'}))`;
+
+    const [row] = await tx<{ subscription_status: string }[]>`
+      SELECT subscription_status
+      FROM businesses
+      WHERE id = ${businessId}::uuid
+      FOR UPDATE
+    `;
+    if (!row) {
+      // The row vanished between the lookup above and now (e.g., cleanup
+      // poller deleted it). Surface as account_incomplete.
+      return { kind: 'not_found' as const };
+    }
+    if (row.subscription_status !== 'pending_payment') {
+      return {
+        kind: 'wrong_status' as const,
+        status: row.subscription_status,
+      };
+    }
+
+    // UPDATE under the same lock + re-checked status. Verify count > 0
+    // as defense-in-depth — if for any reason the WHERE didn't match
+    // (status changed inside this same tx, which shouldn't be possible
+    // but is the kind of paranoia that catches future refactors), fail
+    // loudly rather than handing out a Stripe link.
+    const update = await tx`
+      UPDATE businesses
+      SET subscription_tier = ${tier}, updated_at = NOW()
+      WHERE id = ${businessId}::uuid
+        AND subscription_status = 'pending_payment'
+    `;
+    if (update.count === 0) {
+      return { kind: 'race_lost' as const };
+    }
+    return { kind: 'ok' as const };
+  });
+
+  if (result.kind === 'not_found') {
+    return NextResponse.json(
+      { error: 'account_incomplete' },
+      { status: 404, headers: NO_STORE },
+    );
+  }
+  if (result.kind === 'wrong_status') {
+    return NextResponse.json(
+      { error: 'subscription_not_pending', subscriptionStatus: result.status },
+      { status: 409, headers: NO_STORE },
+    );
+  }
+  if (result.kind === 'race_lost') {
+    // Status flipped under the lock — extremely unlikely (the lock should
+    // serialize against the only other writer, the Stripe webhook) but the
+    // honest response is "you're already active, go to dashboard".
+    console.warn(
+      `[select-plan] UPDATE matched 0 rows for business ${businessId} despite pending_payment check passing — race_lost branch`,
+    );
+    return NextResponse.json(
+      { error: 'subscription_not_pending', subscriptionStatus: 'active' },
+      { status: 409, headers: NO_STORE },
+    );
+  }
+
+  const paymentUrl = buildPaymentLinkUrl(tier, businessId, ownerEmail);
+  if (!paymentUrl) {
+    // env var missing or malformed — same posture as /onboarding/pay's
+    // fallback. The picker UI can render a "contact support" message.
+    return NextResponse.json(
+      { error: 'payment_link_unavailable' },
+      { status: 500, headers: NO_STORE },
+    );
+  }
+
+  return NextResponse.json({ paymentUrl }, { headers: NO_STORE });
+}

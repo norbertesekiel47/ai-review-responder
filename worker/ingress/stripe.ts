@@ -26,10 +26,31 @@ function extractSubscriptionId(subscription: string | Stripe.Subscription | null
   return typeof subscription === 'string' ? subscription : subscription.id;
 }
 
+// Canonical UUID 8-4-4-4-12 hex shape — accepts all version digits (we use
+// v7 from the `uuid` package, but legacy admin rows may be v4). Same regex
+// + reasoning as worker/ingress/twilio-whatsapp.ts:154.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 async function processCheckoutSessionCompleted(session: Stripe.Checkout.Session): Promise<void> {
   const businessId = session.client_reference_id ?? session.metadata?.business_id;
   if (!businessId) {
     console.warn(`${LOG_PREFIX} checkout.session.completed missing business_id — skipping`);
+    return;
+  }
+
+  // Validate UUID shape BEFORE the `${businessId}::uuid` cast inside the
+  // tx. Without this, a malformed client_reference_id (Stripe CLI test
+  // event, manual API call, third-party Payment Link configured to point
+  // at our endpoint with a non-UUID metadata field, etc.) would raise a
+  // Postgres `invalid input syntax for type uuid` error that escapes
+  // through to the outer handler — which then marks inbound_events.status
+  // = 'failed' and Stripe retries the event for ~3 days. Cheap upfront
+  // regex, identical to twilio-whatsapp.ts's defensive guard against the
+  // same Postgres-cast-throws-on-bad-input footgun.
+  if (!UUID_RE.test(businessId)) {
+    console.warn(
+      `${LOG_PREFIX} checkout.session.completed has malformed business_id=${JSON.stringify(businessId)} — skipping (Stripe will not retry; inbound_events marked processed)`,
+    );
     return;
   }
 
@@ -47,22 +68,52 @@ async function processCheckoutSessionCompleted(session: Stripe.Checkout.Session)
     return;
   }
 
-  const updated = await sql`
-    UPDATE businesses
-    SET
-      subscription_status = 'active',
-      stripe_customer_id = ${customerId},
-      stripe_subscription_id = ${subscriptionId},
-      subscription_activated_at = COALESCE(subscription_activated_at, NOW()),
-      updated_at = NOW()
-    WHERE id = ${businessId}::uuid
-      AND subscription_status IN ('pending_payment', 'past_due')
-  `;
-  if (updated.count > 0) {
-    console.log(`${LOG_PREFIX} Business ${businessId} activated (customer=${customerId})`);
-  } else {
-    console.warn(`${LOG_PREFIX} Business ${businessId} not activated — current status is not pending_payment or past_due`);
-  }
+  // Serialize concurrent checkout.session.completed / customer.subscription.updated
+  // deliveries for the same business on an advisory lock. The lock key is
+  // shared with /api/onboarding/business so the wizard cannot race a webhook
+  // delivery for the same business — even though the webhook no longer
+  // enqueues, future activation-adjacent work staying serialized is cheap.
+  //
+  // Initial-sync enqueue moved to /api/onboarding/business (the wizard the
+  // owner submits AFTER Stripe payment confirms). Self-serve businesses
+  // submit business details there; admin-onboarded businesses already had
+  // their outbox row written at signup time. Either way, this webhook only
+  // flips status now.
+  await sql.begin(async (tx) => {
+    await tx`SELECT pg_advisory_xact_lock(hashtext(${businessId + ':activation'}))`;
+
+    const [bizRow] = await tx<{ subscription_status: string }[]>`
+      SELECT subscription_status
+      FROM businesses
+      WHERE id = ${businessId}::uuid
+      FOR UPDATE
+    `;
+
+    if (!bizRow) {
+      console.warn(`${LOG_PREFIX} Business ${businessId} not found during activation — skipping`);
+      return;
+    }
+
+    const oldStatus = bizRow.subscription_status;
+
+    const updated = await tx`
+      UPDATE businesses
+      SET
+        subscription_status = 'active',
+        stripe_customer_id = ${customerId},
+        stripe_subscription_id = ${subscriptionId},
+        subscription_activated_at = COALESCE(subscription_activated_at, NOW()),
+        updated_at = NOW()
+      WHERE id = ${businessId}::uuid
+        AND subscription_status IN ('pending_payment', 'past_due')
+    `;
+
+    if (updated.count > 0) {
+      console.log(`${LOG_PREFIX} Business ${businessId} activated (customer=${customerId}, old_status=${oldStatus})`);
+    } else {
+      console.warn(`${LOG_PREFIX} Business ${businessId} not activated — current status is not pending_payment or past_due`);
+    }
+  });
 }
 
 async function processInvoicePaymentFailed(invoice: Stripe.Invoice): Promise<void> {

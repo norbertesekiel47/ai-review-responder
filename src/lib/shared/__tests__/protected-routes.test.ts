@@ -1,47 +1,95 @@
 import { describe, it, expect } from 'vitest';
 import { isProtectedRoute } from '../protected-routes';
 
+const PUBLIC: string[] = [
+  '/admin/login',
+  '/admin/forgot-password',
+  '/admin/reset-password',
+  '/signup',
+  '/signup/check-email',
+  '/signup/finish',
+  '/login',
+  '/forgot-password',
+  '/reset-password',
+  '/',
+  '/pricing',
+  '/features',
+  '/how-it-works',
+  // Self-serve signup auth APIs — never under /api/admin, /api/dashboard, or
+  // /api/settings, so isProtectedRoute() must return false for each.
+  '/api/auth/signup',
+  '/api/auth/finish-signup',
+  '/api/auth/signup-status',
+  '/api/auth/forgot-password',
+  '/api/auth/reset-password',
+  '/api/auth/resend-confirmation',
+  '/api/auth/verify-otp',
+  '/api/auth/callback',
+  // API-side onboarding routes follow the same pattern as /api/auth/*:
+  // middleware classifies them as public (so it doesn't set up a Supabase
+  // client per request) and the route handlers do their own session
+  // reads + role checks internally. NOT under /onboarding/* — that prefix
+  // gates only the SSR pages.
+  '/api/onboarding/business',
+  '/api/onboarding/select-plan',
+];
+
+const PROTECTED: string[] = [
+  '/admin',
+  '/admin/overview',
+  '/admin/businesses',
+  '/api/admin/businesses',
+  '/dashboard',
+  '/dashboard/settings',
+  '/settings',
+  '/api/dashboard',
+  '/api/settings',
+  '/onboarding',
+  '/onboarding/pay',
+  '/onboarding/payment-success',
+];
+
 describe('isProtectedRoute', () => {
-  it('matches /admin and sub-paths', () => {
-    expect(isProtectedRoute('/admin')).toBe(true);
-    expect(isProtectedRoute('/admin/businesses')).toBe(true);
-    expect(isProtectedRoute('/admin/businesses/123')).toBe(true);
+  PUBLIC.forEach((p) => {
+    it(`${p} is public`, () => expect(isProtectedRoute(p)).toBe(false));
+  });
+  PROTECTED.forEach((p) => {
+    it(`${p} is protected`, () => expect(isProtectedRoute(p)).toBe(true));
   });
 
-  it('does not match /admin/login', () => {
-    expect(isProtectedRoute('/admin/login')).toBe(false);
-  });
+  // Trailing-slash normalization. Next.js's default trailingSlash: false
+  // redirects /x/ → /x, but that runs AFTER middleware sees the path —
+  // without normalization the exemption checks miss and public routes
+  // wrongly fall through to the protected prefix branches.
+  describe('trailing slash normalization', () => {
+    it('exempts /admin/login/ (public auth surface, was wrongly protected)', () => {
+      expect(isProtectedRoute('/admin/login/')).toBe(false);
+    });
 
-  it('does not match /administration (segment boundary)', () => {
-    expect(isProtectedRoute('/administration')).toBe(false);
-  });
+    it('exempts /admin/forgot-password/', () => {
+      expect(isProtectedRoute('/admin/forgot-password/')).toBe(false);
+    });
 
-  it('matches /api/admin paths', () => {
-    expect(isProtectedRoute('/api/admin')).toBe(true);
-    expect(isProtectedRoute('/api/admin/users')).toBe(true);
-  });
+    it('exempts /admin/reset-password/', () => {
+      expect(isProtectedRoute('/admin/reset-password/')).toBe(false);
+    });
 
-  it('matches /api/dashboard and /api/settings paths', () => {
-    expect(isProtectedRoute('/api/dashboard')).toBe(true);
-    expect(isProtectedRoute('/api/dashboard/reviews')).toBe(true);
-    expect(isProtectedRoute('/api/settings')).toBe(true);
-    expect(isProtectedRoute('/api/settings/profile')).toBe(true);
-  });
+    it('still protects /admin/overview/ (trailing slash on a protected page)', () => {
+      expect(isProtectedRoute('/admin/overview/')).toBe(true);
+    });
 
-  it('matches /dashboard and /settings paths', () => {
-    expect(isProtectedRoute('/dashboard')).toBe(true);
-    expect(isProtectedRoute('/dashboard/reviews')).toBe(true);
-    expect(isProtectedRoute('/settings')).toBe(true);
-    expect(isProtectedRoute('/settings/notifications')).toBe(true);
-  });
+    it('still protects /onboarding/ (trailing slash on a protected page)', () => {
+      expect(isProtectedRoute('/onboarding/')).toBe(true);
+    });
 
-  it('does not match public paths', () => {
-    expect(isProtectedRoute('/')).toBe(false);
-    expect(isProtectedRoute('/privacy')).toBe(false);
-    expect(isProtectedRoute('/terms')).toBe(false);
-    expect(isProtectedRoute('/features')).toBe(false);
-    expect(isProtectedRoute('/pricing')).toBe(false);
-    expect(isProtectedRoute('/book-a-demo')).toBe(false);
-    expect(isProtectedRoute('/how-it-works')).toBe(false);
+    it('preserves the root path / (single trailing slash IS the path)', () => {
+      expect(isProtectedRoute('/')).toBe(false);
+    });
+
+    it('handles multiple trailing slashes (/admin/login//)', () => {
+      // Defensive: if a misbehaving client sends /admin/login//, the
+      // /\/+$/ regex strips ALL trailing slashes so the match still works.
+      expect(isProtectedRoute('/admin/login//')).toBe(false);
+    });
   });
 });

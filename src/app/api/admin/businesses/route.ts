@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { v7 as uuidv7 } from 'uuid';
 import { OnboardBusinessSchema } from '@/lib/shared/schemas';
-import { sql, jsonb } from '@/lib/db/server';
+import { sql, supabaseServer } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { isPlaceId, extractPlaceId } from '@/lib/reviews/url-parser';
-import type { SyncReviewsPayload, ValidatePlaceIdPayload } from '@/lib/shared/worker-types';
+import {
+  createBusinessTx,
+  DuplicateEmailError,
+  type AdminBusinessTxInput,
+  type PlaceIdInput,
+} from '@/lib/onboarding/create-business';
 
 export const dynamic = 'force-dynamic';
 
@@ -102,27 +106,10 @@ function splitParagraphs(text: string | undefined): string[] {
     .filter(Boolean);
 }
 
-function buildPaymentLinkUrl(tier: string, businessId: string, ownerEmail: string): string | null {
-  const links: Record<string, string | undefined> = {
-    founding: process.env.STRIPE_PAYMENT_LINK_FOUNDING,
-    standard: process.env.STRIPE_PAYMENT_LINK_STANDARD,
-  };
-  const baseUrl = links[tier];
-  if (!baseUrl) return null;
-  try {
-    const url = new URL(baseUrl);
-    url.searchParams.set('client_reference_id', businessId);
-    url.searchParams.set('prefilled_email', ownerEmail);
-    return url.toString();
-  } catch {
-    console.error(`[api/admin/businesses POST] Malformed payment link URL for tier ${tier}: ${baseUrl}`);
-    return null;
-  }
-}
-
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  let authUser;
   try {
-    await requireRole(request, 'admin', 'sales_partner');
+    authUser = await requireRole(request, 'admin', 'sales_partner');
   } catch (err) {
     if (err instanceof AuthError) {
       return NextResponse.json({ error: err.message }, { status: err.statusCode });
@@ -166,136 +153,238 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'Place ID or Google Maps URL required' }, { status: 400 });
   }
 
-  const businessId = uuidv7();
-  const userId = uuidv7();
-  const outboxId = uuidv7();
+  const placeIdInput: PlaceIdInput = placeIdVerified && placeId
+    ? { placeIdVerified: true, placeId, googleMapsUrl: data.googleMapsUrl ?? null }
+    : { placeIdVerified: false, placeId: placeId ?? null, googleMapsUrl: data.googleMapsUrl! };
 
-  // Build payment link URL BEFORE the transaction — if the env var is malformed,
-  // we return null gracefully instead of crashing after the business is created.
-  const paymentUrl = buildPaymentLinkUrl(data.subscriptionTier, businessId, data.ownerEmail);
+  const input: AdminBusinessTxInput = {
+    ownerEmail: data.ownerEmail,
+    ownerName: data.ownerName,
+    ownerPhone: data.ownerPhone ?? null,
+    businessName: data.name,
+    category: data.category ?? null,
+    tone: data.tone,
+    productsServices: data.productsServices ?? null,
+    staffNames: splitCommaOrNewline(data.staffNames),
+    highlightFacts: splitCommaOrNewline(data.highlightFacts),
+    avoidFacts: splitCommaOrNewline(data.avoidFacts),
+    sampleResponses: splitParagraphs(data.sampleResponses),
+    subscriptionTier: data.subscriptionTier,
+    website: data.website ?? null,
+    placeId: placeIdInput,
+  };
 
-  const staffNames = splitCommaOrNewline(data.staffNames);
-  const highlightFacts = splitCommaOrNewline(data.highlightFacts);
-  const avoidFacts = splitCommaOrNewline(data.avoidFacts);
-  const sampleResponses = splitParagraphs(data.sampleResponses);
-
+  // Validate config BEFORE writing any DB rows. The invite step depends on
+  // NEXT_PUBLIC_APP_URL to construct the redirectTo; if it's missing,
+  // returning 500 after createBusinessTx already committed leaves a
+  // half-provisioned business + auth-less users row that the admin can't
+  // easily clean up (and our cleanup poller doesn't touch admin-onboarded
+  // rows because their `onboarded_by` is non-null). Fail-fast here.
+  //
+  // Normalize the env value before building the redirect:
+  //   - Trim whitespace (leading/trailing — common copy-paste mistake)
+  //   - Parse via URL constructor (rejects missing scheme, illegal chars)
+  //   - Enforce scheme allowlist: https://, OR http://localhost for dev
+  //   - Use parsed.origin so any path/query/fragment in the env is dropped
+  //     (an env value of `https://yourdomain.com/foo?x=1#hash` would
+  //     otherwise produce a malformed inviteRedirectTo)
+  const ownerEmailLower = data.ownerEmail.trim().toLowerCase();
+  const rawAppUrl = process.env.NEXT_PUBLIC_APP_URL;
+  if (!rawAppUrl || !rawAppUrl.trim()) {
+    console.error(
+      '[api/admin/businesses POST] NEXT_PUBLIC_APP_URL not set — cannot build invite redirectTo',
+    );
+    return NextResponse.json(
+      { error: 'Server misconfigured (missing APP_URL)' },
+      { status: 500 },
+    );
+  }
+  let normalizedAppUrl: URL;
   try {
-    await sql.begin(async (tx) => {
-      await tx`
-        INSERT INTO businesses (
-          id,
-          name,
-          category,
-          google_place_id,
-          place_id_verified,
-          google_maps_url,
-          tone,
-          products_services,
-          staff_names,
-          highlight_facts,
-          avoid_facts,
-          sample_responses,
-          owner_name,
-          owner_email,
-          owner_phone,
-          subscription_tier,
-          subscription_status,
-          website
-        ) VALUES (
-          ${businessId},
-          ${data.name},
-          ${data.category ?? null},
-          ${placeId},
-          ${placeIdVerified},
-          ${data.googleMapsUrl ?? null},
-          ${data.tone},
-          ${data.productsServices ?? null},
-          ${staffNames},
-          ${highlightFacts},
-          ${avoidFacts},
-          ${sampleResponses},
-          ${data.ownerName},
-          ${data.ownerEmail},
-          ${data.ownerPhone ?? null},
-          ${data.subscriptionTier},
-          'pending_payment',
-          ${data.website ?? null}
-        )
-      `;
+    normalizedAppUrl = new URL(rawAppUrl.trim());
+  } catch {
+    console.error(
+      `[api/admin/businesses POST] NEXT_PUBLIC_APP_URL is malformed (${rawAppUrl.trim()}) — cannot build invite redirectTo`,
+    );
+    return NextResponse.json(
+      { error: 'Server misconfigured (malformed APP_URL)' },
+      { status: 500 },
+    );
+  }
+  const isHttps = normalizedAppUrl.protocol === 'https:';
+  const isLocalHttp =
+    normalizedAppUrl.protocol === 'http:' &&
+    (normalizedAppUrl.hostname === 'localhost' ||
+      normalizedAppUrl.hostname === '127.0.0.1');
+  if (!isHttps && !isLocalHttp) {
+    console.error(
+      `[api/admin/businesses POST] NEXT_PUBLIC_APP_URL has disallowed scheme (${normalizedAppUrl.protocol}) — only https:// or http://localhost permitted`,
+    );
+    return NextResponse.json(
+      { error: 'Server misconfigured (disallowed APP_URL scheme)' },
+      { status: 500 },
+    );
+  }
+  const inviteRedirectTo = `${normalizedAppUrl.origin}/api/auth/callback?flow=owner&next=/reset-password`;
 
-      await tx`
-        INSERT INTO users (id, name, email, phone, role, business_id)
-        VALUES (
-          ${userId},
-          ${data.ownerName},
-          ${data.ownerEmail},
-          ${data.ownerPhone ?? null},
-          'owner',
-          ${businessId}
-        )
-      `;
-
-      const enrollmentId = uuidv7();
-      await tx`
-        INSERT INTO channel_enrollments (id, business_id, channel, handle, status, verified_at)
-        VALUES (${enrollmentId}, ${businessId}, 'email', ${data.ownerEmail}, 'verified', NOW())
-        ON CONFLICT (business_id, channel) WHERE archived_at IS NULL DO NOTHING
-      `;
-
-      const correlationId = uuidv7();
-
-      if (placeIdVerified) {
-        // Queue sync_reviews directly — Place ID is canonical
-        const syncPayload: SyncReviewsPayload = {
-          business_id: businessId,
-          google_place_id: placeId!,
-          correlation_id: correlationId,
-        };
-        await tx`
-          INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-          VALUES (
-            ${outboxId},
-            'sync_reviews',
-            'business',
-            ${businessId},
-            ${jsonb(syncPayload)},
-            'pending'
-          )
-        `;
-      } else {
-        // Queue validate_place_id first — worker resolves then syncs
-        const validatePayload: ValidatePlaceIdPayload = {
-          business_id: businessId,
-          google_maps_url: data.googleMapsUrl!,
-          correlation_id: correlationId,
-        };
-        await tx`
-          INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-          VALUES (
-            ${outboxId},
-            'validate_place_id',
-            'business',
-            ${businessId},
-            ${jsonb(validatePayload)},
-            'pending'
-          )
-        `;
-      }
+  let createdResult: Awaited<ReturnType<typeof createBusinessTx>>;
+  try {
+    createdResult = await createBusinessTx(input, {
+      mode: 'admin',
+      onboardedBy: authUser.id,
     });
-  } catch (error) {
-    const pgError = error as { code?: string };
-    if (pgError.code === '23505') {
+  } catch (err) {
+    if (err instanceof DuplicateEmailError) {
       return NextResponse.json(
         { error: 'A user with this email already exists' },
         { status: 409 },
       );
     }
-    console.error('[api/admin/businesses POST] Transaction failed:', error);
+    console.error('[api/admin/businesses POST] createBusinessTx failed:', err);
+    return NextResponse.json({ error: 'Failed to onboard business' }, { status: 500 });
+  }
+
+  // Owner provisioning. Without this step the admin-created users row has
+  // auth_id = NULL → no Supabase Auth identity → owner can't log in, can't
+  // reset password (Supabase silently no-ops on missing auth.users row),
+  // and can't sign up either (our /api/auth/signup pre-check finds the
+  // existing public.users row by email and returns 409 account_exists).
+  //
+  // inviteUserByEmail creates the auth.users row WITHOUT a password, marks
+  // the email confirmed, and emails the owner an invite link. The link
+  // routes through /api/auth/callback?next=/reset-password so the owner
+  // sets their initial password on arrival, lands at /dashboard with a
+  // valid session. Supabase's "Invite user" email template controls the
+  // copy — make sure it points at:
+  //   {{ .SiteURL }}/api/auth/callback?token_hash={{ .TokenHash }}&type=invite&flow=owner&next=/reset-password
+
+  const { data: invited, error: inviteErr } =
+    await supabaseServer.auth.admin.inviteUserByEmail(ownerEmailLower, {
+      redirectTo: inviteRedirectTo,
+    });
+
+  if (inviteErr || !invited?.user) {
+    // Compensating cleanup — the owner can never log in without an auth
+    // user, so a half-provisioned business is worse than nothing.
+    // FK-aware delete order: users first (no cascade from businesses),
+    // then businesses + dependents via CASCADE on the businesses row.
+    console.error(
+      `[api/admin/businesses POST] inviteUserByEmail failed for ${ownerEmailLower}:`,
+      inviteErr?.message ?? 'no user returned',
+    );
+    try {
+      // Wrap rollback in a transaction so all 3 deletes succeed-or-fail
+      // together. Order matters:
+      //   1. job_outbox first — no FK CASCADE from businesses to job_outbox
+      //      (aggregate_id is just a UUID, not a foreign key — see migration
+      //      001 line 301), so leaving these rows in place would orphan
+      //      pending jobs that the OutboxPoller would then dispatch into
+      //      a void (no business_id to look up).
+      //   2. users next — users.business_id is a FK to businesses.id without
+      //      CASCADE so users must be deleted before businesses.
+      //   3. businesses last — channel_enrollments cascade-deletes via
+      //      businesses.id ON DELETE CASCADE.
+      await sql.begin(async (tx) => {
+        await tx`DELETE FROM job_outbox WHERE aggregate_id = ${createdResult.businessId}::uuid`;
+        await tx`DELETE FROM users WHERE id = ${createdResult.userId}::uuid`;
+        await tx`DELETE FROM businesses WHERE id = ${createdResult.businessId}::uuid`;
+      });
+    } catch (rollbackErr) {
+      console.error(
+        '[api/admin/businesses POST] Compensating rollback failed:',
+        rollbackErr,
+      );
+    }
     return NextResponse.json(
-      { error: 'Failed to onboard business' },
+      {
+        error:
+          'Could not send owner invite email. Business was not created — check Supabase Auth settings (SMTP, rate limits) and try again.',
+      },
       { status: 500 },
     );
   }
 
-  return NextResponse.json({ id: businessId, paymentUrl }, { status: 201 });
+  // Link the auth identity to our users row. The createBusinessTx admin
+  // contract still writes auth_id=NULL on insert; we patch it here so the
+  // /api/auth/callback role lookup (which keys on auth_id) finds the row
+  // when the owner clicks the invite link.
+  //
+  // Hard-fail if either the UPDATE throws OR matches 0 rows. Soft-warning
+  // is too lenient: the caller (admin/businesses/new client) used to ignore
+  // the warning and redirect to Stripe anyway, leaving the admin under the
+  // impression onboarding worked while the owner is invisibly locked out.
+  // Rollback the business + invite atomically so the admin can retry from
+  // a clean slate.
+  let linked = false;
+  try {
+    const updated = await sql<{ id: string }[]>`
+      UPDATE users
+      SET auth_id = ${invited.user.id}, updated_at = NOW()
+      WHERE id = ${createdResult.userId}::uuid
+        AND auth_id IS NULL
+      RETURNING id
+    `;
+    linked = updated.length > 0;
+  } catch (linkErr) {
+    console.error(
+      `[api/admin/businesses POST] Failed to link auth_id ${invited.user.id} to users.${createdResult.userId}:`,
+      linkErr,
+    );
+  }
+  if (!linked) {
+    console.error(
+      `[api/admin/businesses POST] auth_id link UPDATE matched 0 rows for users.${createdResult.userId} — rolling back business + invited auth user`,
+    );
+    // Best-effort rollback: delete the auth user we just invited, then the
+    // DB rows. Errors here only get logged — the route's final 500 is the
+    // load-bearing signal regardless of cleanup outcome.
+    //
+    // Supabase v2 admin returns `{ data, error }` instead of throwing on
+    // API-level failures (404 user-not-found, 422 invalid, RLS denial,
+    // etc.). The outer try/catch handles transport-layer throws (network
+    // down, JSON parse fail); the inner `if (error)` handles structured
+    // failures the SDK surfaces in the response. Without both, a real
+    // failure to delete the orphan auth user would silently succeed and
+    // the next admin retry on the same email would 422 from Supabase
+    // (email collision) without any log breadcrumb.
+    try {
+      const { error: deleteErr } =
+        await supabaseServer.auth.admin.deleteUser(invited.user.id);
+      if (deleteErr) {
+        console.error(
+          `[api/admin/businesses POST] Supabase deleteUser returned error for invited auth user ${invited.user.id} during link-failure rollback:`,
+          deleteErr.message ?? deleteErr,
+        );
+      }
+    } catch (thrownErr) {
+      console.error(
+        `[api/admin/businesses POST] Supabase deleteUser threw for invited auth user ${invited.user.id} during link-failure rollback:`,
+        thrownErr,
+      );
+    }
+    try {
+      await sql.begin(async (tx) => {
+        await tx`DELETE FROM job_outbox WHERE aggregate_id = ${createdResult.businessId}::uuid`;
+        await tx`DELETE FROM users WHERE id = ${createdResult.userId}::uuid`;
+        await tx`DELETE FROM businesses WHERE id = ${createdResult.businessId}::uuid`;
+      });
+    } catch (rollbackErr) {
+      console.error(
+        '[api/admin/businesses POST] DB rollback after auth_id link failure threw:',
+        rollbackErr,
+      );
+    }
+    return NextResponse.json(
+      {
+        error:
+          'Could not link the invited owner to the business record. The business was rolled back — try again, and if this persists check users.auth_id constraints.',
+      },
+      { status: 500 },
+    );
+  }
+
+  return NextResponse.json(
+    { id: createdResult.businessId, paymentUrl: createdResult.paymentUrl },
+    { status: 201 },
+  );
 }

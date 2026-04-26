@@ -55,7 +55,7 @@ import { handleStripeWebhook } from './ingress/stripe';
 import { handleTwilioStatusCallback, handleTwilioInbound } from './ingress/twilio';
 import { handleTwilioWhatsAppInbound, handleTwilioWhatsAppStatus } from './ingress/twilio-whatsapp';
 import { handleTelegramWebhook } from './ingress/telegram';
-import { assertChannelsSmsEnv, assertChannelsTelegramEnv, assertChannelsWhatsAppEnv } from './startup-assert';
+import { assertChannelsSmsEnv, assertChannelsTelegramEnv, assertChannelsWhatsAppEnv, assertSelfServeSignupEnv } from './startup-assert';
 import { startNotificationFailoverPoller, stopNotificationFailoverPoller } from './jobs/NotificationFailoverPoller';
 import { startWeeklySummaryScheduler, stopWeeklySummaryScheduler } from './jobs/WeeklySummaryScheduler';
 import { startArchivalPoller, stopArchivalPoller } from './jobs/ArchivalPoller';
@@ -67,6 +67,8 @@ import { startRankingTrackingScheduler, stopRankingTrackingScheduler } from './j
 import { handleTrackRanking } from './jobs/RankingTrackingWorker';
 import { startOnboardingDripScheduler, stopOnboardingDripScheduler } from './jobs/OnboardingDripScheduler';
 import { handleOnboardingDrip } from './jobs/OnboardingDripWorker';
+import { startCleanupAbandonedSignupsPoller, stopCleanupAbandonedSignupsPoller } from './jobs/CleanupAbandonedSignupsPoller';
+import { startEmailChannelReconcilePoller, stopEmailChannelReconcilePoller } from './jobs/EmailChannelReconcilePoller';
 import { isMockMode } from '../src/lib/shared/mock-mode';
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
@@ -154,7 +156,7 @@ for (const worker of workers) {
 // Re-export for use by other modules (ingress handlers, tests)
 export { queues, QUEUE_NAMES } from './queues';
 export { sql } from '../src/lib/db/server';
-export { assertChannelsSmsEnv, assertChannelsTelegramEnv, assertChannelsWhatsAppEnv } from './startup-assert';
+export { assertChannelsSmsEnv, assertChannelsTelegramEnv, assertChannelsWhatsAppEnv, assertSelfServeSignupEnv } from './startup-assert';
 
 // ---------------------------------------------------------------------------
 // Startup — register plugins, routes, then listen
@@ -168,11 +170,20 @@ async function main(): Promise<void> {
     runFirst: true,
   });
 
-  // Fail fast on missing Twilio config when SMS/WhatsApp channels are enabled.
+  // Fail fast on missing env vars when feature flags are enabled.
+  // Log per-flag status so operators can see at a glance what's enabled.
   try {
     assertChannelsSmsEnv();
     assertChannelsTelegramEnv();
     assertChannelsWhatsAppEnv();
+    assertSelfServeSignupEnv();
+    console.log(
+      `[worker] Feature flags: ` +
+        `SMS=${process.env.CHANNELS_SMS_ENABLED === 'true' ? 'on' : 'off'}, ` +
+        `Telegram=${process.env.CHANNELS_TELEGRAM_ENABLED === 'true' ? 'on' : 'off'}, ` +
+        `WhatsApp=${process.env.CHANNELS_WHATSAPP_ENABLED === 'true' ? 'on' : 'off'}, ` +
+        `SelfServeSignup=${process.env.SELF_SERVE_SIGNUP_ENABLED === 'true' ? 'on' : 'off'}`,
+    );
   } catch (err) {
     console.error(`[worker] Startup assertion failed: ${err instanceof Error ? err.message : err}`);
     process.exit(1);
@@ -222,6 +233,8 @@ async function main(): Promise<void> {
   startEngagementMonitorPoller();
   startRankingTrackingScheduler();
   startOnboardingDripScheduler();
+  startCleanupAbandonedSignupsPoller();
+  startEmailChannelReconcilePoller();
   console.log(`Worker service running on port ${PORT}`);
 }
 
@@ -239,6 +252,8 @@ async function shutdown(): Promise<void> {
   stopEngagementMonitorPoller();
   stopRankingTrackingScheduler();
   stopOnboardingDripScheduler();
+  stopCleanupAbandonedSignupsPoller();
+  stopEmailChannelReconcilePoller();
   await Promise.all(workers.map((w) => w.close()));
   await Promise.all(Object.values(queues).map((q) => q.close()));
   await app.close();

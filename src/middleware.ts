@@ -77,8 +77,13 @@ export async function middleware(request: NextRequest) {
     return (data as { role: string; business_id: string | null } | null) ?? null;
   }
 
-  // 3. Admin pages (except /admin/login)
-  if (pathname.startsWith('/admin') && pathname !== '/admin/login') {
+  // 3. Admin pages (except /admin/login, /admin/forgot-password, /admin/reset-password)
+  if (
+    pathname.startsWith('/admin') &&
+    pathname !== '/admin/login' &&
+    pathname !== '/admin/forgot-password' &&
+    pathname !== '/admin/reset-password'
+  ) {
     if (!authUser) {
       return redirectToLogin(request);
     }
@@ -114,19 +119,52 @@ export async function middleware(request: NextRequest) {
   // 6. Owner pages
   if (pathname.startsWith('/dashboard') || pathname.startsWith('/settings')) {
     if (!authUser) {
-      return redirectToLogin(request);
+      return redirectToLogin(request, 'owner');
     }
     const self = await readSelf();
     if (!self || self.role !== 'owner' || !self.business_id) {
-      return redirectToLogin(request);
+      return redirectToLogin(request, 'owner');
+    }
+  }
+
+  // 7. Onboarding paths require authenticated owner with a users row.
+  // Does NOT require subscription_status='active' — the pages work pre-payment.
+  //
+  // Three sub-cases (split intentionally — collapsing them sends admins to
+  // the OWNER login page when they accidentally navigate to an owner-flow
+  // URL, which is what the page-level guard already correctly avoids):
+  //   a. No session → owner login (this IS the right destination — they
+  //      need to authenticate as an owner to reach onboarding).
+  //   b. Authenticated as admin/sales_partner → admin home (they're already
+  //      logged in correctly, just on the wrong page; don't make them
+  //      re-authenticate).
+  //   c. Authenticated as owner without business_id → owner login with
+  //      `from=` (signup-not-finished provisioning state).
+  if (pathname === '/onboarding' || pathname.startsWith('/onboarding/')) {
+    if (!authUser) {
+      return redirectToLogin(request, 'owner');
+    }
+    const self = await readSelf();
+    if (!self) {
+      // No public.users row at all — could be mid-provisioning Google
+      // signup. Owner login lets them retry.
+      return redirectToLogin(request, 'owner');
+    }
+    if (self.role === 'admin' || self.role === 'sales_partner') {
+      // Admin landed here by mistake — bounce to admin home, not owner login.
+      return NextResponse.redirect(new URL('/admin/overview', request.url));
+    }
+    if (self.role !== 'owner' || !self.business_id) {
+      return redirectToLogin(request, 'owner');
     }
   }
 
   return response;
 }
 
-function redirectToLogin(request: NextRequest): NextResponse {
-  const loginUrl = new URL('/admin/login', request.url);
+function redirectToLogin(request: NextRequest, flow: 'owner' | 'admin' = 'admin'): NextResponse {
+  const loginPath = flow === 'owner' ? '/login' : '/admin/login';
+  const loginUrl = new URL(loginPath, request.url);
   loginUrl.searchParams.set('from', request.nextUrl.pathname);
   return NextResponse.redirect(loginUrl);
 }
