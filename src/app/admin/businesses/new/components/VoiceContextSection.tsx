@@ -11,7 +11,7 @@ interface VoiceContextSectionProps {
 
 export function VoiceContextSection({ register, errors }: VoiceContextSectionProps) {
   return (
-    <SectionCard title="Voice &amp; Context">
+    <SectionCard title="Voice & Context">
       <Field label="Tone" error={errors.tone?.message}>
         <select {...register('tone')} className={inputClass}>
           <option value="warm and casual">Warm and casual</option>
