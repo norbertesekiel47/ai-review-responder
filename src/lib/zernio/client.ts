@@ -6,7 +6,7 @@ import {
   ZernioReviewNotFoundError,
   ZernioReplyAlreadyExistsError,
 } from './errors';
-import type { EndpointKind } from './types';
+import type { EndpointKind, ZernioReview, ZernioLocationOption } from './types';
 
 // Endpoints that don't return a JSON body (DELETE, etc.) — round-17 fix.
 // res.json() on an empty body throws SyntaxError; without this gate it would
@@ -143,5 +143,94 @@ export async function request<T>(opts: RequestOptions): Promise<T> {
   }
 }
 
-// Placeholder — implemented in Task 9.
-export const zernioClient = {};
+export const zernioClient = {
+  createProfile: (input: { name: string }) =>
+    request<{ profileId: string }>({
+      method: 'POST',
+      path: '/v1/profiles',
+      endpointKind: 'create_profile',
+      body: input,
+      timeoutMs: 10_000,
+    }),
+
+  startConnect: (input: { profileId: string; state: string; redirectUrl: string }) =>
+    request<{ authUrl: string }>({
+      method: 'GET',
+      path: `/v1/connect/google-business?profileId=${encodeURIComponent(input.profileId)}&headless=true&redirectUrl=${encodeURIComponent(input.redirectUrl)}&state=${encodeURIComponent(input.state)}`,
+      endpointKind: 'start_connect',
+      timeoutMs: 10_000,
+    }),
+
+  listLocations: (input: { connectToken: string }) =>
+    request<{ locations: ZernioLocationOption[] }>({
+      method: 'GET',
+      path: '/v1/connect/google-business/list-locations',
+      endpointKind: 'list_locations',
+      timeoutMs: 10_000,
+      headers: { 'X-Connect-Token': input.connectToken },
+    }),
+
+  selectLocation: (input: { connectToken: string; locationId: string }) =>
+    request<{ accountId: string }>({
+      method: 'POST',
+      path: '/v1/connect/google-business/select-location',
+      endpointKind: 'select_location',
+      timeoutMs: 15_000,
+      headers: { 'X-Connect-Token': input.connectToken },
+      body: { locationId: input.locationId },
+    }),
+
+  listReviews: (
+    accountId: string,
+    input: { pageSize?: number; pageToken?: string },
+  ) =>
+    request<{ reviews: ZernioReview[]; nextPageToken?: string }>({
+      method: 'GET',
+      path: `/v1/accounts/${encodeURIComponent(accountId)}/gmb-reviews?pageSize=${input.pageSize ?? 50}${input.pageToken ? `&pageToken=${encodeURIComponent(input.pageToken)}` : ''}`,
+      endpointKind: 'list_reviews',
+      timeoutMs: 15_000,
+    }),
+
+  listAllReviews: async (
+    accountId: string,
+    opts: { pageSize: number; maxPages: number },
+  ): Promise<ZernioReview[]> => {
+    const all: ZernioReview[] = [];
+    let pageToken: string | undefined;
+    for (let i = 0; i < opts.maxPages; i++) {
+      const page = await zernioClient.listReviews(accountId, {
+        pageSize: opts.pageSize,
+        pageToken,
+      });
+      all.push(...page.reviews);
+      if (!page.nextPageToken) break;
+      pageToken = page.nextPageToken;
+    }
+    return all;
+  },
+
+  postReply: (accountId: string, reviewId: string, input: { comment: string }) =>
+    request<{ comment: string; updateTime: string }>({
+      method: 'POST',
+      path: `/v1/accounts/${encodeURIComponent(accountId)}/gmb-reviews/${encodeURIComponent(reviewId)}/reply`,
+      endpointKind: 'publish_reply',
+      timeoutMs: 15_000,
+      body: { comment: input.comment },
+    }),
+
+  deleteAccount: (accountId: string) =>
+    request<void>({
+      method: 'DELETE',
+      path: `/v1/accounts/${encodeURIComponent(accountId)}`,
+      endpointKind: 'delete_account',
+      timeoutMs: 10_000,
+    }),
+
+  deleteProfile: (profileId: string) =>
+    request<void>({
+      method: 'DELETE',
+      path: `/v1/profiles/${encodeURIComponent(profileId)}`,
+      endpointKind: 'delete_profile',
+      timeoutMs: 10_000,
+    }),
+};
