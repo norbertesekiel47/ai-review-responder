@@ -3,116 +3,17 @@ import { v7 as uuidv7 } from 'uuid';
 import { sql } from '@/lib/db/server';
 import { UpdateBusinessSchema } from '@/lib/shared/schemas';
 import { requireRole, AuthError } from '@/lib/db/auth';
-import { computeChurnRiskScore, type ChurnScore } from '@/lib/shared/churn-score';
+import { computeChurnRiskScore } from '@/lib/shared/churn-score';
 import { parseDbArray } from '@/lib/shared/db-array';
-import { z } from 'zod';
+import type {
+  BusinessDetailResponse,
+  BusinessPatch,
+  BusinessRow,
+  RankingSnapshotRow,
+  ReviewRow,
+} from '@/lib/admin/business-detail-types';
 
 export const dynamic = 'force-dynamic';
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-interface BusinessRow {
-  id: string;
-  name: string;
-  category: string | null;
-  website: string | null;
-  google_place_id: string | null;
-  tone: string | null;
-  products_services: string | null;
-  staff_names: unknown;
-  highlight_facts: unknown;
-  avoid_facts: unknown;
-  sample_responses: unknown;
-  subscription_status: string;
-  subscription_tier: string;
-  owner_name: string | null;
-  owner_email: string | null;
-  last_sync_at: Date | null;
-  tracked_keywords: unknown;
-  google_place_lat: number | null;
-  google_place_lng: number | null;
-  ranking_search_location: string | null;
-  google_place_address: string | null;
-  owner_email_bounced: boolean | null;
-}
-
-interface RankingSnapshotRow {
-  keyword: string;
-  rank_position: number | null;
-  snapshot_date: string;
-  source: string;
-}
-
-interface ReviewRow {
-  id: string;
-  reviewer_name: string;
-  star_rating: number;
-  review_text: string | null;
-  review_date: string | null;
-  detected_language: string | null;
-  review_status: string;
-  detected_at: Date | null;
-  response_id: string | null;
-  response_status: string | null;
-  response_text: string | null;
-  approved_text: string | null;
-  version: number | null;
-}
-
-interface BusinessDetailResponse {
-  business: {
-    id: string;
-    name: string;
-    category: string | null;
-    website: string | null;
-    googlePlaceId: string | null;
-    tone: string | null;
-    productsServices: string | null;
-    staffNames: string[];
-    highlightFacts: string[];
-    avoidFacts: string[];
-    sampleResponses: string[];
-    subscriptionStatus: string;
-    subscriptionTier: string;
-    ownerName: string | null;
-    ownerEmail: string | null;
-    lastSyncAt: string | null;
-    trackedKeywords: string[];
-    googlePlaceLat: number | null;
-    googlePlaceLng: number | null;
-    rankingSearchLocation: string | null;
-    googlePlaceAddress: string | null;
-    ownerEmailBounced: boolean;
-    smsEnabled: boolean;
-    telegramEnabled: boolean;
-    whatsappEnabled: boolean;
-    churnScore: ChurnScore;
-  };
-  rankingSnapshots: Array<{
-    keyword: string;
-    rankPosition: number | null;
-    snapshotDate: string;
-    source: string;
-  }>;
-  reviews: Array<{
-    id: string;
-    reviewerName: string;
-    starRating: number;
-    reviewText: string | null;
-    reviewDate: string | null;
-    detectedLanguage: string | null;
-    detectedAt: string | null;
-    responseId: string | null;
-    responseStatus: string | null;
-    responseText: string | null;
-    approvedText: string | null;
-    responseVersion: number | null;
-  }>;
-}
-
-type BusinessPatch = z.infer<typeof UpdateBusinessSchema>;
 
 class AdminBusinessNotFoundError extends Error {}
 
