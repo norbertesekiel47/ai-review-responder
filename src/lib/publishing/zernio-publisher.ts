@@ -1,7 +1,9 @@
+import { v7 as uuidv7 } from 'uuid';
 import { getCacheRedis } from '@/lib/db/redis-cache';
-import { sql } from '@/lib/db/server';
+import { jsonb, sql } from '@/lib/db/server';
 import { zernioClient } from '@/lib/zernio/client';
 import { ZernioReviewNotFoundError } from '@/lib/zernio/errors';
+import type { PublishResponsePayload } from '@/lib/shared/worker-types';
 
 const CACHE_TTL_SECONDS = 86_400;
 const MATCH_WINDOW_MS = 86_400_000;
@@ -80,4 +82,80 @@ export async function lookupZernioReviewId(
 
   await redis.setex(cacheKey, CACHE_TTL_SECONDS, match.id);
   return match.id;
+}
+
+/**
+ * BullMQ retry-exhaustion fallback for the response publisher (spec §4.4).
+ *
+ * Mirrors the in-worker auth-error path (spec §4.2): mark the active Zernio
+ * connection disconnected with reason `auth_error_on_post`, transition the
+ * affected response to `awaiting_owner_connect`, and enqueue both notify
+ * outbox rows (reconnect + connection-lost) — but only if the response was
+ * still in a non-terminal status. The status guard is critical: a parallel
+ * worker may have already posted/failed/superseded the row.
+ *
+ * Lives here (not in the worker) so the same single-tx mutation block is
+ * reused by both the in-worker auth-error path and the BullMQ onFailed
+ * graceful-degradation path. No duplication.
+ */
+export async function applyTransientExhaustionFallback(
+  payload: PublishResponsePayload,
+): Promise<void> {
+  const { response_id: responseId, business_id: businessId } = payload;
+
+  await sql.begin(async (tx) => {
+    await tx`
+      UPDATE zernio_connections
+      SET status = 'disconnected',
+          disconnected_at = NOW(),
+          disconnect_reason = 'auth_error_on_post',
+          last_error = 'BullMQ retries exhausted',
+          last_error_at = NOW()
+      WHERE business_id = ${businessId} AND status = 'active'
+    `;
+
+    const updated = await tx`
+      UPDATE responses
+      SET status = 'awaiting_owner_connect', updated_at = NOW()
+      WHERE id = ${responseId}
+        AND business_id = ${businessId}
+        AND status IN ('approved', 'edited', 'awaiting_owner_connect')
+      RETURNING 1
+    `;
+
+    if (updated.count === 0) {
+      // Response already terminal (posted/failed/superseded). Skip notify
+      // enqueues — owner doesn't need an email about a row they no longer
+      // need to act on.
+      return;
+    }
+
+    await tx`
+      INSERT INTO job_outbox (
+        id, topic, aggregate_type, aggregate_id, payload, attempts, max_attempts
+      ) VALUES
+        (
+          ${uuidv7()},
+          'notify_owner_reconnect',
+          'response',
+          ${responseId},
+          ${jsonb({
+            kind: 'reconnect_required',
+            response_id: responseId,
+            business_id: businessId,
+          })},
+          0,
+          5
+        ),
+        (
+          ${uuidv7()},
+          'notify_owner_connection_lost',
+          'business',
+          ${businessId},
+          ${jsonb({ kind: 'connection_lost', business_id: businessId })},
+          0,
+          5
+        )
+    `;
+  });
 }
