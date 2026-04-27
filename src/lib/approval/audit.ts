@@ -13,54 +13,24 @@ import { v7 as uuidv7 } from 'uuid';
 import { createHash } from 'node:crypto';
 import type postgres from 'postgres';
 import { jsonb } from '@/lib/db/server';
-import type { ApprovalLink } from './types';
-import type { CallbackApprovalInput } from './callback-mode';
+import type {
+  ApprovalLink,
+  CallbackApprovalInput,
+  AuditContext,
+  SessionAuditContext,
+  CallbackAuditArtifacts,
+} from './types';
 
 type TxClient = postgres.TransactionSql;
 
-// ── Audit context shapes ──────────────────────────────────────────────────
-
-export interface AuditContext {
-  tokenHash: string;
-  deviceCookieHash: string | null;
-  ipAddress: string | null;
-}
-
-export interface SessionAuditContext {
-  actorUserId: string;
-  ipAddress: string | null;
-}
-
-interface CallbackAuditContextBase {
-  /** Stable provider event identifier — Telegram update_id as string, Twilio MessageSid. */
-  providerEventId: string;
-  ipAddress: string | null;
-}
-
-/**
- * Existing public input union — DO NOT rename. Ingress layers construct
- * values of this type when invoking callback-mode approval.
- */
-export type CallbackAuditContext =
-  | (CallbackAuditContextBase & {
-      /** Telegram-only: numeric update_id stored in metadata.update_id for forensics continuity. */
-      telegramUpdateId: number;
-      twilioMessageSid?: never;
-    })
-  | (CallbackAuditContextBase & {
-      /** WhatsApp-only: Twilio MessageSid stored in metadata.message_sid. */
-      twilioMessageSid: string;
-      telegramUpdateId?: never;
-    });
-
-/**
- * Return shape of buildCallbackAudit — distinct from the input union above.
- * Named to make the audit/metadata pair explicit at call sites.
- */
-export interface CallbackAuditArtifacts {
-  audit: AuditContext;
-  metadata: Record<string, unknown>;
-}
+// Re-export the type shapes so existing `import { AuditContext, ... } from '@/lib/approval/audit'`
+// (and the service.ts barrel that does the same) keep resolving.
+export type {
+  AuditContext,
+  SessionAuditContext,
+  CallbackAuditContext,
+  CallbackAuditArtifacts,
+} from './types';
 
 // ── Insert helpers ────────────────────────────────────────────────────────
 

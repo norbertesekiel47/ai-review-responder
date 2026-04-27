@@ -188,7 +188,17 @@ export async function dispatchAll(
         // literals (not bound) to keep the unit-test SQL-text assertions
         // (worker/jobs/__tests__/NotificationWorker.whatsapp.test.ts) green.
         if (directive.kind === 'sms_unsubscribed') {
-          const msid = process.env.TWILIO_MESSAGING_SERVICE_SID!;
+          // Belt-and-suspenders: worker startup-assert already enforces
+          // TWILIO_MESSAGING_SERVICE_SID when CHANNELS_SMS_ENABLED=true, but
+          // a missing value here would write the literal string "undefined"
+          // into the TCPA audit trail (sms_sender_opt_outs.messaging_service_sid)
+          // because Postgres.js would coerce. Hard-fail loudly instead.
+          const msid = process.env.TWILIO_MESSAGING_SERVICE_SID;
+          if (!msid) {
+            throw new Error(
+              'TWILIO_MESSAGING_SERVICE_SID missing — cannot record SMS opt-out for TCPA audit',
+            );
+          }
           await sql.begin(async (tx) => {
             await tx`
               INSERT INTO sms_sender_opt_outs (messaging_service_sid, handle, opted_out_at, opted_in_at, last_event_at)

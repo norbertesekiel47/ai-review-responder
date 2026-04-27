@@ -17,20 +17,12 @@ import {
   consumeLink,
   revokeSiblings,
 } from './locks';
-import {
-  insertAuditLog,
-  buildCallbackAudit,
-  type CallbackAuditContext,
-} from './audit';
+import { insertAuditLog, buildCallbackAudit } from './audit';
 import { recoverCorrelationId } from './correlation';
+import type { CallbackApprovalInput } from './types';
 import type { PublishResponsePayload, GenerateResponsePayload } from '@/lib/shared/worker-types';
 
-export interface CallbackApprovalInput {
-  approvalLinkId: string;
-  chatHandle: string;
-  viaChannel: 'telegram' | 'whatsapp';
-  audit: CallbackAuditContext;
-}
+export type { CallbackApprovalInput };
 
 /**
  * Approve via inline-button callback (Telegram / WhatsApp).

@@ -117,7 +117,9 @@ type BusinessPatch = z.infer<typeof UpdateBusinessSchema>;
 class AdminBusinessNotFoundError extends Error {}
 
 // Column name mapping from camelCase API fields to snake_case DB columns.
-const FIELD_TO_COLUMN: Record<string, string> = {
+// `as const satisfies` freezes the table at compile time so a future field
+// addition can't bypass the COLUMN_RE whitelist by widening the type.
+const FIELD_TO_COLUMN = {
   name: 'name',
   category: 'category',
   tone: 'tone',
@@ -128,7 +130,7 @@ const FIELD_TO_COLUMN: Record<string, string> = {
   website: 'website',
   ownerEmail: 'owner_email',
   ownerEmailBounced: 'owner_email_bounced',
-};
+} as const satisfies Record<string, string>;
 
 // ---------------------------------------------------------------------------
 // GET /api/admin/businesses/[id] — business detail + reviews + latest responses
