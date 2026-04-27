@@ -9,6 +9,10 @@ export interface UseBusinessDetailResult {
   isError: boolean;
   error: unknown;
   enrollments: ChannelEnrollmentRow[];
+  /** True while either the detail or the channels query is in flight. */
+  channelsLoading: boolean;
+  /** True if the channels-only query failed (separate from the main detail query). */
+  channelsError: boolean;
   invalidate: () => void;
   clearBounceFlag: () => Promise<void>;
 }
@@ -28,7 +32,17 @@ export function useBusinessDetail(businessId: string): UseBusinessDetailResult {
     },
   });
 
-  const { data: channelsData } = useQuery<{ enrollments: ChannelEnrollmentRow[] }>({
+  // The channels query is rendered in a separate panel, so we expose its
+  // load/error state independently from the main detail query rather than
+  // silently coercing failures to an empty enrollments array. ChannelsPanel
+  // can display "couldn't load channels" without affecting the rest of the
+  // page; previously a 500 from /channels was indistinguishable from "no
+  // enrollments yet".
+  const {
+    data: channelsData,
+    isLoading: channelsLoading,
+    isError: channelsError,
+  } = useQuery<{ enrollments: ChannelEnrollmentRow[] }>({
     queryKey: ['admin-business-channels', businessId],
     queryFn: async () => {
       const res = await fetch(`/api/admin/businesses/${businessId}/channels`);
@@ -50,17 +64,35 @@ export function useBusinessDetail(businessId: string): UseBusinessDetailResult {
 
   const clearBounceFlag = async () => {
     if (!confirm('Clear the bounce flag? Only do this after verifying the address is valid.')) return;
-    const res = await fetch(`/api/admin/businesses/${businessId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ownerEmailBounced: false }),
-    });
-    if (res.ok) {
-      queryClient.invalidateQueries({ queryKey: ['admin-business', businessId] });
-    } else {
-      alert('Failed to clear flag. See console.');
+    try {
+      const res = await fetch(`/api/admin/businesses/${businessId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ownerEmailBounced: false }),
+      });
+      if (res.ok) {
+        void queryClient.invalidateQueries({ queryKey: ['admin-business', businessId] });
+        return;
+      }
+      const json = await res.json().catch(() => ({}));
+      const msg = (json as { error?: string }).error ?? `HTTP ${res.status}`;
+      console.error('[useBusinessDetail] clearBounceFlag failed:', msg);
+      alert(`Failed to clear flag: ${msg}`);
+    } catch (err) {
+      console.error('[useBusinessDetail] clearBounceFlag threw:', err);
+      alert('Failed to clear flag. Check your network connection and try again.');
     }
   };
 
-  return { data, isLoading, isError, error, enrollments, invalidate, clearBounceFlag };
+  return {
+    data,
+    isLoading,
+    isError,
+    error,
+    enrollments,
+    channelsLoading,
+    channelsError,
+    invalidate,
+    clearBounceFlag,
+  };
 }
