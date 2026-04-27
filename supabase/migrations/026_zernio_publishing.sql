@@ -193,10 +193,17 @@ COMMENT ON INDEX notification_deliveries_owner_reconnect_dedup IS
 -- The claim-before-send pattern inserts the row with sent_at IS NULL and
 -- updates it after Resend acks. Postgres unique indexes treat each NULL as
 -- distinct, so a (sent_at::date) predicate would NOT dedupe concurrent
--- claims. Use created_at::date instead — which is NOT NULL DEFAULT NOW().
+-- claims. Use created_at instead — which is NOT NULL DEFAULT NOW().
+--
+-- Postgres immutability gotcha: created_at is TIMESTAMPTZ, and the bare
+-- timestamptz::date cast is STABLE (not IMMUTABLE) because it depends on
+-- the session timezone. Postgres rejects STABLE expressions in index
+-- predicates / keys (ERROR 42P17). Wrapping with `AT TIME ZONE 'UTC'`
+-- first yields a fixed-zone timestamp whose ::date cast IS IMMUTABLE.
+-- Effectively: one email per business per UTC day.
 
 CREATE UNIQUE INDEX IF NOT EXISTS notification_deliveries_connection_lost_dedup
-  ON notification_deliveries (business_id, template, (created_at::date))
+  ON notification_deliveries (business_id, template, ((created_at AT TIME ZONE 'UTC')::date))
   WHERE template = 'owner_connection_lost';
 
 COMMENT ON INDEX notification_deliveries_connection_lost_dedup IS
