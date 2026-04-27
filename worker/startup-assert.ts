@@ -98,3 +98,27 @@ export function assertChannelsWhatsAppEnv(): void {
     );
   }
 }
+
+/**
+ * Boot-time assertion. When ZERNIO_PUBLISHING_ENABLED=true, verifies all
+ * required Zernio env vars are set. Fail fast at startup rather than on
+ * first publish attempt or webhook. No-op when the flag is off or in
+ * MOCK_EXTERNAL_APIS=true.
+ *
+ * ZERNIO_PROFILE_ID_PREFIX is OPTIONAL (defaults to 'repworth-prod-') and
+ * intentionally not asserted.
+ */
+export function assertZernioPublishingEnv(): void {
+  if (process.env.ZERNIO_PUBLISHING_ENABLED !== 'true') return;
+  if (process.env.MOCK_EXTERNAL_APIS === 'true') return;
+  const required = [
+    'ZERNIO_API_KEY',
+    'ZERNIO_WEBHOOK_SECRET',
+    'WORKER_PUBLIC_URL',
+    'NEXT_PUBLIC_APP_URL',
+  ];
+  const missing = required.filter((k) => !process.env[k] || process.env[k]!.trim().length === 0);
+  if (missing.length > 0) {
+    throw new Error(`ZERNIO_PUBLISHING_ENABLED=true but missing required env vars: ${missing.join(', ')}`);
+  }
+}
