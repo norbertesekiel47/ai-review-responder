@@ -41,3 +41,27 @@ export async function claimInboundEvent(
   `;
   return reclaimed.length > 0 ? 'claimed' : 'duplicate';
 }
+
+/**
+ * Mark an inbound webhook event as successfully processed.
+ * Idempotent — if the dedup key has no row, the UPDATE is a no-op.
+ */
+export async function markInboundEventProcessed(dedupKey: string): Promise<void> {
+  await sql`
+    UPDATE inbound_events
+    SET status = 'processed', processed_at = NOW()
+    WHERE external_event_key = ${dedupKey}
+  `;
+}
+
+/**
+ * Mark an inbound webhook event as failed with a reason.
+ * Used when validation/dispatch fails after the event has been claimed.
+ */
+export async function markInboundEventFailed(dedupKey: string, reason: string): Promise<void> {
+  await sql`
+    UPDATE inbound_events
+    SET status = 'failed', error_message = ${reason}
+    WHERE external_event_key = ${dedupKey}
+  `;
+}

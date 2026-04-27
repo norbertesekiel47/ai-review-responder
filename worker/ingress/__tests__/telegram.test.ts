@@ -69,7 +69,10 @@ vi.mock('../../../src/lib/db/server', () => ({
   jsonb: (v: unknown) => v,
 }));
 
-vi.mock('../shared', () => ({ claimInboundEvent: mockClaim }));
+vi.mock('../shared', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../shared')>();
+  return { ...actual, claimInboundEvent: mockClaim };
+});
 
 vi.mock('../telegram-verify', () => ({ verifyTelegramSecret: mockVerify }));
 

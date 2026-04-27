@@ -34,9 +34,10 @@ vi.mock('../twilio-verify', () => ({
     return params;
   }),
 }));
-vi.mock('../shared', () => ({
-  claimInboundEvent: mockClaimInboundEvent,
-}));
+vi.mock('../shared', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../shared')>();
+  return { ...actual, claimInboundEvent: mockClaimInboundEvent };
+});
 
 // sql mock: tagged-template function that reads from sqlQueue for sequential
 // return values; `.begin` wraps a tx function that reads from the same queue.

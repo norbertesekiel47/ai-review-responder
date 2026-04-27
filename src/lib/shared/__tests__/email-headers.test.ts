@@ -53,6 +53,14 @@ describe('getEmailHeaders', () => {
     expect(headers['List-Unsubscribe-Post']).toBeUndefined();
   });
 
+  it('rejects http: LIST_UNSUBSCRIBE_URL (RFC 8058 §3 requires HTTPS for one-click) and falls back to mailto-only', () => {
+    process.env.LIST_UNSUBSCRIBE_URL = 'http://repworth.example/api/unsubscribe?token=abc';
+    const headers = getEmailHeaders('marketing');
+    expect(headers['List-Unsubscribe']).toMatch(/^<mailto:/);
+    expect(headers['List-Unsubscribe']).not.toContain('http://');
+    expect(headers['List-Unsubscribe-Post']).toBeUndefined();
+  });
+
   it('returns empty headers for transactional emails (approval links are not marketing)', () => {
     const headers = getEmailHeaders('transactional');
     expect(headers).toEqual({});

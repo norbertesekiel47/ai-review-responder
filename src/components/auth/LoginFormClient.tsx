@@ -92,18 +92,47 @@ function LoginFormInner({
       }
 
       const authId = data?.user?.id;
-      let role: string | null = null;
-      if (authId) {
-        const { data: userRow } = await supabase
-          .from('users')
-          .select('role')
-          .eq('auth_id', authId)
-          .limit(1)
-          .single();
-        role = (userRow as { role: string } | null)?.role ?? null;
+      if (!authId) {
+        await supabase.auth.signOut();
+        setError('Sign-in succeeded but no auth user was returned. Please try again.');
+        return;
       }
 
-      if (!role || !allowedRoles.includes(role)) {
+      // Distinguish three failure modes after a successful sign-in:
+      //   1. supabase client error (RLS denial, network, etc.) — userRow is
+      //      undefined and lookupErr is set. Show transient-error copy.
+      //   2. no row matches auth_id — userRow is null, lookupErr is null.
+      //      Account isn't provisioned in our public.users table. The
+      //      admin-onboarding flow inserts the row + patches auth_id; if
+      //      that ever drifts (e.g., auth user was recreated and auth_id
+      //      was never relinked), this branch fires. Different message
+      //      from "wrong portal" so the user knows it's a setup issue,
+      //      not a portal-mismatch issue.
+      //   3. row exists but role isn't in this portal's allowedRoles —
+      //      keep the existing "wrong portal" message.
+      // .maybeSingle() returns null without error when there are 0 rows,
+      // so case 2 doesn't masquerade as case 1.
+      const { data: userRow, error: lookupErr } = await supabase
+        .from('users')
+        .select('role')
+        .eq('auth_id', authId)
+        .limit(1)
+        .maybeSingle();
+
+      if (lookupErr) {
+        await supabase.auth.signOut();
+        setError('Could not load your account details. Please try again.');
+        return;
+      }
+
+      if (!userRow) {
+        await supabase.auth.signOut();
+        setError('Your account is not fully set up. Contact your administrator.');
+        return;
+      }
+
+      const role = (userRow as { role: string }).role;
+      if (!allowedRoles.includes(role)) {
         await supabase.auth.signOut();
         setError(
           portal === 'owner'
