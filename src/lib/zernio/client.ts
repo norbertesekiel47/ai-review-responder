@@ -90,6 +90,13 @@ export interface RequestOptions {
 }
 
 export async function request<T>(opts: RequestOptions): Promise<T> {
+  // Spec §6.5 — mock mode short-circuits all Zernio calls so local dev works
+  // without sandbox credentials. Must run BEFORE AbortController setup so we
+  // make zero fetch calls.
+  if (process.env.MOCK_EXTERNAL_APIS === 'true') {
+    return await mockResponse<T>(opts);
+  }
+
   // Round-16: extract timeoutMs BEFORE setTimeout so it's visible in catch.
   const timeoutMs = opts.timeoutMs ?? 10_000;
   const controller = new AbortController();
@@ -140,6 +147,33 @@ export async function request<T>(opts: RequestOptions): Promise<T> {
     });
   } finally {
     clearTimeout(timer);
+  }
+}
+
+async function mockResponse<T>(opts: RequestOptions): Promise<T> {
+  switch (opts.endpointKind) {
+    case 'create_profile':
+      return { profileId: `mock-profile-${Date.now()}` } as unknown as T;
+    case 'start_connect':
+      return {
+        authUrl: 'http://localhost:3000/__mock_oauth_complete',
+      } as unknown as T;
+    case 'list_locations':
+      return {
+        locations: [{ id: 'mock-loc-1', name: 'Mock Location', address: '123 Mock St' }],
+      } as unknown as T;
+    case 'select_location':
+      return { accountId: `mock-account-${Date.now()}` } as unknown as T;
+    case 'list_reviews':
+      return { reviews: [], nextPageToken: undefined } as unknown as T;
+    case 'publish_reply':
+      return {
+        comment: 'mock reply',
+        updateTime: new Date().toISOString(),
+      } as unknown as T;
+    case 'delete_account':
+    case 'delete_profile':
+      return undefined as unknown as T;
   }
 }
 

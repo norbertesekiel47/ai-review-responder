@@ -167,3 +167,20 @@ describe('request() timeout handling', () => {
     ).rejects.toMatchObject({ name: 'ZernioAuthError' });
   });
 });
+
+describe('mock mode', () => {
+  beforeEach(() => {
+    process.env.MOCK_EXTERNAL_APIS = 'true';
+  });
+  afterEach(() => {
+    delete process.env.MOCK_EXTERNAL_APIS;
+  });
+
+  it('createProfile returns a fake profileId without hitting fetch', async () => {
+    const fetchSpy = vi.fn();
+    global.fetch = fetchSpy;
+    const result = await zernioClient.createProfile({ name: 'test' });
+    expect(result.profileId).toMatch(/^mock-profile-/);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
