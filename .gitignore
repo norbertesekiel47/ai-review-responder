@@ -64,3 +64,6 @@ screenshot.png
 # Chrome DevTools MCP per-session debug snapshots (console logs, page yamls,
 # screenshots). Never useful in source control.
 .playwright-mcp/
+
+# git worktrees (isolated workspaces for parallel feature work)
+.worktrees/
