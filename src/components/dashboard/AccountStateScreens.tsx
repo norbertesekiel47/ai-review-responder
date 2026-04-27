@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import type { DashboardDataPendingPayment } from '@/lib/dashboard/types';
 
 export function ActivePendingBusinessScreen() {
@@ -11,12 +12,12 @@ export function ActivePendingBusinessScreen() {
           Your subscription is active. Just one more step — tell us about
           your business so we can start fetching reviews.
         </p>
-        <a
+        <Link
           href="/onboarding/business"
           className="inline-block bg-blue-600 text-white font-medium py-3 px-8 rounded-md hover:bg-blue-700"
         >
           Set up business
-        </a>
+        </Link>
       </div>
     </div>
   );

@@ -49,7 +49,15 @@ export function ChannelsPanel({ business, businessId, enrollments }: ChannelsPan
                     <td className="py-2 font-mono text-gray-700">{e.handle}</td>
                     <td className="py-2"><StatusBadge status={e.status} /></td>
                     <td className="py-2 text-gray-700">
-                      {e.last_activity_at ? new Date(e.last_activity_at).toLocaleString() : '—'}
+                      {e.last_activity_at
+                        ? new Date(e.last_activity_at).toLocaleString('en-GB', {
+                            year: 'numeric',
+                            month: 'short',
+                            day: '2-digit',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })
+                        : '—'}
                     </td>
                   </tr>
                 ))}

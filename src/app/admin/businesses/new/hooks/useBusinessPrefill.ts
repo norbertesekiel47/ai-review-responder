@@ -5,6 +5,19 @@ import type { UseFormGetValues, UseFormSetValue, UseFormGetFieldState } from 're
 import type { FormData } from '../schema';
 
 /**
+ * Shape returned by GET /api/admin/businesses/prefill. Keep in sync with
+ * the route handler's response — exporting lets the API layer (or future
+ * tests) import the same contract instead of redeclaring inline.
+ */
+export interface BusinessPrefillResponse {
+  category: string | null;
+  phone: string | null;
+  website: string | null;
+  hours: string | null;
+  fullAddress: string | null;
+}
+
+/**
  * Encapsulates the SerpAPI prefill race-condition handling for the
  * "Onboard New Business" admin form.
  *
@@ -80,13 +93,7 @@ export function useBusinessPrefill(args: {
       // Secondary defense: if a newer selection happened, discard this response.
       if (latestPlaceIdRef.current !== placeId) return;
       if (!res.ok) return; // Silent failure — fields remain empty for manual entry
-      const prefill = (await res.json()) as {
-        category: string | null;
-        phone: string | null;
-        website: string | null;
-        hours: string | null;
-        fullAddress: string | null;
-      };
+      const prefill = (await res.json()) as BusinessPrefillResponse;
       // Check AGAIN after awaiting body parse — the user could have selected
       // a different place between headers arriving and body parsing.
       if (latestPlaceIdRef.current !== placeId) return;

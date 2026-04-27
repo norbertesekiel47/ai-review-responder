@@ -21,7 +21,7 @@ export const FormSchema = z.object({
   ownerName: z.string().min(1, 'Owner name is required').max(255),
   ownerEmail: z.string().email('Valid email is required').max(255),
   ownerPhone: z.string().max(20).optional(),
-  tone: z.string().max(100),
+  tone: z.string().min(1, 'Tone is required').max(100),
   productsServices: z.string().max(5000).optional(),
   staffNames: z.string().max(2000).optional(),
   highlightFacts: z.string().max(2000).optional(),

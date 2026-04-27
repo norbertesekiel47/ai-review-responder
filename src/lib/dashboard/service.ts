@@ -8,7 +8,16 @@
 
 import { sql } from '@/lib/db/server';
 import { parseDbArray } from '@/lib/shared/db-array';
-import type { DashboardData, DashboardDataActive } from './types';
+import type { DashboardDataActive } from './types';
+
+/**
+ * Heuristic minutes saved per response — owner-facing time-saved metric on
+ * the dashboard. The value is intentionally rough (real time per response
+ * varies wildly by business size and review complexity) but consistent so
+ * week-over-week comparisons are meaningful. Treat as a presentational
+ * constant, not an SLA.
+ */
+const MINUTES_SAVED_PER_RESPONSE = 7;
 
 /**
  * Thrown when the businesses row vanishes between the route's preflight
@@ -162,7 +171,7 @@ export async function getActiveDashboardData(
     );
   }
 
-  const totalTimeSavedMinutes = totalResponded * 7;
+  const totalTimeSavedMinutes = totalResponded * MINUTES_SAVED_PER_RESPONSE;
 
   // Group ranking snapshots by keyword
   const rankingMap = new Map<
@@ -211,7 +220,7 @@ export async function getActiveDashboardData(
     };
   }
 
-  const data: DashboardData = {
+  const data: DashboardDataActive = {
     business: {
       name: business.name as string,
       createdAt: (business.created_at as Date).toISOString(),

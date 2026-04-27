@@ -247,7 +247,16 @@ export async function updateBusiness(
   const values: (string | string[] | boolean | null)[] = [businessId];
 
   for (const field of fields) {
-    const column = FIELD_TO_COLUMN[field]!;
+    const column = FIELD_TO_COLUMN[field];
+    if (!column) {
+      // Should be unreachable: the route's COLUMN_RE check rejects unknown
+      // fields with 400 before calling here. Guard anyway so a future
+      // refactor that loosens the route's check can't silently produce a
+      // malformed UPDATE.
+      throw new Error(
+        `[business-detail-service] No column mapping for field '${String(field)}' — FIELD_TO_COLUMN is out of sync with UpdateBusinessSchema`,
+      );
+    }
     const value = patch[field] ?? null;
     values.push(value);
     setClauses.push(`${column} = $${values.length}`);
