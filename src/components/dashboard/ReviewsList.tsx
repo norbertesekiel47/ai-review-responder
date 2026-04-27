@@ -43,10 +43,15 @@ export function ReviewsList({
       ) : (
         <ul className="divide-y divide-gray-100">
           {recentReviews.map((review) => {
-            const badgeClass =
-              STATUS_BADGE_COLORS[review.responseStatus ?? review.status] ??
-              STATUS_BADGE_COLORS.new;
+            // Compute displayStatus once and use it for both badge color and
+            // action gating. Previously the action gate read review.responseStatus
+            // directly while the badge used responseStatus ?? status — an
+            // inconsistency that's harmless today (the action gate uses the
+            // exact 'pending_approval' literal) but would silently drift if
+            // a status alias is ever introduced.
             const displayStatus = review.responseStatus ?? review.status;
+            const badgeClass =
+              STATUS_BADGE_COLORS[displayStatus] ?? STATUS_BADGE_COLORS.new;
             const isExpanded = expandedReview === review.id;
 
             return (
@@ -71,7 +76,7 @@ export function ReviewsList({
                     {review.reviewText && (
                       <p className="mt-1 text-sm text-gray-600">{review.reviewText}</p>
                     )}
-                    {review.responseStatus === 'pending_approval' && review.responseText && (
+                    {displayStatus === 'pending_approval' && review.responseText && (
                       <ReviewActions
                         reviewId={review.id}
                         responseText={review.responseText}

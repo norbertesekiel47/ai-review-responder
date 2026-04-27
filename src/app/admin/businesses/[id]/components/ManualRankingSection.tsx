@@ -9,11 +9,24 @@ interface ManualRankingSectionProps {
   snapshots: RankingSnapshot[];
 }
 
+/**
+ * Returns today's calendar date in the admin's local timezone as YYYY-MM-DD.
+ * `new Date().toISOString().slice(0,10)` would emit the UTC date, which
+ * lands on the wrong day for admins west of UTC after their local 4-7pm.
+ */
+function todayLocal(): string {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 export function ManualRankingSection({ businessId, snapshots }: ManualRankingSectionProps) {
   const queryClient = useQueryClient();
   const [keyword, setKeyword] = useState('');
   const [rankPosition, setRankPosition] = useState('');
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(() => todayLocal());
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -42,7 +55,7 @@ export function ManualRankingSection({ businessId, snapshots }: ManualRankingSec
       }
       setKeyword('');
       setRankPosition('');
-      setDate(new Date().toISOString().slice(0, 10));
+      setDate(todayLocal());
       setSuccess(true);
       void queryClient.invalidateQueries({ queryKey: ['admin-business', businessId] });
     } catch (err) {

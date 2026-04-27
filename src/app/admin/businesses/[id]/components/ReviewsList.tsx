@@ -3,7 +3,11 @@
 import type { ReviewRow } from '../types';
 
 function renderStars(rating: number): string {
-  return '★'.repeat(rating) + '☆'.repeat(5 - rating);
+  // Clamp to [0, 5] integer range — '★'.repeat() throws RangeError on
+  // negative counts, so a malformed row with rating > 5 or < 0 would
+  // crash the entire reviews list.
+  const clamped = Math.max(0, Math.min(5, Math.floor(Number.isFinite(rating) ? rating : 0)));
+  return '★'.repeat(clamped) + '☆'.repeat(5 - clamped);
 }
 
 function ResponseBadge({ status }: { status: string | null }) {

@@ -67,6 +67,7 @@ export function TrackedKeywordsSection({ businessId, keywords: initialKeywords }
           <span key={kw} className="inline-flex items-center gap-1 bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm">
             {kw}
             <button
+              type="button"
               onClick={() => removeKeyword(kw)}
               disabled={saving}
               className="ml-1 text-blue-500 hover:text-blue-700 disabled:opacity-50"
@@ -91,6 +92,7 @@ export function TrackedKeywordsSection({ businessId, keywords: initialKeywords }
           disabled={saving}
         />
         <button
+          type="button"
           onClick={addKeyword}
           disabled={saving || !newKeyword.trim()}
           className="rounded bg-blue-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"

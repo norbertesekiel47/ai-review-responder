@@ -12,7 +12,11 @@
 export const LOG_PREFIX = '[email]';
 
 export function renderStars(rating: number): string {
-  return '★'.repeat(rating) + '☆'.repeat(5 - rating);
+  // Clamp to [0, 5] integer range — '★'.repeat() throws RangeError on
+  // negative counts. A malformed star_rating from the DB must not crash
+  // every email send for that business.
+  const clamped = Math.max(0, Math.min(5, Math.floor(Number.isFinite(rating) ? rating : 0)));
+  return '★'.repeat(clamped) + '☆'.repeat(5 - clamped);
 }
 
 export function truncate(text: string, maxLength: number): string {
