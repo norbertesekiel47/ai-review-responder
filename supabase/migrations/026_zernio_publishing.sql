@@ -46,7 +46,7 @@ ALTER TABLE responses ALTER COLUMN status TYPE TEXT;
 
 DROP INDEX IF EXISTS responses_one_non_terminal_per_review;
 
-CREATE UNIQUE INDEX responses_one_non_terminal_per_review
+CREATE UNIQUE INDEX IF NOT EXISTS responses_one_non_terminal_per_review
   ON responses (review_id)
   WHERE status IN (
     'pending_approval',
@@ -70,7 +70,7 @@ COMMENT ON INDEX responses_one_non_terminal_per_review IS
 -- tables use DEFAULT gen_random_uuid() and the application generates
 -- UUIDv7 via the uuidv7 npm package. This table follows the same pattern.
 
-CREATE TABLE zernio_connections (
+CREATE TABLE IF NOT EXISTS zernio_connections (
   id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   business_id           UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
 
@@ -95,18 +95,18 @@ CREATE TABLE zernio_connections (
 
 -- One active or pending connection per business. Disconnected rows kept
 -- for audit (soft-delete model) so use a partial unique index.
-CREATE UNIQUE INDEX zernio_connections_one_active_per_business
+CREATE UNIQUE INDEX IF NOT EXISTS zernio_connections_one_active_per_business
   ON zernio_connections (business_id)
   WHERE status IN ('pending','active');
 
 -- Webhook lookup: account.disconnected events arrive with zernio_account_id;
 -- need to find the business fast.
-CREATE INDEX zernio_connections_account_id_idx
+CREATE INDEX IF NOT EXISTS zernio_connections_account_id_idx
   ON zernio_connections (zernio_account_id)
   WHERE status = 'active';
 
 -- Ops query: "show me all currently-broken connections"
-CREATE INDEX zernio_connections_disconnected_idx
+CREATE INDEX IF NOT EXISTS zernio_connections_disconnected_idx
   ON zernio_connections (business_id)
   WHERE status = 'disconnected';
 
@@ -134,7 +134,7 @@ ALTER TABLE zernio_connections ENABLE ROW LEVEL SECURITY;
 --   (2) ops has a queryable surface for reconciliation backlog
 --   (3) the record survives Redis restarts/evictions
 
-CREATE TABLE zernio_finalize_incidents (
+CREATE TABLE IF NOT EXISTS zernio_finalize_incidents (
   id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   business_id           UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
   zernio_profile_id     TEXT NOT NULL,
@@ -151,12 +151,12 @@ CREATE TABLE zernio_finalize_incidents (
 
 -- One unresolved incident per business at a time. Blocks new connect/start
 -- attempts until ops resolves the incident (sets resolved_at).
-CREATE UNIQUE INDEX zernio_finalize_incidents_one_unresolved_per_business
+CREATE UNIQUE INDEX IF NOT EXISTS zernio_finalize_incidents_one_unresolved_per_business
   ON zernio_finalize_incidents (business_id)
   WHERE resolved_at IS NULL;
 
 -- Ops query: "show me all unresolved finalize incidents for triage"
-CREATE INDEX zernio_finalize_incidents_unresolved_idx
+CREATE INDEX IF NOT EXISTS zernio_finalize_incidents_unresolved_idx
   ON zernio_finalize_incidents (created_at DESC)
   WHERE resolved_at IS NULL;
 
@@ -178,7 +178,7 @@ COMMENT ON TABLE zernio_finalize_incidents IS
 -- For 'owner_reconnect_required': scoped to (response_id, template) so each
 -- response generates at most one reconnect email.
 
-CREATE UNIQUE INDEX notification_deliveries_owner_reconnect_dedup
+CREATE UNIQUE INDEX IF NOT EXISTS notification_deliveries_owner_reconnect_dedup
   ON notification_deliveries (response_id, template)
   WHERE response_id IS NOT NULL AND template = 'owner_reconnect_required';
 
@@ -195,7 +195,7 @@ COMMENT ON INDEX notification_deliveries_owner_reconnect_dedup IS
 -- distinct, so a (sent_at::date) predicate would NOT dedupe concurrent
 -- claims. Use created_at::date instead — which is NOT NULL DEFAULT NOW().
 
-CREATE UNIQUE INDEX notification_deliveries_connection_lost_dedup
+CREATE UNIQUE INDEX IF NOT EXISTS notification_deliveries_connection_lost_dedup
   ON notification_deliveries (business_id, template, (created_at::date))
   WHERE template = 'owner_connection_lost';
 
