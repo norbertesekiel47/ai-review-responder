@@ -47,6 +47,9 @@ import { handleReviewSync } from './jobs/ReviewSyncWorker';
 import { handleResponseGeneration } from './jobs/ResponseGeneratorWorker';
 import { handleSendNotification } from './jobs/NotificationWorker';
 import { handlePublishResponse } from './jobs/ResponsePublisherWorker';
+import { applyTransientExhaustionFallback } from '../src/lib/publishing/zernio-publisher';
+import { ZernioTransientError } from '../src/lib/zernio/errors';
+import { extractOutboxHandle, markOutboxFailed } from '../src/lib/shared/outbox';
 import { handleAdminException } from './jobs/AdminExceptionWorker';
 import { handleWeeklySummary } from './jobs/WeeklySummaryWorker';
 import { handlePlaceIdValidation } from './jobs/PlaceIdValidationWorker';
@@ -125,6 +128,38 @@ const responseGenWorker = new Worker(QUEUE_NAMES.GENERATE_RESPONSE, handleRespon
 const notificationWorker = new Worker(QUEUE_NAMES.SEND_NOTIFICATION, handleSendNotification, workerOpts);
 
 const publisherWorker = new Worker(QUEUE_NAMES.PUBLISH_RESPONSE, handlePublishResponse, workerOpts);
+
+// Final-attempt exhaustion handler for ResponsePublisherWorker. BullMQ retries
+// transient errors automatically; only the LAST failure (attemptsMade ===
+// opts.attempts) reaches this branch as exhaustion. For ZernioTransientError
+// at exhaustion we run the graceful-degradation fallback (disconnect + park
+// the response + notify owner). For any other unhandled error we just close
+// the outbox row so it doesn't sit in `dispatched` forever.
+publisherWorker.on('failed', async (job, err) => {
+  if (!job) return;
+  if (job.attemptsMade < (job.opts.attempts ?? 1)) return; // not yet exhausted
+  const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
+  if (err instanceof ZernioTransientError) {
+    try {
+      await applyTransientExhaustionFallback(job.data);
+      await markOutboxFailed(outboxId, 'zernio_transient_max_attempts', outboxAttempt);
+    } catch (fallbackErr) {
+      // Fallback itself failed — surface the reason so ops can see it, and
+      // still close the outbox so the row doesn't stay `dispatched`.
+      const reason = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
+      console.error(`[publisherWorker] transient-exhaustion fallback failed: ${reason}`);
+      await markOutboxFailed(
+        outboxId,
+        `zernio_transient_max_attempts_fallback_failed: ${reason}`,
+        outboxAttempt,
+      );
+    }
+    return;
+  }
+  // Non-transient unhandled error: just close the outbox row.
+  const reason = err instanceof Error ? err.message : String(err);
+  await markOutboxFailed(outboxId, reason, outboxAttempt);
+});
 
 const adminExceptionWorker = new Worker(QUEUE_NAMES.NOTIFY_ADMIN, handleAdminException, workerOpts);
 
