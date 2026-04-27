@@ -72,6 +72,8 @@ export const queues = {
   engagementAlert: new Queue(QUEUE_NAMES.ENGAGEMENT_ALERT, { connection: opts, defaultJobOptions }),
   trackRanking: new Queue(QUEUE_NAMES.TRACK_RANKING, { connection: opts, defaultJobOptions }),
   onboardingDrip: new Queue(QUEUE_NAMES.ONBOARDING_DRIP, { connection: opts, defaultJobOptions }),
+  drainOwnerConnect: new Queue(QUEUE_NAMES.DRAIN_OWNER_CONNECT, { connection: opts, defaultJobOptions }),
+  sendOwnerEmail: new Queue(QUEUE_NAMES.SEND_OWNER_EMAIL, { connection: opts, defaultJobOptions }),
 } as const;
 
 // Lookup table: outbox topic string → Queue instance
@@ -88,4 +90,7 @@ export const topicToQueue: Record<string, Queue> = {
   [QUEUE_NAMES.ENGAGEMENT_ALERT]: queues.engagementAlert,
   [QUEUE_NAMES.TRACK_RANKING]: queues.trackRanking,
   [QUEUE_NAMES.ONBOARDING_DRIP]: queues.onboardingDrip,
+  [QUEUE_NAMES.DRAIN_OWNER_CONNECT]: queues.drainOwnerConnect,
+  ['notify_owner_reconnect']: queues.sendOwnerEmail,
+  ['notify_owner_connection_lost']: queues.sendOwnerEmail,
 };
