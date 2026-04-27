@@ -39,15 +39,39 @@ export type AdminOnboardingErrorCode =
   | 'INVITE_FAILED'
   | 'LINK_AUTH_ID_FAILED';
 
+/**
+ * Optional rollback diagnostics for LINK_AUTH_ID_FAILED. When the auth_id
+ * link UPDATE matches 0 rows, the service attempts to delete the auth user
+ * and the business+users rows. Either of those cleanup steps can fail
+ * independently, leaving orphan records that need manual cleanup. Surfacing
+ * the IDs lets the admin UI tell the operator exactly what's left over
+ * instead of failing silently with a generic 500.
+ */
+export interface AdminOnboardingRollbackDetails {
+  /** Set if the auth user (Supabase auth.users) may still exist. */
+  orphanAuthUserId?: string;
+  /** Set if the public.businesses row may still exist. */
+  orphanBusinessId?: string;
+  /** Set if the public.users row may still exist. */
+  orphanUserId?: string;
+}
+
 export class AdminOnboardingError extends Error {
   readonly code: AdminOnboardingErrorCode;
   readonly status: number;
+  readonly rollback?: AdminOnboardingRollbackDetails;
 
-  constructor(code: AdminOnboardingErrorCode, message: string, status: number) {
+  constructor(
+    code: AdminOnboardingErrorCode,
+    message: string,
+    status: number,
+    rollback?: AdminOnboardingRollbackDetails,
+  ) {
     super(message);
     this.name = 'AdminOnboardingError';
     this.code = code;
     this.status = status;
+    this.rollback = rollback;
   }
 }
 
@@ -317,9 +341,17 @@ export async function onboardBusinessAsAdmin(
     console.error(
       `[admin-onboarding-service] auth_id link UPDATE matched 0 rows for users.${createdResult.userId} — rolling back business + invited auth user`,
     );
+    // Track which rollback steps actually completed so the route can tell
+    // the admin operator what (if anything) needs manual cleanup. Each ID
+    // starts as "may still exist" and is cleared once we confirm deletion.
+    const rollback: AdminOnboardingRollbackDetails = {
+      orphanAuthUserId: invited.user.id,
+      orphanBusinessId: createdResult.businessId,
+      orphanUserId: createdResult.userId,
+    };
+
     // Best-effort rollback: delete the auth user we just invited, then the
-    // DB rows. Errors here only get logged — the route's final 500 is the
-    // load-bearing signal regardless of cleanup outcome.
+    // DB rows.
     //
     // Supabase v2 admin returns `{ data, error }` instead of throwing on
     // API-level failures (404 user-not-found, 422 invalid, RLS denial,
@@ -337,6 +369,8 @@ export async function onboardBusinessAsAdmin(
           `[admin-onboarding-service] Supabase deleteUser returned error for invited auth user ${invited.user.id} during link-failure rollback:`,
           deleteErr.message ?? deleteErr,
         );
+      } else {
+        delete rollback.orphanAuthUserId;
       }
     } catch (thrownErr) {
       console.error(
@@ -350,16 +384,25 @@ export async function onboardBusinessAsAdmin(
         await tx`DELETE FROM users WHERE id = ${createdResult.userId}::uuid`;
         await tx`DELETE FROM businesses WHERE id = ${createdResult.businessId}::uuid`;
       });
+      delete rollback.orphanBusinessId;
+      delete rollback.orphanUserId;
     } catch (rollbackErr) {
       console.error(
         '[admin-onboarding-service] DB rollback after auth_id link failure threw:',
         rollbackErr,
       );
     }
+    const hasOrphans =
+      rollback.orphanAuthUserId !== undefined ||
+      rollback.orphanBusinessId !== undefined ||
+      rollback.orphanUserId !== undefined;
     throw new AdminOnboardingError(
       'LINK_AUTH_ID_FAILED',
-      'Could not link the invited owner to the business record. The business was rolled back — try again, and if this persists check users.auth_id constraints.',
+      hasOrphans
+        ? 'Could not link the invited owner to the business record, and the cleanup rollback partially failed. Manual cleanup required — see the response details.'
+        : 'Could not link the invited owner to the business record. The business was rolled back — try again, and if this persists check users.auth_id constraints.',
       500,
+      hasOrphans ? rollback : undefined,
     );
   }
 

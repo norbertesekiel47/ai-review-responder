@@ -124,7 +124,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
   } catch (err) {
     if (err instanceof AdminOnboardingError) {
-      return NextResponse.json({ error: err.message }, { status: err.status });
+      const body: { error: string; rollback?: typeof err.rollback } = {
+        error: err.message,
+      };
+      // Surface orphan IDs from a partially-failed rollback (currently only
+      // emitted by LINK_AUTH_ID_FAILED). Lets the admin UI display exactly
+      // which records need manual cleanup instead of a generic 500.
+      if (err.rollback) {
+        body.rollback = err.rollback;
+      }
+      return NextResponse.json(body, { status: err.status });
     }
     console.error('[api/admin/businesses POST] Unexpected error:', err);
     return NextResponse.json(
