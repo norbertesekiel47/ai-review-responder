@@ -9,6 +9,27 @@ export const luaTokenCAS = `
     return 0
   end`;
 
+// Step E (connect/start): replace the placeholder marker JSON with the full
+// oauth_in_progress marker, ONLY if the stored value still byte-matches the
+// placeholder we wrote in Step C. Prevents clobbering a newer flow that
+// raced in via cancel+restart while Step D's Zernio calls were in flight.
+export const luaCASUpdate = `
+  if redis.call("get", KEYS[1]) == ARGV[1] then
+    return redis.call("set", KEYS[1], ARGV[2], "EX", ARGV[3])
+  else
+    return false
+  end`;
+
+// Step F (connect/start failure cleanup): delete the marker only if it's
+// still byte-equal to the placeholder we wrote. If a newer flow has
+// overwritten it, leave it alone.
+export const luaCASDel = `
+  if redis.call("get", KEYS[1]) == ARGV[1] then
+    return redis.call("del", KEYS[1])
+  else
+    return 0
+  end`;
+
 export const luaCASToFinalizing = `
   local raw = redis.call("get", KEYS[1])
   if not raw then return -1 end
