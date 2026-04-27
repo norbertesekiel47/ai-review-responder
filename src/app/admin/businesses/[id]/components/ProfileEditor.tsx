@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import type { BusinessDetail } from '../types';
 
@@ -41,6 +41,24 @@ export function ProfileEditor({ business, businessId, onSaved }: ProfileEditorPr
   const [highlightFacts, setHighlightFacts] = useState(business.highlightFacts.join('\n'));
   const [avoidFacts, setAvoidFacts] = useState(business.avoidFacts.join('\n'));
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Refresh local form state when the parent provides updated business data
+  // — but ONLY while the user isn't actively editing. Without this guard,
+  // a successful save (which triggers `onSaved` → query invalidate → fresh
+  // business prop) would land mid-edit and clobber the user's in-progress
+  // typing. While `editing` is true we deliberately keep local state stable.
+  useEffect(() => {
+    if (editing) return;
+    setName(business.name);
+    setCategory(business.category ?? '');
+    setWebsite(business.website ?? '');
+    setTone(business.tone);
+    setOwnerEmail(business.ownerEmail);
+    setProductsServices(business.productsServices ?? '');
+    setStaffNames(business.staffNames.join(', '));
+    setHighlightFacts(business.highlightFacts.join('\n'));
+    setAvoidFacts(business.avoidFacts.join('\n'));
+  }, [business, editing]);
 
   const mutation = useMutation({
     mutationFn: async () => {
@@ -109,6 +127,7 @@ export function ProfileEditor({ business, businessId, onSaved }: ProfileEditorPr
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold text-gray-800">Business Profile</h2>
           <button
+            type="button"
             onClick={() => setEditing(true)}
             className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
           >
@@ -182,8 +201,9 @@ export function ProfileEditor({ business, businessId, onSaved }: ProfileEditorPr
       <h2 className="text-lg font-semibold text-gray-800">Edit Profile</h2>
       <div className="mt-4 space-y-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700">Name</label>
+          <label htmlFor="business-name" className="block text-sm font-medium text-gray-700">Name</label>
           <input
+            id="business-name"
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -191,8 +211,9 @@ export function ProfileEditor({ business, businessId, onSaved }: ProfileEditorPr
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700">Category</label>
+          <label htmlFor="business-category" className="block text-sm font-medium text-gray-700">Category</label>
           <input
+            id="business-category"
             type="text"
             value={category}
             onChange={(e) => setCategory(e.target.value)}
@@ -200,8 +221,9 @@ export function ProfileEditor({ business, businessId, onSaved }: ProfileEditorPr
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700">Website</label>
+          <label htmlFor="business-website" className="block text-sm font-medium text-gray-700">Website</label>
           <input
+            id="business-website"
             type="url"
             value={website}
             onChange={(e) => setWebsite(e.target.value)}
@@ -210,8 +232,9 @@ export function ProfileEditor({ business, businessId, onSaved }: ProfileEditorPr
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700">Tone</label>
+          <label htmlFor="business-tone" className="block text-sm font-medium text-gray-700">Tone</label>
           <input
+            id="business-tone"
             type="text"
             value={tone}
             onChange={(e) => setTone(e.target.value)}
@@ -219,8 +242,9 @@ export function ProfileEditor({ business, businessId, onSaved }: ProfileEditorPr
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700">Owner Email</label>
+          <label htmlFor="business-owner-email" className="block text-sm font-medium text-gray-700">Owner Email</label>
           <input
+            id="business-owner-email"
             type="email"
             value={ownerEmail}
             onChange={(e) => setOwnerEmail(e.target.value)}
@@ -232,8 +256,9 @@ export function ProfileEditor({ business, businessId, onSaved }: ProfileEditorPr
           </p>
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700">Products / Services</label>
+          <label htmlFor="business-products-services" className="block text-sm font-medium text-gray-700">Products / Services</label>
           <textarea
+            id="business-products-services"
             value={productsServices}
             onChange={(e) => setProductsServices(e.target.value)}
             rows={3}
@@ -241,10 +266,11 @@ export function ProfileEditor({ business, businessId, onSaved }: ProfileEditorPr
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700">
+          <label htmlFor="business-staff-names" className="block text-sm font-medium text-gray-700">
             Staff Names <span className="text-gray-400 font-normal">(comma-separated)</span>
           </label>
           <input
+            id="business-staff-names"
             type="text"
             value={staffNames}
             onChange={(e) => setStaffNames(e.target.value)}
@@ -252,10 +278,11 @@ export function ProfileEditor({ business, businessId, onSaved }: ProfileEditorPr
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700">
+          <label htmlFor="business-highlight-facts" className="block text-sm font-medium text-gray-700">
             Highlight Facts <span className="text-gray-400 font-normal">(one per line)</span>
           </label>
           <textarea
+            id="business-highlight-facts"
             value={highlightFacts}
             onChange={(e) => setHighlightFacts(e.target.value)}
             rows={4}
@@ -263,10 +290,11 @@ export function ProfileEditor({ business, businessId, onSaved }: ProfileEditorPr
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700">
+          <label htmlFor="business-avoid-facts" className="block text-sm font-medium text-gray-700">
             Avoid Facts <span className="text-gray-400 font-normal">(one per line)</span>
           </label>
           <textarea
+            id="business-avoid-facts"
             value={avoidFacts}
             onChange={(e) => setAvoidFacts(e.target.value)}
             rows={4}
@@ -276,6 +304,7 @@ export function ProfileEditor({ business, businessId, onSaved }: ProfileEditorPr
         {saveError && <p className="text-sm text-red-600">{saveError}</p>}
         <div className="flex gap-3 pt-2">
           <button
+            type="button"
             onClick={() => mutation.mutate()}
             disabled={mutation.isPending}
             className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
@@ -283,6 +312,7 @@ export function ProfileEditor({ business, businessId, onSaved }: ProfileEditorPr
             {mutation.isPending ? 'Saving...' : 'Save'}
           </button>
           <button
+            type="button"
             onClick={handleCancel}
             disabled={mutation.isPending}
             className="rounded border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
