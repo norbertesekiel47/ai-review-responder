@@ -23,4 +23,10 @@ describe('parseDbArray', () => {
   it('returns empty array for unexpected types', () => {
     expect(parseDbArray(42)).toEqual([]);
   });
+  it('filters non-string elements from a mixed array (enforces string[] contract)', () => {
+    expect(parseDbArray(['a', 1, 'b', null, true, 'c'])).toEqual(['a', 'b', 'c']);
+  });
+  it('filters non-string elements from a JSON-encoded mixed array', () => {
+    expect(parseDbArray('["a",1,"b",null,true,"c"]')).toEqual(['a', 'b', 'c']);
+  });
 });
