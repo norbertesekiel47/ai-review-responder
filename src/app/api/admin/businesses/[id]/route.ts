@@ -114,7 +114,7 @@ interface BusinessDetailResponse {
 
 type BusinessPatch = z.infer<typeof UpdateBusinessSchema>;
 
-class BusinessNotFoundError extends Error {}
+class AdminBusinessNotFoundError extends Error {}
 
 // Column name mapping from camelCase API fields to snake_case DB columns.
 const FIELD_TO_COLUMN: Record<string, string> = {
@@ -217,7 +217,7 @@ export async function PATCH(
     await updateBusiness(businessId, data);
     return NextResponse.json({ success: true });
   } catch (error) {
-    if (error instanceof BusinessNotFoundError) {
+    if (error instanceof AdminBusinessNotFoundError) {
       return NextResponse.json({ error: 'Business not found' }, { status: 404 });
     }
     // Duplicate email constraint (users.email or channel_enrollments UNIQUE) —
@@ -431,7 +431,7 @@ async function updateBusiness(
   await sql.begin(async (tx) => {
     const result = await tx.unsafe(query, values);
     if (result.count === 0) {
-      throw new BusinessNotFoundError();
+      throw new AdminBusinessNotFoundError();
     }
     if (patch.ownerEmail !== undefined) {
       // Upsert: if the email enrollment row was previously disabled/

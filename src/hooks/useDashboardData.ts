@@ -14,6 +14,7 @@ export function useDashboardData(): UseDashboardDataResult {
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
+    setError(null);
     try {
       const res = await fetch('/api/dashboard');
       if (!res.ok) {
