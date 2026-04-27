@@ -9,7 +9,11 @@
 
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { sql } from '../../src/lib/db/server';
-import { claimInboundEvent } from './shared';
+import {
+  claimInboundEvent,
+  markInboundEventProcessed,
+  markInboundEventFailed,
+} from './shared';
 import { parseTwilioBody, verifyTwilioSignature } from './twilio-verify';
 import { fullUrl } from './whatsapp-shared';
 
@@ -50,10 +54,7 @@ export async function handleTwilioWhatsAppStatus(
   const isTerminal =
     MessageStatus === 'delivered' || MessageStatus === 'undelivered' || MessageStatus === 'failed';
   if (!isTerminal) {
-    await sql`
-      UPDATE inbound_events SET status = 'processed', processed_at = NOW()
-      WHERE external_event_key = ${dedupKey}
-    `;
+    await markInboundEventProcessed(dedupKey);
     reply.status(200).send({ received: true });
     return;
   }
@@ -64,18 +65,12 @@ export async function handleTwilioWhatsAppStatus(
     LIMIT 1
   `;
   if (!row) {
-    await sql`
-      UPDATE inbound_events SET status = 'failed', error_message = 'delivery_row_not_yet_present'
-      WHERE external_event_key = ${dedupKey}
-    `;
+    await markInboundEventFailed(dedupKey, 'delivery_row_not_yet_present');
     reply.status(503).send({ received: true, retry: 'delivery_row_not_yet_present' });
     return;
   }
   if (row.delivered_at || row.failed_at) {
-    await sql`
-      UPDATE inbound_events SET status = 'processed', processed_at = NOW()
-      WHERE external_event_key = ${dedupKey}
-    `;
+    await markInboundEventProcessed(dedupKey);
     reply.status(200).send({ received: true, terminal_state_preserved: true });
     return;
   }
@@ -91,9 +86,6 @@ export async function handleTwilioWhatsAppStatus(
       WHERE id = ${row.id} AND channel = 'whatsapp' AND delivered_at IS NULL AND failed_at IS NULL
     `;
   }
-  await sql`
-    UPDATE inbound_events SET status = 'processed', processed_at = NOW()
-    WHERE external_event_key = ${dedupKey}
-  `;
+  await markInboundEventProcessed(dedupKey);
   reply.status(200).send({ received: true });
 }

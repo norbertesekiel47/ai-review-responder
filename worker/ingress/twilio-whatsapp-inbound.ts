@@ -249,7 +249,12 @@ export async function handleTwilioWhatsAppInbound(
   }
 
   // ── Unrecognised inbound — log and ignore ────────────────────────────────
-  console.log(`${LOG_PREFIX} unrecognised inbound from ${senderHandle} (MessageSid=${MessageSid})`);
+  // Mask the phone number — only the last 4 digits land in logs. MessageSid
+  // is fine to log raw; it's the canonical Twilio handle for support tickets.
+  const maskedSender = senderHandle.length > 4
+    ? `***${senderHandle.slice(-4)}`
+    : '***';
+  console.log(`${LOG_PREFIX} unrecognised inbound from ${maskedSender} (MessageSid=${MessageSid})`);
   await markInboundEventProcessed(dedupKey);
   reply.status(200).send({ received: true });
   } catch (err) {

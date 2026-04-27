@@ -9,7 +9,6 @@ import {
   ConsumedLinkError,
   RevokedLinkError,
   ExpiredLinkError,
-  ChannelMismatchError,
   ResponseNotPendingError,
 } from '../../src/lib/approval/errors';
 
@@ -90,6 +89,10 @@ export function redactForAudit(update: TelegramUpdate): Record<string, unknown> 
 // to Telegram on a permanent link-state failure (consumed/revoked/expired/
 // channel-mismatch/response-not-pending). Lives in shared so callback flow
 // can reuse it without owning the import surface.
+//
+// ChannelMismatchError intentionally falls through to the generic "no longer
+// valid" message — owners don't need to know the link was minted for a
+// different channel; from their perspective it just doesn't work.
 export function messageForLinkError(err: Error): string {
   if (err instanceof ConsumedLinkError || err instanceof RevokedLinkError) {
     return 'This reply was just handled on another channel.';
@@ -102,9 +105,6 @@ export function messageForLinkError(err: Error): string {
     // approved (or superseded/posted) via another path — typically a parallel
     // email/dashboard approval landed in the ~15s window before the tap.
     return 'This review has already been handled — no further action needed.';
-  }
-  if (err instanceof ChannelMismatchError) {
-    return 'This approval is no longer valid.';
   }
   return 'This approval is no longer valid.';
 }
