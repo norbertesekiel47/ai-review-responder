@@ -139,7 +139,7 @@ export async function handleTwilioWhatsAppInbound(
       });
       const body = parsed.action === 'approve'
         ? "✅ Response approved — we'll post it shortly."
-        : '🔄 Regenerating — a new draft will follow shortly.';
+        : '🔄 Regenerating — a new draft will follow shortly…';
       await client.sendFreeform({ to: toWaRecipient(senderHandle), body }).catch(() => {});
       await markInboundEventProcessed(dedupKey);
       reply.status(200).send({ received: true });

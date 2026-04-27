@@ -111,7 +111,12 @@ export async function handleCallback(
   // than letting the exception bubble — the outer catch would markFailed,
   // and the 2min reclaim would re-fire against an already-stale ack id,
   // looping forever (M2).
-  const ackText = parsed.action === 'approve' ? 'Approving…' : 'Regenerating — a new draft will follow shortly';
+  // Owner-facing ack copy harmonized with the regenerate path (line 200
+   // below) and with WhatsApp's inbound regenerate body (twilio-whatsapp-
+   // inbound.ts) so cross-channel terminology is consistent. The trailing
+   // ellipsis signals "in progress — more to follow" since regeneration is
+   // async (a fresh draft arrives via NotificationWorker minutes later).
+  const ackText = parsed.action === 'approve' ? 'Approving…' : 'Regenerating — a new draft will follow shortly…';
   await client.answerCallbackQuery({ callback_query_id: cb.id, text: ackText })
     .catch(() => {});
 
