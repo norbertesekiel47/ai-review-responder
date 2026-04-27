@@ -118,3 +118,52 @@ describe('classifyAndParse', () => {
     });
   });
 });
+
+describe('request() timeout handling', () => {
+  let originalFetch: typeof global.fetch;
+  beforeEach(() => {
+    originalFetch = global.fetch;
+  });
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it('AbortError → ZernioTransientError with kind=request_timeout', async () => {
+    global.fetch = vi.fn().mockRejectedValue(
+      Object.assign(new Error('aborted'), { name: 'AbortError' }),
+    );
+    const { request } = await import('../client');
+    await expect(
+      request({
+        method: 'GET',
+        path: '/v1/test',
+        endpointKind: 'list_reviews',
+        timeoutMs: 100,
+      }),
+    ).rejects.toMatchObject({ name: 'ZernioTransientError', kind: 'request_timeout' });
+  });
+
+  it('TypeError (DNS/socket failure) → ZernioTransientError with kind=network_error', async () => {
+    global.fetch = vi.fn().mockRejectedValue(new TypeError('fetch failed'));
+    const { request } = await import('../client');
+    await expect(
+      request({
+        method: 'GET',
+        path: '/v1/test',
+        endpointKind: 'list_reviews',
+      }),
+    ).rejects.toMatchObject({ name: 'ZernioTransientError', kind: 'network_error' });
+  });
+
+  it('preserves already-classified Zernio errors (no double-wrap)', async () => {
+    global.fetch = vi.fn().mockResolvedValue(new Response(null, { status: 401 }));
+    const { request } = await import('../client');
+    await expect(
+      request({
+        method: 'GET',
+        path: '/v1/test',
+        endpointKind: 'select_location',
+      }),
+    ).rejects.toMatchObject({ name: 'ZernioAuthError' });
+  });
+});

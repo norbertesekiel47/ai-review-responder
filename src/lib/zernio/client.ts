@@ -78,5 +78,70 @@ export async function classifyAndParse<T>(res: Response, endpointKind: EndpointK
   });
 }
 
+type HttpMethod = 'GET' | 'POST' | 'DELETE';
+
+export interface RequestOptions {
+  method: HttpMethod;
+  path: string;
+  endpointKind: EndpointKind;
+  headers?: Record<string, string>;
+  body?: unknown;
+  timeoutMs?: number;
+}
+
+export async function request<T>(opts: RequestOptions): Promise<T> {
+  // Round-16: extract timeoutMs BEFORE setTimeout so it's visible in catch.
+  const timeoutMs = opts.timeoutMs ?? 10_000;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  // Read env on every call (NOT module-level) so MOCK_EXTERNAL_APIS toggling
+  // and per-test env overrides work correctly.
+  const apiBase = process.env.ZERNIO_API_BASE ?? 'https://zernio.com/api';
+  const apiKey = process.env.ZERNIO_API_KEY ?? '';
+
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${apiKey}`,
+    ...opts.headers,
+  };
+  if (opts.body !== undefined) {
+    headers['Content-Type'] = 'application/json';
+  }
+
+  try {
+    const res = await fetch(`${apiBase}${opts.path}`, {
+      method: opts.method,
+      headers,
+      body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+      signal: controller.signal,
+    });
+    return await classifyAndParse<T>(res, opts.endpointKind);
+  } catch (err) {
+    // Preserve already-classified Zernio errors so we don't re-wrap them.
+    if (err instanceof ZernioAuthError) throw err;
+    if (err instanceof ZernioValidationError) throw err;
+    if (err instanceof ZernioReplyAlreadyExistsError) throw err;
+    if (err instanceof ZernioReviewNotFoundError) throw err;
+    if (err instanceof ZernioPermanentError) throw err;
+    if (err instanceof ZernioTransientError) throw err;
+
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new ZernioTransientError('request_timeout', {
+        path: opts.path,
+        method: opts.method,
+        endpointKind: opts.endpointKind,
+        timeoutMs,
+      });
+    }
+    throw new ZernioTransientError('network_error', {
+      path: opts.path,
+      method: opts.method,
+      message: err instanceof Error ? err.message : String(err),
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // Placeholder — implemented in Task 9.
 export const zernioClient = {};
