@@ -53,14 +53,16 @@ export function getEmailHeaders(category: EmailCategory): Record<string, string>
   const derived = extractMailbox(process.env.RESEND_FROM_EMAIL);
   const mailbox = explicitMailbox || derived || 'unsubscribe@repworth.example.com';
 
-  // Validate URL is http(s) before trusting it — never emit a header that
-  // could redirect users to javascript:/data:/mailto: etc. if env is
-  // misconfigured.
+  // RFC 8058 §3 requires HTTPS for one-click. An http: URL would leak the
+  // unsubscribe token in transit and most mail providers will refuse to honor
+  // the One-Click Post header — so we only trust an HTTPS scheme here. Any
+  // other scheme (http:, javascript:, data:, mailto:, etc., or a parse
+  // failure) falls through to the mailto-only fallback below.
   let httpsUrl: string | null = null;
   if (explicitUrl) {
     try {
       const u = new URL(explicitUrl);
-      if (u.protocol === 'https:' || u.protocol === 'http:') {
+      if (u.protocol === 'https:') {
         httpsUrl = u.toString();
       }
     } catch {
