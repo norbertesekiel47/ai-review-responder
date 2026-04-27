@@ -22,6 +22,8 @@ export const QUEUE_NAMES = {
   ENGAGEMENT_ALERT: 'engagement_alert',
   TRACK_RANKING: 'track_ranking',
   ONBOARDING_DRIP: 'onboarding_drip',
+  DRAIN_OWNER_CONNECT: 'drain_pending_owner_connect',
+  SEND_OWNER_EMAIL: 'send_owner_email',
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
