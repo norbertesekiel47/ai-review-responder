@@ -51,7 +51,19 @@ export function getEmailHeaders(category: EmailCategory): Record<string, string>
   const explicitUrl = process.env.LIST_UNSUBSCRIBE_URL?.trim();
   const explicitMailbox = process.env.LIST_UNSUBSCRIBE_EMAIL?.trim();
   const derived = extractMailbox(process.env.RESEND_FROM_EMAIL);
-  const mailbox = explicitMailbox || derived || 'unsubscribe@repworth.example.com';
+  // Fallback mailbox uses the reserved example.com domain (per RFC 2606) —
+  // it's intentionally non-functional. Anyone reaching this branch has a
+  // production misconfiguration: a marketing email is being sent without
+  // either LIST_UNSUBSCRIBE_EMAIL or a derivable RESEND_FROM_EMAIL.
+  // Log a warning so the misconfiguration surfaces in production logs
+  // rather than silently shipping headers no mail provider will honor.
+  let mailbox = explicitMailbox || derived;
+  if (!mailbox) {
+    console.warn(
+      '[email/headers] No LIST_UNSUBSCRIBE_EMAIL or parseable RESEND_FROM_EMAIL set — falling back to non-functional example.com mailbox. Marketing emails will fail mailbox-provider compliance checks.',
+    );
+    mailbox = 'unsubscribe@repworth.example.com';
+  }
 
   // RFC 8058 §3 requires HTTPS for one-click. An http: URL would leak the
   // unsubscribe token in transit and most mail providers will refuse to honor

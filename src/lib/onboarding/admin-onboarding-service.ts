@@ -75,6 +75,20 @@ export class AdminOnboardingError extends Error {
   }
 }
 
+/**
+ * Redact an email for logs: keep the first character of the local part and
+ * the full domain, mask the rest. `norbertesekiel@gmail.com` → `n***@gmail.com`.
+ * Never emit raw owner emails to logs (PII; also helps when ops pastes a log
+ * line into a ticket).
+ */
+function redactEmail(email: string): string {
+  const at = email.indexOf('@');
+  if (at <= 0) return '***';
+  const local = email.slice(0, at);
+  const domain = email.slice(at);
+  return `${local[0]}***${domain}`;
+}
+
 function splitCommaOrNewline(text: string | undefined): string[] {
   if (!text?.trim()) return [];
   return text
@@ -277,9 +291,21 @@ export async function onboardBusinessAsAdmin(
     // FK-aware delete order: users first (no cascade from businesses),
     // then businesses + dependents via CASCADE on the businesses row.
     console.error(
-      `[admin-onboarding-service] inviteUserByEmail failed for ${ownerEmailLower}:`,
+      `[admin-onboarding-service] inviteUserByEmail failed for ${redactEmail(ownerEmailLower)}:`,
       inviteErr?.message ?? 'no user returned',
     );
+
+    // Track whether the rollback DB deletes actually completed. Mirror
+    // the LINK_AUTH_ID_FAILED path: if rollback fails, surface the
+    // orphan IDs so the admin operator knows what to clean up. Without
+    // this, the next admin retry on the same email 422s with no
+    // breadcrumb (createBusinessTx finds the still-existing public.users
+    // row and throws DuplicateEmailError).
+    const rollback: AdminOnboardingRollbackDetails = {
+      orphanBusinessId: createdResult.businessId,
+      orphanUserId: createdResult.userId,
+    };
+
     try {
       // Wrap rollback in a transaction so all 3 deletes succeed-or-fail
       // together. Order matters:
@@ -297,16 +323,25 @@ export async function onboardBusinessAsAdmin(
         await tx`DELETE FROM users WHERE id = ${createdResult.userId}::uuid`;
         await tx`DELETE FROM businesses WHERE id = ${createdResult.businessId}::uuid`;
       });
+      delete rollback.orphanBusinessId;
+      delete rollback.orphanUserId;
     } catch (rollbackErr) {
       console.error(
         '[admin-onboarding-service] Compensating rollback failed:',
         rollbackErr,
       );
     }
+
+    const hasOrphans =
+      rollback.orphanBusinessId !== undefined ||
+      rollback.orphanUserId !== undefined;
     throw new AdminOnboardingError(
       'INVITE_FAILED',
-      'Could not send owner invite email. Business was not created — check Supabase Auth settings (SMTP, rate limits) and try again.',
+      hasOrphans
+        ? 'Could not send owner invite email and the cleanup rollback partially failed. Manual cleanup required — see the response details.'
+        : 'Could not send owner invite email. Business was not created — check Supabase Auth settings (SMTP, rate limits) and try again.',
       500,
+      hasOrphans ? rollback : undefined,
     );
   }
 
