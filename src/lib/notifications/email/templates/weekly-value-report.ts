@@ -3,7 +3,7 @@
 // Weekly Value Report — recurring marketing email sent every Monday
 // summarizing the past week's review activity.
 import { escapeHtml } from '@/lib/shared/html';
-import { renderStars, truncate } from './shared';
+import { renderStars, truncate, escapeHrefUrl } from './shared';
 
 function formatWeekDate(iso: string): string {
   try {
@@ -100,16 +100,18 @@ export function buildWeeklyValueReportHtml(params: WeeklyValueReportParams): str
       </td></tr>`;
   }
 
-  // Dashboard link (conditional)
+  // Dashboard link (conditional). Use the shared escapeHrefUrl helper for
+  // both & and " escaping (a query-string `?token=abc&type=invite` would
+  // otherwise render as `?token=abc&type=invite` and risk being mis-parsed
+  // as an HTML entity reference by strict parsers).
   const dashboardHtml = dashboardUrl
     ? `
     <tr><td style="padding:16px 24px 0;" align="center">
-      <a href="${dashboardUrl.replace(/"/g, '&quot;')}" style="display:inline-block;background:#2563eb;color:#ffffff;padding:12px 24px;border-radius:6px;font-size:14px;font-weight:600;text-decoration:none;">See your full dashboard &rarr;</a>
+      <a href="${escapeHrefUrl(dashboardUrl)}" style="display:inline-block;background:#2563eb;color:#ffffff;padding:12px 24px;border-radius:6px;font-size:14px;font-weight:600;text-decoration:none;">See your full dashboard &rarr;</a>
     </td></tr>`
     : '';
 
   // Satisfaction pulse (conditional) — escape URLs for href attributes
-  const esc = (url: string) => url.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
   const pulseSection = feedbackUrls
     ? `
         <tr><td style="padding:20px 24px 0;">
@@ -117,13 +119,13 @@ export function buildWeeklyValueReportHtml(params: WeeklyValueReportParams): str
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
             <tr>
               <td align="center" width="33%" style="padding:0 4px;">
-                <a href="${esc(feedbackUrls.great)}" style="display:block;padding:10px 4px;background:#d1fae5;color:#065f46;border-radius:6px;font-size:14px;font-weight:600;text-decoration:none;text-align:center;">Great</a>
+                <a href="${escapeHrefUrl(feedbackUrls.great)}" style="display:block;padding:10px 4px;background:#d1fae5;color:#065f46;border-radius:6px;font-size:14px;font-weight:600;text-decoration:none;text-align:center;">Great</a>
               </td>
               <td align="center" width="33%" style="padding:0 4px;">
-                <a href="${esc(feedbackUrls.ok)}" style="display:block;padding:10px 4px;background:#fef3c7;color:#92400e;border-radius:6px;font-size:14px;font-weight:600;text-decoration:none;text-align:center;">OK</a>
+                <a href="${escapeHrefUrl(feedbackUrls.ok)}" style="display:block;padding:10px 4px;background:#fef3c7;color:#92400e;border-radius:6px;font-size:14px;font-weight:600;text-decoration:none;text-align:center;">OK</a>
               </td>
               <td align="center" width="33%" style="padding:0 4px;">
-                <a href="${esc(feedbackUrls.notGreat)}" style="display:block;padding:10px 4px;background:#fee2e2;color:#991b1b;border-radius:6px;font-size:14px;font-weight:600;text-decoration:none;text-align:center;">Not great</a>
+                <a href="${escapeHrefUrl(feedbackUrls.notGreat)}" style="display:block;padding:10px 4px;background:#fee2e2;color:#991b1b;border-radius:6px;font-size:14px;font-weight:600;text-decoration:none;text-align:center;">Not great</a>
               </td>
             </tr>
           </table>

@@ -3,7 +3,7 @@
 // Monthly Impact email — recurring marketing email summarizing the
 // month's response activity, ranking trend, and best review.
 import { escapeHtml } from '@/lib/shared/html';
-import { renderStars } from './shared';
+import { renderStars, escapeHrefUrl } from './shared';
 
 export interface MonthlyImpactEmailParams {
   businessName: string;
@@ -98,7 +98,7 @@ export function buildMonthlyImpactEmailHtml(params: MonthlyImpactEmailParams): s
   const dashboardHtml = dashboardUrl
     ? `
         <tr><td style="padding:12px 24px 0;" align="center">
-          <a href="${dashboardUrl.replace(/"/g, '&quot;')}" style="display:inline-block;background:#2563eb;color:#ffffff;padding:12px 24px;border-radius:6px;font-size:14px;font-weight:600;text-decoration:none;">See your full dashboard &rarr;</a>
+          <a href="${escapeHrefUrl(dashboardUrl)}" style="display:inline-block;background:#2563eb;color:#ffffff;padding:12px 24px;border-radius:6px;font-size:14px;font-weight:600;text-decoration:none;">See your full dashboard &rarr;</a>
         </td></tr>`
     : '';
 

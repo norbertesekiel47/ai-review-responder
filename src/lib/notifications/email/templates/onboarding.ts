@@ -4,7 +4,7 @@
 // owner's first month: welcome (day 1), first-week recap (day 7),
 // first-month impact (day 30).
 import { escapeHtml } from '@/lib/shared/html';
-import { renderStars } from './shared';
+import { renderStars, escapeHrefUrl } from './shared';
 
 // ── Onboarding Drip: Day 1 (Welcome) ─────────────────────────────────
 
@@ -21,7 +21,7 @@ export function buildOnboardingDay1Html(params: OnboardingDay1Params): string {
   const dashboardHtml = params.dashboardUrl
     ? `
         <tr><td style="padding:16px 24px 0;" align="center">
-          <a href="${params.dashboardUrl.replace(/"/g, '&quot;')}" style="display:inline-block;background:#2563eb;color:#ffffff;padding:12px 24px;border-radius:6px;font-size:14px;font-weight:600;text-decoration:none;">See your dashboard &rarr;</a>
+          <a href="${escapeHrefUrl(params.dashboardUrl)}" style="display:inline-block;background:#2563eb;color:#ffffff;padding:12px 24px;border-radius:6px;font-size:14px;font-weight:600;text-decoration:none;">See your dashboard &rarr;</a>
         </td></tr>`
     : '';
 

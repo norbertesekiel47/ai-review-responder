@@ -23,3 +23,15 @@ export function truncate(text: string, maxLength: number): string {
   if (text.length <= maxLength) return text;
   return text.slice(0, maxLength) + '...';
 }
+
+/**
+ * Escape a URL for safe interpolation into an HTML href attribute.
+ * Escapes BOTH `&` (must come first) and `"` so query strings like
+ * `?token=abc&type=invite` don't render as `?token=abc&type=invite`
+ * which a strict HTML parser would interpret as an entity reference.
+ *
+ * Use this for every `<a href="${url}">` in template strings.
+ */
+export function escapeHrefUrl(url: string): string {
+  return url.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+}
