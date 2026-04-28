@@ -16,11 +16,12 @@
 import { v7 as uuidv7 } from 'uuid';
 import { classifyEnrollmentError } from './unique-violation';
 
-// Postgres.js TransactionSql / Sql types are inferred from the inner callback;
-// we accept `any` here because vitest mocks supply a vi.fn() and the runtime
-// signature is the same tagged-template-callable shape. The type alias keeps
-// call sites readable.
-type TxLike = (strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown[]>;
+// Postgres.js TransactionSql / Sql types return a PendingQuery that carries
+// extra properties beyond a plain Promise. Using `unknown` return type lets
+// the full Sql<{}> / TransactionSql<{}> shapes satisfy the constraint without
+// requiring an explicit cast. Vitest mocks (plain async functions) satisfy it
+// too since they return bare Promises which are assignable to `unknown`.
+type TxLike = (strings: TemplateStringsArray, ...values: unknown[]) => unknown;
 
 export type StartTelegramResult = { kind: 'ok' } | { kind: 'already_verified' };
 

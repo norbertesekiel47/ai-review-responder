@@ -1,12 +1,9 @@
-// src/app/api/admin/channels/telegram/disable — admin disables a verified enrollment.
-// Returns 404 if no verified row matches (user-facing signal that there's nothing to disable).
-//
-// Handler order: flag → env → auth → businessId.
-
+// src/app/api/admin/channels/telegram/disable/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { isTelegramEnabled, flagOff, assertTelegramEnvReady } from '../_shared';
+import { disableTelegramEnrollment } from '@/lib/channels/telegram-enrollment';
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   if (!isTelegramEnabled()) return flagOff();
@@ -27,22 +24,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const businessId = body?.businessId;
   if (!businessId) return NextResponse.json({ error: 'businessId required' }, { status: 400 });
 
-  const updated = await sql<{ id: string }[]>`
-    UPDATE channel_enrollments
-    SET status = 'disabled', disabled_at = NOW(), updated_at = NOW()
-    WHERE business_id = ${businessId}
-      AND channel = 'telegram'
-      AND status = 'verified'
-      AND archived_at IS NULL
-    RETURNING id
-  `;
+  const result = await disableTelegramEnrollment(sql, businessId);
 
-  // M6: no-store for consistency across admin telegram routes.
   const noStore = { 'Cache-Control': 'no-store, private' };
-
-  if (updated.length === 0) {
+  if (result.kind === 'not_found') {
     return NextResponse.json({ error: 'not_found' }, { status: 404, headers: noStore });
   }
-
   return NextResponse.json({ ok: true }, { headers: noStore });
 }

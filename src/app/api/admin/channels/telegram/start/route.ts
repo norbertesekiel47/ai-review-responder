@@ -5,25 +5,19 @@
 //
 // Handler order: flag → env → auth → businessId → subscription → advisory lock → state-machine upsert.
 //
-// State machine (§2.3 of Phase 2 design spec):
-//   no row                → INSERT pending_verification, fresh hash + 1h expiry
-//   pending_verification  → UPDATE — overwrite hash + expiry, reset updated_at
-//   unsubscribed          → UPDATE to pending_verification; clear unsubscribed fields; clear handle; fresh hash + expiry
-//   disabled              → same as unsubscribed — reset to pending_verification with fresh token
-//   verified              → reject 409 "already_verified" — admin must disable first
-//
-// The raw token is NEVER persisted. Only the SHA-256 hash is stored.
-// The widget must capture and display the QR/link immediately.
+// State machine logic lives in src/lib/channels/telegram-enrollment.ts and is
+// shared with the owner route at /api/dashboard/channels/telegram/start.
+// 23505 from migration 027 → MultipleMobileChannelsError → 409.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createHash, randomUUID } from 'node:crypto';
-import { v7 as uuidv7 } from 'uuid';
 import QRCode from 'qrcode';
 import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { isTelegramEnabled, flagOff, assertTelegramEnvReady } from '../_shared';
-
-const TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
+import { startTelegramEnrollment } from '@/lib/channels/telegram-enrollment';
+import { MultipleMobileChannelsError, EnrollmentDatabaseError } from '@/lib/channels/unique-violation';
+import { TOKEN_TTL_MS } from '@/lib/notifications/channels/constants';
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   if (!isTelegramEnabled()) return flagOff();
@@ -53,10 +47,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'subscription_not_active' }, { status: 403 });
   }
 
-  // Advisory lock + enrollment state machine run in a single transaction so
-  // the lock is held across the SELECT + UPDATE/INSERT. pg_advisory_xact_lock
-  // releases at tx end; a bare call outside sql.begin would release immediately
-  // and leave the state machine unprotected against concurrent starts.
+  // Generate token + hash + expiresAt OUTSIDE the tx so the secret doesn't
+  // depend on a possibly-rolled-back transaction.
   const lockKey = createHash('sha256')
     .update(`telegram_enroll:${businessId}`)
     .digest()
@@ -66,52 +58,24 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const tokenHash = createHash('sha256').update(rawToken).digest('hex');
   const expiresAt = new Date(Date.now() + TOKEN_TTL_MS);
 
-  const result = await sql.begin(async (tx) => {
-    await tx`SELECT pg_advisory_xact_lock(${lockKey}::bigint)`;
-
-    const existing = await tx<{ id: string; status: string }[]>`
-      SELECT id, status FROM channel_enrollments
-      WHERE business_id = ${businessId} AND channel = 'telegram' AND archived_at IS NULL
-    `;
-    const existingRow = existing[0];
-
-    if (existingRow?.status === 'verified') {
-      return { kind: 'already_verified' as const };
-    }
-
-    if (existingRow) {
-      // Reset any non-verified state to pending_verification with a fresh token.
-      // Clears handle (Telegram handle isn't known until owner taps /start),
-      // unsubscribed fields, and disabled_at so the enrollment starts clean.
-      await tx`
-        UPDATE channel_enrollments
-        SET status                       = 'pending_verification',
-            handle                       = NULL,
-            verification_token_hash      = ${tokenHash},
-            verification_token_expires_at = ${expiresAt},
-            disabled_at                  = NULL,
-            unsubscribed_at              = NULL,
-            unsubscribed_reason          = NULL,
-            updated_at                   = NOW()
-        WHERE id = ${existingRow.id}
-      `;
-    } else {
-      await tx`
-        INSERT INTO channel_enrollments
-          (id, business_id, channel, status, verification_token_hash, verification_token_expires_at)
-        VALUES
-          (${uuidv7()}, ${businessId}, 'telegram', 'pending_verification', ${tokenHash}, ${expiresAt})
-      `;
-    }
-
-    return { kind: 'ok' as const };
-  });
-
-  // M6: the response body carries the raw verification token via deepLink +
-  // qrDataUrl. Set no-store so no intermediate proxy or browser cache retains
-  // the secret. The token has a 1h TTL in the DB, but cache layers can be
-  // longer-lived.
   const noStore = { 'Cache-Control': 'no-store, private' };
+
+  let result: Awaited<ReturnType<typeof startTelegramEnrollment>>;
+  try {
+    result = await sql.begin(async (tx) => {
+      await tx`SELECT pg_advisory_xact_lock(${lockKey}::bigint)`;
+      return startTelegramEnrollment(tx, businessId, tokenHash, expiresAt);
+    });
+  } catch (err) {
+    if (err instanceof MultipleMobileChannelsError) {
+      return NextResponse.json({ error: 'multiple_mobile_channels' }, { status: 409, headers: noStore });
+    }
+    if (err instanceof EnrollmentDatabaseError) {
+      console.error('[telegram/start] enrollment db error', err);
+      return NextResponse.json({ error: 'internal' }, { status: 500, headers: noStore });
+    }
+    throw err;
+  }
 
   if (result.kind === 'already_verified') {
     return NextResponse.json({ error: 'already_verified' }, { status: 409, headers: noStore });
