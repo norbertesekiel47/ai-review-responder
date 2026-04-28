@@ -42,9 +42,10 @@ next-env.d.ts
 .vscode/
 .idea/
 
-# private docs (except the Zernio launch runbook, which is committed for oncall reference)
+# private docs (except Zernio guides, which are committed for oncall + dev reference)
 /docs/*
 !/docs/zernio-launch-runbook.md
+!/docs/zernio-testing-and-shipping.md
 .superpowers
 
 # firecrawl scrape output (market research, not code)
