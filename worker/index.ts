@@ -58,6 +58,7 @@ import { handleStripeWebhook } from './ingress/stripe';
 import { handleTwilioStatusCallback, handleTwilioInbound } from './ingress/twilio';
 import { handleTwilioWhatsAppInbound, handleTwilioWhatsAppStatus } from './ingress/twilio-whatsapp';
 import { handleTelegramWebhook } from './ingress/telegram';
+import { handleZernioWebhook } from './ingress/zernio';
 import { assertChannelsSmsEnv, assertChannelsTelegramEnv, assertChannelsWhatsAppEnv, assertSelfServeSignupEnv, assertZernioPublishingEnv } from './startup-assert';
 import { startNotificationFailoverPoller, stopNotificationFailoverPoller } from './jobs/NotificationFailoverPoller';
 import { startWeeklySummaryScheduler, stopWeeklySummaryScheduler } from './jobs/WeeklySummaryScheduler';
@@ -260,6 +261,9 @@ async function main(): Promise<void> {
   // Twilio webhooks — status callbacks + inbound WhatsApp
   app.post('/ingress/twilio/whatsapp-inbound', { config: { rawBody: true } }, handleTwilioWhatsAppInbound);
   app.post('/ingress/twilio/whatsapp-status', { config: { rawBody: true } }, handleTwilioWhatsAppStatus);
+
+  // Zernio webhook ingress — flag-gated inside the handler
+  app.post('/ingress/zernio', { config: { rawBody: true } }, handleZernioWebhook);
 
   await app.listen({ port: PORT, host: '0.0.0.0' });
   startOutboxPoller();
