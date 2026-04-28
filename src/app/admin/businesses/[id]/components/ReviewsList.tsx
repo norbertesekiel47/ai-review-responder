@@ -19,6 +19,7 @@ function ResponseBadge({ status }: { status: string | null }) {
     approved: 'bg-blue-100 text-blue-800',
     edited: 'bg-blue-100 text-blue-800',
     awaiting_manual_post: 'bg-orange-100 text-orange-800',
+    awaiting_owner_connect: 'bg-amber-100 text-amber-800',
     posted: 'bg-green-100 text-green-800',
     failed: 'bg-red-100 text-red-800',
   };

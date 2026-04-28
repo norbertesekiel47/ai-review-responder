@@ -158,9 +158,13 @@ export async function processReview(
 
     if (
       activeResponse.status === 'posted' ||
-      activeResponse.status === 'awaiting_manual_post'
+      activeResponse.status === 'awaiting_manual_post' ||
+      activeResponse.status === 'awaiting_owner_connect'
     ) {
       // Already posted/pending post — create review_exception + notify admin.
+      // `awaiting_owner_connect` is included so an owner-approved response
+      // queued for Zernio publish isn't silently discarded if the customer
+      // edits their review while the owner is still reconnecting.
       const exceptionId = uuidv7();
 
       const inserted = await tx`
