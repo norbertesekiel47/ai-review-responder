@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { ZernioLocationOption } from '@/lib/zernio/types';
@@ -97,12 +98,12 @@ export function LocationPicker({ locations }: Props) {
           >
             {busy ? 'Connecting…' : 'Connect this location'}
           </button>
-          <a
+          <Link
             href="/dashboard/connect"
             className="text-sm text-gray-600 hover:underline"
           >
             Cancel
-          </a>
+          </Link>
         </div>
       </form>
     </div>

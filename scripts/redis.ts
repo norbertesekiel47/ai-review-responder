@@ -209,13 +209,29 @@ async function main(): Promise<void> {
           `connect_pending:${businessId}`,
           `connect_lock:${businessId}`,
         ];
-        // Plus any state/locations keys whose value reference this business — scan those.
+        // Plus any state/locations keys whose value belongs to this business
+        // — strict match: parse the JSON blob and compare the explicit
+        // businessId field. Substring matching would false-positive on any
+        // value that happened to contain the UUID anywhere (correlation
+        // ids, audit metadata, etc.).
         const scanned: string[] = [];
         for (const pattern of ['connect_state:*', 'connect_locations:*', 'connect_finalize:*']) {
           const keys = await redis.keys(pattern);
           for (const k of keys) {
             const v = await redis.get(k);
-            if (v && v.includes(businessId)) scanned.push(k);
+            if (!v) continue;
+            let matched = false;
+            try {
+              const parsed = JSON.parse(v) as { businessId?: unknown; business_id?: unknown };
+              const bid = parsed.businessId ?? parsed.business_id;
+              if (typeof bid === 'string' && bid === businessId) matched = true;
+            } catch {
+              // Not JSON — fall back to a strict UUID-shape boundary match
+              // so we don't false-match on substring bleed-through.
+              const boundaryRegex = new RegExp(`(^|[^0-9a-f])${businessId}([^0-9a-f-]|$)`, 'i');
+              if (boundaryRegex.test(v)) matched = true;
+            }
+            if (matched) scanned.push(k);
           }
         }
         const reviewMapKeys = await redis.keys(`zernio_review_map:${businessId}:*`);

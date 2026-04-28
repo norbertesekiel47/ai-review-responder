@@ -50,7 +50,10 @@ function StatusBadge({ status }: { status: 'pending' | 'active' | 'disconnected'
 }
 
 function renderStars(rating: number): string {
-  return '★'.repeat(rating) + '☆'.repeat(Math.max(0, 5 - rating));
+  // Defensive clamp: bad data (negative, NaN, > 5) shouldn't render 0 or
+  // 100 stars. Floor handles fractional inputs from any future schema drift.
+  const clamped = Math.min(5, Math.max(0, Number.isFinite(rating) ? Math.floor(rating) : 0));
+  return '★'.repeat(clamped) + '☆'.repeat(5 - clamped);
 }
 
 export function ZernioConnectionPanel({

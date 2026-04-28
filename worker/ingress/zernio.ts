@@ -201,11 +201,12 @@ export async function handleZernioWebhook(
         break;
     }
 
-    // 7. Mark processed.
+    // 7. Mark processed. Scope by source='zernio' as defense-in-depth so
+    // we never stomp on a row claimed by another provider's ingress.
     await sql`
       UPDATE inbound_events
       SET status = 'processed', processed_at = NOW()
-      WHERE external_event_key = ${eventId}
+      WHERE external_event_key = ${eventId} AND source = 'zernio'
     `;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -215,7 +216,7 @@ export async function handleZernioWebhook(
     await sql`
       UPDATE inbound_events
       SET status = 'failed', error_message = ${message}
-      WHERE external_event_key = ${eventId}
+      WHERE external_event_key = ${eventId} AND source = 'zernio'
     `;
     // Return 500 so Zernio retries (7x over 51h per spec).
     reply.status(500).send({ error: 'processing_failed' });

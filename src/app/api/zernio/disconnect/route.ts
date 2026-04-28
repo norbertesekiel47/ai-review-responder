@@ -132,13 +132,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return errorToResponse(err);
   }
 
-  // 5. Mark the connection disconnected. The WHERE status='active' guard
-  // prevents stomping a row already disconnected by a parallel writer
-  // (e.g. webhook fired between the SELECT and the UPDATE).
+  // 5. Mark the connection disconnected. The UPDATE pins to the SAME
+  // zernio_account_id we just read — without that pin, a parallel
+  // webhook+reconnect race could land us disconnecting a fresh-and-active
+  // row that the owner just reconnected. We also count rows updated so a
+  // 0-row outcome (account already disconnected by a parallel writer)
+  // skips the deleteAccount call below.
   const reason = user.role === 'owner' ? 'manual_owner' : 'manual_admin';
+  let rowsUpdated = 0;
   try {
     await sql.begin(async (tx) => {
-      await tx`
+      const result = await tx`
         UPDATE zernio_connections
         SET status = 'disconnected',
             disconnected_at = NOW(),
@@ -146,11 +150,25 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             last_error = NULL,
             last_error_at = NULL,
             updated_at = NOW()
-        WHERE business_id = ${businessId} AND status = 'active'
+        WHERE business_id = ${businessId}
+          AND zernio_account_id = ${accountId}
+          AND status = 'active'
       `;
+      rowsUpdated = result.count;
     });
   } catch (err) {
     return errorToResponse(err);
+  }
+
+  // If the row already flipped to disconnected via a parallel writer, abort
+  // the Zernio cleanup — the row we read is no longer the live one and
+  // touching the Zernio side would conflict with whatever the parallel
+  // writer already coordinated.
+  if (rowsUpdated === 0) {
+    return NextResponse.json(
+      { ok: true, note: 'connection_already_disconnected' },
+      { status: 200, headers: NO_STORE },
+    );
   }
 
   // 6. Best-effort Zernio cleanup. Failure does NOT fail the request — the

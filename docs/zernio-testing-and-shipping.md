@@ -74,7 +74,7 @@ pnpm worker
 
 **Sanity check the worker boot logs:**
 
-```
+```text
 [worker] Feature flags: SMS=off, Telegram=on, WhatsApp=off, SelfServeSignup=on, ZernioPublishing=on
 {"msg":"Server listening at http://127.0.0.1:3001"}
 [OutboxPoller] Starting (interval=30000ms, batch=50)

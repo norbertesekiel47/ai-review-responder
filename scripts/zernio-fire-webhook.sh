@@ -58,10 +58,17 @@ case "$EVENT" in
     ;;
 esac
 
-# Splice in extra JSON fields if provided (replaces the closing brace).
+# Splice in extra JSON fields if provided. The brace-strip merge is fragile —
+# it assumes EXTRA_JSON is a well-formed object literal `{...}`. If the caller
+# passed something else (escaped quotes, an array, a bare value), the resulting
+# BODY is malformed and the HMAC signature won't verify. Validate shape first.
 if [ -n "$EXTRA_JSON" ]; then
-  # Strip the trailing } from BODY and the leading { from EXTRA_JSON, then join.
-  BODY=$(printf '%s,%s' "${BODY%\}}" "${EXTRA_JSON#\{}")
+  if [[ "$EXTRA_JSON" == \{*\} ]]; then
+    # Strip the trailing } from BODY and the leading { from EXTRA_JSON, then join.
+    BODY=$(printf '%s,%s' "${BODY%\}}" "${EXTRA_JSON#\{}")
+  else
+    echo "WARNING: EXTRA_JSON does not look like a JSON object ({...}); skipping splice. Got: $EXTRA_JSON" >&2
+  fi
 fi
 
 SIG=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$SECRET" | sed 's/^.* //')

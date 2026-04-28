@@ -43,9 +43,9 @@ src/
 │   ├── (public)/           # Landing, demo viewer, approval page
 │   ├── (authenticated)/    # Owner dashboard + settings
 │   │   └── dashboard/connect/      # Zernio connect flow: page.tsx + select-location/page.tsx + LocationPicker.tsx
-│   └── (admin)/            # Sales partner CRM, demos, costs, notifications, jobs
-├── api/                    # Route handlers (under app/api/)
-│   └── zernio/             # connect/start, connect/callback, connect/select-location, connect/cancel, disconnect
+│   ├── (admin)/            # Sales partner CRM, demos, costs, notifications, jobs
+│   └── api/                # Route handlers (App Router)
+│       └── zernio/         # connect/start, connect/callback, connect/select-location, connect/cancel, disconnect
 ├── components/
 │   └── dashboard/          # ConnectGoogleBanner.tsx (Zernio reconnect CTA)
 ├── lib/                    # Shared business logic

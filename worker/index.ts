@@ -137,29 +137,60 @@ const publisherWorker = new Worker(QUEUE_NAMES.PUBLISH_RESPONSE, handlePublishRe
 // the response + notify owner). For any other unhandled error we just close
 // the outbox row so it doesn't sit in `dispatched` forever.
 publisherWorker.on('failed', async (job, err) => {
-  if (!job) return;
-  if (job.attemptsMade < (job.opts.attempts ?? 1)) return; // not yet exhausted
-  const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
-  if (err instanceof ZernioTransientError) {
-    try {
-      await applyTransientExhaustionFallback(job.data);
-      await markOutboxFailed(outboxId, 'zernio_transient_max_attempts', outboxAttempt);
-    } catch (fallbackErr) {
-      // Fallback itself failed — surface the reason so ops can see it, and
-      // still close the outbox so the row doesn't stay `dispatched`.
-      const reason = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
-      console.error(`[publisherWorker] transient-exhaustion fallback failed: ${reason}`);
-      await markOutboxFailed(
-        outboxId,
-        `zernio_transient_max_attempts_fallback_failed: ${reason}`,
-        outboxAttempt,
+  // Top-level guard: any throw in extractOutboxHandle, markOutboxFailed, or
+  // applyTransientExhaustionFallback bubbles into an unhandled promise
+  // rejection that could crash the process. Wrap the whole body so we
+  // log + Sentry-capture and never leave the outbox row in `dispatched`
+  // limbo silently.
+  let outboxId: string | undefined;
+  let outboxAttempt: number | undefined;
+  try {
+    if (!job) return;
+    if (job.attemptsMade < (job.opts.attempts ?? 1)) return; // not yet exhausted
+    const handle = extractOutboxHandle(job.data, job.id!);
+    outboxId = handle.outboxId;
+    outboxAttempt = handle.attempt;
+    if (err instanceof ZernioTransientError) {
+      try {
+        await applyTransientExhaustionFallback(job.data);
+        await markOutboxFailed(outboxId, 'zernio_transient_max_attempts', outboxAttempt);
+      } catch (fallbackErr) {
+        // Fallback itself failed — surface the reason so ops can see it,
+        // and still close the outbox so the row doesn't stay `dispatched`.
+        const reason = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
+        console.error(`[publisherWorker] transient-exhaustion fallback failed: ${reason}`);
+        Sentry.captureException(fallbackErr, {
+          tags: { worker: 'publisher', kind: 'transient_exhaustion_fallback' },
+        });
+        await markOutboxFailed(
+          outboxId,
+          `zernio_transient_max_attempts_fallback_failed: ${reason}`,
+          outboxAttempt,
+        );
+      }
+      return;
+    }
+    // Non-transient unhandled error: just close the outbox row.
+    const reason = err instanceof Error ? err.message : String(err);
+    await markOutboxFailed(outboxId, reason, outboxAttempt);
+  } catch (handlerErr) {
+    // Last-resort: even the markOutboxFailed call (or extractOutboxHandle,
+    // or anything else above) threw. Capture loudly so the row stuck in
+    // `dispatched` is observable in Sentry, and attempt one more
+    // best-effort markOutboxFailed in case the original throw was upstream.
+    console.error('[publisherWorker.on(failed)] handler crashed:', handlerErr);
+    Sentry.captureException(handlerErr, {
+      tags: { worker: 'publisher', kind: 'on_failed_handler_crash' },
+    });
+    if (outboxId) {
+      const reason = handlerErr instanceof Error ? handlerErr.message : String(handlerErr);
+      await markOutboxFailed(outboxId, `on_failed_crash: ${reason}`, outboxAttempt).catch(
+        (markErr) => {
+          console.error('[publisherWorker.on(failed)] best-effort markOutboxFailed failed:', markErr);
+        },
       );
     }
-    return;
   }
-  // Non-transient unhandled error: just close the outbox row.
-  const reason = err instanceof Error ? err.message : String(err);
-  await markOutboxFailed(outboxId, reason, outboxAttempt);
 });
 
 const adminExceptionWorker = new Worker(QUEUE_NAMES.NOTIFY_ADMIN, handleAdminException, workerOpts);

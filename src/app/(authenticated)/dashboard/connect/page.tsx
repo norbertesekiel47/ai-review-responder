@@ -107,8 +107,7 @@ export default function ConnectPage() {
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         setActionError(friendlyErrorMessage(body.error ?? `cancel_failed_${res.status}`));
-        setBusy(false);
-        return;
+        return;  // finally clears busy
       }
       await refresh();
     } catch {

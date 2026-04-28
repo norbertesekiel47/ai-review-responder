@@ -36,7 +36,19 @@ export default async function SelectLocationPage() {
   }
 
   const redis = getCacheRedis();
-  const raw = await redis.get(locationsKey(sessionId));
+  let raw: string | null = null;
+  try {
+    raw = await redis.get(locationsKey(sessionId));
+  } catch (err) {
+    // ioredis can throw on connection failure / network blip / AbortError.
+    // Don't crash the page — surface a recoverable error and let the owner
+    // retry from the connect entrypoint. Log so ops can see Redis health.
+    console.error(
+      '[dashboard/connect/select-location] Redis read failed (treating as cache_unavailable):',
+      err,
+    );
+    redirect('/dashboard/connect?error=cache_unavailable');
+  }
   if (!raw) {
     redirect('/dashboard/connect?error=session_expired');
   }

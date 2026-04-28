@@ -88,13 +88,13 @@ SELECT data_type FROM information_schema.columns
 WHERE table_name='responses' AND column_name='status';
 -- Expect 'text'.
 
--- The 4 new indexes exist
+-- The 4 new indexes exist (names match migration 026 exactly)
 SELECT indexname FROM pg_indexes
 WHERE indexname IN (
-  'idx_responses_one_non_terminal_per_review',
+  'responses_one_non_terminal_per_review',
   'idx_jo_publish_response_inflight',
-  'idx_notif_deliv_owner_reconnect_dedup',
-  'idx_notif_deliv_owner_connection_lost_dedup'
+  'notification_deliveries_owner_reconnect_dedup',
+  'notification_deliveries_connection_lost_dedup'
 );
 -- Expect 4 rows.
 ```
@@ -311,9 +311,11 @@ What you should NOT do: re-trigger the response manually until the owner reconne
 - The reviewer deleted the review entirely.
 - A review-id translation cache miss (Phase 1 instrumentation tracks this).
 
-What the worker does automatically: writes a row into `review_exceptions` with type `'zernio_review_not_found'`. Response stays at `approved` (NOT failed) — the admin can manually post via the existing `awaiting_manual_post` flow if it's still relevant.
+What the worker does automatically: marks the response `failed` (status-guarded so a parallel terminal transition isn't stomped) and inserts a row into `review_exceptions` with `type = 'zernio_review_id_mismatch'` and `payload.error_meta.reason = 'no_field_match'` (or `'review_not_found_or_wrong_business'` for the rarer pre-Zernio case). A `notify_admin_review_exception` outbox row is enqueued so admin gets paged.
 
-What you should do: spot-check `review_exceptions` weekly. If the rate exceeds 5%, escalate to Phase 1.5 — pre-populate Zernio review IDs at connection time (separate spec).
+What you should do:
+- Spot-check `SELECT * FROM review_exceptions WHERE type = 'zernio_review_id_mismatch' AND status = 'open' ORDER BY created_at DESC` weekly. If the rate exceeds 5% of `posted` responses in the same window, escalate — likely indicates SerpAPI text drift Zernio doesn't see, and Phase 3 (promote `review.new` webhooks to ingestion) becomes priority.
+- For a one-off resolvable case where the reply is still appropriate, the admin can flip the response back via the legacy `awaiting_manual_post` escape hatch (`/admin/businesses/[id]` → mark a response for manual posting). That is NOT the worker's automatic path — it's a manual remediation step the admin invokes.
 
 ### 5.5 `finalize_unknown` Sentry alert
 
@@ -344,11 +346,13 @@ From the alert OR the incident row, capture:
 
 ```sql
 SELECT id, business_id, flow_id, zernio_profile_id, finalize_unknown_at,
-       last_zernio_response_status, last_zernio_response_body
+       zernio_account_id, zernio_location_id, created_at, updated_at
 FROM zernio_finalize_incidents
 WHERE resolved_at IS NULL
 ORDER BY finalize_unknown_at ASC;
 ```
+
+(Migration 026 doesn't snapshot the failing Zernio response status/body on the incident row — the response details live in Sentry breadcrumbs from the `select-location` route, tagged with the same `flow_id`. Cross-reference there if you need the exact failure mode.)
 
 You'll use `business_id`, `flow_id`, `zernio_profile_id`. Substitute these into the SQL templates below as `:business_id`, `:flow_id`, `:profile_id`.
 

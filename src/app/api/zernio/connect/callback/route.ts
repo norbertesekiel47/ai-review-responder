@@ -38,6 +38,32 @@ const luaCASDelByValue = `
   end`;
 
 /**
+ * Best-effort Zernio profile cleanup for the early-return paths after the
+ * state has been atomically claimed. The profile was created for THIS flow
+ * in /start, so deleting it on any abandonment is safe (no parallel flow
+ * uses the same profileId — every flow generates its own).
+ *
+ * NOT called from the OAuth-denial branch — that branch has its own,
+ * richer cleanup that ALSO byte-CAS-deletes the pending marker if it
+ * still belongs to this flow. This helper is for the paths where pending
+ * is missing, malformed, or owned by a different (newer) flow — in all
+ * those cases we must NOT trample pending, only orphan-clean the profile.
+ */
+async function cleanupOrphanedProfileBestEffort(
+  profileId: string | undefined,
+): Promise<void> {
+  if (!profileId) return;
+  try {
+    await zernioClient.deleteProfile(profileId);
+  } catch (err) {
+    console.error(
+      '[api/zernio/connect/callback] orphan profile cleanup failed (non-fatal):',
+      err,
+    );
+  }
+}
+
+/**
  * GET /api/zernio/connect/callback?state=...&connect_token=...
  *
  * OAuth landing endpoint after Zernio redirects the owner back from Google's
@@ -176,9 +202,11 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     pendingRaw = await redis.get(pendingKey(stored.businessId));
   } catch (err) {
     console.error('[api/zernio/connect/callback] redis get pending failed:', err);
+    await cleanupOrphanedProfileBestEffort(stored.profileId);
     return redirectError(origin, 'internal_error');
   }
   if (!pendingRaw) {
+    await cleanupOrphanedProfileBestEffort(stored.profileId);
     return redirectError(origin, 'pending_missing');
   }
 
@@ -186,6 +214,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   try {
     pending = JSON.parse(pendingRaw) as ConnectPendingMarker;
   } catch {
+    await cleanupOrphanedProfileBestEffort(stored.profileId);
     return redirectError(origin, 'malformed_pending');
   }
 
@@ -194,6 +223,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     pending.profileId !== stored.profileId ||
     pending.status !== 'oauth_in_progress'
   ) {
+    await cleanupOrphanedProfileBestEffort(stored.profileId);
     return redirectError(origin, 'flow_mismatch');
   }
 
@@ -202,6 +232,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   // can convert auth failures into the same friendly redirect surface.
   const user = await getCurrentUser(req).catch(() => null);
   if (!user || user.id !== stored.userId || user.id !== pending.userId) {
+    await cleanupOrphanedProfileBestEffort(stored.profileId);
     return redirectError(origin, 'user_mismatch');
   }
 
@@ -219,12 +250,14 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     // owns the slot now.
     const pending2Raw = await redis.get(pendingKey(stored.businessId));
     if (!pending2Raw) {
+      await cleanupOrphanedProfileBestEffort(stored.profileId);
       return redirectError(origin, 'flow_cancelled_during_listing');
     }
     let pending2: ConnectPendingMarker;
     try {
       pending2 = JSON.parse(pending2Raw) as ConnectPendingMarker;
     } catch {
+      await cleanupOrphanedProfileBestEffort(stored.profileId);
       return redirectError(origin, 'malformed_pending');
     }
     if (
@@ -233,6 +266,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       pending2.profileId !== stored.profileId ||
       pending2.status !== 'oauth_in_progress'
     ) {
+      await cleanupOrphanedProfileBestEffort(stored.profileId);
       return redirectError(origin, 'flow_superseded_during_listing');
     }
 

@@ -295,6 +295,11 @@ export async function handlePublishResponse(
     if (err instanceof ZernioAuthError) {
       const errorBody = err.body.slice(0, 500);
       await sql.begin(async (tx) => {
+        // Pin the disconnect to the SPECIFIC zernio_account_id we just
+        // attempted to post against. Without this pin, a parallel
+        // webhook+reconnect race could leave us disconnecting a fresh
+        // active row that the owner just connected to a different Zernio
+        // account.
         await tx`
           UPDATE zernio_connections
           SET status = 'disconnected',
@@ -302,7 +307,9 @@ export async function handlePublishResponse(
               disconnect_reason = 'auth_error_on_post',
               last_error = ${errorBody},
               last_error_at = NOW()
-          WHERE business_id = ${business_id} AND status = 'active'
+          WHERE business_id = ${business_id}
+            AND zernio_account_id = ${zernioConnection.zernio_account_id}
+            AND status = 'active'
         `;
 
         const updated = await tx`
