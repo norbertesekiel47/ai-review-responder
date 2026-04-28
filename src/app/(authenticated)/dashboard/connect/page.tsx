@@ -8,14 +8,14 @@ import { useDashboardData } from '@/hooks/useDashboardData';
 /**
  * /dashboard/connect — Zernio Google Business connect entry point.
  *
- * State matrix (spec §3.3.5, six states). We surface only the four
- * coarse-grained statuses exposed by the dashboard data API
- * (`zernioConnection.status`): none | pending | active | disconnected |
- * finalize_unknown. The marker's intermediate `oauth_in_progress` vs
- * `finalizing` distinction (Redis-only) is intentionally NOT shown — both
- * collapse to a single "Connecting…" view with a cancel button. If the user
- * cancels while the marker is actually `finalizing`, the cancel API returns
- * 409 finalize_in_progress which we render as a friendly message.
+ * State matrix (spec §3.3.5, six states). The dashboard data API exposes the
+ * coarse-grained `zernioConnection.status` (none | pending | active |
+ * disconnected | finalize_unknown) AND, when a Redis pending marker exists,
+ * a `pendingFlow.status` (`oauth_in_progress` | `finalizing` | `starting` |
+ * `finalize_unknown`). We use the marker's substatus to differentiate the
+ * pending UI: `oauth_in_progress` shows a Cancel button (owner can abort),
+ * `finalizing` shows a spinner only (cancel during finalize would 409 from
+ * the API anyway — see spec §3.3.5).
  */
 export default function ConnectPage() {
   const { data, error, refresh } = useDashboardData();
@@ -129,7 +129,12 @@ export default function ConnectPage() {
       {zernio.status === 'finalize_unknown' || zernio.hasUnresolvedIncident ? (
         <FinalizeUnknownView />
       ) : zernio.status === 'pending' ? (
-        <PendingView onCancel={handleCancel} busy={busy} />
+        zernio.pendingFlow?.status === 'finalizing' ||
+        zernio.pendingFlow?.status === 'starting' ? (
+          <FinalizingView />
+        ) : (
+          <PendingView onCancel={handleCancel} busy={busy} />
+        )
       ) : zernio.status === 'disconnected' ? (
         <ReconnectView
           onConnect={handleConnect}
@@ -247,6 +252,23 @@ function PendingView({
       >
         {busy ? 'Cancelling…' : 'Cancel'}
       </button>
+    </div>
+  );
+}
+
+function FinalizingView() {
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white p-6">
+      <div className="flex items-center gap-3">
+        <Spinner />
+        <h1 className="text-2xl font-semibold text-gray-900">
+          Finishing connection…
+        </h1>
+      </div>
+      <p className="mt-2 text-sm text-gray-600">
+        We&apos;re saving your Google Business connection. This usually takes
+        a few seconds — please don&apos;t close this tab.
+      </p>
     </div>
   );
 }

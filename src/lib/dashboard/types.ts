@@ -43,6 +43,10 @@ export interface DashboardDataActive {
   settings: DashboardSettings;
   zernioConnection: {
     status: 'none' | 'pending' | 'active' | 'disconnected' | 'finalize_unknown';
+    pendingFlow?: {
+      status: 'starting' | 'oauth_in_progress' | 'finalizing' | 'finalize_unknown';
+      started_at: number;
+    };
     queuedReconnectCount: number;
     hasUnresolvedIncident: boolean;
     lastDisconnectReason?: string;

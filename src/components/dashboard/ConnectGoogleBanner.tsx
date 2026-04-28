@@ -10,10 +10,15 @@ interface Props {
 /**
  * Surfaces the owner's Google publishing connection state at the top of the
  * dashboard. State matrix (per spec §3.4):
- *   - active           → render nothing (everything is fine)
- *   - finalize_unknown → yellow "manual review" banner; ops is on it
- *   - none             → blue "connect to start auto-posting" banner
- *   - pending|disconnected → orange "reconnect" banner with queue count
+ *   - active                       → render nothing (everything is fine)
+ *   - finalize_unknown             → yellow "manual review" banner; ops is on it
+ *   - none                         → blue "connect to start auto-posting" banner
+ *   - pending + pendingFlow set    → blue "Connecting…" banner (in-flight)
+ *   - pending (no marker) | disconnected → orange "reconnect" banner
+ *
+ * The pending+pendingFlow branch distinguishes an in-flight OAuth/finalize
+ * window from a stale `pending` DB row that means "owner abandoned the
+ * flow." The first should NOT show the alarming orange "Reconnect" CTA.
  */
 export function ConnectGoogleBanner({ zernio }: Props) {
   if (zernio.status === 'active') return null;
@@ -49,7 +54,25 @@ export function ConnectGoogleBanner({ zernio }: Props) {
     );
   }
 
-  // status === 'pending' | 'disconnected'
+  // In-flight connect flow (Redis marker present): show neutral "Connecting…"
+  // wording rather than the disconnected orange/reconnect treatment.
+  if (zernio.status === 'pending' && zernio.pendingFlow) {
+    return (
+      <div className="mb-6 flex items-center justify-between rounded-lg border border-blue-300 bg-blue-50 p-4">
+        <p className="text-sm text-blue-900">
+          Connecting your Google Business…
+        </p>
+        <Link
+          href="/dashboard/connect"
+          className="rounded bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700"
+        >
+          View progress
+        </Link>
+      </div>
+    );
+  }
+
+  // status === 'pending' (no marker — stale row) | 'disconnected'
   const headline =
     zernio.queuedReconnectCount > 0
       ? `${zernio.queuedReconnectCount} approved ${

@@ -40,6 +40,20 @@ vi.mock('@/lib/db/server', () => ({
   jsonb: (v: unknown) => v,
 }));
 
+// ── Mock Redis (Zernio pending marker read) ──────────────────────────
+// The dashboard service reads `connect_pending:{businessId}` from Redis to
+// surface in-flight connect flows. Tests don't exercise that path so we
+// always return null. Real outage handling is covered in service-level
+// tests (try/catch around the .get call).
+
+const { mockRedisGet } = vi.hoisted(() => ({
+  mockRedisGet: vi.fn(async () => null),
+}));
+
+vi.mock('@/lib/db/redis-cache', () => ({
+  getCacheRedis: () => ({ get: mockRedisGet }),
+}));
+
 // ── Mock payment-link ────────────────────────────────────────────────
 
 vi.mock('@/lib/payments/payment-link', () => ({
