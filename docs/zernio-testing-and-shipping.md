@@ -30,7 +30,8 @@ You need:
 4. **Two terminals** (or terminal multiplexer): one for `pnpm dev`, one for `pnpm worker`.
 
 Optional but useful:
-- `redis-cli` (`apt install redis-tools` / `brew install redis` / Windows: download from redis.io) — for inspecting connect-state Redis keys
+- **`pnpm redis` helper** (provided — see `scripts/redis.ts`) — wraps ioredis as a tiny CLI; works against any Redis the app talks to (local Docker, Upstash, etc.). No install needed. Examples below use it.
+- `redis-cli` (only if you prefer the native client) — `apt install redis-tools` (WSL/Linux), `brew install redis` (macOS), `scoop install redis` or `choco install redis-64` (Windows native), or `docker exec -it <container> redis-cli` (if Redis runs in Docker).
 - `psql` or the Supabase MCP — for verifying DB rows
 - `jq` — for pretty-printing API responses
 
@@ -119,7 +120,7 @@ SELECT * FROM zernio_finalize_incidents WHERE business_id = '<biz-id>';
 ```
 
 ```bash
-redis-cli get "connect_pending:<biz-id>"
+pnpm redis get "connect_pending:<biz-id>"
 # → (nil)
 ```
 
@@ -149,15 +150,15 @@ After /start succeeds, two Redis keys exist:
 
 ```bash
 # Pending marker
-redis-cli get "connect_pending:<biz-id>"
+pnpm redis get "connect_pending:<biz-id>"
 # → '{"flowId":"...","userId":"...","started_at":...,"status":"oauth_in_progress","profileId":"mock-profile-...","state":"<32-hex-state>"}'
 
 # State blob (keyed by the state value)
-redis-cli get "connect_state:<state-value>"
+pnpm redis get "connect_state:<state-value>"
 # → '{"businessId":"...","profileId":"mock-profile-...","userId":"...","createdAt":...}'
 
 # Lock should be released (auto-expires in 30s anyway)
-redis-cli get "connect_lock:<biz-id>"
+pnpm redis get "connect_lock:<biz-id>"
 # → (nil)  — released after /start succeeds
 ```
 
@@ -181,14 +182,14 @@ Verify side effects:
 
 ```bash
 # State key was atomically claimed (GETDEL) → should now be gone
-redis-cli get "connect_state:<state-value>"
+pnpm redis get "connect_state:<state-value>"
 # → (nil)
 
 # A connect_locations key was written
-redis-cli keys "connect_locations:*"
+pnpm redis keys "connect_locations:*"
 # → 1 key
 
-redis-cli get "connect_locations:<sessionId>"
+pnpm redis get "connect_locations:<sessionId>"
 # → JSON blob with {"flowId","state","connect_token","profileId","businessId","userId","locations":[{"id":"mock-loc-1","name":"Mock Location","address":"123 Mock St"}]}
 ```
 
@@ -234,11 +235,11 @@ ORDER BY created_at DESC LIMIT 1;
 
 ```bash
 # Pending marker should be gone
-redis-cli get "connect_pending:<biz-id>"
+pnpm redis get "connect_pending:<biz-id>"
 # → (nil)
 
 # Locations blob should be gone
-redis-cli keys "connect_locations:*"
+pnpm redis keys "connect_locations:*"
 # → empty
 ```
 
@@ -442,7 +443,7 @@ WHERE business_id = '<biz-id>';
 ```
 
 ```bash
-redis-cli get "connect_pending:<biz-id>"
+pnpm redis get "connect_pending:<biz-id>"
 # → marker with status=finalize_unknown
 ```
 
@@ -463,8 +464,8 @@ SELECT
 
 ```bash
 # All Zernio Redis keys for a business
-redis-cli --scan --pattern "connect_*" | grep <biz-id>
-redis-cli --scan --pattern "zernio_*"
+pnpm redis scan "connect_*" | grep <biz-id>
+pnpm redis scan "zernio_*"
 ```
 
 ### 1.13 Common issues
@@ -473,7 +474,7 @@ redis-cli --scan --pattern "zernio_*"
 |---|---|---|
 | `pnpm worker` exits with `Missing required env vars: ZERNIO_API_KEY` | Flag on, mock off, no key set | Set `MOCK_EXTERNAL_APIS=true` OR provide a dummy `ZERNIO_API_KEY` |
 | `/api/zernio/connect/start` returns 503 | `ZERNIO_PUBLISHING_ENABLED` unset / false | Set to `true` and restart `pnpm dev` |
-| `/api/zernio/connect/start` returns 429 `connect_in_progress` | A previous flow left a Redis lock (auto-expires in 30s) | Wait 30s OR `redis-cli del "connect_lock:<biz-id>"` |
+| `/api/zernio/connect/start` returns 429 `connect_in_progress` | A previous flow left a Redis lock (auto-expires in 30s) | Wait 30s OR `pnpm redis del "connect_lock:<biz-id>"` |
 | Callback redirects to `/dashboard/connect?error=state_expired` | The state key TTL (15min) elapsed OR was already claimed | Restart from `/start` |
 | Banner doesn't update after a state change | React Query cache | Refresh page; or invalidate `dashboardData` cache |
 | Worker logs `ECONNREFUSED 127.0.0.1:6379` | Local Redis isn't running | `docker run -d -p 6379:6379 redis:7-alpine` |

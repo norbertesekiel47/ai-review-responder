@@ -10,7 +10,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "worker": "tsx worker/index.ts"
+    "worker": "tsx worker/index.ts",
+    "redis": "tsx scripts/redis.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.82.0",
