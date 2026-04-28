@@ -35,11 +35,13 @@ export async function GET(
     disabled_at: Date | null;
     unsubscribed_at: Date | null;
     unsubscribed_reason: string | null;
+    expires_at: Date | null;
     last_activity_at: Date | null;
   }[]>`
     SELECT
       e.channel, e.handle, e.status,
       e.verified_at, e.disabled_at, e.unsubscribed_at, e.unsubscribed_reason,
+      e.verification_token_expires_at AS expires_at,
       -- Per-row COALESCE (delivered OR sent), THEN aggregate MAX. Doing it
       -- the other way (COALESCE(MAX(delivered), MAX(sent))) would return
       -- the older delivered timestamp when a newer row has only sent_at.
