@@ -62,6 +62,68 @@ export interface ReviewRow {
   version: number | null;
 }
 
+// Zernio connection panel — DB row + API shapes
+//
+// `getZernioPanel()` returns the snapshot needed to render the
+// "Zernio Connection" admin panel (current connection state, queued
+// awaiting_owner_connect responses, and unresolved finalize incidents).
+// Kept on the response so the existing `useBusinessDetail` query covers
+// it without adding a second round-trip.
+
+export interface ZernioConnectionRow {
+  status: 'pending' | 'active' | 'disconnected';
+  connected_at: Date | null;
+  disconnected_at: Date | null;
+  disconnect_reason: string | null;
+  last_error: string | null;
+  last_error_at: Date | null;
+  zernio_account_id: string;
+  zernio_location_id: string;
+}
+
+export interface AwaitingOwnerConnectRow {
+  id: string;
+  created_at: Date;
+  draft_text: string | null;
+  reviewer_name: string;
+  review_text: string | null;
+  star_rating: number;
+}
+
+export interface ZernioFinalizeIncidentRow {
+  id: string;
+  finalize_unknown_at: Date;
+  flow_id: string;
+  zernio_profile_id: string;
+}
+
+export interface ZernioPanelData {
+  connection: {
+    status: 'pending' | 'active' | 'disconnected';
+    connectedAt: string | null;
+    disconnectedAt: string | null;
+    disconnectReason: string | null;
+    lastError: string | null;
+    lastErrorAt: string | null;
+    zernioAccountId: string;
+    zernioLocationId: string;
+  } | null;
+  awaitingOwnerConnect: Array<{
+    responseId: string;
+    createdAt: string;
+    draftText: string | null;
+    reviewerName: string;
+    reviewText: string | null;
+    starRating: number;
+  }>;
+  unresolvedIncidents: Array<{
+    id: string;
+    finalizeUnknownAt: string;
+    flowId: string;
+    zernioProfileId: string;
+  }>;
+}
+
 // HTTP response shape for GET
 
 export interface BusinessDetailResponse {
@@ -113,6 +175,7 @@ export interface BusinessDetailResponse {
     approvedText: string | null;
     responseVersion: number | null;
   }>;
+  zernio: ZernioPanelData;
 }
 
 // PATCH request body shape (derived from the Zod schema so it stays in sync)

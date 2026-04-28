@@ -10,6 +10,7 @@ import { ManualRankingSection } from './components/ManualRankingSection';
 import { ReviewsList } from './components/ReviewsList';
 import { ChannelsPanel } from './components/ChannelsPanel';
 import { ManualPostFlow } from './components/ManualPostFlow';
+import { ZernioConnectionPanel } from './components/ZernioConnectionPanel';
 import { useBusinessDetail } from './hooks/useBusinessDetail';
 
 function HealthBadge({ level, score }: { level: string; score: number }) {
@@ -46,7 +47,7 @@ export default function BusinessDetailPage() {
     );
   }
 
-  const { business, reviews, rankingSnapshots } = data;
+  const { business, reviews, rankingSnapshots, zernio } = data;
   const awaitingPost = reviews.filter((r) => r.responseStatus === 'awaiting_manual_post');
 
   const mapsUrl = business.googlePlaceId
@@ -170,6 +171,13 @@ export default function BusinessDetailPage() {
 
         {/* Channels (table + flag-gated SMS / Telegram / WhatsApp enrollment) */}
         <ChannelsPanel business={business} businessId={businessId} enrollments={enrollments} />
+
+        {/* Zernio connection panel — auto-publishing state, queued reconnects, ops incidents */}
+        <ZernioConnectionPanel
+          businessId={businessId}
+          zernio={zernio}
+          onChanged={invalidate}
+        />
 
         {/* Awaiting Manual Post */}
         <ManualPostFlow businessId={businessId} awaitingPost={awaitingPost} />
