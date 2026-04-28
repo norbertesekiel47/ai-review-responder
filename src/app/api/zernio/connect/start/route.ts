@@ -101,6 +101,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           { status: 409, headers: NO_STORE },
         );
       }
+      // Round-X (Fix 3): finalize_unknown is an admin-required terminal-ish
+      // state. If the corresponding zernio_finalize_incidents row failed to
+      // insert (transient DB error), this Redis marker is the only safety
+      // net. It MUST NOT be auto-recovered by the stale-age fall-through
+      // below — admin must reconcile before a new flow can start.
+      if (parsed.status === 'finalize_unknown') {
+        return NextResponse.json(
+          { error: 'finalize_unknown_admin_required' },
+          { status: 409, headers: NO_STORE },
+        );
+      }
       // Defensive: if started >15 min ago, the TTL should have already
       // expired but Redis clock skew or a freshly-bumped marker can leave
       // a stale entry. Fall through and recreate in that case.

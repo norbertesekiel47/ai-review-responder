@@ -27,6 +27,16 @@ const PRE_MUTATION_400_CODES = new Set<string>([
   'missing_required_field',
 ]);
 
+// Strict allowlist of documented 409 codes that genuinely mean "reply already
+// exists" on publish_reply. Maintenance rule mirrors PRE_MUTATION_400_CODES:
+// extend ONLY when Zernio docs explicitly document an additional 409 code for
+// this endpoint as meaning the reply was already posted. Default-deny: any
+// unknown 409 (rate limit, lock contention, etc.) is treated as transient so
+// we never falsely mark a response `posted` when no reply exists yet.
+const REPLY_ALREADY_EXISTS_CODES = new Set<string>([
+  'reply_already_exists',
+]);
+
 export async function classifyAndParse<T>(res: Response, endpointKind: EndpointKind): Promise<T> {
   if (res.ok) {
     if (res.status === 204 || NO_BODY_ENDPOINTS.has(endpointKind)) {
@@ -52,7 +62,20 @@ export async function classifyAndParse<T>(res: Response, endpointKind: EndpointK
   }
 
   if (res.status === 409 && endpointKind === 'publish_reply') {
-    throw new ZernioReplyAlreadyExistsError(await res.json().catch(() => ({})));
+    const body = (await res.json().catch(() => ({}))) as { code?: unknown };
+    if (
+      body &&
+      typeof body === 'object' &&
+      'code' in body &&
+      typeof body.code === 'string' &&
+      REPLY_ALREADY_EXISTS_CODES.has(body.code)
+    ) {
+      throw new ZernioReplyAlreadyExistsError(body);
+    }
+    // Unknown 409 — could be lock contention, rate limit, or a code we haven't
+    // allowlisted yet. Treat as transient so we don't falsely mark a response
+    // `posted` when no reply was actually created.
+    throw new ZernioTransientError('http_409_unknown_code', { endpointKind, body });
   }
 
   if (res.status === 404 && endpointKind === 'publish_reply') {
@@ -71,7 +94,16 @@ export async function classifyAndParse<T>(res: Response, endpointKind: EndpointK
     throw new ZernioPermanentError('http_400', { status: 400, body, endpointKind });
   }
 
-  // 5xx / 429 / other status → transient.
+  // Catch-all 4xx → permanent, EXCEPT the retryable 4xx (408, 429). Placed
+  // AFTER all special-case branches above (auth/409/404/400) so those keep
+  // their tailored classification. Without this, e.g. 422/410/405 would fall
+  // through to the transient classifier below and retry indefinitely.
+  if (res.status >= 400 && res.status < 500 && res.status !== 408 && res.status !== 429) {
+    const body = await res.json().catch(() => ({}));
+    throw new ZernioPermanentError(`http_${res.status}`, { endpointKind, body });
+  }
+
+  // 5xx / 408 / 429 / other status → transient.
   throw new ZernioTransientError(`http_${res.status}`, {
     status: res.status,
     body: await res.text().catch(() => ''),

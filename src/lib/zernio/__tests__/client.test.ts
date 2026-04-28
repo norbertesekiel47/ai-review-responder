@@ -59,17 +59,18 @@ describe('classifyAndParse', () => {
     });
 
     it('409 on publish_reply → ZernioReplyAlreadyExistsError', async () => {
-      const res = mkRes({ status: 409, body: { message: 'reply exists' } });
+      const res = mkRes({ status: 409, body: { code: 'reply_already_exists' } });
       await expect(classifyAndParse(res, 'publish_reply')).rejects.toBeInstanceOf(
         ZernioReplyAlreadyExistsError,
       );
     });
 
-    it('409 on non-publish_reply → ZernioTransientError', async () => {
+    it('409 on non-publish_reply → ZernioPermanentError (catch-all 4xx)', async () => {
       const res = mkRes({ status: 409, body: {} });
-      await expect(classifyAndParse(res, 'select_location')).rejects.toBeInstanceOf(
-        ZernioTransientError,
-      );
+      await expect(classifyAndParse(res, 'select_location')).rejects.toMatchObject({
+        name: 'ZernioPermanentError',
+        kind: 'http_409',
+      });
     });
 
     it('404 on publish_reply → ZernioReviewNotFoundError', async () => {
@@ -112,6 +113,67 @@ describe('classifyAndParse', () => {
     it('429 → ZernioTransientError http_429', async () => {
       const res = mkRes({ status: 429 });
       await expect(classifyAndParse(res, 'publish_reply')).rejects.toMatchObject({
+        name: 'ZernioTransientError',
+        kind: 'http_429',
+      });
+    });
+  });
+
+  describe('classifyAndParse — 409 on publish_reply: code-gated', () => {
+    it('409 with code reply_already_exists → ZernioReplyAlreadyExistsError', async () => {
+      const res = new Response(JSON.stringify({ code: 'reply_already_exists' }), {
+        status: 409,
+      });
+      await expect(classifyAndParse(res, 'publish_reply')).rejects.toBeInstanceOf(
+        ZernioReplyAlreadyExistsError,
+      );
+    });
+
+    it('409 with unknown code → ZernioTransientError http_409_unknown_code', async () => {
+      const res = new Response(JSON.stringify({ code: 'rate_limited' }), { status: 409 });
+      await expect(classifyAndParse(res, 'publish_reply')).rejects.toMatchObject({
+        name: 'ZernioTransientError',
+        kind: 'http_409_unknown_code',
+      });
+    });
+
+    it('409 with no body → ZernioTransientError http_409_unknown_code', async () => {
+      const res = new Response(null, { status: 409 });
+      await expect(classifyAndParse(res, 'publish_reply')).rejects.toMatchObject({
+        name: 'ZernioTransientError',
+        kind: 'http_409_unknown_code',
+      });
+    });
+  });
+
+  describe('classifyAndParse — non-select_location 4xx classification', () => {
+    it('422 → ZernioPermanentError', async () => {
+      const res = new Response(JSON.stringify({ code: 'unprocessable' }), { status: 422 });
+      await expect(classifyAndParse(res, 'list_reviews')).rejects.toMatchObject({
+        name: 'ZernioPermanentError',
+        kind: 'http_422',
+      });
+    });
+
+    it('410 → ZernioPermanentError', async () => {
+      const res = new Response(null, { status: 410 });
+      await expect(classifyAndParse(res, 'list_reviews')).rejects.toMatchObject({
+        name: 'ZernioPermanentError',
+        kind: 'http_410',
+      });
+    });
+
+    it('408 → ZernioTransientError (retryable)', async () => {
+      const res = new Response(null, { status: 408 });
+      await expect(classifyAndParse(res, 'list_reviews')).rejects.toMatchObject({
+        name: 'ZernioTransientError',
+        kind: 'http_408',
+      });
+    });
+
+    it('429 → ZernioTransientError (already covered)', async () => {
+      const res = new Response(null, { status: 429 });
+      await expect(classifyAndParse(res, 'list_reviews')).rejects.toMatchObject({
         name: 'ZernioTransientError',
         kind: 'http_429',
       });

@@ -7,6 +7,7 @@ import {
   stateKey,
   locationsKey,
   generateSessionId,
+  luaDeletePendingByFlowIdAnyStatus,
 } from '@/lib/zernio/connect-state';
 import { setConnectSessionCookie } from '@/lib/zernio/connect-session-cookie';
 import type {
@@ -73,13 +74,75 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
   // 2. Parse query params.
   const oauthError = searchParams.get('error');
+  const stateParam = searchParams.get('state');
   if (oauthError) {
-    // Owner denied OAuth on Google's side, or Zernio surfaced an explicit
-    // error. Don't touch Redis — the connect_state row will simply expire.
+    // Owner denied OAuth on Google's side (or Zernio surfaced an explicit
+    // error). Best-effort cleanup BEFORE redirecting:
+    //   1. Atomically claim connect_state (so it can't be reused).
+    //   2. Verify connect_pending still belongs to this flow, then CAS-delete
+    //      it via luaDeletePendingByFlowIdAnyStatus so the user isn't blocked
+    //      from starting a new flow for up to 15 min.
+    //   3. Best-effort deleteProfile so the orphaned Zernio profile is freed.
+    // Every step is wrapped in catch() — failures don't block the
+    // user-facing redirect.
+    if (stateParam) {
+      const redisCleanup = getCacheRedis();
+      try {
+        const stateRaw = await redisCleanup.getdel(stateKey(stateParam)).catch(() => null);
+        if (stateRaw) {
+          let stored: ConnectStateBlob | null = null;
+          try {
+            stored = JSON.parse(stateRaw) as ConnectStateBlob;
+          } catch {
+            // malformed state blob — already claimed, nothing more to do
+          }
+          if (stored) {
+            try {
+              const pendingRaw = await redisCleanup
+                .get(pendingKey(stored.businessId))
+                .catch(() => null);
+              if (pendingRaw) {
+                try {
+                  const pending = JSON.parse(pendingRaw) as ConnectPendingMarker;
+                  if (
+                    pending.state === stateParam &&
+                    pending.profileId === stored.profileId
+                  ) {
+                    await redisCleanup
+                      .eval(
+                        luaDeletePendingByFlowIdAnyStatus,
+                        1,
+                        pendingKey(stored.businessId),
+                        pending.flowId,
+                      )
+                      .catch(() => 0);
+                  }
+                } catch {
+                  // malformed pending — leave it (TTL will handle it)
+                }
+              }
+            } catch (e) {
+              console.error(
+                '[zernio/callback] OAuth-denial pending cleanup failed:',
+                e,
+              );
+            }
+            await zernioClient.deleteProfile(stored.profileId).catch((e) => {
+              console.error(
+                '[zernio/callback] OAuth-denial deleteProfile failed:',
+                e,
+              );
+            });
+          }
+        }
+      } catch (e) {
+        console.error('[zernio/callback] OAuth-denial cleanup failed:', e);
+      }
+    }
     return redirectError(origin, 'oauth_denied');
   }
 
-  const state = searchParams.get('state');
+  const state = stateParam;
   const connectToken = searchParams.get('connect_token');
   if (!state || !connectToken) {
     return redirectError(origin, 'missing_params');
