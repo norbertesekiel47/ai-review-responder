@@ -45,6 +45,9 @@ export async function getActiveDashboardData(
     recentReviewRows,
     monthlyBriefRows,
     weeklyBriefRows,
+    zernioConnectionRows,
+    queuedReconnectRows,
+    unresolvedIncidentRows,
   ] = await Promise.all([
     // Business info + settings
     sql`
@@ -143,6 +146,31 @@ export async function getActiveDashboardData(
       ORDER BY sent_at DESC
       LIMIT 1
     `,
+    // Zernio connection: most-recent row (any status). Banner state machine
+    // distinguishes 'none' (no row) from 'disconnected' (row with status='disconnected').
+    sql`
+      SELECT status, disconnect_reason
+      FROM zernio_connections
+      WHERE business_id = ${businessId}
+      ORDER BY created_at DESC
+      LIMIT 1
+    `,
+    // Queued-for-reconnect responses: approved drafts parked while Zernio is
+    // disconnected. Drives banner headline copy ("3 responses are waiting...").
+    sql`
+      SELECT COUNT(*)::int AS count
+      FROM responses
+      WHERE business_id = ${businessId}
+        AND status = 'awaiting_owner_connect'
+    `,
+    // Unresolved finalize incident: takes priority over the connection status —
+    // owner sees "manual review" banner regardless of zernio_connections state.
+    sql`
+      SELECT COUNT(*)::int AS count
+      FROM zernio_finalize_incidents
+      WHERE business_id = ${businessId}
+        AND resolved_at IS NULL
+    `,
   ]);
 
   const business = businessRows[0];
@@ -220,6 +248,25 @@ export async function getActiveDashboardData(
     };
   }
 
+  // Zernio banner state — incident takes priority over the connection row.
+  const hasUnresolvedIncident = (unresolvedIncidentRows[0]?.count ?? 0) > 0;
+  const zernioRow = zernioConnectionRows[0];
+  const queuedReconnectCount = queuedReconnectRows[0]?.count ?? 0;
+  const connStatus = zernioRow?.status as
+    | 'pending'
+    | 'active'
+    | 'disconnected'
+    | undefined;
+  const zernioConnection: DashboardDataActive['zernioConnection'] = {
+    status: hasUnresolvedIncident
+      ? 'finalize_unknown'
+      : connStatus ?? 'none',
+    queuedReconnectCount,
+    hasUnresolvedIncident,
+    lastDisconnectReason:
+      (zernioRow?.disconnect_reason as string | null) ?? undefined,
+  };
+
   const data: DashboardDataActive = {
     business: {
       name: business.name as string,
@@ -261,6 +308,7 @@ export async function getActiveDashboardData(
       category: (business.category as string) ?? '',
       googlePlaceId: (business.google_place_id as string) ?? '',
     },
+    zernioConnection,
   };
 
   return data;

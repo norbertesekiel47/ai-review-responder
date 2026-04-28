@@ -41,6 +41,12 @@ export interface DashboardDataActive {
     periodLabel: string;
   } | null;
   settings: DashboardSettings;
+  zernioConnection: {
+    status: 'none' | 'pending' | 'active' | 'disconnected' | 'finalize_unknown';
+    queuedReconnectCount: number;
+    hasUnresolvedIncident: boolean;
+    lastDisconnectReason?: string;
+  };
 }
 
 export interface DashboardDataPendingPayment {
