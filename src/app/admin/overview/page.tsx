@@ -34,6 +34,7 @@ interface OverviewData {
     subscriptionStatus: string;
     lastSyncAt: string | null;
     pendingApprovalCount: number;
+    pendingReconnectCount: number;
     totalResponses: number;
     completedResponses: number;
     responseRate: number;
@@ -260,6 +261,12 @@ export default function AdminOverviewPage() {
                   <th className="px-4 py-3 text-left font-medium text-gray-500">Name</th>
                   <th className="px-4 py-3 text-left font-medium text-gray-500">Status</th>
                   <th className="px-4 py-3 text-left font-medium text-gray-500">Pending</th>
+                  <th
+                    className="px-4 py-3 text-left font-medium text-gray-500"
+                    title="Approved responses queued waiting for the owner to (re)connect Zernio"
+                  >
+                    Reconnect
+                  </th>
                   <th className="px-4 py-3 text-left font-medium text-gray-500">Response Rate</th>
                   <th className="px-4 py-3 text-left font-medium text-gray-500">Avg Time</th>
                   <th className="px-4 py-3 text-left font-medium text-gray-500">Last Activity</th>
@@ -269,7 +276,7 @@ export default function AdminOverviewPage() {
               <tbody className="divide-y divide-gray-100">
                 {businesses.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="px-4 py-6 text-center text-gray-400">
+                    <td colSpan={8} className="px-4 py-6 text-center text-gray-400">
                       No businesses found.
                     </td>
                   </tr>
@@ -298,6 +305,19 @@ export default function AdminOverviewPage() {
                         </span>
                       ) : (
                         <span className="text-gray-400">0</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {biz.pendingReconnectCount >= 3 ? (
+                        <span className="inline-block rounded bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800">
+                          {biz.pendingReconnectCount}
+                        </span>
+                      ) : biz.pendingReconnectCount > 0 ? (
+                        <span className="inline-block rounded bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+                          {biz.pendingReconnectCount}
+                        </span>
+                      ) : (
+                        <span className="text-gray-400">—</span>
                       )}
                     </td>
                     <td className="px-4 py-3 text-gray-700">
