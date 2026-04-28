@@ -9,6 +9,10 @@
 import { sql } from '@/lib/db/server';
 import { getCacheRedis } from '@/lib/db/redis-cache';
 import { parseDbArray } from '@/lib/shared/db-array';
+import {
+  HANDLED_STATUSES,
+  RECENT_REVIEW_DISPLAY_STATUSES,
+} from '@/lib/shared/response-status';
 import { pendingKey } from '@/lib/zernio/connect-state';
 import type { ConnectPendingMarker } from '@/lib/zernio/types';
 import type { DashboardDataActive } from './types';
@@ -91,7 +95,7 @@ export async function getActiveDashboardData(
       FROM reviews r
       JOIN responses resp ON resp.review_id = r.id
       WHERE r.business_id = ${businessId}
-        AND resp.status IN ('posted', 'approved', 'edited', 'awaiting_manual_post')
+        AND resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[])
     `,
     // Review velocity: last 8 weeks (zero-filled)
     sql`
@@ -137,7 +141,7 @@ export async function getActiveDashboardData(
         SELECT COALESCE(approved_text, response_text) AS response_text, status
         FROM responses
         WHERE review_id = rev.id
-          AND status IN ('pending_approval', 'posted', 'approved', 'edited', 'awaiting_manual_post')
+          AND status = ANY(${[...RECENT_REVIEW_DISPLAY_STATUSES] as string[]}::text[])
         ORDER BY version DESC
         LIMIT 1
       ) resp ON true

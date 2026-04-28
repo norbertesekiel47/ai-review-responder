@@ -8,6 +8,7 @@ import { v7 as uuidv7 } from 'uuid';
 import { sql } from '@/lib/db/server';
 import { computeChurnRiskScore } from '@/lib/shared/churn-score';
 import { parseDbArray } from '@/lib/shared/db-array';
+import { HANDLED_STATUSES } from '@/lib/shared/response-status';
 import type {
   AwaitingOwnerConnectRow,
   BusinessDetailResponse,
@@ -163,7 +164,7 @@ export async function getBusinessDetail(
       SELECT
         COUNT(DISTINCT nd.response_id)::int AS notified_count,
         COUNT(DISTINCT nd.response_id) FILTER (
-          WHERE r.status IN ('approved','edited','posted','awaiting_manual_post')
+          WHERE r.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[])
         )::int AS approved_count
       FROM notification_deliveries nd
       JOIN responses r ON r.id = nd.response_id
@@ -176,7 +177,7 @@ export async function getBusinessDetail(
       SELECT
         COUNT(*) FILTER (WHERE rp.status = 'pending_approval')::int AS pending_count,
         EXTRACT(DAY FROM CURRENT_TIMESTAMP - MAX(rp.approved_at)
-          FILTER (WHERE rp.status IN ('approved','edited','posted','awaiting_manual_post'))
+          FILTER (WHERE rp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[]))
         )::int AS days_since_approval,
         AVG(EXTRACT(EPOCH FROM rp.approved_at - rp.created_at) / 3600.0)
           FILTER (WHERE rp.approved_at IS NOT NULL AND rp.created_at >= CURRENT_DATE - 7)::float AS avg_hours_current,

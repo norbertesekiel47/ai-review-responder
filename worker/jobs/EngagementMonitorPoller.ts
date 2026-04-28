@@ -10,6 +10,7 @@
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '../../src/lib/db/server';
 import type { EngagementAlertPayload, EngagementAlertType } from '../../src/lib/shared/worker-types';
+import { HANDLED_STATUSES } from '../../src/lib/shared/response-status';
 
 const LOG_PREFIX = '[EngagementMonitorPoller]';
 const DEFAULT_INTERVAL_MS = 86_400_000; // 24 hours
@@ -86,7 +87,7 @@ export async function runEngagementCheck(): Promise<void> {
       response_metrics AS (
         SELECT
           resp.business_id,
-          MAX(resp.approved_at) FILTER (WHERE resp.status IN ('approved','edited','posted','awaiting_manual_post')) AS last_approval,
+          MAX(resp.approved_at) FILTER (WHERE resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[])) AS last_approval,
           COUNT(*) FILTER (WHERE resp.status = 'pending_approval')::int AS pending_count,
           MIN(resp.created_at) FILTER (WHERE resp.status = 'pending_approval') AS oldest_pending_at
         FROM responses resp
@@ -98,7 +99,7 @@ export async function runEngagementCheck(): Promise<void> {
           nd.business_id,
           COUNT(DISTINCT nd.response_id)::int AS notified_count,
           COUNT(DISTINCT nd.response_id) FILTER (
-            WHERE r.status IN ('approved','edited','posted','awaiting_manual_post')
+            WHERE r.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[])
           )::int AS approved_count
         FROM notification_deliveries nd
         JOIN responses r ON r.id = nd.response_id

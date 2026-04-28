@@ -9,6 +9,7 @@ import { generateReviewSummary } from '../../src/lib/responses/review-summary';
 import type { WeeklySummaryPayload } from '../../src/lib/shared/worker-types';
 import { buildFeedbackUrl } from '../../src/lib/shared/feedback-hmac';
 import { createWorkerLogger } from '../../src/lib/shared/logger';
+import { HANDLED_STATUSES } from '../../src/lib/shared/response-status';
 
 export async function handleWeeklySummary(
   job: Job<WeeklySummaryPayload>,
@@ -79,7 +80,7 @@ export async function handleWeeklySummary(
   const [respondedCount] = await sql<{ count: string }[]>`
     SELECT COUNT(DISTINCT r.id)::text AS count FROM reviews r
     JOIN responses resp ON resp.review_id = r.id
-      AND resp.status IN ('posted', 'approved', 'edited', 'awaiting_manual_post')
+      AND resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[])
     WHERE r.business_id = ${business_id}
       AND r.detected_at >= ${week_start_date}::date
       AND r.detected_at < ${weekEndDate}::date

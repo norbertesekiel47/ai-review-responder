@@ -8,6 +8,7 @@ import { recordNotificationDelivery } from '../../src/lib/notifications/delivery
 import { generateReviewSummary } from '../../src/lib/responses/review-summary';
 import type { SendMonthlyImpactPayload } from '../../src/lib/shared/worker-types';
 import { createWorkerLogger } from '../../src/lib/shared/logger';
+import { HANDLED_STATUSES } from '../../src/lib/shared/response-status';
 
 export async function handleMonthlyImpact(
   job: Job<SendMonthlyImpactPayload>,
@@ -128,7 +129,7 @@ export async function handleMonthlyImpact(
   const [respondedCount] = await sql<{ count: string }[]>`
     SELECT COUNT(DISTINCT r.id)::text AS count FROM reviews r
     JOIN responses resp ON resp.review_id = r.id
-      AND resp.status IN ('posted', 'approved', 'edited', 'awaiting_manual_post')
+      AND resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[])
     WHERE r.business_id = ${business_id}
       AND r.detected_at >= ${month_start_date}::date
       AND r.detected_at < ${monthEndDate}::date
@@ -148,7 +149,7 @@ export async function handleMonthlyImpact(
            resp.approved_text AS response_text
     FROM reviews r
     LEFT JOIN responses resp ON resp.review_id = r.id
-      AND resp.status IN ('posted', 'approved', 'edited', 'awaiting_manual_post')
+      AND resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[])
     WHERE r.business_id = ${business_id}
       AND r.detected_at >= ${month_start_date}::date
       AND r.detected_at < ${monthEndDate}::date
