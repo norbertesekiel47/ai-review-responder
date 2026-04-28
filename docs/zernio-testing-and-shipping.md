@@ -349,33 +349,23 @@ To exercise the **success branch** in mock mode, you need to monkey-patch the mo
 
 This tests the Railway worker's ability to handle Zernio's webhook for revoked accounts.
 
-Use this helper bash script (save as `scripts/zernio-fire-webhook.sh`):
-
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
-SECRET="${ZERNIO_WEBHOOK_SECRET:-test-secret-32-bytes-minimum-zzz}"
-ACCOUNT_ID="${1:-mock-account-1}"
-EVENT_ID="evt-$(date +%s)-$RANDOM"
-
-BODY='{"id":"'"$EVENT_ID"'","event":"account.disconnected","accountId":"'"$ACCOUNT_ID"'","reason":"user_revoked"}'
-SIG=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$SECRET" | sed 's/^.* //')
-
-curl -i -X POST http://localhost:3001/ingress/zernio \
-  -H "Content-Type: application/json" \
-  -H "x-zernio-signature: $SIG" \
-  -H "x-zernio-event-id: $EVENT_ID" \
-  -d "$BODY"
-```
-
-Run:
+A signed-webhook helper is provided at `scripts/zernio-fire-webhook.sh`. It builds the right payload shape per spec §5.4 (`account.id` is **nested**, not flat — earlier flat-`accountId` payloads were silently no-op'd by the handler).
 
 ```bash
 chmod +x scripts/zernio-fire-webhook.sh
-./scripts/zernio-fire-webhook.sh <account-id-from-zernio_connections>
+
+# Default — fires account.disconnected for mock-account-1
+bash scripts/zernio-fire-webhook.sh
+
+# Specific account id (use the value from zernio_connections.zernio_account_id)
+bash scripts/zernio-fire-webhook.sh <account-id-from-zernio_connections>
+
+# Other event types
+bash scripts/zernio-fire-webhook.sh "" webhook.test
+bash scripts/zernio-fire-webhook.sh mock-account-1 review.new
 ```
 
-Expected: `200 { "ok": true }` (or `200 { duplicate: true }` on retry).
+Expected: `200 {"received": true}` (or `200 {"received": true, "duplicate": true}` on retry with the same `x-zernio-event-id`).
 
 Verify side effects:
 
