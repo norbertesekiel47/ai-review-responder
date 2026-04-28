@@ -62,8 +62,22 @@ export function setConnectSessionCookie(
 export function readConnectSessionCookie(request: NextRequest): string | null {
   const cookie = request.cookies.get(ZERNIO_CONNECT_COOKIE_NAME);
   if (!cookie?.value) return null;
+  return verifySignedConnectSessionValue(cookie.value);
+}
 
-  const parts = cookie.value.split('.');
+/**
+ * Server-component-friendly variant. Verifies a raw signed cookie string
+ * (the same format produced by `setConnectSessionCookie`) and returns the
+ * sessionId on success, or null on missing / malformed / tampered. Used by
+ * `/dashboard/connect/select-location` which reads cookies via
+ * `next/headers` rather than receiving a `NextRequest`.
+ */
+export function verifySignedConnectSessionValue(
+  signedValue: string | undefined | null,
+): string | null {
+  if (!signedValue) return null;
+
+  const parts = signedValue.split('.');
   if (parts.length !== 2) return null;
 
   const [sessionId, providedHmac] = parts;
