@@ -278,14 +278,19 @@ export async function getActiveDashboardData(
   }
 
   // Zernio banner state — precedence (highest to lowest):
-  //   1. Unresolved finalize incident in DB           → 'finalize_unknown'
-  //   2. Pending marker with status='finalize_unknown'→ 'finalize_unknown'
+  //   1. Unresolved finalize incident in DB            → 'finalize_unknown'
+  //   2. Pending marker with status='finalize_unknown' → 'finalize_unknown'
   //      (mirrors #1: a marker we haven't yet written to the incidents
   //      table because OutboxPoller hasn't run, or we're in the brief
   //      window between markUnknown + incident insert)
-  //   3. Pending marker (any other status)            → 'pending'
-  //   4. zernio_connections.status (active|pending|disconnected)
-  //   5. Fallback                                     → 'none'
+  //   3. zernio_connections.status === 'active'        → 'active'
+  //      (beats stale non-finalize pending markers — select-location's
+  //      best-effort Redis cleanup can leave a marker behind for up to
+  //      its 15-min TTL if Redis is briefly unavailable. The DB row is
+  //      the source of truth once active.)
+  //   4. Pending marker (any non-finalize status)      → 'pending'
+  //   5. zernio_connections.status ('pending'|'disconnected')
+  //   6. Fallback                                      → 'none'
   const hasUnresolvedIncident = (unresolvedIncidentRows[0]?.count ?? 0) > 0;
   const zernioRow = zernioConnectionRows[0];
   const queuedReconnectCount = queuedReconnectRows[0]?.count ?? 0;
@@ -322,19 +327,36 @@ export async function getActiveDashboardData(
   }
 
   let status: DashboardDataActive['zernioConnection']['status'];
+  let surfacedPendingFlow: typeof pendingFlow;
   if (hasUnresolvedIncident || pendingFlow?.status === 'finalize_unknown') {
     status = 'finalize_unknown';
+    // Only surface the pending flow when it itself is the finalize_unknown
+    // signal — an unresolved DB incident alone shouldn't leak unrelated flow
+    // data into the UI.
+    surfacedPendingFlow =
+      pendingFlow?.status === 'finalize_unknown' ? pendingFlow : undefined;
+  } else if (connStatus === 'active') {
+    // Active DB connection beats any non-finalize stale pending marker —
+    // the DB is authoritative once select-location has succeeded. Drop
+    // pendingFlow so the UI renders cleanly as "active" instead of
+    // "active but with weird in-flight flow data".
+    status = 'active';
+    surfacedPendingFlow = undefined;
   } else if (pendingFlow) {
     status = 'pending';
+    surfacedPendingFlow = pendingFlow;
   } else if (connStatus) {
+    // 'pending' | 'disconnected'
     status = connStatus;
+    surfacedPendingFlow = undefined;
   } else {
     status = 'none';
+    surfacedPendingFlow = undefined;
   }
 
   const zernioConnection: DashboardDataActive['zernioConnection'] = {
     status,
-    pendingFlow,
+    pendingFlow: surfacedPendingFlow,
     queuedReconnectCount,
     hasUnresolvedIncident,
     lastDisconnectReason:

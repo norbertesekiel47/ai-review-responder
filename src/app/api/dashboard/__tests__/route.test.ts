@@ -47,7 +47,7 @@ vi.mock('@/lib/db/server', () => ({
 // tests (try/catch around the .get call).
 
 const { mockRedisGet } = vi.hoisted(() => ({
-  mockRedisGet: vi.fn(async () => null),
+  mockRedisGet: vi.fn<() => Promise<string | null>>(async () => null),
 }));
 
 vi.mock('@/lib/db/redis-cache', () => ({
@@ -98,8 +98,12 @@ const DEFAULT_SUB_ROW = {
 
 /**
  * Sets up sql query results in order.
- * Call 0 = subRow (pre-query).
- * Calls 1–8 = the Promise.all 8 queries (active path only).
+ * Call 0  = subRow (pre-query).
+ * Calls 1–8  = the Promise.all heavy queries (business/totals/velocity/ranking/reviews/briefs).
+ * Calls 9–11 = the Zernio banner queries (zernio_connections, queued reconnects, unresolved incidents).
+ *
+ * The Promise.all includes a 12th entry (the Redis pending-marker read) but that
+ * resolves through `mockRedisGet`, not through the sql proxy.
  */
 function setDbResults(overrides?: {
   subRow?: unknown[];
@@ -111,6 +115,9 @@ function setDbResults(overrides?: {
   recentReviewRows?: unknown[];
   monthlyBriefRows?: unknown[];
   weeklyBriefRows?: unknown[];
+  zernioConnectionRows?: unknown[];
+  queuedReconnectRows?: unknown[];
+  unresolvedIncidentRows?: unknown[];
 }) {
   mockSqlResults.length = 0;
   sqlCallCounter.value = 0;
@@ -153,6 +160,12 @@ function setDbResults(overrides?: {
     ],
     overrides?.monthlyBriefRows ?? [],
     overrides?.weeklyBriefRows ?? [],
+    // Calls 9–11: Zernio banner queries. Default to "no Zernio state" so
+    // tests that don't care about banner precedence keep their existing
+    // behaviour (status resolves to 'none').
+    overrides?.zernioConnectionRows ?? [],
+    overrides?.queuedReconnectRows ?? [{ count: 0 }],
+    overrides?.unresolvedIncidentRows ?? [{ count: 0 }],
   );
 }
 
@@ -447,5 +460,124 @@ describe('GET /api/dashboard', () => {
     expect(body.recentReviews).toHaveLength(1);
     expect(body.recentReviews[0]!.responseStatus).toBe('pending_approval');
     expect(body.recentReviews[0]!.responseText).toBe('Thank you Bob!');
+  });
+
+  // ── Zernio banner precedence ──────────────────────────────────────────
+
+  it('active DB connection beats stale non-finalize pending marker (transient Redis cleanup failure)', async () => {
+    // Scenario: select-location committed `zernio_connections.status='active'`
+    // but the best-effort Redis cleanup (luaDeletePendingByFlowIdAnyStatus)
+    // failed silently. The pending marker lingers until its 15-min TTL
+    // expires. The dashboard must show 'active' — not 'pending' — and must
+    // NOT leak the stale flow into pendingFlow.
+    mockRequireRole.mockResolvedValue(ownerUser());
+    setDbResults({
+      zernioConnectionRows: [{ status: 'active', disconnect_reason: null }],
+      queuedReconnectRows: [{ count: 0 }],
+      unresolvedIncidentRows: [{ count: 0 }],
+    });
+    mockRedisGet.mockResolvedValueOnce(
+      JSON.stringify({
+        flowId: 'stale-flow',
+        userId: 'user-1',
+        started_at: Date.now() - 5 * 60 * 1000, // 5 min old
+        status: 'oauth_in_progress',
+        profileId: 'mock-profile',
+        state: 'mock-state',
+      }),
+    );
+
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(200);
+
+    const body: DashboardDataActive = await res.json();
+    expect(body.zernioConnection.status).toBe('active');
+    expect(body.zernioConnection.pendingFlow).toBeUndefined();
+    expect(body.zernioConnection.hasUnresolvedIncident).toBe(false);
+  });
+
+  it('non-finalize pending marker without active conn → status=pending (existing behaviour preserved)', async () => {
+    // Regression guard: before the fix, ANY pending marker beat the DB
+    // status. We only re-ordered the precedence so 'active' specifically
+    // beats stale markers — a pending marker without an active DB row
+    // must still surface as 'pending'.
+    mockRequireRole.mockResolvedValue(ownerUser());
+    setDbResults({
+      zernioConnectionRows: [],
+      queuedReconnectRows: [{ count: 0 }],
+      unresolvedIncidentRows: [{ count: 0 }],
+    });
+    const startedAt = Date.now();
+    mockRedisGet.mockResolvedValueOnce(
+      JSON.stringify({
+        flowId: 'flow-1',
+        userId: 'user-1',
+        started_at: startedAt,
+        status: 'oauth_in_progress',
+        profileId: 'mock-profile',
+        state: 'mock-state',
+      }),
+    );
+
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(200);
+
+    const body: DashboardDataActive = await res.json();
+    expect(body.zernioConnection.status).toBe('pending');
+    expect(body.zernioConnection.pendingFlow?.status).toBe('oauth_in_progress');
+    expect(body.zernioConnection.pendingFlow?.started_at).toBe(startedAt);
+  });
+
+  it('unresolved incident beats active DB connection → status=finalize_unknown', async () => {
+    // Even with an active DB row, a still-unresolved finalize incident
+    // means the owner needs to know "we're not sure what happened on
+    // Zernio's side". Surface finalize_unknown.
+    mockRequireRole.mockResolvedValue(ownerUser());
+    setDbResults({
+      zernioConnectionRows: [{ status: 'active', disconnect_reason: null }],
+      queuedReconnectRows: [{ count: 0 }],
+      unresolvedIncidentRows: [{ count: 1 }],
+    });
+    mockRedisGet.mockResolvedValueOnce(null);
+
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(200);
+
+    const body: DashboardDataActive = await res.json();
+    expect(body.zernioConnection.status).toBe('finalize_unknown');
+    expect(body.zernioConnection.hasUnresolvedIncident).toBe(true);
+    // No marker → no leaked flow data.
+    expect(body.zernioConnection.pendingFlow).toBeUndefined();
+  });
+
+  it('pending marker with status=finalize_unknown → status=finalize_unknown, marker is surfaced', async () => {
+    // The pending marker itself can carry the finalize_unknown signal —
+    // mirroring the DB incident path. The marker should be surfaced so
+    // the UI can render the same banner with the flow timestamp.
+    mockRequireRole.mockResolvedValue(ownerUser());
+    setDbResults({
+      zernioConnectionRows: [],
+      queuedReconnectRows: [{ count: 0 }],
+      unresolvedIncidentRows: [{ count: 0 }],
+    });
+    const startedAt = Date.now() - 60_000;
+    mockRedisGet.mockResolvedValueOnce(
+      JSON.stringify({
+        flowId: 'flow-finalize',
+        userId: 'user-1',
+        started_at: startedAt,
+        status: 'finalize_unknown',
+        profileId: 'mock-profile',
+        state: 'mock-state',
+      }),
+    );
+
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(200);
+
+    const body: DashboardDataActive = await res.json();
+    expect(body.zernioConnection.status).toBe('finalize_unknown');
+    expect(body.zernioConnection.pendingFlow?.status).toBe('finalize_unknown');
+    expect(body.zernioConnection.pendingFlow?.started_at).toBe(startedAt);
   });
 });
