@@ -42,8 +42,10 @@ next-env.d.ts
 .vscode/
 .idea/
 
-# private docs
-/docs
+# private docs (except Zernio guides, which are committed for oncall + dev reference)
+/docs/*
+!/docs/zernio-launch-runbook.md
+!/docs/zernio-testing-and-shipping.md
 .superpowers
 
 # firecrawl scrape output (market research, not code)
@@ -64,3 +66,6 @@ screenshot.png
 # Chrome DevTools MCP per-session debug snapshots (console logs, page yamls,
 # screenshots). Never useful in source control.
 .playwright-mcp/
+
+# git worktrees (isolated workspaces for parallel feature work)
+.worktrees/

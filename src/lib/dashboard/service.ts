@@ -7,7 +7,14 @@
 // See docs/superpowers/specs/2026-04-26-modularization-design.md §7.1.
 
 import { sql } from '@/lib/db/server';
+import { getCacheRedis } from '@/lib/db/redis-cache';
 import { parseDbArray } from '@/lib/shared/db-array';
+import {
+  HANDLED_STATUSES,
+  RECENT_REVIEW_DISPLAY_STATUSES,
+} from '@/lib/shared/response-status';
+import { pendingKey } from '@/lib/zernio/connect-state';
+import type { ConnectPendingMarker } from '@/lib/zernio/types';
 import type { DashboardDataActive } from './types';
 
 /**
@@ -36,6 +43,21 @@ export class BusinessNotFoundError extends Error {
 export async function getActiveDashboardData(
   businessId: string,
 ): Promise<DashboardDataActive> {
+  // Pending-marker read is wrapped so a Redis outage degrades gracefully —
+  // the dashboard never depends on this value being available; it only
+  // upgrades the UX during an in-flight connect flow.
+  const pendingMarkerPromise: Promise<string | null> = (async () => {
+    try {
+      return await getCacheRedis().get(pendingKey(businessId));
+    } catch (err) {
+      console.error(
+        '[dashboard/service] failed to read connect_pending marker:',
+        err,
+      );
+      return null;
+    }
+  })();
+
   const [
     businessRows,
     totalReviewRows,
@@ -45,6 +67,10 @@ export async function getActiveDashboardData(
     recentReviewRows,
     monthlyBriefRows,
     weeklyBriefRows,
+    zernioConnectionRows,
+    queuedReconnectRows,
+    unresolvedIncidentRows,
+    pendingRaw,
   ] = await Promise.all([
     // Business info + settings
     sql`
@@ -69,7 +95,7 @@ export async function getActiveDashboardData(
       FROM reviews r
       JOIN responses resp ON resp.review_id = r.id
       WHERE r.business_id = ${businessId}
-        AND resp.status IN ('posted', 'approved', 'edited', 'awaiting_manual_post')
+        AND resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[])
     `,
     // Review velocity: last 8 weeks (zero-filled)
     sql`
@@ -115,7 +141,7 @@ export async function getActiveDashboardData(
         SELECT COALESCE(approved_text, response_text) AS response_text, status
         FROM responses
         WHERE review_id = rev.id
-          AND status IN ('pending_approval', 'posted', 'approved', 'edited', 'awaiting_manual_post')
+          AND status = ANY(${[...RECENT_REVIEW_DISPLAY_STATUSES] as string[]}::text[])
         ORDER BY version DESC
         LIMIT 1
       ) resp ON true
@@ -143,6 +169,37 @@ export async function getActiveDashboardData(
       ORDER BY sent_at DESC
       LIMIT 1
     `,
+    // Zernio connection: most-recent row (any status). Banner state machine
+    // distinguishes 'none' (no row) from 'disconnected' (row with status='disconnected').
+    sql`
+      SELECT status, disconnect_reason
+      FROM zernio_connections
+      WHERE business_id = ${businessId}
+      ORDER BY created_at DESC
+      LIMIT 1
+    `,
+    // Queued-for-reconnect responses: approved drafts parked while Zernio is
+    // disconnected. Drives banner headline copy ("3 responses are waiting...").
+    sql`
+      SELECT COUNT(*)::int AS count
+      FROM responses
+      WHERE business_id = ${businessId}
+        AND status = 'awaiting_owner_connect'
+    `,
+    // Unresolved finalize incident: takes priority over the connection status —
+    // owner sees "manual review" banner regardless of zernio_connections state.
+    sql`
+      SELECT COUNT(*)::int AS count
+      FROM zernio_finalize_incidents
+      WHERE business_id = ${businessId}
+        AND resolved_at IS NULL
+    `,
+    // In-flight connect flow marker. Lives in Redis only — the DB row
+    // (zernio_connections) is not inserted until select-location succeeds.
+    // Surfacing this lets the dashboard render a "Connecting…" UX during the
+    // OAuth + finalize window instead of falling back to "Connect" which
+    // would 409 on retry and confuse the owner.
+    pendingMarkerPromise,
   ]);
 
   const business = businessRows[0];
@@ -220,6 +277,92 @@ export async function getActiveDashboardData(
     };
   }
 
+  // Zernio banner state — precedence (highest to lowest):
+  //   1. Unresolved finalize incident in DB            → 'finalize_unknown'
+  //   2. Pending marker with status='finalize_unknown' → 'finalize_unknown'
+  //      (mirrors #1: a marker we haven't yet written to the incidents
+  //      table because OutboxPoller hasn't run, or we're in the brief
+  //      window between markUnknown + incident insert)
+  //   3. zernio_connections.status === 'active'        → 'active'
+  //      (beats stale non-finalize pending markers — select-location's
+  //      best-effort Redis cleanup can leave a marker behind for up to
+  //      its 15-min TTL if Redis is briefly unavailable. The DB row is
+  //      the source of truth once active.)
+  //   4. Pending marker (any non-finalize status)      → 'pending'
+  //   5. zernio_connections.status ('pending'|'disconnected')
+  //   6. Fallback                                      → 'none'
+  const hasUnresolvedIncident = (unresolvedIncidentRows[0]?.count ?? 0) > 0;
+  const zernioRow = zernioConnectionRows[0];
+  const queuedReconnectCount = queuedReconnectRows[0]?.count ?? 0;
+  const connStatus = zernioRow?.status as
+    | 'pending'
+    | 'active'
+    | 'disconnected'
+    | undefined;
+
+  let pendingFlow:
+    | { status: ConnectPendingMarker['status']; started_at: number }
+    | undefined;
+  if (pendingRaw) {
+    try {
+      const parsed = JSON.parse(pendingRaw) as ConnectPendingMarker;
+      if (
+        parsed &&
+        typeof parsed.status === 'string' &&
+        typeof parsed.started_at === 'number'
+      ) {
+        pendingFlow = {
+          status: parsed.status,
+          started_at: parsed.started_at,
+        };
+      }
+    } catch (err) {
+      // Malformed marker — surface as no flow rather than crash. Ops will
+      // see this in Sentry breadcrumbs once we wire that up.
+      console.error(
+        '[dashboard/service] malformed connect_pending marker:',
+        err,
+      );
+    }
+  }
+
+  let status: DashboardDataActive['zernioConnection']['status'];
+  let surfacedPendingFlow: typeof pendingFlow;
+  if (hasUnresolvedIncident || pendingFlow?.status === 'finalize_unknown') {
+    status = 'finalize_unknown';
+    // Only surface the pending flow when it itself is the finalize_unknown
+    // signal — an unresolved DB incident alone shouldn't leak unrelated flow
+    // data into the UI.
+    surfacedPendingFlow =
+      pendingFlow?.status === 'finalize_unknown' ? pendingFlow : undefined;
+  } else if (connStatus === 'active') {
+    // Active DB connection beats any non-finalize stale pending marker —
+    // the DB is authoritative once select-location has succeeded. Drop
+    // pendingFlow so the UI renders cleanly as "active" instead of
+    // "active but with weird in-flight flow data".
+    status = 'active';
+    surfacedPendingFlow = undefined;
+  } else if (pendingFlow) {
+    status = 'pending';
+    surfacedPendingFlow = pendingFlow;
+  } else if (connStatus) {
+    // 'pending' | 'disconnected'
+    status = connStatus;
+    surfacedPendingFlow = undefined;
+  } else {
+    status = 'none';
+    surfacedPendingFlow = undefined;
+  }
+
+  const zernioConnection: DashboardDataActive['zernioConnection'] = {
+    status,
+    pendingFlow: surfacedPendingFlow,
+    queuedReconnectCount,
+    hasUnresolvedIncident,
+    lastDisconnectReason:
+      (zernioRow?.disconnect_reason as string | null) ?? undefined,
+  };
+
   const data: DashboardDataActive = {
     business: {
       name: business.name as string,
@@ -261,6 +404,7 @@ export async function getActiveDashboardData(
       category: (business.category as string) ?? '',
       googlePlaceId: (business.google_place_id as string) ?? '',
     },
+    zernioConnection,
   };
 
   return data;

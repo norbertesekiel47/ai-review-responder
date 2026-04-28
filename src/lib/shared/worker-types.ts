@@ -99,3 +99,12 @@ export interface OnboardingDripPayload extends BasePayload {
   business_id: string;
   drip_type: 'day_1' | 'day_7' | 'day_30';
 }
+
+export interface DrainOwnerConnectPayload extends BasePayload {
+  business_id: string;
+}
+
+export type SendOwnerEmailPayload = BasePayload & (
+  | { kind: 'reconnect_required'; response_id: string; business_id: string }
+  | { kind: 'connection_lost'; business_id: string }
+);

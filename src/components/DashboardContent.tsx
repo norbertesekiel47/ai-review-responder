@@ -9,6 +9,7 @@ import {
 import { ValueSummary } from '@/components/dashboard/ValueSummary';
 import { ReviewVelocityChart, RankingChart } from '@/components/dashboard/Charts';
 import { ReviewsList } from '@/components/dashboard/ReviewsList';
+import { ConnectGoogleBanner } from '@/components/dashboard/ConnectGoogleBanner';
 import { useDashboardData } from '@/hooks/useDashboardData';
 
 export function DashboardContent() {
@@ -46,10 +47,13 @@ export function DashboardContent() {
   }
 
   const activeData: DashboardDataActive = data;
-  const { valueSummary, reviewVelocity, ranking, recentReviews, latestBrief } = activeData;
+  const { valueSummary, reviewVelocity, ranking, recentReviews, latestBrief, zernioConnection } = activeData;
 
   return (
     <div className="mx-auto max-w-4xl space-y-8 px-4 py-8">
+      {/* Zernio publishing connection status (renders nothing when active) */}
+      <ConnectGoogleBanner zernio={zernioConnection} />
+
       {/* Section A: Value Summary Banner */}
       <ValueSummary valueSummary={valueSummary} />
 

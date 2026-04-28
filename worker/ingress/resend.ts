@@ -129,6 +129,8 @@ const OWNER_DIRECTED_TEMPLATES = new Set([
   'weekly_value_report',
   'monthly_impact',
   'owner_nudge',
+  'owner_reconnect_required',
+  'owner_connection_lost',
 ]);
 
 /**

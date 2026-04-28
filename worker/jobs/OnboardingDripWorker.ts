@@ -12,6 +12,7 @@ import { recordNotificationDelivery } from '../../src/lib/notifications/delivery
 import { createApprovalLink } from '../../src/lib/approval/create-link';
 import type { OnboardingDripPayload } from '../../src/lib/shared/worker-types';
 import { createWorkerLogger } from '../../src/lib/shared/logger';
+import { HANDLED_STATUSES } from '../../src/lib/shared/response-status';
 
 export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Promise<void> {
   const logger = createWorkerLogger('[OnboardingDripWorker]', job.data.correlation_id);
@@ -210,7 +211,7 @@ async function buildDay7(
     SELECT COUNT(DISTINCT resp.review_id)::int AS reviews_handled
     FROM responses resp
     WHERE resp.business_id = ${business.id}
-      AND resp.status IN ('approved','edited','posted','awaiting_manual_post')
+      AND resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[])
       AND resp.created_at >= ${activatedAt}
       AND resp.created_at < ${windowEnd}
   `;
@@ -226,7 +227,7 @@ async function buildDay7(
     SELECT r.reviewer_name, r.star_rating, r.review_text, resp.approved_text
     FROM responses resp JOIN reviews r ON r.id = resp.review_id
     WHERE resp.business_id = ${business.id}
-      AND resp.status IN ('approved','edited','posted','awaiting_manual_post')
+      AND resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[])
       AND r.review_text IS NOT NULL
       AND resp.created_at >= ${activatedAt}
       AND resp.created_at < ${windowEnd}
@@ -336,7 +337,7 @@ async function buildDay30(
   const [respondedRow] = await sql<{ responded: number }[]>`
     SELECT COUNT(DISTINCT review_id)::int AS responded
     FROM responses WHERE business_id = ${business.id}
-      AND status IN ('approved','edited','posted','awaiting_manual_post')
+      AND status = ANY(${[...HANDLED_STATUSES] as string[]}::text[])
       AND created_at >= ${activatedAt}
       AND created_at < ${windowEnd}
   `;

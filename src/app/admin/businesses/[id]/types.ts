@@ -57,6 +57,40 @@ export interface DetailData {
   business: BusinessDetail;
   reviews: ReviewRow[];
   rankingSnapshots: RankingSnapshot[];
+  zernio: ZernioPanelData;
+}
+
+export interface ZernioConnectionSummary {
+  status: 'pending' | 'active' | 'disconnected';
+  connectedAt: string | null;
+  disconnectedAt: string | null;
+  disconnectReason: string | null;
+  lastError: string | null;
+  lastErrorAt: string | null;
+  zernioAccountId: string;
+  zernioLocationId: string;
+}
+
+export interface AwaitingOwnerConnectResponse {
+  responseId: string;
+  createdAt: string;
+  draftText: string | null;
+  reviewerName: string;
+  reviewText: string | null;
+  starRating: number;
+}
+
+export interface ZernioFinalizeIncident {
+  id: string;
+  finalizeUnknownAt: string;
+  flowId: string;
+  zernioProfileId: string;
+}
+
+export interface ZernioPanelData {
+  connection: ZernioConnectionSummary | null;
+  awaitingOwnerConnect: AwaitingOwnerConnectResponse[];
+  unresolvedIncidents: ZernioFinalizeIncident[];
 }
 
 export interface ChannelEnrollmentRow {

@@ -15,5 +15,7 @@ export * from './email/templates/internal';
 export * from './email/templates/weekly-value-report';
 export * from './email/templates/monthly-impact';
 export * from './email/templates/owner-nudge';
+export * from './email/templates/owner-reconnect-required';
+export * from './email/templates/owner-connection-lost';
 export * from './email/templates/partner-alerts';
 export * from './email/templates/onboarding';

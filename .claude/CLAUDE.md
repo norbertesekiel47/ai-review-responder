@@ -29,6 +29,7 @@ An automated service for small businesses that monitors Google reviews via SerpA
 - **LLM**: OpenAI GPT-4o-mini (primary), Anthropic Claude Haiku (fallback)
 - **Reviews**: SerpAPI (production polling + demo engine)
 - **Email**: Resend
+- **GBP API**: Zernio (`zernio.com`). Used for review listing + reply posting. Flag-gated by `ZERNIO_PUBLISHING_ENABLED`.
 - **Payments**: Stripe
 - **Monitoring**: Sentry (errors), PostHog (analytics)
 - **Package manager**: pnpm
@@ -41,14 +42,20 @@ src/
 ├── app/                    # Next.js pages (Vercel)
 │   ├── (public)/           # Landing, demo viewer, approval page
 │   ├── (authenticated)/    # Owner dashboard + settings
-│   └── (admin)/            # Sales partner CRM, demos, costs, notifications, jobs
+│   │   └── dashboard/connect/      # Zernio connect flow: page.tsx + select-location/page.tsx + LocationPicker.tsx
+│   ├── (admin)/            # Sales partner CRM, demos, costs, notifications, jobs
+│   └── api/                # Route handlers (App Router)
+│       └── zernio/         # connect/start, connect/callback, connect/select-location, connect/cancel, disconnect
+├── components/
+│   └── dashboard/          # ConnectGoogleBanner.tsx (Zernio reconnect CTA)
 ├── lib/                    # Shared business logic
 │   ├── db/                 # Supabase client, query helpers, Redis cache client
 │   ├── reviews/            # ReviewSource interface, SerpAPI source + monitor, process-review domain logic
 │   ├── responses/          # Response generator, prompt builder
 │   ├── approval/           # ApprovalService, token management
 │   ├── notifications/      # Resend email service, email templates, delivery recording
-│   ├── publishing/         # Manual posting workflow (GBP API stub)
+│   ├── publishing/         # Manual posting workflow (GBP API stub) + zernio-publisher.ts
+│   ├── zernio/             # client.ts, connect-state.ts, types.ts, errors.ts (Zernio HTTP client + state encoding + typed errors)
 │   ├── costs/              # Cost guards (tracker.ts) + audit trail (audit.ts)
 │   ├── demos/              # Demo generation pipeline
 │   └── shared/             # Types, utils, constants (status enums, URL builders)
@@ -58,9 +65,10 @@ worker/                     # Railway worker (separate process, at project root)
 ├── env.ts                  # Dotenv loader — must be imported first in index.ts
 ├── index.ts                # Entry point — `pnpm worker` or `npx tsx worker/index.ts`
 ├── queues.ts               # BullMQ queue definitions + Redis connection
-├── jobs/                   # Workers: ReviewSync, ResponseGenerator, DemoGeneration, etc.
+├── jobs/                   # Workers: ReviewSync, ResponseGenerator, DemoGeneration, OwnerEmailWorker,
+│   │                       #   DrainOwnerConnectWorker, etc.
 │   └── OutboxPoller.ts     # 10s interval, FOR UPDATE SKIP LOCKED, dispatches to BullMQ
-└── ingress/                # Webhook handlers: Stripe, Resend (direct Railway endpoints)
+└── ingress/                # Webhook handlers: Stripe, Resend, Zernio (zernio.ts + zernio-verify.ts)
 ```
 
 Configure tsconfig paths so `worker/` can import shared code: `"@/lib/*": ["./src/lib/*"]`, `"@/types/*": ["./src/types/*"]`.
@@ -73,10 +81,11 @@ Key tables: `businesses` (includes `last_sync_at` for SerpAPI polling), `google_
 
 ### Response status values
 
-`'pending_approval'` | `'approved'` | `'edited'` | `'superseded'` | `'awaiting_manual_post'` | `'posted'` | `'failed'`
+`'pending_approval'` | `'approved'` | `'edited'` | `'superseded'` | `'awaiting_manual_post'` | `'awaiting_owner_connect'` | `'posted'` | `'failed'`
 
 - `superseded`: terminal — the owner requested a regeneration and this draft was replaced by a newer version. **At most one non-terminal response per review at a time.**
 - `awaiting_manual_post`: SerpAPI-mode state after approval but before sales partner manually posts to Google. When GBP API arrives, the ResponsePublisherWorker branches: if `google_connections` exists, auto-post; otherwise, manual post.
+- `awaiting_owner_connect`: Zernio-mode state when an approved response cannot be posted because the business has no active Zernio connection (never connected, or connection was revoked). The dashboard shows a "Connect Google" banner; on successful (re)connect, `DrainOwnerConnectWorker` flips these back to `approved` and re-queues `publish_response` outbox entries. Non-terminal — counts against the per-review uniqueness rule.
 
 ### Business subscription lifecycle
 
@@ -141,7 +150,7 @@ When Google Business Profile API access is approved, follow Phase 5 in `docs/Imp
 
 ## Current status
 
-**Shipped:** Sprints 1–6 COMPLETE + Communication Channels Phase 0 (multi-channel dispatcher, `channel_enrollments`, admin Channels UI) + Communication Channels Phase 1 SMS (code-complete, merged to main 2026-04-22, flag-gated off pending Twilio 10DLC brand/campaign registration) + Communication Channels Phase 2 Telegram (code-complete + **real-bot ship gate PASSED 2026-04-23** against `@RepWorthBot` in local dev; PR to `main` opened; flag-gated off at merge — prod cutover pending prod bot registration + `setWebhook` + one-business pilot walkthrough) + Communication Channels Phase 3 WhatsApp (code-complete on branch `feat/channels-whatsapp-phase-3` 2026-04-23, 23 commits, 1087/1087 tests pass, 0 tsc errors, 0 migrations; flag-gated off pending Meta Business verification + WABA + Twilio Content template approval) + **Owner Self-Serve Signup (code-complete on branch `feat/owner-self-serve-signup` 2026-04-25, 1433/1433 tests pass, 0 tsc errors, migration 025; flag-gated off in prod via `SELF_SERVE_SIGNUP_ENABLED`)**. See §"What each sprint shipped" below for detail.
+**Shipped:** Sprints 1–6 COMPLETE + Communication Channels Phase 0 (multi-channel dispatcher, `channel_enrollments`, admin Channels UI) + Zernio integration (code-complete on branch `feat/zernio-integration` — migration 026, owner-driven connect flow at `/dashboard/connect`, `ResponsePublisherWorker` Zernio branch with graceful `awaiting_owner_connect` degradation, `DrainOwnerConnectWorker` + `OwnerEmailWorker`, `worker/ingress/zernio` HMAC-verified webhook ingress for `account.connected` / `account.disconnected` / `webhook.test`, `zernio_finalize_incidents` durable audit trail for unknown-outcome `selectLocation` calls; flag-gated off via `ZERNIO_PUBLISHING_ENABLED`) + Communication Channels Phase 1 SMS (code-complete, merged to main 2026-04-22, flag-gated off pending Twilio 10DLC brand/campaign registration) + Communication Channels Phase 2 Telegram (code-complete + **real-bot ship gate PASSED 2026-04-23** against `@RepWorthBot` in local dev; PR to `main` opened; flag-gated off at merge — prod cutover pending prod bot registration + `setWebhook` + one-business pilot walkthrough) + Communication Channels Phase 3 WhatsApp (code-complete on branch `feat/channels-whatsapp-phase-3` 2026-04-23, 23 commits, 1087/1087 tests pass, 0 tsc errors, 0 migrations; flag-gated off pending Meta Business verification + WABA + Twilio Content template approval) + **Owner Self-Serve Signup (code-complete on branch `feat/owner-self-serve-signup` 2026-04-25, 1433/1433 tests pass, 0 tsc errors, migration 025; flag-gated off in prod via `SELF_SERVE_SIGNUP_ENABLED`)**. See §"What each sprint shipped" below for detail.
 **Next:** Merge `feat/owner-self-serve-signup` PR, Phase 2 Telegram PR, Phase 3 WhatsApp PR. Self-serve signup: configure Supabase custom SMTP via Resend (replaces 2/hour built-in cap), update Supabase email templates (Confirm signup + Reset password + Invite user templates with `{{ .Token }}` / `&amp;`-escaped URLs), then flip `SELF_SERVE_SIGNUP_ENABLED=true` in prod. SMS: register 10DLC then flip `CHANNELS_SMS_ENABLED=true` in prod. Telegram: register prod `@RepWorthBot` via BotFather + prod `setWebhook`, run ship gate on pilot business, then flip `CHANNELS_TELEGRAM_ENABLED=true` in prod. WhatsApp: start Meta Business verification (2–4 week external clock), provision WABA + Twilio WA sender, submit `repworth_approval_request_v1` Content template, run 8-item ship gate on pilot, flip `CHANNELS_WHATSAPP_ENABLED=true` in prod. Billing sprint (`subscription_status_changed_at`) also pending.
 
 ### What each sprint shipped
@@ -163,7 +172,7 @@ When Google Business Profile API access is approved, follow Phase 5 in `docs/Imp
 
 ### Migrations (`supabase/migrations/`)
 
-Next number: **026**. Inventory: 001 (schema), 002 (P2 fixes), 003 (audit_log RLS), 004 (sync_reviews dedup constraint), 005 (review_exception nullable review_id), 006 (users RLS), 007 (place_id_verified), 008 (retention core + monthly_impact_emails), 009 (report claim/sent columns), 010 (dashboard indexes), 011 (engagement_alert dedup), 012 (outbox_status doc), 013 (churn query indexes), 014 (retention expansion), 015 (drip_log claim state), 016 (satisfaction_alert index), 017 (S6 scale: `api_costs_daily_rollups` + `businesses.website` + `owner_email_bounced`), 018 (correlation + `'dispatching'` indexes), 019 (notification_deliveries bounce indexes), 020 (JSONB scalar-string repair — see lab note 2026-04-18), 021 (channel_enrollments + email backfill), 022 (channels Phase 1: drop notification_preference, soft-delete + partial unique index on channel_enrollments, sms_sender_opt_outs + sms_sender_opt_out_events with RLS + CHECK constraints, handle lookup index), 023 (non-terminal response uniqueness: partial unique index enforcing at most one non-terminal response per review), 024 (notification_delivery dedup: unique index on notification_deliveries for send-before-record race prevention), 025 (signup schema: two partial indexes idx_businesses_pending_unpaid_self_serve_cleanup + idx_users_owner_auth_by_business with COMMENT ON INDEX; email lowercase backfill with collision precondition; onboarded_by backfill with admin-presence precondition — auth_id uniqueness enforced by migration 001 UNIQUE constraint, no additional index needed). **Phase 3 (WhatsApp) ships zero migrations** — migration 021 already accommodates `channel='whatsapp'`, and existing indexes cover both WA and Telegram.
+Next number: **027**. Inventory: 001 (schema), 002 (P2 fixes), 003 (audit_log RLS), 004 (sync_reviews dedup constraint), 005 (review_exception nullable review_id), 006 (users RLS), 007 (place_id_verified), 008 (retention core + monthly_impact_emails), 009 (report claim/sent columns), 010 (dashboard indexes), 011 (engagement_alert dedup), 012 (outbox_status doc), 013 (churn query indexes), 014 (retention expansion), 015 (drip_log claim state), 016 (satisfaction_alert index), 017 (S6 scale: `api_costs_daily_rollups` + `businesses.website` + `owner_email_bounced`), 018 (correlation + `'dispatching'` indexes), 019 (notification_deliveries bounce indexes), 020 (JSONB scalar-string repair — see lab note 2026-04-18), 021 (channel_enrollments + email backfill), 022 (channels Phase 1: drop notification_preference, soft-delete + partial unique index on channel_enrollments, sms_sender_opt_outs + sms_sender_opt_out_events with RLS + CHECK constraints, handle lookup index), 023 (non-terminal response uniqueness: partial unique index enforcing at most one non-terminal response per review), 024 (notification_delivery dedup: unique index on notification_deliveries for send-before-record race prevention), 025 (signup schema: two partial indexes idx_businesses_pending_unpaid_self_serve_cleanup + idx_users_owner_auth_by_business with COMMENT ON INDEX; email lowercase backfill with collision precondition; onboarded_by backfill with admin-presence precondition — auth_id uniqueness enforced by migration 001 UNIQUE constraint, no additional index needed), 026 (Zernio: widen `responses.status` to TEXT, recreate the non-terminal-uniqueness partial index from migration 023 to include `awaiting_owner_connect`, add `zernio_connections` + `zernio_finalize_incidents` tables, add 2 dedup indexes on `notification_deliveries` for owner reconnect emails, add `idx_jo_publish_response_inflight` partial unique index enforcing one in-flight `publish_response` outbox row per response). **Phase 3 (WhatsApp) ships zero migrations** — migration 021 already accommodates `channel='whatsapp'`, and existing indexes cover both WA and Telegram.
 
 ### Feature flags / non-obvious env vars
 
@@ -194,6 +203,11 @@ Next number: **026**. Inventory: 001 (schema), 002 (P2 fixes), 003 (audit_log RL
 - `EMAIL_CHANNEL_RECONCILE_INTERVAL_MS` — optional, default 10min. Reconciliation poller for `channel_enrollments` rows that the verify-otp / finish-signup inline INSERT failed to create. Scope: `active`-subscription owner businesses with NO email enrollment row (including archived).
 - `EMAIL_CHANNEL_RECONCILE_BATCH_SIZE` — optional, default 100.
 - `EMAIL_CHANNEL_RECONCILE_DISABLED=true` — skip the reconcile poller entirely (mock mode auto-skips too).
+- `ZERNIO_PUBLISHING_ENABLED` — gates connect routes (`start`/`callback`/`select-location`/`cancel`/`disconnect`), the worker's Zernio publishing branch in `ResponsePublisherWorker`, the `worker/ingress/zernio` webhook handler, and admin/dashboard panel CTAs. Default off. Server-authoritative; browser learns flag state via the business-detail API (`zernioPublishingEnabled` field). No `NEXT_PUBLIC_*` companion.
+- `ZERNIO_API_KEY` — required when flag on. Worker startup assertion fails otherwise (mock mode bypasses).
+- `ZERNIO_WEBHOOK_SECRET` — required when flag on. HMAC shared secret used by `worker/ingress/zernio-verify.ts`. Must match the value configured in the Zernio dashboard. Rotate by updating both env var and Zernio dashboard config (Zernio retries 7× over 51h, so a brief 401 window is tolerable).
+- `ZERNIO_PROFILE_ID_PREFIX` — optional, default `'repworth-prod-'`. Prefixed onto Zernio profile names so prod/staging/local don't collide on the same Zernio workspace.
+- `ZERNIO_API_BASE` — optional, default `'https://zernio.com/api'`. Override for sandbox.
 
 ### GBP API
 

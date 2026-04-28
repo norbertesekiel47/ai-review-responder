@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { computeChurnRiskScore, type ChurnScore } from '@/lib/shared/churn-score';
+import { HANDLED_STATUSES } from '@/lib/shared/response-status';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,6 +20,7 @@ interface BusinessRow {
   subscription_status: string;
   last_sync_at: Date | null;
   pending_approval_count: number;
+  pending_reconnect_count: number;
   total_responses: number;
   completed_responses: number;
   avg_response_time_hours: number | null;
@@ -50,6 +52,7 @@ export interface OverviewData {
     subscriptionStatus: string;
     lastSyncAt: string | null;
     pendingApprovalCount: number;
+    pendingReconnectCount: number;
     totalResponses: number;
     completedResponses: number;
     responseRate: number;
@@ -120,8 +123,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         SELECT
           b.id, b.name, b.subscription_status, b.last_sync_at,
           COUNT(CASE WHEN resp.status = 'pending_approval' THEN 1 END)::int AS pending_approval_count,
+          COUNT(CASE WHEN resp.status = 'awaiting_owner_connect' THEN 1 END)::int AS pending_reconnect_count,
           COUNT(resp.id)::int AS total_responses,
-          COUNT(CASE WHEN resp.status IN ('posted', 'awaiting_manual_post', 'approved', 'edited') THEN 1 END)::int AS completed_responses,
+          COUNT(CASE WHEN resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[]) THEN 1 END)::int AS completed_responses,
           ROUND(EXTRACT(EPOCH FROM AVG(CASE WHEN resp.approved_at IS NOT NULL THEN resp.approved_at - resp.created_at END)) / 3600.0, 1)::float AS avg_response_time_hours,
           MAX(GREATEST(resp.created_at, resp.approved_at, resp.posted_at)) AS last_activity
         FROM businesses b
@@ -149,7 +153,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
             SELECT nd.business_id,
                    COUNT(DISTINCT nd.response_id)::int AS notified_count,
                    COUNT(DISTINCT nd.response_id) FILTER (
-                     WHERE r.status IN ('approved','edited','posted','awaiting_manual_post')
+                     WHERE r.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[])
                    )::int AS approved_count
             FROM notification_deliveries nd
             JOIN responses r ON r.id = nd.response_id
@@ -163,7 +167,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
             SELECT rp.business_id,
                    COUNT(*) FILTER (WHERE rp.status = 'pending_approval')::int AS pending_count,
                    EXTRACT(DAY FROM CURRENT_TIMESTAMP - MAX(rp.approved_at)
-                     FILTER (WHERE rp.status IN ('approved','edited','posted','awaiting_manual_post'))
+                     FILTER (WHERE rp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[]))
                    )::int AS days_since_approval,
                    AVG(EXTRACT(EPOCH FROM rp.approved_at - rp.created_at) / 3600.0)
                      FILTER (WHERE rp.approved_at IS NOT NULL AND rp.created_at >= CURRENT_DATE - 7)::float AS avg_hours_current,
@@ -225,6 +229,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         subscriptionStatus: row.subscription_status,
         lastSyncAt: row.last_sync_at ? row.last_sync_at.toISOString() : null,
         pendingApprovalCount: row.pending_approval_count,
+        pendingReconnectCount: row.pending_reconnect_count,
         totalResponses: row.total_responses,
         completedResponses: row.completed_responses,
         responseRate,

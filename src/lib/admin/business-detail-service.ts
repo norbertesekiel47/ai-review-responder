@@ -8,12 +8,17 @@ import { v7 as uuidv7 } from 'uuid';
 import { sql } from '@/lib/db/server';
 import { computeChurnRiskScore } from '@/lib/shared/churn-score';
 import { parseDbArray } from '@/lib/shared/db-array';
+import { HANDLED_STATUSES } from '@/lib/shared/response-status';
 import type {
+  AwaitingOwnerConnectRow,
   BusinessDetailResponse,
   BusinessPatch,
   BusinessRow,
   RankingSnapshotRow,
   ReviewRow,
+  ZernioConnectionRow,
+  ZernioFinalizeIncidentRow,
+  ZernioPanelData,
 } from './business-detail-types';
 
 /**
@@ -60,7 +65,14 @@ export { FIELD_TO_COLUMN };
 export async function getBusinessDetail(
   businessId: string,
 ): Promise<BusinessDetailResponse | null> {
-  const [businessRows, reviewRows, rankingSnapshots] = await Promise.all([
+  const [
+    businessRows,
+    reviewRows,
+    rankingSnapshots,
+    zernioConnectionRows,
+    awaitingOwnerConnectRows,
+    finalizeIncidentRows,
+  ] = await Promise.all([
     sql<BusinessRow[]>`
       SELECT
         id, name, category, website, google_place_id, tone, products_services,
@@ -94,6 +106,44 @@ export async function getBusinessDetail(
       ORDER BY snapshot_date DESC
       LIMIT 50
     `,
+    // Zernio panel — current connection snapshot. The partial unique index
+    // `zernio_connections_one_active_per_business` allows multiple
+    // 'disconnected' rows for audit history; ORDER BY created_at DESC LIMIT 1
+    // returns the latest row regardless of status. NULL when the business
+    // has never started a Zernio connect flow.
+    sql<ZernioConnectionRow[]>`
+      SELECT status, connected_at, disconnected_at, disconnect_reason,
+             last_error, last_error_at, zernio_account_id, zernio_location_id
+      FROM zernio_connections
+      WHERE business_id = ${businessId}
+      ORDER BY created_at DESC
+      LIMIT 1
+    `,
+    // Responses queued waiting for owner reconnect — surfaced to admins so
+    // they can see what's stuck behind a missing/disconnected Zernio
+    // connection. Bounded LIMIT 50; admins can page via the responses
+    // history if more are needed.
+    sql<AwaitingOwnerConnectRow[]>`
+      SELECT r.id, r.created_at,
+             COALESCE(r.approved_text, r.response_text) AS draft_text,
+             rev.reviewer_name, rev.review_text, rev.star_rating
+      FROM responses r
+      JOIN reviews rev ON rev.id = r.review_id
+      WHERE r.business_id = ${businessId}
+        AND r.status = 'awaiting_owner_connect'
+      ORDER BY r.created_at DESC
+      LIMIT 50
+    `,
+    // Unresolved finalize incidents — block new connect/start flows until
+    // ops resolves them. Migration 026 enforces at most one unresolved
+    // incident per business; LIMIT 50 is defensive only.
+    sql<ZernioFinalizeIncidentRow[]>`
+      SELECT id, finalize_unknown_at, flow_id, zernio_profile_id
+      FROM zernio_finalize_incidents
+      WHERE business_id = ${businessId} AND resolved_at IS NULL
+      ORDER BY finalize_unknown_at DESC
+      LIMIT 50
+    `,
   ]);
 
   const business = businessRows[0];
@@ -114,7 +164,7 @@ export async function getBusinessDetail(
       SELECT
         COUNT(DISTINCT nd.response_id)::int AS notified_count,
         COUNT(DISTINCT nd.response_id) FILTER (
-          WHERE r.status IN ('approved','edited','posted','awaiting_manual_post')
+          WHERE r.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[])
         )::int AS approved_count
       FROM notification_deliveries nd
       JOIN responses r ON r.id = nd.response_id
@@ -127,7 +177,7 @@ export async function getBusinessDetail(
       SELECT
         COUNT(*) FILTER (WHERE rp.status = 'pending_approval')::int AS pending_count,
         EXTRACT(DAY FROM CURRENT_TIMESTAMP - MAX(rp.approved_at)
-          FILTER (WHERE rp.status IN ('approved','edited','posted','awaiting_manual_post'))
+          FILTER (WHERE rp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[]))
         )::int AS days_since_approval,
         AVG(EXTRACT(EPOCH FROM rp.approved_at - rp.created_at) / 3600.0)
           FILTER (WHERE rp.approved_at IS NOT NULL AND rp.created_at >= CURRENT_DATE - 7)::float AS avg_hours_current,
@@ -217,6 +267,59 @@ export async function getBusinessDetail(
       responseText: row.response_text ?? null,
       approvedText: row.approved_text ?? null,
       responseVersion: row.version ?? null,
+    })),
+    zernio: buildZernioPanel(
+      zernioConnectionRows[0] ?? null,
+      awaitingOwnerConnectRows,
+      finalizeIncidentRows,
+    ),
+  };
+}
+
+/**
+ * Convert raw DB rows for the Zernio admin panel into the wire shape. The
+ * connection lookup returns the most recently created row regardless of
+ * status — the surface differentiates `null` (no connection ever attempted)
+ * from `disconnected` (connection existed and is now broken) so the UI can
+ * show the correct CTA.
+ */
+function buildZernioPanel(
+  connection: ZernioConnectionRow | null,
+  awaitingOwnerConnect: AwaitingOwnerConnectRow[],
+  unresolvedIncidents: ZernioFinalizeIncidentRow[],
+): ZernioPanelData {
+  return {
+    connection: connection
+      ? {
+          status: connection.status,
+          connectedAt: connection.connected_at
+            ? connection.connected_at.toISOString()
+            : null,
+          disconnectedAt: connection.disconnected_at
+            ? connection.disconnected_at.toISOString()
+            : null,
+          disconnectReason: connection.disconnect_reason,
+          lastError: connection.last_error,
+          lastErrorAt: connection.last_error_at
+            ? connection.last_error_at.toISOString()
+            : null,
+          zernioAccountId: connection.zernio_account_id,
+          zernioLocationId: connection.zernio_location_id,
+        }
+      : null,
+    awaitingOwnerConnect: awaitingOwnerConnect.map((r) => ({
+      responseId: r.id,
+      createdAt: r.created_at.toISOString(),
+      draftText: r.draft_text,
+      reviewerName: r.reviewer_name,
+      reviewText: r.review_text,
+      starRating: r.star_rating,
+    })),
+    unresolvedIncidents: unresolvedIncidents.map((i) => ({
+      id: i.id,
+      finalizeUnknownAt: i.finalize_unknown_at.toISOString(),
+      flowId: i.flow_id,
+      zernioProfileId: i.zernio_profile_id,
     })),
   };
 }

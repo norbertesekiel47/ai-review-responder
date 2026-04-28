@@ -1,4 +1,4 @@
-export type WorkerType = 'generator' | 'notification' | 'publisher' | 'summary';
+export type WorkerType = 'generator' | 'notification' | 'publisher' | 'summary' | 'owner_email' | 'drain';
 
 type Allowed = { allowed: true };
 type Denied = { allowed: false; reason: string };

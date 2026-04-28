@@ -47,6 +47,9 @@ import { handleReviewSync } from './jobs/ReviewSyncWorker';
 import { handleResponseGeneration } from './jobs/ResponseGeneratorWorker';
 import { handleSendNotification } from './jobs/NotificationWorker';
 import { handlePublishResponse } from './jobs/ResponsePublisherWorker';
+import { applyTransientExhaustionFallback } from '../src/lib/publishing/zernio-publisher';
+import { ZernioTransientError } from '../src/lib/zernio/errors';
+import { extractOutboxHandle, markOutboxFailed } from '../src/lib/shared/outbox';
 import { handleAdminException } from './jobs/AdminExceptionWorker';
 import { handleWeeklySummary } from './jobs/WeeklySummaryWorker';
 import { handlePlaceIdValidation } from './jobs/PlaceIdValidationWorker';
@@ -55,7 +58,8 @@ import { handleStripeWebhook } from './ingress/stripe';
 import { handleTwilioStatusCallback, handleTwilioInbound } from './ingress/twilio';
 import { handleTwilioWhatsAppInbound, handleTwilioWhatsAppStatus } from './ingress/twilio-whatsapp';
 import { handleTelegramWebhook } from './ingress/telegram';
-import { assertChannelsSmsEnv, assertChannelsTelegramEnv, assertChannelsWhatsAppEnv, assertSelfServeSignupEnv } from './startup-assert';
+import { handleZernioWebhook } from './ingress/zernio';
+import { assertChannelsSmsEnv, assertChannelsTelegramEnv, assertChannelsWhatsAppEnv, assertSelfServeSignupEnv, assertZernioPublishingEnv } from './startup-assert';
 import { startNotificationFailoverPoller, stopNotificationFailoverPoller } from './jobs/NotificationFailoverPoller';
 import { startWeeklySummaryScheduler, stopWeeklySummaryScheduler } from './jobs/WeeklySummaryScheduler';
 import { startArchivalPoller, stopArchivalPoller } from './jobs/ArchivalPoller';
@@ -67,6 +71,8 @@ import { startRankingTrackingScheduler, stopRankingTrackingScheduler } from './j
 import { handleTrackRanking } from './jobs/RankingTrackingWorker';
 import { startOnboardingDripScheduler, stopOnboardingDripScheduler } from './jobs/OnboardingDripScheduler';
 import { handleOnboardingDrip } from './jobs/OnboardingDripWorker';
+import { handleOwnerEmail } from './jobs/OwnerEmailWorker';
+import { handleDrainOwnerConnect } from './jobs/DrainOwnerConnectWorker';
 import { startCleanupAbandonedSignupsPoller, stopCleanupAbandonedSignupsPoller } from './jobs/CleanupAbandonedSignupsPoller';
 import { startEmailChannelReconcilePoller, stopEmailChannelReconcilePoller } from './jobs/EmailChannelReconcilePoller';
 import { isMockMode } from '../src/lib/shared/mock-mode';
@@ -124,6 +130,69 @@ const notificationWorker = new Worker(QUEUE_NAMES.SEND_NOTIFICATION, handleSendN
 
 const publisherWorker = new Worker(QUEUE_NAMES.PUBLISH_RESPONSE, handlePublishResponse, workerOpts);
 
+// Final-attempt exhaustion handler for ResponsePublisherWorker. BullMQ retries
+// transient errors automatically; only the LAST failure (attemptsMade ===
+// opts.attempts) reaches this branch as exhaustion. For ZernioTransientError
+// at exhaustion we run the graceful-degradation fallback (disconnect + park
+// the response + notify owner). For any other unhandled error we just close
+// the outbox row so it doesn't sit in `dispatched` forever.
+publisherWorker.on('failed', async (job, err) => {
+  // Top-level guard: any throw in extractOutboxHandle, markOutboxFailed, or
+  // applyTransientExhaustionFallback bubbles into an unhandled promise
+  // rejection that could crash the process. Wrap the whole body so we
+  // log + Sentry-capture and never leave the outbox row in `dispatched`
+  // limbo silently.
+  let outboxId: string | undefined;
+  let outboxAttempt: number | undefined;
+  try {
+    if (!job) return;
+    if (job.attemptsMade < (job.opts.attempts ?? 1)) return; // not yet exhausted
+    const handle = extractOutboxHandle(job.data, job.id!);
+    outboxId = handle.outboxId;
+    outboxAttempt = handle.attempt;
+    if (err instanceof ZernioTransientError) {
+      try {
+        await applyTransientExhaustionFallback(job.data);
+        await markOutboxFailed(outboxId, 'zernio_transient_max_attempts', outboxAttempt);
+      } catch (fallbackErr) {
+        // Fallback itself failed — surface the reason so ops can see it,
+        // and still close the outbox so the row doesn't stay `dispatched`.
+        const reason = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
+        console.error(`[publisherWorker] transient-exhaustion fallback failed: ${reason}`);
+        Sentry.captureException(fallbackErr, {
+          tags: { worker: 'publisher', kind: 'transient_exhaustion_fallback' },
+        });
+        await markOutboxFailed(
+          outboxId,
+          `zernio_transient_max_attempts_fallback_failed: ${reason}`,
+          outboxAttempt,
+        );
+      }
+      return;
+    }
+    // Non-transient unhandled error: just close the outbox row.
+    const reason = err instanceof Error ? err.message : String(err);
+    await markOutboxFailed(outboxId, reason, outboxAttempt);
+  } catch (handlerErr) {
+    // Last-resort: even the markOutboxFailed call (or extractOutboxHandle,
+    // or anything else above) threw. Capture loudly so the row stuck in
+    // `dispatched` is observable in Sentry, and attempt one more
+    // best-effort markOutboxFailed in case the original throw was upstream.
+    console.error('[publisherWorker.on(failed)] handler crashed:', handlerErr);
+    Sentry.captureException(handlerErr, {
+      tags: { worker: 'publisher', kind: 'on_failed_handler_crash' },
+    });
+    if (outboxId) {
+      const reason = handlerErr instanceof Error ? handlerErr.message : String(handlerErr);
+      await markOutboxFailed(outboxId, `on_failed_crash: ${reason}`, outboxAttempt).catch(
+        (markErr) => {
+          console.error('[publisherWorker.on(failed)] best-effort markOutboxFailed failed:', markErr);
+        },
+      );
+    }
+  }
+});
+
 const adminExceptionWorker = new Worker(QUEUE_NAMES.NOTIFY_ADMIN, handleAdminException, workerOpts);
 
 const weeklySummaryWorker = new Worker(QUEUE_NAMES.WEEKLY_SUMMARY, handleWeeklySummary, workerOpts);
@@ -138,7 +207,11 @@ const rankingTrackingWorker = new Worker(QUEUE_NAMES.TRACK_RANKING, handleTrackR
 
 const onboardingDripWorker = new Worker(QUEUE_NAMES.ONBOARDING_DRIP, handleOnboardingDrip, workerOpts);
 
-const workers = [demoWorker, reviewSyncWorker, responseGenWorker, notificationWorker, publisherWorker, adminExceptionWorker, weeklySummaryWorker, placeIdValidationWorker, monthlyImpactWorker, engagementAlertWorker, rankingTrackingWorker, onboardingDripWorker];
+const ownerEmailWorker = new Worker(QUEUE_NAMES.SEND_OWNER_EMAIL, handleOwnerEmail, workerOpts);
+
+const drainOwnerConnectWorker = new Worker(QUEUE_NAMES.DRAIN_OWNER_CONNECT, handleDrainOwnerConnect, workerOpts);
+
+const workers = [demoWorker, reviewSyncWorker, responseGenWorker, notificationWorker, publisherWorker, adminExceptionWorker, weeklySummaryWorker, placeIdValidationWorker, monthlyImpactWorker, engagementAlertWorker, rankingTrackingWorker, onboardingDripWorker, ownerEmailWorker, drainOwnerConnectWorker];
 
 // Sentry breadcrumbs on job lifecycle
 for (const worker of workers) {
@@ -156,7 +229,7 @@ for (const worker of workers) {
 // Re-export for use by other modules (ingress handlers, tests)
 export { queues, QUEUE_NAMES } from './queues';
 export { sql } from '../src/lib/db/server';
-export { assertChannelsSmsEnv, assertChannelsTelegramEnv, assertChannelsWhatsAppEnv, assertSelfServeSignupEnv } from './startup-assert';
+export { assertChannelsSmsEnv, assertChannelsTelegramEnv, assertChannelsWhatsAppEnv, assertSelfServeSignupEnv, assertZernioPublishingEnv } from './startup-assert';
 
 // ---------------------------------------------------------------------------
 // Startup — register plugins, routes, then listen
@@ -177,12 +250,14 @@ async function main(): Promise<void> {
     assertChannelsTelegramEnv();
     assertChannelsWhatsAppEnv();
     assertSelfServeSignupEnv();
+    assertZernioPublishingEnv();
     console.log(
       `[worker] Feature flags: ` +
         `SMS=${process.env.CHANNELS_SMS_ENABLED === 'true' ? 'on' : 'off'}, ` +
         `Telegram=${process.env.CHANNELS_TELEGRAM_ENABLED === 'true' ? 'on' : 'off'}, ` +
         `WhatsApp=${process.env.CHANNELS_WHATSAPP_ENABLED === 'true' ? 'on' : 'off'}, ` +
-        `SelfServeSignup=${process.env.SELF_SERVE_SIGNUP_ENABLED === 'true' ? 'on' : 'off'}`,
+        `SelfServeSignup=${process.env.SELF_SERVE_SIGNUP_ENABLED === 'true' ? 'on' : 'off'}, ` +
+        `ZernioPublishing=${process.env.ZERNIO_PUBLISHING_ENABLED === 'true' ? 'on' : 'off'}`,
     );
   } catch (err) {
     console.error(`[worker] Startup assertion failed: ${err instanceof Error ? err.message : err}`);
@@ -217,6 +292,9 @@ async function main(): Promise<void> {
   // Twilio webhooks — status callbacks + inbound WhatsApp
   app.post('/ingress/twilio/whatsapp-inbound', { config: { rawBody: true } }, handleTwilioWhatsAppInbound);
   app.post('/ingress/twilio/whatsapp-status', { config: { rawBody: true } }, handleTwilioWhatsAppStatus);
+
+  // Zernio webhook ingress — flag-gated inside the handler
+  app.post('/ingress/zernio', { config: { rawBody: true } }, handleZernioWebhook);
 
   await app.listen({ port: PORT, host: '0.0.0.0' });
   startOutboxPoller();
