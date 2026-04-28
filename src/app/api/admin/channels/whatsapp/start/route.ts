@@ -23,6 +23,7 @@ import QRCode from 'qrcode';
 import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { isWhatsAppEnabled, flagOff, assertWhatsAppEnvReady } from '../_shared';
+import { classifyEnrollmentError, MultipleMobileChannelsError, EnrollmentDatabaseError } from '@/lib/channels/unique-violation';
 
 const TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
 
@@ -67,53 +68,66 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const tokenHash = createHash('sha256').update(rawToken).digest('hex');
   const expiresAt = new Date(Date.now() + TOKEN_TTL_MS);
 
-  const result = await sql.begin(async (tx) => {
-    await tx`SELECT pg_advisory_xact_lock(${lockKey}::bigint)`;
+  let result: { kind: 'ok' } | { kind: 'already_verified' } | undefined;
+  try {
+    result = await sql.begin(async (tx) => {
+      await tx`SELECT pg_advisory_xact_lock(${lockKey}::bigint)`;
 
-    const existing = await tx<{ id: string; status: string }[]>`
-      SELECT id, status FROM channel_enrollments
-      WHERE business_id = ${businessId} AND channel = 'whatsapp' AND archived_at IS NULL
-    `;
-    const existingRow = existing[0];
-
-    if (existingRow?.status === 'verified') {
-      return { kind: 'already_verified' as const };
-    }
-
-    if (existingRow) {
-      // Reset any non-verified state to pending_verification with a fresh token.
-      // Clears handle (WhatsApp handle isn't known until owner sends the start message),
-      // unsubscribed fields, and disabled_at so the enrollment starts clean.
-      await tx`
-        UPDATE channel_enrollments
-        SET status                        = 'pending_verification',
-            handle                        = NULL,
-            verification_token_hash       = ${tokenHash},
-            verification_token_expires_at = ${expiresAt},
-            disabled_at                   = NULL,
-            unsubscribed_at               = NULL,
-            unsubscribed_reason           = NULL,
-            updated_at                    = NOW()
-        WHERE id = ${existingRow.id}
+      const existing = await tx<{ id: string; status: string }[]>`
+        SELECT id, status FROM channel_enrollments
+        WHERE business_id = ${businessId} AND channel = 'whatsapp' AND archived_at IS NULL
       `;
-    } else {
-      await tx`
-        INSERT INTO channel_enrollments
-          (id, business_id, channel, status, verification_token_hash, verification_token_expires_at)
-        VALUES
-          (${uuidv7()}, ${businessId}, 'whatsapp', 'pending_verification', ${tokenHash}, ${expiresAt})
-      `;
-    }
+      const existingRow = existing[0];
 
-    return { kind: 'ok' as const };
-  });
+      if (existingRow?.status === 'verified') {
+        return { kind: 'already_verified' as const };
+      }
+
+      try {
+        if (existingRow) {
+          await tx`
+            UPDATE channel_enrollments
+            SET status                        = 'pending_verification',
+                handle                        = NULL,
+                verification_token_hash       = ${tokenHash},
+                verification_token_expires_at = ${expiresAt},
+                disabled_at                   = NULL,
+                unsubscribed_at               = NULL,
+                unsubscribed_reason           = NULL,
+                updated_at                    = NOW()
+            WHERE id = ${existingRow.id}
+          `;
+        } else {
+          await tx`
+            INSERT INTO channel_enrollments
+              (id, business_id, channel, status, verification_token_hash, verification_token_expires_at)
+            VALUES
+              (${uuidv7()}, ${businessId}, 'whatsapp', 'pending_verification', ${tokenHash}, ${expiresAt})
+          `;
+        }
+      } catch (err) {
+        classifyEnrollmentError(err); // always throws
+      }
+
+      return { kind: 'ok' as const };
+    });
+  } catch (err) {
+    if (err instanceof MultipleMobileChannelsError) {
+      return NextResponse.json({ error: 'multiple_mobile_channels' }, { status: 409, headers: { 'Cache-Control': 'no-store, private' } });
+    }
+    if (err instanceof EnrollmentDatabaseError) {
+      console.error('[whatsapp/start] enrollment db error', err);
+      return NextResponse.json({ error: 'internal' }, { status: 500, headers: { 'Cache-Control': 'no-store, private' } });
+    }
+    throw err;
+  }
 
   // The response body carries the raw verification token via deepLink + qrDataUrl.
   // Set no-store so no intermediate proxy or browser cache retains the secret.
   // The token has a 1h TTL in the DB, but cache layers can be longer-lived.
   const noStore = { 'Cache-Control': 'no-store, private' };
 
-  if (result.kind === 'already_verified') {
+  if (result?.kind === 'already_verified') {
     return NextResponse.json({ error: 'already_verified' }, { status: 409, headers: noStore });
   }
 
