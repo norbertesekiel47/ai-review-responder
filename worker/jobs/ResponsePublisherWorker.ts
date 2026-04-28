@@ -70,9 +70,24 @@ export async function handlePublishResponse(
     return;
   }
 
-  // ── Step 2: Idempotency — only 'posted' is terminal ─────────────────
-  if (response.status === 'posted') {
-    logger.log(`Response ${response_id} already posted, skipping`);
+  // ── Step 2: Publishable-state gate ──────────────────────────────────
+  //
+  // Only proceed for states that represent owner-approved responses ready
+  // to publish via Zernio. Bailing here is critical: without it, a 'failed'
+  // or 'superseded' response would still call zernioClient.postReply,
+  // creating a real reply on Google that we then fail to record (the
+  // status-guarded UPDATE no-ops). 'pending_approval' would post an
+  // unapproved response, violating the no-auto-posting invariant.
+  //
+  // 'awaiting_manual_post' is intentionally excluded — that's the legacy
+  // SerpAPI-mode escape hatch (admin "Manually post" action), not a Zernio
+  // path. This list mirrors the UPDATE WHERE clauses below and matches
+  // AWAITING_PUBLISH_STATUSES minus 'awaiting_manual_post'.
+  const ZERNIO_PUBLISHABLE_STATES = ['approved', 'edited', 'awaiting_owner_connect'] as const;
+  if (!(ZERNIO_PUBLISHABLE_STATES as readonly string[]).includes(response.status)) {
+    logger.log(
+      `Response ${response_id} not in publishable state (status=${response.status}), skipping`,
+    );
     await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }

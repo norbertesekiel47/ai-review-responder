@@ -122,6 +122,27 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
   });
 
+  // Defense-in-depth: regression tests for non-publishable terminal states.
+  // Without the publishable-state gate at Step 2, control would flow into
+  // Zernio API calls (lookupZernioReviewId + postReply), creating phantom
+  // Google replies that the status-guarded UPDATE no-ops on.
+  it.each([
+    ['failed'],
+    ['superseded'],
+    ['pending_approval'],
+    ['awaiting_manual_post'],
+  ])('completes outbox without action when response status is %s', async (status) => {
+    sqlReturnQueue.push([mockResponseRow({ status })]);
+    sqlReturnQueue.push([mockBusinessRow()]);
+
+    await handlePublishResponse(makeJob());
+
+    expect(mockLookupZernioReviewId).not.toHaveBeenCalled();
+    expect(mockPostReply).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+  });
+
   it('completes outbox without action when subscription is cancelled', async () => {
     sqlReturnQueue.push([mockResponseRow()]);
     sqlReturnQueue.push([mockBusinessRow({ subscription_status: 'cancelled' })]);
@@ -181,11 +202,15 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     expect(callTexts.some((t: string) => /notify_owner_reconnect/.test(t))).toBe(true);
   });
 
-  it('skips reconnect notify when response already terminal (no connection branch)', async () => {
-    sqlReturnQueue.push([mockResponseRow({ status: 'superseded' })]);   // 1: response
+  it('skips reconnect notify when response goes terminal mid-flight (no connection branch)', async () => {
+    // Simulates a parallel worker transitioning the row to terminal between
+    // our SELECT and our UPDATE. The initial row passes the Step 2 gate
+    // (status='approved'), but the status-guarded UPDATE no-ops because
+    // the row is now superseded/failed/posted by the time the UPDATE runs.
+    sqlReturnQueue.push([mockResponseRow()]);                           // 1: response (approved → passes gate)
     sqlReturnQueue.push([mockBusinessRow()]);                           // 2: business
     sqlReturnQueue.push([]);                                            // 3: no connection
-    sqlReturnQueue.push(Object.assign([], { count: 0 }));               // 4: UPDATE no-op (terminal)
+    sqlReturnQueue.push(Object.assign([], { count: 0 }));               // 4: UPDATE no-op (terminal mid-flight)
 
     await handlePublishResponse(makeJob());
 
@@ -263,11 +288,12 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     expect(callTexts.some((t: string) => /notify_admin_review_exception/.test(t))).toBe(true);
   });
 
-  it('skips exception/notify when response already terminal during review-not-found', async () => {
-    sqlReturnQueue.push([mockResponseRow({ status: 'superseded' })]);
+  it('skips exception/notify when response goes terminal mid-flight during review-not-found', async () => {
+    // See note on the analogous "no connection branch" race test above.
+    sqlReturnQueue.push([mockResponseRow()]);                            // approved → passes Step 2 gate
     sqlReturnQueue.push([mockBusinessRow()]);
     sqlReturnQueue.push([mockZernioConnectionRow()]);
-    sqlReturnQueue.push(Object.assign([], { count: 0 })); // UPDATE no-op
+    sqlReturnQueue.push(Object.assign([], { count: 0 })); // UPDATE no-op (race: row went terminal mid-flight)
 
     mockLookupZernioReviewId.mockRejectedValueOnce(
       new ZernioReviewNotFoundError({ ourReviewId: 'rev-1' }),
@@ -308,12 +334,13 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     expect(callTexts.some((t: string) => /notify_owner_connection_lost/.test(t))).toBe(true);
   });
 
-  it('skips notify enqueues on auth error when response already terminal', async () => {
-    sqlReturnQueue.push([mockResponseRow({ status: 'superseded' })]);
+  it('skips notify enqueues on auth error when response goes terminal mid-flight', async () => {
+    // See note on the analogous "no connection branch" race test above.
+    sqlReturnQueue.push([mockResponseRow()]);                            // approved → passes Step 2 gate
     sqlReturnQueue.push([mockBusinessRow()]);
     sqlReturnQueue.push([mockZernioConnectionRow()]);
     sqlReturnQueue.push(Object.assign([], { count: 1 })); // UPDATE conn (still applied)
-    sqlReturnQueue.push(Object.assign([], { count: 0 })); // UPDATE response no-op
+    sqlReturnQueue.push(Object.assign([], { count: 0 })); // UPDATE response no-op (race: row went terminal mid-flight)
 
     mockLookupZernioReviewId.mockResolvedValueOnce('zernio-rev-id-1');
     mockPostReply.mockRejectedValueOnce(new ZernioAuthError(403, 'Forbidden'));
