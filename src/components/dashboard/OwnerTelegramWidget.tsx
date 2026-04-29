@@ -1,13 +1,43 @@
 'use client';
 
 import { useEnrollment } from '@/lib/notifications/channels/use-enrollment';
+import type { EnrollmentSnapshot } from '@/lib/notifications/channels/enrollment-reducer';
+
+interface InitialRow {
+  channel: string;
+  handle: string | null;
+  status: string;
+}
+
+/**
+ * Derives an EnrollmentSnapshot for SSR hydration from the server-loaded row.
+ * Only `verified` rows produce a snapshot — other statuses still need a fresh
+ * fetch to avoid stale-state risks (e.g. an expired pending token).
+ */
+function rowToInitialSnapshot(row: InitialRow | null): EnrollmentSnapshot | undefined {
+  if (!row || row.status !== 'verified') return undefined;
+  return {
+    state: 'verified',
+    handle: row.handle,
+    deepLink: null,
+    qrDataUrl: null,
+    expiresAt: null,
+    unsubscribedReason: null,
+    errorMessage: null,
+  };
+}
+
+export interface OwnerTelegramWidgetProps {
+  /** Server-loaded enrollment row for SSR hydration. Verified rows skip the first fetch. */
+  initialEnrollment?: InitialRow | null;
+}
 
 function maskChatId(chatId: string | null): string {
   if (!chatId || chatId.length <= 4) return '•••';
   return `••• ${chatId.slice(-4)}`;
 }
 
-export function OwnerTelegramWidget() {
+export function OwnerTelegramWidget({ initialEnrollment }: OwnerTelegramWidgetProps = {}) {
   const { snapshot, actions, ttl } = useEnrollment({
     channel: 'telegram',
     endpoints: {
@@ -17,6 +47,7 @@ export function OwnerTelegramWidget() {
       status: '/api/dashboard/channels',
     },
     postBody: {},
+    initialSnapshot: rowToInitialSnapshot(initialEnrollment ?? null),
   });
 
   const onDisconnect = async () => {

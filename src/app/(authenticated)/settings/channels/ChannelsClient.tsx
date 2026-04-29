@@ -53,7 +53,7 @@ export function ChannelsClient({ initialEnrollments, initialAvailability, ownerE
 
       {/* Telegram row — interactive if available, coming-soon otherwise */}
       {initialAvailability.telegram ? (
-        <OwnerTelegramWidget />
+        <OwnerTelegramWidget initialEnrollment={findChannel(initialEnrollments, 'telegram')} />
       ) : (
         <ComingSoonChannelRow
           icon={<span>💬</span>}
