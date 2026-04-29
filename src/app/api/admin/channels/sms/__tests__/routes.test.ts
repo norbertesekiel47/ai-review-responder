@@ -282,6 +282,7 @@ describe('POST /api/admin/channels/sms/verify', () => {
     sqlReturnQueue.push([]);
     sqlReturnQueue.push([]);                       // no active row
     sqlReturnQueue.push([]);                       // opt-out — empty
+    sqlReturnQueue.push([]);                       // mobile pre-check — no other channels
     mockVerifyCreate.mockRejectedValueOnce(new Error('twilio down'));
     const res = await verifyPOST(adminReq({ business_id: 'biz', phone: '+14155552671' }));
     expect(res.status).toBe(500);
@@ -296,6 +297,7 @@ describe('POST /api/admin/channels/sms/verify', () => {
     sqlReturnQueue.push([]);
     sqlReturnQueue.push([]);
     sqlReturnQueue.push([]);                       // opt-out — not present
+    sqlReturnQueue.push([]);                       // mobile pre-check — no other channels
     sqlReturnQueue.push([]);                       // post-Twilio opt-out re-check
     sqlReturnQueue.push([]);                       // INSERT
     const res = await verifyPOST(adminReq({ business_id: 'biz', phone: '+14155552671' }));
@@ -316,6 +318,7 @@ describe('POST /api/admin/channels/sms/verify', () => {
     sqlReturnQueue.push([]);
     sqlReturnQueue.push([{ handle: '+14155552671', status: 'disabled' }]);
     sqlReturnQueue.push([]);                       // opt-out check — none
+    sqlReturnQueue.push([]);                       // mobile pre-check — no other channels
     sqlReturnQueue.push([]);                       // post-Twilio opt-out re-check
     sqlReturnQueue.push([{ id: 'enr-1' }]);        // UPDATE RETURNING id
     const res = await verifyPOST(adminReq({ business_id: 'biz' })); // no phone — uses row.handle
@@ -329,7 +332,8 @@ describe('POST /api/admin/channels/sms/verify', () => {
     sqlReturnQueue.push([{ subscription_status: 'active' }]);
     sqlReturnQueue.push([]);
     sqlReturnQueue.push([{ handle: '+14155552671', status: 'disabled' }]);
-    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([]);                       // opt-out check
+    sqlReturnQueue.push([]);                       // mobile pre-check — no other channels
     sqlReturnQueue.push([]);                       // post-Twilio opt-out re-check
     sqlReturnQueue.push([]);                       // UPDATE RETURNING — empty!
     const res = await verifyPOST(adminReq({ business_id: 'biz' }));
@@ -341,6 +345,7 @@ describe('POST /api/admin/channels/sms/verify', () => {
     sqlReturnQueue.push([]);
     sqlReturnQueue.push([{ handle: '+14155552671', status: 'pending_verification' }]);
     sqlReturnQueue.push([]);                       // opt-out check
+    sqlReturnQueue.push([]);                       // mobile pre-check — no other channels
     sqlReturnQueue.push([]);                       // post-Twilio opt-out re-check
     // NO INSERT or UPDATE expected
     const res = await verifyPOST(adminReq({ business_id: 'biz' }));
@@ -361,6 +366,7 @@ describe('POST /api/admin/channels/sms/verify', () => {
     sqlReturnQueue.push([]);                                    // advisory lock
     sqlReturnQueue.push([{ handle: '+14155552671', status: 'disabled' }]); // active row
     sqlReturnQueue.push([]);                                    // pre-Twilio opt-out — clean
+    sqlReturnQueue.push([]);                                    // mobile pre-check — no other channels
     sqlReturnQueue.push([{ opted_out_at: new Date(), opted_in_at: null }]); // post-Twilio — opted out!
     // Verify succeeds — Twilio call happened before STOP arrived.
     mockVerifyCreate.mockResolvedValueOnce({ status: 'pending' });

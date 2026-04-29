@@ -142,8 +142,9 @@ describe('cancelTelegramEnrollment', () => {
     const { cancelTelegramEnrollment } = await import('../telegram-enrollment');
     await cancelTelegramEnrollment(sql as never, 'biz-123');
     // Introspect the template-strings array from the single tagged-template call.
-    const [call] = sql.mock.calls;
-    const sqlText = (call[0] as TemplateStringsArray).join('?');
+    const firstCall = sql.mock.calls[0];
+    expect(firstCall).toBeDefined();
+    const sqlText = (firstCall![0] as TemplateStringsArray).join('?');
     expect(sqlText).toContain("status = 'disabled'");
     expect(sqlText).toContain('disabled_at = NOW()');
   });
