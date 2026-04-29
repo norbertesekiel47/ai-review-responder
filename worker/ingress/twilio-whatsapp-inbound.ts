@@ -216,7 +216,7 @@ export async function handleTwilioWhatsAppInbound(
           AND status = 'pending_verification'
           AND verification_token_expires_at > NOW()
           AND archived_at IS NULL
-        LIMIT 1
+        FOR UPDATE
       `;
       const row = rows[0];
       if (!row) return { matched: false as const };

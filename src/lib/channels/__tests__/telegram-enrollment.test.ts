@@ -99,6 +99,15 @@ describe('startTelegramEnrollment', () => {
     ).rejects.toThrow('serialization failure');
   });
 
+  it('SELECTs the enrollment row with FOR UPDATE (serializes against webhook)', async () => {
+    tx.mockResolvedValueOnce([]);
+    tx.mockResolvedValueOnce([]);
+    const { startTelegramEnrollment } = await import('../telegram-enrollment');
+    await startTelegramEnrollment(tx as never, 'biz-123', 'j'.repeat(64), new Date());
+    const selectSql = (tx.mock.calls[0]?.[0] as TemplateStringsArray | undefined)?.join('?') ?? '';
+    expect(selectSql).toContain('FOR UPDATE');
+  });
+
   it('does NOT emit pg_advisory_xact_lock SQL (caller responsibility)', async () => {
     tx.mockResolvedValueOnce([]);
     tx.mockResolvedValueOnce([]);

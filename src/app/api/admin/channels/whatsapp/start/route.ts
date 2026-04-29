@@ -74,6 +74,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       const existing = await tx<{ id: string; status: string }[]>`
         SELECT id, status FROM channel_enrollments
         WHERE business_id = ${businessId} AND channel = 'whatsapp' AND archived_at IS NULL
+        FOR UPDATE
       `;
       const existingRow = existing[0];
 

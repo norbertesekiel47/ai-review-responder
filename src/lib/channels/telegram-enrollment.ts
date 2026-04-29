@@ -33,6 +33,10 @@ export type StartTelegramResult = { kind: 'ok' } | { kind: 'already_verified' };
  *   - Generate `rawToken` outside the tx and pass `tokenHash = sha256(rawToken)`
  *     and `expiresAt = new Date(Date.now() + TOKEN_TTL_MS)`.
  *   - Generate the QR data URL AFTER the tx commits.
+ *
+ * The SELECT uses FOR UPDATE so that a concurrent Telegram inbound webhook
+ * (which also runs inside sql.begin) cannot flip the row to `verified` between
+ * our SELECT and our UPDATE — the row lock serializes both transactions.
  */
 export async function startTelegramEnrollment(
   tx: TxLike,
@@ -43,6 +47,7 @@ export async function startTelegramEnrollment(
   const existing = (await tx`
     SELECT id, status FROM channel_enrollments
     WHERE business_id = ${businessId} AND channel = 'telegram' AND archived_at IS NULL
+    FOR UPDATE
   `) as Array<{ id: string; status: string }>;
   const existingRow = existing[0];
 
