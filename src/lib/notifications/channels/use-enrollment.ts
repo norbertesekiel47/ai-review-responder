@@ -198,7 +198,14 @@ export function useEnrollment(options: UseEnrollmentOptions): UseEnrollmentRetur
     try {
       const res = await postJson(endpoints.disable);
       if (!res.ok) {
-        safeDispatch({ type: 'CONNECT_FAILED', status: res.status, message: 'disable_failed' });
+        let message = 'disable_failed';
+        try {
+          const body = await res.json();
+          if (typeof body?.error === 'string') message = body.error;
+        } catch {
+          /* ignore */
+        }
+        safeDispatch({ type: 'CONNECT_FAILED', status: res.status, message });
         return;
       }
       safeDispatch({ type: 'DISABLE_SUCCEEDED' });
