@@ -10,6 +10,8 @@ import { createServerClient } from '@supabase/ssr';
 import { sql } from '@/lib/db/server';
 import { SettingsTabs } from '@/components/dashboard/SettingsTabs';
 import { ChannelsClient, type InitialEnrollment } from './ChannelsClient';
+
+const KNOWN_CHANNELS = new Set<string>(['email', 'sms', 'telegram', 'whatsapp']);
 import { isTelegramEnabled, assertTelegramEnvReady } from '@/app/api/admin/channels/telegram/_shared';
 
 function smsAvailable(): boolean {
@@ -84,16 +86,18 @@ export default async function ChannelsPage() {
     ORDER BY e.created_at ASC
   `;
 
-  const initialEnrollments: InitialEnrollment[] = enrollmentRows.map((r) => ({
-    channel: r.channel,
-    handle: r.handle,
-    status: r.status,
-    verified_at: r.verified_at?.toISOString() ?? null,
-    disabled_at: r.disabled_at?.toISOString() ?? null,
-    unsubscribed_at: r.unsubscribed_at?.toISOString() ?? null,
-    unsubscribed_reason: r.unsubscribed_reason,
-    expires_at: r.expires_at?.toISOString() ?? null,
-  }));
+  const initialEnrollments: InitialEnrollment[] = enrollmentRows
+    .filter((r) => KNOWN_CHANNELS.has(r.channel))
+    .map((r) => ({
+      channel: r.channel as InitialEnrollment['channel'],
+      handle: r.handle,
+      status: r.status,
+      verified_at: r.verified_at?.toISOString() ?? null,
+      disabled_at: r.disabled_at?.toISOString() ?? null,
+      unsubscribed_at: r.unsubscribed_at?.toISOString() ?? null,
+      unsubscribed_reason: r.unsubscribed_reason,
+      expires_at: r.expires_at?.toISOString() ?? null,
+    }));
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-8">

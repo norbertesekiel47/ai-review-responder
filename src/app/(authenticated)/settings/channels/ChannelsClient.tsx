@@ -4,7 +4,7 @@ import { OwnerTelegramWidget } from '@/components/dashboard/OwnerTelegramWidget'
 import { ComingSoonChannelRow } from '@/components/dashboard/ComingSoonChannelRow';
 
 export interface InitialEnrollment {
-  channel: string;
+  channel: 'email' | 'sms' | 'telegram' | 'whatsapp';
   handle: string | null;
   status: string;
   verified_at: string | null;
@@ -20,7 +20,7 @@ export interface ChannelsClientProps {
   ownerEmailFallback: string;
 }
 
-function findChannel(enrollments: InitialEnrollment[], channel: string): InitialEnrollment | null {
+function findChannel(enrollments: InitialEnrollment[], channel: InitialEnrollment['channel']): InitialEnrollment | null {
   return enrollments.find((e) => e.channel === channel) ?? null;
 }
 
