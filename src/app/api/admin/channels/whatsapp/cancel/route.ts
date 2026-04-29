@@ -29,9 +29,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const businessId = body?.businessId;
   if (!businessId) return NextResponse.json({ error: 'businessId required' }, { status: 400 });
 
+  // Flip to 'disabled' so the migration 027 partial-unique-index slot is
+  // released immediately, allowing a fresh mobile channel enrollment.
   await sql`
     UPDATE channel_enrollments
-    SET verification_token_hash = NULL,
+    SET status = 'disabled',
+        disabled_at = NOW(),
+        verification_token_hash = NULL,
         verification_token_expires_at = NULL,
         updated_at = NOW()
     WHERE business_id = ${businessId}

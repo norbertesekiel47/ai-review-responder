@@ -80,8 +80,16 @@ export async function startTelegramEnrollment(
 }
 
 /**
- * Idempotent — single UPDATE; concurrent cancel + cancel produces the same end state.
- * Does NOT open sql.begin, does NOT take an advisory lock.
+ * Cancels a pending Telegram enrollment by flipping it to `disabled` (with
+ * `disabled_at = NOW()`) and clearing the token fields. This releases the
+ * migration 027 partial-unique-index slot for the business so a fresh
+ * SMS / WhatsApp / Telegram enrollment can proceed immediately.
+ *
+ * Idempotent — single UPDATE; concurrent cancel + cancel produces the same
+ * end state. Does NOT open sql.begin, does NOT take an advisory lock.
+ *
+ * NOTE: only `pending_verification` rows are matched. Verified rows cannot
+ * be cancelled via this helper — use `disableTelegramEnrollment` instead.
  */
 export async function cancelTelegramEnrollment(
   sql: TxLike,
@@ -89,13 +97,14 @@ export async function cancelTelegramEnrollment(
 ): Promise<{ kind: 'ok' | 'not_found' }> {
   const updated = (await sql`
     UPDATE channel_enrollments
-    SET verification_token_hash = NULL,
+    SET status = 'disabled',
+        disabled_at = NOW(),
+        verification_token_hash = NULL,
         verification_token_expires_at = NULL,
         updated_at = NOW()
     WHERE business_id = ${businessId}
       AND channel = 'telegram'
       AND status = 'pending_verification'
-      AND archived_at IS NULL
     RETURNING id
   `) as Array<{ id: string }>;
   return updated.length > 0 ? { kind: 'ok' } : { kind: 'not_found' };

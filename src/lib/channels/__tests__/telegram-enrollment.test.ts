@@ -136,6 +136,35 @@ describe('cancelTelegramEnrollment', () => {
     const { cancelTelegramEnrollment } = await import('../telegram-enrollment');
     await expect(cancelTelegramEnrollment(sql as never, 'biz-123')).resolves.toBeDefined();
   });
+
+  it('SQL sets status = disabled and disabled_at = NOW()', async () => {
+    const sql = vi.fn().mockResolvedValue([{ id: 'row-1' }]);
+    const { cancelTelegramEnrollment } = await import('../telegram-enrollment');
+    await cancelTelegramEnrollment(sql as never, 'biz-123');
+    // Introspect the template-strings array from the single tagged-template call.
+    const [call] = sql.mock.calls;
+    const sqlText = (call[0] as TemplateStringsArray).join('?');
+    expect(sqlText).toContain("status = 'disabled'");
+    expect(sqlText).toContain('disabled_at = NOW()');
+  });
+
+  it('after cancel a subsequent startTelegramEnrollment on the same business succeeds (disabled → pending branch)', async () => {
+    // Mock sequence: startTelegramEnrollment does a SELECT that returns the
+    // disabled row left by the cancel, then an UPDATE to pending_verification.
+    const tx = vi.fn()
+      .mockResolvedValueOnce([{ id: 'row-1', status: 'disabled' }]) // SELECT
+      .mockResolvedValueOnce([]);                                      // UPDATE
+    const { startTelegramEnrollment } = await import('../telegram-enrollment');
+    const result = await startTelegramEnrollment(
+      tx as never,
+      'biz-123',
+      'a'.repeat(64),
+      new Date('2026-04-28T14:00:00.000Z'),
+    );
+    expect(result.kind).toBe('ok');
+    // Two calls: SELECT + UPDATE (the UPDATE branch for existing disabled row).
+    expect(tx).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('disableTelegramEnrollment', () => {
