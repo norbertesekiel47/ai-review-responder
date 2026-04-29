@@ -24,7 +24,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const businessId = body?.businessId;
   if (!businessId) return NextResponse.json({ error: 'businessId required' }, { status: 400 });
 
-  await cancelTelegramEnrollment(sql, businessId);
+  await sql.begin(async (tx) => {
+    await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`mobile_enroll:${businessId}`}, 0))`;
+    return cancelTelegramEnrollment(tx, businessId);
+  });
 
   return NextResponse.json({ ok: true }, { headers: { 'Cache-Control': 'no-store, private' } });
 }

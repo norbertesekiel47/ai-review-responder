@@ -88,8 +88,14 @@ export async function startTelegramEnrollment(
  * Idempotent — single UPDATE; concurrent cancel + cancel produces the same
  * end state. Does NOT open sql.begin, does NOT take an advisory lock.
  *
- * NOTE: only `pending_verification` rows are matched. Verified rows cannot
- * be cancelled via this helper — use `disableTelegramEnrollment` instead.
+ * Caller MUST hold the `mobile_enroll:${businessId}` advisory lock inside
+ * `sql.begin` — the helper does not lock. This prevents a concurrent start
+ * from observing the pending row, falling through to its UPDATE branch (which
+ * has no status WHERE guard), and overwriting cancel's disabled transition back
+ * to pending_verification.
+ *
+ * NOTE: only non-archived `pending_verification` rows are matched. Archived
+ * and verified rows are never mutated by this helper.
  */
 export async function cancelTelegramEnrollment(
   sql: TxLike,
@@ -105,6 +111,7 @@ export async function cancelTelegramEnrollment(
     WHERE business_id = ${businessId}
       AND channel = 'telegram'
       AND status = 'pending_verification'
+      AND archived_at IS NULL
     RETURNING id
   `) as Array<{ id: string }>;
   return updated.length > 0 ? { kind: 'ok' } : { kind: 'not_found' };

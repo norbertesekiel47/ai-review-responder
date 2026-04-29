@@ -31,7 +31,11 @@ async function handler(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'subscription_not_active' }, { status: 403 });
   }
 
-  await cancelTelegramEnrollment(sql, user.businessId);
+  const businessId = user.businessId;
+  await sql.begin(async (tx) => {
+    await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`mobile_enroll:${businessId}`}, 0))`;
+    return cancelTelegramEnrollment(tx, businessId);
+  });
 
   return NextResponse.json({ ok: true }, { headers: { 'Cache-Control': 'no-store, private' } });
 }
