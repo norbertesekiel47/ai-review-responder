@@ -155,8 +155,9 @@ export function SettingsGeneralForm() {
 
         {/* Read-only fields */}
         <div className="mb-4">
-          <label className="block text-sm font-medium text-gray-700">Business Name</label>
+          <label htmlFor="businessName" className="block text-sm font-medium text-gray-700">Business Name</label>
           <input
+            id="businessName"
             type="text"
             value={data.business.name}
             disabled
@@ -164,8 +165,9 @@ export function SettingsGeneralForm() {
           />
         </div>
         <div className="mb-4">
-          <label className="block text-sm font-medium text-gray-700">Category</label>
+          <label htmlFor="category" className="block text-sm font-medium text-gray-700">Category</label>
           <input
+            id="category"
             type="text"
             value={data.settings.category}
             disabled
@@ -173,8 +175,9 @@ export function SettingsGeneralForm() {
           />
         </div>
         <div className="mb-4">
-          <label className="block text-sm font-medium text-gray-700">Google Place ID</label>
+          <label htmlFor="googlePlaceId" className="block text-sm font-medium text-gray-700">Google Place ID</label>
           <input
+            id="googlePlaceId"
             type="text"
             value={data.settings.googlePlaceId}
             disabled
@@ -184,8 +187,9 @@ export function SettingsGeneralForm() {
 
         {/* Editable fields */}
         <div className="mb-4">
-          <label className="block text-sm font-medium text-gray-700">Response Tone</label>
+          <label htmlFor="responseTone" className="block text-sm font-medium text-gray-700">Response Tone</label>
           <textarea
+            id="responseTone"
             value={form.tone}
             onChange={(e) => updateField('tone', e.target.value)}
             maxLength={100}
@@ -196,8 +200,9 @@ export function SettingsGeneralForm() {
           <p className="mt-1 text-xs text-gray-400">{form.tone.length}/100</p>
         </div>
         <div className="mb-4">
-          <label className="block text-sm font-medium text-gray-700">Products &amp; Services</label>
+          <label htmlFor="productsServices" className="block text-sm font-medium text-gray-700">Products &amp; Services</label>
           <textarea
+            id="productsServices"
             value={form.productsServices}
             onChange={(e) => updateField('productsServices', e.target.value)}
             maxLength={2000}
@@ -208,8 +213,9 @@ export function SettingsGeneralForm() {
           <p className="mt-1 text-xs text-gray-400">{form.productsServices.length}/2000</p>
         </div>
         <div className="mb-4">
-          <label className="block text-sm font-medium text-gray-700">Facts to Avoid</label>
+          <label htmlFor="avoidFacts" className="block text-sm font-medium text-gray-700">Facts to Avoid</label>
           <textarea
+            id="avoidFacts"
             value={form.avoidFacts}
             onChange={(e) => updateField('avoidFacts', e.target.value)}
             rows={3}
@@ -219,8 +225,9 @@ export function SettingsGeneralForm() {
           <p className="mt-1 text-xs text-gray-400">One per line. The AI will avoid mentioning these in responses.</p>
         </div>
         <div className="mb-0">
-          <label className="block text-sm font-medium text-gray-700">Sample Responses</label>
+          <label htmlFor="sampleResponses" className="block text-sm font-medium text-gray-700">Sample Responses</label>
           <textarea
+            id="sampleResponses"
             value={form.sampleResponses}
             onChange={(e) => updateField('sampleResponses', e.target.value)}
             rows={3}
@@ -236,8 +243,9 @@ export function SettingsGeneralForm() {
         <h2 className="mb-4 text-lg font-semibold text-gray-900">Notification Preferences</h2>
 
         <div className="mb-4">
-          <label className="block text-sm font-medium text-gray-700">Phone Number</label>
+          <label htmlFor="ownerPhone" className="block text-sm font-medium text-gray-700">Phone Number</label>
           <input
+            id="ownerPhone"
             type="tel"
             value={form.ownerPhone}
             onChange={(e) => updateField('ownerPhone', e.target.value)}
@@ -247,8 +255,9 @@ export function SettingsGeneralForm() {
         </div>
 
         <div className="mb-4">
-          <label className="block text-sm font-medium text-gray-700">Email</label>
+          <label htmlFor="ownerEmail" className="block text-sm font-medium text-gray-700">Email</label>
           <input
+            id="ownerEmail"
             type="email"
             value={data.settings.ownerEmail}
             disabled
