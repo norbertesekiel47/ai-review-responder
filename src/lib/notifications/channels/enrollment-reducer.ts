@@ -61,11 +61,14 @@ export const initialEnrollment: EnrollmentSnapshot = {
   errorMessage: null,
 };
 
-function classifyConnectError(status: number): string {
+function classifyConnectError(status: number, message: string): string {
   if (status === 401 || status === 403) return 'Session expired — please sign in again.';
-  if (status === 404) return 'Telegram is currently unavailable.';
+  if (status === 404) return 'This channel is currently unavailable.';
   if (status === 503) return 'Service temporarily unavailable. Please try again.';
-  if (status === 409) return 'Disconnect your current channel before connecting another.';
+  if (status === 409) {
+    if (message === 'already_verified') return 'Already connected.';
+    return 'Disconnect your current channel before connecting another.';
+  }
   return `Could not connect (${status}).`;
 }
 
@@ -115,7 +118,7 @@ export function enrollmentReducer(
       return {
         ...state,
         state: 'error',
-        errorMessage: classifyConnectError(action.status),
+        errorMessage: classifyConnectError(action.status, action.message),
       };
 
     case 'STATUS_FETCHED': {

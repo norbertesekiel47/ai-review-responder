@@ -92,7 +92,7 @@ describe('enrollmentReducer — CONNECT_FAILED error classification', () => {
       { ...initialEnrollment, state: 'generating' },
       { type: 'CONNECT_FAILED', status: 404, message: 'not_found' },
     );
-    expect(next.errorMessage).toBe('Telegram is currently unavailable.');
+    expect(next.errorMessage).toBe('This channel is currently unavailable.');
   });
 
   it('503 → error / service unavailable', () => {
@@ -109,6 +109,14 @@ describe('enrollmentReducer — CONNECT_FAILED error classification', () => {
       { type: 'CONNECT_FAILED', status: 409, message: 'multiple_mobile_channels' },
     );
     expect(next.errorMessage).toBe('Disconnect your current channel before connecting another.');
+  });
+
+  it('409 (already_verified) → error with already-connected copy', () => {
+    const next = enrollmentReducer(
+      { ...initialEnrollment, state: 'generating' },
+      { type: 'CONNECT_FAILED', status: 409, message: 'already_verified' },
+    );
+    expect(next.errorMessage).toBe('Already connected.');
   });
 
   it('other status → error with generic message', () => {
