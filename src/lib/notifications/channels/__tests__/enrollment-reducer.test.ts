@@ -27,6 +27,7 @@ describe('initialEnrollment', () => {
   it('starts in idle with all fields null', () => {
     expect(initialEnrollment).toEqual({
       state: 'idle',
+      previousState: null,
       handle: null,
       deepLink: null,
       qrDataUrl: null,
@@ -283,6 +284,30 @@ describe('enrollmentReducer — CANCEL_SUCCEEDED + DISABLE_SUCCEEDED + DISMISS_E
     const next = enrollmentReducer(errored, { type: 'DISMISS_ERROR' });
     expect(next.state).toBe('idle');
     expect(next.errorMessage).toBeNull();
+  });
+
+  it('DISMISS_ERROR from error-after-verified → restores verified', () => {
+    // Simulate the failed-disable flow: verified → CONNECT_FAILED (error) → DISMISS_ERROR
+    const verified: EnrollmentSnapshot = { ...initialEnrollment, state: 'verified', handle: '••• 1234' };
+    const errored = enrollmentReducer(verified, { type: 'CONNECT_FAILED', status: 500, message: 'disable_failed' });
+    expect(errored.state).toBe('error');
+    expect(errored.previousState).toBe('verified');
+    expect(errored.handle).toBe('••• 1234'); // preserved via spread
+
+    const restored = enrollmentReducer(errored, { type: 'DISMISS_ERROR' });
+    expect(restored.state).toBe('verified');
+    expect(restored.previousState).toBeNull();
+    expect(restored.errorMessage).toBeNull();
+    expect(restored.handle).toBe('••• 1234');
+  });
+
+  it('CONNECT_FAILED while in error preserves the original previousState', () => {
+    const verified: EnrollmentSnapshot = { ...initialEnrollment, state: 'verified', handle: '••• 1234' };
+    const firstError = enrollmentReducer(verified, { type: 'CONNECT_FAILED', status: 500, message: 'first' });
+    expect(firstError.previousState).toBe('verified');
+    // A second failure shouldn't clobber previousState with 'error'
+    const secondError = enrollmentReducer(firstError, { type: 'CONNECT_FAILED', status: 503, message: 'second' });
+    expect(secondError.previousState).toBe('verified');
   });
 });
 

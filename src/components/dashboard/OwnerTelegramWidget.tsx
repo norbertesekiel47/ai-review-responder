@@ -18,6 +18,7 @@ function rowToInitialSnapshot(row: InitialRow | null): EnrollmentSnapshot | unde
   if (!row || row.status !== 'verified') return undefined;
   return {
     state: 'verified',
+    previousState: null,
     handle: row.handle,
     deepLink: null,
     qrDataUrl: null,

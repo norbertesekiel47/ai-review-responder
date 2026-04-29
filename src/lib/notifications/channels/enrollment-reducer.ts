@@ -33,6 +33,7 @@ export interface ChannelEnrollmentRow {
 
 export interface EnrollmentSnapshot {
   state: EnrollmentState;
+  previousState: EnrollmentState | null;  // set on entering 'error', restored on DISMISS_ERROR
   handle: string | null;
   deepLink: string | null;
   qrDataUrl: string | null;
@@ -53,6 +54,7 @@ export type EnrollmentAction =
 
 export const initialEnrollment: EnrollmentSnapshot = {
   state: 'idle',
+  previousState: null,
   handle: null,
   deepLink: null,
   qrDataUrl: null,
@@ -118,6 +120,7 @@ export function enrollmentReducer(
       return {
         ...state,
         state: 'error',
+        previousState: state.state === 'error' ? state.previousState : state.state,
         errorMessage: classifyConnectError(action.status, action.message),
       };
 
@@ -173,6 +176,11 @@ export function enrollmentReducer(
     }
 
     case 'DISMISS_ERROR':
-      return { ...state, state: 'idle', errorMessage: null };
+      return {
+        ...state,
+        state: state.previousState ?? 'idle',
+        previousState: null,
+        errorMessage: null,
+      };
   }
 }
