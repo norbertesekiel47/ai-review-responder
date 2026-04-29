@@ -43,11 +43,6 @@ async function handler(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'subscription_not_active' }, { status: 403 });
   }
 
-  const lockKey = createHash('sha256')
-    .update(`telegram_enroll:${businessId}`)
-    .digest()
-    .readBigInt64BE(0)
-    .toString();
   const rawToken = randomUUID();
   const tokenHash = createHash('sha256').update(rawToken).digest('hex');
   const expiresAt = new Date(Date.now() + TOKEN_TTL_MS);
@@ -56,7 +51,7 @@ async function handler(req: NextRequest): Promise<NextResponse> {
   let result: Awaited<ReturnType<typeof startTelegramEnrollment>> | undefined;
   try {
     result = await sql.begin(async (tx) => {
-      await tx`SELECT pg_advisory_xact_lock(${lockKey}::bigint)`;
+      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`mobile_enroll:${businessId}`}, 0))`;
       return startTelegramEnrollment(tx, businessId, tokenHash, expiresAt);
     });
   } catch (err) {

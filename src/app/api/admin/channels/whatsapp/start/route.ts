@@ -59,11 +59,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // the lock is held across the SELECT + UPDATE/INSERT. pg_advisory_xact_lock
   // releases at tx end; a bare call outside sql.begin would release immediately
   // and leave the state machine unprotected against concurrent starts.
-  const lockKey = createHash('sha256')
-    .update(`whatsapp_enroll:${businessId}`)
-    .digest()
-    .readBigInt64BE(0)
-    .toString();
+  // Uses the shared mobile_enroll key so SMS verify + WhatsApp start are
+  // mutually exclusive per business (same lock as SMS withSmsEnrollmentLock
+  // and Telegram start routes).
   const rawToken = randomUUID();
   const tokenHash = createHash('sha256').update(rawToken).digest('hex');
   const expiresAt = new Date(Date.now() + TOKEN_TTL_MS);
@@ -71,7 +69,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   let result: { kind: 'ok' } | { kind: 'already_verified' } | undefined;
   try {
     result = await sql.begin(async (tx) => {
-      await tx`SELECT pg_advisory_xact_lock(${lockKey}::bigint)`;
+      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`mobile_enroll:${businessId}`}, 0))`;
 
       const existing = await tx<{ id: string; status: string }[]>`
         SELECT id, status FROM channel_enrollments

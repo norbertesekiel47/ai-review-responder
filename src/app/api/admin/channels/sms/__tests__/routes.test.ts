@@ -595,7 +595,7 @@ describe('POST /api/admin/channels/sms/cancel', () => {
     await cancelPOST(cancelReq({ business_id: 'biz-42' }));
     const lockCall = sqlCallsLog.find(c => /pg_advisory_xact_lock/.test(c.raw));
     expect(lockCall).toBeDefined();
-    expect(lockCall!.values).toContain('sms_enroll:biz-42');
+    expect(lockCall!.values).toContain('mobile_enroll:biz-42');
   });
 });
 

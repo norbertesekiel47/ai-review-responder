@@ -62,9 +62,14 @@ export function subscriptionNotActive(): NextResponse {
 // ── Advisory lock ────────────────────────────────────────────────────
 
 /**
- * Runs `fn` inside a transaction with a per-(business_id, 'sms') advisory lock.
- * Serializes concurrent admin calls (e.g., two admins clicking Send code
- * simultaneously) so only one INSERT/UPDATE wins the partial-unique race.
+ * Runs `fn` inside a transaction with a per-business mobile-enrollment advisory
+ * lock. Serializes concurrent calls across all mobile channels (SMS, Telegram,
+ * WhatsApp) so only one INSERT/UPDATE wins the migration 027 partial-unique race.
+ *
+ * Used by SMS verify/confirm routes directly; Telegram and WhatsApp start routes
+ * acquire the same lock key inline so a concurrent SMS verify + Telegram start
+ * cannot race past the SMS pre-check, send a Twilio Verify SMS, and then fail
+ * with 23505.
  *
  * Matches the createApprovalLink per-(response_id, channel) lock pattern
  * shipped in commit d01d729.
@@ -80,7 +85,7 @@ export async function withSmsEnrollmentLock<T>(
   // always returns a plain Promise<T>, so the cast is safe. Keeping the public
   // signature as Promise<T> lets callers chain without re-declaring the type.
   return sql.begin(async (tx) => {
-    await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`sms_enroll:${businessId}`}, 0))`;
+    await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`mobile_enroll:${businessId}`}, 0))`;
     return fn(tx as unknown as typeof sql);
   }) as Promise<T>;
 }
