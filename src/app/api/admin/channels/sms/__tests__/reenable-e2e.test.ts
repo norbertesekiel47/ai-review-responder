@@ -259,10 +259,11 @@ describe('SMS re-enable lifecycle (E2E)', () => {
     //   2. advisory lock
     //   3. SELECT active row → { handle, status: 'unsubscribed' }
     //   4. SELECT opt-out row → opted_in_at > opted_out_at (GATE PASS)
-    //   5. SELECT opt-out row AGAIN after Twilio (post-Twilio STOP race
+    //   5. SELECT other mobile channels (pre-check) — none
+    //   6. SELECT opt-out row AGAIN after Twilio (post-Twilio STOP race
     //      guard — must still be opted in)
-    //   6. UPDATE channel_enrollments RETURNING id
-    // Twilio Verify.create is called between step 4 and 5.
+    //   7. UPDATE channel_enrollments RETURNING id
+    // Twilio Verify.create is called between step 5 and 6.
     // ─────────────────────────────────────────────────────────────
     sqlCallsLog.length = 0;
     mockSql.begin.mockClear();
@@ -276,6 +277,7 @@ describe('SMS re-enable lifecycle (E2E)', () => {
         opted_in_at: new Date('2026-04-20T11:00:00Z'),
       },
     ]);
+    sqlReturnQueue.push([]);  // mobile pre-check — no other channels
     sqlReturnQueue.push([
       {
         opted_out_at: new Date('2026-04-20T10:00:00Z'),
@@ -295,6 +297,10 @@ describe('SMS re-enable lifecycle (E2E)', () => {
     const allowedSql = sqlCallsLog.map((c) => c.raw).join('\n');
     expect(allowedSql).toMatch(/UPDATE channel_enrollments/);
     expect(allowedSql).toMatch(/status = 'pending_verification'/);
+    // Cross-channel pre-check (Phase 4 Fix #2) — fails the test if the
+    // SELECT that gates Twilio Verify on "no other mobile channel for this
+    // business" is removed or changed shape.
+    expect(allowedSql).toMatch(/SELECT channel FROM channel_enrollments[\s\S]*channel IN \('telegram', 'whatsapp'\)/);
 
     // ─────────────────────────────────────────────────────────────
     // Step 5: /confirm flips the row to verified.

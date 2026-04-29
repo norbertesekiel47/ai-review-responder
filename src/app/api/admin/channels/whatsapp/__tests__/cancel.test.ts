@@ -1,13 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const sqlQueue: unknown[] = [];
-vi.mock('@/lib/db/server', () => ({
-  sql: async () => {
+const { sqlQueue, mockSql } = vi.hoisted(() => {
+  const sqlQueue: unknown[] = [];
+  const mockSql: any = vi.fn(async () => {
     const next = sqlQueue.shift();
     return Array.isArray(next) ? next : [];
-  },
-  jsonb: (v: unknown) => v,
-}));
+  });
+  mockSql.begin = vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => cb(mockSql));
+  return { sqlQueue, mockSql };
+});
+vi.mock('@/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
 
 vi.mock('@/lib/db/auth', () => ({
   requireRole: vi.fn(async () => ({ userId: 'admin-1', role: 'admin' })),
@@ -43,6 +45,8 @@ describe('POST /api/admin/channels/whatsapp/cancel', () => {
 
   it('clears verification hash + expiry on pending row and returns 200', async () => {
     process.env.CHANNELS_WHATSAPP_ENABLED = 'true';
+    // sql.begin callback fires: advisory lock SELECT + UPDATE
+    sqlQueue.push([]); // pg_advisory_xact_lock
     sqlQueue.push([]); // UPDATE ... WHERE status='pending_verification'
     const res = await POST(mkReq({ businessId: 'biz-1' }) as any);
     expect(res.status).toBe(200);

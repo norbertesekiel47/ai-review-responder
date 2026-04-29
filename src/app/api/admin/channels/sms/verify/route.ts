@@ -34,11 +34,12 @@ import {
   assertSmsEnvReady,
   loadBusinessSubscriptionStatus,
   subscriptionNotActive,
-  withSmsEnrollmentLock,
+  withMobileEnrollmentLock,
   badRequest,
   conflict,
   twilioVerifyError,
 } from '../_shared';
+import { classifyEnrollmentError, MultipleMobileChannelsError, EnrollmentDatabaseError } from '@/lib/channels/unique-violation';
 
 interface VerifyBody {
   business_id?: string;
@@ -76,7 +77,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const subStatus = await loadBusinessSubscriptionStatus(businessId);
   if (subStatus !== 'active') return subscriptionNotActive();
 
-  return withSmsEnrollmentLock(businessId, async (tx) => {
+  return withMobileEnrollmentLock(businessId, async (tx) => {
     // Load the active (non-archived) SMS enrollment row, if any. At most one
     // exists because of the partial unique index (channel_enrollments
     // (business_id, channel) WHERE archived_at IS NULL) shipped in 021.
@@ -133,6 +134,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return badRequest('sender_opt_in_required');
     }
 
+    // Pre-check migration 027's predicate before calling Twilio. Saves
+    // the cost of a Verify SMS when another mobile channel is already
+    // pending or verified. The DB index is still authoritative — a
+    // concurrent Telegram/WhatsApp start would race past this check and
+    // be caught by the catch block below.
+    const otherMobileRows = await tx<{ channel: string }[]>`
+      SELECT channel FROM channel_enrollments
+      WHERE business_id = ${businessId}
+        AND channel IN ('telegram', 'whatsapp')
+        AND status IN ('pending_verification', 'verified')
+        AND archived_at IS NULL
+      LIMIT 1
+    `;
+    if (otherMobileRows.length > 0) {
+      return conflict('multiple_mobile_channels');
+    }
+
     // Twilio-first ordering: if Verify fails, we return 500 without
     // touching the DB. The admin can retry and the state machine picks
     // up from the same row_state / dbAction.
@@ -166,27 +184,43 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return conflict('sender_opted_out_during_verification');
     }
 
-    if (dbAction === 'insert') {
-      await tx`
-        INSERT INTO channel_enrollments (id, business_id, channel, handle, status)
-        VALUES (${uuidv7()}, ${businessId}, 'sms', ${twilioPhone}, 'pending_verification')
-      `;
-    } else if (dbAction === 'update') {
-      // dbAction='update' is only set in the else branch above where `row`
-      // is defined, so row.status is safe. The `AND status = ${row.status}`
-      // guard narrows the UPDATE to the same state we observed, so a
-      // concurrent STOP webhook that flipped the row to 'unsubscribed'
-      // won't be silently overwritten here (updated.length === 0 → 409).
-      const updated = await tx<{ id: string }[]>`
-        UPDATE channel_enrollments
-        SET status = 'pending_verification', updated_at = NOW()
-        WHERE business_id = ${businessId} AND channel = 'sms' AND archived_at IS NULL
-          AND status = ${row!.status}
-        RETURNING id
-      `;
-      if (updated.length !== 1) return conflict('race_conflict');
+    try {
+      if (dbAction === 'insert') {
+        await tx`
+          INSERT INTO channel_enrollments (id, business_id, channel, handle, status)
+          VALUES (${uuidv7()}, ${businessId}, 'sms', ${twilioPhone}, 'pending_verification')
+        `;
+      } else if (dbAction === 'update') {
+        // dbAction='update' is only set in the else branch above where `row`
+        // is defined, so row.status is safe. The `AND status = ${row.status}`
+        // guard narrows the UPDATE to the same state we observed, so a
+        // concurrent STOP webhook that flipped the row to 'unsubscribed'
+        // won't be silently overwritten here (updated.length === 0 → 409).
+        const updated = await tx<{ id: string }[]>`
+          UPDATE channel_enrollments
+          SET status = 'pending_verification', updated_at = NOW()
+          WHERE business_id = ${businessId} AND channel = 'sms' AND archived_at IS NULL
+            AND status = ${row!.status}
+          RETURNING id
+        `;
+        if (updated.length !== 1) return conflict('race_conflict');
+      }
+      // dbAction === 'noop': re-send code to an already-pending row; no DB write.
+    } catch (err) {
+      // Classify before letting the error escape the lock callback.
+      try {
+        classifyEnrollmentError(err);
+      } catch (classified) {
+        if (classified instanceof MultipleMobileChannelsError) {
+          return conflict('multiple_mobile_channels');
+        }
+        if (classified instanceof EnrollmentDatabaseError) {
+          console.error('[sms/verify] enrollment db error', classified);
+          return NextResponse.json({ error: 'internal' }, { status: 500 });
+        }
+        throw classified;
+      }
     }
-    // dbAction === 'noop': re-send code to an already-pending row; no DB write.
 
     return NextResponse.json({ ok: true, phoneMasked: maskUsPhone(twilioPhone) });
   });

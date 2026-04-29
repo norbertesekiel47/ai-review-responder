@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { isWhatsAppEnabled, flagOff, assertWhatsAppEnvReady } from '../_shared';
+import { cancelWhatsAppEnrollment } from '@/lib/channels/whatsapp-enrollment';
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   if (!isWhatsAppEnabled()) return flagOff();
@@ -29,16 +30,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const businessId = body?.businessId;
   if (!businessId) return NextResponse.json({ error: 'businessId required' }, { status: 400 });
 
-  await sql`
-    UPDATE channel_enrollments
-    SET verification_token_hash = NULL,
-        verification_token_expires_at = NULL,
-        updated_at = NOW()
-    WHERE business_id = ${businessId}
-      AND channel = 'whatsapp'
-      AND status = 'pending_verification'
-      AND archived_at IS NULL
-  `;
+  // Flip to 'disabled' so the migration 027 partial-unique-index slot is
+  // released immediately, allowing a fresh mobile channel enrollment.
+  // Advisory lock is held across the UPDATE so a concurrent start cannot
+  // observe the pending row, fall through to its UPDATE branch (no status
+  // guard), and overwrite this cancel's 'disabled' transition back to
+  // 'pending_verification'. Uses the shared mobile_enroll key matching
+  // SMS withMobileEnrollmentLock and Telegram start/cancel routes.
+  await sql.begin(async (tx) => {
+    await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`mobile_enroll:${businessId}`}, 0))`;
+    return cancelWhatsAppEnrollment(tx, businessId);
+  });
 
   // M6: no-store for consistency with start/disable routes (admin-action results
   // must not be cached by proxies or the browser).

@@ -34,7 +34,7 @@ import {
   assertSmsEnvReady,
   loadBusinessSubscriptionStatus,
   subscriptionNotActive,
-  withSmsEnrollmentLock,
+  withMobileEnrollmentLock,
   badRequest,
   conflict,
 } from '../_shared';
@@ -66,7 +66,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const subStatus = await loadBusinessSubscriptionStatus(businessId);
   if (subStatus !== 'active') return subscriptionNotActive();
 
-  return withSmsEnrollmentLock(businessId, async (tx) => {
+  return withMobileEnrollmentLock(businessId, async (tx) => {
     // Step 1: Load active row (any status — row status gates are applied in step 3).
     const activeRows = await tx<{ handle: string; status: string }[]>`
       SELECT handle, status FROM channel_enrollments

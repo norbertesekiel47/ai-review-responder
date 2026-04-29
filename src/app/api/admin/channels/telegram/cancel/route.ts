@@ -1,14 +1,9 @@
-// src/app/api/admin/channels/telegram/cancel — admin cancels a pending verification,
-// clearing the token hash + expiry.
-//
-// Handler order: flag → env → auth → businessId.
-// Idempotent: if no pending_verification row matches, the UPDATE silently affects
-// 0 rows (no error — the task is already done).
-
+// src/app/api/admin/channels/telegram/cancel/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { isTelegramEnabled, flagOff, assertTelegramEnvReady } from '../_shared';
+import { cancelTelegramEnrollment } from '@/lib/channels/telegram-enrollment';
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   if (!isTelegramEnabled()) return flagOff();
@@ -29,18 +24,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const businessId = body?.businessId;
   if (!businessId) return NextResponse.json({ error: 'businessId required' }, { status: 400 });
 
-  await sql`
-    UPDATE channel_enrollments
-    SET verification_token_hash = NULL,
-        verification_token_expires_at = NULL,
-        updated_at = NOW()
-    WHERE business_id = ${businessId}
-      AND channel = 'telegram'
-      AND status = 'pending_verification'
-      AND archived_at IS NULL
-  `;
+  await sql.begin(async (tx) => {
+    await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`mobile_enroll:${businessId}`}, 0))`;
+    return cancelTelegramEnrollment(tx, businessId);
+  });
 
-  // M6: no-store for consistency with start/disable routes (admin-action results
-  // must not be cached by proxies or the browser).
   return NextResponse.json({ ok: true }, { headers: { 'Cache-Control': 'no-store, private' } });
 }

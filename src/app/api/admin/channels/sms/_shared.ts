@@ -5,7 +5,7 @@
 // subscription gates before doing its specific work.
 //
 // Tests: this file is exercised by tests in ../verify/__tests__, etc.
-// (and the cross-route routes.test.ts Tasks 16–21 add).
+// (and the cross-route routes.test.ts Tasks 16-21 add).
 
 import { NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
@@ -62,9 +62,14 @@ export function subscriptionNotActive(): NextResponse {
 // ── Advisory lock ────────────────────────────────────────────────────
 
 /**
- * Runs `fn` inside a transaction with a per-(business_id, 'sms') advisory lock.
- * Serializes concurrent admin calls (e.g., two admins clicking Send code
- * simultaneously) so only one INSERT/UPDATE wins the partial-unique race.
+ * Runs `fn` inside a transaction with a per-business mobile-enrollment advisory
+ * lock. Serializes concurrent calls across all mobile channels (SMS, Telegram,
+ * WhatsApp) so only one INSERT/UPDATE wins the migration 027 partial-unique race.
+ *
+ * Used by SMS verify/confirm/cancel/disable/delete routes; Telegram and WhatsApp
+ * start routes acquire the same lock key inline so a concurrent SMS verify +
+ * Telegram start cannot race past the SMS pre-check, send a Twilio Verify SMS,
+ * and then fail with 23505.
  *
  * Matches the createApprovalLink per-(response_id, channel) lock pattern
  * shipped in commit d01d729.
@@ -72,7 +77,7 @@ export function subscriptionNotActive(): NextResponse {
  * The callback receives the transaction handle as `tx` — all DB calls inside
  * MUST use `tx`, not `sql`, to stay inside the lock/transaction.
  */
-export async function withSmsEnrollmentLock<T>(
+export async function withMobileEnrollmentLock<T>(
   businessId: string,
   fn: (tx: typeof sql) => Promise<T>,
 ): Promise<T> {
@@ -80,7 +85,7 @@ export async function withSmsEnrollmentLock<T>(
   // always returns a plain Promise<T>, so the cast is safe. Keeping the public
   // signature as Promise<T> lets callers chain without re-declaring the type.
   return sql.begin(async (tx) => {
-    await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`sms_enroll:${businessId}`}, 0))`;
+    await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`mobile_enroll:${businessId}`}, 0))`;
     return fn(tx as unknown as typeof sql);
   }) as Promise<T>;
 }

@@ -1,0 +1,89 @@
+// src/app/(authenticated)/settings/channels/page.tsx
+//
+// Server component for the owner channel-management page. Auth +
+// subscription guard run before any UI renders. Fetches the canonical
+// enrollment shape and channel availability for SSR-driven hydration.
+
+import { sql } from '@/lib/db/server';
+import { requireOwnerAccess } from '@/lib/auth/require-owner-access';
+import { SettingsTabs } from '@/components/dashboard/SettingsTabs';
+import { ChannelsClient, type InitialEnrollment } from './ChannelsClient';
+import { isTelegramEnabled, assertTelegramEnvReady } from '@/app/api/admin/channels/telegram/_shared';
+
+const KNOWN_CHANNELS = new Set<string>(['email', 'sms', 'telegram', 'whatsapp']);
+
+function smsAvailable(): boolean {
+  if (process.env.CHANNELS_SMS_ENABLED !== 'true') return false;
+  if (process.env.MOCK_EXTERNAL_APIS === 'true') return true;
+  const required = ['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_MESSAGING_SERVICE_SID', 'TWILIO_VERIFY_SERVICE_SID'];
+  return required.every((k) => process.env[k] && process.env[k]!.trim().length > 0);
+}
+
+function whatsappAvailable(): boolean {
+  if (process.env.CHANNELS_WHATSAPP_ENABLED !== 'true') return false;
+  if (process.env.MOCK_EXTERNAL_APIS === 'true') return true;
+  const required = ['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_WHATSAPP_NUMBER', 'WHATSAPP_APPROVAL_TEMPLATE_SID'];
+  return required.every((k) => process.env[k] && process.env[k]!.trim().length > 0);
+}
+
+function telegramAvailable(): boolean {
+  if (!isTelegramEnabled()) return false;
+  return assertTelegramEnvReady() === null;
+}
+
+export default async function ChannelsPage() {
+  const access = await requireOwnerAccess();
+
+  // verification_token_hash INTENTIONALLY excluded from SELECT.
+  const enrollmentRows = await sql<{
+    channel: string;
+    handle: string | null;
+    status: string;
+    verified_at: Date | null;
+    disabled_at: Date | null;
+    unsubscribed_at: Date | null;
+    unsubscribed_reason: string | null;
+    expires_at: Date | null;
+  }[]>`
+    SELECT
+      e.channel, e.handle, e.status,
+      e.verified_at, e.disabled_at, e.unsubscribed_at, e.unsubscribed_reason,
+      e.verification_token_expires_at AS expires_at
+    FROM channel_enrollments e
+    WHERE e.business_id = ${access.businessId}
+      AND e.archived_at IS NULL
+    ORDER BY e.created_at ASC
+  `;
+
+  const initialEnrollments: InitialEnrollment[] = enrollmentRows
+    .filter((r) => KNOWN_CHANNELS.has(r.channel))
+    .map((r) => ({
+      channel: r.channel as InitialEnrollment['channel'],
+      handle: r.handle,
+      status: r.status,
+      verified_at: r.verified_at?.toISOString() ?? null,
+      disabled_at: r.disabled_at?.toISOString() ?? null,
+      unsubscribed_at: r.unsubscribed_at?.toISOString() ?? null,
+      unsubscribed_reason: r.unsubscribed_reason,
+      expires_at: r.expires_at?.toISOString() ?? null,
+    }));
+
+  return (
+    <div className="mx-auto max-w-2xl px-4 py-8">
+      <SettingsTabs activeTab="channels" />
+      <h1 className="text-2xl font-bold text-slate-100">Notification channels</h1>
+      <p className="mt-1 text-sm text-slate-400">Choose where you get review approval requests.</p>
+      <div className="mt-6">
+        <ChannelsClient
+          initialEnrollments={initialEnrollments}
+          initialAvailability={{
+            telegram: telegramAvailable(),
+            sms: smsAvailable(),
+            whatsapp: whatsappAvailable(),
+          }}
+          ownerEmailFallback={access.email}
+        />
+      </div>
+    </div>
+  );
+}
