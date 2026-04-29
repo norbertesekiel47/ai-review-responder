@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { isWhatsAppEnabled, flagOff, assertWhatsAppEnvReady } from '../_shared';
+import { cancelWhatsAppEnrollment } from '@/lib/channels/whatsapp-enrollment';
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   if (!isWhatsAppEnabled()) return flagOff();
@@ -38,18 +39,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // SMS withMobileEnrollmentLock and Telegram start/cancel routes.
   await sql.begin(async (tx) => {
     await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`mobile_enroll:${businessId}`}, 0))`;
-    return tx`
-      UPDATE channel_enrollments
-      SET status = 'disabled',
-          disabled_at = NOW(),
-          verification_token_hash = NULL,
-          verification_token_expires_at = NULL,
-          updated_at = NOW()
-      WHERE business_id = ${businessId}
-        AND channel = 'whatsapp'
-        AND status = 'pending_verification'
-        AND archived_at IS NULL
-    `;
+    return cancelWhatsAppEnrollment(tx, businessId);
   });
 
   // M6: no-store for consistency with start/disable routes (admin-action results
