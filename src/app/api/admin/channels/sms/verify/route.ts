@@ -134,6 +134,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return badRequest('sender_opt_in_required');
     }
 
+    // Pre-check migration 027's predicate before calling Twilio. Saves
+    // the cost of a Verify SMS when another mobile channel is already
+    // pending or verified. The DB index is still authoritative — a
+    // concurrent Telegram/WhatsApp start would race past this check and
+    // be caught by the catch block below.
+    const otherMobileRows = await tx<{ channel: string }[]>`
+      SELECT channel FROM channel_enrollments
+      WHERE business_id = ${businessId}
+        AND channel IN ('telegram', 'whatsapp')
+        AND status IN ('pending_verification', 'verified')
+        AND archived_at IS NULL
+      LIMIT 1
+    `;
+    if (otherMobileRows.length > 0) {
+      return conflict('multiple_mobile_channels');
+    }
+
     // Twilio-first ordering: if Verify fails, we return 500 without
     // touching the DB. The admin can retry and the state machine picks
     // up from the same row_state / dbAction.
