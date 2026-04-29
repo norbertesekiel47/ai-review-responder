@@ -34,7 +34,7 @@ import {
   assertSmsEnvReady,
   loadBusinessSubscriptionStatus,
   subscriptionNotActive,
-  withSmsEnrollmentLock,
+  withMobileEnrollmentLock,
   badRequest,
   conflict,
   twilioVerifyError,
@@ -77,7 +77,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const subStatus = await loadBusinessSubscriptionStatus(businessId);
   if (subStatus !== 'active') return subscriptionNotActive();
 
-  return withSmsEnrollmentLock(businessId, async (tx) => {
+  return withMobileEnrollmentLock(businessId, async (tx) => {
     // Load the active (non-archived) SMS enrollment row, if any. At most one
     // exists because of the partial unique index (channel_enrollments
     // (business_id, channel) WHERE archived_at IS NULL) shipped in 021.

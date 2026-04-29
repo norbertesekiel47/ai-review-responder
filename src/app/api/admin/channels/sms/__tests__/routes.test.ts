@@ -14,7 +14,7 @@
 //     fire in the route (subscription lookup, advisory lock, active-row
 //     SELECT, opt-out lookup, INSERT/UPDATE).
 //   - mockSql.begin invokes the callback with mockSql as tx, so tx`…` calls
-//     inside withSmsEnrollmentLock land in the same log.
+//     inside withMobileEnrollmentLock land in the same log.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
 

@@ -35,7 +35,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // observe the pending row, fall through to its UPDATE branch (no status
   // guard), and overwrite this cancel's 'disabled' transition back to
   // 'pending_verification'. Uses the shared mobile_enroll key matching
-  // SMS withSmsEnrollmentLock and Telegram start/cancel routes.
+  // SMS withMobileEnrollmentLock and Telegram start/cancel routes.
   await sql.begin(async (tx) => {
     await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`mobile_enroll:${businessId}`}, 0))`;
     return tx`

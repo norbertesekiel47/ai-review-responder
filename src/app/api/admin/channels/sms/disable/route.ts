@@ -19,7 +19,7 @@ import {
   assertSmsEnvReady,
   loadBusinessSubscriptionStatus,
   subscriptionNotActive,
-  withSmsEnrollmentLock,
+  withMobileEnrollmentLock,
   badRequest,
   conflict,
 } from '../_shared';
@@ -49,7 +49,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const subStatus = await loadBusinessSubscriptionStatus(businessId);
   if (subStatus !== 'active') return subscriptionNotActive();
 
-  return withSmsEnrollmentLock(businessId, async (tx) => {
+  return withMobileEnrollmentLock(businessId, async (tx) => {
     const result = await tx<{ id: string }[]>`
       UPDATE channel_enrollments
       SET status = 'disabled', disabled_at = NOW(), updated_at = NOW()

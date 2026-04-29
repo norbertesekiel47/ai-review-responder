@@ -60,7 +60,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // releases at tx end; a bare call outside sql.begin would release immediately
   // and leave the state machine unprotected against concurrent starts.
   // Uses the shared mobile_enroll key so SMS verify + WhatsApp start are
-  // mutually exclusive per business (same lock as SMS withSmsEnrollmentLock
+  // mutually exclusive per business (same lock as SMS withMobileEnrollmentLock
   // and Telegram start routes).
   const rawToken = randomUUID();
   const tokenHash = createHash('sha256').update(rawToken).digest('hex');
