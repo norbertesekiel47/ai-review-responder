@@ -10,6 +10,7 @@ export function SettingsTabs({ activeTab }: SettingsTabsProps) {
     return (
       <Link
         href={href}
+        aria-current={active ? 'page' : undefined}
         className={
           active
             ? 'inline-block border-b-2 border-cyan-400 px-4 py-2 text-sm font-medium text-cyan-400'
