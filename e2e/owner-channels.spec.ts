@@ -10,6 +10,13 @@
 //
 // The simulateTelegramStart helper is already plan-built (Task 17) so
 // the verified-flip step is ready as soon as the auth harness exists.
+//
+// Coverage status:
+//   - Pure reducer + hook actions: 27 unit tests in src/lib/notifications/channels/__tests__/enrollment-reducer.test.ts
+//   - Owner route-handler logic: 13 unit tests in src/lib/channels/__tests__/telegram-enrollment.test.ts
+//   - Cancel-releases-mobile-slot regression: covered in telegram-enrollment.test.ts
+//   - Authenticated UI flows below remain test.fixme until the Supabase admin
+//     generateLink magic-link harness lands (tracked separately, see e2e/README.md).
 
 import { test, expect } from '@playwright/test';
 import { isE2eConfigured } from './seed';

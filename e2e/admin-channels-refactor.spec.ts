@@ -6,6 +6,13 @@
 //
 // Authenticated flows are test.fixme until the admin signin harness is
 // wired (matching e2e/zernio-connect.spec.ts).
+//
+// Coverage status:
+//   - Pure reducer + hook actions: 27 unit tests in src/lib/notifications/channels/__tests__/enrollment-reducer.test.ts
+//   - Telegram enrollment state-machine: 13 unit tests in src/lib/channels/__tests__/telegram-enrollment.test.ts
+//   - Cancel-releases-mobile-slot regression: covered in telegram-enrollment.test.ts
+//   - Authenticated admin UI flows below remain test.fixme until the Supabase admin
+//     generateLink magic-link harness lands (tracked separately, see e2e/README.md).
 
 import { test, expect } from '@playwright/test';
 import { isE2eConfigured } from './seed';
