@@ -178,11 +178,20 @@ export function useEnrollment(options: UseEnrollmentOptions): UseEnrollmentRetur
 
   const cancel = useCallback(async (): Promise<void> => {
     try {
-      await postJson(endpoints.cancel);
+      const res = await postJson(endpoints.cancel);
+      if (!res.ok) {
+        let message = 'cancel_failed';
+        try {
+          const body = await res.json();
+          if (typeof body?.error === 'string') message = body.error;
+        } catch { /* ignore */ }
+        safeDispatch({ type: 'CONNECT_FAILED', status: res.status, message });
+        return;
+      }
+      safeDispatch({ type: 'CANCEL_SUCCEEDED' });
     } catch {
-      /* ignore — cancel is fire-and-forget; refresh will reconcile */
+      safeDispatch({ type: 'CONNECT_FAILED', status: 0, message: 'network' });
     }
-    safeDispatch({ type: 'CANCEL_SUCCEEDED' });
   }, [endpoints.cancel, postJson, safeDispatch]);
 
   const disable = useCallback(async (): Promise<void> => {
