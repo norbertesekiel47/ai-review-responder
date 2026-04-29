@@ -122,7 +122,7 @@ Configure tsconfig paths so `worker/` can import shared code: `"@/lib/*": ["./sr
 
 ## Database
 
-All tables use UUIDv7 (time-ordered). Base schema is in `supabase/migrations/001_initial_schema.sql`; current head is migration **025** (next: 026). See "Migrations" section below for the per-migration inventory.
+All tables use UUIDv7 (time-ordered). Base schema is in `supabase/migrations/001_initial_schema.sql`; current head is migration **027** (next: 028). See "Migrations" section below for the per-migration inventory.
 
 Key tables:
 
@@ -209,12 +209,12 @@ When Google Business Profile API access is approved, follow Phase 5 in `docs/Imp
 
 ## Current status
 
-**Shipped:** Sprints 1–6 + Channels Phase 0–3 + Owner Self-Serve Signup + **Zernio GBP integration** — all code-complete, all flag-gated off in prod.
+**Shipped:** Sprints 1–6 + Channels Phase 0–4 + Owner Self-Serve Signup + **Zernio GBP integration** — all code-complete, all flag-gated off in prod.
 
 **Pending merges + prod actions:**
 
 1. Merge `feat/owner-self-serve-signup` PR → configure Supabase custom SMTP + email templates → flip `SELF_SERVE_SIGNUP_ENABLED=true`
-2. Merge Telegram PR → register prod `@RepWorthBot` + `setWebhook` + pilot → flip `CHANNELS_TELEGRAM_ENABLED=true`
+2. Merge Telegram PR + Channels Phase 4 PR (`feat/phase-4-owner-channels`, PR #10 — owner `/settings/channels` page + shared enrollment hook + migration 027) → register prod `@RepWorthBot` + `setWebhook` + pilot → flip `CHANNELS_TELEGRAM_ENABLED=true`
 3. Merge WhatsApp PR → Meta Business verification (2–4 week clock) + WABA + Content template → flip `CHANNELS_WHATSAPP_ENABLED=true`
 4. SMS: register 10DLC → flip `CHANNELS_SMS_ENABLED=true`
 5. **Zernio: MERGED 2026-04-28 (#9).** Subscribe to Zernio Accelerate + Inbox add-on → set `ZERNIO_API_KEY` + `ZERNIO_WEBHOOK_SECRET` + `WORKER_PUBLIC_URL` in prod → run migration 026 in prod Supabase → configure webhook URL in Zernio dashboard pointing at `${WORKER_PUBLIC_URL}/ingress/zernio` → fire test webhook → flip `ZERNIO_PUBLISHING_ENABLED=true` → onboard one pilot customer per `docs/zernio-launch-runbook.md`. Local 6-scenario QA passed 2026-04-28 (`docs/zernio-test-report-2026-04-28.md`).
@@ -240,11 +240,12 @@ When Google Business Profile API access is approved, follow Phase 5 in `docs/Imp
 - **Channels Phase 1 (SMS)** — migration 022 (soft-delete, `sms_sender_opt_outs`, partial unique index), `SmsChannel` + Twilio ingress (`/status` terminal-precedence + `/inbound` STOP/START + TCPA audit), SMS cost guard (per-biz + global Redis), 6 admin API routes, `SmsEnrollmentWidget`. Flag: `CHANNELS_SMS_ENABLED`.
 - **Channels Phase 2 (Telegram)** — zero migrations. `TelegramChannel` + `TelegramClient`, `TelegramEnrollmentWidget`, bot ingress (Model A ack: AFTER validation, BEFORE approval tx), `approveViaCallback`/`regenerateViaCallback`, SHA-256 `chat_handle_hash` in audit, QR deep-link enrollment. Flag: `CHANNELS_TELEGRAM_ENABLED`. Spec: `docs/superpowers/specs/2026-04-22-telegram-phase-2-design.md`.
 - **Channels Phase 3 (WhatsApp)** — zero migrations. `WhatsAppChannel` + `WhatsAppClient` (7 typed error classes: owner-intent / config-error / transient), WA ingress + `WhatsAppEnrollmentWidget`. **Critical:** `TemplateConfigError`/`SessionWindowError` leave enrollment `verified` UNCHANGED — ops failure ≠ owner opt-out. Flag: `CHANNELS_WHATSAPP_ENABLED`. Spec: `docs/superpowers/specs/2026-04-23-whatsapp-phase-3-design.md`.
+- **Channels Phase 4 (Owner Channel Dashboard)** — migration 027. `/settings/channels` page lets owners self-serve enroll/disconnect Telegram; SMS + WhatsApp render as "Coming soon". Pure `enrollmentReducer` (8 states, 27 unit tests) + thin `useEnrollment` hook extracted from inline state in `TelegramEnrollmentWidget`. Shared `startTelegramEnrollment` / `cancelTelegramEnrollment` / `disableTelegramEnrollment` transaction helpers consumed by both admin and owner routes. Owner routes under `/api/dashboard/channels/*` wrapped with `withSameOrigin`; `businessId` always sourced from session. **Concurrency hardening:** all four mobile-enrollment paths share `mobile_enroll:${businessId}` advisory lock; cancel routes hold the same lock and filter `archived_at IS NULL`; start helpers + WA inbound use `SELECT FOR UPDATE` to serialize against webhook ingress. Cancel now flips status to `disabled` so the row exits migration 027's predicate (preventing future SMS/WA enrollment lockout). Flag: `CHANNELS_TELEGRAM_ENABLED` (server-authoritative; `/settings/channels` Telegram row falls back to ComingSoonChannelRow when off). Plan: `docs/superpowers/plans/2026-04-28-phase-4-owner-channel-dashboard-plan.md`. Spec: `docs/superpowers/specs/2026-04-28-phase-4-owner-channel-dashboard-design.md`.
 - **Owner Self-Serve Signup** — migration 025. Flow: `/signup` (OTP) → `/onboarding/pay` → Stripe Payment Link → `/onboarding/payment-success` → `/onboarding/business` wizard → `/dashboard`. Google OAuth: `/api/auth/callback` → `/signup/finish` → same flow. Key: `createBusinessTx` (dual admin/self-serve mode), `CleanupAbandonedSignupsPoller` (24h, TOCTOU-safe FOR UPDATE re-validation), `EmailChannelReconcilePoller` (10-min durable retry for missed enrollment rows), `resolveWizardDestination` (4-rule redirect guard). Admin onboarding now calls `inviteUserByEmail` + patches `auth_id`. Docs: `docs/signup-test-runbook.md`, `docs/currents.md`. Flag: `SELF_SERVE_SIGNUP_ENABLED`.
 
 ### Migrations (`supabase/migrations/`)
 
-Next: **027**. 001–019 cover schema through S6 (see files). Key recent:
+Next: **028**. 001–019 cover schema through S6 (see files). Key recent:
 
 - 020 — JSONB scalar-string repair (`payload = (payload#>>'{}')::jsonb WHERE jsonb_typeof(payload)='string'` across all JSONB cols)
 - 021 — `channel_enrollments` + email backfill
@@ -253,6 +254,7 @@ Next: **027**. 001–019 cover schema through S6 (see files). Key recent:
 - 024 — `notification_deliveries` dedup unique index (send-before-record race prevention)
 - 025 — signup: two partial indexes + email lowercase backfill + `onboarded_by` backfill (both collision-guarded)
 - 026 — Zernio: widen `responses.status` → TEXT, recreate non-terminal-uniqueness index incl. `awaiting_owner_connect`, add `zernio_connections` + `zernio_finalize_incidents` tables, 2 dedup indexes on `notification_deliveries`, in-flight `publish_response` outbox uniqueness
+- 027 — Channels Phase 4: partial unique index `channel_enrollments_one_mobile_per_biz` enforcing at most one pending/verified mobile channel (sms/telegram/whatsapp) per business; predicate excludes disabled/unsubscribed/archived rows so enrollment history is preserved across switches.
 
 ### Feature flags / non-obvious env vars
 
