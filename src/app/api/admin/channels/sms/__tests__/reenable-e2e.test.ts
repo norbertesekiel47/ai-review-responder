@@ -297,6 +297,10 @@ describe('SMS re-enable lifecycle (E2E)', () => {
     const allowedSql = sqlCallsLog.map((c) => c.raw).join('\n');
     expect(allowedSql).toMatch(/UPDATE channel_enrollments/);
     expect(allowedSql).toMatch(/status = 'pending_verification'/);
+    // Cross-channel pre-check (Phase 4 Fix #2) — fails the test if the
+    // SELECT that gates Twilio Verify on "no other mobile channel for this
+    // business" is removed or changed shape.
+    expect(allowedSql).toMatch(/SELECT channel FROM channel_enrollments[\s\S]*channel IN \('telegram', 'whatsapp'\)/);
 
     // ─────────────────────────────────────────────────────────────
     // Step 5: /confirm flips the row to verified.
