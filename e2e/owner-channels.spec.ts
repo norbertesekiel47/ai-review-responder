@@ -23,8 +23,6 @@ import { isE2eConfigured } from './seed';
 import { simulateTelegramStart } from './helpers/telegram-test-ingress';
 
 test.describe('Owner /settings/channels — unauthenticated', () => {
-  test.skip(!isE2eConfigured, 'TEST_DATABASE_POOL_URL not set — skipping E2E channels tests');
-
   test('unauthenticated /settings/channels redirects to login', async ({ page }) => {
     await page.goto('/settings/channels');
     await expect(page).toHaveURL(/\/admin\/login/, { timeout: 10_000 });

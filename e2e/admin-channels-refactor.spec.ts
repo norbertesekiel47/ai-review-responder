@@ -18,8 +18,6 @@ import { test, expect } from '@playwright/test';
 import { isE2eConfigured } from './seed';
 
 test.describe('Admin business detail — unauthenticated', () => {
-  test.skip(!isE2eConfigured, 'TEST_DATABASE_POOL_URL not set');
-
   test('unauthenticated /admin/businesses/:id redirects to login', async ({ page }) => {
     await page.goto('/admin/businesses/00000000-0000-0000-0000-000000000000');
     await expect(page).toHaveURL(/\/admin\/login/, { timeout: 10_000 });
