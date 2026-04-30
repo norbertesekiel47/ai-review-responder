@@ -185,11 +185,17 @@ describe('correlation chain — Part A: ReviewSyncWorker propagates to generate_
     // Queue the business lookup (first SELECT)
     sqlReturnQueueA.push([activeBusiness()]);
     // After fetchReviews returns, processReview runs inside sql.begin using mockTxA.
-    // mockTxA defaults to returning [] for every call, which means:
-    //   - SELECT existing review (FOR UPDATE) → [] (NEW review branch)
-    //   - INSERT reviews → [] (no RETURNING used)
-    //   - INSERT job_outbox generate_response → [] (this is what we're verifying)
+    // processReview now uses ON CONFLICT DO NOTHING RETURNING id and checks inserted.count.
+    // We must sequence mockTxA responses to match the new call order:
+    //   call 1: SELECT existing review (FOR UPDATE) → [] (not found → NEW branch)
+    //   call 2: INSERT INTO reviews ... RETURNING id (ON CONFLICT DO NOTHING) → count=1 (won the race)
+    //   call 3: INSERT INTO job_outbox generate_response → [] (this is what we're verifying)
     // baseline_captured_at is already set so captureRoiBaseline is skipped.
+    const inserted = Object.assign([], { count: 1 });
+    mockTxA
+      .mockResolvedValueOnce([])       // SELECT FOR UPDATE → no existing row
+      .mockResolvedValueOnce(inserted) // INSERT reviews ON CONFLICT DO NOTHING → count=1
+      .mockResolvedValueOnce([]);      // INSERT job_outbox
     mockFetchReviews.mockResolvedValue(makeMonitorResult());
 
     await handleReviewSync(makeSyncJob(UPSTREAM_CORRELATION));
