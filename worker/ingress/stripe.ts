@@ -1,6 +1,7 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import Stripe from 'stripe';
-import { sql } from '../../src/lib/db/server';
+import { v7 as uuidv7 } from 'uuid';
+import { sql, jsonb } from '../../src/lib/db/server';
 import { claimInboundEvent } from './shared';
 
 const LOG_PREFIX = '[ingress/stripe]';
@@ -30,6 +31,76 @@ function extractSubscriptionId(subscription: string | Stripe.Subscription | null
 // v7 from the `uuid` package, but legacy admin rows may be v4). Same regex
 // + reasoning as worker/ingress/twilio-whatsapp.ts:154.
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Auto-recovery: when a business activates AND has an active Zernio
+ * connection AND a stalled (or never-completed) backfill, enqueue a fresh
+ * zernio_initial_backfill outbox row so the worker resumes the run.
+ *
+ * Covers two scenarios:
+ *   - past_due → active billing recovery (worker previously skipped the
+ *     backfill because checkSubscription denied; the row's completed_at
+ *     stayed NULL; this hook re-kicks it).
+ *   - admin-onboarded business that connected Zernio BEFORE checkout
+ *     completed (rare but possible).
+ *
+ * The worker's `ON CONFLICT (business_id) DO NOTHING` on zernio_backfill_runs
+ * means the existing row is preserved + the run resumes (the SELECT after
+ * the upsert sees completed_at IS NULL → proceeds). No-op when no active
+ * connection exists OR backfill is already completed.
+ *
+ * Invoked OUTSIDE the activation tx — billing flip is the load-bearing
+ * mutation, this is best-effort on top.
+ */
+async function maybeEnqueueBackfillResume(businessId: string): Promise<void> {
+  if (process.env.ZERNIO_PUBLISHING_ENABLED !== 'true') return;
+
+  const [target] = await sql<{
+    zernio_account_id: string;
+    zernio_location_id: string;
+    subscription_tier: string;
+    subscription_activated_at: Date;
+  }[]>`
+    SELECT
+      zc.zernio_account_id,
+      zc.zernio_location_id,
+      b.subscription_tier,
+      b.subscription_activated_at
+    FROM zernio_connections zc
+    JOIN businesses b ON b.id = zc.business_id
+    WHERE zc.business_id = ${businessId}::uuid
+      AND zc.status = 'active'
+      AND b.subscription_activated_at IS NOT NULL
+      AND EXISTS (
+        SELECT 1 FROM zernio_backfill_runs br
+        WHERE br.business_id = ${businessId}::uuid
+          AND br.completed_at IS NULL
+      )
+    LIMIT 1
+  `;
+
+  if (!target) return;
+
+  await sql`
+    INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+    VALUES (
+      ${uuidv7()},
+      'zernio_initial_backfill',
+      'business',
+      ${businessId}::uuid,
+      ${jsonb({
+        business_id: businessId,
+        zernio_account_id: target.zernio_account_id,
+        zernio_location_id: target.zernio_location_id,
+        subscription_tier: target.subscription_tier,
+        subscription_activated_at: target.subscription_activated_at.toISOString(),
+        correlation_id: uuidv7(),
+      })},
+      'pending'
+    )
+  `;
+  console.log(`${LOG_PREFIX} Re-enqueued zernio_initial_backfill for business=${businessId} (post-activation backfill resume)`);
+}
 
 async function processCheckoutSessionCompleted(session: Stripe.Checkout.Session): Promise<void> {
   const businessId = session.client_reference_id ?? session.metadata?.business_id;
@@ -114,6 +185,12 @@ async function processCheckoutSessionCompleted(session: Stripe.Checkout.Session)
       console.warn(`${LOG_PREFIX} Business ${businessId} not activated — current status is not pending_payment or past_due`);
     }
   });
+
+  // Best-effort backfill resume after activation — outside the tx so a
+  // missing zernio_backfill_runs / zernio_connections row is a no-op.
+  await maybeEnqueueBackfillResume(businessId).catch((err) => {
+    console.error(`${LOG_PREFIX} maybeEnqueueBackfillResume failed for business=${businessId}: ${err instanceof Error ? err.message : err}`);
+  });
 }
 
 async function processInvoicePaymentFailed(invoice: Stripe.Invoice): Promise<void> {
@@ -139,13 +216,27 @@ async function processInvoicePaid(invoice: Stripe.Invoice): Promise<void> {
     return;
   }
 
-  await sql`
+  // RETURNING id so we can resume any stalled Zernio backfill the worker
+  // skipped while the business sat in past_due.
+  const recovered = await sql<{ id: string }[]>`
     UPDATE businesses
     SET subscription_status = 'active', updated_at = NOW()
     WHERE stripe_customer_id = ${customerId}
       AND subscription_status = 'past_due'
+    RETURNING id
   `;
+
+  if (recovered.length === 0) {
+    return;
+  }
+
   console.log(`${LOG_PREFIX} Business with customer=${customerId} recovered from past_due to active`);
+
+  for (const row of recovered) {
+    await maybeEnqueueBackfillResume(row.id).catch((err) => {
+      console.error(`${LOG_PREFIX} maybeEnqueueBackfillResume failed for business=${row.id}: ${err instanceof Error ? err.message : err}`);
+    });
+  }
 }
 
 async function processSubscriptionDeleted(sub: Stripe.Subscription): Promise<void> {

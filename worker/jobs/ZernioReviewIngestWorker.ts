@@ -43,9 +43,31 @@ export class ZernioIngestReviewNotFoundError extends Error {
     readonly zernioAccountId: string,
     readonly zernioLocationId: string,
     readonly zernioReviewId: string,
+    readonly pagesWalked: number,
+    readonly reviewsSeen: number,
   ) {
-    super(`Zernio review ${zernioReviewId} not found in latest 100 — retrying`);
+    super(`Zernio review ${zernioReviewId} not found after walking entire feed (${reviewsSeen} reviews, ${pagesWalked} pages) — review likely deleted on Google`);
     this.name = 'ZernioIngestReviewNotFoundError';
+  }
+}
+
+/** Thrown when the configured pagination cap is exhausted before the target
+ *  review is located AND Zernio still reports more pages available. The
+ *  review may exist further back; cap is intentionally bounded to keep
+ *  per-job latency + cost predictable. Failed-hook escalates to a distinct
+ *  review_exceptions type so ops can either bump the cap or manually
+ *  reconcile (rather than treating it as durable not-found). */
+export class ZernioIngestPaginationCapExhaustedError extends Error {
+  constructor(
+    readonly businessId: string,
+    readonly zernioAccountId: string,
+    readonly zernioLocationId: string,
+    readonly zernioReviewId: string,
+    readonly cap: number,
+    readonly reviewsSeen: number,
+  ) {
+    super(`Zernio review ${zernioReviewId} not found within pagination cap=${cap} pages (${reviewsSeen} reviews seen, more pages available)`);
+    this.name = 'ZernioIngestPaginationCapExhaustedError';
   }
 }
 
@@ -97,24 +119,42 @@ export async function handleZernioReviewIngest(job: Job<IngestZernioReviewPayloa
     return;
   }
 
-  // 4. Fetch + locate. Walk up to 4 pages = 200 reviews — older review.updated
-  // events may target reviews well past the most-recent 100. After exhaustion
-  // the worker throws ZernioIngestReviewNotFoundError; the failed-hook in
-  // worker/index.ts only escalates to review_exceptions on retry exhaustion,
-  // so transient Zernio listReviews lag still gets retried by BullMQ.
+  // 4. Fetch + locate. Walk up to ZERNIO_INGEST_MAX_PAGES (default 4) =
+  // 200 reviews. Distinguish two not-found outcomes:
+  //   (a) Walked the entire feed (no nextPageToken at last page) →
+  //       durable ZernioIngestReviewNotFoundError. Review likely deleted
+  //       on Google or never propagated to Zernio.
+  //   (b) Hit the pagination cap with nextPageToken still set →
+  //       ZernioIngestPaginationCapExhaustedError. Indeterminate — review
+  //       may exist further back; ops decides whether to bump cap or
+  //       manually reconcile.
+  // The failed-hook in worker/index.ts opens DIFFERENT review_exceptions
+  // types for the two cases so ops can triage separately.
+  const maxPages = Math.max(1, parseInt(process.env.ZERNIO_INGEST_MAX_PAGES ?? '4', 10) || 4);
   let target: ZernioReview | undefined;
   let pageToken: string | undefined;
+  let reviewsSeen = 0;
+  let pagesWalked = 0;
+  let capExhaustedWithMorePages = false;
   try {
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < maxPages; i++) {
       const page = await zernioClient.listReviews(zernio_account_id, {
         locationId: zernio_location_id,
         pageSize: 50,
         pageToken,
       });
+      pagesWalked += 1;
+      reviewsSeen += page.reviews.length;
       target = page.reviews.find((r) => r.id === zernio_review_id);
       if (target) break;
       if (!page.nextPageToken) break;
       pageToken = page.nextPageToken;
+      // If we're exiting the loop on the LAST iteration with a token still
+      // available, mark cap-exhaustion so the post-loop branch routes to
+      // the indeterminate error class.
+      if (i === maxPages - 1) {
+        capExhaustedWithMorePages = true;
+      }
     }
   } catch (err) {
     await handleZernioIngestError(
@@ -125,8 +165,15 @@ export async function handleZernioReviewIngest(job: Job<IngestZernioReviewPayloa
   }
 
   if (!target) {
+    if (capExhaustedWithMorePages) {
+      throw new ZernioIngestPaginationCapExhaustedError(
+        business_id, zernio_account_id, zernio_location_id, zernio_review_id,
+        maxPages, reviewsSeen,
+      );
+    }
     throw new ZernioIngestReviewNotFoundError(
       business_id, zernio_account_id, zernio_location_id, zernio_review_id,
+      pagesWalked, reviewsSeen,
     );
   }
 

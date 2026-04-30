@@ -291,6 +291,7 @@ Next: **028**. 001–019 cover schema through S6 (see files). Key recent:
 - `ZERNIO_API_KEY` — required when flag on. Worker startup assertion fails otherwise (mock mode bypasses).
 - `ZERNIO_WEBHOOK_SECRET` — required when flag on. HMAC shared secret used by `worker/ingress/zernio-verify.ts`. Must match the value configured in the Zernio dashboard. Rotate by updating both env var and Zernio dashboard config (Zernio retries 7× over 51h, so a brief 401 window is tolerable).
 - `ZERNIO_PROFILE_ID_PREFIX` — optional, default `'repworth-prod-'`. Prefixed onto Zernio profile names so prod/staging/local don't collide on the same Zernio workspace.
+- `ZERNIO_INGEST_MAX_PAGES` — optional, default `4` (200 reviews). Caps `ZernioReviewIngestWorker`'s `listReviews` walk for `review.updated` lookups. Hitting the cap with `nextPageToken` still set escalates to `review_exceptions type='zernio_pagination_cap_exhausted'` (distinct from durable `zernio_review_not_found`) so ops can decide whether to bump the cap or accept the gap.
 - `ZERNIO_API_BASE` — optional, default `'https://zernio.com/api'`. Override for sandbox.
 
 ### GBP API

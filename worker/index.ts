@@ -48,6 +48,7 @@ import { handlePublishResponse } from './jobs/ResponsePublisherWorker';
 import {
   handleZernioReviewIngest,
   ZernioIngestReviewNotFoundError,
+  ZernioIngestPaginationCapExhaustedError,
   ZernioIngestUnparseableLocationError,
 } from './jobs/ZernioReviewIngestWorker';
 import { handleZernioBackfill } from './jobs/ZernioBackfillWorker';
@@ -171,6 +172,8 @@ ingestZernioReviewWorker.on('failed', async (job, err) => {
           provider_review_id: err.zernioReviewId,
           zernio_account_id: err.zernioAccountId,
           zernio_location_id: err.zernioLocationId,
+          pages_walked: err.pagesWalked,
+          reviews_seen: err.reviewsSeen,
           retries_exhausted_at: new Date().toISOString(),
         })}
       )
@@ -179,6 +182,33 @@ ingestZernioReviewWorker.on('failed', async (job, err) => {
       DO NOTHING
     `;
     await markOutboxFailed(outboxId, 'zernio_review_not_found_after_retries', outboxAttempt);
+    return;
+  }
+
+  // Indeterminate not-found — pagination cap exhausted with more pages still
+  // available. Distinct review_exceptions type so ops can triage separately
+  // (bump cap, manually reconcile, or accept the gap). No admin notify —
+  // potentially high-volume during legitimate large-feed scenarios.
+  if (err instanceof ZernioIngestPaginationCapExhaustedError) {
+    await sql`
+      INSERT INTO review_exceptions (id, business_id, type, status, payload)
+      VALUES (
+        ${uuidv7()}, ${err.businessId}, 'zernio_pagination_cap_exhausted', 'open',
+        ${jsonb({
+          provider: 'zernio',
+          provider_review_id: err.zernioReviewId,
+          zernio_account_id: err.zernioAccountId,
+          zernio_location_id: err.zernioLocationId,
+          cap: err.cap,
+          reviews_seen: err.reviewsSeen,
+          retries_exhausted_at: new Date().toISOString(),
+        })}
+      )
+      ON CONFLICT (business_id, type, (payload->>'provider_review_id'))
+        WHERE status = 'open' AND review_id IS NULL
+      DO NOTHING
+    `;
+    await markOutboxFailed(outboxId, 'zernio_pagination_cap_exhausted', outboxAttempt);
     return;
   }
 
