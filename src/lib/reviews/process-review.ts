@@ -172,11 +172,22 @@ async function processExistingReview(
   `;
 
   if (!activeResponse) {
-    // No active response — queue a fresh generation
+    // No active response — queue a fresh generation. Use MAX(version)+1
+    // so a prior terminal v1 (e.g. failed by cost-limit) doesn't collide
+    // with the new draft. ResponseGeneratorWorker's idempotency check
+    // (UNIQUE (review_id, version)) would otherwise short-circuit on the
+    // existing terminal row and silently skip generation.
+    const [versionRow] = await tx<{ next_version: number }[]>`
+      SELECT COALESCE(MAX(version), 0) + 1 AS next_version
+      FROM responses
+      WHERE review_id = ${existing.id}
+    `;
+    const nextVersion = versionRow?.next_version ?? 1;
+
     const outboxPayload: GenerateResponsePayload = {
       review_id: existing.id,
       business_id: businessId,
-      version: 1,
+      version: nextVersion,
       correlation_id: correlationId,
       suppress_notification: suppressNotification,
     };

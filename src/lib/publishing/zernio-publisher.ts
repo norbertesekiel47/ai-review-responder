@@ -39,11 +39,12 @@ export async function lookupZernioReviewId(
   locationId: string,
 ): Promise<string> {
   const redis = getCacheRedis();
-  // Cache key is scoped by accountId — Zernio review IDs are namespaced per
-  // account, so a business that disconnects + reconnects to a different
-  // Zernio account would otherwise hit a stale mapping pointing at an ID
-  // that the new account doesn't recognize (postReply → 404).
-  const cacheKey = `zernio_review_map:${accountId}:${businessId}:${ourReviewId}`;
+  // Cache key is scoped by (accountId, locationId) — Zernio review IDs are
+  // namespaced per account, AND a same-account location switch invalidates
+  // any prior mapping (mapping points at the OLD location's review id;
+  // postReply against the new location would 404). Reconnects to a
+  // different account also wipe via the accountId scope.
+  const cacheKey = `zernio_review_map:${accountId}:${locationId}:${businessId}:${ourReviewId}`;
 
   const cached = await redis.get(cacheKey);
   if (cached) return cached;

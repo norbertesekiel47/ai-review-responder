@@ -73,16 +73,19 @@ export async function handleZernioBackfill(job: Job<ZernioInitialBackfillPayload
     return;
   }
 
-  // Subscription guard
+  // Subscription guard. Do NOT set completed_at on skip — billing may be
+  // restored later (past_due → active, pending_payment → active) and the
+  // owner deserves a backfill at that point. The outbox row is completed
+  // so this attempt isn't retried automatically; a future reconnect (or
+  // ops-triggered re-enqueue) will retry the backfill via the same
+  // zernio_backfill_runs row (completed_at IS NULL → idempotent re-entry).
   const [biz] = await sql<{ subscription_status: string; updated_at: Date }[]>`
     SELECT subscription_status, updated_at FROM businesses WHERE id = ${business_id}
   `;
   if (!biz || !checkSubscription(biz.subscription_status, biz.updated_at, 'generator').allowed) {
-    await sql`
-      UPDATE zernio_backfill_runs
-      SET completed_at = NOW(), updated_at = NOW()
-      WHERE business_id = ${business_id}
-    `;
+    logger.log(
+      `Backfill skipped for business=${business_id}: subscription_status=${biz?.subscription_status ?? 'missing'}`,
+    );
     await markOutboxCompleted(outboxId, attempt);
     return;
   }

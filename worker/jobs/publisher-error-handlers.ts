@@ -112,6 +112,11 @@ export async function handlePublisherAuthErrorTerminal(args: AuthErrorTerminalAr
       RETURNING 1
     `;
 
+    // Include awaiting_owner_connect so a re-attempt of an already-parked
+    // response (e.g. retry after a transient throw) still routes through
+    // notify enqueue. Without this, a parallel publisher attempt could
+    // disconnect the connection and then skip the reconnect email because
+    // the response UPDATE returns 0 rows.
     const parked = await tx<{ review_id: string }[]>`
       UPDATE responses
       SET status = 'awaiting_owner_connect',
@@ -119,7 +124,7 @@ export async function handlePublisherAuthErrorTerminal(args: AuthErrorTerminalAr
           updated_at = NOW()
       WHERE id = ${response_id}
         AND business_id = ${business_id}
-        AND status IN ('approved', 'edited')
+        AND status IN ('approved', 'edited', 'awaiting_owner_connect')
       RETURNING review_id
     `;
 
@@ -130,12 +135,15 @@ export async function handlePublisherAuthErrorTerminal(args: AuthErrorTerminalAr
 
     const reviewId = parked[0]!.review_id;
 
+    // OwnerEmailWorker dispatches by job.data.kind — 'reconnect_required'
+    // routes to sendReconnectRequired; absence falls through to
+    // sendConnectionLost (wrong template).
     await tx`
       INSERT INTO job_outbox (
         id, topic, aggregate_type, aggregate_id, payload, attempts, max_attempts
       ) VALUES (
         ${uuidv7()}, 'notify_owner_reconnect', 'response', ${response_id},
-        ${jsonb({ response_id, business_id, review_id: reviewId })}, 0, 5
+        ${jsonb({ kind: 'reconnect_required', response_id, business_id, review_id: reviewId })}, 0, 5
       )
     `;
 

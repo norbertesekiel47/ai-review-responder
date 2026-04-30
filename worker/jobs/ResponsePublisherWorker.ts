@@ -268,9 +268,17 @@ export async function handlePublishResponse(
       return;
     }
     // Any other error during lookup (transient list_reviews failure, DB
-    // error, etc.) bubbles so BullMQ retries. ZernioTransientError is the
-    // common case here; the onFailed handler in worker/index.ts handles
-    // exhaustion via applyTransientExhaustionFallback.
+    // error, etc.) bubbles so BullMQ retries. Wrap ZernioTransientError
+    // with attempt context so the failed-hook can pin the disconnect to
+    // the attempted account+location (mirrors postReply path).
+    if (err instanceof ZernioTransientError) {
+      throw new PublisherTransientWithContext(err, {
+        response_id,
+        business_id,
+        account_id: zernioConnection.zernio_account_id,
+        location_id: zernioConnection.zernio_location_id,
+      });
+    }
     throw err;
   }
 

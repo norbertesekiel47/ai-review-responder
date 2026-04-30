@@ -79,7 +79,7 @@ describe('lookupZernioReviewId', () => {
     const result = await lookupZernioReviewId('biz1', 'our1', 'acct1', 'loc1');
 
     expect(result).toBe('zernio-match');
-    expect(setex).toHaveBeenCalledWith('zernio_review_map:acct1:biz1:our1', 86400, 'zernio-match');
+    expect(setex).toHaveBeenCalledWith('zernio_review_map:acct1:loc1:biz1:our1', 86400, 'zernio-match');
   });
 
   it('throws ZernioReviewNotFoundError when no Zernio candidate matches', async () => {

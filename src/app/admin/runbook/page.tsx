@@ -78,8 +78,8 @@ const SCENARIOS: Scenario[] = [
     id: 'A5',
     customerSays: "My reviews aren't being picked up.",
     firstCheck:
-      'Business detail → last_sync_at (stale >6h?), subscription_status (cancelled?), place_id_verified (false?). Check /admin/jobs for failed sync_reviews.',
-    fix: 'SerpAPI quota exhausted → top up or wait for reset. Place ID unverified → re-enter via PlaceAutocomplete. Billing issue → resolve in Stripe.',
+      'Business detail → Zernio Connection panel (active/disconnected/finalize_unknown?), subscription_status (cancelled?). Check /admin/jobs for failed ingest_zernio_review or zernio_initial_backfill rows. Check zernio_backfill_runs.completed_at for first-connect status.',
+    fix: 'Zernio disconnected → owner must reconnect via /settings/channels. Webhook delivery failing → check Zernio dashboard webhook URL + signature secret. Billing issue → resolve in Stripe. If first-connect backfill never completed (zernio_backfill_runs.completed_at IS NULL), re-enqueue zernio_initial_backfill outbox row.',
   },
 ];
 

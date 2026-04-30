@@ -97,11 +97,15 @@ export async function handleZernioReviewIngest(job: Job<IngestZernioReviewPayloa
     return;
   }
 
-  // 4. Fetch + locate (up to 2 pages = 100 reviews), locationId-scoped.
+  // 4. Fetch + locate. Walk up to 4 pages = 200 reviews — older review.updated
+  // events may target reviews well past the most-recent 100. After exhaustion
+  // the worker throws ZernioIngestReviewNotFoundError; the failed-hook in
+  // worker/index.ts only escalates to review_exceptions on retry exhaustion,
+  // so transient Zernio listReviews lag still gets retried by BullMQ.
   let target: ZernioReview | undefined;
   let pageToken: string | undefined;
   try {
-    for (let i = 0; i < 2; i++) {
+    for (let i = 0; i < 4; i++) {
       const page = await zernioClient.listReviews(zernio_account_id, {
         locationId: zernio_location_id,
         pageSize: 50,
