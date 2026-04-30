@@ -257,6 +257,7 @@ Next: **028**. 001–019 cover schema through S6 (see files). Key recent:
 - 027 — Channels Phase 4: partial unique index `channel_enrollments_one_mobile_per_biz` enforcing at most one pending/verified mobile channel (sms/telegram/whatsapp) per business; predicate excludes disabled/unsubscribed/archived rows so enrollment history is preserved across switches.
 - 028 — Zernio first-connect backfill: `zernio_backfill_runs` table (per-business summary of gap/historical processed + skipped counts; tier and subscription_activated_at snapshotted; partial unique index `zernio_backfill_runs_one_per_business`).
 - 029 — Decommission manual-post: bulk-fail orphan `awaiting_manual_post` rows with `posting_error='manual_post_deprecated_2026_04'`, rebuild `responses_one_non_terminal_per_review` without the dead status, drop the migration-024 stale `notification_deliveries_response_template_uniq` index. Apply AFTER migration 028.
+- 030 — `ingest_zernio_review` outbox dedup: partial unique index `job_outbox_ingest_zernio_review_inflight` on `(aggregate_id, (payload->>'zernio_review_id'))` for non-terminal rows of `topic='ingest_zernio_review'`. Webhook fan-out's `INSERT ... ON CONFLICT DO NOTHING` uses this to dedup against in-flight rows when Zernio retries a webhook delivery mid-processing.
 
 ### Feature flags / non-obvious env vars
 

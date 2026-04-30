@@ -9,12 +9,25 @@
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '@/lib/db/server';
 
+/** Strip credential-bearing patterns from the persisted reason. Mirrors
+ *  publisher-error-handlers.ts redactSensitiveError — defensive in case
+ *  Zernio echoes a token in 401/403 body. */
+function redactSensitiveError(body: string): string {
+  return body
+    .replace(/Bearer\s+[A-Za-z0-9\-._~+/]+=*/gi, 'Bearer [REDACTED]')
+    .replace(/Basic\s+[A-Za-z0-9+/]+=*/gi, 'Basic [REDACTED]')
+    .replace(/(token|secret|api[_-]?key|password|authorization)=([^&\s"']+)/gi, '$1=[REDACTED]')
+    .replace(/("(token|secret|api[_-]?key|password|authorization)"\s*:\s*)"[^"]*"/gi, '$1"[REDACTED]"');
+}
+
 export async function applyIngestionAuthErrorFallback(
   businessId: string,
   accountId: string,
   locationId: string,
   reason: string,
 ): Promise<void> {
+  const safeReason = redactSensitiveError(reason);
+
   await sql.begin(async (tx) => {
     // Disconnect the matching active connection. Scoped by location to avoid
     // accidentally disconnecting a sibling business sharing the same account
@@ -24,7 +37,7 @@ export async function applyIngestionAuthErrorFallback(
       SET status = 'disconnected',
           disconnected_at = NOW(),
           disconnect_reason = 'auth_error_on_ingest',
-          last_error = ${reason},
+          last_error = ${safeReason},
           last_error_at = NOW(),
           updated_at = NOW()
       WHERE business_id = ${businessId}

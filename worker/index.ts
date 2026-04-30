@@ -212,6 +212,24 @@ ingestZernioReviewWorker.on('failed', async (job, err) => {
         WHERE status = 'open' AND review_id IS NULL
       DO NOTHING
     `;
+    // Trend-only Sentry signal — admin notify is intentionally skipped
+    // (potential high-volume), but ops needs visibility on cap-exhaustion
+    // rate so the cap can be tuned via ZERNIO_INGEST_MAX_PAGES.
+    Sentry.captureMessage('zernio_pagination_cap_exhausted', {
+      level: 'warning',
+      tags: {
+        worker: 'ingest_zernio_review',
+        kind: 'pagination_cap_exhausted',
+      },
+      extra: {
+        business_id: err.businessId,
+        zernio_account_id: err.zernioAccountId,
+        zernio_location_id: err.zernioLocationId,
+        zernio_review_id: err.zernioReviewId,
+        cap: err.cap,
+        reviews_seen: err.reviewsSeen,
+      },
+    });
     await markOutboxFailed(outboxId, 'zernio_pagination_cap_exhausted', outboxAttempt);
     return;
   }
@@ -339,16 +357,33 @@ publisherWorker.on('failed', async (job, err) => {
     }
 
     if (err instanceof ZernioTransientError) {
-      // Unwrap PublisherTransientWithContext (round-11/12) so the fallback
-      // can pin the disconnect to the attempted account+location.
-      const ctx = err instanceof PublisherTransientWithContext ? err.attemptContext : null;
+      // Unwrap PublisherTransientWithContext for the pinned disconnect.
+      // Bare ZernioTransientError without context is now a CODE BUG —
+      // every publisher path wraps transient throws (postReply, lookup,
+      // 409 verifier). Surface loudly via Sentry rather than silently
+      // disconnecting every active connection (the previous safety-net
+      // fallback was deleted because it was unsafe with multi-connection
+      // businesses).
+      if (!(err instanceof PublisherTransientWithContext)) {
+        console.error('[publisherWorker] bare ZernioTransientError reached failed-hook — missing PublisherTransientWithContext wrap upstream');
+        Sentry.captureException(err, {
+          tags: { worker: 'publisher', kind: 'unwrapped_transient' },
+          level: 'error',
+          extra: { response_id: job.data.response_id, business_id: job.data.business_id },
+        });
+        // Still close the outbox so the row doesn't stay dispatched.
+        const reason = err instanceof Error ? err.message : String(err);
+        await markOutboxFailed(outboxId, `unwrapped_transient_no_context: ${reason}`, outboxAttempt);
+        return;
+      }
+      const ctx = err.attemptContext;
       try {
         await applyTransientExhaustionFallback({
-          response_id: ctx?.response_id ?? job.data.response_id,
-          business_id: ctx?.business_id ?? job.data.business_id,
+          response_id: ctx.response_id,
+          business_id: ctx.business_id,
           correlation_id: job.data.correlation_id,
-          account_id: ctx?.account_id,
-          location_id: ctx?.location_id,
+          account_id: ctx.account_id,
+          location_id: ctx.location_id,
         });
         await markOutboxFailed(outboxId, 'zernio_transient_max_attempts', outboxAttempt);
       } catch (fallbackErr) {

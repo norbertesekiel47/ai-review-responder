@@ -127,12 +127,15 @@ export async function lookupZernioReviewId(
 export async function applyTransientExhaustionFallback(args: {
   response_id: string;
   business_id: string;
+  /** REQUIRED — every code path now wraps transient throws in
+   *  PublisherTransientWithContext, so the failed-hook always has the
+   *  attempt's account/location available. The previous un-pinned legacy
+   *  fallback was deleted: a missing account+location would silently
+   *  disconnect EVERY active connection at the business, which is
+   *  catastrophic when a business has multiple Zernio connections. */
+  account_id: string;
+  location_id: string;
   correlation_id?: string;
-  /** When supplied alongside location_id, the disconnect WHERE clause pins
-   *  to that specific connection (round-11/12). When either is absent, falls
-   *  back to un-pinned legacy behavior as a safety net. */
-  account_id?: string;
-  location_id?: string;
 }): Promise<void> {
   const {
     response_id: responseId,
@@ -164,30 +167,18 @@ export async function applyTransientExhaustionFallback(args: {
       return;
     }
 
-    if (accountId && locationId) {
-      await tx`
-        UPDATE zernio_connections
-        SET status = 'disconnected',
-            disconnected_at = NOW(),
-            disconnect_reason = 'auth_error_on_post',
-            last_error = 'BullMQ retries exhausted',
-            last_error_at = NOW()
-        WHERE business_id = ${businessId}
-          AND zernio_account_id = ${accountId}
-          AND zernio_location_id = ${locationId}
-          AND status = 'active'
-      `;
-    } else {
-      await tx`
-        UPDATE zernio_connections
-        SET status = 'disconnected',
-            disconnected_at = NOW(),
-            disconnect_reason = 'auth_error_on_post',
-            last_error = 'BullMQ retries exhausted',
-            last_error_at = NOW()
-        WHERE business_id = ${businessId} AND status = 'active'
-      `;
-    }
+    await tx`
+      UPDATE zernio_connections
+      SET status = 'disconnected',
+          disconnected_at = NOW(),
+          disconnect_reason = 'auth_error_on_post',
+          last_error = 'BullMQ retries exhausted',
+          last_error_at = NOW()
+      WHERE business_id = ${businessId}
+        AND zernio_account_id = ${accountId}
+        AND zernio_location_id = ${locationId}
+        AND status = 'active'
+    `;
 
     await tx`
       INSERT INTO job_outbox (

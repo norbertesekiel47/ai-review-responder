@@ -32,10 +32,35 @@ export interface ParsedReviewWebhook {
   fullReviewName: string | null;
 }
 
+/** Bound for the truncated raw-payload preview attached to parse errors.
+ *  Webhook bodies don't typically contain secrets but reviewer names +
+ *  addresses count as PII; capping the preview keeps Sentry breadcrumbs
+ *  bounded. Full body still hits worker logs (governed by Sentry's
+ *  global beforeSend scrubber). */
+const RAW_PREVIEW_LIMIT = 500;
+
+function truncateRaw(raw: unknown): string {
+  let s: string;
+  try {
+    if (typeof raw === 'string') s = raw;
+    else if (raw === undefined) s = 'undefined';
+    else s = JSON.stringify(raw) ?? String(raw);
+  } catch {
+    s = String(raw);
+  }
+  if (s.length <= RAW_PREVIEW_LIMIT) return s;
+  return `${s.slice(0, RAW_PREVIEW_LIMIT)}…[truncated, total=${s.length}]`;
+}
+
 export class ZernioReviewWebhookParseError extends Error {
-  constructor(reason: string, readonly raw: unknown) {
+  /** Length-bounded preview of the raw payload for debugging — NOT the
+   *  full body, so Sentry breadcrumbs can't accidentally capture
+   *  many-KB review payloads. */
+  readonly rawPreview: string;
+  constructor(reason: string, raw: unknown) {
     super(`[parse-review-webhook] ${reason}`);
     this.name = 'ZernioReviewWebhookParseError';
+    this.rawPreview = truncateRaw(raw);
   }
 }
 

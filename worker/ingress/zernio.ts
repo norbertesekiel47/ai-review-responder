@@ -119,14 +119,21 @@ export async function handleZernioWebhook(
   // 'invalid_signature_format'; valid shape but bad bytes returns
   // 'invalid_signature'. The verifier collapses both cases into a boolean,
   // so we surface the format error explicitly here.
+  //
+  // Future-proof: tolerate Stripe/GitHub-style 'sha256=' prefix in case
+  // Zernio ever changes its signature shape. Strip the prefix before
+  // verification so the verifier sees a bare hex string either way.
   const HEX_64 = /^[0-9a-f]{64}$/i;
-  if (!signature || !HEX_64.test(signature)) {
+  const strippedSignature = signature.startsWith('sha256=')
+    ? signature.slice('sha256='.length)
+    : signature;
+  if (!strippedSignature || !HEX_64.test(strippedSignature)) {
     console.warn(`${LOG_PREFIX} Missing or malformed x-zernio-signature header`);
     reply.status(401).send({ error: 'invalid_signature_format' });
     return;
   }
 
-  if (!verifyZernioSignature(rawBody, signature, webhookSecret)) {
+  if (!verifyZernioSignature(rawBody, strippedSignature, webhookSecret)) {
     console.warn(`${LOG_PREFIX} Signature verification failed`);
     reply.status(401).send({ error: 'invalid_signature' });
     return;
@@ -204,6 +211,12 @@ export async function handleZernioWebhook(
           throw err;
         }
 
+        // ON CONFLICT DO NOTHING dedups against any non-terminal outbox
+        // row already in flight for the same (business, zernio_review_id).
+        // Migration 030's partial unique index is the conflict target.
+        // Without this, Zernio's webhook retry on worker crash would
+        // produce duplicate outbox rows that all do the same listReviews
+        // walk → wasted Zernio API quota.
         if (parsed.locationIdFromPayload) {
           await sql`
             INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
@@ -224,6 +237,10 @@ export async function handleZernioWebhook(
             WHERE zc.zernio_account_id = ${parsed.accountId}
               AND zc.zernio_location_id = ${parsed.locationIdFromPayload}
               AND zc.status = 'active'
+            ON CONFLICT (aggregate_id, (payload->>'zernio_review_id'))
+              WHERE topic = 'ingest_zernio_review'
+                AND status IN ('pending', 'dispatching', 'dispatched')
+            DO NOTHING
           `;
         } else {
           await sql`
@@ -244,6 +261,10 @@ export async function handleZernioWebhook(
             FROM zernio_connections zc
             WHERE zc.zernio_account_id = ${parsed.accountId}
               AND zc.status = 'active'
+            ON CONFLICT (aggregate_id, (payload->>'zernio_review_id'))
+              WHERE topic = 'ingest_zernio_review'
+                AND status IN ('pending', 'dispatching', 'dispatched')
+            DO NOTHING
           `;
         }
         break;

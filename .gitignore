@@ -69,3 +69,6 @@ screenshot.png
 
 # git worktrees (isolated workspaces for parallel feature work)
 .worktrees/
+
+# Local tooling cache (not for commit)
+.fallow/

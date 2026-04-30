@@ -106,6 +106,15 @@ export async function handleZernioBackfill(job: Job<ZernioInitialBackfillPayload
   }
 
   const activeSinceMs = new Date(subscription_activated_at).getTime();
+  if (Number.isNaN(activeSinceMs)) {
+    // Malformed ISO string — without this guard, all >= comparisons evaluate
+    // false, producing gap=[] and (non-premium) historical=[], silently
+    // completing the backfill with 0 reviews processed. Throw → BullMQ
+    // retry → exhaustion surfaces in the failed outbox row for ops.
+    throw new Error(
+      `[ZernioBackfillWorker] malformed subscription_activated_at for business=${business_id}: ${JSON.stringify(subscription_activated_at)}`,
+    );
+  }
 
   // Defense-in-depth client-side filter — only process reviews from this location.
   const locationScoped = all.filter(
@@ -133,17 +142,21 @@ export async function handleZernioBackfill(job: Job<ZernioInitialBackfillPayload
     }
   }
 
+  const isPremium = subscription_tier === 'premium';
+  const GAP_CAP = 25;
+  const HISTORICAL_CAP_PREMIUM = 50;
+
   const gapAll = unanswered.filter((z) => new Date(z.createTime).getTime() >= activeSinceMs);
   const histAll = unanswered.filter((z) => new Date(z.createTime).getTime() < activeSinceMs);
 
-  const gap = gapAll.slice(0, 25);
-  const historical = subscription_tier === 'premium' ? histAll.slice(0, 50) : [];
+  const gap = gapAll.slice(0, GAP_CAP);
+  const historical = isPremium ? histAll.slice(0, HISTORICAL_CAP_PREMIUM) : [];
 
   const gapSkipped = gapAll.length - gap.length;
-  const historicalSkipped = subscription_tier === 'premium'
+  const historicalSkipped = isPremium
     ? histAll.length - historical.length
     : histAll.length;
-  const oldestSkipped = [...gapAll.slice(25), ...histAll.slice(historical.length)]
+  const oldestSkipped = [...gapAll.slice(GAP_CAP), ...histAll.slice(historical.length)]
     .reduce((oldest: string | null, z) =>
       !oldest || z.createTime < oldest ? z.createTime : oldest, null);
 

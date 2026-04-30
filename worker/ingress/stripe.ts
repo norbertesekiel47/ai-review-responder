@@ -157,6 +157,7 @@ async function processCheckoutSessionCompleted(session: Stripe.Checkout.Session)
   // submit business details there; admin-onboarded businesses already had
   // their outbox row written at signup time. Either way, this webhook only
   // flips status now.
+  let activated = false;
   await sql.begin(async (tx) => {
     await tx`SELECT pg_advisory_xact_lock(hashtext(${businessId + ':activation'}))`;
 
@@ -188,16 +189,20 @@ async function processCheckoutSessionCompleted(session: Stripe.Checkout.Session)
 
     if (updated.count > 0) {
       console.log(`${LOG_PREFIX} Business ${businessId} activated (customer=${customerId}, old_status=${oldStatus})`);
+      activated = true;
     } else {
       console.warn(`${LOG_PREFIX} Business ${businessId} not activated — current status is not pending_payment or past_due`);
     }
   });
 
-  // Best-effort backfill resume after activation — outside the tx so a
-  // missing zernio_backfill_runs / zernio_connections row is a no-op.
-  await maybeEnqueueBackfillResume(businessId).catch((err) => {
-    console.error(`${LOG_PREFIX} maybeEnqueueBackfillResume failed for business=${businessId}: ${err instanceof Error ? err.message : err}`);
-  });
+  // Best-effort backfill resume — only after a real status transition so
+  // duplicate webhooks for an already-active business don't burn a SELECT
+  // each. Outside the tx so a missing zernio_connections row is a no-op.
+  if (activated) {
+    await maybeEnqueueBackfillResume(businessId).catch((err) => {
+      console.error(`${LOG_PREFIX} maybeEnqueueBackfillResume failed for business=${businessId}: ${err instanceof Error ? err.message : err}`);
+    });
+  }
 }
 
 async function processInvoicePaymentFailed(invoice: Stripe.Invoice): Promise<void> {

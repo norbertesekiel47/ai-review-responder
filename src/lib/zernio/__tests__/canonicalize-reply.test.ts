@@ -36,4 +36,25 @@ describe('canonicalizeReplyText', () => {
   it('returns "" for undefined', () => {
     expect(canonicalizeReplyText(undefined)).toBe('');
   });
+
+  it('strips leading BOM (U+FEFF)', () => {
+    const withBom = '﻿hello';
+    expect(canonicalizeReplyText(withBom)).toBe('hello');
+  });
+
+  it('strips trailing zero-width space (U+200B)', () => {
+    const withZwsp = 'hello​';
+    expect(canonicalizeReplyText(withZwsp)).toBe('hello');
+  });
+
+  it('strips internal zero-width chars (U+200B–U+200D)', () => {
+    expect(canonicalizeReplyText('hello​world')).toBe('helloworld');
+    expect(canonicalizeReplyText('hello‌world')).toBe('helloworld');
+    expect(canonicalizeReplyText('hello‍world')).toBe('helloworld');
+  });
+
+  it('round-trip equality: identical visible text with vs without BOM matches', () => {
+    expect(canonicalizeReplyText('﻿hello')).toBe(canonicalizeReplyText('hello'));
+    expect(canonicalizeReplyText('hello​')).toBe(canonicalizeReplyText('hello'));
+  });
 });

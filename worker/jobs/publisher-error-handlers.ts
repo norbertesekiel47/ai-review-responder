@@ -17,6 +17,21 @@ import { ZernioTransientError } from '../../src/lib/zernio/errors';
 import { markOutboxCompleted } from '../../src/lib/shared/outbox';
 import type { WorkerLogger } from '../../src/lib/shared/logger';
 
+/** Strip credential-bearing patterns from an error body before persisting
+ *  in audit fields (zernio_connections.last_error, responses.posting_error).
+ *  Sentry's breadcrumb scrubber doesn't apply to DB writes. Conservative:
+ *  redacts Bearer tokens, basic-auth passwords, and any "token=value" /
+ *  "secret=value" / "key=value" pairs in URL/query-string-style strings.
+ *  A defensive sanity-check in case Zernio ever echoes a token in 401/403
+ *  body (some APIs do). */
+function redactSensitiveError(body: string): string {
+  return body
+    .replace(/Bearer\s+[A-Za-z0-9\-._~+/]+=*/gi, 'Bearer [REDACTED]')
+    .replace(/Basic\s+[A-Za-z0-9+/]+=*/gi, 'Basic [REDACTED]')
+    .replace(/(token|secret|api[_-]?key|password|authorization)=([^&\s"']+)/gi, '$1=[REDACTED]')
+    .replace(/("(token|secret|api[_-]?key|password|authorization)"\s*:\s*)"[^"]*"/gi, '$1"[REDACTED]"');
+}
+
 // ── Error classes ───────────────────────────────────────────────────────
 
 /** Wraps a ZernioTransientError with the publisher's attempt context so the
@@ -96,13 +111,15 @@ export async function handlePublisherAuthErrorTerminal(args: AuthErrorTerminalAr
     error_body, outboxId, outboxAttempt, logger,
   } = args;
 
+  const safeErrorBody = redactSensitiveError(error_body);
+
   await sql.begin(async (tx) => {
     const disconnected = await tx`
       UPDATE zernio_connections
       SET status = 'disconnected',
           disconnected_at = NOW(),
           disconnect_reason = 'auth_error_on_publish',
-          last_error = ${error_body},
+          last_error = ${safeErrorBody},
           last_error_at = NOW(),
           updated_at = NOW()
       WHERE business_id = ${business_id}
