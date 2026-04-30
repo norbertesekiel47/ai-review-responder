@@ -28,6 +28,7 @@ import { canonicalizeReplyText } from '../../src/lib/zernio/canonicalize-reply';
 import { getCachedZernioReviewPage } from '../../src/lib/publishing/zernio-publisher';
 import { markOutboxCompleted } from '../../src/lib/shared/outbox';
 import type { WorkerLogger } from '../../src/lib/shared/logger';
+import type { SendOwnerEmailPayload } from '../../src/lib/shared/worker-types';
 import * as Sentry from '@sentry/node';
 
 /** Strip credential-bearing patterns from an error body before persisting
@@ -167,23 +168,35 @@ export async function handlePublisherAuthErrorTerminal(args: AuthErrorTerminalAr
 
     // OwnerEmailWorker dispatches by job.data.kind — 'reconnect_required'
     // routes to sendReconnectRequired; absence falls through to
-    // sendConnectionLost (wrong template).
+    // sendConnectionLost (wrong template). `satisfies` keeps the payload
+    // shape locked against the discriminated union — drop kind/wrong field
+    // names and TS catches it at compile time.
+    void reviewId;  // not in payload — OwnerEmailWorker reads review_id from DB
+    const reconnectPayload = {
+      kind: 'reconnect_required',
+      response_id,
+      business_id,
+    } satisfies SendOwnerEmailPayload;
     await tx`
       INSERT INTO job_outbox (
         id, topic, aggregate_type, aggregate_id, payload, attempts, max_attempts
       ) VALUES (
         ${uuidv7()}, 'notify_owner_reconnect', 'response', ${response_id},
-        ${jsonb({ kind: 'reconnect_required', response_id, business_id, review_id: reviewId })}, 0, 5
+        ${jsonb(reconnectPayload)}, 0, 5
       )
     `;
 
     if (disconnected.count > 0) {
+      const lostPayload = {
+        kind: 'connection_lost',
+        business_id,
+      } satisfies SendOwnerEmailPayload;
       await tx`
         INSERT INTO job_outbox (
           id, topic, aggregate_type, aggregate_id, payload, attempts, max_attempts
         ) VALUES (
           ${uuidv7()}, 'notify_owner_connection_lost', 'business', ${business_id},
-          ${jsonb({ kind: 'connection_lost', business_id })}, 0, 5
+          ${jsonb(lostPayload)}, 0, 5
         )
       `;
     }

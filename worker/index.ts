@@ -443,7 +443,29 @@ const ownerEmailWorker = new Worker(QUEUE_NAMES.SEND_OWNER_EMAIL, handleOwnerEma
 
 const drainOwnerConnectWorker = new Worker(QUEUE_NAMES.DRAIN_OWNER_CONNECT, handleDrainOwnerConnect, workerOpts);
 
-const workers = [demoWorker, ingestZernioReviewWorker, zernioBackfillWorker, responseGenWorker, notificationWorker, publisherWorker, adminExceptionWorker, weeklySummaryWorker, placeIdValidationWorker, monthlyImpactWorker, engagementAlertWorker, rankingTrackingWorker, onboardingDripWorker, ownerEmailWorker, drainOwnerConnectWorker];
+// Workers map keyed by queue name. Single source of truth for the
+// graceful-shutdown loop, Sentry breadcrumb wiring, and any future
+// observability hook that needs to enumerate workers without keeping a
+// flat array in sync.
+const workersByQueue = {
+  [QUEUE_NAMES.GENERATE_DEMO]: demoWorker,
+  [QUEUE_NAMES.INGEST_ZERNIO_REVIEW]: ingestZernioReviewWorker,
+  [QUEUE_NAMES.ZERNIO_INITIAL_BACKFILL]: zernioBackfillWorker,
+  [QUEUE_NAMES.GENERATE_RESPONSE]: responseGenWorker,
+  [QUEUE_NAMES.SEND_NOTIFICATION]: notificationWorker,
+  [QUEUE_NAMES.PUBLISH_RESPONSE]: publisherWorker,
+  [QUEUE_NAMES.NOTIFY_ADMIN]: adminExceptionWorker,
+  [QUEUE_NAMES.WEEKLY_SUMMARY]: weeklySummaryWorker,
+  [QUEUE_NAMES.VALIDATE_PLACE_ID]: placeIdValidationWorker,
+  [QUEUE_NAMES.SEND_MONTHLY_IMPACT]: monthlyImpactWorker,
+  [QUEUE_NAMES.ENGAGEMENT_ALERT]: engagementAlertWorker,
+  [QUEUE_NAMES.TRACK_RANKING]: rankingTrackingWorker,
+  [QUEUE_NAMES.ONBOARDING_DRIP]: onboardingDripWorker,
+  [QUEUE_NAMES.SEND_OWNER_EMAIL]: ownerEmailWorker,
+  [QUEUE_NAMES.DRAIN_OWNER_CONNECT]: drainOwnerConnectWorker,
+} as const;
+
+const workers = Object.values(workersByQueue);
 
 // Sentry breadcrumbs on job lifecycle
 for (const worker of workers) {

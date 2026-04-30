@@ -3,7 +3,7 @@ import { v7 as uuidv7 } from 'uuid';
 import { jsonb, sql } from '../../src/lib/db/server';
 import { checkSubscription } from '../../src/lib/shared/subscription-guard';
 import { markOutboxCompleted, markOutboxFailed, extractOutboxHandle } from '../../src/lib/shared/outbox';
-import type { PublishResponsePayload } from '../../src/lib/shared/worker-types';
+import type { PublishResponsePayload, SendOwnerEmailPayload } from '../../src/lib/shared/worker-types';
 import { createWorkerLogger } from '../../src/lib/shared/logger';
 import { lookupZernioReviewId } from '../../src/lib/publishing/zernio-publisher';
 import { zernioClient } from '../../src/lib/zernio/client';
@@ -146,6 +146,11 @@ export async function handlePublishResponse(
         return;
       }
 
+      const reconnectPayload = {
+        kind: 'reconnect_required',
+        response_id,
+        business_id,
+      } satisfies SendOwnerEmailPayload;
       await tx`
         INSERT INTO job_outbox (
           id, topic, aggregate_type, aggregate_id, payload, attempts, max_attempts
@@ -154,11 +159,7 @@ export async function handlePublishResponse(
           'notify_owner_reconnect',
           'response',
           ${response_id},
-          ${jsonb({
-            kind: 'reconnect_required',
-            response_id,
-            business_id,
-          })},
+          ${jsonb(reconnectPayload)},
           0,
           5
         )

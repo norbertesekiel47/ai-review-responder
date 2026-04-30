@@ -4,6 +4,7 @@ import { jsonb, sql } from '@/lib/db/server';
 import { zernioClient } from '@/lib/zernio/client';
 import { ZernioReviewNotFoundError } from '@/lib/zernio/errors';
 import { fromZernioReview, matchesLocalRow } from '@/lib/reviews/zernio-field-match';
+import type { SendOwnerEmailPayload } from '@/lib/shared/worker-types';
 
 const CACHE_TTL_SECONDS = 86_400;
 
@@ -229,6 +230,16 @@ export async function applyTransientExhaustionFallback(args: {
         AND status = 'active'
     `;
 
+    const reconnectPayload = {
+      kind: 'reconnect_required',
+      response_id: responseId,
+      business_id: businessId,
+    } satisfies SendOwnerEmailPayload;
+    const lostPayload = {
+      kind: 'connection_lost',
+      business_id: businessId,
+    } satisfies SendOwnerEmailPayload;
+
     await tx`
       INSERT INTO job_outbox (
         id, topic, aggregate_type, aggregate_id, payload, attempts, max_attempts
@@ -238,11 +249,7 @@ export async function applyTransientExhaustionFallback(args: {
           'notify_owner_reconnect',
           'response',
           ${responseId},
-          ${jsonb({
-            kind: 'reconnect_required',
-            response_id: responseId,
-            business_id: businessId,
-          })},
+          ${jsonb(reconnectPayload)},
           0,
           5
         ),
@@ -251,7 +258,7 @@ export async function applyTransientExhaustionFallback(args: {
           'notify_owner_connection_lost',
           'business',
           ${businessId},
-          ${jsonb({ kind: 'connection_lost', business_id: businessId })},
+          ${jsonb(lostPayload)},
           0,
           5
         )

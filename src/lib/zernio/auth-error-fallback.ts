@@ -8,6 +8,7 @@
 
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '@/lib/db/server';
+import type { SendOwnerEmailPayload } from '@/lib/shared/worker-types';
 
 /** Strip credential-bearing patterns from the persisted reason. Mirrors
  *  publisher-error-handlers.ts redactSensitiveError — defensive in case
@@ -56,6 +57,10 @@ export async function applyIngestionAuthErrorFallback(
     // Enqueue connection_lost notify. Migration 026's dedup index
     // notification_deliveries_connection_lost_dedup caps to one email per
     // business per UTC day, so this is safe across concurrent ingest jobs.
+    const lostPayload = {
+      kind: 'connection_lost',
+      business_id: businessId,
+    } satisfies SendOwnerEmailPayload;
     await tx`
       INSERT INTO job_outbox (
         id, topic, aggregate_type, aggregate_id, payload, attempts, max_attempts
@@ -64,7 +69,7 @@ export async function applyIngestionAuthErrorFallback(
         'notify_owner_connection_lost',
         'business',
         ${businessId},
-        ${jsonb({ kind: 'connection_lost', business_id: businessId })},
+        ${jsonb(lostPayload)},
         0, 5
       )
     `;
