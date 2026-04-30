@@ -3,9 +3,9 @@ import { getCacheRedis } from '@/lib/db/redis-cache';
 import { jsonb, sql } from '@/lib/db/server';
 import { zernioClient } from '@/lib/zernio/client';
 import { ZernioReviewNotFoundError } from '@/lib/zernio/errors';
+import { fromZernioReview, matchesLocalRow } from '@/lib/reviews/zernio-field-match';
 
 const CACHE_TTL_SECONDS = 86_400;
-const MATCH_WINDOW_MS = 86_400_000;
 
 interface OurReviewRowExpanded {
   reviewer_name: string;
@@ -81,33 +81,82 @@ export async function lookupZernioReviewId(
     // below (which will throw ReviewNotFoundError if it can't reconcile).
   }
 
-  const zernioReviews = await zernioClient.listAllReviews(accountId, {
-    locationId,
-    pageSize: 50,
-    maxPages: 4,
-  });
+  // Walk pages manually (rather than listAllReviews) so we can record WHICH
+  // page the match was found on. The page index is cached separately for the
+  // 409 verifier (Critical 1) so it doesn't need to re-walk all 4 pages.
+  const localRow = {
+    reviewer_name: ourReview.reviewer_name,
+    star_rating: ourReview.star_rating,
+    review_text: ourReview.review_text,
+    review_date: ourReview.review_date,
+  };
 
-  const ourComment = (ourReview.review_text ?? '').trim();
-  const ourCreatedAtMs = new Date(ourReview.review_date).getTime();
+  let pageToken: string | undefined;
+  let foundPageIndex = -1;
+  let match: import('@/lib/zernio/types').ZernioReview | undefined;
+  let totalCandidates = 0;
 
-  const match = zernioReviews.find((z) =>
-    z.reviewer.displayName === ourReview.reviewer_name &&
-    z.rating === ourReview.star_rating &&
-    (z.comment ?? '').trim() === ourComment &&
-    Math.abs(new Date(z.createTime).getTime() - ourCreatedAtMs) < MATCH_WINDOW_MS
-  );
+  for (let i = 0; i < 4 && !match; i++) {
+    const page = await zernioClient.listReviews(accountId, {
+      locationId,
+      pageSize: 50,
+      pageToken,
+    });
+    totalCandidates += page.reviews.length;
+    for (const z of page.reviews) {
+      // matchesLocalRow uses the canonical field-match predicate from
+      // src/lib/reviews/zernio-field-match.ts (same logic as SQL in
+      // zernio-ingest-shared.ts reconcileExternallyAnsweredReview).
+      if (matchesLocalRow(fromZernioReview(z), localRow)) {
+        match = z;
+        foundPageIndex = i;
+        break;
+      }
+    }
+    if (match || !page.nextPageToken) break;
+    pageToken = page.nextPageToken;
+  }
 
   if (!match) {
     throw new ZernioReviewNotFoundError({
       ourReviewId,
       accountId,
-      candidatesChecked: zernioReviews.length,
+      candidatesChecked: totalCandidates,
       reason: 'no_field_match',
     });
   }
 
+  // Cache the review-id mapping.
   await redis.setex(cacheKey, CACHE_TTL_SECONDS, match.id);
+
+  // Cache the page index so the 409 verifier can target a tighter maxPages
+  // bound if this review is found on page 0 or 1 rather than always walking 4.
+  const pageKey = `zernio_review_page:${accountId}:${locationId}:${match.id}`;
+  await redis.setex(pageKey, CACHE_TTL_SECONDS, String(foundPageIndex));
+
   return match.id;
+}
+
+/**
+ * Returns the 0-based page index where this Zernio review was found during
+ * the last lookupZernioReviewId walk, or null if the cache has expired or the
+ * review was found via the early-return path (Zernio-sourced provider rows
+ * don't walk pages).
+ *
+ * Used by the 409 verifier to bound listAllReviews to a tighter maxPages value
+ * when we know the review lives on page 0 or 1.
+ */
+export async function getCachedZernioReviewPage(
+  accountId: string,
+  locationId: string,
+  zernioReviewId: string,
+): Promise<number | null> {
+  const redis = getCacheRedis();
+  const pageKey = `zernio_review_page:${accountId}:${locationId}:${zernioReviewId}`;
+  const cached = await redis.get(pageKey);
+  if (cached === null) return null;
+  const parsed = parseInt(cached, 10);
+  return Number.isNaN(parsed) ? null : parsed;
 }
 
 /**

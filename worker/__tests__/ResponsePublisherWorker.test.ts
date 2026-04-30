@@ -20,6 +20,7 @@ const {
   mockMarkOutboxCompleted,
   mockMarkOutboxFailed,
   mockLookupZernioReviewId,
+  mockGetCachedZernioReviewPage,
   mockPostReply,
   mockListAllReviews,
 } = vi.hoisted(() => {
@@ -38,6 +39,8 @@ const {
     mockMarkOutboxCompleted: vi.fn(),
     mockMarkOutboxFailed: vi.fn(),
     mockLookupZernioReviewId: vi.fn(),
+    // getCachedZernioReviewPage defaults to null (cache miss → full 4-page walk).
+    mockGetCachedZernioReviewPage: vi.fn().mockResolvedValue(null),
     mockPostReply: vi.fn(),
     mockListAllReviews: vi.fn(),
   };
@@ -55,6 +58,7 @@ vi.mock('../../src/lib/shared/outbox', () => ({
 }));
 vi.mock('../../src/lib/publishing/zernio-publisher', () => ({
   lookupZernioReviewId: mockLookupZernioReviewId,
+  getCachedZernioReviewPage: mockGetCachedZernioReviewPage,
 }));
 vi.mock('../../src/lib/zernio/client', () => ({
   zernioClient: { postReply: mockPostReply, listAllReviews: mockListAllReviews },

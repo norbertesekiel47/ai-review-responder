@@ -1,11 +1,25 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('@/lib/db/server', () => ({
-  sql: { begin: vi.fn() },
+  sql: Object.assign(
+    vi.fn((_s: TemplateStringsArray, ..._v: unknown[]) => Promise.resolve(Object.assign([], { count: 0 }))),
+    { begin: vi.fn() },
+  ),
   jsonb: (v: unknown) => v,
 }));
 vi.mock('@/lib/shared/outbox', () => ({
   markOutboxCompleted: vi.fn(),
+}));
+vi.mock('@/lib/zernio/client', () => ({
+  zernioClient: {
+    listAllReviews: vi.fn(),
+  },
+}));
+vi.mock('@/lib/publishing/zernio-publisher', () => ({
+  getCachedZernioReviewPage: vi.fn().mockResolvedValue(null),
+}));
+vi.mock('@sentry/node', () => ({
+  captureMessage: vi.fn(),
 }));
 
 import {
@@ -13,8 +27,9 @@ import {
   handlePublisherPermanentErrorTerminal,
   PublisherTransientWithContext,
   ZernioReplyVerificationIndeterminateError,
+  verify409AndDispose,
 } from '../jobs/publisher-error-handlers';
-import { ZernioTransientError } from '@/lib/zernio/errors';
+import { ZernioTransientError, ZernioAuthError } from '@/lib/zernio/errors';
 
 const mkLogger = () => ({ log: vi.fn(), warn: vi.fn(), error: vi.fn() });
 
@@ -151,6 +166,77 @@ describe('handlePublisherAuthErrorTerminal', () => {
     expect(disconnectSql).toContain('zernio_location_id');
     expect(disconnectSql).toContain('disconnect_reason');
     expect(disconnectSql).toContain("'auth_error_on_publish'");
+  });
+});
+
+describe('verify409AndDispose', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  const baseArgs = {
+    response_id: 'R',
+    business_id: 'B',
+    review_id: 'rev',
+    account_id: 'acct',
+    location_id: 'loc',
+    zernio_review_id: 'zr-1',
+    approved_text: 'Thank you!',
+    outboxId: 'outbox-1',
+    outboxAttempt: 1 as number | undefined,
+    logger: { log: vi.fn(), warn: vi.fn(), error: vi.fn() } as any,
+  };
+
+  function makeZernioReviewWith(replyComment: string | null) {
+    return {
+      id: 'zr-1',
+      name: 'accounts/acct/locations/loc/reviews/zr-1',
+      reviewer: { displayName: 'Alice', profilePhotoUrl: null, isAnonymous: false },
+      rating: 5,
+      starRating: 'FIVE' as const,
+      comment: 'Great!',
+      createTime: '2026-04-26T12:00:00Z',
+      updateTime: '2026-04-26T12:00:00Z',
+      reviewReply: replyComment !== null
+        ? { comment: replyComment, updateTime: '2026-04-27T00:00:00Z' }
+        : null,
+    };
+  }
+
+  it('happy path posted: text match → UPDATE posted + markOutboxCompleted, returns { outcome: posted }', async () => {
+    const { zernioClient } = await import('@/lib/zernio/client');
+    const { getCachedZernioReviewPage } = await import('@/lib/publishing/zernio-publisher');
+    const { markOutboxCompleted } = await import('@/lib/shared/outbox');
+    const { sql } = await import('@/lib/db/server');
+
+    (getCachedZernioReviewPage as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    (zernioClient as any).listAllReviews = vi.fn().mockResolvedValue([
+      makeZernioReviewWith('Thank you!'),
+    ]);
+    (sql as any).mockResolvedValue(Object.assign([], { count: 1 }));
+
+    const result = await verify409AndDispose(baseArgs);
+
+    expect(result.outcome).toBe('posted');
+    expect(markOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
+  });
+
+  it('superseded: text mismatch → UPDATE superseded + markOutboxCompleted, returns { outcome: superseded }', async () => {
+    const { zernioClient } = await import('@/lib/zernio/client');
+    const { getCachedZernioReviewPage } = await import('@/lib/publishing/zernio-publisher');
+    const { markOutboxCompleted } = await import('@/lib/shared/outbox');
+    const { sql } = await import('@/lib/db/server');
+
+    (getCachedZernioReviewPage as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    (zernioClient as any).listAllReviews = vi.fn().mockResolvedValue([
+      makeZernioReviewWith('A completely different reply by someone else'),
+    ]);
+    (sql as any).mockResolvedValue(Object.assign([], { count: 1 }));
+
+    const result = await verify409AndDispose(baseArgs);
+
+    expect(result.outcome).toBe('superseded');
+    expect(markOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
   });
 });
 

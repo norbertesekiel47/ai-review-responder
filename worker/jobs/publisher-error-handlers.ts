@@ -10,12 +10,25 @@
 //     attempt's account+location so the failed-hook can pin the disconnect.
 //   ZernioReplyVerificationIndeterminateError — thrown when the verifier
 //     can't determine ours-vs-external.
+//
+// verify409AndDispose — extracted from the inline 409 catch block in
+//   ResponsePublisherWorker. Returns a discriminated union; caller dispatches.
 
+import { createHash } from 'node:crypto';
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '../../src/lib/db/server';
-import { ZernioTransientError } from '../../src/lib/zernio/errors';
+import {
+  ZernioAuthError,
+  ZernioPermanentError,
+  ZernioTransientError,
+  ZernioValidationError,
+} from '../../src/lib/zernio/errors';
+import { zernioClient } from '../../src/lib/zernio/client';
+import { canonicalizeReplyText } from '../../src/lib/zernio/canonicalize-reply';
+import { getCachedZernioReviewPage } from '../../src/lib/publishing/zernio-publisher';
 import { markOutboxCompleted } from '../../src/lib/shared/outbox';
 import type { WorkerLogger } from '../../src/lib/shared/logger';
+import * as Sentry from '@sentry/node';
 
 /** Strip credential-bearing patterns from an error body before persisting
  *  in audit fields (zernio_connections.last_error, responses.posting_error).
@@ -252,4 +265,197 @@ export async function handlePublisherPermanentErrorTerminal(args: PermanentError
 
   await markOutboxCompleted(outboxId, outboxAttempt);
   logger.warn(`Response ${response_id} permanently failed (${endpoint_kind} ${http_status}) — exception opened`);
+}
+
+// ── verify409AndDispose ─────────────────────────────────────────────────────
+
+/**
+ * Discriminated union returned by verify409AndDispose.
+ * The caller dispatches on `outcome` — the function itself handles DB writes
+ * for 'posted' and 'superseded'; the caller handles terminal notifications for
+ * 'auth' and 'permanent'; the caller re-throws for 'transient' and 'indeterminate'.
+ */
+export type Verify409Result =
+  | { outcome: 'posted' }
+  | { outcome: 'superseded' }
+  | { outcome: 'auth'; lookupErr: ZernioAuthError }
+  | { outcome: 'permanent'; lookupErr: ZernioPermanentError | ZernioValidationError }
+  | { outcome: 'transient'; lookupErr: ZernioTransientError }
+  | {
+      outcome: 'indeterminate';
+      reason:
+        | 'review_not_found_after_pagination'
+        | 'review_found_but_reply_null'
+        | 'verifier_unknown_error';
+      meta: {
+        pages_walked?: number;
+        reviews_seen?: number;
+        underlying_error?: string;
+      };
+    };
+
+interface Verify409Args {
+  response_id: string;
+  business_id: string;
+  review_id: string;
+  account_id: string;
+  location_id: string;
+  zernio_review_id: string;
+  approved_text: string;
+  outboxId: string;
+  outboxAttempt: number | undefined;
+  logger: WorkerLogger;
+}
+
+/**
+ * 409 verify-first handler per spec §6.10b.
+ *
+ * When postReply returns ZernioReplyAlreadyExistsError, we cannot safely mark
+ * the response 'posted' without confirming the existing reply is OURS. This
+ * function walks the review list (using the page-cache from lookupZernioReviewId
+ * to bound the maxPages), finds the target review, reads its existing reply, and
+ * canonicalize-compares against our approved_text.
+ *
+ * - 'posted': reply text matches → UPDATE responses posted + mark outbox done
+ * - 'superseded': reply text mismatches → UPDATE responses superseded + mark done
+ * - 'auth'/'permanent': lookup failed with a terminal Zernio error → caller notifies
+ * - 'transient': lookup failed transiently → caller re-throws for BullMQ retry
+ * - 'indeterminate': review not found / reply null / unknown → caller re-throws
+ *   ZernioReplyVerificationIndeterminateError
+ *
+ * When the walk hits the cap without finding the target, captures a Sentry
+ * warning for ops visibility (cap tuning).
+ */
+export async function verify409AndDispose(args: Verify409Args): Promise<Verify409Result> {
+  const {
+    response_id, business_id, review_id,
+    account_id, location_id, zernio_review_id,
+    approved_text, outboxId, outboxAttempt, logger,
+  } = args;
+
+  // Use the page-cache from lookupZernioReviewId to bound maxPages.
+  // If the review was found on page 0 or 1, we avoid re-walking all 4 pages.
+  // If the cache miss (Zernio-sourced row early-return, or expired), default to 4.
+  let maxPages = 4;
+  try {
+    const cachedPage = await getCachedZernioReviewPage(account_id, location_id, zernio_review_id);
+    if (cachedPage !== null) {
+      maxPages = Math.min(cachedPage + 1, 4);
+    }
+  } catch {
+    // Non-fatal — fall back to 4-page walk.
+  }
+
+  let allReviews: Awaited<ReturnType<typeof zernioClient.listAllReviews>>;
+  try {
+    allReviews = await zernioClient.listAllReviews(account_id, {
+      locationId: location_id,
+      pageSize: 50,
+      maxPages,
+    });
+  } catch (lookupErr) {
+    if (lookupErr instanceof ZernioTransientError) {
+      logger.warn(
+        `409 verifier hit transient error for response ${response_id}: ${lookupErr.message} — wrapping for retry`,
+      );
+      return { outcome: 'transient', lookupErr };
+    }
+    if (lookupErr instanceof ZernioAuthError) {
+      logger.warn(`409 verifier hit auth error for response ${response_id}`);
+      return { outcome: 'auth', lookupErr };
+    }
+    if (lookupErr instanceof ZernioPermanentError || lookupErr instanceof ZernioValidationError) {
+      logger.error(`409 verifier hit permanent error for response ${response_id}: ${lookupErr.message}`);
+      return { outcome: 'permanent', lookupErr };
+    }
+    logger.warn(
+      `409 verifier hit unknown error for response ${response_id}: ` +
+      `${lookupErr instanceof Error ? lookupErr.message : lookupErr} — indeterminate, retrying`,
+    );
+    return {
+      outcome: 'indeterminate',
+      reason: 'verifier_unknown_error',
+      meta: {
+        underlying_error: lookupErr instanceof Error ? lookupErr.message : String(lookupErr),
+      },
+    };
+  }
+
+  const found = allReviews.find((r) => r.id === zernio_review_id);
+
+  if (!found) {
+    // Capture for ops visibility — this fires when the review slipped past
+    // the page cap (old review pushed back by newer accumulations). Sentry
+    // allows tuning maxPages before the problem affects customers.
+    Sentry.captureMessage('zernio_409_verifier_pages_walked_at_cap', {
+      level: 'warning',
+      extra: {
+        response_id,
+        business_id,
+        review_id,
+        account_id,
+        location_id,
+        zernio_review_id,
+        pages_walked: maxPages,
+        reviews_seen: allReviews.length,
+      },
+    });
+    logger.warn(
+      `409 verifier could not locate review ${zernio_review_id} after walking ${allReviews.length} reviews ` +
+      `(maxPages=${maxPages}) — indeterminate, retrying`,
+    );
+    return {
+      outcome: 'indeterminate',
+      reason: 'review_not_found_after_pagination',
+      meta: { pages_walked: maxPages, reviews_seen: allReviews.length },
+    };
+  }
+
+  const existingReply = found.reviewReply ?? null;
+
+  if (existingReply === null) {
+    logger.warn(
+      `409 verifier found review ${zernio_review_id} but reviewReply=null — indeterminate (Zernio lag?), retrying`,
+    );
+    return {
+      outcome: 'indeterminate',
+      reason: 'review_found_but_reply_null',
+      meta: {},
+    };
+  }
+
+  const existingText = canonicalizeReplyText(existingReply.comment);
+  const ourText = canonicalizeReplyText(approved_text);
+
+  if (existingText === ourText) {
+    await sql`
+      UPDATE responses
+      SET status = 'posted', posted_at = NOW(), updated_at = NOW()
+      WHERE id = ${response_id}
+        AND business_id = ${business_id}
+        AND status IN ('approved', 'edited', 'awaiting_owner_connect')
+    `;
+    logger.log(`Response ${response_id} already posted on Zernio (409, text match), marked posted`);
+    await markOutboxCompleted(outboxId, outboxAttempt);
+    return { outcome: 'posted' };
+  }
+
+  await sql`
+    UPDATE responses
+    SET status = 'superseded',
+        posting_error = 'already_replied_external',
+        updated_at = NOW()
+    WHERE id = ${response_id}
+      AND business_id = ${business_id}
+      AND status IN ('approved', 'edited', 'awaiting_owner_connect')
+  `;
+  const fp = (s: string) => createHash('sha256').update(s).digest('hex').slice(0, 12);
+  logger.warn(
+    `Response ${response_id} 409 text mismatch — ` +
+    `existing(len=${existingText.length},fp=${fp(existingText)}) ` +
+    `ours(len=${ourText.length},fp=${fp(ourText)}) ` +
+    `— superseded as already_replied_external`,
+  );
+  await markOutboxCompleted(outboxId, outboxAttempt);
+  return { outcome: 'superseded' };
 }

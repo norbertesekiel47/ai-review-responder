@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import type { Job } from 'bullmq';
 import { v7 as uuidv7 } from 'uuid';
 import { jsonb, sql } from '../../src/lib/db/server';
@@ -21,8 +20,8 @@ import {
   handlePublisherPermanentErrorTerminal,
   PublisherTransientWithContext,
   ZernioReplyVerificationIndeterminateError,
+  verify409AndDispose,
 } from './publisher-error-handlers';
-import { canonicalizeReplyText } from '../../src/lib/zernio/canonicalize-reply';
 
 interface ZernioConnectionRow {
   zernio_account_id: string;
@@ -291,35 +290,38 @@ export async function handlePublishResponse(
     );
   } catch (err) {
     // ── ZernioReplyAlreadyExistsError: verify-first per spec §6.10b ──
-    // 409 does NOT mean it was us — walk pages to confirm the reply text
-    // before marking posted. Mismatch → supersede. Indeterminate → retry.
+    // 409 does NOT mean it was us — verify409AndDispose walks pages to confirm
+    // the reply text before marking posted. Mismatch → supersede. Indeterminate → retry.
     if (err instanceof ZernioReplyAlreadyExistsError) {
-      // 409 verify-first per spec §6.10b. Walk pages — Zernio paginates at 50,
-      // target review may be older than the most recent 50.
-      let allReviews;
-      try {
-        allReviews = await zernioClient.listAllReviews(
-          zernioConnection.zernio_account_id,
-          {
-            locationId: zernioConnection.zernio_location_id,
-            pageSize: 50,
-            maxPages: 4,
-          },
-        );
-      } catch (lookupErr) {
-        if (lookupErr instanceof ZernioTransientError) {
-          logger.warn(
-            `409 verifier hit transient error for response ${response_id}: ${lookupErr.message} — wrapping for retry`,
-          );
-          throw new PublisherTransientWithContext(lookupErr, {
+      const result = await verify409AndDispose({
+        response_id,
+        business_id,
+        review_id: response.review_id,
+        account_id: zernioConnection.zernio_account_id,
+        location_id: zernioConnection.zernio_location_id,
+        zernio_review_id: zernioReviewId,
+        approved_text: approvedText,
+        outboxId,
+        outboxAttempt,
+        logger,
+      });
+
+      switch (result.outcome) {
+        case 'posted':
+        case 'superseded':
+          // verify409AndDispose already updated responses + marked outbox completed.
+          return;
+
+        case 'transient':
+          throw new PublisherTransientWithContext(result.lookupErr, {
             response_id,
             business_id,
             account_id: zernioConnection.zernio_account_id,
             location_id: zernioConnection.zernio_location_id,
           });
-        }
-        if (lookupErr instanceof ZernioAuthError) {
-          logger.warn(`409 verifier hit auth error for response ${response_id}`);
+
+        case 'auth': {
+          const lookupErr = result.lookupErr;
           await handlePublisherAuthErrorTerminal({
             response_id,
             business_id,
@@ -333,8 +335,9 @@ export async function handlePublishResponse(
           });
           return;
         }
-        if (lookupErr instanceof ZernioPermanentError || lookupErr instanceof ZernioValidationError) {
-          logger.error(`409 verifier hit permanent error for response ${response_id}: ${lookupErr.message}`);
+
+        case 'permanent': {
+          const lookupErr = result.lookupErr;
           const endpointKind =
             lookupErr instanceof ZernioPermanentError && typeof lookupErr.meta?.endpointKind === 'string'
               ? lookupErr.meta.endpointKind
@@ -356,85 +359,19 @@ export async function handlePublishResponse(
           });
           return;
         }
-        logger.warn(
-          `409 verifier hit unknown error for response ${response_id}: ` +
-          `${lookupErr instanceof Error ? lookupErr.message : lookupErr} — wrapping as indeterminate, retrying`,
-        );
-        throw new ZernioReplyVerificationIndeterminateError({
-          response_id, business_id, review_id: response.review_id,
-          account_id: zernioConnection.zernio_account_id,
-          location_id: zernioConnection.zernio_location_id,
-          zernio_review_id: zernioReviewId,
-          reason: 'verifier_unknown_error',
-          underlying_error: lookupErr instanceof Error ? lookupErr.message : String(lookupErr),
-        });
+
+        case 'indeterminate':
+          throw new ZernioReplyVerificationIndeterminateError({
+            response_id,
+            business_id,
+            review_id: response.review_id,
+            account_id: zernioConnection.zernio_account_id,
+            location_id: zernioConnection.zernio_location_id,
+            zernio_review_id: zernioReviewId,
+            reason: result.reason,
+            ...result.meta,
+          });
       }
-
-      const found = allReviews.find((r) => r.id === zernioReviewId);
-
-      if (!found) {
-        logger.warn(
-          `409 verifier could not locate review ${zernioReviewId} after walking ${allReviews.length} reviews — indeterminate, retrying`,
-        );
-        throw new ZernioReplyVerificationIndeterminateError({
-          response_id, business_id, review_id: response.review_id,
-          account_id: zernioConnection.zernio_account_id,
-          location_id: zernioConnection.zernio_location_id,
-          zernio_review_id: zernioReviewId,
-          reason: 'review_not_found_after_pagination',
-          pages_walked: 4, reviews_seen: allReviews.length,
-        });
-      }
-
-      const existingReply = found.reviewReply ?? null;
-
-      if (existingReply === null) {
-        logger.warn(
-          `409 verifier found review ${zernioReviewId} but reviewReply=null — indeterminate (Zernio lag?), retrying`,
-        );
-        throw new ZernioReplyVerificationIndeterminateError({
-          response_id, business_id, review_id: response.review_id,
-          account_id: zernioConnection.zernio_account_id,
-          location_id: zernioConnection.zernio_location_id,
-          zernio_review_id: zernioReviewId,
-          reason: 'review_found_but_reply_null',
-        });
-      }
-
-      const existingText = canonicalizeReplyText(existingReply.comment);
-      const ourText = canonicalizeReplyText(approvedText);
-
-      if (existingText === ourText) {
-        await sql`
-          UPDATE responses
-          SET status = 'posted', posted_at = NOW(), updated_at = NOW()
-          WHERE id = ${response_id}
-            AND business_id = ${business_id}
-            AND status IN ('approved', 'edited', 'awaiting_owner_connect')
-        `;
-        logger.log(`Response ${response_id} already posted on Zernio (409, text match), marked posted`);
-        await markOutboxCompleted(outboxId, outboxAttempt);
-        return;
-      }
-
-      await sql`
-        UPDATE responses
-        SET status = 'superseded',
-            posting_error = 'already_replied_external',
-            updated_at = NOW()
-        WHERE id = ${response_id}
-          AND business_id = ${business_id}
-          AND status IN ('approved', 'edited', 'awaiting_owner_connect')
-      `;
-      const fp = (s: string) => createHash('sha256').update(s).digest('hex').slice(0, 12);
-      logger.warn(
-        `Response ${response_id} 409 text mismatch — ` +
-        `existing(len=${existingText.length},fp=${fp(existingText)}) ` +
-        `ours(len=${ourText.length},fp=${fp(ourText)}) ` +
-        `— superseded as already_replied_external`,
-      );
-      await markOutboxCompleted(outboxId, outboxAttempt);
-      return;
     }
 
     // ── ZernioAuthError: connection broken — delegate to shared helper ─

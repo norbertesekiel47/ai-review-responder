@@ -160,4 +160,73 @@ describe('processReview', () => {
     const payload = capturedJsonbPayloads[0] as Record<string, unknown>;
     expect(payload['suppress_notification']).toBe(false);
   });
+
+  it('content change on awaiting_owner_connect response: supersedes response + opens review_exception', async () => {
+    const monitored = makeMonitoredReview({ contentHash: 'new-hash' });
+
+    // tx call sequence for existing row with content change + awaiting_owner_connect:
+    //   1. SELECT FOR UPDATE existing → found with DIFFERENT hash
+    //   2. UPDATE reviews SET review_text/hash
+    //   3. SELECT active response FOR UPDATE → awaiting_owner_connect
+    //   4. INSERT review_exceptions → count=1 (new exception opened)
+    //   5. INSERT job_outbox (notify_admin_review_exception)
+    //   6. UPDATE responses SET status = 'superseded'
+    tx
+      .mockResolvedValueOnce(withCount([{ id: 'existing-rev', review_content_hash: 'old-hash' }], 1))
+      .mockResolvedValueOnce(withCount([], 0))  // UPDATE reviews
+      .mockResolvedValueOnce(withCount([{ id: 'resp-1', status: 'awaiting_owner_connect', version: 1 }], 1))
+      .mockResolvedValueOnce(withCount([{ id: 'exc-1' }], 1))  // INSERT review_exceptions
+      .mockResolvedValueOnce(withCount([], 0))  // INSERT job_outbox
+      .mockResolvedValueOnce(withCount([], 0)); // UPDATE responses superseded
+
+    const result = await processReview(monitored, 'biz-1', 'corr-1');
+
+    expect(result).toBe('updated');
+
+    const allSqls = tx.mock.calls.map(
+      (call) => ((call[0] as TemplateStringsArray | undefined)?.join('?') ?? ''),
+    );
+
+    // review_exception must be inserted with type='review_edited_after_post'
+    expect(allSqls.some((s) => s.includes('review_edited_after_post'))).toBe(true);
+
+    // Response must be superseded with posting_error='review_content_changed_during_park'
+    const supersedeCall = allSqls.find((s) => s.includes('review_content_changed_during_park'));
+    expect(supersedeCall).toBeDefined();
+    expect(supersedeCall).toContain('superseded');
+  });
+
+  it('content change on posted response: opens review_exception but does NOT supersede', async () => {
+    const monitored = makeMonitoredReview({ contentHash: 'new-hash' });
+
+    // tx call sequence for existing row with content change + posted:
+    //   1. SELECT FOR UPDATE existing → found with DIFFERENT hash
+    //   2. UPDATE reviews
+    //   3. SELECT active response FOR UPDATE → posted
+    //   4. INSERT review_exceptions → count=1
+    //   5. INSERT job_outbox
+    //   (NO UPDATE responses SET superseded — posted is terminal)
+    tx
+      .mockResolvedValueOnce(withCount([{ id: 'existing-rev', review_content_hash: 'old-hash' }], 1))
+      .mockResolvedValueOnce(withCount([], 0))  // UPDATE reviews
+      .mockResolvedValueOnce(withCount([{ id: 'resp-1', status: 'posted', version: 1 }], 1))
+      .mockResolvedValueOnce(withCount([{ id: 'exc-1' }], 1))  // INSERT review_exceptions
+      .mockResolvedValueOnce(withCount([], 0));  // INSERT job_outbox
+
+    const result = await processReview(monitored, 'biz-1', 'corr-1');
+
+    expect(result).toBe('updated');
+
+    const allSqls = tx.mock.calls.map(
+      (call) => ((call[0] as TemplateStringsArray | undefined)?.join('?') ?? ''),
+    );
+
+    // review_exception must be inserted
+    expect(allSqls.some((s) => s.includes('review_edited_after_post'))).toBe(true);
+
+    // Response must NOT be superseded — 'posted' is terminal
+    expect(allSqls.some((s) => s.includes('review_content_changed_during_park'))).toBe(false);
+    // Only 5 tx calls — no 6th UPDATE responses call
+    expect(tx).toHaveBeenCalledTimes(5);
+  });
 });

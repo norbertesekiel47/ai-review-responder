@@ -272,6 +272,20 @@ async function processExistingReview(
       `;
     }
 
+    // Supersede the parked response so DrainOwnerConnectWorker doesn't
+    // re-queue a stale response when the owner reconnects. 'posted' responses
+    // are NOT superseded — that's truly terminal (the reply already exists on
+    // Google; no further action is possible from our side).
+    if (activeResponse.status === 'awaiting_owner_connect') {
+      await tx`
+        UPDATE responses
+        SET status = 'superseded',
+            posting_error = 'review_content_changed_during_park',
+            updated_at = NOW()
+        WHERE id = ${activeResponse.id}
+      `;
+    }
+
     return 'updated' as const;
   }
 

@@ -17,6 +17,7 @@ import { canonicalizeReplyText } from '../../src/lib/zernio/canonicalize-reply';
 import type { ZernioReview } from '../../src/lib/zernio/types';
 import { markOutboxFailed } from '../../src/lib/shared/outbox';
 import type { WorkerLogger } from '../../src/lib/shared/logger';
+import { fromZernioReview } from '../../src/lib/reviews/zernio-field-match';
 
 export interface IngestErrorContext {
   business_id: string;
@@ -93,9 +94,14 @@ export async function reconcileExternallyAnsweredReview(
   logger: WorkerLogger,
 ): Promise<void> {
   const providerReviewName = `zernio://${accountId}/locations/${locationId}/reviews/${target.id}`;
-  const targetCreatedAtMs = new Date(target.createTime).getTime();
-  const targetReviewerName = (target.reviewer.displayName ?? '').trim() || 'Anonymous';
-  const targetComment = (target.comment ?? '').trim();
+  // Use the canonical field-match predicate from zernio-field-match.ts.
+  // The SQL WHERE fragment below MUST stay in sync with matchesLocalRow in
+  // src/lib/reviews/zernio-field-match.ts. The unit tests there verify both
+  // implementations agree on the same corpus.
+  const matchFields = fromZernioReview(target);
+  const targetCreatedAtMs = matchFields.created_at_ms;
+  const targetReviewerName = matchFields.reviewer_name;
+  const targetComment = matchFields.review_text_trimmed;
 
   await sql.begin(async (tx) => {
     const matchedRows = await tx<{ id: string; provider: string }[]>`
@@ -106,7 +112,7 @@ export async function reconcileExternallyAnsweredReview(
           OR (
             provider = 'serpapi_poll'
             AND reviewer_name = ${targetReviewerName}
-            AND star_rating = ${target.rating}
+            AND star_rating = ${matchFields.star_rating}
             AND COALESCE(NULLIF(trim(review_text), ''), '') = ${targetComment}
             AND ABS(EXTRACT(EPOCH FROM (review_date - to_timestamp(${targetCreatedAtMs} / 1000.0)))) < 86400
           )
