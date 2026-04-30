@@ -19,7 +19,7 @@ export function buildOwnerReconnectRequiredEmailHtml(
 <html><body style="font-family:system-ui,sans-serif;max-width:560px;margin:0 auto;padding:24px;">
   <h2 style="color:#111">Your reply to ${escapeHtml(reviewerName)} is ready to publish</h2>
   <p>You approved a response for ${escapeHtml(businessName)}, but your Google Business connection isn't currently linked.</p>
-  <p>Reconnect to publish this reply (and any others queued behind it).</p>
+  <p>Reconnect Google Business to resume publishing. If you've already reconnected and this still appears, our Google Reviews integration may be temporarily unavailable; we'll resume automatically once it's restored.</p>
   <p style="margin-top:32px">
     <a href="${escapeHtml(dashboardConnectUrl)}" style="background:#2563eb;color:white;padding:12px 24px;border-radius:6px;text-decoration:none;display:inline-block">Reconnect Google Business</a>
   </p>
