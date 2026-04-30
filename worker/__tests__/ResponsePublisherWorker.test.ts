@@ -8,6 +8,10 @@ import {
   ZernioReviewNotFoundError,
   ZernioTransientError,
 } from '../../src/lib/zernio/errors';
+import {
+  PublisherTransientWithContext,
+  ZernioReplyVerificationIndeterminateError,
+} from '../jobs/publisher-error-handlers';
 
 // ── Hoisted state shared between mock factories and tests ──────────────
 const {
@@ -17,6 +21,7 @@ const {
   mockMarkOutboxFailed,
   mockLookupZernioReviewId,
   mockPostReply,
+  mockListAllReviews,
 } = vi.hoisted(() => {
   const sqlReturnQueue: unknown[] = [];
 
@@ -34,6 +39,7 @@ const {
     mockMarkOutboxFailed: vi.fn(),
     mockLookupZernioReviewId: vi.fn(),
     mockPostReply: vi.fn(),
+    mockListAllReviews: vi.fn(),
   };
 });
 
@@ -51,7 +57,7 @@ vi.mock('../../src/lib/publishing/zernio-publisher', () => ({
   lookupZernioReviewId: mockLookupZernioReviewId,
 }));
 vi.mock('../../src/lib/zernio/client', () => ({
-  zernioClient: { postReply: mockPostReply },
+  zernioClient: { postReply: mockPostReply, listAllReviews: mockListAllReviews },
 }));
 vi.mock('uuid', () => ({ v7: vi.fn(() => 'test-uuid') }));
 
@@ -86,6 +92,20 @@ function mockZernioConnectionRow() {
   return { zernio_account_id: 'acct-1', zernio_location_id: 'loc-1' };
 }
 
+function makeZernioReview(id: string, replyComment: string | null = null) {
+  return {
+    id,
+    name: `accounts/acct-1/locations/loc-1/reviews/${id}`,
+    reviewer: { displayName: 'Test User', profilePhotoUrl: null, isAnonymous: false },
+    rating: 5,
+    starRating: 'FIVE' as const,
+    comment: 'Great place!',
+    createTime: '2026-01-01T00:00:00Z',
+    updateTime: '2026-01-01T00:00:00Z',
+    reviewReply: replyComment !== null ? { comment: replyComment, updateTime: '2026-01-02T00:00:00Z' } : null,
+  };
+}
+
 // SQL call order for Zernio success path:
 // 1. SELECT response
 // 2. SELECT business
@@ -99,6 +119,21 @@ function pushZernioSuccessSequence(responseOverrides: Record<string, unknown> = 
   sqlReturnQueue.push([mockBusinessRow()]);                    // 2: business
   sqlReturnQueue.push([mockZernioConnectionRow()]);            // 3: zernio_connections
   sqlReturnQueue.push(Object.assign([], { count: 1 }));        // 4: UPDATE posted
+}
+
+// SQL call order for 409 verify path (post-lookup, after postReply throws):
+// 1. SELECT response
+// 2. SELECT business
+// 3. SELECT zernio_connections
+// (lookupZernioReviewId is mocked)
+// (postReply throws ZernioReplyAlreadyExistsError)
+// (listAllReviews is mocked)
+// 4. UPDATE responses (posted or superseded depending on text match)
+
+function push409BaseSequence() {
+  sqlReturnQueue.push([mockResponseRow()]);       // 1: response
+  sqlReturnQueue.push([mockBusinessRow()]);        // 2: business
+  sqlReturnQueue.push([mockZernioConnectionRow()]); // 3: zernio_connections
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────
@@ -240,28 +275,6 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
   });
 
-  // ── Branch B: ZernioReplyAlreadyExistsError → idempotent success ───
-
-  it('treats 409 reply-already-exists as success', async () => {
-    sqlReturnQueue.push([mockResponseRow()]);
-    sqlReturnQueue.push([mockBusinessRow()]);
-    sqlReturnQueue.push([mockZernioConnectionRow()]);
-    sqlReturnQueue.push(Object.assign([], { count: 1 })); // UPDATE posted
-
-    mockLookupZernioReviewId.mockResolvedValueOnce('zernio-rev-id-1');
-    mockPostReply.mockRejectedValueOnce(
-      new ZernioReplyAlreadyExistsError({ message: 'reply already exists' }),
-    );
-
-    await handlePublishResponse(makeJob());
-
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
-    const callTexts = (mockSql as any).mock.calls.map(
-      (c: any[]) => (c[0] as TemplateStringsArray).join('?'),
-    );
-    expect(callTexts.some((t: string) => /SET status = 'posted'/.test(t))).toBe(true);
-  });
-
   // ── Branch B: ZernioReviewNotFoundError → terminal failed + exception
 
   it('opens review_exception and marks response failed on review-not-found', async () => {
@@ -308,15 +321,17 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     expect(callTexts.some((t: string) => /zernio_review_id_mismatch/.test(t))).toBe(false);
   });
 
-  // ── Branch B: ZernioAuthError → disconnect + park response ──────────
+  // ── Branch B: ZernioAuthError → delegate to shared helper ──────────
 
   it('disconnects connection and parks response on auth error', async () => {
     sqlReturnQueue.push([mockResponseRow()]);                           // 1: response
     sqlReturnQueue.push([mockBusinessRow()]);                           // 2: business
     sqlReturnQueue.push([mockZernioConnectionRow()]);                   // 3: zernio_connections
+    // handlePublisherAuthErrorTerminal drives the SQL (through sql.begin)
     sqlReturnQueue.push(Object.assign([], { count: 1 }));               // 4: UPDATE zernio_connections disconnected
-    sqlReturnQueue.push(Object.assign([], { count: 1 }));               // 5: UPDATE responses awaiting_owner_connect
-    sqlReturnQueue.push(Object.assign([], { count: 2 }));               // 6: INSERT job_outbox (both rows)
+    sqlReturnQueue.push(Object.assign([{ review_id: 'rev-1' }], { count: 1 })); // 5: UPDATE responses → parked
+    sqlReturnQueue.push(Object.assign([], { count: 1 }));               // 6: INSERT notify_owner_reconnect
+    sqlReturnQueue.push(Object.assign([], { count: 1 }));               // 7: INSERT notify_owner_connection_lost
 
     mockLookupZernioReviewId.mockResolvedValueOnce('zernio-rev-id-1');
     mockPostReply.mockRejectedValueOnce(new ZernioAuthError(401, 'Unauthorized'));
@@ -335,7 +350,6 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
   });
 
   it('skips notify enqueues on auth error when response goes terminal mid-flight', async () => {
-    // See note on the analogous "no connection branch" race test above.
     sqlReturnQueue.push([mockResponseRow()]);                            // approved → passes Step 2 gate
     sqlReturnQueue.push([mockBusinessRow()]);
     sqlReturnQueue.push([mockZernioConnectionRow()]);
@@ -356,12 +370,13 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     expect(callTexts.some((t: string) => /notify_owner_connection_lost/.test(t))).toBe(false);
   });
 
-  // ── Branch B: ZernioPermanentError → terminal failed + exception ────
+  // ── Branch B: ZernioPermanentError → delegate to shared helper ──────
 
   it('opens permanent_4xx exception and marks response failed on ZernioPermanentError', async () => {
     sqlReturnQueue.push([mockResponseRow()]);
     sqlReturnQueue.push([mockBusinessRow()]);
     sqlReturnQueue.push([mockZernioConnectionRow()]);
+    // handlePublisherPermanentErrorTerminal drives the SQL
     sqlReturnQueue.push(Object.assign([], { count: 1 }));        // UPDATE failed
     sqlReturnQueue.push([{ id: 'exception-1' }]);                // INSERT review_exceptions
     sqlReturnQueue.push(Object.assign([], { count: 1 }));        // INSERT job_outbox
@@ -382,9 +397,9 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     expect(callTexts.some((t: string) => /UPDATE zernio_connections/.test(t))).toBe(false);
   });
 
-  // ── Branch B: ZernioTransientError → re-thrown for BullMQ retry ─────
+  // ── Branch B: ZernioTransientError → rethrown as PublisherTransientWithContext
 
-  it('re-throws ZernioTransientError so BullMQ retries', async () => {
+  it('re-throws ZernioTransientError as PublisherTransientWithContext so BullMQ retries', async () => {
     sqlReturnQueue.push([mockResponseRow()]);
     sqlReturnQueue.push([mockBusinessRow()]);
     sqlReturnQueue.push([mockZernioConnectionRow()]);
@@ -394,9 +409,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
       new ZernioTransientError('http_503', { status: 503, body: 'down' }),
     );
 
-    await expect(handlePublishResponse(makeJob())).rejects.toMatchObject({
-      name: 'ZernioTransientError',
-    });
+    await expect(handlePublishResponse(makeJob())).rejects.toBeInstanceOf(PublisherTransientWithContext);
 
     expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
@@ -413,5 +426,150 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     await expect(handlePublishResponse(makeJob())).rejects.toThrow('unexpected network kaboom');
     expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+  });
+
+  // ── Branch B: 409 verify-first flow ─────────────────────────────────
+
+  it('409 + target found page 1 with matching text → response marked posted', async () => {
+    push409BaseSequence();
+    sqlReturnQueue.push(Object.assign([], { count: 1 })); // UPDATE posted
+
+    mockLookupZernioReviewId.mockResolvedValueOnce('zernio-rev-id-1');
+    mockPostReply.mockRejectedValueOnce(
+      new ZernioReplyAlreadyExistsError({ message: 'reply already exists' }),
+    );
+    mockListAllReviews.mockResolvedValueOnce([
+      makeZernioReview('zernio-rev-id-1', 'Thank you for your kind review!'),
+    ]);
+
+    await handlePublishResponse(makeJob());
+
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+    const callTexts = (mockSql as any).mock.calls.map(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?'),
+    );
+    expect(callTexts.some((t: string) => /SET status = 'posted'/.test(t))).toBe(true);
+    expect(callTexts.some((t: string) => /superseded/.test(t))).toBe(false);
+  });
+
+  it('409 + target NOT found → throws ZernioReplyVerificationIndeterminateError reason=review_not_found_after_pagination', async () => {
+    push409BaseSequence();
+    // no UPDATE SQL — response should NOT be touched
+
+    mockLookupZernioReviewId.mockResolvedValueOnce('zernio-rev-id-1');
+    mockPostReply.mockRejectedValueOnce(
+      new ZernioReplyAlreadyExistsError({ message: 'reply already exists' }),
+    );
+    // listAllReviews returns reviews that do NOT include the target id
+    mockListAllReviews.mockResolvedValueOnce([
+      makeZernioReview('some-other-review-id', 'Some reply'),
+    ]);
+
+    await expect(handlePublishResponse(makeJob())).rejects.toMatchObject({
+      name: 'ZernioReplyVerificationIndeterminateError',
+      meta: { reason: 'review_not_found_after_pagination' },
+    });
+
+    expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+    // response status must not be changed
+    const callTexts = (mockSql as any).mock.calls.map(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?'),
+    );
+    expect(callTexts.some((t: string) => /UPDATE responses/.test(t))).toBe(false);
+  });
+
+  it('409 + target found but reviewReply=null → throws ZernioReplyVerificationIndeterminateError reason=review_found_but_reply_null', async () => {
+    push409BaseSequence();
+
+    mockLookupZernioReviewId.mockResolvedValueOnce('zernio-rev-id-1');
+    mockPostReply.mockRejectedValueOnce(
+      new ZernioReplyAlreadyExistsError({ message: 'reply already exists' }),
+    );
+    // Review found but reviewReply=null (Zernio lag)
+    mockListAllReviews.mockResolvedValueOnce([
+      makeZernioReview('zernio-rev-id-1', null),
+    ]);
+
+    await expect(handlePublishResponse(makeJob())).rejects.toMatchObject({
+      name: 'ZernioReplyVerificationIndeterminateError',
+      meta: { reason: 'review_found_but_reply_null' },
+    });
+
+    expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+  });
+
+  it('409 + target found with DIFFERENT text → response superseded with posting_error=already_replied_external', async () => {
+    push409BaseSequence();
+    sqlReturnQueue.push(Object.assign([], { count: 1 })); // UPDATE superseded
+
+    mockLookupZernioReviewId.mockResolvedValueOnce('zernio-rev-id-1');
+    mockPostReply.mockRejectedValueOnce(
+      new ZernioReplyAlreadyExistsError({ message: 'reply already exists' }),
+    );
+    // Existing reply has completely different text (external reply by owner directly)
+    mockListAllReviews.mockResolvedValueOnce([
+      makeZernioReview('zernio-rev-id-1', 'A completely different reply posted by someone else'),
+    ]);
+
+    await handlePublishResponse(makeJob());
+
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+    const callTexts = (mockSql as any).mock.calls.map(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?'),
+    );
+    expect(callTexts.some((t: string) => /superseded/.test(t))).toBe(true);
+    expect(callTexts.some((t: string) => /already_replied_external/.test(t))).toBe(true);
+    expect(callTexts.some((t: string) => /SET status = 'posted'/.test(t))).toBe(false);
+  });
+
+  it('409 + listAllReviews throws ZernioTransientError → caught + rethrown as PublisherTransientWithContext', async () => {
+    push409BaseSequence();
+
+    mockLookupZernioReviewId.mockResolvedValueOnce('zernio-rev-id-1');
+    mockPostReply.mockRejectedValueOnce(
+      new ZernioReplyAlreadyExistsError({ message: 'reply already exists' }),
+    );
+    mockListAllReviews.mockRejectedValueOnce(
+      new ZernioTransientError('http_503', { status: 503, body: 'unavailable' }),
+    );
+
+    const err = await handlePublishResponse(makeJob()).catch((e) => e);
+
+    expect(err).toBeInstanceOf(PublisherTransientWithContext);
+    // Must NOT be a bare ZernioTransientError without context
+    expect(err.name).toBe('PublisherTransientWithContext');
+    expect(err.attemptContext).toMatchObject({
+      response_id: 'resp-1',
+      business_id: 'biz-1',
+      account_id: 'acct-1',
+      location_id: 'loc-1',
+    });
+    expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+  });
+
+  it('409 canonicalization: existing CRLF vs ours LF → text match → marked posted', async () => {
+    push409BaseSequence();
+    sqlReturnQueue.push(Object.assign([], { count: 1 })); // UPDATE posted
+
+    mockLookupZernioReviewId.mockResolvedValueOnce('zernio-rev-id-1');
+    mockPostReply.mockRejectedValueOnce(
+      new ZernioReplyAlreadyExistsError({ message: 'reply already exists' }),
+    );
+    // Existing reply uses CRLF; our approved_text uses LF — should still match
+    mockListAllReviews.mockResolvedValueOnce([
+      makeZernioReview('zernio-rev-id-1', 'Thank you for your kind review!\r\n'),
+    ]);
+
+    await handlePublishResponse(makeJob());
+
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+    const callTexts = (mockSql as any).mock.calls.map(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?'),
+    );
+    expect(callTexts.some((t: string) => /SET status = 'posted'/.test(t))).toBe(true);
+    expect(callTexts.some((t: string) => /superseded/.test(t))).toBe(false);
   });
 });

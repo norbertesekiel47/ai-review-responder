@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { Job } from 'bullmq';
 import { v7 as uuidv7 } from 'uuid';
 import { jsonb, sql } from '../../src/lib/db/server';
@@ -15,6 +16,13 @@ import {
   ZernioTransientError,
   ZernioValidationError,
 } from '../../src/lib/zernio/errors';
+import {
+  handlePublisherAuthErrorTerminal,
+  handlePublisherPermanentErrorTerminal,
+  PublisherTransientWithContext,
+  ZernioReplyVerificationIndeterminateError,
+} from './publisher-error-handlers';
+import { canonicalizeReplyText } from '../../src/lib/zernio/canonicalize-reply';
 
 interface ZernioConnectionRow {
   zernio_account_id: string;
@@ -276,188 +284,202 @@ export async function handlePublishResponse(
       { comment: approvedText },
     );
   } catch (err) {
-    // ── ZernioReplyAlreadyExistsError: treat as idempotent success ───
+    // ── ZernioReplyAlreadyExistsError: verify-first per spec §6.10b ──
+    // 409 does NOT mean it was us — walk pages to confirm the reply text
+    // before marking posted. Mismatch → supersede. Indeterminate → retry.
     if (err instanceof ZernioReplyAlreadyExistsError) {
+      // 409 verify-first per spec §6.10b. Walk pages — Zernio paginates at 50,
+      // target review may be older than the most recent 50.
+      let allReviews;
+      try {
+        allReviews = await zernioClient.listAllReviews(
+          zernioConnection.zernio_account_id,
+          {
+            locationId: zernioConnection.zernio_location_id,
+            pageSize: 50,
+            maxPages: 4,
+          },
+        );
+      } catch (lookupErr) {
+        if (lookupErr instanceof ZernioTransientError) {
+          logger.warn(
+            `409 verifier hit transient error for response ${response_id}: ${lookupErr.message} — wrapping for retry`,
+          );
+          throw new PublisherTransientWithContext(lookupErr, {
+            response_id,
+            business_id,
+            account_id: zernioConnection.zernio_account_id,
+            location_id: zernioConnection.zernio_location_id,
+          });
+        }
+        if (lookupErr instanceof ZernioAuthError) {
+          logger.warn(`409 verifier hit auth error for response ${response_id}`);
+          await handlePublisherAuthErrorTerminal({
+            response_id,
+            business_id,
+            account_id: zernioConnection.zernio_account_id,
+            location_id: zernioConnection.zernio_location_id,
+            error_body: lookupErr.body ? String(lookupErr.body).slice(0, 500) : lookupErr.message,
+            outboxId,
+            outboxAttempt,
+            correlation_id: job.data.correlation_id,
+            logger,
+          });
+          return;
+        }
+        if (lookupErr instanceof ZernioPermanentError || lookupErr instanceof ZernioValidationError) {
+          logger.error(`409 verifier hit permanent error for response ${response_id}: ${lookupErr.message}`);
+          const endpointKind =
+            lookupErr instanceof ZernioPermanentError && typeof lookupErr.meta?.endpointKind === 'string'
+              ? lookupErr.meta.endpointKind
+              : 'list_reviews';
+          const errBody =
+            lookupErr instanceof ZernioPermanentError
+              ? lookupErr.meta
+              : { code: lookupErr.code, body: lookupErr.body };
+          await handlePublisherPermanentErrorTerminal({
+            response_id,
+            business_id,
+            review_id: response.review_id,
+            endpoint_kind: endpointKind,
+            http_status: 400,
+            error_body: errBody,
+            outboxId,
+            outboxAttempt,
+            logger,
+          });
+          return;
+        }
+        logger.warn(
+          `409 verifier hit unknown error for response ${response_id}: ` +
+          `${lookupErr instanceof Error ? lookupErr.message : lookupErr} — wrapping as indeterminate, retrying`,
+        );
+        throw new ZernioReplyVerificationIndeterminateError({
+          response_id, business_id, review_id: response.review_id,
+          account_id: zernioConnection.zernio_account_id,
+          location_id: zernioConnection.zernio_location_id,
+          zernio_review_id: zernioReviewId,
+          reason: 'verifier_unknown_error',
+          underlying_error: lookupErr instanceof Error ? lookupErr.message : String(lookupErr),
+        });
+      }
+
+      const found = allReviews.find((r) => r.id === zernioReviewId);
+
+      if (!found) {
+        logger.warn(
+          `409 verifier could not locate review ${zernioReviewId} after walking ${allReviews.length} reviews — indeterminate, retrying`,
+        );
+        throw new ZernioReplyVerificationIndeterminateError({
+          response_id, business_id, review_id: response.review_id,
+          account_id: zernioConnection.zernio_account_id,
+          location_id: zernioConnection.zernio_location_id,
+          zernio_review_id: zernioReviewId,
+          reason: 'review_not_found_after_pagination',
+          pages_walked: 4, reviews_seen: allReviews.length,
+        });
+      }
+
+      const existingReply = found.reviewReply ?? null;
+
+      if (existingReply === null) {
+        logger.warn(
+          `409 verifier found review ${zernioReviewId} but reviewReply=null — indeterminate (Zernio lag?), retrying`,
+        );
+        throw new ZernioReplyVerificationIndeterminateError({
+          response_id, business_id, review_id: response.review_id,
+          account_id: zernioConnection.zernio_account_id,
+          location_id: zernioConnection.zernio_location_id,
+          zernio_review_id: zernioReviewId,
+          reason: 'review_found_but_reply_null',
+        });
+      }
+
+      const existingText = canonicalizeReplyText(existingReply.comment);
+      const ourText = canonicalizeReplyText(approvedText);
+
+      if (existingText === ourText) {
+        await sql`
+          UPDATE responses
+          SET status = 'posted', posted_at = NOW(), updated_at = NOW()
+          WHERE id = ${response_id}
+            AND business_id = ${business_id}
+            AND status IN ('approved', 'edited', 'awaiting_owner_connect')
+        `;
+        logger.log(`Response ${response_id} already posted on Zernio (409, text match), marked posted`);
+        await markOutboxCompleted(outboxId, outboxAttempt);
+        return;
+      }
+
       await sql`
         UPDATE responses
-        SET status = 'posted', posted_at = NOW(), updated_at = NOW()
+        SET status = 'superseded',
+            posting_error = 'already_replied_external',
+            updated_at = NOW()
         WHERE id = ${response_id}
           AND business_id = ${business_id}
           AND status IN ('approved', 'edited', 'awaiting_owner_connect')
       `;
-      logger.log(
-        `Response ${response_id} already posted on Zernio (409), marked posted`,
+      const fp = (s: string) => createHash('sha256').update(s).digest('hex').slice(0, 12);
+      logger.warn(
+        `Response ${response_id} 409 text mismatch — ` +
+        `existing(len=${existingText.length},fp=${fp(existingText)}) ` +
+        `ours(len=${ourText.length},fp=${fp(ourText)}) ` +
+        `— superseded as already_replied_external`,
       );
       await markOutboxCompleted(outboxId, outboxAttempt);
       return;
     }
 
-    // ── ZernioAuthError: connection broken — graceful degradation ────
+    // ── ZernioAuthError: connection broken — delegate to shared helper ─
     if (err instanceof ZernioAuthError) {
-      const errorBody = err.body.slice(0, 500);
-      await sql.begin(async (tx) => {
-        // Pin the disconnect to the SPECIFIC zernio_account_id we just
-        // attempted to post against. Without this pin, a parallel
-        // webhook+reconnect race could leave us disconnecting a fresh
-        // active row that the owner just connected to a different Zernio
-        // account.
-        await tx`
-          UPDATE zernio_connections
-          SET status = 'disconnected',
-              disconnected_at = NOW(),
-              disconnect_reason = 'auth_error_on_post',
-              last_error = ${errorBody},
-              last_error_at = NOW()
-          WHERE business_id = ${business_id}
-            AND zernio_account_id = ${zernioConnection.zernio_account_id}
-            AND status = 'active'
-        `;
-
-        const updated = await tx`
-          UPDATE responses
-          SET status = 'awaiting_owner_connect', updated_at = NOW()
-          WHERE id = ${response_id}
-            AND business_id = ${business_id}
-            AND status IN ('approved', 'edited', 'awaiting_owner_connect')
-          RETURNING 1
-        `;
-
-        if (updated.count === 0) {
-          // Response already terminal (posted/failed/superseded). The
-          // connection mutation above is still useful; skip the notify
-          // enqueues so we don't email about a non-stuck response.
-          logger.log(
-            `Response ${response_id} already terminal during auth-error path; skipped notify enqueues`,
-          );
-          return;
-        }
-
-        await tx`
-          INSERT INTO job_outbox (
-            id, topic, aggregate_type, aggregate_id, payload, attempts, max_attempts
-          ) VALUES
-            (
-              ${uuidv7()},
-              'notify_owner_reconnect',
-              'response',
-              ${response_id},
-              ${jsonb({
-                kind: 'reconnect_required',
-                response_id,
-                business_id,
-              })},
-              0,
-              5
-            ),
-            (
-              ${uuidv7()},
-              'notify_owner_connection_lost',
-              'business',
-              ${business_id},
-              ${jsonb({ kind: 'connection_lost', business_id })},
-              0,
-              5
-            )
-        `;
+      await handlePublisherAuthErrorTerminal({
+        response_id,
+        business_id,
+        account_id: zernioConnection.zernio_account_id,
+        location_id: zernioConnection.zernio_location_id,
+        error_body: err.body ? String(err.body).slice(0, 500) : err.message,
+        outboxId,
+        outboxAttempt,
+        correlation_id: job.data.correlation_id,
+        logger,
       });
-
-      logger.warn(
-        `Zernio auth error on post for business ${business_id}; connection disconnected, response ${response_id} parked`,
-      );
-      // Auth failure is NOT transient; do NOT throw. Complete the outbox.
-      await markOutboxCompleted(outboxId, outboxAttempt);
       return;
     }
 
     // ── ZernioPermanentError / ZernioValidationError: terminal ───────
-    // Idempotent endpoint hit a permanent client-side problem. Open a
-    // review_exception and mark the response failed. Connection state
-    // is untouched — this is request-specific, not connection-wide.
     if (err instanceof ZernioPermanentError || err instanceof ZernioValidationError) {
       const endpointKind =
         err instanceof ZernioPermanentError && typeof err.meta?.endpointKind === 'string'
           ? err.meta.endpointKind
           : 'publish_reply';
-      const errorBody =
+      const errBody =
         err instanceof ZernioPermanentError ? err.meta : { code: err.code, body: err.body };
 
-      await sql.begin(async (tx) => {
-        const updated = await tx`
-          UPDATE responses
-          SET status = 'failed', updated_at = NOW()
-          WHERE id = ${response_id}
-            AND business_id = ${business_id}
-            AND status IN ('approved', 'edited', 'awaiting_owner_connect')
-          RETURNING 1
-        `;
-
-        if (updated.count === 0) {
-          logger.log(
-            `Response ${response_id} already terminal during permanent-error path; skipped exception`,
-          );
-          return;
-        }
-
-        const [exception] = await tx<{ id: string }[]>`
-          INSERT INTO review_exceptions (
-            id, business_id, review_id, response_id, type, payload
-          ) VALUES (
-            ${uuidv7()},
-            ${business_id},
-            ${response.review_id},
-            ${response_id},
-            'zernio_permanent_4xx',
-            ${jsonb({
-              response_id,
-              endpoint_kind: endpointKind,
-              error_body: errorBody,
-              http_status: 400,
-            })}
-          )
-          ON CONFLICT (review_id, type) WHERE status = 'open'
-          DO UPDATE SET payload = review_exceptions.payload
-          RETURNING id
-        `;
-
-        if (!exception) {
-          // Should never happen — ON CONFLICT DO UPDATE always returns a row.
-          logger.error(
-            `review_exceptions UPSERT returned no row for response ${response_id} (permanent_4xx)`,
-          );
-          return;
-        }
-
-        await tx`
-          INSERT INTO job_outbox (
-            id, topic, aggregate_type, aggregate_id, payload, attempts, max_attempts
-          ) VALUES (
-            ${uuidv7()},
-            'notify_admin_review_exception',
-            'review',
-            ${response.review_id},
-            ${jsonb({
-              review_exception_id: exception.id,
-              business_id,
-            })},
-            0,
-            5
-          )
-        `;
+      await handlePublisherPermanentErrorTerminal({
+        response_id,
+        business_id,
+        review_id: response.review_id,
+        endpoint_kind: endpointKind,
+        http_status: 400,
+        error_body: errBody,
+        outboxId,
+        outboxAttempt,
+        logger,
       });
-
-      logger.warn(
-        `Zernio permanent error on post for response ${response_id}; opened review_exception`,
-      );
-      await markOutboxCompleted(outboxId, outboxAttempt);
       return;
     }
 
-    // ── ZernioTransientError: re-throw so BullMQ retries ─────────────
-    // Final-attempt exhaustion is handled by the publisherWorker.on('failed')
-    // hook in worker/index.ts (Task 22), which calls
-    // applyTransientExhaustionFallback to disconnect + park the response.
+    // ── ZernioTransientError: wrap with context + re-throw for retry ──
+    // The failed-hook in worker/index.ts uses PublisherTransientWithContext
+    // to pin the disconnect to the attempted account+location on exhaustion.
     if (err instanceof ZernioTransientError) {
-      throw err;
+      throw new PublisherTransientWithContext(err, {
+        response_id,
+        business_id,
+        account_id: zernioConnection.zernio_account_id,
+        location_id: zernioConnection.zernio_location_id,
+      });
     }
 
     // ── Unknown error: re-throw ───────────────────────────────────────
