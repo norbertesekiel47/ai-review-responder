@@ -247,7 +247,15 @@ publisherWorker.on('failed', async (job, err) => {
     outboxAttempt = handle.attempt;
     if (err instanceof ZernioTransientError) {
       try {
-        await applyTransientExhaustionFallback(job.data);
+        // Pass an args-shaped object. Account/location are unavailable here
+        // unless the inner throw is PublisherTransientWithContext (Task 19);
+        // for raw ZernioTransientError we fall back to un-pinned legacy
+        // disconnect (safety net).
+        await applyTransientExhaustionFallback({
+          response_id: job.data.response_id,
+          business_id: job.data.business_id,
+          correlation_id: job.data.correlation_id,
+        });
         await markOutboxFailed(outboxId, 'zernio_transient_max_attempts', outboxAttempt);
       } catch (fallbackErr) {
         // Fallback itself failed — surface the reason so ops can see it,

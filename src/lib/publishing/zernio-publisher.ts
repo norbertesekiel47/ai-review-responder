@@ -3,16 +3,18 @@ import { getCacheRedis } from '@/lib/db/redis-cache';
 import { jsonb, sql } from '@/lib/db/server';
 import { zernioClient } from '@/lib/zernio/client';
 import { ZernioReviewNotFoundError } from '@/lib/zernio/errors';
-import type { PublishResponsePayload } from '@/lib/shared/worker-types';
 
 const CACHE_TTL_SECONDS = 86_400;
 const MATCH_WINDOW_MS = 86_400_000;
 
-interface OurReviewRow {
+interface OurReviewRowExpanded {
   reviewer_name: string;
   review_date: Date;
   review_text: string | null;
   star_rating: number;
+  provider: string;
+  provider_review_id: string | null;
+  provider_location_name: string | null;
 }
 
 /**
@@ -46,8 +48,9 @@ export async function lookupZernioReviewId(
   const cached = await redis.get(cacheKey);
   if (cached) return cached;
 
-  const [ourReview] = await sql<OurReviewRow[]>`
-    SELECT reviewer_name, review_date, review_text, star_rating
+  const [ourReview] = await sql<OurReviewRowExpanded[]>`
+    SELECT reviewer_name, review_date, review_text, star_rating,
+           provider, provider_review_id, provider_location_name
     FROM reviews
     WHERE id = ${ourReviewId} AND business_id = ${businessId}
     LIMIT 1
@@ -59,6 +62,22 @@ export async function lookupZernioReviewId(
       accountId,
       reason: 'review_not_found_or_wrong_business',
     });
+  }
+
+  // Early-return for Zernio-sourced rows: provider_review_id IS canonical.
+  // REQUIRE EXACT location match — same-account different-location row is
+  // NOT safe to short-circuit (would target the wrong GBP location). Round-2 M4.
+  if (ourReview.provider === 'zernio') {
+    const expectedLocationName = `zernio://${accountId}/locations/${locationId}`;
+    if (
+      ourReview.provider_location_name === expectedLocationName &&
+      ourReview.provider_review_id !== null
+    ) {
+      await redis.setex(cacheKey, CACHE_TTL_SECONDS, ourReview.provider_review_id);
+      return ourReview.provider_review_id;
+    }
+    // provider says zernio but location MISMATCH — fall through to field-match
+    // below (which will throw ReviewNotFoundError if it can't reconcile).
   }
 
   const zernioReviews = await zernioClient.listAllReviews(accountId, {
@@ -104,10 +123,22 @@ export async function lookupZernioReviewId(
  * reused by both the in-worker auth-error path and the BullMQ onFailed
  * graceful-degradation path. No duplication.
  */
-export async function applyTransientExhaustionFallback(
-  payload: PublishResponsePayload,
-): Promise<void> {
-  const { response_id: responseId, business_id: businessId } = payload;
+export async function applyTransientExhaustionFallback(args: {
+  response_id: string;
+  business_id: string;
+  correlation_id?: string;
+  /** When supplied alongside location_id, the disconnect WHERE clause pins
+   *  to that specific connection (round-11/12). When either is absent, falls
+   *  back to un-pinned legacy behavior as a safety net. */
+  account_id?: string;
+  location_id?: string;
+}): Promise<void> {
+  const {
+    response_id: responseId,
+    business_id: businessId,
+    account_id: accountId,
+    location_id: locationId,
+  } = args;
 
   await sql.begin(async (tx) => {
     // Order matters: response transition FIRST. If the response is already
@@ -132,15 +163,30 @@ export async function applyTransientExhaustionFallback(
       return;
     }
 
-    await tx`
-      UPDATE zernio_connections
-      SET status = 'disconnected',
-          disconnected_at = NOW(),
-          disconnect_reason = 'auth_error_on_post',
-          last_error = 'BullMQ retries exhausted',
-          last_error_at = NOW()
-      WHERE business_id = ${businessId} AND status = 'active'
-    `;
+    if (accountId && locationId) {
+      await tx`
+        UPDATE zernio_connections
+        SET status = 'disconnected',
+            disconnected_at = NOW(),
+            disconnect_reason = 'auth_error_on_post',
+            last_error = 'BullMQ retries exhausted',
+            last_error_at = NOW()
+        WHERE business_id = ${businessId}
+          AND zernio_account_id = ${accountId}
+          AND zernio_location_id = ${locationId}
+          AND status = 'active'
+      `;
+    } else {
+      await tx`
+        UPDATE zernio_connections
+        SET status = 'disconnected',
+            disconnected_at = NOW(),
+            disconnect_reason = 'auth_error_on_post',
+            last_error = 'BullMQ retries exhausted',
+            last_error_at = NOW()
+        WHERE business_id = ${businessId} AND status = 'active'
+      `;
+    }
 
     await tx`
       INSERT INTO job_outbox (
