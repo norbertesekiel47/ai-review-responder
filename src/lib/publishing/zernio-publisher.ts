@@ -34,6 +34,7 @@ export async function lookupZernioReviewId(
   businessId: string,
   ourReviewId: string,
   accountId: string,
+  locationId: string,
 ): Promise<string> {
   const redis = getCacheRedis();
   // Cache key is scoped by accountId — Zernio review IDs are namespaced per
@@ -61,6 +62,7 @@ export async function lookupZernioReviewId(
   }
 
   const zernioReviews = await zernioClient.listAllReviews(accountId, {
+    locationId,
     pageSize: 50,
     maxPages: 4,
   });

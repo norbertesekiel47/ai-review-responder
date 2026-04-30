@@ -183,6 +183,7 @@ export async function handlePublishResponse(
       business_id,
       response.review_id,
       zernioConnection.zernio_account_id,
+      zernioConnection.zernio_location_id,
     );
   } catch (err) {
     if (err instanceof ZernioReviewNotFoundError) {

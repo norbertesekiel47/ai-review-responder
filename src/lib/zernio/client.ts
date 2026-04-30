@@ -248,23 +248,24 @@ export const zernioClient = {
 
   listReviews: (
     accountId: string,
-    input: { pageSize?: number; pageToken?: string },
+    input: { locationId: string; pageSize?: number; pageToken?: string },
   ) =>
     request<{ reviews: ZernioReview[]; nextPageToken?: string }>({
       method: 'GET',
-      path: `/v1/accounts/${encodeURIComponent(accountId)}/gmb-reviews?pageSize=${input.pageSize ?? 50}${input.pageToken ? `&pageToken=${encodeURIComponent(input.pageToken)}` : ''}`,
+      path: `/v1/accounts/${encodeURIComponent(accountId)}/gmb-reviews?locationId=${encodeURIComponent(input.locationId)}&pageSize=${input.pageSize ?? 50}${input.pageToken ? `&pageToken=${encodeURIComponent(input.pageToken)}` : ''}`,
       endpointKind: 'list_reviews',
       timeoutMs: 15_000,
     }),
 
   listAllReviews: async (
     accountId: string,
-    opts: { pageSize: number; maxPages: number },
+    opts: { locationId: string; pageSize: number; maxPages: number },
   ): Promise<ZernioReview[]> => {
     const all: ZernioReview[] = [];
     let pageToken: string | undefined;
     for (let i = 0; i < opts.maxPages; i++) {
       const page = await zernioClient.listReviews(accountId, {
+        locationId: opts.locationId,
         pageSize: opts.pageSize,
         pageToken,
       });

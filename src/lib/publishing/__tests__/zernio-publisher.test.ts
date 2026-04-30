@@ -19,7 +19,7 @@ describe('lookupZernioReviewId', () => {
       setex,
     });
 
-    const result = await lookupZernioReviewId('biz1', 'our1', 'acct1');
+    const result = await lookupZernioReviewId('biz1', 'our1', 'acct1', 'loc1');
 
     expect(result).toBe('cached-zernio-id');
     expect(setex).not.toHaveBeenCalled();
@@ -35,7 +35,7 @@ describe('lookupZernioReviewId', () => {
     (sql as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([]);
 
     await expect(
-      lookupZernioReviewId('biz1', 'our1', 'acct1'),
+      lookupZernioReviewId('biz1', 'our1', 'acct1', 'loc1'),
     ).rejects.toMatchObject({ name: 'ZernioReviewNotFoundError' });
   });
 
@@ -76,7 +76,7 @@ describe('lookupZernioReviewId', () => {
         },
       ]);
 
-    const result = await lookupZernioReviewId('biz1', 'our1', 'acct1');
+    const result = await lookupZernioReviewId('biz1', 'our1', 'acct1', 'loc1');
 
     expect(result).toBe('zernio-match');
     expect(setex).toHaveBeenCalledWith('zernio_review_map:acct1:biz1:our1', 86400, 'zernio-match');
@@ -111,7 +111,7 @@ describe('lookupZernioReviewId', () => {
       ]);
 
     await expect(
-      lookupZernioReviewId('biz1', 'our1', 'acct1'),
+      lookupZernioReviewId('biz1', 'our1', 'acct1', 'loc1'),
     ).rejects.toMatchObject({ name: 'ZernioReviewNotFoundError' });
   });
 });
