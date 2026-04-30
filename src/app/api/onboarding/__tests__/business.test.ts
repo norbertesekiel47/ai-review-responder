@@ -133,8 +133,7 @@ describe('POST /api/onboarding/business', () => {
     mockSql.mockResolvedValueOnce([activeBizRow]);
     mockSql.mockResolvedValueOnce([]); // pg_advisory_xact_lock
     mockSql.mockResolvedValueOnce([activeBizRow]); // FOR UPDATE
-    mockSql.mockResolvedValueOnce([]); // UPDATE
-    mockSql.mockResolvedValueOnce([]); // INSERT outbox
+    mockSql.mockResolvedValueOnce([]); // UPDATE businesses (no outbox INSERT on verified path)
     const res = await POST(mkReq(validBody));
     expect(res.status).toBe(200);
 
@@ -201,12 +200,13 @@ describe('POST /api/onboarding/business', () => {
     expect(json.error).toBe('invalid_body');
   });
 
-  it('returns 200 + UPDATEs businesses + INSERTs sync_reviews outbox on verified placeId path', async () => {
+  it('returns 200 + UPDATEs businesses + does NOT insert outbox on verified placeId path', async () => {
+    // PlaceAutocomplete-verified path no longer enqueues sync_reviews —
+    // review ingestion is webhook-driven via Zernio.
     mockSql.mockResolvedValueOnce([activeBizRow]); // initial JOIN read
     mockSql.mockResolvedValueOnce([]); // pg_advisory_xact_lock
     mockSql.mockResolvedValueOnce([activeBizRow]); // FOR UPDATE re-read
     mockSql.mockResolvedValueOnce([]); // UPDATE businesses
-    mockSql.mockResolvedValueOnce([]); // INSERT job_outbox
 
     const res = await POST(mkReq(validBody));
     expect(res.status).toBe(200);
@@ -220,17 +220,16 @@ describe('POST /api/onboarding/business', () => {
       t.includes('UPDATE') && t.includes('businesses'),
     );
     expect(updateCall).toBeDefined();
+
+    // No outbox INSERT on the verified-placeId path.
     const outboxCall = mockSql.mock.calls.find((c: any[]) =>
       (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO job_outbox'),
     );
-    expect(outboxCall).toBeDefined();
-    // sync_reviews + 'business' aggregate_type are bound values for placeholders.
-    expect((outboxCall as unknown[]).some((v) => v === 'sync_reviews')).toBe(true);
-    // Dedup predicate is a SQL literal in the template.
-    const outboxText = (outboxCall![0] as TemplateStringsArray).join('?');
-    expect(outboxText).toContain('NOT EXISTS');
-    expect(outboxText).toContain("topic IN ('sync_reviews', 'validate_place_id')");
-    expect(outboxText).toContain("status IN ('pending', 'dispatching', 'dispatched')");
+    expect(outboxCall).toBeUndefined();
+
+    // Confirm sync_reviews is never referenced.
+    const allArgs = mockSql.mock.calls.flat();
+    expect(allArgs.some((v: unknown) => v === 'sync_reviews')).toBe(false);
   });
 
   it('returns 200 + INSERTs validate_place_id outbox on googleMapsUrl path', async () => {
@@ -254,7 +253,8 @@ describe('POST /api/onboarding/business', () => {
       (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO job_outbox'),
     );
     expect(outboxCall).toBeDefined();
-    expect((outboxCall as unknown[]).some((v) => v === 'validate_place_id')).toBe(true);
+    // 'validate_place_id' is now a SQL literal in the template, not a bound value.
+    expect((outboxCall![0] as TemplateStringsArray).join('?')).toContain("'validate_place_id'");
   });
 
   it('idempotency: silent no-op when FOR UPDATE re-read finds row already onboarded', async () => {

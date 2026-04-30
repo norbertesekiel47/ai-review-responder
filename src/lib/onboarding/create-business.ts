@@ -1,7 +1,7 @@
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '@/lib/db/server';
 import { buildPaymentLinkUrl } from '@/lib/payments/payment-link';
-import type { SyncReviewsPayload, ValidatePlaceIdPayload } from '@/lib/shared/worker-types';
+import type { ValidatePlaceIdPayload } from '@/lib/shared/worker-types';
 
 /**
  * Thrown when the businesses+users insert transaction fails on a PG 23505
@@ -96,12 +96,13 @@ export async function createBusinessTx(
  * + `POST /api/auth/finish-signup`).
  *
  * Writes businesses + users + channel_enrollments in a single sql.begin
- * transaction. In admin mode, additionally INSERTs a job_outbox row
- * (sync_reviews when Place ID is verified, validate_place_id otherwise).
+ * transaction. In admin mode, additionally INSERTs a job_outbox row for
+ * validate_place_id when a Maps URL is provided (Place ID verified = no
+ * enqueue — review ingestion is webhook-driven via Zernio).
  * In self_serve mode, skips the outbox insert entirely and writes the
  * businesses row with placeholder identity-only fields — the
- * /api/onboarding/business handler updates those fields and enqueues the
- * initial sync once the owner finishes the wizard after Stripe payment.
+ * /api/onboarding/business handler updates those fields and enqueues
+ * validate_place_id once the owner finishes the wizard after Stripe payment.
  *
  * On PG 23505 (unique_violation, typically users.email), throws
  * DuplicateEmailError so the caller can return 409.
@@ -244,22 +245,9 @@ async function runAdminTx(args: {
 
     const correlationId = uuidv7();
     if (placeIdVerified && placeId) {
-      const payload: SyncReviewsPayload = {
-        business_id: businessId,
-        google_place_id: placeId,
-        correlation_id: correlationId,
-      };
-      await tx`
-        INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-        VALUES (
-          ${uuidv7()},
-          'sync_reviews',
-          'business',
-          ${businessId},
-          ${jsonb(payload)},
-          'pending'
-        )
-      `;
+      // No outbox enqueue for the verified path — review ingestion is now
+      // webhook-driven via Zernio. The Zernio connect flow handles backfill
+      // when the owner links their GBP account.
     } else if (googleMapsUrl) {
       const payload: ValidatePlaceIdPayload = {
         business_id: businessId,
@@ -361,7 +349,8 @@ async function runSelfServeTx(args: {
     // a verified email recipient until cleanup. Created post-OTP instead.
 
     // No job_outbox INSERT here — the /api/onboarding/business handler
-    // enqueues sync_reviews / validate_place_id once the owner supplies
-    // real Place ID / Maps URL data.
+    // enqueues validate_place_id (Maps URL path) once the owner supplies
+    // real Place ID / Maps URL data. Verified PlaceAutocomplete path needs
+    // no enqueue (review ingestion is webhook-driven via Zernio).
   });
 }
