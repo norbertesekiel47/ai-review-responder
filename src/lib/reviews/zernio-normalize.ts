@@ -1,8 +1,8 @@
 // src/lib/reviews/zernio-normalize.ts
 //
 // Normalizes Zernio review payloads into the project's MonitoredReview /
-// NormalizedReview shape. Mirrors the per-review isolation pattern from
-// serpapi-monitor.ts so a single malformed review can't abort a batch.
+// NormalizedReview shape. Isolates per-review normalization so a single
+// malformed review can't abort a batch.
 //
 // Identity:
 //   provider              = 'zernio'

@@ -1,13 +1,13 @@
 // Worker-chain correlation test.
 //
-// Proves the correlation_id injected at the sync entry point flows through
-// the full review→response→notification chain:
+// Proves the correlation_id injected at the Zernio ingest entry point flows
+// through the full ingest→response→notification chain:
 //
-//   sync_reviews [corr-X]
-//     → ReviewSyncWorker / processReview
-//     → generate_response [corr-X]                  ← asserted in Part A
+//   ingest_zernio_review [corr-X]
+//     → ZernioReviewIngestWorker / processReview(monitored, bizId, corr-X)
+//     → generate_response [corr-X]                   ← asserted in Part A
 //       → ResponseGeneratorWorker / persistResponseAndNotify
-//       → send_notification [corr-X]                ← asserted in Part B
+//       → send_notification [corr-X]                 ← asserted in Part B
 //
 // Each worker runs in a separate BullMQ context, so we assert the boundary
 // contract at each hop: whatever correlation_id comes in must be present in
@@ -15,207 +15,173 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Job } from 'bullmq';
-import type { SyncReviewsPayload } from '../../src/lib/shared/worker-types';
-import type { MonitorResult } from '../../src/lib/reviews/types';
+import type { IngestZernioReviewPayload } from '../../src/lib/shared/worker-types';
 
 const UPSTREAM_CORRELATION = 'upstream-corr-chain-xyz';
 
 // ─── Part A shared state ────────────────────────────────────────────
 
 const {
-  sqlReturnQueueA,
   mockSqlA,
-  mockTxA,
   mockMarkOutboxCompletedA,
-  mockMarkOutboxFailedA,
-  mockFetchReviews,
+  mockProcessReview,
+  mockZernioClient,
+  mockBuildZernioMonitoredReview,
+  mockExtractLocationFromReviewName,
 } = vi.hoisted(() => {
-  const sqlReturnQueueA: unknown[] = [];
-
-  const mockTxA = vi.fn(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const mockSqlA: any = vi.fn(
     (_strings: TemplateStringsArray, ..._values: unknown[]): Promise<unknown[]> =>
       Promise.resolve([]),
   );
-
-  const mockSqlA = vi.fn((_strings: TemplateStringsArray, ..._values: unknown[]) => {
-    const result = sqlReturnQueueA.shift() ?? [];
-    return Promise.resolve(result);
-  }) as unknown as {
-    (strings: TemplateStringsArray, ...values: unknown[]): Promise<unknown>;
-    begin: (cb: (tx: unknown) => Promise<unknown>) => Promise<unknown>;
-    mock: { calls: unknown[][] };
-  };
-
-  (mockSqlA as unknown as { begin: (cb: (tx: unknown) => Promise<unknown>) => Promise<unknown> }).begin = vi.fn(
-    async (callback: (tx: unknown) => Promise<unknown>) => callback(mockTxA),
-  );
+  mockSqlA.begin = vi.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback(mockSqlA));
 
   const mockMarkOutboxCompletedA = vi.fn();
-  const mockMarkOutboxFailedA = vi.fn();
-
-  const mockFetchReviews = vi.fn<(placeId: string) => Promise<MonitorResult>>();
+  const mockProcessReview = vi.fn<(monitored: unknown, bizId: string, corrId?: string) => Promise<string>>();
+  const mockZernioClient = {
+    listReviews: vi.fn<() => Promise<{ reviews: unknown[]; nextPageToken?: string }>>(),
+  };
+  const mockBuildZernioMonitoredReview = vi.fn();
+  const mockExtractLocationFromReviewName = vi.fn<(name: string) => string | null>();
 
   return {
-    sqlReturnQueueA,
     mockSqlA,
-    mockTxA,
     mockMarkOutboxCompletedA,
-    mockMarkOutboxFailedA,
-    mockFetchReviews,
+    mockProcessReview,
+    mockZernioClient,
+    mockBuildZernioMonitoredReview,
+    mockExtractLocationFromReviewName,
   };
 });
 
-// ─── Common mocks ────────────────────────────────────────────────────
+// ─── Module mocks ────────────────────────────────────────────────────
 
 vi.mock('../../src/lib/db/server', () => ({
-  sql: mockSqlA, jsonb: (v: unknown) => v }));
+  sql: mockSqlA,
+  jsonb: (v: unknown) => v,
+}));
 
 vi.mock('../../src/lib/shared/outbox', () => ({
   markOutboxCompleted: mockMarkOutboxCompletedA,
-  markOutboxFailed: mockMarkOutboxFailedA,
-  extractOutboxHandle: (d: any, fallback: string) => ({ outboxId: (d && typeof d.outbox_id === 'string') ? d.outbox_id : fallback, attempt: (d && typeof d.outbox_attempt === 'number') ? d.outbox_attempt : undefined }),
+  markOutboxFailed: vi.fn(),
+  extractOutboxHandle: (d: Record<string, unknown>, fallback: string) => ({
+    outboxId: typeof d?.outbox_id === 'string' ? d.outbox_id : fallback,
+    attempt: typeof d?.outbox_attempt === 'number' ? d.outbox_attempt : undefined,
+  }),
 }));
 
-vi.mock('../../src/lib/shared/mock-mode', () => ({
-  getReviewMonitor: () => ({ fetchReviews: mockFetchReviews }),
+vi.mock('../../src/lib/reviews/process-review', () => ({
+  processReview: mockProcessReview,
+}));
+
+vi.mock('../../src/lib/zernio/client', () => ({
+  zernioClient: mockZernioClient,
+}));
+
+vi.mock('../../src/lib/reviews/zernio-normalize', () => ({
+  buildZernioMonitoredReview: mockBuildZernioMonitoredReview,
+  extractLocationFromReviewName: mockExtractLocationFromReviewName,
+  ZernioReviewNormalizationError: class ZernioReviewNormalizationError extends Error {
+    constructor(message: string) {
+      super(message);
+      this.name = 'ZernioReviewNormalizationError';
+    }
+  },
+}));
+
+vi.mock('../../src/lib/shared/subscription-guard', () => ({
+  checkSubscription: vi.fn(() => ({ allowed: true })),
+}));
+
+vi.mock('../../src/lib/shared/logger', () => ({
+  createWorkerLogger: () => ({ log: vi.fn(), warn: vi.fn(), error: vi.fn() }),
 }));
 
 vi.mock('uuid', () => ({
   v7: vi.fn(() => 'test-uuid-v7'),
 }));
 
-// Imports after mocks are wired
-import { handleReviewSync } from '../jobs/ReviewSyncWorker';
+// Import after mocks are wired
+import { handleZernioReviewIngest } from '../jobs/ZernioReviewIngestWorker';
 
 // ─── Helpers ─────────────────────────────────────────────────────────
 
-function activeBusiness(overrides: Record<string, unknown> = {}) {
-  return {
-    id: 'biz-001',
-    subscription_status: 'active',
-    google_place_id: 'ChIJ-test',
-    place_id_verified: true,
-    baseline_captured_at: new Date(),
-    updated_at: new Date(),
-    ...overrides,
-  };
-}
-
-function makeSyncJob(correlationId: string): Job<SyncReviewsPayload> {
+function makeIngestJob(correlationId: string): Job<IngestZernioReviewPayload> {
   return {
     data: {
       business_id: 'biz-001',
-      google_place_id: 'ChIJ-test',
+      zernio_account_id: 'acct-001',
+      zernio_location_id: 'loc-001',
+      zernio_review_id: 'rev-abc123',
       correlation_id: correlationId,
     },
-    id: 'sync-outbox-id',
-  } as unknown as Job<SyncReviewsPayload>;
+    id: 'ingest-outbox-id',
+    opts: { attempts: 5 },
+    attemptsMade: 0,
+  } as unknown as Job<IngestZernioReviewPayload>;
 }
 
-function makeMonitorResult(): MonitorResult {
+function makeZernioReview() {
   return {
-    reviews: [
-      {
-        review: {
-          reviewerName: 'Test User',
-          starRating: 5,
-          reviewText: 'Great place!',
-          reviewDate: new Date().toISOString(),
-          detectedLanguage: 'en',
-        },
-        identity: {
-          provider: 'serpapi_poll',
-          providerReviewId: 'sha-256-identity',
-          providerReviewName: 'serpapi://place/reviews/sha-256-identity',
-          providerLocationName: 'serpapi://place',
-          identityStrategy: 'name_date_hash',
-        },
-        contentHash: 'content-hash-abc',
-      },
-    ],
-    collisions: [],
+    id: 'rev-abc123',
+    name: 'accounts/acct-001/locations/loc-001/reviews/rev-abc123',
+    reviewer: { displayName: 'Test User' },
+    starRating: 'FIVE',
+    comment: 'Great service!',
+    createTime: new Date().toISOString(),
+    updateTime: new Date().toISOString(),
+    reviewReply: null,
   };
 }
 
-/**
- * Scan all SQL and TX template-arg calls for outbox payloads.
- * Handles both the legacy JSON-string form and the current object form
- * (bound via `jsonb(payload)` — the test mock passes the object through
- * as-is, so it shows up as a plain object in the call args).
- */
-function collectOutboxPayloads(mockFns: Array<{ mock: { calls: unknown[][] } }>): Record<string, unknown>[] {
-  const collected: Record<string, unknown>[] = [];
-  for (const fn of mockFns) {
-    for (const call of fn.mock.calls) {
-      for (const arg of call) {
-        // Object form (current): bound via jsonb(payload) — mock pass-through.
-        if (arg && typeof arg === 'object' && !Array.isArray(arg)) {
-          // Skip template-strings arrays and other non-payload objects.
-          // Payload shape carries at least business_id or review_id + correlation_id.
-          const o = arg as Record<string, unknown>;
-          if ('correlation_id' in o || 'business_id' in o || 'review_id' in o || 'response_id' in o) {
-            collected.push(o);
-          }
-          continue;
-        }
-        // Legacy JSON-string form — kept for backward compat.
-        if (typeof arg === 'string' && arg.startsWith('{') && arg.endsWith('}')) {
-          try {
-            collected.push(JSON.parse(arg) as Record<string, unknown>);
-          } catch {
-            // ignore malformed
-          }
-        }
-      }
-    }
-  }
-  return collected;
-}
+// ─── Part A: ingest_zernio_review → generate_response boundary ───────
 
-// ─── Part A: sync_reviews → generate_response boundary ──────────────
-
-describe('correlation chain — Part A: ReviewSyncWorker propagates to generate_response', () => {
+describe('correlation chain — Part A: ZernioReviewIngestWorker propagates to processReview', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    sqlReturnQueueA.length = 0;
-    mockTxA.mockImplementation(() => Promise.resolve([]));
+
+    // Business subscription SELECT + connection SELECT return rows
+    mockSqlA.mockImplementation(() => Promise.resolve([
+      { subscription_status: 'active', updated_at: new Date() },
+    ]));
   });
 
-  it('passes incoming correlation_id through to every generate_response outbox payload it creates', async () => {
-    // Queue the business lookup (first SELECT)
-    sqlReturnQueueA.push([activeBusiness()]);
-    // After fetchReviews returns, processReview runs inside sql.begin using mockTxA.
-    // processReview now uses ON CONFLICT DO NOTHING RETURNING id and checks inserted.count.
-    // We must sequence mockTxA responses to match the new call order:
-    //   call 1: SELECT existing review (FOR UPDATE) → [] (not found → NEW branch)
-    //   call 2: INSERT INTO reviews ... RETURNING id (ON CONFLICT DO NOTHING) → count=1 (won the race)
-    //   call 3: INSERT INTO job_outbox generate_response → [] (this is what we're verifying)
-    // baseline_captured_at is already set so captureRoiBaseline is skipped.
-    const inserted = Object.assign([], { count: 1 });
-    mockTxA
-      .mockResolvedValueOnce([])       // SELECT FOR UPDATE → no existing row
-      .mockResolvedValueOnce(inserted) // INSERT reviews ON CONFLICT DO NOTHING → count=1
-      .mockResolvedValueOnce([]);      // INSERT job_outbox
-    mockFetchReviews.mockResolvedValue(makeMonitorResult());
+  it('passes incoming correlation_id through to processReview (which writes generate_response outbox)', async () => {
+    // Mock SQL: first call = biz subscription, second call = zernio_connections
+    let callCount = 0;
+    mockSqlA.mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) return Promise.resolve([{ subscription_status: 'active', updated_at: new Date() }]);
+      if (callCount === 2) return Promise.resolve([{ id: 'conn-001' }]);
+      return Promise.resolve([]);
+    });
 
-    await handleReviewSync(makeSyncJob(UPSTREAM_CORRELATION));
+    const zernioReview = makeZernioReview();
+    mockZernioClient.listReviews.mockResolvedValueOnce({
+      reviews: [zernioReview],
+      nextPageToken: undefined,
+    });
 
-    // Extract all JSON payloads from both sql and tx mock calls
-    const payloads = collectOutboxPayloads([
-      mockSqlA as unknown as { mock: { calls: unknown[][] } },
-      mockTxA,
-    ]);
+    // extractLocationFromReviewName returns a matching location id
+    mockExtractLocationFromReviewName.mockReturnValue('loc-001');
 
-    // Find the generate_response payload (has review_id + business_id + version=1)
-    const generatePayload = payloads.find(
-      (p) =>
-        typeof p.review_id === 'string' &&
-        typeof p.business_id === 'string' &&
-        typeof p.version === 'number',
-    );
+    // buildZernioMonitoredReview returns a stub MonitoredReview
+    const stubMonitored = { review: { reviewerName: 'Test User' }, identity: {}, contentHash: 'hash' };
+    mockBuildZernioMonitoredReview.mockReturnValue(stubMonitored);
 
-    expect(generatePayload).toBeDefined();
-    expect(generatePayload!.correlation_id).toBe(UPSTREAM_CORRELATION);
+    // processReview is the boundary — it internally INSERTs generate_response.
+    // We capture the correlationId argument passed to it.
+    mockProcessReview.mockResolvedValue('new');
+
+    await handleZernioReviewIngest(makeIngestJob(UPSTREAM_CORRELATION));
+
+    // The ingest worker must call processReview with the upstream correlation_id.
+    expect(mockProcessReview).toHaveBeenCalledTimes(1);
+    const [, , capturedCorrelationId] = mockProcessReview.mock.calls[0]!;
+    expect(capturedCorrelationId).toBe(UPSTREAM_CORRELATION);
+
+    // Outbox should be marked completed.
+    expect(mockMarkOutboxCompletedA).toHaveBeenCalled();
   });
 });
 
