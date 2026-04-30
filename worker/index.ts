@@ -41,15 +41,22 @@ import rawBody from 'fastify-raw-body';
 import { Worker } from 'bullmq';
 import { getRedisOptions, QUEUE_NAMES, queues } from './queues';
 import { startOutboxPoller, stopOutboxPoller } from './jobs/OutboxPoller';
-import { startReconciliationPoller, stopReconciliationPoller } from './jobs/ReconciliationPoller';
 import { handleDemoGeneration } from './jobs/DemoGenerationWorker';
-import { handleReviewSync } from './jobs/ReviewSyncWorker';
 import { handleResponseGeneration } from './jobs/ResponseGeneratorWorker';
 import { handleSendNotification } from './jobs/NotificationWorker';
 import { handlePublishResponse } from './jobs/ResponsePublisherWorker';
+import {
+  handleZernioReviewIngest,
+  ZernioIngestReviewNotFoundError,
+  ZernioIngestUnparseableLocationError,
+} from './jobs/ZernioReviewIngestWorker';
+import { handleZernioBackfill } from './jobs/ZernioBackfillWorker';
 import { applyTransientExhaustionFallback } from '../src/lib/publishing/zernio-publisher';
 import { ZernioTransientError } from '../src/lib/zernio/errors';
 import { extractOutboxHandle, markOutboxFailed } from '../src/lib/shared/outbox';
+import { sql, jsonb } from '../src/lib/db/server';
+import { v7 as uuidv7 } from 'uuid';
+import type { IngestZernioReviewPayload, ZernioInitialBackfillPayload } from '../src/lib/shared/worker-types';
 import { handleAdminException } from './jobs/AdminExceptionWorker';
 import { handleWeeklySummary } from './jobs/WeeklySummaryWorker';
 import { handlePlaceIdValidation } from './jobs/PlaceIdValidationWorker';
@@ -122,7 +129,95 @@ const workerOpts = { connection: redisOpts, drainDelay: 5_000 };
 
 const demoWorker = new Worker(QUEUE_NAMES.GENERATE_DEMO, handleDemoGeneration, workerOpts);
 
-const reviewSyncWorker = new Worker(QUEUE_NAMES.SYNC_REVIEWS, handleReviewSync, workerOpts);
+// Zernio webhook-driven review ingest. Concurrency 5 — each job is short
+// (one listReviews call + processReview). One outbox row per active
+// connection at the firing Zernio account, fanned out by worker/ingress/zernio.ts.
+const ingestZernioReviewWorker = new Worker<IngestZernioReviewPayload>(
+  QUEUE_NAMES.INGEST_ZERNIO_REVIEW,
+  handleZernioReviewIngest,
+  workerOpts,
+);
+
+// Zernio first-connect backfill. Concurrency 1 — each backfill is heavy
+// (up to 4× listAllReviews pages + up to 75 processReview calls).
+const zernioBackfillWorker = new Worker<ZernioInitialBackfillPayload>(
+  QUEUE_NAMES.ZERNIO_INITIAL_BACKFILL,
+  handleZernioBackfill,
+  { ...workerOpts, concurrency: 1 },
+);
+
+// Final-attempt exhaustion handler for ZernioReviewIngestWorker. Typed errors
+// from the worker (ZernioIngestReviewNotFoundError, ZernioIngestUnparseableLocationError)
+// escalate to review_exceptions after BullMQ retries are exhausted; the
+// admin notify is deliberately skipped for review_not_found (high-volume
+// during Zernio outages would spam admin email; ops watches the table).
+ingestZernioReviewWorker.on('failed', async (job, err) => {
+  if (!job) return;
+  if (job.attemptsMade < (job.opts.attempts ?? 5)) return;  // not yet exhausted
+
+  const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
+
+  if (err instanceof ZernioIngestReviewNotFoundError) {
+    await sql`
+      INSERT INTO review_exceptions (id, business_id, type, status, payload)
+      VALUES (
+        ${uuidv7()}, ${err.businessId}, 'zernio_review_not_found', 'open',
+        ${jsonb({
+          provider: 'zernio',
+          provider_review_id: err.zernioReviewId,
+          zernio_account_id: err.zernioAccountId,
+          zernio_location_id: err.zernioLocationId,
+          retries_exhausted_at: new Date().toISOString(),
+        })}
+      )
+      ON CONFLICT (business_id, type, (payload->>'provider_review_id'))
+        WHERE status = 'open' AND review_id IS NULL
+      DO NOTHING
+    `;
+    await markOutboxFailed(outboxId, 'zernio_review_not_found_after_retries', outboxAttempt);
+    return;
+  }
+
+  if (err instanceof ZernioIngestUnparseableLocationError) {
+    const [exception] = await sql<{ id: string }[]>`
+      INSERT INTO review_exceptions (id, business_id, type, status, payload)
+      VALUES (
+        ${uuidv7()}, ${err.businessId}, 'zernio_unparseable_review_name', 'open',
+        ${jsonb({
+          provider: 'zernio',
+          provider_review_id: err.zernioReviewId,
+          zernio_account_id: err.zernioAccountId,
+          zernio_location_id: err.zernioLocationId,
+          review_name_truncated: err.reviewName.slice(0, 500),
+          retries_exhausted_at: new Date().toISOString(),
+        })}
+      )
+      ON CONFLICT (business_id, type, (payload->>'provider_review_id'))
+        WHERE status = 'open' AND review_id IS NULL
+      DO NOTHING
+      RETURNING id
+    `;
+
+    if (exception) {
+      // Unparseable shape DOES warrant admin notify — signals contract change.
+      await sql`
+        INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, attempts, max_attempts)
+        VALUES (
+          ${uuidv7()}, 'notify_admin_review_exception', 'business',
+          ${err.businessId},
+          ${jsonb({ review_exception_id: exception.id, business_id: err.businessId })},
+          0, 5
+        )
+      `;
+    }
+    await markOutboxFailed(outboxId, 'zernio_unparseable_review_name', outboxAttempt);
+    return;
+  }
+
+  // Anything else: bare markOutboxFailed (existing behavior).
+  const reason = err instanceof Error ? err.message : String(err);
+  await markOutboxFailed(outboxId, reason, outboxAttempt);
+});
 
 const responseGenWorker = new Worker(QUEUE_NAMES.GENERATE_RESPONSE, handleResponseGeneration, workerOpts);
 
@@ -211,7 +306,7 @@ const ownerEmailWorker = new Worker(QUEUE_NAMES.SEND_OWNER_EMAIL, handleOwnerEma
 
 const drainOwnerConnectWorker = new Worker(QUEUE_NAMES.DRAIN_OWNER_CONNECT, handleDrainOwnerConnect, workerOpts);
 
-const workers = [demoWorker, reviewSyncWorker, responseGenWorker, notificationWorker, publisherWorker, adminExceptionWorker, weeklySummaryWorker, placeIdValidationWorker, monthlyImpactWorker, engagementAlertWorker, rankingTrackingWorker, onboardingDripWorker, ownerEmailWorker, drainOwnerConnectWorker];
+const workers = [demoWorker, ingestZernioReviewWorker, zernioBackfillWorker, responseGenWorker, notificationWorker, publisherWorker, adminExceptionWorker, weeklySummaryWorker, placeIdValidationWorker, monthlyImpactWorker, engagementAlertWorker, rankingTrackingWorker, onboardingDripWorker, ownerEmailWorker, drainOwnerConnectWorker];
 
 // Sentry breadcrumbs on job lifecycle
 for (const worker of workers) {
@@ -298,7 +393,6 @@ async function main(): Promise<void> {
 
   await app.listen({ port: PORT, host: '0.0.0.0' });
   startOutboxPoller();
-  startReconciliationPoller();
   const failoverDecision = shouldRunFailoverPoller();
   if (failoverDecision.run) {
     startNotificationFailoverPoller();
@@ -322,7 +416,6 @@ async function main(): Promise<void> {
 async function shutdown(): Promise<void> {
   console.log('Shutting down worker...');
   stopOutboxPoller();
-  stopReconciliationPoller();
   stopNotificationFailoverPoller();
   stopWeeklySummaryScheduler();
   stopArchivalPoller();
