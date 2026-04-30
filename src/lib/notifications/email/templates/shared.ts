@@ -4,8 +4,8 @@
 //
 // `LOG_PREFIX` is the canonical [email] prefix used by every send-path log
 // line. `renderStars` and `truncate` are pure formatting helpers used by
-// approval, manual-post, weekly, monthly, owner-nudge, and onboarding
-// templates. Keeping them centralized prevents drift between templates
+// approval, weekly, monthly, owner-nudge, and onboarding templates.
+// Keeping them centralized prevents drift between templates
 // (for example, two slightly different star characters or truncation
 // suffixes appearing in different emails).
 

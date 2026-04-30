@@ -182,8 +182,8 @@ export function ZernioConnectionPanel({
           </>
         ) : (
           <p className="text-sm text-gray-500 sm:col-span-2">
-            This business has never started a Zernio connect flow. Approved responses fall back
-            to the manual-post path until the owner connects.
+            This business has never started a Zernio connect flow. Approved responses will stay
+            queued in the dashboard until the owner connects Google via Zernio.
           </p>
         )}
       </div>
@@ -233,13 +233,9 @@ export function ZernioConnectionPanel({
             reconnect, the worker drains them automatically.
           </p>
           {/*
-            TODO(zernio): wire a per-response "Manually post" button that
-            transitions awaiting_owner_connect -> awaiting_manual_post via
-            an admin-only escape-hatch route. The existing /mark-posted route
-            only handles awaiting_manual_post -> posted; the upstream
-            transition needed for this UI does not exist yet. Spec §3.5
-            calls for it but the route lives in a later task, so the panel
-            currently renders the queue without the button.
+            TODO(zernio): per-response admin actions (force-drain, dismiss)
+            can be wired here once an admin-only route is added in a later task.
+            For now the panel renders the queue without action buttons.
           */}
           <ul className="mt-3 space-y-2">
             {awaitingOwnerConnect.map((r) => (

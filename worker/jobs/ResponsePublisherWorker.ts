@@ -87,10 +87,8 @@ export async function handlePublishResponse(
   // status-guarded UPDATE no-ops). 'pending_approval' would post an
   // unapproved response, violating the no-auto-posting invariant.
   //
-  // 'awaiting_manual_post' is intentionally excluded — that's the legacy
-  // SerpAPI-mode escape hatch (admin "Manually post" action), not a Zernio
-  // path. This list mirrors the UPDATE WHERE clauses below and matches
-  // AWAITING_PUBLISH_STATUSES minus 'awaiting_manual_post'.
+  // This list mirrors the UPDATE WHERE clauses below and matches
+  // AWAITING_PUBLISH_STATUSES exactly.
   const ZERNIO_PUBLISHABLE_STATES = ['approved', 'edited', 'awaiting_owner_connect'] as const;
   if (!(ZERNIO_PUBLISHABLE_STATES as readonly string[]).includes(response.status)) {
     logger.log(

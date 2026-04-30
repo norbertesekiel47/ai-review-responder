@@ -189,31 +189,6 @@ describe('handleResendWebhook — bounce handling', () => {
   });
 
   // ── Regression: admin/partner-directed template bounce must NOT flag owner ──
-  it('does NOT flag owner_email_bounced when hard bounce comes from admin_manual_post template', async () => {
-    sqlReturnQueue.push({ count: 1 });
-    // Admin/partner template — the recipient is ADMIN_NOTIFICATION_EMAIL,
-    // not the owner, so an address bounce here means the admin inbox is bad,
-    // not the owner's. owner_email_bounced must remain untouched.
-    sqlReturnQueue.push([{ business_id: 'biz-1', template: 'admin_manual_post' }]);
-    sqlReturnQueue.push([]); // UPDATE notification_deliveries
-    sqlReturnQueue.push([]); // UPDATE inbound_events
-
-    const body = {
-      type: 'email.bounced',
-      data: { email_id: 'msg-abc', bounce: { type: 'Permanent' } },
-    };
-    const { reply, captured } = makeReply();
-    await handleResendWebhook(makeReq(body), reply);
-
-    expect(captured.status).toBe(200);
-
-    const joinedSql = joinSql(mockSql.mock.calls);
-    // Business row must not have been updated
-    expect(joinedSql).not.toMatch(/UPDATE\s+businesses[\s\S]*owner_email_bounced/i);
-    // No admin alert either — the admin already saw their own inbox silence
-    expect(mockSendInternalEmail).not.toHaveBeenCalled();
-  });
-
   it('does NOT flag owner_email_bounced for partner_engagement_alert template', async () => {
     sqlReturnQueue.push({ count: 1 });
     sqlReturnQueue.push([{ business_id: 'biz-1', template: 'partner_engagement_alert' }]);

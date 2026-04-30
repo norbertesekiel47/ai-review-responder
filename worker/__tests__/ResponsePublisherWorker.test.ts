@@ -165,7 +165,6 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     ['failed'],
     ['superseded'],
     ['pending_approval'],
-    ['awaiting_manual_post'],
   ])('completes outbox without action when response status is %s', async (status) => {
     sqlReturnQueue.push([mockResponseRow({ status })]);
     sqlReturnQueue.push([mockBusinessRow()]);

@@ -165,7 +165,7 @@ describe('reconcileExternallyAnsweredReview', () => {
     expect(callIdx).toBe(3);
   });
 
-  it('SQL filter excludes awaiting_manual_post status (regression for §6.12b)', async () => {
+  it('SQL filter for active responses excludes awaiting_manual_post (decommissioned status)', async () => {
     const { sql } = await import('@/lib/db/server');
     let activeResponseSql = '';
     let callIdx = 0;

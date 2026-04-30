@@ -4,8 +4,8 @@ import type { ChannelId } from '@/lib/notifications/channels/types';
 
 /**
  * Records a notification delivery in the notification_deliveries table.
- * Used by both NotificationWorker (approval emails) and
- * ResponsePublisherWorker (admin manual-post emails).
+ * Used by NotificationWorker (approval emails) and other workers that
+ * send owner or admin notifications.
  */
 export async function recordNotificationDelivery(params: {
   businessId: string;

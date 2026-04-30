@@ -64,8 +64,8 @@ const SCENARIOS: Scenario[] = [
     id: 'A3',
     customerSays: "I approved it but it's not posted on Google.",
     firstCheck:
-      'Business detail page → review list → status badge. Expected: awaiting_manual_post after approval in SerpAPI mode. Manual posting is normal for MVP.',
-    fix: 'Sales partner copies approved text from Manual Post Section, pastes into Google Business Profile, then clicks "Mark as posted". GBP API auto-post lands in Phase 5.',
+      'Business detail page → Zernio Connection panel → awaiting reconnect count. If awaiting_owner_connect: owner has not connected or reconnected Google via Zernio.',
+    fix: 'Owner logs in → /settings/channels → Connect Google. Once connected, DrainOwnerConnectWorker automatically re-queues the approved response for publishing.',
   },
   {
     id: 'A4',

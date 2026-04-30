@@ -9,7 +9,6 @@ import { TrackedKeywordsSection } from './components/TrackedKeywordsSection';
 import { ManualRankingSection } from './components/ManualRankingSection';
 import { ReviewsList } from './components/ReviewsList';
 import { ChannelsPanel } from './components/ChannelsPanel';
-import { ManualPostFlow } from './components/ManualPostFlow';
 import { ZernioConnectionPanel } from './components/ZernioConnectionPanel';
 import { useBusinessDetail } from './hooks/useBusinessDetail';
 
@@ -48,7 +47,6 @@ export default function BusinessDetailPage() {
   }
 
   const { business, reviews, rankingSnapshots, zernio } = data;
-  const awaitingPost = reviews.filter((r) => r.responseStatus === 'awaiting_manual_post');
 
   const mapsUrl = business.googlePlaceId
     ? `https://www.google.com/maps/place/?q=place_id:${business.googlePlaceId}`
@@ -179,8 +177,6 @@ export default function BusinessDetailPage() {
           onChanged={invalidate}
         />
 
-        {/* Awaiting Manual Post */}
-        <ManualPostFlow businessId={businessId} awaitingPost={awaitingPost} />
       </div>
     </div>
   );

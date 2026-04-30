@@ -3,12 +3,11 @@
 // Single source of truth for the named status groupings used across
 // dashboard metrics, admin counts, weekly/monthly summaries, and
 // onboarding/engagement queries. Keeping this list in one place ensures
-// new statuses (like `awaiting_owner_connect` from the Zernio integration)
-// are counted consistently everywhere `awaiting_manual_post` is.
+// statuses are counted consistently everywhere.
 //
-// IMPORTANT: state-transition UPDATEs (e.g. mark-posted route, the
-// ResponsePublisherWorker UPDATEs) keep their own narrow inline lists.
-// Only counting/display callsites should use these groups.
+// IMPORTANT: state-transition UPDATEs (e.g. ResponsePublisherWorker UPDATEs)
+// keep their own narrow inline lists. Only counting/display callsites
+// should use these groups.
 
 // All response status values — the canonical enumeration.
 export const ALL_RESPONSE_STATUSES = [
@@ -16,7 +15,6 @@ export const ALL_RESPONSE_STATUSES = [
   'approved',
   'edited',
   'superseded',
-  'awaiting_manual_post',
   'awaiting_owner_connect',
   'posted',
   'failed',
@@ -25,12 +23,11 @@ export const ALL_RESPONSE_STATUSES = [
 export type ResponseStatus = (typeof ALL_RESPONSE_STATUSES)[number];
 
 // Non-terminal statuses — at most one such response can exist per review
-// at a time (enforced by the partial unique index in migration 023+026).
+// at a time (enforced by the partial unique index in migration 023+026+029).
 export const NON_TERMINAL_STATUSES = [
   'pending_approval',
   'approved',
   'edited',
-  'awaiting_manual_post',
   'awaiting_owner_connect',
 ] as const;
 
@@ -44,13 +41,11 @@ export const TERMINAL_STATUSES = [
 
 // "Handled" — the owner has acted on the response so the review counts as
 // responded for dashboard / response-rate / weekly-summary purposes.
-// Includes published (`posted`), parked-pre-publish (`awaiting_manual_post`,
-// `awaiting_owner_connect`), and approved-but-still-rendering (`approved`,
-// `edited`).
+// Includes published (`posted`), parked-pre-publish (`awaiting_owner_connect`),
+// and approved-but-still-rendering (`approved`, `edited`).
 export const HANDLED_STATUSES = [
   'approved',
   'edited',
-  'awaiting_manual_post',
   'awaiting_owner_connect',
   'posted',
 ] as const;
@@ -67,7 +62,6 @@ export const APPROVED_OR_LATER_STATUSES = HANDLED_STATUSES;
 export const AWAITING_PUBLISH_STATUSES = [
   'approved',
   'edited',
-  'awaiting_manual_post',
   'awaiting_owner_connect',
 ] as const;
 
@@ -78,7 +72,6 @@ export const RECENT_REVIEW_DISPLAY_STATUSES = [
   'pending_approval',
   'approved',
   'edited',
-  'awaiting_manual_post',
   'awaiting_owner_connect',
   'posted',
 ] as const;

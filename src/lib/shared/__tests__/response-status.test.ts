@@ -10,9 +10,9 @@ import {
 } from '../response-status';
 
 describe('response-status groups', () => {
-  it('HANDLED_STATUSES includes both awaiting_manual_post and awaiting_owner_connect', () => {
-    expect(HANDLED_STATUSES).toContain('awaiting_manual_post');
+  it('HANDLED_STATUSES includes awaiting_owner_connect and excludes awaiting_manual_post', () => {
     expect(HANDLED_STATUSES).toContain('awaiting_owner_connect');
+    expect(([...HANDLED_STATUSES] as string[])).not.toContain('awaiting_manual_post');
   });
 
   it('APPROVED_OR_LATER_STATUSES is identical to HANDLED_STATUSES', () => {
@@ -21,11 +21,10 @@ describe('response-status groups', () => {
     );
   });
 
-  it('NON_TERMINAL_STATUSES matches migration 023+026 unique-index list', () => {
+  it('NON_TERMINAL_STATUSES matches migration 023+026+029 unique-index list', () => {
     expect([...NON_TERMINAL_STATUSES].sort()).toEqual(
       [
         'approved',
-        'awaiting_manual_post',
         'awaiting_owner_connect',
         'edited',
         'pending_approval',
@@ -51,7 +50,7 @@ describe('response-status groups', () => {
 
   it('AWAITING_PUBLISH_STATUSES is the subset that signals "owner approved, awaiting publish"', () => {
     expect(AWAITING_PUBLISH_STATUSES).toContain('awaiting_owner_connect');
-    expect(AWAITING_PUBLISH_STATUSES).toContain('awaiting_manual_post');
+    expect(([...AWAITING_PUBLISH_STATUSES] as string[])).not.toContain('awaiting_manual_post');
     expect(AWAITING_PUBLISH_STATUSES).not.toContain('pending_approval');
     expect(AWAITING_PUBLISH_STATUSES).not.toContain('posted');
     expect(AWAITING_PUBLISH_STATUSES).not.toContain('superseded');

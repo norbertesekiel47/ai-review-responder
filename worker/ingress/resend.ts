@@ -119,8 +119,8 @@ function isHardBounceType(type: string): boolean {
  * templates go to the business owner's email — so only hard bounces
  * on these templates should flag `businesses.owner_email_bounced`.
  *
- * Admin/partner templates (admin_manual_post, admin_exception,
- * partner_engagement_alert, etc.) also have a business_id on the
+ * Admin/partner templates (admin_exception, partner_engagement_alert, etc.)
+ * also have a business_id on the
  * delivery row but their recipient is ADMIN_NOTIFICATION_EMAIL —
  * a bounce there means the ADMIN's email is bad, not the owner's.
  */
@@ -267,8 +267,8 @@ export async function handleResendWebhook(
           // Load business_id AND template from the delivery row so we can decide:
           //   - whether to flag businesses.owner_email_bounced (owner-directed only)
           //   - whether to alert admin
-          // Admin/partner templates (admin_manual_post, admin_exception, etc.)
-          // also carry a business_id but their recipient is the admin, not the
+          // Admin/partner templates (admin_exception, etc.) also carry a
+          // business_id but their recipient is the admin, not the
           // owner — so an admin-email bounce must NOT flag the business owner.
           const [delivery] = await sql<{ business_id: string; template: string | null }[]>`
             SELECT business_id, template FROM notification_deliveries

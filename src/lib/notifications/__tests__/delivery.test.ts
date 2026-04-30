@@ -49,8 +49,9 @@ describe('insertFailedDelivery', () => {
   });
 
   it('accepts null response_id for admin-directed deliveries', async () => {
-    await insertFailedDelivery('biz-1', null, 'email', 'admin@example.com', 'bounced', 'admin_manual_post');
+    await insertFailedDelivery('biz-1', null, 'email', 'admin@example.com', 'bounced', 'admin_exception');
     const call = sqlCalls[0]!;
     expect(call.values).toContain(null);
+    expect(call.values).toContain('admin_exception');
   });
 });

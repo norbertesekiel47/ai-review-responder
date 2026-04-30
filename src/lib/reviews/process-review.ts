@@ -222,7 +222,6 @@ async function processExistingReview(
 
   if (
     activeResponse.status === 'posted' ||
-    activeResponse.status === 'awaiting_manual_post' ||
     activeResponse.status === 'awaiting_owner_connect'
   ) {
     // Already posted/pending post — create review_exception + notify admin.
