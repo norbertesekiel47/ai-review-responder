@@ -116,7 +116,7 @@ describe('Zernio end-to-end: webhook → ingest → processReview', () => {
 
     // Assert the MonitoredReview passed to processReview has the right
     // location-scoped resource names.
-    const monitored = mockProcessReview.mock.calls[0][0] as {
+    const monitored = mockProcessReview.mock.calls[0]![0] as {
       identity: { providerReviewName: string; providerLocationName: string };
     };
     expect(monitored.identity.providerReviewName).toBe(
