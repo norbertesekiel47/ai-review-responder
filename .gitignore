@@ -46,6 +46,7 @@ next-env.d.ts
 /docs/*
 !/docs/zernio-launch-runbook.md
 !/docs/zernio-testing-and-shipping.md
+!/docs/zernio-ingestion-test-runbook.md
 .superpowers
 
 # firecrawl scrape output (market research, not code)
