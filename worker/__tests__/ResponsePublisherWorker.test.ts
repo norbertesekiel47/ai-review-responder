@@ -233,7 +233,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
 
     await handlePublishResponse(makeJob());
 
-    expect(mockLookupZernioReviewId).toHaveBeenCalledWith('biz-1', 'rev-1', 'acct-1');
+    expect(mockLookupZernioReviewId).toHaveBeenCalledWith('biz-1', 'rev-1', 'acct-1', 'loc-1');
     expect(mockPostReply).toHaveBeenCalledWith('acct-1', 'zernio-rev-id-1', {
       comment: 'Thank you for your kind review!',
     });
