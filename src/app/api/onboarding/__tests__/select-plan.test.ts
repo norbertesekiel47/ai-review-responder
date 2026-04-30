@@ -156,8 +156,24 @@ describe('POST /api/onboarding/select-plan', () => {
   });
 
   it('returns 400 on bad tier', async () => {
-    const res = await POST(mkReq({ tier: 'premium' }));
+    const res = await POST(mkReq({ tier: 'enterprise' }));
     expect(res.status).toBe(400);
+  });
+
+  it('accepts tier="premium" and returns the Premium payment link', async () => {
+    process.env.STRIPE_PAYMENT_LINK_PREMIUM = 'https://buy.stripe.com/test_premium';
+    mockBuildPaymentLinkUrl.mockReturnValueOnce(
+      'https://buy.stripe.com/test_premium?ref=biz-1',
+    );
+    const res = await POST(mkReq({ tier: 'premium' }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.paymentUrl).toBe('https://buy.stripe.com/test_premium?ref=biz-1');
+    expect(mockBuildPaymentLinkUrl).toHaveBeenCalledWith(
+      'premium',
+      'biz-1',
+      'owner@example.com',
+    );
   });
 
   it('returns 401 when no Supabase session', async () => {

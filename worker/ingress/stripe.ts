@@ -176,9 +176,10 @@ async function processSubscriptionUpdated(sub: Stripe.Subscription): Promise<voi
     return;
   }
 
-  const priceToTier: Record<string, string> = {
+  const priceToTier: Record<string, 'founding' | 'standard' | 'premium'> = {
     [process.env.STRIPE_PRICE_FOUNDING ?? '']: 'founding',
     [process.env.STRIPE_PRICE_STANDARD ?? '']: 'standard',
+    [process.env.STRIPE_PRICE_PREMIUM  ?? '']: 'premium',
   };
 
   const tier = priceToTier[priceId];

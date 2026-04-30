@@ -18,8 +18,8 @@ export function assertSelfServeSignupEnv(): void {
   if (!process.env.NEXT_PUBLIC_APP_URL) {
     throw new Error('[startup] SELF_SERVE_SIGNUP_ENABLED=true requires NEXT_PUBLIC_APP_URL');
   }
-  if (!process.env.STRIPE_PAYMENT_LINK_FOUNDING || !process.env.STRIPE_PAYMENT_LINK_STANDARD) {
-    throw new Error('[startup] SELF_SERVE_SIGNUP_ENABLED=true requires STRIPE_PAYMENT_LINK_FOUNDING + STRIPE_PAYMENT_LINK_STANDARD');
+  if (!process.env.STRIPE_PAYMENT_LINK_FOUNDING || !process.env.STRIPE_PAYMENT_LINK_STANDARD || !process.env.STRIPE_PAYMENT_LINK_PREMIUM) {
+    throw new Error('[startup] SELF_SERVE_SIGNUP_ENABLED=true requires STRIPE_PAYMENT_LINK_FOUNDING + STRIPE_PAYMENT_LINK_STANDARD + STRIPE_PAYMENT_LINK_PREMIUM');
   }
 }
 

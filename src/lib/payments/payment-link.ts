@@ -1,10 +1,11 @@
-const TIER_ENV: Record<string, string> = {
+const TIER_ENV: Record<'founding' | 'standard' | 'premium', string> = {
   founding: 'STRIPE_PAYMENT_LINK_FOUNDING',
   standard: 'STRIPE_PAYMENT_LINK_STANDARD',
+  premium:  'STRIPE_PAYMENT_LINK_PREMIUM',
 };
 
 export function buildPaymentLinkUrl(
-  tier: 'founding' | 'standard',
+  tier: 'founding' | 'standard' | 'premium',
   businessId: string,
   ownerEmail: string,
 ): string | null {
