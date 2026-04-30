@@ -12,9 +12,10 @@ export { computeContentHash } from './types';
 
 // Review sources
 export { SerpApiSource } from './serpapi-source';
-export { SerpApiMonitor } from './serpapi-monitor';
 export { MockReviewSource } from './mock-source';
-export { MockSerpApiMonitor } from './mock-monitor';
+
+// Zernio normalization
+export { buildZernioMonitoredReview, zernioReviewToNormalized, extractLocationFromReviewName, ZernioReviewNormalizationError } from './zernio-normalize';
 
 // Utilities
 export { detectLanguage, detectResponseLanguage } from './detect-language';
