@@ -27,7 +27,7 @@ An automated service for small businesses that monitors Google reviews via SerpA
 - **Cache**: Redis 7 via Upstash (SEPARATE instance from job queue)
 - **Job queue**: BullMQ 5 with Redis via Upstash (SEPARATE instance from cache)
 - **LLM**: OpenAI GPT-4o-mini (primary), Anthropic Claude Haiku (fallback)
-- **Reviews**: SerpAPI (production polling + demo engine)
+- **Reviews**: Zernio webhooks (production ingestion); SerpAPI (demo engine + onboarding pre-fill + URL→placeId fallback only)
 - **Email**: Resend
 - **GBP API**: Zernio (`zernio.com`). Used for review listing + reply posting. Flag-gated by `ZERNIO_PUBLISHING_ENABLED`.
 - **SMS / WhatsApp**: Twilio (Messaging Service for SMS, Content templates for WhatsApp). Flag-gated.
@@ -136,10 +136,9 @@ Key tables:
 
 ### Response status values
 
-`'pending_approval'` | `'approved'` | `'edited'` | `'superseded'` | `'awaiting_manual_post'` | `'awaiting_owner_connect'` | `'posted'` | `'failed'`
+`'pending_approval'` | `'approved'` | `'edited'` | `'superseded'` | `'awaiting_owner_connect'` | `'posted'` | `'failed'`
 
 - `superseded`: terminal — the owner requested a regeneration and this draft was replaced by a newer version. **At most one non-terminal response per review at a time.**
-- `awaiting_manual_post`: SerpAPI-mode state after approval but before sales partner manually posts to Google. When GBP API arrives, the ResponsePublisherWorker branches: if `google_connections` exists, auto-post; otherwise, manual post.
 - `awaiting_owner_connect`: Zernio-mode state when an approved response cannot be posted because the business has no active Zernio connection (never connected, or connection was revoked). The dashboard shows a "Connect Google" banner; on successful (re)connect, `DrainOwnerConnectWorker` flips these back to `approved` and re-queues `publish_response` outbox entries. Non-terminal — counts against the per-review uniqueness rule.
 
 ### Business subscription lifecycle
@@ -218,7 +217,8 @@ When Google Business Profile API access is approved, follow Phase 5 in `docs/Imp
 3. Merge WhatsApp PR → Meta Business verification (2–4 week clock) + WABA + Content template → flip `CHANNELS_WHATSAPP_ENABLED=true`
 4. SMS: register 10DLC → flip `CHANNELS_SMS_ENABLED=true`
 5. **Zernio: MERGED 2026-04-28 (#9).** Subscribe to Zernio Accelerate + Inbox add-on → set `ZERNIO_API_KEY` + `ZERNIO_WEBHOOK_SECRET` + `WORKER_PUBLIC_URL` in prod → run migration 026 in prod Supabase → configure webhook URL in Zernio dashboard pointing at `${WORKER_PUBLIC_URL}/ingress/zernio` → fire test webhook → flip `ZERNIO_PUBLISHING_ENABLED=true` → onboard one pilot customer per `docs/zernio-launch-runbook.md`. Local 6-scenario QA passed 2026-04-28 (`docs/zernio-test-report-2026-04-28.md`).
-6. Billing sprint: add `subscription_status_changed_at` (currently `updated_at` — see residual risks)
+6. **Zernio ingestion replace SerpAPI: MERGED YYYY-MM-DD (#NN).** Apply migrations 028+029 in prod Supabase (in that order). Set `STRIPE_PAYMENT_LINK_PREMIUM` + `STRIPE_PRICE_PREMIUM` in prod env (Vercel + Railway). Confirm Zernio webhook URL still points at `${WORKER_PUBLIC_URL}/ingress/zernio` (no URL change — same endpoint now also handles `review.new`/`review.updated`). Manual smoke on staging Zernio sandbox (post a real review on the sandbox GBP, verify webhook → ingest → response in dashboard). The single `ZERNIO_PUBLISHING_ENABLED=true` flag controls both publishing + ingestion paths — no new flag.
+7. Billing sprint: add `subscription_status_changed_at` (currently `updated_at` — see residual risks)
 
 **Required before Self-Serve Signup flag flip:**
 
@@ -255,6 +255,8 @@ Next: **028**. 001–019 cover schema through S6 (see files). Key recent:
 - 025 — signup: two partial indexes + email lowercase backfill + `onboarded_by` backfill (both collision-guarded)
 - 026 — Zernio: widen `responses.status` → TEXT, recreate non-terminal-uniqueness index incl. `awaiting_owner_connect`, add `zernio_connections` + `zernio_finalize_incidents` tables, 2 dedup indexes on `notification_deliveries`, in-flight `publish_response` outbox uniqueness
 - 027 — Channels Phase 4: partial unique index `channel_enrollments_one_mobile_per_biz` enforcing at most one pending/verified mobile channel (sms/telegram/whatsapp) per business; predicate excludes disabled/unsubscribed/archived rows so enrollment history is preserved across switches.
+- 028 — Zernio first-connect backfill: `zernio_backfill_runs` table (per-business summary of gap/historical processed + skipped counts; tier and subscription_activated_at snapshotted; partial unique index `zernio_backfill_runs_one_per_business`).
+- 029 — Decommission manual-post: bulk-fail orphan `awaiting_manual_post` rows with `posting_error='manual_post_deprecated_2026_04'`, rebuild `responses_one_non_terminal_per_review` without the dead status, drop the migration-024 stale `notification_deliveries_response_template_uniq` index. Apply AFTER migration 028.
 
 ### Feature flags / non-obvious env vars
 
@@ -327,6 +329,7 @@ These are real bugs accepted with current mitigations. Not landmines — documen
 - [2026-04-26] `googleMapsUrlSchema` must call `parseGoogleMapsUrl()` and enforce same parseability contract as worker's `validate_place_id` — otherwise wizard marks business onboarded but worker permanently fails.
 - [2026-04-27] Postgres rejects `STABLE` expressions in partial-index keys / predicates (ERROR 42P17). `timestamptz::date` is `STABLE` (depends on session timezone), so `(created_at::date)` in a unique index fails to apply. Fix: wrap in `AT TIME ZONE 'UTC'` first — `((created_at AT TIME ZONE 'UTC')::date)` is `IMMUTABLE`. The `ON CONFLICT` clause on any insert into that index must use the EXACT same expression (byte-for-byte) or Postgres won't recognize the constraint match.
 - [2026-04-28] Zernio's `account.disconnected` webhook payload uses NESTED `account.id`, not flat `accountId`. Handler reads `body.account?.id` per spec §5.4. A flat-`accountId` payload returns `200 received:true` but the handler silently skips processing (logs `missing account.id — skipping`) — false-positive in CI/manual testing. Test helpers must build the nested shape.
+- [2026-04-29] Postgres ON CONFLICT clause must reference partial-unique-index expressions BYTE-FOR-BYTE. The migration-005 `idx_review_exceptions_collision_dedup` predicate uses `(payload->>'provider_review_id')`, NOT `provider_review_id` — using the latter as the conflict key in INSERT statements (e.g. for the new zernio_review_not_found exception type) returns "no matching unique constraint" at runtime even when the values are semantically equivalent.
 
 ## MCP Usage Reference
 
