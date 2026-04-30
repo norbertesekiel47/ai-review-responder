@@ -279,4 +279,49 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
     );
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-gen-1', undefined);
   });
+
+  // 6. suppress_notification flag (spec §4.6, §6.7)
+  it('skips send_notification outbox enqueue when suppress_notification=true', async () => {
+    sqlReturnQueue.push([mockReviewRow()]);
+    sqlReturnQueue.push([mockBusinessRow()]);
+    mockGenerateResponse.mockResolvedValueOnce(MOCK_RESULT);
+
+    await handleResponseGeneration(makeJob({ suppress_notification: true }));
+
+    // No tx call should have a SendNotificationPayload-shaped object.
+    // Distinguish by key set: send_notification payload has response_id +
+    // business_id + correlation_id only — no version, no review_id.
+    const sendNotificationPayloads = mockTx.mock.calls
+      .flat()
+      .filter(
+        (arg): arg is Record<string, unknown> =>
+          !!arg && typeof arg === 'object' && !Array.isArray(arg)
+          && 'response_id' in (arg as Record<string, unknown>)
+          && 'business_id' in (arg as Record<string, unknown>)
+          && !('version' in (arg as Record<string, unknown>))
+          && !('review_id' in (arg as Record<string, unknown>)),
+      );
+    expect(sendNotificationPayloads).toHaveLength(0);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-gen-1', undefined);
+  });
+
+  it('enqueues send_notification when suppress_notification is omitted (default false)', async () => {
+    sqlReturnQueue.push([mockReviewRow()]);
+    sqlReturnQueue.push([mockBusinessRow()]);
+    mockGenerateResponse.mockResolvedValueOnce(MOCK_RESULT);
+
+    await handleResponseGeneration(makeJob());
+
+    const sendNotificationPayloads = mockTx.mock.calls
+      .flat()
+      .filter(
+        (arg): arg is Record<string, unknown> =>
+          !!arg && typeof arg === 'object' && !Array.isArray(arg)
+          && 'response_id' in (arg as Record<string, unknown>)
+          && 'business_id' in (arg as Record<string, unknown>)
+          && !('version' in (arg as Record<string, unknown>))
+          && !('review_id' in (arg as Record<string, unknown>)),
+      );
+    expect(sendNotificationPayloads).toHaveLength(1);
+  });
 });

@@ -206,6 +206,7 @@ export async function handleResponseGeneration(
   // ── Step 9: Persist response + outbox + cost link in one transaction ─
   const responseId = await persistResponseAndNotify(
     result, review_id, business_id, version, job.data.correlation_id,
+    job.data.suppress_notification === true,
   );
   // DB transaction failure throws for BullMQ retry (transient)
 
@@ -291,7 +292,8 @@ async function persistResponseAndNotify(
   reviewId: string,
   businessId: string,
   version: number,
-  correlationId?: string,
+  correlationId: string | undefined,
+  suppressNotification: boolean,
 ): Promise<string> {
   const responseId = uuidv7();
 
@@ -319,6 +321,15 @@ async function persistResponseAndNotify(
       await tx`
         UPDATE api_costs SET response_id = ${responseId} WHERE id = ${retryCostId}
       `;
+    }
+
+    if (suppressNotification) {
+      // Backfill path (spec §4.6, §6.7) — skip the approval email so the
+      // first-connect backfill of up to 75 reviews doesn't blast 75 emails.
+      // No notification_deliveries row is written either; the
+      // NotificationFailoverPoller filters on EXISTS notification_deliveries
+      // WHERE template='approval_request' so missing rows are safely skipped.
+      return;
     }
 
     const notifyPayload: SendNotificationPayload = {
