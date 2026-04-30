@@ -19,9 +19,12 @@
 
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { sql } from '../../src/lib/db/server';
-import { getCacheRedis } from '../../src/lib/db/redis-cache';
 import { claimInboundEvent } from './shared';
 import { verifyZernioSignature } from './zernio-verify';
+import {
+  parseZernioReviewWebhook,
+  ZernioReviewWebhookParseError,
+} from '../../src/lib/zernio/parse-review-webhook';
 
 const LOG_PREFIX = '[ingress/zernio]';
 
@@ -184,11 +187,41 @@ export async function handleZernioWebhook(
 
       case 'review.new':
       case 'review.updated': {
-        // Phase 3 readiness counter — we don't act on these yet (SerpAPI
-        // remains the ingestion source) but tracking the volume validates
-        // that Zernio's review feed is live and observable.
-        const today = new Date().toISOString().slice(0, 10);
-        await getCacheRedis().incrby(`zernio_event_seen:${eventType}:${today}`, 1);
+        // Fan-out per spec §4.3: emit one ingest_zernio_review outbox row per
+        // active connection at the firing Zernio account. The ingest worker
+        // filters by location AFTER fetching the review (necessary because
+        // the same Zernio account may be connected to multiple RepWorth
+        // businesses at different Google locations).
+        let parsed;
+        try {
+          parsed = parseZernioReviewWebhook(body);
+        } catch (err) {
+          if (err instanceof ZernioReviewWebhookParseError) {
+            console.warn(`${LOG_PREFIX} ${eventType} unparseable: ${err.message}`);
+            break;  // 200 OK — Zernio shouldn't retry malformed payloads
+          }
+          throw err;
+        }
+
+        await sql`
+          INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+          SELECT
+            gen_random_uuid(),
+            'ingest_zernio_review',
+            'business',
+            zc.business_id,
+            jsonb_build_object(
+              'business_id', zc.business_id,
+              'zernio_account_id', ${parsed.accountId},
+              'zernio_location_id', zc.zernio_location_id,
+              'zernio_review_id', ${parsed.reviewId},
+              'correlation_id', ${eventId}
+            ),
+            'pending'
+          FROM zernio_connections zc
+          WHERE zc.zernio_account_id = ${parsed.accountId}
+            AND zc.status = 'active'
+        `;
         break;
       }
 
