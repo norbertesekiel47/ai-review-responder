@@ -1,20 +1,27 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 /**
- * Stripe webhook — checkout.session.completed status-flip behavior.
+ * Stripe webhook — checkout.session.completed status-flip + backfill-resume.
  *
  * The initial-sync ENQUEUE moved out of this webhook in the self-serve
  * refactor (2026-04-24). The wizard at /api/onboarding/business now owns
- * topic + payload construction, so this webhook only:
+ * sync_reviews-topic-equivalent enqueue, so this webhook activation path:
  *   1. Acquires the activation advisory lock.
  *   2. FOR UPDATE-reads the current subscription_status.
  *   3. UPDATEs to 'active' (status guard prevents active→active churn).
+ *   4. Outside the activation tx — best-effort post-activation Zernio
+ *      backfill resume via maybeEnqueueBackfillResume (only when
+ *      ZERNIO_PUBLISHING_ENABLED=true AND the predicate finds an active
+ *      Zernio connection AND no completed backfill row exists).
  *
- * What this test enforces:
+ * What this file enforces:
  *   - Advisory lock runs before status read (serialization ordering).
- *   - NO INSERT INTO job_outbox call ever fires from the webhook.
+ *   - When ZERNIO_PUBLISHING_ENABLED unset/false → NO outbox INSERT fires.
  *   - past_due → active still flips status (existing-customer recovery).
  *   - active → active is a no-op (status guard rejects).
+ *   - When ZERNIO_PUBLISHING_ENABLED=true AND predicate matches → exactly
+ *     one zernio_initial_backfill outbox row enqueued, dedup-guarded
+ *     against in-flight rows.
  */
 
 // ── Hoisted mock state ───────────────────────────────────────────────
@@ -113,17 +120,26 @@ function getInsertOutboxCall() {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-describe('Stripe webhook — status flip only (initial-sync enqueue moved to /api/onboarding/business)', () => {
+describe('Stripe webhook — status flip + post-activation backfill resume', () => {
+  let prevZernioFlag: string | undefined;
+
   beforeEach(() => {
     vi.clearAllMocks();
     sqlReturnQueue.length = 0;
     sqlCalls.length = 0;
     process.env.STRIPE_SECRET_KEY = 'sk_test_fake';
     process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test_fake';
+    prevZernioFlag = process.env.ZERNIO_PUBLISHING_ENABLED;
+    delete process.env.ZERNIO_PUBLISHING_ENABLED;  // explicit OFF default
     vi.resetModules();
   });
 
-  it('pending_payment → active flips status and does NOT enqueue any outbox row', async () => {
+  afterEach(() => {
+    if (prevZernioFlag === undefined) delete process.env.ZERNIO_PUBLISHING_ENABLED;
+    else process.env.ZERNIO_PUBLISHING_ENABLED = prevZernioFlag;
+  });
+
+  it('pending_payment → active flips status; ZERNIO_PUBLISHING_ENABLED off → NO outbox enqueue', async () => {
     setCheckoutSessionCompletedEvent({ businessId: TEST_BIZ_PENDING });
     queueHappyPath('pending_payment');
 
@@ -135,7 +151,8 @@ describe('Stripe webhook — status flip only (initial-sync enqueue moved to /ap
       (c) => c.text.includes('UPDATE') && c.text.includes('businesses') && c.text.includes("'active'"),
     );
     expect(updateCall).toBeDefined();
-    // Critical regression guard: webhook MUST NOT INSERT INTO job_outbox.
+    // ZERNIO_PUBLISHING_ENABLED is unset in beforeEach, so the post-activation
+    // backfill-resume hook short-circuits BEFORE any SQL fires.
     expect(getInsertOutboxCall()).toBeUndefined();
   });
 
@@ -208,5 +225,122 @@ describe('Stripe webhook — status flip only (initial-sync enqueue moved to /ap
     // Webhook still acks 200.
     expect(reply.status).toHaveBeenCalledWith(200);
     expect(getInsertOutboxCall()).toBeUndefined();
+  });
+
+  // ── Backfill-resume branch (ZERNIO_PUBLISHING_ENABLED=true) ──────────────
+
+  function getBackfillInsertCalls() {
+    return sqlCalls.filter(
+      (c) => c.text.includes('INSERT INTO job_outbox')
+        && c.text.includes("'zernio_initial_backfill'"),
+    );
+  }
+
+  function queueBackfillResumeMatchPath(opts: {
+    accountId?: string;
+    locationId?: string;
+    tier?: string;
+    activatedAt?: Date;
+  } = {}) {
+    // After the activation tx, processCheckoutSessionCompleted calls
+    // maybeEnqueueBackfillResume which does:
+    //   SELECT … (predicate match → returns target row)
+    //   INSERT INTO job_outbox … (conditional on no in-flight outbox row)
+    sqlReturnQueue.push([{
+      zernio_account_id: opts.accountId ?? 'zacct-1',
+      zernio_location_id: opts.locationId ?? 'zloc-1',
+      subscription_tier: opts.tier ?? 'standard',
+      subscription_activated_at: opts.activatedAt ?? new Date('2026-04-15T00:00:00Z'),
+    }]);
+    // Outbox INSERT — count=1 (a new row was inserted).
+    const insertOutbox: any = []; insertOutbox.count = 1;
+    sqlReturnQueue.push(insertOutbox);
+  }
+
+  it('flag=ON + active connection + no completed run → enqueues zernio_initial_backfill', async () => {
+    process.env.ZERNIO_PUBLISHING_ENABLED = 'true';
+    setCheckoutSessionCompletedEvent({ businessId: TEST_BIZ_PENDING });
+    queueHappyPath('pending_payment');
+    queueBackfillResumeMatchPath();
+
+    const { handleStripeWebhook } = await import('../ingress/stripe');
+    await handleStripeWebhook(makeRequest(), makeReply());
+
+    const inserts = getBackfillInsertCalls();
+    expect(inserts).toHaveLength(1);
+    // Payload includes the snapshot fields the worker needs (accountId,
+    // locationId, tier, activated_at). The mocked jsonb passes the object
+    // through, so it lands as a tx-arg object value.
+    const payload = inserts[0]!.values.find(
+      (v): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
+        && 'subscription_tier' in (v as Record<string, unknown>),
+    );
+    expect(payload).toMatchObject({
+      zernio_account_id: 'zacct-1',
+      zernio_location_id: 'zloc-1',
+      subscription_tier: 'standard',
+    });
+  });
+
+  it('flag=ON + predicate miss (no active connection OR completed run exists) → NO outbox INSERT', async () => {
+    process.env.ZERNIO_PUBLISHING_ENABLED = 'true';
+    setCheckoutSessionCompletedEvent({ businessId: TEST_BIZ_PENDING });
+    queueHappyPath('pending_payment');
+    // SELECT returns no row (no active connection OR completed run exists).
+    sqlReturnQueue.push([]);
+
+    const { handleStripeWebhook } = await import('../ingress/stripe');
+    await handleStripeWebhook(makeRequest(), makeReply());
+
+    expect(getBackfillInsertCalls()).toHaveLength(0);
+  });
+
+  it('flag=ON + no zernio_backfill_runs row at all (admin connected Zernio pre-checkout) → enqueues backfill', async () => {
+    // Round-2 reviewer fix: predicate is "no completed run exists" not
+    // "incomplete row exists", so a business with NO row at all also
+    // triggers enqueue. The mock's SELECT returns the connection target
+    // row regardless of which precise NOT EXISTS shape we used; this
+    // test pins the contract by exercising the path where a fresh
+    // connect-pre-checkout business gets its first backfill.
+    process.env.ZERNIO_PUBLISHING_ENABLED = 'true';
+    setCheckoutSessionCompletedEvent({ businessId: TEST_BIZ_PENDING });
+    queueHappyPath('pending_payment');
+    queueBackfillResumeMatchPath({ tier: 'premium' });
+
+    const { handleStripeWebhook } = await import('../ingress/stripe');
+    await handleStripeWebhook(makeRequest(), makeReply());
+
+    const inserts = getBackfillInsertCalls();
+    expect(inserts).toHaveLength(1);
+  });
+
+  it('flag=ON + in-flight outbox row exists → INSERT … SELECT WHERE NOT EXISTS skips (count=0)', async () => {
+    process.env.ZERNIO_PUBLISHING_ENABLED = 'true';
+    setCheckoutSessionCompletedEvent({ businessId: TEST_BIZ_PENDING });
+    queueHappyPath('pending_payment');
+    // SELECT for predicate → returns target.
+    sqlReturnQueue.push([{
+      zernio_account_id: 'zacct-1',
+      zernio_location_id: 'zloc-1',
+      subscription_tier: 'standard',
+      subscription_activated_at: new Date('2026-04-15T00:00:00Z'),
+    }]);
+    // INSERT … SELECT WHERE NOT EXISTS → count=0 (in-flight row blocked it).
+    const insertSkipped: any = []; insertSkipped.count = 0;
+    sqlReturnQueue.push(insertSkipped);
+
+    const { handleStripeWebhook } = await import('../ingress/stripe');
+    await handleStripeWebhook(makeRequest(), makeReply());
+
+    // The INSERT statement still ran (the WHERE NOT EXISTS dedup is
+    // server-side, not skipped client-side). Pin the SQL shape: it must
+    // include "NOT EXISTS" + "zernio_initial_backfill" + "in ('pending'".
+    const insertSql = sqlCalls.find(
+      (c) => c.text.includes('INSERT INTO job_outbox')
+        && c.text.includes("'zernio_initial_backfill'"),
+    );
+    expect(insertSql).toBeDefined();
+    expect(insertSql!.text).toContain('NOT EXISTS');
+    expect(insertSql!.text).toMatch(/status\s+IN/);
   });
 });

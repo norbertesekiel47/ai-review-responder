@@ -200,6 +200,10 @@ ingestZernioReviewWorker.on('failed', async (job, err) => {
           zernio_account_id: err.zernioAccountId,
           zernio_location_id: err.zernioLocationId,
           cap: err.cap,
+          // pages_walked == cap in the cap-exhausted branch (we walked
+          // every page allowed); included alongside cap so ops can compare
+          // payloads across exception types without special-casing.
+          pages_walked: err.cap,
           reviews_seen: err.reviewsSeen,
           retries_exhausted_at: new Date().toISOString(),
         })}

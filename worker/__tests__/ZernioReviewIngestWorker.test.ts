@@ -63,6 +63,7 @@ vi.mock('../../src/lib/zernio/auth-error-fallback', () => ({
 import {
   handleZernioReviewIngest,
   ZernioIngestReviewNotFoundError,
+  ZernioIngestPaginationCapExhaustedError,
   ZernioIngestUnparseableLocationError,
 } from '../jobs/ZernioReviewIngestWorker';
 
@@ -164,22 +165,86 @@ describe('ZernioReviewIngestWorker', () => {
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ingest-1', undefined);
   });
 
-  // 3. Not found in 2 pages → throws ZernioIngestReviewNotFoundError
-  it('throws ZernioIngestReviewNotFoundError when review not found in 2 pages', async () => {
+  // 3a. Walked entire feed without finding → durable ZernioIngestReviewNotFoundError.
+  //     Distinguished from cap-exhausted by the absence of nextPageToken at
+  //     the last page Zernio returned. Failed-hook escalates to
+  //     review_exceptions type='zernio_review_not_found'.
+  it('throws ZernioIngestReviewNotFoundError when entire feed walked without nextPageToken', async () => {
     pushActiveBiz();
     pushActiveConn();
 
     const other = makeZernioReview({ id: 'other-id', name: 'accounts/acct-1/locations/loc-1/reviews/other-id' });
     mockListReviews
       .mockResolvedValueOnce({ reviews: [other], nextPageToken: 'page2token' })
+      // Last page returns no nextPageToken → feed truly exhausted.
       .mockResolvedValueOnce({ reviews: [], nextPageToken: undefined });
 
     await expect(handleZernioReviewIngest(makeJob())).rejects.toMatchObject({
       name: 'ZernioIngestReviewNotFoundError',
+      pagesWalked: 2,
+      reviewsSeen: 1,
     });
 
     expect(mockProcessReview).not.toHaveBeenCalled();
     expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
+  });
+
+  // 3b. Hit pagination cap with nextPageToken still set → indeterminate
+  //     ZernioIngestPaginationCapExhaustedError. Failed-hook escalates to
+  //     review_exceptions type='zernio_pagination_cap_exhausted'. Default
+  //     cap is 4 pages; mock 4 pages with token still returned on the last.
+  it('throws ZernioIngestPaginationCapExhaustedError when cap is hit and Zernio still has more pages', async () => {
+    pushActiveBiz();
+    pushActiveConn();
+
+    // 4 pages × 50 reviews each, every page returns a nextPageToken so the
+    // worker exits the loop on the cap, not on Zernio's exhaustion signal.
+    const otherPage = (token: string | undefined) => ({
+      reviews: Array.from({ length: 50 }, (_unused, i) => makeZernioReview({
+        id: `other-${i}`,
+        name: `accounts/acct-1/locations/loc-1/reviews/other-${i}`,
+      })),
+      nextPageToken: token,
+    });
+    mockListReviews
+      .mockResolvedValueOnce(otherPage('page2'))
+      .mockResolvedValueOnce(otherPage('page3'))
+      .mockResolvedValueOnce(otherPage('page4'))
+      .mockResolvedValueOnce(otherPage('page5'));  // still has more pages
+
+    await expect(handleZernioReviewIngest(makeJob())).rejects.toMatchObject({
+      name: 'ZernioIngestPaginationCapExhaustedError',
+      cap: 4,
+      reviewsSeen: 200,
+    });
+
+    expect(mockListReviews).toHaveBeenCalledTimes(4);
+    expect(mockProcessReview).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
+  });
+
+  // 3c. ZERNIO_INGEST_MAX_PAGES env var honored when set.
+  it('honors ZERNIO_INGEST_MAX_PAGES env var override', async () => {
+    const prev = process.env.ZERNIO_INGEST_MAX_PAGES;
+    process.env.ZERNIO_INGEST_MAX_PAGES = '2';
+    try {
+      pushActiveBiz();
+      pushActiveConn();
+
+      mockListReviews
+        .mockResolvedValueOnce({ reviews: [], nextPageToken: 'page2' })
+        .mockResolvedValueOnce({ reviews: [], nextPageToken: 'page3' });
+
+      await expect(handleZernioReviewIngest(makeJob())).rejects.toMatchObject({
+        name: 'ZernioIngestPaginationCapExhaustedError',
+        cap: 2,
+      });
+
+      expect(mockListReviews).toHaveBeenCalledTimes(2);
+    } finally {
+      if (prev === undefined) delete process.env.ZERNIO_INGEST_MAX_PAGES;
+      else process.env.ZERNIO_INGEST_MAX_PAGES = prev;
+    }
   });
 
   // 4. Location parseable but != payload location → no-op + markOutboxCompleted
