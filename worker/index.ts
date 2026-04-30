@@ -51,9 +51,13 @@ import {
   ZernioIngestUnparseableLocationError,
 } from './jobs/ZernioReviewIngestWorker';
 import { handleZernioBackfill } from './jobs/ZernioBackfillWorker';
+import {
+  PublisherTransientWithContext,
+  ZernioReplyVerificationIndeterminateError,
+} from './jobs/publisher-error-handlers';
 import { applyTransientExhaustionFallback } from '../src/lib/publishing/zernio-publisher';
 import { ZernioTransientError } from '../src/lib/zernio/errors';
-import { extractOutboxHandle, markOutboxFailed } from '../src/lib/shared/outbox';
+import { extractOutboxHandle, markOutboxCompleted, markOutboxFailed } from '../src/lib/shared/outbox';
 import { sql, jsonb } from '../src/lib/db/server';
 import { v7 as uuidv7 } from 'uuid';
 import type { IngestZernioReviewPayload, ZernioInitialBackfillPayload } from '../src/lib/shared/worker-types';
@@ -245,16 +249,72 @@ publisherWorker.on('failed', async (job, err) => {
     const handle = extractOutboxHandle(job.data, job.id!);
     outboxId = handle.outboxId;
     outboxAttempt = handle.attempt;
+    // ── ZernioReplyVerificationIndeterminateError (round-8/9) ──────────
+    // BEFORE the transient branch — full terminal sequence on retry exhaustion.
+    if (err instanceof ZernioReplyVerificationIndeterminateError) {
+      await sql.begin(async (tx) => {
+        const updated = await tx`
+          UPDATE responses
+          SET status = 'failed',
+              posting_error = 'zernio_reply_verification_indeterminate',
+              updated_at = NOW()
+          WHERE id = ${err.meta.response_id}
+            AND business_id = ${err.meta.business_id}
+            AND status IN ('approved', 'edited', 'awaiting_owner_connect')
+          RETURNING 1
+        `;
+        if (updated.count === 0) return;
+
+        const [exception] = await tx<{ id: string }[]>`
+          INSERT INTO review_exceptions (
+            id, business_id, review_id, response_id, type, payload
+          ) VALUES (
+            ${uuidv7()}, ${err.meta.business_id}, ${err.meta.review_id},
+            ${err.meta.response_id}, 'zernio_reply_verification_indeterminate',
+            ${jsonb({
+              reason: err.meta.reason,
+              zernio_account_id: err.meta.account_id,
+              zernio_location_id: err.meta.location_id,
+              zernio_review_id: err.meta.zernio_review_id,
+              pages_walked: err.meta.pages_walked,
+              reviews_seen: err.meta.reviews_seen,
+              underlying_error: err.meta.underlying_error,
+              retries_exhausted_at: new Date().toISOString(),
+            })}
+          )
+          ON CONFLICT (review_id, type) WHERE status = 'open'
+          DO UPDATE SET payload = review_exceptions.payload
+          RETURNING id
+        `;
+
+        if (exception) {
+          await tx`
+            INSERT INTO job_outbox (
+              id, topic, aggregate_type, aggregate_id, payload, attempts, max_attempts
+            ) VALUES (
+              ${uuidv7()}, 'notify_admin_review_exception', 'review',
+              ${err.meta.review_id},
+              ${jsonb({ review_exception_id: exception.id, business_id: err.meta.business_id })},
+              0, 5
+            )
+          `;
+        }
+      });
+      await markOutboxCompleted(outboxId, outboxAttempt);
+      return;
+    }
+
     if (err instanceof ZernioTransientError) {
+      // Unwrap PublisherTransientWithContext (round-11/12) so the fallback
+      // can pin the disconnect to the attempted account+location.
+      const ctx = err instanceof PublisherTransientWithContext ? err.attemptContext : null;
       try {
-        // Pass an args-shaped object. Account/location are unavailable here
-        // unless the inner throw is PublisherTransientWithContext (Task 19);
-        // for raw ZernioTransientError we fall back to un-pinned legacy
-        // disconnect (safety net).
         await applyTransientExhaustionFallback({
-          response_id: job.data.response_id,
-          business_id: job.data.business_id,
+          response_id: ctx?.response_id ?? job.data.response_id,
+          business_id: ctx?.business_id ?? job.data.business_id,
           correlation_id: job.data.correlation_id,
+          account_id: ctx?.account_id,
+          location_id: ctx?.location_id,
         });
         await markOutboxFailed(outboxId, 'zernio_transient_max_attempts', outboxAttempt);
       } catch (fallbackErr) {
