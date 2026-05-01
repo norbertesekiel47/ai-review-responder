@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useDashboardData } from '@/hooks/useDashboardData';
 
 /**
@@ -22,6 +22,8 @@ export default function ConnectPage() {
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const urlError = searchParams.get('error');
 
   // SSR-equivalent redirect: if the connection is already active, send the
   // owner back to the dashboard. Done in an effect so we can also `return null`
@@ -31,6 +33,12 @@ export default function ConnectPage() {
       router.replace('/dashboard');
     }
   }, [data, router]);
+
+  useEffect(() => {
+    if (urlError) {
+      setActionError(friendlyErrorMessage(urlError));
+    }
+  }, [urlError]);
 
   if (error) {
     return (
@@ -127,6 +135,8 @@ export default function ConnectPage() {
 
       {zernio.status === 'finalize_unknown' || zernio.hasUnresolvedIncident ? (
         <FinalizeUnknownView />
+      ) : urlError && zernio.status === 'pending' ? (
+        <InterruptedPendingView onCancel={handleCancel} busy={busy} />
       ) : zernio.status === 'pending' ? (
         zernio.pendingFlow?.status === 'finalizing' ||
         zernio.pendingFlow?.status === 'starting' ? (
@@ -255,6 +265,34 @@ function PendingView({
   );
 }
 
+function InterruptedPendingView({
+  onCancel,
+  busy,
+}: {
+  onCancel: () => void;
+  busy: boolean;
+}) {
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white p-6">
+      <h1 className="text-2xl font-semibold text-gray-900">
+        Connection could not be completed
+      </h1>
+      <p className="mt-2 text-sm text-gray-600">
+        This connection attempt is no longer valid. Clear it, then start a new
+        Google Business connection.
+      </p>
+      <button
+        type="button"
+        onClick={onCancel}
+        disabled={busy}
+        className="mt-6 rounded border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+      >
+        {busy ? 'Clearing…' : 'Clear attempt'}
+      </button>
+    </div>
+  );
+}
+
 function FinalizingView() {
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-6">
@@ -307,6 +345,16 @@ function friendlyErrorMessage(code: string): string {
       return 'Your account isn’t linked to a business yet — please contact support.';
     case 'connect_in_progress':
       return 'A connection is already in progress.';
+    case 'oauth_denied':
+      return 'Google did not finish authorizing the connection. Cancel this attempt and start again.';
+    case 'missing_params':
+    case 'state_expired':
+    case 'pending_missing':
+    case 'flow_mismatch':
+    case 'user_mismatch':
+      return 'The Google authorization session expired or no longer matches this browser session. Cancel this attempt and start again.';
+    case 'zernio_listlocations_failed':
+      return 'Google authorization finished, but we could not load your business locations. Cancel this attempt and start again.';
     case 'finalize_in_progress':
       return 'We’re finishing your connection — please wait a moment and refresh.';
     case 'finalize_unknown_admin_required':

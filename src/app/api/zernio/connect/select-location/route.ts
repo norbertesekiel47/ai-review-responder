@@ -251,6 +251,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     let accountId: string;
     try {
       const result = await zernioClient.selectLocation({
+        profileId: stored.profileId,
+        pendingDataToken: stored.pending_data_token,
         connectToken: stored.connect_token,
         locationId,
       });

@@ -8,6 +8,7 @@ import { zernioClient } from '@/lib/zernio/client';
 import {
   pendingKey,
   stateKey,
+  profileStateKey,
   locationsKey,
   luaCASCancel,
 } from '@/lib/zernio/connect-state';
@@ -154,6 +155,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     if (parsed.state) {
       await redis.del(stateKey(parsed.state)).catch(() => {
         // Best-effort: state auto-expires.
+      });
+    }
+    if (parsed.profileId) {
+      await redis.del(profileStateKey(parsed.profileId)).catch(() => {
+        // Best-effort: profile lookup auto-expires.
       });
     }
 

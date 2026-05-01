@@ -1,3 +1,4 @@
+import { appendFileSync } from 'node:fs';
 import { NextRequest, NextResponse } from 'next/server';
 import { getCacheRedis } from '@/lib/db/redis-cache';
 import { getCurrentUser } from '@/lib/db/auth';
@@ -5,6 +6,7 @@ import { zernioClient } from '@/lib/zernio/client';
 import {
   pendingKey,
   stateKey,
+  profileStateKey,
   locationsKey,
   generateSessionId,
   luaDeletePendingByFlowIdAnyStatus,
@@ -20,6 +22,21 @@ export const dynamic = 'force-dynamic';
 
 const NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
 const LOCATIONS_TTL_SECONDS = 900; // 15 min — matches signed-cookie Max-Age
+const DIAG_LOG = 'C:/Users/norbe/Desktop/RepWorth/zernio-debug.log';
+
+function diag(line: string): void {
+  const formatted = `[${new Date().toISOString()}] ${line}\n`;
+  try {
+    appendFileSync(DIAG_LOG, formatted);
+  } catch {
+    /* best effort */
+  }
+  try {
+    process.stdout.write(formatted);
+  } catch {
+    /* best effort */
+  }
+}
 
 /**
  * Lua compare-and-delete used in callback failure cleanup.
@@ -36,6 +53,26 @@ const luaCASDelByValue = `
   else
     return 0
   end`;
+
+function connectTokenFromState(state: string | null): string | null {
+  if (!state) return null;
+  const lastSegment = state.split('-').at(-1);
+  return lastSegment?.startsWith('ct_') ? lastSegment : null;
+}
+
+async function stateFromProfileId(profileId: string | null): Promise<string | null> {
+  if (!profileId) return null;
+  return await getCacheRedis()
+    .get(profileStateKey(profileId))
+    .catch((err) => {
+      diag(
+        `[zernio.callback] profile state lookup failed profile=${profileId} err=${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+      return null;
+    });
+}
 
 /**
  * Best-effort Zernio profile cleanup for the early-return paths after the
@@ -61,6 +98,75 @@ async function cleanupOrphanedProfileBestEffort(
       err,
     );
   }
+}
+
+async function cleanupMissingTokenState(state: string): Promise<void> {
+  const redis = getCacheRedis();
+  const stateRaw = await redis.getdel(stateKey(state)).catch((err) => {
+    diag(
+      `[zernio.callback] missing token cleanup: state GETDEL failed state=${state} err=${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+    return null;
+  });
+  if (!stateRaw) {
+    diag(`[zernio.callback] missing token cleanup: no state blob state=${state}`);
+    return;
+  }
+
+  let stored: ConnectStateBlob;
+  try {
+    stored = JSON.parse(stateRaw) as ConnectStateBlob;
+  } catch {
+    diag(`[zernio.callback] missing token cleanup: malformed state blob state=${state}`);
+    return;
+  }
+  await redis.del(profileStateKey(stored.profileId)).catch(() => {
+    // Best-effort: profile lookup auto-expires.
+  });
+
+  const pendingRaw = await redis.get(pendingKey(stored.businessId)).catch((err) => {
+    diag(
+      `[zernio.callback] missing token cleanup: pending GET failed business=${stored.businessId} err=${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+    return null;
+  });
+  if (pendingRaw) {
+    try {
+      const pending = JSON.parse(pendingRaw) as ConnectPendingMarker;
+      if (pending.state === state && pending.profileId === stored.profileId) {
+        await redis
+          .eval(
+            luaDeletePendingByFlowIdAnyStatus,
+            1,
+            pendingKey(stored.businessId),
+            pending.flowId,
+          )
+          .catch((err) => {
+            diag(
+              `[zernio.callback] missing token cleanup: pending delete failed business=${stored.businessId} err=${
+                err instanceof Error ? err.message : String(err)
+              }`,
+            );
+          });
+      }
+    } catch {
+      diag(
+        `[zernio.callback] missing token cleanup: malformed pending business=${stored.businessId}`,
+      );
+    }
+  }
+
+  await zernioClient.deleteProfile(stored.profileId).catch((err) => {
+    diag(
+      `[zernio.callback] missing token cleanup: deleteProfile failed profile=${stored.profileId} err=${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  });
 }
 
 /**
@@ -92,6 +198,7 @@ async function cleanupOrphanedProfileBestEffort(
  */
 export async function GET(req: NextRequest): Promise<NextResponse> {
   const { searchParams, origin } = new URL(req.url);
+  const profileIdParam = searchParams.get('profileId');
 
   // 1. Feature flag — subsystem A is gated by ZERNIO_PUBLISHING_ENABLED (§1.1).
   if (process.env.ZERNIO_PUBLISHING_ENABLED !== 'true') {
@@ -159,6 +266,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
                 e,
               );
             });
+            await redisCleanup.del(profileStateKey(stored.profileId)).catch(() => {
+              // Best-effort.
+            });
           }
         }
       } catch (e) {
@@ -168,9 +278,26 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     return redirectError(origin, 'oauth_denied');
   }
 
-  const state = stateParam;
-  const connectToken = searchParams.get('connect_token');
-  if (!state || !connectToken) {
+  const state = stateParam ?? (await stateFromProfileId(profileIdParam));
+  const connectToken =
+    searchParams.get('pendingDataToken') ??
+    searchParams.get('connect_token') ??
+    connectTokenFromState(state);
+  const pendingDataToken = searchParams.get('pendingDataToken') ?? connectToken;
+  const apiConnectToken = searchParams.get('connect_token') ?? connectTokenFromState(state) ?? undefined;
+  if (!state || !pendingDataToken) {
+    diag(
+      `[zernio.callback] missing params keys=${JSON.stringify([
+        ...searchParams.keys(),
+      ])} state_present=${Boolean(state)} profile_present=${Boolean(
+        profileIdParam,
+      )} token_present=${Boolean(connectToken)} token_from_state=${Boolean(
+        connectTokenFromState(state),
+      )}`,
+    );
+    if (state) {
+      await cleanupMissingTokenState(state);
+    }
     return redirectError(origin, 'missing_params');
   }
 
@@ -195,6 +322,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   } catch {
     return redirectError(origin, 'malformed_state');
   }
+  await redis.del(profileStateKey(stored.profileId)).catch(() => {
+    // Best-effort: profile lookup auto-expires.
+  });
 
   // 4. First pending verification.
   let pendingRaw: string | null;
@@ -240,7 +370,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   // Cleanup-on-failure runs in the catch branch.
   try {
     const { locations } = await zernioClient.listLocations({
-      connectToken,
+      profileId: stored.profileId,
+      pendingDataToken,
+      connectToken: apiConnectToken,
     });
 
     // Round-11: re-verify pending marker AFTER the network round-trip.
@@ -277,7 +409,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const blob: ConnectLocationsBlob = {
       flowId: pending2.flowId,
       state,
-      connect_token: connectToken,
+      connect_token: apiConnectToken ?? pendingDataToken,
+      pending_data_token: pendingDataToken,
       profileId: stored.profileId,
       businessId: stored.businessId,
       userId: stored.userId,
