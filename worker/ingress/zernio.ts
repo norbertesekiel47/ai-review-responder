@@ -211,14 +211,20 @@ export async function handleZernioWebhook(
           throw err;
         }
 
+        console.log(
+          `${LOG_PREFIX} ${eventType} received eventId=${eventId} account=${parsed.accountId} review=${parsed.reviewId}` +
+            (parsed.locationIdFromPayload ? ` location=${parsed.locationIdFromPayload}` : ' (account-wide fan-out)'),
+        );
+
         // ON CONFLICT DO NOTHING dedups against any non-terminal outbox
         // row already in flight for the same (business, zernio_review_id).
         // Migration 030's partial unique index is the conflict target.
         // Without this, Zernio's webhook retry on worker crash would
         // produce duplicate outbox rows that all do the same listReviews
         // walk → wasted Zernio API quota.
+        let fanoutResult;
         if (parsed.locationIdFromPayload) {
-          await sql`
+          fanoutResult = await sql`
             INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
             SELECT
               gen_random_uuid(),
@@ -227,10 +233,10 @@ export async function handleZernioWebhook(
               zc.business_id,
               jsonb_build_object(
                 'business_id', zc.business_id,
-                'zernio_account_id', ${parsed.accountId},
+                'zernio_account_id', ${parsed.accountId}::text,
                 'zernio_location_id', zc.zernio_location_id,
-                'zernio_review_id', ${parsed.reviewId},
-                'correlation_id', ${eventId}
+                'zernio_review_id', ${parsed.reviewId}::text,
+                'correlation_id', ${eventId}::text
               ),
               'pending'
             FROM zernio_connections zc
@@ -243,7 +249,7 @@ export async function handleZernioWebhook(
             DO NOTHING
           `;
         } else {
-          await sql`
+          fanoutResult = await sql`
             INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
             SELECT
               gen_random_uuid(),
@@ -252,10 +258,10 @@ export async function handleZernioWebhook(
               zc.business_id,
               jsonb_build_object(
                 'business_id', zc.business_id,
-                'zernio_account_id', ${parsed.accountId},
+                'zernio_account_id', ${parsed.accountId}::text,
                 'zernio_location_id', zc.zernio_location_id,
-                'zernio_review_id', ${parsed.reviewId},
-                'correlation_id', ${eventId}
+                'zernio_review_id', ${parsed.reviewId}::text,
+                'correlation_id', ${eventId}::text
               ),
               'pending'
             FROM zernio_connections zc
@@ -266,6 +272,16 @@ export async function handleZernioWebhook(
                 AND status IN ('pending', 'dispatching', 'dispatched')
             DO NOTHING
           `;
+        }
+        const inserted = fanoutResult.count ?? 0;
+        if (inserted === 0) {
+          console.warn(
+            `${LOG_PREFIX} ${eventType} fan-out matched 0 active connections for account=${parsed.accountId}` +
+              (parsed.locationIdFromPayload ? ` location=${parsed.locationIdFromPayload}` : '') +
+              ` — webhook ignored (no business has connected this account/location)`,
+          );
+        } else {
+          console.log(`${LOG_PREFIX} ${eventType} fan-out enqueued ${inserted} outbox row(s)`);
         }
         break;
       }
