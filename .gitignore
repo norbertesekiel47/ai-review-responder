@@ -44,9 +44,11 @@ next-env.d.ts
 
 # private docs (except Zernio guides, which are committed for oncall + dev reference)
 /docs/*
-!/docs/zernio-launch-runbook.md
-!/docs/zernio-testing-and-shipping.md
-!/docs/zernio-ingestion-test-runbook.md
+!/docs/runbooks/
+/docs/runbooks/*
+!/docs/runbooks/zernio-launch-runbook.md
+!/docs/runbooks/zernio-testing-and-shipping.md
+!/docs/runbooks/zernio-ingestion-test-runbook.md
 .superpowers
 
 # firecrawl scrape output (market research, not code)
@@ -73,3 +75,6 @@ screenshot.png
 
 # Local tooling cache (not for commit)
 .fallow/
+
+# Local debug artifacts (Zernio connect flow diagnostic log)
+zernio-debug.log
