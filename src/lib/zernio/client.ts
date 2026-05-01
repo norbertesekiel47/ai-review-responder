@@ -209,16 +209,6 @@ async function mockResponse<T>(opts: RequestOptions): Promise<T> {
   }
 }
 
-import { appendFileSync } from 'node:fs';
-const ZERNIO_DEBUG_LOG = 'C:/Users/norbe/Desktop/RepWorth/zernio-debug.log';
-function diagFile(line: string): void {
-  try {
-    appendFileSync(ZERNIO_DEBUG_LOG, `[${new Date().toISOString()}] ${line}\n`);
-  } catch {
-    /* best effort */
-  }
-}
-
 function normalizeLocations(raw: unknown): ZernioLocationOption[] {
   if (!raw || typeof raw !== 'object') return [];
   const o = raw as Record<string, unknown>;
@@ -264,7 +254,7 @@ function extractProfileId(raw: unknown): string {
       if (typeof c === 'string' && c.length > 0) return c;
     }
   }
-  diagFile(
+  console.warn(
     `[zernio.createProfile] UNRECOGNIZED RESPONSE SHAPE: ${JSON.stringify(raw)}`,
   );
   throw new Error('zernio_createProfile_unexpected_response_shape');
@@ -272,7 +262,6 @@ function extractProfileId(raw: unknown): string {
 
 export const zernioClient = {
   createProfile: async (input: { name: string }) => {
-    diagFile(`[zernio.createProfile] sending POST /v1/profiles body=${JSON.stringify(input)}`);
     const raw = await request<unknown>({
       method: 'POST',
       path: '/v1/profiles',
@@ -280,26 +269,23 @@ export const zernioClient = {
       body: input,
       timeoutMs: 10_000,
     });
-    diagFile(`[zernio.createProfile] RAW RESPONSE: ${JSON.stringify(raw)}`);
     return { profileId: extractProfileId(raw) };
   },
 
   startConnect: async (input: { profileId: string; state: string; redirectUrl: string }) => {
-    diagFile(`[zernio.startConnect] sending GET /v1/connect/googlebusiness profileId=${input.profileId}`);
     const raw = await request<unknown>({
       method: 'GET',
       path: `/v1/connect/googlebusiness?profileId=${encodeURIComponent(input.profileId)}&headless=true&redirect_url=${encodeURIComponent(input.redirectUrl)}&state=${encodeURIComponent(input.state)}`,
       endpointKind: 'start_connect',
       timeoutMs: 10_000,
     });
-    diagFile(`[zernio.startConnect] RAW RESPONSE: ${JSON.stringify(raw)}`);
     const o = (raw ?? {}) as Record<string, unknown>;
     const authUrl =
       (typeof o.authUrl === 'string' ? o.authUrl : undefined) ??
       (typeof o.url === 'string' ? o.url : undefined) ??
       (typeof o.redirectUrl === 'string' ? o.redirectUrl : undefined);
     if (!authUrl) {
-      diagFile(`[zernio.startConnect] UNRECOGNIZED authUrl SHAPE`);
+      console.warn(`[zernio.startConnect] UNRECOGNIZED authUrl SHAPE: ${JSON.stringify(raw)}`);
       throw new Error('zernio_startConnect_unexpected_response_shape');
     }
     return {
@@ -313,7 +299,6 @@ export const zernioClient = {
     pendingDataToken: string;
     connectToken?: string;
   }) => {
-    diagFile(`[zernio.listLocations] sending GET /v1/connect/googlebusiness/locations profileId=${input.profileId}`);
     const raw = await request<unknown>({
       method: 'GET',
       path: `/v1/connect/googlebusiness/locations?profileId=${encodeURIComponent(input.profileId)}&pendingDataToken=${encodeURIComponent(input.pendingDataToken)}`,
@@ -321,7 +306,6 @@ export const zernioClient = {
       timeoutMs: 10_000,
       headers: input.connectToken ? { 'X-Connect-Token': input.connectToken } : undefined,
     });
-    diagFile(`[zernio.listLocations] RAW RESPONSE: ${JSON.stringify(raw)}`);
     const locations = normalizeLocations(raw);
     return { locations };
   },
@@ -333,7 +317,6 @@ export const zernioClient = {
     locationId: string;
     redirectUrl?: string;
   }) => {
-    diagFile(`[zernio.selectLocation] sending POST /v1/connect/googlebusiness/select-location locationId=${input.locationId}`);
     const raw = await request<unknown>({
       method: 'POST',
       path: '/v1/connect/googlebusiness/select-location',
@@ -347,7 +330,6 @@ export const zernioClient = {
         ...(input.redirectUrl ? { redirect_url: input.redirectUrl } : {}),
       },
     });
-    diagFile(`[zernio.selectLocation] RAW RESPONSE: ${JSON.stringify(raw)}`);
     const o = (raw ?? {}) as Record<string, unknown>;
     const acctObj = o.account as Record<string, unknown> | undefined;
     const accountId =
@@ -358,7 +340,7 @@ export const zernioClient = {
       (typeof o._id === 'string' ? (o._id as string) : undefined) ??
       (typeof o.id === 'string' ? (o.id as string) : undefined);
     if (!accountId) {
-      diagFile(`[zernio.selectLocation] UNRECOGNIZED accountId SHAPE`);
+      console.warn(`[zernio.selectLocation] UNRECOGNIZED accountId SHAPE: ${JSON.stringify(raw)}`);
       throw new Error('zernio_selectLocation_unexpected_response_shape');
     }
     return { accountId };

@@ -320,7 +320,7 @@ describe('zernioClient connect contract', () => {
       connectToken: 'ct_123',
     });
 
-    const [url, init] = fetchMock.mock.calls[0];
+    const [url, init] = fetchMock.mock.calls[0]!;
     const requestUrl = new URL(String(url));
 
     expect(requestUrl.pathname).toBe('/api/v1/connect/googlebusiness/locations');
@@ -353,7 +353,7 @@ describe('zernioClient connect contract', () => {
       locationId: 'loc-1',
     });
 
-    const [url, init] = fetchMock.mock.calls[0];
+    const [url, init] = fetchMock.mock.calls[0]!;
     const requestUrl = new URL(String(url));
 
     expect(result.accountId).toBe('acct-123');

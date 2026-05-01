@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { appendFileSync } from 'node:fs';
 import { sql } from '@/lib/db/server';
 import { getCacheRedis } from '@/lib/db/redis-cache';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
@@ -25,40 +24,8 @@ export const dynamic = 'force-dynamic';
 const NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
 const PENDING_TTL_SECONDS = 900; // 15 min — matches Zernio connect_token TTL
 const LOCK_TTL_SECONDS = 30;
-const DIAG_LOG = 'C:/Users/norbe/Desktop/RepWorth/zernio-debug.log';
-
-function diag(line: string): void {
-  const stamp = new Date().toISOString();
-  const formatted = `[${stamp}] ${line}\n`;
-  try {
-    appendFileSync(DIAG_LOG, formatted);
-  } catch {
-    /* best effort */
-  }
-  // Also write to stdout (process.stdout.write bypasses any console hijacking).
-  try {
-    process.stdout.write(formatted);
-  } catch {
-    /* best effort */
-  }
-}
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  diag('ZERNIO-CONNECT-START >>> POST handler entered');
-  try {
-    const result = await handlePOST(req);
-    diag(`ZERNIO-CONNECT-START <<< returning status=${result.status}`);
-    return result;
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    const stack = err instanceof Error ? err.stack ?? '<no stack>' : '<not an Error>';
-    diag(`ZERNIO-CONNECT-START !!! UNHANDLED throw: ${msg}`);
-    diag(`ZERNIO-CONNECT-START !!! stack: ${stack}`);
-    return NextResponse.json({ error: 'internal_error' }, { status: 500, headers: NO_STORE });
-  }
-}
-
-async function handlePOST(req: NextRequest): Promise<NextResponse> {
   // Feature flag — subsystem A is flag-gated by ZERNIO_PUBLISHING_ENABLED (§1.1).
   if (process.env.ZERNIO_PUBLISHING_ENABLED !== 'true') {
     return NextResponse.json({ error: 'feature_disabled' }, { status: 503, headers: NO_STORE });
@@ -312,15 +279,11 @@ async function handlePOST(req: NextRequest): Promise<NextResponse> {
 
 function errorToResponse(err: unknown): NextResponse {
   if (err instanceof ZernioRouteError) {
-    diag(`errorToResponse: ZernioRouteError code=${err.code} status=${err.statusCode}`);
     return NextResponse.json(
       { error: err.code },
       { status: err.statusCode, headers: NO_STORE },
     );
   }
-  const msg = err instanceof Error ? err.message : String(err);
-  const stack = err instanceof Error ? err.stack ?? '<no stack>' : '<not an Error>';
-  diag(`errorToResponse: NON-ZernioRouteError ${err?.constructor?.name ?? typeof err}: ${msg}`);
-  diag(`errorToResponse: stack: ${stack}`);
+  console.error('[api/zernio/connect/start] internal error:', err);
   return NextResponse.json({ error: 'internal_error' }, { status: 500, headers: NO_STORE });
 }

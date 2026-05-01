@@ -1,4 +1,3 @@
-import { appendFileSync } from 'node:fs';
 import { NextRequest, NextResponse } from 'next/server';
 import { getCacheRedis } from '@/lib/db/redis-cache';
 import { getCurrentUser } from '@/lib/db/auth';
@@ -22,21 +21,6 @@ export const dynamic = 'force-dynamic';
 
 const NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
 const LOCATIONS_TTL_SECONDS = 900; // 15 min — matches signed-cookie Max-Age
-const DIAG_LOG = 'C:/Users/norbe/Desktop/RepWorth/zernio-debug.log';
-
-function diag(line: string): void {
-  const formatted = `[${new Date().toISOString()}] ${line}\n`;
-  try {
-    appendFileSync(DIAG_LOG, formatted);
-  } catch {
-    /* best effort */
-  }
-  try {
-    process.stdout.write(formatted);
-  } catch {
-    /* best effort */
-  }
-}
 
 /**
  * Lua compare-and-delete used in callback failure cleanup.
@@ -65,7 +49,7 @@ async function stateFromProfileId(profileId: string | null): Promise<string | nu
   return await getCacheRedis()
     .get(profileStateKey(profileId))
     .catch((err) => {
-      diag(
+      console.warn(
         `[zernio.callback] profile state lookup failed profile=${profileId} err=${
           err instanceof Error ? err.message : String(err)
         }`,
@@ -103,7 +87,7 @@ async function cleanupOrphanedProfileBestEffort(
 async function cleanupMissingTokenState(state: string): Promise<void> {
   const redis = getCacheRedis();
   const stateRaw = await redis.getdel(stateKey(state)).catch((err) => {
-    diag(
+    console.warn(
       `[zernio.callback] missing token cleanup: state GETDEL failed state=${state} err=${
         err instanceof Error ? err.message : String(err)
       }`,
@@ -111,7 +95,7 @@ async function cleanupMissingTokenState(state: string): Promise<void> {
     return null;
   });
   if (!stateRaw) {
-    diag(`[zernio.callback] missing token cleanup: no state blob state=${state}`);
+    console.warn(`[zernio.callback] missing token cleanup: no state blob state=${state}`);
     return;
   }
 
@@ -119,7 +103,7 @@ async function cleanupMissingTokenState(state: string): Promise<void> {
   try {
     stored = JSON.parse(stateRaw) as ConnectStateBlob;
   } catch {
-    diag(`[zernio.callback] missing token cleanup: malformed state blob state=${state}`);
+    console.warn(`[zernio.callback] missing token cleanup: malformed state blob state=${state}`);
     return;
   }
   await redis.del(profileStateKey(stored.profileId)).catch(() => {
@@ -127,7 +111,7 @@ async function cleanupMissingTokenState(state: string): Promise<void> {
   });
 
   const pendingRaw = await redis.get(pendingKey(stored.businessId)).catch((err) => {
-    diag(
+    console.warn(
       `[zernio.callback] missing token cleanup: pending GET failed business=${stored.businessId} err=${
         err instanceof Error ? err.message : String(err)
       }`,
@@ -146,7 +130,7 @@ async function cleanupMissingTokenState(state: string): Promise<void> {
             pending.flowId,
           )
           .catch((err) => {
-            diag(
+            console.warn(
               `[zernio.callback] missing token cleanup: pending delete failed business=${stored.businessId} err=${
                 err instanceof Error ? err.message : String(err)
               }`,
@@ -154,14 +138,14 @@ async function cleanupMissingTokenState(state: string): Promise<void> {
           });
       }
     } catch {
-      diag(
+      console.warn(
         `[zernio.callback] missing token cleanup: malformed pending business=${stored.businessId}`,
       );
     }
   }
 
   await zernioClient.deleteProfile(stored.profileId).catch((err) => {
-    diag(
+    console.warn(
       `[zernio.callback] missing token cleanup: deleteProfile failed profile=${stored.profileId} err=${
         err instanceof Error ? err.message : String(err)
       }`,
@@ -286,7 +270,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   const pendingDataToken = searchParams.get('pendingDataToken') ?? connectToken;
   const apiConnectToken = searchParams.get('connect_token') ?? connectTokenFromState(state) ?? undefined;
   if (!state || !pendingDataToken) {
-    diag(
+    console.warn(
       `[zernio.callback] missing params keys=${JSON.stringify([
         ...searchParams.keys(),
       ])} state_present=${Boolean(state)} profile_present=${Boolean(
