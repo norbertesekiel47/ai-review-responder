@@ -209,42 +209,160 @@ async function mockResponse<T>(opts: RequestOptions): Promise<T> {
   }
 }
 
+import { appendFileSync } from 'node:fs';
+const ZERNIO_DEBUG_LOG = 'C:/Users/norbe/Desktop/RepWorth/zernio-debug.log';
+function diagFile(line: string): void {
+  try {
+    appendFileSync(ZERNIO_DEBUG_LOG, `[${new Date().toISOString()}] ${line}\n`);
+  } catch {
+    /* best effort */
+  }
+}
+
+function normalizeLocations(raw: unknown): ZernioLocationOption[] {
+  if (!raw || typeof raw !== 'object') return [];
+  const o = raw as Record<string, unknown>;
+  const arr =
+    (Array.isArray(o.locations) ? o.locations : undefined) ??
+    (Array.isArray(o.data) ? o.data : undefined) ??
+    (Array.isArray(o.results) ? o.results : undefined) ??
+    [];
+  return (arr as Array<Record<string, unknown>>).map((loc) => ({
+    id:
+      (typeof loc._id === 'string' ? loc._id : undefined) ??
+      (typeof loc.id === 'string' ? loc.id : undefined) ??
+      (typeof loc.locationId === 'string' ? loc.locationId : undefined) ??
+      '',
+    name:
+      (typeof loc.name === 'string' ? loc.name : undefined) ??
+      (typeof loc.title === 'string' ? loc.title : undefined) ??
+      (typeof loc.displayName === 'string' ? loc.displayName : undefined) ??
+      '<unnamed>',
+    address:
+      (typeof loc.address === 'string' ? loc.address : undefined) ??
+      (typeof loc.formattedAddress === 'string' ? loc.formattedAddress : undefined) ??
+      '',
+  })).filter((l) => l.id !== '');
+}
+
+// Zernio uses MongoDB-shaped responses. POST /v1/profiles returns:
+//   { message, profile: { _id, name, userId, isDefault, color, createdAt, ... } }
+// The canonical profile id is at profile._id.
+function extractProfileId(raw: unknown): string {
+  if (raw && typeof raw === 'object') {
+    const o = raw as Record<string, unknown>;
+    const profileObj = o.profile as Record<string, unknown> | undefined;
+    const candidates = [
+      profileObj?._id,
+      profileObj?.id,
+      o._id,
+      o.profileId,
+      o.id,
+      o.profile_id,
+    ];
+    for (const c of candidates) {
+      if (typeof c === 'string' && c.length > 0) return c;
+    }
+  }
+  diagFile(
+    `[zernio.createProfile] UNRECOGNIZED RESPONSE SHAPE: ${JSON.stringify(raw)}`,
+  );
+  throw new Error('zernio_createProfile_unexpected_response_shape');
+}
+
 export const zernioClient = {
-  createProfile: (input: { name: string }) =>
-    request<{ profileId: string }>({
+  createProfile: async (input: { name: string }) => {
+    diagFile(`[zernio.createProfile] sending POST /v1/profiles body=${JSON.stringify(input)}`);
+    const raw = await request<unknown>({
       method: 'POST',
       path: '/v1/profiles',
       endpointKind: 'create_profile',
       body: input,
       timeoutMs: 10_000,
-    }),
+    });
+    diagFile(`[zernio.createProfile] RAW RESPONSE: ${JSON.stringify(raw)}`);
+    return { profileId: extractProfileId(raw) };
+  },
 
-  startConnect: (input: { profileId: string; state: string; redirectUrl: string }) =>
-    request<{ authUrl: string }>({
+  startConnect: async (input: { profileId: string; state: string; redirectUrl: string }) => {
+    diagFile(`[zernio.startConnect] sending GET /v1/connect/googlebusiness profileId=${input.profileId}`);
+    const raw = await request<unknown>({
       method: 'GET',
-      path: `/v1/connect/google-business?profileId=${encodeURIComponent(input.profileId)}&headless=true&redirectUrl=${encodeURIComponent(input.redirectUrl)}&state=${encodeURIComponent(input.state)}`,
+      path: `/v1/connect/googlebusiness?profileId=${encodeURIComponent(input.profileId)}&headless=true&redirect_url=${encodeURIComponent(input.redirectUrl)}&state=${encodeURIComponent(input.state)}`,
       endpointKind: 'start_connect',
       timeoutMs: 10_000,
-    }),
+    });
+    diagFile(`[zernio.startConnect] RAW RESPONSE: ${JSON.stringify(raw)}`);
+    const o = (raw ?? {}) as Record<string, unknown>;
+    const authUrl =
+      (typeof o.authUrl === 'string' ? o.authUrl : undefined) ??
+      (typeof o.url === 'string' ? o.url : undefined) ??
+      (typeof o.redirectUrl === 'string' ? o.redirectUrl : undefined);
+    if (!authUrl) {
+      diagFile(`[zernio.startConnect] UNRECOGNIZED authUrl SHAPE`);
+      throw new Error('zernio_startConnect_unexpected_response_shape');
+    }
+    return {
+      authUrl,
+      state: typeof o.state === 'string' && o.state.length > 0 ? o.state : undefined,
+    };
+  },
 
-  listLocations: (input: { connectToken: string }) =>
-    request<{ locations: ZernioLocationOption[] }>({
+  listLocations: async (input: {
+    profileId: string;
+    pendingDataToken: string;
+    connectToken?: string;
+  }) => {
+    diagFile(`[zernio.listLocations] sending GET /v1/connect/googlebusiness/locations profileId=${input.profileId}`);
+    const raw = await request<unknown>({
       method: 'GET',
-      path: '/v1/connect/google-business/list-locations',
+      path: `/v1/connect/googlebusiness/locations?profileId=${encodeURIComponent(input.profileId)}&pendingDataToken=${encodeURIComponent(input.pendingDataToken)}`,
       endpointKind: 'list_locations',
       timeoutMs: 10_000,
-      headers: { 'X-Connect-Token': input.connectToken },
-    }),
+      headers: input.connectToken ? { 'X-Connect-Token': input.connectToken } : undefined,
+    });
+    diagFile(`[zernio.listLocations] RAW RESPONSE: ${JSON.stringify(raw)}`);
+    const locations = normalizeLocations(raw);
+    return { locations };
+  },
 
-  selectLocation: (input: { connectToken: string; locationId: string }) =>
-    request<{ accountId: string }>({
+  selectLocation: async (input: {
+    profileId: string;
+    pendingDataToken: string;
+    connectToken?: string;
+    locationId: string;
+    redirectUrl?: string;
+  }) => {
+    diagFile(`[zernio.selectLocation] sending POST /v1/connect/googlebusiness/select-location locationId=${input.locationId}`);
+    const raw = await request<unknown>({
       method: 'POST',
-      path: '/v1/connect/google-business/select-location',
+      path: '/v1/connect/googlebusiness/select-location',
       endpointKind: 'select_location',
       timeoutMs: 15_000,
-      headers: { 'X-Connect-Token': input.connectToken },
-      body: { locationId: input.locationId },
-    }),
+      headers: input.connectToken ? { 'X-Connect-Token': input.connectToken } : undefined,
+      body: {
+        profileId: input.profileId,
+        locationId: input.locationId,
+        pendingDataToken: input.pendingDataToken,
+        ...(input.redirectUrl ? { redirect_url: input.redirectUrl } : {}),
+      },
+    });
+    diagFile(`[zernio.selectLocation] RAW RESPONSE: ${JSON.stringify(raw)}`);
+    const o = (raw ?? {}) as Record<string, unknown>;
+    const acctObj = o.account as Record<string, unknown> | undefined;
+    const accountId =
+      (typeof o.accountId === 'string' ? o.accountId : undefined) ??
+      (typeof acctObj?.accountId === 'string' ? (acctObj.accountId as string) : undefined) ??
+      (typeof acctObj?._id === 'string' ? (acctObj._id as string) : undefined) ??
+      (typeof acctObj?.id === 'string' ? (acctObj.id as string) : undefined) ??
+      (typeof o._id === 'string' ? (o._id as string) : undefined) ??
+      (typeof o.id === 'string' ? (o.id as string) : undefined);
+    if (!accountId) {
+      diagFile(`[zernio.selectLocation] UNRECOGNIZED accountId SHAPE`);
+      throw new Error('zernio_selectLocation_unexpected_response_shape');
+    }
+    return { accountId };
+  },
 
   listReviews: (
     accountId: string,
