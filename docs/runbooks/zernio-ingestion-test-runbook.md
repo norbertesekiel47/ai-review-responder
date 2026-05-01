@@ -232,20 +232,61 @@ These exercise the full pipeline without touching real Zernio. Run with `MOCK_EX
 
 ### 4.1 Webhook → outbox fan-out → mock-mode worker short-circuit
 
+**Prerequisite — seed a `zernio_connections` row.** The webhook fan-out is `INSERT … SELECT … FROM zernio_connections WHERE zernio_account_id = $accountId AND status = 'active'`. With no matching row, the INSERT inserts zero rows, the worker never picks up a job, and there are no logs to observe — the webhook still returns `200 received:true`, but nothing else happens. Two ways to seed:
+
+**Option A — run the connect flow once** (recommended; mirrors real onboarding):
+```
+pnpm dev   # in a third terminal
+# Browser → log in as a test owner → /dashboard/connect → complete the (mocked) flow.
+# The select-location callback writes a row to zernio_connections with a real
+# generated account id. Read it back:
+```
+```sql
+SELECT zernio_account_id, zernio_location_id, business_id, status
+FROM zernio_connections
+WHERE status = 'active'
+ORDER BY connected_at DESC LIMIT 1;
+```
+
+**Option B — insert a row directly** (faster for iteration):
+```sql
+-- pick any owner business id from your local DB
+INSERT INTO zernio_connections (
+  id, business_id, zernio_account_id, zernio_location_id, status, connected_at
+) VALUES (
+  gen_random_uuid(),
+  '<your-test-business-id>',
+  'mock-account-1',
+  'mock-location-1',
+  'active',
+  NOW()
+);
+```
+
+**Now fire the webhook**, passing whichever account id matches the seeded row:
+
 ```bash
 # Terminal 1
 pnpm worker
 
-# Terminal 2 — fire a synthetic webhook against the local worker
-bash scripts/zernio-fire-webhook.sh review.new
+# Terminal 2 — arg order is <account-id> <event>.
+# If you used Option B's mock-account-1, pass "" to use the script's default mock account.
+# If you used Option A, pass the real account id from the SELECT above.
+bash scripts/zernio-fire-webhook.sh "" review.new
 ```
 
-Expected log sequence in worker:
+Expected log sequence in worker (look past the Fastify access log JSON to the application logs):
 ```
-[ingress/zernio] review.new received eventId=...
-[ZernioReviewIngestWorker] Mock mode — short-circuiting ingest for ...
-[outbox] markOutboxCompleted for outbox_id=... attempt=1
+[ingress/zernio] review.new received eventId=evt-... account=mock-account-1 review=mock-review-1 (account-wide fan-out)
+[ingress/zernio] review.new fan-out enqueued 1 outbox row(s)
+[ZernioReviewIngestWorker] Mock mode — short-circuiting ingest for mock-review-1
 ```
+
+If the fan-out matched zero connections you'll see this instead, and no worker job runs:
+```
+[ingress/zernio] review.new fan-out matched 0 active connections for account=mock-account-1 — webhook ignored (no business has connected this account/location)
+```
+That's the seed-step prerequisite biting; go back to the SELECT above and confirm a row exists with the account id you're firing.
 
 Verify:
 ```sql
@@ -256,14 +297,17 @@ ORDER BY created_at DESC LIMIT 5;
 -- All recent rows: status='completed', last_error IS NULL
 ```
 
+**If the SELECT returns zero rows** but the webhook returned 200, the seed step was skipped or the account id you passed doesn't match a row with `status='active'`. Re-check the `zernio_connections` query above and re-fire.
+
 ### 4.2 Outbox dedup on webhook retry
 
 Fire the same webhook twice in rapid succession (replay the same event ID):
 
 ```bash
-bash scripts/zernio-fire-webhook.sh review.new evt_test_dedup
+# Pin EVENT_ID via env so both calls send the same id (script otherwise auto-generates).
+EVENT_ID=evt_test_dedup bash scripts/zernio-fire-webhook.sh "" review.new
 sleep 1
-bash scripts/zernio-fire-webhook.sh review.new evt_test_dedup
+EVENT_ID=evt_test_dedup bash scripts/zernio-fire-webhook.sh "" review.new
 ```
 
 Expected:
