@@ -4,7 +4,12 @@
 //   1. handleZernioIngestError — error-class dispatcher per spec §6.3 table.
 //   2. reconcileExternallyAnsweredReview — supersedes local active responses
 //      when the customer already replied via Google directly (spec §6.3b).
+//      Under EDIT_EXISTING_REPLIES_ENABLED, also imports unseen external
+//      replies as 'posted' responses so Past Replies can render them
+//      (spec §4.3, §6.3b).
 
+import { createHash } from 'node:crypto';
+import type postgres from 'postgres';
 import { sql } from '../../src/lib/db/server';
 import {
   ZernioAuthError,
@@ -18,6 +23,11 @@ import type { ZernioReview } from '../../src/lib/zernio/types';
 import { markOutboxFailed } from '../../src/lib/shared/outbox';
 import type { WorkerLogger } from '../../src/lib/shared/logger';
 import { fromZernioReview } from '../../src/lib/reviews/zernio-field-match';
+
+type TxClient = postgres.TransactionSql;
+
+const FLAG_ON = (): boolean =>
+  process.env.EDIT_EXISTING_REPLIES_ENABLED === 'true';
 
 export interface IngestErrorContext {
   business_id: string;
@@ -121,7 +131,20 @@ export async function reconcileExternallyAnsweredReview(
     `;
 
     if (matchedRows.length === 0) {
-      logger.log(`External reply on previously-unseen review ${target.id} — not ingesting`);
+      if (!FLAG_ON()) {
+        logger.log(`External reply on previously-unseen review ${target.id} — not ingesting`);
+        return;
+      }
+      // Defensive: callers only invoke us when reviewReply !== null, but
+      // guard so the import branch never inserts an empty 'posted' response.
+      if (!target.reviewReply) {
+        logger.log(`External reply on previously-unseen review ${target.id} — reviewReply null, not ingesting`);
+        return;
+      }
+      const newReviewId = await insertImportedReview(tx, businessId, accountId, locationId, target);
+      await insertImportedResponse(tx, businessId, newReviewId, null, target.reviewReply);
+      await bumpExternalReplyIngestedCount(tx, businessId);
+      logger.log(`Imported external reply for previously-unseen review ${target.id}`);
       return;
     }
 
@@ -144,7 +167,18 @@ export async function reconcileExternallyAnsweredReview(
     // re-introduction.
 
     if (activeResponses.length === 0) {
-      logger.log(`External reply detected but no active responses for review row(s) ${reviewIds.join(',')} — no-op`);
+      if (!FLAG_ON()) {
+        logger.log(`External reply detected but no active responses for review row(s) ${reviewIds.join(',')} — no-op`);
+        return;
+      }
+      if (!target.reviewReply) {
+        logger.log(`External reply branch reached but reviewReply null — no-op for review row(s) ${reviewIds.join(',')}`);
+        return;
+      }
+      const targetReviewRowId = matchedRows[0]!.id;
+      await insertImportedResponse(tx, businessId, targetReviewRowId, null, target.reviewReply);
+      await bumpExternalReplyIngestedCount(tx, businessId);
+      logger.log(`Imported external reply onto existing review row ${targetReviewRowId}`);
       return;
     }
 
@@ -191,4 +225,116 @@ export async function reconcileExternallyAnsweredReview(
       );
     }
   });
+}
+
+// ---------------------------------------------------------------------------
+// Private helpers — used by the EDIT_EXISTING_REPLIES_ENABLED branches above.
+// Not exported: implementation detail of reconcileExternallyAnsweredReview.
+// ---------------------------------------------------------------------------
+
+/**
+ * INSERT a `reviews` row for a Zernio review we have never seen locally.
+ * Race-safe via `ON CONFLICT (provider, provider_review_name) DO UPDATE SET
+ * id = reviews.id RETURNING id` — DO NOTHING + RETURNING leaves no row when
+ * the conflicting INSERT loses the race because the snapshot can't see the
+ * just-committed sibling. DO UPDATE always RETURNs whether the row was
+ * inserted or pre-existing; the no-op `SET id = id` triggers no observable
+ * change on the row content.
+ */
+async function insertImportedReview(
+  tx: TxClient,
+  businessId: string,
+  accountId: string,
+  locationId: string,
+  target: ZernioReview,
+): Promise<string> {
+  const matchFields = fromZernioReview(target);
+  const providerReviewName = `zernio://${accountId}/locations/${locationId}/reviews/${target.id}`;
+  const providerLocationName = `zernio://${accountId}/locations/${locationId}`;
+  const reviewContentHash = createHash('sha256')
+    .update(`${matchFields.star_rating}|${matchFields.review_text_trimmed}`)
+    .digest('hex');
+
+  const rows = await tx<{ id: string }[]>`
+    INSERT INTO reviews (
+      id, business_id, provider, provider_review_id, provider_review_name,
+      provider_location_name, reviewer_name, star_rating, review_text,
+      review_date, detected_language, review_content_hash, detected_at,
+      status, external_reply_ingested_at
+    )
+    VALUES (
+      gen_random_uuid(), ${businessId}, 'zernio', ${target.id},
+      ${providerReviewName}, ${providerLocationName},
+      ${matchFields.reviewer_name}, ${matchFields.star_rating},
+      ${matchFields.review_text_trimmed},
+      to_timestamp(${matchFields.created_at_ms} / 1000.0),
+      ${null as unknown as string}, ${reviewContentHash},
+      NOW(), 'new', NOW()
+    )
+    ON CONFLICT (provider, provider_review_name) DO UPDATE
+      SET id = reviews.id
+    RETURNING id
+  `;
+  return rows[0]!.id;
+}
+
+/**
+ * INSERT a `responses` row representing the owner's externally-posted Google
+ * reply. status='posted', all three text columns set to the canonicalized
+ * reply, llm_* columns NULL (no LLM call produced this row).
+ *
+ * version is computed server-side as `COALESCE(MAX(version), 0) + 1` so prior
+ * terminal rows ('failed', 'superseded') don't collide on the
+ * (review_id, version) unique constraint.
+ *
+ * The partial unique index `responses_one_posted_per_review` (migration 031)
+ * guards against duplicate 'posted' rows when the helper is invoked twice
+ * for the same review; ON CONFLICT … DO NOTHING keeps the second call
+ * idempotent.
+ */
+async function insertImportedResponse(
+  tx: TxClient,
+  businessId: string,
+  reviewId: string,
+  reviewLanguage: string | null,
+  externalReply: { comment: string; updateTime: string },
+): Promise<void> {
+  const replyText = canonicalizeReplyText(externalReply.comment);
+  const updateTime = externalReply.updateTime;
+
+  await tx`
+    INSERT INTO responses (
+      id, review_id, business_id,
+      response_text, approved_text, original_draft_text, edited_text,
+      response_language, version, status,
+      approved_at, posted_at,
+      llm_provider, llm_model, prompt_tokens, completion_tokens
+    )
+    VALUES (
+      gen_random_uuid(), ${reviewId}, ${businessId},
+      ${replyText}, ${replyText}, ${replyText}, NULL,
+      ${reviewLanguage},
+      COALESCE((SELECT MAX(version) FROM responses WHERE review_id = ${reviewId}), 0) + 1,
+      'posted',
+      ${updateTime}::timestamptz, ${updateTime}::timestamptz,
+      NULL, NULL, NULL, NULL
+    )
+    ON CONFLICT (review_id) WHERE status = 'posted' DO NOTHING
+  `;
+}
+
+/**
+ * Bump the active backfill run's `external_reply_ingested_count`. No-op when
+ * called from the per-webhook ingest worker (no active row → 0 rows updated).
+ */
+async function bumpExternalReplyIngestedCount(
+  tx: TxClient,
+  businessId: string,
+): Promise<void> {
+  await tx`
+    UPDATE zernio_backfill_runs
+    SET external_reply_ingested_count = external_reply_ingested_count + 1,
+        updated_at = NOW()
+    WHERE business_id = ${businessId} AND completed_at IS NULL
+  `;
 }
