@@ -346,16 +346,28 @@ export const zernioClient = {
     return { accountId };
   },
 
-  listReviews: (
+  listReviews: async (
     accountId: string,
     input: { locationId: string; pageSize?: number; pageToken?: string },
-  ) =>
-    request<{ reviews: ZernioReview[]; nextPageToken?: string }>({
+  ) => {
+    const raw = await request<{ reviews: ZernioReview[]; nextPageToken?: string }>({
       method: 'GET',
       path: `/v1/accounts/${encodeURIComponent(accountId)}/gmb-reviews?locationId=${encodeURIComponent(input.locationId)}&pageSize=${input.pageSize ?? 50}${input.pageToken ? `&pageToken=${encodeURIComponent(input.pageToken)}` : ''}`,
       endpointKind: 'list_reviews',
       timeoutMs: 15_000,
-    }),
+    });
+    // Normalize reviewReply: Zernio may OMIT the field on unanswered reviews
+    // rather than returning explicit null. Downstream code uses
+    // `reviewReply !== null` / `=== null` strict-equality predicates which
+    // would route an `undefined` reviewReply to the answered branch and then
+    // crash on .comment. Force every entry to either null or an object at
+    // the API chokepoint. See Code Review fix Medium 1 (2026-05-02).
+    const reviews = (raw?.reviews ?? []).map((r) => ({
+      ...r,
+      reviewReply: r.reviewReply ?? null,
+    }));
+    return { reviews, nextPageToken: raw?.nextPageToken };
+  },
 
   listAllReviews: async (
     accountId: string,
