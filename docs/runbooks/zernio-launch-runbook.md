@@ -589,3 +589,117 @@ Append one line per `finalize_unknown` reconciliation. Format:
 - Publisher branching source: `worker/jobs/ResponsePublisherWorker.ts` + `src/lib/publishing/zernio-publisher.ts`
 - Drain worker: `worker/jobs/DrainOwnerConnectWorker.ts`
 - Owner email worker: `worker/jobs/OwnerEmailWorker.ts`
+
+
+---
+
+## 10. Edit Existing Replies (Phase A/B rollout) — feat/edit-existing-replies
+
+Shipped on branch `feat/edit-existing-replies`. Single feature flag
+`EDIT_EXISTING_REPLIES_ENABLED` gates BOTH the import-on-ingestion path and
+the entire `/dashboard/past-replies` UI + 7 API routes + new edit-publisher
+worker branch.
+
+### 10.1 Pre-flight check (run BEFORE applying migration 031)
+
+Migration 031 adds the partial unique index `responses_one_posted_per_review`
+on `responses (review_id) WHERE status = posted`. If duplicate `posted`
+rows already exist, the CONCURRENTLY index build aborts mid-way and leaves
+an INVALID index that requires `DROP INDEX` + retry.
+
+```sql
+SELECT review_id, count(*) FROM responses
+  WHERE status = posted
+  GROUP BY review_id
+  HAVING count(*) > 1;
+-- expect: 0 rows. If non-empty, BLOCK migration; investigate the
+-- duplicates before proceeding.
+```
+
+### 10.2 Apply migration 031
+
+The file `supabase/migrations/031_edit_existing_replies.sql` mixes
+transactional DDL with `CREATE INDEX CONCURRENTLY` — apply
+non-transactionally (uncheck the single-tx box in the Supabase SQL editor).
+
+Post-migration verification:
+
+```sql
+SELECT indexname, indisvalid FROM pg_indexes
+  JOIN pg_class ON pg_class.relname = indexname
+  JOIN pg_index ON pg_index.indexrelid = pg_class.oid
+  WHERE indexname IN (responses_one_posted_per_review,
+                      idx_reviews_business_review_date);
+-- expect: indisvalid = true for both.
+```
+
+If `indisvalid=false`, CONCURRENTLY was interrupted: `DROP INDEX <name>;`
+and re-run.
+
+### 10.3 Phase A — code shipped, flag OFF
+
+Merge the branch with `EDIT_EXISTING_REPLIES_ENABLED=false`:
+
+- `/dashboard/past-replies` returns 404. Edit/publish/retry endpoints return 503.
+- Ingestion of imported replies is ALSO gated by the same flag — `reconcileExternallyAnsweredReview` falls back to today’s silent-no-op behavior. Reasoning: imported `posted` responses count toward `dashboard/service.ts` HANDLED_STATUSES and surface in ValueSummary; ingesting them without lighting the UI would change customer-visible numbers without explanation.
+- Soak for ≥1 week. Watch for migration-related errors and verify the flag-OFF branches in staging.
+
+### 10.4 Phase B — flip the flag
+
+Set `EDIT_EXISTING_REPLIES_ENABLED=true` in production env (Vercel + Railway):
+
+- Imported replies start getting ingested via every webhook + on next reconnect backfill.
+- UI lights up at `/dashboard/past-replies`.
+- Dashboard "total responded" counts may rise for businesses with imported replies — expected.
+- Edit / publish endpoints become available.
+
+### 10.5 Backfilling existing customers
+
+Two retroactive paths:
+
+- **A — Opportunistic:** `ZernioReviewIngestWorker` already runs on every
+  `review.updated` webhook. With the flag on, it now ingests previously-unseen
+  reviews that arrive already-replied. Eventually-consistent fill via natural
+  webhook traffic. Zero ops overhead.
+
+- **B — One-time admin script:** `pnpm tsx scripts/zernio-backfill-external-replies.ts <business-id>` walks Zernio for that business and ingests anything missing. Useful for VIPs who want immediate filling. Idempotent.
+
+A full bulk re-walk on flag-flip is **explicitly NOT done** — it would burn every business’s Zernio quota at once.
+
+### 10.6 Monitoring
+
+| Metric | Threshold | Surface |
+|---|---|---|
+| `responses.status=failed` count where `posting_error LIKE delete_failed_%` OR `LIKE post_after_delete_failed_%` | > 1% of edit attempts | Sentry alert |
+| `external_reply_ingested_count` distribution per `zernio_backfill_runs` | track | weekly internal review |
+| 409 `review_changed` from `/publish` | > 5% of publishes | UI race smell — investigate |
+| 403 `inbox_addon_required` from Zernio (DELETE path) | any | Sentry alert (billing/addon issue) |
+| Time from `/draft` to `/publish` | track p50/p95 | sanity check |
+
+### 10.7 Rollback
+
+- **Flag flip back to off** — instant. UI dies. Edit endpoints return 503. Ingestion of imported replies also stops (same flag-gate at §4.3 of spec); already-ingested rows stay in the DB but no new ones are created.
+- **Migration rollback** — risky. The new column + index are backward compatible (NULLable + partial). If a genuine bug requires undo, write a forward migration to drop them; do NOT UN the original.
+- **Worker bug in DELETE-before-POST** — gated by the env flag inside `ResponsePublisherWorker.runEditPublisherIfApplicable`. Flipping the flag off restores POST-only behavior without redeploy.
+
+### 10.8 Recovery routes for orphan-state failures
+
+If DELETE succeeds but POST fails, the candidate row is `failed` with
+`posting_error=post_after_delete_failed_<kind>` AND the sibling `posted`
+row has been `superseded` — meaning Google’s reply slot is empty.
+The dashboard should surface two CTAs on the affected row:
+
+- **Retry posting** → `POST /api/dashboard/past-replies/:id/retry` — re-enters the publisher’s no-DELETE branch with the orphan marker re-installed.
+- **Restore original** → `POST /api/dashboard/past-replies/:id/restore-original` — INSERTs a fresh `pending_approval` row with the previously-posted text from the most-recent superseded sibling that has `posted_at IS NOT NULL`. Owner reviews via standard `/publish`.
+
+`/retry` validates the world-shape against the failure prefix:
+- `delete_failed_*` requires a live posted sibling (else 409 `sibling_state_mismatch`).
+- `post_after_delete_failed_*` requires NO live posted sibling (else 409 `live_reply_exists` — prevents undoing a previously-applied `/restore-original`).
+
+### 10.9 Deferred test coverage (TODO)
+
+- **Integration tests** (spec §6.2) — 9 cases requiring `TEST_DATABASE_POOL_URL`. Per-task unit tests (~115 cases across this branch) cover the main paths; integration tests exercise concurrency / lock-protocol behaviors that need real Postgres.
+- **E2E tests** (spec §6.3) — 4 Playwright cases. Need browser harness setup.
+
+Both tracked in the spec but deferred to a follow-up task; not blocking for Phase A merge.
+
