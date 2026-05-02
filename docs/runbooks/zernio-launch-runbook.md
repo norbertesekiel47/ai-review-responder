@@ -616,13 +616,13 @@ Decoupling lets you start ingesting silently first, soak, then expose.
 ### 10.1 Pre-flight check (run BEFORE applying migration 031)
 
 Migration 031 adds the partial unique index `responses_one_posted_per_review`
-on `responses (review_id) WHERE status = posted`. If duplicate `posted`
+on `responses (review_id) WHERE status = 'posted'`. If duplicate `posted`
 rows already exist, the CONCURRENTLY index build aborts mid-way and leaves
 an INVALID index that requires `DROP INDEX` + retry.
 
 ```sql
 SELECT review_id, count(*) FROM responses
-  WHERE status = posted
+  WHERE status = 'posted'
   GROUP BY review_id
   HAVING count(*) > 1;
 -- expect: 0 rows. If non-empty, BLOCK migration; investigate the
@@ -641,8 +641,8 @@ Post-migration verification:
 SELECT indexname, indisvalid FROM pg_indexes
   JOIN pg_class ON pg_class.relname = indexname
   JOIN pg_index ON pg_index.indexrelid = pg_class.oid
-  WHERE indexname IN (responses_one_posted_per_review,
-                      idx_reviews_business_review_date);
+  WHERE indexname IN ('responses_one_posted_per_review',
+                      'idx_reviews_business_review_date');
 -- expect: indisvalid = true for both.
 ```
 
