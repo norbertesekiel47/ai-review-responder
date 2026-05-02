@@ -1,0 +1,201 @@
+---
+name: review-dedup
+description: Complete review deduplication logic for RepWorth — stable identity construction, content hash comparison, collision handling, synthetic resource names, and the SerpAPI→GBP API migration path. Read this before touching any review ingestion code, adding a new ReviewSource, or working on the Zernio ingestion pipeline.
+---
+
+# RepWorth — Review Deduplication
+
+## Core Principle
+
+Identity is stable (immutable fields only). Content is mutable (detected via
+hash comparison). These are separate concerns — never mix them.
+
+## Stable Identity Construction (SerpAPI mode)
+
+Identity must NOT include mutable text (review body, star rating can be
+edited by the reviewer on Google).
+
+**Priority order:**
+1. Use SerpAPI's raw review ID if present (`provider_review_id`)
+2. Fall back to SHA-256 hash of immutable fields:
+   `SHA-256(reviewerName + "|" + reviewDate + "|" + reviewerProfileUrl)`
+
+**Why prefer source-provided IDs:** Synthetic hashes collide on common/
+anonymous reviewer names (e.g. "A Google User" + same date from different
+locations). Always use the source-provided identifier when available.
+
+**Fields used:**
+```typescript
+provider = 'serpapi_poll'
+provider_review_id = serpapi_raw_id ?? SHA256(name + "|" + date + "|" + profileUrl)
+```
+
+## Synthetic Resource Names
+
+These are constructed consistently so they're stable across re-ingestion:
+
+```
+provider_review_name  = 'serpapi://{placeId}/reviews/{provider_review_id}'
+provider_location_name = 'serpapi://{placeId}'
+```
+
+## Mutable Content Detection
+
+```typescript
+review_content_hash = SHA256(starRating + "|" + reviewText)
+```
+
+On every ingestion, compare `review_content_hash` to the stored value.
+If different: the review was edited — treat as an update, NOT a new review.
+
+## Collision Handling
+
+If two reviews produce the same identity key but have different content
+on first encounter (before any `review_content_hash` is stored):
+
+- Do NOT silently merge
+- Insert into `review_exceptions` with `type = 'identity_collision'`
+- Log the conflicting provider_review_ids for ops review
+
+## Zernio Mode
+
+Zernio provides canonical review IDs. Use them directly — no SHA-256 fallback
+needed. Outbox dedup index (`job_outbox_ingest_zernio_review_inflight`)
+handles duplicate webhook deliveries:
+
+```sql
+-- migration 030 partial unique index
+(aggregate_id, (payload->>'zernio_review_id'))
+WHERE topic = 'ingest_zernio_review' AND status NOT IN ('completed', 'failed')
+```
+
+Webhook fan-out uses `INSERT ... ON CONFLICT DO NOTHING` against this index.
+
+## ReviewSource Contract
+
+ALL review sources (SerpAPI, manual paste, Zernio, future GBP API) must
+normalize to `NormalizedReview` DTO before anything downstream sees the data.
+No source-specific fields leak into the prompt builder or response generator.
+
+```typescript
+interface NormalizedReview {
+  provider: string
+  provider_review_id: string
+  provider_review_name: string
+  provider_location_name: string
+  review_content_hash: string
+  reviewer_name: string
+  star_rating: number
+  review_text: string
+  review_date: string
+  // ... other normalized fields
+}
+```
+
+## Exception Types in `review_exceptions`
+
+| `type` | Meaning |
+|---|---|
+| `'identity_collision'` | Two reviews mapped to same identity key with different content on first encounter |
+| `'zernio_review_not_found'` | Entire Zernio feed walked (durable not-found) — review genuinely missing |
+| `'zernio_pagination_cap_exhausted'` | Hit `ZERNIO_INGEST_MAX_PAGES` limit with `nextPageToken` still set — indeterminate, may need cap increase |
+
+These are distinct types deliberately. Do NOT conflate cap-exhausted with
+durable not-found — ops decisions differ (bump cap vs accept gap).
+
+## GBP API Migration Path (Phase 5)
+
+When Google Business Profile API access is approved, the deduplication logic
+stays identical. Only the provider identifiers change:
+
+| Field | SerpAPI mode | GBP API mode |
+|---|---|---|
+| `provider` | `'serpapi_poll'` | `'google'` |
+| `provider_review_id` | SerpAPI ID or SHA-256 hash | Canonical Google review resource name |
+| `provider_review_name` | `serpapi://{placeId}/reviews/{id}` | Google resource name |
+| `provider_location_name` | `serpapi://{placeId}` | Google location resource name |
+| `review_content_hash` | SHA-256(starRating + "\|" + text) | Same — unchanged |
+
+Steps for migration:
+1. Build `gbp-api-source.ts` implementing `ReviewSource` interface
+2. Normalize to the same `NormalizedReview` DTO
+3. Swap `provider` value on new ingestion
+4. Migrate existing `provider='serpapi_poll'` rows to `provider='google'`
+   with canonical Google resource names
+5. Content hash logic stays identical — no re-hashing needed
+
+The outbox pattern, approval flow, response generation, and notification
+pipeline are completely unaffected. This is a mechanical swap at the
+ingestion boundary only.
+
+## Reconciliation (Externally-Answered Reviews)
+
+When Zernio indicates `reviewReply !== null` on a fetched review, call
+`reconcileExternallyAnsweredReview` instead of `processReview`. This marks
+the review as already-responded externally, avoiding generating a duplicate
+AI response for something the owner already handled manually.
+
+
+### External-reply ingestion path (feat/past-replies-view, 2026-05-02)
+
+`reconcileExternallyAnsweredReview` was extended on `feat/past-replies-view`
+with two NEW flag-gated branches that turn the silent
+"previously-unseen" / "matched but no active responses" no-ops into actual
+ingestion. Gated by `EXTERNAL_REPLY_IMPORT_ENABLED='true'` — when off,
+today's silent-no-op behavior is preserved verbatim.
+
+**Branch 1 — "previously-unseen review with reply" (no match):** INSERTs a
+new `reviews` row (with `external_reply_ingested_at = NOW()` to mark its
+provenance) AND a new `responses` row with:
+- `status = 'posted'` — the reply already exists on Google.
+- All three text columns = `canonicalizeReplyText(reviewReply.comment)`.
+- `edited_text = NULL` — voice learning won't pick it up
+  (`src/lib/responses/voice-learning.ts:30` filters `edited_text IS NOT NULL`).
+- `llm_provider`/`llm_model`/`prompt_tokens`/`completion_tokens` all NULL
+  — signals "not RepWorth-generated".
+- `version = 1` (no prior responses for this brand-new review row).
+- `approved_at = posted_at = reviewReply.updateTime`.
+
+**Branch 2 — "matched but no active responses":** INSERTs the response row
+only (the review row already exists). Same shape as Branch 1, but
+`version = COALESCE((SELECT MAX(version) FROM responses WHERE review_id =
+${reviewId}), 0) + 1` because terminal rows (failed, superseded) might
+already occupy version 1. Migration 031's `responses_one_posted_per_review`
+partial unique index protects against duplicate `posted` rows on retry.
+
+**Branch 3 — "matched WITH active responses":** today's supersede/protect
+logic UNCHANGED. The flag does NOT affect this branch — protecting our own
+already-posted replies from being clobbered by a webhook echo remains the
+same regardless of the flag.
+
+**Race-safety on the review INSERT:** Branch 1 uses
+`ON CONFLICT (provider, provider_review_name) DO UPDATE SET id = reviews.id RETURNING id`.
+NOT `DO NOTHING + RETURNING` — under concurrent transactions,
+`DO NOTHING + RETURNING` returns no row when the conflicting INSERT loses
+the race AND the same statement's snapshot can't see the just-committed
+sibling. `DO UPDATE` always RETURNs the row id, whether INSERTed or
+pre-existing. The no-op `SET id = id` triggers a row-level lock + xmin
+bump but no observable data change.
+
+**Idempotency target on the response INSERT:**
+`ON CONFLICT (review_id) WHERE status = 'posted' DO NOTHING RETURNING 1`
+— uses migration 031's partial unique index. The `RETURNING 1` lets
+`insertImportedResponse` return a boolean indicating whether the INSERT
+actually fired vs hit the conflict. The caller uses that to gate the
+counter bump (`bumpExternalReplyIngestedCount`) so retries / repeated
+backfills don't inflate `external_reply_ingested_count`.
+
+**Loose-equality `reviewReply` guards:** The `listReviews` Zernio client
+method now normalizes `reviewReply` to either `null` or an object (never
+`undefined`) at the API chokepoint via `?? null`. Downstream callers
+(`ZernioBackfillWorker`, `ZernioReviewIngestWorker`,
+`reconcileExternallyAnsweredReview`) also use loose-equality `!= null` /
+`== null` as defense-in-depth — if any future code path constructs a
+`ZernioReview` outside `listReviews`, the omitted-field case still doesn't
+misroute as "answered" and crash on `.comment`.
+
+**The published-reply text** is shown in the dashboard's "Past Replies"
+tab via the read-only `PastReplyCard` component (gated by the SEPARATE
+`PAST_REPLIES_VIEW_ENABLED` flag). The dual-flag rollout decouples the
+write decision from the UI-expose decision — operators can ingest silently
+first, soak, then turn on the UI.
