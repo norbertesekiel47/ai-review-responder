@@ -189,7 +189,7 @@ describe('reconcileExternallyAnsweredReview', () => {
 });
 
 describe('reconcileExternallyAnsweredReview — flag-gated import branches', () => {
-  const ORIGINAL_FLAG = process.env.EDIT_EXISTING_REPLIES_ENABLED;
+  const ORIGINAL_FLAG = process.env.EXTERNAL_REPLY_IMPORT_ENABLED;
 
   beforeEach(() => {
     vi.resetAllMocks();
@@ -197,9 +197,9 @@ describe('reconcileExternallyAnsweredReview — flag-gated import branches', () 
 
   afterEach(() => {
     if (ORIGINAL_FLAG === undefined) {
-      delete process.env.EDIT_EXISTING_REPLIES_ENABLED;
+      delete process.env.EXTERNAL_REPLY_IMPORT_ENABLED;
     } else {
-      process.env.EDIT_EXISTING_REPLIES_ENABLED = ORIGINAL_FLAG;
+      process.env.EXTERNAL_REPLY_IMPORT_ENABLED = ORIGINAL_FLAG;
     }
   });
 
@@ -240,7 +240,7 @@ describe('reconcileExternallyAnsweredReview — flag-gated import branches', () 
   };
 
   it('flag OFF + no-match: silent no-op (today\'s behavior unchanged)', async () => {
-    delete process.env.EDIT_EXISTING_REPLIES_ENABLED;
+    delete process.env.EXTERNAL_REPLY_IMPORT_ENABLED;
     const { sql } = await import('@/lib/db/server');
     const { tx, calls } = mkRecordingTx([
       // 1. SELECT matched rows → none.
@@ -256,7 +256,7 @@ describe('reconcileExternallyAnsweredReview — flag-gated import branches', () 
   });
 
   it('flag ON + no-match: INSERTs reviews row + posted response + bumps counter', async () => {
-    process.env.EDIT_EXISTING_REPLIES_ENABLED = 'true';
+    process.env.EXTERNAL_REPLY_IMPORT_ENABLED = 'true';
     const { sql } = await import('@/lib/db/server');
     const { tx, calls } = mkRecordingTx([
       // 1. SELECT matched rows → none.
@@ -294,7 +294,7 @@ describe('reconcileExternallyAnsweredReview — flag-gated import branches', () 
   });
 
   it('flag ON + matched but no active responses: INSERTs response only, version > 1 if prior terminals exist', async () => {
-    process.env.EDIT_EXISTING_REPLIES_ENABLED = 'true';
+    process.env.EXTERNAL_REPLY_IMPORT_ENABLED = 'true';
     const { sql } = await import('@/lib/db/server');
     const { tx, calls } = mkRecordingTx([
       // 1. SELECT matched rows → 1 row.
@@ -324,7 +324,7 @@ describe('reconcileExternallyAnsweredReview — flag-gated import branches', () 
   });
 
   it('flag ON + matched WITH active response: today\'s supersede/protect logic, no new INSERTs, no counter bump', async () => {
-    process.env.EDIT_EXISTING_REPLIES_ENABLED = 'true';
+    process.env.EXTERNAL_REPLY_IMPORT_ENABLED = 'true';
     const { sql } = await import('@/lib/db/server');
     const { tx, calls } = mkRecordingTx([
       // 1. SELECT matched rows → 1 row.
@@ -348,7 +348,7 @@ describe('reconcileExternallyAnsweredReview — flag-gated import branches', () 
   });
 
   it('reply text is canonicalized (BOM, NFC, CRLF stripped)', async () => {
-    process.env.EDIT_EXISTING_REPLIES_ENABLED = 'true';
+    process.env.EXTERNAL_REPLY_IMPORT_ENABLED = 'true';
     const { sql } = await import('@/lib/db/server');
     const { tx, calls } = mkRecordingTx([
       // 1. SELECT matched rows → none (forces the import branch).
@@ -379,7 +379,7 @@ describe('reconcileExternallyAnsweredReview — flag-gated import branches', () 
   });
 
   it('idempotent: re-running on same Zernio review is a no-op AND skips counter bump', async () => {
-    process.env.EDIT_EXISTING_REPLIES_ENABLED = 'true';
+    process.env.EXTERNAL_REPLY_IMPORT_ENABLED = 'true';
     const { sql } = await import('@/lib/db/server');
     // Simulate the second run: the reviews row now exists (matched) AND a
     // 'posted' response already exists (NOT in active set). Today's flag-ON
@@ -414,7 +414,7 @@ describe('reconcileExternallyAnsweredReview — flag-gated import branches', () 
   });
 
   it('does not fire when reviewReply === null', async () => {
-    process.env.EDIT_EXISTING_REPLIES_ENABLED = 'true';
+    process.env.EXTERNAL_REPLY_IMPORT_ENABLED = 'true';
     const { sql } = await import('@/lib/db/server');
     // The calling workers (ingest + backfill) only invoke this helper when
     // reviewReply !== null. We assert the helper itself does not crash if

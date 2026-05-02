@@ -15,7 +15,7 @@
 //   pnpm tsx scripts/zernio-backfill-external-replies.ts <business-id>
 //
 // Requires:
-//   EDIT_EXISTING_REPLIES_ENABLED=true (else the helpers no-op).
+//   EXTERNAL_REPLY_IMPORT_ENABLED=true (else the helpers no-op).
 //   ZERNIO_API_KEY set (or MOCK_EXTERNAL_APIS=true for local smoke tests).
 //   Active zernio_connections row for the business.
 
@@ -32,9 +32,9 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  if (process.env.EDIT_EXISTING_REPLIES_ENABLED !== 'true') {
+  if (process.env.EXTERNAL_REPLY_IMPORT_ENABLED !== 'true') {
     console.error(
-      'EDIT_EXISTING_REPLIES_ENABLED must be set to "true" before running this script.',
+      'EXTERNAL_REPLY_IMPORT_ENABLED must be set to "true" before running this script.',
     );
     console.error('Without it, reconcileExternallyAnsweredReview falls back to today\'s silent-no-op behavior.');
     process.exit(1);

@@ -4,7 +4,7 @@
 //   1. handleZernioIngestError — error-class dispatcher per spec §6.3 table.
 //   2. reconcileExternallyAnsweredReview — supersedes local active responses
 //      when the customer already replied via Google directly (spec §6.3b).
-//      Under EDIT_EXISTING_REPLIES_ENABLED, also imports unseen external
+//      Under EXTERNAL_REPLY_IMPORT_ENABLED, also imports unseen external
 //      replies as 'posted' responses so Past Replies can render them
 //      (spec §4.3, §6.3b).
 
@@ -27,7 +27,7 @@ import { fromZernioReview } from '../../src/lib/reviews/zernio-field-match';
 type TxClient = postgres.TransactionSql;
 
 const FLAG_ON = (): boolean =>
-  process.env.EDIT_EXISTING_REPLIES_ENABLED === 'true';
+  process.env.EXTERNAL_REPLY_IMPORT_ENABLED === 'true';
 
 export interface IngestErrorContext {
   business_id: string;
@@ -236,7 +236,7 @@ export async function reconcileExternallyAnsweredReview(
 }
 
 // ---------------------------------------------------------------------------
-// Private helpers — used by the EDIT_EXISTING_REPLIES_ENABLED branches above.
+// Private helpers — used by the EXTERNAL_REPLY_IMPORT_ENABLED branches above.
 // Not exported: implementation detail of reconcileExternallyAnsweredReview.
 // ---------------------------------------------------------------------------
 
