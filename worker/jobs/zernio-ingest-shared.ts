@@ -142,9 +142,13 @@ export async function reconcileExternallyAnsweredReview(
         return;
       }
       const newReviewId = await insertImportedReview(tx, businessId, accountId, locationId, target);
-      await insertImportedResponse(tx, businessId, newReviewId, null, target.reviewReply);
-      await bumpExternalReplyIngestedCount(tx, businessId);
-      logger.log(`Imported external reply for previously-unseen review ${target.id}`);
+      const inserted = await insertImportedResponse(tx, businessId, newReviewId, null, target.reviewReply);
+      if (inserted) {
+        await bumpExternalReplyIngestedCount(tx, businessId);
+        logger.log(`Imported external reply for previously-unseen review ${target.id}`);
+      } else {
+        logger.log(`External reply for review ${target.id} already imported (ON CONFLICT) — counter not bumped`);
+      }
       return;
     }
 
@@ -176,9 +180,13 @@ export async function reconcileExternallyAnsweredReview(
         return;
       }
       const targetReviewRowId = matchedRows[0]!.id;
-      await insertImportedResponse(tx, businessId, targetReviewRowId, null, target.reviewReply);
-      await bumpExternalReplyIngestedCount(tx, businessId);
-      logger.log(`Imported external reply onto existing review row ${targetReviewRowId}`);
+      const inserted = await insertImportedResponse(tx, businessId, targetReviewRowId, null, target.reviewReply);
+      if (inserted) {
+        await bumpExternalReplyIngestedCount(tx, businessId);
+        logger.log(`Imported external reply onto existing review row ${targetReviewRowId}`);
+      } else {
+        logger.log(`External reply for review row ${targetReviewRowId} already imported (ON CONFLICT) — counter not bumped`);
+      }
       return;
     }
 
@@ -298,11 +306,14 @@ async function insertImportedResponse(
   reviewId: string,
   reviewLanguage: string | null,
   externalReply: { comment: string; updateTime: string },
-): Promise<void> {
+): Promise<boolean> {
   const replyText = canonicalizeReplyText(externalReply.comment);
   const updateTime = externalReply.updateTime;
 
-  await tx`
+  // RETURNING 1 lets the caller distinguish "actually inserted" from
+  // "ON CONFLICT DO NOTHING fired" — important for the
+  // external_reply_ingested_count metric so retries don't inflate it.
+  const result = await tx`
     INSERT INTO responses (
       id, review_id, business_id,
       response_text, approved_text, original_draft_text, edited_text,
@@ -320,7 +331,9 @@ async function insertImportedResponse(
       NULL, NULL, NULL, NULL
     )
     ON CONFLICT (review_id) WHERE status = 'posted' DO NOTHING
+    RETURNING 1
   `;
+  return result.count > 0;
 }
 
 /**

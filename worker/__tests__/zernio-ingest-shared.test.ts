@@ -263,9 +263,9 @@ describe('reconcileExternallyAnsweredReview — flag-gated import branches', () 
       () => [],
       // 2. INSERT INTO reviews … RETURNING id.
       () => [{ id: 'new-review-uuid' }],
-      // 3. INSERT INTO responses (no RETURNING).
-      () => [],
-      // 4. UPDATE zernio_backfill_runs … (counter bump).
+      // 3. INSERT INTO responses … RETURNING 1 (rowcount=1 means actually inserted).
+      () => [{}],
+      // 4. UPDATE zernio_backfill_runs … (counter bump — only fires when insertImportedResponse returned true).
       () => [],
     ]);
     (sql as any).begin = vi.fn(async (cb: any) => cb(tx));
@@ -301,9 +301,9 @@ describe('reconcileExternallyAnsweredReview — flag-gated import branches', () 
       () => [{ id: 'rev-row-1', provider: 'zernio' }],
       // 2. SELECT active responses → none (prior 'failed' is terminal, excluded).
       () => [],
-      // 3. INSERT INTO responses (version is computed via MAX subquery server-side).
-      () => [],
-      // 4. UPDATE zernio_backfill_runs … (counter bump).
+      // 3. INSERT INTO responses … RETURNING 1 (rowcount=1 means actually inserted).
+      () => [{}],
+      // 4. UPDATE zernio_backfill_runs … (counter bump — only fires when insertImportedResponse returned true).
       () => [],
     ]);
     (sql as any).begin = vi.fn(async (cb: any) => cb(tx));
@@ -378,34 +378,39 @@ describe('reconcileExternallyAnsweredReview — flag-gated import branches', () 
     expect(canonicalized!).toContain('\n');
   });
 
-  it('idempotent: re-running on same Zernio review is a no-op', async () => {
+  it('idempotent: re-running on same Zernio review is a no-op AND skips counter bump', async () => {
     process.env.EDIT_EXISTING_REPLIES_ENABLED = 'true';
     const { sql } = await import('@/lib/db/server');
     // Simulate the second run: the reviews row now exists (matched) AND a
     // 'posted' response already exists (NOT in active set). Today's flag-ON
     // behavior on this state goes through the "matched + no active" branch
     // and tries to INSERT a posted response, which is no-op'd by the partial
-    // unique index (ON CONFLICT DO NOTHING). The counter bump still runs but
-    // touches 0 rows in the per-webhook ingest-worker case (no active backfill).
+    // unique index (ON CONFLICT DO NOTHING).
     //
-    // To assert idempotency at the SQL level we verify the response INSERT
-    // uses the partial unique index ON CONFLICT clause. A real pg test would
-    // verify counts; here we assert the guard is in place.
+    // The Low-1 fix returns whether the INSERT actually fired and gates the
+    // counter bump on it — so a no-op INSERT does NOT bump the counter
+    // (preventing inflated metrics on retries).
+    const logger = mkLogger();
     const { tx, calls } = mkRecordingTx([
       () => [{ id: 'rev-row-1', provider: 'zernio' }], // matched
       () => [],                                        // no active responses
-      () => [],                                        // INSERT INTO responses (ON CONFLICT DO NOTHING)
-      () => [],                                        // counter bump
+      () => [],                                        // INSERT INTO responses RETURNING 1 — empty (ON CONFLICT fired)
+      // (no counter-bump call expected — the gate skipped it)
     ]);
     (sql as any).begin = vi.fn(async (cb: any) => cb(tx));
-    await reconcileExternallyAnsweredReview(mkReview(), 'B', 'A', 'L', mkLogger() as any);
+    await reconcileExternallyAnsweredReview(mkReview(), 'B', 'A', 'L', logger as any);
 
+    // Only 3 calls — counter bump is skipped because INSERT was a no-op.
+    expect(calls).toHaveLength(3);
     // The response INSERT must guard against duplicate 'posted' rows.
     const respInsert = calls[2]!;
     expect(respInsert.sql).toContain('INSERT INTO responses');
     expect(respInsert.sql).toContain('ON CONFLICT');
     expect(respInsert.sql).toContain("status = 'posted'");
     expect(respInsert.sql).toContain('DO NOTHING');
+    expect(respInsert.sql).toContain('RETURNING 1');
+    // Logger explains why no counter bump fired.
+    expect(logger.log).toHaveBeenCalledWith(expect.stringContaining('already imported'));
   });
 
   it('does not fire when reviewReply === null', async () => {
