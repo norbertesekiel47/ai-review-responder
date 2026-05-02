@@ -38,7 +38,7 @@ import * as Sentry from '@sentry/node';
  *  "secret=value" / "key=value" pairs in URL/query-string-style strings.
  *  A defensive sanity-check in case Zernio ever echoes a token in 401/403
  *  body (some APIs do). */
-function redactSensitiveError(body: string): string {
+export function redactSensitiveError(body: string): string {
   return body
     .replace(/Bearer\s+[A-Za-z0-9\-._~+/]+=*/gi, 'Bearer [REDACTED]')
     .replace(/Basic\s+[A-Za-z0-9+/]+=*/gi, 'Basic [REDACTED]')
@@ -245,6 +245,19 @@ export async function handlePublisherPermanentErrorTerminal(args: PermanentError
     `;
     if (updated.count === 0) return;
 
+    // Serialize the unknown-shape error_body to JSON, then run through
+    // redactSensitiveError before persisting to review_exceptions.payload.
+    // Zernio response bodies for some endpoints (start_connect /
+    // select_location / OAuth flows) can carry tokens; this strips
+    // Bearer / Basic / token=value / "token":"..." patterns.
+    // See Code Review fix Medium 5 (2026-05-02).
+    let safeErrorBody: string;
+    try {
+      safeErrorBody = redactSensitiveError(JSON.stringify(error_body) ?? 'null');
+    } catch {
+      safeErrorBody = '[unserializable]';
+    }
+
     const [exception] = await tx<{ id: string }[]>`
       INSERT INTO review_exceptions (id, business_id, review_id, response_id, type, payload)
       VALUES (
@@ -253,7 +266,7 @@ export async function handlePublisherPermanentErrorTerminal(args: PermanentError
         ${jsonb({
           endpoint_kind,
           http_status,
-          error_body,
+          error_body: safeErrorBody,
           retries_exhausted_at: new Date().toISOString(),
         })}
       )

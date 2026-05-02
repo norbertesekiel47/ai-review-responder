@@ -209,6 +209,29 @@ async function mockResponse<T>(opts: RequestOptions): Promise<T> {
   }
 }
 
+/**
+ * Returns a JSON-safe summary of an unknown response shape: top-level keys
+ * + value types (string/number/boolean/null/object/array). NEVER includes
+ * actual values. Used in 'UNRECOGNIZED RESPONSE SHAPE' diagnostics so a
+ * Zernio response carrying OAuth tokens / connect tokens / account IDs
+ * can't leak into worker logs (which Sentry breadcrumbs auto-collect).
+ * See Code Review fix Medium 5 (2026-05-02).
+ */
+function summarizeShape(raw: unknown): string {
+  if (raw === null) return 'null';
+  if (typeof raw !== 'object') return typeof raw;
+  if (Array.isArray(raw)) return `array(len=${raw.length})`;
+  const o = raw as Record<string, unknown>;
+  const keys = Object.keys(o).sort();
+  const summary = keys.map((k) => {
+    const v = o[k];
+    if (v === null) return `${k}:null`;
+    if (Array.isArray(v)) return `${k}:array(len=${v.length})`;
+    return `${k}:${typeof v}`;
+  });
+  return `{${summary.join(',')}}`;
+}
+
 function normalizeLocations(raw: unknown): ZernioLocationOption[] {
   if (!raw || typeof raw !== 'object') return [];
   const o = raw as Record<string, unknown>;
@@ -255,7 +278,7 @@ function extractProfileId(raw: unknown): string {
     }
   }
   console.warn(
-    `[zernio.createProfile] UNRECOGNIZED RESPONSE SHAPE: ${JSON.stringify(raw)}`,
+    `[zernio.createProfile] UNRECOGNIZED RESPONSE SHAPE: ${summarizeShape(raw)}`,
   );
   throw new Error('zernio_createProfile_unexpected_response_shape');
 }
@@ -285,7 +308,7 @@ export const zernioClient = {
       (typeof o.url === 'string' ? o.url : undefined) ??
       (typeof o.redirectUrl === 'string' ? o.redirectUrl : undefined);
     if (!authUrl) {
-      console.warn(`[zernio.startConnect] UNRECOGNIZED authUrl SHAPE: ${JSON.stringify(raw)}`);
+      console.warn(`[zernio.startConnect] UNRECOGNIZED authUrl SHAPE: ${summarizeShape(raw)}`);
       throw new Error('zernio_startConnect_unexpected_response_shape');
     }
     return {
@@ -340,7 +363,7 @@ export const zernioClient = {
       (typeof o._id === 'string' ? (o._id as string) : undefined) ??
       (typeof o.id === 'string' ? (o.id as string) : undefined);
     if (!accountId) {
-      console.warn(`[zernio.selectLocation] UNRECOGNIZED accountId SHAPE: ${JSON.stringify(raw)}`);
+      console.warn(`[zernio.selectLocation] UNRECOGNIZED accountId SHAPE: ${summarizeShape(raw)}`);
       throw new Error('zernio_selectLocation_unexpected_response_shape');
     }
     return { accountId };
