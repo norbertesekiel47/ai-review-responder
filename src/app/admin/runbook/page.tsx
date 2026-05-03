@@ -64,8 +64,8 @@ const SCENARIOS: Scenario[] = [
     id: 'A3',
     customerSays: "I approved it but it's not posted on Google.",
     firstCheck:
-      'Business detail page → review list → status badge. Expected: awaiting_manual_post after approval in SerpAPI mode. Manual posting is normal for MVP.',
-    fix: 'Sales partner copies approved text from Manual Post Section, pastes into Google Business Profile, then clicks "Mark as posted". GBP API auto-post lands in Phase 5.',
+      'Business detail page → Zernio Connection panel → awaiting reconnect count. If awaiting_owner_connect: owner has not connected or reconnected Google via Zernio.',
+    fix: 'Owner logs in → /settings/channels → Connect Google. Once connected, DrainOwnerConnectWorker automatically re-queues the approved response for publishing.',
   },
   {
     id: 'A4',
@@ -78,8 +78,8 @@ const SCENARIOS: Scenario[] = [
     id: 'A5',
     customerSays: "My reviews aren't being picked up.",
     firstCheck:
-      'Business detail → last_sync_at (stale >6h?), subscription_status (cancelled?), place_id_verified (false?). Check /admin/jobs for failed sync_reviews.',
-    fix: 'SerpAPI quota exhausted → top up or wait for reset. Place ID unverified → re-enter via PlaceAutocomplete. Billing issue → resolve in Stripe.',
+      'Business detail → Zernio Connection panel (active/disconnected/finalize_unknown?), subscription_status (cancelled?). Check /admin/jobs for failed ingest_zernio_review or zernio_initial_backfill rows. Check zernio_backfill_runs.completed_at for first-connect status.',
+    fix: 'Zernio disconnected → owner must reconnect via /settings/channels. Webhook delivery failing → check Zernio dashboard webhook URL + signature secret. Billing issue → resolve in Stripe. If first-connect backfill never completed (zernio_backfill_runs.completed_at IS NULL), re-enqueue zernio_initial_backfill outbox row.',
   },
 ];
 

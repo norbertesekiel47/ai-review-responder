@@ -6,7 +6,7 @@ export const ResponseStatus = {
   APPROVED: 'approved',
   EDITED: 'edited',
   SUPERSEDED: 'superseded',
-  AWAITING_MANUAL_POST: 'awaiting_manual_post',
+  AWAITING_OWNER_CONNECT: 'awaiting_owner_connect',
   POSTED: 'posted',
   FAILED: 'failed',
 } as const;

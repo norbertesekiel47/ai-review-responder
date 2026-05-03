@@ -1,6 +1,7 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import Stripe from 'stripe';
-import { sql } from '../../src/lib/db/server';
+import { v7 as uuidv7 } from 'uuid';
+import { sql, jsonb } from '../../src/lib/db/server';
 import { claimInboundEvent } from './shared';
 
 const LOG_PREFIX = '[ingress/stripe]';
@@ -30,6 +31,83 @@ function extractSubscriptionId(subscription: string | Stripe.Subscription | null
 // v7 from the `uuid` package, but legacy admin rows may be v4). Same regex
 // + reasoning as worker/ingress/twilio-whatsapp.ts:154.
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Auto-recovery: when a business activates AND has an active Zernio
+ * connection AND no completed backfill exists yet, enqueue a fresh
+ * zernio_initial_backfill outbox row so the worker runs the backfill.
+ *
+ * Predicate is "no completed run exists" (NOT EXISTS completed_at IS
+ * NOT NULL) so the hook covers BOTH:
+ *   - past_due → active recovery where a prior worker run inserted a
+ *     row but skipped backfill via subscription guard (completed_at
+ *     stayed NULL) — the run is retryable via ON CONFLICT DO NOTHING.
+ *   - Admin-onboarded business that connected Zernio BEFORE checkout
+ *     completed — no zernio_backfill_runs row exists yet because the
+ *     connect callback's needs_backfill predicate didn't fire (it
+ *     gates on subscription_activated_at IS NOT NULL).
+ *
+ * In-flight outbox dedup: skips enqueue when a non-terminal
+ * zernio_initial_backfill outbox row already exists for the business
+ * (avoids re-enqueueing on rapid duplicate webhooks).
+ *
+ * Invoked OUTSIDE the activation tx — billing flip is the load-bearing
+ * mutation, this is best-effort on top.
+ */
+async function maybeEnqueueBackfillResume(businessId: string): Promise<void> {
+  if (process.env.ZERNIO_PUBLISHING_ENABLED !== 'true') return;
+
+  const [target] = await sql<{
+    zernio_account_id: string;
+    zernio_location_id: string;
+    subscription_tier: string;
+    subscription_activated_at: Date;
+  }[]>`
+    SELECT
+      zc.zernio_account_id,
+      zc.zernio_location_id,
+      b.subscription_tier,
+      b.subscription_activated_at
+    FROM zernio_connections zc
+    JOIN businesses b ON b.id = zc.business_id
+    WHERE zc.business_id = ${businessId}::uuid
+      AND zc.status = 'active'
+      AND b.subscription_activated_at IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM zernio_backfill_runs br
+        WHERE br.business_id = ${businessId}::uuid
+          AND br.completed_at IS NOT NULL
+      )
+    LIMIT 1
+  `;
+
+  if (!target) return;
+
+  await sql`
+    INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+    SELECT
+      ${uuidv7()},
+      'zernio_initial_backfill',
+      'business',
+      ${businessId}::uuid,
+      ${jsonb({
+        business_id: businessId,
+        zernio_account_id: target.zernio_account_id,
+        zernio_location_id: target.zernio_location_id,
+        subscription_tier: target.subscription_tier,
+        subscription_activated_at: target.subscription_activated_at.toISOString(),
+        correlation_id: uuidv7(),
+      })},
+      'pending'
+    WHERE NOT EXISTS (
+      SELECT 1 FROM job_outbox jo
+      WHERE jo.aggregate_id = ${businessId}::uuid
+        AND jo.topic = 'zernio_initial_backfill'
+        AND jo.status IN ('pending', 'dispatching', 'dispatched')
+    )
+  `;
+  console.log(`${LOG_PREFIX} Re-enqueued zernio_initial_backfill for business=${businessId} (post-activation backfill resume)`);
+}
 
 async function processCheckoutSessionCompleted(session: Stripe.Checkout.Session): Promise<void> {
   const businessId = session.client_reference_id ?? session.metadata?.business_id;
@@ -79,6 +157,7 @@ async function processCheckoutSessionCompleted(session: Stripe.Checkout.Session)
   // submit business details there; admin-onboarded businesses already had
   // their outbox row written at signup time. Either way, this webhook only
   // flips status now.
+  let activated = false;
   await sql.begin(async (tx) => {
     await tx`SELECT pg_advisory_xact_lock(hashtext(${businessId + ':activation'}))`;
 
@@ -110,10 +189,20 @@ async function processCheckoutSessionCompleted(session: Stripe.Checkout.Session)
 
     if (updated.count > 0) {
       console.log(`${LOG_PREFIX} Business ${businessId} activated (customer=${customerId}, old_status=${oldStatus})`);
+      activated = true;
     } else {
       console.warn(`${LOG_PREFIX} Business ${businessId} not activated — current status is not pending_payment or past_due`);
     }
   });
+
+  // Best-effort backfill resume — only after a real status transition so
+  // duplicate webhooks for an already-active business don't burn a SELECT
+  // each. Outside the tx so a missing zernio_connections row is a no-op.
+  if (activated) {
+    await maybeEnqueueBackfillResume(businessId).catch((err) => {
+      console.error(`${LOG_PREFIX} maybeEnqueueBackfillResume failed for business=${businessId}: ${err instanceof Error ? err.message : err}`);
+    });
+  }
 }
 
 async function processInvoicePaymentFailed(invoice: Stripe.Invoice): Promise<void> {
@@ -139,13 +228,27 @@ async function processInvoicePaid(invoice: Stripe.Invoice): Promise<void> {
     return;
   }
 
-  await sql`
+  // RETURNING id so we can resume any stalled Zernio backfill the worker
+  // skipped while the business sat in past_due.
+  const recovered = await sql<{ id: string }[]>`
     UPDATE businesses
     SET subscription_status = 'active', updated_at = NOW()
     WHERE stripe_customer_id = ${customerId}
       AND subscription_status = 'past_due'
+    RETURNING id
   `;
+
+  if (recovered.length === 0) {
+    return;
+  }
+
   console.log(`${LOG_PREFIX} Business with customer=${customerId} recovered from past_due to active`);
+
+  for (const row of recovered) {
+    await maybeEnqueueBackfillResume(row.id).catch((err) => {
+      console.error(`${LOG_PREFIX} maybeEnqueueBackfillResume failed for business=${row.id}: ${err instanceof Error ? err.message : err}`);
+    });
+  }
 }
 
 async function processSubscriptionDeleted(sub: Stripe.Subscription): Promise<void> {
@@ -176,9 +279,10 @@ async function processSubscriptionUpdated(sub: Stripe.Subscription): Promise<voi
     return;
   }
 
-  const priceToTier: Record<string, string> = {
+  const priceToTier: Record<string, 'founding' | 'standard' | 'premium'> = {
     [process.env.STRIPE_PRICE_FOUNDING ?? '']: 'founding',
     [process.env.STRIPE_PRICE_STANDARD ?? '']: 'standard',
+    [process.env.STRIPE_PRICE_PREMIUM  ?? '']: 'premium',
   };
 
   const tier = priceToTier[priceId];

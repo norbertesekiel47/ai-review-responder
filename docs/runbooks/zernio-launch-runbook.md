@@ -589,3 +589,147 @@ Append one line per `finalize_unknown` reconciliation. Format:
 - Publisher branching source: `worker/jobs/ResponsePublisherWorker.ts` + `src/lib/publishing/zernio-publisher.ts`
 - Drain worker: `worker/jobs/DrainOwnerConnectWorker.ts`
 - Owner email worker: `worker/jobs/OwnerEmailWorker.ts`
+
+
+---
+
+## 10. Past Replies — view-only slice (feat/past-replies-view)
+
+Shipped on branch `feat/past-replies-view` off `feat/zernio-ingestion-replace-serpapi`.
+The full edit/regenerate/recovery feature (Zernio DELETE+POST orphan-marker
+state machine) is parked on tag `wip/edit-existing-replies-zernio-v1` pending
+direct GBP API approval — when GBP arrives, its single-PUT `updateReply`
+makes the entire orphan-window machinery unnecessary. This view-only slice
+solves the original Tanicia onboarding pain (8 silently-dropped replies)
+without baking Zernio's API model into the product core.
+
+**Two independent feature flags** (both default off):
+
+- `EXTERNAL_REPLY_IMPORT_ENABLED` — gates the ingest writes path inside
+  `reconcileExternallyAnsweredReview` (the two new branches that import
+  previously-unseen / no-active external replies as `posted` responses).
+- `PAST_REPLIES_VIEW_ENABLED` — gates the `/dashboard/past-replies` UI tab
+  + the OwnerNav link.
+
+Decoupling lets you start ingesting silently first, soak, then expose.
+
+### 10.1 Pre-flight check (run BEFORE applying migration 031)
+
+Migration 031 adds the partial unique index `responses_one_posted_per_review`
+on `responses (review_id) WHERE status = 'posted'`. If duplicate `posted`
+rows already exist, the CONCURRENTLY index build aborts mid-way and leaves
+an INVALID index that requires `DROP INDEX` + retry.
+
+```sql
+SELECT review_id, count(*) FROM responses
+  WHERE status = 'posted'
+  GROUP BY review_id
+  HAVING count(*) > 1;
+-- expect: 0 rows. If non-empty, BLOCK migration; investigate the
+-- duplicates before proceeding.
+```
+
+### 10.2 Apply migration 031
+
+The file `supabase/migrations/031_edit_existing_replies.sql` mixes
+transactional DDL with `CREATE INDEX CONCURRENTLY` — apply
+non-transactionally (uncheck the single-tx box in the Supabase SQL editor).
+
+Post-migration verification:
+
+```sql
+SELECT indexname, indisvalid FROM pg_indexes
+  JOIN pg_class ON pg_class.relname = indexname
+  JOIN pg_index ON pg_index.indexrelid = pg_class.oid
+  WHERE indexname IN ('responses_one_posted_per_review',
+                      'idx_reviews_business_review_date');
+-- expect: indisvalid = true for both.
+```
+
+If `indisvalid=false`, CONCURRENTLY was interrupted: `DROP INDEX <name>;`
+and re-run.
+
+### 10.3 Phase A — code shipped, both flags OFF
+
+Merge the branch with both `EXTERNAL_REPLY_IMPORT_ENABLED=false` AND
+`PAST_REPLIES_VIEW_ENABLED=false`:
+
+- `/dashboard/past-replies` returns 404. OwnerNav link hidden.
+- `reconcileExternallyAnsweredReview` falls back to today's silent-no-op behavior.
+- Soak ≥ 1 week. Watch for migration-related errors and verify the
+  flag-OFF branches in staging.
+
+### 10.4 Phase B1 — turn on import (UI still 404)
+
+Set `EXTERNAL_REPLY_IMPORT_ENABLED=true` in production env (Vercel + Railway):
+
+- Imported replies start getting ingested via every `review.updated` webhook
+  + on next reconnect backfill.
+- Dashboard "total responded" counts WILL rise for businesses with imported
+  replies because imported `posted` rows are in `HANDLED_STATUSES`. Watch
+  this in your Sentry / dashboards — you control when this lands by your
+  flag-flip timing.
+- UI is still 404; owners can't see what's been imported until B2.
+- Soak as long as you want — usually 1–7 days is enough to confirm the
+  count-shift is the only customer-visible effect.
+
+### 10.5 Phase B2 — turn on view
+
+Set `PAST_REPLIES_VIEW_ENABLED=true` in production env:
+
+- `/dashboard/past-replies` page renders.
+- OwnerNav link appears.
+- Owners now see their full reply history, including imports.
+
+### 10.6 Backfilling existing customers
+
+Two retroactive paths (both require `EXTERNAL_REPLY_IMPORT_ENABLED=true`):
+
+- **A — Opportunistic:** `ZernioReviewIngestWorker` runs on every
+  `review.updated` webhook. With the import flag on, previously-unseen
+  reviews that arrive already-replied get ingested. Eventually-consistent
+  fill via natural webhook traffic. Zero ops overhead.
+
+- **B — One-time admin script:** `pnpm tsx scripts/zernio-backfill-external-replies.ts <business-id>`
+  walks Zernio for that business and ingests anything missing. Useful for
+  VIPs who want immediate filling. Idempotent.
+
+A full bulk re-walk on flag-flip is **explicitly NOT done** — it would
+burn every business's Zernio quota at once.
+
+### 10.7 Monitoring
+
+| Metric | Threshold | Surface |
+|---|---|---|
+| `external_reply_ingested_count` distribution per `zernio_backfill_runs` | track | weekly internal review |
+| Dashboard "total responded" count delta after Phase B1 | none | watch in product analytics |
+| Errors in `reconcileExternallyAnsweredReview` (Sentry breadcrumbs) | any | review weekly |
+
+### 10.8 Rollback
+
+- **PAST_REPLIES_VIEW_ENABLED back to off** — instant. UI dies. Already-ingested rows stay in DB.
+- **EXTERNAL_REPLY_IMPORT_ENABLED back to off** — instant. New imports stop. Already-ingested rows stay in DB.
+- **Migration 031 rollback** — risky. The column + index are backward compatible (NULL-default, partial). If a genuine bug requires undo, write a forward migration to drop them; do NOT UN the original.
+
+### 10.9 The parked edit feature
+
+`feat/edit-existing-replies` (now tagged `wip/edit-existing-replies-zernio-v1`)
+contains the full edit / regenerate / `/retry` / `/restore-original`
+machinery and was code-complete + 6 review rounds before being parked.
+Reviving it is a deliberate decision:
+
+- **If direct GBP API arrives:** start a NEW branch
+  `feat/edit-existing-replies-gbp` and copy the structural patterns from
+  the parked tag (route shapes, drawer state machine modulo the recovery
+  state, optimistic-concurrency snapshot). Build a GBP-native single-call
+  edit publisher; skip the orphan-marker + DELETE+POST locked-tx + 409
+  verifier entirely. ~75% of the parked code is reusable; the publisher /
+  recovery / orphan-marker layer (~25%) gets dropped.
+
+- **If you decide Zernio edit is worth shipping** (e.g. GBP timeline blows
+  up to 18+ months): revive the parked branch as-is, run another review
+  round on the residual hidden-draft regenerate-window orphan accepted in
+  Round-4 M, file the ops ticket for the fresh-publish race documented in
+  spec §4.5 (out-of-scope for that branch), and ship behind the original
+  single `EDIT_EXISTING_REPLIES_ENABLED` flag.
+

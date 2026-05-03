@@ -40,7 +40,7 @@ vi.mock('../../src/lib/notifications/email', () => ({
 }));
 
 // Import after mocks are wired
-import { handleAdminException } from '../jobs/AdminExceptionWorker';
+import { handleAdminException, renderExceptionBody } from '../jobs/AdminExceptionWorker';
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
@@ -57,6 +57,7 @@ function mockExceptionRow(overrides: Record<string, unknown> = {}) {
     type: 'review_edited_after_response',
     status: 'open',
     payload: { response_status: 'posted' },
+    review_id: 'rev-1',
     reviewer_name: 'Jane',
     star_rating: 4,
     review_text: 'Updated review text',
@@ -109,5 +110,96 @@ describe('AdminExceptionWorker – handleAdminException', () => {
     await expect(handleAdminException(makeJob())).rejects.toThrow('Resend API timeout');
 
     expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
+  });
+});
+
+// ── renderExceptionBody unit tests ─────────────────────────────────────
+
+const baseException = {
+  id: 'exc-1',
+  type: 'review_edited_after_post',
+  status: 'open',
+  payload: {} as Record<string, unknown>,
+  review_id: 'rev-1',
+  reviewer_name: 'Jane Doe',
+  star_rating: 5,
+  review_text: 'Great place',
+  business_name: 'Test Biz',
+};
+
+describe('renderExceptionBody', () => {
+  it('review_edited_after_post: renders the review-edit copy', () => {
+    const out = renderExceptionBody(baseException, { response_status: 'pending_approval' });
+    expect(out).toContain('reviewer edited their review');
+    expect(out).toContain('pending_approval');
+  });
+
+  it('zernio_review_not_found with review_id=null: renders "no local review record" instead of reviewer block', () => {
+    const out = renderExceptionBody(
+      { ...baseException, type: 'zernio_review_not_found', review_id: null, reviewer_name: null, review_text: null, star_rating: null },
+      { provider_review_id: 'zr-1', zernio_account_id: 'A', zernio_location_id: 'L', retries_exhausted_at: '2026-04-29T00:00:00Z' },
+    );
+    expect(out).toContain('No local review record');
+    expect(out).toContain('zr-1');
+    expect(out).toContain('Zernio account / location');
+    expect(out).not.toContain('reviewer edited');
+  });
+
+  it('zernio_permanent_4xx: includes endpoint_kind + http_status', () => {
+    const out = renderExceptionBody(
+      { ...baseException, type: 'zernio_permanent_4xx' },
+      { endpoint_kind: 'publish_reply', http_status: 422 },
+    );
+    expect(out).toContain('publish_reply');
+    expect(out).toContain('422');
+    expect(out).not.toContain('reviewer edited');
+  });
+
+  it('zernio_reply_verification_indeterminate: includes reason + ids + underlying_error', () => {
+    const out = renderExceptionBody(
+      { ...baseException, type: 'zernio_reply_verification_indeterminate' },
+      {
+        reason: 'review_not_found_after_pagination',
+        zernio_account_id: 'A',
+        zernio_location_id: 'L',
+        zernio_review_id: 'zr',
+        underlying_error: 'connection refused',
+      },
+    );
+    expect(out).toContain('review_not_found_after_pagination');
+    expect(out).toContain('zr');
+    expect(out).toContain('connection refused');
+  });
+
+  it('zernio_unparseable_review_name: review_name_truncated rendered in <pre>', () => {
+    const out = renderExceptionBody(
+      { ...baseException, type: 'zernio_unparseable_review_name' },
+      { review_name_truncated: 'malformed/path/here', zernio_account_id: 'A', zernio_location_id: 'L' },
+    );
+    expect(out).toContain('<pre');
+    expect(out).toContain('malformed/path/here');
+  });
+
+  it('anonymous reviewer (review_id present, reviewer_name=null) renders "Unknown reviewer"', () => {
+    const out = renderExceptionBody(
+      { ...baseException, reviewer_name: null },
+      { response_status: 'pending_approval' },
+    );
+    expect(out).toContain('Unknown reviewer');
+  });
+
+  it('unknown type: falls through to generic fallback listing payload primitives', () => {
+    const out = renderExceptionBody(
+      { ...baseException, type: 'some_new_type_we_havent_seen' },
+      { foo: 'bar', count: 42, ok: true, ignore_object: { nested: 'value' } },
+    );
+    expect(out).toContain('does not have a specific email template');
+    expect(out).toContain('foo');
+    expect(out).toContain('bar');
+    expect(out).toContain('count');
+    expect(out).toContain('42');
+    // The nested object should be filtered out by the safeFields filter
+    expect(out).not.toContain('nested');
+    expect(out).not.toContain('reviewer edited');
   });
 });

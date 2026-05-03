@@ -91,6 +91,7 @@ export const luaCASCancel = `
 
 export const pendingKey = (businessId: string) => `connect_pending:${businessId}`;
 export const stateKey = (state: string) => `connect_state:${state}`;
+export const profileStateKey = (profileId: string) => `connect_profile_state:${profileId}`;
 export const locationsKey = (sessionId: string) => `connect_locations:${sessionId}`;
 export const lockKey = (businessId: string) => `connect_lock:${businessId}`;
 export const finalizeLockKey = (sessionId: string) => `connect_finalize:${sessionId}`;

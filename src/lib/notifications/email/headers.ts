@@ -7,7 +7,7 @@
 //   these are necessary for service operation, not marketing.
 // - marketing: recurring owner reports + nudges (weekly/monthly/drips/owner_nudge).
 //   Gmail/Outlook bulk-sender rules require List-Unsubscribe one-click for these.
-// - internal: admin/sales-partner alerts (manual-post instructions, exceptions,
+// - internal: admin/sales-partner alerts (exceptions,
 //   partner engagement alerts). Not customer-facing, no unsubscribe needed.
 
 export type EmailCategory = 'transactional' | 'marketing' | 'internal';

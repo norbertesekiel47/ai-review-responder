@@ -1,0 +1,217 @@
+---
+name: migrations
+description: Full Supabase migration inventory (001–031) for the RepWorth project, plus known residual risks tied to schema decisions. Read this before writing any migration, querying migration state, debugging schema issues, or planning work that touches the database.
+---
+
+# RepWorth — Migration Inventory
+
+Base schema: `supabase/migrations/001_initial_schema.sql`
+Current head: **031** — next migration is **032**
+All tables use UUIDv7 (time-ordered primary keys).
+
+## Migration Log
+
+- **001–019** — Core schema through Sprint 6. Covers `users`, `businesses`,
+  `reviews`, `responses`, `approval_links`, `approval_audit_log`,
+  `review_exceptions`, `job_outbox`, `inbound_events`,
+  `notification_deliveries`, `prospect_demos`, `api_costs`,
+  `weekly_summaries`, `monthly_impact_emails`, `ranking_snapshots`,
+  `onboarding_drip_log`, `satisfaction_responses`.
+
+- **020** — JSONB scalar-string repair.
+  `payload = (payload#>>'{}')::jsonb WHERE jsonb_typeof(payload)='string'`
+  applied across all JSONB columns. Background: Postgres.js v3 was
+  double-encoding JSONB inserts that used `${JSON.stringify(x)}::jsonb`.
+
+- **021** — `channel_enrollments` table + email enrollment backfill for
+  existing businesses. Establishes the `NotificationChannel` interface
+  foundation. Removes `notification_preference`.
+
+- **022** — SMS Phase 1.
+  - Drops `notification_preference`
+  - Soft-delete on `channel_enrollments` (adds `archived_at`)
+  - Partial unique index for active enrollments
+  - `sms_sender_opt_outs` + `sms_sender_opt_out_events` (TCPA audit trail)
+
+- **023** — Non-terminal response uniqueness.
+  Partial unique index: at most one non-terminal response per review at a time.
+  Terminal statuses: `superseded`, `posted`, `failed`.
+
+- **024** — `notification_deliveries` dedup unique index.
+  Prevents send-before-record race (notification sent, worker crashes before
+  recording delivery row, retry resends).
+
+- **025** — Owner self-serve signup.
+  - Two partial indexes for signup deduplication
+  - Email lowercase backfill
+  - `onboarded_by` backfill
+  Both backfills are collision-guarded.
+
+- **026** — Zernio publishing integration.
+  - Widens `responses.status` → TEXT (was ENUM)
+  - Recreates non-terminal-uniqueness index including `awaiting_owner_connect`
+  - Adds `zernio_connections` table
+  - Adds `zernio_finalize_incidents` table
+  - Two dedup indexes on `notification_deliveries`
+  - In-flight `publish_response` outbox uniqueness index
+
+- **027** — Channels Phase 4 (owner channel dashboard).
+  Partial unique index `channel_enrollments_one_mobile_per_biz`: at most one
+  pending/verified mobile channel (sms/telegram/whatsapp) per business.
+  Predicate excludes `disabled`/`unsubscribed`/`archived` rows so enrollment
+  history is preserved across channel switches.
+
+- **028** — Zernio first-connect backfill.
+  `zernio_backfill_runs` table: per-business summary of gap/historical
+  processed + skipped counts. Snapshots tier and `subscription_activated_at`.
+  Partial unique index `zernio_backfill_runs_one_per_business`.
+
+- **029** — Decommission manual-post workflow.
+  - Bulk-fails orphan `awaiting_manual_post` rows with
+    `posting_error='manual_post_deprecated_2026_04'`
+  - Rebuilds `responses_one_non_terminal_per_review` without the dead status
+  - Drops stale `notification_deliveries_response_template_uniq` index from 024
+  **Must be applied AFTER migration 028.**
+
+- **030** — Zernio ingest outbox dedup.
+  Partial unique index `job_outbox_ingest_zernio_review_inflight` on
+  `(aggregate_id, (payload->>'zernio_review_id'))` for non-terminal rows of
+  `topic='ingest_zernio_review'`. Enables webhook fan-out's
+  `INSERT ... ON CONFLICT DO NOTHING` to dedup against in-flight rows when
+  Zernio retries a delivery mid-processing.
+
+- **031** — Past Replies (read-only) + external-reply ingestion. Three
+  schema additions:
+  1. `reviews.external_reply_ingested_at TIMESTAMPTZ NULL` — marks reviews
+     ingested via the external-reply branches in
+     `reconcileExternallyAnsweredReview` (pre-RepWorth replies discovered
+     during webhook / backfill). Drives the dashboard's
+     "Imported from Google · YYYY-MM-DD" provenance label.
+  2. `zernio_backfill_runs.external_reply_ingested_count INTEGER NOT NULL DEFAULT 0`
+     — counter bumped only when `insertImportedResponse` actually INSERTs
+     (not on `ON CONFLICT DO NOTHING`). Per-business audit metric.
+  3. `responses_one_posted_per_review` — partial unique index on
+     `responses (review_id) WHERE status = 'posted'`. Enforces the invariant
+     that at most one `'posted'` row exists per review at any time. Defense
+     against publisher bugs that could double-post.
+  4. `idx_reviews_business_review_date` — `(business_id, review_date DESC)`.
+     Supports the Past Replies page query.
+
+  **Apply non-transactionally** (file mixes transactional DDL with
+  `CREATE INDEX CONCURRENTLY` — uncheck "single transaction" in the
+  Supabase SQL editor). Pre-flight check is REQUIRED:
+
+  ```sql
+  SELECT review_id, count(*) FROM responses
+    WHERE status = 'posted'
+    GROUP BY review_id
+    HAVING count(*) > 1;
+  -- expect: 0 rows
+  ```
+
+  Any pre-existing duplicate `posted` rows would abort the CONCURRENTLY
+  index build mid-way (leaving an INVALID index that requires `DROP INDEX`
+  + retry). See `docs/runbooks/zernio-launch-runbook.md` §10 for the full
+  Phase A / B1 / B2 rollout playbook.
+
+  Migration ships on `feat/past-replies-view`. Same migration file appears
+  on parked tag `wip/edit-existing-replies-zernio-v1` (introduced there
+  first). Apply only once.
+
+## Key Tables Reference
+
+| Table | Purpose |
+|---|---|
+| `users` | App users with `auth_id` → Supabase Auth mapping |
+| `businesses` | Owner businesses: `subscription_status`, `subscription_tier`, `place_id_verified`, `onboarded_by`, `stripe_customer_id`, `last_sync_at` |
+| `google_connections` | Future GBP OAuth tokens (populated in Phase 5) |
+| `reviews` | Ingested reviews from all sources |
+| `responses` | AI-drafted responses — see status values below |
+| `approval_links` | SHA-256 hashed tokens only — raw tokens never stored |
+| `approval_audit_log` | Every approval action logged |
+| `review_exceptions` | Dedup collisions, pagination cap exhaustions, not-found signals |
+| `job_outbox` | Transactional outbox — all async work dispatched through here |
+| `inbound_events` | Webhook dedup — always write here first before business logic |
+| `notification_deliveries` | Per-channel delivery records |
+| `channel_enrollments` | Multi-channel owner enrollments (email/sms/telegram/whatsapp) |
+| `sms_sender_opt_outs` + `sms_sender_opt_out_events` | TCPA audit trail |
+| `prospect_demos` | Sales demo generation state |
+| `api_costs` + `api_costs_daily_rollups` | LLM cost audit trail |
+| `weekly_summaries` + `monthly_impact_emails` | Owner retention emails |
+| `ranking_snapshots` | Ranking tracking over time |
+| `onboarding_drip_log` | Day 1/7/30 drip state |
+| `satisfaction_responses` | HMAC feedback link responses |
+| `zernio_connections` | Active Zernio OAuth connections per business |
+| `zernio_finalize_incidents` | Zernio publish finalization errors |
+| `zernio_backfill_runs` | First-connect backfill state per business |
+
+## Response Status Values
+
+`'pending_approval'` | `'approved'` | `'edited'` | `'superseded'` |
+`'awaiting_owner_connect'` | `'posted'` | `'failed'`
+
+- **`superseded`** — terminal. Owner requested regeneration; this draft was
+  replaced. At most one non-terminal response per review at any time.
+- **`awaiting_owner_connect`** — non-terminal. Approved but cannot post because
+  the business has no active Zernio connection. `DrainOwnerConnectWorker` flips
+  these back to `approved` on successful (re)connect.
+
+## Business Subscription Lifecycle
+
+`'pending_payment'` (default) → `'active'` → `'past_due'` | `'cancelled'`
+
+Stripe `checkout.session.completed` transitions to `active`.
+ReconciliationPoller only polls `active` businesses.
+
+**`pending_payment` trial scope:** ONE initial sync fires. Reviews ingested,
+responses generated (visible in admin). But `NotificationWorker` and
+`ResponsePublisherWorker` MUST skip — no emails or posting until payment
+confirms.
+
+## Critical Schema Gotchas
+
+- **`ON CONFLICT` must match partial-index predicate BYTE-FOR-BYTE.**
+  Example: `idx_review_exceptions_collision_dedup` predicate uses
+  `(payload->>'provider_review_id')` — using bare `provider_review_id` as the
+  conflict key returns "no matching unique constraint" at runtime even though
+  the values are semantically equivalent.
+
+- **Expression indexes must be IMMUTABLE.**
+  `timestamptz::date` is `STABLE` (depends on session timezone) and Postgres
+  rejects it in partial-index predicates (ERROR 42P17). Fix: wrap in
+  `AT TIME ZONE 'UTC'` first — `((created_at AT TIME ZONE 'UTC')::date)` is
+  `IMMUTABLE`. The `ON CONFLICT` clause must use this exact same expression.
+
+- **Postgres rejects STABLE expressions in index predicates.**
+  Always verify with `\d indexname` that the index was created as expected.
+
+## Known Residual Risks
+
+### 1. Approval email crash-after-send race
+`NotificationWorker` creates the approval link → sends via Resend → records
+delivery row. If it crashes between Resend ack and `recordNotificationDelivery`,
+the retry revokes the "orphaned" token, creates a fresh one, and sends a second
+email. Owner gets two emails; first token shows "expired", second works.
+
+**Mitigation:** Covered by `NotificationFailoverPoller` for the symmetric
+lost-email case. **Deferred fix:** insert provisional delivery row BEFORE
+Resend call, update `external_message_id` after success.
+
+### 2. `past_due` grace period uses mutable `businesses.updated_at`
+`checkSubscription` computes the 7-day grace window from `businessUpdatedAt`,
+but any unrelated write to the businesses row resets `updated_at` and extends
+grace indefinitely.
+
+**Planned fix (next billing sprint):** add `subscription_status_changed_at`
+column, written only in the Stripe webhook on real status transitions. Update
+all `checkSubscription` callers to use it instead of `updated_at`.
+
+### 3. Zernio backfill gap-window uses `subscription_activated_at`, not `connected_at`
+`ZernioBackfillWorker` classifies "gap" as `createTime ≥ subscription_activated_at`.
+A customer activating Stripe in January but connecting Zernio in July gets all
+6 months classified as "gap" (capped at 25), leaving the rest as "historical"
+(skipped for non-premium). Ops will get "where are my reviews?" tickets.
+
+**Workaround:** Explain in onboarding that gap = "since you started paying."
+**Deferred fix:** use `zernio_connections.connected_at` as gap boundary.
+Requires snapshotting `connected_at` into `zernio_backfill_runs`.

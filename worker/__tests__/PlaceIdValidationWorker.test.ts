@@ -80,32 +80,18 @@ function makeJob(
 }
 
 /**
- * Collects every JSON-string argument passed to sql-tagged-template calls
- * (both the top-level `sql` and the transaction `tx`) and parses them.
- * The sync_reviews payload is the JSON object containing `google_place_id`.
+ * Checks whether any sql or tx call inserted a sync_reviews outbox row.
+ * After Task 22 removal, this should always return false.
  */
-function findSyncReviewsPayload(): Record<string, unknown> | undefined {
+function hasSyncReviewsInsert(): boolean {
   const allCalls: unknown[] = [
     ...mockSql.mock.calls.flat(),
     ...mockTx.mock.calls.flat(),
   ];
-  // Current form: jsonb(payload) passes the OBJECT through in the test mock.
-  const objectArg = allCalls.find(
-    (arg): arg is Record<string, unknown> =>
-      !!arg && typeof arg === 'object' && !Array.isArray(arg) && 'google_place_id' in (arg as Record<string, unknown>),
+  return allCalls.some(
+    (arg) =>
+      typeof arg === 'string' && arg === 'sync_reviews',
   );
-  if (objectArg) return objectArg;
-  // Legacy form: JSON.stringify(payload) produces a string starting with `{`.
-  const jsonString = allCalls.find(
-    (arg): arg is string => typeof arg === 'string' && arg.startsWith('{'),
-  );
-  if (!jsonString) return undefined;
-  try {
-    const parsed = JSON.parse(jsonString) as Record<string, unknown>;
-    return 'google_place_id' in parsed ? parsed : undefined;
-  } catch {
-    return undefined;
-  }
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────
@@ -117,26 +103,24 @@ describe('PlaceIdValidationWorker – handlePlaceIdValidation', () => {
     mockTx.mockImplementation(() => Promise.resolve([]));
   });
 
-  it('propagates correlation_id into sync_reviews outbox payload on successful resolution', async () => {
+  it('does NOT enqueue sync_reviews on successful resolution (canonical ID in URL path)', async () => {
     // Business SELECT returns a matching row — URL contains a canonical Place ID,
-    // so the handler takes the fast path (no resolver call, just UPDATE + enqueue).
+    // so the handler takes the fast path (UPDATE only, no sync_reviews enqueue).
     mockSql.mockImplementationOnce(() =>
       Promise.resolve([{ id: 'biz-001', google_place_id: null }]),
     );
 
     await handlePlaceIdValidation(makeJob());
 
-    const syncPayload = findSyncReviewsPayload();
-    expect(syncPayload).toBeDefined();
-    expect(syncPayload!.business_id).toBe('biz-001');
-    expect(syncPayload!.google_place_id).toBe('ChIJgUbEo8cfqokR5lP9_Wh_DaM');
-    expect(syncPayload!.correlation_id).toBe('corr-upstream-abc');
-
+    // Verify UPDATE ran and outbox completed — no sync_reviews insertion.
+    expect(hasSyncReviewsInsert()).toBe(false);
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-test-place-id-001', undefined);
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+    // sql.begin should NOT be called — UPDATE now runs directly, not in a tx.
+    expect(mockSql.begin).not.toHaveBeenCalled();
   });
 
-  it('also propagates correlation_id when resolver is used (SerpAPI path)', async () => {
+  it('does NOT enqueue sync_reviews when resolver is used (SerpAPI path)', async () => {
     // URL has no canonical Place ID — forces the resolver path.
     mockSql.mockImplementationOnce(() =>
       Promise.resolve([{ id: 'biz-002', google_place_id: null }]),
@@ -154,12 +138,10 @@ describe('PlaceIdValidationWorker – handlePlaceIdValidation', () => {
     );
 
     expect(mockResolvePlaceId).toHaveBeenCalledTimes(1);
-
-    const syncPayload = findSyncReviewsPayload();
-    expect(syncPayload).toBeDefined();
-    expect(syncPayload!.business_id).toBe('biz-002');
-    expect(syncPayload!.google_place_id).toBe('ChIJResolvedFromSerpApi12345');
-    expect(syncPayload!.correlation_id).toBe('corr-resolver-xyz');
+    // No sync_reviews outbox row — review ingestion is webhook-driven via Zernio.
+    expect(hasSyncReviewsInsert()).toBe(false);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalled();
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
   });
 
   it('does not create sync_reviews outbox entry when resolver cannot identify a place', async () => {
@@ -187,9 +169,8 @@ describe('PlaceIdValidationWorker – handlePlaceIdValidation', () => {
       expect.stringContaining('Could not verify business location'), undefined);
     expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
 
-    // No sync_reviews payload should have been built
-    const syncPayload = findSyncReviewsPayload();
-    expect(syncPayload).toBeUndefined();
+    // No sync_reviews insert should have been attempted.
+    expect(hasSyncReviewsInsert()).toBe(false);
 
     // sql.begin should NOT have been called on the failure path (no UPDATE + enqueue)
     expect(mockSql.begin).not.toHaveBeenCalled();

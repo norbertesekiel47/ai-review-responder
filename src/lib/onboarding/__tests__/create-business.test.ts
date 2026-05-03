@@ -41,12 +41,14 @@ beforeEach(() => {
 });
 
 describe('createBusinessTx — admin mode', () => {
-  it('writes users.auth_id=NULL and creates outbox entry', async () => {
+  it('writes users.auth_id=NULL and does NOT create outbox entry for placeIdVerified=true', async () => {
+    // With placeIdVerified=true, no outbox row is inserted — review ingestion
+    // is webhook-driven via Zernio. Only businesses + users + channel_enrollments are written.
     const res = await createBusinessTx(adminInput, { mode: 'admin', onboardedBy: 'admin-1' });
     expect(res.businessId).toBeTruthy();
     const calls = mockSql.mock.calls.map((c: any[]) => (c[0] as TemplateStringsArray).join('?'));
     const outboxInsert = calls.find((t: string) => t.includes('INSERT INTO job_outbox'));
-    expect(outboxInsert).toBeDefined();
+    expect(outboxInsert).toBeUndefined();
     const usersInsert = calls.find((t: string) => t.includes('INSERT INTO users'));
     expect(usersInsert).toBeDefined();
     const usersCallArgs = mockSql.mock.calls.find((c: any[]) =>
@@ -55,12 +57,13 @@ describe('createBusinessTx — admin mode', () => {
     expect(usersCallArgs).toContain(null);
   });
 
-  it('enqueues sync_reviews when placeIdVerified=true', async () => {
+  it('does NOT enqueue sync_reviews when placeIdVerified=true (webhook-driven now)', async () => {
     await createBusinessTx(adminInput, { mode: 'admin', onboardedBy: 'admin-1' });
-    const outboxCall = mockSql.mock.calls.find((c: any[]) =>
-      (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO job_outbox'))!;
-    // 'sync_reviews' is a SQL literal in the template, not a bound value — check the template text.
-    expect((outboxCall[0] as TemplateStringsArray).join('?')).toContain("'sync_reviews'");
+    const allArgs = mockSql.mock.calls.flat();
+    // sync_reviews must not appear anywhere in the call args or template text.
+    expect(allArgs.some((v: unknown) => v === 'sync_reviews')).toBe(false);
+    const calls = mockSql.mock.calls.map((c: any[]) => (c[0] as TemplateStringsArray).join('?'));
+    expect(calls.some((t: string) => t.includes('sync_reviews'))).toBe(false);
   });
 
   it('enqueues validate_place_id when placeIdVerified=false', async () => {

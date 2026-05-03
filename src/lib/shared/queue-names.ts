@@ -10,7 +10,8 @@
  * may not be available, and any top-level side effect would crash the route.
  */
 export const QUEUE_NAMES = {
-  SYNC_REVIEWS: 'sync_reviews',
+  INGEST_ZERNIO_REVIEW: 'ingest_zernio_review',
+  ZERNIO_INITIAL_BACKFILL: 'zernio_initial_backfill',
   GENERATE_RESPONSE: 'generate_response',
   SEND_NOTIFICATION: 'send_notification',
   PUBLISH_RESPONSE: 'publish_response',

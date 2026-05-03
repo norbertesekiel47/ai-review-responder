@@ -10,9 +10,9 @@ interface RecoveryInput {
 /**
  * Recover the upstream correlation_id for an approval action.
  *
- * Chain: sync_reviews -> generate_response -> send_notification -> publish_response.
+ * Chain: ingest_zernio_review -> generate_response -> send_notification -> publish_response.
  * When the owner approves, publish_response should carry the SAME correlation_id
- * that the original sync_reviews generated, not a new one derived from response_id.
+ * that the original ingest job generated, not a new one derived from response_id.
  *
  * Lookup strategy:
  *  1. Query the most recent generate_response outbox row for this review.

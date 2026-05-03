@@ -1,15 +1,12 @@
 import type { Job } from 'bullmq';
-import type postgres from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '../../src/lib/db/server';
 import { markOutboxCompleted, markOutboxFailed, extractOutboxHandle } from '../../src/lib/shared/outbox';
-import type { ValidatePlaceIdPayload, SyncReviewsPayload } from '../../src/lib/shared/worker-types';
+import type { ValidatePlaceIdPayload } from '../../src/lib/shared/worker-types';
 import { parseGoogleMapsUrl, isPlaceId } from '../../src/lib/reviews/url-parser';
 import { resolvePlaceId } from '../../src/lib/reviews/place-id-resolver';
 import { ExceptionType } from '../../src/lib/shared/constants';
 import { createWorkerLogger } from '../../src/lib/shared/logger';
-
-type TxClient = postgres.TransactionSql;
 
 export async function handlePlaceIdValidation(
   job: Job<ValidatePlaceIdPayload>,
@@ -32,18 +29,15 @@ export async function handlePlaceIdValidation(
   // Parse URL for all available data
   const urlData = parseGoogleMapsUrl(google_maps_url);
 
-  // If URL contained a canonical Place ID, verify format and store
+  // If URL contained a canonical Place ID, verify format and store.
+  // Review ingestion is now webhook-driven via Zernio — no sync_reviews enqueue.
   if (urlData.placeId && isPlaceId(urlData.placeId)) {
-    await sql.begin(async (tx) => {
-      await tx`
-        UPDATE businesses
-        SET google_place_id = ${urlData.placeId},
-            place_id_verified = TRUE
-        WHERE id = ${business_id}
-      `;
-
-      await enqueueSyncReviews(tx, business_id, urlData.placeId!, job.data.correlation_id);
-    });
+    await sql`
+      UPDATE businesses
+      SET google_place_id = ${urlData.placeId},
+          place_id_verified = TRUE
+      WHERE id = ${business_id}
+    `;
 
     await markOutboxCompleted(outboxId, outboxAttempt);
     logger.log(`Business ${business_id} verified (canonical ID in URL)`);
@@ -54,16 +48,12 @@ export async function handlePlaceIdValidation(
   try {
     const resolvedPlaceId = await resolvePlaceId(urlData);
 
-    await sql.begin(async (tx) => {
-      await tx`
-        UPDATE businesses
-        SET google_place_id = ${resolvedPlaceId},
-            place_id_verified = TRUE
-        WHERE id = ${business_id}
-      `;
-
-      await enqueueSyncReviews(tx, business_id, resolvedPlaceId, job.data.correlation_id);
-    });
+    await sql`
+      UPDATE businesses
+      SET google_place_id = ${resolvedPlaceId},
+          place_id_verified = TRUE
+      WHERE id = ${business_id}
+    `;
 
     await markOutboxCompleted(outboxId, outboxAttempt);
     logger.log(`Business ${business_id} resolved to ${resolvedPlaceId}`);
@@ -91,33 +81,3 @@ export async function handlePlaceIdValidation(
   }
 }
 
-/** Enqueue sync_reviews with WHERE NOT EXISTS dedup guard (same pattern as ReconciliationPoller). */
-async function enqueueSyncReviews(
-  tx: TxClient,
-  businessId: string,
-  placeId: string,
-  correlationId?: string,
-): Promise<void> {
-  const syncPayload: SyncReviewsPayload = {
-    business_id: businessId,
-    google_place_id: placeId,
-    correlation_id: correlationId,
-  };
-
-  await tx`
-    INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-    SELECT
-      ${uuidv7()},
-      'sync_reviews',
-      'business',
-      ${businessId},
-      ${jsonb(syncPayload)},
-      'pending'
-    WHERE NOT EXISTS (
-      SELECT 1 FROM job_outbox jo
-      WHERE jo.topic = 'sync_reviews'
-        AND jo.aggregate_id = ${businessId}
-        AND jo.status IN ('pending', 'dispatching', 'dispatched')
-    )
-  `;
-}

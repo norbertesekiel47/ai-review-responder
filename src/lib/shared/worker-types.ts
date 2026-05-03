@@ -13,15 +13,17 @@ export interface BasePayload {
   correlation_id?: string;
 }
 
-export interface SyncReviewsPayload extends BasePayload {
-  business_id: string;
-  google_place_id: string;
-}
-
 export interface GenerateResponsePayload extends BasePayload {
   review_id: string;
   business_id: string;
   version: number;
+  /**
+   * When true, the ResponseGeneratorWorker skips the send_notification
+   * outbox enqueue. Used by ZernioBackfillWorker so the first-connect
+   * backfill of up to 75 reviews does NOT blast 75 approval emails.
+   * Added by Zernio ingestion plan (spec §4.6, §6.6, §6.7).
+   */
+  suppress_notification?: boolean;
 }
 
 export interface SendNotificationPayload extends BasePayload {
@@ -108,3 +110,31 @@ export type SendOwnerEmailPayload = BasePayload & (
   | { kind: 'reconnect_required'; response_id: string; business_id: string }
   | { kind: 'connection_lost'; business_id: string }
 );
+
+/**
+ * IngestZernioReviewPayload — emitted by the Zernio webhook handler (one row
+ * per active connection at the firing account). Fanned out across same-account
+ * multi-location connections; the worker filters by location after fetching
+ * the review.
+ */
+export interface IngestZernioReviewPayload extends BasePayload {
+  business_id: string;
+  zernio_account_id: string;
+  zernio_location_id: string;
+  /** BARE id (not resource path); matches ZernioReview.id */
+  zernio_review_id: string;
+}
+
+/**
+ * ZernioInitialBackfillPayload — emitted by the connect-callback when the
+ * `needs_backfill` predicate is satisfied. One-shot per business.
+ */
+export interface ZernioInitialBackfillPayload extends BasePayload {
+  business_id: string;
+  zernio_account_id: string;
+  zernio_location_id: string;
+  /** 'founding' | 'standard' | 'premium' (string for forward-compat) */
+  subscription_tier: string;
+  /** ISO timestamp from businesses.subscription_activated_at */
+  subscription_activated_at: string;
+}

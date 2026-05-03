@@ -209,62 +209,198 @@ async function mockResponse<T>(opts: RequestOptions): Promise<T> {
   }
 }
 
+/**
+ * Returns a JSON-safe summary of an unknown response shape: top-level keys
+ * + value types (string/number/boolean/null/object/array). NEVER includes
+ * actual values. Used in 'UNRECOGNIZED RESPONSE SHAPE' diagnostics so a
+ * Zernio response carrying OAuth tokens / connect tokens / account IDs
+ * can't leak into worker logs (which Sentry breadcrumbs auto-collect).
+ * See Code Review fix Medium 5 (2026-05-02).
+ */
+function summarizeShape(raw: unknown): string {
+  if (raw === null) return 'null';
+  if (typeof raw !== 'object') return typeof raw;
+  if (Array.isArray(raw)) return `array(len=${raw.length})`;
+  const o = raw as Record<string, unknown>;
+  const keys = Object.keys(o).sort();
+  const summary = keys.map((k) => {
+    const v = o[k];
+    if (v === null) return `${k}:null`;
+    if (Array.isArray(v)) return `${k}:array(len=${v.length})`;
+    return `${k}:${typeof v}`;
+  });
+  return `{${summary.join(',')}}`;
+}
+
+function normalizeLocations(raw: unknown): ZernioLocationOption[] {
+  if (!raw || typeof raw !== 'object') return [];
+  const o = raw as Record<string, unknown>;
+  const arr =
+    (Array.isArray(o.locations) ? o.locations : undefined) ??
+    (Array.isArray(o.data) ? o.data : undefined) ??
+    (Array.isArray(o.results) ? o.results : undefined) ??
+    [];
+  return (arr as Array<Record<string, unknown>>).map((loc) => ({
+    id:
+      (typeof loc._id === 'string' ? loc._id : undefined) ??
+      (typeof loc.id === 'string' ? loc.id : undefined) ??
+      (typeof loc.locationId === 'string' ? loc.locationId : undefined) ??
+      '',
+    name:
+      (typeof loc.name === 'string' ? loc.name : undefined) ??
+      (typeof loc.title === 'string' ? loc.title : undefined) ??
+      (typeof loc.displayName === 'string' ? loc.displayName : undefined) ??
+      '<unnamed>',
+    address:
+      (typeof loc.address === 'string' ? loc.address : undefined) ??
+      (typeof loc.formattedAddress === 'string' ? loc.formattedAddress : undefined) ??
+      '',
+  })).filter((l) => l.id !== '');
+}
+
+// Zernio uses MongoDB-shaped responses. POST /v1/profiles returns:
+//   { message, profile: { _id, name, userId, isDefault, color, createdAt, ... } }
+// The canonical profile id is at profile._id.
+function extractProfileId(raw: unknown): string {
+  if (raw && typeof raw === 'object') {
+    const o = raw as Record<string, unknown>;
+    const profileObj = o.profile as Record<string, unknown> | undefined;
+    const candidates = [
+      profileObj?._id,
+      profileObj?.id,
+      o._id,
+      o.profileId,
+      o.id,
+      o.profile_id,
+    ];
+    for (const c of candidates) {
+      if (typeof c === 'string' && c.length > 0) return c;
+    }
+  }
+  console.warn(
+    `[zernio.createProfile] UNRECOGNIZED RESPONSE SHAPE: ${summarizeShape(raw)}`,
+  );
+  throw new Error('zernio_createProfile_unexpected_response_shape');
+}
+
 export const zernioClient = {
-  createProfile: (input: { name: string }) =>
-    request<{ profileId: string }>({
+  createProfile: async (input: { name: string }) => {
+    const raw = await request<unknown>({
       method: 'POST',
       path: '/v1/profiles',
       endpointKind: 'create_profile',
       body: input,
       timeoutMs: 10_000,
-    }),
+    });
+    return { profileId: extractProfileId(raw) };
+  },
 
-  startConnect: (input: { profileId: string; state: string; redirectUrl: string }) =>
-    request<{ authUrl: string }>({
+  startConnect: async (input: { profileId: string; state: string; redirectUrl: string }) => {
+    const raw = await request<unknown>({
       method: 'GET',
-      path: `/v1/connect/google-business?profileId=${encodeURIComponent(input.profileId)}&headless=true&redirectUrl=${encodeURIComponent(input.redirectUrl)}&state=${encodeURIComponent(input.state)}`,
+      path: `/v1/connect/googlebusiness?profileId=${encodeURIComponent(input.profileId)}&headless=true&redirect_url=${encodeURIComponent(input.redirectUrl)}&state=${encodeURIComponent(input.state)}`,
       endpointKind: 'start_connect',
       timeoutMs: 10_000,
-    }),
+    });
+    const o = (raw ?? {}) as Record<string, unknown>;
+    const authUrl =
+      (typeof o.authUrl === 'string' ? o.authUrl : undefined) ??
+      (typeof o.url === 'string' ? o.url : undefined) ??
+      (typeof o.redirectUrl === 'string' ? o.redirectUrl : undefined);
+    if (!authUrl) {
+      console.warn(`[zernio.startConnect] UNRECOGNIZED authUrl SHAPE: ${summarizeShape(raw)}`);
+      throw new Error('zernio_startConnect_unexpected_response_shape');
+    }
+    return {
+      authUrl,
+      state: typeof o.state === 'string' && o.state.length > 0 ? o.state : undefined,
+    };
+  },
 
-  listLocations: (input: { connectToken: string }) =>
-    request<{ locations: ZernioLocationOption[] }>({
+  listLocations: async (input: {
+    profileId: string;
+    pendingDataToken: string;
+    connectToken?: string;
+  }) => {
+    const raw = await request<unknown>({
       method: 'GET',
-      path: '/v1/connect/google-business/list-locations',
+      path: `/v1/connect/googlebusiness/locations?profileId=${encodeURIComponent(input.profileId)}&pendingDataToken=${encodeURIComponent(input.pendingDataToken)}`,
       endpointKind: 'list_locations',
       timeoutMs: 10_000,
-      headers: { 'X-Connect-Token': input.connectToken },
-    }),
+      headers: input.connectToken ? { 'X-Connect-Token': input.connectToken } : undefined,
+    });
+    const locations = normalizeLocations(raw);
+    return { locations };
+  },
 
-  selectLocation: (input: { connectToken: string; locationId: string }) =>
-    request<{ accountId: string }>({
+  selectLocation: async (input: {
+    profileId: string;
+    pendingDataToken: string;
+    connectToken?: string;
+    locationId: string;
+    redirectUrl?: string;
+  }) => {
+    const raw = await request<unknown>({
       method: 'POST',
-      path: '/v1/connect/google-business/select-location',
+      path: '/v1/connect/googlebusiness/select-location',
       endpointKind: 'select_location',
       timeoutMs: 15_000,
-      headers: { 'X-Connect-Token': input.connectToken },
-      body: { locationId: input.locationId },
-    }),
+      headers: input.connectToken ? { 'X-Connect-Token': input.connectToken } : undefined,
+      body: {
+        profileId: input.profileId,
+        locationId: input.locationId,
+        pendingDataToken: input.pendingDataToken,
+        ...(input.redirectUrl ? { redirect_url: input.redirectUrl } : {}),
+      },
+    });
+    const o = (raw ?? {}) as Record<string, unknown>;
+    const acctObj = o.account as Record<string, unknown> | undefined;
+    const accountId =
+      (typeof o.accountId === 'string' ? o.accountId : undefined) ??
+      (typeof acctObj?.accountId === 'string' ? (acctObj.accountId as string) : undefined) ??
+      (typeof acctObj?._id === 'string' ? (acctObj._id as string) : undefined) ??
+      (typeof acctObj?.id === 'string' ? (acctObj.id as string) : undefined) ??
+      (typeof o._id === 'string' ? (o._id as string) : undefined) ??
+      (typeof o.id === 'string' ? (o.id as string) : undefined);
+    if (!accountId) {
+      console.warn(`[zernio.selectLocation] UNRECOGNIZED accountId SHAPE: ${summarizeShape(raw)}`);
+      throw new Error('zernio_selectLocation_unexpected_response_shape');
+    }
+    return { accountId };
+  },
 
-  listReviews: (
+  listReviews: async (
     accountId: string,
-    input: { pageSize?: number; pageToken?: string },
-  ) =>
-    request<{ reviews: ZernioReview[]; nextPageToken?: string }>({
+    input: { locationId: string; pageSize?: number; pageToken?: string },
+  ) => {
+    const raw = await request<{ reviews: ZernioReview[]; nextPageToken?: string }>({
       method: 'GET',
-      path: `/v1/accounts/${encodeURIComponent(accountId)}/gmb-reviews?pageSize=${input.pageSize ?? 50}${input.pageToken ? `&pageToken=${encodeURIComponent(input.pageToken)}` : ''}`,
+      path: `/v1/accounts/${encodeURIComponent(accountId)}/gmb-reviews?locationId=${encodeURIComponent(input.locationId)}&pageSize=${input.pageSize ?? 50}${input.pageToken ? `&pageToken=${encodeURIComponent(input.pageToken)}` : ''}`,
       endpointKind: 'list_reviews',
       timeoutMs: 15_000,
-    }),
+    });
+    // Normalize reviewReply: Zernio may OMIT the field on unanswered reviews
+    // rather than returning explicit null. Downstream code uses
+    // `reviewReply !== null` / `=== null` strict-equality predicates which
+    // would route an `undefined` reviewReply to the answered branch and then
+    // crash on .comment. Force every entry to either null or an object at
+    // the API chokepoint. See Code Review fix Medium 1 (2026-05-02).
+    const reviews = (raw?.reviews ?? []).map((r) => ({
+      ...r,
+      reviewReply: r.reviewReply ?? null,
+    }));
+    return { reviews, nextPageToken: raw?.nextPageToken };
+  },
 
   listAllReviews: async (
     accountId: string,
-    opts: { pageSize: number; maxPages: number },
+    opts: { locationId: string; pageSize: number; maxPages: number },
   ): Promise<ZernioReview[]> => {
     const all: ZernioReview[] = [];
     let pageToken: string | undefined;
     for (let i = 0; i < opts.maxPages; i++) {
       const page = await zernioClient.listReviews(accountId, {
+        locationId: opts.locationId,
         pageSize: opts.pageSize,
         pageToken,
       });

@@ -65,6 +65,7 @@ export interface ConnectLocationsBlob {
   flowId: string;
   state: string;
   connect_token: string;
+  pending_data_token: string;
   profileId: string;
   businessId: string;
   userId: string;

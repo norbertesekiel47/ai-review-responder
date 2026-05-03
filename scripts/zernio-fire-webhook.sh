@@ -28,11 +28,11 @@
 set -euo pipefail
 
 SECRET="${ZERNIO_WEBHOOK_SECRET:-test-secret-32-bytes-minimum-zzz}"
-WORKER_URL="${WORKER_URL:-http://localhost:3001/ingress/zernio}"
+WORKER_URL="${WORKER_URL:-http://127.0.0.1:3001/ingress/zernio}"
 ACCOUNT_ID="${1:-mock-account-1}"
 EVENT="${2:-account.disconnected}"
 EXTRA_JSON="${3:-}"
-EVENT_ID="evt-$(date +%s)-$RANDOM"
+EVENT_ID="${EVENT_ID:-evt-$(date +%s)-$RANDOM}"
 
 # Build the body. account.disconnected requires nested account.id; webhook.test
 # and other events don't need account info.

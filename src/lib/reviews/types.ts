@@ -38,11 +38,11 @@ export function computeContentHash(review: ContentHashable): string {
 // ── Monitor types (production polling) ───────────────────────────────
 
 export interface ReviewIdentity {
-  provider: 'serpapi_poll';
+  provider: 'serpapi_poll' | 'zernio';
   providerReviewId: string;
   providerReviewName: string;
   providerLocationName: string;
-  identityStrategy: 'source_id' | 'profile_hash' | 'name_date_hash';
+  identityStrategy: 'source_id' | 'profile_hash' | 'name_date_hash' | 'zernio_id';
 }
 
 export interface MonitoredReview {

@@ -87,7 +87,10 @@ export function ConnectGoogleBanner({ zernio }: Props) {
       <div>
         <p className="font-semibold text-orange-900">{headline}</p>
         <p className="text-sm text-orange-800">
-          Reconnect Google Business to resume publishing.
+          Reconnect Google Business to resume publishing. If you&apos;ve
+          already reconnected and this still appears, our Google Reviews
+          integration may be temporarily unavailable; we&apos;ll resume
+          automatically once it&apos;s restored.
         </p>
       </div>
       <Link

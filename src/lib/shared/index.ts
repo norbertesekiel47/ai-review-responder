@@ -8,12 +8,11 @@ export { sanitizeText } from './sanitize';
 export { checkRateLimit } from './rate-limit';
 export type { RateLimitResult } from './rate-limit';
 
-export { isMockMode, getReviewMonitor } from './mock-mode';
+export { isMockMode } from './mock-mode';
 
 export { escapeHtml } from './html';
 
 export type {
-  SyncReviewsPayload,
   GenerateResponsePayload,
   SendNotificationPayload,
   PublishResponsePayload,

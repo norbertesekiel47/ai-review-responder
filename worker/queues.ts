@@ -60,7 +60,8 @@ const defaultJobOptions = {
 };
 
 export const queues = {
-  syncReviews: new Queue(QUEUE_NAMES.SYNC_REVIEWS, { connection: opts, defaultJobOptions }),
+  ingestZernioReview: new Queue(QUEUE_NAMES.INGEST_ZERNIO_REVIEW, { connection: opts, defaultJobOptions }),
+  zernioInitialBackfill: new Queue(QUEUE_NAMES.ZERNIO_INITIAL_BACKFILL, { connection: opts, defaultJobOptions }),
   generateResponse: new Queue(QUEUE_NAMES.GENERATE_RESPONSE, { connection: opts, defaultJobOptions }),
   sendNotification: new Queue(QUEUE_NAMES.SEND_NOTIFICATION, { connection: opts, defaultJobOptions }),
   publishResponse: new Queue(QUEUE_NAMES.PUBLISH_RESPONSE, { connection: opts, defaultJobOptions }),
@@ -78,7 +79,8 @@ export const queues = {
 
 // Lookup table: outbox topic string → Queue instance
 export const topicToQueue: Record<string, Queue> = {
-  [QUEUE_NAMES.SYNC_REVIEWS]: queues.syncReviews,
+  [QUEUE_NAMES.INGEST_ZERNIO_REVIEW]: queues.ingestZernioReview,
+  [QUEUE_NAMES.ZERNIO_INITIAL_BACKFILL]: queues.zernioInitialBackfill,
   [QUEUE_NAMES.GENERATE_RESPONSE]: queues.generateResponse,
   [QUEUE_NAMES.SEND_NOTIFICATION]: queues.sendNotification,
   [QUEUE_NAMES.PUBLISH_RESPONSE]: queues.publishResponse,

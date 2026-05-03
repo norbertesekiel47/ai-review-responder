@@ -1,9 +1,9 @@
 // src/lib/notifications/email/templates/internal.ts
 //
-// Generic internal admin email — used for manual-post instructions,
-// exception alerts, partner engagement alerts, and any other operator-
-// facing message. The body is rendered by other templates and passed in
-// as `bodyHtml`; this function handles only the Resend send + headers.
+// Generic internal admin email — used for exception alerts, partner
+// engagement alerts, and any other operator-facing message. The body is
+// rendered by other templates and passed in as `bodyHtml`; this function
+// handles only the Resend send + headers.
 import { randomUUID } from 'node:crypto';
 import { isMockMode } from '@/lib/shared/mock-mode';
 import { getResend } from '../client';

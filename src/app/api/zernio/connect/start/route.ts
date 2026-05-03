@@ -8,6 +8,7 @@ import { zernioClient } from '@/lib/zernio/client';
 import {
   pendingKey,
   stateKey,
+  profileStateKey,
   lockKey,
   generateFlowId,
   generateState,
@@ -149,6 +150,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   let placeholderRaw: string | null = null;
   let createdState: string | null = null;
   let createdProfileId: string | null = null;
+  let createdProfileStateKey: string | null = null;
 
   try {
     // 6. Step B-bis — DB idempotency check BEFORE planting the marker.
@@ -191,7 +193,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       });
       createdProfileId = profileId;
 
-      const state = generateState();
+      const requestedState = generateState();
+
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+      if (!appUrl) {
+        throw new ZernioRouteError(500, 'app_url_not_configured');
+      }
+      const redirectUrl = `${appUrl}/api/zernio/connect/callback`;
+      const { authUrl, state: returnedState } = await zernioClient.startConnect({
+        profileId,
+        state: requestedState,
+        redirectUrl,
+      });
+      const state = returnedState ?? requestedState;
       const stateBlob: ConnectStateBlob = {
         businessId,
         profileId,
@@ -199,18 +213,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         createdAt: startedAt,
       };
       await redis.setex(stateKey(state), PENDING_TTL_SECONDS, JSON.stringify(stateBlob));
+      await redis.setex(profileStateKey(profileId), PENDING_TTL_SECONDS, state);
       createdState = state;
-
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL;
-      if (!appUrl) {
-        throw new ZernioRouteError(500, 'app_url_not_configured');
-      }
-      const redirectUrl = `${appUrl}/api/zernio/connect/callback`;
-      const { authUrl } = await zernioClient.startConnect({
-        profileId,
-        state,
-        redirectUrl,
-      });
+      createdProfileStateKey = profileStateKey(profileId);
 
       // 10. Step E — Update pending marker with profileId + state via CAS.
       const fullMarker: ConnectPendingMarker = {
@@ -246,6 +251,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       }
       if (createdState) {
         await redis.del(stateKey(createdState)).catch(() => {
+          // Best-effort.
+        });
+      }
+      if (createdProfileStateKey) {
+        await redis.del(createdProfileStateKey).catch(() => {
           // Best-effort.
         });
       }

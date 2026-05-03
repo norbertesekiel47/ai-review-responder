@@ -230,6 +230,149 @@ describe('request() timeout handling', () => {
   });
 });
 
+describe('zernioClient connect contract', () => {
+  let originalFetch: typeof global.fetch;
+  let originalApiBase: string | undefined;
+  let originalApiKey: string | undefined;
+  let originalMockExternalApis: string | undefined;
+
+  beforeEach(() => {
+    originalFetch = global.fetch;
+    originalApiBase = process.env.ZERNIO_API_BASE;
+    originalApiKey = process.env.ZERNIO_API_KEY;
+    originalMockExternalApis = process.env.MOCK_EXTERNAL_APIS;
+    process.env.ZERNIO_API_BASE = 'https://zernio.test/api';
+    process.env.ZERNIO_API_KEY = 'test-key';
+    delete process.env.MOCK_EXTERNAL_APIS;
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    if (originalApiBase === undefined) {
+      delete process.env.ZERNIO_API_BASE;
+    } else {
+      process.env.ZERNIO_API_BASE = originalApiBase;
+    }
+    if (originalApiKey === undefined) {
+      delete process.env.ZERNIO_API_KEY;
+    } else {
+      process.env.ZERNIO_API_KEY = originalApiKey;
+    }
+    if (originalMockExternalApis === undefined) {
+      delete process.env.MOCK_EXTERNAL_APIS;
+    } else {
+      process.env.MOCK_EXTERNAL_APIS = originalMockExternalApis;
+    }
+  });
+
+  it('starts Google Business headless connect with the documented platform slug and redirect_url query', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          authUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
+          state: 'zernio-returned-state',
+        }),
+        {
+          status: 200,
+        },
+      ),
+    );
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const result = await zernioClient.startConnect({
+      profileId: 'prof_123',
+      redirectUrl: 'https://app.example/api/zernio/connect/callback',
+      state: 'state-abc',
+    });
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    const requestUrl = new URL(String(url));
+
+    expect(requestUrl.pathname).toBe('/api/v1/connect/googlebusiness');
+    expect(requestUrl.searchParams.get('profileId')).toBe('prof_123');
+    expect(requestUrl.searchParams.get('headless')).toBe('true');
+    expect(requestUrl.searchParams.get('redirect_url')).toBe(
+      'https://app.example/api/zernio/connect/callback',
+    );
+    expect(requestUrl.searchParams.has('redirectUrl')).toBe(false);
+    expect(requestUrl.searchParams.get('state')).toBe('state-abc');
+    expect(init).toMatchObject({
+      method: 'GET',
+      headers: expect.objectContaining({ Authorization: 'Bearer test-key' }),
+    });
+    expect(result.state).toBe('zernio-returned-state');
+  });
+
+  it('lists Google Business locations using profileId and pendingDataToken', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          locations: [{ id: 'loc-1', name: 'Location 1', address: '1 Main St' }],
+        }),
+        { status: 200 },
+      ),
+    );
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    await zernioClient.listLocations({
+      profileId: 'prof_123',
+      pendingDataToken: 'pdt-123',
+      connectToken: 'ct_123',
+    });
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    const requestUrl = new URL(String(url));
+
+    expect(requestUrl.pathname).toBe('/api/v1/connect/googlebusiness/locations');
+    expect(requestUrl.searchParams.get('profileId')).toBe('prof_123');
+    expect(requestUrl.searchParams.get('pendingDataToken')).toBe('pdt-123');
+    expect(init).toMatchObject({
+      method: 'GET',
+      headers: expect.objectContaining({
+        Authorization: 'Bearer test-key',
+        'X-Connect-Token': 'ct_123',
+      }),
+    });
+  });
+
+  it('selects Google Business location with profileId and pendingDataToken body', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          account: { accountId: 'acct-123', selectedLocationId: 'loc-1' },
+        }),
+        { status: 200 },
+      ),
+    );
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const result = await zernioClient.selectLocation({
+      profileId: 'prof_123',
+      pendingDataToken: 'pdt-123',
+      connectToken: 'ct_123',
+      locationId: 'loc-1',
+    });
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    const requestUrl = new URL(String(url));
+
+    expect(result.accountId).toBe('acct-123');
+    expect(requestUrl.pathname).toBe('/api/v1/connect/googlebusiness/select-location');
+    expect(JSON.parse(String(init.body))).toEqual({
+      profileId: 'prof_123',
+      locationId: 'loc-1',
+      pendingDataToken: 'pdt-123',
+    });
+    expect(init).toMatchObject({
+      method: 'POST',
+      headers: expect.objectContaining({
+        Authorization: 'Bearer test-key',
+        'X-Connect-Token': 'ct_123',
+      }),
+    });
+  });
+});
+
 describe('mock mode', () => {
   beforeEach(() => {
     process.env.MOCK_EXTERNAL_APIS = 'true';

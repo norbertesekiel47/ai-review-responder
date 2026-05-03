@@ -19,9 +19,12 @@
 
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { sql } from '../../src/lib/db/server';
-import { getCacheRedis } from '../../src/lib/db/redis-cache';
 import { claimInboundEvent } from './shared';
 import { verifyZernioSignature } from './zernio-verify';
+import {
+  parseZernioReviewWebhook,
+  ZernioReviewWebhookParseError,
+} from '../../src/lib/zernio/parse-review-webhook';
 
 const LOG_PREFIX = '[ingress/zernio]';
 
@@ -116,14 +119,21 @@ export async function handleZernioWebhook(
   // 'invalid_signature_format'; valid shape but bad bytes returns
   // 'invalid_signature'. The verifier collapses both cases into a boolean,
   // so we surface the format error explicitly here.
+  //
+  // Future-proof: tolerate Stripe/GitHub-style 'sha256=' prefix in case
+  // Zernio ever changes its signature shape. Strip the prefix before
+  // verification so the verifier sees a bare hex string either way.
   const HEX_64 = /^[0-9a-f]{64}$/i;
-  if (!signature || !HEX_64.test(signature)) {
+  const strippedSignature = signature.startsWith('sha256=')
+    ? signature.slice('sha256='.length)
+    : signature;
+  if (!strippedSignature || !HEX_64.test(strippedSignature)) {
     console.warn(`${LOG_PREFIX} Missing or malformed x-zernio-signature header`);
     reply.status(401).send({ error: 'invalid_signature_format' });
     return;
   }
 
-  if (!verifyZernioSignature(rawBody, signature, webhookSecret)) {
+  if (!verifyZernioSignature(rawBody, strippedSignature, webhookSecret)) {
     console.warn(`${LOG_PREFIX} Signature verification failed`);
     reply.status(401).send({ error: 'invalid_signature' });
     return;
@@ -184,11 +194,95 @@ export async function handleZernioWebhook(
 
       case 'review.new':
       case 'review.updated': {
-        // Phase 3 readiness counter — we don't act on these yet (SerpAPI
-        // remains the ingestion source) but tracking the volume validates
-        // that Zernio's review feed is live and observable.
-        const today = new Date().toISOString().slice(0, 10);
-        await getCacheRedis().incrby(`zernio_event_seen:${eventType}:${today}`, 1);
+        // Fan-out per spec §4.3: emit one ingest_zernio_review outbox row per
+        // active connection at the firing Zernio account. When the payload
+        // carries a parseable location, narrow the fan-out to that exact
+        // location to avoid sibling businesses at the same account walking
+        // listReviews + escalating to review_exceptions on every webhook.
+        // Account-wide fallback only when payload has no location segment.
+        let parsed;
+        try {
+          parsed = parseZernioReviewWebhook(body);
+        } catch (err) {
+          if (err instanceof ZernioReviewWebhookParseError) {
+            console.warn(`${LOG_PREFIX} ${eventType} unparseable: ${err.message}`);
+            break;  // 200 OK — Zernio shouldn't retry malformed payloads
+          }
+          throw err;
+        }
+
+        console.log(
+          `${LOG_PREFIX} ${eventType} received eventId=${eventId} account=${parsed.accountId} review=${parsed.reviewId}` +
+            (parsed.locationIdFromPayload ? ` location=${parsed.locationIdFromPayload}` : ' (account-wide fan-out)'),
+        );
+
+        // ON CONFLICT DO NOTHING dedups against any non-terminal outbox
+        // row already in flight for the same (business, zernio_review_id).
+        // Migration 030's partial unique index is the conflict target.
+        // Without this, Zernio's webhook retry on worker crash would
+        // produce duplicate outbox rows that all do the same listReviews
+        // walk → wasted Zernio API quota.
+        let fanoutResult;
+        if (parsed.locationIdFromPayload) {
+          fanoutResult = await sql`
+            INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+            SELECT
+              gen_random_uuid(),
+              'ingest_zernio_review',
+              'business',
+              zc.business_id,
+              jsonb_build_object(
+                'business_id', zc.business_id,
+                'zernio_account_id', ${parsed.accountId}::text,
+                'zernio_location_id', zc.zernio_location_id,
+                'zernio_review_id', ${parsed.reviewId}::text,
+                'correlation_id', ${eventId}::text
+              ),
+              'pending'
+            FROM zernio_connections zc
+            WHERE zc.zernio_account_id = ${parsed.accountId}
+              AND zc.zernio_location_id = ${parsed.locationIdFromPayload}
+              AND zc.status = 'active'
+            ON CONFLICT (aggregate_id, (payload->>'zernio_review_id'))
+              WHERE topic = 'ingest_zernio_review'
+                AND status IN ('pending', 'dispatching', 'dispatched')
+            DO NOTHING
+          `;
+        } else {
+          fanoutResult = await sql`
+            INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+            SELECT
+              gen_random_uuid(),
+              'ingest_zernio_review',
+              'business',
+              zc.business_id,
+              jsonb_build_object(
+                'business_id', zc.business_id,
+                'zernio_account_id', ${parsed.accountId}::text,
+                'zernio_location_id', zc.zernio_location_id,
+                'zernio_review_id', ${parsed.reviewId}::text,
+                'correlation_id', ${eventId}::text
+              ),
+              'pending'
+            FROM zernio_connections zc
+            WHERE zc.zernio_account_id = ${parsed.accountId}
+              AND zc.status = 'active'
+            ON CONFLICT (aggregate_id, (payload->>'zernio_review_id'))
+              WHERE topic = 'ingest_zernio_review'
+                AND status IN ('pending', 'dispatching', 'dispatched')
+            DO NOTHING
+          `;
+        }
+        const inserted = fanoutResult.count ?? 0;
+        if (inserted === 0) {
+          console.warn(
+            `${LOG_PREFIX} ${eventType} fan-out matched 0 active connections for account=${parsed.accountId}` +
+              (parsed.locationIdFromPayload ? ` location=${parsed.locationIdFromPayload}` : '') +
+              ` — webhook ignored (no business has connected this account/location)`,
+          );
+        } else {
+          console.log(`${LOG_PREFIX} ${eventType} fan-out enqueued ${inserted} outbox row(s)`);
+        }
         break;
       }
 

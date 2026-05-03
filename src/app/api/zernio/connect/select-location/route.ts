@@ -251,6 +251,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     let accountId: string;
     try {
       const result = await zernioClient.selectLocation({
+        profileId: stored.profileId,
+        pendingDataToken: stored.pending_data_token,
         connectToken: stored.connect_token,
         locationId,
       });
@@ -372,7 +374,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       throw new ZernioRouteError(409, 'finalize_unknown_admin_required');
     }
 
-    // 8d. DB transaction: INSERT zernio_connections + drain outbox.
+    // 8d. DB transaction: INSERT zernio_connections + drain outbox + (on
+    // first activation per the needs_backfill predicate) initial-backfill
+    // outbox enqueue. All in the same transaction per spec §6.8.
+    const newConnectionId = uuidv7();
     try {
       await sql.begin(async (tx) => {
         await tx`
@@ -380,7 +385,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             id, business_id, zernio_profile_id, zernio_account_id,
             zernio_location_id, status, connected_at, created_at, updated_at
           ) VALUES (
-            ${uuidv7()},
+            ${newConnectionId},
             ${stored.businessId},
             ${stored.profileId},
             ${accountId},
@@ -405,6 +410,66 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             5
           )
         `;
+
+        // Backfill-needed predicate (spec §6.8 round-final M2). Fires when
+        // EITHER (a) no prior connect existed for this business OR
+        // (b) prior connections existed but no backfill has ever COMPLETED
+        // (handles the case where a prior backfill auth-failed mid-flight).
+        // The worker's ON CONFLICT (business_id) DO NOTHING on
+        // zernio_backfill_runs is the second-line guard.
+        const [predicate] = await tx<{ needs_backfill: boolean }[]>`
+          SELECT (
+            NOT EXISTS (
+              SELECT 1 FROM zernio_connections
+              WHERE business_id = ${stored.businessId}
+                AND id != ${newConnectionId}
+                AND connected_at IS NOT NULL
+            )
+            OR NOT EXISTS (
+              SELECT 1 FROM zernio_backfill_runs
+              WHERE business_id = ${stored.businessId}
+                AND completed_at IS NOT NULL
+            )
+          ) AS needs_backfill
+        `;
+
+        if (predicate?.needs_backfill) {
+          const [bizRow] = await tx<{
+            subscription_tier: string;
+            subscription_activated_at: Date | null;
+          }[]>`
+            SELECT subscription_tier, subscription_activated_at
+            FROM businesses WHERE id = ${stored.businessId}
+          `;
+
+          if (bizRow?.subscription_activated_at) {
+            await tx`
+              INSERT INTO job_outbox (
+                id, topic, aggregate_type, aggregate_id, payload, status
+              ) VALUES (
+                ${uuidv7()},
+                'zernio_initial_backfill',
+                'business',
+                ${stored.businessId},
+                ${jsonb({
+                  business_id: stored.businessId,
+                  zernio_account_id: accountId,
+                  zernio_location_id: locationId,
+                  subscription_tier: bizRow.subscription_tier,
+                  subscription_activated_at: bizRow.subscription_activated_at.toISOString(),
+                  correlation_id: uuidv7(),
+                })},
+                'pending'
+              )
+            `;
+          } else {
+            // Pre-payment connect — connect flow is gated on active
+            // subscription upstream, so this branch is unreachable.
+            console.warn(
+              `[zernio-connect] Connect succeeded but subscription_activated_at NULL for ${stored.businessId}`,
+            );
+          }
+        }
       });
     } catch (dbErr) {
       // 8e. Round-12 + round-13 post-accountId recovery. Zernio committed

@@ -3,7 +3,7 @@
 import { useState } from 'react';
 
 interface Plan {
-  tier: 'founding' | 'standard';
+  tier: 'founding' | 'standard' | 'premium';
   name: string;
   price: string;
   badge: string;
@@ -53,15 +53,31 @@ const PLANS: readonly Plan[] = [
       'Custom response style guide',
     ],
   },
+  {
+    tier: 'premium',
+    name: 'Premium',
+    price: '$199',
+    badge: 'Multi-location',
+    badgeColor: '#2a2a2a',
+    badgeText: '#ffffff',
+    description: 'For multi-location brands and high-volume reviewers.',
+    highlight: false,
+    cta: 'Choose Premium',
+    features: [
+      'Everything in Standard',
+      'Up to 50 historical reviews backfilled on connect',
+      'Priority support',
+    ],
+  },
 ] as const;
 
 export function PlanPickerClient({ cancelled }: { cancelled: boolean }) {
-  const [selecting, setSelecting] = useState<'founding' | 'standard' | null>(
+  const [selecting, setSelecting] = useState<'founding' | 'standard' | 'premium' | null>(
     null,
   );
   const [error, setError] = useState('');
 
-  async function handlePick(tier: 'founding' | 'standard') {
+  async function handlePick(tier: 'founding' | 'standard' | 'premium') {
     if (selecting) return;
     setSelecting(tier);
     setError('');
@@ -102,7 +118,7 @@ export function PlanPickerClient({ cancelled }: { cancelled: boolean }) {
   }
 
   return (
-    <div className="w-full max-w-4xl">
+    <div className="w-full max-w-6xl">
       {cancelled && (
         <p className="text-sm text-amber-700 mb-4 text-center">
           No worries — pick a plan when you&apos;re ready.
@@ -115,7 +131,7 @@ export function PlanPickerClient({ cancelled }: { cancelled: boolean }) {
         You can switch tiers any time from your dashboard.
       </p>
 
-      <div className="grid md:grid-cols-2 gap-6">
+      <div className="grid md:grid-cols-3 gap-6">
         {PLANS.map((plan) => {
           const isLoading = selecting === plan.tier;
           const isOtherLoading = selecting !== null && !isLoading;

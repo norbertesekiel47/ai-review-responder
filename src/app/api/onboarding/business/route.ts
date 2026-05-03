@@ -6,10 +6,7 @@ import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { BusinessOnboardingSchema } from '@/lib/shared/schemas';
 import { extractPlaceId } from '@/lib/reviews/url-parser';
-import type {
-  SyncReviewsPayload,
-  ValidatePlaceIdPayload,
-} from '@/lib/shared/worker-types';
+import type { ValidatePlaceIdPayload } from '@/lib/shared/worker-types';
 
 export const dynamic = 'force-dynamic';
 
@@ -170,33 +167,27 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const data = parsed.data;
 
   // 9. Resolve place id state. PlaceAutocomplete path supplies googlePlaceId
-  //    directly (verified). Maps URL path supplies googleMapsUrl which the
-  //    PlaceIdValidationWorker resolves; we may extract a tentative placeId
-  //    here from the URL but place_id_verified stays false until the worker
-  //    confirms it.
+  //    directly (verified) — review ingestion is now webhook-driven via Zernio,
+  //    so no outbox row is needed for the verified path.
+  //    Maps URL path supplies googleMapsUrl which the PlaceIdValidationWorker
+  //    resolves; we extract a tentative placeId but place_id_verified stays
+  //    false until the worker confirms it.
   let resolvedPlaceId: string | null = null;
   let placeIdVerified = false;
-  let topic: 'sync_reviews' | 'validate_place_id';
-  let payload: SyncReviewsPayload | ValidatePlaceIdPayload;
+  let validatePayload: ValidatePlaceIdPayload | null = null;
 
   const correlationId = uuidv7();
   if (data.googlePlaceId) {
     resolvedPlaceId = data.googlePlaceId;
     placeIdVerified = true;
-    topic = 'sync_reviews';
-    payload = {
-      business_id: bizRow.id,
-      google_place_id: resolvedPlaceId,
-      correlation_id: correlationId,
-    };
+    // No outbox enqueue — review ingestion happens via Zernio webhooks now.
   } else {
     // googleMapsUrl branch (BusinessOnboardingSchema's XOR refine guarantees
     // one of the two is present; we already validated above).
     const mapsUrl = data.googleMapsUrl!;
     resolvedPlaceId = extractPlaceId(mapsUrl); // may be null or a hex CID
     placeIdVerified = false;
-    topic = 'validate_place_id';
-    payload = {
+    validatePayload = {
       business_id: bizRow.id,
       google_maps_url: mapsUrl,
       correlation_id: correlationId,
@@ -260,19 +251,21 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         WHERE id = ${bizRow.id}::uuid
       `;
 
-      // INSERT ... SELECT WHERE NOT EXISTS — defense-in-depth dedup over
-      // BOTH topics × non-terminal statuses. Matches the pattern used by
-      // the (about-to-be-removed) Stripe webhook initial-sync block.
-      await tx`
-        INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-        SELECT ${uuidv7()}::uuid, ${topic}, 'business', ${bizRow.id}::uuid, ${jsonb(payload)}, 'pending'
-        WHERE NOT EXISTS (
-          SELECT 1 FROM job_outbox jo
-          WHERE jo.aggregate_id = ${bizRow.id}::uuid
-            AND jo.topic IN ('sync_reviews', 'validate_place_id')
-            AND jo.status IN ('pending', 'dispatching', 'dispatched')
-        )
-      `;
+      // INSERT validate_place_id outbox row only on the Maps URL path.
+      // The PlaceAutocomplete-verified path no longer enqueues anything —
+      // review ingestion is webhook-driven via Zernio.
+      if (validatePayload) {
+        await tx`
+          INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+          SELECT ${uuidv7()}::uuid, 'validate_place_id', 'business', ${bizRow.id}::uuid, ${jsonb(validatePayload)}, 'pending'
+          WHERE NOT EXISTS (
+            SELECT 1 FROM job_outbox jo
+            WHERE jo.aggregate_id = ${bizRow.id}::uuid
+              AND jo.topic = 'validate_place_id'
+              AND jo.status IN ('pending', 'dispatching', 'dispatched')
+          )
+        `;
+      }
     });
   } catch (err) {
     console.error('[api/onboarding/business] transaction failed:', err);
