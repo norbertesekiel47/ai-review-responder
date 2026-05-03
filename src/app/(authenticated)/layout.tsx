@@ -44,7 +44,10 @@ export default async function AuthenticatedLayout({
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <OwnerNav businessName={businessName} />
+      <OwnerNav
+        businessName={businessName}
+        pastRepliesEnabled={process.env.PAST_REPLIES_VIEW_ENABLED === 'true'}
+      />
       <main className="mx-auto max-w-4xl px-4 py-6">{children}</main>
     </div>
   );

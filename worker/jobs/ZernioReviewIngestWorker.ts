@@ -191,8 +191,10 @@ export async function handleZernioReviewIngest(job: Job<IngestZernioReviewPayloa
     return;
   }
 
-  // 6. External-reply reconciliation.
-  if (target.reviewReply !== null) {
+  // 6. External-reply reconciliation. Loose-equality so an omitted
+  //    (undefined) reviewReply doesn't get misrouted as 'answered' — see
+  //    Code Review fix Medium 1 (2026-05-02).
+  if (target.reviewReply != null) {
     await reconcileExternallyAnsweredReview(
       target, business_id, zernio_account_id, zernio_location_id, logger,
     );

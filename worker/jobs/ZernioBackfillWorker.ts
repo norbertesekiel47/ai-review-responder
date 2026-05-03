@@ -121,9 +121,12 @@ export async function handleZernioBackfill(job: Job<ZernioInitialBackfillPayload
     (z) => extractLocationFromReviewName(z.name) === zernio_location_id,
   );
 
-  const answered = locationScoped.filter((z) => z.reviewReply !== null);
+  // Loose-equality so an omitted (undefined) reviewReply on the Zernio
+  // wire is treated as 'unanswered'. listReviews normalizes to null today,
+  // but defense-in-depth — see Code Review fix Medium 1 (2026-05-02).
+  const answered = locationScoped.filter((z) => z.reviewReply != null);
   const unanswered = locationScoped
-    .filter((z) => z.reviewReply === null)
+    .filter((z) => z.reviewReply == null)
     .sort((a, b) => new Date(b.createTime).getTime() - new Date(a.createTime).getTime());
 
   // Reconcile already-answered reviews. Collect failures; throw at end so

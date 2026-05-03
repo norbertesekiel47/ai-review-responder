@@ -7,9 +7,12 @@ import { createBrowserSupabaseClient } from '@/lib/db/browser';
 
 interface OwnerNavProps {
   businessName: string;
+  /** Server-authoritative — read at layout level from
+   *  process.env.PAST_REPLIES_VIEW_ENABLED. No NEXT_PUBLIC_* companion. */
+  pastRepliesEnabled?: boolean;
 }
 
-export function OwnerNav({ businessName }: OwnerNavProps) {
+export function OwnerNav({ businessName, pastRepliesEnabled = false }: OwnerNavProps) {
   const router = useRouter();
   const [signingOut, setSigningOut] = useState(false);
   const [signOutError, setSignOutError] = useState(false);
@@ -48,6 +51,11 @@ export function OwnerNav({ businessName }: OwnerNavProps) {
             <Link href="/dashboard" className="rounded-md px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 hover:text-gray-900">
               Dashboard
             </Link>
+            {pastRepliesEnabled && (
+              <Link href="/dashboard/past-replies" className="rounded-md px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 hover:text-gray-900">
+                Past Replies
+              </Link>
+            )}
             <Link href="/settings" className="rounded-md px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 hover:text-gray-900">
               Settings
             </Link>
