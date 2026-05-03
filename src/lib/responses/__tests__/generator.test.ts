@@ -34,11 +34,34 @@ vi.mock('@/lib/costs/tracker', () => ({
   setCachedGeneration: vi.fn().mockResolvedValue(undefined),
   releaseCost: vi.fn().mockResolvedValue(undefined),
   releaseConcurrencySlot: vi.fn().mockResolvedValue(undefined),
-  CostLimitExceededError: class extends Error { name = 'CostLimitExceededError'; },
-  GlobalCostLimitExceededError: class extends Error { name = 'GlobalCostLimitExceededError'; },
-  ConcurrencyLimitExceededError: class extends Error { name = 'ConcurrencyLimitExceededError'; },
-  RegenBudgetExceededError: class extends Error { name = 'RegenBudgetExceededError'; },
+  CostLimitExceededError: class CostLimitExceededError extends Error {
+    name = 'CostLimitExceededError';
+    constructor(public readonly businessId: string) {
+      super(`Daily cost limit exceeded for business ${businessId}`);
+    }
+  },
+  GlobalCostLimitExceededError: class GlobalCostLimitExceededError extends Error {
+    name = 'GlobalCostLimitExceededError';
+    constructor() { super('Global daily cost limit exceeded'); }
+  },
+  ConcurrencyLimitExceededError: class ConcurrencyLimitExceededError extends Error {
+    name = 'ConcurrencyLimitExceededError';
+    constructor(public readonly businessId: string) {
+      super(`Concurrency limit exceeded for business ${businessId}`);
+    }
+  },
+  RegenBudgetExceededError: class RegenBudgetExceededError extends Error {
+    name = 'RegenBudgetExceededError';
+    constructor(public readonly reviewId: string) {
+      super(`Regeneration budget exceeded for review ${reviewId}`);
+    }
+  },
 }));
+
+vi.mock('@/lib/costs/cost-guard', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/costs/cost-guard')>('@/lib/costs/cost-guard');
+  return actual;
+});
 
 vi.mock('@/lib/costs/audit', () => ({
   recordApiCost: vi.fn().mockResolvedValue('cost-uuid-001'),
@@ -172,7 +195,7 @@ describe('generateResponse', () => {
   });
 
   it('production mode runs full cost guard lifecycle', async () => {
-        openaiCreate.mockResolvedValueOnce(openAIResponse('Thanks!'));
+    openaiCreate.mockResolvedValueOnce(openAIResponse('Thanks!'));
 
     const tracker = await import('@/lib/costs/tracker');
     const audit = await import('@/lib/costs/audit');
@@ -182,9 +205,9 @@ describe('generateResponse', () => {
     expect(tracker.reserveCost).toHaveBeenCalledWith('biz-001', 'standard');
     expect(tracker.acquireConcurrencySlot).toHaveBeenCalledWith('biz-001');
     expect(tracker.finalizeCost).toHaveBeenCalled();
+    expect(tracker.releaseConcurrencySlot).toHaveBeenCalledWith('biz-001');
     expect(tracker.setCachedGeneration).toHaveBeenCalled();
     expect(audit.recordApiCost).toHaveBeenCalled();
-    expect(tracker.releaseConcurrencySlot).toHaveBeenCalledWith('biz-001');
   });
 
   it('returns cached result with costUsd 0 on cache hit', async () => {
@@ -280,7 +303,7 @@ describe('generateResponse', () => {
     expect(tracker.releaseConcurrencySlot).not.toHaveBeenCalled();
   });
 
-  it('returns result even when finally-block cleanup throws', async () => {
+  it('returns result even when wrapper cleanup throws', async () => {
     openaiCreate.mockResolvedValueOnce(openAIResponse('Good response'));
 
     const tracker = await import('@/lib/costs/tracker');
@@ -292,5 +315,38 @@ describe('generateResponse', () => {
     const result = await generateResponse(review, businessContext, [], productionOptions);
 
     expect(result.responseText).toBe('Good response');
+  });
+
+  it('finalizeCost error propagates, no releaseCost, no cache or audit, slot released', async () => {
+    openaiCreate.mockResolvedValueOnce(openAIResponse('Thanks!'));
+
+    const tracker = await import('@/lib/costs/tracker');
+    const audit = await import('@/lib/costs/audit');
+    const finalizeErr = new Error('Redis timeout during finalize');
+    vi.mocked(tracker.finalizeCost).mockRejectedValueOnce(finalizeErr);
+
+    const { generateResponse } = await import('../generator');
+    await expect(
+      generateResponse(review, businessContext, [], productionOptions),
+    ).rejects.toThrow(finalizeErr);
+
+    expect(tracker.releaseCost).not.toHaveBeenCalled();
+    expect(tracker.releaseConcurrencySlot).toHaveBeenCalledWith('biz-001');
+    expect(audit.recordApiCost).not.toHaveBeenCalled();
+    expect(tracker.setCachedGeneration).not.toHaveBeenCalled();
+  });
+
+  it('finalizeCost error with transient-shaped error propagates as plain Error, not TransientLLMError', async () => {
+    openaiCreate.mockResolvedValueOnce(openAIResponse('Thanks!'));
+
+    const tracker = await import('@/lib/costs/tracker');
+    const finalizeErr = Object.assign(new Error('ECONNRESET during finalize'), { code: 'ECONNRESET' });
+    vi.mocked(tracker.finalizeCost).mockRejectedValueOnce(finalizeErr);
+
+    const { generateResponse } = await import('../generator');
+
+    await expect(
+      generateResponse(review, businessContext, [], productionOptions),
+    ).rejects.toThrow(finalizeErr);
   });
 });
