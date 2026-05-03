@@ -2,7 +2,8 @@ import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
 import { isMockMode } from '@/lib/shared/mock-mode';
 import { recordApiCost, calculateCostUsd } from '@/lib/costs/audit';
-import { reserveCost, finalizeCost, releaseCost } from '@/lib/costs/tracker';
+import { withCostGuard } from '@/lib/costs/cost-guard';
+import { redactProviderError } from './llm-error-classifier';
 
 // ── Public types ────────────────────────────────────────────────────
 
@@ -108,7 +109,7 @@ async function callLLMWithFallback(userPrompt: string): Promise<LLMCallResult> {
   try {
     return await callOpenAI(userPrompt);
   } catch (openaiError) {
-    console.error('[review-summary] OpenAI call failed, falling back to Anthropic:', openaiError);
+    console.error('[review-summary] OpenAI call failed, falling back to Anthropic:', redactProviderError(openaiError));
     return callAnthropic(userPrompt);
   }
 }
@@ -131,6 +132,26 @@ function buildUserPrompt(reviews: ReviewForSummary[]): string {
 const MOCK_SUMMARY =
   'Overall customer sentiment is positive with recurring praise for service quality and responsiveness. A few reviews mention wait times as an area for improvement. Recommendation: consider streamlining peak-hour workflows to reduce wait times.';
 
+async function tryRecordApiCost(
+  businessId: string,
+  llm: { provider: 'openai' | 'anthropic'; usage: { promptTokens: number; completionTokens: number } },
+  costUsd: number,
+): Promise<void> {
+  try {
+    await recordApiCost({
+      businessId,
+      provider: llm.provider,
+      endpoint: 'review-summary',
+      inputTokens: llm.usage.promptTokens,
+      outputTokens: llm.usage.completionTokens,
+      costUsd,
+      responseId: null,
+    });
+  } catch (auditError) {
+    console.error('[review-summary] Failed to record cost audit:', auditError);
+  }
+}
+
 export async function generateReviewSummary(
   reviews: ReviewForSummary[],
   businessId: string,
@@ -145,64 +166,35 @@ export async function generateReviewSummary(
   const capped = reviews.slice(0, MAX_REVIEWS_FOR_SUMMARY);
   const userPrompt = buildUserPrompt(capped);
 
-  // Reserve budget before LLM call — summary is optional, degrade gracefully on limit
-  let dateStr: string;
+  let result: { llm: LLMCallResult; costUsd: number };
   try {
-    dateStr = await reserveCost(businessId, subscriptionTier);
-  } catch (err) {
-    console.warn('[review-summary] Cost reservation failed, skipping summary:', err instanceof Error ? err.message : err);
-    return null;
-  }
-
-  let finalized = false;
-  try {
-    const result = await callLLMWithFallback(userPrompt);
-
-    const costUsd = calculateCostUsd(
-      result.model,
-      result.usage.promptTokens,
-      result.usage.completionTokens,
-    );
-    const actualCostCents = Math.ceil(costUsd * 100);
-
-    try {
-      await finalizeCost(businessId, actualCostCents, dateStr);
-      finalized = true;
-    } catch (finalizeErr) {
-      console.error('[review-summary] Cost finalization failed:', finalizeErr);
-      finalized = true; // Budget already adjusted or attempted — don't double-refund
-    }
-
-    // Best-effort cost audit
-    try {
-      await recordApiCost({
+    result = await withCostGuard(
+      {
         businessId,
-        provider: result.provider,
-        endpoint: 'review-summary',
-        inputTokens: result.usage.promptTokens,
-        outputTokens: result.usage.completionTokens,
-        costUsd,
-        responseId: null,
-      });
-    } catch (auditError) {
-      console.error('[review-summary] Failed to record cost audit:', auditError);
-    }
-
-    return {
-      summaryText: result.text,
-      provider: result.provider,
-      costUsd,
-    };
-  } catch (error) {
-    console.error('[review-summary] Summary generation failed:', error);
+        subscriptionTier,
+        withConcurrency: false,
+        onFinalizeError: 'log-and-return-value',
+      },
+      async () => {
+        const llm = await callLLMWithFallback(userPrompt);
+        const usd = calculateCostUsd(
+          llm.model,
+          llm.usage.promptTokens,
+          llm.usage.completionTokens,
+        );
+        return { value: { llm, costUsd: usd }, actualCostCents: Math.ceil(usd * 100) };
+      },
+    );
+  } catch (err) {
+    console.warn('[review-summary] Generation failed, returning null:', err instanceof Error ? err.message : err);
     return null;
-  } finally {
-    if (!finalized) {
-      try {
-        await releaseCost(businessId, dateStr);
-      } catch (releaseErr) {
-        console.error('[review-summary] Cost release failed:', releaseErr);
-      }
-    }
   }
+
+  await tryRecordApiCost(businessId, result.llm, result.costUsd);
+
+  return {
+    summaryText: result.llm.text,
+    provider: result.llm.provider,
+    costUsd: result.costUsd,
+  };
 }

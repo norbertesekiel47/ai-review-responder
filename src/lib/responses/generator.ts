@@ -13,13 +13,14 @@ import { buildDemoPrompt, buildProductionPrompt } from './prompt-builder';
 import {
   checkIdempotentCache,
   clearCachedGeneration,
-  reserveCost,
-  acquireConcurrencySlot,
-  finalizeCost,
   setCachedGeneration,
-  releaseCost,
-  releaseConcurrencySlot,
 } from '@/lib/costs/tracker';
+import { withCostGuard } from '@/lib/costs/cost-guard';
+import {
+  isTransientLLMError,
+  TransientLLMError,
+  redactProviderError,
+} from './llm-error-classifier';
 import { recordApiCost, calculateCostUsd } from '@/lib/costs/audit';
 
 // Re-export error classes so callers can import from one place
@@ -29,6 +30,7 @@ export {
   ConcurrencyLimitExceededError,
   RegenBudgetExceededError,
 } from '@/lib/costs/tracker';
+export { TransientLLMError } from './llm-error-classifier';
 
 // ── Constants ────────────────────────────────────────────────────────
 
@@ -46,48 +48,6 @@ interface CachedGeneration {
   model: string;
   promptTokens: number;
   completionTokens: number;
-}
-
-/**
- * Wraps a transient LLM provider error so callers can rethrow for retry
- * instead of marking the outbox failed. Permanent errors (auth, bad
- * request, guardrail) surface as ordinary Errors.
- */
-export class TransientLLMError extends Error {
-  constructor(public readonly cause: unknown) {
-    super(cause instanceof Error ? cause.message : String(cause));
-    this.name = 'TransientLLMError';
-  }
-}
-
-// `instanceof` against a class that might be undefined (e.g. when the SDK is
-// mocked without its error subclasses) throws TypeError. Guard each check so
-// a minimal mock can't crash classification.
-function safeInstanceOf(err: unknown, ctor: unknown): boolean {
-  return typeof ctor === 'function' && err instanceof (ctor as new (...args: unknown[]) => unknown);
-}
-
-function isTransientLLMError(err: unknown): boolean {
-  if (safeInstanceOf(err, OpenAI.APIConnectionError)) return true;
-  if (safeInstanceOf(err, OpenAI.APIConnectionTimeoutError)) return true;
-  if (safeInstanceOf(err, OpenAI.RateLimitError)) return true;
-  if (safeInstanceOf(err, OpenAI.InternalServerError)) return true;
-  if (safeInstanceOf(err, Anthropic.APIConnectionError)) return true;
-  if (safeInstanceOf(err, Anthropic.APIConnectionTimeoutError)) return true;
-  if (safeInstanceOf(err, Anthropic.RateLimitError)) return true;
-  if (safeInstanceOf(err, Anthropic.InternalServerError)) return true;
-  // Generic API errors: retry on 5xx and 429
-  if (safeInstanceOf(err, OpenAI.APIError) || safeInstanceOf(err, Anthropic.APIError)) {
-    const status = (err as { status?: number }).status;
-    if (typeof status === 'number' && (status >= 500 || status === 429 || status === 408)) return true;
-  }
-  // Node fetch / undici timeouts + ECONNRESET surface as plain Errors
-  if (err instanceof Error) {
-    const code = (err as { code?: string }).code;
-    if (code === 'ETIMEDOUT' || code === 'ECONNRESET' || code === 'ECONNREFUSED' || code === 'EAI_AGAIN') return true;
-    if (err.name === 'AbortError' || err.name === 'TimeoutError') return true;
-  }
-  return false;
 }
 
 // ── Type guard ───────────────────────────────────────────────────────
@@ -171,13 +131,11 @@ async function runProductionMode(
   const { reviewId, version, businessId, subscriptionTier } = options;
 
   // Check idempotent cache — return immediately if already generated.
-  // skipCache is used by the avoid-facts retry so a cached violating
-  // response doesn't short-circuit the regeneration.
   if (!options.skipCache) {
     const cached = await checkIdempotentCache(reviewId, version);
     if (cached) {
-      try {
-        const parsed = JSON.parse(cached) as CachedGeneration;
+      const parsed = tryParseCachedGeneration(cached, reviewId, version);
+      if (parsed) {
         return {
           responseText: parsed.responseText,
           language: parsed.language,
@@ -190,106 +148,113 @@ async function runProductionMode(
           costUsd: 0,
           apiCostId: null,
         };
-      } catch (err) {
-        // Corrupt cache entry — drop it and fall through to fresh generation.
-        console.warn(
-          `[generator] Corrupt cached generation for ${reviewId} v${version}: ${err instanceof Error ? err.message : err}`,
-        );
-        await clearCachedGeneration(reviewId, version).catch(() => { /* best effort */ });
       }
     }
   }
 
-  // Phase 1: Reserve cost + acquire concurrency
-  const reservationDate = await reserveCost(businessId, subscriptionTier);
+  // M3: Cache write happens INSIDE the wrapper closure (before slot release).
+  // If we wrote the cache after the wrapper returned, a second worker for
+  // the same (reviewId, version) could pass `checkIdempotentCache` (still
+  // empty), acquire a fresh slot, and make a duplicate LLM call. The
+  // downstream UNIQUE constraint on responses(review_id, version) ensures
+  // only one row lands, but both LLM calls are billed. Keeping the slot
+  // held for the cache write (~1 Redis RTT) closes the race; the audit
+  // write stays outside because it's pure observability with no race risk.
+  const { llmResult, responseLanguage, costUsd } = await withCostGuard(
+    { businessId, subscriptionTier, withConcurrency: true },
+    async () => {
+      const prompt = buildProductionPrompt(review, business, voiceExamples);
+      const llm = await callLLMWithFallback(prompt.systemPrompt, prompt.userPrompt);
+      const usd = calculateCostUsd(
+        llm.model,
+        llm.usage.promptTokens,
+        llm.usage.completionTokens,
+      );
+      const lang = detectResponseLanguage(llm.text);
 
-  let concurrencyAcquired = false;
-  let finalized = false;
+      if (!options.skipCache) {
+        await tryWriteCache(reviewId, version, llm, lang);
+      }
+
+      return {
+        value: { llmResult: llm, responseLanguage: lang, costUsd: usd },
+        actualCostCents: Math.ceil(usd * 100),
+      };
+    },
+  );
+
+  const result: GenerationResult = {
+    responseText: llmResult.text,
+    language: responseLanguage,
+    provider: llmResult.provider,
+    model: llmResult.model,
+    usage: llmResult.usage,
+    costUsd,
+    apiCostId: null,
+  };
+
+  result.apiCostId = await tryRecordApiCost(businessId, llmResult, costUsd);
+
+  return result;
+}
+
+// ── Best-effort helpers for runProductionMode ────────────────────────
+
+function tryParseCachedGeneration(
+  cached: string,
+  reviewId: string,
+  version: number,
+): CachedGeneration | null {
   try {
-    await acquireConcurrencySlot(businessId);
-    concurrencyAcquired = true;
-
-    const prompt = buildProductionPrompt(review, business, voiceExamples);
-    const llmResult = await callLLMWithFallback(prompt.systemPrompt, prompt.userPrompt);
-
-    const costUsd = calculateCostUsd(
-      llmResult.model,
-      llmResult.usage.promptTokens,
-      llmResult.usage.completionTokens,
+    return JSON.parse(cached) as CachedGeneration;
+  } catch (err) {
+    console.warn(
+      `[generator] Corrupt cached generation for ${reviewId} v${version}: ${err instanceof Error ? err.message : err}`,
     );
-    const actualCostCents = Math.ceil(costUsd * 100);
+    clearCachedGeneration(reviewId, version).catch(() => { /* best effort */ });
+    return null;
+  }
+}
 
-    // Phase 2: Finalize — once finalized, NEVER refund even if later steps fail
-    await finalizeCost(businessId, actualCostCents, reservationDate);
-    finalized = true;
-
-    // Detect language from the response text (more reliable than review detection
-    // for short reviews where franc defaults to 'en')
-    const responseLanguage = detectResponseLanguage(llmResult.text);
-
-    const result: GenerationResult = {
+async function tryWriteCache(
+  reviewId: string,
+  version: number,
+  llmResult: { text: string; provider: 'openai' | 'anthropic'; model: string; usage: { promptTokens: number; completionTokens: number } },
+  responseLanguage: string,
+): Promise<void> {
+  try {
+    const cachePayload: CachedGeneration = {
       responseText: llmResult.text,
       language: responseLanguage,
       provider: llmResult.provider,
       model: llmResult.model,
-      usage: llmResult.usage,
-      costUsd,
-      apiCostId: null,
+      promptTokens: llmResult.usage.promptTokens,
+      completionTokens: llmResult.usage.completionTokens,
     };
+    await setCachedGeneration(reviewId, version, JSON.stringify(cachePayload));
+  } catch (cacheError) {
+    console.error('[generator] Failed to cache generation result:', cacheError);
+  }
+}
 
-    // Post-finalization bookkeeping: best-effort, must not throw.
-    // If cache write fails, a retry will re-generate (bounded by daily limit).
-    // If audit write fails, hourly reconciliation catches the gap.
-    // Skip cache write when skipCache is set (avoid-facts retry) — the caller
-    // will cache the final accepted result via a normal call.
-    if (!options.skipCache) {
-      try {
-        const cachePayload: CachedGeneration = {
-          responseText: llmResult.text,
-          language: responseLanguage,
-          provider: llmResult.provider,
-          model: llmResult.model,
-          promptTokens: llmResult.usage.promptTokens,
-          completionTokens: llmResult.usage.completionTokens,
-        };
-        await setCachedGeneration(reviewId, version, JSON.stringify(cachePayload));
-      } catch (cacheError) {
-        console.error('[generator] Failed to cache generation result:', cacheError);
-      }
-    }
-
-    try {
-      result.apiCostId = await recordApiCost({
-        businessId,
-        provider: llmResult.provider,
-        endpoint: llmResult.provider === 'openai' ? 'chat.completions' : 'messages',
-        inputTokens: llmResult.usage.promptTokens,
-        outputTokens: llmResult.usage.completionTokens,
-        costUsd,
-        responseId: null,
-      });
-    } catch (auditError) {
-      console.error('[generator] Failed to record api_costs audit row:', auditError);
-    }
-
-    return result;
-  } finally {
-    // Cleanup is best-effort — Redis TTLs are the safety net.
-    // Must not throw, or it would mask the real error / discard the result.
-    if (concurrencyAcquired) {
-      try {
-        await releaseConcurrencySlot(businessId);
-      } catch (err) {
-        console.error('[generator] Failed to release concurrency slot:', err);
-      }
-    }
-    if (!finalized) {
-      try {
-        await releaseCost(businessId, reservationDate);
-      } catch (err) {
-        console.error('[generator] Failed to release cost reservation:', err);
-      }
-    }
+async function tryRecordApiCost(
+  businessId: string,
+  llmResult: { provider: 'openai' | 'anthropic'; usage: { promptTokens: number; completionTokens: number } },
+  costUsd: number,
+): Promise<string | null> {
+  try {
+    return await recordApiCost({
+      businessId,
+      provider: llmResult.provider,
+      endpoint: llmResult.provider === 'openai' ? 'chat.completions' : 'messages',
+      inputTokens: llmResult.usage.promptTokens,
+      outputTokens: llmResult.usage.completionTokens,
+      costUsd,
+      responseId: null,
+    });
+  } catch (auditError) {
+    console.error('[generator] Failed to record api_costs audit row:', auditError);
+    return null;
   }
 }
 
@@ -323,16 +288,21 @@ async function callLLMWithFallback(
   try {
     return await callOpenAI(systemPrompt, userPrompt);
   } catch (openaiError) {
-    console.error('[generator] OpenAI call failed, falling back to Anthropic:', openaiError);
+    console.error('[generator] OpenAI call failed, falling back to Anthropic:', redactProviderError(openaiError));
     try {
       return await callAnthropic(systemPrompt, userPrompt);
     } catch (anthropicError) {
       // Both providers failed. If either failure is transient (network, 5xx,
       // rate-limit, timeout), surface as TransientLLMError so the worker
       // rethrows for BullMQ/outbox retry instead of terminal-failing work
-      // that a provider outage would otherwise lose.
-      if (isTransientLLMError(openaiError) || isTransientLLMError(anthropicError)) {
-        throw new TransientLLMError(anthropicError);
+      // that a provider outage would otherwise lose. Wrap the actually-
+      // transient cause — wrapping the wrong one would let the worker retry
+      // forever against a permanent failure (e.g. anthropic 401 after openai 503).
+      const openaiTransient = isTransientLLMError(openaiError);
+      const anthropicTransient = isTransientLLMError(anthropicError);
+      if (openaiTransient || anthropicTransient) {
+        const transientCause = anthropicTransient ? anthropicError : openaiError;
+        throw new TransientLLMError(transientCause);
       }
       throw anthropicError;
     }
