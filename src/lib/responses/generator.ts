@@ -16,6 +16,7 @@ import {
   setCachedGeneration,
 } from '@/lib/costs/tracker';
 import { withCostGuard } from '@/lib/costs/cost-guard';
+import { isTransientLLMError, TransientLLMError } from './llm-error-classifier';
 import { recordApiCost, calculateCostUsd } from '@/lib/costs/audit';
 
 // Re-export error classes so callers can import from one place
@@ -44,8 +45,6 @@ interface CachedGeneration {
   promptTokens: number;
   completionTokens: number;
 }
-
-import { isTransientLLMError, TransientLLMError } from './llm-error-classifier';
 
 // ── Type guard ───────────────────────────────────────────────────────
 

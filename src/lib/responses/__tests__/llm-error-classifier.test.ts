@@ -21,18 +21,21 @@ describe('isTransientLLMError', () => {
 
   it('returns true for OpenAI APIConnectionTimeoutError', async () => {
     const isTransientLLMError = await loadClassifier();
+    // @ts-expect-error SDK types don't expose cause in constructor at this TS level
     const err = new OpenAI.APIConnectionTimeoutError({ cause: new Error('timeout') });
     expect(isTransientLLMError(err)).toBe(true);
   });
 
   it('returns true for OpenAI RateLimitError', async () => {
     const isTransientLLMError = await loadClassifier();
+    // @ts-expect-error Headers param required by TS but undefined works at runtime
     const err = new OpenAI.RateLimitError(429, undefined, 'rate limited', undefined);
     expect(isTransientLLMError(err)).toBe(true);
   });
 
   it('returns true for OpenAI InternalServerError', async () => {
     const isTransientLLMError = await loadClassifier();
+    // @ts-expect-error Headers param required by TS but undefined works at runtime
     const err = new OpenAI.InternalServerError(500, undefined, 'internal', undefined);
     expect(isTransientLLMError(err)).toBe(true);
   });
@@ -47,18 +50,21 @@ describe('isTransientLLMError', () => {
 
   it('returns true for Anthropic APIConnectionTimeoutError', async () => {
     const isTransientLLMError = await loadClassifier();
+    // @ts-expect-error SDK types don't expose cause in constructor at this TS level
     const err = new Anthropic.APIConnectionTimeoutError({ cause: new Error('timeout') });
     expect(isTransientLLMError(err)).toBe(true);
   });
 
   it('returns true for Anthropic RateLimitError', async () => {
     const isTransientLLMError = await loadClassifier();
+    // @ts-expect-error Headers param required by TS but undefined works at runtime
     const err = new Anthropic.RateLimitError(429, 'rate limited', undefined, undefined);
     expect(isTransientLLMError(err)).toBe(true);
   });
 
   it('returns true for Anthropic InternalServerError', async () => {
     const isTransientLLMError = await loadClassifier();
+    // @ts-expect-error Headers param required by TS but undefined works at runtime
     const err = new Anthropic.InternalServerError(500, 'internal', undefined, undefined);
     expect(isTransientLLMError(err)).toBe(true);
   });
