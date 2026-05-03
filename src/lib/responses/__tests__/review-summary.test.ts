@@ -32,6 +32,8 @@ vi.mock('@/lib/costs/tracker', () => ({
   reserveCost: (...args: unknown[]) => mockReserveCost(...args),
   finalizeCost: (...args: unknown[]) => mockFinalizeCost(...args),
   releaseCost: (...args: unknown[]) => mockReleaseCost(...args),
+  acquireConcurrencySlot: vi.fn().mockResolvedValue(undefined),
+  releaseConcurrencySlot: vi.fn().mockResolvedValue(undefined),
   CostLimitExceededError: class CostLimitExceededError extends Error {
     constructor(public readonly businessId: string) {
       super(`Daily cost limit exceeded for business ${businessId}`);
@@ -45,6 +47,11 @@ vi.mock('@/lib/costs/tracker', () => ({
     }
   },
 }));
+
+vi.mock('@/lib/costs/cost-guard', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/costs/cost-guard')>('@/lib/costs/cost-guard');
+  return actual;
+});
 
 let mockModeEnabled = false;
 vi.mock('@/lib/shared/mock-mode', () => ({
@@ -213,5 +220,23 @@ describe('generateReviewSummary', () => {
     expect(result).toBeNull();
     expect(openaiCreate).not.toHaveBeenCalled();
     expect(anthropicCreate).not.toHaveBeenCalled();
+  });
+
+  it('finalizeCost error: returns summary, no releaseCost, recordApiCost still called', async () => {
+    const summaryText = 'Summary despite finalize flake.';
+    openaiCreate.mockResolvedValueOnce(openAIResponse(summaryText));
+
+    // Mock finalizeCost to throw (the wrapper will catch it due to onFinalizeError: 'log-and-return-value')
+    mockFinalizeCost.mockRejectedValueOnce(new Error('Redis timeout during finalize'));
+
+    const { recordApiCost } = await import('@/lib/costs/audit');
+    const generateReviewSummary = await getSut();
+    const result = await generateReviewSummary(makeReviews(3), 'biz-001');
+
+    expect(result).not.toBeNull();
+    expect(result!.summaryText).toBe(summaryText);
+    expect(mockReleaseCost).not.toHaveBeenCalled();
+    // recordApiCost is called AFTER the wrapper returns, so it still runs
+    expect(recordApiCost).toHaveBeenCalled();
   });
 });
