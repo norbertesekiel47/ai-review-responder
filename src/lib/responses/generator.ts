@@ -16,7 +16,11 @@ import {
   setCachedGeneration,
 } from '@/lib/costs/tracker';
 import { withCostGuard } from '@/lib/costs/cost-guard';
-import { isTransientLLMError, TransientLLMError } from './llm-error-classifier';
+import {
+  isTransientLLMError,
+  TransientLLMError,
+  redactProviderError,
+} from './llm-error-classifier';
 import { recordApiCost, calculateCostUsd } from '@/lib/costs/audit';
 
 // Re-export error classes so callers can import from one place
@@ -148,7 +152,15 @@ async function runProductionMode(
     }
   }
 
-  const { llmResult, costUsd } = await withCostGuard(
+  // M3: Cache write happens INSIDE the wrapper closure (before slot release).
+  // If we wrote the cache after the wrapper returned, a second worker for
+  // the same (reviewId, version) could pass `checkIdempotentCache` (still
+  // empty), acquire a fresh slot, and make a duplicate LLM call. The
+  // downstream UNIQUE constraint on responses(review_id, version) ensures
+  // only one row lands, but both LLM calls are billed. Keeping the slot
+  // held for the cache write (~1 Redis RTT) closes the race; the audit
+  // write stays outside because it's pure observability with no race risk.
+  const { llmResult, responseLanguage, costUsd } = await withCostGuard(
     { businessId, subscriptionTier, withConcurrency: true },
     async () => {
       const prompt = buildProductionPrompt(review, business, voiceExamples);
@@ -158,11 +170,19 @@ async function runProductionMode(
         llm.usage.promptTokens,
         llm.usage.completionTokens,
       );
-      return { value: { llmResult: llm, costUsd: usd }, actualCostCents: Math.ceil(usd * 100) };
+      const lang = detectResponseLanguage(llm.text);
+
+      if (!options.skipCache) {
+        await tryWriteCache(reviewId, version, llm, lang);
+      }
+
+      return {
+        value: { llmResult: llm, responseLanguage: lang, costUsd: usd },
+        actualCostCents: Math.ceil(usd * 100),
+      };
     },
   );
 
-  const responseLanguage = detectResponseLanguage(llmResult.text);
   const result: GenerationResult = {
     responseText: llmResult.text,
     language: responseLanguage,
@@ -173,9 +193,6 @@ async function runProductionMode(
     apiCostId: null,
   };
 
-  if (!options.skipCache) {
-    await tryWriteCache(reviewId, version, llmResult, responseLanguage);
-  }
   result.apiCostId = await tryRecordApiCost(businessId, llmResult, costUsd);
 
   return result;
@@ -271,16 +288,21 @@ async function callLLMWithFallback(
   try {
     return await callOpenAI(systemPrompt, userPrompt);
   } catch (openaiError) {
-    console.error('[generator] OpenAI call failed, falling back to Anthropic:', openaiError);
+    console.error('[generator] OpenAI call failed, falling back to Anthropic:', redactProviderError(openaiError));
     try {
       return await callAnthropic(systemPrompt, userPrompt);
     } catch (anthropicError) {
       // Both providers failed. If either failure is transient (network, 5xx,
       // rate-limit, timeout), surface as TransientLLMError so the worker
       // rethrows for BullMQ/outbox retry instead of terminal-failing work
-      // that a provider outage would otherwise lose.
-      if (isTransientLLMError(openaiError) || isTransientLLMError(anthropicError)) {
-        throw new TransientLLMError(anthropicError);
+      // that a provider outage would otherwise lose. Wrap the actually-
+      // transient cause — wrapping the wrong one would let the worker retry
+      // forever against a permanent failure (e.g. anthropic 401 after openai 503).
+      const openaiTransient = isTransientLLMError(openaiError);
+      const anthropicTransient = isTransientLLMError(anthropicError);
+      if (openaiTransient || anthropicTransient) {
+        const transientCause = anthropicTransient ? anthropicError : openaiError;
+        throw new TransientLLMError(transientCause);
       }
       throw anthropicError;
     }

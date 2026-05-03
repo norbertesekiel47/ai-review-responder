@@ -317,7 +317,7 @@ describe('generateResponse', () => {
     expect(result.responseText).toBe('Good response');
   });
 
-  it('finalizeCost error propagates, no releaseCost, no cache or audit, slot released', async () => {
+  it('finalizeCost error propagates, no releaseCost, audit not called, slot released', async () => {
     openaiCreate.mockResolvedValueOnce(openAIResponse('Thanks!'));
 
     const tracker = await import('@/lib/costs/tracker');
@@ -333,7 +333,10 @@ describe('generateResponse', () => {
     expect(tracker.releaseCost).not.toHaveBeenCalled();
     expect(tracker.releaseConcurrencySlot).toHaveBeenCalledWith('biz-001');
     expect(audit.recordApiCost).not.toHaveBeenCalled();
-    expect(tracker.setCachedGeneration).not.toHaveBeenCalled();
+    // Cache write happens INSIDE the wrapper closure (before finalize) per M3,
+    // so it succeeded before finalize threw. Audit happens AFTER the wrapper
+    // returns; the wrapper threw, so audit was not reached.
+    expect(tracker.setCachedGeneration).toHaveBeenCalled();
   });
 
   it('finalizeCost error with transient-shaped error propagates as plain Error, not TransientLLMError', async () => {
@@ -348,5 +351,66 @@ describe('generateResponse', () => {
     await expect(
       generateResponse(review, businessContext, [], productionOptions),
     ).rejects.toThrow(finalizeErr);
+  });
+
+  // M4 regression: when only ONE provider's failure is transient, the
+  // TransientLLMError must wrap the actually-transient one. Otherwise the
+  // worker would retry forever against a permanent failure (e.g. anthropic
+  // 401 after openai 503) and observability would point at the wrong cause.
+
+  it('wraps openai cause when openai is transient + anthropic is permanent', async () => {
+    const openaiTransient = Object.assign(new Error('openai 503'), { code: 'ECONNRESET' });
+    const anthropicPermanent = Object.assign(new Error('anthropic auth failed'), { name: 'AuthenticationError' });
+
+    openaiCreate.mockRejectedValueOnce(openaiTransient);
+    anthropicCreate.mockRejectedValueOnce(anthropicPermanent);
+
+    const { generateResponse, TransientLLMError } = await import('../generator');
+
+    try {
+      await generateResponse(review, businessContext, [], demoOptions);
+      throw new Error('expected throw');
+    } catch (err) {
+      expect(err).toBeInstanceOf(TransientLLMError);
+      expect((err as InstanceType<typeof TransientLLMError>).cause).toBe(openaiTransient);
+    }
+  });
+
+  it('wraps anthropic cause when anthropic is transient + openai is permanent', async () => {
+    const openaiPermanent = Object.assign(new Error('openai bad request'), { name: 'BadRequestError' });
+    const anthropicTransient = Object.assign(new Error('anthropic timeout'), { code: 'ETIMEDOUT' });
+
+    openaiCreate.mockRejectedValueOnce(openaiPermanent);
+    anthropicCreate.mockRejectedValueOnce(anthropicTransient);
+
+    const { generateResponse, TransientLLMError } = await import('../generator');
+
+    try {
+      await generateResponse(review, businessContext, [], demoOptions);
+      throw new Error('expected throw');
+    } catch (err) {
+      expect(err).toBeInstanceOf(TransientLLMError);
+      expect((err as InstanceType<typeof TransientLLMError>).cause).toBe(anthropicTransient);
+    }
+  });
+
+  it('wraps anthropic cause when both are transient (preserves prior behavior)', async () => {
+    const openaiTransient = Object.assign(new Error('openai 503'), { code: 'ECONNRESET' });
+    const anthropicTransient = Object.assign(new Error('anthropic timeout'), { code: 'ETIMEDOUT' });
+
+    openaiCreate.mockRejectedValueOnce(openaiTransient);
+    anthropicCreate.mockRejectedValueOnce(anthropicTransient);
+
+    const { generateResponse, TransientLLMError } = await import('../generator');
+
+    try {
+      await generateResponse(review, businessContext, [], demoOptions);
+      throw new Error('expected throw');
+    } catch (err) {
+      expect(err).toBeInstanceOf(TransientLLMError);
+      // When both are transient, prefer anthropic (the most recent attempt)
+      // to match prior behavior — caller still sees a transient retry signal.
+      expect((err as InstanceType<typeof TransientLLMError>).cause).toBe(anthropicTransient);
+    }
   });
 });

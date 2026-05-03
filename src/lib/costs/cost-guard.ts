@@ -33,6 +33,17 @@ export async function withCostGuard<T>(
 ): Promise<T> {
   const { businessId, subscriptionTier, withConcurrency = true, onFinalizeError = 'propagate' } = opts;
 
+  // L6: Defensive boundary check. Empty businessId would build collision-prone
+  // Redis keys like `cost:daily::2026-05-03`. Tier feeds tier-limit lookup;
+  // empty would silently fall back to 'standard'. Both are caller bugs we
+  // want to surface immediately, not paper over.
+  if (!businessId) {
+    throw new TypeError('withCostGuard: businessId is required');
+  }
+  if (!subscriptionTier) {
+    throw new TypeError('withCostGuard: subscriptionTier is required');
+  }
+
   const reservationDate = await reserveCost(businessId, subscriptionTier);
 
   let concurrencyAcquired = false;
@@ -45,6 +56,18 @@ export async function withCostGuard<T>(
     }
 
     const { value, actualCostCents } = await fn();
+
+    // M1: Validate BEFORE the inner try around finalizeCost so a malformed
+    // cost (NaN from calculateCostUsd on unknown model, fractional from a
+    // caller bug, negative, etc.) throws while `finalized` is still false —
+    // letting the outer finally run releaseCost and return the reservation.
+    // Letting NaN reach Redis INCRBY would throw inside the inner try, set
+    // finalized=true, and leak the reservation until the 24h TTL.
+    if (!Number.isSafeInteger(actualCostCents) || actualCostCents < 0) {
+      throw new TypeError(
+        `withCostGuard: invalid actualCostCents=${actualCostCents} (must be a non-negative safe integer)`,
+      );
+    }
 
     try {
       await finalizeCost(businessId, actualCostCents, reservationDate);

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
-import { TransientLLMError } from '../llm-error-classifier';
+import { TransientLLMError, redactProviderError } from '../llm-error-classifier';
 
 // Import the SUT dynamically so the safeInstanceOf regression test can
 // re-import it with a substituted openai mock.
@@ -201,8 +201,13 @@ describe('isTransientLLMError', () => {
   });
 
   // ── safeInstanceOf regression ──────────────────────────────────────
+  //
+  // These two tests substitute one SDK module each, then re-import the
+  // classifier so safeInstanceOf is exercised against the stubbed shape.
+  // After each, vi.resetModules() runs again so subsequent dynamic imports
+  // see the real SDKs — preventing mock bleed if more tests are added below.
 
-  it('safeInstanceOf regression: does not throw when SDK error subclasses are missing', async () => {
+  it('safeInstanceOf regression: does not throw when OpenAI error subclasses are missing', async () => {
     vi.doMock('openai', () => ({ default: class MockOpenAI {} }));
     vi.resetModules();
 
@@ -210,6 +215,18 @@ describe('isTransientLLMError', () => {
     expect(isTransientLLMError(new Error('boom'))).toBe(false);
 
     vi.doUnmock('openai');
+    vi.resetModules();
+  });
+
+  it('safeInstanceOf regression: does not throw when Anthropic error subclasses are missing', async () => {
+    vi.doMock('@anthropic-ai/sdk', () => ({ default: class MockAnthropic {} }));
+    vi.resetModules();
+
+    const { isTransientLLMError } = await import('../llm-error-classifier');
+    expect(isTransientLLMError(new Error('boom'))).toBe(false);
+
+    vi.doUnmock('@anthropic-ai/sdk');
+    vi.resetModules();
   });
 });
 
@@ -227,5 +244,81 @@ describe('TransientLLMError', () => {
     expect(err.message).toBe('network hiccup');
     expect(err.cause).toBe('network hiccup');
     expect(err.name).toBe('TransientLLMError');
+  });
+
+  it('handles null cause with descriptive message', () => {
+    const err = new TransientLLMError(null);
+    expect(err.message).toBe('Unknown LLM Error');
+    expect(err.cause).toBe(null);
+  });
+
+  it('handles undefined cause with descriptive message', () => {
+    const err = new TransientLLMError(undefined);
+    expect(err.message).toBe('Unknown LLM Error');
+    expect(err.cause).toBe(undefined);
+  });
+});
+
+describe('redactProviderError', () => {
+  it('extracts name, message, status, code, type from a provider Error', () => {
+    const err = Object.assign(new Error('rate limit exceeded'), {
+      name: 'RateLimitError',
+      status: 429,
+      code: 'rate_limit_exceeded',
+      type: 'rate_limit',
+    });
+    expect(redactProviderError(err)).toEqual({
+      name: 'RateLimitError',
+      message: 'rate limit exceeded',
+      status: 429,
+      code: 'rate_limit_exceeded',
+      type: 'rate_limit',
+    });
+  });
+
+  it('omits status/code/type when absent', () => {
+    expect(redactProviderError(new Error('something broke'))).toEqual({
+      name: 'Error',
+      message: 'something broke',
+    });
+  });
+
+  it('does NOT include .body, .response, .request, or .headers', () => {
+    const err = Object.assign(new Error('bad request'), {
+      status: 400,
+      body: { prompt: 'review with PII like john@example.com' },
+      response: { headers: { authorization: 'Bearer secret' } },
+      request: { body: 'echoed prompt' },
+      headers: { 'x-request-id': 'abc' },
+    });
+    const out = redactProviderError(err);
+    expect(out).not.toHaveProperty('body');
+    expect(out).not.toHaveProperty('response');
+    expect(out).not.toHaveProperty('request');
+    expect(out).not.toHaveProperty('headers');
+  });
+
+  it('truncates long messages to 500 chars', () => {
+    const out = redactProviderError(new Error('x'.repeat(2000)));
+    expect(out.message.length).toBe(500);
+  });
+
+  it('handles non-Error inputs (null/undefined/string/object)', () => {
+    expect(redactProviderError(null)).toEqual({ name: 'NonError', message: 'null' });
+    expect(redactProviderError(undefined)).toEqual({ name: 'NonError', message: 'undefined' });
+    expect(redactProviderError('boom')).toEqual({ name: 'NonError', message: 'boom' });
+    expect(redactProviderError({ foo: 'bar' })).toEqual({ name: 'NonError', message: '[object Object]' });
+  });
+
+  it('truncates non-Error stringification too', () => {
+    const out = redactProviderError('y'.repeat(2000));
+    expect(out.message.length).toBe(500);
+  });
+
+  it('ignores non-string code and non-number status', () => {
+    const err = Object.assign(new Error('odd shape'), { status: '500', code: 42 });
+    const out = redactProviderError(err);
+    expect(out).not.toHaveProperty('status');
+    expect(out).not.toHaveProperty('code');
   });
 });

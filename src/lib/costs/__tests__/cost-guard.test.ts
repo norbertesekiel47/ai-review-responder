@@ -246,19 +246,107 @@ describe('withCostGuard', () => {
     consoleSpy.mockRestore();
   });
 
-  // ── 14. actualCostCents > reservation ────────────────────────────────
-  it('actualCostCents > reservation → finalize called with larger value', async () => {
+  // ── 14. Larger actualCostCents passes through ────────────────────────
+  it('actualCostCents larger than typical → finalize called with the supplied value', async () => {
     await withCostGuard(baseOpts, () => makeGuardedResult('hello', 25));
-
-    // Pessimistic estimate is 15¢, actual is 25¢ → adjustment of 10
     expect(finalizeCost).toHaveBeenCalledExactlyOnceWith('biz-001', 25, '2026-05-03');
   });
 
-  // ── 15. actualCostCents < reservation ────────────────────────────────
-  it('actualCostCents < reservation → finalize called with smaller value (negative adjustment)', async () => {
+  // ── 15. Smaller actualCostCents passes through ───────────────────────
+  it('actualCostCents smaller than typical → finalize called with the supplied value', async () => {
     await withCostGuard(baseOpts, () => makeGuardedResult('hello', 5));
-
-    // Pessimistic estimate is 15¢, actual is 5¢ → adjustment of -10
     expect(finalizeCost).toHaveBeenCalledExactlyOnceWith('biz-001', 5, '2026-05-03');
+  });
+
+  // ── 16. fn throws + withConcurrency: false ───────────────────────────
+  it('fn throws + withConcurrency: false → releaseConcurrencySlot NEVER called', async () => {
+    const fnErr = new Error('fn boom');
+
+    await expect(
+      withCostGuard(
+        { ...baseOpts, withConcurrency: false },
+        () => Promise.reject(fnErr),
+      ),
+    ).rejects.toThrow(fnErr);
+
+    expect(acquireConcurrencySlot).not.toHaveBeenCalled();
+    expect(releaseConcurrencySlot).not.toHaveBeenCalled();
+    expect(releaseCost).toHaveBeenCalledExactlyOnceWith('biz-001', '2026-05-03');
+  });
+
+  // ── 17. actualCostCents = 0 boundary ─────────────────────────────────
+  it('actualCostCents = 0 → finalize called with 0 (cancels reservation)', async () => {
+    await withCostGuard(baseOpts, () => makeGuardedResult('hello', 0));
+    expect(finalizeCost).toHaveBeenCalledExactlyOnceWith('biz-001', 0, '2026-05-03');
+    expect(releaseCost).not.toHaveBeenCalled();
+  });
+
+  // ── 18-21. Invalid actualCostCents validation (M1) ───────────────────
+  // Each case must reach the validation throw BEFORE finalizeCost runs and
+  // BEFORE `finalized` is set, so the finally block calls releaseCost and
+  // returns the reservation. Otherwise an invalid cost would leak the 15¢
+  // reservation until the 24h Redis TTL.
+
+  it('actualCostCents = NaN → throws TypeError, releaseCost called, finalize NOT called', async () => {
+    await expect(
+      withCostGuard(baseOpts, () => makeGuardedResult('hello', NaN)),
+    ).rejects.toThrow(TypeError);
+
+    expect(finalizeCost).not.toHaveBeenCalled();
+    expect(releaseCost).toHaveBeenCalledExactlyOnceWith('biz-001', '2026-05-03');
+    expect(releaseConcurrencySlot).toHaveBeenCalledExactlyOnceWith('biz-001');
+  });
+
+  it('actualCostCents = Infinity → throws TypeError, reservation released', async () => {
+    await expect(
+      withCostGuard(baseOpts, () => makeGuardedResult('hello', Infinity)),
+    ).rejects.toThrow(TypeError);
+
+    expect(finalizeCost).not.toHaveBeenCalled();
+    expect(releaseCost).toHaveBeenCalledExactlyOnceWith('biz-001', '2026-05-03');
+  });
+
+  it('actualCostCents = 1.5 (fractional) → throws TypeError, reservation released', async () => {
+    await expect(
+      withCostGuard(baseOpts, () => makeGuardedResult('hello', 1.5)),
+    ).rejects.toThrow(TypeError);
+
+    expect(finalizeCost).not.toHaveBeenCalled();
+    expect(releaseCost).toHaveBeenCalledExactlyOnceWith('biz-001', '2026-05-03');
+  });
+
+  it('actualCostCents = -1 (negative) → throws TypeError, reservation released', async () => {
+    await expect(
+      withCostGuard(baseOpts, () => makeGuardedResult('hello', -1)),
+    ).rejects.toThrow(TypeError);
+
+    expect(finalizeCost).not.toHaveBeenCalled();
+    expect(releaseCost).toHaveBeenCalledExactlyOnceWith('biz-001', '2026-05-03');
+  });
+
+  // ── 22-23. Boundary validation (L6) ──────────────────────────────────
+  // Empty businessId would build collision-prone Redis keys; empty tier
+  // would silently fall back to 'standard'. Both surface immediately.
+
+  it('businessId = "" → throws TypeError, no reserveCost call', async () => {
+    await expect(
+      withCostGuard(
+        { businessId: '', subscriptionTier: 'standard' },
+        () => makeGuardedResult('hello', 10),
+      ),
+    ).rejects.toThrow(TypeError);
+
+    expect(reserveCost).not.toHaveBeenCalled();
+  });
+
+  it('subscriptionTier = "" → throws TypeError, no reserveCost call', async () => {
+    await expect(
+      withCostGuard(
+        { businessId: 'biz-001', subscriptionTier: '' },
+        () => makeGuardedResult('hello', 10),
+      ),
+    ).rejects.toThrow(TypeError);
+
+    expect(reserveCost).not.toHaveBeenCalled();
   });
 });
