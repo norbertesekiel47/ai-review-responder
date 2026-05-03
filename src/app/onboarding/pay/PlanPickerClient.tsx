@@ -57,10 +57,10 @@ const PLANS: readonly Plan[] = [
     tier: 'premium',
     name: 'Premium',
     price: '$199',
-    badge: 'Multi-location',
+    badge: 'High volume',
     badgeColor: '#2a2a2a',
     badgeText: '#ffffff',
-    description: 'For multi-location brands and high-volume reviewers.',
+    description: 'For high-volume reviewers who want extended backfill and priority support.',
     highlight: false,
     cta: 'Choose Premium',
     features: [
