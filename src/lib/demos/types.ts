@@ -62,7 +62,26 @@ export interface SelectQualifyingOptions {
 
 // ── Lifecycle result types ────────────────────────────────────────────
 
-export type ClaimResult = 'claimed' | 'already_terminal' | 'not_found' | 'reset_to_queued';
+/**
+ * Outcome of `claimDemo`:
+ *
+ * - `'claimed'`           — row transitioned queued → running, caller proceeds
+ * - `'already_terminal'`  — row is `completed | failed | archived`, drop the job
+ * - `'race_lost'`         — row is no longer `queued` but not necessarily terminal
+ *                            (another worker won the queued → running CAS, or
+ *                            already raced through to a terminal state). Caller
+ *                            should treat the same as `'already_terminal'` —
+ *                            drop the job and complete the outbox.
+ * - `'not_found'`         — row does not exist; drop the job
+ * - `'reset_to_queued'`   — row was stuck in `running` >5min; reset to `queued`
+ *                            and caller should throw so BullMQ re-dispatches
+ */
+export type ClaimResult =
+  | 'claimed'
+  | 'already_terminal'
+  | 'race_lost'
+  | 'not_found'
+  | 'reset_to_queued';
 
 export interface CompleteDemoArgs {
   reviews: NormalizedReview[];

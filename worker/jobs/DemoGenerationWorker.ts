@@ -18,7 +18,11 @@ export async function handleDemoGeneration(
 
   const claimResult = await claimDemo('prospect_demos', demoId, logger);
 
-  if (claimResult === 'not_found' || claimResult === 'already_terminal') {
+  if (
+    claimResult === 'not_found' ||
+    claimResult === 'already_terminal' ||
+    claimResult === 'race_lost'
+  ) {
     await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }

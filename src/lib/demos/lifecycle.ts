@@ -72,8 +72,12 @@ export async function claimDemo(
   `;
 
   if (updated.count === 0) {
-    logger.warn(`Demo ${demoId} already claimed (${table}), completing outbox`);
-    return 'already_terminal';
+    // Lost the queued → running CAS race. The row is no longer `queued`, but
+    // we don't know whether it's `running` (another worker is processing) or
+    // already terminal. Caller treats this the same as `already_terminal`
+    // (drop the job, mark outbox complete).
+    logger.warn(`Demo ${demoId} race_lost on claim CAS (${table}), completing outbox`);
+    return 'race_lost';
   }
 
   return 'claimed';
