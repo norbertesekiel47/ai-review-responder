@@ -88,12 +88,20 @@ export async function claimDemo(
  * `review_source TEXT NOT NULL DEFAULT 'serpapi'` populated at INSERT time by
  * the prospect-demo creation path. We never touch it here.
  *
- * Race semantics (onboarding_demos only):
- *   The partial unique index `(user_id WHERE generation_status='completed')`
- *   fires when this UPDATE sets status='completed'. If a concurrent worker
- *   already completed a different row for the same user, Postgres throws
- *   23505. We catch it, archive THIS row (race-loser), and complete the
- *   outbox cleanly.
+ * PR #2 NOTE — race-loser handling (deferred):
+ *   Once `onboarding_demos` ships with the partial unique index
+ *   `(user_id WHERE generation_status='completed')`, two concurrent completes
+ *   for the same user_id will trip 23505 here. PR #2 must add a catch arm that:
+ *     1. Confirms `table === 'onboarding_demos' && err.code === '23505'`
+ *     2. In a SINGLE `sql.begin` tx (atomicity matters — non-atomic recovery
+ *        leaves implicit dependence on `claimDemo`'s `already_terminal` path):
+ *        a. Look up the winning row (same user_id, status='completed')
+ *        b. Archive THIS row (status='archived', updated_at=NOW())
+ *        c. Mark outbox completed
+ *     3. Add an integration test exercising two concurrent completes
+ *   Adding the recovery path before the table exists would be speculative
+ *   abstraction — column-name typos would only surface at PR #2 integration,
+ *   defeating the "extract first, consume later" guard.
  */
 export async function completeDemo(
   table: DemoTable,
@@ -105,83 +113,45 @@ export async function completeDemo(
   const { reviews, responses, source } = result;
   const isOnboarding = table === 'onboarding_demos';
 
-  try {
-    await sql.begin(async (tx) => {
-      if (isOnboarding && source) {
-        await tx`
-          UPDATE ${tx(table)}
-          SET reviews_snapshot = ${jsonb(reviews)},
-              generated_responses = ${jsonb(responses)},
-              generation_status = 'completed',
-              completed_at = NOW(),
-              source = ${source}
-          WHERE id = ${demoId}
-        `;
-      } else {
-        await tx`
-          UPDATE ${tx(table)}
-          SET reviews_snapshot = ${jsonb(reviews)},
-              generated_responses = ${jsonb(responses)},
-              generation_status = 'completed',
-              completed_at = NOW()
-          WHERE id = ${demoId}
-        `;
-      }
-
-      if (typeof outboxAttempt === 'number') {
-        await tx`
-          UPDATE job_outbox
-          SET status = 'completed', completed_at = NOW()
-          WHERE id = ${outboxId}
-            AND status = 'dispatched'
-            AND attempts = ${outboxAttempt}
-        `;
-      } else {
-        await tx`
-          UPDATE job_outbox
-          SET status = 'completed', completed_at = NOW()
-          WHERE id = ${outboxId}
-            AND status = 'dispatched'
-        `;
-      }
-    });
-  } catch (err) {
-    const code = (err as { code?: string }).code;
-    // TODO(pr-2): once onboarding_demos exists, add an integration test that
-    // exercises this race-loser path end-to-end (two concurrent completes for
-    // the same user_id, second one's UPDATE → completed throws 23505 against
-    // the partial unique, this branch archives the loser, outbox completes
-    // cleanly). Cannot be tested in PR #1 because the table doesn't exist yet.
-    if (isOnboarding && code === '23505') {
-      // 23505 unique_violation — partial unique on onboarding_demos(user_id) WHERE completed.
-      // Find the winner row and archive this loser.
-      const [loser] = await sql<{ user_id: string }[]>`
-        SELECT user_id FROM onboarding_demos WHERE id = ${demoId}
+  await sql.begin(async (tx) => {
+    if (isOnboarding && source) {
+      await tx`
+        UPDATE ${tx(table)}
+        SET reviews_snapshot = ${jsonb(reviews)},
+            generated_responses = ${jsonb(responses)},
+            generation_status = 'completed',
+            completed_at = NOW(),
+            source = ${source}
+        WHERE id = ${demoId}
       `;
-      if (loser) {
-        const [winner] = await sql<{ id: string }[]>`
-          SELECT id FROM onboarding_demos
-          WHERE user_id = ${loser.user_id} AND generation_status = 'completed'
-          LIMIT 1
-        `;
-        if (winner) {
-          await sql`
-            UPDATE onboarding_demos
-            SET generation_status = 'archived', updated_at = NOW()
-            WHERE id = ${demoId}
-          `;
-          await sql`
-            UPDATE job_outbox
-            SET status = 'completed', completed_at = NOW()
-            WHERE id = ${outboxId}
-              AND status = 'dispatched'
-          `;
-          return;
-        }
-      }
+    } else {
+      await tx`
+        UPDATE ${tx(table)}
+        SET reviews_snapshot = ${jsonb(reviews)},
+            generated_responses = ${jsonb(responses)},
+            generation_status = 'completed',
+            completed_at = NOW()
+        WHERE id = ${demoId}
+      `;
     }
-    throw err;
-  }
+
+    if (typeof outboxAttempt === 'number') {
+      await tx`
+        UPDATE job_outbox
+        SET status = 'completed', completed_at = NOW()
+        WHERE id = ${outboxId}
+          AND status = 'dispatched'
+          AND attempts = ${outboxAttempt}
+      `;
+    } else {
+      await tx`
+        UPDATE job_outbox
+        SET status = 'completed', completed_at = NOW()
+        WHERE id = ${outboxId}
+          AND status = 'dispatched'
+      `;
+    }
+  });
 }
 
 /**
