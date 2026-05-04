@@ -1,12 +1,12 @@
 ---
 name: migrations
-description: Full Supabase migration inventory (001–031) for the RepWorth project, plus known residual risks tied to schema decisions. Read this before writing any migration, querying migration state, debugging schema issues, or planning work that touches the database.
+description: Full Supabase migration inventory (001–032) for the RepWorth project, plus known residual risks tied to schema decisions. Read this before writing any migration, querying migration state, debugging schema issues, or planning work that touches the database.
 ---
 
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **031** — next migration is **032**
+Current head: **032** — next migration is **033**
 All tables use UUIDv7 (time-ordered primary keys).
 
 ## Migration Log
@@ -96,6 +96,21 @@ All tables use UUIDv7 (time-ordered primary keys).
      against publisher bugs that could double-post.
   4. `idx_reviews_business_review_date` — `(business_id, review_date DESC)`.
      Supports the Past Replies page query.
+
+- **032** — Pre-pay onboarding demo table (PR #2,
+  `feat/pre-paywall-demo-pr2`). Creates `onboarding_demos` for the SerpAPI-
+  driven demo shown between signup and paywall. Schema:
+  `id UUID PRIMARY KEY` (UUIDv7 app-side), `user_id`/`business_id` FK with
+  `ON DELETE CASCADE`, snapshot fields (`reviews_snapshot`,
+  `generated_responses` JSONB), state machine
+  (`generation_status IN ('queued','running','completed','failed','archived')`),
+  partial unique index `onboarding_demos_one_completed_per_user` on
+  `(user_id) WHERE generation_status='completed'` (one completed demo per
+  user; failed/queued/archived rows allowed for retry/regenerate).
+  CHECK constraint enforces `source IS NOT NULL` whenever
+  `generation_status='completed'`. Indexes on user/business lookup +
+  in-flight status filter. Sister table to `prospect_demos` (admin-side);
+  shared lifecycle helpers in `src/lib/demos/lifecycle.ts` (PR #1).
 
   **Apply non-transactionally** (file mixes transactional DDL with
   `CREATE INDEX CONCURRENTLY` — uncheck "single transaction" in the
