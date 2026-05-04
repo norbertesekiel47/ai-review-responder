@@ -24,7 +24,7 @@ async function getChecklist(businessId: string): Promise<ChecklistData> {
            OR COALESCE(array_length(sample_responses, 1) > 0, false)
          FROM businesses WHERE id = ${businessId}::uuid) AS voice_tuned,
         EXISTS (SELECT 1 FROM channel_enrollments WHERE business_id = ${businessId}::uuid AND channel <> 'email' AND status = 'verified') AS notification_prefs_set,
-        (NOT EXISTS (SELECT 1 FROM reviews WHERE business_id = ${businessId}::uuid AND created_at > NOW() - INTERVAL '24 hours')) AS no_recent_reviews
+        (NOT EXISTS (SELECT 1 FROM reviews WHERE business_id = ${businessId}::uuid AND detected_at > NOW() - INTERVAL '24 hours')) AS no_recent_reviews
     )
     SELECT * FROM checklist
   `;
