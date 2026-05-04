@@ -74,7 +74,20 @@ describe('POST /api/onboarding/start', () => {
   });
 
   it('returns 200 + demoQueued=true on happy path', async () => {
+    // Outer pre-tx SELECT.
     mockSql.mockResolvedValueOnce([pendingBizRow]);
+
+    // Inside the tx callback we need:
+    //  1. advisory lock → []
+    //  2. FOR UPDATE re-read → row with NO place data (eligible to proceed)
+    //  3+ subsequent UPDATE / INSERT queries → []
+    mockSql.begin = vi.fn(async (cb: any) => {
+      const tx: any = vi.fn(async () => []);
+      tx.mockResolvedValueOnce([]); // advisory lock
+      tx.mockResolvedValueOnce([pendingBizRow]); // FOR UPDATE — eligible
+      return cb(tx);
+    });
+
     const res = await POST(mkReq(validBody));
     expect(res.status).toBe(200);
     const json = await res.json();
@@ -103,5 +116,35 @@ describe('POST /api/onboarding/start', () => {
     mockCheckRateLimit.mockResolvedValueOnce({ allowed: false, remaining: 0 });
     const res = await POST(mkReq(validBody));
     expect(res.status).toBe(429);
+  });
+
+  it('idempotency loser inside tx: releases reservation and reports demoQueued:false', async () => {
+    // Outer pre-tx SELECT: pending_payment, no place data → eligible.
+    mockSql.mockResolvedValueOnce([pendingBizRow]);
+
+    // Track tx behavior: simulate the FOR UPDATE returning a row that
+    // ALREADY has place_id_verified=true (concurrent /start won the race).
+    // The route should hit the early-return inside the tx callback, commit
+    // the empty tx, then post-tx detect demoInserted=false and release the
+    // reservation.
+    const releaseSpy = vi.fn().mockResolvedValue(undefined);
+    mockReserveBudget.mockResolvedValueOnce({ release: releaseSpy, date: '2026-05-04' });
+
+    mockSql.begin = vi.fn(async (cb: any) => {
+      // Inside the tx callback the route runs:
+      //  1. advisory lock → []
+      //  2. FOR UPDATE re-read → returns row with place_id_verified=true
+      //     (loser path) → callback returns early.
+      const tx: any = vi.fn(async () => []);
+      tx.mockResolvedValueOnce([]);
+      tx.mockResolvedValueOnce([{ ...pendingBizRow, place_id_verified: true }]);
+      return cb(tx);
+    });
+
+    const res = await POST(mkReq(validBody));
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.demoQueued).toBe(false);
+    expect(releaseSpy).toHaveBeenCalledTimes(1);
   });
 });

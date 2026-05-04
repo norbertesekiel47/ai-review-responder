@@ -55,11 +55,16 @@ export default async function OnboardingDemoPage() {
   if (row.subscription_status === 'active') redirect('/dashboard');
   if (row.subscription_status === 'cancelled') redirect('/dashboard');
 
+  // Exclude 'archived' rows: the 23505 race-loser recovery path archives the
+  // losing demo, which can have a newer created_at than the winning completed
+  // row. Selecting the latest WITHOUT this filter would surface the archived
+  // loser, which the UI has no render branch for → blank page.
   const [demo] = await sql<DemoRow[]>`
     SELECT id, generation_status, completed_at, source,
            reviews_snapshot, generated_responses, business_name
     FROM onboarding_demos
     WHERE user_id = (SELECT id FROM users WHERE auth_id = ${user.id} LIMIT 1)
+      AND generation_status <> 'archived'
     ORDER BY created_at DESC
     LIMIT 1
   `;

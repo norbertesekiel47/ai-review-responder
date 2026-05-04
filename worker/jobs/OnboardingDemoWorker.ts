@@ -174,15 +174,23 @@ export async function handleOnboardingDemo(
       }
     }
 
-    // Threshold check
-    const date = new Date().toISOString().slice(0, 10);
-    const { crossed } = await checkCostThreshold('onboarding-demo', date, [50, 90, 100]);
-    for (const t of crossed) {
-      const level = t === 100 ? 'error' : t >= 90 ? 'warning' : 'info';
-      Sentry.captureMessage(`onboarding_demo_cost_threshold_${t}`, {
-        level,
-        tags: { lane: 'onboarding-demo', threshold: String(t) },
-      });
+    // Threshold check — best-effort. The demo is already completed in
+    // Postgres; a Redis/Sentry hiccup here must NOT cascade into the outer
+    // catch and call failDemo, which would flip a successful row to failed.
+    try {
+      const date = new Date().toISOString().slice(0, 10);
+      const { crossed } = await checkCostThreshold('onboarding-demo', date, [50, 90, 100]);
+      for (const t of crossed) {
+        const level = t === 100 ? 'error' : t >= 90 ? 'warning' : 'info';
+        Sentry.captureMessage(`onboarding_demo_cost_threshold_${t}`, {
+          level,
+          tags: { lane: 'onboarding-demo', threshold: String(t) },
+        });
+      }
+    } catch (thresholdErr) {
+      logger.error(
+        `Threshold check / Sentry capture failed for demo ${demoId}: ${thresholdErr instanceof Error ? thresholdErr.message : thresholdErr}`,
+      );
     }
 
     logger.log(

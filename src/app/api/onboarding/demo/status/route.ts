@@ -38,6 +38,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     // intentional: read endpoint, allow on Redis flake
   }
 
+  // Exclude 'archived' rows so a 23505 race-loser (archived in lifecycle.ts)
+  // doesn't shadow the actual winning completed row when both exist for the
+  // same user with overlapping created_at order.
   const [row] = await sql<{
     generation_status: string;
     completed_at: Date | null;
@@ -46,6 +49,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     SELECT generation_status, completed_at, source
     FROM onboarding_demos
     WHERE user_id = (SELECT id FROM users WHERE auth_id = ${user.id} LIMIT 1)
+      AND generation_status <> 'archived'
     ORDER BY created_at DESC
     LIMIT 1
   `;

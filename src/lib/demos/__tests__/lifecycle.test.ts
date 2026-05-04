@@ -200,15 +200,16 @@ describe('lifecycle', () => {
     const { userId, businessId } = await insertOnboardingUser();
     try {
       // Winner already completed (occupies the partial unique index slot).
-      await insertOnboardingDemo({
+      const winnerId = await insertOnboardingDemo({
         userId,
         businessId,
         generation_status: 'completed',
         source: 'serpapi',
-        completed_at: new Date(),
+        completed_at: new Date(Date.now() - 60_000),
       });
-      // Loser is mid-flight (running). completeDemo should trip 23505 then
-      // recover by archiving + closing the outbox.
+      // Loser is mid-flight (running) and was created LATER than the winner.
+      // completeDemo should trip 23505 then recover by archiving + closing
+      // the outbox.
       const loserId = await insertOnboardingDemo({
         userId,
         businessId,
@@ -231,6 +232,21 @@ describe('lifecycle', () => {
         SELECT status FROM job_outbox WHERE id = ${outboxId}
       `;
       expect(outbox?.status).toBe('completed');
+
+      // Page-level read invariant: the latest non-archived row for this user
+      // must be the WINNER, not the archived loser. /onboarding/demo and
+      // /api/onboarding/demo/status both filter `generation_status <> 'archived'`
+      // for exactly this reason; this test exercises the same predicate.
+      const [latestVisible] = await sql<{ id: string; generation_status: string }[]>`
+        SELECT id, generation_status
+        FROM onboarding_demos
+        WHERE user_id = ${userId}::uuid
+          AND generation_status <> 'archived'
+        ORDER BY created_at DESC
+        LIMIT 1
+      `;
+      expect(latestVisible?.id).toBe(winnerId);
+      expect(latestVisible?.generation_status).toBe('completed');
     } finally {
       await sql`DELETE FROM onboarding_demos WHERE user_id = ${userId}::uuid`;
       await sql`DELETE FROM users WHERE id = ${userId}::uuid`;

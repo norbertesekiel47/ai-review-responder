@@ -163,6 +163,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     };
   }
 
+  // Track whether the demo INSERT actually fired inside the tx. The outer
+  // closure can't observe a return-from-callback no-op (idempotency loser
+  // path or vanished business row), so without this flag we'd return
+  // demoQueued:true and leak the 20¢ reservation. Only set to true on the
+  // happy path where the demo + outbox row are written.
+  let demoInserted = false;
   try {
     await sql.begin(async (tx) => {
       await tx`SELECT pg_advisory_xact_lock(hashtext(${bizRow.id + ':activation'}))`;
@@ -236,6 +242,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             'pending'
           )
         `;
+        demoInserted = true;
       }
     });
   } catch (err) {
@@ -246,10 +253,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'internal' }, { status: 500, headers: NO_STORE });
   }
 
+  // Idempotency-loser path: tx committed without inserting a demo (another
+  // /start submission won the FOR UPDATE race, OR the business row vanished).
+  // Release the reservation we made earlier so we don't leak 20¢ per loser,
+  // and report demoQueued:false so the client doesn't poll for a demo that
+  // doesn't exist.
+  if (!demoBlocked && !demoInserted && cleanupReservation) {
+    try { await cleanupReservation(); } catch { /* ignore */ }
+  }
+
   return NextResponse.json(
     {
       redirectTo: '/onboarding/demo',
-      demoQueued: !demoBlocked,
+      demoQueued: !demoBlocked && demoInserted,
       reason: blockReason,
     },
     { status: 200, headers: NO_STORE },
