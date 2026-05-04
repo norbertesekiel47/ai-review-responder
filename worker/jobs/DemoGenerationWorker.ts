@@ -58,14 +58,26 @@ export async function handleDemoGeneration(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     logger.error(`Demo ${demoId} failed: ${message}`);
-    await failDemo(
-      'prospect_demos',
-      demoId,
-      outboxId,
-      outboxAttempt,
-      error instanceof Error ? error : new Error(message),
-    );
-    // Do NOT re-throw — failure is fully handled in Postgres.
-    // BullMQ job completes cleanly. The outbox entry is already marked failed.
+    try {
+      await failDemo(
+        'prospect_demos',
+        demoId,
+        outboxId,
+        outboxAttempt,
+        error instanceof Error ? error : new Error(message),
+      );
+    } catch (txError) {
+      // failDemo's tx itself failed (e.g. DB transport flake). Distinguish
+      // this from the original generation failure in logs so ops can tell
+      // "the LLM failed" from "we couldn't even record that the LLM failed".
+      // Re-throw so BullMQ retries — the idempotency check at the top of the
+      // next attempt will catch up the lifecycle state.
+      logger.error(
+        `Failed to record failure for demo ${demoId}: ${txError instanceof Error ? txError.message : String(txError)}`,
+      );
+      throw txError;
+    }
+    // Do NOT re-throw the original `error` — failure is fully handled in
+    // Postgres. BullMQ job completes cleanly. The outbox entry is marked failed.
   }
 }
