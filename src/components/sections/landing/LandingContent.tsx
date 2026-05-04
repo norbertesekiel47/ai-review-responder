@@ -6,7 +6,7 @@ import { motion, useScroll, useTransform } from 'motion/react';
 import { HowItWorksCarousel } from './HowItWorksCarousel';
 import type { CarouselStep } from './HowItWorksCarousel';
 import { ContactForm } from './ContactForm';
-import { SiteNav } from '../shared/SiteNav';
+import { SiteNav } from '@/components/ui/SiteNav';
 
 const STEPS: CarouselStep[] = [
   {

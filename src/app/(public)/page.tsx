@@ -1,5 +1,5 @@
 import { headers } from 'next/headers';
-import { LandingContent } from './components/landing/LandingContent';
+import { LandingContent } from '@/components/sections/landing/LandingContent';
 
 export const dynamic = 'force-dynamic';
 

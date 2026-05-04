@@ -1,5 +1,5 @@
 import { headers } from 'next/headers';
-import { HowItWorksContent } from './HowItWorksContent';
+import { HowItWorksContent } from '@/components/sections/how-it-works/HowItWorksContent';
 
 export const dynamic = 'force-dynamic';
 
