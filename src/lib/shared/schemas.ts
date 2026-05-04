@@ -401,13 +401,13 @@ export const BusinessOnboardingPostPaySchema = z.object({
   sampleResponses: z.string().max(5000).optional(),
   website: websiteUrlSchema.nullable().optional(),
   googlePlaceId: z.never({
-    invalid_type_error: 'unexpected_field: googlePlaceId is set during pre-pay onboarding at /start',
+    error: 'unexpected_field: googlePlaceId is set during pre-pay onboarding at /start',
   }).optional(),
   googleMapsUrl: z.never({
-    invalid_type_error: 'unexpected_field: googleMapsUrl is set during pre-pay onboarding at /start',
+    error: 'unexpected_field: googleMapsUrl is set during pre-pay onboarding at /start',
   }).optional(),
   googlePlaceAddress: z.never({
-    invalid_type_error: 'unexpected_field: googlePlaceAddress is set during pre-pay onboarding at /start',
+    error: 'unexpected_field: googlePlaceAddress is set during pre-pay onboarding at /start',
   }).optional(),
 });
 
