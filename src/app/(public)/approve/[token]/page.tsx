@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { sql } from '@/lib/db/server';
-import ApprovalClient from './approval-client';
+import ApprovalClient from '@/components/approval/approval-client';
 
 interface PageProps {
   params: { token: string };
