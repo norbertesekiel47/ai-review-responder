@@ -32,27 +32,20 @@ export async function generateDemo(
     category: input.category,
   });
 
-  // Explicit destructure (NOT spread+rebind) so a future rename of
-  // `generationDurationMs` on either side fails at compile time rather than
-  // silently dropping our outer measurement.
-  const {
-    totalReviews,
-    successfulResponses,
-    failedResponses,
-    totalCostUsd,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- discarded by design; outer measurement covers full pipeline (fetch + generate)
-    generationDurationMs: _llmOnlyDurationMs,
-  } = result.metadata;
-
+  // Explicit field copy (NOT spread+rebind) so a future rename of any
+  // metadata field on either side fails at compile time rather than silently
+  // dropping our outer measurement. The inner `generationDurationMs` is
+  // intentionally NOT copied — the outer one below replaces it with the
+  // end-to-end measurement (fetch + generate), which is what callers expect.
   return {
     placeId: input.placeId,
     reviews: result.reviews,
     responses: result.responses,
     metadata: {
-      totalReviews,
-      successfulResponses,
-      failedResponses,
-      totalCostUsd,
+      totalReviews: result.metadata.totalReviews,
+      successfulResponses: result.metadata.successfulResponses,
+      failedResponses: result.metadata.failedResponses,
+      totalCostUsd: result.metadata.totalCostUsd,
       generationDurationMs: Date.now() - startTime, // end-to-end (fetch + generate)
     },
   };
