@@ -327,3 +327,88 @@ export const SelectPlanSchema = z.object({
   tier: z.enum(['founding', 'standard', 'premium']),
 });
 export type SelectPlanInput = z.infer<typeof SelectPlanSchema>;
+
+/**
+ * Tightened business name for pre-pay demo path.
+ * The value flows into the LLM prompt and the curated demo display;
+ * demo output is one tweet away from public. This is stricter than
+ * businessNameSchema (used for post-pay edits) because prompt-injection
+ * risk is load-bearing here.
+ */
+const demoBusinessNameSchema = z
+  .string()
+  .min(1, 'Business name is required')
+  .max(80, 'Business name too long')
+  .regex(/^[^\n\r<>{}]+$/, 'Business name contains invalid characters');
+
+/**
+ * POST /api/onboarding/start — pre-pay location capture.
+ * Exactly one of googlePlaceId (autocomplete) or googleMapsUrl (URL)
+ * must be present. Prefill fields only valid in autocomplete branch.
+ */
+export const OnboardingStartSchema = z
+  .object({
+    inputMode: z.enum(['autocomplete', 'url']),
+    googlePlaceId: z
+      .string()
+      .min(1)
+      .refine((v) => isPlaceId(v), { message: 'Invalid Google Place ID format' })
+      .optional(),
+    googlePlaceAddress: z.string().max(500).optional(),
+    googleMapsUrl: googleMapsUrlSchema.optional(),
+    businessName: demoBusinessNameSchema,
+    prefilledCategory: z.string().max(100).nullable().optional(),
+    prefilledWebsite: websiteUrlSchema.nullable().optional(),
+  })
+  .refine(
+    (d) => Boolean(d.googlePlaceId) !== Boolean(d.googleMapsUrl),
+    {
+      message: 'Provide exactly one of googlePlaceId or googleMapsUrl, not both',
+      path: ['googlePlaceId'],
+    },
+  )
+  .refine(
+    (d) => {
+      if (d.inputMode === 'url') {
+        return !d.prefilledCategory && !d.prefilledWebsite;
+      }
+      return true;
+    },
+    {
+      message: 'prefilledCategory and prefilledWebsite are only valid in autocomplete mode',
+      path: ['prefilledCategory'],
+    },
+  );
+
+export type OnboardingStartInput = z.infer<typeof OnboardingStartSchema>;
+
+/**
+ * POST /api/onboarding/business when ONBOARDING_DEMO_ENABLED=true.
+ * Post-pay wizard: location was already captured at /start.
+ *
+ * The location-capture fields are declared as `z.never().optional()` so a
+ * client posting them gets a Zod error instead of having the field silently
+ * stripped.
+ */
+export const BusinessOnboardingPostPaySchema = z.object({
+  businessName: z.string().min(1).max(255).optional(),
+  category: categorySchema.nullable().optional(),
+  tone: toneSchema.default('professional and friendly'),
+  productsServices: z.string().max(5000).optional(),
+  staffNames: z.string().max(2000).optional(),
+  highlightFacts: z.string().max(2000).optional(),
+  avoidFacts: z.string().max(2000).optional(),
+  sampleResponses: z.string().max(5000).optional(),
+  website: websiteUrlSchema.nullable().optional(),
+  googlePlaceId: z.never({
+    invalid_type_error: 'unexpected_field: googlePlaceId is set during pre-pay onboarding at /start',
+  }).optional(),
+  googleMapsUrl: z.never({
+    invalid_type_error: 'unexpected_field: googleMapsUrl is set during pre-pay onboarding at /start',
+  }).optional(),
+  googlePlaceAddress: z.never({
+    invalid_type_error: 'unexpected_field: googlePlaceAddress is set during pre-pay onboarding at /start',
+  }).optional(),
+});
+
+export type BusinessOnboardingPostPayInput = z.infer<typeof BusinessOnboardingPostPaySchema>;
