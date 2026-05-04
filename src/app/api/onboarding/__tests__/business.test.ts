@@ -302,4 +302,44 @@ describe('POST /api/onboarding/business', () => {
     const res = await POST(mkReq(validBody));
     expect(res.status).toBe(503);
   });
+
+  // ── Demo-flow bifurcation regressions (Task 10) ─────────────────────
+
+  it('flag-off: legacy schema accepts googlePlaceId on the location-capture path', async () => {
+    delete process.env.ONBOARDING_DEMO_ENABLED;
+    mockSql.mockResolvedValueOnce([activeBizRow]); // initial JOIN read
+    mockSql.mockResolvedValueOnce([]); // pg_advisory_xact_lock
+    mockSql.mockResolvedValueOnce([activeBizRow]); // FOR UPDATE re-read
+    mockSql.mockResolvedValueOnce([]); // UPDATE businesses
+
+    const res = await POST(mkReq(validBody));
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.redirectTo).toBe('/dashboard');
+  });
+
+  it('flag-on: post-pay schema rejects googlePlaceId (set during /start, never resubmitted)', async () => {
+    process.env.ONBOARDING_DEMO_ENABLED = 'true';
+    // Post-pay precondition: place_id_verified is true (location captured at /start).
+    const postPayBizRow = { ...activeBizRow, place_id_verified: true };
+    mockSql.mockResolvedValueOnce([postPayBizRow]);
+
+    const res = await POST(mkReq(validBody)); // validBody contains googlePlaceId
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toBe('invalid_body');
+    delete process.env.ONBOARDING_DEMO_ENABLED;
+  });
+
+  it('flag-on: returns 409 onboarding_not_started when /start was skipped', async () => {
+    process.env.ONBOARDING_DEMO_ENABLED = 'true';
+    mockSql.mockResolvedValueOnce([activeBizRow]); // place_id_verified=false, google_maps_url=null
+
+    const res = await POST(mkReq({ tone: 'casual' }));
+    expect(res.status).toBe(409);
+    const json = await res.json();
+    expect(json.error).toBe('onboarding_not_started');
+    expect(json.redirectTo).toBe('/onboarding/start');
+    delete process.env.ONBOARDING_DEMO_ENABLED;
+  });
 });
