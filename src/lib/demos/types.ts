@@ -47,3 +47,26 @@ export interface DemoListItem {
   createdAt: string;
   expiresAt: string;
 }
+
+// ── Lifecycle table parameter ─────────────────────────────────────────
+
+export type DemoTable = 'prospect_demos' | 'onboarding_demos';
+
+// ── Selection rules ───────────────────────────────────────────────────
+
+export type SelectionRule = 'newest' | 'positive-with-moderate-tail';
+
+export interface SelectQualifyingOptions {
+  rule: SelectionRule;
+}
+
+// ── Lifecycle result types ────────────────────────────────────────────
+
+export type ClaimResult = 'claimed' | 'already_terminal' | 'not_found' | 'reset_to_queued';
+
+export interface CompleteDemoArgs {
+  reviews: NormalizedReview[];
+  responses: (GenerationResult | null)[];
+  /** Optional — omitted for prospect_demos (schema has DEFAULT 'serpapi') */
+  source?: 'serpapi' | 'curated_fallback';
+}
