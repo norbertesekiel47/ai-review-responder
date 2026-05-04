@@ -1,15 +1,27 @@
 'use client';
 
 interface ProgressDotsProps {
-  current: 1 | 2 | 3;
+  current: number;
+  /** Total step count. Defaults to 3 (legacy Location-Profile-Voice). */
+  total?: number;
 }
 
-export function ProgressDots({ current }: ProgressDotsProps) {
-  const steps = [
-    { n: 1 as const, label: 'Location' },
-    { n: 2 as const, label: 'Profile' },
-    { n: 3 as const, label: 'Voice' },
-  ];
+const ALL_STEPS = [
+  { n: 1, label: 'Location' },
+  { n: 2, label: 'Profile' },
+  { n: 3, label: 'Voice' },
+];
+
+export function ProgressDots({ current, total = 3 }: ProgressDotsProps) {
+  // For the 2-step post-pay wizard, drop "Location" and renumber:
+  // step 1 = Profile, step 2 = Voice.
+  const steps =
+    total === 2
+      ? [
+          { n: 1, label: 'Profile' },
+          { n: 2, label: 'Voice' },
+        ]
+      : ALL_STEPS;
 
   return (
     <div className="flex items-center justify-center gap-2 mb-8">
