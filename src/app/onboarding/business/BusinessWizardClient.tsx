@@ -6,6 +6,7 @@ import { ProgressDots } from './ProgressDots';
 import { StepLocation } from './StepLocation';
 import { StepProfile } from './StepProfile';
 import { StepVoice } from './StepVoice';
+import { StepConnect } from './StepConnect';
 
 export interface WizardFormData {
   // Location (legacy 3-step only — empty/unused in post-pay flow)
@@ -36,26 +37,27 @@ interface BusinessWizardClientProps {
     businessName: string;
   };
   /**
-   * When true, the wizard runs as 2-step (Profile, Voice) — location was
-   * already captured at /onboarding/start. When false, the wizard runs as
-   * 3-step (Location, Profile, Voice) — the legacy single-pass flow.
+   * When true, the wizard runs as 3-step (Profile, Voice, Connect Zernio) —
+   * location was already captured at /onboarding/start. When false, the
+   * wizard runs as 3-step (Location, Profile, Voice) — the legacy
+   * single-pass flow with no Connect step.
    */
   demoFlowEnabled?: boolean;
 }
 
-type LegacyStep = 1 | 2 | 3;
-type PostPayStep = 1 | 2;
+type Step = 1 | 2 | 3;
 
 export function BusinessWizardClient({
   initialValues,
   demoFlowEnabled = false,
 }: BusinessWizardClientProps) {
-  const [step, setStep] = useState<LegacyStep | PostPayStep>(1);
+  const [step, setStep] = useState<Step>(1);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const router = useRouter();
 
-  const totalSteps = demoFlowEnabled ? 2 : 3;
+  // Both flows are 3-step now; only the step labels differ.
+  const totalSteps = 3;
 
   const [data, setData] = useState<WizardFormData>({
     inputMode: 'autocomplete',
@@ -80,7 +82,14 @@ export function BusinessWizardClient({
   // place-prefill (legacy 3-step) doesn't stomp typing in flight.
   const dirtyRef = useRef({ category: false, website: false });
 
-  async function submit(opts: { skipVoice?: boolean } = {}) {
+  /**
+   * POSTs Profile + (optionally) Voice fields to /api/onboarding/business.
+   * Returns true on success, false on validation/network failure (with
+   * `error` state populated). Does NOT navigate — the caller chooses
+   * what to do after the save (advance to Connect step, redirect to
+   * Zernio OAuth, or land on /dashboard).
+   */
+  async function saveProfileAndVoice(opts: { skipVoice?: boolean } = {}): Promise<boolean> {
     setSubmitting(true);
     setError('');
     try {
@@ -137,18 +146,70 @@ export function BusinessWizardClient({
       if (!res.ok) {
         if (body.redirectTo) {
           router.push(body.redirectTo);
-          return;
+          return false;
         }
         setError(body.message ?? body.error ?? 'Submission failed');
-        return;
+        return false;
       }
 
-      router.push(body.redirectTo ?? '/dashboard');
+      return true;
     } catch {
       setError('Connection failed');
+      return false;
     } finally {
       setSubmitting(false);
     }
+  }
+
+  // Legacy flow: Voice submit/skip POSTs and lands on /dashboard.
+  async function legacySubmit(opts: { skipVoice?: boolean } = {}) {
+    const ok = await saveProfileAndVoice(opts);
+    if (ok) router.push('/dashboard');
+  }
+
+  // Demo flow: Voice submit/skip stores intent and advances to Connect step
+  // (no POST yet — the POST happens at the Connect step's terminal action).
+  const [voiceSkipped, setVoiceSkipped] = useState(false);
+  function advanceToConnect(opts: { skipVoice?: boolean } = {}) {
+    setVoiceSkipped(Boolean(opts.skipVoice));
+    setStep(3);
+  }
+
+  // Demo flow Step 3: "Connect Google Business Profile" — save then redirect
+  // to Zernio OAuth. The user lands on Zernio's consent screen, then comes
+  // back through /api/zernio/connect/callback → /dashboard/connect/select-location.
+  async function handleConnectZernio() {
+    const saved = await saveProfileAndVoice({ skipVoice: voiceSkipped });
+    if (!saved) return;
+    setSubmitting(true);
+    try {
+      const res = await fetch('/api/zernio/connect/start', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || !body.authUrl) {
+        setError(
+          'Could not start the Google connection. You can try again from the dashboard.',
+        );
+        // Best UX on failure: don't block them — Profile/Voice is already
+        // saved, send them to /dashboard so they can retry from there.
+        router.push('/dashboard');
+        return;
+      }
+      window.location.href = body.authUrl;
+    } catch {
+      setError('Network error. Redirecting to dashboard.');
+      router.push('/dashboard');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  // Demo flow Step 3: "Skip for now" — save then go to /dashboard.
+  async function handleSkipConnect() {
+    const saved = await saveProfileAndVoice({ skipVoice: voiceSkipped });
+    if (saved) router.push('/dashboard');
   }
 
   return (
@@ -156,8 +217,8 @@ export function BusinessWizardClient({
       <div className="max-w-2xl mx-auto">
         {demoFlowEnabled && (
           <p className="text-center text-blue-600 text-sm mb-2">
-            You&apos;re in. Two quick questions to make responses sound like you,
-            then we go live.
+            You&apos;re in. A few quick steps to make responses sound like you and
+            connect your reviews, then we go live.
           </p>
         )}
         <h1 className="text-3xl font-bold text-center mb-2">
@@ -167,7 +228,7 @@ export function BusinessWizardClient({
           A few quick details so we can start fetching your reviews.
         </p>
 
-        <ProgressDots current={step} total={totalSteps} />
+        <ProgressDots current={step} total={totalSteps} demoFlow={demoFlowEnabled} />
 
         {error && (
           <div className="bg-red-50 border border-red-200 rounded-md p-4 mb-4 text-sm text-red-700">
@@ -191,8 +252,16 @@ export function BusinessWizardClient({
                 data={data}
                 update={update}
                 onBack={() => setStep(1)}
-                onSubmit={() => submit()}
-                onSkip={() => submit({ skipVoice: true })}
+                onSubmit={() => advanceToConnect()}
+                onSkip={() => advanceToConnect({ skipVoice: true })}
+                submitting={submitting}
+              />
+            )}
+            {step === 3 && (
+              <StepConnect
+                onBack={() => setStep(2)}
+                onConnect={handleConnectZernio}
+                onSkip={handleSkipConnect}
                 submitting={submitting}
               />
             )}
@@ -221,8 +290,8 @@ export function BusinessWizardClient({
                 data={data}
                 update={update}
                 onBack={() => setStep(2)}
-                onSubmit={() => submit()}
-                onSkip={() => submit({ skipVoice: true })}
+                onSubmit={() => legacySubmit()}
+                onSkip={() => legacySubmit({ skipVoice: true })}
                 submitting={submitting}
               />
             )}
