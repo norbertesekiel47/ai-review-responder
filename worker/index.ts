@@ -85,6 +85,7 @@ import { startOnboardingDripScheduler, stopOnboardingDripScheduler } from './job
 import { handleOnboardingDrip } from './jobs/OnboardingDripWorker';
 import { handleOwnerEmail } from './jobs/OwnerEmailWorker';
 import { handleDrainOwnerConnect } from './jobs/DrainOwnerConnectWorker';
+import { handleOnboardingDemo } from './jobs/OnboardingDemoWorker';
 import { startCleanupAbandonedSignupsPoller, stopCleanupAbandonedSignupsPoller } from './jobs/CleanupAbandonedSignupsPoller';
 import { startEmailChannelReconcilePoller, stopEmailChannelReconcilePoller } from './jobs/EmailChannelReconcilePoller';
 import { isMockMode } from '../src/lib/shared/mock-mode';
@@ -443,6 +444,8 @@ const ownerEmailWorker = new Worker(QUEUE_NAMES.SEND_OWNER_EMAIL, handleOwnerEma
 
 const drainOwnerConnectWorker = new Worker(QUEUE_NAMES.DRAIN_OWNER_CONNECT, handleDrainOwnerConnect, workerOpts);
 
+const onboardingDemoWorker = new Worker(QUEUE_NAMES.ONBOARDING_DEMO_RESPONSE, handleOnboardingDemo, workerOpts);
+
 // Workers map keyed by queue name. Single source of truth for the
 // graceful-shutdown loop, Sentry breadcrumb wiring, and any future
 // observability hook that needs to enumerate workers without keeping a
@@ -463,6 +466,7 @@ const workersByQueue = {
   [QUEUE_NAMES.ONBOARDING_DRIP]: onboardingDripWorker,
   [QUEUE_NAMES.SEND_OWNER_EMAIL]: ownerEmailWorker,
   [QUEUE_NAMES.DRAIN_OWNER_CONNECT]: drainOwnerConnectWorker,
+  [QUEUE_NAMES.ONBOARDING_DEMO_RESPONSE]: onboardingDemoWorker,
 } as const;
 
 const workers = Object.values(workersByQueue);
