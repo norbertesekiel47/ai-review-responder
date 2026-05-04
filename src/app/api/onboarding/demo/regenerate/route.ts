@@ -13,6 +13,7 @@ const NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
 interface OwnerRow {
   id: string;
   user_id: string;
+  subscription_status: string;
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
@@ -46,7 +47,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   const [owner] = await sql<OwnerRow[]>`
-    SELECT u.id AS user_id, b.id AS id
+    SELECT u.id AS user_id, b.id AS id, b.subscription_status
     FROM users u
     JOIN businesses b ON b.id = u.business_id
     WHERE u.auth_id = ${user.id}
@@ -55,6 +56,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   `;
   if (!owner) {
     return NextResponse.json({ error: 'account_incomplete' }, { status: 404, headers: NO_STORE });
+  }
+
+  // Subscription gate: regenerate only meaningful pre-pay. An active owner
+  // calling this endpoint would archive their completed demo and enqueue a
+  // new one; the worker's inverted subscription guard would then mark it
+  // failed (subscription_state_changed), leaving them with no completed demo.
+  if (owner.subscription_status !== 'pending_payment') {
+    return NextResponse.json(
+      { error: 'subscription_inactive', subscriptionStatus: owner.subscription_status },
+      { status: 409, headers: NO_STORE },
+    );
   }
 
   // Same 3/24h window as /start

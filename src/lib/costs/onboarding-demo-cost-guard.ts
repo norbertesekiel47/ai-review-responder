@@ -14,8 +14,36 @@ function dailyKey(date: string): string {
   return `cost:onboarding-demo:${date}`;
 }
 
-function overrideKey(): string {
-  return 'cost:onboarding-demo:override:cents';
+/**
+ * Resolve the daily ceiling. Precedence: Redis runtime override → env →
+ * built-in default. Redis wins so ops can dial it down without a redeploy
+ * (e.g. "we got slammed, drop staging to $1/day"); env covers the deploy-time
+ * `ONBOARDING_DEMO_DAILY_CENTS` knob the runbook relies on.
+ *
+ * Both sources are validated as a finite positive integer; bad values fall
+ * through to the next source rather than crashing the request.
+ */
+async function resolveCeilingCents(lane: string): Promise<number> {
+  const redis = getCacheRedis();
+  const overrideRaw = await redis.get(`cost:${lane}:override:cents`);
+  if (overrideRaw !== null) {
+    const overrideParsed = parseInt(overrideRaw, 10);
+    if (Number.isFinite(overrideParsed) && overrideParsed > 0) {
+      return overrideParsed;
+    }
+  }
+
+  if (lane === 'onboarding-demo') {
+    const envVal = process.env.ONBOARDING_DEMO_DAILY_CENTS;
+    if (envVal) {
+      const envParsed = parseInt(envVal, 10);
+      if (Number.isFinite(envParsed) && envParsed > 0) {
+        return envParsed;
+      }
+    }
+  }
+
+  return DEFAULT_DAILY_CENTS;
 }
 
 /**
@@ -30,8 +58,7 @@ export async function reserveOnboardingDemoBudget(): Promise<{
   const key = dailyKey(date);
 
   const redis = getCacheRedis();
-  const override = await redis.get(overrideKey());
-  const ceiling = override ? parseInt(override, 10) : DEFAULT_DAILY_CENTS;
+  const ceiling = await resolveCeilingCents('onboarding-demo');
 
   const current = await redis.incrby(key, RESERVATION_CENTS);
   if (current > ceiling) {
@@ -94,8 +121,7 @@ export async function checkCostThreshold(
 ): Promise<ThresholdResult> {
   const redis = getCacheRedis();
 
-  const override = await redis.get(`cost:${lane}:override:cents`);
-  const ceiling = override ? parseInt(override, 10) : DEFAULT_DAILY_CENTS;
+  const ceiling = await resolveCeilingCents(lane);
 
   const currentRaw = await redis.get(`cost:${lane}:${date}`);
   const current = currentRaw ? parseInt(currentRaw, 10) : 0;

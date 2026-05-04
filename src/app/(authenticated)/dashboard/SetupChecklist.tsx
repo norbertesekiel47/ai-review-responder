@@ -1,4 +1,5 @@
 import { sql } from '@/lib/db/server';
+import { SetupChecklistClient } from './SetupChecklistClient';
 
 interface ChecklistData {
   zernio_connected: boolean;
@@ -65,37 +66,5 @@ export async function SetupChecklist({ businessId }: { businessId: string }) {
     },
   ];
 
-  const allComplete = items.every((i) => i.done);
-
-  return (
-    <div className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
-      <h2 className="text-lg font-semibold text-gray-900 mb-4">Get fully set up</h2>
-      <div className="space-y-3">
-        {items.map((item) => (
-          <a
-            key={item.label}
-            href={item.href}
-            className="flex items-center gap-3 p-3 rounded-md hover:bg-gray-50 transition-colors"
-          >
-            <div className={`w-5 h-5 rounded-full flex items-center justify-center text-xs ${
-              item.done ? 'bg-green-500 text-white' : 'bg-gray-200 text-gray-500'
-            }`}>
-              {item.done ? '✓' : ''}
-            </div>
-            <div>
-              <span className={`text-sm ${item.done ? 'text-gray-500 line-through' : 'text-gray-900'}`}>
-                {item.label}
-              </span>
-              {item.subText && (
-                <p className="text-xs text-gray-400">{item.subText}</p>
-              )}
-            </div>
-          </a>
-        ))}
-      </div>
-      {allComplete && (
-        <p className="text-sm text-green-600 mt-4 text-center">You&apos;re all set!</p>
-      )}
-    </div>
-  );
+  return <SetupChecklistClient items={items} dismissKey={businessId} />;
 }

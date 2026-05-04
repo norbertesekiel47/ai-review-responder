@@ -116,9 +116,6 @@ export async function handleOnboardingDemo(
       throw new Error('Invalid Place ID and no URL available for resolution');
     }
 
-    const reviews = await fetchSerpApiReviews(googlePlaceId);
-    const selected = selectQualifyingReviews(reviews, { rule: 'positive-with-moderate-tail' });
-
     let result: {
       reviews: NormalizedReview[];
       responses: (GenerationResult | null)[];
@@ -126,8 +123,25 @@ export async function handleOnboardingDemo(
     };
     let source: 'serpapi' | 'curated_fallback';
 
+    // SerpAPI fetch + review-selection failures should NOT fail the demo —
+    // the spec calls for graceful degradation to curated fallback so the user
+    // still sees something compelling and the paywall stays in front of them.
+    // Hard failure is reserved for downstream stages: invalid place resolution
+    // (above) and total LLM provider failure (caught below by the outer catch).
+    let selected: NormalizedReview[] = [];
+    let serpapiOk = true;
+    try {
+      const reviews = await fetchSerpApiReviews(googlePlaceId);
+      selected = selectQualifyingReviews(reviews, { rule: 'positive-with-moderate-tail' });
+    } catch (serpErr) {
+      serpapiOk = false;
+      logger.warn(
+        `SerpAPI fetch failed for demo ${demoId}; falling back to curated content: ${serpErr instanceof Error ? serpErr.message : serpErr}`,
+      );
+    }
+
     const hasAnchor = selected.some((r) => r.starRating >= 4);
-    if (hasAnchor) {
+    if (serpapiOk && hasAnchor) {
       result = await generateResponsesForReviews(selected, {
         name: businessName,
         category: category ?? null,

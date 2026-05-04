@@ -42,3 +42,12 @@ CREATE INDEX onboarding_demos_business_lookup
 CREATE INDEX onboarding_demos_generation_inflight
   ON onboarding_demos (generation_status)
   WHERE generation_status IN ('queued', 'running');
+
+-- Supports the daily 30-day stale-completed cleanup pass in
+-- CleanupAbandonedSignupsPoller. Without this, the poller does a full table
+-- scan once per cycle as completed-demo volume grows. Partial index keeps the
+-- B-tree small (only completed rows) and the WHERE predicate matches the
+-- DELETE byte-for-byte so Postgres uses it.
+CREATE INDEX onboarding_demos_completed_for_cleanup
+  ON onboarding_demos (completed_at)
+  WHERE generation_status = 'completed';

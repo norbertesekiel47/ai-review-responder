@@ -155,6 +155,89 @@ describe('lifecycle', () => {
     expect(outbox?.last_error).toBe('SerpAPI down');
   });
 
+  // ── PR #2: 23505 race-loser recovery on onboarding_demos ─────────
+
+  async function insertOnboardingUser(): Promise<{ userId: string; businessId: string }> {
+    const userId = crypto.randomUUID();
+    const businessId = crypto.randomUUID();
+    const authId = crypto.randomUUID();
+    const ownerEmail = `${SLUG_PREFIX}${Math.random().toString(36).slice(2, 8)}@test.invalid`;
+    await sql`
+      INSERT INTO businesses (id, name, owner_email, subscription_status)
+      VALUES (${businessId}, 'Test Biz', ${ownerEmail}, 'pending_payment')
+    `;
+    await sql`
+      INSERT INTO users (id, business_id, auth_id, email, role)
+      VALUES (${userId}, ${businessId}, ${authId}, ${ownerEmail}, 'owner')
+    `;
+    return { userId, businessId };
+  }
+
+  async function insertOnboardingDemo(opts: {
+    userId: string;
+    businessId: string;
+    generation_status: string;
+    source?: string;
+    completed_at?: Date | null;
+  }): Promise<string> {
+    const id = crypto.randomUUID();
+    const correlationId = crypto.randomUUID();
+    await sql`
+      INSERT INTO onboarding_demos (
+        id, user_id, business_id, business_name, generation_status,
+        source, completed_at, correlation_id
+      ) VALUES (
+        ${id}, ${opts.userId}::uuid, ${opts.businessId}::uuid,
+        'Test Biz', ${opts.generation_status},
+        ${opts.source ?? null}, ${opts.completed_at ?? null},
+        ${correlationId}::uuid
+      )
+    `;
+    return id;
+  }
+
+  it('completeDemo on onboarding_demos: 23505 race loser archives self + closes outbox', async () => {
+    const { userId, businessId } = await insertOnboardingUser();
+    try {
+      // Winner already completed (occupies the partial unique index slot).
+      await insertOnboardingDemo({
+        userId,
+        businessId,
+        generation_status: 'completed',
+        source: 'serpapi',
+        completed_at: new Date(),
+      });
+      // Loser is mid-flight (running). completeDemo should trip 23505 then
+      // recover by archiving + closing the outbox.
+      const loserId = await insertOnboardingDemo({
+        userId,
+        businessId,
+        generation_status: 'running',
+      });
+      const outboxId = await insertOutboxRow();
+
+      await completeDemo('onboarding_demos', loserId, outboxId, 0, {
+        reviews: [makeReview({ reviewerName: 'X', starRating: 5, reviewText: 'Hi' })],
+        responses: [makeGenerationResult({ responseText: 'Thanks' })],
+        source: 'serpapi',
+      });
+
+      const [loserRow] = await sql<{ generation_status: string }[]>`
+        SELECT generation_status FROM onboarding_demos WHERE id = ${loserId}
+      `;
+      expect(loserRow?.generation_status).toBe('archived');
+
+      const [outbox] = await sql<{ status: string }[]>`
+        SELECT status FROM job_outbox WHERE id = ${outboxId}
+      `;
+      expect(outbox?.status).toBe('completed');
+    } finally {
+      await sql`DELETE FROM onboarding_demos WHERE user_id = ${userId}::uuid`;
+      await sql`DELETE FROM users WHERE id = ${userId}::uuid`;
+      await sql`DELETE FROM businesses WHERE id = ${businessId}::uuid`;
+    }
+  });
+
   it('failDemo handles outboxAttempt=undefined (legacy branch)', async () => {
     const id = await insertProspectDemo({ generation_status: 'running' });
     const outboxId = await insertOutboxRow();

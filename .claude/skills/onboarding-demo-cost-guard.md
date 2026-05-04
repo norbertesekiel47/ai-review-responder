@@ -42,7 +42,7 @@ const result = await withOnboardingDemoCostGuard(
 | Scope key | `businessId` + `subscriptionTier` | global daily counter |
 | Default ceiling | per-business monthly cap | `$10/day` (`ONBOARDING_DEMO_DAILY_CENTS`) |
 | Override | per-business override row | Redis key `cost:onboarding-demo:override:cents` |
-| Reconciliation | inline against `api_costs` | worker calls `finalizeOnboardingDemoCost(date, cents)` |
+| Reconciliation | inline against `api_costs` | worker calls `finalizeOnboardingDemoCost(date, cents)` (Redis only — see Phase 2 below) |
 
 ## Reservation/finalize semantics
 
@@ -76,3 +76,20 @@ for (const t of crossed) {
 Each threshold fires **at most once per day per lane** — implemented via a
 Redis `SADD` into a daily set with 25h TTL. Avoids Sentry spam when the
 counter sits above a threshold for the rest of the day.
+
+## Phase 2: api_costs ledger entries
+
+v1 tracks onboarding-demo spend in Redis only (sufficient for daily
+enforcement). Cross-period admin reporting (weekly/monthly rollups in
+`api_costs_daily_rollups`) does NOT see this spend.
+
+Phase 2 work to close the gap:
+1. Migration to add `api_costs.cost_lane TEXT` (or extend the implicit lane
+   model: rows with `business_id IS NULL` + `provider IN ('openai','serpapi')`
+   are pre-pay onboarding demos).
+2. Worker writes one `api_costs` row per provider call inside the same tx
+   as `completeDemo` — SerpAPI ($~0.01) + LLM ($~0.015).
+3. Admin dashboard surfaces an "Onboarding demos (pre-pay)" line item.
+
+Until then, monthly cost is reconstructable from the Redis daily counter
++ Sentry threshold events.
