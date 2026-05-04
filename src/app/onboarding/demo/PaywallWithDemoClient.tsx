@@ -24,7 +24,12 @@ const MAX_POLLS = 15;
 
 export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoClientProps) {
   const router = useRouter();
-  const [demo] = useState<DemoPayload>(initialDemo);
+  // Read directly from props — do NOT useState(initialDemo). useState only
+  // captures the initial value once; when polling triggers router.refresh()
+  // the server passes a NEW initialDemo (e.g. status flipped to 'completed'),
+  // but useState would return the stale 'queued' snapshot forever and the
+  // loading spinner would never clear. SSR is the source of truth here.
+  const demo = initialDemo;
   const [pollCount, setPollCount] = useState(0);
 
   // Postgres.js + PgBouncer can hand back JSONB columns as strings — guard
