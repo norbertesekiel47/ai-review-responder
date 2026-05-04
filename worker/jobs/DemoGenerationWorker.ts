@@ -1,11 +1,11 @@
 import type { Job } from 'bullmq';
-import { sql, jsonb } from '../../src/lib/db/server';
-import { generateDemo } from '../../src/lib/demos/generator';
 import type { DemoJobPayload } from '../../src/lib/demos/types';
-import { markOutboxCompleted, extractOutboxHandle } from '../../src/lib/shared/outbox';
+import { generateDemo } from '../../src/lib/demos/generator';
+import { claimDemo, completeDemo, failDemo } from '../../src/lib/demos/lifecycle';
+import { createWorkerLogger } from '../../src/lib/shared/logger';
+import { extractOutboxHandle, markOutboxCompleted } from '../../src/lib/shared/outbox';
 import { isPlaceId, parseGoogleMapsUrl } from '../../src/lib/reviews/url-parser';
 import { resolvePlaceId } from '../../src/lib/reviews/place-id-resolver';
-import { createWorkerLogger } from '../../src/lib/shared/logger';
 
 export async function handleDemoGeneration(
   job: Job<DemoJobPayload>,
@@ -16,68 +16,25 @@ export async function handleDemoGeneration(
   const googleMapsUrl = job.data.googleMapsUrl;
   const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
 
-  // Idempotency: only process if still in a startable state
-  const [demo] = await sql<{ generation_status: string; started_at: Date | null }[]>`
-    SELECT generation_status, started_at FROM prospect_demos WHERE id = ${demoId}
-  `;
+  const claimResult = await claimDemo('prospect_demos', demoId, logger);
 
-  if (!demo) {
-    logger.warn(`Demo ${demoId} not found, completing outbox`);
-    await markOutboxCompleted(outboxId, outboxAttempt);
-    return;
-  }
-
-  // Terminal states — nothing to do
-  if (demo.generation_status === 'completed' || demo.generation_status === 'failed') {
-    logger.warn(
-      `Demo ${demoId} already ${demo.generation_status}, completing outbox`,
-    );
-    await markOutboxCompleted(outboxId, outboxAttempt);
-    return;
-  }
-
-  // Stale "running" recovery — if a previous worker crashed mid-generation,
-  // the demo is stuck in "running" with no one processing it.
-  // Reset to "queued" so the CAS transition below can reclaim it.
-  const STALE_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
   if (
-    demo.generation_status === 'running' &&
-    demo.started_at &&
-    Date.now() - new Date(demo.started_at).getTime() > STALE_THRESHOLD_MS
+    claimResult === 'not_found' ||
+    claimResult === 'already_terminal' ||
+    claimResult === 'race_lost'
   ) {
-    logger.warn(
-      `Demo ${demoId} stuck in running for >5min, resetting to queued`,
-    );
-    await sql`
-      UPDATE prospect_demos
-      SET generation_status = 'queued', started_at = NULL
-      WHERE id = ${demoId} AND generation_status = 'running'
-    `;
-  } else if (demo.generation_status === 'running') {
-    // Still running and not stale — might be another active worker, or might
-    // be a recently-crashed worker. Throw so BullMQ retries with backoff.
-    // On next retry either: (a) original worker finished → we see completed/failed
-    // and exit cleanly, or (b) stale threshold reached → we reset and reclaim.
-    throw new Error(
-      `Demo ${demoId} is running (started ${demo.started_at?.toISOString()}), retrying later`,
-    );
-  }
-
-  // Race-safe transition: only one worker can move queued → running
-  const updated = await sql`
-    UPDATE prospect_demos
-    SET generation_status = 'running', started_at = NOW()
-    WHERE id = ${demoId} AND generation_status = 'queued'
-  `;
-
-  if (updated.count === 0) {
-    logger.warn(`Demo ${demoId} already claimed, completing outbox`);
     await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }
 
+  if (claimResult === 'reset_to_queued') {
+    // Per lifecycle.ts CALLER CONTRACT comment: throw so BullMQ re-dispatches.
+    // The row is already reset to 'queued' so the next dispatch will reclaim it.
+    throw new Error(`Demo ${demoId} reset from stale running; re-dispatching`);
+  }
+
+  // claimResult === 'claimed' — proceed.
   try {
-    // Resolve Place ID if it's not canonical (e.g. URL fallback path set 'pending_resolution')
     if (!isPlaceId(googlePlaceId) && googleMapsUrl) {
       const urlData = parseGoogleMapsUrl(googleMapsUrl);
       googlePlaceId = await resolvePlaceId(urlData);
@@ -91,90 +48,40 @@ export async function handleDemoGeneration(
       category: category ?? null,
     });
 
-    // Success: update both in one transaction
-    await sql.begin(async (tx) => {
-      await tx`
-        UPDATE prospect_demos
-        SET reviews_snapshot = ${jsonb(result.reviews)},
-            generated_responses = ${jsonb(result.responses)},
-            generation_status = 'completed',
-            completed_at = NOW()
-        WHERE id = ${demoId}
-      `;
-
-      if (typeof outboxAttempt === 'number') {
-        await tx`
-          UPDATE job_outbox
-          SET status = 'completed', completed_at = NOW()
-          WHERE id = ${outboxId}
-            AND status = 'dispatched'
-            AND attempts = ${outboxAttempt}
-        `;
-      } else {
-        // Legacy path — guard on status so we can't regress a terminal row.
-        await tx`
-          UPDATE job_outbox
-          SET status = 'completed', completed_at = NOW()
-          WHERE id = ${outboxId}
-            AND status = 'dispatched'
-        `;
-      }
+    await completeDemo('prospect_demos', demoId, outboxId, outboxAttempt, {
+      reviews: result.reviews,
+      responses: result.responses,
+      // No `source` — prospect_demos has no `source` column (it has its own
+      // `review_source` populated at INSERT time by the prospect-demo creation
+      // path).
     });
 
     logger.log(
       `Demo ${demoId} completed: ${result.metadata.successfulResponses}/${result.metadata.totalReviews} responses in ${result.metadata.generationDurationMs}ms`,
     );
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : String(error);
-
-    logger.error(
-      `Demo ${demoId} failed: ${message}`,
-    );
-
-    // Failure: update both in one transaction
+    const message = error instanceof Error ? error.message : String(error);
+    logger.error(`Demo ${demoId} failed: ${message}`);
     try {
-      await sql.begin(async (tx) => {
-        await tx`
-          UPDATE prospect_demos
-          SET generation_status = 'failed',
-              generation_error = ${message},
-              completed_at = NOW()
-          WHERE id = ${demoId}
-        `;
-
-        if (typeof outboxAttempt === 'number') {
-          await tx`
-            UPDATE job_outbox
-            SET status = 'failed',
-                last_error = ${message},
-                completed_at = NOW()
-            WHERE id = ${outboxId}
-              AND status = 'dispatched'
-              AND attempts = ${outboxAttempt}
-          `;
-        } else {
-          // Legacy path — guard on status so we can't regress a terminal row.
-          await tx`
-            UPDATE job_outbox
-            SET status = 'failed',
-                last_error = ${message},
-                completed_at = NOW()
-            WHERE id = ${outboxId}
-              AND status = 'dispatched'
-          `;
-        }
-      });
+      await failDemo(
+        'prospect_demos',
+        demoId,
+        outboxId,
+        outboxAttempt,
+        error instanceof Error ? error : new Error(message),
+      );
     } catch (txError) {
-      // If the failure transaction itself fails, re-throw so BullMQ retries.
-      // The idempotency check at the top will catch the retry.
+      // failDemo's tx itself failed (e.g. DB transport flake). Distinguish
+      // this from the original generation failure in logs so ops can tell
+      // "the LLM failed" from "we couldn't even record that the LLM failed".
+      // Re-throw so BullMQ retries — the idempotency check at the top of the
+      // next attempt will catch up the lifecycle state.
       logger.error(
-        `Failed to record failure for demo ${demoId}:`,
-        txError,
+        `Failed to record failure for demo ${demoId}: ${txError instanceof Error ? txError.message : String(txError)}`,
       );
       throw txError;
     }
-    // Do NOT re-throw — the failure is fully handled in Postgres.
-    // BullMQ job completes cleanly. The outbox entry is already marked failed.
+    // Do NOT re-throw the original `error` — failure is fully handled in
+    // Postgres. BullMQ job completes cleanly. The outbox entry is marked failed.
   }
 }

@@ -1,78 +1,52 @@
-import { SerpApiSource } from '@/lib/reviews/serpapi-source';
-import { MockReviewSource } from '@/lib/reviews/mock-source';
-import { generateResponse } from '@/lib/responses/generator';
-import { generateMockResponse } from '@/lib/responses/mock-generator';
-import type { ReviewSource, NormalizedReview } from '@/lib/reviews/types';
-import type { GenerationResult } from '@/lib/responses/types';
 import type { DemoGeneratorInput, DemoGeneratorResult } from './types';
-
-const useMocks = process.env.MOCK_EXTERNAL_APIS === 'true';
+import { fetchSerpApiReviews } from './fetch-reviews';
+import { generateResponsesForReviews } from './generate-responses';
 
 /**
  * Core demo generation logic — called by DemoGenerationWorker on Railway.
  *
- * Fetches reviews via SerpAPI, generates an AI response for each one
- * using the LLM in demo mode (no cost guard, no Redis).
+ * Composition: fetch → generate. ALL fetched reviews flow through to the
+ * generator (today's behavior — up to 15 reviews per prospect demo).
  *
- * Pure computation — does NOT write to the database.
- * The worker handles all persistence.
+ * NOTE: PR #1 deliberately does NOT introduce review selection on the prospect
+ * path. The `selectQualifyingReviews` helper (PR #1) is for PR #2's onboarding
+ * worker, which will compose `fetch → select(positive-with-moderate-tail) → generate`
+ * to cap output at 3 reviews. Prospect demos retain their 15-review breadth.
+ *
+ * Pure computation — does NOT write to the database. The worker handles all
+ * persistence.
  */
 export async function generateDemo(
   input: DemoGeneratorInput,
 ): Promise<DemoGeneratorResult> {
   const startTime = Date.now();
 
-  // Fetch reviews
-  const source: ReviewSource = useMocks
-    ? new MockReviewSource()
-    : new SerpApiSource(process.env.SERPAPI_API_KEY!);
-  const reviews = await source.fetchReviews(input.placeId, 15);
+  const reviews = await fetchSerpApiReviews(input.placeId);
 
   if (reviews.length === 0) {
     throw new Error('No reviews found for this business');
   }
 
-  // Generate AI responses in parallel — partial failures are OK
-  const businessContext = {
+  const result = await generateResponsesForReviews(reviews, {
     name: input.businessName,
     category: input.category,
-  };
+  });
 
-  const generateFn = useMocks ? generateMockResponse : generateResponse;
-
-  const settled = await Promise.allSettled(
-    reviews.map((review) =>
-      generateFn(review, businessContext, [], { mode: 'demo' }),
-    ),
-  );
-
-  const responses: (GenerationResult | null)[] = settled.map(
-    (result, index) => {
-      if (result.status === 'fulfilled') {
-        return result.value;
-      }
-      console.error(
-        `[demo-generator] LLM failed for review ${index} (${reviews[index]?.reviewerName}):`,
-        result.reason,
-      );
-      return null;
-    },
-  );
-
-  const successful = responses.filter(
-    (r): r is GenerationResult => r !== null,
-  );
-
+  // Explicit field copy (NOT spread+rebind) so a future rename of any
+  // metadata field on either side fails at compile time rather than silently
+  // dropping our outer measurement. The inner `generationDurationMs` is
+  // intentionally NOT copied — the outer one below replaces it with the
+  // end-to-end measurement (fetch + generate), which is what callers expect.
   return {
     placeId: input.placeId,
-    reviews,
-    responses,
+    reviews: result.reviews,
+    responses: result.responses,
     metadata: {
-      totalReviews: reviews.length,
-      successfulResponses: successful.length,
-      failedResponses: reviews.length - successful.length,
-      totalCostUsd: successful.reduce((sum, r) => sum + r.costUsd, 0),
-      generationDurationMs: Date.now() - startTime,
+      totalReviews: result.metadata.totalReviews,
+      successfulResponses: result.metadata.successfulResponses,
+      failedResponses: result.metadata.failedResponses,
+      totalCostUsd: result.metadata.totalCostUsd,
+      generationDurationMs: Date.now() - startTime, // end-to-end (fetch + generate)
     },
   };
 }
