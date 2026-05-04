@@ -75,7 +75,7 @@ approval before posting.
 
 - All tables: UUIDv7 (time-ordered)
 - Base schema: `supabase/migrations/001_initial_schema.sql`
-- Current head: migration **031** (next: **032**)
+- Current head: migration **032** (next: **033**)
 - For migration details: see `.claude/skills/migrations.md`
 
 ## Non-obvious gotchas — read these before touching related code
@@ -144,27 +144,16 @@ design questions. Never dump `graph.json` whole into context — use
 | **Playwright** | E2E tests                                                          |
 | **Sentry**     | Error tracking, production debugging                               |
 
-## Current branch status
+## Agent skills
 
-- `feat/past-replies-view` — **active branch, 9 commits, ready to ship**.
-  Read-only "Past Replies" tab + flag-gated external-reply ingestion. Solves
-  the Tanicia onboarding problem (silently-dropped pre-RepWorth replies)
-  without baking Zernio's DELETE+POST edit complexity into the product
-  core. Two independent flags: `EXTERNAL_REPLY_IMPORT_ENABLED` (writes path)
-  + `PAST_REPLIES_VIEW_ENABLED` (UI). Branched off
-  `feat/zernio-ingestion-replace-serpapi`. Adds migration 031.
-- **Tag `wip/edit-existing-replies-zernio-v1`** — full edit / regenerate /
-  recovery / DELETE+POST / orphan-marker machinery from the original
-  `feat/edit-existing-replies` branch (31 commits, 6 review rounds, ~3,500
-  LOC). Parked pending direct GBP API approval — GBP's single-PUT updateReply
-  makes the orphan-recovery layer vestigial. Reusable when GBP arrives:
-  route shapes, drawer state machine (minus recovery state), helpers like
-  assertCanEditReply + validateOptimisticConcurrency. NOT to be merged into
-  main as Zernio-shaped today; either rebuild against GBP, OR resurrect
-  if GBP timeline blows up beyond ~12 months.
-- `feat/zernio-ingestion-replace-serpapi` — base of the past-replies-view
-  branch; code-complete, pending prod migration 028+029+030 + smoke test.
-- `feat/owner-self-serve-signup` — pending Supabase custom SMTP config.
-- Channels (Telegram/WhatsApp/SMS) — code-complete, flag-gated off.
-- See `docs/currents.md` for the simple-words summary, `docs/progresstracking.md`
-  for the detailed history including the split decision.
+### Issue tracker
+
+GitHub Issues on `norbertesekiel47/ai-review-responder` via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Canonical defaults (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context — `CONTEXT.md` + `docs/adr/` at repo root (neither exists yet; skills proceed silently if absent). See `docs/agents/domain.md`.

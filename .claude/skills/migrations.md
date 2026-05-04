@@ -109,8 +109,22 @@ All tables use UUIDv7 (time-ordered primary keys).
   user; failed/queued/archived rows allowed for retry/regenerate).
   CHECK constraint enforces `source IS NOT NULL` whenever
   `generation_status='completed'`. Indexes on user/business lookup +
-  in-flight status filter. Sister table to `prospect_demos` (admin-side);
-  shared lifecycle helpers in `src/lib/demos/lifecycle.ts` (PR #1).
+  in-flight status filter + a partial cleanup index
+  `onboarding_demos_completed_for_cleanup` on `(completed_at) WHERE
+  generation_status='completed'` to support the daily 30-day stale
+  cleanup pass in `CleanupAbandonedSignupsPoller` (without it, the
+  poller does a full table scan as completed-demo volume grows).
+  Sister table to `prospect_demos` (admin-side); shared lifecycle
+  helpers in `src/lib/demos/lifecycle.ts` (PR #1).
+
+  **Race-loser invariant:** the partial unique index combined with the
+  23505 recovery in `lifecycle.completeDemo` means concurrent regenerates
+  for the same user produce at most one `completed` row. The losing
+  worker archives THIS row in a single tx (status='archived', outbox
+  closed). Any reads ordered by `created_at DESC LIMIT 1` against this
+  table MUST filter `generation_status <> 'archived'` — the loser's
+  archive can be newer than the winner's complete (`/onboarding/demo/page.tsx`,
+  `/api/onboarding/demo/status/route.ts` already do this).
 
   **Apply non-transactionally** (file mixes transactional DDL with
   `CREATE INDEX CONCURRENTLY` — uncheck "single transaction" in the
