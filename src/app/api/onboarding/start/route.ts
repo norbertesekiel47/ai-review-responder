@@ -15,6 +15,7 @@ const NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
 
 interface BizRow {
   id: string;
+  user_id: string;
   subscription_status: string;
   place_id_verified: boolean;
   google_maps_url: string | null;
@@ -55,7 +56,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   const [bizRow] = await sql<BizRow[]>`
-    SELECT b.id, b.subscription_status, b.place_id_verified, b.google_maps_url
+    SELECT b.id, u.id AS user_id, b.subscription_status, b.place_id_verified, b.google_maps_url
     FROM users u
     JOIN businesses b ON b.id = u.business_id
     WHERE u.auth_id = ${user.id}
@@ -211,7 +212,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             google_place_id, google_maps_url, generation_status,
             correlation_id, created_at, updated_at
           ) VALUES (
-            ${demoId}, ${user.id}::uuid, ${bizRow.id}::uuid,
+            ${demoId}, ${bizRow.user_id}::uuid, ${bizRow.id}::uuid,
             ${data.businessName}, ${data.prefilledCategory ?? null},
             ${resolvedPlaceId}, ${data.googleMapsUrl ?? null},
             'queued', ${correlationId}, NOW(), NOW()

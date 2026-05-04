@@ -81,6 +81,7 @@ export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoC
   const isLoading = demo.generation_status === 'queued' || demo.generation_status === 'running';
   const isFailed = demo.generation_status === 'failed';
   const isCompleted = demo.generation_status === 'completed';
+  const isSkipped = demo.generation_status === 'skipped';
   const isFallback = demo.source === 'curated_fallback';
 
   return (
@@ -117,16 +118,42 @@ export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoC
           </div>
         )}
 
-        {isFailed && (
-          <div className="text-center py-12">
-            <div className="text-4xl mb-4" role="img" aria-label="warning">⚠️</div>
-            <p className="text-gray-600 mb-4">We encountered an issue generating your demo.</p>
-            <button
-              onClick={handleRegenerate}
-              className="bg-blue-600 text-white font-medium py-2 px-6 rounded-md hover:bg-blue-700"
-            >
-              Try again
-            </button>
+        {(isFailed || isSkipped) && (
+          <div className="space-y-6">
+            <div className="text-center py-8">
+              {isFailed ? (
+                <>
+                  <div className="text-4xl mb-4" role="img" aria-label="warning">⚠️</div>
+                  <p className="text-gray-600 mb-4">We couldn&apos;t generate a sample demo this time.</p>
+                  <button
+                    onClick={handleRegenerate}
+                    className="bg-white border border-gray-300 text-gray-700 font-medium py-2 px-6 rounded-md hover:bg-gray-50 mb-2"
+                  >
+                    Try the demo again
+                  </button>
+                </>
+              ) : (
+                <p className="text-gray-600">
+                  Your live demo is on the way after signup — for now, you can still subscribe.
+                </p>
+              )}
+            </div>
+
+            {/* Paywall stays available even when the demo isn't — never block payment on a transient generation issue. */}
+            <div className="bg-white rounded-xl border border-gray-200 p-6 sm:p-8 text-center">
+              <h2 className="text-xl font-bold text-gray-900 mb-2">
+                Choose your RepWorth plan
+              </h2>
+              <p className="text-gray-600 mb-6 max-w-md mx-auto">
+                Subscribe to start automatically generating responses for every review.
+              </p>
+              <a
+                href="/onboarding/pay"
+                className="inline-block bg-blue-600 text-white font-medium px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                Choose a plan →
+              </a>
+            </div>
           </div>
         )}
 

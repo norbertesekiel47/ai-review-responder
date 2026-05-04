@@ -258,9 +258,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         // but the dashboard will surface the missing business when they hit it.
         return;
       }
-      if (forUpdateRow.place_id_verified || forUpdateRow.google_maps_url) {
-        // Another wizard submit won — silent no-op so the loser's response is
-        // still 200 and the UI redirect to /dashboard works.
+      if (!demoFlowEnabled && (forUpdateRow.place_id_verified || forUpdateRow.google_maps_url)) {
+        // Legacy single-pass wizard only: place data already set means another
+        // wizard submit won. Silent no-op so the loser's response is still 200
+        // and the UI redirect to /dashboard works.
+        //
+        // Post-pay (demoFlowEnabled): place_id_verified IS the precondition
+        // (set at /onboarding/start before Stripe). Treating it as
+        // "duplicate submit" here would silently swallow every Profile/Voice
+        // submission. Fall through to the post-pay UPDATE branch below.
         return;
       }
 

@@ -19,6 +19,9 @@ interface DemoRow {
 interface OwnerRow {
   role: string;
   subscription_status: string;
+  place_id_verified: boolean;
+  google_maps_url: string | null;
+  business_name: string;
 }
 
 export default async function OnboardingDemoPage() {
@@ -40,7 +43,8 @@ export default async function OnboardingDemoPage() {
   if (!user) redirect('/login');
 
   const [row] = await sql<OwnerRow[]>`
-    SELECT u.role, b.subscription_status
+    SELECT u.role, b.subscription_status, b.place_id_verified,
+           b.google_maps_url, b.name AS business_name
     FROM users u
     JOIN businesses b ON b.id = u.business_id
     WHERE u.auth_id = ${user.id}
@@ -61,6 +65,28 @@ export default async function OnboardingDemoPage() {
   `;
 
   if (!demo) {
+    // Location captured but no demo row — happens when /start succeeded but
+    // the demo enqueue was skipped (cost ceiling, rate limit, or future
+    // staff-allowlist gating). Without this branch we'd ping-pong between
+    // /start (place_id_verified → /demo) and /demo (no demo → /start).
+    // Render the paywall standalone with a sentinel "skipped" status so the
+    // user can still subscribe.
+    if (row.place_id_verified || row.google_maps_url) {
+      return (
+        <PaywallWithDemoClient
+          initialDemo={{
+            id: 'no-demo-sentinel',
+            generation_status: 'skipped',
+            completed_at: null,
+            source: null,
+            reviews_snapshot: null as never,
+            generated_responses: null as never,
+            business_name: row.business_name,
+          }}
+          isStale={false}
+        />
+      );
+    }
     redirect('/onboarding/start');
   }
 
