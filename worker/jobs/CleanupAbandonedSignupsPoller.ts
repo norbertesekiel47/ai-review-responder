@@ -56,6 +56,27 @@ export async function runOnce(): Promise<void> {
 async function runOnceInner(
   logger: ReturnType<typeof createWorkerLogger>,
 ): Promise<void> {
+  // Tier-2 housekeeping: drop completed onboarding demos older than 30 days.
+  // CASCADE on user_id/business_id covers the abandoned-signup path; this
+  // independent pass collects long-lived demo rows from successful signups
+  // whose user/business are still active. Failures here MUST NOT block the
+  // main cleanup loop — log and continue. Runs BEFORE the abandoned-signup
+  // candidates SELECT so a flake here doesn't prevent the primary cleanup.
+  try {
+    const staleResult = await sql`
+      DELETE FROM onboarding_demos
+      WHERE generation_status = 'completed'
+        AND completed_at < NOW() - INTERVAL '30 days'
+    `;
+    if (staleResult.count && staleResult.count > 0) {
+      logger.log(`Deleted ${staleResult.count} stale completed onboarding demos`);
+    }
+  } catch (err) {
+    logger.error(
+      `Failed to cleanup stale onboarding demos: ${err instanceof Error ? err.message : err}`,
+    );
+  }
+
   const envVal = process.env.CLEANUP_ABANDONED_SIGNUPS_BATCH_SIZE;
   const parsedBatchSize = envVal ? parseInt(envVal, 10) : NaN;
   const batchSize = Number.isFinite(parsedBatchSize) && parsedBatchSize > 0
@@ -152,15 +173,18 @@ async function runOnceInner(
           return;
         }
 
-        const [refs] = await tx<{ has_onboarded: boolean; has_demos: boolean }[]>`
+        const [refs] = await tx<{
+          has_onboarded: boolean;
+          has_prospect_demos: boolean;
+        }[]>`
           SELECT
             EXISTS (SELECT 1 FROM businesses WHERE onboarded_by = ${candidate.user_id}::uuid) AS has_onboarded,
-            EXISTS (SELECT 1 FROM prospect_demos WHERE created_by = ${candidate.user_id}::uuid) AS has_demos
+            EXISTS (SELECT 1 FROM prospect_demos WHERE created_by = ${candidate.user_id}::uuid) AS has_prospect_demos
         `;
 
-        if (refs && (refs.has_onboarded || refs.has_demos)) {
+        if (refs && (refs.has_onboarded || refs.has_prospect_demos)) {
           logger.warn(
-            `Skipping ${candidate.user_id} — referenced by other tables (invariant violation): has_onboarded=${refs.has_onboarded} has_demos=${refs.has_demos}`,
+            `Skipping ${candidate.user_id} — referenced by other tables (invariant violation): has_onboarded=${refs.has_onboarded} has_prospect_demos=${refs.has_prospect_demos}`,
           );
           skippedRefs++;
           return;
@@ -210,6 +234,14 @@ async function runOnceInner(
           supabaseFailed++;
           throw error;
         }
+
+        // Explicit cleanup of onboarding_demos (FK CASCADE on user_id covers
+        // the data — this is defense-in-depth so the row count is observable
+        // in logs alongside the user/business deletions, and so a future
+        // change to FK semantics doesn't silently leave orphan rows). Runs
+        // ONLY after Supabase deleteUser succeeds; on supabase failure the
+        // throw above rolls back the tx and this query never executes.
+        await tx`DELETE FROM onboarding_demos WHERE user_id = ${candidate.user_id}::uuid`;
 
         // FK-aware ordering: users.business_id does NOT cascade from businesses,
         // so users MUST be deleted first. The DELETE predicate also pins
