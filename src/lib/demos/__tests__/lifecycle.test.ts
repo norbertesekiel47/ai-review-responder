@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { sql } from '@/lib/db/server';
 import { claimDemo, completeDemo, failDemo } from '../lifecycle';
+import { makeReview, makeGenerationResult } from './fixtures';
 
 // Real-DB integration test. `vitest.setup.ts` always sets a dummy
 // DATABASE_POOL_URL so module-load doesn't crash, so we can't trust it
@@ -101,24 +102,8 @@ describe('lifecycle', () => {
     const id = await insertProspectDemo({ generation_status: 'running' });
     const outboxId = await insertOutboxRow();
     await completeDemo('prospect_demos', id, outboxId, 0, {
-      reviews: [
-        {
-          reviewerName: 'A',
-          starRating: 5,
-          reviewText: 'Great',
-          reviewDate: '2026-01-01T00:00:00Z',
-          detectedLanguage: 'en',
-        } as never,
-      ],
-      responses: [
-        {
-          responseText: 'Thanks!',
-          costUsd: 0.01,
-          modelUsed: 'test',
-          tokensUsed: 10,
-          latencyMs: 100,
-        } as never,
-      ],
+      reviews: [makeReview({ reviewerName: 'A', starRating: 5, reviewText: 'Great' })],
+      responses: [makeGenerationResult({ responseText: 'Thanks!' })],
     });
     const [row] = await sql<{
       generation_status: string;
@@ -143,24 +128,8 @@ describe('lifecycle', () => {
     const id = await insertProspectDemo({ generation_status: 'running' });
     const outboxId = await insertOutboxRow();
     await completeDemo('prospect_demos', id, outboxId, undefined, {
-      reviews: [
-        {
-          reviewerName: 'A',
-          starRating: 5,
-          reviewText: 'Great',
-          reviewDate: '2026-01-01T00:00:00Z',
-          detectedLanguage: 'en',
-        } as never,
-      ],
-      responses: [
-        {
-          responseText: 'Thanks!',
-          costUsd: 0.01,
-          modelUsed: 'test',
-          tokensUsed: 10,
-          latencyMs: 100,
-        } as never,
-      ],
+      reviews: [makeReview({ reviewerName: 'A', starRating: 5, reviewText: 'Great' })],
+      responses: [makeGenerationResult({ responseText: 'Thanks!' })],
     });
     const [row] = await sql<{ generation_status: string }[]>`
       SELECT generation_status FROM prospect_demos WHERE id = ${id}

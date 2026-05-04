@@ -40,6 +40,17 @@ describe('selectQualifyingReviews', () => {
       expect(result).toEqual([r1, r2]);
     });
 
+    it('returns all 3 when input has exactly 3 (inclusive cap boundary)', () => {
+      const r1 = makeReview({ reviewerName: 'A', starRating: 5 });
+      const r2 = makeReview({ reviewerName: 'B', starRating: 4 });
+      const r3 = makeReview({ reviewerName: 'C', starRating: 3 });
+
+      const result = selectQualifyingReviews([r1, r2, r3], { rule: 'newest' });
+
+      expect(result).toEqual([r1, r2, r3]);
+      expect(result).toHaveLength(3);
+    });
+
     it('returns [] for empty input', () => {
       const result = selectQualifyingReviews([], { rule: 'newest' });
       expect(result).toEqual([]);
