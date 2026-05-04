@@ -139,6 +139,37 @@ describe('lifecycle', () => {
     expect(outbox?.status).toBe('completed');
   });
 
+  it('completeDemo handles outboxAttempt=undefined (legacy branch)', async () => {
+    const id = await insertProspectDemo({ generation_status: 'running' });
+    const outboxId = await insertOutboxRow();
+    await completeDemo('prospect_demos', id, outboxId, undefined, {
+      reviews: [
+        {
+          reviewerName: 'A',
+          starRating: 5,
+          reviewText: 'Great',
+          reviewDate: '2026-01-01T00:00:00Z',
+          detectedLanguage: 'en',
+        } as never,
+      ],
+      responses: [
+        {
+          responseText: 'Thanks!',
+          costUsd: 0.01,
+          modelUsed: 'test',
+          tokensUsed: 10,
+          latencyMs: 100,
+        } as never,
+      ],
+    });
+    const [row] = await sql<{ generation_status: string }[]>`
+      SELECT generation_status FROM prospect_demos WHERE id = ${id}
+    `;
+    expect(row?.generation_status).toBe('completed');
+    const [outbox] = await sql<{ status: string }[]>`SELECT status FROM job_outbox WHERE id = ${outboxId}`;
+    expect(outbox?.status).toBe('completed');
+  });
+
   it('failDemo writes error and status=failed', async () => {
     const id = await insertProspectDemo({ generation_status: 'running' });
     const outboxId = await insertOutboxRow();
@@ -153,5 +184,21 @@ describe('lifecycle', () => {
     `;
     expect(outbox?.status).toBe('failed');
     expect(outbox?.last_error).toBe('SerpAPI down');
+  });
+
+  it('failDemo handles outboxAttempt=undefined (legacy branch)', async () => {
+    const id = await insertProspectDemo({ generation_status: 'running' });
+    const outboxId = await insertOutboxRow();
+    await failDemo('prospect_demos', id, outboxId, undefined, new Error('Place ID resolution failed'));
+    const [row] = await sql<{ generation_status: string; generation_error: string }[]>`
+      SELECT generation_status, generation_error FROM prospect_demos WHERE id = ${id}
+    `;
+    expect(row?.generation_status).toBe('failed');
+    expect(row?.generation_error).toBe('Place ID resolution failed');
+    const [outbox] = await sql<{ status: string; last_error: string }[]>`
+      SELECT status, last_error FROM job_outbox WHERE id = ${outboxId}
+    `;
+    expect(outbox?.status).toBe('failed');
+    expect(outbox?.last_error).toBe('Place ID resolution failed');
   });
 });

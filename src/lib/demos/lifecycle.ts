@@ -50,6 +50,11 @@ export async function claimDemo(
       SET generation_status = 'queued', started_at = NULL
       WHERE id = ${demoId} AND generation_status = 'running'
     `;
+    // CALLER CONTRACT: callers MUST throw an Error after observing this return
+    // value so BullMQ re-dispatches the job. Silent fall-through leaves the row
+    // in 'queued' until OutboxPoller's heartbeat picks it up — recoverable but
+    // adds latency. The worker (worker/jobs/DemoGenerationWorker.ts) handles
+    // this by throwing inside its `if (claimResult === 'reset_to_queued')` branch.
     return 'reset_to_queued';
   }
 
@@ -78,8 +83,10 @@ export async function claimDemo(
  * Completes a demo row + outbox in a single transaction.
  *
  * For `onboarding_demos`, the `source` parameter is REQUIRED and written to
- * the `source` column. For `prospect_demos`, the parameter is omitted and the
- * default `'serpapi'` remains untouched (the column has `DEFAULT 'serpapi'`).
+ * the `source` column. For `prospect_demos`, the `source` parameter is omitted
+ * entirely. That table has no `source` column — it has its own
+ * `review_source TEXT NOT NULL DEFAULT 'serpapi'` populated at INSERT time by
+ * the prospect-demo creation path. We never touch it here.
  *
  * Race semantics (onboarding_demos only):
  *   The partial unique index `(user_id WHERE generation_status='completed')`
@@ -140,6 +147,11 @@ export async function completeDemo(
     });
   } catch (err) {
     const code = (err as { code?: string }).code;
+    // TODO(pr-2): once onboarding_demos exists, add an integration test that
+    // exercises this race-loser path end-to-end (two concurrent completes for
+    // the same user_id, second one's UPDATE → completed throws 23505 against
+    // the partial unique, this branch archives the loser, outbox completes
+    // cleanly). Cannot be tested in PR #1 because the table doesn't exist yet.
     if (isOnboarding && code === '23505') {
       // 23505 unique_violation — partial unique on onboarding_demos(user_id) WHERE completed.
       // Find the winner row and archive this loser.
