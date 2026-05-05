@@ -141,4 +141,34 @@ describe('handlePublisherFailed', () => {
       expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
     });
   });
+
+  describe('bare ZernioTransientError (defensive — missing PublisherTransientWithContext wrap)', () => {
+    it('captures Sentry with kind unwrapped_transient and marks outbox failed with prefix', async () => {
+      const Sentry = await import('@sentry/node');
+      const consoleErrSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      const err = new ZernioTransientError('http_5xx', { httpStatus: 503 });
+
+      await handlePublisherFailed(makeJob(), err);
+
+      expect(consoleErrSpy).toHaveBeenCalledWith(
+        expect.stringContaining('bare ZernioTransientError reached failed-hook'),
+      );
+      expect(Sentry.captureException).toHaveBeenCalledWith(
+        err,
+        expect.objectContaining({
+          tags: { worker: 'publisher', kind: 'unwrapped_transient' },
+          level: 'error',
+          extra: expect.objectContaining({ response_id: 'resp-1', business_id: 'biz-1' }),
+        }),
+      );
+      expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+        'outbox-1',
+        expect.stringMatching(/^unwrapped_transient_no_context: /),
+        1,
+      );
+
+      consoleErrSpy.mockRestore();
+    });
+  });
 });

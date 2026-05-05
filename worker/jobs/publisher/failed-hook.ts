@@ -46,6 +46,29 @@ export async function handlePublisherFailed(
       return;
     }
 
+    if (err instanceof ZernioTransientError) {
+      // Unwrap PublisherTransientWithContext for the pinned disconnect.
+      // Bare ZernioTransientError without context is now a CODE BUG —
+      // every publisher path wraps transient throws (postReply, lookup,
+      // 409 verifier). Surface loudly via Sentry rather than silently
+      // disconnecting every active connection (the previous safety-net
+      // fallback was deleted because it was unsafe with multi-connection
+      // businesses).
+      if (!(err instanceof PublisherTransientWithContext)) {
+        console.error('[publisherWorker] bare ZernioTransientError reached failed-hook — missing PublisherTransientWithContext wrap upstream');
+        Sentry.captureException(err, {
+          tags: { worker: 'publisher', kind: 'unwrapped_transient' },
+          level: 'error',
+          extra: { response_id: job.data.response_id, business_id: job.data.business_id },
+        });
+        // Still close the outbox so the row doesn't stay dispatched.
+        const reason = err instanceof Error ? err.message : String(err);
+        await markOutboxFailed(outboxId, `unwrapped_transient_no_context: ${reason}`, outboxAttempt);
+        return;
+      }
+      // PublisherTransientWithContext branch will be added in Task 11.
+    }
+
     // Non-transient unhandled error: just close the outbox row.
     const reason = err instanceof Error ? err.message : String(err);
     await markOutboxFailed(outboxId, reason, outboxAttempt);
