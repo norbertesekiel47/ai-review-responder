@@ -1,0 +1,66 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { NextRequest } from 'next/server';
+import { createServerClient } from '@supabase/ssr';
+import { middleware } from '../middleware';
+
+const { getUser } = vi.hoisted(() => ({
+  getUser: vi.fn(),
+}));
+
+vi.mock('@supabase/ssr', () => ({
+  createServerClient: vi.fn(() => ({
+    auth: {
+      getUser,
+    },
+  })),
+}));
+
+function request(url: string): NextRequest {
+  const parsed = new URL(url);
+  return new NextRequest(url, {
+    headers: {
+      host: parsed.host,
+    },
+  });
+}
+
+function hasComingSoonMiddlewareHeader(response: Response): boolean {
+  return Array.from(response.headers.entries()).some(([key, value]) => {
+    return key.toLowerCase().includes('coming-soon') || value.toLowerCase().includes('x-coming-soon');
+  });
+}
+
+describe('middleware public launch host behavior', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getUser.mockResolvedValue({ data: { user: null } });
+  });
+
+  it('does not inject coming-soon headers for repworth.net public pages', async () => {
+    const response = await middleware(request('https://repworth.net/'));
+
+    expect(response.headers.get('location')).toBeNull();
+    expect(hasComingSoonMiddlewareHeader(response)).toBe(false);
+    expect(createServerClient).not.toHaveBeenCalled();
+  });
+
+  it('allows repworth.net owner login to pass through as a public route', async () => {
+    const response = await middleware(request('https://repworth.net/login'));
+
+    expect(response.headers.get('location')).toBeNull();
+    expect(hasComingSoonMiddlewareHeader(response)).toBe(false);
+    expect(createServerClient).not.toHaveBeenCalled();
+  });
+
+  it('uses normal admin auth redirect behavior on repworth.net protected pages', async () => {
+    const response = await middleware(request('https://repworth.net/admin/overview'));
+    const location = response.headers.get('location');
+
+    expect(createServerClient).toHaveBeenCalledTimes(1);
+    expect(location).not.toBeNull();
+    const redirect = new URL(location!);
+    expect(redirect.origin).toBe('https://repworth.net');
+    expect(redirect.pathname).toBe('/admin/login');
+    expect(redirect.searchParams.get('from')).toBe('/admin/overview');
+  });
+});
