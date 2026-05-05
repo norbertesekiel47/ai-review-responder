@@ -17,7 +17,7 @@ Three subsystems shipped together on `feat/zernio-ingestion-replace-serpapi`:
 
 | Subsystem | New surface area |
 |---|---|
-| **Webhook-driven ingestion** | `worker/ingress/zernio.ts` fan-out → `ZernioReviewIngestWorker` → `processReview` |
+| **Webhook-driven ingestion** | `worker/ingress/zernio/zernio.ts` fan-out → `ZernioReviewIngestWorker` → `processReview` |
 | **First-connect backfill** | `select-location` callback enqueues → `ZernioBackfillWorker` (tier-aware caps) |
 | **Publisher 409 verify-first** | `ResponsePublisherWorker` 409 catch → `verify409AndDispose` (reads page-cache, walks listReviews, classifies outcome) |
 
@@ -551,7 +551,7 @@ After staging passes 5.1–5.10:
 | `zernio_review_not_found` review_exceptions accumulate | Reviews deleted on Google between webhook fire + worker run | `payload->>'pages_walked'` and `reviews_seen` show full feed walked | Verify in customer's GBP whether review actually exists; if deleted, dismiss exceptions |
 | `zernio_pagination_cap_exhausted` rate climbs | Customer has 200+ reviews; webhook for old review.updated misses target | Sentry warning + review_exception payload shows `cap=4 reviews_seen=200` | Bump `ZERNIO_INGEST_MAX_PAGES` env var (one-line worker restart); investigate whether Zernio offers `getReview(id)` direct fetch |
 | Backfill silently completes with 0 reviews | Malformed `subscription_activated_at` ISO string | Worker throws "malformed subscription_activated_at" → outbox `failed` row | Check `businesses.subscription_activated_at` column for the affected biz; ensure Stripe activation set a valid timestamp |
-| Owner gets connection_lost email but no reconnect email | `kind` field missing from `notify_owner_reconnect` payload | `OwnerEmailWorker` falls through to `sendConnectionLost` | Already fixed (Round 1). Verify by grepping `worker/jobs/publisher-error-handlers.ts` for `kind: 'reconnect_required'` — must be present. |
+| Owner gets connection_lost email but no reconnect email | `kind` field missing from `notify_owner_reconnect` payload | `OwnerEmailWorker` falls through to `sendConnectionLost` | Already fixed (Round 1). Verify by grepping `worker/jobs/publisher/publisher-error-handlers.ts` for `kind: 'reconnect_required'` — must be present. |
 | Owner emails reference a stale parked response after content change | `processReview` not superseding `awaiting_owner_connect` on edit | Customer edited review → exception opened, response stayed parked → `DrainOwnerConnectWorker` re-queued stale response | Already fixed (Round 2 / Medium 5). Verify `process-review.ts` UPDATE to `superseded` with `posting_error='review_content_changed_during_park'` exists in the `awaiting_owner_connect` branch. |
 | Multiple Zernio connections at one business all disconnected on a single transient error | Un-pinned legacy fallback in `applyTransientExhaustionFallback` | Sentry `unwrapped_transient` event + multi-row UPDATE on `zernio_connections` | Already fixed (Round 2 / Medium 1). Verify `applyTransientExhaustionFallback` requires `account_id`+`location_id`. Check that publisher wraps every transient throw with `PublisherTransientWithContext`. |
 | 409 verifier fires on every retry | Page cache miss, full 4-page walk repeats | Sentry `zernio_409_verifier_pages_walked_at_cap` warning | Page cache should populate during `lookupZernioReviewId`'s field-match — verify Redis key `zernio_review_page:{acct}:{loc}:{rev}` is set post-publish. |

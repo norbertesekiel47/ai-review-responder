@@ -22,7 +22,7 @@
 import 'dotenv/config';
 import { sql } from '../src/lib/db/server';
 import { zernioClient } from '../src/lib/zernio/client';
-import { reconcileExternallyAnsweredReview } from '../worker/jobs/zernio-ingest-shared';
+import { reconcileExternallyAnsweredReview } from '../worker/jobs/zernio/zernio-ingest-shared';
 import { createWorkerLogger } from '../src/lib/shared/logger';
 
 async function main(): Promise<void> {

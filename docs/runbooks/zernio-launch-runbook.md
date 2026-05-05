@@ -584,9 +584,9 @@ Append one line per `finalize_unknown` reconciliation. Format:
 - Spec: `docs/superpowers/specs/2026-04-27-zernio-integration-design.md` (sections 5, 6, 8)
 - Migration: `supabase/migrations/026_zernio_publishing.sql`
 - CLAUDE.md: project-level `.claude/CLAUDE.md` — env-var inventory + status enum + migration index
-- Webhook ingress source: `worker/ingress/zernio.ts` + `worker/ingress/zernio-verify.ts`
+- Webhook ingress source: `worker/ingress/zernio/zernio.ts` + `worker/ingress/zernio/zernio-verify.ts`
 - Connect flow source: `src/app/(authenticated)/dashboard/connect/` + `src/app/api/zernio/connect/`
-- Publisher branching source: `worker/jobs/ResponsePublisherWorker.ts` + `src/lib/publishing/zernio-publisher.ts`
+- Publisher branching source: `worker/jobs/publisher/ResponsePublisherWorker.ts` + `src/lib/publishing/zernio-publisher.ts`
 - Drain worker: `worker/jobs/DrainOwnerConnectWorker.ts`
 - Owner email worker: `worker/jobs/OwnerEmailWorker.ts`
 

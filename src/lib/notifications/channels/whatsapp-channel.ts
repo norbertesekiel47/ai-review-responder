@@ -4,7 +4,7 @@
 // formatter (whatsapp-body.ts) to the Twilio client (whatsapp-client.ts).
 // Cross-cutting concerns — enrollment-state flipping on owner-intent errors,
 // config-error admin alerts, transient-error retry — live in the dispatcher
-// (worker/jobs/NotificationWorker.ts), not here.
+// (worker/jobs/notification/NotificationWorker.ts), not here.
 //
 // Side-effect-free at import (Phase 3 spec §2.0 rule 2): no env reads at module
 // scope; no client construction until sendApprovalRequest() runs.

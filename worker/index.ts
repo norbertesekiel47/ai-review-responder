@@ -40,22 +40,22 @@ import Fastify from 'fastify';
 import rawBody from 'fastify-raw-body';
 import { Worker } from 'bullmq';
 import { getRedisOptions, QUEUE_NAMES, queues } from './queues';
-import { startOutboxPoller, stopOutboxPoller } from './jobs/OutboxPoller';
+import { startOutboxPoller, stopOutboxPoller } from './background/OutboxPoller';
 import { handleDemoGeneration } from './jobs/DemoGenerationWorker';
 import { handleResponseGeneration } from './jobs/ResponseGeneratorWorker';
-import { handleSendNotification } from './jobs/NotificationWorker';
-import { handlePublishResponse } from './jobs/ResponsePublisherWorker';
+import { handleSendNotification } from './jobs/notification/NotificationWorker';
+import { handlePublishResponse } from './jobs/publisher/ResponsePublisherWorker';
 import {
   handleZernioReviewIngest,
   ZernioIngestReviewNotFoundError,
   ZernioIngestPaginationCapExhaustedError,
   ZernioIngestUnparseableLocationError,
-} from './jobs/ZernioReviewIngestWorker';
-import { handleZernioBackfill } from './jobs/ZernioBackfillWorker';
+} from './jobs/zernio/ZernioReviewIngestWorker';
+import { handleZernioBackfill } from './jobs/zernio/ZernioBackfillWorker';
 import {
   PublisherTransientWithContext,
   ZernioReplyVerificationIndeterminateError,
-} from './jobs/publisher-error-handlers';
+} from './jobs/publisher/publisher-error-handlers';
 import { applyTransientExhaustionFallback } from '../src/lib/publishing/zernio-publisher';
 import { ZernioTransientError } from '../src/lib/zernio/errors';
 import { extractOutboxHandle, markOutboxCompleted, markOutboxFailed } from '../src/lib/shared/outbox';
@@ -67,27 +67,27 @@ import { handleWeeklySummary } from './jobs/WeeklySummaryWorker';
 import { handlePlaceIdValidation } from './jobs/PlaceIdValidationWorker';
 import { handleResendWebhook } from './ingress/resend';
 import { handleStripeWebhook } from './ingress/stripe';
-import { handleTwilioStatusCallback, handleTwilioInbound } from './ingress/twilio';
-import { handleTwilioWhatsAppInbound, handleTwilioWhatsAppStatus } from './ingress/twilio-whatsapp';
-import { handleTelegramWebhook } from './ingress/telegram';
-import { handleZernioWebhook } from './ingress/zernio';
-import { assertChannelsSmsEnv, assertChannelsTelegramEnv, assertChannelsWhatsAppEnv, assertSelfServeSignupEnv, assertZernioPublishingEnv } from './startup-assert';
-import { startNotificationFailoverPoller, stopNotificationFailoverPoller } from './jobs/NotificationFailoverPoller';
-import { startWeeklySummaryScheduler, stopWeeklySummaryScheduler } from './jobs/WeeklySummaryScheduler';
-import { startArchivalPoller, stopArchivalPoller } from './jobs/ArchivalPoller';
+import { handleTwilioStatusCallback, handleTwilioInbound } from './ingress/twilio/twilio';
+import { handleTwilioWhatsAppInbound, handleTwilioWhatsAppStatus } from './ingress/twilio/twilio-whatsapp';
+import { handleTelegramWebhook } from './ingress/telegram/telegram';
+import { handleZernioWebhook } from './ingress/zernio/zernio';
+import { assertChannelsSmsEnv, assertChannelsTelegramEnv, assertChannelsWhatsAppEnv, assertSelfServeSignupEnv, assertZernioPublishingEnv } from './config/startup-assert';
+import { startNotificationFailoverPoller, stopNotificationFailoverPoller } from './background/NotificationFailoverPoller';
+import { startWeeklySummaryScheduler, stopWeeklySummaryScheduler } from './background/WeeklySummaryScheduler';
+import { startArchivalPoller, stopArchivalPoller } from './background/ArchivalPoller';
 import { handleMonthlyImpact } from './jobs/MonthlyImpactWorker';
-import { startMonthlyImpactScheduler, stopMonthlyImpactScheduler } from './jobs/MonthlyImpactScheduler';
-import { startEngagementMonitorPoller, stopEngagementMonitorPoller } from './jobs/EngagementMonitorPoller';
+import { startMonthlyImpactScheduler, stopMonthlyImpactScheduler } from './background/MonthlyImpactScheduler';
+import { startEngagementMonitorPoller, stopEngagementMonitorPoller } from './background/EngagementMonitorPoller';
 import { handleEngagementAlert } from './jobs/EngagementAlertWorker';
-import { startRankingTrackingScheduler, stopRankingTrackingScheduler } from './jobs/RankingTrackingScheduler';
+import { startRankingTrackingScheduler, stopRankingTrackingScheduler } from './background/RankingTrackingScheduler';
 import { handleTrackRanking } from './jobs/RankingTrackingWorker';
-import { startOnboardingDripScheduler, stopOnboardingDripScheduler } from './jobs/OnboardingDripScheduler';
+import { startOnboardingDripScheduler, stopOnboardingDripScheduler } from './background/OnboardingDripScheduler';
 import { handleOnboardingDrip } from './jobs/OnboardingDripWorker';
 import { handleOwnerEmail } from './jobs/OwnerEmailWorker';
 import { handleDrainOwnerConnect } from './jobs/DrainOwnerConnectWorker';
 import { handleOnboardingDemo } from './jobs/OnboardingDemoWorker';
-import { startCleanupAbandonedSignupsPoller, stopCleanupAbandonedSignupsPoller } from './jobs/CleanupAbandonedSignupsPoller';
-import { startEmailChannelReconcilePoller, stopEmailChannelReconcilePoller } from './jobs/EmailChannelReconcilePoller';
+import { startCleanupAbandonedSignupsPoller, stopCleanupAbandonedSignupsPoller } from './background/CleanupAbandonedSignupsPoller';
+import { startEmailChannelReconcilePoller, stopEmailChannelReconcilePoller } from './background/EmailChannelReconcilePoller';
 import { isMockMode } from '../src/lib/shared/mock-mode';
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
@@ -487,7 +487,7 @@ for (const worker of workers) {
 // Re-export for use by other modules (ingress handlers, tests)
 export { queues, QUEUE_NAMES } from './queues';
 export { sql } from '../src/lib/db/server';
-export { assertChannelsSmsEnv, assertChannelsTelegramEnv, assertChannelsWhatsAppEnv, assertSelfServeSignupEnv, assertZernioPublishingEnv } from './startup-assert';
+export { assertChannelsSmsEnv, assertChannelsTelegramEnv, assertChannelsWhatsAppEnv, assertSelfServeSignupEnv, assertZernioPublishingEnv } from './config/startup-assert';
 
 // ---------------------------------------------------------------------------
 // Startup — register plugins, routes, then listen

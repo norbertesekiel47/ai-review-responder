@@ -102,7 +102,7 @@ vi.mock('uuid', () => ({
 }));
 
 // Import after mocks are wired
-import { handleZernioReviewIngest } from '../jobs/ZernioReviewIngestWorker';
+import { handleZernioReviewIngest } from '../jobs/zernio/ZernioReviewIngestWorker';
 
 // ─── Helpers ─────────────────────────────────────────────────────────
 
