@@ -66,7 +66,31 @@ export async function handlePublisherFailed(
         await markOutboxFailed(outboxId, `unwrapped_transient_no_context: ${reason}`, outboxAttempt);
         return;
       }
-      // PublisherTransientWithContext branch will be added in Task 11.
+      const ctx = err.attemptContext;
+      try {
+        await applyTransientExhaustionFallback({
+          response_id: ctx.response_id,
+          business_id: ctx.business_id,
+          correlation_id: job.data.correlation_id,
+          account_id: ctx.account_id,
+          location_id: ctx.location_id,
+        });
+        await markOutboxFailed(outboxId, 'zernio_transient_max_attempts', outboxAttempt);
+      } catch (fallbackErr) {
+        // Fallback itself failed — surface the reason so ops can see it,
+        // and still close the outbox so the row doesn't stay `dispatched`.
+        const reason = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
+        console.error(`[publisherWorker] transient-exhaustion fallback failed: ${reason}`);
+        Sentry.captureException(fallbackErr, {
+          tags: { worker: 'publisher', kind: 'transient_exhaustion_fallback' },
+        });
+        await markOutboxFailed(
+          outboxId,
+          `zernio_transient_max_attempts_fallback_failed: ${reason}`,
+          outboxAttempt,
+        );
+      }
+      return;
     }
 
     // Non-transient unhandled error: just close the outbox row.

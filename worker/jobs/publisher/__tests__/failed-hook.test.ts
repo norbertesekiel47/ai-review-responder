@@ -171,4 +171,66 @@ describe('handlePublisherFailed', () => {
       consoleErrSpy.mockRestore();
     });
   });
+
+  describe('PublisherTransientWithContext (success path)', () => {
+    it('calls applyTransientExhaustionFallback with attempt context, marks outbox failed', async () => {
+      mockApplyTransientExhaustionFallback.mockResolvedValueOnce(undefined);
+
+      const inner = new ZernioTransientError('timeout', { httpStatus: 504 });
+      const wrapped = new PublisherTransientWithContext(inner, {
+        response_id: 'resp-1',
+        business_id: 'biz-1',
+        account_id: 'acct-X',
+        location_id: 'loc-Y',
+      });
+
+      await handlePublisherFailed(makeJob(), wrapped);
+
+      expect(mockApplyTransientExhaustionFallback).toHaveBeenCalledWith({
+        response_id: 'resp-1',
+        business_id: 'biz-1',
+        correlation_id: 'corr-1',
+        account_id: 'acct-X',
+        location_id: 'loc-Y',
+      });
+      expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+        'outbox-1',
+        'zernio_transient_max_attempts',
+        1,
+      );
+    });
+  });
+
+  describe('PublisherTransientWithContext (fallback throws)', () => {
+    it('captures Sentry, marks outbox failed with fallback_failed prefix', async () => {
+      const Sentry = await import('@sentry/node');
+      const consoleErrSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const fallbackErr = new Error('disconnect call exploded');
+      mockApplyTransientExhaustionFallback.mockRejectedValueOnce(fallbackErr);
+
+      const inner = new ZernioTransientError('timeout', { httpStatus: 504 });
+      const wrapped = new PublisherTransientWithContext(inner, {
+        response_id: 'resp-1',
+        business_id: 'biz-1',
+        account_id: 'acct-X',
+        location_id: 'loc-Y',
+      });
+
+      await handlePublisherFailed(makeJob(), wrapped);
+
+      expect(Sentry.captureException).toHaveBeenCalledWith(
+        fallbackErr,
+        expect.objectContaining({
+          tags: { worker: 'publisher', kind: 'transient_exhaustion_fallback' },
+        }),
+      );
+      expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+        'outbox-1',
+        'zernio_transient_max_attempts_fallback_failed: disconnect call exploded',
+        1,
+      );
+
+      consoleErrSpy.mockRestore();
+    });
+  });
 });
