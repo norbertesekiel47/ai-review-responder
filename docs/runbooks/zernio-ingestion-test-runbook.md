@@ -566,7 +566,7 @@ Set `ZERNIO_PUBLISHING_ENABLED=false` in prod env. Restart workers.
 
 Effects:
 - Webhook ingress returns 503; Zernio retries die.
-- `worker/ingress/zernio.ts` short-circuits before parsing.
+- `worker/ingress/zernio/zernio.ts` short-circuits before parsing.
 - `ResponsePublisherWorker` falls into the no-connection branch (response → `awaiting_owner_connect`); admin notified via dashboard banner.
 - Existing `awaiting_owner_connect` responses stay there until flag re-enabled.
 

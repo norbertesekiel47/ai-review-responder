@@ -1,7 +1,7 @@
-// worker/jobs/ZernioReviewIngestWorker.ts
+// worker/jobs/zernio/ZernioReviewIngestWorker.ts
 //
 // Handles ingest_zernio_review outbox topic (one row per active connection
-// at the firing Zernio account, fanned out by worker/ingress/zernio.ts).
+// at the firing Zernio account, fanned out by worker/ingress/zernio/zernio.ts).
 //
 // Flow per spec §4.2:
 //   1. Subscription guard.

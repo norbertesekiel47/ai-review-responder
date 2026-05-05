@@ -1,4 +1,4 @@
-// worker/jobs/zernio-ingest-shared.ts
+// worker/jobs/zernio/zernio-ingest-shared.ts
 //
 // Shared helpers used by ZernioReviewIngestWorker and ZernioBackfillWorker.
 //   1. handleZernioIngestError — error-class dispatcher per spec §6.3 table.

@@ -1,4 +1,4 @@
-// worker/jobs/ZernioBackfillWorker.ts
+// worker/jobs/zernio/ZernioBackfillWorker.ts
 //
 // Handles zernio_initial_backfill outbox topic. One-shot per business.
 // Idempotent via zernio_backfill_runs.completed_at IS NOT NULL sentinel —

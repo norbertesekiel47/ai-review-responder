@@ -1,4 +1,4 @@
-// worker/jobs/publisher-error-handlers.ts
+// worker/jobs/publisher/publisher-error-handlers.ts
 //
 // Shared terminal-sequence helpers for ResponsePublisherWorker. Both the
 // in-worker error branches AND the new 409 verifier (Task 19) call into

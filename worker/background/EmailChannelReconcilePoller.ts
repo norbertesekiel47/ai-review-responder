@@ -134,7 +134,7 @@ async function runOnceInner(
         // oncall needs the email for a specific row they can query
         // `SELECT owner_email FROM businesses WHERE id = '<biz_id>'`.
         // Same posture as the error + run-complete logs in this file
-        // and the PII-redaction pattern in worker/ingress/telegram.ts.
+        // and the PII-redaction pattern in worker/ingress/telegram/telegram.ts.
         logger.log(
           `Backfilled email channel for business ${row.business_id}`,
         );

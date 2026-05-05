@@ -1,4 +1,4 @@
-// worker/jobs/NotificationWorker.ts
+// worker/jobs/notification/NotificationWorker.ts
 //
 // Approval-notification orchestrator. Loads response + business context,
 // asks eligibility for the channel list, hands off to dispatch, finalizes

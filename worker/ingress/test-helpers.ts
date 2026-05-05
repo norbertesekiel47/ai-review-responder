@@ -1,4 +1,4 @@
-// worker/ingress/__tests__/helpers.ts
+// worker/ingress/test-helpers.ts
 //
 // Shared request/reply builders for Twilio ingress tests.
 // Used by both status-callback (Task 12) and inbound-message (Task 13) suites.

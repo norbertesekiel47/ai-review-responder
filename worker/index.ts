@@ -137,7 +137,7 @@ const demoWorker = new Worker(QUEUE_NAMES.GENERATE_DEMO, handleDemoGeneration, w
 
 // Zernio webhook-driven review ingest. Concurrency 5 — each job is short
 // (one listReviews call + processReview). One outbox row per active
-// connection at the firing Zernio account, fanned out by worker/ingress/zernio.ts.
+// connection at the firing Zernio account, fanned out by worker/ingress/zernio/zernio.ts.
 const ingestZernioReviewWorker = new Worker<IngestZernioReviewPayload>(
   QUEUE_NAMES.INGEST_ZERNIO_REVIEW,
   handleZernioReviewIngest,

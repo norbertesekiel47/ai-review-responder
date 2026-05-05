@@ -29,7 +29,7 @@ function extractSubscriptionId(subscription: string | Stripe.Subscription | null
 
 // Canonical UUID 8-4-4-4-12 hex shape — accepts all version digits (we use
 // v7 from the `uuid` package, but legacy admin rows may be v4). Same regex
-// + reasoning as worker/ingress/twilio-whatsapp.ts:154.
+// + reasoning as worker/ingress/twilio/twilio-whatsapp.ts:154.
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
