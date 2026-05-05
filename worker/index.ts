@@ -10,12 +10,8 @@ import { handleDemoGeneration } from './jobs/DemoGenerationWorker';
 import { handleResponseGeneration } from './jobs/ResponseGeneratorWorker';
 import { handleSendNotification } from './jobs/notification/NotificationWorker';
 import { handlePublishResponse } from './jobs/publisher/ResponsePublisherWorker';
-import {
-  handleZernioReviewIngest,
-  ZernioIngestReviewNotFoundError,
-  ZernioIngestPaginationCapExhaustedError,
-  ZernioIngestUnparseableLocationError,
-} from './jobs/zernio/ZernioReviewIngestWorker';
+import { handleZernioReviewIngest } from './jobs/zernio/ZernioReviewIngestWorker';
+import { handleIngestFailed } from './jobs/zernio/ingest-failed-hook';
 import { handleZernioBackfill } from './jobs/zernio/ZernioBackfillWorker';
 import {
   PublisherTransientWithContext,
@@ -117,129 +113,7 @@ const zernioBackfillWorker = new Worker<ZernioInitialBackfillPayload>(
   { ...workerOpts, concurrency: 1 },
 );
 
-// Final-attempt exhaustion handler for ZernioReviewIngestWorker. Typed errors
-// from the worker (ZernioIngestReviewNotFoundError, ZernioIngestUnparseableLocationError)
-// escalate to review_exceptions after BullMQ retries are exhausted; the
-// admin notify is deliberately skipped for review_not_found (high-volume
-// during Zernio outages would spam admin email; ops watches the table).
-ingestZernioReviewWorker.on('failed', async (job, err) => {
-  if (!job) return;
-  if (job.attemptsMade < (job.opts.attempts ?? 5)) return;  // not yet exhausted
-
-  const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
-
-  if (err instanceof ZernioIngestReviewNotFoundError) {
-    await sql`
-      INSERT INTO review_exceptions (id, business_id, type, status, payload)
-      VALUES (
-        ${uuidv7()}, ${err.businessId}, 'zernio_review_not_found', 'open',
-        ${jsonb({
-          provider: 'zernio',
-          provider_review_id: err.zernioReviewId,
-          zernio_account_id: err.zernioAccountId,
-          zernio_location_id: err.zernioLocationId,
-          pages_walked: err.pagesWalked,
-          reviews_seen: err.reviewsSeen,
-          retries_exhausted_at: new Date().toISOString(),
-        })}
-      )
-      ON CONFLICT (business_id, type, (payload->>'provider_review_id'))
-        WHERE status = 'open' AND review_id IS NULL
-      DO NOTHING
-    `;
-    await markOutboxFailed(outboxId, 'zernio_review_not_found_after_retries', outboxAttempt);
-    return;
-  }
-
-  // Indeterminate not-found — pagination cap exhausted with more pages still
-  // available. Distinct review_exceptions type so ops can triage separately
-  // (bump cap, manually reconcile, or accept the gap). No admin notify —
-  // potentially high-volume during legitimate large-feed scenarios.
-  if (err instanceof ZernioIngestPaginationCapExhaustedError) {
-    await sql`
-      INSERT INTO review_exceptions (id, business_id, type, status, payload)
-      VALUES (
-        ${uuidv7()}, ${err.businessId}, 'zernio_pagination_cap_exhausted', 'open',
-        ${jsonb({
-          provider: 'zernio',
-          provider_review_id: err.zernioReviewId,
-          zernio_account_id: err.zernioAccountId,
-          zernio_location_id: err.zernioLocationId,
-          cap: err.cap,
-          // pages_walked == cap in the cap-exhausted branch (we walked
-          // every page allowed); included alongside cap so ops can compare
-          // payloads across exception types without special-casing.
-          pages_walked: err.cap,
-          reviews_seen: err.reviewsSeen,
-          retries_exhausted_at: new Date().toISOString(),
-        })}
-      )
-      ON CONFLICT (business_id, type, (payload->>'provider_review_id'))
-        WHERE status = 'open' AND review_id IS NULL
-      DO NOTHING
-    `;
-    // Trend-only Sentry signal — admin notify is intentionally skipped
-    // (potential high-volume), but ops needs visibility on cap-exhaustion
-    // rate so the cap can be tuned via ZERNIO_INGEST_MAX_PAGES.
-    Sentry.captureMessage('zernio_pagination_cap_exhausted', {
-      level: 'warning',
-      tags: {
-        worker: 'ingest_zernio_review',
-        kind: 'pagination_cap_exhausted',
-      },
-      extra: {
-        business_id: err.businessId,
-        zernio_account_id: err.zernioAccountId,
-        zernio_location_id: err.zernioLocationId,
-        zernio_review_id: err.zernioReviewId,
-        cap: err.cap,
-        reviews_seen: err.reviewsSeen,
-      },
-    });
-    await markOutboxFailed(outboxId, 'zernio_pagination_cap_exhausted', outboxAttempt);
-    return;
-  }
-
-  if (err instanceof ZernioIngestUnparseableLocationError) {
-    const [exception] = await sql<{ id: string }[]>`
-      INSERT INTO review_exceptions (id, business_id, type, status, payload)
-      VALUES (
-        ${uuidv7()}, ${err.businessId}, 'zernio_unparseable_review_name', 'open',
-        ${jsonb({
-          provider: 'zernio',
-          provider_review_id: err.zernioReviewId,
-          zernio_account_id: err.zernioAccountId,
-          zernio_location_id: err.zernioLocationId,
-          review_name_truncated: err.reviewName.slice(0, 500),
-          retries_exhausted_at: new Date().toISOString(),
-        })}
-      )
-      ON CONFLICT (business_id, type, (payload->>'provider_review_id'))
-        WHERE status = 'open' AND review_id IS NULL
-      DO NOTHING
-      RETURNING id
-    `;
-
-    if (exception) {
-      // Unparseable shape DOES warrant admin notify — signals contract change.
-      await sql`
-        INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, attempts, max_attempts)
-        VALUES (
-          ${uuidv7()}, 'notify_admin_review_exception', 'business',
-          ${err.businessId},
-          ${jsonb({ review_exception_id: exception.id, business_id: err.businessId })},
-          0, 5
-        )
-      `;
-    }
-    await markOutboxFailed(outboxId, 'zernio_unparseable_review_name', outboxAttempt);
-    return;
-  }
-
-  // Anything else: bare markOutboxFailed (existing behavior).
-  const reason = err instanceof Error ? err.message : String(err);
-  await markOutboxFailed(outboxId, reason, outboxAttempt);
-});
+ingestZernioReviewWorker.on('failed', handleIngestFailed);
 
 const responseGenWorker = new Worker(QUEUE_NAMES.GENERATE_RESPONSE, handleResponseGeneration, workerOpts);
 
