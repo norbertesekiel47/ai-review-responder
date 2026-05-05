@@ -233,4 +233,61 @@ describe('handlePublisherFailed', () => {
       consoleErrSpy.mockRestore();
     });
   });
+
+  describe('generic fall-through', () => {
+    it('marks outbox failed with the error message for unknown error types', async () => {
+      const err = new Error('something else broke');
+      await handlePublisherFailed(makeJob(), err);
+
+      expect(mockSql.begin).not.toHaveBeenCalled();
+      expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+        'outbox-1',
+        'something else broke',
+        1,
+      );
+    });
+
+    it('does not act when attemptsMade < max attempts', async () => {
+      const err = new Error('transient retry not exhausted');
+      await handlePublisherFailed(makeJob({}, 0, 5), err);
+
+      expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+      expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
+    });
+
+    it('returns silently when job is undefined', async () => {
+      await handlePublisherFailed(undefined, new Error('whatever'));
+      expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('last-resort handler-crash', () => {
+    it('captures Sentry with kind on_failed_handler_crash and best-effort marks outbox failed', async () => {
+      const Sentry = await import('@sentry/node');
+      const consoleErrSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      // Force markOutboxFailed (called from the generic fall-through) to throw the FIRST time.
+      // The catch block then re-attempts a best-effort call — we let the second succeed.
+      mockMarkOutboxFailed
+        .mockRejectedValueOnce(new Error('outbox write exploded'))
+        .mockResolvedValueOnce(undefined);
+
+      await handlePublisherFailed(makeJob(), new Error('initial'));
+
+      expect(Sentry.captureException).toHaveBeenCalledWith(
+        expect.any(Error),
+        expect.objectContaining({
+          tags: { worker: 'publisher', kind: 'on_failed_handler_crash' },
+        }),
+      );
+      // Best-effort second call uses the on_failed_crash prefix.
+      expect(mockMarkOutboxFailed).toHaveBeenLastCalledWith(
+        'outbox-1',
+        expect.stringMatching(/^on_failed_crash: /),
+        1,
+      );
+
+      consoleErrSpy.mockRestore();
+    });
+  });
 });
