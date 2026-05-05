@@ -76,15 +76,15 @@ describe('handleIngestFailed', () => {
         (v: unknown): v is Record<string, unknown> =>
           !!v && typeof v === 'object' && (v as any).provider === 'zernio',
       );
-      expect(jsonbValue).toMatchObject({
+      expect(jsonbValue).toEqual({
         provider: 'zernio',
         provider_review_id: 'rev-abc',
         zernio_account_id: 'acct-1',
         zernio_location_id: 'loc-1',
         pages_walked: 2,
         reviews_seen: 78,
+        retries_exhausted_at: expect.any(String),
       });
-      expect(typeof (jsonbValue as any).retries_exhausted_at).toBe('string');
 
       // Verify outbox closure.
       expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
@@ -100,6 +100,21 @@ describe('handleIngestFailed', () => {
       );
 
       await handleIngestFailed(makeJob({}, 2, 5), err);
+
+      expect(mockSql).not.toHaveBeenCalled();
+      expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+    });
+
+    it('does not act on the last-but-one attempt (attemptsMade=4, attempts=5 — still retrying)', async () => {
+      // Boundary case: the guard is `attemptsMade < attempts`. attemptsMade=4
+      // is the LAST allowed retry — BullMQ has not yet exhausted retries, so
+      // the failed-hook must be a no-op. If the guard regressed to `<=`,
+      // this test catches it.
+      const err = new ZernioIngestReviewNotFoundError(
+        'biz-1', 'acct-1', 'loc-1', 'rev-abc', 3, 100,
+      );
+
+      await handleIngestFailed(makeJob({}, 4, 5), err);
 
       expect(mockSql).not.toHaveBeenCalled();
       expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
