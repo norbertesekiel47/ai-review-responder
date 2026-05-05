@@ -71,6 +71,16 @@ approval before posting.
   `${JSON.stringify(x)}::jsonb` double-encodes in Postgres.js v3.
 - Package manager: pnpm
 
+## Worker layout
+
+- BullMQ job handlers: `worker/jobs/*.ts` + sub-folders `notification/`, `publisher/`, `zernio/` (multi-file jobs)
+- Background loops: `worker/background/pollers/` (Postgres-state-driven) + `worker/background/schedulers/` (time-cadence-driven)
+- Webhook ingress: `worker/ingress/{stripe,resend,shared}.ts` + provider sub-folders `twilio/`, `telegram/`, `zernio/`
+- Boot-time env assertions: `worker/config/startup-assert.ts`
+- Queues + Redis options: `worker/queues.ts` (root)
+- Entry point: `worker/index.ts` (root)
+- File-by-file map: `docs/directory.md`. Layout reasoning: `docs/currents.md`.
+
 ## Database
 
 - All tables: UUIDv7 (time-ordered)

@@ -15,6 +15,16 @@ leak to clients or be spoofable.
 Worker startup assertions fail fast on missing required vars. This is
 intentional — a misconfigured worker is worse than a crashed one.
 `MOCK_EXTERNAL_APIS=true` bypasses most startup assertions for local dev.
+Assertion source: `worker/config/startup-assert.ts`.
+
+> **Worker file paths (as of 2026-05-05):** Worker class names below
+> are stable; file paths changed during the worker reorg. For any
+> worker mentioned, look at how it's imported in `worker/index.ts` or
+> read `docs/directory.md`. Quick map for things mentioned in this file:
+> - `ResponsePublisherWorker` → `worker/jobs/publisher/ResponsePublisherWorker.ts`
+> - `ZernioReviewIngestWorker` → `worker/jobs/zernio/ZernioReviewIngestWorker.ts`
+> - Zernio webhook handler: `worker/ingress/zernio/zernio.ts`
+> - Zernio signature verifier: `worker/ingress/zernio/zernio-verify.ts`
 
 ---
 

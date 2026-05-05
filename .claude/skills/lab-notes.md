@@ -8,6 +8,14 @@ description: Chronological engineering discoveries, bug postmortems, and non-obv
 Hard-won discoveries from production debugging and integration work.
 Check the relevant section before implementing anything in these areas.
 
+> **Worker file paths (as of 2026-05-05):** Class names referenced in
+> these notes are stable — only file paths changed during the worker
+> reorg. For the current location of any class, look at how it's
+> imported in `worker/index.ts` (the runtime registry) or read
+> `docs/directory.md`. Quick map for things mentioned below:
+> - `OutboxPoller` → `worker/background/pollers/OutboxPoller.ts`
+> - `CleanupAbandonedSignupsPoller` → `worker/background/pollers/CleanupAbandonedSignupsPoller.ts`
+
 ---
 
 ## 2026-04-09

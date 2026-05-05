@@ -9,6 +9,15 @@ Base schema: `supabase/migrations/001_initial_schema.sql`
 Current head: **032** — next migration is **033**
 All tables use UUIDv7 (time-ordered primary keys).
 
+> **Worker file paths (as of 2026-05-05):** Class names below are
+> stable; file paths changed during the worker reorg. For any worker
+> mentioned here, look at how it's imported in `worker/index.ts` or
+> read `docs/directory.md`. Quick map:
+> - `NotificationWorker` → `worker/jobs/notification/NotificationWorker.ts`
+> - `ResponsePublisherWorker` → `worker/jobs/publisher/ResponsePublisherWorker.ts`
+> - `ZernioBackfillWorker` → `worker/jobs/zernio/ZernioBackfillWorker.ts`
+> - `ZernioReviewIngestWorker` → `worker/jobs/zernio/ZernioReviewIngestWorker.ts`
+
 ## Migration Log
 
 - **001–019** — Core schema through Sprint 6. Covers `users`, `businesses`,
