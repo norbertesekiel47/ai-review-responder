@@ -120,4 +120,70 @@ describe('handleIngestFailed', () => {
       expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
     });
   });
+
+  describe('ZernioIngestPaginationCapExhaustedError', () => {
+    it('inserts cap-exhausted exception, captures Sentry warning, marks outbox failed', async () => {
+      const Sentry = await import('@sentry/node');
+      const { ZernioIngestPaginationCapExhaustedError } = await import('../ZernioReviewIngestWorker');
+
+      // Constructor takes positional args: (businessId, zernioAccountId, zernioLocationId, zernioReviewId, cap, reviewsSeen).
+      const err = new ZernioIngestPaginationCapExhaustedError(
+        'biz-1', 'acct-1', 'loc-1', 'rev-abc', 4, 200,
+      );
+
+      await handleIngestFailed(makeJob(), err);
+
+      expect(mockSql).toHaveBeenCalledTimes(1);
+      const sqlCall = mockSql.mock.calls[0]!;
+      const stringPart = (sqlCall[0] as TemplateStringsArray).join('?');
+      expect(stringPart).toContain('INSERT INTO review_exceptions');
+      expect(stringPart).toContain("'zernio_pagination_cap_exhausted'");
+
+      // Verify error fields flow into the SQL interpolations.
+      const interpolatedValues = sqlCall.slice(1);
+      expect(interpolatedValues).toContain('biz-1');
+      const jsonbValue = interpolatedValues.find(
+        (v: unknown): v is Record<string, unknown> =>
+          !!v && typeof v === 'object' && (v as any).provider === 'zernio',
+      );
+      expect(jsonbValue).toEqual({
+        provider: 'zernio',
+        provider_review_id: 'rev-abc',
+        zernio_account_id: 'acct-1',
+        zernio_location_id: 'loc-1',
+        cap: 4,
+        // pages_walked == cap in the cap-exhausted branch (we walked
+        // every page allowed); included alongside cap so ops can compare
+        // payloads across exception types without special-casing.
+        pages_walked: 4,
+        reviews_seen: 200,
+        retries_exhausted_at: expect.any(String),
+      });
+
+      expect(Sentry.captureMessage).toHaveBeenCalledWith(
+        'zernio_pagination_cap_exhausted',
+        expect.objectContaining({
+          level: 'warning',
+          tags: expect.objectContaining({
+            worker: 'ingest_zernio_review',
+            kind: 'pagination_cap_exhausted',
+          }),
+          extra: expect.objectContaining({
+            business_id: 'biz-1',
+            zernio_account_id: 'acct-1',
+            zernio_location_id: 'loc-1',
+            zernio_review_id: 'rev-abc',
+            cap: 4,
+            reviews_seen: 200,
+          }),
+        }),
+      );
+
+      expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+        'outbox-1',
+        'zernio_pagination_cap_exhausted',
+        1,
+      );
+    });
+  });
 });

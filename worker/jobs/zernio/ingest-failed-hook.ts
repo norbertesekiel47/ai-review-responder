@@ -1,9 +1,11 @@
 import type { Job } from 'bullmq';
+import * as Sentry from '@sentry/node';
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '../../../src/lib/db/server';
 import { extractOutboxHandle, markOutboxFailed } from '../../../src/lib/shared/outbox';
 import {
   ZernioIngestReviewNotFoundError,
+  ZernioIngestPaginationCapExhaustedError,
 } from './ZernioReviewIngestWorker';
 import type { IngestZernioReviewPayload } from '../../../src/lib/shared/worker-types';
 
@@ -25,6 +27,11 @@ export async function handleIngestFailed(
 
   if (err instanceof ZernioIngestReviewNotFoundError) {
     await handleReviewNotFound(err, outboxId, outboxAttempt);
+    return;
+  }
+
+  if (err instanceof ZernioIngestPaginationCapExhaustedError) {
+    await handlePaginationCapExhausted(err, outboxId, outboxAttempt);
     return;
   }
 
@@ -57,4 +64,52 @@ async function handleReviewNotFound(
     DO NOTHING
   `;
   await markOutboxFailed(outboxId, 'zernio_review_not_found_after_retries', outboxAttempt);
+}
+
+async function handlePaginationCapExhausted(
+  err: ZernioIngestPaginationCapExhaustedError,
+  outboxId: string,
+  outboxAttempt: number | undefined,
+): Promise<void> {
+  await sql`
+    INSERT INTO review_exceptions (id, business_id, type, status, payload)
+    VALUES (
+      ${uuidv7()}, ${err.businessId}, 'zernio_pagination_cap_exhausted', 'open',
+      ${jsonb({
+        provider: 'zernio',
+        provider_review_id: err.zernioReviewId,
+        zernio_account_id: err.zernioAccountId,
+        zernio_location_id: err.zernioLocationId,
+        cap: err.cap,
+        // pages_walked == cap in the cap-exhausted branch (we walked
+        // every page allowed); included alongside cap so ops can compare
+        // payloads across exception types without special-casing.
+        pages_walked: err.cap,
+        reviews_seen: err.reviewsSeen,
+        retries_exhausted_at: new Date().toISOString(),
+      })}
+    )
+    ON CONFLICT (business_id, type, (payload->>'provider_review_id'))
+      WHERE status = 'open' AND review_id IS NULL
+    DO NOTHING
+  `;
+  // Trend-only Sentry signal — admin notify is intentionally skipped
+  // (potential high-volume), but ops needs visibility on cap-exhaustion
+  // rate so the cap can be tuned via ZERNIO_INGEST_MAX_PAGES.
+  Sentry.captureMessage('zernio_pagination_cap_exhausted', {
+    level: 'warning',
+    tags: {
+      worker: 'ingest_zernio_review',
+      kind: 'pagination_cap_exhausted',
+    },
+    extra: {
+      business_id: err.businessId,
+      zernio_account_id: err.zernioAccountId,
+      zernio_location_id: err.zernioLocationId,
+      zernio_review_id: err.zernioReviewId,
+      cap: err.cap,
+      reviews_seen: err.reviewsSeen,
+    },
+  });
+  await markOutboxFailed(outboxId, 'zernio_pagination_cap_exhausted', outboxAttempt);
 }
