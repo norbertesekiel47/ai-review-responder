@@ -6,6 +6,7 @@ import { extractOutboxHandle, markOutboxFailed } from '../../../src/lib/shared/o
 import {
   ZernioIngestReviewNotFoundError,
   ZernioIngestPaginationCapExhaustedError,
+  ZernioIngestUnparseableLocationError,
 } from './ZernioReviewIngestWorker';
 import type { IngestZernioReviewPayload } from '../../../src/lib/shared/worker-types';
 
@@ -32,6 +33,11 @@ export async function handleIngestFailed(
 
   if (err instanceof ZernioIngestPaginationCapExhaustedError) {
     await handlePaginationCapExhausted(err, outboxId, outboxAttempt);
+    return;
+  }
+
+  if (err instanceof ZernioIngestUnparseableLocationError) {
+    await handleUnparseableLocation(err, outboxId, outboxAttempt);
     return;
   }
 
@@ -112,4 +118,43 @@ async function handlePaginationCapExhausted(
     },
   });
   await markOutboxFailed(outboxId, 'zernio_pagination_cap_exhausted', outboxAttempt);
+}
+
+async function handleUnparseableLocation(
+  err: ZernioIngestUnparseableLocationError,
+  outboxId: string,
+  outboxAttempt: number | undefined,
+): Promise<void> {
+  const [exception] = await sql<{ id: string }[]>`
+    INSERT INTO review_exceptions (id, business_id, type, status, payload)
+    VALUES (
+      ${uuidv7()}, ${err.businessId}, 'zernio_unparseable_review_name', 'open',
+      ${jsonb({
+        provider: 'zernio',
+        provider_review_id: err.zernioReviewId,
+        zernio_account_id: err.zernioAccountId,
+        zernio_location_id: err.zernioLocationId,
+        review_name_truncated: err.reviewName.slice(0, 500),
+        retries_exhausted_at: new Date().toISOString(),
+      })}
+    )
+    ON CONFLICT (business_id, type, (payload->>'provider_review_id'))
+      WHERE status = 'open' AND review_id IS NULL
+    DO NOTHING
+    RETURNING id
+  `;
+
+  if (exception) {
+    // Unparseable shape DOES warrant admin notify — signals contract change.
+    await sql`
+      INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, attempts, max_attempts)
+      VALUES (
+        ${uuidv7()}, 'notify_admin_review_exception', 'business',
+        ${err.businessId},
+        ${jsonb({ review_exception_id: exception.id, business_id: err.businessId })},
+        0, 5
+      )
+    `;
+  }
+  await markOutboxFailed(outboxId, 'zernio_unparseable_review_name', outboxAttempt);
 }

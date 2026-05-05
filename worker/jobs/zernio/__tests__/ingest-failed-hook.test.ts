@@ -186,4 +186,112 @@ describe('handleIngestFailed', () => {
       );
     });
   });
+
+  describe('ZernioIngestUnparseableLocationError', () => {
+    it('inserts exception, enqueues admin notify, marks outbox failed', async () => {
+      const { ZernioIngestUnparseableLocationError } = await import('../ZernioReviewIngestWorker');
+
+      // First sql call: INSERT review_exceptions … RETURNING id (yields a row).
+      // Second sql call: INSERT job_outbox notify_admin_review_exception.
+      sqlReturnQueue.push(Object.assign([{ id: 'exc-1' }], { count: 1 }));
+      sqlReturnQueue.push(Object.assign([], { count: 1 }));
+
+      // Constructor takes positional args: (businessId, zernioAccountId, zernioLocationId, zernioReviewId, reviewName).
+      const err = new ZernioIngestUnparseableLocationError(
+        'biz-1', 'acct-1', 'loc-1', 'rev-abc', 'malformed/review/name',
+      );
+
+      await handleIngestFailed(makeJob(), err);
+
+      expect(mockSql).toHaveBeenCalledTimes(2);
+
+      // First call: review_exceptions INSERT with RETURNING id.
+      const firstSqlCall = mockSql.mock.calls[0]!;
+      const firstSql = (firstSqlCall[0] as TemplateStringsArray).join('?');
+      expect(firstSql).toContain('INSERT INTO review_exceptions');
+      expect(firstSql).toContain("'zernio_unparseable_review_name'");
+      expect(firstSql).toContain('RETURNING id');
+
+      const firstInterpolated = firstSqlCall.slice(1);
+      expect(firstInterpolated).toContain('biz-1');
+      const jsonbValue = firstInterpolated.find(
+        (v: unknown): v is Record<string, unknown> =>
+          !!v && typeof v === 'object' && (v as any).provider === 'zernio',
+      );
+      expect(jsonbValue).toEqual({
+        provider: 'zernio',
+        provider_review_id: 'rev-abc',
+        zernio_account_id: 'acct-1',
+        zernio_location_id: 'loc-1',
+        review_name_truncated: 'malformed/review/name',
+        retries_exhausted_at: expect.any(String),
+      });
+
+      // Second call: notify_admin_review_exception outbox row.
+      const secondSqlCall = mockSql.mock.calls[1]!;
+      const secondSql = (secondSqlCall[0] as TemplateStringsArray).join('?');
+      expect(secondSql).toContain('INSERT INTO job_outbox');
+      expect(secondSql).toContain("'notify_admin_review_exception'");
+
+      const secondInterpolated = secondSqlCall.slice(1);
+      const outboxPayload = secondInterpolated.find(
+        (v: unknown): v is Record<string, unknown> =>
+          !!v && typeof v === 'object' && 'review_exception_id' in v,
+      );
+      expect(outboxPayload).toEqual({
+        review_exception_id: 'exc-1',
+        business_id: 'biz-1',
+      });
+
+      expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+        'outbox-1',
+        'zernio_unparseable_review_name',
+        1,
+      );
+    });
+
+    it('skips admin notify when exception INSERT was deduped (no row returned)', async () => {
+      const { ZernioIngestUnparseableLocationError } = await import('../ZernioReviewIngestWorker');
+
+      // INSERT review_exceptions returned 0 rows (existing open exception suppressed via ON CONFLICT).
+      sqlReturnQueue.push(Object.assign([], { count: 0 }));
+
+      const err = new ZernioIngestUnparseableLocationError(
+        'biz-1', 'acct-1', 'loc-1', 'rev-abc', 'malformed/review/name',
+      );
+
+      await handleIngestFailed(makeJob(), err);
+
+      expect(mockSql).toHaveBeenCalledTimes(1);
+      expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+        'outbox-1',
+        'zernio_unparseable_review_name',
+        1,
+      );
+    });
+
+    it('truncates reviewName to 500 chars in the JSONB payload', async () => {
+      const { ZernioIngestUnparseableLocationError } = await import('../ZernioReviewIngestWorker');
+
+      // INSERT returns a row so the truncation is observable in the captured payload.
+      sqlReturnQueue.push(Object.assign([{ id: 'exc-2' }], { count: 1 }));
+      sqlReturnQueue.push(Object.assign([], { count: 1 }));
+
+      const longName = 'A'.repeat(800);  // 800 chars > 500-char cap
+      const err = new ZernioIngestUnparseableLocationError(
+        'biz-1', 'acct-1', 'loc-1', 'rev-abc', longName,
+      );
+
+      await handleIngestFailed(makeJob(), err);
+
+      const firstSqlCall = mockSql.mock.calls[0]!;
+      const interpolated = firstSqlCall.slice(1);
+      const jsonbValue = interpolated.find(
+        (v: unknown): v is Record<string, unknown> =>
+          !!v && typeof v === 'object' && (v as any).provider === 'zernio',
+      );
+      expect((jsonbValue as any).review_name_truncated).toHaveLength(500);
+      expect((jsonbValue as any).review_name_truncated).toBe('A'.repeat(500));
+    });
+  });
 });
