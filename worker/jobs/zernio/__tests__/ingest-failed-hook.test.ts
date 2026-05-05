@@ -294,4 +294,36 @@ describe('handleIngestFailed', () => {
       expect((jsonbValue as any).review_name_truncated).toBe('A'.repeat(500));
     });
   });
+
+  describe('generic fall-through', () => {
+    it('marks outbox failed with the error message for unknown error types', async () => {
+      const err = new Error('something unexpected blew up');
+
+      await handleIngestFailed(makeJob(), err);
+
+      expect(mockSql).not.toHaveBeenCalled();
+      expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+        'outbox-1',
+        'something unexpected blew up',
+        1,
+      );
+    });
+
+    it('stringifies non-Error throwables', async () => {
+      await handleIngestFailed(makeJob(), 'plain string error');
+
+      expect(mockSql).not.toHaveBeenCalled();
+      expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+        'outbox-1',
+        'plain string error',
+        1,
+      );
+    });
+
+    it('returns without action when job is undefined', async () => {
+      await handleIngestFailed(undefined, new Error('whatever'));
+      expect(mockSql).not.toHaveBeenCalled();
+      expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+    });
+  });
 });
