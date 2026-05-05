@@ -1,4 +1,4 @@
-import { sql } from '../../src/lib/db/server';
+import { sql } from '../../../src/lib/db/server';
 
 const LOG_PREFIX = '[ArchivalPoller]';
 const DEFAULT_INTERVAL_MS = 86_400_000; // 24 hours

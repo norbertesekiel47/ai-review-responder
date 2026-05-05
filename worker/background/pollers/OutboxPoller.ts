@@ -1,6 +1,6 @@
 import * as Sentry from '@sentry/node';
-import { sql } from '../../src/lib/db/server';
-import { topicToQueue } from '../queues';
+import { sql } from '../../../src/lib/db/server';
+import { topicToQueue } from '../../queues';
 
 interface OutboxEntry {
   id: string;

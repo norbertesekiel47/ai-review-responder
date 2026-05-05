@@ -8,9 +8,9 @@
 // the low-engagement email template.
 
 import { v7 as uuidv7 } from 'uuid';
-import { sql, jsonb } from '../../src/lib/db/server';
-import type { EngagementAlertPayload, EngagementAlertType } from '../../src/lib/shared/worker-types';
-import { HANDLED_STATUSES } from '../../src/lib/shared/response-status';
+import { sql, jsonb } from '../../../src/lib/db/server';
+import type { EngagementAlertPayload, EngagementAlertType } from '../../../src/lib/shared/worker-types';
+import { HANDLED_STATUSES } from '../../../src/lib/shared/response-status';
 
 const LOG_PREFIX = '[EngagementMonitorPoller]';
 const DEFAULT_INTERVAL_MS = 86_400_000; // 24 hours

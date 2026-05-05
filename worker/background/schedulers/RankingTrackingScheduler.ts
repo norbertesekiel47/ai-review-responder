@@ -1,7 +1,7 @@
 import { v7 as uuidv7 } from 'uuid';
-import { sql, jsonb } from '../../src/lib/db/server';
-import { isMockMode } from '../../src/lib/shared/mock-mode';
-import type { TrackRankingPayload } from '../../src/lib/shared/worker-types';
+import { sql, jsonb } from '../../../src/lib/db/server';
+import { isMockMode } from '../../../src/lib/shared/mock-mode';
+import type { TrackRankingPayload } from '../../../src/lib/shared/worker-types';
 
 const LOG_PREFIX = '[RankingTrackingScheduler]';
 const DEFAULT_INTERVAL_MS = 3_600_000; // 1 hour

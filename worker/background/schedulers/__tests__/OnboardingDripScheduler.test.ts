@@ -17,10 +17,10 @@ const { sqlReturnQueue, mockSql, mockIsMockMode } = vi.hoisted(() => {
   return { sqlReturnQueue, mockSql, mockIsMockMode };
 });
 
-vi.mock('../../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
+vi.mock('../../../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
 vi.mock('uuid', () => ({ v7: vi.fn(() => 'test-uuid') }));
 
-vi.mock('../../../src/lib/shared/mock-mode', () => ({
+vi.mock('../../../../src/lib/shared/mock-mode', () => ({
   isMockMode: mockIsMockMode,
 }));
 

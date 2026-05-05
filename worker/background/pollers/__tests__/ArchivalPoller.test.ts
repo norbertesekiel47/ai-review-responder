@@ -13,7 +13,7 @@ const { sqlReturnQueue, mockSql } = vi.hoisted(() => {
   return { sqlReturnQueue, mockSql };
 });
 
-vi.mock('../../../src/lib/db/server', () => ({
+vi.mock('../../../../src/lib/db/server', () => ({
   sql: mockSql, jsonb: (v: unknown) => v }));
 
 // Import AFTER mocks are wired

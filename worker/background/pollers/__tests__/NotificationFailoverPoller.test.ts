@@ -32,11 +32,11 @@ const {
   };
 });
 
-vi.mock('../../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
-vi.mock('../../../src/lib/notifications/email', () => ({
+vi.mock('../../../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
+vi.mock('../../../../src/lib/notifications/email', () => ({
   sendInternalEmail: mockSendInternalEmail,
 }));
-vi.mock('../../../src/lib/notifications/delivery', () => ({
+vi.mock('../../../../src/lib/notifications/delivery', () => ({
   recordNotificationDelivery: vi.fn(),
 }));
 vi.mock('uuid', () => ({ v7: vi.fn(() => 'test-uuid') }));

@@ -1,5 +1,5 @@
-import { sql } from '../../src/lib/db/server';
-import { createWorkerLogger } from '../../src/lib/shared/logger';
+import { sql } from '../../../src/lib/db/server';
+import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import { v7 as uuidv7 } from 'uuid';
 
 /**

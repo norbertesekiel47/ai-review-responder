@@ -1,5 +1,5 @@
-import { sql, supabaseServer } from '../../src/lib/db/server';
-import { createWorkerLogger } from '../../src/lib/shared/logger';
+import { sql, supabaseServer } from '../../../src/lib/db/server';
+import { createWorkerLogger } from '../../../src/lib/shared/logger';
 
 const DEFAULT_INTERVAL_MS = 86_400_000; // 24 hours
 const DEFAULT_BATCH_SIZE = 100;
