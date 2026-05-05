@@ -1,5 +1,5 @@
 import { headers } from 'next/headers';
-import { FeaturesContent } from './FeaturesContent';
+import { FeaturesContent } from '@/components/sections/features/FeaturesContent';
 
 export const dynamic = 'force-dynamic';
 

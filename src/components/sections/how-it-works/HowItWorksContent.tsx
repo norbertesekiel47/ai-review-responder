@@ -3,8 +3,8 @@
 import { useRef } from 'react';
 import { motion } from 'motion/react';
 import Link from 'next/link';
-import { PageShell } from '../components/shared/PageShell';
-import { SiteNav } from '../components/shared/SiteNav';
+import { PageShell } from '@/components/ui/PageShell';
+import { SiteNav } from '@/components/ui/SiteNav';
 
 const STEPS = [
   {

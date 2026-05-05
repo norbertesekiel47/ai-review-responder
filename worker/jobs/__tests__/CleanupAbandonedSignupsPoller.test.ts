@@ -132,12 +132,13 @@ function seedCleanCandidateRows() {
     },
   ]); // SELECT businesses FOR UPDATE
   sqlQueue.push([{ auth_id: 'auth-1', role: 'owner' }]); // SELECT users FOR UPDATE
-  sqlQueue.push([{ has_onboarded: false, has_demos: false }]); // refs check
+  sqlQueue.push([{ has_onboarded: false, has_prospect_demos: false }]); // refs check
+  sqlQueue.push([]); // DELETE FROM onboarding_demos (PR #2 explicit cascade)
   sqlQueue.push([]); // DELETE FROM users
   sqlQueue.push([]); // DELETE FROM businesses
 }
 
-function seedRefsCollisionRows(has_onboarded: boolean, has_demos: boolean) {
+function seedRefsCollisionRows(has_onboarded: boolean, has_prospect_demos: boolean) {
   const oldEnough = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
   sqlQueue.push([{}]); // pg_advisory_xact_lock(:signup)
   sqlQueue.push([{}]); // pg_advisory_xact_lock(:activation)
@@ -150,7 +151,7 @@ function seedRefsCollisionRows(has_onboarded: boolean, has_demos: boolean) {
     },
   ]); // SELECT businesses FOR UPDATE
   sqlQueue.push([{ auth_id: 'auth-1', role: 'owner' }]); // SELECT users FOR UPDATE
-  sqlQueue.push([{ has_onboarded, has_demos }]); // refs check — skip branch
+  sqlQueue.push([{ has_onboarded, has_prospect_demos }]); // refs check — skip branch
 }
 
 beforeEach(() => {
@@ -165,6 +166,12 @@ beforeEach(() => {
   delete process.env.CLEANUP_ABANDONED_SIGNUPS_BATCH_SIZE;
   delete process.env.CLEANUP_ABANDONED_SIGNUPS_INTERVAL_MS;
   delete process.env.SELF_SERVE_SIGNUP_ENABLED;
+  // The poller now runs a top-of-loop "DELETE stale onboarding_demos" query
+  // (Task 15 PR #2). Seed an empty result so the first sqlQueue.shift() goes
+  // to that query and downstream candidate/seed pushes line up correctly.
+  // sqlCalls[0] will be the stale-cleanup DELETE; sqlCalls[1] will be the
+  // candidates SELECT.
+  sqlQueue.push([]);
 });
 
 afterEach(() => {
@@ -203,11 +210,11 @@ describe('CleanupAbandonedSignupsPoller', () => {
       expect(lockCall).toBeDefined();
       expect(lockCall!.values).toContain('owner@example.com:signup');
 
-      // Refs check query
+      // Refs check query — Task 15 (PR #2) renamed `has_demos` → `has_prospect_demos`.
       const refsCall = sqlCalls.find(
         (c) =>
           c.template.includes('has_onboarded') &&
-          c.template.includes('has_demos'),
+          c.template.includes('has_prospect_demos'),
       );
       expect(refsCall).toBeDefined();
 
@@ -239,13 +246,24 @@ describe('CleanupAbandonedSignupsPoller', () => {
 
       await runOnce();
 
-      const candidatesCall = sqlCalls[0];
+      // Candidates SELECT is now sqlCalls[1] — sqlCalls[0] is the
+      // top-of-loop stale-onboarding-demos DELETE (Task 15 PR #2).
+      const candidatesCall = sqlCalls.find((c) =>
+        c.template.includes('SELECT b.id AS business_id'),
+      );
       expect(candidatesCall).toBeDefined();
       expect(candidatesCall!.template).toContain('onboarded_by IS NULL');
       expect(candidatesCall!.template).toContain('auth_id IS NOT NULL');
       expect(candidatesCall!.template).toContain("subscription_status = 'pending_payment'");
       expect(candidatesCall!.template).toContain('stripe_customer_id IS NULL');
       expect(candidatesCall!.template).toContain("INTERVAL '7 days'");
+
+      // Stale-cleanup DELETE was the very first query.
+      const staleCall = sqlCalls.find((c) =>
+        c.template.includes('DELETE FROM onboarding_demos') &&
+        c.template.includes("generation_status = 'completed'"),
+      );
+      expect(staleCall).toBeDefined();
     });
 
     it('candidate with has_onboarded=true refs: skipped, warn logged, no DB delete, no supabase delete', async () => {
@@ -420,7 +438,7 @@ describe('CleanupAbandonedSignupsPoller', () => {
         },
       ]); // SELECT businesses FOR UPDATE
       sqlQueue.push([{ auth_id: 'auth-1', role: 'owner' }]); // SELECT users FOR UPDATE
-      sqlQueue.push([{ has_onboarded: false, has_demos: false }]); // refs check
+      sqlQueue.push([{ has_onboarded: false, has_prospect_demos: false }]); // refs check
       mockSupabaseDeleteUser.mockResolvedValueOnce({
         data: null,
         error: { message: 'permission denied', status: 403 } as any,
@@ -437,7 +455,8 @@ describe('CleanupAbandonedSignupsPoller', () => {
         },
       ]); // SELECT businesses FOR UPDATE (candidate 2)
       sqlQueue.push([{ auth_id: 'auth-2', role: 'owner' }]); // SELECT users FOR UPDATE (candidate 2)
-      sqlQueue.push([{ has_onboarded: false, has_demos: false }]); // refs check
+      sqlQueue.push([{ has_onboarded: false, has_prospect_demos: false }]); // refs check
+      sqlQueue.push([]); // DELETE FROM onboarding_demos (PR #2 explicit cascade)
       sqlQueue.push([]); // DELETE users
       sqlQueue.push([]); // DELETE businesses
       mockSupabaseDeleteUser.mockResolvedValueOnce({ data: null, error: null });
@@ -468,7 +487,10 @@ describe('CleanupAbandonedSignupsPoller', () => {
 
       await runOnce();
 
-      const candidatesCall = sqlCalls[0];
+      // sqlCalls[0] is the stale-cleanup DELETE; locate the candidates SELECT.
+      const candidatesCall = sqlCalls.find((c) =>
+        c.template.includes('SELECT b.id AS business_id'),
+      );
       expect(candidatesCall).toBeDefined();
       expect(candidatesCall!.values).toContain(5);
     });
@@ -478,7 +500,9 @@ describe('CleanupAbandonedSignupsPoller', () => {
 
       await runOnce();
 
-      const candidatesCall = sqlCalls[0];
+      const candidatesCall = sqlCalls.find((c) =>
+        c.template.includes('SELECT b.id AS business_id'),
+      );
       expect(candidatesCall!.values).toContain(100);
     });
 
@@ -488,7 +512,9 @@ describe('CleanupAbandonedSignupsPoller', () => {
 
       await runOnce();
 
-      const candidatesCall = sqlCalls[0];
+      const candidatesCall = sqlCalls.find((c) =>
+        c.template.includes('SELECT b.id AS business_id'),
+      );
       expect(candidatesCall!.values).toContain(100);
     });
 

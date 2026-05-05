@@ -199,3 +199,61 @@ tab via the read-only `PastReplyCard` component (gated by the SEPARATE
 `PAST_REPLIES_VIEW_ENABLED` flag). The dual-flag rollout decouples the
 write decision from the UI-expose decision — operators can ingest silently
 first, soak, then turn on the UI.
+
+## Onboarding-demo lane (PR #2, 2026-05-04)
+
+The pre-pay demo (`/onboarding/start` → `/onboarding/demo`) ingests reviews
+DIFFERENTLY from the post-pay Zernio path. Key separations to keep in mind
+when touching either codebase:
+
+**No `reviews` table writes.** The demo SerpAPI fetch goes through
+`fetchSerpApiReviews` and the result is snapshotted as JSONB into
+`onboarding_demos.reviews_snapshot`. Nothing is INSERTed into `reviews`.
+This means:
+
+- The dedup logic above (provider_review_id, content hash, identity
+  collision exceptions) does NOT run. The demo is an ephemeral preview,
+  not part of the canonical review timeline.
+- When the user pays and onboards, the post-pay Zernio webhook ingestion
+  re-fetches their reviews into `reviews` from scratch via the proper
+  pipeline. There is no "promote demo snapshot to canonical reviews"
+  step — the demo data is throwaway.
+- The 30-day cleanup pass in `CleanupAbandonedSignupsPoller` deletes
+  completed `onboarding_demos` rows; nothing in `reviews` is affected.
+
+**Per-user uniqueness via partial index.** Migration 032 enforces "at
+most one completed demo per user" via:
+
+```sql
+CREATE UNIQUE INDEX onboarding_demos_one_completed_per_user
+  ON onboarding_demos (user_id)
+  WHERE generation_status = 'completed';
+```
+
+This is structurally similar to migration 031's
+`responses_one_posted_per_review`, but the failure mode is different:
+
+- `responses_one_posted_per_review` collisions abort the import — a
+  duplicate `posted` reply is a structural bug.
+- `onboarding_demos_one_completed_per_user` collisions are EXPECTED on
+  concurrent regenerate. `lifecycle.completeDemo` catches Postgres
+  23505, archives the loser, and closes the loser's outbox in a single
+  tx. The winner remains the canonical completed demo.
+
+**Source field, not provider field.** `onboarding_demos.source` is one
+of `'serpapi'` or `'curated_fallback'`. This is NOT the same as the
+`reviews.provider` field — it tracks whether the demo was generated
+from real reviews or from the canned fixture. CHECK constraint enforces
+`source IS NOT NULL` whenever `generation_status = 'completed'`.
+
+**Reads must filter `archived`.** Any `ORDER BY created_at DESC LIMIT 1`
+on `onboarding_demos` MUST also filter `generation_status <> 'archived'`
+because the 23505-archived loser can have a newer `created_at` than the
+winning completed row. See lab-notes for the full rationale.
+
+**Curated fallback bypasses dedup entirely.** When SerpAPI fails OR no
+review meets the `positive-with-moderate-tail` anchor (no review with
+`starRating >= 4`), the worker writes the static fixture from
+`src/lib/demos/__fixtures__/fallback-source-reviews.ts` into the demo
+snapshot. The fixture is not real review data, so no dedup or content-
+hash logic applies.

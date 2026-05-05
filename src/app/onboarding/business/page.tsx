@@ -7,6 +7,12 @@ import { resolveWizardDestination, type WizardGuardRow } from './guard';
 
 export const dynamic = 'force-dynamic';
 
+interface BusinessDataRow extends WizardGuardRow {
+  category: string | null;
+  website: string | null;
+  name: string;
+}
+
 export default async function OnboardingBusinessPage() {
   if (process.env.SELF_SERVE_SIGNUP_ENABLED !== 'true') notFound();
 
@@ -31,18 +37,27 @@ export default async function OnboardingBusinessPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect('/login');
 
-  const [row] = await sql<WizardGuardRow[]>`
-    SELECT u.role, b.subscription_status, b.place_id_verified, b.google_maps_url
+  const [row] = await sql<BusinessDataRow[]>`
+    SELECT u.role, b.subscription_status, b.place_id_verified, b.google_maps_url,
+           b.category, b.website, b.name
     FROM users u
     JOIN businesses b ON b.id = u.business_id
     WHERE u.auth_id = ${user.id}
     LIMIT 1
   `;
 
-  // All four redirect rules live in resolveWizardDestination (see ./guard.ts)
-  // so they can be unit-tested without dragging a JSX transformer into vitest.
-  const decision = resolveWizardDestination(row);
+  const demoFlowEnabled = process.env.ONBOARDING_DEMO_ENABLED === 'true';
+  const decision = resolveWizardDestination(row, { demoFlowEnabled });
   if (decision.kind === 'redirect') redirect(decision.path);
 
-  return <BusinessWizardClient />;
+  return (
+    <BusinessWizardClient
+      initialValues={{
+        category: row?.category ?? '',
+        website: row?.website ?? '',
+        businessName: row?.name ?? '',
+      }}
+      demoFlowEnabled={demoFlowEnabled}
+    />
+  );
 }

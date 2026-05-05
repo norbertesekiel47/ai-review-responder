@@ -1,7 +1,7 @@
 import { headers } from 'next/headers';
 import Link from 'next/link';
-import { PageShell } from '../components/shared/PageShell';
-import { SiteNav } from '../components/shared/SiteNav';
+import { PageShell } from '@/components/ui/PageShell';
+import { SiteNav } from '@/components/ui/SiteNav';
 
 export default function TermsPage() {
   const comingSoon = headers().get('x-coming-soon') === '1';

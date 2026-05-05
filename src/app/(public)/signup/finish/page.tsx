@@ -1,7 +1,7 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { FinishSignupClient } from './FinishSignupClient';
+import { FinishSignupClient } from '@/components/auth/FinishSignupClient';
 
 export default async function FinishSignupPage() {
   if (process.env.SELF_SERVE_SIGNUP_ENABLED !== 'true') redirect('/signup');

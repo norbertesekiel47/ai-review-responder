@@ -4,7 +4,7 @@ import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '@/lib/db/server';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
-import { BusinessOnboardingSchema } from '@/lib/shared/schemas';
+import { BusinessOnboardingSchema, BusinessOnboardingPostPaySchema } from '@/lib/shared/schemas';
 import { extractPlaceId } from '@/lib/reviews/url-parser';
 import type { ValidatePlaceIdPayload } from '@/lib/shared/worker-types';
 
@@ -119,14 +119,32 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // 6. Already-onboarded guard (defense-in-depth — the placeholder row has
-  //    place_id_verified=false AND google_maps_url=null; any non-default
-  //    state means the wizard already ran).
-  if (bizRow.place_id_verified || bizRow.google_maps_url) {
-    return NextResponse.json(
-      { error: 'already_onboarded' },
-      { status: 409, headers: NO_STORE },
-    );
+  const demoFlowEnabled = process.env.ONBOARDING_DEMO_ENABLED === 'true';
+
+  // 6. Onboarding-state guard. Branches by ONBOARDING_DEMO_ENABLED:
+  //
+  //    Demo flow ON (post-pay wizard): location was captured at /onboarding/start
+  //    BEFORE Stripe. If we reach here without it, the user skipped /start —
+  //    redirect them back. The presence of place_id_verified or google_maps_url
+  //    is the EXPECTED state, not a duplicate-submission signal.
+  //
+  //    Demo flow OFF (legacy single-pass wizard): location is captured here.
+  //    Any pre-existing place_id_verified or google_maps_url means the wizard
+  //    already ran — block as duplicate submission.
+  if (demoFlowEnabled) {
+    if (!bizRow.place_id_verified && !bizRow.google_maps_url) {
+      return NextResponse.json(
+        { error: 'onboarding_not_started', redirectTo: '/onboarding/start' },
+        { status: 409, headers: NO_STORE },
+      );
+    }
+  } else {
+    if (bizRow.place_id_verified || bizRow.google_maps_url) {
+      return NextResponse.json(
+        { error: 'already_onboarded' },
+        { status: 409, headers: NO_STORE },
+      );
+    }
   }
 
   // 7. Strict per-authId rate limit. Owners typically submit once; 10/hour
@@ -157,14 +175,24 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   } catch {
     return NextResponse.json({ error: 'invalid_json' }, { status: 400, headers: NO_STORE });
   }
-  const parsed = BusinessOnboardingSchema.safeParse(body);
+  const schema = demoFlowEnabled
+    ? BusinessOnboardingPostPaySchema
+    : BusinessOnboardingSchema;
+  const parsed = schema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json(
       { error: 'invalid_body', issues: parsed.error.issues },
       { status: 400, headers: NO_STORE },
     );
   }
-  const data = parsed.data;
+  // The two schemas have overlapping but distinct shapes. Type-narrow inside
+  // each branch — the post-pay schema rejects googlePlaceId/googleMapsUrl on
+  // input (z.never), so those fields are always undefined when demoFlowEnabled.
+  // We share `data` via the broader union; each branch reads only fields it
+  // knows are present.
+  type LegacyData = import('@/lib/shared/schemas').BusinessOnboardingInput;
+  type PostPayData = import('@/lib/shared/schemas').BusinessOnboardingPostPayInput;
+  const data = parsed.data as LegacyData & Partial<PostPayData>;
 
   // 9. Resolve place id state. PlaceAutocomplete path supplies googlePlaceId
   //    directly (verified) — review ingestion is now webhook-driven via Zernio,
@@ -172,26 +200,30 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   //    Maps URL path supplies googleMapsUrl which the PlaceIdValidationWorker
   //    resolves; we extract a tentative placeId but place_id_verified stays
   //    false until the worker confirms it.
+  // Demo-flow ON skips this entire block: location was captured at /start
+  // and the post-pay schema rejects googlePlaceId/googleMapsUrl on input.
   let resolvedPlaceId: string | null = null;
   let placeIdVerified = false;
   let validatePayload: ValidatePlaceIdPayload | null = null;
 
   const correlationId = uuidv7();
-  if (data.googlePlaceId) {
-    resolvedPlaceId = data.googlePlaceId;
-    placeIdVerified = true;
-    // No outbox enqueue — review ingestion happens via Zernio webhooks now.
-  } else {
-    // googleMapsUrl branch (BusinessOnboardingSchema's XOR refine guarantees
-    // one of the two is present; we already validated above).
-    const mapsUrl = data.googleMapsUrl!;
-    resolvedPlaceId = extractPlaceId(mapsUrl); // may be null or a hex CID
-    placeIdVerified = false;
-    validatePayload = {
-      business_id: bizRow.id,
-      google_maps_url: mapsUrl,
-      correlation_id: correlationId,
-    };
+  if (!demoFlowEnabled) {
+    if (data.googlePlaceId) {
+      resolvedPlaceId = data.googlePlaceId;
+      placeIdVerified = true;
+      // No outbox enqueue — review ingestion happens via Zernio webhooks now.
+    } else {
+      // googleMapsUrl branch (BusinessOnboardingSchema's XOR refine guarantees
+      // one of the two is present; we already validated above).
+      const mapsUrl = data.googleMapsUrl!;
+      resolvedPlaceId = extractPlaceId(mapsUrl); // may be null or a hex CID
+      placeIdVerified = false;
+      validatePayload = {
+        business_id: bizRow.id,
+        google_maps_url: mapsUrl,
+        correlation_id: correlationId,
+      };
+    }
   }
 
   const staffNames = splitCommaOrNewline(data.staffNames);
@@ -226,30 +258,57 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         // but the dashboard will surface the missing business when they hit it.
         return;
       }
-      if (forUpdateRow.place_id_verified || forUpdateRow.google_maps_url) {
-        // Another wizard submit won — silent no-op so the loser's response is
-        // still 200 and the UI redirect to /dashboard works.
+      if (!demoFlowEnabled && (forUpdateRow.place_id_verified || forUpdateRow.google_maps_url)) {
+        // Legacy single-pass wizard only: place data already set means another
+        // wizard submit won. Silent no-op so the loser's response is still 200
+        // and the UI redirect to /dashboard works.
+        //
+        // Post-pay (demoFlowEnabled): place_id_verified IS the precondition
+        // (set at /onboarding/start before Stripe). Treating it as
+        // "duplicate submit" here would silently swallow every Profile/Voice
+        // submission. Fall through to the post-pay UPDATE branch below.
         return;
       }
 
-      await tx`
-        UPDATE businesses
-        SET
-          name = ${data.businessName},
-          category = ${data.category ?? null},
-          google_place_id = ${resolvedPlaceId},
-          place_id_verified = ${placeIdVerified},
-          google_maps_url = ${data.googleMapsUrl ?? null},
-          tone = ${data.tone},
-          products_services = ${data.productsServices ?? null},
-          staff_names = ${staffNames},
-          highlight_facts = ${highlightFacts},
-          avoid_facts = ${avoidFacts},
-          sample_responses = ${sampleResponses},
-          website = ${data.website ?? null},
-          updated_at = NOW()
-        WHERE id = ${bizRow.id}::uuid
-      `;
+      if (demoFlowEnabled) {
+        // Post-pay UPDATE: only profile + voice fields. Location was set at
+        // /start. COALESCE preserves existing name/category if the wizard
+        // omits them (post-pay user editing voice without retyping name).
+        await tx`
+          UPDATE businesses
+          SET
+            name = COALESCE(${data.businessName ?? null}, name),
+            category = COALESCE(${data.category ?? null}, category),
+            tone = ${data.tone},
+            products_services = ${data.productsServices ?? null},
+            staff_names = ${staffNames},
+            highlight_facts = ${highlightFacts},
+            avoid_facts = ${avoidFacts},
+            sample_responses = ${sampleResponses},
+            website = ${data.website ?? null},
+            updated_at = NOW()
+          WHERE id = ${bizRow.id}::uuid
+        `;
+      } else {
+        await tx`
+          UPDATE businesses
+          SET
+            name = ${data.businessName},
+            category = ${data.category ?? null},
+            google_place_id = ${resolvedPlaceId},
+            place_id_verified = ${placeIdVerified},
+            google_maps_url = ${data.googleMapsUrl ?? null},
+            tone = ${data.tone},
+            products_services = ${data.productsServices ?? null},
+            staff_names = ${staffNames},
+            highlight_facts = ${highlightFacts},
+            avoid_facts = ${avoidFacts},
+            sample_responses = ${sampleResponses},
+            website = ${data.website ?? null},
+            updated_at = NOW()
+          WHERE id = ${bizRow.id}::uuid
+        `;
+      }
 
       // INSERT validate_place_id outbox row only on the Maps URL path.
       // The PlaceAutocomplete-verified path no longer enqueues anything —

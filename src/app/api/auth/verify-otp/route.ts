@@ -189,7 +189,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   // Build the success response carrying the freshly-written session cookies.
-  const successResponse = NextResponse.json({ redirectTo: '/onboarding/pay' });
+  // When the pre-pay demo flag is on, send the owner to /onboarding/start
+  // (location picker → demo generation) instead of straight to the paywall.
+  const postVerifyRedirect =
+    process.env.ONBOARDING_DEMO_ENABLED === 'true'
+      ? '/onboarding/start'
+      : '/onboarding/pay';
+  const successResponse = NextResponse.json({ redirectTo: postVerifyRedirect });
   for (const cookie of cookieJar.cookies.getAll()) {
     successResponse.cookies.set(cookie);
   }

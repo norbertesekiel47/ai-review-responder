@@ -198,6 +198,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   // 10. Success. Google-confirmed email is auto-verified so we skip the
-  //     /signup/check-email detour and go straight to payment.
-  return NextResponse.json({ redirectTo: '/onboarding/pay' }, { status: 201 });
+  //     /signup/check-email detour. Destination depends on the demo flag
+  //     so the Google path matches the email/password path (verify-otp
+  //     applies the same branch). Without this, Google signups skipped
+  //     /onboarding/start + /onboarding/demo entirely and landed straight
+  //     on the paywall — losing the AHA moment for half the funnel.
+  const postFinishRedirect =
+    process.env.ONBOARDING_DEMO_ENABLED === 'true'
+      ? '/onboarding/start'
+      : '/onboarding/pay';
+  return NextResponse.json({ redirectTo: postFinishRedirect }, { status: 201 });
 }

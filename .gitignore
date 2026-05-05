@@ -78,3 +78,11 @@ screenshot.png
 
 # Local debug artifacts (Zernio connect flow diagnostic log)
 zernio-debug.log
+
+# local-only tooling and scratch artifacts
+.claude-octopus/
+.claude/scheduled_tasks.lock
+.graphify_query.py
+AGENTS.md
+graphify-out/
+scripts/zernio-count-reviews.ts

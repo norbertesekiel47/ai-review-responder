@@ -327,3 +327,102 @@ ignore rules don't retroactively un-track tracked files.
 When you edit one of the gitignored doc files, mention the limitation in
 the commit message of any related commit so future readers know the
 on-disk content may have drifted from any committed snapshot.
+
+### Zod v4 — `z.never()` options use `error:`, not `invalid_type_error:`
+[2026-05-03] WROTE `z.never({ invalid_type_error: '...' })` per zod v3
+idiom → 3 TS2353 errors at compile-time, plus the custom message would
+silently never surface even if it had compiled. zod v4 renamed the
+option key to `error:` (and accepts a function form for dynamic
+messages). Correct:
+
+```ts
+// ✅ zod v4
+googlePlaceId: z.never({ error: 'unexpected_field: ...' }).optional(),
+
+// ❌ zod v3 — won't compile in v4
+googlePlaceId: z.never({ invalid_type_error: '...' }).optional(),
+```
+
+The runtime guarantee (the schema rejects values that violate `never`)
+holds either way; only the custom error message is affected.
+
+### Postgres FK to `users(id)` — never store Supabase `auth_id` directly
+[2026-05-04] PR #2 `/api/onboarding/start` initially inserted
+`user_id = ${user.id}` where `user` came from `supabase.auth.getUser()`.
+That returns the **Supabase auth identity UUID**, not the row id of
+the app `users` table. Migration 032's FK on `onboarding_demos.user_id`
+points at `users(id)`, so every happy-path INSERT would have FK-failed
+in production.
+
+Anywhere we want a `users.id` value from a Supabase session, we have to
+join through:
+
+```sql
+SELECT u.id AS user_id, ...
+FROM users u
+JOIN businesses b ON b.id = u.business_id
+WHERE u.auth_id = ${supabaseUser.id}
+  AND u.role = 'owner'
+LIMIT 1
+```
+
+The same gotcha applies to any future table that FKs to `users(id)`.
+The `auth_id` column is the bridge between Supabase Auth and the app's
+own `users` row — they are NOT the same UUID.
+
+### Cost-guard reservation must be released on tx idempotency-loser path
+[2026-05-04] PR #2 `/api/onboarding/start` reserved 20¢ in Redis BEFORE
+the FOR UPDATE re-read inside the tx. When two concurrent submissions
+hit the route and one won the FOR UPDATE race, the loser's tx callback
+returned early (no demo INSERT) but the reservation stayed locked. Net
+effect: 20¢ leaked per loser AND the response said `demoQueued: true`
+even though no demo was queued.
+
+Fix pattern: track a `demoInserted` boolean closed over by the tx
+callback, set it true on the happy path INSERT, and after the tx commits
+release the reservation if the flag is still false. Mirror this in any
+future route that reserves Redis budget before a tx that may no-op.
+
+### Worker post-completion best-effort blocks must be self-contained try/catch
+[2026-05-04] PR #2 `OnboardingDemoWorker` had `checkCostThreshold` +
+`Sentry.captureMessage` inside the same outer try as `completeDemo`.
+A Redis or Sentry hiccup AFTER the demo completed cleanly would fall
+into the outer catch and call `failDemo`, flipping a successful demo
+to `failed` for the user.
+
+Rule: any work that runs after a successful primary side effect (DB
+write, external publish, etc.) needs its own narrow try/catch with
+log-and-swallow semantics. Never let observability/telemetry failures
+poison the success path.
+
+### Page-level reads must filter `archived` when the table has 23505 race-loser archives
+[2026-05-04] PR #2 `lifecycle.completeDemo` recovers from a Postgres
+23505 (concurrent completes for the same user, blocked by the partial
+unique index) by archiving THIS row and closing its outbox. The losing
+demo can therefore have a NEWER `created_at` than the winning completed
+demo.
+
+Any UI/API read that does `ORDER BY created_at DESC LIMIT 1` against
+`onboarding_demos` MUST filter `AND generation_status <> 'archived'` or
+it will surface the loser's archived row and the page will render with
+no matching status branch (header only, no CTA, no review cards). The
+two affected reads in PR #2: `/onboarding/demo/page.tsx` and
+`/api/onboarding/demo/status/route.ts`.
+
+Generalizes: any state-machine table with an `archived` terminal value
+where the archive can be created later than other terminal rows for the
+same logical entity.
+
+### Don't bifurcate the post-pay wizard guard with the same "duplicate-submit" check
+[2026-05-04] PR #2 wired the existing `/api/onboarding/business`
+"already-onboarded" guard (`if (place_id_verified || google_maps_url)
+return 409`) to also fire for the new post-pay flow. But in the post-pay
+flow, `place_id_verified` is the REQUIRED PRECONDITION (set at
+`/onboarding/start` BEFORE Stripe). The guard fired on every legitimate
+post-pay submission, returning 200 with no DB write — silently swallowing
+every Profile/Voice submit.
+
+Pattern: when bifurcating a route by a flag and the legacy semantic
+"X means already done" inverts to "X means ready to proceed", the guard
+needs an explicit branch on the flag. Don't let the legacy interpretation
+leak into the new path.

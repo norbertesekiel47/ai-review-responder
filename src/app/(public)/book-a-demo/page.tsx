@@ -2,9 +2,9 @@
 
 import { useRef } from 'react';
 import { motion } from 'motion/react';
-import { PageShell } from '../components/shared/PageShell';
-import { SiteNav } from '../components/shared/SiteNav';
-import { BookDemoForm } from '../components/landing/BookDemoForm';
+import { PageShell } from '@/components/ui/PageShell';
+import { SiteNav } from '@/components/ui/SiteNav';
+import { BookDemoForm } from '@/components/sections/book-a-demo/BookDemoForm';
 
 const DEMO_BULLETS = [
   'We pull your actual Google reviews live',
