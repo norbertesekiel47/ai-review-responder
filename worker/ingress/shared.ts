@@ -1,7 +1,7 @@
 // worker/ingress/shared.ts
 //
 // Shared ingress primitives used across webhook handlers (Twilio, Telegram, etc.).
-// claimInboundEvent dedup pattern originated in worker/ingress/twilio.ts and was
+// claimInboundEvent dedup pattern originated in worker/ingress/twilio/twilio.ts and was
 // extracted here when Telegram was added — see docs/superpowers/specs/2026-04-22-telegram-phase-2-design.md §2.
 
 import { v7 as uuidv7 } from 'uuid';

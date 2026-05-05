@@ -128,7 +128,7 @@ Single flag controlling BOTH publishing AND ingestion (no separate flags).
 Gates:
 - Connect routes (`start`/`callback`/`select-location`/`cancel`/`disconnect`)
 - `ResponsePublisherWorker` Zernio publishing branch
-- `worker/ingress/zernio` webhook handler
+- `worker/ingress/zernio/zernio` webhook handler
 - Admin/dashboard Zernio panel CTAs
 
 Server-authoritative. Browser learns state via `zernioPublishingEnabled` field
@@ -136,7 +136,7 @@ in business-detail API. No `NEXT_PUBLIC_*` companion.
 
 **Required when on:**
 - `ZERNIO_API_KEY` — worker startup assertion fails without it
-- `ZERNIO_WEBHOOK_SECRET` — HMAC shared secret for `worker/ingress/zernio-verify.ts`. Must match Zernio dashboard config.
+- `ZERNIO_WEBHOOK_SECRET` — HMAC shared secret for `worker/ingress/zernio/zernio-verify.ts`. Must match Zernio dashboard config.
 
 **Optional:**
 - `ZERNIO_API_BASE` (default: `'https://zernio.com/api'`) — override for sandbox

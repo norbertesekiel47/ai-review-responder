@@ -105,8 +105,8 @@ vi.mock('twilio', async () => {
 // Imports AFTER vi.mock()s are registered.
 import { POST as verifyPOST } from '../verify/route';
 import { POST as confirmPOST } from '../confirm/route';
-import { handleTwilioInbound } from '../../../../../../../worker/ingress/twilio';
-import { buildInboundRequest } from '../../../../../../../worker/ingress/__tests__/helpers';
+import { handleTwilioInbound } from '../../../../../../../worker/ingress/twilio/twilio';
+import { buildInboundRequest } from '../../../../../../../worker/ingress/test-helpers';
 
 // Shape-cast for the Fastify request/reply contract used by the handler.
 type AnyReq = any;
