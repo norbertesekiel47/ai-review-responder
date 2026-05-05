@@ -109,11 +109,17 @@ export async function handleOnboardingDemo(
 
   // claimResult === 'claimed' — proceed.
   try {
-    if (!isPlaceId(googlePlaceId) && googleMapsUrl) {
-      const urlData = parseGoogleMapsUrl(googleMapsUrl);
-      googlePlaceId = await resolvePlaceId(urlData);
-    } else if (!isPlaceId(googlePlaceId)) {
-      throw new Error('Invalid Place ID and no URL available for resolution');
+    if (!isPlaceId(googlePlaceId)) {
+      if (isMockMode()) {
+        // In mock mode fetchSerpApiReviews is stubbed — any non-empty string
+        // works as the place identifier. Skip the real SerpAPI resolution.
+        googlePlaceId = googlePlaceId || 'mock-place-id';
+      } else if (googleMapsUrl) {
+        const urlData = parseGoogleMapsUrl(googleMapsUrl);
+        googlePlaceId = await resolvePlaceId(urlData);
+      } else {
+        throw new Error('Invalid Place ID and no URL available for resolution');
+      }
     }
 
     let result: {
