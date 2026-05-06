@@ -1,273 +1,704 @@
 'use client';
 
-import { useRef } from 'react';
-import { motion } from 'motion/react';
 import Link from 'next/link';
-import { PageShell } from '@/components/ui/PageShell';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
+import { MarqueeBackground } from '@/components/ui/MarqueeBackground';
 import { SiteNav } from '@/components/ui/SiteNav';
+
+interface HowItWorksContentProps {
+  comingSoon?: boolean;
+}
+
+const SECTIONS = [
+  { id: 'hiw-hero', label: 'Overview' },
+  { id: 'hiw-steps', label: 'The four steps' },
+  { id: 'hiw-hood', label: 'Under the hood' },
+  { id: 'hiw-faq', label: 'FAQ' },
+  { id: 'hiw-cta', label: 'Get started' },
+];
+
+const IconCheck = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <polyline points="20 6 9 17 4 12" />
+  </svg>
+);
+
+function Reveal({ children, delay = 0 }: { children: ReactNode; delay?: number }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [seen, setSeen] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || seen) return;
+    const r = el.getBoundingClientRect();
+    if (r.top < window.innerHeight && r.bottom > 0) {
+      const id = window.setTimeout(() => setSeen(true), delay);
+      return () => window.clearTimeout(id);
+    }
+    const io = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting) {
+          window.setTimeout(() => setSeen(true), delay);
+          io.disconnect();
+        }
+      },
+      { threshold: 0.05, rootMargin: '0px 0px -50px 0px' }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [delay, seen]);
+  return (
+    <div ref={ref} className={`hiw-reveal ${seen ? 'is-in' : ''}`}>
+      {children}
+    </div>
+  );
+}
+
+/* ───── Step artifacts ───── */
+
+function Step1Artifact() {
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const i = setInterval(() => setTick((t) => t + 1), 4200);
+    return () => clearInterval(i);
+  }, []);
+  const rows = [
+    { name: 'Sarah L.', initials: 'SL', stars: 5, excerpt: 'Best dry cleaners in town. Picked up my suits on time and they...', time: 'Just now', isNew: true },
+    { name: 'Marcus T.', initials: 'MT', stars: 4, excerpt: 'Quick service, friendly staff. Will return for my shirts next week.', time: '12 min ago' },
+    { name: 'Priya R.', initials: 'PR', stars: 5, excerpt: 'Saved my wedding dress. Honestly, nothing short of magic.', time: '48 min ago' },
+    { name: 'David C.', initials: 'DC', stars: 3, excerpt: 'Decent service but the pickup hours could be better on weekends.', time: '2 hrs ago' },
+  ];
+  const colors = ['#F2C3B9', '#D6CBBF', '#D2E0D3', '#F0DDD6'];
+  const mins = String(59 - (tick % 60)).padStart(2, '0');
+  const secs = String(59 - ((tick * 3) % 60)).padStart(2, '0');
+  return (
+    <div className="hiw-artifact">
+      <div className="hiw-artifact-cap">
+        <span className="hiw-artifact-cap-dot" />
+        <span>Google Business Profile — Bright Linen Dry Cleaning</span>
+        <span className="hiw-artifact-cap-tail">polling · next in {mins}:{secs}</span>
+      </div>
+      <div className="hiw-feed">
+        {rows.map((r, i) => (
+          <div key={r.name} className={`hiw-feed-row ${r.isNew ? 'is-new' : ''}`}>
+            <div className="hiw-avatar" style={{ background: colors[i % colors.length] }}>{r.initials}</div>
+            <div>
+              <div className="hiw-feed-line1">
+                <span className="hiw-feed-name">{r.name}</span>
+                <span className="hiw-feed-stars">
+                  {'★'.repeat(r.stars)}
+                  <span style={{ color: '#e5e5e5' }}>{'★'.repeat(5 - r.stars)}</span>
+                </span>
+              </div>
+              <div className="hiw-feed-excerpt">{r.excerpt}</div>
+            </div>
+            <div className="hiw-feed-time">
+              {r.isNew && <span className="hiw-pulse-dot" />}
+              {r.time}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Step2Artifact() {
+  const full =
+    "Sarah, thank you — that's genuinely wonderful to hear. We take punctuality seriously because we know your schedule doesn't wait for ours. See you again soon.";
+  const [typed, setTyped] = useState('');
+  useEffect(() => {
+    let i = 0;
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      if (i <= full.length) {
+        setTyped(full.slice(0, i));
+        i += 2;
+        timer = setTimeout(tick, 22);
+      } else {
+        timer = setTimeout(() => {
+          i = 0;
+          setTyped('');
+          tick();
+        }, 2400);
+      }
+    };
+    timer = setTimeout(tick, 400);
+    return () => clearTimeout(timer);
+  }, [full]);
+  return (
+    <div className="hiw-artifact">
+      <div className="hiw-artifact-cap">
+        <span
+          className="hiw-artifact-cap-dot"
+          style={{ background: '#F2C3B9', boxShadow: '0 0 0 4px rgba(242,195,185,0.2)' }}
+        />
+        <span>Draft generation · voice model v3</span>
+        <span className="hiw-artifact-cap-tail">~4 sec</span>
+      </div>
+      <div className="hiw-draft">
+        <div className="hiw-draft-src">
+          <div className="hiw-draft-src-meta">Input · Review from Sarah L.</div>
+          Best dry cleaners in town. Picked up my suits on time and they came back looking sharp.
+          I&apos;ll be back!
+        </div>
+        <div className="hiw-draft-arrow">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <line x1="12" y1="5" x2="12" y2="19" />
+            <polyline points="19 12 12 19 5 12" />
+          </svg>
+        </div>
+        <div className="hiw-draft-out">
+          <span className="hiw-draft-badge">Draft · in your voice</span>
+          <p>
+            {typed}
+            <span className="hiw-draft-typing" />
+          </p>
+        </div>
+        <div className="hiw-draft-voice">
+          <div className="hiw-voice-chip">
+            <span className="hiw-voice-chip-lbl">Tone</span>
+            <span className="hiw-voice-chip-val">Warm · direct</span>
+          </div>
+          <div className="hiw-voice-chip">
+            <span className="hiw-voice-chip-lbl">Length</span>
+            <span className="hiw-voice-chip-val">28 words</span>
+          </div>
+          <div className="hiw-voice-chip">
+            <span className="hiw-voice-chip-lbl">Matches you</span>
+            <span className="hiw-voice-chip-val">96%</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Step3Artifact() {
+  const [state, setState] = useState<'pending' | 'approving' | 'approved' | 'regenerating'>('pending');
+  const onApprove = () => {
+    setState('approving');
+    setTimeout(() => setState('approved'), 700);
+  };
+  const onRegen = () => {
+    setState('regenerating');
+    setTimeout(() => setState('pending'), 1100);
+  };
+  return (
+    <div className="hiw-artifact">
+      <div className="hiw-artifact-cap">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: '#97B3AE' }} aria-hidden>
+          <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+          <polyline points="22,6 12,13 2,6" />
+        </svg>
+        <span>owner@brightlinen.com · Inbox</span>
+        <span className="hiw-artifact-cap-tail">10:42 AM</span>
+      </div>
+      <div className="hiw-email">
+        <div className="hiw-email-head">
+          <div className="hiw-email-head-l">
+            <span className="hiw-brand-mini" aria-hidden />
+            <strong style={{ color: 'var(--rw-ink)' }}>RepWorth</strong>
+            <span>&lt;drafts@repworth.com&gt;</span>
+          </div>
+          <div>to you</div>
+        </div>
+        <h4 className="hiw-email-subj">New 5★ review from Sarah L. — ready to approve</h4>
+        <p className="hiw-email-meta">
+          We drafted a reply in your voice. Tap to approve, edit, or regenerate.
+        </p>
+
+        <div className="hiw-email-quote">
+          <div className="hiw-email-quote-meta">SARAH L. · ★★★★★</div>
+          Best dry cleaners in town. Picked up my suits on time and they came back looking sharp.
+          I&apos;ll be back!
+        </div>
+        <div className="hiw-email-reply">
+          <div className="hiw-email-reply-meta">Suggested reply</div>
+          Sarah, thank you — that&apos;s genuinely wonderful to hear. We take punctuality seriously
+          because we know your schedule doesn&apos;t wait for ours. See you again soon.
+        </div>
+
+        <div className="hiw-email-actions">
+          {state === 'approved' ? (
+            <button
+              type="button"
+              className="hiw-btn hiw-btn-approve"
+              style={{ background: '#16A34A' }}
+              disabled
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              Approved — posting to Google
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="hiw-btn hiw-btn-approve"
+                onClick={onApprove}
+                disabled={state === 'approving'}
+              >
+                {state === 'approving' ? 'Sending…' : 'Approve & post'}
+              </button>
+              <button type="button" className="hiw-btn hiw-btn-ghost" disabled={state === 'regenerating'}>
+                Edit first
+              </button>
+              <button
+                type="button"
+                className="hiw-btn hiw-btn-ghost"
+                onClick={onRegen}
+                disabled={state === 'regenerating'}
+              >
+                {state === 'regenerating' ? 'Regenerating…' : 'Regenerate'}
+              </button>
+            </>
+          )}
+        </div>
+        <div className="hiw-email-foot">
+          <span>Responds from owner@brightlinen.com</span>
+          <span>One-tap · no login</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Step4Artifact() {
+  return (
+    <div className="hiw-artifact">
+      <div className="hiw-artifact-cap">
+        <span className="hiw-artifact-cap-dot" />
+        <span>Live on Google · posted by owner</span>
+        <span className="hiw-artifact-cap-tail">12 sec ago</span>
+      </div>
+      <div className="hiw-posted">
+        <div className="hiw-posted-card">
+          <div className="hiw-posted-head">
+            <div className="hiw-avatar">SL</div>
+            <div>
+              <span className="hiw-posted-name">
+                Sarah L. · <span style={{ color: '#EAB308' }}>★★★★★</span>
+              </span>
+              <span className="hiw-posted-when">Bright Linen Dry Cleaning · 1 hour ago</span>
+            </div>
+          </div>
+          <p className="hiw-posted-review">
+            Best dry cleaners in town. Picked up my suits on time and they came back looking sharp.
+            I&apos;ll be back!
+          </p>
+          <div className="hiw-posted-reply">
+            <div className="hiw-posted-reply-head">
+              <strong>Response from the owner</strong>
+              <span className="hiw-verified">✓</span>
+              <span>· just now</span>
+            </div>
+            <div className="hiw-posted-reply-body">
+              Sarah, thank you — that&apos;s genuinely wonderful to hear. We take punctuality
+              seriously because we know your schedule doesn&apos;t wait for ours. See you again soon.
+            </div>
+          </div>
+        </div>
+        <div className="hiw-receipt">
+          <div className="hiw-receipt-cell">
+            <span className="hiw-receipt-lbl">Status</span>
+            <span className="hiw-receipt-val">
+              <span style={{ width: 8, height: 8, borderRadius: 9999, background: '#16A34A', display: 'inline-block' }} />
+              Posted
+            </span>
+          </div>
+          <div className="hiw-receipt-cell">
+            <span className="hiw-receipt-lbl">Posted at</span>
+            <span className="hiw-receipt-val">10:43 AM</span>
+          </div>
+          <div className="hiw-receipt-cell">
+            <span className="hiw-receipt-lbl">Total time</span>
+            <span className="hiw-receipt-val">1m 04s</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 const STEPS = [
   {
-    number: '01',
-    title: 'We connect to your Google reviews',
-    description:
-      'We monitor your Google Business Profile every hour for new reviews. No app to download, no login to share, no setup required on your end.',
+    num: '01',
     color: '#D2E0D3',
+    tick: 'T + 0:00',
+    kicker: 'Monitor',
+    title: "We watch your reviews so you don't have to.",
+    sub: "A worker polls your Google Business Profile every 60 minutes. New reviews are detected, deduplicated against what we've seen, and queued for drafting within seconds.",
+    bullets: [
+      'Polls every 60 minutes · no webhook required',
+      'Multi-location businesses handled out of the box',
+      'Star rating, reviewer name, and full text captured',
+    ],
+    Artifact: Step1Artifact,
   },
   {
-    number: '02',
-    title: 'AI drafts a personalized response',
-    description:
-      'Within an hour of a new review, our AI writes a response that sounds like you — referencing specific details from the review, in whatever language it was written.',
+    num: '02',
     color: '#F0DDD6',
+    tick: 'T + 0:12',
+    kicker: 'Generate',
+    title: 'AI drafts a reply — in your voice.',
+    sub: 'We trained on your past 30 owner responses. The model picks up your phrasing, your rhythm, how you handle thanks and how you handle complaints. Each draft renders in under five seconds.',
+    bullets: [
+      'Trained on your existing owner responses',
+      'Separate handling for 1–3★ vs 4–5★ reviews',
+      'Regenerate button if the first pass misses',
+    ],
+    Artifact: Step2Artifact,
   },
   {
-    number: '03',
-    title: 'You approve with one tap',
-    description:
-      "You get an email with the review and the AI draft side-by-side. Tap approve and you're done. Edit the draft or request a new one if you want. Takes 30 seconds.",
+    num: '03',
     color: '#F2C3B9',
+    tick: 'T + 0:20',
+    kicker: 'Approve',
+    title: 'You get an email. Thirty seconds, done.',
+    sub: 'The draft arrives at your inbox with one-tap Approve, Edit, and Regenerate buttons. No login, no dashboard to check. Signed link, expires in 48 hours.',
+    bullets: [
+      'One-tap approve — no password, no app to open',
+      'Edit inline if you want to tweak a word',
+      "Regenerate if the tone doesn't feel right",
+    ],
+    Artifact: Step3Artifact,
   },
   {
-    number: '04',
-    title: 'We post it to Google',
-    description:
-      "Your approved response goes live on Google. Your response rate hits 100%. Google rewards active responders with better local ranking — more visibility, more customers.",
+    num: '04',
     color: '#D6CBBF',
+    tick: 'T + 1:04',
+    kicker: 'Post',
+    title: 'Posted to Google, on your behalf.',
+    sub: 'Once you approve, we post the reply back via the Google Business API. It shows up on your listing within seconds, attributed to the business owner — exactly as it would if you\'d typed it yourself.',
+    bullets: [
+      'Posts within seconds of approval',
+      'Shows as "Response from the owner" on Google',
+      'Receipt logged in your dashboard for audit',
+    ],
+    Artifact: Step4Artifact,
   },
 ];
 
-const FAQ = [
+const HOOD = [
+  { color: '#D2E0D3', title: 'Poll worker', sub: 'Checks your Google Business Profile every 60 minutes.', tech: 'BullMQ · cron', glyph: '⏱' },
+  { color: '#F0DDD6', title: 'Voice model', sub: 'Drafts a reply in your voice, sourced from past replies.', tech: 'LLM · tuned', glyph: '✎' },
+  { color: '#F2C3B9', title: 'Approval email', sub: 'One-tap signed link, no password needed.', tech: 'Resend · HMAC', glyph: '✉' },
+  { color: '#D6CBBF', title: 'Post back', sub: 'Submits the approved reply to Google on your behalf.', tech: 'Business API', glyph: '↗' },
+];
+
+const GUARANTEES = [
   {
-    q: "What if I don't like the response?",
-    a: 'You can edit the draft directly in the email, or tap "Regenerate" to get a fresh version. Nothing is ever posted without your explicit approval.',
+    title: 'Nothing posts without you',
+    desc: 'Every reply needs your tap. No auto-post, ever. No surprise posts on your behalf.',
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+      </svg>
+    ),
   },
   {
-    q: "What if I'm too busy to approve?",
-    a: "We send a reminder after 24 hours. Reviews stay queued until you're ready — there's no deadline. Your response rate catches up whenever you do.",
+    title: 'Sounds like you wrote it',
+    desc: 'RepWorth learns from your existing replies. Your tone, your phrasing, your voice.',
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+        <path d="m18.5 2.5 3 3L12 15l-4 1 1-4z" />
+      </svg>
+    ),
   },
   {
-    q: 'Do I need to install anything?',
-    a: 'No. RepWorth works entirely through email notifications. No app, no dashboard login required, no browser extension.',
-  },
-  {
-    q: 'What languages do you support?',
-    a: 'Any language. Our AI detects the language of the review and responds in kind — Spanish, Vietnamese, Chinese, Tagalog, Korean, and more.',
+    title: 'Pause anytime',
+    desc: 'Toggle off for a location in a single tap. Vacation, staff change, rebrand — we follow your lead.',
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <rect x="6" y="4" width="4" height="16" />
+        <rect x="14" y="4" width="4" height="16" />
+      </svg>
+    ),
   },
 ];
 
-export function HowItWorksContent({ comingSoon = false }: { comingSoon?: boolean }) {
-  const stepsRef = useRef<HTMLDivElement>(null);
-  const exampleRef = useRef<HTMLDivElement>(null);
-  const faqRef = useRef<HTMLDivElement>(null);
+const FAQ_ITEMS = [
+  { q: "What happens if I don't approve a draft?", a: 'Nothing. Drafts sit and wait. After 48 hours we send a gentle nudge. If you never approve, we never post — the review simply stays unanswered on your end.' },
+  { q: 'Can RepWorth post without asking me?', a: 'No. Approval is a hard gate. Every reply requires your one-tap confirmation from the email. We built the whole flow around that.' },
+  { q: 'How does it learn my voice?', a: 'On setup we import your last 30 owner responses from Google and build a voice profile — tone, length, phrasing quirks. You can correct it on the first few drafts; it updates within a day.' },
+  { q: 'What about negative reviews?', a: "Drafts for 1–3★ reviews are flagged for extra review and routed to you with a longer deadline. We'll never auto-suggest a defensive or dismissive reply — the tone defaults to acknowledging and offering a path forward." },
+  { q: 'Which review platforms do you support?', a: "Today, Google only — that's where most of the volume sits. Yelp, Tripadvisor and Facebook are on the roadmap." },
+];
 
-  const sections = [
-    { ref: stepsRef, label: 'Steps' },
-    { ref: exampleRef, label: 'Example' },
-    { ref: faqRef, label: 'FAQ' },
-  ];
+const OVERVIEW = [
+  {
+    n: '01', title: 'Monitor', time: 'every 60 min', color: '#D2E0D3',
+    glyph: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <circle cx="12" cy="12" r="9" />
+        <polyline points="12 7 12 12 15 14" />
+      </svg>
+    ),
+  },
+  {
+    n: '02', title: 'Generate', time: '~4 sec', color: '#F0DDD6',
+    glyph: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1" />
+        <circle cx="12" cy="12" r="3" />
+      </svg>
+    ),
+  },
+  {
+    n: '03', title: 'Approve', time: '30 sec of you', color: '#F2C3B9',
+    glyph: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <path d="M4 6h16a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z" />
+        <polyline points="2 8 12 14 22 8" />
+      </svg>
+    ),
+  },
+  {
+    n: '04', title: 'Post', time: 'instant', color: '#D6CBBF',
+    glyph: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <path d="M5 12h14" />
+        <polyline points="13 6 19 12 13 18" />
+      </svg>
+    ),
+  },
+];
+
+export function HowItWorksContent({ comingSoon = false }: HowItWorksContentProps) {
+  const [active, setActive] = useState('hiw-hero');
+  const [openFaq, setOpenFaq] = useState(0);
+
+  useEffect(() => {
+    const els = SECTIONS.map((s) => document.getElementById(s.id)).filter(
+      (el): el is HTMLElement => Boolean(el)
+    );
+    const io = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((e) => e.isIntersecting)
+          .sort((a, b) => b.intersectionRatio - a.intersectionRatio);
+        if (visible[0]) setActive(visible[0].target.id);
+      },
+      { rootMargin: '-30% 0px -50% 0px', threshold: [0, 0.25, 0.5, 0.75] }
+    );
+    els.forEach((s) => io.observe(s));
+    return () => io.disconnect();
+  }, []);
+
+  const jumpTo = (id: string) => {
+    const el = document.getElementById(id);
+    if (el) {
+      window.scrollTo({
+        top: el.getBoundingClientRect().top + window.scrollY - 80,
+        behavior: 'smooth',
+      });
+    }
+  };
 
   return (
-    <PageShell sections={sections}>
-      <SiteNav comingSoon={comingSoon} />
+    <div className="hiw-page">
+      <MarqueeBackground />
 
-      {/* Hero */}
-      <section aria-label="Page hero" className="px-8 py-16 md:py-20 text-center bg-gradient-to-b from-white to-[#F0EEEA]/30">
-        <motion.p
-          className="text-sm tracking-wider uppercase text-[#97B3AE] mb-4"
-          initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.2 }}
-        >
-          How it works
-        </motion.p>
-        <motion.h1
-          className="text-5xl md:text-6xl font-medium leading-tight text-[#2a2a2a] mb-6 max-w-3xl mx-auto"
-          initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.3 }}
-        >
-          Done-for-you in four steps
-        </motion.h1>
-        <motion.p
-          className="text-lg text-[#6a6a6a] max-w-xl mx-auto"
-          initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.4 }}
-        >
-          You spend 30 seconds per review. We handle everything else.
-        </motion.p>
-      </section>
+      <nav className="hiw-dotnav" aria-label="Section navigation">
+        {SECTIONS.map((s) => (
+          <button
+            key={s.id}
+            type="button"
+            onClick={() => jumpTo(s.id)}
+            aria-label={s.label}
+            title={s.label}
+            className={`hiw-dotnav-btn ${active === s.id ? 'is-active' : ''}`}
+          />
+        ))}
+      </nav>
 
-      {/* Steps */}
-      <section ref={stepsRef} aria-label="How it works steps" className="px-8 py-16 bg-white">
-        <div className="max-w-4xl mx-auto space-y-6">
-          {STEPS.map((step, i) => (
-            <motion.div
-              key={step.number}
-              className="flex gap-6 items-start rounded-2xl p-8 border border-[#97B3AE]/10 shadow-sm"
-              style={{ background: `linear-gradient(135deg, ${step.color}20 0%, ${step.color}08 100%)` }}
-              initial={{ opacity: 0, x: -20 }}
-              whileInView={{ opacity: 1, x: 0 }}
-              viewport={{ once: true, margin: '-100px' }}
-              transition={{ duration: 0.6, delay: i * 0.1 }}
-            >
-              <div className="text-5xl font-medium shrink-0 opacity-20 leading-none text-[#2a2a2a]">
-                {step.number}
+      <div className="relative z-10 max-w-[1024px] mx-auto px-4 py-20">
+        <div className="bg-white rounded-[3rem] shadow-2xl overflow-hidden">
+          <SiteNav comingSoon={comingSoon} />
+
+          {/* Hero */}
+          <section id="hiw-hero" className="hiw-hero">
+            <p className="hiw-eyebrow">How it works</p>
+            <h1 className="hiw-h1">Four steps from new review to posted reply.</h1>
+            <p className="hiw-lead">
+              RepWorth watches for new Google reviews, drafts a response in your voice, emails it
+              to you for approval, then posts it back to Google. The whole loop takes under a
+              minute of your time.
+            </p>
+            <div className="hiw-hero-meta">
+              <div className="hiw-hero-meta-item">
+                <span className="hiw-hero-meta-val">60 min</span>
+                <span className="hiw-hero-meta-lbl">poll interval</span>
               </div>
-              <div>
-                <h3 className="text-xl md:text-2xl font-medium text-[#2a2a2a] mb-3">{step.title}</h3>
-                <p className="text-[#6a6a6a] leading-relaxed">{step.description}</p>
+              <div className="hiw-hero-meta-item">
+                <span className="hiw-hero-meta-val">30 sec</span>
+                <span className="hiw-hero-meta-lbl">your time per reply</span>
               </div>
-            </motion.div>
-          ))}
-        </div>
-      </section>
+              <div className="hiw-hero-meta-item">
+                <span className="hiw-hero-meta-val">96%</span>
+                <span className="hiw-hero-meta-lbl">response rate</span>
+              </div>
+              <div className="hiw-hero-meta-item">
+                <span className="hiw-hero-meta-val">15 hrs</span>
+                <span className="hiw-hero-meta-lbl">saved weekly</span>
+              </div>
+            </div>
+          </section>
 
-      {/* Example */}
-      <section ref={exampleRef} aria-label="Example review and response" className="px-8 py-16 bg-gradient-to-b from-white to-[#F0EEEA]/30">
-        <div className="max-w-4xl mx-auto">
-          <motion.h2
-            className="text-3xl md:text-4xl font-medium text-[#2a2a2a] mb-4 text-center"
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, margin: '-100px' }}
-            transition={{ duration: 0.6 }}
-          >
-            What it looks like in practice
-          </motion.h2>
-          <motion.p
-            className="text-[#6a6a6a] text-center mb-10"
-            initial={{ opacity: 0 }}
-            whileInView={{ opacity: 1 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.6, delay: 0.1 }}
-          >
-            A real review from a restaurant. A RepWorth response, ready in under an hour.
-          </motion.p>
-          <div className="grid md:grid-cols-2 gap-6">
-            <motion.div
-              className="bg-white rounded-2xl p-6 border border-[#97B3AE]/10 shadow-lg"
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, margin: '-100px' }}
-              transition={{ duration: 0.6, delay: 0.2 }}
-            >
-              <div className="flex items-center gap-3 mb-4">
-                <div aria-hidden="true" className="w-10 h-10 rounded-full bg-gradient-to-br from-[#D2E0D3] to-[#D2E0D3]/50" />
-                <div>
-                  <p className="font-medium text-[#2a2a2a] text-sm">Maria G.</p>
-                  <div className="flex gap-0.5" role="img" aria-label="5 out of 5 stars">
-                    {[0, 1, 2, 3, 4].map((j) => (
-                      <svg key={j} aria-hidden="true" className="w-3.5 h-3.5 text-yellow-400" fill="currentColor" viewBox="0 0 20 20">
-                        <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                      </svg>
-                    ))}
-                  </div>
+          {/* Overview strip */}
+          <div className="hiw-overview" id="hiw-overview">
+            {OVERVIEW.map((it) => (
+              <div key={it.n} className="hiw-overview-cell">
+                <div className="hiw-overview-top">
+                  <span className="hiw-overview-num">
+                    <span className="hiw-overview-dot" />
+                    Step {it.n}
+                  </span>
+                  <span
+                    className="hiw-overview-glyph"
+                    style={{ background: `linear-gradient(135deg, ${it.color}, ${it.color}cc)` }}
+                  >
+                    {it.glyph}
+                  </span>
                 </div>
+                <span className="hiw-overview-title">{it.title}</span>
+                <span className="hiw-overview-time">{it.time}</span>
               </div>
-              <p className="text-[#2a2a2a] text-sm leading-relaxed">
-                &ldquo;El ceviche estaba increíble — fresco y lleno de sabor. El servicio fue muy atento. Mi familia y yo definitivamente volveremos. ¡Gracias por la experiencia tan especial!&rdquo;
-              </p>
-              <p className="text-xs text-[#6a6a6a] mt-3">Google review · 2 hours ago</p>
-              <div className="mt-4 pt-4 border-t border-[#97B3AE]/10">
-                <p className="text-xs font-medium text-[#6a6a6a] uppercase tracking-wide">Customer review</p>
-              </div>
-            </motion.div>
-            <motion.div
-              className="bg-white rounded-2xl p-6 border border-[#97B3AE]/20 shadow-lg"
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, margin: '-100px' }}
-              transition={{ duration: 0.6, delay: 0.3 }}
-            >
-              <div className="flex items-center gap-2 mb-4">
-                <div className="w-6 h-6 rounded-full bg-gradient-to-br from-[#97B3AE] to-[#97B3AE]/80" />
-                <p className="text-sm font-medium text-[#97B3AE]">Owner response — via RepWorth</p>
-                <span className="ml-auto text-xs text-[#6a6a6a] italic">posted 38 min later</span>
-              </div>
-              <p className="text-[#2a2a2a] text-sm leading-relaxed">
-                &ldquo;¡Muchas gracias, María! Nos alegra mucho que hayan disfrutado el ceviche — lo preparamos con pescado fresco todos los días, así que su comentario significa mucho para nuestro equipo. Fue un placer atenderlos y esperamos volver a verlos pronto a usted y a su familia. ¡Hasta la próxima!&rdquo;
-              </p>
-              <div className="mt-4 pt-4 border-t border-[#97B3AE]/10 flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-[#97B3AE]" />
-                <p className="text-xs font-medium text-[#97B3AE] uppercase tracking-wide">AI-generated, owner-approved</p>
-              </div>
-            </motion.div>
-          </div>
-        </div>
-      </section>
-
-      {/* FAQ */}
-      <section ref={faqRef} aria-label="Frequently asked questions" className="px-8 py-16 bg-white">
-        <div className="max-w-3xl mx-auto">
-          <motion.h2
-            className="text-3xl md:text-4xl font-medium text-[#2a2a2a] mb-10 text-center"
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, margin: '-100px' }}
-            transition={{ duration: 0.6 }}
-          >
-            Questions
-          </motion.h2>
-          <div className="space-y-4">
-            {FAQ.map((item, i) => (
-              <motion.div
-                key={item.q}
-                className="bg-[#F0EEEA]/40 rounded-xl border border-[#97B3AE]/10 p-6"
-                initial={{ opacity: 0, y: 10 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true, margin: '-50px' }}
-                transition={{ duration: 0.5, delay: i * 0.08 }}
-              >
-                <h3 className="font-medium text-[#2a2a2a] mb-2">{item.q}</h3>
-                <p className="text-[#6a6a6a] leading-relaxed text-sm">{item.a}</p>
-              </motion.div>
             ))}
           </div>
-        </div>
-      </section>
 
-      {/* CTA */}
-      <section aria-label="Book a demo call to action" className="px-8 py-20 bg-gradient-to-br from-[#97B3AE] to-[#97B3AE]/80 text-white rounded-b-[3rem] text-center">
-        <motion.h2
-          className="text-4xl md:text-5xl font-medium mb-4"
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.6 }}
-        >
-          Ready to try it on your actual reviews?
-        </motion.h2>
-        <motion.p
-          className="text-lg opacity-90 mb-8"
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.6, delay: 0.1 }}
-        >
-          15-minute demo. No credit card. No commitment.
-        </motion.p>
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.6, delay: 0.2 }}
-        >
-          {comingSoon ? (
-            <span className="inline-block px-10 py-4 bg-white text-[#97B3AE] rounded-full shadow-xl font-medium opacity-60 cursor-default select-none">
-              Coming Soon
-            </span>
-          ) : (
-            <Link href="/book-a-demo">
-              <motion.span
-                className="inline-block px-10 py-4 bg-white text-[#97B3AE] rounded-full shadow-xl font-medium cursor-pointer"
-                whileHover={{ scale: 1.05, boxShadow: '0 20px 40px rgba(0,0,0,0.2)' }}
-                whileTap={{ scale: 0.98 }}
-              >
-                Book a Demo
-              </motion.span>
-            </Link>
-          )}
-        </motion.div>
-      </section>
-    </PageShell>
+          {/* Steps */}
+          <section id="hiw-steps" className="hiw-steps">
+            {STEPS.map((s) => (
+              <Reveal key={s.num}>
+                <div className="hiw-step">
+                  <div className="hiw-step-rail">
+                    <div
+                      className="hiw-step-badge"
+                      style={{ background: `linear-gradient(135deg, ${s.color}, ${s.color}cc)` }}
+                    >
+                      {s.num}
+                    </div>
+                    <div className="hiw-step-rail-tick">{s.tick}</div>
+                  </div>
+                  <div className="hiw-step-body">
+                    <div className="hiw-step-head">
+                      <span className="hiw-step-kicker">{s.kicker}</span>
+                      <h3 className="hiw-step-title">{s.title}</h3>
+                      <p className="hiw-step-sub">{s.sub}</p>
+                    </div>
+                    <ul className="hiw-step-bullets">
+                      {s.bullets.map((b) => (
+                        <li key={b}>
+                          <IconCheck />
+                          {b}
+                        </li>
+                      ))}
+                    </ul>
+                    <s.Artifact />
+                  </div>
+                </div>
+              </Reveal>
+            ))}
+          </section>
+
+          {/* Under the hood */}
+          <section id="hiw-hood" className="hiw-section hiw-section-wash">
+            <div className="hiw-section-head">
+              <p className="hiw-eyebrow">Under the hood</p>
+              <h2 className="hiw-h2">The pipeline, end to end.</h2>
+              <p className="hiw-lead">
+                A poll worker, a voice model, a signed approval email, and a posting API. Nothing
+                magical — just four well-behaved services.
+              </p>
+            </div>
+            <Reveal>
+              <div className="hiw-hood">
+                {HOOD.map((n) => (
+                  <div key={n.title} className="hiw-hood-node">
+                    <div
+                      className="hiw-hood-glyph"
+                      style={{
+                        background: `linear-gradient(135deg, ${n.color}, ${n.color}dd)`,
+                      }}
+                    >
+                      {n.glyph}
+                    </div>
+                    <span className="hiw-hood-title">{n.title}</span>
+                    <span className="hiw-hood-sub">{n.sub}</span>
+                    <span className="hiw-hood-tech">{n.tech}</span>
+                  </div>
+                ))}
+              </div>
+            </Reveal>
+            <Reveal delay={120}>
+              <div className="hiw-guarantees">
+                {GUARANTEES.map((g) => (
+                  <div key={g.title} className="hiw-guarantee">
+                    <div className="hiw-guarantee-icon">{g.icon}</div>
+                    <span className="hiw-guarantee-title">{g.title}</span>
+                    <span className="hiw-guarantee-desc">{g.desc}</span>
+                  </div>
+                ))}
+              </div>
+            </Reveal>
+          </section>
+
+          {/* FAQ */}
+          <section id="hiw-faq" className="hiw-section">
+            <div className="hiw-section-head">
+              <p className="hiw-eyebrow">FAQ</p>
+              <h2 className="hiw-h2">What owners ask first.</h2>
+            </div>
+            <div className="hiw-faq">
+              {FAQ_ITEMS.map((it, i) => (
+                <div key={it.q} className={`hiw-faq-item ${openFaq === i ? 'is-open' : ''}`}>
+                  <button
+                    type="button"
+                    className="hiw-faq-q"
+                    onClick={() => setOpenFaq(openFaq === i ? -1 : i)}
+                    aria-expanded={openFaq === i}
+                  >
+                    <span>{it.q}</span>
+                    <span className="hiw-faq-toggle" aria-hidden>+</span>
+                  </button>
+                  <div className="hiw-faq-a">
+                    <div className="hiw-faq-a-inner">{it.a}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {/* CTA */}
+          <section id="hiw-cta" className="hiw-cta">
+            <h2>Ready to stop writing review replies?</h2>
+            <p>
+              Connect your Google account and we&apos;ll train RepWorth on your existing replies.
+              You&apos;ll start approving drafts within 24 hours.
+            </p>
+            <div className="hiw-cta-row">
+              {comingSoon ? (
+                <span className="hiw-cta-btn is-disabled">Coming soon</span>
+              ) : (
+                <Link href="/book-a-demo" className="hiw-cta-btn">
+                  Book a Demo
+                </Link>
+              )}
+              <Link href="/pricing" className="hiw-cta-btn is-ghost">
+                See pricing
+              </Link>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
   );
 }
