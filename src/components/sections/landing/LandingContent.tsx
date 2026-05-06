@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { MarqueeBackground } from '@/components/ui/MarqueeBackground';
 import { SiteNav } from '@/components/ui/SiteNav';
-import { ContactForm } from './ContactForm';
+import { LeadIntakeForm } from '../lead-intake/LeadIntakeForm';
 import { Hero } from './Hero';
 import { TickerBar } from './TickerBar';
 import { Features } from './Features';
@@ -21,7 +21,7 @@ const SECTIONS = [
   { id: 'rw-features', label: 'Features' },
   { id: 'rw-voice', label: 'Voice' },
   { id: 'rw-timeline', label: 'Timing' },
-  { id: 'rw-cta', label: 'Book a demo' },
+  { id: 'rw-cta', label: 'Join waitlist' },
 ];
 
 export function LandingContent({
@@ -79,7 +79,7 @@ export function LandingContent({
           <Hero
             onBook={() => scrollTo('rw-cta')}
             onTry={() => scrollTo('rw-timeline')}
-            primaryCtaLabel={comingSoon ? 'Coming soon' : 'Book a demo'}
+            primaryCtaLabel={comingSoon ? 'Coming soon' : 'Join waitlist'}
             primaryCtaDisabled={comingSoon}
           />
           <TickerBar />
@@ -94,12 +94,11 @@ export function LandingContent({
             </section>
           ) : (
             <section ref={ctaRef} className="rw-cta" id="rw-cta">
-              <h2>Start responding smarter today.</h2>
+              <h2>Join the early access waitlist.</h2>
               <p>
-                Tell us about your business and we&apos;ll set you up with a
-                personalised demo within 24 hours.
+                Tell us about your business and we&apos;ll reach out when early access opens for your area.
               </p>
-              <ContactForm />
+              <LeadIntakeForm intent="waitlist" source="landing" tone="onTeal" />
             </section>
           )}
 
