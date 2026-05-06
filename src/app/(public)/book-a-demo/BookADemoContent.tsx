@@ -74,7 +74,7 @@ export function BookADemoContent({ selfServeEnabled = false }: { selfServeEnable
                 <p className="text-[#2a2a2a] italic mb-3 leading-relaxed">
                   &ldquo;RepWorth responds to our reviews faster than we ever could. Our response rate went from 12% to 100% in the first week.&rdquo;
                 </p>
-                <p className="text-sm text-[#97B3AE]">— Local restaurant owner (placeholder)</p>
+                <p className="text-sm text-[#97B3AE]">- Local restaurant owner (placeholder)</p>
               </motion.div>
             </motion.div>
 

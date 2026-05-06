@@ -19,6 +19,8 @@ describe('BookADemoContent', () => {
     expect(html).toContain('value="book-a-demo"');
     expect(html).toContain('value="waitlist"');
     expect(html).toContain('Join waitlist');
+    expect(html).toContain('- Local restaurant owner (placeholder)');
+    expect(html).not.toContain('â€”');
     expect(html).not.toContain('Book your demo');
     expect(html).not.toContain('Takes 15 minutes');
   });
