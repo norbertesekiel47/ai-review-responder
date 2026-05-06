@@ -15,11 +15,12 @@ CREATE TABLE IF NOT EXISTS owner_leads (
   CONSTRAINT owner_leads_intent_check
     CHECK (intent IN ('waitlist', 'demo')),
   CONSTRAINT owner_leads_status_check
-    CHECK (status IN ('new', 'contacted', 'qualified', 'converted', 'archived'))
+    CHECK (status IN ('new', 'contacted', 'qualified', 'converted', 'archived')),
+  CONSTRAINT owner_leads_email_intent_key
+    UNIQUE (email_normalized, intent)
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS owner_leads_email_intent_key
-  ON owner_leads (email_normalized, intent);
+ALTER TABLE owner_leads ENABLE ROW LEVEL SECURITY;
 
 CREATE INDEX IF NOT EXISTS owner_leads_status_created_idx
   ON owner_leads (status, created_at DESC);
