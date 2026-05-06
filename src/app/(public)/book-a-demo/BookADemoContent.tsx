@@ -4,24 +4,24 @@ import { useRef } from 'react';
 import { motion } from 'motion/react';
 import { PageShell } from '@/components/ui/PageShell';
 import { SiteNav } from '@/components/ui/SiteNav';
-import { BookDemoForm } from '@/components/sections/book-a-demo/BookDemoForm';
+import { LeadIntakeForm } from '@/components/sections/lead-intake/LeadIntakeForm';
 
-const DEMO_BULLETS = [
-  'We pull your actual Google reviews live',
-  'AI generates personalized responses for each one',
-  'We walk through the one-tap approval flow together',
-  'You ask any questions — no sales pressure',
+const WAITLIST_BULLETS = [
+  'Get notified when early access opens for your area',
+  'Help us prioritize your business and location',
+  'Share your Google Maps listing so setup is faster later',
+  'Move cleanly into a demo request when bookings reopen',
 ];
 
 const TRUST_SIGNALS = [
-  'Trusted by local businesses across the US',
+  'Built for local business owners',
   'Your data is never shared or sold',
-  'No contracts — cancel anytime',
+  'No commitment while you wait',
 ];
 
 export function BookADemoContent({ selfServeEnabled = false }: { selfServeEnabled?: boolean }) {
   const formRef = useRef<HTMLDivElement>(null);
-  const sections = [{ ref: formRef, label: 'Book' }];
+  const sections = [{ ref: formRef, label: 'Waitlist' }];
 
   return (
     <PageShell sections={sections}>
@@ -37,16 +37,16 @@ export function BookADemoContent({ selfServeEnabled = false }: { selfServeEnable
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.2 }}
             >
-              <p className="text-sm tracking-wider uppercase text-[#97B3AE] mb-4">Free demo</p>
+              <p className="text-sm tracking-wider uppercase text-[#97B3AE] mb-4">Early access</p>
               <h1 className="text-4xl md:text-5xl font-medium leading-tight text-[#2a2a2a] mb-6">
-                See your reviews answered in 60 seconds
+                Join the RepWorth early access waitlist
               </h1>
               <p className="text-[#6a6a6a] mb-8 italic text-sm">
-                Takes 15 minutes. No commitment.
+                We will reach out when your area opens.
               </p>
 
               <ul className="space-y-4 mb-10">
-                {DEMO_BULLETS.map((bullet, i) => (
+                {WAITLIST_BULLETS.map((bullet, i) => (
                   <motion.li
                     key={i}
                     className="flex items-start gap-3"
@@ -85,8 +85,8 @@ export function BookADemoContent({ selfServeEnabled = false }: { selfServeEnable
               transition={{ duration: 0.6, delay: 0.4 }}
             >
               <div className="bg-white rounded-2xl border border-[#97B3AE]/10 shadow-lg p-8">
-                <h2 className="text-xl font-medium text-[#2a2a2a] mb-6">Book your demo</h2>
-                <BookDemoForm />
+                <h2 className="text-xl font-medium text-[#2a2a2a] mb-6">Join waitlist</h2>
+                <LeadIntakeForm intent="waitlist" source="book-a-demo" tone="light" />
               </div>
             </motion.div>
           </div>
