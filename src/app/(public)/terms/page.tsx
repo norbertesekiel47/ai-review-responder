@@ -96,7 +96,7 @@ export default function TermsPage() {
                 <strong className="text-[#2a2a2a]">HELP</strong> to any SMS message or contact us
                 at{' '}
                 <a href="mailto:hello@repworth.com" className="text-[#97B3AE] hover:underline">
-                  hello@repworth.com
+                  info@repworth.com
                 </a>
                 .
               </p>

@@ -253,6 +253,23 @@ describe('POST /api/lead-intake', () => {
     expect(firstDbCall().values).toEqual(expect.arrayContaining(['demo', 'book-a-demo']));
   });
 
+  it.each(['features', 'how-it-works', 'pricing'])(
+    'accepts %s as a marketing page waitlist source',
+    async (source) => {
+      const { POST } = await import('../route');
+      const res = await POST(makeRequest({
+        name: 'Alice Owner',
+        email: 'owner@example.com',
+        businessName: 'Alice Bakery',
+        intent: 'waitlist',
+        source,
+      }));
+
+      expect(res.status).toBe(200);
+      expect(firstDbCall().values).toEqual(expect.arrayContaining(['waitlist', source]));
+    },
+  );
+
   it('appends a configured Google Sheet row after persistence', async () => {
     configureGoogleSheetsEnv();
     mockGoogleSheetsSuccess();

@@ -12,6 +12,7 @@ import {
 } from 'react';
 import { MarqueeBackground } from '@/components/ui/MarqueeBackground';
 import { SiteNav } from '@/components/ui/SiteNav';
+import { LeadIntakeForm } from '../lead-intake/LeadIntakeForm';
 
 const FEATURES = [
   { id: 'f-ai',      n: '01', label: 'AI drafting',  sub: 'The engine' },
@@ -383,25 +384,22 @@ export function FeaturesContent({
               What&apos;s next
             </p>
             <h2 className="text-4xl md:text-6xl font-medium text-white leading-tight mb-5 relative max-w-3xl mx-auto">
-              See it running on <span className="rw-display-serif">your</span> reviews.
+              Join the early access waitlist.
             </h2>
             <p className="text-white/85 text-lg mb-10 relative max-w-xl mx-auto leading-relaxed">
-              We&apos;ll pull your real Google reviews and show AI-drafted replies live during the
-              demo. 20 minutes, no slides.
+              Tell us about your business and we&apos;ll reach out when early access opens for
+              your area.
             </p>
-            <div className="relative flex items-center justify-center gap-3 flex-wrap">
+            <div className="relative w-full max-w-md mx-auto">
               {comingSoon ? (
                 <span className="inline-block px-8 py-4 bg-white text-[#97B3AE] rounded-full font-medium shadow-xl opacity-60 cursor-default select-none">
                   Coming soon
                 </span>
               ) : (
-                <Link
-                  href="/book-a-demo"
-                  className="inline-block px-8 py-4 bg-white text-[#97B3AE] rounded-full font-medium shadow-xl hover:scale-[1.03] transition-transform"
-                >
-                  Book a demo →
-                </Link>
+                <LeadIntakeForm intent="waitlist" source="features" tone="onTeal" />
               )}
+            </div>
+            <div className="relative mt-6">
               <Link
                 href="/how-it-works"
                 className="inline-block px-8 py-4 text-white rounded-full font-medium border border-white/40 hover:bg-white/10 transition-colors"

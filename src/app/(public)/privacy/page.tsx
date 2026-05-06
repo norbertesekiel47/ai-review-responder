@@ -78,7 +78,7 @@ export default function PrivacyPage() {
                 <strong className="text-[#2a2a2a]">Help:</strong> Reply{' '}
                 <strong className="text-[#2a2a2a]">HELP</strong> for assistance or contact us at{' '}
                 <a href="mailto:hello@repworth.com" className="text-[#97B3AE] hover:underline">
-                  hello@repworth.com
+                  info@repworth.com
                 </a>
                 .
               </p>

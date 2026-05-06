@@ -9,6 +9,7 @@ import {
 } from 'react';
 import { MarqueeBackground } from '@/components/ui/MarqueeBackground';
 import { SiteNav } from '@/components/ui/SiteNav';
+import { LeadIntakeForm } from '../lead-intake/LeadIntakeForm';
 
 interface HowItWorksContentProps {
   comingSoon?: boolean;
@@ -20,7 +21,7 @@ const SECTIONS = [
   { id: 'hiw-steps', label: 'The four steps' },
   { id: 'hiw-hood', label: 'Under the hood' },
   { id: 'hiw-faq', label: 'FAQ' },
-  { id: 'hiw-cta', label: 'Get started' },
+  { id: 'hiw-cta', label: 'Join waitlist' },
 ];
 
 const IconCheck = () => (
@@ -683,19 +684,19 @@ export function HowItWorksContent({
 
           {/* CTA */}
           <section id="hiw-cta" className="hiw-cta">
-            <h2>Ready to stop writing review replies?</h2>
+            <h2>Join the early access waitlist.</h2>
             <p>
-              Connect your Google account and we&apos;ll train RepWorth on your existing replies.
-              You&apos;ll start approving drafts within 24 hours.
+              Tell us about your business and we&apos;ll reach out when early access opens for
+              your area.
             </p>
+            {comingSoon ? (
+              <span className="hiw-cta-btn is-disabled">Coming soon</span>
+            ) : (
+              <div className="w-full max-w-md">
+                <LeadIntakeForm intent="waitlist" source="how-it-works" tone="onTeal" />
+              </div>
+            )}
             <div className="hiw-cta-row">
-              {comingSoon ? (
-                <span className="hiw-cta-btn is-disabled">Coming soon</span>
-              ) : (
-                <Link href="/book-a-demo" className="hiw-cta-btn">
-                  Book a Demo
-                </Link>
-              )}
               <Link href="/pricing" className="hiw-cta-btn is-ghost">
                 See pricing
               </Link>
