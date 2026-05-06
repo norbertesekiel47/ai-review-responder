@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Resend } from 'resend';
 import { sql, jsonb } from '@/lib/db/server';
+import { appendOwnerLeadToSheet } from '@/lib/google/owner-leads-sheet';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 
 export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_NAME_LEN = 200;
@@ -129,8 +131,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     submittedAt,
   };
 
+  let leadId: string | null = null;
+
   try {
-    await sql`
+    const savedRows = await sql`
       INSERT INTO owner_leads (
         name,
         email,
@@ -161,9 +165,29 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         updated_at = NOW()
       RETURNING id
     `;
+    const savedLeadId = savedRows[0]?.id;
+    leadId = typeof savedLeadId === 'string' ? savedLeadId : null;
   } catch (error) {
     console.error('[lead-intake] database error:', error);
     return jsonError('Failed to save lead', 500);
+  }
+
+  try {
+    await appendOwnerLeadToSheet({
+      leadId,
+      name: name.value,
+      email: emailNormalized,
+      businessName: businessName.value,
+      googleMapsUrl: rawUrl,
+      intent: intent.value,
+      source: source.value,
+      ip,
+      userAgent: metadata.userAgent,
+      referer: metadata.referer,
+      submittedAt,
+    });
+  } catch (error) {
+    console.error('[lead-intake] Google Sheets append error:', error);
   }
 
   if (process.env.RESEND_API_KEY) {

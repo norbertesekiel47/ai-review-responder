@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
+import { generateKeyPairSync } from 'crypto';
 
 const {
   dbState,
   mockCheckRateLimit,
+  mockFetch,
   mockJsonb,
   mockResendSend,
   mockSql,
@@ -26,6 +28,7 @@ const {
   return {
     dbState,
     mockCheckRateLimit: vi.fn(),
+    mockFetch: vi.fn(),
     mockJsonb: vi.fn((value: unknown) => value),
     mockResendSend: vi.fn(),
     mockSql,
@@ -69,14 +72,50 @@ function makeRawRequest(rawBody: string): NextRequest {
   });
 }
 
+function configureGoogleSheetsEnv(): void {
+  const { privateKey } = generateKeyPairSync('rsa', {
+    modulusLength: 2048,
+    privateKeyEncoding: {
+      type: 'pkcs8',
+      format: 'pem',
+    },
+    publicKeyEncoding: {
+      type: 'spki',
+      format: 'pem',
+    },
+  });
+
+  process.env.OWNER_LEADS_GOOGLE_SHEET_ID = 'sheet-123';
+  process.env.OWNER_LEADS_GOOGLE_SHEET_RANGE = 'Sheet1!A:K';
+  process.env.GOOGLE_SHEETS_CLIENT_EMAIL = 'repworth-test@example.iam.gserviceaccount.com';
+  process.env.GOOGLE_SHEETS_PRIVATE_KEY = privateKey.replace(/\n/g, '\\n');
+}
+
+function mockGoogleSheetsSuccess(): void {
+  mockFetch
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ access_token: 'google-token-1' }),
+    })
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ updates: { updatedRows: 1 } }),
+    });
+}
+
 describe('POST /api/lead-intake', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubGlobal('fetch', mockFetch);
     dbState.rejectNext = false;
     dbState.calls = [];
     delete process.env.RESEND_API_KEY;
     delete process.env.RESEND_FROM_EMAIL;
     delete process.env.CONTACT_NOTIFY_TO;
+    delete process.env.OWNER_LEADS_GOOGLE_SHEET_ID;
+    delete process.env.OWNER_LEADS_GOOGLE_SHEET_RANGE;
+    delete process.env.GOOGLE_SHEETS_CLIENT_EMAIL;
+    delete process.env.GOOGLE_SHEETS_PRIVATE_KEY;
     mockCheckRateLimit.mockResolvedValue({ allowed: true, remaining: 4 });
     mockResendSend.mockResolvedValue({ data: { id: 'msg-1' }, error: null });
   });
@@ -193,6 +232,78 @@ describe('POST /api/lead-intake', () => {
 
     expect(res.status).toBe(200);
     expect(dbState.calls[0].values).toEqual(expect.arrayContaining(['demo', 'book-a-demo']));
+  });
+
+  it('appends a configured Google Sheet row after persistence', async () => {
+    configureGoogleSheetsEnv();
+    mockGoogleSheetsSuccess();
+
+    const { POST } = await import('../route');
+    const res = await POST(makeRequest({
+      name: 'Alice Owner',
+      email: 'OWNER@Example.COM',
+      businessName: 'Alice Bakery',
+      googleMapsUrl: 'https://maps.google.com/?cid=123',
+      intent: 'waitlist',
+      source: 'landing',
+    }));
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).success).toBe(true);
+    expect(dbState.calls).toHaveLength(1);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(mockFetch.mock.invocationCallOrder[0]).toBeGreaterThan(mockSql.mock.invocationCallOrder[0]);
+
+    const [tokenUrl, tokenOptions] = mockFetch.mock.calls[0];
+    expect(tokenUrl).toBe('https://oauth2.googleapis.com/token');
+    expect(tokenOptions.method).toBe('POST');
+
+    const [appendUrl, appendOptions] = mockFetch.mock.calls[1];
+    expect(String(appendUrl)).toContain('https://sheets.googleapis.com/v4/spreadsheets/sheet-123/values/Sheet1!A%3AK:append');
+    expect(String(appendUrl)).toContain('valueInputOption=USER_ENTERED');
+    expect(String(appendUrl)).toContain('insertDataOption=INSERT_ROWS');
+    expect(appendOptions.headers.Authorization).toBe('Bearer google-token-1');
+
+    const body = JSON.parse(String(appendOptions.body));
+    expect(body.values).toHaveLength(1);
+    expect(body.values[0]).toEqual(expect.arrayContaining([
+      '018f0000-0000-7000-8000-000000000001',
+      'Alice Owner',
+      'owner@example.com',
+      'Alice Bakery',
+      'https://maps.google.com/?cid=123',
+      'waitlist',
+      'landing',
+      '203.0.113.10',
+      'vitest-agent',
+      'https://repworth.com/',
+    ]));
+  });
+
+  it('does not fail a saved lead when Google Sheets append fails', async () => {
+    configureGoogleSheetsEnv();
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ access_token: 'google-token-1' }),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+        text: async () => 'permission denied',
+      });
+
+    const { POST } = await import('../route');
+    const res = await POST(makeRequest({
+      name: 'Alice Owner',
+      email: 'owner@example.com',
+      businessName: 'Alice Bakery',
+    }));
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).success).toBe(true);
+    expect(dbState.calls).toHaveLength(1);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 
   it('returns 400 for unsupported intent and does not write to the database', async () => {
