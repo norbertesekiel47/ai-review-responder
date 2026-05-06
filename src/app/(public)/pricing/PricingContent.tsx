@@ -8,16 +8,19 @@ import { SiteNav } from '@/components/ui/SiteNav';
 
 type Billing = 'monthly' | 'annual';
 type TierId = 'founders' | 'basic' | 'standard' | 'premium';
+type TierIcon = 'spark' | 'solo' | 'growth' | 'locations';
 
 interface Tier {
   id: TierId;
   name: string;
   tag: string;
   swatch: string;
+  icon: TierIcon;
   monthly: number;
   annual: number;
   cta: string;
   ctaStyle: 'primary' | 'ghost';
+  ctaDisabled?: boolean;
   ribbon?: string;
   slotsLeft?: number;
   slotsTotal?: number;
@@ -28,21 +31,20 @@ const TIERS: Tier[] = [
   {
     id: 'founders',
     name: 'Founders',
-    tag: 'Limited offer — locked-in pricing for life',
+    tag: 'Limited offer - locked-in pricing for early operators',
     swatch: 'linear-gradient(135deg, #F2C3B9, #F0DDD6)',
+    icon: 'spark',
     monthly: 19,
     annual: 15,
     slotsLeft: 7,
-    slotsTotal: 20,
+    slotsTotal: 100,
     cta: 'Claim a spot',
     ctaStyle: 'primary',
     features: [
-      { text: 'Up to 150 review responses / month', hl: true },
-      { text: 'Lifetime price lock — never goes up', hl: true },
-      { text: '2 Google Business Profile locations' },
-      { text: 'Premium AI model (Claude Sonnet)' },
-      { text: 'Custom brand-voice training' },
-      { text: 'Direct line to the founders' },
+      { text: 'Everything in Standard', hl: true },
+      { text: '3-year price lock', hl: true },
+      { text: 'Limited founder spots' },
+      { text: 'Direct line to founders' },
       { text: 'Vote on the roadmap' },
     ],
   },
@@ -51,16 +53,19 @@ const TIERS: Tier[] = [
     name: 'Basic',
     tag: 'For the owner running it solo',
     swatch: 'linear-gradient(135deg, #D2E0D3, #F0EEEA)',
+    icon: 'solo',
     monthly: 29,
     annual: 24,
-    cta: 'Start 14-day trial',
+    cta: 'Coming soon',
     ctaStyle: 'ghost',
+    ctaDisabled: true,
     features: [
-      { text: 'Up to 50 review responses / month', hl: true },
+      { text: 'Best for up to ~50 review responses/month', hl: true },
       { text: '1 Google Business Profile location' },
-      { text: 'AI-drafted replies in your voice' },
+      { text: 'AI-drafted replies in your business voice' },
       { text: 'Email approval flow' },
-      { text: 'Standard brand-voice training' },
+      { text: "Responds in the reviewer's language" },
+      { text: 'Basic dashboard access' },
       { text: 'Email support within 24 hours' },
     ],
   },
@@ -69,18 +74,20 @@ const TIERS: Tier[] = [
     name: 'Standard',
     tag: 'For growing businesses and small chains',
     swatch: 'linear-gradient(135deg, #97B3AE, #D2E0D3)',
+    icon: 'growth',
     monthly: 79,
     annual: 64,
-    cta: 'Start 14-day trial',
+    cta: 'Coming soon',
     ctaStyle: 'ghost',
-    ribbon: 'Most popular',
+    ctaDisabled: true,
+    ribbon: 'Recommended',
     features: [
-      { text: 'Up to 300 review responses / month', hl: true },
-      { text: 'Up to 5 locations' },
-      { text: 'Premium AI model (Claude Sonnet)' },
-      { text: 'Custom brand-voice training from your 10 best replies' },
-      { text: 'Response analytics & weekly digest' },
-      { text: 'Team seats — up to 3 owners' },
+      { text: 'Best for up to ~300 review responses/month', hl: true },
+      { text: '1 Google Business Profile location' },
+      { text: 'Everything in Basic' },
+      { text: 'Weekly and monthly review digest' },
+      { text: 'Response analytics' },
+      { text: 'Email approval plus 1 extra notification channel' },
       { text: 'Priority email support within 4 hours' },
     ],
   },
@@ -89,18 +96,21 @@ const TIERS: Tier[] = [
     name: 'Premium',
     tag: 'For multi-location operators and franchises',
     swatch: 'linear-gradient(135deg, #D6CBBF, #F0DDD6)',
+    icon: 'locations',
     monthly: 199,
     annual: 159,
-    cta: 'Start 14-day trial',
+    cta: 'Coming soon',
     ctaStyle: 'ghost',
+    ctaDisabled: true,
     features: [
-      { text: 'Unlimited review responses', hl: true },
-      { text: 'Unlimited locations with per-location voice' },
-      { text: 'Premium AI model with fine-tuning' },
-      { text: 'Multi-brand support & role-based access' },
-      { text: 'API access & CSV export' },
+      { text: 'High-volume or fair-use unlimited review responses', hl: true },
+      { text: 'Multi-location setup available' },
+      { text: 'Multiple approval notification channels, if implemented' },
+      { text: 'Weekly and monthly review digest' },
+      { text: 'Historical unanswered review backfill, up to 50 reviews before activation' },
+      { text: 'Ranking tracking / search visibility reporting' },
+      { text: 'Priority setup and support' },
       { text: 'Dedicated success manager' },
-      { text: 'SLA-backed response time' },
     ],
   },
 ];
@@ -111,28 +121,30 @@ type MatrixRow =
 
 const MATRIX: MatrixRow[] = [
   { section: 'Responses & locations' },
-  { label: 'Monthly review responses', values: ['150', '50', '300', 'Unlimited'] },
-  { label: 'Google Business Profile locations', values: ['2', '1', '5', 'Unlimited'] },
-  { label: 'Per-location brand voice', values: [false, false, true, true] },
-  { label: 'Lifetime price lock', values: [true, false, false, false] },
+  { label: 'Best-fit monthly review volume', values: ['~300', '~50', '~300', 'High-volume fair use'] },
+  { label: 'Google Business Profile locations', values: ['1', '1', '1', 'Multi-location setup available'] },
+  { label: 'Price lock', values: ['3 years', false, false, false] },
 
   { section: 'AI & brand voice' },
-  { label: 'AI model', values: ['Premium', 'Standard', 'Premium', 'Premium + fine-tune'] },
-  { label: 'Custom voice training', values: ['Standard', 'Standard', 'From your 10 best replies', 'Continuous fine-tuning'] },
+  { label: 'AI-drafted replies in your business voice', values: [true, true, true, true] },
+  { label: "Responds in the reviewer's language", values: [true, true, true, true] },
+  { label: 'Brand voice setup', values: ['Standard', 'Standard', 'Expanded', 'Priority setup'] },
   { label: 'Regenerate with feedback', values: [true, true, true, true] },
 
   { section: 'Team & workflow' },
-  { label: 'Team seats', values: ['2', '1', '3', 'Unlimited'] },
+  { label: 'Dashboard access', values: ['Standard', 'Basic', 'Standard', 'Advanced'] },
   { label: 'Email approval flow', values: [true, true, true, true] },
-  { label: 'Role-based access', values: [false, false, false, true] },
+  { label: 'Extra notification channel', values: [true, false, true, true] },
+  { label: 'Multiple approval notification channels', values: [false, false, false, true] },
 
   { section: 'Insights & integrations' },
   { label: 'Response analytics', values: [true, false, true, true] },
-  { label: 'Weekly digest email', values: [true, false, true, true] },
-  { label: 'API access & CSV export', values: [false, false, false, true] },
+  { label: 'Weekly and monthly review digest', values: [true, false, true, true] },
+  { label: 'Historical unanswered review backfill', values: [false, false, true, true] },
+  { label: 'Ranking / search visibility reporting', values: [false, false, false, true] },
 
   { section: 'Support' },
-  { label: 'Support response time', values: ['Direct line', '24 hours', '4 hours', 'SLA-backed'] },
+  { label: 'Support response time', values: ['Direct line', '24 hours', '4 hours', 'Priority setup'] },
   { label: 'Vote on the roadmap', values: [true, false, false, false] },
   { label: 'Dedicated success manager', values: [false, false, false, true] },
 ];
@@ -152,6 +164,52 @@ const CheckIcon = () => (
   </svg>
 );
 
+function PlanIcon({ icon }: { icon: TierIcon }) {
+  const common = {
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeLinecap: 'round' as const,
+    strokeLinejoin: 'round' as const,
+    'aria-hidden': true,
+  };
+
+  if (icon === 'spark') {
+    return (
+      <svg viewBox="0 0 24 24" {...common}>
+        <path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3z" />
+        <path d="M18 16l.8 2.2L21 19l-2.2.8L18 22l-.8-2.2L15 19l2.2-.8L18 16z" />
+      </svg>
+    );
+  }
+
+  if (icon === 'solo') {
+    return (
+      <svg viewBox="0 0 24 24" {...common}>
+        <path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8z" />
+        <path d="M5 21a7 7 0 0 1 14 0" />
+      </svg>
+    );
+  }
+
+  if (icon === 'growth') {
+    return (
+      <svg viewBox="0 0 24 24" {...common}>
+        <path d="M4 19V5" />
+        <path d="M4 19h16" />
+        <path d="M7 15l4-4 3 3 5-7" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg viewBox="0 0 24 24" {...common}>
+      <path d="M4 21V7l6-3 6 3v14" />
+      <path d="M16 10l4 2v9" />
+      <path d="M8 10h2M8 14h2M8 18h2" />
+    </svg>
+  );
+}
+
 function PlanCard({ tier, billing, isFeatured, onSelect }: { tier: Tier; billing: Billing; isFeatured: boolean; onSelect: () => void }) {
   const price = billing === 'annual' ? tier.annual : tier.monthly;
   return (
@@ -161,9 +219,11 @@ function PlanCard({ tier, billing, isFeatured, onSelect }: { tier: Tier; billing
           <span key={i} />
         ))}
       </div>
-      {isFeatured && <div className="pr-ribbon">{tier.ribbon || 'Most popular'}</div>}
+      {isFeatured && tier.ribbon && <div className="pr-ribbon">{tier.ribbon}</div>}
 
-      <div className="pr-plan-swatch" style={{ background: tier.swatch }} aria-hidden />
+      <div className="pr-plan-swatch" style={{ background: tier.swatch }} aria-hidden>
+        <PlanIcon icon={tier.icon} />
+      </div>
       <p className="pr-plan-name">{tier.name}</p>
       <p className="pr-plan-tag">{tier.tag}</p>
 
@@ -178,7 +238,7 @@ function PlanCard({ tier, billing, isFeatured, onSelect }: { tier: Tier; billing
           <div className="pr-slots-bar">
             <div
               className="pr-slots-fill"
-              style={{ width: `${(tier.slotsLeft / tier.slotsTotal) * 100}%` }}
+              style={{ width: `${Math.round((tier.slotsLeft / tier.slotsTotal) * 100)}%` }}
             />
           </div>
         </div>
@@ -191,17 +251,28 @@ function PlanCard({ tier, billing, isFeatured, onSelect }: { tier: Tier; billing
       </div>
       <p className="pr-price-foot">
         {billing === 'annual'
-          ? `Billed annually ($${price * 12}/yr)`
+          ? `Billed annually ($${price * 12}/yr) - 20% off $${tier.monthly}/mo`
           : 'Billed monthly, cancel anytime'}
       </p>
 
-      <Link
-        href="/book-a-demo"
-        className={`pr-plan-cta ${tier.ctaStyle}`}
-        onClick={onSelect}
-      >
-        {tier.cta}
-      </Link>
+      {tier.ctaDisabled ? (
+        <button
+          type="button"
+          className={`pr-plan-cta ${tier.ctaStyle} is-disabled`}
+          disabled
+          aria-disabled="true"
+        >
+          {tier.cta}
+        </button>
+      ) : (
+        <Link
+          href="/book-a-demo"
+          className={`pr-plan-cta ${tier.ctaStyle}`}
+          onClick={onSelect}
+        >
+          {tier.cta}
+        </Link>
+      )}
 
       <div className="pr-divider" />
       <p className="pr-includes-lbl">What&apos;s included</p>
@@ -277,18 +348,17 @@ export function PricingContent({ selfServeEnabled = false }: { selfServeEnabled?
 
           {/* Billing toggle */}
           <div className="pr-toggle-wrap">
-            <div className="pr-toggle">
-              <div
-                className="pr-toggle-thumb"
-                style={{
-                  left: isAnnual ? 'calc(50% - 3px)' : '6px',
-                  width: 'calc(50% - 3px)',
-                }}
-              />
+            <div
+              className={`pr-toggle ${isAnnual ? 'is-annual' : 'is-monthly'}`}
+              role="group"
+              aria-label="Billing cadence"
+            >
+              <div className="pr-toggle-thumb" />
               <button
                 type="button"
                 onClick={() => setBilling('monthly')}
                 className={!isAnnual ? 'is-active' : ''}
+                aria-pressed={!isAnnual}
               >
                 Monthly
               </button>
@@ -296,6 +366,7 @@ export function PricingContent({ selfServeEnabled = false }: { selfServeEnabled?
                 type="button"
                 onClick={() => setBilling('annual')}
                 className={isAnnual ? 'is-active' : ''}
+                aria-pressed={isAnnual}
               >
                 Annual <span className="pr-save-badge">Save 20%</span>
               </button>

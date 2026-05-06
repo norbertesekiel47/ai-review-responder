@@ -335,9 +335,9 @@ const STEPS = [
     tick: 'T + 0:00',
     kicker: 'Monitor',
     title: "We watch your reviews so you don't have to.",
-    sub: "A worker polls your Google Business Profile every 60 minutes. New reviews are detected, deduplicated against what we've seen, and queued for drafting within seconds.",
+    sub: "A worker polls your Google Business Profile and reacts as soon as a review appears. New reviews are detected, deduplicated against what we've seen, and queued for drafting within seconds.",
     bullets: [
-      'Polls every 60 minutes · no webhook required',
+      'Polls sleeps and reacts and detecting a new review',
       'Multi-location businesses handled out of the box',
       'Star rating, reviewer name, and full text captured',
     ],
@@ -377,7 +377,7 @@ const STEPS = [
     tick: 'T + 1:04',
     kicker: 'Post',
     title: 'Posted to Google, on your behalf.',
-    sub: 'Once you approve, we post the reply back via the Google Business API. It shows up on your listing within seconds, attributed to the business owner — exactly as it would if you\'d typed it yourself.',
+    sub: 'Once you approve, we post the reply back via the Google Business API. It shows up on your listing within seconds, attributed to the business owner, exactly as it would if you\'d typed it yourself.',
     bullets: [
       'Posts within seconds of approval',
       'Shows as "Response from the owner" on Google',
@@ -539,7 +539,7 @@ export function HowItWorksContent({
             </p>
             <div className="hiw-hero-meta">
               <div className="hiw-hero-meta-item">
-                <span className="hiw-hero-meta-val">60 min</span>
+                <span className="hiw-hero-meta-val">reactive</span>
                 <span className="hiw-hero-meta-lbl">poll interval</span>
               </div>
               <div className="hiw-hero-meta-item">

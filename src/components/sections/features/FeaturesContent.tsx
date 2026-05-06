@@ -220,7 +220,7 @@ export function FeaturesContent({
                   <span>Features · 2026 Edition</span>
                 </p>
                 <h1 className="text-[3.25rem] md:text-[4.75rem] leading-[0.95] tracking-tight text-[#2a2a2a] font-medium mb-6">
-                  <span className="block">
+                  <span className="rw-hero-line">
                     {HERO_WORDS_LINE_1.map((w, i) => (
                       <span
                         key={`l1-${i}`}
@@ -228,16 +228,15 @@ export function FeaturesContent({
                         style={{ ['--word-delay' as string]: `${80 + i * 80}ms` }}
                       >
                         {w}
-                        {i < HERO_WORDS_LINE_1.length - 1 ? ' ' : ''}
                       </span>
                     ))}
                   </span>
-                  <span className="block">
+                  <span className="rw-hero-line">
                     <span
                       className={`rw-hero-word rw-display-serif text-[#97B3AE] ${heroIn ? 'in' : ''}`}
                       style={{ ['--word-delay' as string]: `${80 + HERO_WORDS_LINE_1.length * 80}ms` }}
                     >
-                      nothing{' '}
+                      nothing
                     </span>
                     {HERO_WORDS_LINE_2.slice(1).map((w, i) => (
                       <span
@@ -248,7 +247,6 @@ export function FeaturesContent({
                         }}
                       >
                         {w}
-                        {i < HERO_WORDS_LINE_2.length - 2 ? ' ' : ''}
                       </span>
                     ))}
                   </span>
@@ -256,7 +254,7 @@ export function FeaturesContent({
                 <p
                   className={`rw-hero-lede text-lg text-[#6a6a6a] max-w-md leading-relaxed ${heroIn ? 'in' : ''}`}
                 >
-                  RepWorth is a done-for-you service — not another dashboard to learn.
+                  RepWorth is a done-for-you service and not another dashboard to learn.
                   Seven pieces, one weekly rhythm, zero late-night copywriting.
                 </p>
               </div>
@@ -1091,9 +1089,9 @@ function FeatComp({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
             <span className="rw-num-tag text-7xl leading-none text-[#97B3AE]/40">07</span>
             <div>
               <div className="flex items-center gap-3 mb-3 flex-wrap">
-                <p className="rw-label-mono text-xs uppercase text-[#97B3AE]">Coming Q3</p>
+                <p className="rw-label-mono text-xs uppercase text-[#97B3AE]">Coming Soon</p>
                 <span className="inline-block w-px h-4 bg-[#97B3AE]/30" />
-                <p className="rw-label-mono text-xs uppercase text-[#6a6a6a]">In private beta</p>
+                <p className="rw-label-mono text-xs uppercase text-[#6a6a6a]">In private testing</p>
               </div>
               <h2 className="text-4xl md:text-5xl font-medium text-[#2a2a2a] leading-tight">
                 Know where you <span className="rw-display-serif text-[#97B3AE]">stand</span> on the block.

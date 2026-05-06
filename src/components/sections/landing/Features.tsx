@@ -183,7 +183,7 @@ export function Features() {
         </h2>
         <p>
           RepWorth handles the part of running a business that&apos;s meaningful but
-          never urgent — until it&apos;s too late to matter.
+          never urgent, until it&apos;s too late to matter.
         </p>
       </div>
       <div className={`rw-features-grid ${seen ? 'in' : ''}`}>
