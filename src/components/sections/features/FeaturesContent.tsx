@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { PageShell } from '@/components/ui/PageShell';
 import { SiteNav } from '@/components/ui/SiteNav';
 
-export function FeaturesContent({ comingSoon = false }: { comingSoon?: boolean }) {
+export function FeaturesContent() {
   const aiRef = useRef<HTMLDivElement>(null);
   const multiRef = useRef<HTMLDivElement>(null);
   const approvalRef = useRef<HTMLDivElement>(null);
@@ -27,7 +27,7 @@ export function FeaturesContent({ comingSoon = false }: { comingSoon?: boolean }
 
   return (
     <PageShell sections={sections}>
-      <SiteNav comingSoon={comingSoon} />
+      <SiteNav />
 
       {/* Hero */}
       <section aria-label="Page hero" className="px-8 py-16 md:py-20 text-center bg-gradient-to-b from-white to-[#F0EEEA]/30">
@@ -435,21 +435,15 @@ export function FeaturesContent({ comingSoon = false }: { comingSoon?: boolean }
           viewport={{ once: true }}
           transition={{ duration: 0.6, delay: 0.2 }}
         >
-          {comingSoon ? (
-            <span className="inline-block px-10 py-4 bg-white text-[#97B3AE] rounded-full shadow-xl font-medium opacity-60 cursor-default select-none">
-              Coming Soon
-            </span>
-          ) : (
-            <Link href="/book-a-demo">
-              <motion.span
-                className="inline-block px-10 py-4 bg-white text-[#97B3AE] rounded-full shadow-xl font-medium cursor-pointer"
-                whileHover={{ scale: 1.05, boxShadow: '0 20px 40px rgba(0,0,0,0.2)' }}
-                whileTap={{ scale: 0.98 }}
-              >
-                Book a Demo
-              </motion.span>
-            </Link>
-          )}
+          <Link href="/book-a-demo">
+            <motion.span
+              className="inline-block px-10 py-4 bg-white text-[#97B3AE] rounded-full shadow-xl font-medium cursor-pointer"
+              whileHover={{ scale: 1.05, boxShadow: '0 20px 40px rgba(0,0,0,0.2)' }}
+              whileTap={{ scale: 0.98 }}
+            >
+              Book a Demo
+            </motion.span>
+          </Link>
         </motion.div>
       </section>
     </PageShell>

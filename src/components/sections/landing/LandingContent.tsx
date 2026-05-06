@@ -69,11 +69,10 @@ const FEATURES = [
 ];
 
 interface LandingContentProps {
-  comingSoon: boolean;
   selfServeEnabled?: boolean;
 }
 
-export function LandingContent({ comingSoon, selfServeEnabled = false }: LandingContentProps) {
+export function LandingContent({ selfServeEnabled = false }: LandingContentProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const heroRef = useRef<HTMLDivElement>(null);
   const featuresRef = useRef<HTMLDivElement>(null);
@@ -98,7 +97,7 @@ export function LandingContent({ comingSoon, selfServeEnabled = false }: Landing
     { ref: heroRef, label: 'Hero' },
     { ref: featuresRef, label: 'Features' },
     { ref: howItWorksRef, label: 'How it works' },
-    ...(comingSoon ? [] : [{ ref: ctaRef, label: 'Book a Demo' }]),
+    { ref: ctaRef, label: 'Book a Demo' },
   ];
 
   return (
@@ -152,7 +151,7 @@ export function LandingContent({ comingSoon, selfServeEnabled = false }: Landing
           transition={{ duration: 0.8, ease: 'easeOut' }}
         >
           {/* Nav */}
-          <SiteNav comingSoon={comingSoon} selfServeEnabled={selfServeEnabled} />
+          <SiteNav selfServeEnabled={selfServeEnabled} />
 
           {/* Hero */}
           <section ref={heroRef} className="px-12 py-20 text-center relative">
@@ -185,20 +184,14 @@ export function LandingContent({ comingSoon, selfServeEnabled = false }: Landing
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.5 }}
             >
-              {comingSoon ? (
-                <span className="inline-block px-8 py-4 bg-[#97B3AE] text-white rounded-full shadow-lg cursor-default opacity-60 select-none">
-                  Coming Soon
-                </span>
-              ) : (
-                <motion.button
-                  onClick={() => scrollTo(ctaRef)}
-                  className="px-8 py-4 bg-[#97B3AE] text-white rounded-full shadow-lg"
-                  whileHover={{ scale: 1.05, y: -2, boxShadow: '0 20px 40px rgba(151,179,174,0.3)' }}
-                  whileTap={{ scale: 0.98 }}
-                >
-                  Book a Demo
-                </motion.button>
-              )}
+              <motion.button
+                onClick={() => scrollTo(ctaRef)}
+                className="px-8 py-4 bg-[#97B3AE] text-white rounded-full shadow-lg"
+                whileHover={{ scale: 1.05, y: -2, boxShadow: '0 20px 40px rgba(151,179,174,0.3)' }}
+                whileTap={{ scale: 0.98 }}
+              >
+                Book a Demo
+              </motion.button>
             </motion.div>
           </section>
 
@@ -376,68 +369,40 @@ export function LandingContent({ comingSoon, selfServeEnabled = false }: Landing
             </div>
           </section>
 
-          {/* CTA — full form or coming-soon message */}
-          {comingSoon ? (
-            <section
-              ref={ctaRef}
-              className="px-12 py-20 bg-gradient-to-br from-[#97B3AE] to-[#97B3AE]/80 text-white rounded-b-[3rem]"
-            >
-              <div className="max-w-3xl mx-auto text-center">
-                <motion.h2
-                  className="text-4xl md:text-5xl mb-6 font-medium"
-                  initial={{ opacity: 0, y: 20 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true }}
-                  transition={{ duration: 0.6 }}
-                >
-                  Launching soon
-                </motion.h2>
-                <motion.p
-                  className="text-lg opacity-90"
-                  initial={{ opacity: 0, y: 20 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true }}
-                  transition={{ duration: 0.6, delay: 0.1 }}
-                >
-                  We&apos;ll be in touch.
-                </motion.p>
-              </div>
-            </section>
-          ) : (
-            <section
-              ref={ctaRef}
-              className="px-12 py-20 bg-gradient-to-br from-[#97B3AE] to-[#97B3AE]/80 text-white rounded-b-[3rem]"
-            >
-              <div className="max-w-3xl mx-auto text-center">
-                <motion.h2
-                  className="text-4xl md:text-5xl mb-6 font-medium"
-                  initial={{ opacity: 0, y: 20 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true }}
-                  transition={{ duration: 0.6 }}
-                >
-                  Start responding smarter today
-                </motion.h2>
-                <motion.p
-                  className="text-lg mb-10 opacity-90"
-                  initial={{ opacity: 0, y: 20 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true }}
-                  transition={{ duration: 0.6, delay: 0.1 }}
-                >
-                  Tell us about your business and we&apos;ll set you up with a personalised demo.
-                </motion.p>
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true }}
-                  transition={{ duration: 0.6, delay: 0.2 }}
-                >
-                  <ContactForm />
-                </motion.div>
-              </div>
-            </section>
-          )}
+          {/* CTA */}
+          <section
+            ref={ctaRef}
+            className="px-12 py-20 bg-gradient-to-br from-[#97B3AE] to-[#97B3AE]/80 text-white rounded-b-[3rem]"
+          >
+            <div className="max-w-3xl mx-auto text-center">
+              <motion.h2
+                className="text-4xl md:text-5xl mb-6 font-medium"
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.6 }}
+              >
+                Start responding smarter today
+              </motion.h2>
+              <motion.p
+                className="text-lg mb-10 opacity-90"
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.6, delay: 0.1 }}
+              >
+                Tell us about your business and we&apos;ll set you up with a personalised demo.
+              </motion.p>
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.6, delay: 0.2 }}
+              >
+                <ContactForm />
+              </motion.div>
+            </div>
+          </section>
           {/* Footer */}
           <footer className="px-8 py-6 border-t border-[#97B3AE]/10 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-[#6a6a6a]">
             <span>© {new Date().getFullYear()} RepWorth. All rights reserved.</span>
