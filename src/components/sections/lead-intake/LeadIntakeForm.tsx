@@ -8,6 +8,8 @@ export type LeadIntent = 'waitlist' | 'demo';
 export type LeadSource = 'landing' | 'book-a-demo' | 'pricing' | 'unknown';
 
 type FormState = 'idle' | 'loading' | 'success' | 'error';
+type InvalidLeadIntakeField = 'name' | 'email' | 'businessName';
+type LeadIntakeField = InvalidLeadIntakeField | 'googleMapsUrl';
 
 export interface LeadIntakePayload {
   name: string;
@@ -40,6 +42,11 @@ const DEFAULT_COPY = {
   successHeading: "You're on the waitlist.",
   successBody: "We'll reach out when early access opens for your area.",
 };
+
+export type LeadIntakeValidationResult = {
+  message: string;
+  invalidField: InvalidLeadIntakeField;
+} | null;
 
 const TONE_STYLES = {
   onTeal: {
@@ -78,6 +85,45 @@ export function submitLeadIntake(payload: LeadIntakePayload): Promise<Response> 
   });
 }
 
+export function validateLeadIntakeFields({
+  name,
+  email,
+  businessName,
+}: Pick<LeadIntakePayload, 'name' | 'email' | 'businessName'>): LeadIntakeValidationResult {
+  if (!name.trim()) {
+    return { message: 'Please enter your name.', invalidField: 'name' };
+  }
+
+  if (!EMAIL_RE.test(email.trim())) {
+    return {
+      message: 'Please enter a valid email address.',
+      invalidField: 'email',
+    };
+  }
+
+  if (!businessName.trim()) {
+    return {
+      message: 'Please enter your business name.',
+      invalidField: 'businessName',
+    };
+  }
+
+  return null;
+}
+
+export function getLeadIntakeFieldErrorProps(
+  field: LeadIntakeField,
+  invalidField: InvalidLeadIntakeField | null,
+  errorId: string,
+) {
+  if (field !== invalidField) return {};
+
+  return {
+    'aria-invalid': true,
+    'aria-describedby': errorId,
+  };
+}
+
 export function LeadIntakeForm({
   intent,
   source,
@@ -94,25 +140,25 @@ export function LeadIntakeForm({
   const [googleMapsUrl, setGoogleMapsUrl] = useState('');
   const [state, setState] = useState<FormState>('idle');
   const [errorMsg, setErrorMsg] = useState('');
-
-  const validate = (): string | null => {
-    if (!name.trim()) return 'Please enter your name.';
-    if (!EMAIL_RE.test(email.trim())) return 'Please enter a valid email address.';
-    if (!businessName.trim()) return 'Please enter your business name.';
-    return null;
-  };
+  const [invalidField, setInvalidField] = useState<InvalidLeadIntakeField | null>(null);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    const validationError = validate();
+    const validationError = validateLeadIntakeFields({
+      name,
+      email,
+      businessName,
+    });
     if (validationError) {
-      setErrorMsg(validationError);
+      setErrorMsg(validationError.message);
+      setInvalidField(validationError.invalidField);
       setState('error');
       return;
     }
 
     setState('loading');
     setErrorMsg('');
+    setInvalidField(null);
 
     try {
       const res = await submitLeadIntake({
@@ -129,10 +175,12 @@ export function LeadIntakeForm({
       } else {
         const data = await res.json().catch(() => ({}));
         setErrorMsg((data as { error?: string }).error ?? 'Something went wrong. Please try again.');
+        setInvalidField(null);
         setState('error');
       }
     } catch {
       setErrorMsg('Network error. Please check your connection and try again.');
+      setInvalidField(null);
       setState('error');
     }
   };
@@ -163,8 +211,7 @@ export function LeadIntakeForm({
         className={styles.input}
         autoComplete="name"
         aria-label="Your name"
-        aria-invalid={state === 'error' ? true : undefined}
-        aria-describedby={state === 'error' && errorMsg ? errorId : undefined}
+        {...getLeadIntakeFieldErrorProps('name', invalidField, errorId)}
         name="name"
       />
       <input
@@ -176,8 +223,7 @@ export function LeadIntakeForm({
         className={styles.input}
         autoComplete="email"
         aria-label="Email address"
-        aria-invalid={state === 'error' ? true : undefined}
-        aria-describedby={state === 'error' && errorMsg ? errorId : undefined}
+        {...getLeadIntakeFieldErrorProps('email', invalidField, errorId)}
         name="email"
       />
       <input
@@ -189,8 +235,7 @@ export function LeadIntakeForm({
         className={styles.input}
         autoComplete="organization"
         aria-label="Business name"
-        aria-invalid={state === 'error' ? true : undefined}
-        aria-describedby={state === 'error' && errorMsg ? errorId : undefined}
+        {...getLeadIntakeFieldErrorProps('businessName', invalidField, errorId)}
         name="businessName"
       />
       <input
@@ -202,8 +247,6 @@ export function LeadIntakeForm({
         className={styles.input}
         autoComplete="url"
         aria-label="Google Maps link"
-        aria-invalid={state === 'error' ? true : undefined}
-        aria-describedby={state === 'error' && errorMsg ? errorId : undefined}
         name="googleMapsUrl"
       />
 

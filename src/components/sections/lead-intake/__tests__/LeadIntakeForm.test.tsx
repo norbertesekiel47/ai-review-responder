@@ -1,7 +1,12 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { LeadIntakeForm, submitLeadIntake } from '../LeadIntakeForm';
+import {
+  getLeadIntakeFieldErrorProps,
+  LeadIntakeForm,
+  submitLeadIntake,
+  validateLeadIntakeFields,
+} from '../LeadIntakeForm';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -79,5 +84,42 @@ describe('LeadIntakeForm', () => {
       intent: 'waitlist',
       source: 'landing',
     });
+  });
+
+  it('scopes validation ARIA props to the invalid client field', () => {
+    expect(
+      validateLeadIntakeFields({
+        name: '',
+        email: 'nora@example.com',
+        businessName: 'Juniper Lodge',
+      }),
+    ).toEqual({
+      message: 'Please enter your name.',
+      invalidField: 'name',
+    });
+
+    expect(
+      validateLeadIntakeFields({
+        name: 'Nora Reed',
+        email: 'not-an-email',
+        businessName: 'Juniper Lodge',
+      }),
+    ).toEqual({
+      message: 'Please enter a valid email address.',
+      invalidField: 'email',
+    });
+
+    expect(
+      getLeadIntakeFieldErrorProps('email', 'email', 'lead-intake-test-error'),
+    ).toEqual({
+      'aria-invalid': true,
+      'aria-describedby': 'lead-intake-test-error',
+    });
+    expect(
+      getLeadIntakeFieldErrorProps('googleMapsUrl', 'email', 'lead-intake-test-error'),
+    ).toEqual({});
+    expect(
+      getLeadIntakeFieldErrorProps('email', null, 'lead-intake-test-error'),
+    ).toEqual({});
   });
 });
