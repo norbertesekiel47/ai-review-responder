@@ -75,7 +75,8 @@ describe('LeadIntakeForm', () => {
       }),
     });
 
-    const [, init] = fetchMock.mock.calls[0];
+    const [, init] = fetchMock.mock.calls[0] ?? [];
+    if (!init) throw new Error('Expected fetch init payload');
     expect(JSON.parse(init?.body as string)).toEqual({
       name: 'Nora Reed',
       email: 'nora@example.com',

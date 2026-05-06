@@ -103,6 +103,24 @@ function mockGoogleSheetsSuccess(): void {
     });
 }
 
+function firstDbCall() {
+  const call = dbState.calls[0];
+  if (!call) throw new Error('Expected a database call');
+  return call;
+}
+
+function fetchCall(index: number) {
+  const call = mockFetch.mock.calls[index];
+  if (!call) throw new Error(`Expected fetch call ${index}`);
+  return call;
+}
+
+function firstInvocationOrder(mock: { mock: { invocationCallOrder: number[] } }): number {
+  const order = mock.mock.invocationCallOrder[0];
+  if (order === undefined) throw new Error('Expected mock invocation order');
+  return order;
+}
+
 describe('POST /api/lead-intake', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -194,11 +212,12 @@ describe('POST /api/lead-intake', () => {
     expect(res.status).toBe(200);
     expect((await res.json()).success).toBe(true);
     expect(dbState.calls).toHaveLength(1);
-    expect(dbState.calls[0].text).toContain('INSERT INTO owner_leads');
-    expect(dbState.calls[0].text).toContain('ON CONFLICT (email_normalized, intent)');
-    expect(dbState.calls[0].text).toContain('metadata = EXCLUDED.metadata');
-    expect(dbState.calls[0].text).not.toContain('metadata = owner_leads.metadata || EXCLUDED.metadata');
-    expect(dbState.calls[0].values).toEqual(expect.arrayContaining([
+    const dbCall = firstDbCall();
+    expect(dbCall.text).toContain('INSERT INTO owner_leads');
+    expect(dbCall.text).toContain('ON CONFLICT (email_normalized, intent)');
+    expect(dbCall.text).toContain('metadata = EXCLUDED.metadata');
+    expect(dbCall.text).not.toContain('metadata = owner_leads.metadata || EXCLUDED.metadata');
+    expect(dbCall.values).toEqual(expect.arrayContaining([
       'Alice Owner',
       'owner@example.com',
       'Alice Bakery',
@@ -217,7 +236,7 @@ describe('POST /api/lead-intake', () => {
     }));
 
     expect(res.status).toBe(200);
-    expect(dbState.calls[0].values).toEqual(expect.arrayContaining(['waitlist', 'unknown']));
+    expect(firstDbCall().values).toEqual(expect.arrayContaining(['waitlist', 'unknown']));
   });
 
   it('preserves future demo intent with book-a-demo source', async () => {
@@ -231,7 +250,7 @@ describe('POST /api/lead-intake', () => {
     }));
 
     expect(res.status).toBe(200);
-    expect(dbState.calls[0].values).toEqual(expect.arrayContaining(['demo', 'book-a-demo']));
+    expect(firstDbCall().values).toEqual(expect.arrayContaining(['demo', 'book-a-demo']));
   });
 
   it('appends a configured Google Sheet row after persistence', async () => {
@@ -252,13 +271,13 @@ describe('POST /api/lead-intake', () => {
     expect((await res.json()).success).toBe(true);
     expect(dbState.calls).toHaveLength(1);
     expect(mockFetch).toHaveBeenCalledTimes(2);
-    expect(mockFetch.mock.invocationCallOrder[0]).toBeGreaterThan(mockSql.mock.invocationCallOrder[0]);
+    expect(firstInvocationOrder(mockFetch)).toBeGreaterThan(firstInvocationOrder(mockSql));
 
-    const [tokenUrl, tokenOptions] = mockFetch.mock.calls[0];
+    const [tokenUrl, tokenOptions] = fetchCall(0);
     expect(tokenUrl).toBe('https://oauth2.googleapis.com/token');
     expect(tokenOptions.method).toBe('POST');
 
-    const [appendUrl, appendOptions] = mockFetch.mock.calls[1];
+    const [appendUrl, appendOptions] = fetchCall(1);
     expect(String(appendUrl)).toContain('https://sheets.googleapis.com/v4/spreadsheets/sheet-123/values/Sheet1!A%3AK:append');
     expect(String(appendUrl)).toContain('valueInputOption=USER_ENTERED');
     expect(String(appendUrl)).toContain('insertDataOption=INSERT_ROWS');
@@ -365,9 +384,10 @@ describe('POST /api/lead-intake', () => {
     expect(res.status).toBe(200);
     expect(dbState.calls).toHaveLength(1);
     expect(mockResendSend).toHaveBeenCalledOnce();
-    expect(mockResendSend.mock.invocationCallOrder[0]).toBeGreaterThan(mockSql.mock.invocationCallOrder[0]);
+    expect(firstInvocationOrder(mockResendSend)).toBeGreaterThan(firstInvocationOrder(mockSql));
 
-    const email = mockResendSend.mock.calls[0][0];
+    const email = mockResendSend.mock.calls[0]?.[0];
+    if (!email) throw new Error('Expected Resend email payload');
     expect(email.to).toBe('leads@example.com');
     expect(email.subject).toBe('New owner lead - waitlist - RepWorth');
     expect(email.text).toContain('Name: Alice Owner');
