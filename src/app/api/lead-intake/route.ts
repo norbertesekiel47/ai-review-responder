@@ -12,6 +12,8 @@ const MAX_URL_LEN = 2048;
 const ALLOWED_INTENTS = new Set(['waitlist', 'demo']);
 const ALLOWED_SOURCES = new Set(['landing', 'book-a-demo', 'pricing', 'unknown']);
 
+type ReadResult = { ok: true; value: string } | { ok: false; response: NextResponse };
+
 function jsonError(error: string, status: number): NextResponse {
   return NextResponse.json({ error }, { status });
 }
@@ -21,19 +23,19 @@ function readString(
   key: string,
   label: string,
   maxLength: number,
-): { value?: string; response?: NextResponse } {
+): ReadResult {
   const raw = body[key];
 
   if (typeof raw !== 'string' || !raw.trim()) {
-    return { response: jsonError(`${label} is required`, 400) };
+    return { ok: false, response: jsonError(`${label} is required`, 400) };
   }
 
   const value = raw.trim();
   if (value.length > maxLength) {
-    return { response: jsonError(`${label} is too long`, 400) };
+    return { ok: false, response: jsonError(`${label} is too long`, 400) };
   }
 
-  return { value };
+  return { ok: true, value };
 }
 
 function readEnum(
@@ -41,14 +43,14 @@ function readEnum(
   key: string,
   fallback: string,
   allowed: Set<string>,
-): { value?: string; response?: NextResponse } {
+): ReadResult {
   const raw = body[key] ?? fallback;
 
   if (typeof raw !== 'string' || !allowed.has(raw)) {
-    return { response: jsonError(`${key} is unsupported`, 400) };
+    return { ok: false, response: jsonError(`${key} is unsupported`, 400) };
   }
 
-  return { value: raw };
+  return { ok: true, value: raw };
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
@@ -77,7 +79,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const data = body as Record<string, unknown>;
 
   const name = readString(data, 'name', 'name', MAX_NAME_LEN);
-  if (name.response) return name.response;
+  if (!name.ok) return name.response;
 
   const emailRaw = data.email;
   if (typeof emailRaw !== 'string' || !emailRaw.trim()) {
@@ -90,7 +92,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   const businessName = readString(data, 'businessName', 'businessName', MAX_BUSINESS_NAME_LEN);
-  if (businessName.response) return businessName.response;
+  if (!businessName.ok) return businessName.response;
 
   const googleMapsRaw = data.googleMapsUrl;
   if (googleMapsRaw !== undefined && typeof googleMapsRaw !== 'string') {
@@ -114,10 +116,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   const intent = readEnum(data, 'intent', 'waitlist', ALLOWED_INTENTS);
-  if (intent.response) return intent.response;
+  if (!intent.ok) return intent.response;
 
   const source = readEnum(data, 'source', 'unknown', ALLOWED_SOURCES);
-  if (source.response) return source.response;
+  if (!source.ok) return source.response;
 
   const submittedAt = new Date().toISOString();
   const metadata = {
