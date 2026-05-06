@@ -1,14 +1,11 @@
-import { headers } from 'next/headers';
 import Link from 'next/link';
 import { PageShell } from '@/components/ui/PageShell';
 import { SiteNav } from '@/components/ui/SiteNav';
 
 export default function TermsPage() {
-  const comingSoon = headers().get('x-coming-soon') === '1';
-
   return (
     <PageShell sections={[]}>
-      <SiteNav comingSoon={comingSoon} />
+      <SiteNav />
       <div className="px-8 md:px-16 py-16">
         <div className="max-w-3xl mx-auto">
           <h1 className="text-3xl font-medium text-[#2a2a2a] mb-2">Terms of Service</h1>

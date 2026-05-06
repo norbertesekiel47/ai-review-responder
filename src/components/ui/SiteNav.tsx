@@ -1,15 +1,14 @@
 import Link from 'next/link';
 
 interface SiteNavProps {
-  comingSoon?: boolean;
   selfServeEnabled?: boolean;
 }
 
-export function SiteNav({ comingSoon = false, selfServeEnabled = false }: SiteNavProps) {
+export function SiteNav({ selfServeEnabled = false }: SiteNavProps) {
   const navLinks = [
     { label: 'Features', href: '/features' },
     { label: 'How it works', href: '/how-it-works' },
-    ...(comingSoon ? [] : [{ label: 'Book a Demo', href: '/book-a-demo' }]),
+    { label: 'Book a Demo', href: '/book-a-demo' },
   ];
 
   return (
