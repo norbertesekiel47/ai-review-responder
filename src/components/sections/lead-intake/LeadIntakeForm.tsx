@@ -9,6 +9,15 @@ export type LeadSource = 'landing' | 'book-a-demo' | 'pricing' | 'unknown';
 
 type FormState = 'idle' | 'loading' | 'success' | 'error';
 
+export interface LeadIntakePayload {
+  name: string;
+  email: string;
+  businessName: string;
+  googleMapsUrl: string;
+  intent: LeadIntent;
+  source: LeadSource;
+}
+
 type LeadIntakeCopy = Partial<{
   button: string;
   loading: string;
@@ -61,6 +70,14 @@ const TONE_STYLES = {
   },
 };
 
+export function submitLeadIntake(payload: LeadIntakePayload): Promise<Response> {
+  return fetch('/api/lead-intake', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+}
+
 export function LeadIntakeForm({
   intent,
   source,
@@ -69,6 +86,7 @@ export function LeadIntakeForm({
 }: LeadIntakeFormProps) {
   const resolvedCopy = { ...DEFAULT_COPY, ...copy };
   const styles = TONE_STYLES[tone];
+  const errorId = `lead-intake-${intent}-${source}-error`;
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -97,17 +115,13 @@ export function LeadIntakeForm({
     setErrorMsg('');
 
     try {
-      const res = await fetch('/api/lead-intake', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: name.trim(),
-          email: email.trim(),
-          businessName: businessName.trim(),
-          googleMapsUrl: googleMapsUrl.trim(),
-          intent,
-          source,
-        }),
+      const res = await submitLeadIntake({
+        name: name.trim(),
+        email: email.trim(),
+        businessName: businessName.trim(),
+        googleMapsUrl: googleMapsUrl.trim(),
+        intent,
+        source,
       });
 
       if (res.ok) {
@@ -149,6 +163,8 @@ export function LeadIntakeForm({
         className={styles.input}
         autoComplete="name"
         aria-label="Your name"
+        aria-invalid={state === 'error' ? true : undefined}
+        aria-describedby={state === 'error' && errorMsg ? errorId : undefined}
         name="name"
       />
       <input
@@ -160,6 +176,8 @@ export function LeadIntakeForm({
         className={styles.input}
         autoComplete="email"
         aria-label="Email address"
+        aria-invalid={state === 'error' ? true : undefined}
+        aria-describedby={state === 'error' && errorMsg ? errorId : undefined}
         name="email"
       />
       <input
@@ -171,6 +189,8 @@ export function LeadIntakeForm({
         className={styles.input}
         autoComplete="organization"
         aria-label="Business name"
+        aria-invalid={state === 'error' ? true : undefined}
+        aria-describedby={state === 'error' && errorMsg ? errorId : undefined}
         name="businessName"
       />
       <input
@@ -182,11 +202,13 @@ export function LeadIntakeForm({
         className={styles.input}
         autoComplete="url"
         aria-label="Google Maps link"
+        aria-invalid={state === 'error' ? true : undefined}
+        aria-describedby={state === 'error' && errorMsg ? errorId : undefined}
         name="googleMapsUrl"
       />
 
       {state === 'error' && errorMsg && (
-        <p className={styles.error}>{errorMsg}</p>
+        <p id={errorId} role="alert" className={styles.error}>{errorMsg}</p>
       )}
 
       <motion.button

@@ -1,7 +1,11 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
-import { LeadIntakeForm } from '../LeadIntakeForm';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { LeadIntakeForm, submitLeadIntake } from '../LeadIntakeForm';
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe('LeadIntakeForm', () => {
   it('renders waitlist copy wired to the landing source', () => {
@@ -35,5 +39,45 @@ describe('LeadIntakeForm', () => {
     expect(html).toContain('Request demo');
     expect(html).toContain('value="demo"');
     expect(html).toContain('value="book-a-demo"');
+  });
+
+  it('submits the lead intake payload to the API route as JSON', async () => {
+    const response = new Response(null, { status: 204 });
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(response);
+
+    await submitLeadIntake({
+      name: 'Nora Reed',
+      email: 'nora@example.com',
+      businessName: 'Juniper Lodge',
+      googleMapsUrl: 'https://maps.google.com/?cid=123',
+      intent: 'waitlist',
+      source: 'landing',
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith('/api/lead-intake', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Nora Reed',
+        email: 'nora@example.com',
+        businessName: 'Juniper Lodge',
+        googleMapsUrl: 'https://maps.google.com/?cid=123',
+        intent: 'waitlist',
+        source: 'landing',
+      }),
+    });
+
+    const [, init] = fetchMock.mock.calls[0];
+    expect(JSON.parse(init?.body as string)).toEqual({
+      name: 'Nora Reed',
+      email: 'nora@example.com',
+      businessName: 'Juniper Lodge',
+      googleMapsUrl: 'https://maps.google.com/?cid=123',
+      intent: 'waitlist',
+      source: 'landing',
+    });
   });
 });
