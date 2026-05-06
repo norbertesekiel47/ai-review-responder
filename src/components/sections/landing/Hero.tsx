@@ -8,7 +8,7 @@ const REVIEW = {
   stars: 5,
   text: 'Came in for a last-minute birthday cake and they completely pulled through. The cake was beautiful, tasted amazing, and my 7-year-old still talks about it. Thank you!',
 };
-const REPLY = "Rachel, thank you — you made our week. So glad the cake landed and that your 7-year-old loved it. Tell her happy belated birthday from the team, and come by anytime.\n\n— Claire, owner";
+const REPLY = "Rachel, you made our week! We are so glad the cake landed and that your 7 year old loved it. Tell her happy belated birthday from the team, and come by anytime.\n\n— Claire, owner";
 
 function useTyped(text: string, speed = 16, startDelay = 600): [string, boolean] {
   const [out, setOut] = useState('');
@@ -55,8 +55,7 @@ export function Hero({ onBook, onTry, primaryCtaLabel, primaryCtaDisabled }: Her
             Every review gets the reply it <em>deserves</em>.
           </h1>
           <p className="rw-lead">
-            RepWorth drafts a reply to every Google review in your voice, emails it
-            to you, and posts it the moment you tap approve. You save about fifteen
+            RepWorth drafts a reply to every Google review in your voice, notifies you, and posts it the moment you tap approve. You save about fifteen
             hours a week. Your customers feel heard within minutes.
           </p>
           <div className="rw-hero-ctas">
@@ -68,9 +67,9 @@ export function Hero({ onBook, onTry, primaryCtaLabel, primaryCtaDisabled }: Her
             >
               {primaryCtaLabel}
             </button>
-            <button type="button" className="rw-btn-ghost" onClick={onTry}>
+            {/* <button type="button" className="rw-btn-ghost" onClick={onTry}>
               Or see how it works →
-            </button>
+            </button> */}
           </div>
         </div>
 

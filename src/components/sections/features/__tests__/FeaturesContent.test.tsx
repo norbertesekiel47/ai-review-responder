@@ -13,4 +13,10 @@ describe('FeaturesContent', () => {
     expect(html).not.toContain('Book a demo');
     expect(html).not.toContain('Book a Demo');
   });
+
+  it('renders hero words in gap-managed rows', () => {
+    const html = renderToStaticMarkup(createElement(FeaturesContent));
+
+    expect(html.match(/class="rw-hero-line"/g)).toHaveLength(2);
+  });
 });

@@ -416,9 +416,9 @@ export function TimelineSection() {
             <div className="rw-eyebrow">Instant responses</div>
             <h2>Reviews arrive at 11pm. Yours reply almost instantly.</h2>
             <p>
-              Most negative reviews are written late at night or at lunchtime — the
+              Most negative reviews are written late at night or at lunchtime, the
               exact moments you&apos;re not at your desk. RepWorth drafts immediately
-              and sends you a one-tap approval email. Your reply lands in minutes,
+              and sends you a one-tap approval. Your reply lands in minutes,
               not tomorrow morning.
             </p>
             <TimelineStats />
