@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useMemo, useState, type ReactNode } from 'react';
+import { LeadIntakeForm } from '@/components/sections/lead-intake/LeadIntakeForm';
 import { MarqueeBackground } from '@/components/ui/MarqueeBackground';
 import { SiteNav } from '@/components/ui/SiteNav';
 
@@ -428,12 +429,15 @@ export function PricingContent({ selfServeEnabled = false }: { selfServeEnabled?
           </div>
 
           {/* CTA */}
-          <section className="pr-cta">
-            <h2>Book a Demo — see your own reviews answered in 60 seconds</h2>
-            <p>15 minutes. No commitment. No credit card.</p>
-            <Link href="/book-a-demo" className="pr-cta-btn">
-              Book My Demo
-            </Link>
+          <section id="pricing-waitlist" className="pr-cta">
+            <h2>Join the early access waitlist.</h2>
+            <p>
+              Tell us about your business and we&apos;ll reach out when early access opens for
+              your area.
+            </p>
+            <div className="w-full max-w-md">
+              <LeadIntakeForm intent="waitlist" source="pricing" tone="onTeal" />
+            </div>
           </section>
         </div>
       </div>

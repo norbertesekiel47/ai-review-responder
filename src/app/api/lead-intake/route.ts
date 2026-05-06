@@ -12,7 +12,14 @@ const MAX_NAME_LEN = 200;
 const MAX_BUSINESS_NAME_LEN = 300;
 const MAX_URL_LEN = 2048;
 const ALLOWED_INTENTS = new Set(['waitlist', 'demo']);
-const ALLOWED_SOURCES = new Set(['landing', 'book-a-demo', 'pricing', 'unknown']);
+const ALLOWED_SOURCES = new Set([
+  'landing',
+  'features',
+  'how-it-works',
+  'book-a-demo',
+  'pricing',
+  'unknown',
+]);
 
 type ReadResult = { ok: true; value: string } | { ok: false; response: NextResponse };
 

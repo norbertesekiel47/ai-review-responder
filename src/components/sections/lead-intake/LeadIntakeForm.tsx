@@ -5,7 +5,13 @@ import { useState } from 'react';
 import { motion } from 'motion/react';
 
 export type LeadIntent = 'waitlist' | 'demo';
-export type LeadSource = 'landing' | 'book-a-demo' | 'pricing' | 'unknown';
+export type LeadSource =
+  | 'landing'
+  | 'features'
+  | 'how-it-works'
+  | 'book-a-demo'
+  | 'pricing'
+  | 'unknown';
 
 type FormState = 'idle' | 'loading' | 'success' | 'error';
 type InvalidLeadIntakeField = 'name' | 'email' | 'businessName';
