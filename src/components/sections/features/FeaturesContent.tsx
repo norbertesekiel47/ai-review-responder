@@ -196,8 +196,8 @@ export function FeaturesContent({ comingSoon = false }: FeaturesContentProps) {
       </nav>
 
       {/* Island */}
-      <div className="relative z-10 py-16 px-4 flex items-start justify-center">
-        <main className="w-full max-w-6xl bg-white rounded-[3rem] shadow-2xl overflow-hidden">
+      <div className="rw-island-wrap">
+        <main className="rw-island">
           <SiteNav comingSoon={comingSoon} />
 
           {/* HERO */}

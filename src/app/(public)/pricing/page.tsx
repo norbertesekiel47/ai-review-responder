@@ -261,8 +261,8 @@ export default function PricingPage() {
     <div className="pr-page">
       <MarqueeBackground />
 
-      <div className="relative z-10 max-w-[1240px] mx-auto px-4 py-20">
-        <div className="bg-white rounded-[3rem] shadow-2xl overflow-hidden">
+      <div className="rw-island-wrap">
+        <div className="rw-island">
           <SiteNav />
 
           {/* Hero */}

@@ -52,6 +52,11 @@ approval before posting.
   `cancelled` → no-op; `past_due` → 7-day grace; `pending_payment` →
   NotificationWorker and ResponsePublisherWorker skip (ResponseGenerator
   allowed for admin demo drafts).
+- **Entry points orchestrate; modules own failure behavior.** Route handlers,
+  worker boot files, and ingress handlers may validate, orchestrate, and map
+  errors, but must not own durable side effects inside long failure branches.
+  Extract any error-handling branch over ~30 lines into a named module
+  interface next to its caller, with focused tests for the branch.
 
 ## Key patterns — read skill files before implementing these
 
@@ -74,11 +79,13 @@ approval before posting.
 ## Worker layout
 
 - BullMQ job handlers: `worker/jobs/*.ts` + sub-folders `notification/`, `publisher/`, `zernio/` (multi-file jobs)
+- BullMQ `'failed'` exhaustion hooks: `worker/jobs/zernio/ingest-failed-hook.ts` (`handleIngestFailed`) and `worker/jobs/publisher/failed-hook.ts` (`handlePublisherFailed`) — colocated with their workers per the entry-point invariant
 - Background loops: `worker/background/pollers/` (Postgres-state-driven) + `worker/background/schedulers/` (time-cadence-driven)
 - Webhook ingress: `worker/ingress/{stripe,resend,shared}.ts` + provider sub-folders `twilio/`, `telegram/`, `zernio/`
 - Boot-time env assertions: `worker/config/startup-assert.ts`
+- Sentry init + scrubber: `worker/sentry.ts` (imported for side effect by `worker/index.ts`)
 - Queues + Redis options: `worker/queues.ts` (root)
-- Entry point: `worker/index.ts` (root)
+- Entry point: `worker/index.ts` (root) — pure registration + lifecycle, no DB writes
 - File-by-file map: `docs/directory.md`. Layout reasoning: `docs/currents.md`.
 
 ## Database

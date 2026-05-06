@@ -18,11 +18,16 @@ intentional — a misconfigured worker is worse than a crashed one.
 Assertion source: `worker/config/startup-assert.ts`.
 
 > **Worker file paths (as of 2026-05-05):** Worker class names below
-> are stable; file paths changed during the worker reorg. For any
-> worker mentioned, look at how it's imported in `worker/index.ts` or
-> read `docs/directory.md`. Quick map for things mentioned in this file:
+> are stable; file paths changed during the worker reorg, and per PR
+> #18 the BullMQ `'failed'` exhaustion handlers now live in dedicated
+> `failed-hook.ts` modules colocated with their workers. For any
+> worker mentioned, look at how it's imported in `worker/index.ts`
+> (or read `docs/directory.md`). Quick map for things mentioned in
+> this file:
 > - `ResponsePublisherWorker` → `worker/jobs/publisher/ResponsePublisherWorker.ts`
+>   - Final-attempt failure logic: `worker/jobs/publisher/failed-hook.ts` (`handlePublisherFailed`)
 > - `ZernioReviewIngestWorker` → `worker/jobs/zernio/ZernioReviewIngestWorker.ts`
+>   - Final-attempt failure logic: `worker/jobs/zernio/ingest-failed-hook.ts` (`handleIngestFailed`)
 > - Zernio webhook handler: `worker/ingress/zernio/zernio.ts`
 > - Zernio signature verifier: `worker/ingress/zernio/zernio-verify.ts`
 

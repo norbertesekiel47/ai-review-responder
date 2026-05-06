@@ -6,11 +6,17 @@ description: Complete review deduplication logic for RepWorth — stable identit
 # RepWorth — Review Deduplication
 
 > **Worker file paths (as of 2026-05-05):** Worker class names below
-> are stable; file paths changed during the worker reorg. For any
-> worker mentioned, look at how it's imported in `worker/index.ts` or
-> read `docs/directory.md`. Quick map:
+> are stable; file paths changed during the worker reorg, and per PR
+> #18 the ingest worker's BullMQ `'failed'` exhaustion handler — the
+> code that opens `review_exceptions` rows of types
+> `zernio_review_not_found`, `zernio_pagination_cap_exhausted`, and
+> `zernio_unparseable_review_name` after retries are exhausted — now
+> lives in its own colocated module. For any worker mentioned, look
+> at how it's imported in `worker/index.ts` or read `docs/directory.md`.
+> Quick map:
 > - `ZernioBackfillWorker` → `worker/jobs/zernio/ZernioBackfillWorker.ts`
 > - `ZernioReviewIngestWorker` → `worker/jobs/zernio/ZernioReviewIngestWorker.ts`
+>   - Final-attempt failure handler: `worker/jobs/zernio/ingest-failed-hook.ts` (`handleIngestFailed`)
 > - Shared logic: `worker/jobs/zernio/zernio-ingest-shared.ts`
 
 ## Core Principle
