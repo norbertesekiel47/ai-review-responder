@@ -155,7 +155,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         business_name = EXCLUDED.business_name,
         google_maps_url = EXCLUDED.google_maps_url,
         source = EXCLUDED.source,
-        metadata = owner_leads.metadata || EXCLUDED.metadata,
+        metadata = EXCLUDED.metadata,
         updated_at = NOW()
       RETURNING id
     `;
@@ -178,14 +178,21 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       `Submitted at: ${submittedAt}`,
     ].join('\n');
 
-    const { error } = await resend.emails.send({
-      from,
-      to,
-      subject: `New owner lead - ${intent.value} - RepWorth`,
-      text,
-    });
+    try {
+      const { error } = await resend.emails.send({
+        from,
+        to,
+        subject: `New owner lead - ${intent.value} - RepWorth`,
+        text,
+      });
 
-    if (error) {
+      if (!error) {
+        return NextResponse.json({ success: true });
+      }
+
+      console.error('[lead-intake] Resend error:', error);
+      return jsonError('Failed to send notification', 500);
+    } catch (error) {
       console.error('[lead-intake] Resend error:', error);
       return jsonError('Failed to send notification', 500);
     }

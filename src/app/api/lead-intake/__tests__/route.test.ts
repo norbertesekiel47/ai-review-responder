@@ -157,6 +157,8 @@ describe('POST /api/lead-intake', () => {
     expect(dbState.calls).toHaveLength(1);
     expect(dbState.calls[0].text).toContain('INSERT INTO owner_leads');
     expect(dbState.calls[0].text).toContain('ON CONFLICT (email_normalized, intent)');
+    expect(dbState.calls[0].text).toContain('metadata = EXCLUDED.metadata');
+    expect(dbState.calls[0].text).not.toContain('metadata = owner_leads.metadata || EXCLUDED.metadata');
     expect(dbState.calls[0].values).toEqual(expect.arrayContaining([
       'Alice Owner',
       'owner@example.com',
@@ -286,6 +288,23 @@ describe('POST /api/lead-intake', () => {
   it('returns 500 when Resend returns an error after persistence', async () => {
     process.env.RESEND_API_KEY = 'test-key';
     mockResendSend.mockResolvedValue({ data: null, error: { message: 'send failed' } });
+
+    const { POST } = await import('../route');
+    const res = await POST(makeRequest({
+      name: 'Alice Owner',
+      email: 'owner@example.com',
+      businessName: 'Alice Bakery',
+    }));
+
+    expect(res.status).toBe(500);
+    expect((await res.json()).error).toBe('Failed to send notification');
+    expect(dbState.calls).toHaveLength(1);
+    expect(mockResendSend).toHaveBeenCalledOnce();
+  });
+
+  it('returns 500 when Resend rejects after persistence', async () => {
+    process.env.RESEND_API_KEY = 'test-key';
+    mockResendSend.mockRejectedValue(new Error('network down'));
 
     const { POST } = await import('../route');
     const res = await POST(makeRequest({
