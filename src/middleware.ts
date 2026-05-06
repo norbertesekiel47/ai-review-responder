@@ -9,28 +9,7 @@ import { isProtectedRoute } from '@/lib/shared/protected-routes';
 // protected request.
 
 export async function middleware(request: NextRequest) {
-  const host = (request.headers.get('host') ?? '').toLowerCase().replace(/:\d+$/, '');
-
-  // ── repworth.net: short-circuit before any Supabase work ─────────
-  // Also handle www.repworth.net in case Vercel's www→apex redirect isn't in place.
-  if (host === 'www.repworth.net') {
-    return NextResponse.redirect(new URL(`https://repworth.net${request.nextUrl.pathname}${request.nextUrl.search}`), 301);
-  }
-
-  if (host === 'repworth.net') {
-    const { pathname } = request.nextUrl;
-    const normalised = pathname.endsWith('/') && pathname !== '/' ? pathname.slice(0, -1) : pathname;
-
-    if (normalised === '/' || normalised === '/privacy' || normalised === '/terms' || normalised === '/features' || normalised === '/how-it-works') {
-      const requestHeaders = new Headers(request.headers);
-      requestHeaders.set('x-coming-soon', '1');
-      return NextResponse.next({ request: { headers: requestHeaders } });
-    }
-
-    return NextResponse.redirect(new URL('https://repworth.net/'), 307);
-  }
-
-  // ── All other hosts: skip Supabase for public paths ───────────────
+  // ── Public paths: skip Supabase work ──────────────────────────────
   const { pathname } = request.nextUrl;
   if (!isProtectedRoute(pathname)) {
     return NextResponse.next({ request });

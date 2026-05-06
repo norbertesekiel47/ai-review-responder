@@ -12,7 +12,7 @@ import { VoiceDial } from './VoiceDial';
 import { TimelineSection } from './TimelineSection';
 
 interface LandingContentProps {
-  comingSoon: boolean;
+  comingSoon?: boolean;
   selfServeEnabled?: boolean;
 }
 
@@ -24,7 +24,7 @@ const SECTIONS = [
   { id: 'rw-cta', label: 'Book a demo' },
 ];
 
-export function LandingContent({ comingSoon }: LandingContentProps) {
+export function LandingContent({ comingSoon = false }: LandingContentProps) {
   const [active, setActive] = useState('rw-hero');
   const ctaRef = useRef<HTMLElement>(null);
 
