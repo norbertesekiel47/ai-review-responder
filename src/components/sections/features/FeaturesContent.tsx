@@ -98,9 +98,13 @@ function FeatureSection({
 
 interface FeaturesContentProps {
   comingSoon?: boolean;
+  selfServeEnabled?: boolean;
 }
 
-export function FeaturesContent({ comingSoon = false }: FeaturesContentProps) {
+export function FeaturesContent({
+  comingSoon = false,
+  selfServeEnabled = false,
+}: FeaturesContentProps) {
   // Section refs (one per feature) for the dot nav.
   const aiRef = useRef<HTMLElement>(null);
   const langRef = useRef<HTMLElement>(null);
@@ -198,7 +202,7 @@ export function FeaturesContent({ comingSoon = false }: FeaturesContentProps) {
       {/* Island */}
       <div className="rw-island-wrap">
         <main className="rw-island">
-          <SiteNav comingSoon={comingSoon} />
+          <SiteNav comingSoon={comingSoon} selfServeEnabled={selfServeEnabled} />
 
           {/* HERO */}
           <section

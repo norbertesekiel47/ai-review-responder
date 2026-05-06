@@ -12,6 +12,7 @@ import { SiteNav } from '@/components/ui/SiteNav';
 
 interface HowItWorksContentProps {
   comingSoon?: boolean;
+  selfServeEnabled?: boolean;
 }
 
 const SECTIONS = [
@@ -471,7 +472,10 @@ const OVERVIEW = [
   },
 ];
 
-export function HowItWorksContent({ comingSoon = false }: HowItWorksContentProps) {
+export function HowItWorksContent({
+  comingSoon = false,
+  selfServeEnabled = false,
+}: HowItWorksContentProps) {
   const [active, setActive] = useState('hiw-hero');
   const [openFaq, setOpenFaq] = useState(0);
 
@@ -521,7 +525,7 @@ export function HowItWorksContent({ comingSoon = false }: HowItWorksContentProps
 
       <div className="rw-island-wrap">
         <div className="rw-island">
-          <SiteNav comingSoon={comingSoon} />
+          <SiteNav comingSoon={comingSoon} selfServeEnabled={selfServeEnabled} />
 
           {/* Hero */}
           <section id="hiw-hero" className="hiw-hero">

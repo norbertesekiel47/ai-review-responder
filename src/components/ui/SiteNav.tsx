@@ -3,7 +3,7 @@ import Link from 'next/link';
 interface SiteNavProps {
   /** When true, the right-side Log in / Sign up cluster is hidden. */
   comingSoon?: boolean;
-  /** Reserved — accepted for backward compatibility with existing call sites. */
+  /** Controls whether owner self-serve auth links are exposed. */
   selfServeEnabled?: boolean;
 }
 
@@ -13,7 +13,9 @@ const NAV_LINKS = [
   { label: 'Pricing', href: '/pricing' },
 ];
 
-export function SiteNav({ comingSoon = false }: SiteNavProps) {
+export function SiteNav({ comingSoon = false, selfServeEnabled = false }: SiteNavProps) {
+  const showOwnerAuth = selfServeEnabled && !comingSoon;
+
   return (
     <nav className="px-8 py-4 border-b border-[#97B3AE]/10 flex items-center justify-between gap-4">
       <Link href="/" className="flex items-center gap-2">
@@ -40,7 +42,7 @@ export function SiteNav({ comingSoon = false }: SiteNavProps) {
         ))}
       </div>
 
-      {!comingSoon && (
+      {showOwnerAuth && (
         <div className="flex items-center gap-3">
           <Link
             href="/login"

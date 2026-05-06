@@ -3,9 +3,11 @@ import { PageShell } from '@/components/ui/PageShell';
 import { SiteNav } from '@/components/ui/SiteNav';
 
 export default function TermsPage() {
+  const selfServeEnabled = process.env.SELF_SERVE_SIGNUP_ENABLED === 'true';
+
   return (
     <PageShell sections={[]}>
-      <SiteNav />
+      <SiteNav selfServeEnabled={selfServeEnabled} />
       <div className="px-8 md:px-16 py-16">
         <div className="max-w-3xl mx-auto">
           <h1 className="text-3xl font-medium text-[#2a2a2a] mb-2">Terms of Service</h1>

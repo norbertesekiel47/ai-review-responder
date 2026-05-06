@@ -24,7 +24,10 @@ const SECTIONS = [
   { id: 'rw-cta', label: 'Book a demo' },
 ];
 
-export function LandingContent({ comingSoon = false }: LandingContentProps) {
+export function LandingContent({
+  comingSoon = false,
+  selfServeEnabled = false,
+}: LandingContentProps) {
   const [active, setActive] = useState('rw-hero');
   const ctaRef = useRef<HTMLElement>(null);
 
@@ -71,7 +74,7 @@ export function LandingContent({ comingSoon = false }: LandingContentProps) {
 
       <div className="rw-island-wrap">
         <div className="rw-island">
-          <SiteNav comingSoon={comingSoon} />
+          <SiteNav comingSoon={comingSoon} selfServeEnabled={selfServeEnabled} />
 
           <Hero
             onBook={() => scrollTo('rw-cta')}
