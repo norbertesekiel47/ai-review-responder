@@ -1,0 +1,33 @@
+// @vitest-environment jsdom
+
+import { describe, expect, it, vi } from 'vitest';
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { ToneChipPicker, inferActiveTone } from '@/components/dashboard/settings/ToneChipPicker';
+
+describe('inferActiveTone', () => {
+  it('matches "warm, witty" tone to witty chip', () => {
+    expect(inferActiveTone('warm, witty, occasionally cheeky')).toBe('witty');
+  });
+  it('matches "professional and friendly" to warm chip', () => {
+    expect(inferActiveTone('professional and friendly')).toBe('warm');
+  });
+  it('falls back to custom for unrecognised tones', () => {
+    expect(inferActiveTone('thunderously regal')).toBe('custom');
+  });
+});
+
+describe('ToneChipPicker', () => {
+  it('renders 6 chips and the custom textarea when active="custom"', () => {
+    render(<ToneChipPicker tone="thunderously regal" onChange={() => {}} />);
+    expect(screen.getAllByRole('button')).toHaveLength(6);
+    expect(screen.getByRole('textbox')).toBeInTheDocument();
+  });
+  it('calls onChange with canonical tone when picking a preset', async () => {
+    const onChange = vi.fn();
+    const user = userEvent.setup();
+    render(<ToneChipPicker tone="" onChange={onChange} />);
+    await user.click(screen.getByRole('button', { name: /warm \+ witty/i }));
+    expect(onChange).toHaveBeenCalledWith('warm, witty, occasionally cheeky');
+  });
+});
