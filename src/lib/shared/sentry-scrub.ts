@@ -12,7 +12,7 @@ interface ScrubSentryEventOptions {
 
 const SENSITIVE_KEY_RE = /key|secret|token|password|authorization/i;
 
-export function scrubObject(obj: Record<string, unknown>): void {
+function scrubObject(obj: Record<string, unknown>): void {
   for (const key of Object.keys(obj)) {
     const value = obj[key];
     if (SENSITIVE_KEY_RE.test(key)) {

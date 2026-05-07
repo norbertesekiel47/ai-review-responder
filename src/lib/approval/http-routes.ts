@@ -98,7 +98,7 @@ async function recoverLinkCorrelationId(
     SELECT review_id FROM responses WHERE id = ${link.response_id}
   `;
   return response
-    ? recoverCorrelationId(tx, { reviewId: response.review_id, responseId: link.response_id })
+    ? await recoverCorrelationId(tx, { reviewId: response.review_id, responseId: link.response_id })
     : link.response_id;
 }
 
