@@ -5,3 +5,8 @@ process.env.SUPABASE_URL = process.env.SUPABASE_URL ?? 'http://localhost:54321';
 process.env.SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY ?? 'dummy-service-key-for-tests';
 process.env.DATABASE_POOL_URL =
   process.env.DATABASE_POOL_URL ?? 'postgres://test:test@localhost:5432/test';
+
+// Extend jest-dom matchers (toBeInTheDocument, etc.) for jsdom-environment tests.
+// The import is a no-op in node-environment tests because the global `document`
+// doesn't exist there — but the module itself is safe to import regardless.
+import '@testing-library/jest-dom';
