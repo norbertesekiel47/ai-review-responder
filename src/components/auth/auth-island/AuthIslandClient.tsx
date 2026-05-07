@@ -21,13 +21,8 @@ export function AuthIslandClient(props: AuthIslandClientProps) {
   );
 }
 
-// Exported for unit testing only. The public component is AuthIslandClient,
-// which wraps this in a Suspense boundary so useSearchParams() inside
-// LoginForm can resolve. Tests render AuthIslandInner directly because
-// renderToStaticMarkup runs outside an app/ context and would otherwise see
-// only the Suspense fallback. Mirrors the LoginFormClient/LoginFormInner
-// pattern from Task 9.
-export function AuthIslandInner({ initialMode }: AuthIslandClientProps) {
+// Inner component split out so the public export can wrap it in Suspense for useSearchParams().
+function AuthIslandInner({ initialMode }: AuthIslandClientProps) {
   const [prefilledEmail, setPrefilledEmail] = useState('');
 
   return (
