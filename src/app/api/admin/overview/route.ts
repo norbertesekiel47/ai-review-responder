@@ -27,7 +27,7 @@ interface BusinessRow {
   last_activity: Date | null;
 }
 
-export interface OverviewData {
+interface OverviewData {
   systemHealth: {
     pendingOutbox: number;
     failedJobs: number;

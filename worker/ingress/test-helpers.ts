@@ -14,8 +14,8 @@
 
 import { createHmac } from 'node:crypto';
 
-export const TEST_AUTH_TOKEN = 'test_auth_token_for_ingress_fixtures';
-export const TEST_PUBLIC_URL = 'https://worker.example.com';
+const TEST_AUTH_TOKEN = 'test_auth_token_for_ingress_fixtures';
+const TEST_PUBLIC_URL = 'https://worker.example.com';
 
 /** Twilio HMAC: base64(HMAC-SHA1(token, url + concat(sorted(k+v)))). */
 function sign(authToken: string, fullUrl: string, params: Record<string, string>): string {
@@ -26,7 +26,7 @@ function sign(authToken: string, fullUrl: string, params: Record<string, string>
   return createHmac('sha1', authToken).update(fullUrl + sorted).digest('base64');
 }
 
-export interface BuildOpts {
+interface BuildOpts {
   invalidSig?: boolean;
   authToken?: string;
   publicUrl?: string;

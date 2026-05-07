@@ -20,7 +20,7 @@ interface TodayTotalRow {
   total: number;
 }
 
-export interface CostData {
+interface CostData {
   days: number;
   totalBusinesses: number;
   limit: number;

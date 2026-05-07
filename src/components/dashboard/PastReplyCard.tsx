@@ -13,7 +13,7 @@
 // on tag wip/edit-existing-replies-zernio-v1 pending direct GBP API
 // approval — see docs/runbooks/zernio-launch-runbook.md §10.
 
-export interface PastReplyRow {
+interface PastReplyRow {
   review_id: string;
   review_text: string | null;
   review_date: string;

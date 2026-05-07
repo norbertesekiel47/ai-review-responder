@@ -26,7 +26,7 @@ interface BusinessRow {
   name: string;
 }
 
-export interface NotifData {
+interface NotifData {
   notifications: {
     id: string;
     businessName: string;
