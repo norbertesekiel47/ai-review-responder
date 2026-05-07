@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { mapSignupError, type MappedSignupError } from '@/components/auth/shared/mapSignupError';
+import { safeSignupRedirect } from '@/components/auth/shared/safeSignupRedirect';
 
 export interface UseSignupSubmitReturn {
   submit: (input: SignupInput) => Promise<{ ok: boolean }>;
@@ -47,9 +48,7 @@ export function useSignupSubmit(): UseSignupSubmitReturn {
         setErrorKind(mapped.kind);
         return { ok: false };
       }
-      const redirectTo =
-        typeof body.redirectTo === 'string' ? body.redirectTo : '/signup/check-email';
-      router.push(redirectTo);
+      router.push(safeSignupRedirect(body.redirectTo));
       return { ok: true };
     } catch {
       setError('Connection failed');
