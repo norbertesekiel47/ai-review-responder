@@ -6,6 +6,7 @@
 
 import { sql } from '@/lib/db/server';
 import { requireOwnerAccess } from '@/lib/auth/require-owner-access';
+import { TopBar } from '@/components/dashboard/TopBar';
 import { SettingsTabs } from '@/components/dashboard/SettingsTabs';
 import { ChannelsClient, type InitialEnrollment } from './ChannelsClient';
 import { isTelegramEnabled, assertTelegramEnvReady } from '@/app/api/admin/channels/telegram/_shared';
@@ -70,13 +71,11 @@ export default async function ChannelsPage() {
 
   return (
     <>
-      <div className="topbar">
-        <div>
-          <div className="page-title">Settings</div>
-          <div className="page-sub">Notification channels</div>
-        </div>
-        <div className="topbar-spacer" />
-      </div>
+      <TopBar
+        title="Settings"
+        subtitle="Notification channels"
+        rightLink={{ href: '/dashboard', label: 'Back to dashboard' }}
+      />
       <div className="settings-content">
         <SettingsTabs activeTab="channels" />
         <ChannelsClient
