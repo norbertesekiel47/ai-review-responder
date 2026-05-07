@@ -3,15 +3,15 @@ import { isPlaceId, parseGoogleMapsUrl } from '@/lib/reviews/url-parser';
 
 // ── Reusable field schemas ──────────────────────────────────────────
 
-export const businessNameSchema = z.string().min(1, 'Business name is required').max(255);
-export const categorySchema = z.string().max(100);
-export const toneSchema = z.string().max(100);
-export const ownerNameSchema = z.string().min(1, 'Owner name is required').max(255);
-export const ownerEmailSchema = z.string().email('Valid email is required').max(255);
-export const ownerPhoneSchema = z.string().max(20);
-export const staffNamesArraySchema = z.array(z.string().max(100));
-export const highlightFactsArraySchema = z.array(z.string().max(500));
-export const avoidFactsArraySchema = z.array(z.string().max(500));
+const businessNameSchema = z.string().min(1, 'Business name is required').max(255);
+const categorySchema = z.string().max(100);
+const toneSchema = z.string().max(100);
+const ownerNameSchema = z.string().min(1, 'Owner name is required').max(255);
+const ownerEmailSchema = z.string().email('Valid email is required').max(255);
+const ownerPhoneSchema = z.string().max(20);
+const staffNamesArraySchema = z.array(z.string().max(100));
+const highlightFactsArraySchema = z.array(z.string().max(500));
+const avoidFactsArraySchema = z.array(z.string().max(500));
 
 /**
  * URL validator that ONLY permits http: and https: schemes.
@@ -115,7 +115,7 @@ function urlIsResolverReady(val: string): boolean {
   }
 }
 
-export const googleMapsUrlSchema = z
+const googleMapsUrlSchema = z
   .string()
   .min(1, 'Google Maps URL is required')
   .max(2048, 'Google Maps URL too long')
@@ -236,7 +236,7 @@ export const SignupSchema = z.object({
   password: passwordSchema,
 });
 
-export type SignupInput = z.infer<typeof SignupSchema>;
+type SignupInput = z.infer<typeof SignupSchema>;
 
 // Google OAuth session provides email; collect name + phone only. Business
 // details are deferred to BusinessOnboardingSchema, same as password signup.
@@ -245,7 +245,7 @@ export const FinishSignupSchema = z.object({
   ownerPhone: ownerPhoneSchema.optional(),
 });
 
-export type FinishSignupInput = z.infer<typeof FinishSignupSchema>;
+type FinishSignupInput = z.infer<typeof FinishSignupSchema>;
 
 // Submitted by /onboarding/business after Stripe payment confirms.
 // Replaces the business-fields portion of the previous combined SignupSchema.
@@ -287,12 +287,12 @@ export const ForgotPasswordSchema = z.object({
   email: normalizedEmailSchema,
   role: z.enum(['owner', 'admin']),
 });
-export type ForgotPasswordInput = z.infer<typeof ForgotPasswordSchema>;
+type ForgotPasswordInput = z.infer<typeof ForgotPasswordSchema>;
 
 export const ResetPasswordSchema = z.object({
   password: passwordSchema,
 });
-export type ResetPasswordInput = z.infer<typeof ResetPasswordSchema>;
+type ResetPasswordInput = z.infer<typeof ResetPasswordSchema>;
 
 // Admin identities are provisioned manually via the Supabase dashboard with
 // `email_confirm: true` and never go through the confirmation-email flow, so
@@ -303,7 +303,7 @@ export const ResendConfirmationSchema = z.object({
   email: normalizedEmailSchema,
   flow: z.literal('owner'),
 });
-export type ResendConfirmationInput = z.infer<typeof ResendConfirmationSchema>;
+type ResendConfirmationInput = z.infer<typeof ResendConfirmationSchema>;
 
 // Email OTP entry — owner enters the 6-digit token Supabase sends in the
 // confirmation email. We accept 4–10 digit/alphanumeric tokens defensively
@@ -318,7 +318,7 @@ export const VerifyEmailOtpSchema = z.object({
     .max(10, 'Code is too long')
     .regex(/^[A-Za-z0-9]+$/, 'Code must be alphanumeric'),
 });
-export type VerifyEmailOtpInput = z.infer<typeof VerifyEmailOtpSchema>;
+type VerifyEmailOtpInput = z.infer<typeof VerifyEmailOtpSchema>;
 
 // Plan selection on /onboarding/pay. Owner picks founding, standard, or premium;
 // the route writes the choice to businesses.subscription_tier and returns
@@ -326,7 +326,7 @@ export type VerifyEmailOtpInput = z.infer<typeof VerifyEmailOtpSchema>;
 export const SelectPlanSchema = z.object({
   tier: z.enum(['founding', 'standard', 'premium']),
 });
-export type SelectPlanInput = z.infer<typeof SelectPlanSchema>;
+type SelectPlanInput = z.infer<typeof SelectPlanSchema>;
 
 /**
  * Tightened business name for pre-pay demo path.
@@ -380,7 +380,7 @@ export const OnboardingStartSchema = z
     },
   );
 
-export type OnboardingStartInput = z.infer<typeof OnboardingStartSchema>;
+type OnboardingStartInput = z.infer<typeof OnboardingStartSchema>;
 
 /**
  * POST /api/onboarding/business when ONBOARDING_DEMO_ENABLED=true.

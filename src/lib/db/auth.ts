@@ -65,7 +65,7 @@ export async function getCurrentUser(
 /**
  * Throws a structured error if the user is not authenticated.
  */
-export async function requireAuth(request: NextRequest): Promise<AppUser> {
+async function requireAuth(request: NextRequest): Promise<AppUser> {
   const user = await getCurrentUser(request);
   if (!user) {
     throw new AuthError('Unauthorized', 401);

@@ -31,8 +31,7 @@ export function calculateCostUsd(
 // ── Audit trail ─────────────────────────────────────────��────────────
 
 /**
- * Inserts an api_costs audit row. Returns the row's UUID so the worker
- * can later call linkApiCostToResponse() after inserting the response row.
+ * Inserts an api_costs audit row and returns the row's UUID.
  */
 export async function recordApiCost(params: {
   businessId: string | null;
@@ -58,17 +57,4 @@ export async function recordApiCost(params: {
     )
   `;
   return id;
-}
-
-/**
- * Links an api_costs row to a response after the response row is inserted.
- * Called by the worker after generating + inserting the response in the same transaction.
- */
-export async function linkApiCostToResponse(
-  apiCostId: string,
-  responseId: string,
-): Promise<void> {
-  await sql`
-    UPDATE api_costs SET response_id = ${responseId} WHERE id = ${apiCostId}
-  `;
 }

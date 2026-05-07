@@ -81,7 +81,6 @@ vi.mock('../../../src/lib/responses/voice-learning', () => ({
 
 vi.mock('../../../src/lib/costs/tracker', () => ({
   checkRegenBudget: mockCheckRegenBudget,
-  linkApiCostToResponse: vi.fn(),
   setCachedGeneration: mockSetCachedGeneration,
   CostLimitExceededError: class CostLimitExceededError extends Error {
     name = 'CostLimitExceededError';

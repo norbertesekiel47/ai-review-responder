@@ -6,10 +6,9 @@ import type { FormData } from '../schema';
 
 /**
  * Shape returned by GET /api/admin/businesses/prefill. Keep in sync with
- * the route handler's response — exporting lets the API layer (or future
- * tests) import the same contract instead of redeclaring inline.
+ * the route handler's response.
  */
-export interface BusinessPrefillResponse {
+interface BusinessPrefillResponse {
   category: string | null;
   phone: string | null;
   website: string | null;

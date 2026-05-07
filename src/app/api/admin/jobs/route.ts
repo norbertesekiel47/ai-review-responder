@@ -38,7 +38,7 @@ interface FailedCountRow {
   total: number;
 }
 
-export interface JobsData {
+interface JobsData {
   outbox: {
     pending: number;
     dispatching: number;
