@@ -1,19 +1,8 @@
-// src/components/dashboard/PastReplyCard.tsx
-//
-// Presentational server-renderable component for one row in the Past
-// Replies list — READ-ONLY view.
-//
-// Renders the customer's review on the left and the currently-posted Google
-// reply on the right. Provenance label distinguishes:
-//   - "Imported from Google · YYYY-MM-DD" — external_reply_ingested_at set
-//     (we discovered an existing reply during ingestion, not authored here).
-//   - "Posted via RepWorth · YYYY-MM-DD" — published through our publisher.
-//
-// No Edit affordances. The full edit / regenerate / publish flow is parked
-// on tag wip/edit-existing-replies-zernio-v1 pending direct GBP API
-// approval — see docs/runbooks/zernio-launch-runbook.md §10.
+'use client';
 
-interface PastReplyRow {
+import { Icon } from './Icon';
+
+interface Row {
   review_id: string;
   review_text: string | null;
   review_date: string;
@@ -25,72 +14,82 @@ interface PastReplyRow {
   external_reply_ingested_at: string | null;
 }
 
-interface PastReplyCardProps {
-  row: PastReplyRow;
+interface Props {
+  row: Row;
   isImported: boolean;
+  /** Optional: search query to highlight inside review + reply bodies. */
+  query?: string;
 }
 
-function renderStars(rating: number | null): string {
-  if (rating == null) return '';
-  const filled = Math.round(Math.max(0, Math.min(5, rating)));
-  return '★'.repeat(filled) + '☆'.repeat(5 - filled);
-}
-
-function formatDate(iso: string | null): string {
-  if (!iso) return '';
+function fmt(iso: string): string {
   const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  return d.toISOString().slice(0, 10);
+  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
-export function PastReplyCard({ row, isImported }: PastReplyCardProps) {
-  const provenanceLabel = isImported
-    ? `Imported from Google · ${formatDate(row.posted_at)}`
-    : `Posted via RepWorth · ${formatDate(row.posted_at)}`;
-
+function renderStars(n: number | null) {
+  if (n == null) return null;
+  const filled = Math.round(Math.max(0, Math.min(5, n)));
   return (
-    <article className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-      <div className="grid gap-4 md:grid-cols-2">
-        {/* Customer review */}
-        <div className="space-y-2">
-          <div className="flex flex-wrap items-center gap-2">
-            {row.star_rating != null ? (
-              <span
-                className="text-sm text-yellow-500"
-                aria-label={`${row.star_rating} stars`}
-              >
-                {renderStars(row.star_rating)}
-              </span>
-            ) : (
-              <span className="text-xs text-gray-400">No rating</span>
-            )}
-            <span className="text-sm font-medium text-[#2a2a2a]">
-              {row.reviewer_name ?? 'Anonymous'}
-            </span>
-            <span className="text-xs text-[#6a6a6a]">
-              {formatDate(row.review_date)}
-            </span>
+    <span className="stars" aria-label={`${filled} stars`}>
+      {'★'.repeat(filled)}
+      <span style={{ opacity: 0.25 }}>{'★'.repeat(5 - filled)}</span>
+    </span>
+  );
+}
+
+function highlight(text: string | null, query?: string) {
+  if (!text) return null;
+  if (!query) return text;
+  const trimmed = query.trim();
+  if (!trimmed) return text;
+  const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(`(${escaped})`, 'gi');
+  return text.split(re).map((part, i) =>
+    re.test(part) ? (
+      <mark key={i} className="pr-mark">
+        {part}
+      </mark>
+    ) : (
+      <span key={i}>{part}</span>
+    ),
+  );
+}
+
+export function PastReplyCard({ row, isImported, query }: Props) {
+  return (
+    <article className="pr-card">
+      <div className="pr-card-grid">
+        <div className="pr-side pr-side-review">
+          <div className="pr-side-eyebrow">
+            <Icon name="google" size={12} /> Customer review
           </div>
-          {row.review_text ? (
-            <p className="text-sm text-[#2a2a2a]">{row.review_text}</p>
-          ) : (
-            <p className="text-sm italic text-[#6a6a6a]">
-              No review text — rating only.
-            </p>
-          )}
+          <div className="pr-meta">
+            {renderStars(row.star_rating)}
+            <span className="pr-name">{row.reviewer_name ?? 'Anonymous'}</span>
+            <span className="pr-date">{fmt(row.review_date)}</span>
+          </div>
+          <p className="pr-body">{highlight(row.review_text, query)}</p>
         </div>
 
-        {/* Current Google reply */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-xs uppercase tracking-wider text-[#97B3AE]">
-              Current Google reply
-            </span>
+        <div className="pr-side pr-side-reply">
+          <div className="pr-side-eyebrow reply">
+            <Icon name="sparkle" size={12} /> Your reply on Google
           </div>
-          <p className="rounded-md bg-[#F0EEEA]/60 p-3 text-sm text-[#2a2a2a]">
-            {row.approved_text ?? <em className="text-[#6a6a6a]">(empty)</em>}
-          </p>
-          <p className="text-xs text-[#6a6a6a]">{provenanceLabel}</p>
+          <p className="pr-body">{highlight(row.approved_text, query)}</p>
+          <div className="pr-prov">
+            <span className={`pr-prov-badge ${isImported ? 'pr-prov-imported' : 'pr-prov-repworth'}`}>
+              {isImported ? (
+                <>
+                  <Icon name="history" size={10} /> Imported
+                </>
+              ) : (
+                <>
+                  <Icon name="check" size={10} /> Posted via RepWorth
+                </>
+              )}
+            </span>
+            {row.posted_at && <span>· {fmt(row.posted_at)}</span>}
+          </div>
         </div>
       </div>
     </article>
