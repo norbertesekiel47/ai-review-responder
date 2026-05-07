@@ -13,12 +13,12 @@
  * Messaging Services in ES locale; we mirror them here so the handler works
  * identically if OptOutType is absent, e.g. some regional carrier routes).
  */
-export const STOP_KEYWORDS = new Set([
+const STOP_KEYWORDS = new Set([
   'STOP', 'STOPALL', 'UNSUBSCRIBE', 'CANCEL', 'END', 'QUIT', 'REVOKE', 'OPTOUT',
   'PARE', 'PARAR', 'PARARLO', 'CANCELAR', 'DESUSCRIBIR', 'DETENER',
 ]);
 
-export const START_KEYWORDS = new Set(['START', 'UNSTOP', 'YES', 'ARRANCAR']);
+const START_KEYWORDS = new Set(['START', 'UNSTOP', 'YES', 'ARRANCAR']);
 
 export type InboundIntent = 'stop' | 'start' | 'none';
 export type IntentSource = 'twilio_optouttype' | 'twilio_inbound_keyword' | '';

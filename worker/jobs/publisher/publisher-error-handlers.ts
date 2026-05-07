@@ -38,7 +38,7 @@ import * as Sentry from '@sentry/node';
  *  "secret=value" / "key=value" pairs in URL/query-string-style strings.
  *  A defensive sanity-check in case Zernio ever echoes a token in 401/403
  *  body (some APIs do). */
-export function redactSensitiveError(body: string): string {
+function redactSensitiveError(body: string): string {
   return body
     .replace(/Bearer\s+[A-Za-z0-9\-._~+/]+=*/gi, 'Bearer [REDACTED]')
     .replace(/Basic\s+[A-Za-z0-9+/]+=*/gi, 'Basic [REDACTED]')

@@ -41,4 +41,26 @@ describe('scrubSentryEvent', () => {
     scrubSentryEvent(serverEvent, { scrubRequestData: true });
     expect(serverEvent.request.data.token).toBe('[REDACTED]');
   });
+
+  it('scrubs sensitive keys inside arrays of objects', () => {
+    const event = {
+      extra: {
+        batch: [
+          { apiToken: 'a', label: 'first' },
+          { authorization: 'Bearer x', label: 'second' },
+        ],
+      },
+    };
+    scrubSentryEvent(event);
+    expect(event.extra.batch[0].apiToken).toBe('[REDACTED]');
+    expect(event.extra.batch[0].label).toBe('first');
+    expect(event.extra.batch[1].authorization).toBe('[REDACTED]');
+    expect(event.extra.batch[1].label).toBe('second');
+  });
+
+  it('does not crash on null items inside arrays', () => {
+    const event = { extra: { items: [null, { secret: 'x' }] } };
+    expect(() => scrubSentryEvent(event)).not.toThrow();
+    expect((event.extra.items[1] as Record<string, unknown>).secret).toBe('[REDACTED]');
+  });
 });

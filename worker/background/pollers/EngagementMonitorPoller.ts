@@ -75,7 +75,7 @@ function getIntervalMs(): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_INTERVAL_MS;
 }
 
-export async function runEngagementCheck(): Promise<void> {
+async function runEngagementCheck(): Promise<void> {
   if (isPolling) return;
   isPolling = true;
 
