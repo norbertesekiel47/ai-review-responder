@@ -17,11 +17,7 @@ import {
   UserIcon,
 } from './Icons';
 
-export interface SignupFormProps {
-  onAccountExists: (email: string) => void;
-}
-
-export function SignupForm({ onAccountExists }: SignupFormProps) {
+export function SignupForm() {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
@@ -36,12 +32,16 @@ export function SignupForm({ onAccountExists }: SignupFormProps) {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!agree || loading) return;
-    await submit({ ownerEmail: email, ownerName: name, ownerPhone: phone, password: pwd });
-    if (errorKind == null) {
-      // The submit either redirected (success) or set an error. If it redirected
-      // we've already navigated. If it errored, no confetti.
-      // Confetti is fired only on the rare client-side success that does not
-      // navigate (e.g., MOCK_EXTERNAL_APIS); fire defensively.
+    const result = await submit({
+      ownerEmail: email,
+      ownerName: name,
+      ownerPhone: phone,
+      password: pwd,
+    });
+    if (result.ok) {
+      // Success path: submit() has already issued router.push(). Confetti is
+      // fired defensively for the rare case where the navigation hasn't
+      // visually unmounted us yet (e.g., MOCK_EXTERNAL_APIS in dev).
       fireConfetti();
     }
   }
@@ -131,11 +131,7 @@ export function SignupForm({ onAccountExists }: SignupFormProps) {
               {' '}
               <a
                 className="rw-link"
-                href="/login"
-                onClick={(e) => {
-                  e.preventDefault();
-                  onAccountExists(email.trim().toLowerCase());
-                }}
+                href={`/login?email=${encodeURIComponent(email.trim().toLowerCase())}`}
               >
                 Sign in
               </a>

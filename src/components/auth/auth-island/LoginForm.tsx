@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useLoginSubmit } from '@/components/auth/hooks/useLoginSubmit';
 import { useGoogleOAuth } from '@/components/auth/hooks/useGoogleOAuth';
@@ -8,19 +8,11 @@ import { mapInitialQueryError } from '@/components/auth/shared/mapLoginError';
 import { Field } from './Field';
 import { ArrowIcon, CheckIcon, GoogleIcon, LockIcon, MailIcon } from './Icons';
 
-export interface LoginFormProps {
-  initialEmail: string;
-}
-
-export function LoginForm({ initialEmail }: LoginFormProps) {
-  const [email, setEmail] = useState(initialEmail);
+export function LoginForm() {
+  const searchParams = useSearchParams();
+  const [email, setEmail] = useState(() => searchParams.get('email') ?? '');
   const [password, setPassword] = useState('');
   const [remember, setRemember] = useState(true);
-  const searchParams = useSearchParams();
-
-  useEffect(() => {
-    if (initialEmail) setEmail(initialEmail);
-  }, [initialEmail]);
 
   const { submit, loading, error, setError } = useLoginSubmit({
     portal: 'owner',

@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useState } from 'react';
+import { Suspense } from 'react';
 import type { AuthMode } from '@/components/auth/shared/pathForMode';
 import './auth-island.css';
 import { ParallaxField } from './ParallaxField';
@@ -23,8 +23,6 @@ export function AuthIslandClient(props: AuthIslandClientProps) {
 
 // Inner component split out so the public export can wrap it in Suspense for useSearchParams().
 function AuthIslandInner({ initialMode }: AuthIslandClientProps) {
-  const [prefilledEmail, setPrefilledEmail] = useState('');
-
   return (
     <div className="rw-auth">
       <ParallaxField />
@@ -32,12 +30,12 @@ function AuthIslandInner({ initialMode }: AuthIslandClientProps) {
         <div className="rw-island">
           <Showcase mode={initialMode} />
           <div className="rw-form-pane">
-            <Tabs mode={initialMode} onChange={() => setPrefilledEmail('')} />
+            <Tabs mode={initialMode} />
             {initialMode === 'signup' ? (
               <>
                 <h1 className="rw-form-h">Create your account</h1>
                 <p className="rw-form-sub">Free for 14 days. No credit card required.</p>
-                <SignupForm onAccountExists={(email) => setPrefilledEmail(email)} />
+                <SignupForm />
                 <p className="rw-foot">
                   Already have an account?{' '}
                   <a className="rw-link" href="/login">
@@ -49,7 +47,7 @@ function AuthIslandInner({ initialMode }: AuthIslandClientProps) {
               <>
                 <h1 className="rw-form-h">Sign in to RepWorth</h1>
                 <p className="rw-form-sub">Pick up where you left off.</p>
-                <LoginForm initialEmail={prefilledEmail} />
+                <LoginForm />
                 <p className="rw-foot">
                   New to RepWorth?{' '}
                   <a className="rw-link" href="/signup">

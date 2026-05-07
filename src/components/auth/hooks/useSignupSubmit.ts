@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { mapSignupError, type MappedSignupError } from '@/components/auth/shared/mapSignupError';
 
 export interface UseSignupSubmitReturn {
-  submit: (input: SignupInput) => Promise<void>;
+  submit: (input: SignupInput) => Promise<{ ok: boolean }>;
   loading: boolean;
   error: string;
   errorKind: MappedSignupError['kind'] | null;
@@ -45,14 +45,16 @@ export function useSignupSubmit(): UseSignupSubmitReturn {
         const mapped = mapSignupError(body, res.status);
         setError(mapped.message);
         setErrorKind(mapped.kind);
-        return;
+        return { ok: false };
       }
       const redirectTo =
         typeof body.redirectTo === 'string' ? body.redirectTo : '/signup/check-email';
       router.push(redirectTo);
+      return { ok: true };
     } catch {
       setError('Connection failed');
       setErrorKind('unknown');
+      return { ok: false };
     } finally {
       setLoading(false);
     }
