@@ -15,6 +15,7 @@ import { sql, jsonb } from '../../../src/lib/db/server';
 import { claimInboundEvent } from '../shared';
 import { parseTwilioBody, verifyTwilioSignature } from './twilio-verify';
 import { classifyIntent } from './twilio-intent';
+import { handleTwilioDeliveryStatus } from './twilio-delivery-status';
 
 const LOG_PREFIX = '[ingress/twilio]';
 
@@ -44,98 +45,13 @@ export async function handleTwilioStatusCallback(
   request: FastifyRequest,
   reply: FastifyReply,
 ): Promise<void> {
-  const rawBody = (request as unknown as { rawBody?: string }).rawBody ?? '';
-  const params = parseTwilioBody(rawBody);
-  const sig = request.headers['x-twilio-signature'] as string | undefined;
-
-  if (
-    !verifyTwilioSignature({
-      authToken: process.env.TWILIO_AUTH_TOKEN,
-      signatureHeader: sig,
-      fullUrl: fullUrl(request),
-      params,
-    })
-  ) {
-    console.warn(`${LOG_PREFIX} Invalid signature on status callback`);
-    reply.status(401).send({ error: 'invalid_signature' });
-    return;
-  }
-
-  const { MessageSid, MessageStatus, ErrorCode } = params;
-  if (!MessageSid || !MessageStatus) {
-    reply.status(400).send({ error: 'missing_fields' });
-    return;
-  }
-
-  const dedupKey = `${MessageSid}:${MessageStatus}`;
-  const claim = await claimInboundEvent('twilio', dedupKey, `status:${MessageStatus}`, params);
-  if (claim === 'duplicate') {
-    reply.status(200).send({ received: true, duplicate: true });
-    return;
-  }
-
-  const isTerminal =
-    MessageStatus === 'delivered' || MessageStatus === 'undelivered' || MessageStatus === 'failed';
-
-  if (!isTerminal) {
-    if (!(MessageStatus === 'queued' || MessageStatus === 'sending' || MessageStatus === 'sent')) {
-      console.log(`${LOG_PREFIX} Unknown MessageStatus ${MessageStatus} for ${MessageSid}`);
-    }
-    await sql`
-      UPDATE inbound_events SET status = 'processed', processed_at = NOW()
-      WHERE external_event_key = ${dedupKey}
-    `;
-    reply.status(200).send({ received: true });
-    return;
-  }
-
-  const [row] = await sql<{ id: string; delivered_at: Date | null; failed_at: Date | null }[]>`
-    SELECT id, delivered_at, failed_at FROM notification_deliveries
-    WHERE external_message_id = ${MessageSid} AND channel = 'sms'
-    LIMIT 1
-  `;
-
-  if (!row) {
-    // Terminal status arrived before our dispatcher INSERTed the sent_at row.
-    // Mark inbound_event failed so dedup-reclaim picks up Twilio's retry.
-    await sql`
-      UPDATE inbound_events
-      SET status = 'failed', error_message = 'delivery_row_not_yet_present'
-      WHERE external_event_key = ${dedupKey}
-    `;
-    reply.status(503).send({ received: true, retry: 'delivery_row_not_yet_present' });
-    return;
-  }
-
-  if (row.delivered_at || row.failed_at) {
-    // First-wins: another terminal status already landed, preserve it.
-    await sql`
-      UPDATE inbound_events SET status = 'processed', processed_at = NOW()
-      WHERE external_event_key = ${dedupKey}
-    `;
-    reply.status(200).send({ received: true, terminal_state_preserved: true });
-    return;
-  }
-
-  if (MessageStatus === 'delivered') {
-    await sql`
-      UPDATE notification_deliveries
-      SET delivered_at = NOW()
-      WHERE id = ${row.id} AND channel = 'sms' AND delivered_at IS NULL AND failed_at IS NULL
-    `;
-  } else {
-    await sql`
-      UPDATE notification_deliveries
-      SET failed_at = NOW(), failure_reason = ${`twilio:${ErrorCode ?? 'unknown'}`}
-      WHERE id = ${row.id} AND channel = 'sms' AND delivered_at IS NULL AND failed_at IS NULL
-    `;
-  }
-
-  await sql`
-    UPDATE inbound_events SET status = 'processed', processed_at = NOW()
-    WHERE external_event_key = ${dedupKey}
-  `;
-  reply.status(200).send({ received: true });
+  return handleTwilioDeliveryStatus(request, reply, {
+    channel: 'sms',
+    fullUrl,
+    invalidSignatureMessage: 'Invalid signature on status callback',
+    logPrefix: LOG_PREFIX,
+    logUnknownNonTerminal: true,
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────

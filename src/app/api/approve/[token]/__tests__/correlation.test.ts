@@ -241,4 +241,16 @@ describe('POST /api/approve/[token]/regenerate — correlation recovery', () => 
     expect(regenArgs?.[4]).toBe(UPSTREAM_CORRELATION_ID);
     expect(regenArgs?.[4]).not.toBe(RESPONSE_ID);
   });
+
+  it('returns a clean regenerate success message without mojibake', async () => {
+    setupHappyPath();
+    mockRegenerate.mockResolvedValue(undefined);
+
+    const { POST } = await import('../regenerate/route');
+    const res = await POST(makeRequest('/api/approve/test-raw-token-xyz/regenerate'), tokenParams());
+    const body = await res.json();
+
+    expect(body.message).toBe('Generating a new response - check your email in a few minutes.');
+    expect(body.message).not.toMatch(/[Ãâ]/);
+  });
 });
