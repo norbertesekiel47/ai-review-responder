@@ -1,6 +1,8 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { PREFILL_EMAIL_KEY } from '@/components/auth/shared/prefillEmail';
 import { useSignupSubmit } from '@/components/auth/hooks/useSignupSubmit';
 import { useGoogleOAuth } from '@/components/auth/hooks/useGoogleOAuth';
 import { strengthOf, STRENGTH_LABELS } from '@/components/auth/shared/strength';
@@ -24,8 +26,10 @@ export function SignupForm() {
   const [pwd, setPwd] = useState('');
   const [agree, setAgree] = useState(false);
 
+  const router = useRouter();
   const { submit, loading, error, errorKind } = useSignupSubmit();
   const oauth = useGoogleOAuth({ flow: 'owner', next: '/signup/finish' });
+  const displayError = error || oauth.error;
 
   const strength = useMemo(() => strengthOf(pwd), [pwd]);
 
@@ -123,15 +127,22 @@ export function SignupForm() {
         {pwd ? STRENGTH_LABELS[Math.min(strength, 4)] : 'Pick something memorable but tough.'}
       </div>
 
-      {error && (
+      {displayError && (
         <p className="rw-alert" role="alert">
-          {error}
+          {displayError}
           {showAccountExists && (
             <>
               {' '}
               <a
                 className="rw-link"
-                href={`/login?email=${encodeURIComponent(email.trim().toLowerCase())}`}
+                href="/login"
+                onClick={(e) => {
+                  e.preventDefault();
+                  if (typeof sessionStorage !== 'undefined') {
+                    sessionStorage.setItem(PREFILL_EMAIL_KEY, email.trim().toLowerCase());
+                  }
+                  router.replace('/login');
+                }}
               >
                 Sign in
               </a>

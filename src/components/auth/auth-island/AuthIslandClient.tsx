@@ -1,6 +1,7 @@
 'use client';
 
 import { Suspense } from 'react';
+import Link from 'next/link';
 import type { AuthMode } from '@/components/auth/shared/pathForMode';
 import './auth-island.css';
 import { ParallaxField } from './ParallaxField';
@@ -38,9 +39,9 @@ function AuthIslandInner({ initialMode }: AuthIslandClientProps) {
                 <SignupForm />
                 <p className="rw-foot">
                   Already have an account?{' '}
-                  <a className="rw-link" href="/login">
+                  <Link className="rw-link" href="/login" replace>
                     Sign in
-                  </a>
+                  </Link>
                 </p>
               </>
             ) : (
@@ -50,9 +51,9 @@ function AuthIslandInner({ initialMode }: AuthIslandClientProps) {
                 <LoginForm />
                 <p className="rw-foot">
                   New to RepWorth?{' '}
-                  <a className="rw-link" href="/signup">
+                  <Link className="rw-link" href="/signup" replace>
                     Create an account
-                  </a>
+                  </Link>
                 </p>
               </>
             )}

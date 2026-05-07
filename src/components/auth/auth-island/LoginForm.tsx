@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { PREFILL_EMAIL_KEY } from '@/components/auth/shared/prefillEmail';
 import { useLoginSubmit } from '@/components/auth/hooks/useLoginSubmit';
 import { useGoogleOAuth } from '@/components/auth/hooks/useGoogleOAuth';
 import { mapInitialQueryError } from '@/components/auth/shared/mapLoginError';
@@ -9,10 +10,28 @@ import { Field } from './Field';
 import { ArrowIcon, CheckIcon, GoogleIcon, LockIcon, MailIcon } from './Icons';
 
 export function LoginForm() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const [email, setEmail] = useState(() => searchParams.get('email') ?? '');
   const [password, setPassword] = useState('');
   const [remember, setRemember] = useState(true);
+
+  // Carry the email from a prior signup→login handoff via sessionStorage so it
+  // never appears in the URL/history/logs. Also strip any ?email= legacy param
+  // (e.g., a pasted recovery link) once we've read it.
+  useEffect(() => {
+    if (typeof sessionStorage !== 'undefined') {
+      const stored = sessionStorage.getItem(PREFILL_EMAIL_KEY);
+      if (stored) {
+        setEmail(stored);
+        sessionStorage.removeItem(PREFILL_EMAIL_KEY);
+      }
+    }
+    if (searchParams.get('email')) {
+      router.replace('/login');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const { submit, loading, error, setError } = useLoginSubmit({
     portal: 'owner',

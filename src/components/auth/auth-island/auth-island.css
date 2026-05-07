@@ -176,7 +176,13 @@
 .rw-submit::before { content: ''; position: absolute; inset: 0; background: linear-gradient(120deg, transparent 30%, rgba(255,255,255,0.35) 50%, transparent 70%); transform: translateX(-100%); transition: transform 0.6s; }
 .rw-submit:hover::before { transform: translateX(100%); }
 .rw-submit.is-loading { pointer-events: none; }
-.rw-submit:disabled { opacity: 0.6; cursor: not-allowed; }
+.rw-submit:disabled {
+  background: #d1d5db;
+  color: #6b7280;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+.rw-submit:disabled::before { display: none; }
 .rw-submit .label { display: inline-flex; align-items: center; gap: 10px; }
 .rw-submit .arrow { transition: transform 0.3s; }
 .rw-submit:hover .arrow { transform: translateX(4px); }
