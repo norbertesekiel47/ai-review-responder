@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation';
-import { SignupFormClient } from '@/components/auth/SignupFormClient';
+import { AuthIslandClient } from '@/components/auth/auth-island/AuthIslandClient';
 
 export default function SignupPage() {
   if (process.env.SELF_SERVE_SIGNUP_ENABLED !== 'true') notFound();
-  return <SignupFormClient />;
+  return <AuthIslandClient initialMode="signup" />;
 }
