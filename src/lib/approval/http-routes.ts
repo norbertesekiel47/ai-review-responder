@@ -1,0 +1,190 @@
+import { createHash } from 'node:crypto';
+import type { NextRequest } from 'next/server';
+import { NextResponse } from 'next/server';
+import type postgres from 'postgres';
+import { sql } from '@/lib/db/server';
+import { requireRole, AuthError } from '@/lib/db/auth';
+import { recoverCorrelationId } from '@/lib/approval/correlation';
+import { getDeviceCookieHash, validateCsrf, verifyDeviceCookie } from '@/lib/approval/cookies';
+import { ResponseNotPendingError } from '@/lib/approval/errors';
+import { handleApprovalError } from '@/lib/approval/http-errors';
+import { lockValidLink } from '@/lib/approval/service';
+import type { ApprovalLink, AuditContext, SessionAuditContext } from '@/lib/approval/types';
+import { NO_STORE_HEADERS } from '@/lib/shared/constants';
+import { checkRateLimit } from '@/lib/shared/rate-limit';
+
+type TxClient = postgres.TransactionSql;
+
+type TokenActionName = 'approve' | 'edit' | 'regenerate' | 'session';
+
+interface TokenActionContext<TPrepared = undefined> {
+  tx: TxClient;
+  link: ApprovalLink;
+  deviceCookieHash: string;
+  audit: AuditContext;
+  correlationId: string;
+  prepared: TPrepared;
+}
+
+interface TokenActionOptions<TPrepared> {
+  requireVerifiedDeviceCookie?: boolean;
+  recoverResponseCorrelation?: boolean;
+  prepare?: () => Promise<TPrepared | NextResponse> | TPrepared | NextResponse;
+}
+
+export async function runTokenApprovalAction<TPrepared = undefined>(
+  request: NextRequest,
+  rawToken: string,
+  actionName: TokenActionName,
+  successBody: Record<string, unknown>,
+  action: (ctx: TokenActionContext<TPrepared>) => Promise<void>,
+  options: TokenActionOptions<TPrepared> = {},
+): Promise<NextResponse> {
+  const tokenHash = createHash('sha256').update(rawToken).digest('hex');
+  const rateCheck = await checkRateLimit(`approve:post:${tokenHash}`, 3, 60);
+  if (!rateCheck.allowed) {
+    return NextResponse.json({ error: 'Rate limit exceeded' }, { status: 429, headers: NO_STORE_HEADERS });
+  }
+
+  if (!validateCsrf(request)) {
+    return NextResponse.json({ error: 'Invalid CSRF token' }, { status: 403, headers: NO_STORE_HEADERS });
+  }
+
+  if (options.requireVerifiedDeviceCookie !== false && !verifyDeviceCookie(request)) {
+    return NextResponse.json({ error: 'Invalid device cookie' }, { status: 403, headers: NO_STORE_HEADERS });
+  }
+
+  const deviceCookieHash = getDeviceCookieHash(request);
+  if (!deviceCookieHash) {
+    return NextResponse.json({ error: 'Device cookie missing' }, { status: 400, headers: NO_STORE_HEADERS });
+  }
+
+  const prepared = options.prepare ? await options.prepare() : undefined as TPrepared;
+  if (prepared instanceof NextResponse) {
+    return prepared;
+  }
+
+  const ip = request.headers.get('x-forwarded-for') ?? request.ip ?? null;
+
+  try {
+    await sql.begin(async (tx) => {
+      const link = await lockValidLink(tx, rawToken);
+      const audit: AuditContext = { tokenHash: link.token_hash, deviceCookieHash, ipAddress: ip };
+      const correlationId = options.recoverResponseCorrelation === false
+        ? link.response_id
+        : await recoverLinkCorrelationId(tx, link);
+
+      await action({
+        tx,
+        link,
+        deviceCookieHash,
+        audit,
+        correlationId,
+        prepared: prepared as TPrepared,
+      });
+    });
+  } catch (err) {
+    return handleApprovalError(err, actionName);
+  }
+
+  return NextResponse.json(successBody, { status: 200, headers: NO_STORE_HEADERS });
+}
+
+async function recoverLinkCorrelationId(
+  tx: TxClient,
+  link: ApprovalLink,
+): Promise<string> {
+  const [response] = await tx<{ review_id: string }[]>`
+    SELECT review_id FROM responses WHERE id = ${link.response_id}
+  `;
+  return response
+    ? await recoverCorrelationId(tx, { reviewId: response.review_id, responseId: link.response_id })
+    : link.response_id;
+}
+
+interface DashboardOwner {
+  id: string;
+  businessId: string;
+}
+
+interface DashboardReviewActionContext {
+  tx: TxClient;
+  responseId: string;
+  businessId: string;
+  audit: SessionAuditContext;
+  correlationId: string;
+}
+
+export async function requireDashboardReviewOwner(
+  request: NextRequest,
+): Promise<DashboardOwner | NextResponse> {
+  let user;
+  try {
+    user = await requireRole(request, 'owner');
+  } catch (err) {
+    if (err instanceof AuthError) {
+      return NextResponse.json({ error: err.message }, { status: err.statusCode, headers: NO_STORE_HEADERS });
+    }
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: NO_STORE_HEADERS });
+  }
+
+  if (!user.businessId) {
+    return NextResponse.json({ error: 'No business associated with this account' }, { status: 403, headers: NO_STORE_HEADERS });
+  }
+
+  return { id: user.id, businessId: user.businessId };
+}
+
+export async function runDashboardReviewAction(
+  request: NextRequest,
+  reviewId: string,
+  owner: DashboardOwner,
+  actionName: 'approve' | 'edit' | 'regenerate',
+  successMessage: string,
+  action: (ctx: DashboardReviewActionContext) => Promise<void>,
+): Promise<NextResponse> {
+  const rows = await sql`
+    SELECT r.id, r.business_id, r.status
+    FROM responses r
+    JOIN reviews rv ON rv.id = r.review_id
+    WHERE rv.id = ${reviewId}
+      AND rv.business_id = ${owner.businessId}
+      AND r.status NOT IN ('superseded', 'failed')
+    ORDER BY r.version DESC LIMIT 1
+  `;
+
+  const response = rows[0];
+  if (!response) {
+    return NextResponse.json({ error: 'No actionable response found for this review' }, { status: 404, headers: NO_STORE_HEADERS });
+  }
+
+  const ip = request.headers.get('x-forwarded-for') ?? null;
+  const audit: SessionAuditContext = { actorUserId: owner.id, ipAddress: ip };
+
+  try {
+    await sql.begin(async (tx) => {
+      const correlationId = await recoverCorrelationId(tx, {
+        reviewId,
+        responseId: response.id as string,
+      });
+      await action({
+        tx,
+        responseId: response.id as string,
+        businessId: owner.businessId,
+        audit,
+        correlationId,
+      });
+    });
+
+    return NextResponse.json(
+      { success: true, message: successMessage },
+      { status: 200, headers: NO_STORE_HEADERS },
+    );
+  } catch (err) {
+    if (err instanceof ResponseNotPendingError) {
+      return NextResponse.json({ error: err.message }, { status: 409, headers: NO_STORE_HEADERS });
+    }
+    console.error(`[api/dashboard/reviews/${actionName}] Unexpected error:`, err);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500, headers: NO_STORE_HEADERS });
+  }
+}

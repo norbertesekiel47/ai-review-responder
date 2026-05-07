@@ -93,8 +93,11 @@ describe('handleTwilioStatusCallback', () => {
     expect(joined).toContain('delivered_at = NOW()');
     // Race-safe inline guard must be present
     expect(joined).toContain('delivered_at IS NULL AND failed_at IS NULL');
-    // Scoped to the SMS channel
-    expect(joined).toContain("channel = 'sms'");
+    const updateCall = mockSql.mock.calls.find((c) => {
+      const raw = (c[0] as TemplateStringsArray).raw.join('');
+      return raw.includes('UPDATE notification_deliveries') && raw.includes('delivered_at = NOW()');
+    });
+    expect(updateCall?.[2]).toBe('sms');
   });
 
   it('failed with ErrorCode -> sets failed_at + failure_reason=twilio:<code>', async () => {
@@ -198,17 +201,18 @@ describe('handleTwilioStatusCallback', () => {
     expect(reply.sentBody).toMatchObject({ retry: 'delivery_row_not_yet_present' });
 
     // The inbound_event must be marked failed with the specific error_message
-    // 'delivery_row_not_yet_present' (a SQL literal, not a parameter) so the
-    // dedup-reclaim branch (status='failed') picks it up on retry.
+    // 'delivery_row_not_yet_present' so the dedup-reclaim branch
+    // (status='failed') picks it up on retry.
     const failCall = mockSql.mock.calls.find((c) => {
       const raw = (c[0] as TemplateStringsArray).raw.join('');
       return (
         raw.includes('UPDATE inbound_events') &&
         raw.includes("status = 'failed'") &&
-        raw.includes("error_message = 'delivery_row_not_yet_present'")
+        raw.includes('error_message =')
       );
     });
     expect(failCall).toBeDefined();
+    expect(failCall?.[1]).toBe('delivery_row_not_yet_present');
   });
 
   it('dedup: second call with same MessageSid+MessageStatus returns 200 duplicate', async () => {
