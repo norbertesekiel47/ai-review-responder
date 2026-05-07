@@ -17,7 +17,13 @@ function scrubObject(obj: Record<string, unknown>): void {
     const value = obj[key];
     if (SENSITIVE_KEY_RE.test(key)) {
       obj[key] = '[REDACTED]';
-    } else if (value && typeof value === 'object' && !Array.isArray(value)) {
+    } else if (Array.isArray(value)) {
+      for (const item of value) {
+        if (item && typeof item === 'object') {
+          scrubObject(item as Record<string, unknown>);
+        }
+      }
+    } else if (value && typeof value === 'object') {
       scrubObject(value as Record<string, unknown>);
     }
   }

@@ -32,7 +32,7 @@ export type EligibilityResult =
  * equal the literal string `"true"`. Names + defaults match the original
  * NotificationWorker (default off — must be explicitly enabled).
  */
-export function isChannelFlagEnabled(channelId: ChannelId): boolean {
+function isChannelFlagEnabled(channelId: ChannelId): boolean {
   if (channelId === 'email') return true;
   if (channelId === 'sms') return process.env.CHANNELS_SMS_ENABLED === 'true';
   if (channelId === 'telegram') return process.env.CHANNELS_TELEGRAM_ENABLED === 'true';

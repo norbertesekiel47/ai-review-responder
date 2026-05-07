@@ -23,13 +23,6 @@ import {
 } from './llm-error-classifier';
 import { recordApiCost, calculateCostUsd } from '@/lib/costs/audit';
 
-// Re-export error classes so callers can import from one place
-export {
-  CostLimitExceededError,
-  GlobalCostLimitExceededError,
-  ConcurrencyLimitExceededError,
-  RegenBudgetExceededError,
-} from '@/lib/costs/tracker';
 export { TransientLLMError } from './llm-error-classifier';
 
 // ── Constants ────────────────────────────────────────────────────────

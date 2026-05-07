@@ -13,9 +13,6 @@ export const dynamic = 'force-dynamic';
 export type {
   DashboardData,
   DashboardDataActive,
-  DashboardDataPendingPayment,
-  DashboardDataPendingAdminHandoff,
-  DashboardDataActivePendingBusiness,
   DashboardSettings,
 } from '@/lib/dashboard/types';
 

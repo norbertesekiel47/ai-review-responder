@@ -6,16 +6,12 @@
 
 import type { NotificationChannel, ChannelId } from './types';
 
-export { EmailChannel } from './email-channel';
-export { SmsChannel, SmsRecipientUnsubscribedError } from './sms-channel';
+export { SmsRecipientUnsubscribedError } from './sms-channel';
 export { TelegramChannel } from './telegram-channel';
 export {
   TelegramRecipientBlockedError,
   TelegramChatNotFoundError,
-  TelegramRateLimitError,
-  TelegramApiError,
 } from './telegram-client';
-export { WhatsAppChannel } from './whatsapp-channel';
 export {
   WhatsAppRecipientBlockedError,
   WhatsAppInvalidRecipientError,
@@ -23,9 +19,8 @@ export {
   WhatsAppSessionWindowError,
   WhatsAppRateLimitError,
   WhatsAppTimeoutError,
-  WhatsAppApiError,
 } from './whatsapp-client';
-export type { NotificationChannel, ChannelId, SendApprovalParams, SendApprovalResult } from './types';
+export type { NotificationChannel, ChannelId } from './types';
 
 import { EmailChannel } from './email-channel';
 import { SmsChannel } from './sms-channel';
