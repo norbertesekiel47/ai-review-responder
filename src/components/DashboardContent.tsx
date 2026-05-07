@@ -34,7 +34,8 @@ export function DashboardContent() {
         }
       }, 100);
     }
-  }, [data]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (error) {
     return (
