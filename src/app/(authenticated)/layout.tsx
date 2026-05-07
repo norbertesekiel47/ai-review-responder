@@ -1,8 +1,26 @@
 import { cookies } from 'next/headers';
 import { createServerClient } from '@supabase/ssr';
 import { redirect } from 'next/navigation';
+import { Plus_Jakarta_Sans, DM_Sans } from 'next/font/google';
 import { sql } from '@/lib/db/server';
 import { OwnerNav } from '@/components/OwnerNav';
+import './_styles/tokens.css';
+import './_styles/console.css';
+import './_styles/past-replies.css';
+import './_styles/settings.css';
+
+const plusJakarta = Plus_Jakarta_Sans({
+  subsets: ['latin'],
+  weight: ['400', '500', '600', '700', '800'],
+  variable: '--rw-font-display',
+  display: 'swap',
+});
+const dmSans = DM_Sans({
+  subsets: ['latin'],
+  weight: ['400', '500', '600', '700'],
+  variable: '--rw-font-body',
+  display: 'swap',
+});
 
 export default async function AuthenticatedLayout({
   children,
@@ -43,7 +61,7 @@ export default async function AuthenticatedLayout({
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className={`${plusJakarta.variable} ${dmSans.variable} min-h-screen bg-gray-50`}>
       <OwnerNav
         businessName={businessName}
         pastRepliesEnabled={process.env.PAST_REPLIES_VIEW_ENABLED === 'true'}
