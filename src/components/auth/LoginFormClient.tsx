@@ -1,9 +1,11 @@
 'use client';
 
 import { Suspense, useState } from 'react';
-import { useSearchParams, useRouter } from 'next/navigation';
-import { createBrowserSupabaseClient } from '@/lib/db/browser';
+import { useSearchParams } from 'next/navigation';
 import type { AuthFlow } from '@/lib/shared/auth-flow';
+import { useLoginSubmit } from '@/components/auth/hooks/useLoginSubmit';
+import { useGoogleOAuth } from '@/components/auth/hooks/useGoogleOAuth';
+import { mapInitialQueryError } from '@/components/auth/shared/mapLoginError';
 
 export interface LoginFormProps {
   portal: AuthFlow;
@@ -21,33 +23,11 @@ export function LoginFormClient(props: LoginFormProps) {
   );
 }
 
-const OWNER_ALLOWED_PREFIXES = ['/dashboard', '/settings', '/onboarding'] as const;
-const ADMIN_AUTH_PAGES = ['/admin/login', '/admin/forgot-password', '/admin/reset-password'] as const;
-
-function resolvePostLoginDestination(
-  portal: AuthFlow,
-  from: string,
-  defaultRoute: string,
-): string {
-  // Must be an absolute internal path, not a protocol-relative URL.
-  if (!from.startsWith('/') || from.startsWith('//')) {
-    return defaultRoute;
-  }
-
-  if (portal === 'owner') {
-    const allowed = OWNER_ALLOWED_PREFIXES.some((prefix) => from.startsWith(prefix));
-    return allowed ? from : defaultRoute;
-  }
-
-  // Admin portal: accept /admin/* except the auth pages themselves (would loop).
-  if (!from.startsWith('/admin')) {
-    return defaultRoute;
-  }
-  const isAuthPage = ADMIN_AUTH_PAGES.some((page) => from === page || from.startsWith(`${page}/`));
-  return isAuthPage ? defaultRoute : from;
-}
-
-function LoginFormInner({
+// Exported for unit testing only. The public component is LoginFormClient,
+// which wraps this in a Suspense boundary so useSearchParams() can resolve.
+// Tests render LoginFormInner directly because renderToStaticMarkup runs
+// outside an app/ context and would otherwise see only the Suspense fallback.
+export function LoginFormInner({
   portal,
   brandName,
   showGoogleButton,
@@ -56,165 +36,37 @@ function LoginFormInner({
 }: LoginFormProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
   const searchParams = useSearchParams();
-  const router = useRouter();
+  const { submit, loading, error, setError } = useLoginSubmit({
+    portal,
+    allowedRoles,
+    defaultRoute,
+  });
+  const oauth = useGoogleOAuth({ flow: portal, next: defaultRoute });
 
-  const errorParam = searchParams.get('error');
-  const initialError =
-    errorParam === 'account_incomplete'
-      ? 'Your account is not set up yet. Contact your administrator.'
-      : errorParam === 'auth_callback_failed'
-        ? 'Sign-in failed. Please try again.'
-        : '';
-  const [error, setError] = useState(initialError);
+  // Initial error from URL query string (account_incomplete, auth_callback_failed).
+  // Read on each render so navigations within Suspense reflect updated params.
+  const initialQueryError = mapInitialQueryError(searchParams.get('error'));
+  const displayError = error || initialQueryError || oauth.error;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError('');
-    setLoading(true);
-    try {
-      const supabase = createBrowserSupabaseClient();
-      const { error: authError, data } = await supabase.auth.signInWithPassword({
-        email: email.trim().toLowerCase(),
-        password,
-      });
-
-      if (authError) {
-        // Email-not-confirmed UX: route to check-email page instead of raw error.
-        if (authError.message.toLowerCase().includes('email not confirmed')) {
-          const emailParam = encodeURIComponent(email.trim().toLowerCase());
-          router.push(`/signup/check-email?from=login&email=${emailParam}`);
-          return;
-        }
-        setError(authError.message);
-        return;
-      }
-
-      const authId = data?.user?.id;
-      if (!authId) {
-        await supabase.auth.signOut();
-        setError('Sign-in succeeded but no auth user was returned. Please try again.');
-        return;
-      }
-
-      // Distinguish three failure modes after a successful sign-in:
-      //   1. supabase client error (RLS denial, network, etc.) — userRow is
-      //      undefined and lookupErr is set. Show transient-error copy.
-      //   2. no row matches auth_id — userRow is null, lookupErr is null.
-      //      Account isn't provisioned in our public.users table. The
-      //      admin-onboarding flow inserts the row + patches auth_id; if
-      //      that ever drifts (e.g., auth user was recreated and auth_id
-      //      was never relinked), this branch fires. Different message
-      //      from "wrong portal" so the user knows it's a setup issue,
-      //      not a portal-mismatch issue.
-      //   3. row exists but role isn't in this portal's allowedRoles —
-      //      keep the existing "wrong portal" message.
-      // .maybeSingle() returns null without error when there are 0 rows,
-      // so case 2 doesn't masquerade as case 1.
-      const { data: userRow, error: lookupErr } = await supabase
-        .from('users')
-        .select('role')
-        .eq('auth_id', authId)
-        .limit(1)
-        .maybeSingle();
-
-      if (lookupErr) {
-        await supabase.auth.signOut();
-        setError('Could not load your account details. Please try again.');
-        return;
-      }
-
-      if (!userRow) {
-        await supabase.auth.signOut();
-        setError('Your account is not fully set up. Contact your administrator.');
-        return;
-      }
-
-      const role = (userRow as { role: string }).role;
-      if (!allowedRoles.includes(role)) {
-        await supabase.auth.signOut();
-        setError(
-          portal === 'owner'
-            ? 'That account is for the admin portal. Use /admin/login instead.'
-            : 'That account is for the owner portal. Use /login instead.',
-        );
-        return;
-      }
-
-      // Owner post-login routing must honor subscription lifecycle:
-      // - pending_payment → /onboarding/pay (dashboard would show a stub)
-      // - active + !businessOnboarded → /onboarding/business (must finish
-      //   the wizard before the dashboard has anything to show)
-      // - active + businessOnboarded / past_due / cancelled → standard
-      //   dashboard routing (banners handle the latter two)
-      // Admin portal has no subscription context — skip the check.
-      let destinationOverride: string | null = null;
-      if (portal === 'owner') {
-        try {
-          const statusRes = await fetch('/api/auth/signup-status');
-          if (statusRes.ok) {
-            const status = (await statusRes.json()) as {
-              subscriptionStatus?: string;
-              businessOnboarded?: boolean;
-            };
-            if (status.subscriptionStatus === 'pending_payment') {
-              destinationOverride = '/onboarding/pay';
-            } else if (
-              status.subscriptionStatus === 'active' &&
-              status.businessOnboarded === false
-            ) {
-              destinationOverride = '/onboarding/business';
-            }
-          }
-        } catch {
-          // Soft-fail — fall back to default routing. A transient status
-          // fetch error shouldn't block login; the dashboard's own guards
-          // will catch pending_payment / pending-onboarding owners on the
-          // next page load.
-        }
-      }
-
-      const from = searchParams.get('from') ?? '';
-      const destination =
-        destinationOverride ??
-        resolvePostLoginDestination(portal, from, defaultRoute);
-      router.push(destination);
-      router.refresh();
-    } catch {
-      setError('Connection failed');
-    } finally {
-      setLoading(false);
-    }
+    await submit(email, password);
   }
 
-  async function handleGoogle() {
-    const supabase = createBrowserSupabaseClient();
-    const redirectTo = `${window.location.origin}/api/auth/callback?flow=${portal}&next=${defaultRoute}`;
-    await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: { redirectTo },
-    });
-  }
-
-  const forgotPath =
-    portal === 'owner' ? '/forgot-password' : '/admin/forgot-password';
+  const forgotPath = portal === 'owner' ? '/forgot-password' : '/admin/forgot-password';
 
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
       <div className="w-full max-w-sm">
-        <h1 className="text-2xl font-bold text-gray-900 text-center mb-8">
-          {brandName}
-        </h1>
+        <h1 className="text-2xl font-bold text-gray-900 text-center mb-8">{brandName}</h1>
         <form
           onSubmit={handleSubmit}
           className="bg-white rounded-lg border border-gray-200 p-6 space-y-4"
         >
           <div>
-            <label
-              htmlFor="email"
-              className="block text-sm font-medium text-gray-700 mb-1"
-            >
+            <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
               Email
             </label>
             <input
@@ -229,10 +81,7 @@ function LoginFormInner({
             />
           </div>
           <div>
-            <label
-              htmlFor="password"
-              className="block text-sm font-medium text-gray-700 mb-1"
-            >
+            <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
               Password
             </label>
             <input
@@ -245,7 +94,7 @@ function LoginFormInner({
               className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
           </div>
-          {error && <p className="text-sm text-red-600">{error}</p>}
+          {displayError && <p className="text-sm text-red-600">{displayError}</p>}
           <button
             type="submit"
             disabled={loading}
@@ -256,7 +105,7 @@ function LoginFormInner({
           {showGoogleButton && (
             <button
               type="button"
-              onClick={handleGoogle}
+              onClick={() => void oauth.start()}
               className="w-full bg-white border border-gray-300 text-gray-700 font-medium py-2 rounded-md text-sm hover:bg-gray-50 transition-colors"
             >
               Continue with Google
