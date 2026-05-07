@@ -47,20 +47,34 @@ export function PastRepliesClient({
   const totalReplies = gapTotal + histTotal;
   const avgDisplay = avgStarRating != null ? avgStarRating.toFixed(1) : '—';
 
-  const matches = (r: Row) => {
-    if (rating !== 'all' && r.star_rating !== rating) return false;
-    if (!query) return true;
-    const q = query.trim().toLowerCase();
-    if (!q) return true;
-    return (
-      (r.review_text ?? '').toLowerCase().includes(q) ||
-      (r.approved_text ?? '').toLowerCase().includes(q) ||
-      (r.reviewer_name ?? '').toLowerCase().includes(q)
-    );
-  };
-
-  const visibleGap = useMemo(() => gapRows.filter(matches), [gapRows, query, rating]);
-  const visibleHist = useMemo(() => histRows.filter(matches), [histRows, query, rating]);
+  const visibleGap = useMemo(
+    () =>
+      gapRows.filter((r) => {
+        if (rating !== 'all' && r.star_rating !== rating) return false;
+        const q = query.trim().toLowerCase();
+        if (!q) return true;
+        return (
+          (r.review_text ?? '').toLowerCase().includes(q) ||
+          (r.approved_text ?? '').toLowerCase().includes(q) ||
+          (r.reviewer_name ?? '').toLowerCase().includes(q)
+        );
+      }),
+    [gapRows, query, rating],
+  );
+  const visibleHist = useMemo(
+    () =>
+      histRows.filter((r) => {
+        if (rating !== 'all' && r.star_rating !== rating) return false;
+        const q = query.trim().toLowerCase();
+        if (!q) return true;
+        return (
+          (r.review_text ?? '').toLowerCase().includes(q) ||
+          (r.approved_text ?? '').toLowerCase().includes(q) ||
+          (r.reviewer_name ?? '').toLowerCase().includes(q)
+        );
+      }),
+    [histRows, query, rating],
+  );
 
   return (
     <div className="pr-content">
