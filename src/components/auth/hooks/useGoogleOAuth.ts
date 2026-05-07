@@ -25,7 +25,7 @@ export function useGoogleOAuth({ flow, next }: UseGoogleOAuthInput): UseGoogleOA
     setLoading(true);
     try {
       const supabase = createBrowserSupabaseClient();
-      const redirectTo = `${window.location.origin}/api/auth/callback?flow=${flow}&next=${next}`;
+      const redirectTo = `${window.location.origin}/api/auth/callback?flow=${encodeURIComponent(flow)}&next=${encodeURIComponent(next)}`;
       const { error: signInError } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: { redirectTo },
