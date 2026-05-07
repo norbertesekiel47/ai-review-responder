@@ -7,14 +7,13 @@ import { useLoginSubmit } from '@/components/auth/hooks/useLoginSubmit';
 import { useGoogleOAuth } from '@/components/auth/hooks/useGoogleOAuth';
 import { mapInitialQueryError } from '@/components/auth/shared/mapLoginError';
 import { Field } from './Field';
-import { ArrowIcon, CheckIcon, GoogleIcon, LockIcon, MailIcon } from './Icons';
+import { ArrowIcon, GoogleIcon, LockIcon, MailIcon } from './Icons';
 
 export function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [email, setEmail] = useState(() => searchParams.get('email') ?? '');
   const [password, setPassword] = useState('');
-  const [remember, setRemember] = useState(true);
 
   // Carry the email from a prior signup→login handoff via sessionStorage so it
   // never appears in the URL/history/logs. Also strip any ?email= legacy param
@@ -90,18 +89,7 @@ export function LoginForm() {
         </p>
       )}
 
-      <div className="rw-row-between">
-        <label className="rw-check">
-          <input
-            type="checkbox"
-            checked={remember}
-            onChange={(e) => setRemember(e.target.checked)}
-          />
-          <span className="box">
-            <CheckIcon />
-          </span>
-          Keep me signed in
-        </label>
+      <div className="rw-row-end">
         <a className="rw-link" href="/forgot-password">
           Forgot password?
         </a>

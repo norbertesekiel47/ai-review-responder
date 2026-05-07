@@ -29,7 +29,7 @@ describe('LoginForm', () => {
     expect(html.toLowerCase()).toContain('autocomplete="current-password"');
     expect(html).toContain('Continue with Google');
     expect(html).toContain('Forgot password?');
-    expect(html).toContain('Keep me signed in');
+    expect(html).not.toContain('Keep me signed in');
   });
   it('pre-fills the email input from the ?email query param', () => {
     mockSearchParams = new URLSearchParams('email=a%40b.co');
