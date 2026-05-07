@@ -3,7 +3,8 @@ import { createServerClient } from '@supabase/ssr';
 import { redirect } from 'next/navigation';
 import { Plus_Jakarta_Sans, DM_Sans } from 'next/font/google';
 import { sql } from '@/lib/db/server';
-import { OwnerNav } from '@/components/OwnerNav';
+import { Sidebar } from '@/components/dashboard/Sidebar';
+import { MobileTabBar } from '@/components/dashboard/MobileTabBar';
 import './_styles/tokens.css';
 import './_styles/console.css';
 import './_styles/past-replies.css';
@@ -48,8 +49,8 @@ export default async function AuthenticatedLayout({
   } = await supabase.auth.getUser();
   if (!authUser) redirect('/admin/login');
 
-  const [appUser] = await sql<{ business_id: string | null }[]>`
-    SELECT business_id FROM users WHERE auth_id = ${authUser.id} LIMIT 1
+  const [appUser] = await sql<{ business_id: string | null; owner_name: string | null; email: string }[]>`
+    SELECT business_id, owner_name, email FROM users WHERE auth_id = ${authUser.id} LIMIT 1
   `;
 
   let businessName = '';
@@ -60,13 +61,22 @@ export default async function AuthenticatedLayout({
     businessName = biz?.name ?? '';
   }
 
+  const ownerName = appUser?.owner_name ?? '';
+  const ownerEmail = appUser?.email ?? authUser.email ?? '';
+  const pastRepliesEnabled = process.env.PAST_REPLIES_VIEW_ENABLED === 'true';
+
   return (
-    <div className={`${plusJakarta.variable} ${dmSans.variable} min-h-screen bg-gray-50`}>
-      <OwnerNav
-        businessName={businessName}
-        pastRepliesEnabled={process.env.PAST_REPLIES_VIEW_ENABLED === 'true'}
-      />
-      <main className="mx-auto max-w-4xl px-4 py-6">{children}</main>
+    <div className={`${plusJakarta.variable} ${dmSans.variable}`}>
+      <div className="shell">
+        <Sidebar
+          businessName={businessName}
+          ownerName={ownerName}
+          ownerEmail={ownerEmail}
+          pastRepliesEnabled={pastRepliesEnabled}
+        />
+        <div className="main">{children}</div>
+      </div>
+      <MobileTabBar pastRepliesEnabled={pastRepliesEnabled} />
     </div>
   );
 }
