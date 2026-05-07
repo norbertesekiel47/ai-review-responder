@@ -110,6 +110,13 @@ export default async function PastRepliesPage({
       AND ( ${activatedAtIso}::timestamptz IS NULL
             OR r.review_date < ${activatedAtIso}::timestamptz )
   `;
+  const avgRows = await sql<{ avg: number | null }[]>`
+    SELECT AVG(r.star_rating)::float AS avg
+    FROM reviews r
+    JOIN responses resp ON resp.review_id = r.id AND resp.status = 'posted'
+    WHERE r.business_id = ${owner.businessId}
+  `;
+  const avgStarRating = avgRows[0]?.avg ?? null;
   const gapTotal = gapCountRows[0]?.count ?? 0;
   const histTotal = histCountRows[0]?.count ?? 0;
 
