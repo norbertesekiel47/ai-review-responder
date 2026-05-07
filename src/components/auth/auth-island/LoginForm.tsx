@@ -27,7 +27,10 @@ export function LoginForm() {
       }
     }
     if (searchParams.get('email')) {
-      router.replace('/login');
+      const next = new URLSearchParams(searchParams.toString());
+      next.delete('email');
+      const qs = next.toString();
+      router.replace(qs ? `/login?${qs}` : '/login');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
