@@ -30,67 +30,58 @@ export function ChannelsClient({ initialEnrollments, initialAvailability, ownerE
   const emailReconciling = !emailRow;
 
   return (
-    <div className="space-y-6">
-      {/* Email row — always-on */}
-      <div className="rounded-lg border border-slate-700 bg-slate-900 p-4">
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex items-start gap-3">
-            <div className="text-2xl" aria-hidden>✉️</div>
-            <div>
-              <div className="font-medium text-slate-100">Email</div>
-              <p className="text-sm text-slate-400">{emailHandle}</p>
-            </div>
-          </div>
-          <span className="rounded-full border border-cyan-400 px-3 py-1 text-xs text-cyan-400">
-            {emailReconciling ? 'Reconciling…' : 'Always on'}
-          </span>
+    <div className="set-section">
+      <div className="set-section-head">
+        <div className="set-section-icon blue" aria-hidden>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12" /><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" /></svg>
+        </div>
+        <div>
+          <div className="set-section-title">Where to send approvals</div>
+          <div className="set-section-sub">Choose where you receive review approval requests.</div>
         </div>
       </div>
 
-      <div className="border-t border-slate-800 pt-4">
-        <p className="text-xs uppercase tracking-wider text-slate-500">Pick one extra channel</p>
+      {/* Email row — always-on */}
+      <div className="channel-row selected">
+        <div className="channel-icon ch-email" aria-hidden>✉️</div>
+        <div className="channel-meta">
+          <div className="channel-name">Email</div>
+          <div className="channel-handle">{emailHandle}</div>
+        </div>
+        <span className="channel-status cs-on">
+          {emailReconciling ? 'Reconciling…' : 'Always on'}
+        </span>
       </div>
 
-      {/* Telegram row — interactive if available, coming-soon otherwise */}
-      {initialAvailability.telegram ? (
-        <OwnerTelegramWidget initialEnrollment={findChannel(initialEnrollments, 'telegram')} />
-      ) : (
-        <ComingSoonChannelRow
-          icon={<span>💬</span>}
-          name="Telegram"
-          reason="Available once Telegram channel is enabled"
-        />
-      )}
+      {/* Pick one extra channel */}
+      <div className="pick-extra">
+        <div className="pick-extra-eyebrow">Pick one extra channel</div>
 
-      {/* SMS — always coming-soon in Phase 4 */}
-      {initialAvailability.sms ? (
-        <ComingSoonChannelRow
-          icon={<span>📱</span>}
-          name="SMS"
-          reason="SMS owner widget ships in a follow-up phase"
-        />
-      ) : (
-        <ComingSoonChannelRow
-          icon={<span>📱</span>}
-          name="SMS"
-          reason="Available once 10DLC verification clears"
-        />
-      )}
+        {/* Telegram row — interactive if available, coming-soon otherwise */}
+        {initialAvailability.telegram ? (
+          <OwnerTelegramWidget initialEnrollment={findChannel(initialEnrollments, 'telegram')} />
+        ) : (
+          <ComingSoonChannelRow
+            icon="💬"
+            name="Telegram"
+            reason="Available once Telegram channel is enabled"
+          />
+        )}
 
-      {/* WhatsApp — always coming-soon in Phase 4 */}
-      {initialAvailability.whatsapp ? (
+        {/* SMS — always coming-soon in Phase 4 */}
         <ComingSoonChannelRow
-          icon={<span>🟢</span>}
-          name="WhatsApp"
-          reason="WhatsApp owner widget ships in a follow-up phase"
+          icon="📱"
+          name="SMS"
+          reason={initialAvailability.sms ? 'SMS owner widget ships in a follow-up phase' : 'Available once 10DLC verification clears'}
         />
-      ) : (
+
+        {/* WhatsApp — always coming-soon in Phase 4 */}
         <ComingSoonChannelRow
-          icon={<span>🟢</span>}
+          icon="🟢"
           name="WhatsApp"
-          reason="Available once Meta business verification clears"
+          reason={initialAvailability.whatsapp ? 'WhatsApp owner widget ships in a follow-up phase' : 'Available once Meta business verification clears'}
         />
-      )}
+      </div>
     </div>
   );
 }

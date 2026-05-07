@@ -69,11 +69,16 @@ export default async function ChannelsPage() {
     }));
 
   return (
-    <div className="mx-auto max-w-2xl px-4 py-8">
-      <SettingsTabs activeTab="channels" />
-      <h1 className="text-2xl font-bold text-slate-100">Notification channels</h1>
-      <p className="mt-1 text-sm text-slate-400">Choose where you get review approval requests.</p>
-      <div className="mt-6">
+    <>
+      <div className="topbar">
+        <div>
+          <div className="page-title">Settings</div>
+          <div className="page-sub">Notification channels</div>
+        </div>
+        <div className="topbar-spacer" />
+      </div>
+      <div className="settings-content">
+        <SettingsTabs activeTab="channels" />
         <ChannelsClient
           initialEnrollments={initialEnrollments}
           initialAvailability={{
@@ -84,6 +89,6 @@ export default async function ChannelsPage() {
           ownerEmailFallback={access.email}
         />
       </div>
-    </div>
+    </>
   );
 }
