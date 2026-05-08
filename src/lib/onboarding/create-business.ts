@@ -2,6 +2,7 @@ import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '@/lib/db/server';
 import type { ValidatePlaceIdPayload } from '@/lib/shared/worker-types';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
+import { TIER_CONFIG, type SubscriptionTierValue } from '@/lib/accounts/tier-config';
 
 /**
  * Thrown when the businesses+users insert transaction fails on a PG 23505
@@ -192,16 +193,22 @@ async function runAdminTx(args: {
     // Create accounts row (source of truth for subscription state after
     // migration 034). owner_user_id references the users row we create
     // below — FK is satisfied by the time the transaction commits.
+    // VAL-BILLING-064: Snapshots locations_included and locations_overage_price_cents
+    // from TIER_CONFIG so the billing snapshot is self-consistent from creation.
+    const tierConfig = TIER_CONFIG[adminInput.subscriptionTier as SubscriptionTierValue];
     await tx`
       INSERT INTO accounts (
         id, owner_user_id, display_name,
-        subscription_tier, subscription_status
+        subscription_tier, subscription_status,
+        locations_included, locations_overage_price_cents
       ) VALUES (
         ${accountId}::uuid,
         ${userId}::uuid,
         ${adminInput.businessName},
         ${adminInput.subscriptionTier},
-        ${SubscriptionStatus.PENDING_PAYMENT}
+        ${SubscriptionStatus.PENDING_PAYMENT},
+        ${tierConfig?.included ?? 1},
+        ${tierConfig?.overageCents ?? 2500}
       )
     `;
 
@@ -312,16 +319,24 @@ async function runSelfServeTx(args: {
     // Create accounts row (source of truth for subscription state after
     // migration 034). owner_user_id references the users row we create
     // below — FK is satisfied by the time the transaction commits.
+    // VAL-BILLING-064: Snapshots locations_included and locations_overage_price_cents
+    // from TIER_CONFIG so the billing snapshot is self-consistent from creation.
+    // Self-serve hardcodes 'standard' tier here — select-plan updates it later.
+    const selfServeTier = 'standard' as SubscriptionTierValue;
+    const tierConfig = TIER_CONFIG[selfServeTier];
     await tx`
       INSERT INTO accounts (
         id, owner_user_id, display_name,
-        subscription_tier, subscription_status
+        subscription_tier, subscription_status,
+        locations_included, locations_overage_price_cents
       ) VALUES (
         ${accountId}::uuid,
         ${userId}::uuid,
         ${PLACEHOLDER_BUSINESS_NAME},
-        'standard',
-        ${SubscriptionStatus.PENDING_PAYMENT}
+        ${selfServeTier},
+        ${SubscriptionStatus.PENDING_PAYMENT},
+        ${tierConfig?.included ?? 1},
+        ${tierConfig?.overageCents ?? 2500}
       )
     `;
 

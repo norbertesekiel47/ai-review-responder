@@ -39,8 +39,10 @@ import { handleOnboardingDrip } from './jobs/OnboardingDripWorker';
 import { handleOwnerEmail } from './jobs/OwnerEmailWorker';
 import { handleDrainOwnerConnect } from './jobs/DrainOwnerConnectWorker';
 import { handleOnboardingDemo } from './jobs/OnboardingDemoWorker';
+import { handleUpdateStripeOverage } from './jobs/billing/UpdateStripeOverageWorker';
 import { startCleanupAbandonedSignupsPoller, stopCleanupAbandonedSignupsPoller } from './background/pollers/CleanupAbandonedSignupsPoller';
 import { startEmailChannelReconcilePoller, stopEmailChannelReconcilePoller } from './background/pollers/EmailChannelReconcilePoller';
+import { startCancellationGracePoller, stopCancellationGracePoller } from './background/pollers/CancellationGracePoller';
 import { isMockMode } from '../src/lib/shared/mock-mode';
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
@@ -135,6 +137,8 @@ const drainOwnerConnectWorker = new Worker(QUEUE_NAMES.DRAIN_OWNER_CONNECT, hand
 
 const onboardingDemoWorker = new Worker(QUEUE_NAMES.ONBOARDING_DEMO_RESPONSE, handleOnboardingDemo, workerOpts);
 
+const updateStripeOverageWorker = new Worker(QUEUE_NAMES.UPDATE_STRIPE_OVERAGE, handleUpdateStripeOverage, workerOpts);
+
 // Workers map keyed by queue name. Single source of truth for the
 // graceful-shutdown loop, Sentry breadcrumb wiring, and any future
 // observability hook that needs to enumerate workers without keeping a
@@ -156,6 +160,7 @@ const workersByQueue = {
   [QUEUE_NAMES.SEND_OWNER_EMAIL]: ownerEmailWorker,
   [QUEUE_NAMES.DRAIN_OWNER_CONNECT]: drainOwnerConnectWorker,
   [QUEUE_NAMES.ONBOARDING_DEMO_RESPONSE]: onboardingDemoWorker,
+  [QUEUE_NAMES.UPDATE_STRIPE_OVERAGE]: updateStripeOverageWorker,
 } as const;
 
 const workers = Object.values(workersByQueue);
@@ -259,6 +264,7 @@ async function main(): Promise<void> {
   startOnboardingDripScheduler();
   startCleanupAbandonedSignupsPoller();
   startEmailChannelReconcilePoller();
+  startCancellationGracePoller();
   console.log(`Worker service running on port ${PORT}`);
 }
 
@@ -277,6 +283,7 @@ async function shutdown(): Promise<void> {
   stopOnboardingDripScheduler();
   stopCleanupAbandonedSignupsPoller();
   stopEmailChannelReconcilePoller();
+  stopCancellationGracePoller();
   await Promise.all(workers.map((w) => w.close()));
   await Promise.all(Object.values(queues).map((q) => q.close()));
   await app.close();

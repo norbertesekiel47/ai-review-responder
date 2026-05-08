@@ -98,6 +98,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const tier = account.subscription_tier as SubscriptionTierValue;
 
   // Create the Checkout Session via the shared module
+  // VAL-BILLING-066: Returns 502 with user-facing error when Stripe API fails
+  // (network timeout, rate limit, invalid key, Stripe 500).
   try {
     const result = await createCheckoutSession(accountId, tier, account.owner_email);
     return NextResponse.json(
@@ -108,14 +110,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     if (err instanceof CheckoutUnavailableError) {
       return NextResponse.json(
         { error: 'checkout_unavailable', detail: err.message },
-        { status: 500, headers: NO_STORE },
+        { status: 502, headers: NO_STORE },
       );
     }
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[billing/checkout] Stripe error for account=${accountId}: ${message}`);
     return NextResponse.json(
-      { error: 'stripe_error', detail: message },
-      { status: 500, headers: NO_STORE },
+      { error: 'stripe_error', detail: 'Unable to connect to payment provider. Please try again later.' },
+      { status: 502, headers: NO_STORE },
     );
   }
 }

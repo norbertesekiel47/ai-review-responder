@@ -332,7 +332,8 @@ describe('POST /api/billing/checkout', () => {
     const req = mkRequest({ accountId });
     const res = await POST(req);
 
-    expect(res.status).toBe(500);
+    // VAL-BILLING-066: Returns 502 with user-facing error for Stripe failures
+    expect(res.status).toBe(502);
     setPriceEnvVars();
   });
 });

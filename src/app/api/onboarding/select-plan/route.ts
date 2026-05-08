@@ -7,6 +7,7 @@ import { SelectPlanSchema } from '@/lib/shared/schemas';
 import { getIpKey } from '@/lib/shared/request-ip';
 import { createCheckoutSession, CheckoutUnavailableError } from '@/lib/payments/create-checkout-session';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
+import { TIER_CONFIG, type SubscriptionTierValue } from '@/lib/accounts/tier-config';
 
 export const dynamic = 'force-dynamic';
 
@@ -198,13 +199,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     // UPDATE accounts (source of truth) and businesses (deprecated column
     // retained for backward compat per VAL-SCHEMA-037). Verify count > 0
-    // as defense-in-depth — if for any reason the WHERE didn't match
-    // (status changed inside this same tx, which shouldn't be possible
-    // but is the kind of paranoia that catches future refactors), fail
-    // loudly rather than handing out a Stripe link.
+    // as defense-in-depth.
+    // VAL-BILLING-065: Also snapshot locations_included and
+    // locations_overage_price_cents from TIER_CONFIG so the account's
+    // billing snapshot is self-consistent from this point forward.
+    const tierConfig = TIER_CONFIG[tier as SubscriptionTierValue];
     const update = await tx`
       UPDATE accounts
-      SET subscription_tier = ${tier}, updated_at = NOW()
+      SET subscription_tier = ${tier},
+          locations_included = ${tierConfig?.included ?? 1},
+          locations_overage_price_cents = ${tierConfig?.overageCents ?? 2500},
+          updated_at = NOW()
       WHERE id = (SELECT account_id FROM businesses WHERE id = ${businessId}::uuid)
         AND subscription_status = ${SubscriptionStatus.PENDING_PAYMENT}
     `;
@@ -267,14 +272,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       // Missing price env vars — same posture as the old payment_link_unavailable.
       return NextResponse.json(
         { error: 'checkout_unavailable', detail: err.message },
-        { status: 500, headers: NO_STORE },
+        { status: 502, headers: NO_STORE },
       );
     }
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[select-plan] Checkout Session creation failed for business=${businessId}: ${message}`);
+    // VAL-BILLING-066: Return 502 with user-facing error for Stripe failures
     return NextResponse.json(
-      { error: 'checkout_error', detail: message },
-      { status: 500, headers: NO_STORE },
+      { error: 'checkout_error', detail: 'Unable to connect to payment provider. Please try again later.' },
+      { status: 502, headers: NO_STORE },
     );
   }
 

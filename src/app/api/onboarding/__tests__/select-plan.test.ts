@@ -297,7 +297,8 @@ describe('POST /api/onboarding/select-plan', () => {
       new CheckoutUnavailableError('Missing base price ID for tier: founders'),
     );
     const res = await POST(mkReq(validBody));
-    expect(res.status).toBe(500);
+    // VAL-BILLING-066: Returns 502 with user-facing error for Stripe failures
+    expect(res.status).toBe(502);
     const body = await res.json();
     expect(body.error).toBe('checkout_unavailable');
   });
