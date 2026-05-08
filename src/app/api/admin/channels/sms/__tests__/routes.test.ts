@@ -105,7 +105,8 @@ function resetMocks() {
   mockRequireRole.mockResolvedValue({
     id: 'admin-1',
     role: 'admin',
-    businessId: null,
+    accountId: null,
+    locationId: null,
     name: 'Admin',
     email: 'a@b.com',
   });

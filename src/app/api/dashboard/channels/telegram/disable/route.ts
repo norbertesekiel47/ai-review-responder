@@ -22,16 +22,16 @@ async function handler(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
-  if (!user.businessId) return NextResponse.json({ error: 'no_business' }, { status: 403 });
+  if (!user.locationId) return NextResponse.json({ error: 'no_business' }, { status: 403 });
 
   const businessRows = await sql<{ subscription_status: string }[]>`
-    SELECT subscription_status FROM businesses WHERE id = ${user.businessId}
+    SELECT subscription_status FROM businesses WHERE id = ${user.locationId}
   `;
   if (businessRows[0]?.subscription_status !== 'active') {
     return NextResponse.json({ error: 'subscription_not_active' }, { status: 403 });
   }
 
-  const result = await disableTelegramEnrollment(sql, user.businessId);
+  const result = await disableTelegramEnrollment(sql, user.locationId);
 
   const noStore = { 'Cache-Control': 'no-store, private' };
   if (result.kind === 'not_found') {

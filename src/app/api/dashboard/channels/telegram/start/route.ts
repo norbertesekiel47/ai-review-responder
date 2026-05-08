@@ -31,7 +31,7 @@ async function handler(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
-  const businessId = user.businessId;
+  const businessId = user.locationId;
   if (!businessId) return NextResponse.json({ error: 'no_business' }, { status: 403 });
 
   const businessRows = await sql<{ subscription_status: string }[]>`

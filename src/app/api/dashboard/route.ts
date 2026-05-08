@@ -33,11 +33,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return jsonResponse({ error: 'Unauthorized' }, 401);
   }
 
-  if (!user.businessId) {
+  if (!user.locationId) {
     return jsonResponse({ error: 'No business associated with this account' }, 403);
   }
 
-  const businessId = user.businessId;
+  const businessId = user.locationId;
 
   try {
     // Cheap pre-query: determine subscription status + onboarding state

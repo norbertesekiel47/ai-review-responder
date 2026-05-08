@@ -22,16 +22,16 @@ async function handler(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
-  if (!user.businessId) return NextResponse.json({ error: 'no_business' }, { status: 403 });
+  if (!user.locationId) return NextResponse.json({ error: 'no_business' }, { status: 403 });
 
   const businessRows = await sql<{ subscription_status: string }[]>`
-    SELECT subscription_status FROM businesses WHERE id = ${user.businessId}
+    SELECT subscription_status FROM businesses WHERE id = ${user.locationId}
   `;
   if (businessRows[0]?.subscription_status !== 'active') {
     return NextResponse.json({ error: 'subscription_not_active' }, { status: 403 });
   }
 
-  const businessId = user.businessId;
+  const businessId = user.locationId;
   await sql.begin(async (tx) => {
     await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`mobile_enroll:${businessId}`}, 0))`;
     return cancelTelegramEnrollment(tx, businessId);

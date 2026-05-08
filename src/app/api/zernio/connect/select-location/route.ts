@@ -91,7 +91,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
     return errorToResponse(err);
   }
-  if (!user.businessId) {
+  if (!user.locationId) {
     return NextResponse.json(
       { error: 'unscoped_owner' },
       { status: 403, headers: NO_STORE },
@@ -159,7 +159,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       { status: 403, headers: NO_STORE },
     );
   }
-  if (stored.businessId !== user.businessId) {
+  if (stored.businessId !== user.locationId) {
     return NextResponse.json(
       { error: 'business_mismatch' },
       { status: 403, headers: NO_STORE },

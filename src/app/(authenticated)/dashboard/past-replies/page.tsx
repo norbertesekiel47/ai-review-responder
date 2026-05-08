@@ -33,13 +33,15 @@ export default async function PastRepliesPage({
   const page = Math.max(1, Number.isFinite(requested) ? requested : 1);
   const offset = (page - 1) * PAGE_SIZE;
 
+  const locationId = owner.currentLocationId;
+
   const [biz] = await sql<{
     subscription_tier: string;
     subscription_activated_at: Date | null;
   }[]>`
     SELECT subscription_tier, subscription_activated_at
     FROM businesses
-    WHERE id = ${owner.businessId}
+    WHERE id = ${locationId}
     LIMIT 1
   `;
   if (!biz) notFound();
@@ -64,7 +66,7 @@ export default async function PastRepliesPage({
         resp.posted_at
       FROM reviews r
       JOIN responses resp ON resp.review_id = r.id AND resp.status = 'posted'
-      WHERE r.business_id = ${owner.businessId}
+      WHERE r.business_id = ${locationId}
       ORDER BY r.review_date DESC
       LIMIT ${PAGE_SIZE} OFFSET ${offset}
     `,
@@ -72,7 +74,7 @@ export default async function PastRepliesPage({
       SELECT COUNT(*)::int AS count
       FROM reviews r
       JOIN responses resp ON resp.review_id = r.id AND resp.status = 'posted'
-      WHERE r.business_id = ${owner.businessId}
+      WHERE r.business_id = ${locationId}
         AND ${activatedAtIso}::timestamptz IS NOT NULL
         AND r.review_date >= ${activatedAtIso}::timestamptz
     `,
@@ -80,7 +82,7 @@ export default async function PastRepliesPage({
       SELECT COUNT(*)::int AS count
       FROM reviews r
       JOIN responses resp ON resp.review_id = r.id AND resp.status = 'posted'
-      WHERE r.business_id = ${owner.businessId}
+      WHERE r.business_id = ${locationId}
         AND ( ${activatedAtIso}::timestamptz IS NULL
               OR r.review_date < ${activatedAtIso}::timestamptz )
     `,
@@ -88,7 +90,7 @@ export default async function PastRepliesPage({
       SELECT AVG(r.star_rating)::float AS avg
       FROM reviews r
       JOIN responses resp ON resp.review_id = r.id AND resp.status = 'posted'
-      WHERE r.business_id = ${owner.businessId}
+      WHERE r.business_id = ${locationId}
     `,
   ]);
   const gapTotal = gapCountRows[0]?.count ?? 0;

@@ -7,6 +7,10 @@ import { isProtectedRoute } from '@/lib/shared/protected-routes';
 // user read their own row. Removes SUPABASE_SERVICE_KEY from Edge middleware
 // so a service-role secret isn't required — and doesn't get used — on every
 // protected request.
+//
+// Migration note (034): users.business_id was dropped and replaced by
+// users.account_id. The readSelf() function now selects account_id instead
+// of business_id. Validation contract: VAL-AUTH-029.
 
 export async function middleware(request: NextRequest) {
   // ── Public paths: skip Supabase work ──────────────────────────────
@@ -46,14 +50,18 @@ export async function middleware(request: NextRequest) {
   // RLS policy `users_self_select` (migration 006) permits self-reads via
   // auth_id = auth.uid()::text, so the cookie-bound anon client returns the
   // caller's single row without needing the service-role key.
-  async function readSelf(): Promise<{ role: string; business_id: string | null } | null> {
+  //
+  // After migration 034: reads account_id instead of business_id.
+  // VAL-AUTH-028: the users_self_select policy still works because it only
+  // checks auth_id = auth.uid() — the column being selected doesn't matter.
+  async function readSelf(): Promise<{ role: string; account_id: string | null } | null> {
     const { data } = await supabase
       .from('users')
-      .select('role, business_id')
+      .select('role, account_id')
       .eq('auth_id', authUser!.id)
       .limit(1)
       .single();
-    return (data as { role: string; business_id: string | null } | null) ?? null;
+    return (data as { role: string; account_id: string | null } | null) ?? null;
   }
 
   // 3. Admin pages (except /admin/login, /admin/forgot-password, /admin/reset-password)
@@ -90,7 +98,7 @@ export async function middleware(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: noStoreHeaders });
     }
     const self = await readSelf();
-    if (!self || self.role !== 'owner' || !self.business_id) {
+    if (!self || self.role !== 'owner' || !self.account_id) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403, headers: noStoreHeaders });
     }
   }
@@ -101,7 +109,7 @@ export async function middleware(request: NextRequest) {
       return redirectToLogin(request, 'owner');
     }
     const self = await readSelf();
-    if (!self || self.role !== 'owner' || !self.business_id) {
+    if (!self || self.role !== 'owner' || !self.account_id) {
       return redirectToLogin(request, 'owner');
     }
   }
@@ -117,7 +125,7 @@ export async function middleware(request: NextRequest) {
   //   b. Authenticated as admin/sales_partner → admin home (they're already
   //      logged in correctly, just on the wrong page; don't make them
   //      re-authenticate).
-  //   c. Authenticated as owner without business_id → owner login with
+  //   c. Authenticated as owner without account_id → owner login with
   //      `from=` (signup-not-finished provisioning state).
   if (pathname === '/onboarding' || pathname.startsWith('/onboarding/')) {
     if (!authUser) {
@@ -133,7 +141,7 @@ export async function middleware(request: NextRequest) {
       // Admin landed here by mistake — bounce to admin home, not owner login.
       return NextResponse.redirect(new URL('/admin/overview', request.url));
     }
-    if (self.role !== 'owner' || !self.business_id) {
+    if (self.role !== 'owner' || !self.account_id) {
       return redirectToLogin(request, 'owner');
     }
   }

@@ -112,11 +112,12 @@ function request(path = '/api/test'): NextRequest {
   });
 }
 
-function owner(overrides?: { businessId?: string | null }) {
+function owner(overrides?: { locationId?: string | null }) {
   return {
     id: 'owner-1',
     role: 'owner',
-    businessId: overrides && 'businessId' in overrides ? overrides.businessId : 'biz-1',
+    accountId: 'a0000000-0000-0000-0000-000000000001',
+    locationId: overrides && 'locationId' in overrides ? overrides.locationId : 'biz-1',
   };
 }
 
@@ -247,7 +248,7 @@ describe('requireDashboardReviewOwner', () => {
     expect((authRes as NextResponse).status).toBe(403);
     expect((authRes as NextResponse).headers.get('Cache-Control')).toBe('no-store, private');
 
-    mockRequireRole.mockResolvedValueOnce(owner({ businessId: null }));
+    mockRequireRole.mockResolvedValueOnce(owner({ locationId: null }));
     const noBusinessRes = await requireDashboardReviewOwner(request());
     expect(noBusinessRes).toBeInstanceOf(NextResponse);
     expect((noBusinessRes as NextResponse).status).toBe(403);

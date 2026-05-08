@@ -55,12 +55,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return errorToResponse(err);
   }
 
-  // Round-9: AppUser uses camelCase businessId (TS); requireRole does NOT
+  // Round-9: AppUser uses camelCase locationId (TS); requireRole does NOT
   // guarantee non-null business scope.
-  if (!user.businessId) {
+  if (!user.locationId) {
     return NextResponse.json({ error: 'unscoped_owner' }, { status: 403, headers: NO_STORE });
   }
-  const businessId = user.businessId;
+  const businessId = user.locationId;
   const userId = user.id;
 
   // 3. Subscription guard — spec §3.2 step 1: skip if subscription_status != 'active'.

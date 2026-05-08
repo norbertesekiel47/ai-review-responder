@@ -133,7 +133,8 @@ describe('POST /api/admin/businesses — channel enrollment insert', () => {
       name: 'Admin User',
       email: 'admin@repworth.com',
       role: 'admin',
-      businessId: null,
+      accountId: null,
+      locationId: null,
     });
     mockInviteUserByEmail.mockReset();
     mockInviteUserByEmail.mockResolvedValue({

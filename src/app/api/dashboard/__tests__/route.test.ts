@@ -75,13 +75,14 @@ function makeRequest(): NextRequest {
 
 const BUSINESS_ID = '01234567-0000-0000-0000-000000000001';
 
-function ownerUser(overrides?: { businessId?: string | null }) {
+function ownerUser(overrides?: { locationId?: string | null }) {
   return {
     id: 'user-1',
     name: 'Test Owner',
     email: 'owner@test.com',
     role: 'owner',
-    businessId: overrides && 'businessId' in overrides ? overrides.businessId : BUSINESS_ID,
+    accountId: 'a0000000-0000-0000-0000-000000000001',
+    locationId: overrides && 'locationId' in overrides ? overrides.locationId : BUSINESS_ID,
   };
 }
 
@@ -198,8 +199,8 @@ describe('GET /api/dashboard', () => {
     expect(body.error).toBe('Forbidden');
   });
 
-  it('returns 403 when user has no businessId', async () => {
-    mockRequireRole.mockResolvedValue(ownerUser({ businessId: null }));
+  it('returns 403 when user has no locationId', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser({ locationId: null }));
 
     const res = await GET(makeRequest());
     expect(res.status).toBe(403);

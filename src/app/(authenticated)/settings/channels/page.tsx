@@ -4,6 +4,8 @@
 // subscription guard run before any UI renders. Fetches the canonical
 // enrollment shape and channel availability for SSR-driven hydration.
 
+import { cookies } from 'next/headers';
+import { createServerClient } from '@supabase/ssr';
 import { sql } from '@/lib/db/server';
 import { requireOwnerAccess } from '@/lib/auth/require-owner-access';
 import { TopBar } from '@/components/dashboard/TopBar';
@@ -35,6 +37,22 @@ function telegramAvailable(): boolean {
 export default async function ChannelsPage() {
   const access = await requireOwnerAccess();
 
+  // Get the owner's email for the email enrollment fallback.
+  // requireOwnerAccess() no longer returns email (VAL-AUTH-023 shape change).
+  const cookieStore = await cookies();
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() { return cookieStore.getAll(); },
+        setAll() {},
+      },
+    },
+  );
+  const { data: { user: authUser } } = await supabase.auth.getUser();
+  const ownerEmail = authUser?.email ?? '';
+
   // verification_token_hash INTENTIONALLY excluded from SELECT.
   const enrollmentRows = await sql<{
     channel: string;
@@ -51,7 +69,7 @@ export default async function ChannelsPage() {
       e.verified_at, e.disabled_at, e.unsubscribed_at, e.unsubscribed_reason,
       e.verification_token_expires_at AS expires_at
     FROM channel_enrollments e
-    WHERE e.business_id = ${access.businessId}
+    WHERE e.account_id = ${access.accountId}
       AND e.archived_at IS NULL
     ORDER BY e.created_at ASC
   `;
@@ -83,7 +101,7 @@ export default async function ChannelsPage() {
           sms: smsAvailable(),
           whatsapp: whatsappAvailable(),
         }}
-        ownerEmailFallback={access.email}
+        ownerEmailFallback={ownerEmail}
       />
     </>
   );

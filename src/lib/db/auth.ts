@@ -1,13 +1,17 @@
 import { NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { sql } from '@/lib/db/server';
+import { asAccountId, asLocationId } from '@/lib/shared/ids';
+import type { AccountId, LocationId } from '@/lib/shared/ids';
 
 export interface AppUser {
   id: string;
   name: string;
   email: string;
   role: string;
-  businessId: string | null;
+  accountId: AccountId | null;
+  /** Primary location for the user's account. Null when account has no active locations. */
+  locationId: LocationId | null;
 }
 
 /**
@@ -16,6 +20,10 @@ export interface AppUser {
  *
  * Uses getUser() (not getSession()) — getUser() validates the token with the
  * Supabase Auth server on every call, which is required for server-side trust.
+ *
+ * Migration note (034): users.business_id was dropped; this function now
+ * reads users.account_id and resolves the primary location from the
+ * businesses table.
  */
 export async function getCurrentUser(
   request: NextRequest,
@@ -42,11 +50,25 @@ export async function getCurrentUser(
 
   if (!authUser) return null;
 
-  // Map Supabase Auth identity to app user
-  const rows = await sql`
-    SELECT id, name, email, role, business_id
-    FROM users
-    WHERE auth_id = ${authUser.id}
+  // Map Supabase Auth identity to app user + resolve primary location.
+  // Reads users.account_id (not users.business_id, which was dropped in
+  // migration 034). Joins to businesses to find the primary location.
+  const rows = await sql<{
+    id: string;
+    name: string;
+    email: string;
+    role: string;
+    account_id: string | null;
+    primary_location_id: string | null;
+  }[]>`
+    SELECT u.id, u.name, u.email, u.role, u.account_id,
+           (SELECT b.id FROM businesses b
+            WHERE b.account_id = u.account_id
+              AND b.is_primary = TRUE
+              AND b.archived_at IS NULL
+            LIMIT 1) AS primary_location_id
+    FROM users u
+    WHERE u.auth_id = ${authUser.id}
     LIMIT 1
   `;
 
@@ -58,7 +80,8 @@ export async function getCurrentUser(
     name: row.name as string,
     email: row.email as string,
     role: row.role as string,
-    businessId: (row.business_id as string) ?? null,
+    accountId: row.account_id ? asAccountId(row.account_id) : null,
+    locationId: row.primary_location_id ? asLocationId(row.primary_location_id) : null,
   };
 }
 

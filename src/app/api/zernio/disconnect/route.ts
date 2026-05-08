@@ -74,13 +74,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // must specify it in the body.
   let businessId: string;
   if (user.role === 'owner') {
-    if (!user.businessId) {
+    if (!user.locationId) {
       return NextResponse.json(
         { error: 'unscoped_owner' },
         { status: 403, headers: NO_STORE },
       );
     }
-    businessId = user.businessId;
+    businessId = user.locationId;
   } else {
     let body: DisconnectBody;
     try {

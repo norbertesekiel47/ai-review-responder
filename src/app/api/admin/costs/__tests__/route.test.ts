@@ -159,7 +159,8 @@ describe('GET /api/admin/costs', () => {
     mockRequireRole.mockResolvedValue({
       id: 'admin-1',
       role: 'admin',
-      businessId: null,
+      accountId: null,
+      locationId: null,
     });
   });
 
@@ -499,7 +500,8 @@ describe('GET /api/admin/costs', () => {
     originalFactory.mockResolvedValue({
       id: 'admin-1',
       role: 'admin',
-      businessId: null,
+      accountId: null,
+      locationId: null,
     });
 
     // Intercept sql calls by wrapping mockSqlResults with a logger.

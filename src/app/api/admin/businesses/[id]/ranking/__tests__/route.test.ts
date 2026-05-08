@@ -54,7 +54,7 @@ const makeParams = () => Promise.resolve({ id: 'biz-1' });
 describe('POST /api/admin/businesses/[id]/ranking', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockRequireRole.mockResolvedValue({ id: 'u1', role: 'admin', businessId: null });
+    mockRequireRole.mockResolvedValue({ id: 'u1', role: 'admin', accountId: null, locationId: null });
     mockSqlReturn.value = [{ id: 'mock-uuid-v7' }];
   });
 

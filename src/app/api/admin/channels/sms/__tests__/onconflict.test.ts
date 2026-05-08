@@ -82,7 +82,8 @@ vi.mock('@/lib/db/auth', () => ({
     name: 'Admin',
     email: 'admin@example.com',
     role: 'admin',
-    businessId: null,
+    accountId: null,
+    locationId: null,
   }),
   AuthError: class AuthError extends Error {
     statusCode: number;

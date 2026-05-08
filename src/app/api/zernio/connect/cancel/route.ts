@@ -71,13 +71,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
     return errorToResponse(err);
   }
-  if (!user.businessId) {
+  if (!user.locationId) {
     return NextResponse.json(
       { error: 'unscoped_owner' },
       { status: 403, headers: NO_STORE },
     );
   }
-  const businessId = user.businessId;
+  const businessId = user.locationId;
 
   const redis = getCacheRedis();
   const pKey = pendingKey(businessId);

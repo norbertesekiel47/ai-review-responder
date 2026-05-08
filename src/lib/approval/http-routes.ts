@@ -128,11 +128,11 @@ export async function requireDashboardReviewOwner(
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: NO_STORE_HEADERS });
   }
 
-  if (!user.businessId) {
+  if (!user.locationId) {
     return NextResponse.json({ error: 'No business associated with this account' }, { status: 403, headers: NO_STORE_HEADERS });
   }
 
-  return { id: user.id, businessId: user.businessId };
+  return { id: user.id, businessId: user.locationId };
 }
 
 export async function runDashboardReviewAction(

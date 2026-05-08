@@ -87,13 +87,14 @@ const OTHER_BUSINESS_ID = '01234567-0000-0000-0000-000000000099';
 const REVIEW_ID = 'rev-001';
 const RESPONSE_ID = 'resp-001';
 
-function ownerUser(overrides?: { businessId?: string | null }) {
+function ownerUser(overrides?: { locationId?: string | null }) {
   return {
     id: 'user-1',
     name: 'Test Owner',
     email: 'owner@test.com',
     role: 'owner',
-    businessId: overrides && 'businessId' in overrides ? overrides.businessId : BUSINESS_ID,
+    accountId: 'a0000000-0000-0000-0000-000000000001',
+    locationId: overrides && 'locationId' in overrides ? overrides.locationId : BUSINESS_ID,
   };
 }
 
@@ -189,8 +190,8 @@ describe('POST /api/dashboard/reviews/[reviewId]/approve', () => {
     expect(res.status).toBe(401);
   });
 
-  it('returns 403 when user has no businessId', async () => {
-    mockRequireRole.mockResolvedValue(ownerUser({ businessId: null }));
+  it('returns 403 when user has no locationId', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser({ locationId: null }));
 
     const { POST } = await import('../[reviewId]/approve/route');
     const res = await POST(
