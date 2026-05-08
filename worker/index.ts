@@ -43,6 +43,7 @@ import { handleUpdateStripeOverage } from './jobs/billing/UpdateStripeOverageWor
 import { startCleanupAbandonedSignupsPoller, stopCleanupAbandonedSignupsPoller } from './background/pollers/CleanupAbandonedSignupsPoller';
 import { startEmailChannelReconcilePoller, stopEmailChannelReconcilePoller } from './background/pollers/EmailChannelReconcilePoller';
 import { startCancellationGracePoller, stopCancellationGracePoller } from './background/pollers/CancellationGracePoller';
+import { startStripeLocationsReconcilePoller, stopStripeLocationsReconcilePoller } from './background/pollers/StripeLocationsReconcilePoller';
 import { isMockMode } from '../src/lib/shared/mock-mode';
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
@@ -265,6 +266,7 @@ async function main(): Promise<void> {
   startCleanupAbandonedSignupsPoller();
   startEmailChannelReconcilePoller();
   startCancellationGracePoller();
+  startStripeLocationsReconcilePoller();
   console.log(`Worker service running on port ${PORT}`);
 }
 
@@ -284,6 +286,7 @@ async function shutdown(): Promise<void> {
   stopCleanupAbandonedSignupsPoller();
   stopEmailChannelReconcilePoller();
   stopCancellationGracePoller();
+  stopStripeLocationsReconcilePoller();
   await Promise.all(workers.map((w) => w.close()));
   await Promise.all(Object.values(queues).map((q) => q.close()));
   await app.close();
