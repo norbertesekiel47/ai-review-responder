@@ -179,6 +179,7 @@ function seedResponseAndBusiness() {
   sqlQueue.push([{
     name: 'Acme Corp',
     owner_email_bounced: false,
+    archived_at: null,
     subscription_status: 'active',
     account_updated_at: new Date('2026-04-01'),
   }]);

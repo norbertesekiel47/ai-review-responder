@@ -150,6 +150,7 @@ function mockBusinessRow(overrides: Record<string, unknown> = {}) {
   return {
     name: 'Test Biz',
     owner_email_bounced: false,
+    archived_at: null,
     subscription_status: 'active',
     account_updated_at: new Date(),
     ...overrides,

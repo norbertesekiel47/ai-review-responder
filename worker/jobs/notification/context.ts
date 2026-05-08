@@ -6,6 +6,14 @@
 //   - response/business id mismatch   → fail outbox with reason
 //   - response status != pending      → complete outbox (skip)
 //   - business not found              → fail outbox with reason
+//   - business is archived            → complete outbox (skip) [VAL-LOC-044]
+//
+// VAL-LOC-044: When a location with pending_approval responses is archived,
+// the archive succeeds and pending responses remain pending_approval. The
+// notification worker skips dispatch for archived locations — pending
+// notifications stay in the outbox but the publisher worker does not send
+// them. This is the "subscription guard pattern" where the guard check
+// prevents dispatch without modifying the response status.
 //
 // The orchestrator decides outbox finalization based on the discriminated
 // result: 'ok' continues to dispatch, 'skip' means complete outbox cleanly,
@@ -40,6 +48,7 @@ export interface BusinessRow {
   owner_email_bounced: boolean;
   subscription_status: string;
   account_updated_at: Date;
+  archived_at: Date | null;
 }
 
 export type NotificationContextResult =
@@ -78,7 +87,7 @@ export async function loadNotificationContext(
   }
 
   const [business] = await sql<BusinessRow[]>`
-    SELECT b.name, b.owner_email_bounced, a.subscription_status, a.updated_at AS account_updated_at
+    SELECT b.name, b.owner_email_bounced, b.archived_at, a.subscription_status, a.updated_at AS account_updated_at
     FROM businesses b
     JOIN accounts a ON a.id = b.account_id
     WHERE b.id = ${input.businessId}
@@ -86,6 +95,19 @@ export async function loadNotificationContext(
   if (!business) {
     logger.warn(`Business ${input.businessId} not found`);
     return { kind: 'fail', reason: 'business_not_found' };
+  }
+
+  // VAL-LOC-044: Skip notification dispatch for archived locations.
+  // Pending responses remain pending_approval but the publisher worker
+  // does not send notifications for archived locations. Existing approval
+  // links still resolve (the approval page uses service-role access).
+  // The resolver (resolveChannels) does not return channels for archived
+  // locations as an additional guard.
+  if (business.archived_at !== null) {
+    logger.warn(
+      `Business ${input.businessId} is archived (archived_at=${business.archived_at}) — skipping notification`,
+    );
+    return { kind: 'skip' };
   }
 
   return { kind: 'ok', response, business };
