@@ -67,10 +67,16 @@ describe('POST /api/locations/add', () => {
 
   it('creates location and enqueues outbox job for active account', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-    mockSql.mockResolvedValueOnce([mockAccountRow()]); // account lookup
-    mockSql.mockResolvedValueOnce([{ count: 1 }]); // location count
-    // Inside tx: businesses INSERT, audit_log INSERT, outbox INSERT
-    // These all use the tx (mockSql) so no separate mock needed
+    // assertCanAddLocation makes 2 SQL calls:
+    //   1. SELECT FOR UPDATE on accounts
+    //   2. Location count query
+    mockSql.mockResolvedValueOnce([mockAccountRow()]); // account lookup (SELECT FOR UPDATE)
+    mockSql.mockResolvedValueOnce([{ count: 1 }]); // location count in assertCanAddLocation
+    // After assertCanAddLocation succeeds, the route handler also calls:
+    //   3. getActiveLocationCount(accountId) — count query
+    //   4. Account re-read for tier/status
+    mockSql.mockResolvedValueOnce([{ count: 1 }]); // getActiveLocationCount
+    mockSql.mockResolvedValueOnce([{ subscription_tier: 'standard', subscription_status: 'active' }]); // account re-read
 
     const req = mkRequest({
       accountId,
@@ -163,8 +169,12 @@ describe('POST /api/locations/add', () => {
 
   it('enqueues update_stripe_overage_quantity outbox job (no Checkout redirect)', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-    mockSql.mockResolvedValueOnce([mockAccountRow()]);
-    mockSql.mockResolvedValueOnce([{ count: 1 }]);
+    // assertCanAddLocation: 2 SQL calls
+    mockSql.mockResolvedValueOnce([mockAccountRow()]); // SELECT FOR UPDATE
+    mockSql.mockResolvedValueOnce([{ count: 1 }]); // location count
+    // Route handler: 2 more SQL calls
+    mockSql.mockResolvedValueOnce([{ count: 1 }]); // getActiveLocationCount
+    mockSql.mockResolvedValueOnce([{ subscription_tier: 'standard', subscription_status: 'active' }]); // account re-read
 
     const req = mkRequest({
       accountId,

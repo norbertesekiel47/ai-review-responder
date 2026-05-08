@@ -10,8 +10,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '@/lib/db/server';
-import { SubscriptionStatus } from '@/lib/shared/subscription-status';
-import { TIER_CONFIG, type SubscriptionTierValue } from '@/lib/accounts/tier-config';
+import { assertCanAddLocation } from '@/lib/accounts/quota';
+import { getActiveLocationCount } from '@/lib/locations/repo';
 
 export const dynamic = 'force-dynamic';
 
@@ -73,19 +73,48 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
   const { accountId, displayLabel, googlePlaceId, placeIdVerified, googleMapsUrl } = parsed.data;
 
-  // Read and lock the account
+  // Use the quota chokepoint — handles SELECT FOR UPDATE, tier check,
+  // subscription check, and quota boundary check in one call.
+  // Per AGENTS.md: "Never compute quota inline."
+  const quotaResult = await assertCanAddLocation(accountId);
+
+  if (!quotaResult.allowed) {
+    const statusMap: Record<string, number> = {
+      account_not_found: 404,
+      subscription_inactive: 403,
+      tier_disallows_multi_location: 403,
+      quota_exhausted: 409,
+    };
+    const httpStatus = statusMap[quotaResult.reason] ?? 403;
+
+    const errorPayload: Record<string, unknown> = {
+      error: quotaResult.reason,
+    };
+    if (quotaResult.reason === 'tier_disallows_multi_location') {
+      // Could read tier from account, but the route doesn't have it anymore
+      // after moving the SELECT FOR UPDATE into assertCanAddLocation.
+      // The reason string is sufficient for the client.
+    }
+
+    return NextResponse.json(errorPayload, { status: httpStatus, headers: NO_STORE });
+  }
+
+  // Count active locations for audit payload
+  const activeLocations = await getActiveLocationCount(accountId);
+
+  // Read account fields needed for the businesses INSERT (tier, status).
+  // The SELECT FOR UPDATE in assertCanAddLocation already locked the row,
+  // so this read happens within the same lock scope if we're inside a tx.
+  // However, assertCanAddLocation uses the standalone sql client (auto-commit),
+  // so the FOR UPDATE lock is released after that function returns.
+  // For the INSERT transaction below, we need to re-read the account row.
   const [account] = await sql<{
-    id: string;
     subscription_tier: string;
     subscription_status: string;
-    locations_included: number;
-    locations_paid: number;
   }[]>`
-    SELECT id, subscription_tier, subscription_status,
-           locations_included, locations_paid
+    SELECT subscription_tier, subscription_status
     FROM accounts
     WHERE id = ${accountId}::uuid
-    FOR UPDATE
   `;
 
   if (!account) {
@@ -94,32 +123,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       { status: 404, headers: NO_STORE },
     );
   }
-
-  // Check subscription is active
-  if (account.subscription_status !== SubscriptionStatus.ACTIVE) {
-    return NextResponse.json(
-      { error: 'subscription_inactive', subscriptionStatus: account.subscription_status },
-      { status: 403, headers: NO_STORE },
-    );
-  }
-
-  // Check tier allows multi-location
-  const tierConfig = TIER_CONFIG[account.subscription_tier as SubscriptionTierValue];
-  if (!tierConfig || !tierConfig.multiLocAllowed) {
-    return NextResponse.json(
-      { error: 'tier_disallows_multi_location', tier: account.subscription_tier },
-      { status: 403, headers: NO_STORE },
-    );
-  }
-
-  // Count active locations
-  const [locationRow] = await sql<{ count: number }[]>`
-    SELECT COUNT(*) AS count
-    FROM businesses
-    WHERE account_id = ${accountId}::uuid
-      AND archived_at IS NULL
-  `;
-  const activeLocations = Number(locationRow?.count ?? 0);
 
   // Execute the add-location transaction
   const businessId = uuidv7();
@@ -204,6 +207,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       businessId,
       displayLabel,
       activeLocations: activeLocations + 1,
+      overageUnits: quotaResult.overageUnits,
     },
     { status: 201, headers: NO_STORE },
   );
