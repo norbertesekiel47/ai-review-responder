@@ -41,6 +41,7 @@ export function useDashboardData(): UseDashboardDataResult {
   }, []);
 
   useEffect(() => {
+    unmountedRef.current = false;
     refresh();
     return () => {
       unmountedRef.current = true;
