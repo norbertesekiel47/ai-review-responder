@@ -221,6 +221,8 @@
   font-weight: 500;
   color: #374151;
   font-feature-settings: "tnum";
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .live-dot {
   width: 8px; height: 8px;
@@ -242,6 +244,8 @@
   100% { transform: scale(2.2); opacity: 0; }
 }
 .refresh-btn {
+  white-space: nowrap;
+  flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   gap: 6px;

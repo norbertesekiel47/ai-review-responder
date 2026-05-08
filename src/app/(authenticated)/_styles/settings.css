@@ -37,6 +37,7 @@
   cursor: pointer;
   font-family: var(--rw-font-body);
   white-space: nowrap;
+  flex-shrink: 0;
   transition: color 160ms var(--rw-ease);
 }
 .stab:hover { color: var(--rw-app-text); }
@@ -489,7 +490,15 @@
 .save-bar-text strong { color: var(--rw-app-text); font-weight: 700; }
 .save-bar-spacer { flex: 1; }
 @media (max-width: 768px) {
-  .save-bar { left: 0; padding: 10px 16px 70px; flex-wrap: wrap; }
+  /* Sit ABOVE the bottom tabbar (mobile-tabbar is ~57px tall + safe-area
+     inset). Previously bottom:0 overlapped the tabbar visually because
+     the bar's opaque background extended to the viewport bottom. */
+  .save-bar {
+    left: 0;
+    bottom: calc(57px + env(safe-area-inset-bottom, 0px));
+    padding: 10px 16px;
+    flex-wrap: wrap;
+  }
 }
 
 /* Saved confetti pulse */

@@ -22,8 +22,12 @@ export function SettingsShell({ activeTab, children, saveBar, savedFlash }: Prop
       <SettingsTabs activeTab={activeTab} />
       {children}
 
-      {saveBar && (
-        <div className={`save-bar ${saveBar.visible ? 'visible' : ''}`}>
+      {/* Conditional render rather than CSS-toggle — keeps a clean DOM
+          (no "0 unsaved changes" lurking when there's nothing to save) and
+          still plays the slide-up animation on mount. The slide-down on
+          discard is dropped intentionally; the bar simply unmounts. */}
+      {saveBar?.visible && (
+        <div className="save-bar visible">
           <span className="save-bar-text">
             <strong>
               {saveBar.dirtyCount} unsaved {saveBar.dirtyCount === 1 ? 'change' : 'changes'}
