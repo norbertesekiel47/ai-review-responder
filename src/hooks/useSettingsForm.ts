@@ -41,6 +41,17 @@ function buildPatch(initial: SettingsForm, current: SettingsForm): Record<string
   return Object.keys(patch).length > 0 ? patch : null;
 }
 
+export function settingsRedirectForDashboardData(json: DashboardData): string | null {
+  if (json.subscriptionStatus === 'pending_payment') return json.paymentUrl ?? '/dashboard';
+  if (
+    json.subscriptionStatus === 'active_pending_business' ||
+    json.subscriptionStatus === 'pending_payment_admin_handoff'
+  ) {
+    return '/dashboard';
+  }
+  return null;
+}
+
 export interface UseSettingsForm {
   data: DashboardDataActive | null;
   form: SettingsForm | null;
@@ -84,8 +95,9 @@ export function useSettingsForm(): UseSettingsForm {
         }
         const json: DashboardData = await res.json();
         if (cancelled) return;
-        if (json.subscriptionStatus === 'pending_payment') {
-          window.location.href = json.paymentUrl ?? '/dashboard';
+        const redirectUrl = settingsRedirectForDashboardData(json);
+        if (redirectUrl) {
+          window.location.href = redirectUrl;
           return;
         }
         const active = json as DashboardDataActive;
