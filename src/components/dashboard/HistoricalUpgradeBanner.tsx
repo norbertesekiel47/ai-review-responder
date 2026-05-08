@@ -1,22 +1,22 @@
-// src/components/dashboard/HistoricalUpgradeBanner.tsx
-//
-// Soft upsell rendered above the historical-period section for non-premium
-// owners on the Past Replies tab. Read-only context — references future
-// edit functionality without exposing it (the edit feature is parked
-// pending direct GBP API approval).
-
 import Link from 'next/link';
+import { Icon } from './Icon';
 
 export function HistoricalUpgradeBanner() {
   return (
-    <div className="mb-4 rounded-lg border border-[#F2C3B9]/60 bg-[#F2C3B9]/15 p-4">
-      <p className="text-sm text-[#2a2a2a]">
-        <strong>Premium</strong> customers will be able to edit replies to historical reviews using
-        their current brand voice once direct Google integration ships.{' '}
-        <Link href="/onboarding/pay" className="underline">
-          See Premium plans →
-        </Link>
-      </p>
+    <div className="pr-upgrade">
+      <div className="pr-upgrade-icon">
+        <Icon name="lightbulb" size={18} />
+      </div>
+      <div className="pr-upgrade-text">
+        <div className="pr-upgrade-title">Edit replies from before you joined</div>
+        <div className="pr-upgrade-sub">
+          Premium owners will be able to rewrite historical replies in your current tone — perfect for tightening up older
+          one-liners. Currently view-only.
+        </div>
+      </div>
+      <Link href="/onboarding/pay" className="pr-upgrade-cta">
+        Upgrade →
+      </Link>
     </div>
   );
 }

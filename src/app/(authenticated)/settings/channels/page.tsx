@@ -6,8 +6,9 @@
 
 import { sql } from '@/lib/db/server';
 import { requireOwnerAccess } from '@/lib/auth/require-owner-access';
-import { SettingsTabs } from '@/components/dashboard/SettingsTabs';
-import { ChannelsClient, type InitialEnrollment } from './ChannelsClient';
+import { TopBar } from '@/components/dashboard/TopBar';
+import { type InitialEnrollment } from './ChannelsClient';
+import { ChannelsTabClient } from './ChannelsTabClient';
 import { isTelegramEnabled, assertTelegramEnvReady } from '@/app/api/admin/channels/telegram/_shared';
 
 const KNOWN_CHANNELS = new Set<string>(['email', 'sms', 'telegram', 'whatsapp']);
@@ -69,21 +70,21 @@ export default async function ChannelsPage() {
     }));
 
   return (
-    <div className="mx-auto max-w-2xl px-4 py-8">
-      <SettingsTabs activeTab="channels" />
-      <h1 className="text-2xl font-bold text-slate-100">Notification channels</h1>
-      <p className="mt-1 text-sm text-slate-400">Choose where you get review approval requests.</p>
-      <div className="mt-6">
-        <ChannelsClient
-          initialEnrollments={initialEnrollments}
-          initialAvailability={{
-            telegram: telegramAvailable(),
-            sms: smsAvailable(),
-            whatsapp: whatsappAvailable(),
-          }}
-          ownerEmailFallback={access.email}
-        />
-      </div>
-    </div>
+    <>
+      <TopBar
+        title="Settings"
+        subtitle="Notification channels"
+        rightLink={{ href: '/dashboard', label: 'Back to dashboard' }}
+      />
+      <ChannelsTabClient
+        initialEnrollments={initialEnrollments}
+        initialAvailability={{
+          telegram: telegramAvailable(),
+          sms: smsAvailable(),
+          whatsapp: whatsappAvailable(),
+        }}
+        ownerEmailFallback={access.email}
+      />
+    </>
   );
 }

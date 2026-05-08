@@ -56,73 +56,65 @@ export function OwnerTelegramWidget({ initialEnrollment }: OwnerTelegramWidgetPr
     await actions.disable();
   };
 
+  const isConnected = snapshot.state === 'verified';
+
   return (
-    <div className="rounded-lg border border-slate-700 bg-slate-900 p-4">
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex items-start gap-3">
-          <div className="text-2xl" aria-hidden>💬</div>
-          <div>
-            <div className="font-medium text-slate-100">Telegram</div>
-            {snapshot.state === 'idle' && (
-              <p className="text-sm text-slate-400">Get approval requests in Telegram.</p>
-            )}
-            {snapshot.state === 'verified' && (
-              <p className="text-sm text-cyan-400">✓ Connected · {maskChatId(snapshot.handle)}</p>
-            )}
-            {snapshot.state === 'disabled' && (
-              <p className="text-sm text-slate-400">Disabled — reconnect to receive approvals.</p>
-            )}
-            {snapshot.state === 'unsubscribed' && (
-              <p className="text-sm text-amber-400">You blocked the bot — start the bot in Telegram, then reconnect.</p>
-            )}
-            {snapshot.state === 'expired' && (
-              <p className="text-sm text-slate-400">QR expired.</p>
-            )}
-            {snapshot.state === 'error' && (
-              <p className="text-sm text-red-400">{snapshot.errorMessage ?? 'Something went wrong.'}</p>
+    <div className={`channel-row${isConnected ? ' selected' : ''}`}>
+      <div className="channel-icon ch-tg" aria-hidden>💬</div>
+      <div className="channel-meta">
+        <div className="channel-name">Telegram</div>
+        <div className="channel-handle">
+          {snapshot.state === 'idle' && 'Get approval requests in Telegram.'}
+          {snapshot.state === 'verified' && `Connected · ${maskChatId(snapshot.handle)}`}
+          {snapshot.state === 'generating' && 'Generating link…'}
+          {snapshot.state === 'awaiting_scan' && 'Scan the QR code below or open the link on your phone.'}
+          {snapshot.state === 'disabled' && 'Disabled — reconnect to receive approvals.'}
+          {snapshot.state === 'unsubscribed' && 'You blocked the bot — start the bot in Telegram, then reconnect.'}
+          {snapshot.state === 'expired' && 'QR expired.'}
+          {snapshot.state === 'error' && (snapshot.errorMessage ?? 'Something went wrong.')}
+        </div>
+
+        {/* QR panel — expands inline below the handle text */}
+        {snapshot.state === 'awaiting_scan' && snapshot.qrDataUrl && snapshot.deepLink && (
+          <div style={{ marginTop: 12 }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={snapshot.qrDataUrl} alt="Telegram QR" width={160} height={160} />
+            <p style={{ marginTop: 6, wordBreak: 'break-all', fontSize: 12, color: 'var(--rw-blue-600)' }}>
+              <a href={snapshot.deepLink} target="_blank" rel="noreferrer">{snapshot.deepLink}</a>
+            </p>
+            {ttl.secondsRemaining !== null && (
+              <p style={{ marginTop: 4, fontSize: 11, color: 'var(--rw-app-text-muted)' }}>
+                Expires in {Math.floor(ttl.secondsRemaining / 60)}m {ttl.secondsRemaining % 60}s
+              </p>
             )}
           </div>
-        </div>
-        <div>
-          {snapshot.state === 'idle' && (
-            <button onClick={actions.connect} className="rounded bg-cyan-500 px-3 py-1.5 text-sm font-medium text-slate-900 hover:bg-cyan-400">Connect</button>
-          )}
-          {snapshot.state === 'generating' && (
-            <span className="text-sm text-slate-400">Generating link…</span>
-          )}
-          {snapshot.state === 'verified' && (
-            <button onClick={onDisconnect} className="rounded border border-slate-600 px-3 py-1.5 text-sm text-slate-200 hover:bg-slate-800">Disconnect</button>
-          )}
-          {snapshot.state === 'disabled' && (
-            <button onClick={actions.connect} className="rounded border border-slate-600 px-3 py-1.5 text-sm text-slate-200 hover:bg-slate-800">Reconnect</button>
-          )}
-          {snapshot.state === 'unsubscribed' && (
-            <button onClick={actions.connect} className="rounded border border-slate-600 px-3 py-1.5 text-sm text-slate-200 hover:bg-slate-800">Reconnect</button>
-          )}
-          {snapshot.state === 'expired' && (
-            <button onClick={actions.connect} className="rounded border border-slate-600 px-3 py-1.5 text-sm text-slate-200 hover:bg-slate-800">Generate new link</button>
-          )}
-          {snapshot.state === 'error' && (
-            <button onClick={actions.dismissError} className="rounded border border-slate-600 px-3 py-1.5 text-sm text-slate-200 hover:bg-slate-800">Try again</button>
-          )}
-        </div>
+        )}
       </div>
-      {snapshot.state === 'awaiting_scan' && snapshot.qrDataUrl && snapshot.deepLink && (
-        <div className="mt-4 rounded-md border border-slate-700 bg-slate-950 p-4">
-          <p className="text-sm text-slate-300 mb-3">Scan with Telegram, or open the link on your phone:</p>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={snapshot.qrDataUrl} alt="Telegram QR" width={200} height={200} className="mx-auto" />
-          <p className="mt-3 break-all text-xs text-cyan-400">
-            <a href={snapshot.deepLink} target="_blank" rel="noreferrer">{snapshot.deepLink}</a>
-          </p>
-          {ttl.secondsRemaining !== null && (
-            <p className="mt-2 text-xs text-slate-500">
-              Expires in {Math.floor(ttl.secondsRemaining / 60)}m {ttl.secondsRemaining % 60}s
-            </p>
-          )}
-          <button onClick={actions.cancel} className="mt-3 rounded border border-slate-600 px-3 py-1 text-sm text-slate-200 hover:bg-slate-800">Cancel</button>
-        </div>
-      )}
+
+      {/* Action button / status badge */}
+      <div style={{ flexShrink: 0 }}>
+        {snapshot.state === 'idle' && (
+          <button onClick={actions.connect} className="btn btn-primary">Connect</button>
+        )}
+        {snapshot.state === 'generating' && (
+          <span className="channel-status cs-soon">Working…</span>
+        )}
+        {snapshot.state === 'verified' && (
+          <button onClick={onDisconnect} className="btn btn-secondary">Disconnect</button>
+        )}
+        {(snapshot.state === 'disabled' || snapshot.state === 'unsubscribed') && (
+          <button onClick={actions.connect} className="btn btn-secondary">Reconnect</button>
+        )}
+        {snapshot.state === 'expired' && (
+          <button onClick={actions.connect} className="btn btn-secondary">New link</button>
+        )}
+        {snapshot.state === 'awaiting_scan' && (
+          <button onClick={actions.cancel} className="btn btn-secondary">Cancel</button>
+        )}
+        {snapshot.state === 'error' && (
+          <button onClick={actions.dismissError} className="btn btn-secondary">Try again</button>
+        )}
+      </div>
     </div>
   );
 }

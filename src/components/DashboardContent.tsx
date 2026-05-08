@@ -1,84 +1,154 @@
 'use client';
 
+import { useEffect, useRef, useState } from 'react';
 import type { DashboardDataActive } from '@/lib/dashboard/types';
 import {
   ActivePendingBusinessScreen,
   PendingAdminHandoffScreen,
   PendingPaymentScreen,
 } from '@/components/dashboard/AccountStateScreens';
-import { ValueSummary } from '@/components/dashboard/ValueSummary';
-import { ReviewVelocityChart, RankingChart } from '@/components/dashboard/Charts';
-import { ReviewsList } from '@/components/dashboard/ReviewsList';
 import { ConnectGoogleBanner } from '@/components/dashboard/ConnectGoogleBanner';
+import { TopBar } from '@/components/dashboard/TopBar';
+import { KpiCards } from '@/components/dashboard/KpiCards';
+import { ReviewsCard } from '@/components/dashboard/ReviewsCard';
+import { VelocityCard } from '@/components/dashboard/VelocityCard';
+import { RankingCard } from '@/components/dashboard/RankingCard';
+import { IntelligenceBriefCard } from '@/components/dashboard/IntelligenceBriefCard';
 import { useDashboardData } from '@/hooks/useDashboardData';
+import { useSetPendingCount } from '@/components/dashboard/PendingCountContext';
 
 export function DashboardContent() {
   const { data, error, refresh } = useDashboardData();
+  const setPendingCount = useSetPendingCount();
+  const reviewsRef = useRef<HTMLDivElement | null>(null);
+  const [initialTab, setInitialTab] = useState<'needs' | 'all'>('needs');
+
+  // OQ-3 — read URL hash on mount; auto-select Needs Action + scroll into view.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (window.location.hash === '#needs-action') {
+      setInitialTab('needs');
+      // Defer until layout settles.
+      setTimeout(() => {
+        if (reviewsRef.current) {
+          const top = reviewsRef.current.getBoundingClientRect().top + window.scrollY - 80;
+          window.scrollTo({ top, behavior: 'smooth' });
+        }
+      }, 100);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Push pending count to the layout-scoped context so MobileTabBar's "Needs
+  // Action" tab can show a red badge on every authenticated route. Derived
+  // from the same data the active-state branch reads below; we must compute
+  // it here (above the early returns) to keep hook order stable.
+  const pendingFromData =
+    data && data.subscriptionStatus === undefined
+      ? data.recentReviews.filter((r) => (r.responseStatus ?? r.status) === 'pending_approval').length
+      : 0;
+  useEffect(() => {
+    setPendingCount(pendingFromData);
+  }, [pendingFromData, setPendingCount]);
 
   if (error) {
     return (
-      <div className="mx-auto max-w-4xl px-4 py-8">
-        <div className="rounded-lg border border-red-300 bg-red-50 p-6">
-          <h2 className="text-lg font-semibold text-red-800">Error</h2>
-          <p className="mt-1 text-sm text-red-700">{error}</p>
+      <>
+        <TopBar title="Dashboard" />
+        <div className="content">
+          <div className="card" style={{ borderColor: '#FCA5A5', background: '#FEF2F2' }}>
+            <h2 className="card-h2" style={{ color: '#991B1B' }}>Error</h2>
+            <p style={{ fontSize: 14, color: '#B91C1C', marginTop: 4 }}>{error}</p>
+          </div>
         </div>
-      </div>
+      </>
     );
   }
 
   if (!data) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <p className="text-gray-500">Loading dashboard...</p>
-      </div>
+      <>
+        <TopBar title="Dashboard" />
+        <div className="content">
+          <p style={{ textAlign: 'center', color: '#6B7280', padding: '80px 0' }}>Loading dashboard…</p>
+        </div>
+      </>
     );
   }
 
   if (data.subscriptionStatus === 'active_pending_business') {
-    return <ActivePendingBusinessScreen />;
+    return (
+      <>
+        <TopBar title="Dashboard" />
+        <div className="content">
+          <ActivePendingBusinessScreen />
+        </div>
+      </>
+    );
   }
 
   if (data.subscriptionStatus === 'pending_payment_admin_handoff') {
-    return <PendingAdminHandoffScreen />;
+    return (
+      <>
+        <TopBar title="Dashboard" />
+        <div className="content">
+          <PendingAdminHandoffScreen />
+        </div>
+      </>
+    );
   }
 
   if (data.subscriptionStatus === 'pending_payment') {
-    return <PendingPaymentScreen data={data} />;
+    return (
+      <>
+        <TopBar title="Dashboard" />
+        <div className="content">
+          <PendingPaymentScreen data={data} />
+        </div>
+      </>
+    );
   }
 
   const activeData: DashboardDataActive = data;
-  const { valueSummary, reviewVelocity, ranking, recentReviews, latestBrief, zernioConnection } = activeData;
+  const { valueSummary, reviewVelocity, ranking, recentReviews, latestBrief, zernioConnection, business } = activeData;
+  const pending = recentReviews.filter((r) => (r.responseStatus ?? r.status) === 'pending_approval').length;
+
+  function scrollToReviews() {
+    if (reviewsRef.current) {
+      const top = reviewsRef.current.getBoundingClientRect().top + window.scrollY - 80;
+      window.scrollTo({ top, behavior: 'smooth' });
+    }
+  }
+
+  const subtitle = business.name
+    ? `Welcome back — here's what's new for ${business.name}.`
+    : "Welcome back — here's what's new.";
 
   return (
-    <div className="mx-auto max-w-4xl space-y-8 px-4 py-8">
-      {/* Zernio publishing connection status (renders nothing when active) */}
-      <ConnectGoogleBanner zernio={zernioConnection} />
-
-      {/* Section A: Value Summary Banner */}
-      <ValueSummary valueSummary={valueSummary} />
-
-      {/* Section B: Review Velocity Chart */}
-      <ReviewVelocityChart reviewVelocity={reviewVelocity} />
-
-      {/* Section C: Ranking Chart */}
-      <RankingChart ranking={ranking} />
-
-      {/* Section D: Recent Reviews */}
-      <ReviewsList recentReviews={recentReviews} onActionSuccess={refresh} />
-
-      {/* Section E: Latest Intelligence Brief */}
-      {latestBrief && (
-        <div className="rounded-lg border-l-4 border-blue-500 bg-blue-50 p-6">
-          <div className="mb-2 flex items-center gap-2">
-            <h2 className="text-lg font-semibold text-gray-900">Intelligence Brief</h2>
-            <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
-              {latestBrief.type === 'monthly' ? 'Monthly' : 'Weekly'}
-            </span>
-          </div>
-          <p className="mb-2 text-xs text-gray-500">{latestBrief.periodLabel}</p>
-          <p className="whitespace-pre-line text-sm text-gray-700">{latestBrief.text}</p>
+    <>
+      <TopBar title="Dashboard" subtitle={subtitle} showLive refresh={refresh} />
+      <div className="content">
+        <div className="section-enter section-enter-1">
+          <ConnectGoogleBanner zernio={zernioConnection} />
         </div>
-      )}
-    </div>
+        <div className="section-enter section-enter-2">
+          <KpiCards valueSummary={valueSummary} pendingCount={pending} onScrollToReviews={scrollToReviews} />
+        </div>
+        <div className="section-enter section-enter-3">
+          <ReviewsCard recentReviews={recentReviews} onActionSuccess={() => { void refresh(); }} ref={reviewsRef} initialTab={initialTab} />
+        </div>
+        <div className="section-enter section-enter-4">
+          <VelocityCard reviewVelocity={reviewVelocity} />
+        </div>
+        <div className="section-enter section-enter-5">
+          <RankingCard ranking={ranking} />
+        </div>
+        {latestBrief && (
+          <div className="section-enter section-enter-6">
+            <IntelligenceBriefCard brief={latestBrief} />
+          </div>
+        )}
+      </div>
+    </>
   );
 }

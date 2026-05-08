@@ -1,8 +1,28 @@
 import { cookies } from 'next/headers';
 import { createServerClient } from '@supabase/ssr';
 import { redirect } from 'next/navigation';
+import { Plus_Jakarta_Sans, DM_Sans } from 'next/font/google';
 import { sql } from '@/lib/db/server';
-import { OwnerNav } from '@/components/OwnerNav';
+import { Sidebar } from '@/components/dashboard/Sidebar';
+import { MobileTabBar } from '@/components/dashboard/MobileTabBar';
+import { PendingCountProvider } from '@/components/dashboard/PendingCountContext';
+import './_styles/tokens.css';
+import './_styles/console.css';
+import './_styles/past-replies.css';
+import './_styles/settings.css';
+
+const plusJakarta = Plus_Jakarta_Sans({
+  subsets: ['latin'],
+  weight: ['400', '500', '600', '700', '800'],
+  variable: '--rw-font-display',
+  display: 'swap',
+});
+const dmSans = DM_Sans({
+  subsets: ['latin'],
+  weight: ['400', '500', '600', '700'],
+  variable: '--rw-font-body',
+  display: 'swap',
+});
 
 export default async function AuthenticatedLayout({
   children,
@@ -30,25 +50,47 @@ export default async function AuthenticatedLayout({
   } = await supabase.auth.getUser();
   if (!authUser) redirect('/admin/login');
 
-  const [appUser] = await sql<{ business_id: string | null }[]>`
-    SELECT business_id FROM users WHERE auth_id = ${authUser.id} LIMIT 1
+  const [appUser] = await sql<{ business_id: string | null; owner_name: string | null; email: string }[]>`
+    SELECT business_id, name AS owner_name, email FROM users WHERE auth_id = ${authUser.id} LIMIT 1
   `;
 
   let businessName = '';
+  let initialPendingCount = 0;
   if (appUser?.business_id) {
-    const [biz] = await sql<{ name: string }[]>`
-      SELECT name FROM businesses WHERE id = ${appUser.business_id} LIMIT 1
-    `;
-    businessName = biz?.name ?? '';
+    // Run the two reads in parallel — they're independent.
+    const [bizRows, pendingRows] = await Promise.all([
+      sql<{ name: string }[]>`
+        SELECT name FROM businesses WHERE id = ${appUser.business_id} LIMIT 1
+      `,
+      sql<{ count: number }[]>`
+        SELECT COUNT(*)::int AS count
+        FROM responses
+        WHERE business_id = ${appUser.business_id}
+          AND status = 'pending_approval'
+      `,
+    ]);
+    businessName = bizRows[0]?.name ?? '';
+    initialPendingCount = pendingRows[0]?.count ?? 0;
   }
 
+  const ownerName = appUser?.owner_name ?? '';
+  const ownerEmail = appUser?.email ?? authUser.email ?? '';
+  const pastRepliesEnabled = process.env.PAST_REPLIES_VIEW_ENABLED === 'true';
+
   return (
-    <div className="min-h-screen bg-gray-50">
-      <OwnerNav
-        businessName={businessName}
-        pastRepliesEnabled={process.env.PAST_REPLIES_VIEW_ENABLED === 'true'}
-      />
-      <main className="mx-auto max-w-4xl px-4 py-6">{children}</main>
+    <div className={`rw-console ${plusJakarta.variable} ${dmSans.variable}`}>
+      <PendingCountProvider initialCount={initialPendingCount}>
+        <div className="shell">
+          <Sidebar
+            businessName={businessName}
+            ownerName={ownerName}
+            ownerEmail={ownerEmail}
+            pastRepliesEnabled={pastRepliesEnabled}
+          />
+          <div className="main">{children}</div>
+        </div>
+        <MobileTabBar pastRepliesEnabled={pastRepliesEnabled} />
+      </PendingCountProvider>
     </div>
   );
 }
