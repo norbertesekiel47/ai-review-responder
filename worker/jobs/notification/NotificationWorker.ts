@@ -15,6 +15,8 @@ import {
 } from '../../../src/lib/shared/outbox';
 import type { SendNotificationPayload } from '../../../src/lib/shared/worker-types';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
+import { asLocationId } from '../../../src/lib/shared/ids';
+import type { LocationId } from '../../../src/lib/shared/ids';
 import { getEligibleChannels } from './eligibility';
 import { dispatchAll } from './dispatch';
 import { loadNotificationContext } from './context';
@@ -23,10 +25,12 @@ export async function handleSendNotification(
   job: Job<SendNotificationPayload>,
 ): Promise<void> {
   const logger = createWorkerLogger('[NotificationWorker]', job.data.correlation_id);
-  const { response_id, business_id } = job.data;
+  const { response_id } = job.data;
+  // Cast job data IDs to branded types at entry point
+  const businessId: LocationId = asLocationId(job.data.business_id);
   const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
 
-  const ctx = await loadNotificationContext({ responseId: response_id, businessId: business_id }, logger);
+  const ctx = await loadNotificationContext({ responseId: response_id, businessId }, logger);
   if (ctx.kind === 'fail') {
     await markOutboxFailed(outboxId, ctx.reason, outboxAttempt);
     return;
@@ -38,7 +42,7 @@ export async function handleSendNotification(
 
   const eligibility = await getEligibleChannels(
     {
-      businessId: business_id,
+      businessId,
       subscriptionStatus: ctx.business.subscription_status,
       businessUpdatedAt: new Date(ctx.business.updated_at),
     },
@@ -46,9 +50,9 @@ export async function handleSendNotification(
   );
   if (!eligibility.ok) {
     if (eligibility.reason === 'no_verified_enrollments') {
-      logger.warn(`Business ${business_id} has no verified channel enrollments — skipping`);
+      logger.warn(`Business ${businessId} has no verified channel enrollments — skipping`);
     } else {
-      logger.log(`Business ${business_id} skipped: ${eligibility.reason}`);
+      logger.log(`Business ${businessId} skipped: ${eligibility.reason}`);
     }
     await markOutboxCompleted(outboxId, outboxAttempt);
     return;
@@ -64,7 +68,7 @@ export async function handleSendNotification(
   const { attempted, succeeded } = await dispatchAll(
     {
       responseId: response_id,
-      businessId: business_id,
+      businessId,
       isFailover: !!(job.data as SendNotificationPayload).failover,
       appUrl,
       business: {

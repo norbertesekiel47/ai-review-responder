@@ -14,10 +14,14 @@ import { recordNotificationDelivery } from '../../src/lib/notifications/delivery
 import { createApprovalLink } from '../../src/lib/approval/create-link';
 import type { EngagementAlertPayload } from '../../src/lib/shared/worker-types';
 import { createWorkerLogger, type WorkerLogger } from '../../src/lib/shared/logger';
+import { asLocationId } from '../../src/lib/shared/ids';
+import type { LocationId } from '../../src/lib/shared/ids';
 
 export async function handleEngagementAlert(job: Job<EngagementAlertPayload>): Promise<void> {
   const logger = createWorkerLogger('[EngagementAlertWorker]', job.data.correlation_id);
-  const { business_id, alert_type, metrics } = job.data;
+  const { alert_type, metrics } = job.data;
+  // Cast job data IDs to branded types at entry point
+  const businessId: LocationId = asLocationId(job.data.business_id);
   const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
 
   // ── Step 1: Load business ─────────────────────────────────────────
@@ -30,11 +34,11 @@ export async function handleEngagementAlert(job: Job<EngagementAlertPayload>): P
     updated_at: Date;
   }[]>`
     SELECT name, owner_email, owner_email_bounced, owner_phone, subscription_status, updated_at
-    FROM businesses WHERE id = ${business_id}
+    FROM businesses WHERE id = ${businessId}
   `;
 
   if (!business) {
-    logger.warn(`Business ${business_id} not found`);
+    logger.warn(`Business ${businessId} not found`);
     await markOutboxFailed(outboxId, 'business_not_found', outboxAttempt);
     return;
   }
@@ -47,23 +51,23 @@ export async function handleEngagementAlert(job: Job<EngagementAlertPayload>): P
   );
 
   if (!subCheck.allowed) {
-    logger.log(`Business ${business_id} skipped: ${subCheck.reason}`);
+    logger.log(`Business ${businessId} skipped: ${subCheck.reason}`);
     await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }
 
   if (alert_type === 'owner_nudge') {
-    await handleOwnerNudge(outboxId, outboxAttempt, business_id, business, logger);
+    await handleOwnerNudge(outboxId, outboxAttempt, businessId, business, logger);
   } else if (alert_type === 'partner_satisfaction_alert') {
     const satisfaction = (job.data as EngagementAlertPayload).satisfaction;
-    await handleSatisfactionAlert(outboxId, outboxAttempt, business_id, business, satisfaction ?? null, logger);
+    await handleSatisfactionAlert(outboxId, outboxAttempt, businessId, business, satisfaction ?? null, logger);
   } else {
     if (!metrics) {
-      logger.warn(`${alert_type} missing metrics for business ${business_id}`);
+      logger.warn(`${alert_type} missing metrics for business ${businessId}`);
       await markOutboxFailed(outboxId, 'missing metrics payload', outboxAttempt);
       return;
     }
-    await handlePartnerAlert(outboxId, outboxAttempt, business_id, alert_type, metrics, business, logger);
+    await handlePartnerAlert(outboxId, outboxAttempt, businessId, alert_type, metrics, business, logger);
   }
 }
 

@@ -30,6 +30,8 @@ import { sql } from '../../src/lib/db/server';
 import { markOutboxCompleted, extractOutboxHandle } from '../../src/lib/shared/outbox';
 import type { DrainOwnerConnectPayload } from '../../src/lib/shared/worker-types';
 import { createWorkerLogger } from '../../src/lib/shared/logger';
+import { asLocationId } from '../../src/lib/shared/ids';
+import type { LocationId } from '../../src/lib/shared/ids';
 
 export async function handleDrainOwnerConnect(
   job: Job<DrainOwnerConnectPayload>,
@@ -37,7 +39,7 @@ export async function handleDrainOwnerConnect(
   const logger = createWorkerLogger('[DrainOwnerConnectWorker]', job.data.correlation_id);
   const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
 
-  const businessId = job.data.business_id;
+  const businessId: LocationId = asLocationId(job.data.business_id);
 
   // Bulk re-enqueue with NOT EXISTS guard (app fast-path) + ON CONFLICT
   // DO NOTHING (DB hard guarantee). The ON CONFLICT clause MUST match

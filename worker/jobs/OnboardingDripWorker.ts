@@ -13,10 +13,14 @@ import { createApprovalLink } from '../../src/lib/approval/create-link';
 import type { OnboardingDripPayload } from '../../src/lib/shared/worker-types';
 import { createWorkerLogger } from '../../src/lib/shared/logger';
 import { HANDLED_STATUSES } from '../../src/lib/shared/response-status';
+import { asLocationId } from '../../src/lib/shared/ids';
+import type { LocationId } from '../../src/lib/shared/ids';
 
 export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Promise<void> {
   const logger = createWorkerLogger('[OnboardingDripWorker]', job.data.correlation_id);
-  const { business_id, drip_type } = job.data;
+  const { drip_type } = job.data;
+  // Cast job data IDs to branded types at entry point
+  const businessId: LocationId = asLocationId(job.data.business_id);
   const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
 
   // ── 1. Load business ─────────────────────────────────────────────
@@ -34,18 +38,18 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
   }[]>`
     SELECT id, name, owner_name, owner_email, owner_email_bounced, subscription_status, updated_at,
            initial_review_count, initial_responded_count, subscription_activated_at
-    FROM businesses WHERE id = ${business_id}
+    FROM businesses WHERE id = ${businessId}
   `;
 
   if (!business) {
-    logger.warn(`Business ${business_id} not found`);
+    logger.warn(`Business ${businessId} not found`);
     await markOutboxFailed(outboxId, 'business_not_found', outboxAttempt);
     return;
   }
 
   // ── 2. Only active subscriptions get drip emails ──────────────────
   if (business.subscription_status !== 'active') {
-    logger.log(`Business ${business_id} not active (${business.subscription_status}) — skipping ${drip_type}`);
+    logger.log(`Business ${businessId} not active (${business.subscription_status}) — skipping ${drip_type}`);
     await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }
@@ -54,14 +58,14 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
   // Skip owner-directed emails when the owner's email has hard-bounced.
   // Admin verifies and clears owner_email_bounced manually from /admin/businesses/[id].
   if (business.owner_email_bounced) {
-    logger.log(`Business ${business_id} owner email bounced — skipping ${drip_type}`);
+    logger.log(`Business ${businessId} owner email bounced — skipping ${drip_type}`);
     await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }
 
   // ── 3. Validate subscription_activated_at for day_7/day_30 ─────────
   if ((drip_type === 'day_7' || drip_type === 'day_30') && !business.subscription_activated_at) {
-    logger.warn(`${drip_type} skipped: subscription_activated_at is null for ${business_id}`);
+    logger.warn(`${drip_type} skipped: subscription_activated_at is null for ${businessId}`);
     await markOutboxFailed(outboxId, 'subscription_activated_at is null', outboxAttempt);
     return;
   }
@@ -76,7 +80,7 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
   // Try INSERT first
   const [inserted] = await sql<{ id: string }[]>`
     INSERT INTO onboarding_drip_log (id, business_id, drip_type, sent_at, claimed_at, claimed_by_outbox_id)
-    VALUES (${uuidv7()}, ${business_id}, ${drip_type}, NULL, NOW(), ${outboxId})
+    VALUES (${uuidv7()}, ${businessId}, ${drip_type}, NULL, NOW(), ${outboxId})
     ON CONFLICT (business_id, drip_type) DO NOTHING
     RETURNING id
   `;
@@ -90,7 +94,7 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
     const [taken] = await sql<{ id: string }[]>`
       UPDATE onboarding_drip_log
       SET claimed_at = NOW(), claimed_by_outbox_id = ${outboxId}
-      WHERE business_id = ${business_id} AND drip_type = ${drip_type}
+      WHERE business_id = ${businessId} AND drip_type = ${drip_type}
         AND sent_at IS NULL
         AND (
           claimed_by_outbox_id = ${outboxId}
@@ -101,10 +105,10 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
 
     if (taken) {
       claimId = taken.id;
-      logger.log(`${drip_type} claim taken over for ${business_id}`);
+      logger.log(`${drip_type} claim taken over for ${businessId}`);
     } else {
       // Either already sent or owned by another active job — skip
-      logger.log(`${drip_type} already claimed/sent for ${business_id} — skipping`);
+      logger.log(`${drip_type} already claimed/sent for ${businessId} — skipping`);
       await markOutboxCompleted(outboxId, outboxAttempt);
       return;
     }
@@ -115,7 +119,7 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
   // ── 5. Check owner has auth (for dashboard URL) ───────────────────
   const [ownerWithAuth] = await sql<{ id: string }[]>`
     SELECT id FROM users
-    WHERE business_id = ${business_id} AND role = 'owner' AND auth_id IS NOT NULL
+    WHERE business_id = ${businessId} AND role = 'owner' AND auth_id IS NOT NULL
     LIMIT 1
   `;
   const dashboardUrl = ownerWithAuth && appUrl ? `${appUrl}/dashboard` : null;
@@ -157,7 +161,7 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
   // ── 9. Record delivery BEFORE outbox completion — ensures cooldown
   // checks in other workers can see this delivery record.
   await recordNotificationDelivery({
-    businessId: business_id,
+    businessId: businessId,
     channel: 'email',
     recipient: business.owner_email,
     template: `onboarding_drip_${drip_type}`,
@@ -166,7 +170,7 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
 
   await markOutboxCompleted(outboxId, outboxAttempt);
 
-  logger.log(`${drip_type} sent for business ${business_id}`);
+  logger.log(`${drip_type} sent for business ${businessId}`);
 }
 
 // ── Day 1: Welcome email ────────────────────────────────────────────

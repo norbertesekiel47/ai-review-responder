@@ -7,10 +7,13 @@ import { checkRateLimit } from '../../src/lib/shared/rate-limit';
 import { isMockMode } from '../../src/lib/shared/mock-mode';
 import type { TrackRankingPayload } from '../../src/lib/shared/worker-types';
 import { createWorkerLogger } from '../../src/lib/shared/logger';
+import { asLocationId } from '../../src/lib/shared/ids';
+import type { LocationId } from '../../src/lib/shared/ids';
 
 export async function handleTrackRanking(job: Job<TrackRankingPayload>): Promise<void> {
   const logger = createWorkerLogger('[RankingTrackingWorker]', job.data.correlation_id);
-  const { business_id } = job.data;
+  // Cast job data IDs to branded types at entry point
+  const businessId: LocationId = asLocationId(job.data.business_id);
   const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
 
   // ── Step 1: Load business ─────────────────────────────────────────
@@ -26,11 +29,11 @@ export async function handleTrackRanking(job: Job<TrackRankingPayload>): Promise
   }[]>`
     SELECT id, subscription_status, updated_at, tracked_keywords,
            google_place_id, google_place_lat, google_place_lng, ranking_search_location
-    FROM businesses WHERE id = ${business_id}
+    FROM businesses WHERE id = ${businessId}
   `;
 
   if (!business) {
-    logger.warn(`Business ${business_id} not found`);
+    logger.warn(`Business ${businessId} not found`);
     await markOutboxFailed(outboxId, 'business_not_found', outboxAttempt);
     return;
   }
@@ -39,14 +42,14 @@ export async function handleTrackRanking(job: Job<TrackRankingPayload>): Promise
   // Unlike notification/summary workers that use checkSubscription (allows past_due grace),
   // ranking requires strictly active — no paid API calls for non-paying businesses.
   if (business.subscription_status !== 'active') {
-    logger.log(`Business ${business_id} skipped: subscription_status=${business.subscription_status}`);
+    logger.log(`Business ${businessId} skipped: subscription_status=${business.subscription_status}`);
     await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }
 
   // Re-check google_place_id — may have been cleared or changed since scheduling
   if (!business.google_place_id) {
-    logger.log(`Business ${business_id} skipped: no google_place_id`);
+    logger.log(`Business ${businessId} skipped: no google_place_id`);
     await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }
@@ -62,12 +65,12 @@ export async function handleTrackRanking(job: Job<TrackRankingPayload>): Promise
       ? parsed.filter((k): k is string => typeof k === 'string' && k.trim().length > 0)
       : [];
   } catch {
-    logger.warn(`Business ${business_id}: malformed tracked_keywords, treating as empty`);
+    logger.warn(`Business ${businessId}: malformed tracked_keywords, treating as empty`);
     rawKeywords = [];
   }
 
   if (rawKeywords.length === 0) {
-    logger.log(`Business ${business_id} has no tracked keywords`);
+    logger.log(`Business ${businessId} has no tracked keywords`);
     await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }
@@ -80,7 +83,7 @@ export async function handleTrackRanking(job: Job<TrackRankingPayload>): Promise
   const hasSearchLocation = !!business.ranking_search_location;
 
   if (!hasCoords && !hasSearchLocation) {
-    logger.log(`Business ${business_id} has no location data for ranking search`);
+    logger.log(`Business ${businessId} has no location data for ranking search`);
     await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }
@@ -162,12 +165,12 @@ export async function handleTrackRanking(job: Job<TrackRankingPayload>): Promise
     // ── Step 7: Upsert ranking snapshot ─────────────────────────────
     await sql`
       INSERT INTO ranking_snapshots (id, business_id, keyword, rank_position, search_location, snapshot_date, source)
-      VALUES (${uuidv7()}, ${business_id}, ${keyword}, ${rankPosition}, ${searchLocationValue}, ${today}, 'serpapi')
+      VALUES (${uuidv7()}, ${businessId}, ${keyword}, ${rankPosition}, ${searchLocationValue}, ${today}, 'serpapi')
       ON CONFLICT (business_id, keyword, snapshot_date)
       DO UPDATE SET rank_position = EXCLUDED.rank_position, search_location = EXCLUDED.search_location, source = 'serpapi'
     `;
   }
 
   await markOutboxCompleted(outboxId, outboxAttempt);
-  logger.log(`Ranking tracking complete for business ${business_id}`);
+  logger.log(`Ranking tracking complete for business ${businessId}`);
 }

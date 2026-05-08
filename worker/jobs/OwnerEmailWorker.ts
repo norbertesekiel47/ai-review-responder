@@ -38,6 +38,8 @@ import {
 } from '../../src/lib/notifications/email';
 import type { SendOwnerEmailPayload } from '../../src/lib/shared/worker-types';
 import { createWorkerLogger, type WorkerLogger } from '../../src/lib/shared/logger';
+import { asLocationId } from '../../src/lib/shared/ids';
+import type { LocationId } from '../../src/lib/shared/ids';
 
 interface BusinessRow {
   id: string;
@@ -54,7 +56,7 @@ export async function handleOwnerEmail(
   const logger = createWorkerLogger('[OwnerEmailWorker]', job.data.correlation_id);
   const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
 
-  const businessId = job.data.business_id;
+  const businessId: LocationId = asLocationId(job.data.business_id);
 
   const [business] = await sql<BusinessRow[]>`
     SELECT id, name, owner_email, owner_email_bounced, subscription_status, updated_at

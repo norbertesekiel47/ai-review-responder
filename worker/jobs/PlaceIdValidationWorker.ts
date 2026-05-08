@@ -7,21 +7,25 @@ import { parseGoogleMapsUrl, isPlaceId } from '../../src/lib/reviews/url-parser'
 import { resolvePlaceId } from '../../src/lib/reviews/place-id-resolver';
 import { ExceptionType } from '../../src/lib/shared/constants';
 import { createWorkerLogger } from '../../src/lib/shared/logger';
+import { asLocationId } from '../../src/lib/shared/ids';
+import type { LocationId } from '../../src/lib/shared/ids';
 
 export async function handlePlaceIdValidation(
   job: Job<ValidatePlaceIdPayload>,
 ): Promise<void> {
   const logger = createWorkerLogger('[PlaceIdValidationWorker]', job.data.correlation_id);
-  const { business_id, google_maps_url } = job.data;
+  const { google_maps_url } = job.data;
+  // Cast job data IDs to branded types at entry point
+  const businessId: LocationId = asLocationId(job.data.business_id);
   const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
 
   // Load business
   const [business] = await sql<{ id: string; google_place_id: string | null }[]>`
-    SELECT id, google_place_id FROM businesses WHERE id = ${business_id}
+    SELECT id, google_place_id FROM businesses WHERE id = ${businessId}
   `;
 
   if (!business) {
-    logger.warn(`Business ${business_id} not found`);
+    logger.warn(`Business ${businessId} not found`);
     await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }
@@ -36,11 +40,11 @@ export async function handlePlaceIdValidation(
       UPDATE businesses
       SET google_place_id = ${urlData.placeId},
           place_id_verified = TRUE
-      WHERE id = ${business_id}
+      WHERE id = ${businessId}
     `;
 
     await markOutboxCompleted(outboxId, outboxAttempt);
-    logger.log(`Business ${business_id} verified (canonical ID in URL)`);
+    logger.log(`Business ${businessId} verified (canonical ID in URL)`);
     return;
   }
 
@@ -52,27 +56,27 @@ export async function handlePlaceIdValidation(
       UPDATE businesses
       SET google_place_id = ${resolvedPlaceId},
           place_id_verified = TRUE
-      WHERE id = ${business_id}
+      WHERE id = ${businessId}
     `;
 
     await markOutboxCompleted(outboxId, outboxAttempt);
-    logger.log(`Business ${business_id} resolved to ${resolvedPlaceId}`);
+    logger.log(`Business ${businessId} resolved to ${resolvedPlaceId}`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
 
     // Transient errors (SerpAPI down) → throw for BullMQ retry
     if (message.includes('SerpAPI search error')) {
-      logger.error(`Transient error for ${business_id}: ${message}`);
+      logger.error(`Transient error for ${businessId}: ${message}`);
       throw error;
     }
 
     // Permanent errors (no match, rate limit, bad data) → fail outbox + log exception
-    logger.error(`Permanent resolution failure for ${business_id}: ${message}`);
+    logger.error(`Permanent resolution failure for ${businessId}: ${message}`);
 
     await sql`
       INSERT INTO review_exceptions (id, business_id, review_id, type, status, payload)
       VALUES (
-        ${uuidv7()}, ${business_id}, NULL, ${ExceptionType.PLACE_ID_RESOLUTION_FAILED}, 'open',
+        ${uuidv7()}, ${businessId}, NULL, ${ExceptionType.PLACE_ID_RESOLUTION_FAILED}, 'open',
         ${jsonb({ reason: message, google_maps_url })}
       )
     `;

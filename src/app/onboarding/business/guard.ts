@@ -10,6 +10,8 @@
  * not /dashboard).
  */
 
+import { SubscriptionStatus } from '@/lib/shared/subscription-status';
+
 export interface WizardGuardRow {
   role: string;
   subscription_status: string;
@@ -39,7 +41,7 @@ export function resolveWizardDestination(
 ): WizardGuardOutcome {
   if (!row) return { kind: 'redirect', path: '/signup' };
   if (row.role !== 'owner') return { kind: 'redirect', path: '/admin/overview' };
-  if (row.subscription_status !== 'active') {
+  if (row.subscription_status !== SubscriptionStatus.ACTIVE) {
     return { kind: 'redirect', path: '/onboarding/pay' };
   }
   if (options.demoFlowEnabled) {

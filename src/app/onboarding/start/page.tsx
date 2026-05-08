@@ -2,6 +2,7 @@ import { notFound, redirect } from 'next/navigation';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { sql } from '@/lib/db/server';
+import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { StartLocationClient } from './StartLocationClient';
 
 export const dynamic = 'force-dynamic';
@@ -42,8 +43,8 @@ export default async function OnboardingStartPage() {
 
   if (!row) redirect('/signup');
   if (row.role !== 'owner') redirect('/admin/overview');
-  if (row.subscription_status === 'active') redirect('/dashboard');
-  if (row.subscription_status === 'cancelled') redirect('/dashboard');
+  if (row.subscription_status === SubscriptionStatus.ACTIVE) redirect('/dashboard');
+  if (row.subscription_status === SubscriptionStatus.CANCELLED) redirect('/dashboard');
   if (row.place_id_verified || row.google_maps_url) redirect('/onboarding/demo');
 
   return <StartLocationClient />;

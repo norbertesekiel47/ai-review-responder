@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { UpdateBusinessSchema } from '@/lib/shared/schemas';
 import { requireRole, AuthError } from '@/lib/db/auth';
+import { asLocationId } from '@/lib/shared/ids';
+import type { LocationId } from '@/lib/shared/ids';
 import {
   AdminBusinessNotFoundError,
   FIELD_TO_COLUMN,
@@ -18,7 +20,8 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
-  const { id: businessId } = await params;
+  const { id: rawBusinessId } = await params;
+  const businessId: LocationId = asLocationId(rawBusinessId);
 
   try {
     await requireRole(request, 'admin', 'sales_partner');
@@ -49,7 +52,8 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
-  const { id: businessId } = await params;
+  const { id: rawBusinessId } = await params;
+  const businessId: LocationId = asLocationId(rawBusinessId);
 
   try {
     await requireRole(request, 'admin', 'sales_partner');

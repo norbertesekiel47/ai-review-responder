@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
+import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { buildPaymentLinkUrl } from '@/lib/payments/payment-link';
 import {
   getActiveDashboardData,
@@ -59,7 +60,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       return jsonResponse({ error: 'Business not found' }, 404);
     }
 
-    if (subRow.subscription_status === 'pending_payment') {
+    if (subRow.subscription_status === SubscriptionStatus.PENDING_PAYMENT) {
       // Admin-onboarded businesses should NOT see the self-serve payment CTA —
       // they already have a handoff path via the partner. Showing the payment
       // link here would risk a double-charge if the partner's flow used a
@@ -91,7 +92,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // CTA-only screen instead of the empty-state dashboard so they have
     // an obvious next action.
     if (
-      subRow.subscription_status === 'active' &&
+      subRow.subscription_status === SubscriptionStatus.ACTIVE &&
       !subRow.place_id_verified &&
       subRow.google_maps_url === null
     ) {

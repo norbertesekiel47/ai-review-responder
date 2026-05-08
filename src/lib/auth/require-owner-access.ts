@@ -23,6 +23,7 @@ import { createServerClient } from '@supabase/ssr';
 import { sql } from '@/lib/db/server';
 import { asAccountId, asLocationId } from '@/lib/shared/ids';
 import type { AccountId, LocationId } from '@/lib/shared/ids';
+import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { getRequestScope } from './get-request-scope';
 
 const LOCATION_SCOPE_COOKIE = 'rw_location_scope';
@@ -70,7 +71,7 @@ export async function requireOwnerAccess(): Promise<OwnerAccess> {
   const row = rows[0];
   if (!row) redirect('/admin/login');
   if (row.role !== 'owner') redirect('/admin/overview');
-  if (row.subscription_status !== 'active') redirect('/onboarding/pay');
+  if (row.subscription_status !== SubscriptionStatus.ACTIVE) redirect('/onboarding/pay');
 
   const accountId = asAccountId(row.account_id);
 

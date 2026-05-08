@@ -21,12 +21,16 @@ import type { NormalizedReview } from '../../src/lib/reviews/types';
 import type { BusinessContext, GenerationResult, VoiceExample } from '../../src/lib/responses/types';
 import { createWorkerLogger, type WorkerLogger } from '../../src/lib/shared/logger';
 import { parseDbArray } from '../../src/lib/shared/db-array';
+import { asLocationId } from '../../src/lib/shared/ids';
+import type { LocationId } from '../../src/lib/shared/ids';
 
 export async function handleResponseGeneration(
   job: Job<GenerateResponsePayload>,
 ): Promise<void> {
   const logger = createWorkerLogger('[ResponseGeneratorWorker]', job.data.correlation_id);
-  const { review_id, business_id, version } = job.data;
+  const { review_id, version } = job.data;
+  // Cast job data IDs to branded types at entry point
+  const businessId: LocationId = asLocationId(job.data.business_id);
   const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
 
   // ── Step 1: Read review and business ─────────────────────────────────
@@ -65,11 +69,11 @@ export async function handleResponseGeneration(
     SELECT id, name, category, tone, products_services, staff_names,
            highlight_facts, avoid_facts, sample_responses,
            subscription_status, subscription_tier, updated_at
-    FROM businesses WHERE id = ${business_id}
+    FROM businesses WHERE id = ${businessId}
   `;
 
   if (!business) {
-    logger.warn(`Business ${business_id} not found`);
+    logger.warn(`Business ${businessId} not found`);
     await markOutboxFailed(outboxId, 'business_not_found', outboxAttempt);
     return;
   }
@@ -82,7 +86,7 @@ export async function handleResponseGeneration(
   );
 
   if (!subCheck.allowed) {
-    logger.log(`Business ${business_id} skipped: ${subCheck.reason}`);
+    logger.log(`Business ${businessId} skipped: ${subCheck.reason}`);
     await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }
@@ -126,7 +130,7 @@ export async function handleResponseGeneration(
   }
 
   // ── Step 6: Voice learning ──────────────────────────────────────────
-  const voiceExamples: VoiceExample[] = await getApprovedResponsePairs(business_id);
+  const voiceExamples: VoiceExample[] = await getApprovedResponsePairs(businessId);
 
   // ── Step 7: Regeneration budget check ───────────────────────────────
   if (version > 1) {
@@ -150,19 +154,19 @@ export async function handleResponseGeneration(
         normalizedReview,
         businessContext,
         voiceExamples,
-        { mode: 'production', reviewId: review_id, version, businessId: business_id, subscriptionTier: businessContext.subscriptionTier },
+        { mode: 'production', reviewId: review_id, version, businessId: businessId, subscriptionTier: businessContext.subscriptionTier },
       );
     } else {
       result = await generateResponse(
         normalizedReview,
         businessContext,
         voiceExamples,
-        { mode: 'production', reviewId: review_id, version, businessId: business_id, subscriptionTier: businessContext.subscriptionTier },
+        { mode: 'production', reviewId: review_id, version, businessId: businessId, subscriptionTier: businessContext.subscriptionTier },
       );
     }
   } catch (err) {
     if (err instanceof CostLimitExceededError || err instanceof GlobalCostLimitExceededError) {
-      logger.warn(`Cost limit exceeded for business ${business_id}: ${err.message}`);
+      logger.warn(`Cost limit exceeded for business ${businessId}: ${err.message}`);
       await markOutboxFailed(outboxId, err.message, outboxAttempt);
       return;
     }
@@ -193,7 +197,7 @@ export async function handleResponseGeneration(
   try {
     result = await applyAvoidFactsGuardrail(
       result, businessContext, normalizedReview, voiceExamples,
-      { reviewId: review_id, version, businessId: business_id },
+      { reviewId: review_id, version, businessId: businessId },
       logger,
     );
   } catch (err) {
@@ -205,7 +209,7 @@ export async function handleResponseGeneration(
 
   // ── Step 9: Persist response + outbox + cost link in one transaction ─
   const responseId = await persistResponseAndNotify(
-    result, review_id, business_id, version, job.data.correlation_id,
+    result, review_id, businessId, version, job.data.correlation_id,
     job.data.suppress_notification === true,
   );
   // DB transaction failure throws for BullMQ retry (transient)

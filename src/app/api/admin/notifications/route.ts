@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
+import { asLocationId } from '@/lib/shared/ids';
+import type { LocationId } from '@/lib/shared/ids';
 
 export const dynamic = 'force-dynamic';
 
@@ -63,7 +65,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const limit = Math.min(Math.max(rawLimit || 20, 1), 100);
     const offset = Math.max(rawOffset || 0, 0);
 
-    const businessId = params.get('business_id') ?? '';
+    const rawBusinessId = params.get('business_id') ?? '';
+    const businessId: LocationId | '' = rawBusinessId ? asLocationId(rawBusinessId) : '';
     const channel = params.get('channel') ?? '';
     const status = params.get('status') ?? '';
 
@@ -72,7 +75,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const queryParams: (string | number)[] = [];
 
     if (businessId) {
-      queryParams.push(businessId);
+      queryParams.push(businessId as string);
       conditions.push(`nd.business_id = $${queryParams.length}`);
     }
 
