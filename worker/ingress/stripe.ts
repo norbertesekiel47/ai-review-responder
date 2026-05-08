@@ -260,24 +260,45 @@ async function processInvoicePaymentFailed(invoice: Stripe.Invoice): Promise<voi
   }
 
   // VAL-BILLING-012: Set accounts.subscription_status = 'past_due'
-  await sql`
-    UPDATE accounts
-    SET subscription_status = 'past_due', updated_at = NOW()
-    WHERE stripe_customer_id = ${customerId}
-      AND subscription_status = 'active'
-  `;
+  // VAL-BILLING-062: Advisory lock prevents duplicate past_due writes under
+  // concurrent webhook deliveries for the same customer.
+  await sql.begin(async (tx) => {
+    // Resolve the account from the customer ID first
+    const [acctRow] = await tx<{ id: string; subscription_status: string }[]>`
+      SELECT id, subscription_status
+      FROM accounts
+      WHERE stripe_customer_id = ${customerId}
+      FOR UPDATE
+    `;
 
-  // Also update businesses deprecated column
-  await sql`
-    UPDATE businesses
-    SET subscription_status = 'past_due', updated_at = NOW()
-    WHERE account_id IN (
-      SELECT id FROM accounts WHERE stripe_customer_id = ${customerId}
-    )
-      AND subscription_status = 'active'
-  `;
+    if (!acctRow) {
+      console.warn(`${LOG_PREFIX} invoice.payment_failed no account found for customer=${customerId} — skipping`);
+      return;
+    }
 
-  console.log(`${LOG_PREFIX} Account with customer=${customerId} marked past_due`);
+    await tx`SELECT pg_advisory_xact_lock(hashtext(${acctRow.id + ':status_change'}))`;
+
+    // Idempotent: only flip active → past_due (skip if already past_due or other status)
+    if (acctRow.subscription_status === 'active') {
+      await tx`
+        UPDATE accounts
+        SET subscription_status = 'past_due', updated_at = NOW()
+        WHERE id = ${acctRow.id}::uuid
+      `;
+
+      // Also update businesses deprecated column
+      await tx`
+        UPDATE businesses
+        SET subscription_status = 'past_due', updated_at = NOW()
+        WHERE account_id = ${acctRow.id}::uuid
+          AND subscription_status = 'active'
+      `;
+
+      console.log(`${LOG_PREFIX} Account ${acctRow.id} marked past_due (customer=${customerId})`);
+    } else {
+      console.log(`${LOG_PREFIX} Account ${acctRow.id} already ${acctRow.subscription_status} — skipping past_due transition`);
+    }
+  });
 }
 
 async function processInvoicePaid(invoice: Stripe.Invoice): Promise<void> {
@@ -289,26 +310,43 @@ async function processInvoicePaid(invoice: Stripe.Invoice): Promise<void> {
 
   // VAL-BILLING-013: Recover account from past_due to active
   // VAL-BILLING-014: No-op for already-active accounts
-  const recovered = await sql<{ id: string }[]>`
-    UPDATE accounts
-    SET subscription_status = 'active', updated_at = NOW()
-    WHERE stripe_customer_id = ${customerId}
-      AND subscription_status = 'past_due'
-    RETURNING id
-  `;
+  // VAL-BILLING-062: Advisory lock prevents duplicate recovery writes.
+  const recovered: { id: string }[] = [];
+
+  await sql.begin(async (tx) => {
+    // Find accounts for this customer that are past_due
+    const accounts = await tx<{ id: string; subscription_status: string }[]>`
+      SELECT id, subscription_status
+      FROM accounts
+      WHERE stripe_customer_id = ${customerId}
+      FOR UPDATE
+    `;
+
+    for (const acct of accounts) {
+      if (acct.subscription_status !== 'past_due') continue;
+
+      await tx`SELECT pg_advisory_xact_lock(hashtext(${acct.id + ':status_change'}))`;
+
+      await tx`
+        UPDATE accounts
+        SET subscription_status = 'active', updated_at = NOW()
+        WHERE id = ${acct.id}::uuid
+      `;
+
+      // Also update businesses deprecated column
+      await tx`
+        UPDATE businesses
+        SET subscription_status = 'active', updated_at = NOW()
+        WHERE account_id = ${acct.id}::uuid
+          AND subscription_status = 'past_due'
+      `;
+
+      recovered.push(acct);
+    }
+  });
 
   if (recovered.length === 0) {
     return;
-  }
-
-  // Also update businesses deprecated column
-  for (const acct of recovered) {
-    await sql`
-      UPDATE businesses
-      SET subscription_status = 'active', updated_at = NOW()
-      WHERE account_id = ${acct.id}::uuid
-        AND subscription_status = 'past_due'
-    `;
   }
 
   console.log(`${LOG_PREFIX} Account with customer=${customerId} recovered from past_due to active`);
@@ -337,22 +375,43 @@ async function processSubscriptionDeleted(sub: Stripe.Subscription): Promise<voi
   }
 
   // VAL-BILLING-015: Set subscription_status = 'cancelled'
-  await sql`
-    UPDATE accounts
-    SET subscription_status = 'cancelled', updated_at = NOW()
-    WHERE stripe_customer_id = ${customerId}
-  `;
+  // VAL-BILLING-062: Advisory lock prevents duplicate cancellation writes.
+  await sql.begin(async (tx) => {
+    const [acctRow] = await tx<{ id: string; subscription_status: string }[]>`
+      SELECT id, subscription_status
+      FROM accounts
+      WHERE stripe_customer_id = ${customerId}
+      FOR UPDATE
+    `;
 
-  // Also update businesses deprecated column
-  await sql`
-    UPDATE businesses
-    SET subscription_status = 'cancelled', updated_at = NOW()
-    WHERE account_id IN (
-      SELECT id FROM accounts WHERE stripe_customer_id = ${customerId}
-    )
-  `;
+    if (!acctRow) {
+      console.warn(`${LOG_PREFIX} customer.subscription.deleted no account found for customer=${customerId} — skipping`);
+      return;
+    }
 
-  console.log(`${LOG_PREFIX} Account with customer=${customerId} cancelled`);
+    await tx`SELECT pg_advisory_xact_lock(hashtext(${acctRow.id + ':status_change'}))`;
+
+    // Idempotent: cancelled → cancelled is a no-op at the data level,
+    // but we still write for consistency (last-write-wins produces same result).
+    if (acctRow.subscription_status !== 'cancelled') {
+      await tx`
+        UPDATE accounts
+        SET subscription_status = 'cancelled', updated_at = NOW()
+        WHERE id = ${acctRow.id}::uuid
+      `;
+
+      // Also update businesses deprecated column
+      await tx`
+        UPDATE businesses
+        SET subscription_status = 'cancelled', updated_at = NOW()
+        WHERE account_id = ${acctRow.id}::uuid
+      `;
+
+      console.log(`${LOG_PREFIX} Account ${acctRow.id} cancelled (was ${acctRow.subscription_status}, customer=${customerId})`);
+    } else {
+      console.log(`${LOG_PREFIX} Account ${acctRow.id} already cancelled — skipping`);
+    }
+  });
 }
 
 async function processSubscriptionUpdated(sub: Stripe.Subscription): Promise<void> {
@@ -364,6 +423,7 @@ async function processSubscriptionUpdated(sub: Stripe.Subscription): Promise<voi
 
   // VAL-BILLING-009: Map base price_id to tier
   // VAL-BILLING-030: All 7 price env vars referenced in the reverse-map
+  // VAL-BILLING-055: Reverse-map includes all 7 price IDs
   const priceToTier: Record<string, SubscriptionTierValue> = {
     [process.env.STRIPE_PRICE_BASIC ?? '']: 'basic',
     [process.env.STRIPE_PRICE_FOUNDING ?? '']: 'founders',
@@ -402,26 +462,41 @@ async function processSubscriptionUpdated(sub: Stripe.Subscription): Promise<voi
   );
   const locationsPaid = overageItem?.quantity ?? 0;
 
-  // Update accounts (source of truth)
-  await sql`
-    UPDATE accounts
-    SET
-      subscription_tier = ${tier},
-      locations_paid = ${locationsPaid},
-      updated_at = NOW()
-    WHERE stripe_customer_id = ${customerId}
-  `;
+  // VAL-BILLING-062: Advisory lock prevents concurrent tier/overage writes.
+  await sql.begin(async (tx) => {
+    const [acctRow] = await tx<{ id: string; subscription_tier: string; subscription_status: string }[]>`
+      SELECT id, subscription_tier, subscription_status
+      FROM accounts
+      WHERE stripe_customer_id = ${customerId}
+      FOR UPDATE
+    `;
 
-  // Also update businesses deprecated column
-  await sql`
-    UPDATE businesses
-    SET subscription_tier = ${tier}, updated_at = NOW()
-    WHERE account_id IN (
-      SELECT id FROM accounts WHERE stripe_customer_id = ${customerId}
-    )
-  `;
+    if (!acctRow) {
+      console.warn(`${LOG_PREFIX} customer.subscription.updated no account found for customer=${customerId} — skipping tier update`);
+      return;
+    }
 
-  console.log(`${LOG_PREFIX} Account with customer=${customerId} tier updated to ${tier}, locations_paid=${locationsPaid}`);
+    await tx`SELECT pg_advisory_xact_lock(hashtext(${acctRow.id + ':subscription_update'}))`;
+
+    // Update accounts (source of truth)
+    await tx`
+      UPDATE accounts
+      SET
+        subscription_tier = ${tier},
+        locations_paid = ${locationsPaid},
+        updated_at = NOW()
+      WHERE id = ${acctRow.id}::uuid
+    `;
+
+    // Also update businesses deprecated column
+    await tx`
+      UPDATE businesses
+      SET subscription_tier = ${tier}, updated_at = NOW()
+      WHERE account_id = ${acctRow.id}::uuid
+    `;
+
+    console.log(`${LOG_PREFIX} Account ${acctRow.id} tier updated to ${tier}, locations_paid=${locationsPaid}`);
+  });
 }
 
 export async function handleStripeWebhook(request: FastifyRequest, reply: FastifyReply): Promise<void> {
