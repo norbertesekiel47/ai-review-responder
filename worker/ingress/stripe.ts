@@ -210,6 +210,17 @@ async function processCheckoutSessionCompleted(session: Stripe.Checkout.Session)
     if (updateAcct.count > 0) {
       console.log(`${LOG_PREFIX} Account ${accountId!} activated (customer=${customerId}, old_status=${oldStatus})`);
       activated = true;
+
+      // VAL-LOC-029 / VAL-LOC-058: Audit log for subscription_status_changed
+      await tx`
+        INSERT INTO account_audit_log (id, account_id, event_type, payload)
+        VALUES (
+          ${uuidv7()}::uuid,
+          ${accountId!}::uuid,
+          'subscription_status_changed',
+          ${jsonb({ fromStatus: oldStatus, toStatus: 'active' })}
+        )
+      `;
     } else {
       console.warn(`${LOG_PREFIX} Account ${accountId!} not activated — current status is ${oldStatus}`);
     }
@@ -286,6 +297,17 @@ async function processInvoicePaymentFailed(invoice: Stripe.Invoice): Promise<voi
         WHERE id = ${acctRow.id}::uuid
       `;
 
+      // VAL-LOC-029 / VAL-LOC-058: Audit log for subscription_status_changed
+      await tx`
+        INSERT INTO account_audit_log (id, account_id, event_type, payload)
+        VALUES (
+          ${uuidv7()}::uuid,
+          ${acctRow.id}::uuid,
+          'subscription_status_changed',
+          ${jsonb({ fromStatus: 'active', toStatus: 'past_due' })}
+        )
+      `;
+
       // Also update businesses deprecated column
       await tx`
         UPDATE businesses
@@ -331,6 +353,17 @@ async function processInvoicePaid(invoice: Stripe.Invoice): Promise<void> {
         UPDATE accounts
         SET subscription_status = 'active', updated_at = NOW()
         WHERE id = ${acct.id}::uuid
+      `;
+
+      // VAL-LOC-029 / VAL-LOC-058: Audit log for subscription_status_changed
+      await tx`
+        INSERT INTO account_audit_log (id, account_id, event_type, payload)
+        VALUES (
+          ${uuidv7()}::uuid,
+          ${acct.id}::uuid,
+          'subscription_status_changed',
+          ${jsonb({ fromStatus: 'past_due', toStatus: 'active' })}
+        )
       `;
 
       // Also update businesses deprecated column
@@ -394,10 +427,23 @@ async function processSubscriptionDeleted(sub: Stripe.Subscription): Promise<voi
     // Idempotent: cancelled → cancelled is a no-op at the data level,
     // but we still write for consistency (last-write-wins produces same result).
     if (acctRow.subscription_status !== 'cancelled') {
+      const oldStatus = acctRow.subscription_status;
+
       await tx`
         UPDATE accounts
         SET subscription_status = 'cancelled', cancelled_at = NOW(), updated_at = NOW()
         WHERE id = ${acctRow.id}::uuid
+      `;
+
+      // VAL-LOC-029 / VAL-LOC-058: Audit log for subscription_status_changed
+      await tx`
+        INSERT INTO account_audit_log (id, account_id, event_type, payload)
+        VALUES (
+          ${uuidv7()}::uuid,
+          ${acctRow.id}::uuid,
+          'subscription_status_changed',
+          ${jsonb({ fromStatus: oldStatus, toStatus: 'cancelled' })}
+        )
       `;
 
       // Also update businesses deprecated column
@@ -407,7 +453,7 @@ async function processSubscriptionDeleted(sub: Stripe.Subscription): Promise<voi
         WHERE account_id = ${acctRow.id}::uuid
       `;
 
-      console.log(`${LOG_PREFIX} Account ${acctRow.id} cancelled (was ${acctRow.subscription_status}, customer=${customerId})`);
+      console.log(`${LOG_PREFIX} Account ${acctRow.id} cancelled (was ${oldStatus}, customer=${customerId})`);
     } else {
       console.log(`${LOG_PREFIX} Account ${acctRow.id} already cancelled — skipping`);
     }
@@ -487,6 +533,26 @@ async function processSubscriptionUpdated(sub: Stripe.Subscription): Promise<voi
         updated_at = NOW()
       WHERE id = ${acctRow.id}::uuid
     `;
+
+    // VAL-LOC-029 / VAL-LOC-058: Audit log for tier change and locations_paid update
+    const auditPayload: Record<string, unknown> = {};
+    if (acctRow.subscription_tier !== tier) {
+      auditPayload.fromTier = acctRow.subscription_tier;
+      auditPayload.toTier = tier;
+    }
+    auditPayload.locationsPaid = locationsPaid;
+
+    if (Object.keys(auditPayload).length > 0) {
+      await tx`
+        INSERT INTO account_audit_log (id, account_id, event_type, payload)
+        VALUES (
+          ${uuidv7()}::uuid,
+          ${acctRow.id}::uuid,
+          'subscription_updated',
+          ${jsonb(auditPayload)}
+        )
+      `;
+    }
 
     // Also update businesses deprecated column
     await tx`

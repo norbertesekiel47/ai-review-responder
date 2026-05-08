@@ -255,4 +255,45 @@ describe('UpdateStripeOverageWorker', () => {
       1,
     );
   });
+
+  // VAL-LOC-050: Worker is retry-safe / idempotent
+  it('calling worker twice with same account produces same overage quantity (idempotent)', async () => {
+    const overageItemId = 'si_overage_idem';
+    mockSql.mockReset();
+
+    // First call
+    mockSql.mockResolvedValueOnce([mockAccountRow()]);
+    mockSql.mockResolvedValueOnce([{ count: 3 }]); // 3 locations
+
+    mockStripeSubscriptionsRetrieve.mockResolvedValue({
+      items: {
+        data: [
+          { id: 'si_base', price: { id: 'price_standard' }, quantity: 1 },
+          { id: overageItemId, price: { id: 'price_std_overage' }, quantity: 1 },
+        ],
+      },
+    });
+
+    await handleUpdateStripeOverage(mockJob());
+
+    expect(mockStripeSubscriptionItemsUpdate).toHaveBeenCalledWith(
+      overageItemId,
+      { quantity: 2, proration_behavior: 'create_prorations' },
+    );
+
+    // Second call (same account, same state)
+    mockStripeSubscriptionItemsUpdate.mockClear();
+    mockMarkOutboxCompleted.mockClear();
+    mockSql.mockResolvedValueOnce([mockAccountRow()]);
+    mockSql.mockResolvedValueOnce([{ count: 3 }]);
+
+    await handleUpdateStripeOverage(mockJob());
+
+    // Same overage quantity computed from same location count
+    expect(mockStripeSubscriptionItemsUpdate).toHaveBeenCalledWith(
+      overageItemId,
+      { quantity: 2, proration_behavior: 'create_prorations' },
+    );
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
+  });
 });

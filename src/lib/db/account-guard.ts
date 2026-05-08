@@ -92,6 +92,9 @@ export interface LocationContext {
 export async function getLocationContext(
   locationId: string,
 ): Promise<LocationContext | null> {
+  // VAL-LOC-034: Returns null for archived locations, preventing workers
+  // from operating on them. The WHERE clause excludes archived locations
+  // so the query returns 0 rows when archived_at IS NOT NULL.
   const [row] = await sql<{
     account_id: string;
     subscription_tier: string;
@@ -122,6 +125,7 @@ export async function getLocationContext(
     FROM businesses b
     JOIN accounts a ON a.id = b.account_id
     WHERE b.id = ${locationId}::uuid
+      AND b.archived_at IS NULL
   `;
 
   if (!row) return null;

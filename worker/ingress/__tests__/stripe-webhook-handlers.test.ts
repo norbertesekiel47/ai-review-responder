@@ -154,7 +154,10 @@ function queueSubscriptionUpdated(opts: {
   // 3. UPDATE accounts SET subscription_tier, locations_paid, updated_at WHERE id
   const updateAcctResult: any = []; updateAcctResult.count = 1;
   sqlReturnQueue.push(updateAcctResult);
-  // 4. UPDATE businesses SET subscription_tier, updated_at WHERE account_id
+  // 4. INSERT account_audit_log (subscription_updated)
+  const auditResult: any = []; auditResult.count = 1;
+  sqlReturnQueue.push(auditResult);
+  // 5. UPDATE businesses SET subscription_tier, updated_at WHERE account_id
   const updateBizResult: any = []; updateBizResult.count = opts.updateBiz !== false ? 1 : 0;
   sqlReturnQueue.push(updateBizResult);
 }
@@ -174,7 +177,10 @@ function queueInvoicePaymentFailed(opts: {
     // 3. UPDATE accounts SET subscription_status = 'past_due'
     const r1: any = []; r1.count = 1;
     sqlReturnQueue.push(r1);
-    // 4. UPDATE businesses SET subscription_status = 'past_due'
+    // 4. INSERT account_audit_log (subscription_status_changed)
+    const auditR: any = []; auditR.count = 1;
+    sqlReturnQueue.push(auditR);
+    // 5. UPDATE businesses SET subscription_status = 'past_due'
     const r2: any = []; r2.count = 1;
     sqlReturnQueue.push(r2);
   }
@@ -194,7 +200,10 @@ function queueInvoicePaid(opts: {
     // 3. UPDATE accounts SET subscription_status = 'active'
     const r1: any = []; r1.count = 1;
     sqlReturnQueue.push(r1);
-    // 4. UPDATE businesses SET subscription_status = 'active'
+    // 4. INSERT account_audit_log (subscription_status_changed)
+    const auditR: any = []; auditR.count = 1;
+    sqlReturnQueue.push(auditR);
+    // 5. UPDATE businesses SET subscription_status = 'active'
     const r2: any = []; r2.count = 1;
     sqlReturnQueue.push(r2);
     // After tx: backfill resume queries
@@ -217,7 +226,10 @@ function queueSubscriptionDeleted(opts: {
     // 3. UPDATE accounts SET subscription_status = 'cancelled'
     const r1: any = []; r1.count = 1;
     sqlReturnQueue.push(r1);
-    // 4. UPDATE businesses SET subscription_status = 'cancelled'
+    // 4. INSERT account_audit_log (subscription_status_changed)
+    const auditR: any = []; auditR.count = 1;
+    sqlReturnQueue.push(auditR);
+    // 5. UPDATE businesses SET subscription_status = 'cancelled'
     const r2: any = []; r2.count = 1;
     sqlReturnQueue.push(r2);
   }
@@ -796,6 +808,9 @@ describe('checkout.session.completed — account activation (VAL-BILLING-007, VA
     sqlReturnQueue.push([{ subscription_status: 'pending_payment' }]);
     const updateResult: any = []; updateResult.count = 1;
     sqlReturnQueue.push(updateResult);
+    // INSERT account_audit_log (subscription_status_changed)
+    const auditResult: any = []; auditResult.count = 1;
+    sqlReturnQueue.push(auditResult);
     const bizResult: any = []; bizResult.count = 1;
     sqlReturnQueue.push(bizResult);
 
@@ -833,6 +848,7 @@ describe('checkout.session.completed — account activation (VAL-BILLING-007, VA
     sqlReturnQueue.push([{ subscription_status: 'active' }]);
     const noUpdate: any = []; noUpdate.count = 0;
     sqlReturnQueue.push(noUpdate);
+    // No audit log INSERT because the status didn't change (count = 0)
     const noBiz: any = []; noBiz.count = 0;
     sqlReturnQueue.push(noBiz);
 
@@ -865,6 +881,9 @@ describe('checkout.session.completed — account activation (VAL-BILLING-007, VA
     sqlReturnQueue.push([{ subscription_status: 'pending_payment' }]);
     const r1: any = []; r1.count = 1;
     sqlReturnQueue.push(r1);
+    // INSERT account_audit_log (subscription_status_changed)
+    const auditR: any = []; auditR.count = 1;
+    sqlReturnQueue.push(auditR);
     const r2: any = []; r2.count = 1;
     sqlReturnQueue.push(r2);
 
@@ -1038,5 +1057,135 @@ describe('Webhook idempotency and error handling', () => {
     await handleStripeWebhook(mkRequest(), { status, send } as any);
 
     expect(status).toHaveBeenCalledWith(200);
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────
+// Audit logging for subscription status changes (VAL-LOC-029, VAL-LOC-058)
+// ───────────────────────────────────────────────────────────────────────
+
+describe('subscription_status_changed audit logging', () => {
+  it('VAL-LOC-029: logs subscription_status_changed on checkout activation (pending_payment → active)', async () => {
+    mockConstructEvent.mockReturnValue({
+      id: 'evt_audit_activate',
+      type: 'checkout.session.completed',
+      data: {
+        object: {
+          id: 'cs_audit',
+          mode: 'subscription',
+          payment_status: 'paid',
+          client_reference_id: TEST_ACCOUNT_ID,
+          customer: TEST_CUSTOMER_ID,
+          subscription: TEST_SUBSCRIPTION_ID,
+        },
+      },
+    });
+
+    sqlReturnQueue.push([{ id: TEST_ACCOUNT_ID }]);
+    sqlReturnQueue.push([]); // advisory lock
+    sqlReturnQueue.push([{ subscription_status: 'pending_payment' }]);
+    const updateR: any = []; updateR.count = 1;
+    sqlReturnQueue.push(updateR);
+    const auditR: any = []; auditR.count = 1;
+    sqlReturnQueue.push(auditR);
+    const bizR: any = []; bizR.count = 1;
+    sqlReturnQueue.push(bizR);
+
+    const { status, send } = mkReply();
+    await handleStripeWebhook(mkRequest(), { status, send } as any);
+
+    expect(status).toHaveBeenCalledWith(200);
+
+    const auditInsert = sqlCalls.find(
+      (c) => /\bINSERT INTO account_audit_log\b/.test(c.text),
+    );
+    expect(auditInsert).toBeDefined();
+    // Event type is a SQL literal, not a parameter — check the text
+    expect(auditInsert!.text).toMatch(/subscription_status_changed/);
+    // Verify payload contains fromStatus and toStatus
+    const payloadIdx = auditInsert!.values.findIndex((v: unknown) =>
+      typeof v === 'object' && v !== null && 'fromStatus' in (v as Record<string, unknown>),
+    );
+    expect(payloadIdx).toBeGreaterThanOrEqual(0);
+    const payload = auditInsert!.values[payloadIdx] as Record<string, unknown>;
+    expect(payload.fromStatus).toBe('pending_payment');
+    expect(payload.toStatus).toBe('active');
+  });
+
+  it('VAL-LOC-058: logs subscription_status_changed on cancellation (active → cancelled)', async () => {
+    mockConstructEvent.mockReturnValue({
+      id: 'evt_audit_cancel',
+      type: 'customer.subscription.deleted',
+      data: { object: { id: TEST_SUBSCRIPTION_ID, customer: TEST_CUSTOMER_ID } },
+    });
+
+    queueSubscriptionDeleted({ status: 'active' });
+
+    const { status, send } = mkReply();
+    await handleStripeWebhook(mkRequest(), { status, send } as any);
+
+    expect(status).toHaveBeenCalledWith(200);
+
+    const auditInsert = sqlCalls.find(
+      (c) => /\bINSERT INTO account_audit_log\b/.test(c.text),
+    );
+    expect(auditInsert).toBeDefined();
+    expect(auditInsert!.text).toMatch(/subscription_status_changed/);
+    const payloadIdx = auditInsert!.values.findIndex((v: unknown) =>
+      typeof v === 'object' && v !== null && 'fromStatus' in (v as Record<string, unknown>),
+    );
+    expect(payloadIdx).toBeGreaterThanOrEqual(0);
+    const payload = auditInsert!.values[payloadIdx] as Record<string, unknown>;
+    expect(payload.fromStatus).toBe('active');
+    expect(payload.toStatus).toBe('cancelled');
+  });
+
+  it('logs subscription_status_changed on past_due recovery', async () => {
+    mockConstructEvent.mockReturnValue({
+      id: 'evt_audit_recover',
+      type: 'invoice.paid',
+      data: { object: { id: 'in_audit_recover', customer: TEST_CUSTOMER_ID } },
+    });
+
+    queueInvoicePaid({ status: 'past_due' });
+
+    const { status, send } = mkReply();
+    await handleStripeWebhook(mkRequest(), { status, send } as any);
+
+    expect(status).toHaveBeenCalledWith(200);
+
+    const auditInsert = sqlCalls.find(
+      (c) => /\bINSERT INTO account_audit_log\b/.test(c.text),
+    );
+    expect(auditInsert).toBeDefined();
+    expect(auditInsert!.text).toMatch(/subscription_status_changed/);
+    const payloadIdx = auditInsert!.values.findIndex((v: unknown) =>
+      typeof v === 'object' && v !== null && 'fromStatus' in (v as Record<string, unknown>),
+    );
+    expect(payloadIdx).toBeGreaterThanOrEqual(0);
+    const payload = auditInsert!.values[payloadIdx] as Record<string, unknown>;
+    expect(payload.fromStatus).toBe('past_due');
+    expect(payload.toStatus).toBe('active');
+  });
+
+  it('does not log audit when status unchanged (idempotent no-op)', async () => {
+    mockConstructEvent.mockReturnValue({
+      id: 'evt_audit_noop',
+      type: 'customer.subscription.deleted',
+      data: { object: { id: TEST_SUBSCRIPTION_ID, customer: TEST_CUSTOMER_ID } },
+    });
+
+    queueSubscriptionDeleted({ status: 'cancelled' });
+
+    const { status, send } = mkReply();
+    await handleStripeWebhook(mkRequest(), { status, send } as any);
+
+    expect(status).toHaveBeenCalledWith(200);
+
+    // No audit INSERT for cancelled → cancelled (no transition)
+    const auditInsert = sqlCalls.find(
+      (c) => /\bINSERT INTO account_audit_log\b/.test(c.text),
+    );
+    expect(auditInsert).toBeUndefined();
   });
 });

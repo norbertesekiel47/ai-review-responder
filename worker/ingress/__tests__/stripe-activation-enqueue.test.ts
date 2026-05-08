@@ -117,6 +117,9 @@ function queueHappyPath(currentStatus: string, options: { updateBusinessesCount?
   // UPDATE accounts → active
   const updateAcct: any = []; updateAcct.count = 1;
   sqlReturnQueue.push(updateAcct);
+  // INSERT account_audit_log (subscription_status_changed)
+  const auditLog: any = []; auditLog.count = 1;
+  sqlReturnQueue.push(auditLog);
   // UPDATE businesses (deprecated column compat)
   const updateBiz: any = []; updateBiz.count = options.updateBusinessesCount ?? 1;
   sqlReturnQueue.push(updateBiz);
