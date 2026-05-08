@@ -154,9 +154,7 @@ DO $$
 DECLARE
   missing_count INTEGER;
 BEGIN
-  SELECT COUNT(*) INTO missing_count
-  FROM businesses
-  WHERE onboarded_by IS NULL AND account_id IS NULL;
+  EXECUTE 'SELECT COUNT(*) FROM businesses WHERE onboarded_by IS NULL AND account_id IS NULL' INTO missing_count;
   IF missing_count > 0 THEN
     RAISE EXCEPTION
       'Cannot backfill accounts: % business(es) have NULL onboarded_by. '
@@ -184,14 +182,14 @@ DECLARE
   b RECORD;
   new_account_id UUID;
 BEGIN
-  FOR b IN
-    SELECT id, onboarded_by, name,
-           subscription_tier, subscription_status,
-           stripe_customer_id, stripe_subscription_id,
-           subscription_activated_at
-    FROM businesses b
-    WHERE b.account_id IS NULL
-    ORDER BY b.created_at ASC
+  FOR b IN EXECUTE
+    'SELECT id, onboarded_by, name, '
+    '         subscription_tier, subscription_status, '
+    '         stripe_customer_id, stripe_subscription_id, '
+    '         subscription_activated_at '
+    'FROM businesses b '
+    'WHERE b.account_id IS NULL '
+    'ORDER BY b.created_at ASC'
   LOOP
     INSERT INTO accounts (
       id, owner_user_id, display_name,
