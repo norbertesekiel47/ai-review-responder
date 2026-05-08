@@ -21,8 +21,10 @@ async function getToggleMetrics(page: Page): Promise<ToggleMetrics> {
 
     const toggleRect = toggle.getBoundingClientRect();
     const thumbRect = thumb.getBoundingClientRect();
-    const monthlyRect = buttons[0].getBoundingClientRect();
-    const annualRect = buttons[1].getBoundingClientRect();
+    const monthlyBtn = buttons[0]!;
+    const annualBtn = buttons[1]!;
+    const monthlyRect = monthlyBtn.getBoundingClientRect();
+    const annualRect = annualBtn.getBoundingClientRect();
 
     return {
       toggleWidth: toggleRect.width,
@@ -30,8 +32,8 @@ async function getToggleMetrics(page: Page): Promise<ToggleMetrics> {
       thumbWidth: thumbRect.width,
       monthlyWidth: monthlyRect.width,
       annualWidth: annualRect.width,
-      monthlyPressed: buttons[0].getAttribute('aria-pressed'),
-      annualPressed: buttons[1].getAttribute('aria-pressed'),
+      monthlyPressed: monthlyBtn.getAttribute('aria-pressed'),
+      annualPressed: annualBtn.getAttribute('aria-pressed'),
     };
   });
 }

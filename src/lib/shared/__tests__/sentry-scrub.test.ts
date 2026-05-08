@@ -52,10 +52,10 @@ describe('scrubSentryEvent', () => {
       },
     };
     scrubSentryEvent(event);
-    expect(event.extra.batch[0].apiToken).toBe('[REDACTED]');
-    expect(event.extra.batch[0].label).toBe('first');
-    expect(event.extra.batch[1].authorization).toBe('[REDACTED]');
-    expect(event.extra.batch[1].label).toBe('second');
+    expect(event.extra.batch[0]!.apiToken).toBe('[REDACTED]');
+    expect(event.extra.batch[0]!.label).toBe('first');
+    expect(event.extra.batch[1]!.authorization).toBe('[REDACTED]');
+    expect(event.extra.batch[1]!.label).toBe('second');
   });
 
   it('does not crash on null items inside arrays', () => {

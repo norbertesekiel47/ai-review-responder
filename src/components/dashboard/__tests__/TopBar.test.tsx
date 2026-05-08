@@ -15,7 +15,7 @@ describe('TopBar', () => {
   it('keeps auto-refresh side effects outside the countdown state updater', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/components/dashboard/TopBar.tsx'), 'utf8');
     const updaterBody =
-      source.match(/setSecondsToRefresh\(\(s\) => \s*\{(?<body>[\s\S]*?)\n\s*\}\);/)?.groups?.body ?? '';
+      source.match(/setSecondsToRefresh\(\(s\) => \s*\{([\s\S]*?)\n\s*\}\);/)?.[1] ?? '';
 
     expect(updaterBody).not.toContain('doRefresh');
   });

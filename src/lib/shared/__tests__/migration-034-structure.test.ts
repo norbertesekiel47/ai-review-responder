@@ -15,6 +15,7 @@
 
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { beforeAll, describe, it, expect } from 'vitest';
 
 const MIGRATION_PATH = resolve(
   process.cwd(),
@@ -395,7 +396,7 @@ describe('migration 034 — backfill (VAL-SCHEMA-025–029)', () => {
   });
 
   it('VAL-SCHEMA-025: sets display_name = businesses.name', () => {
-    expect(sql).toMatch(/display_name.*b\.name|b\.name.*display_name/s);
+    expect(sql).toMatch(/display_name[\s\S]*b\.name|b\.name[\s\S]*display_name/);
   });
 
   it('VAL-SCHEMA-025: sets owner_user_id = businesses.onboarded_by', () => {
@@ -407,11 +408,11 @@ describe('migration 034 — backfill (VAL-SCHEMA-025–029)', () => {
   });
 
   it('VAL-SCHEMA-027: sets users.account_id from business', () => {
-    expect(sql).toMatch(/account_id.*businesses|businesses.*account_id/s);
+    expect(sql).toMatch(/account_id[\s\S]*businesses|businesses[\s\S]*account_id/);
   });
 
   it('VAL-SCHEMA-028: sets channel_enrollments.account_id from business', () => {
-    expect(sql).toMatch(/channel_enrollments.*account_id|UPDATE channel_enrollments/s);
+    expect(sql).toMatch(/channel_enrollments[\s\S]*account_id|UPDATE channel_enrollments/);
   });
 
   it('VAL-SCHEMA-029: sets hot-table account_id from business', () => {
@@ -445,7 +446,7 @@ describe('migration 034 — VAL-SCHEMA-030: idempotency', () => {
   });
 
   it('uses IF NOT EXISTS for FK constraint additions (via DO block)', () => {
-    expect(sql).toMatch(/IF NOT EXISTS.*pg_constraint.*fk_|pg_constraint.*fk_.*IF NOT EXISTS/s);
+    expect(sql).toMatch(/IF NOT EXISTS[\s\S]*pg_constraint[\s\S]*fk_|pg_constraint[\s\S]*fk_[\s\S]*IF NOT EXISTS/);
   });
 
   it('backfill skips already-processed rows (WHERE account_id IS NULL)', () => {
