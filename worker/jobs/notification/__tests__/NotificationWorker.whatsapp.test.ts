@@ -180,7 +180,7 @@ function seedResponseAndBusiness() {
     name: 'Acme Corp',
     owner_email_bounced: false,
     subscription_status: 'active',
-    updated_at: new Date('2026-04-01'),
+    account_updated_at: new Date('2026-04-01'),
   }]);
 }
 

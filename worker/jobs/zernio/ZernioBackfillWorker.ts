@@ -79,12 +79,15 @@ export async function handleZernioBackfill(job: Job<ZernioInitialBackfillPayload
   // so this attempt isn't retried automatically; a future reconnect (or
   // ops-triggered re-enqueue) will retry the backfill via the same
   // zernio_backfill_runs row (completed_at IS NULL → idempotent re-entry).
-  const [biz] = await sql<{ subscription_status: string; updated_at: Date }[]>`
-    SELECT subscription_status, updated_at FROM businesses WHERE id = ${business_id}
+  const [acct] = await sql<{ subscription_status: string; updated_at: Date }[]>`
+    SELECT a.subscription_status, a.updated_at
+    FROM businesses b
+    JOIN accounts a ON a.id = b.account_id
+    WHERE b.id = ${business_id}
   `;
-  if (!biz || !checkSubscription(biz.subscription_status, biz.updated_at, 'generator').allowed) {
+  if (!acct || !checkSubscription(acct.subscription_status, acct.updated_at, 'generator').allowed) {
     logger.log(
-      `Backfill skipped for business=${business_id}: subscription_status=${biz?.subscription_status ?? 'missing'}`,
+      `Backfill skipped for business=${business_id}: subscription_status=${acct?.subscription_status ?? 'missing'}`,
     );
     await markOutboxCompleted(outboxId, attempt);
     return;

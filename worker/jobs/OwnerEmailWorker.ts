@@ -47,7 +47,7 @@ interface BusinessRow {
   owner_email: string;
   owner_email_bounced: boolean;
   subscription_status: string;
-  updated_at: Date;
+  account_updated_at: Date;
 }
 
 export async function handleOwnerEmail(
@@ -59,9 +59,11 @@ export async function handleOwnerEmail(
   const businessId: LocationId = asLocationId(job.data.business_id);
 
   const [business] = await sql<BusinessRow[]>`
-    SELECT id, name, owner_email, owner_email_bounced, subscription_status, updated_at
-    FROM businesses
-    WHERE id = ${businessId}
+    SELECT b.id, b.name, b.owner_email, b.owner_email_bounced,
+           a.subscription_status, a.updated_at AS account_updated_at
+    FROM businesses b
+    JOIN accounts a ON a.id = b.account_id
+    WHERE b.id = ${businessId}
   `;
 
   if (!business) {
@@ -72,7 +74,7 @@ export async function handleOwnerEmail(
 
   const subCheck = checkSubscription(
     business.subscription_status,
-    new Date(business.updated_at),
+    new Date(business.account_updated_at),
     'owner_email',
   );
 

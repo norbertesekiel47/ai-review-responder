@@ -96,7 +96,7 @@ function mockBusinessRow(overrides: Record<string, unknown> = {}) {
     owner_email: 'owner@test.com',
     owner_phone: '+1234567890',
     subscription_status: 'active',
-    updated_at: new Date(),
+    account_updated_at: new Date(),
     ...overrides,
   };
 }

@@ -22,23 +22,26 @@ export async function handleWeeklySummary(
   const businessId: LocationId = asLocationId(job.data.business_id);
   const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
 
-  // ── 1. Load business (including ROI baseline fields) ──────────────
+  // ── 1. Load business (including ROI baseline fields) + account subscription ──
   const [business] = await sql<{
     id: string;
     name: string;
     owner_email: string;
     owner_email_bounced: boolean;
     subscription_status: string;
-    updated_at: Date;
+    account_updated_at: Date;
     initial_review_count: number | null;
     initial_responded_count: number | null;
     baseline_captured_at: Date | null;
     subscription_tier: string;
   }[]>`
-    SELECT id, name, owner_email, owner_email_bounced, subscription_status, updated_at,
-           initial_review_count, initial_responded_count, baseline_captured_at,
-           subscription_tier
-    FROM businesses WHERE id = ${businessId}
+    SELECT b.id, b.name, b.owner_email, b.owner_email_bounced,
+           a.subscription_status, a.updated_at AS account_updated_at,
+           b.initial_review_count, b.initial_responded_count, b.baseline_captured_at,
+           a.subscription_tier
+    FROM businesses b
+    JOIN accounts a ON a.id = b.account_id
+    WHERE b.id = ${businessId}
   `;
 
   if (!business) {
@@ -50,7 +53,7 @@ export async function handleWeeklySummary(
   // ── 2. Subscription guard ─────────────────────────────────────────
   const subCheck = checkSubscription(
     business.subscription_status,
-    new Date(business.updated_at),
+    new Date(business.account_updated_at),
     'summary',
   );
 

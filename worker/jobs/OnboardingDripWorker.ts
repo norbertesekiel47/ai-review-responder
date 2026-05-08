@@ -1,6 +1,7 @@
 import type { Job } from 'bullmq';
 import { v7 as uuidv7 } from 'uuid';
 import { sql } from '../../src/lib/db/server';
+import { checkSubscription } from '../../src/lib/shared/subscription-guard';
 import { markOutboxCompleted, markOutboxFailed, extractOutboxHandle } from '../../src/lib/shared/outbox';
 import {
   sendInternalEmail,
@@ -31,14 +32,17 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
     owner_email: string;
     owner_email_bounced: boolean;
     subscription_status: string;
-    updated_at: Date;
+    account_updated_at: Date;
     initial_review_count: number | null;
     initial_responded_count: number | null;
     subscription_activated_at: Date | null;
   }[]>`
-    SELECT id, name, owner_name, owner_email, owner_email_bounced, subscription_status, updated_at,
-           initial_review_count, initial_responded_count, subscription_activated_at
-    FROM businesses WHERE id = ${businessId}
+    SELECT b.id, b.name, b.owner_name, b.owner_email, b.owner_email_bounced,
+           a.subscription_status, a.updated_at AS account_updated_at,
+           b.initial_review_count, b.initial_responded_count, b.subscription_activated_at
+    FROM businesses b
+    JOIN accounts a ON a.id = b.account_id
+    WHERE b.id = ${businessId}
   `;
 
   if (!business) {
@@ -50,6 +54,18 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
   // ── 2. Only active subscriptions get drip emails ──────────────────
   if (business.subscription_status !== 'active') {
     logger.log(`Business ${businessId} not active (${business.subscription_status}) — skipping ${drip_type}`);
+    await markOutboxCompleted(outboxId, outboxAttempt);
+    return;
+  }
+
+  // Re-check with account-level updated_at for past_due grace etc.
+  const subCheck = checkSubscription(
+    business.subscription_status,
+    new Date(business.account_updated_at),
+    'notification',
+  );
+  if (!subCheck.allowed) {
+    logger.log(`Business ${businessId} skipped: ${subCheck.reason}`);
     await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }

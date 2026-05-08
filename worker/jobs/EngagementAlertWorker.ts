@@ -24,17 +24,20 @@ export async function handleEngagementAlert(job: Job<EngagementAlertPayload>): P
   const businessId: LocationId = asLocationId(job.data.business_id);
   const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
 
-  // ── Step 1: Load business ─────────────────────────────────────────
+  // ── Step 1: Load business + account subscription ──────────────────
   const [business] = await sql<{
     name: string;
     owner_email: string;
     owner_email_bounced: boolean;
     owner_phone: string | null;
     subscription_status: string;
-    updated_at: Date;
+    account_updated_at: Date;
   }[]>`
-    SELECT name, owner_email, owner_email_bounced, owner_phone, subscription_status, updated_at
-    FROM businesses WHERE id = ${businessId}
+    SELECT b.name, b.owner_email, b.owner_email_bounced, b.owner_phone,
+           a.subscription_status, a.updated_at AS account_updated_at
+    FROM businesses b
+    JOIN accounts a ON a.id = b.account_id
+    WHERE b.id = ${businessId}
   `;
 
   if (!business) {
@@ -46,7 +49,7 @@ export async function handleEngagementAlert(job: Job<EngagementAlertPayload>): P
   // ── Step 2: Subscription guard ────────────────────────────────────
   const subCheck = checkSubscription(
     business.subscription_status,
-    new Date(business.updated_at),
+    new Date(business.account_updated_at),
     'notification',
   );
 

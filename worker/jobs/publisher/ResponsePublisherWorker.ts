@@ -68,11 +68,12 @@ export async function handlePublishResponse(
     id: string;
     name: string;
     subscription_status: string;
-    updated_at: Date;
+    account_updated_at: Date;
   }[]>`
-    SELECT id, name, subscription_status, updated_at
-    FROM businesses
-    WHERE id = ${businessId}
+    SELECT b.id, b.name, a.subscription_status, a.updated_at AS account_updated_at
+    FROM businesses b
+    JOIN accounts a ON a.id = b.account_id
+    WHERE b.id = ${businessId}
   `;
 
   if (!business) {
@@ -104,7 +105,7 @@ export async function handlePublishResponse(
   // ── Step 3: Subscription guard ─────────────────────────────────────
   const subCheck = checkSubscription(
     business.subscription_status,
-    new Date(business.updated_at),
+    new Date(business.account_updated_at),
     'publisher',
   );
 

@@ -84,7 +84,7 @@ function mockBusinessRow(overrides: Record<string, unknown> = {}) {
     owner_name: 'Jane',
     owner_email: 'jane@test.com',
     subscription_status: 'active',
-    updated_at: new Date(),
+    account_updated_at: new Date(),
     initial_review_count: 20,
     initial_responded_count: 5,
     subscription_activated_at: new Date('2026-04-01T00:00:00Z'),

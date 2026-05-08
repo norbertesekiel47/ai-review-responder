@@ -64,12 +64,14 @@ export async function handleResponseGeneration(
     sample_responses: string[] | null;
     subscription_status: string;
     subscription_tier: string;
-    updated_at: Date;
+    account_updated_at: Date;
   }[]>`
-    SELECT id, name, category, tone, products_services, staff_names,
-           highlight_facts, avoid_facts, sample_responses,
-           subscription_status, subscription_tier, updated_at
-    FROM businesses WHERE id = ${businessId}
+    SELECT b.id, b.name, b.category, b.tone, b.products_services, b.staff_names,
+           b.highlight_facts, b.avoid_facts, b.sample_responses,
+           a.subscription_status, a.subscription_tier, a.updated_at AS account_updated_at
+    FROM businesses b
+    JOIN accounts a ON a.id = b.account_id
+    WHERE b.id = ${businessId}
   `;
 
   if (!business) {
@@ -81,7 +83,7 @@ export async function handleResponseGeneration(
   // ── Step 2: Subscription guard ───────────────────────────────────────
   const subCheck = checkSubscription(
     business.subscription_status,
-    new Date(business.updated_at),
+    new Date(business.account_updated_at),
     'generator',
   );
 

@@ -35,7 +35,8 @@ async function checkAndSchedule(): Promise<void> {
 
     const businesses = await sql<{ id: string }[]>`
       SELECT b.id FROM businesses b
-      WHERE b.subscription_status IN ('active', 'past_due')
+      JOIN accounts a ON a.id = b.account_id
+      WHERE a.subscription_status IN ('active', 'past_due')
         AND (b.monthly_impact_enabled IS NULL OR b.monthly_impact_enabled = TRUE)
         AND NOT EXISTS (
           SELECT 1 FROM monthly_impact_emails mie

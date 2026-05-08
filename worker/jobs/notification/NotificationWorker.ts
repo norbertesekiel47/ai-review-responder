@@ -44,7 +44,7 @@ export async function handleSendNotification(
     {
       businessId,
       subscriptionStatus: ctx.business.subscription_status,
-      businessUpdatedAt: new Date(ctx.business.updated_at),
+      businessUpdatedAt: new Date(ctx.business.account_updated_at),
     },
     logger,
   );

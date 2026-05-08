@@ -39,7 +39,7 @@ export interface BusinessRow {
   name: string;
   owner_email_bounced: boolean;
   subscription_status: string;
-  updated_at: Date;
+  account_updated_at: Date;
 }
 
 export type NotificationContextResult =
@@ -78,8 +78,10 @@ export async function loadNotificationContext(
   }
 
   const [business] = await sql<BusinessRow[]>`
-    SELECT name, owner_email_bounced, subscription_status, updated_at
-    FROM businesses WHERE id = ${input.businessId}
+    SELECT b.name, b.owner_email_bounced, a.subscription_status, a.updated_at AS account_updated_at
+    FROM businesses b
+    JOIN accounts a ON a.id = b.account_id
+    WHERE b.id = ${input.businessId}
   `;
   if (!business) {
     logger.warn(`Business ${input.businessId} not found`);

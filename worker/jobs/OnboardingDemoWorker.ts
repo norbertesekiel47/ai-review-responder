@@ -66,13 +66,14 @@ export async function handleOnboardingDemo(
   // can render a graceful notice (NOT completeDemo with empty arrays which
   // would lock the user out via the partial-unique-on-completed index).
   const [biz] = await sql<{ subscription_status: string }[]>`
-    SELECT b.subscription_status
+    SELECT a.subscription_status
     FROM onboarding_demos od
     JOIN businesses b ON b.id = od.business_id
+    JOIN accounts a ON a.id = b.account_id
     WHERE od.id = ${demoId}
   `;
   if (biz && biz.subscription_status !== 'pending_payment') {
-    logger.warn(`Demo ${demoId} business status=${biz.subscription_status}, marking failed`);
+    logger.warn(`Demo ${demoId} account status=${biz.subscription_status}, marking failed`);
     try {
       await failDemo(
         'onboarding_demos',

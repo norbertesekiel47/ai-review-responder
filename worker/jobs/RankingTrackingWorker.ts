@@ -9,6 +9,7 @@ import type { TrackRankingPayload } from '../../src/lib/shared/worker-types';
 import { createWorkerLogger } from '../../src/lib/shared/logger';
 import { asLocationId } from '../../src/lib/shared/ids';
 import type { LocationId } from '../../src/lib/shared/ids';
+import { getLocationContext } from '../../src/lib/db/account-guard';
 
 export async function handleTrackRanking(job: Job<TrackRankingPayload>): Promise<void> {
   const logger = createWorkerLogger('[RankingTrackingWorker]', job.data.correlation_id);
@@ -16,18 +17,24 @@ export async function handleTrackRanking(job: Job<TrackRankingPayload>): Promise
   const businessId: LocationId = asLocationId(job.data.business_id);
   const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
 
-  // ── Step 1: Load business ─────────────────────────────────────────
+  // ── Step 1: Load business + account context via account-guard ──────
+  const ctx = await getLocationContext(businessId);
+
+  if (!ctx) {
+    logger.warn(`Business ${businessId} not found or has no account`);
+    await markOutboxFailed(outboxId, 'business_not_found', outboxAttempt);
+    return;
+  }
+
   const [business] = await sql<{
     id: string;
-    subscription_status: string;
-    updated_at: Date;
     tracked_keywords: unknown;
     google_place_id: string | null;
     google_place_lat: number | null;
     google_place_lng: number | null;
     ranking_search_location: string | null;
   }[]>`
-    SELECT id, subscription_status, updated_at, tracked_keywords,
+    SELECT id, tracked_keywords,
            google_place_id, google_place_lat, google_place_lng, ranking_search_location
     FROM businesses WHERE id = ${businessId}
   `;
@@ -41,8 +48,8 @@ export async function handleTrackRanking(job: Job<TrackRankingPayload>): Promise
   // ── Step 2: Strict active-only guard (ranking costs real SerpAPI spend) ──
   // Unlike notification/summary workers that use checkSubscription (allows past_due grace),
   // ranking requires strictly active — no paid API calls for non-paying businesses.
-  if (business.subscription_status !== 'active') {
-    logger.log(`Business ${businessId} skipped: subscription_status=${business.subscription_status}`);
+  if (ctx.account.subscriptionStatus !== 'active') {
+    logger.log(`Business ${businessId} skipped: subscription_status=${ctx.account.subscriptionStatus}`);
     await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }

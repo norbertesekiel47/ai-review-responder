@@ -87,7 +87,7 @@ function mockResponseRow(overrides: Record<string, unknown> = {}) {
 function mockBusinessRow(overrides: Record<string, unknown> = {}) {
   return {
     id: 'biz-1', name: 'Test Biz', subscription_status: 'active',
-    updated_at: new Date(),
+    account_updated_at: new Date(),
     ...overrides,
   };
 }
