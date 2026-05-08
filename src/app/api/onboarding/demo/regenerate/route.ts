@@ -5,6 +5,7 @@ import { sql, jsonb } from '@/lib/db/server';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { reserveOnboardingDemoBudget, CostCeilingExceeded } from '@/lib/costs/onboarding-demo-cost-guard';
+import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 
 export const dynamic = 'force-dynamic';
 
@@ -63,7 +64,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // calling this endpoint would archive their completed demo and enqueue a
   // new one; the worker's inverted subscription guard would then mark it
   // failed (subscription_state_changed), leaving them with no completed demo.
-  if (owner.subscription_status !== 'pending_payment') {
+  if (owner.subscription_status !== SubscriptionStatus.PENDING_PAYMENT) {
     return NextResponse.json(
       { error: 'subscription_inactive', subscriptionStatus: owner.subscription_status },
       { status: 409, headers: NO_STORE },

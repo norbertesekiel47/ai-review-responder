@@ -61,7 +61,7 @@ function mkReq(
   });
 }
 
-const validBody = { tier: 'founding' as const };
+const validBody = { tier: 'founders' as const };
 
 beforeEach(() => {
   mockCheckRateLimit.mockReset();
@@ -292,22 +292,22 @@ describe('POST /api/onboarding/select-plan', () => {
     expect(body.error).toBe('payment_link_unavailable');
   });
 
-  it('returns 200 with founding payment URL on success', async () => {
-    const res = await POST(mkReq({ tier: 'founding' }));
+  it('returns 200 with founders payment URL on success', async () => {
+    const res = await POST(mkReq({ tier: 'founders' }));
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.paymentUrl).toBe('https://buy.stripe.com/test?ref=biz-1');
     expect(mockBuildPaymentLinkUrl).toHaveBeenCalledWith(
-      'founding',
+      'founders',
       'biz-1',
       'owner@example.com',
     );
-    // UPDATE template fired with 'founding' tier bound
+    // UPDATE template fired with 'founders' tier bound
     const updateCall = mockSql.mock.calls.find((c: unknown[]) =>
       (c[0] as TemplateStringsArray).join('?').includes('UPDATE businesses'),
     );
     expect(updateCall).toBeDefined();
-    expect(updateCall!.some((a: unknown) => a === 'founding')).toBe(true);
+    expect(updateCall!.some((a: unknown) => a === 'founders')).toBe(true);
   });
 
   it('returns 200 with standard payment URL on success', async () => {

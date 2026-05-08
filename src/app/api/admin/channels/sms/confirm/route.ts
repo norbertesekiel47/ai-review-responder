@@ -39,6 +39,7 @@ import {
   badRequest,
   conflict,
 } from '../_shared';
+import { asLocationId } from '@/lib/shared/ids';
 
 interface ConfirmBody {
   business_id?: string;
@@ -60,9 +61,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   const body = (await request.json()) as ConfirmBody;
-  const businessId = body.business_id;
+  const rawBusinessId = body.business_id;
   const code = body.code;
-  if (!businessId || !code) return badRequest('missing_fields');
+  if (!rawBusinessId || !code) return badRequest('missing_fields');
+  const businessId = asLocationId(rawBusinessId);
 
   const subStatus = await loadBusinessSubscriptionStatus(businessId);
   if (!isSubscriptionActive(subStatus)) return subscriptionNotActive();

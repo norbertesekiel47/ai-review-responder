@@ -49,7 +49,7 @@ export interface AdminBusinessTxInput {
   highlightFacts?: string[];
   avoidFacts?: string[];
   sampleResponses?: string[];
-  subscriptionTier: 'founding' | 'standard';
+  subscriptionTier: 'founders' | 'standard';
   website?: string | null;
   placeId: PlaceIdInput;
 }

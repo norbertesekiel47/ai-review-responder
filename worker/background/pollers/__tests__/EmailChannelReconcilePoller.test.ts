@@ -84,15 +84,17 @@ describe('EmailChannelReconcilePoller — runOnce', () => {
     expect(notExistsBlock).not.toBeNull();
     expect(notExistsBlock![0]).not.toMatch(/archived_at/);
 
-    // Defense-in-depth: confirm we DO filter on subscription_status='active'.
+    // Defense-in-depth: confirm we DO join accounts and filter on subscription_status='active'.
     expect(text).toMatch(/subscription_status\s*=\s*'active'/);
     expect(text).toMatch(/role\s*=\s*'owner'/);
     expect(text).toMatch(/auth_id\s+IS\s+NOT\s+NULL/);
+    // After migration 034: candidate query joins via users.account_id and accounts
+    expect(text).toMatch(/u\.account_id/);
   });
 
-  it('active business with NO email enrollment → INSERTs verified row', async () => {
+  it('active business with NO email enrollment → INSERTs verified row with account_id', async () => {
     sqlQueue.push([
-      { business_id: 'biz-1', owner_email: 'owner@example.com' },
+      { business_id: 'biz-1', account_id: 'acct-1', owner_email: 'owner@example.com' },
     ]); // candidates
     sqlQueue.push(Object.assign([], { count: 1 })); // INSERT — count=1 means landed
 
@@ -108,6 +110,8 @@ describe('EmailChannelReconcilePoller — runOnce', () => {
     expect(insertCall).toBeDefined();
     expect(insertCall!.template).toContain("'email'");
     expect(insertCall!.template).toContain("'verified'");
+    // account_id included in INSERT (NOT NULL constraint added by migration 034)
+    expect(insertCall!.values).toContain('acct-1');
     // Idempotent partial-unique target — required for concurrent reconcile-
     // poller / verify-otp INSERT racing the same row.
     expect(insertCall!.template).toContain(
@@ -159,7 +163,7 @@ describe('EmailChannelReconcilePoller — runOnce', () => {
 
   it('INSERT race: ON CONFLICT returns 0 rows → counted as not-inserted (no double-count)', async () => {
     sqlQueue.push([
-      { business_id: 'biz-2', owner_email: 'owner2@example.com' },
+      { business_id: 'biz-2', account_id: 'acct-2', owner_email: 'owner2@example.com' },
     ]);
     // Race: a sibling writer (verify-otp) inserted the row first. Our
     // INSERT ... ON CONFLICT DO NOTHING returns count=0.
@@ -174,8 +178,8 @@ describe('EmailChannelReconcilePoller — runOnce', () => {
 
   it('INSERT throws → counted as failed, loop continues to next candidate', async () => {
     sqlQueue.push([
-      { business_id: 'biz-3', owner_email: 'owner3@example.com' },
-      { business_id: 'biz-4', owner_email: 'owner4@example.com' },
+      { business_id: 'biz-3', account_id: 'acct-3', owner_email: 'owner3@example.com' },
+      { business_id: 'biz-4', account_id: 'acct-4', owner_email: 'owner4@example.com' },
     ]);
     // First INSERT throws (transient db error)
     consume.mockImplementationOnce((strings: TemplateStringsArray) => {

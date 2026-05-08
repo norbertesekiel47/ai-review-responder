@@ -17,6 +17,10 @@ import { v7 as uuidv7 } from 'uuid';
  * existing partial-unique constraint on (business_id, channel) WHERE
  * archived_at IS NULL.
  *
+ * After migration 034, the candidate query joins via users.account_id and
+ * reads subscription_status from accounts (not businesses). The INSERT
+ * includes account_id to satisfy the NOT NULL constraint.
+ *
  * Scope conditions (intentionally narrow — false positives turn unverified
  * emails into "verified" rows, which is worse than the bug we're patching):
  *   - businesses.subscription_status = 'active' (proven payment + completed
@@ -55,6 +59,7 @@ let inProgress = false;
 
 interface MissingChannelRow {
   business_id: string;
+  account_id: string;
   owner_email: string;
 }
 
@@ -96,10 +101,11 @@ async function runOnceInner(
   const batchSize = Math.min(requestedBatchSize, MAX_BATCH_SIZE);
 
   const candidates = await sql<MissingChannelRow[]>`
-    SELECT b.id AS business_id, b.owner_email
+    SELECT b.id AS business_id, b.account_id, b.owner_email
     FROM businesses b
-    JOIN users u ON u.business_id = b.id AND u.role = 'owner'
-    WHERE b.subscription_status = 'active'
+    JOIN users u ON u.account_id = b.account_id AND u.role = 'owner'
+    JOIN accounts a ON a.id = b.account_id
+    WHERE a.subscription_status = 'active'
       AND u.auth_id IS NOT NULL
       AND b.owner_email IS NOT NULL
       AND NOT EXISTS (
@@ -121,8 +127,8 @@ async function runOnceInner(
   for (const row of candidates) {
     try {
       const result = await sql`
-        INSERT INTO channel_enrollments (id, business_id, channel, handle, status, verified_at)
-        VALUES (${uuidv7()}, ${row.business_id}, 'email', ${row.owner_email}, 'verified', NOW())
+        INSERT INTO channel_enrollments (id, account_id, business_id, channel, handle, status, verified_at)
+        VALUES (${uuidv7()}, ${row.account_id}, ${row.business_id}, 'email', ${row.owner_email}, 'verified', NOW())
         ON CONFLICT (business_id, channel) WHERE archived_at IS NULL DO NOTHING
       `;
       // result.count === 1 → inserted; 0 → another writer raced us, that's fine

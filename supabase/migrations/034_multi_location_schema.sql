@@ -421,3 +421,5 @@ COMMENT ON COLUMN businesses.stripe_customer_id IS
   'DEPRECATED — read from accounts.stripe_customer_id instead';
 COMMENT ON COLUMN businesses.stripe_subscription_id IS
   'DEPRECATED — read from accounts.stripe_subscription_id instead';
+COMMENT ON COLUMN businesses.subscription_activated_at IS
+  'DEPRECATED — read from accounts.subscription_activated_at instead';

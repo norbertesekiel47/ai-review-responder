@@ -58,7 +58,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return errorToResponse(err);
   }
 
-  // 2. Auth — owner only; null businessId is the unscoped-owner edge case.
+  // 2. Auth — owner only; null locationId is the unscoped-owner edge case.
   let user;
   try {
     user = await requireRole(req, 'owner');
@@ -77,10 +77,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       { status: 403, headers: NO_STORE },
     );
   }
-  const businessId = user.locationId;
+  const locationId = user.locationId;
 
   const redis = getCacheRedis();
-  const pKey = pendingKey(businessId);
+  const pKey = pendingKey(locationId);
 
   try {
     // 3. Read the pending marker. Missing = nothing to cancel = success no-op.
@@ -101,7 +101,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     } catch {
       Sentry.captureMessage('zernio_malformed_pending_marker_in_cancel', {
         level: 'warning',
-        tags: { business_id: businessId },
+        tags: { business_id: locationId },
       });
       return NextResponse.json(
         { cancelled: false, reason: 'malformed_pending_marker' },
@@ -181,7 +181,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         await zernioClient.deleteProfile(parsed.profileId);
       } catch (profileErr) {
         Sentry.captureException(profileErr, {
-          tags: { business_id: businessId, kind: 'zernio_delete_profile' },
+          tags: { business_id: locationId, kind: 'zernio_delete_profile' },
         });
       }
     }

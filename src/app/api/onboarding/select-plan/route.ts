@@ -6,6 +6,7 @@ import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { SelectPlanSchema } from '@/lib/shared/schemas';
 import { getIpKey } from '@/lib/shared/request-ip';
 import { buildPaymentLinkUrl } from '@/lib/payments/payment-link';
+import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 
 export const dynamic = 'force-dynamic';
 
@@ -185,7 +186,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       // poller deleted it). Surface as account_incomplete.
       return { kind: 'not_found' as const };
     }
-    if (row.subscription_status !== 'pending_payment') {
+    if (row.subscription_status !== SubscriptionStatus.PENDING_PAYMENT) {
       return {
         kind: 'wrong_status' as const,
         status: row.subscription_status,
@@ -202,7 +203,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       UPDATE accounts
       SET subscription_tier = ${tier}, updated_at = NOW()
       WHERE id = (SELECT account_id FROM businesses WHERE id = ${businessId}::uuid)
-        AND subscription_status = 'pending_payment'
+        AND subscription_status = ${SubscriptionStatus.PENDING_PAYMENT}
     `;
     if (update.count === 0) {
       return { kind: 'race_lost' as const };

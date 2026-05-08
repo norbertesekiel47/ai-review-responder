@@ -1,7 +1,7 @@
 // src/app/api/dashboard/channels/telegram/start/route.ts
 //
 // POST /api/dashboard/channels/telegram/start — owner-scoped enrollment.
-// Mirrors the admin route but reads businessId from session (never body)
+// Mirrors the admin route but reads locationId from session (never body)
 // and is wrapped with withSameOrigin() (CSRF protection).
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -32,15 +32,15 @@ async function handler(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
-  const businessId = user.locationId;
-  if (!businessId) return NextResponse.json({ error: 'no_business' }, { status: 403 });
+  const locationId = user.locationId;
+  if (!locationId) return NextResponse.json({ error: 'no_business' }, { status: 403 });
 
   // After migration 034, subscription_status source of truth is accounts.
   const [accountRow] = await sql<{ id: string; subscription_status: string }[]>`
     SELECT a.id, a.subscription_status
     FROM accounts a
     JOIN businesses b ON b.account_id = a.id
-    WHERE b.id = ${businessId}
+    WHERE b.id = ${locationId}
   `;
   if (!accountRow) return NextResponse.json({ error: 'not_found' }, { status: 404 });
   if (accountRow.subscription_status !== SubscriptionStatus.ACTIVE) {
@@ -56,8 +56,8 @@ async function handler(req: NextRequest): Promise<NextResponse> {
   let result: Awaited<ReturnType<typeof startTelegramEnrollment>> | undefined;
   try {
     result = await sql.begin(async (tx) => {
-      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`mobile_enroll:${businessId}`}, 0))`;
-      return startTelegramEnrollment(tx, businessId, accountId, tokenHash, expiresAt);
+      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`mobile_enroll:${locationId}`}, 0))`;
+      return startTelegramEnrollment(tx, locationId, accountId, tokenHash, expiresAt);
     });
   } catch (err) {
     if (err instanceof MultipleMobileChannelsError) {

@@ -61,7 +61,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   if (!user.locationId) {
     return NextResponse.json({ error: 'unscoped_owner' }, { status: 403, headers: NO_STORE });
   }
-  const businessId = user.locationId;
+  const locationId = user.locationId;
   const userId = user.id;
 
   // 3. Subscription guard — spec §3.2 step 1: skip if subscription_status != 'active'.
@@ -71,7 +71,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       SELECT a.subscription_status
       FROM accounts a
       JOIN businesses b ON b.account_id = a.id
-      WHERE b.id = ${businessId}
+      WHERE b.id = ${locationId}
       LIMIT 1
     `;
     if (!accountRow) {
@@ -88,8 +88,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   const redis = getCacheRedis();
-  const pKey = pendingKey(businessId);
-  const lKey = lockKey(businessId);
+  const pKey = pendingKey(locationId);
+  const lKey = lockKey(locationId);
 
   // 4. Step A — Pending-flow marker check (long-lived, 15-min TTL).
   try {
@@ -159,7 +159,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const existingActive = await sql<{ exists: number }[]>`
       SELECT 1 AS exists
       FROM zernio_connections
-      WHERE business_id = ${businessId} AND status IN ('pending', 'active')
+      WHERE business_id = ${locationId} AND status IN ('pending', 'active')
       LIMIT 1
     `;
     if (existingActive.length > 0) {
@@ -170,7 +170,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const unresolvedIncident = await sql<{ exists: number }[]>`
       SELECT 1 AS exists
       FROM zernio_finalize_incidents
-      WHERE business_id = ${businessId} AND resolved_at IS NULL
+      WHERE business_id = ${locationId} AND resolved_at IS NULL
       LIMIT 1
     `;
     if (unresolvedIncident.length > 0) {
@@ -191,7 +191,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       // 9. Step D — Start work (now safely behind the pending marker).
       const profileIdPrefix = process.env.ZERNIO_PROFILE_ID_PREFIX ?? 'repworth-prod-';
       const { profileId } = await zernioClient.createProfile({
-        name: `${profileIdPrefix}${businessId}`,
+        name: `${profileIdPrefix}${locationId}`,
       });
       createdProfileId = profileId;
 
@@ -209,7 +209,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       });
       const state = returnedState ?? requestedState;
       const stateBlob: ConnectStateBlob = {
-        businessId,
+        businessId: locationId,
         profileId,
         userId,
         createdAt: startedAt,

@@ -24,6 +24,7 @@ import {
   badRequest,
   conflict,
 } from '../_shared';
+import { asLocationId } from '@/lib/shared/ids';
 
 interface DisableBody {
   business_id?: string;
@@ -44,8 +45,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   const body = (await request.json()) as DisableBody;
-  const businessId = body.business_id;
-  if (!businessId) return badRequest('business_id_required');
+  const rawBusinessId = body.business_id;
+  if (!rawBusinessId) return badRequest('business_id_required');
+  const businessId = asLocationId(rawBusinessId);
 
   const subStatus = await loadBusinessSubscriptionStatus(businessId);
   if (!isSubscriptionActive(subStatus)) return subscriptionNotActive();

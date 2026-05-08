@@ -133,7 +133,7 @@ export interface ZernioInitialBackfillPayload extends BasePayload {
   business_id: string;
   zernio_account_id: string;
   zernio_location_id: string;
-  /** 'founding' | 'standard' | 'premium' (string for forward-compat) */
+  /** Subscription tier string (forward-compat, use SubscriptionTier.FOUNDERS etc.) */
   subscription_tier: string;
   /** ISO timestamp from businesses.subscription_activated_at */
   subscription_activated_at: string;

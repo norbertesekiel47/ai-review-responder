@@ -28,6 +28,7 @@ import {
   withMobileEnrollmentLock,
   badRequest,
 } from '../_shared';
+import { asLocationId } from '@/lib/shared/ids';
 
 interface DeleteBody {
   business_id?: string;
@@ -49,8 +50,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   const body = (await request.json()) as DeleteBody;
-  const businessId = body.business_id;
-  if (!businessId) return badRequest('business_id_required');
+  const rawBusinessId = body.business_id;
+  if (!rawBusinessId) return badRequest('business_id_required');
+  const businessId = asLocationId(rawBusinessId);
   // Strict `=== true` check — rejects truthy-but-not-true values like the
   // string 'true' or 1, which usually indicate a client serialization bug.
   if (body.confirm !== true) return badRequest('confirmation_required');

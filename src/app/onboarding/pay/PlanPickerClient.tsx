@@ -3,7 +3,7 @@
 import { useState } from 'react';
 
 interface Plan {
-  tier: 'founding' | 'standard' | 'premium';
+  tier: 'founders' | 'standard' | 'premium';
   name: string;
   price: string;
   badge: string;
@@ -17,7 +17,7 @@ interface Plan {
 
 const PLANS: readonly Plan[] = [
   {
-    tier: 'founding',
+    tier: 'founders',
     name: 'Founding Member',
     price: '$99',
     badge: 'Limited — 10 slots',
@@ -72,12 +72,12 @@ const PLANS: readonly Plan[] = [
 ] as const;
 
 export function PlanPickerClient({ cancelled }: { cancelled: boolean }) {
-  const [selecting, setSelecting] = useState<'founding' | 'standard' | 'premium' | null>(
+  const [selecting, setSelecting] = useState<'founders' | 'standard' | 'premium' | null>(
     null,
   );
   const [error, setError] = useState('');
 
-  async function handlePick(tier: 'founding' | 'standard' | 'premium') {
+  async function handlePick(tier: 'founders' | 'standard' | 'premium') {
     if (selecting) return;
     setSelecting(tier);
     setError('');

@@ -7,6 +7,7 @@ import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { BusinessOnboardingSchema, BusinessOnboardingPostPaySchema } from '@/lib/shared/schemas';
 import { extractPlaceId } from '@/lib/reviews/url-parser';
 import type { ValidatePlaceIdPayload } from '@/lib/shared/worker-types';
+import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 
 export const dynamic = 'force-dynamic';
 
@@ -122,7 +123,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // 5. Subscription gate — wizard requires `active`. The dashboard pending-
   //    payment banner steers the owner to /onboarding/pay if they reach this
   //    flow before Stripe confirms.
-  if (bizRow.subscription_status !== 'active') {
+  if (bizRow.subscription_status !== SubscriptionStatus.ACTIVE) {
     return NextResponse.json(
       { error: 'subscription_inactive', subscriptionStatus: bizRow.subscription_status },
       { status: 409, headers: NO_STORE },

@@ -7,6 +7,7 @@ import { Sidebar } from '@/components/dashboard/Sidebar';
 import { MobileTabBar } from '@/components/dashboard/MobileTabBar';
 import { PendingCountProvider } from '@/components/dashboard/PendingCountContext';
 import { asAccountId, asLocationId } from '@/lib/shared/ids';
+import { getRequestScope } from '@/lib/auth/get-request-scope';
 import './_styles/tokens.css';
 import './_styles/console.css';
 import './_styles/past-replies.css';
@@ -53,63 +54,45 @@ export default async function AuthenticatedLayout({
   } = await supabase.auth.getUser();
   if (!authUser) redirect('/admin/login');
 
-  // Read users.account_id and primary_location_id (users.business_id was
-  // dropped in migration 034).
+  // Read users.account_id (users.business_id was dropped in migration 034).
   const [appUser] = await sql<{
     account_id: string | null;
-    primary_location_id: string | null;
     owner_name: string | null;
     email: string;
   }[]>`
-    SELECT u.account_id,
-           (SELECT b.id FROM businesses b
-            WHERE b.account_id = u.account_id
-              AND b.is_primary = TRUE
-              AND b.archived_at IS NULL
-            LIMIT 1) AS primary_location_id,
-           u.name AS owner_name, u.email
+    SELECT u.account_id, u.name AS owner_name, u.email
     FROM users u
     WHERE u.auth_id = ${authUser.id}
     LIMIT 1
   `;
 
-  // Resolve the current location from the cookie, falling back to primary.
-  const scopeCookie = cookieStore.get(LOCATION_SCOPE_COOKIE);
-  let currentLocationId = appUser?.primary_location_id ?? null;
+  if (!appUser?.account_id) redirect('/admin/login');
 
-  if (appUser?.account_id && scopeCookie?.value) {
-    // Validate the cookie location belongs to this account and isn't archived
-    const [validated] = await sql<{ id: string }[]>`
-      SELECT id FROM businesses
-      WHERE id = ${scopeCookie.value}
-        AND account_id = ${appUser.account_id}
-        AND archived_at IS NULL
-      LIMIT 1
-    `;
-    if (validated) {
-      currentLocationId = validated.id;
-    }
-  }
+  // Reuse getRequestScope() for cookie validation + primary fallback
+  // instead of duplicating the same validation logic inline.
+  const cookieValue = cookieStore.get(LOCATION_SCOPE_COOKIE)?.value ?? null;
+  const scope = await getRequestScope(
+    asAccountId(appUser.account_id),
+    cookieValue ? asLocationId(cookieValue) : null,
+  );
+  const currentLocationId = scope.currentLocationId;
 
   let businessName = '';
   let initialPendingCount = 0;
-  if (currentLocationId) {
-    const locationId = asLocationId(currentLocationId);
-    // Run the two reads in parallel — they're independent.
-    const [bizRows, pendingRows] = await Promise.all([
-      sql<{ name: string; display_label: string | null }[]>`
-        SELECT name, display_label FROM businesses WHERE id = ${locationId} LIMIT 1
-      `,
-      sql<{ count: number }[]>`
-        SELECT COUNT(*)::int AS count
-        FROM responses
-        WHERE business_id = ${locationId}
-          AND status = 'pending_approval'
-      `,
-    ]);
-    businessName = bizRows[0]?.display_label ?? bizRows[0]?.name ?? '';
-    initialPendingCount = pendingRows[0]?.count ?? 0;
-  }
+  // Run the two reads in parallel — they're independent.
+  const [bizRows, pendingRows] = await Promise.all([
+    sql<{ name: string; display_label: string | null }[]>`
+      SELECT name, display_label FROM businesses WHERE id = ${currentLocationId} LIMIT 1
+    `,
+    sql<{ count: number }[]>`
+      SELECT COUNT(*)::int AS count
+      FROM responses
+      WHERE business_id = ${currentLocationId}
+        AND status = 'pending_approval'
+    `,
+  ]);
+  businessName = bizRows[0]?.display_label ?? bizRows[0]?.name ?? '';
+  initialPendingCount = pendingRows[0]?.count ?? 0;
 
   const ownerName = appUser?.owner_name ?? '';
   const ownerEmail = appUser?.email ?? authUser.email ?? '';

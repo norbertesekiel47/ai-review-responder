@@ -41,6 +41,7 @@ import {
   twilioVerifyError,
 } from '../_shared';
 import { classifyEnrollmentError, MultipleMobileChannelsError, EnrollmentDatabaseError } from '@/lib/channels/unique-violation';
+import { asLocationId } from '@/lib/shared/ids';
 
 interface VerifyBody {
   business_id?: string;
@@ -71,9 +72,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   const body = (await request.json()) as VerifyBody;
-  const businessId = body.business_id;
+  const rawBusinessId = body.business_id;
+  if (!rawBusinessId) return badRequest('business_id_required');
+  const businessId = asLocationId(rawBusinessId);
   const submittedPhone = body.phone;
-  if (!businessId) return badRequest('business_id_required');
 
   const subStatus = await loadBusinessSubscriptionStatus(businessId);
   if (!isSubscriptionActive(subStatus)) return subscriptionNotActive();

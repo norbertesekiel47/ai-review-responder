@@ -27,7 +27,7 @@ export const FormSchema = z.object({
   highlightFacts: z.string().max(2000).optional(),
   avoidFacts: z.string().max(2000).optional(),
   sampleResponses: z.string().max(5000).optional(),
-  subscriptionTier: z.enum(['founding', 'standard']),
+  subscriptionTier: z.enum(['founders', 'standard']),
 });
 
 export type FormData = z.infer<typeof FormSchema>;

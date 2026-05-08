@@ -8,6 +8,7 @@ import { OnboardingStartSchema } from '@/lib/shared/schemas';
 import { extractPlaceId } from '@/lib/reviews/url-parser';
 import type { ValidatePlaceIdPayload } from '@/lib/shared/worker-types';
 import { reserveOnboardingDemoBudget, CostCeilingExceeded } from '@/lib/costs/onboarding-demo-cost-guard';
+import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 
 export const dynamic = 'force-dynamic';
 
@@ -77,7 +78,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'account_incomplete' }, { status: 404, headers: NO_STORE });
   }
 
-  if (bizRow.subscription_status !== 'pending_payment') {
+  if (bizRow.subscription_status !== SubscriptionStatus.PENDING_PAYMENT) {
     return NextResponse.json(
       { error: 'subscription_inactive', subscriptionStatus: bizRow.subscription_status },
       { status: 409, headers: NO_STORE },

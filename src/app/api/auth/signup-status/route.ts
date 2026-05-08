@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { sql } from '@/lib/db/server';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
+import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 
 export const dynamic = 'force-dynamic';
 
@@ -105,7 +106,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   //    call, plain row return) stay simple — and the proxy logic is easier
   //    to reason about co-located with the comment above.
   const businessOnboarded = demoFlowEnabled
-    ? row.subscription_status === 'active'
+    ? row.subscription_status === SubscriptionStatus.ACTIVE
       && row.subscription_activated_at !== null
       && new Date(row.updated_at).getTime()
          > new Date(row.subscription_activated_at).getTime() + 2_000

@@ -245,7 +245,7 @@ describe('GET /api/dashboard', () => {
 
     const body = await res.json();
     expect(body.subscriptionStatus).toBe('pending_payment');
-    expect(body.businessId).toBe(BUSINESS_ID);
+    expect(body.locationId).toBe(BUSINESS_ID);
     expect(body.businessName).toBe('Pending Biz');
     expect(body.paymentUrl).toBe('https://pay.stripe.com/test?client_reference_id=...');
 
@@ -271,7 +271,7 @@ describe('GET /api/dashboard', () => {
       {
         name: 'Founding Biz',
         subscription_status: 'pending_payment',
-        subscription_tier: 'founding',
+        subscription_tier: 'founders',
         owner_email: 'founder@example.com',
         onboarded_by: null,
       },
@@ -281,7 +281,7 @@ describe('GET /api/dashboard', () => {
 
     expect(mockBuildPaymentLinkUrl).toHaveBeenCalledOnce();
     expect(mockBuildPaymentLinkUrl).toHaveBeenCalledWith(
-      'founding',
+      'founders',
       BUSINESS_ID,
       'founder@example.com',
     );
@@ -298,7 +298,7 @@ describe('GET /api/dashboard', () => {
       {
         name: 'Admin Onboarded Biz',
         subscription_status: 'pending_payment',
-        subscription_tier: 'founding',
+        subscription_tier: 'founders',
         owner_email: 'owner@admin-onboarded.com',
         onboarded_by: 'admin-uuid-1',
       },
@@ -309,7 +309,7 @@ describe('GET /api/dashboard', () => {
 
     const body = await res.json();
     expect(body.subscriptionStatus).toBe('pending_payment_admin_handoff');
-    expect(body.businessId).toBe(BUSINESS_ID);
+    expect(body.locationId).toBe(BUSINESS_ID);
     expect(body.businessName).toBe('Admin Onboarded Biz');
     // Critical: no paymentUrl in admin-handoff payload (avoids double-charge risk).
     expect(body.paymentUrl).toBeUndefined();

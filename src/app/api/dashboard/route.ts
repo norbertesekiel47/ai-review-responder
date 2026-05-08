@@ -38,7 +38,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return jsonResponse({ error: 'No business associated with this account' }, 403);
   }
 
-  const businessId = user.locationId;
+  const locationId = user.locationId;
 
   try {
     // Cheap pre-query: determine subscription status + onboarding state
@@ -59,7 +59,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
              b.place_id_verified, b.google_maps_url
       FROM businesses b
       JOIN accounts a ON a.id = b.account_id
-      WHERE b.id = ${businessId}
+      WHERE b.id = ${locationId}
     `;
     if (!subRow) {
       return jsonResponse({ error: 'Business not found' }, 404);
@@ -73,19 +73,19 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       if (subRow.onboarded_by !== null) {
         return jsonResponse({
           subscriptionStatus: 'pending_payment_admin_handoff',
-          businessId,
+          locationId,
           businessName: subRow.name,
         });
       }
-      const tier: 'founding' | 'standard' =
-        subRow.subscription_tier === 'founding' ||
+      const tier: 'founders' | 'standard' =
+        subRow.subscription_tier === 'founders' ||
         subRow.subscription_tier === 'standard'
-          ? subRow.subscription_tier
+          ? (subRow.subscription_tier as 'founders' | 'standard')
           : 'standard';
-      const paymentUrl = buildPaymentLinkUrl(tier, businessId, subRow.owner_email);
+      const paymentUrl = buildPaymentLinkUrl(tier, locationId, subRow.owner_email);
       return jsonResponse({
         subscriptionStatus: 'pending_payment',
-        businessId,
+        locationId,
         businessName: subRow.name,
         paymentUrl,
       });
@@ -103,12 +103,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     ) {
       return jsonResponse({
         subscriptionStatus: 'active_pending_business',
-        businessId,
+        locationId,
         businessName: subRow.name,
       });
     }
 
-    const data = await getActiveDashboardData(businessId);
+    const data = await getActiveDashboardData(locationId);
     return jsonResponse(data);
   } catch (error) {
     if (error instanceof BusinessNotFoundError) {
