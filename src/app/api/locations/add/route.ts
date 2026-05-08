@@ -4,13 +4,14 @@
 // For active accounts, uses the outbox pattern (no Checkout redirect).
 // Gated by MULTI_LOCATION_ENABLED flag.
 //
-// Validation contract: VAL-BILLING-072.
+// Validation contract: VAL-BILLING-072, VAL-LOC-007, VAL-LOC-008,
+// VAL-LOC-024, VAL-LOC-031, VAL-LOC-036, VAL-LOC-041.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { v7 as uuidv7 } from 'uuid';
-import { sql, jsonb } from '@/lib/db/server';
 import { assertCanAddLocation } from '@/lib/accounts/quota';
+import { getAccountById, getAccountOwnerUserId } from '@/lib/accounts/repo';
+import { addLocationTransaction } from '@/lib/locations/add-location-tx';
 import { getActiveLocationCount } from '@/lib/locations/repo';
 
 export const dynamic = 'force-dynamic';
@@ -40,13 +41,14 @@ const AddLocationSchema = z.object({
  *
  * The add-location transaction atomically:
  *   1. INSERTs a businesses row (account_id, is_primary=FALSE, display_label)
- *   2. INSERTs an account_audit_log row (event_type='location_created')
+ *   2. INSERTs an account_audit_log row (event_type='location_created', actor_user_id)
  *   3. INSERTs a job_outbox row (topic='update_stripe_overage_quantity')
+ * Voice config is cloned from the primary location at creation time (VAL-LOC-031).
  *
- * Gated by MULTI_LOCATION_ENABLED — returns 404 when disabled.
+ * Gated by MULTI_LOCATION_ENABLED — returns 404 when disabled (VAL-LOC-041).
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  // Gate: MULTI_LOCATION_ENABLED must be true
+  // VAL-LOC-041: Gate by MULTI_LOCATION_ENABLED flag
   if (process.env.MULTI_LOCATION_ENABLED !== 'true') {
     return NextResponse.json(
       { error: 'not_found' },
@@ -87,35 +89,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     };
     const httpStatus = statusMap[quotaResult.reason] ?? 403;
 
-    const errorPayload: Record<string, unknown> = {
-      error: quotaResult.reason,
-    };
-    if (quotaResult.reason === 'tier_disallows_multi_location') {
-      // Could read tier from account, but the route doesn't have it anymore
-      // after moving the SELECT FOR UPDATE into assertCanAddLocation.
-      // The reason string is sufficient for the client.
-    }
-
-    return NextResponse.json(errorPayload, { status: httpStatus, headers: NO_STORE });
+    return NextResponse.json(
+      { error: quotaResult.reason },
+      { status: httpStatus, headers: NO_STORE },
+    );
   }
 
-  // Count active locations for audit payload
-  const activeLocations = await getActiveLocationCount(accountId);
-
-  // Read account fields needed for the businesses INSERT (tier, status).
-  // The SELECT FOR UPDATE in assertCanAddLocation already locked the row,
-  // so this read happens within the same lock scope if we're inside a tx.
-  // However, assertCanAddLocation uses the standalone sql client (auto-commit),
-  // so the FOR UPDATE lock is released after that function returns.
-  // For the INSERT transaction below, we need to re-read the account row.
-  const [account] = await sql<{
-    subscription_tier: string;
-    subscription_status: string;
-  }[]>`
-    SELECT subscription_tier, subscription_status
-    FROM accounts
-    WHERE id = ${accountId}::uuid
-  `;
+  // Gather pre-transaction data needed by addLocationTransaction
+  const [activeLocations, account, actorUserId] = await Promise.all([
+    getActiveLocationCount(accountId),
+    getAccountById(accountId),
+    getAccountOwnerUserId(accountId),
+  ]);
 
   if (!account) {
     return NextResponse.json(
@@ -124,75 +109,30 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // Execute the add-location transaction
-  const businessId = uuidv7();
-
+  // Execute the add-location atomic transaction
   try {
-    await sql.begin(async (tx) => {
-      // 1. Insert businesses row
-      await tx`
-        INSERT INTO businesses (
-          id, account_id, is_primary, display_label,
-          name, google_place_id, place_id_verified, google_maps_url,
-          tone, products_services, staff_names, highlight_facts,
-          avoid_facts, sample_responses, owner_name, owner_email,
-          subscription_tier, subscription_status
-        ) VALUES (
-          ${businessId}::uuid,
-          ${accountId}::uuid,
-          FALSE,
-          ${displayLabel},
-          ${displayLabel},
-          ${googlePlaceId ?? null},
-          ${placeIdVerified ?? false},
-          ${googleMapsUrl ?? null},
-          ${'professional and friendly'},
-          ${null},
-          ${[]},
-          ${[]},
-          ${[]},
-          ${[]},
-          ${null},
-          ${null},
-          ${account.subscription_tier},
-          ${account.subscription_status}
-        )
-      `;
-
-      // 2. Insert audit log entry
-      await tx`
-        INSERT INTO account_audit_log (
-          id, account_id, location_id, event_type, payload
-        ) VALUES (
-          ${uuidv7()}::uuid,
-          ${accountId}::uuid,
-          ${businessId}::uuid,
-          'location_created',
-          ${jsonb({
-            display_label: displayLabel,
-            google_place_id: googlePlaceId ?? null,
-            active_locations_before: activeLocations,
-          })}
-        )
-      `;
-
-      // 3. Enqueue Stripe overage update (VAL-BILLING-072)
-      // For active accounts, use the outbox pattern instead of Checkout redirect
-      await tx`
-        INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-        VALUES (
-          ${uuidv7()},
-          'update_stripe_overage_quantity',
-          'account',
-          ${accountId}::uuid,
-          ${jsonb({
-            account_id: accountId,
-            correlation_id: uuidv7(),
-          })},
-          'pending'
-        )
-      `;
+    const result = await addLocationTransaction({
+      accountId,
+      displayLabel,
+      googlePlaceId,
+      placeIdVerified,
+      googleMapsUrl,
+      actorUserId,
+      subscriptionTier: account.subscription_tier,
+      subscriptionStatus: account.subscription_status,
+      activeLocationsBefore: activeLocations,
     });
+
+    return NextResponse.json(
+      {
+        businessId: result.businessId,
+        displayLabel: result.displayLabel,
+        voiceClonedFromPrimary: result.voiceClonedFromPrimary,
+        activeLocations: activeLocations + 1,
+        overageUnits: quotaResult.overageUnits,
+      },
+      { status: 201, headers: NO_STORE },
+    );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[locations/add] Transaction failed for account=${accountId}: ${message}`);
@@ -201,14 +141,4 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       { status: 500, headers: NO_STORE },
     );
   }
-
-  return NextResponse.json(
-    {
-      businessId,
-      displayLabel,
-      activeLocations: activeLocations + 1,
-      overageUnits: quotaResult.overageUnits,
-    },
-    { status: 201, headers: NO_STORE },
-  );
 }
