@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { Icon } from '@/components/dashboard/Icon';
 
 const TONES: { id: string; label: string; canonical: string; preview: string }[] = [
@@ -12,10 +13,15 @@ const TONES: { id: string; label: string; canonical: string; preview: string }[]
 
 const FALLBACK_PREVIEW = 'Thanks for the kind review — we appreciate you taking the time.';
 
+/**
+ * Best-effort guess of which preset tone matches an existing string. Used to
+ * highlight a chip on first render. The picker tracks active mode in local
+ * state so it can switch to "custom" regardless of what `tone` infers to.
+ */
 export function inferActiveTone(tone: string): string {
   const lower = tone.toLowerCase();
   if (lower.includes('witty') || lower.includes('cheeky')) return 'witty';
-  if (lower.includes('professional')) return 'warm'; // "professional + friendly" lands here
+  if (lower.includes('professional')) return 'professional';
   if (lower.includes('warm') || lower.includes('friendly')) return 'warm';
   if (lower.includes('casual')) return 'casual';
   if (lower.includes('concise')) return 'concise';
@@ -28,8 +34,21 @@ interface Props {
 }
 
 export function ToneChipPicker({ tone, onChange }: Props) {
-  const active = inferActiveTone(tone);
+  // Local mode override so clicking "Custom…" always reveals the textarea,
+  // even when the current tone string would otherwise infer to a preset.
+  const [override, setOverride] = useState<string | null>(null);
+  const active = override ?? inferActiveTone(tone);
   const preview = TONES.find((t) => t.id === active)?.preview ?? FALLBACK_PREVIEW;
+
+  const pickPreset = (id: string, canonical: string) => {
+    setOverride(id);
+    onChange(canonical);
+  };
+
+  const pickCustom = () => {
+    setOverride('custom');
+    // Don't clobber the existing tone — the user may want to edit it.
+  };
 
   return (
     <div>
@@ -39,7 +58,7 @@ export function ToneChipPicker({ tone, onChange }: Props) {
             key={t.id}
             type="button"
             className={`tone-chip ${active === t.id ? 'active' : ''}`}
-            onClick={() => onChange(t.canonical)}
+            onClick={() => pickPreset(t.id, t.canonical)}
           >
             {t.label}
           </button>
@@ -47,7 +66,7 @@ export function ToneChipPicker({ tone, onChange }: Props) {
         <button
           type="button"
           className={`tone-chip ${active === 'custom' ? 'active' : ''}`}
-          onClick={() => onChange(tone || 'custom')}
+          onClick={pickCustom}
         >
           Custom…
         </button>

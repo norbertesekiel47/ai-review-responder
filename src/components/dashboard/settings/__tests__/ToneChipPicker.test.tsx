@@ -9,8 +9,8 @@ describe('inferActiveTone', () => {
   it('matches "warm, witty" tone to witty chip', () => {
     expect(inferActiveTone('warm, witty, occasionally cheeky')).toBe('witty');
   });
-  it('matches "professional and friendly" to warm chip', () => {
-    expect(inferActiveTone('professional and friendly')).toBe('warm');
+  it('matches "professional and friendly" to professional chip (professional wins over warm)', () => {
+    expect(inferActiveTone('professional and friendly')).toBe('professional');
   });
   it('falls back to custom for unrecognised tones', () => {
     expect(inferActiveTone('thunderously regal')).toBe('custom');
@@ -29,5 +29,13 @@ describe('ToneChipPicker', () => {
     render(<ToneChipPicker tone="" onChange={onChange} />);
     await user.click(screen.getByRole('button', { name: /warm \+ witty/i }));
     expect(onChange).toHaveBeenCalledWith('warm, witty, occasionally cheeky');
+  });
+  it('clicking Custom reveals textarea even when current tone matches a preset', async () => {
+    const user = userEvent.setup();
+    // "professional and friendly" infers to 'professional' preset, so the textarea would be hidden.
+    render(<ToneChipPicker tone="professional and friendly" onChange={() => {}} />);
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /custom/i }));
+    expect(screen.getByRole('textbox')).toBeInTheDocument();
   });
 });

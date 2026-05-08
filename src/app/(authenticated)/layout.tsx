@@ -50,7 +50,7 @@ export default async function AuthenticatedLayout({
   if (!authUser) redirect('/admin/login');
 
   const [appUser] = await sql<{ business_id: string | null; owner_name: string | null; email: string }[]>`
-    SELECT business_id, owner_name, email FROM users WHERE auth_id = ${authUser.id} LIMIT 1
+    SELECT business_id, name AS owner_name, email FROM users WHERE auth_id = ${authUser.id} LIMIT 1
   `;
 
   let businessName = '';
@@ -66,7 +66,7 @@ export default async function AuthenticatedLayout({
   const pastRepliesEnabled = process.env.PAST_REPLIES_VIEW_ENABLED === 'true';
 
   return (
-    <div className={`${plusJakarta.variable} ${dmSans.variable}`}>
+    <div className={`rw-console ${plusJakarta.variable} ${dmSans.variable}`}>
       <div className="shell">
         <Sidebar
           businessName={businessName}
