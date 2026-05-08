@@ -15,9 +15,11 @@ import { VelocityCard } from '@/components/dashboard/VelocityCard';
 import { RankingCard } from '@/components/dashboard/RankingCard';
 import { IntelligenceBriefCard } from '@/components/dashboard/IntelligenceBriefCard';
 import { useDashboardData } from '@/hooks/useDashboardData';
+import { useSetPendingCount } from '@/components/dashboard/PendingCountContext';
 
 export function DashboardContent() {
   const { data, error, refresh } = useDashboardData();
+  const setPendingCount = useSetPendingCount();
   const reviewsRef = useRef<HTMLDivElement | null>(null);
   const [initialTab, setInitialTab] = useState<'needs' | 'all'>('needs');
 
@@ -36,6 +38,18 @@ export function DashboardContent() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Push pending count to the layout-scoped context so MobileTabBar's "Needs
+  // Action" tab can show a red badge on every authenticated route. Derived
+  // from the same data the active-state branch reads below; we must compute
+  // it here (above the early returns) to keep hook order stable.
+  const pendingFromData =
+    data && data.subscriptionStatus === undefined
+      ? data.recentReviews.filter((r) => (r.responseStatus ?? r.status) === 'pending_approval').length
+      : 0;
+  useEffect(() => {
+    setPendingCount(pendingFromData);
+  }, [pendingFromData, setPendingCount]);
 
   if (error) {
     return (

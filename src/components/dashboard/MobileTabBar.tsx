@@ -3,21 +3,18 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Icon } from './Icon';
+import { usePendingCount } from './PendingCountContext';
 
 interface Props {
   pastRepliesEnabled: boolean;
 }
-
-// Note: the Needs Action tab does not currently surface a pending-count badge.
-// Doing so requires lifting `pendingCount` from DashboardContent into a
-// shared context (the layout is server-rendered and has no access to the
-// /api/dashboard payload). Tracked as a follow-up — see PR #27 review.
 
 export function MobileTabBar({ pastRepliesEnabled }: Props) {
   const pathname = usePathname() ?? '';
   const isHome = pathname === '/dashboard';
   const isHistory = pathname === '/dashboard/past-replies';
   const isSettings = pathname.startsWith('/settings');
+  const pendingCount = usePendingCount();
 
   return (
     <nav className="mobile-tabbar">
@@ -26,6 +23,7 @@ export function MobileTabBar({ pastRepliesEnabled }: Props) {
       </Link>
       <Link href="/dashboard#needs-action" className="mtab">
         <Icon name="inbox" size={22} /> Needs Action
+        {pendingCount > 0 && <span className="nav-badge">{pendingCount}</span>}
       </Link>
       {pastRepliesEnabled && (
         <Link href="/dashboard/past-replies" className={`mtab ${isHistory ? 'active' : ''}`}>

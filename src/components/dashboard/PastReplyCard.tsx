@@ -68,14 +68,22 @@ export function PastReplyCard({ row, isImported, query }: Props) {
             <span className="pr-name">{row.reviewer_name ?? 'Anonymous'}</span>
             <span className="pr-date">{fmt(row.review_date)}</span>
           </div>
-          <p className="pr-body">{highlight(row.review_text, query)}</p>
+          {row.review_text ? (
+            <p className="pr-body">{highlight(row.review_text, query)}</p>
+          ) : (
+            <p className="pr-body italic">No review text — rating only.</p>
+          )}
         </div>
 
         <div className="pr-side pr-side-reply">
           <div className="pr-side-eyebrow reply">
             <Icon name="sparkle" size={12} /> Your reply on Google
           </div>
-          <p className="pr-body">{highlight(row.approved_text, query)}</p>
+          {row.approved_text ? (
+            <p className="pr-body">{highlight(row.approved_text, query)}</p>
+          ) : (
+            <p className="pr-body italic">(no reply text)</p>
+          )}
           <div className="pr-prov">
             <span className={`pr-prov-badge ${isImported ? 'pr-prov-imported' : 'pr-prov-repworth'}`}>
               {isImported ? (

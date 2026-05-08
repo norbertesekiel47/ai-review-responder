@@ -5,6 +5,7 @@ import { Plus_Jakarta_Sans, DM_Sans } from 'next/font/google';
 import { sql } from '@/lib/db/server';
 import { Sidebar } from '@/components/dashboard/Sidebar';
 import { MobileTabBar } from '@/components/dashboard/MobileTabBar';
+import { PendingCountProvider } from '@/components/dashboard/PendingCountContext';
 import './_styles/tokens.css';
 import './_styles/console.css';
 import './_styles/past-replies.css';
@@ -67,16 +68,18 @@ export default async function AuthenticatedLayout({
 
   return (
     <div className={`rw-console ${plusJakarta.variable} ${dmSans.variable}`}>
-      <div className="shell">
-        <Sidebar
-          businessName={businessName}
-          ownerName={ownerName}
-          ownerEmail={ownerEmail}
-          pastRepliesEnabled={pastRepliesEnabled}
-        />
-        <div className="main">{children}</div>
-      </div>
-      <MobileTabBar pastRepliesEnabled={pastRepliesEnabled} />
+      <PendingCountProvider>
+        <div className="shell">
+          <Sidebar
+            businessName={businessName}
+            ownerName={ownerName}
+            ownerEmail={ownerEmail}
+            pastRepliesEnabled={pastRepliesEnabled}
+          />
+          <div className="main">{children}</div>
+        </div>
+        <MobileTabBar pastRepliesEnabled={pastRepliesEnabled} />
+      </PendingCountProvider>
     </div>
   );
 }
