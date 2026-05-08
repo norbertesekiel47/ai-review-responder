@@ -379,12 +379,21 @@ export async function updateBusiness(
       // unsubscribed, a fresh owner_email edit is an explicit admin action
       // to re-enable the channel — refresh to verified state in the same
       // transaction as the business UPDATE.
+      // After migration 034, channel_enrollments requires account_id and
+      // uses the partial unique index on (account_id, channel, COALESCE(location_id, ...)).
+      const [bizAccount] = await tx<{ account_id: string }[]>`
+        SELECT account_id FROM businesses WHERE id = ${businessId}
+      `;
+      const accountId = bizAccount?.account_id;
+      if (!accountId) {
+        throw new Error(`[admin-business-detail] business ${businessId} has no account_id — data inconsistency after migration 034`);
+      }
       await tx`
         INSERT INTO channel_enrollments
-          (id, business_id, channel, handle, status, verified_at)
+          (id, account_id, business_id, channel, handle, status, verified_at)
         VALUES
-          (${uuidv7()}, ${businessId}, 'email', ${patch.ownerEmail}, 'verified', NOW())
-        ON CONFLICT (business_id, channel) WHERE archived_at IS NULL DO UPDATE SET
+          (${uuidv7()}, ${accountId}::uuid, ${businessId}, 'email', ${patch.ownerEmail}, 'verified', NOW())
+        ON CONFLICT (account_id, channel, COALESCE(location_id, '00000000-0000-0000-0000-000000000000')) WHERE archived_at IS NULL DO UPDATE SET
           handle              = EXCLUDED.handle,
           status              = 'verified',
           verified_at         = NOW(),

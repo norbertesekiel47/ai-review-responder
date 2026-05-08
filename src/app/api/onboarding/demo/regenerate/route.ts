@@ -47,9 +47,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   const [owner] = await sql<OwnerRow[]>`
-    SELECT u.id AS user_id, b.id AS id, b.subscription_status
+    SELECT u.id AS user_id, b.id AS id, a.subscription_status
     FROM users u
-    JOIN businesses b ON b.id = u.business_id
+    JOIN accounts a ON a.id = u.account_id
+    JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE
     WHERE u.auth_id = ${user.id}
       AND u.role = 'owner'
     LIMIT 1

@@ -30,6 +30,7 @@ import {
   flagOff,
   assertSmsEnvReady,
   loadBusinessSubscriptionStatus,
+  isSubscriptionActive,
   subscriptionNotActive,
   withMobileEnrollmentLock,
   badRequest,
@@ -58,7 +59,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   if (!businessId) return badRequest('business_id_required');
 
   const subStatus = await loadBusinessSubscriptionStatus(businessId);
-  if (subStatus !== 'active') return subscriptionNotActive();
+  if (!isSubscriptionActive(subStatus)) return subscriptionNotActive();
 
   return withMobileEnrollmentLock(businessId, async (tx) => {
     // State-revert CTE: UPDATE in-place based on prior terminal timestamps,

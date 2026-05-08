@@ -81,8 +81,9 @@ beforeEach(() => {
   // The route now runs:
   //   1. Outside-tx lookup: SELECT b.id, b.owner_email FROM users JOIN businesses ...
   //   2. Inside-tx lock: pg_advisory_xact_lock(...)
-  //   3. Inside-tx FOR UPDATE: SELECT subscription_status FROM businesses ...
-  //   4. Inside-tx UPDATE: UPDATE businesses SET subscription_tier = ... — must return { count: > 0 }
+  //   3. Inside-tx FOR UPDATE: SELECT a.subscription_status FROM accounts a JOIN businesses b ... (source of truth after migration 034)
+  //   4. Inside-tx UPDATE: UPDATE accounts SET subscription_tier = ... — must return { count: > 0 }
+  //   5. Inside-tx UPDATE: UPDATE businesses SET subscription_tier = ... (deprecated column, retained)
   // Dispatch by template substring so individual tests can override
   // specific calls via mockResolvedValueOnce without needing to know the
   // exact ordering.
@@ -104,8 +105,11 @@ beforeEach(() => {
     if (text.includes('pg_advisory_xact_lock')) {
       return pgResult([{}]);
     }
-    if (/SELECT\s+subscription_status[\s\S]*FOR UPDATE/i.test(text)) {
+    if (/SELECT\s+(a\.)?subscription_status[\s\S]*FOR UPDATE/i.test(text)) {
       return pgResult([{ subscription_status: 'pending_payment' }]);
+    }
+    if (/UPDATE\s+accounts/i.test(text)) {
+      return pgResult([], 1);
     }
     if (/UPDATE\s+businesses/i.test(text)) {
       return pgResult([], 1);
@@ -243,7 +247,7 @@ describe('POST /api/onboarding/select-plan', () => {
       const text = tpl.join('?');
       if (
         !calledOnce &&
-        /SELECT\s+subscription_status[\s\S]*FOR UPDATE/i.test(text)
+        /SELECT\s+(a\.)?subscription_status[\s\S]*FOR UPDATE/i.test(text)
       ) {
         calledOnce = true;
         return Promise.resolve([{ subscription_status: 'active' }]);
@@ -257,13 +261,13 @@ describe('POST /api/onboarding/select-plan', () => {
   });
 
   it('returns 409 race_lost when UPDATE matches 0 rows despite pending_payment check', async () => {
-    // Lookup ok, FOR UPDATE returns pending_payment, but UPDATE.count = 0 —
+    // Lookup ok, FOR UPDATE returns pending_payment, but UPDATE accounts count = 0 —
     // simulates the impossible-but-defended race the new code logs.
     let calledOnce = false;
     const originalImpl = mockSql.getMockImplementation()!;
     mockSql.mockImplementation((tpl: TemplateStringsArray) => {
       const text = tpl.join('?');
-      if (!calledOnce && /UPDATE\s+businesses/i.test(text)) {
+      if (!calledOnce && /UPDATE\s+accounts/i.test(text)) {
         calledOnce = true;
         const arr = [] as unknown[] & { count?: number };
         Object.defineProperty(arr, 'count', { value: 0, enumerable: false });

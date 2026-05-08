@@ -2,6 +2,7 @@ import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '@/lib/db/server';
 import { buildPaymentLinkUrl } from '@/lib/payments/payment-link';
 import type { ValidatePlaceIdPayload } from '@/lib/shared/worker-types';
+import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 
 /**
  * Thrown when the businesses+users insert transaction fails on a PG 23505
@@ -79,6 +80,7 @@ export type CreateBusinessOptions =
 export interface CreateBusinessResult {
   businessId: string;
   userId: string;
+  accountId: string;
   paymentUrl: string | null;
 }
 
@@ -95,8 +97,11 @@ export async function createBusinessTx(
  * (`POST /api/admin/businesses`) and self-serve signup (`POST /api/auth/signup`
  * + `POST /api/auth/finish-signup`).
  *
- * Writes businesses + users + channel_enrollments in a single sql.begin
- * transaction. In admin mode, additionally INSERTs a job_outbox row for
+ * Writes accounts + businesses + users + channel_enrollments in a single sql.begin
+ * transaction. After migration 034, users.business_id was dropped; the
+ * transaction now creates an accounts row and links everything via
+ * users.account_id and businesses.account_id.
+ * In admin mode, additionally INSERTs a job_outbox row for
  * validate_place_id when a Maps URL is provided (Place ID verified = no
  * enqueue — review ingestion is webhook-driven via Zernio).
  * In self_serve mode, skips the outbox insert entirely and writes the
@@ -118,6 +123,7 @@ export async function createBusinessTx(
 
   const businessId = uuidv7();
   const userId = uuidv7();
+  const accountId = uuidv7();
 
   const authId = options.mode === 'self_serve' ? options.authId : null;
   const onboardedBy = options.mode === 'admin' ? options.onboardedBy : null;
@@ -138,6 +144,7 @@ export async function createBusinessTx(
       const adminInput = input as AdminBusinessTxInput;
       await runAdminTx({
         adminInput,
+        accountId,
         businessId,
         userId,
         ownerEmail,
@@ -147,6 +154,7 @@ export async function createBusinessTx(
       const selfServeInput = input as SelfServeBusinessTxInput;
       await runSelfServeTx({
         selfServeInput,
+        accountId,
         businessId,
         userId,
         ownerEmail,
@@ -161,17 +169,18 @@ export async function createBusinessTx(
     throw err;
   }
 
-  return { businessId, userId, paymentUrl };
+  return { businessId, userId, accountId, paymentUrl };
 }
 
 async function runAdminTx(args: {
   adminInput: AdminBusinessTxInput;
+  accountId: string;
   businessId: string;
   userId: string;
   ownerEmail: string;
   onboardedBy: string;
 }): Promise<void> {
-  const { adminInput, businessId, userId, ownerEmail, onboardedBy } = args;
+  const { adminInput, accountId, businessId, userId, ownerEmail, onboardedBy } = args;
 
   const placeId = adminInput.placeId.placeIdVerified
     ? adminInput.placeId.placeId
@@ -180,9 +189,27 @@ async function runAdminTx(args: {
   const placeIdVerified = adminInput.placeId.placeIdVerified;
 
   await sql.begin(async (tx) => {
+    // Create accounts row (source of truth for subscription state after
+    // migration 034). owner_user_id references the users row we create
+    // below — FK is satisfied by the time the transaction commits.
+    await tx`
+      INSERT INTO accounts (
+        id, owner_user_id, display_name,
+        subscription_tier, subscription_status
+      ) VALUES (
+        ${accountId}::uuid,
+        ${userId}::uuid,
+        ${adminInput.businessName},
+        ${adminInput.subscriptionTier},
+        ${SubscriptionStatus.PENDING_PAYMENT}
+      )
+    `;
+
     await tx`
       INSERT INTO businesses (
         id,
+        account_id,
+        is_primary,
         name,
         category,
         google_place_id,
@@ -202,7 +229,9 @@ async function runAdminTx(args: {
         website,
         onboarded_by
       ) VALUES (
-        ${businessId},
+        ${businessId}::uuid,
+        ${accountId}::uuid,
+        TRUE,
         ${adminInput.businessName},
         ${adminInput.category ?? null},
         ${placeId},
@@ -218,29 +247,29 @@ async function runAdminTx(args: {
         ${ownerEmail},
         ${adminInput.ownerPhone ?? null},
         ${adminInput.subscriptionTier},
-        'pending_payment',
+        ${SubscriptionStatus.PENDING_PAYMENT},
         ${adminInput.website ?? null},
         ${onboardedBy}
       )
     `;
 
     await tx`
-      INSERT INTO users (id, auth_id, name, email, phone, role, business_id)
+      INSERT INTO users (id, auth_id, name, email, phone, role, account_id)
       VALUES (
-        ${userId},
+        ${userId}::uuid,
         ${null},
         ${adminInput.ownerName},
         ${ownerEmail},
         ${adminInput.ownerPhone ?? null},
         'owner',
-        ${businessId}
+        ${accountId}::uuid
       )
     `;
 
     await tx`
-      INSERT INTO channel_enrollments (id, business_id, channel, handle, status, verified_at)
-      VALUES (${uuidv7()}, ${businessId}, 'email', ${ownerEmail}, 'verified', NOW())
-      ON CONFLICT (business_id, channel) WHERE archived_at IS NULL DO NOTHING
+      INSERT INTO channel_enrollments (id, account_id, business_id, channel, handle, status, verified_at)
+      VALUES (${uuidv7()}::uuid, ${accountId}::uuid, ${businessId}::uuid, 'email', ${ownerEmail}, 'verified', NOW())
+      ON CONFLICT (account_id, channel, COALESCE(location_id, '00000000-0000-0000-0000-000000000000')) WHERE archived_at IS NULL DO NOTHING
     `;
 
     const correlationId = uuidv7();
@@ -271,14 +300,31 @@ async function runAdminTx(args: {
 
 async function runSelfServeTx(args: {
   selfServeInput: SelfServeBusinessTxInput;
+  accountId: string;
   businessId: string;
   userId: string;
   ownerEmail: string;
   authId: string;
 }): Promise<void> {
-  const { selfServeInput, businessId, userId, ownerEmail, authId } = args;
+  const { selfServeInput, accountId, businessId, userId, ownerEmail, authId } = args;
 
   await sql.begin(async (tx) => {
+    // Create accounts row (source of truth for subscription state after
+    // migration 034). owner_user_id references the users row we create
+    // below — FK is satisfied by the time the transaction commits.
+    await tx`
+      INSERT INTO accounts (
+        id, owner_user_id, display_name,
+        subscription_tier, subscription_status
+      ) VALUES (
+        ${accountId}::uuid,
+        ${userId}::uuid,
+        ${PLACEHOLDER_BUSINESS_NAME},
+        'standard',
+        ${SubscriptionStatus.PENDING_PAYMENT}
+      )
+    `;
+
     // Placeholder row — name = PLACEHOLDER_BUSINESS_NAME, all place + profile
     // fields NULL or empty array. The /api/onboarding/business handler
     // UPDATEs these once the owner completes the wizard after Stripe payment.
@@ -288,6 +334,8 @@ async function runSelfServeTx(args: {
     await tx`
       INSERT INTO businesses (
         id,
+        account_id,
+        is_primary,
         name,
         category,
         google_place_id,
@@ -307,7 +355,9 @@ async function runSelfServeTx(args: {
         website,
         onboarded_by
       ) VALUES (
-        ${businessId},
+        ${businessId}::uuid,
+        ${accountId}::uuid,
+        TRUE,
         ${PLACEHOLDER_BUSINESS_NAME},
         ${null},
         ${null},
@@ -323,22 +373,22 @@ async function runSelfServeTx(args: {
         ${ownerEmail},
         ${selfServeInput.ownerPhone ?? null},
         ${'standard'},
-        'pending_payment',
+        ${SubscriptionStatus.PENDING_PAYMENT},
         ${null},
         ${null}
       )
     `;
 
     await tx`
-      INSERT INTO users (id, auth_id, name, email, phone, role, business_id)
+      INSERT INTO users (id, auth_id, name, email, phone, role, account_id)
       VALUES (
-        ${userId},
+        ${userId}::uuid,
         ${authId},
         ${selfServeInput.ownerName},
         ${ownerEmail},
         ${selfServeInput.ownerPhone ?? null},
         'owner',
-        ${businessId}
+        ${accountId}::uuid
       )
     `;
 

@@ -121,7 +121,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       // server-side before paginating. At MVP scale (10-50 businesses) this is fine.
       sql<BusinessRow[]>`
         SELECT
-          b.id, b.name, b.subscription_status, b.last_sync_at,
+          b.id, b.name, a.subscription_status, b.last_sync_at,
           COUNT(CASE WHEN resp.status = 'pending_approval' THEN 1 END)::int AS pending_approval_count,
           COUNT(CASE WHEN resp.status = 'awaiting_owner_connect' THEN 1 END)::int AS pending_reconnect_count,
           COUNT(resp.id)::int AS total_responses,
@@ -129,8 +129,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           ROUND(EXTRACT(EPOCH FROM AVG(CASE WHEN resp.approved_at IS NOT NULL THEN resp.approved_at - resp.created_at END)) / 3600.0, 1)::float AS avg_response_time_hours,
           MAX(GREATEST(resp.created_at, resp.approved_at, resp.posted_at)) AS last_activity
         FROM businesses b
+        JOIN accounts a ON a.id = b.account_id
         LEFT JOIN responses resp ON resp.business_id = b.id AND resp.status != 'superseded'
-        GROUP BY b.id, b.name, b.subscription_status, b.last_sync_at
+        GROUP BY b.id, b.name, a.subscription_status, b.last_sync_at
       `,
       sql<{ total: number }[]>`SELECT COUNT(*)::int AS total FROM businesses`,
     ]);

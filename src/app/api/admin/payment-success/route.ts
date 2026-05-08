@@ -45,9 +45,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const businessId = sessionObj?.client_reference_id as string | undefined;
 
     if (businessId) {
-      // Verify the business exists and is active
+      // After migration 034, subscription_status source of truth is accounts.
       const [biz] = await sql<{ id: string; subscription_status: string }[]>`
-        SELECT id, subscription_status FROM businesses WHERE id = ${businessId}::uuid
+        SELECT b.id, a.subscription_status
+        FROM businesses b
+        JOIN accounts a ON a.id = b.account_id
+        WHERE b.id = ${businessId}::uuid
       `;
       if (biz) {
         return NextResponse.json({

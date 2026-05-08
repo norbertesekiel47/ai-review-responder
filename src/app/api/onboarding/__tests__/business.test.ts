@@ -139,7 +139,7 @@ describe('POST /api/onboarding/business', () => {
 
     const lookupCall = mockSql.mock.calls.find((c: any[]) => {
       const text = (c[0] as TemplateStringsArray).join('?');
-      return text.includes('SELECT b.id, b.subscription_status') &&
+      return text.includes('SELECT b.id, a.subscription_status') &&
         text.includes('FROM users u');
     });
     expect(lookupCall).toBeDefined();

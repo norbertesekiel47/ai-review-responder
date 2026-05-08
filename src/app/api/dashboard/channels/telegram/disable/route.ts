@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
+import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
 import { isTelegramEnabled, flagOff, assertTelegramEnvReady } from '@/app/api/admin/channels/telegram/_shared';
 import { disableTelegramEnrollment } from '@/lib/channels/telegram-enrollment';
@@ -24,10 +25,14 @@ async function handler(req: NextRequest): Promise<NextResponse> {
 
   if (!user.locationId) return NextResponse.json({ error: 'no_business' }, { status: 403 });
 
-  const businessRows = await sql<{ subscription_status: string }[]>`
-    SELECT subscription_status FROM businesses WHERE id = ${user.locationId}
+  // After migration 034, subscription_status source of truth is accounts.
+  const [accountRow] = await sql<{ subscription_status: string }[]>`
+    SELECT a.subscription_status
+    FROM accounts a
+    JOIN businesses b ON b.account_id = a.id
+    WHERE b.id = ${user.locationId}
   `;
-  if (businessRows[0]?.subscription_status !== 'active') {
+  if (accountRow?.subscription_status !== SubscriptionStatus.ACTIVE) {
     return NextResponse.json({ error: 'subscription_not_active' }, { status: 403 });
   }
 

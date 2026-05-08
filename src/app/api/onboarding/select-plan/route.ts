@@ -145,13 +145,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // Owner-only filter at the SQL boundary. Middleware does NOT gate
   // `/api/onboarding/*` on role, so an admin/sales_partner session
   // calling this directly would otherwise hit whichever business their
-  // (potentially misconfigured) users.business_id pointed at. Returning
+  // account points at via the primary location. Returning
   // 404 on non-owner sessions keeps this an authorization invariant
   // independent of middleware.
   const lookup = await sql<{ id: string; owner_email: string }[]>`
     SELECT b.id, b.owner_email
     FROM users u
-    JOIN businesses b ON b.id = u.business_id
+    JOIN accounts a ON a.id = u.account_id
+    JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE
     WHERE u.auth_id = ${user.id}
       AND u.role = 'owner'
     LIMIT 1
@@ -170,11 +171,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // commits before we proceed.
     await tx`SELECT pg_advisory_xact_lock(hashtext(${businessId + ':activation'}))`;
 
+    // Read subscription_status from accounts (source of truth after migration 034).
+    // Also lock the accounts row FOR UPDATE to prevent concurrent writes.
     const [row] = await tx<{ subscription_status: string }[]>`
-      SELECT subscription_status
-      FROM businesses
-      WHERE id = ${businessId}::uuid
-      FOR UPDATE
+      SELECT a.subscription_status
+      FROM accounts a
+      JOIN businesses b ON b.account_id = a.id
+      WHERE b.id = ${businessId}::uuid
+      FOR UPDATE OF a
     `;
     if (!row) {
       // The row vanished between the lookup above and now (e.g., cleanup
@@ -188,20 +192,27 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       };
     }
 
-    // UPDATE under the same lock + re-checked status. Verify count > 0
+    // UPDATE accounts (source of truth) and businesses (deprecated column
+    // retained for backward compat per VAL-SCHEMA-037). Verify count > 0
     // as defense-in-depth — if for any reason the WHERE didn't match
     // (status changed inside this same tx, which shouldn't be possible
     // but is the kind of paranoia that catches future refactors), fail
     // loudly rather than handing out a Stripe link.
     const update = await tx`
-      UPDATE businesses
+      UPDATE accounts
       SET subscription_tier = ${tier}, updated_at = NOW()
-      WHERE id = ${businessId}::uuid
+      WHERE id = (SELECT account_id FROM businesses WHERE id = ${businessId}::uuid)
         AND subscription_status = 'pending_payment'
     `;
     if (update.count === 0) {
       return { kind: 'race_lost' as const };
     }
+    // Also write to businesses.subscription_tier (deprecated, retained).
+    await tx`
+      UPDATE businesses
+      SET subscription_tier = ${tier}, updated_at = NOW()
+      WHERE id = ${businessId}::uuid
+    `;
     return { kind: 'ok' as const };
   });
 

@@ -4,6 +4,7 @@ import { getCacheRedis } from '@/lib/db/redis-cache';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { ZernioRouteError } from '@/lib/zernio/errors';
+import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { zernioClient } from '@/lib/zernio/client';
 import {
   pendingKey,
@@ -64,18 +65,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const userId = user.id;
 
   // 3. Subscription guard — spec §3.2 step 1: skip if subscription_status != 'active'.
+  // After migration 034, subscription_status source of truth is accounts.
   try {
-    const bizRows = await sql<{ subscription_status: string }[]>`
-      SELECT subscription_status
-      FROM businesses
-      WHERE id = ${businessId}
+    const [accountRow] = await sql<{ subscription_status: string }[]>`
+      SELECT a.subscription_status
+      FROM accounts a
+      JOIN businesses b ON b.account_id = a.id
+      WHERE b.id = ${businessId}
       LIMIT 1
     `;
-    const biz = bizRows[0];
-    if (!biz) {
+    if (!accountRow) {
       return NextResponse.json({ error: 'business_not_found' }, { status: 404, headers: NO_STORE });
     }
-    if (biz.subscription_status !== 'active') {
+    if (accountRow.subscription_status !== SubscriptionStatus.ACTIVE) {
       return NextResponse.json(
         { error: 'subscription_required' },
         { status: 403, headers: NO_STORE },

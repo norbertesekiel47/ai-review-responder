@@ -84,11 +84,12 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       updated_at: Date;
     }[]
   >`
-    SELECT b.subscription_status, u.role,
+    SELECT a.subscription_status, u.role,
            b.place_id_verified, b.google_maps_url,
-           b.subscription_activated_at, b.updated_at
+           a.subscription_activated_at, b.updated_at
     FROM users u
-    JOIN businesses b ON b.id = u.business_id
+    JOIN accounts a ON a.id = u.account_id
+    JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE
     WHERE u.auth_id = ${user.id}
     LIMIT 1
   `;

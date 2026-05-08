@@ -219,7 +219,7 @@ describe('createBusinessTx — channel_enrollments', () => {
     const enrollTemplate = (enrollCall[0] as TemplateStringsArray).join('?');
     expect(enrollTemplate).toContain("'email'");
     expect(enrollTemplate).toContain("'verified'");
-    expect(enrollTemplate).toContain('ON CONFLICT (business_id, channel) WHERE archived_at IS NULL');
+    expect(enrollTemplate).toContain('ON CONFLICT (account_id, channel, COALESCE(location_id,');
   });
 
   it('self_serve mode does NOT insert channel_enrollments at signup time (deferred to /api/auth/verify-otp post-OTP)', async () => {
@@ -231,11 +231,12 @@ describe('createBusinessTx — channel_enrollments', () => {
 });
 
 describe('createBusinessTx — result', () => {
-  it('returns businessId, userId, and paymentUrl from buildPaymentLinkUrl', async () => {
+  it('returns businessId, userId, accountId, and paymentUrl from buildPaymentLinkUrl', async () => {
     mockBuildPaymentLinkUrl.mockReturnValue('https://buy.stripe.com/xyz');
     const res = await createBusinessTx(selfServeInput, { mode: 'self_serve', authId: 'a' });
     expect(res.businessId).toBeTruthy();
     expect(res.userId).toBeTruthy();
+    expect(res.accountId).toBeTruthy();
     expect(res.paymentUrl).toBe('https://buy.stripe.com/xyz');
     expect(mockBuildPaymentLinkUrl).toHaveBeenCalledWith('standard', res.businessId, 'a@b.com');
   });

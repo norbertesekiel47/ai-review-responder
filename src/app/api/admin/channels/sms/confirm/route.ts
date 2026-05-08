@@ -33,6 +33,7 @@ import {
   flagOff,
   assertSmsEnvReady,
   loadBusinessSubscriptionStatus,
+  isSubscriptionActive,
   subscriptionNotActive,
   withMobileEnrollmentLock,
   badRequest,
@@ -64,7 +65,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   if (!businessId || !code) return badRequest('missing_fields');
 
   const subStatus = await loadBusinessSubscriptionStatus(businessId);
-  if (subStatus !== 'active') return subscriptionNotActive();
+  if (!isSubscriptionActive(subStatus)) return subscriptionNotActive();
 
   return withMobileEnrollmentLock(businessId, async (tx) => {
     // Step 1: Load active row (any status — row status gates are applied in step 3).

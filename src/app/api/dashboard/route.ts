@@ -43,6 +43,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     // Cheap pre-query: determine subscription status + onboarding state
     // before running the 8 heavy queries.
+    // After migration 034, subscription_status/tier source of truth is accounts.
+    // businesses.subscription_* are deprecated columns (VAL-SCHEMA-036/037).
     const [subRow] = await sql<{
       name: string;
       subscription_status: string;
@@ -52,9 +54,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       place_id_verified: boolean;
       google_maps_url: string | null;
     }[]>`
-      SELECT name, subscription_status, subscription_tier, owner_email, onboarded_by,
-             place_id_verified, google_maps_url
-      FROM businesses WHERE id = ${businessId}
+      SELECT b.name, a.subscription_status, a.subscription_tier,
+             b.owner_email, b.onboarded_by,
+             b.place_id_verified, b.google_maps_url
+      FROM businesses b
+      JOIN accounts a ON a.id = b.account_id
+      WHERE b.id = ${businessId}
     `;
     if (!subRow) {
       return jsonResponse({ error: 'Business not found' }, 404);

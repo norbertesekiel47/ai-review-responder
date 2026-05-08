@@ -91,10 +91,13 @@ describe('PATCH /api/admin/businesses/[id] — ownerEmail enrollment sync', () =
 
   it('PATCH with ownerEmail upserts channel_enrollments inside same txn', async () => {
     mockRequireRole.mockResolvedValue({ role: 'admin' });
-    // First tx call is tx.unsafe (UPDATE businesses) — return { count: 1 }
-    // Second tx call is the tx`INSERT INTO channel_enrollments...`
-    mockTxReturns.push({ count: 1 });  // for UPDATE businesses
-    mockTxReturns.push([]);             // for INSERT channel_enrollments
+    // tx calls inside the transaction callback (in order):
+    // 1. tx.unsafe (UPDATE businesses) — return { count: 1 }
+    // 2. tx`SELECT account_id FROM businesses` — return account_id row
+    // 3. tx`INSERT INTO channel_enrollments...` — return []
+    mockTxReturns.push({ count: 1 });                // for UPDATE businesses
+    mockTxReturns.push([{ account_id: 'acct-1' }]); // for SELECT account_id
+    mockTxReturns.push([]);                          // for INSERT channel_enrollments
 
     const res = await PATCH(
       makePatchRequest({ ownerEmail: 'new@example.com' }),

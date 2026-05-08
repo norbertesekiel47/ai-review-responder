@@ -9,6 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
+import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { isTelegramEnabled, assertTelegramEnvReady } from '@/app/api/admin/channels/telegram/_shared';
 
 export const dynamic = 'force-dynamic';
@@ -63,12 +64,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   // Subscription guard — defense-in-depth (page server component already redirects).
-  const businessRows = await sql<{ subscription_status: string }[]>`
-    SELECT subscription_status FROM businesses WHERE id = ${user.locationId}
+  // After migration 034, subscription_status source of truth is accounts.
+  const [accountRow] = await sql<{ subscription_status: string }[]>`
+    SELECT a.subscription_status
+    FROM accounts a
+    JOIN businesses b ON b.account_id = a.id
+    WHERE b.id = ${user.locationId}
   `;
-  const business = businessRows[0];
-  if (!business) return NextResponse.json({ error: 'not_found' }, { status: 404 });
-  if (business.subscription_status !== 'active') {
+  if (!accountRow) return NextResponse.json({ error: 'not_found' }, { status: 404 });
+  if (accountRow.subscription_status !== SubscriptionStatus.ACTIVE) {
     return NextResponse.json({ error: 'subscription_not_active' }, { status: 403 });
   }
 

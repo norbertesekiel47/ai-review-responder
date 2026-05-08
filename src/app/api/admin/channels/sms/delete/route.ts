@@ -23,6 +23,7 @@ import {
   flagOff,
   assertSmsEnvReady,
   loadBusinessSubscriptionStatus,
+  isSubscriptionActive,
   subscriptionNotActive,
   withMobileEnrollmentLock,
   badRequest,
@@ -55,7 +56,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   if (body.confirm !== true) return badRequest('confirmation_required');
 
   const subStatus = await loadBusinessSubscriptionStatus(businessId);
-  if (subStatus !== 'active') return subscriptionNotActive();
+  if (!isSubscriptionActive(subStatus)) return subscriptionNotActive();
 
   return withMobileEnrollmentLock(businessId, async (tx) => {
     await tx`

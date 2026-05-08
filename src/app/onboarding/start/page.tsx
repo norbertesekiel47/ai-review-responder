@@ -34,9 +34,10 @@ export default async function OnboardingStartPage() {
   if (!user) redirect('/login');
 
   const [row] = await sql<GuardRow[]>`
-    SELECT u.role, b.subscription_status, b.place_id_verified, b.google_maps_url
+    SELECT u.role, a.subscription_status, b.place_id_verified, b.google_maps_url
     FROM users u
-    JOIN businesses b ON b.id = u.business_id
+    JOIN accounts a ON a.id = u.account_id
+    JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE
     WHERE u.auth_id = ${user.id}
     LIMIT 1
   `;

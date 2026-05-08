@@ -22,6 +22,7 @@ import { v7 as uuidv7 } from 'uuid';
 import QRCode from 'qrcode';
 import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
+import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { isWhatsAppEnabled, flagOff, assertWhatsAppEnvReady } from '../_shared';
 import { classifyEnrollmentError, MultipleMobileChannelsError, EnrollmentDatabaseError } from '@/lib/channels/unique-violation';
 
@@ -46,12 +47,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const businessId = body?.businessId;
   if (!businessId) return NextResponse.json({ error: 'businessId required' }, { status: 400 });
 
-  const businessRows = await sql<{ subscription_status: string }[]>`
-    SELECT subscription_status FROM businesses WHERE id = ${businessId}
+  // After migration 034, subscription_status source of truth is accounts.
+  const [accountRow] = await sql<{ subscription_status: string }[]>`
+    SELECT a.subscription_status
+    FROM accounts a
+    JOIN businesses b ON b.account_id = a.id
+    WHERE b.id = ${businessId}
   `;
-  const business = businessRows[0];
-  if (!business) return NextResponse.json({ error: 'not_found' }, { status: 404 });
-  if (business.subscription_status !== 'active') {
+  if (!accountRow) return NextResponse.json({ error: 'not_found' }, { status: 404 });
+  if (accountRow.subscription_status !== SubscriptionStatus.ACTIVE) {
     return NextResponse.json({ error: 'subscription_not_active' }, { status: 403 });
   }
 
