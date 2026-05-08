@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Icon } from '@/components/dashboard/Icon';
 
 const TONES: { id: string; label: string; canonical: string; preview: string }[] = [
@@ -37,17 +37,36 @@ export function ToneChipPicker({ tone, onChange }: Props) {
   // Local mode override so clicking "Custom…" always reveals the textarea,
   // even when the current tone string would otherwise infer to a preset.
   const [override, setOverride] = useState<string | null>(null);
+
+  // Track the last value we wrote so we can tell when `tone` changed
+  // externally (e.g. parent called Discard, or initial fetch resolved).
+  // External changes drop the override so the chip strip reflects truth.
+  const lastWrittenRef = useRef(tone);
+  useEffect(() => {
+    if (tone !== lastWrittenRef.current) {
+      setOverride(null);
+      lastWrittenRef.current = tone;
+    }
+  }, [tone]);
+
   const active = override ?? inferActiveTone(tone);
   const preview = TONES.find((t) => t.id === active)?.preview ?? FALLBACK_PREVIEW;
 
   const pickPreset = (id: string, canonical: string) => {
     setOverride(id);
+    lastWrittenRef.current = canonical;
     onChange(canonical);
   };
 
   const pickCustom = () => {
     setOverride('custom');
     // Don't clobber the existing tone — the user may want to edit it.
+    // lastWrittenRef stays as-is; tone hasn't changed.
+  };
+
+  const handleCustomTyping = (next: string) => {
+    lastWrittenRef.current = next;
+    onChange(next);
   };
 
   return (
@@ -78,7 +97,7 @@ export function ToneChipPicker({ tone, onChange }: Props) {
             className="textarea"
             maxLength={100}
             value={tone}
-            onChange={(e) => onChange(e.target.value)}
+            onChange={(e) => handleCustomTyping(e.target.value)}
             placeholder="e.g. warm, witty, occasionally cheeky"
           />
           <div className="field-counter">{tone.length}/100</div>
