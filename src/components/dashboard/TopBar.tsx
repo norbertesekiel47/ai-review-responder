@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Icon } from './Icon';
 
@@ -20,6 +20,28 @@ export function TopBar({ title, subtitle, showLive, refresh, rightLink }: Props)
   const [refreshing, setRefreshing] = useState(false);
   const refreshRef = useRef(refresh);
   refreshRef.current = refresh;
+  const inflightRef = useRef(false);
+  const spinTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const doRefresh = useCallback(async (silent = false) => {
+    // In-flight guard: ignore overlapping requests so a slow /api/dashboard
+    // can't double-fire when the 60s tick lands during a manual click.
+    if (inflightRef.current) return;
+    if (!refreshRef.current) return;
+    inflightRef.current = true;
+    setRefreshing(true);
+    try {
+      await refreshRef.current();
+    } finally {
+      inflightRef.current = false;
+      // Match the design's spin duration regardless of API speed. Track the
+      // timeout id so we can clear it on unmount and avoid setState-after-
+      // unmount warnings.
+      if (spinTimeoutRef.current) clearTimeout(spinTimeoutRef.current);
+      spinTimeoutRef.current = setTimeout(() => setRefreshing(false), 800);
+      if (!silent) setSecondsToRefresh(60);
+    }
+  }, []);
 
   useEffect(() => {
     if (!showLive) return;
@@ -32,22 +54,11 @@ export function TopBar({ title, subtitle, showLive, refresh, rightLink }: Props)
         return s - 1;
       });
     }, 1000);
-    return () => clearInterval(interval);
-    // doRefresh is stable via refreshRef.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showLive]);
-
-  async function doRefresh(silent = false) {
-    if (!refreshRef.current) return;
-    setRefreshing(true);
-    try {
-      await refreshRef.current();
-    } finally {
-      // Match the design's spin duration regardless of API speed.
-      setTimeout(() => setRefreshing(false), 800);
-      if (!silent) setSecondsToRefresh(60);
-    }
-  }
+    return () => {
+      clearInterval(interval);
+      if (spinTimeoutRef.current) clearTimeout(spinTimeoutRef.current);
+    };
+  }, [showLive, doRefresh]);
 
   return (
     <div className="topbar">

@@ -55,11 +55,22 @@ export default async function AuthenticatedLayout({
   `;
 
   let businessName = '';
+  let initialPendingCount = 0;
   if (appUser?.business_id) {
-    const [biz] = await sql<{ name: string }[]>`
-      SELECT name FROM businesses WHERE id = ${appUser.business_id} LIMIT 1
-    `;
-    businessName = biz?.name ?? '';
+    // Run the two reads in parallel — they're independent.
+    const [bizRows, pendingRows] = await Promise.all([
+      sql<{ name: string }[]>`
+        SELECT name FROM businesses WHERE id = ${appUser.business_id} LIMIT 1
+      `,
+      sql<{ count: number }[]>`
+        SELECT COUNT(*)::int AS count
+        FROM responses
+        WHERE business_id = ${appUser.business_id}
+          AND status = 'pending_approval'
+      `,
+    ]);
+    businessName = bizRows[0]?.name ?? '';
+    initialPendingCount = pendingRows[0]?.count ?? 0;
   }
 
   const ownerName = appUser?.owner_name ?? '';
@@ -68,7 +79,7 @@ export default async function AuthenticatedLayout({
 
   return (
     <div className={`rw-console ${plusJakarta.variable} ${dmSans.variable}`}>
-      <PendingCountProvider>
+      <PendingCountProvider initialCount={initialPendingCount}>
         <div className="shell">
           <Sidebar
             businessName={businessName}

@@ -8,14 +8,14 @@ import { createContext, useContext, useState, type Dispatch, type SetStateAction
  * tab without firing a second /api/dashboard request.
  *
  * Population:
+ *   - The authenticated layout seeds the provider with a server-side count
+ *     when it resolves the owner's business_id. This makes the badge
+ *     accurate on cold loads of /settings and /dashboard/past-replies.
  *   - DashboardContent calls useSetPendingCount() inside a useEffect that
- *     fires when its `data` resolves; the count survives across navigation
- *     to /settings or /dashboard/past-replies (the layout, and therefore
- *     the provider, doesn't unmount).
- *   - On non-dashboard initial loads (e.g. user lands directly on
- *     /settings), the badge starts at 0 until the user visits /dashboard.
- *     Acceptable because the dashboard is the natural source for that
- *     count and we deliberately don't add a parallel API.
+ *     fires when its `data` resolves, keeping the count fresh across
+ *     refresh ticks and approve actions. The count survives across
+ *     navigation between authenticated routes — the layout (and therefore
+ *     this provider) doesn't unmount.
  */
 interface ContextValue {
   count: number;
@@ -27,8 +27,14 @@ const PendingCountContext = createContext<ContextValue>({
   setCount: () => {},
 });
 
-export function PendingCountProvider({ children }: { children: React.ReactNode }) {
-  const [count, setCount] = useState(0);
+export function PendingCountProvider({
+  children,
+  initialCount = 0,
+}: {
+  children: React.ReactNode;
+  initialCount?: number;
+}) {
+  const [count, setCount] = useState(initialCount);
   return (
     <PendingCountContext.Provider value={{ count, setCount }}>
       {children}

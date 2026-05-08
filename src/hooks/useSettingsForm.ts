@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { DashboardData, DashboardDataActive, DashboardSettings } from '@/lib/dashboard/types';
 
 export interface SettingsForm {
@@ -64,6 +64,14 @@ export function useSettingsForm(): UseSettingsForm {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
+  const flashTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (flashTimeoutRef.current) clearTimeout(flashTimeoutRef.current);
+    },
+    [],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -131,7 +139,8 @@ export function useSettingsForm(): UseSettingsForm {
       }
       setInitial({ ...form });
       setSavedFlash(true);
-      setTimeout(() => setSavedFlash(false), 1800);
+      if (flashTimeoutRef.current) clearTimeout(flashTimeoutRef.current);
+      flashTimeoutRef.current = setTimeout(() => setSavedFlash(false), 1800);
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : 'Failed to save settings');
     } finally {

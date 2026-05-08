@@ -49,46 +49,48 @@ export default async function PastRepliesPage({
     ? new Date(biz.subscription_activated_at).toISOString()
     : null;
 
-  const rows = await sql<ReviewRow[]>`
-    SELECT
-      r.id AS review_id,
-      r.review_text,
-      r.review_date,
-      r.external_reply_ingested_at,
-      r.star_rating,
-      r.reviewer_name,
-      resp.id AS response_id,
-      resp.approved_text,
-      resp.posted_at
-    FROM reviews r
-    JOIN responses resp ON resp.review_id = r.id AND resp.status = 'posted'
-    WHERE r.business_id = ${owner.businessId}
-    ORDER BY r.review_date DESC
-    LIMIT ${PAGE_SIZE} OFFSET ${offset}
-  `;
-
-  const gapCountRows = await sql<{ count: number }[]>`
-    SELECT COUNT(*)::int AS count
-    FROM reviews r
-    JOIN responses resp ON resp.review_id = r.id AND resp.status = 'posted'
-    WHERE r.business_id = ${owner.businessId}
-      AND ${activatedAtIso}::timestamptz IS NOT NULL
-      AND r.review_date >= ${activatedAtIso}::timestamptz
-  `;
-  const histCountRows = await sql<{ count: number }[]>`
-    SELECT COUNT(*)::int AS count
-    FROM reviews r
-    JOIN responses resp ON resp.review_id = r.id AND resp.status = 'posted'
-    WHERE r.business_id = ${owner.businessId}
-      AND ( ${activatedAtIso}::timestamptz IS NULL
-            OR r.review_date < ${activatedAtIso}::timestamptz )
-  `;
-  const avgRows = await sql<{ avg: number | null }[]>`
-    SELECT AVG(r.star_rating)::float AS avg
-    FROM reviews r
-    JOIN responses resp ON resp.review_id = r.id AND resp.status = 'posted'
-    WHERE r.business_id = ${owner.businessId}
-  `;
+  // Four independent reads — fire in parallel.
+  const [rows, gapCountRows, histCountRows, avgRows] = await Promise.all([
+    sql<ReviewRow[]>`
+      SELECT
+        r.id AS review_id,
+        r.review_text,
+        r.review_date,
+        r.external_reply_ingested_at,
+        r.star_rating,
+        r.reviewer_name,
+        resp.id AS response_id,
+        resp.approved_text,
+        resp.posted_at
+      FROM reviews r
+      JOIN responses resp ON resp.review_id = r.id AND resp.status = 'posted'
+      WHERE r.business_id = ${owner.businessId}
+      ORDER BY r.review_date DESC
+      LIMIT ${PAGE_SIZE} OFFSET ${offset}
+    `,
+    sql<{ count: number }[]>`
+      SELECT COUNT(*)::int AS count
+      FROM reviews r
+      JOIN responses resp ON resp.review_id = r.id AND resp.status = 'posted'
+      WHERE r.business_id = ${owner.businessId}
+        AND ${activatedAtIso}::timestamptz IS NOT NULL
+        AND r.review_date >= ${activatedAtIso}::timestamptz
+    `,
+    sql<{ count: number }[]>`
+      SELECT COUNT(*)::int AS count
+      FROM reviews r
+      JOIN responses resp ON resp.review_id = r.id AND resp.status = 'posted'
+      WHERE r.business_id = ${owner.businessId}
+        AND ( ${activatedAtIso}::timestamptz IS NULL
+              OR r.review_date < ${activatedAtIso}::timestamptz )
+    `,
+    sql<{ avg: number | null }[]>`
+      SELECT AVG(r.star_rating)::float AS avg
+      FROM reviews r
+      JOIN responses resp ON resp.review_id = r.id AND resp.status = 'posted'
+      WHERE r.business_id = ${owner.businessId}
+    `,
+  ]);
   const gapTotal = gapCountRows[0]?.count ?? 0;
   const histTotal = histCountRows[0]?.count ?? 0;
   const avgStarRating = avgRows[0]?.avg ?? null;

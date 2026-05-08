@@ -69,6 +69,8 @@ export function BrandVoicePanel({ form, set }: Props) {
           onChange={(v) => set('avoidFacts', v)}
           placeholder="e.g. We never discount on weekends"
           addLabel="Add another"
+          maxItems={20}
+          maxLength={500}
         />
       </div>
 
@@ -89,6 +91,8 @@ export function BrandVoicePanel({ form, set }: Props) {
           onChange={(v) => set('sampleResponses', v)}
           placeholder="Paste a reply you're proud of"
           addLabel="Add another"
+          maxItems={10}
+          maxLength={2000}
         />
       </div>
     </>
