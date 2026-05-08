@@ -187,9 +187,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     try {
       if (dbAction === 'insert') {
+        // Resolve account_id from businesses within the same tx so the
+        // INSERT satisfies the NOT NULL constraint added by migration 034.
+        const [bizRow] = await tx<{ account_id: string }[]>`
+          SELECT account_id FROM businesses WHERE id = ${businessId}
+        `;
+        if (!bizRow?.account_id) {
+          return NextResponse.json({ error: 'account_not_found' }, { status: 404 });
+        }
         await tx`
-          INSERT INTO channel_enrollments (id, business_id, channel, handle, status)
-          VALUES (${uuidv7()}, ${businessId}, 'sms', ${twilioPhone}, 'pending_verification')
+          INSERT INTO channel_enrollments (id, account_id, business_id, channel, handle, status)
+          VALUES (${uuidv7()}, ${bizRow.account_id}, ${businessId}, 'sms', ${twilioPhone}, 'pending_verification')
         `;
       } else if (dbAction === 'update') {
         // dbAction='update' is only set in the else branch above where `row`

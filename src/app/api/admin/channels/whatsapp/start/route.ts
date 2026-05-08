@@ -48,8 +48,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   if (!businessId) return NextResponse.json({ error: 'businessId required' }, { status: 400 });
 
   // After migration 034, subscription_status source of truth is accounts.
-  const [accountRow] = await sql<{ subscription_status: string }[]>`
-    SELECT a.subscription_status
+  const [accountRow] = await sql<{ id: string; subscription_status: string }[]>`
+    SELECT a.id, a.subscription_status
     FROM accounts a
     JOIN businesses b ON b.account_id = a.id
     WHERE b.id = ${businessId}
@@ -58,6 +58,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   if (accountRow.subscription_status !== SubscriptionStatus.ACTIVE) {
     return NextResponse.json({ error: 'subscription_not_active' }, { status: 403 });
   }
+  const accountId = accountRow.id;
 
   // Advisory lock + enrollment state machine run in a single transaction so
   // the lock is held across the SELECT + UPDATE/INSERT. pg_advisory_xact_lock
@@ -103,9 +104,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         } else {
           await tx`
             INSERT INTO channel_enrollments
-              (id, business_id, channel, status, verification_token_hash, verification_token_expires_at)
+              (id, account_id, business_id, channel, status, verification_token_hash, verification_token_expires_at)
             VALUES
-              (${uuidv7()}, ${businessId}, 'whatsapp', 'pending_verification', ${tokenHash}, ${expiresAt})
+              (${uuidv7()}, ${accountId}, ${businessId}, 'whatsapp', 'pending_verification', ${tokenHash}, ${expiresAt})
           `;
         }
       } catch (err) {

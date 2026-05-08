@@ -23,18 +23,23 @@ describe('startTelegramEnrollment', () => {
     const result = await startTelegramEnrollment(
       tx as never,
       'biz-123',
+      'acct-456',
       'a'.repeat(64),
       expiresAt,
     );
     expect(result.kind).toBe('ok');
     expect(tx).toHaveBeenCalledTimes(2);
+    // Verify the INSERT includes account_id
+    const insertCall = tx.mock.calls[1];
+    const insertSql = (insertCall?.[0] as TemplateStringsArray | undefined)?.join('?') ?? '';
+    expect(insertSql).toContain('account_id');
   });
 
   it('updates an existing pending row to a fresh hash', async () => {
     tx.mockResolvedValueOnce([{ id: 'row-1', status: 'pending_verification' }]);
     tx.mockResolvedValueOnce([]); // UPDATE
     const { startTelegramEnrollment } = await import('../telegram-enrollment');
-    const result = await startTelegramEnrollment(tx as never, 'biz-123', 'b'.repeat(64), new Date());
+    const result = await startTelegramEnrollment(tx as never, 'biz-123', 'acct-456', 'b'.repeat(64), new Date());
     expect(result.kind).toBe('ok');
   });
 
@@ -42,7 +47,7 @@ describe('startTelegramEnrollment', () => {
     tx.mockResolvedValueOnce([{ id: 'row-1', status: 'unsubscribed' }]);
     tx.mockResolvedValueOnce([]);
     const { startTelegramEnrollment } = await import('../telegram-enrollment');
-    const result = await startTelegramEnrollment(tx as never, 'biz-123', 'c'.repeat(64), new Date());
+    const result = await startTelegramEnrollment(tx as never, 'biz-123', 'acct-456', 'c'.repeat(64), new Date());
     expect(result.kind).toBe('ok');
   });
 
@@ -50,14 +55,14 @@ describe('startTelegramEnrollment', () => {
     tx.mockResolvedValueOnce([{ id: 'row-1', status: 'disabled' }]);
     tx.mockResolvedValueOnce([]);
     const { startTelegramEnrollment } = await import('../telegram-enrollment');
-    const result = await startTelegramEnrollment(tx as never, 'biz-123', 'd'.repeat(64), new Date());
+    const result = await startTelegramEnrollment(tx as never, 'biz-123', 'acct-456', 'd'.repeat(64), new Date());
     expect(result.kind).toBe('ok');
   });
 
   it('returns already_verified when row.status is verified', async () => {
     tx.mockResolvedValueOnce([{ id: 'row-1', status: 'verified' }]);
     const { startTelegramEnrollment } = await import('../telegram-enrollment');
-    const result = await startTelegramEnrollment(tx as never, 'biz-123', 'e'.repeat(64), new Date());
+    const result = await startTelegramEnrollment(tx as never, 'biz-123', 'acct-456', 'e'.repeat(64), new Date());
     expect(result.kind).toBe('already_verified');
     expect(tx).toHaveBeenCalledTimes(1); // only the SELECT, no UPDATE
   });
@@ -71,7 +76,7 @@ describe('startTelegramEnrollment', () => {
     const { startTelegramEnrollment } = await import('../telegram-enrollment');
     const { MultipleMobileChannelsError } = await import('../unique-violation');
     await expect(
-      startTelegramEnrollment(tx as never, 'biz-123', 'f'.repeat(64), new Date()),
+      startTelegramEnrollment(tx as never, 'biz-123', 'acct-456', 'f'.repeat(64), new Date()),
     ).rejects.toThrow(MultipleMobileChannelsError);
   });
 
@@ -84,7 +89,7 @@ describe('startTelegramEnrollment', () => {
     const { startTelegramEnrollment } = await import('../telegram-enrollment');
     const { EnrollmentDatabaseError } = await import('../unique-violation');
     await expect(
-      startTelegramEnrollment(tx as never, 'biz-123', 'g'.repeat(64), new Date()),
+      startTelegramEnrollment(tx as never, 'biz-123', 'acct-456', 'g'.repeat(64), new Date()),
     ).rejects.toThrow(EnrollmentDatabaseError);
   });
 
@@ -95,7 +100,7 @@ describe('startTelegramEnrollment', () => {
     tx.mockRejectedValueOnce(err);
     const { startTelegramEnrollment } = await import('../telegram-enrollment');
     await expect(
-      startTelegramEnrollment(tx as never, 'biz-123', 'h'.repeat(64), new Date()),
+      startTelegramEnrollment(tx as never, 'biz-123', 'acct-456', 'h'.repeat(64), new Date()),
     ).rejects.toThrow('serialization failure');
   });
 
@@ -103,7 +108,7 @@ describe('startTelegramEnrollment', () => {
     tx.mockResolvedValueOnce([]);
     tx.mockResolvedValueOnce([]);
     const { startTelegramEnrollment } = await import('../telegram-enrollment');
-    await startTelegramEnrollment(tx as never, 'biz-123', 'j'.repeat(64), new Date());
+    await startTelegramEnrollment(tx as never, 'biz-123', 'acct-456', 'j'.repeat(64), new Date());
     const selectSql = (tx.mock.calls[0]?.[0] as TemplateStringsArray | undefined)?.join('?') ?? '';
     expect(selectSql).toContain('FOR UPDATE');
   });
@@ -112,7 +117,7 @@ describe('startTelegramEnrollment', () => {
     tx.mockResolvedValueOnce([]);
     tx.mockResolvedValueOnce([]);
     const { startTelegramEnrollment } = await import('../telegram-enrollment');
-    await startTelegramEnrollment(tx as never, 'biz-123', 'i'.repeat(64), new Date());
+    await startTelegramEnrollment(tx as never, 'biz-123', 'acct-456', 'i'.repeat(64), new Date());
     // Inspect the SQL templates passed to tx — concatenate the strings array
     // from each call and assert no pg_advisory.
     const allSql = tx.mock.calls
@@ -168,6 +173,7 @@ describe('cancelTelegramEnrollment', () => {
     const result = await startTelegramEnrollment(
       tx as never,
       'biz-123',
+      'acct-456',
       'a'.repeat(64),
       new Date('2026-04-28T14:00:00.000Z'),
     );

@@ -40,8 +40,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   if (!businessId) return NextResponse.json({ error: 'businessId required' }, { status: 400 });
 
   // After migration 034, subscription_status source of truth is accounts.
-  const [accountRow] = await sql<{ subscription_status: string }[]>`
-    SELECT a.subscription_status
+  const [accountRow] = await sql<{ id: string; subscription_status: string }[]>`
+    SELECT a.id, a.subscription_status
     FROM accounts a
     JOIN businesses b ON b.account_id = a.id
     WHERE b.id = ${businessId}
@@ -50,6 +50,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   if (accountRow.subscription_status !== SubscriptionStatus.ACTIVE) {
     return NextResponse.json({ error: 'subscription_not_active' }, { status: 403 });
   }
+  const accountId = accountRow.id;
 
   // Generate token + hash + expiresAt OUTSIDE the tx so the secret doesn't
   // depend on a possibly-rolled-back transaction.
@@ -63,7 +64,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
     result = await sql.begin(async (tx) => {
       await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`mobile_enroll:${businessId}`}, 0))`;
-      return startTelegramEnrollment(tx, businessId, tokenHash, expiresAt);
+      return startTelegramEnrollment(tx, businessId, accountId, tokenHash, expiresAt);
     });
   } catch (err) {
     if (err instanceof MultipleMobileChannelsError) {
