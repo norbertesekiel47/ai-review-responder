@@ -18,6 +18,7 @@ interface Props {
 export function TopBar({ title, subtitle, showLive, refresh, rightLink }: Props) {
   const [secondsToRefresh, setSecondsToRefresh] = useState(60);
   const [refreshing, setRefreshing] = useState(false);
+  const secondsToRefreshRef = useRef(60);
   const refreshRef = useRef(refresh);
   refreshRef.current = refresh;
   const inflightRef = useRef(false);
@@ -39,20 +40,21 @@ export function TopBar({ title, subtitle, showLive, refresh, rightLink }: Props)
       // unmount warnings.
       if (spinTimeoutRef.current) clearTimeout(spinTimeoutRef.current);
       spinTimeoutRef.current = setTimeout(() => setRefreshing(false), 800);
-      if (!silent) setSecondsToRefresh(60);
+      if (!silent) {
+        secondsToRefreshRef.current = 60;
+        setSecondsToRefresh(60);
+      }
     }
   }, []);
 
   useEffect(() => {
     if (!showLive) return;
     const interval = setInterval(() => {
-      setSecondsToRefresh((s) => {
-        if (s <= 1) {
-          void doRefresh(true);
-          return 60;
-        }
-        return s - 1;
-      });
+      const shouldRefresh = secondsToRefreshRef.current <= 1;
+      const nextSeconds = shouldRefresh ? 60 : secondsToRefreshRef.current - 1;
+      secondsToRefreshRef.current = nextSeconds;
+      setSecondsToRefresh(nextSeconds);
+      if (shouldRefresh) void doRefresh(true);
     }, 1000);
     return () => {
       clearInterval(interval);

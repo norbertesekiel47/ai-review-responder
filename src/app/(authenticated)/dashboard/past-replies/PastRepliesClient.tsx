@@ -45,36 +45,38 @@ export function PastRepliesClient({
   const [rating, setRating] = useState<'all' | 1 | 2 | 3 | 4 | 5>('all');
 
   const totalReplies = gapTotal + histTotal;
+  const normalizedQuery = query.trim().toLowerCase();
+  const hasActiveFilter = rating !== 'all' || normalizedQuery.length > 0;
   const avgDisplay = avgStarRating != null ? avgStarRating.toFixed(1) : '—';
 
   const visibleGap = useMemo(
     () =>
       gapRows.filter((r) => {
         if (rating !== 'all' && r.star_rating !== rating) return false;
-        const q = query.trim().toLowerCase();
-        if (!q) return true;
+        if (!normalizedQuery) return true;
         return (
-          (r.review_text ?? '').toLowerCase().includes(q) ||
-          (r.approved_text ?? '').toLowerCase().includes(q) ||
-          (r.reviewer_name ?? '').toLowerCase().includes(q)
+          (r.review_text ?? '').toLowerCase().includes(normalizedQuery) ||
+          (r.approved_text ?? '').toLowerCase().includes(normalizedQuery) ||
+          (r.reviewer_name ?? '').toLowerCase().includes(normalizedQuery)
         );
       }),
-    [gapRows, query, rating],
+    [gapRows, normalizedQuery, rating],
   );
   const visibleHist = useMemo(
     () =>
       histRows.filter((r) => {
         if (rating !== 'all' && r.star_rating !== rating) return false;
-        const q = query.trim().toLowerCase();
-        if (!q) return true;
+        if (!normalizedQuery) return true;
         return (
-          (r.review_text ?? '').toLowerCase().includes(q) ||
-          (r.approved_text ?? '').toLowerCase().includes(q) ||
-          (r.reviewer_name ?? '').toLowerCase().includes(q)
+          (r.review_text ?? '').toLowerCase().includes(normalizedQuery) ||
+          (r.approved_text ?? '').toLowerCase().includes(normalizedQuery) ||
+          (r.reviewer_name ?? '').toLowerCase().includes(normalizedQuery)
         );
       }),
-    [histRows, query, rating],
+    [histRows, normalizedQuery, rating],
   );
+  const gapSectionTotal = hasActiveFilter ? gapRows.length : gapTotal;
+  const histSectionTotal = hasActiveFilter ? histRows.length : histTotal;
 
   return (
     <div className="pr-content">
@@ -133,7 +135,7 @@ export function PastRepliesClient({
         <div className="pr-section-head">
           <div className="pr-section-title">From your active period</div>
           <div className="pr-section-count">
-            {visibleGap.length} of {gapTotal}
+            {visibleGap.length} of {gapSectionTotal}
           </div>
         </div>
         {visibleGap.length === 0 ? (
@@ -157,7 +159,7 @@ export function PastRepliesClient({
           <div className="pr-section-head">
             <div className="pr-section-title">From before you joined</div>
             <div className="pr-section-count">
-              {visibleHist.length} of {histTotal}
+              {visibleHist.length} of {histSectionTotal}
             </div>
           </div>
           {!isPremium && <HistoricalUpgradeBanner />}
