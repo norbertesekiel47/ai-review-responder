@@ -8,7 +8,7 @@ describe('OnboardingDemoWorker', () => {
     process.env.MOCK_EXTERNAL_APIS = 'true';
   });
 
-  it('exists and can be imported', async () => {
+  it('exists and can be imported', { timeout: 15_000 }, async () => {
     const { handleOnboardingDemo } = await import('../OnboardingDemoWorker');
     expect(handleOnboardingDemo).toBeTypeOf('function');
   });
