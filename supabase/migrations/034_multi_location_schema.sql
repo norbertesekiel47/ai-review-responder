@@ -26,7 +26,7 @@
 
 CREATE TABLE IF NOT EXISTS accounts (
   id                              UUID PRIMARY KEY,
-  owner_user_id                   UUID NOT NULL REFERENCES users(id),
+  owner_user_id                   UUID NOT NULL REFERENCES users(id) DEFERRABLE INITIALLY DEFERRED,
   display_name                    VARCHAR(255) NOT NULL,
   subscription_tier               VARCHAR(20) NOT NULL DEFAULT 'standard',
   subscription_status             VARCHAR(20) NOT NULL DEFAULT 'pending_payment',
@@ -299,7 +299,8 @@ END $$;
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_users_account') THEN
     ALTER TABLE users ADD CONSTRAINT fk_users_account
-      FOREIGN KEY (account_id) REFERENCES accounts(id);
+      FOREIGN KEY (account_id) REFERENCES accounts(id)
+      DEFERRABLE INITIALLY DEFERRED;
   END IF;
 END $$;
 
