@@ -59,6 +59,9 @@ next-env.d.ts
 # .claude/ (CLAUDE.md and skills/) IS tracked.
 .claude/settings.local.json
 
+# Local-only design handoff archives (Claude Design exports)
+.tmp-design/
+
 test-results/
 playwright-report/
 *.err.log

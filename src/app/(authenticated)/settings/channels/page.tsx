@@ -7,8 +7,8 @@
 import { sql } from '@/lib/db/server';
 import { requireOwnerAccess } from '@/lib/auth/require-owner-access';
 import { TopBar } from '@/components/dashboard/TopBar';
-import { SettingsTabs } from '@/components/dashboard/SettingsTabs';
-import { ChannelsClient, type InitialEnrollment } from './ChannelsClient';
+import { type InitialEnrollment } from './ChannelsClient';
+import { ChannelsTabClient } from './ChannelsTabClient';
 import { isTelegramEnabled, assertTelegramEnvReady } from '@/app/api/admin/channels/telegram/_shared';
 
 const KNOWN_CHANNELS = new Set<string>(['email', 'sms', 'telegram', 'whatsapp']);
@@ -76,18 +76,15 @@ export default async function ChannelsPage() {
         subtitle="Notification channels"
         rightLink={{ href: '/dashboard', label: 'Back to dashboard' }}
       />
-      <div className="settings-content">
-        <SettingsTabs activeTab="channels" />
-        <ChannelsClient
-          initialEnrollments={initialEnrollments}
-          initialAvailability={{
-            telegram: telegramAvailable(),
-            sms: smsAvailable(),
-            whatsapp: whatsappAvailable(),
-          }}
-          ownerEmailFallback={access.email}
-        />
-      </div>
+      <ChannelsTabClient
+        initialEnrollments={initialEnrollments}
+        initialAvailability={{
+          telegram: telegramAvailable(),
+          sms: smsAvailable(),
+          whatsapp: whatsappAvailable(),
+        }}
+        ownerEmailFallback={access.email}
+      />
     </>
   );
 }
