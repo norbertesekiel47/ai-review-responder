@@ -1,0 +1,13 @@
+﻿Γùç injected env (78) from .env.local // tip: Γîü auth for agents [www.vestauth.com]
+node : Using pooler URL for project udeyaqnvpojbwgoaxwdg
+At line:1 char:37
++ ... p\RepWorth; node ".factory\missions\88123ef2-d1a4-4d26-840b-d8eaf1065 ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Using pooler UR...qnvpojbwgoaxwdg:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+Checking VAL-SCHEMA-001: accounts table...
+Error: Tenant or user not found
+{
+  "error": "Tenant or user not found"
+}
