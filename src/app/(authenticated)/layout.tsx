@@ -8,6 +8,7 @@ import { MobileTabBar } from '@/components/dashboard/MobileTabBar';
 import { PendingCountProvider } from '@/components/dashboard/PendingCountContext';
 import { asAccountId, asLocationId } from '@/lib/shared/ids';
 import { getRequestScope } from '@/lib/auth/get-request-scope';
+import { getDisplayLabel } from '@/lib/locations/display-label';
 import './_styles/tokens.css';
 import './_styles/console.css';
 import './_styles/past-replies.css';
@@ -91,7 +92,7 @@ export default async function AuthenticatedLayout({
         AND status = 'pending_approval'
     `,
   ]);
-  businessName = bizRows[0]?.display_label ?? bizRows[0]?.name ?? '';
+  businessName = bizRows[0] ? getDisplayLabel(bizRows[0]) : '';
   initialPendingCount = pendingRows[0]?.count ?? 0;
 
   const ownerName = appUser?.owner_name ?? '';

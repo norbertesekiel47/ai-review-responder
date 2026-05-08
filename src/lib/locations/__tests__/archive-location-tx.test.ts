@@ -420,6 +420,29 @@ describe('reactivateLocationTransaction', () => {
     expect(template).toContain('update_stripe_overage_quantity');
   });
 
+  // VAL-LOC-071: Zernio backfill enqueued on reactivation
+  it('enqueues zernio_initial_backfill outbox row for the reactivated location', async () => {
+    await reactivateLocationTransaction({
+      locationId: SECONDARY_LOCATION_ID,
+      accountId: ACCOUNT_ID,
+      actorUserId: ACTOR_USER_ID,
+    });
+
+    const txCalls = mockSql.mock.calls;
+    const outboxCalls = txCalls.filter(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO job_outbox'),
+    );
+
+    // Should have 2 outbox INSERTs: update_stripe_overage_quantity + zernio_initial_backfill
+    expect(outboxCalls.length).toBeGreaterThanOrEqual(2);
+
+    // Verify zernio_initial_backfill topic is present
+    const zernioCall = outboxCalls.find(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('zernio_initial_backfill'),
+    );
+    expect(zernioCall).toBeDefined();
+  });
+
   it('runs all operations inside sql.begin()', async () => {
     await reactivateLocationTransaction({
       locationId: SECONDARY_LOCATION_ID,

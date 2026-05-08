@@ -87,7 +87,7 @@ export interface LocationContext {
 /**
  * Returns the account + location rows for a given location ID.
  * Validates that the location belongs to the returned account.
- * Returns null if the location doesn't exist.
+ * Returns null if the location doesn't exist or is archived.
  */
 export async function getLocationContext(
   locationId: string,
@@ -129,6 +129,93 @@ export async function getLocationContext(
   `;
 
   if (!row) return null;
+
+  return {
+    account: {
+      id: row.account_id,
+      subscriptionTier: row.subscription_tier,
+      subscriptionStatus: row.subscription_status,
+      stripeCustomerId: row.stripe_customer_id,
+      stripeSubscriptionId: row.stripe_subscription_id,
+      locationsIncluded: row.locations_included,
+      locationsPaid: row.locations_paid,
+    },
+    location: {
+      id: row.location_id,
+      isPrimary: row.is_primary,
+      displayLabel: row.display_label,
+      name: row.name,
+      archivedAt: row.archived_at,
+    },
+  };
+}
+
+// ── getLocationContextForAccount ──────────────────────────────────────────
+
+export interface AccountMismatchResult {
+  kind: 'account_mismatch';
+  /** The account that actually owns the location. */
+  owningAccountId: string;
+}
+
+/**
+ * Returns the account + location rows for a given location ID, but also
+ * validates that the location belongs to the specified account.
+ *
+ * VAL-LOC-077: Workers validate that the job's accountId matches
+ * location.account_id from getLocationContext. A mismatch indicates a
+ * stale or misrouted job and must be rejected.
+ *
+ * Returns:
+ *   - LocationContext when the location exists, is active, AND belongs to the given account
+ *   - { kind: 'account_mismatch', owningAccountId } when the location exists but belongs to a different account
+ *   - null when the location doesn't exist or is archived
+ */
+export async function getLocationContextForAccount(
+  locationId: string,
+  accountId: string,
+): Promise<LocationContext | AccountMismatchResult | null> {
+  const [row] = await sql<{
+    account_id: string;
+    subscription_tier: string;
+    subscription_status: string;
+    stripe_customer_id: string | null;
+    stripe_subscription_id: string | null;
+    locations_included: number;
+    locations_paid: number;
+    location_id: string;
+    is_primary: boolean;
+    display_label: string | null;
+    name: string;
+    archived_at: Date | null;
+  }[]>`
+    SELECT
+      a.id AS account_id,
+      a.subscription_tier,
+      a.subscription_status,
+      a.stripe_customer_id,
+      a.stripe_subscription_id,
+      a.locations_included,
+      a.locations_paid,
+      b.id AS location_id,
+      b.is_primary,
+      b.display_label,
+      b.name,
+      b.archived_at
+    FROM businesses b
+    JOIN accounts a ON a.id = b.account_id
+    WHERE b.id = ${locationId}::uuid
+      AND b.archived_at IS NULL
+  `;
+
+  // Location doesn't exist or is archived
+  if (!row) return null;
+
+  // VAL-LOC-077: Cross-account mismatch detection
+  // The location exists but its account_id doesn't match the caller's account
+  if (row.account_id !== accountId) {
+    return { kind: 'account_mismatch', owningAccountId: row.account_id };
+  }
 
   return {
     account: {

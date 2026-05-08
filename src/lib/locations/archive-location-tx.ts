@@ -221,7 +221,12 @@ export interface ReactivateLocationTxResult {
 
 /**
  * Reactivates an archived location. Sets archived_at = NULL.
- * Used by the admin "re-add from archived" tool.
+ * Used by the admin "re-add from archived" tool and the owner's
+ * "Reactivate" button on the Settings → Locations tab.
+ *
+ * VAL-LOC-071: Enqueues zernio_initial_backfill + sync_reviews jobs
+ * for the restored location to catch up on reviews that arrived during
+ * the archived period.
  *
  * Note: The reactivated location will NOT be primary (is_primary stays FALSE).
  * If the user wants it as primary, they must use promotePrimaryTransaction.
@@ -269,6 +274,25 @@ export async function reactivateLocationTransaction(
         'account',
         ${accountId}::uuid,
         ${jsonb({
+          account_id: accountId,
+          correlation_id: uuidv7(),
+        })},
+        'pending'
+      )
+    `;
+
+    // 4. Enqueue Zernio initial backfill for the reactivated location
+    // VAL-LOC-071: Review sync jobs enqueued for the restored location
+    // to catch up on any reviews that arrived during the archived period.
+    await tx`
+      INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+      VALUES (
+        ${uuidv7()},
+        'zernio_initial_backfill',
+        'business',
+        ${locationId}::uuid,
+        ${jsonb({
+          business_id: locationId,
           account_id: accountId,
           correlation_id: uuidv7(),
         })},

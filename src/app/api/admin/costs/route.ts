@@ -173,10 +173,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
               FROM combined
               GROUP BY business_id
             )
-            SELECT bt.business_id, b.name, b.subscription_tier,
+            SELECT bt.business_id, b.name, a.subscription_tier,
                    bt.total_usd, bt.call_count, bt.today_usd
             FROM business_totals bt
             JOIN businesses b ON b.id = bt.business_id
+            JOIN accounts a ON a.id = b.account_id
             ORDER BY bt.total_usd DESC, bt.business_id ASC
             LIMIT ${limit} OFFSET ${offset}
           `
@@ -188,14 +189,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
             call_count: number;
             today_usd: number;
           }[]>`
-            SELECT ac.business_id, b.name, b.subscription_tier,
+            SELECT ac.business_id, b.name, a.subscription_tier,
                    SUM(ac.cost_usd)::float AS total_usd,
                    COUNT(ac.id)::float AS call_count,
                    SUM(CASE WHEN ac.created_at >= CURRENT_DATE THEN ac.cost_usd ELSE 0 END)::float AS today_usd
             FROM api_costs ac
             JOIN businesses b ON b.id = ac.business_id
+            JOIN accounts a ON a.id = b.account_id
             WHERE ac.created_at >= CURRENT_DATE - ${days}::int * INTERVAL '1 day'
-            GROUP BY ac.business_id, b.name, b.subscription_tier
+            GROUP BY ac.business_id, b.name, a.subscription_tier
             ORDER BY total_usd DESC, ac.business_id ASC
             LIMIT ${limit} OFFSET ${offset}
           `,

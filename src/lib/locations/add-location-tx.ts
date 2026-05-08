@@ -196,6 +196,29 @@ export async function addLocationTransaction(
         'pending'
       )
     `;
+
+    // 2d. Enqueue Zernio initial backfill for the new location
+    // VAL-LOC-052: zernio_initial_backfill job enqueued for new location.
+    // The job will be picked up by the ZernioInitialBackfillWorker, which
+    // checks for an active Zernio connection for this location. If no
+    // connection exists (owner skipped the Zernio step), the job completes
+    // as a no-op. This ensures per-location Zernio independence — each
+    // location gets its own backfill, and skipping is graceful.
+    await tx`
+      INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+      VALUES (
+        ${uuidv7()},
+        'zernio_initial_backfill',
+        'business',
+        ${businessId}::uuid,
+        ${jsonb({
+          business_id: businessId,
+          account_id: accountId,
+          correlation_id: uuidv7(),
+        })},
+        'pending'
+      )
+    `;
   });
 
   return {

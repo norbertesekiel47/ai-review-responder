@@ -75,13 +75,15 @@ export async function getBusinessDetail(
   ] = await Promise.all([
     sql<BusinessRow[]>`
       SELECT
-        id, name, category, website, google_place_id, tone, products_services,
-        staff_names, highlight_facts, avoid_facts, sample_responses,
-        subscription_status, subscription_tier, owner_name, owner_email, last_sync_at,
-        tracked_keywords, google_place_lat, google_place_lng,
-        ranking_search_location, google_place_address, owner_email_bounced
-      FROM businesses
-      WHERE id = ${businessId}
+        b.id, b.name, b.category, b.website, b.google_place_id, b.tone, b.products_services,
+        b.staff_names, b.highlight_facts, b.avoid_facts, b.sample_responses,
+        a.subscription_status, a.subscription_tier,
+        b.owner_name, b.owner_email, b.last_sync_at,
+        b.tracked_keywords, b.google_place_lat, b.google_place_lng,
+        b.ranking_search_location, b.google_place_address, b.owner_email_bounced
+      FROM businesses b
+      JOIN accounts a ON a.id = b.account_id
+      WHERE b.id = ${businessId}
     `,
     sql<ReviewRow[]>`
       SELECT

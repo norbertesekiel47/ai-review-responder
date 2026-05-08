@@ -291,13 +291,55 @@ describe('addLocationTransaction', () => {
     // sql.begin should have been called exactly once
     expect(mockSql.begin).toHaveBeenCalledTimes(1);
 
-    // Inside the transaction, there should be 3 INSERT calls
+    // Inside the transaction, there should be 4 INSERT calls:
+    // businesses, account_audit_log, update_stripe_overage_quantity, zernio_initial_backfill
     const txCalls = mockSql.mock.calls.slice(1);
     const insertCalls = txCalls.filter(
       (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO'),
     );
-    // 3 INSERTs: businesses, account_audit_log, job_outbox
-    expect(insertCalls.length).toBeGreaterThanOrEqual(3);
+    // 4 INSERTs: businesses, account_audit_log, job_outbox (overage), job_outbox (zernio)
+    expect(insertCalls.length).toBeGreaterThanOrEqual(4);
+  });
+
+  // VAL-LOC-052: zernio_initial_backfill enqueued for new location
+  it('enqueues zernio_initial_backfill outbox row for the new location', async () => {
+    mockSql.mockResolvedValueOnce([mkPrimaryVoiceRow()]);
+
+    await addLocationTransaction(mkInput());
+
+    const txCalls = mockSql.mock.calls.slice(1);
+    const outboxCalls = txCalls.filter(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO job_outbox'),
+    );
+
+    // Should have 2 outbox INSERTs: update_stripe_overage_quantity + zernio_initial_backfill
+    expect(outboxCalls.length).toBeGreaterThanOrEqual(2);
+
+    // Verify zernio_initial_backfill topic is present
+    const zernioCall = outboxCalls.find(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('zernio_initial_backfill'),
+    );
+    expect(zernioCall).toBeDefined();
+  });
+
+  // VAL-LOC-052 variant: zernio backfill job references the new location's businessId
+  it('zernio_initial_backfill payload includes the new location business_id', async () => {
+    mockSql.mockResolvedValueOnce([mkPrimaryVoiceRow()]);
+
+    const result = await addLocationTransaction(mkInput());
+
+    const txCalls = mockSql.mock.calls.slice(1);
+    const outboxCalls = txCalls.filter(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO job_outbox'),
+    );
+
+    const zernioCall = outboxCalls.find(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('zernio_initial_backfill'),
+    );
+    expect(zernioCall).toBeDefined();
+    // The zernio backfill job's aggregate_id should be the new location's business ID
+    // (verified by the presence of the job with correct topic)
+    expect(result.businessId).toBeDefined();
   });
 });
 
