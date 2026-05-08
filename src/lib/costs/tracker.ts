@@ -39,9 +39,24 @@ const CACHE_TTL_SECONDS = 86_400;
 const CONCURRENCY_TTL_SECONDS = 300; // 5-minute safety net
 
 const DEFAULT_TIER_LIMITS_CENTS: Record<string, number> = {
-  founding: 500,
+  founders: 500,
   standard: 1_000,
   premium: 2_000,
+  // Legacy alias — DB may still contain 'founding' in some rows until
+  // the sweep is complete. Once all rows are 'founders', remove this.
+  founding: 500,
+};
+
+/**
+ * Maps subscription tier values to their env-var suffixes.
+ * The application-level tier is 'founders' (per SubscriptionTier.FOUNDERS),
+ * but the historical env-var convention uses 'FOUNDING' as the suffix.
+ */
+const TIER_ENV_SUFFIX: Record<string, string> = {
+  founders: 'FOUNDING',
+  founding: 'FOUNDING',
+  standard: 'STANDARD',
+  premium: 'PREMIUM',
 };
 
 // ── Redis key helpers ────────────────────────────────────────────────
@@ -109,7 +124,8 @@ function safeParseLimitCents(envVal: string | undefined, fallback: number): numb
 }
 
 function getTierLimitCents(tier: string): number {
-  const envKey = `DAILY_COST_LIMIT_CENTS_${tier.toUpperCase()}`;
+  const envSuffix = TIER_ENV_SUFFIX[tier] ?? tier.toUpperCase();
+  const envKey = `DAILY_COST_LIMIT_CENTS_${envSuffix}`;
   const fallback = DEFAULT_TIER_LIMITS_CENTS[tier] ?? DEFAULT_TIER_LIMITS_CENTS.standard!;
   return safeParseLimitCents(process.env[envKey], fallback);
 }

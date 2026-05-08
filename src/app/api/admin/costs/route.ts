@@ -56,7 +56,8 @@ function safeLimit(envVal: string | undefined, fallback: number): number {
 }
 
 const TIER_LIMITS_CENTS: Record<string, number> = {
-  founding: safeLimit(process.env.DAILY_COST_LIMIT_CENTS_FOUNDING, 500),
+  founders: safeLimit(process.env.DAILY_COST_LIMIT_CENTS_FOUNDING, 500),
+  founding: safeLimit(process.env.DAILY_COST_LIMIT_CENTS_FOUNDING, 500), // legacy alias
   standard: safeLimit(process.env.DAILY_COST_LIMIT_CENTS_STANDARD, 1000),
   premium: safeLimit(process.env.DAILY_COST_LIMIT_CENTS_PREMIUM, 2000),
 };
