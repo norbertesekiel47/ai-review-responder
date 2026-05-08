@@ -42,8 +42,9 @@ async function runCancellationGrace(): Promise<void> {
       FROM accounts a
       JOIN businesses b ON b.account_id = a.id
       WHERE a.subscription_status = 'cancelled'
+        AND a.cancelled_at IS NOT NULL
+        AND a.cancelled_at < NOW() - INTERVAL '30 days'
         AND b.archived_at IS NULL
-        AND a.updated_at < NOW() - INTERVAL '30 days'
       GROUP BY a.id
     `;
 

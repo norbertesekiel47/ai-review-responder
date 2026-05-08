@@ -396,7 +396,7 @@ async function processSubscriptionDeleted(sub: Stripe.Subscription): Promise<voi
     if (acctRow.subscription_status !== 'cancelled') {
       await tx`
         UPDATE accounts
-        SET subscription_status = 'cancelled', updated_at = NOW()
+        SET subscription_status = 'cancelled', cancelled_at = NOW(), updated_at = NOW()
         WHERE id = ${acctRow.id}::uuid
       `;
 

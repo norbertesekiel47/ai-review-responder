@@ -85,6 +85,8 @@ describe('CancellationGracePoller', () => {
     const template = (firstCall[0] as TemplateStringsArray).join('?');
     expect(template).toContain('30 days');
     expect(template).toContain('cancelled');
+    expect(template).toContain('cancelled_at IS NOT NULL');
+    expect(template).toContain('cancelled_at');
     expect(template).toContain('archived_at IS NULL');
 
     // Verify audit log entries were written
