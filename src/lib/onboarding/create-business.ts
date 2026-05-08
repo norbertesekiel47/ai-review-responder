@@ -1,6 +1,5 @@
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '@/lib/db/server';
-import { buildPaymentLinkUrl } from '@/lib/payments/payment-link';
 import type { ValidatePlaceIdPayload } from '@/lib/shared/worker-types';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 
@@ -135,9 +134,10 @@ export async function createBusinessTx(
       ? (input as AdminBusinessTxInput).subscriptionTier
       : ('standard' as const);
 
-  // Compute payment URL BEFORE the transaction — if the env var is malformed
-  // we return null gracefully rather than crashing mid-tx.
-  const paymentUrl = buildPaymentLinkUrl(subscriptionTier, businessId, ownerEmail);
+  // Self-serve signups no longer build a Payment Link URL here.
+  // The select-plan route (/api/onboarding/select-plan) creates a Checkout
+  // Session instead. Admin signups also skip this — paymentUrl is always null.
+  const paymentUrl = null;
 
   try {
     if (options.mode === 'admin') {

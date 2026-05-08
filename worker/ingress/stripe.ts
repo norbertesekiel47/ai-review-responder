@@ -3,6 +3,10 @@ import Stripe from 'stripe';
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '../../src/lib/db/server';
 import { claimInboundEvent } from './shared';
+import {
+  isSubscriptionTier,
+  type SubscriptionTierValue,
+} from '../../src/lib/accounts/tier-config';
 
 const LOG_PREFIX = '[ingress/stripe]';
 
@@ -110,24 +114,21 @@ async function maybeEnqueueBackfillResume(businessId: string): Promise<void> {
 }
 
 async function processCheckoutSessionCompleted(session: Stripe.Checkout.Session): Promise<void> {
-  const businessId = session.client_reference_id ?? session.metadata?.business_id;
-  if (!businessId) {
-    console.warn(`${LOG_PREFIX} checkout.session.completed missing business_id — skipping`);
+  // The client_reference_id is set by /api/billing/checkout to the account ID.
+  // Legacy Payment Links used the business ID instead. We try the account table
+  // first (new flow), then fall back to the business table (legacy).
+  const refId = session.client_reference_id ?? session.metadata?.business_id;
+  if (!refId) {
+    console.warn(`${LOG_PREFIX} checkout.session.completed missing client_reference_id — skipping`);
     return;
   }
 
-  // Validate UUID shape BEFORE the `${businessId}::uuid` cast inside the
-  // tx. Without this, a malformed client_reference_id (Stripe CLI test
-  // event, manual API call, third-party Payment Link configured to point
-  // at our endpoint with a non-UUID metadata field, etc.) would raise a
-  // Postgres `invalid input syntax for type uuid` error that escapes
-  // through to the outer handler — which then marks inbound_events.status
-  // = 'failed' and Stripe retries the event for ~3 days. Cheap upfront
-  // regex, identical to twilio-whatsapp.ts's defensive guard against the
-  // same Postgres-cast-throws-on-bad-input footgun.
-  if (!UUID_RE.test(businessId)) {
+  // Validate UUID shape BEFORE the `${refId}::uuid` cast inside the tx.
+  // Same reasoning as the original guard — malformed IDs would crash the
+  // Postgres cast and cause Stripe retries for ~3 days.
+  if (!UUID_RE.test(refId)) {
     console.warn(
-      `${LOG_PREFIX} checkout.session.completed has malformed business_id=${JSON.stringify(businessId)} — skipping (Stripe will not retry; inbound_events marked processed)`,
+      `${LOG_PREFIX} checkout.session.completed has malformed ref_id=${JSON.stringify(refId)} — skipping (Stripe will not retry; inbound_events marked processed)`,
     );
     return;
   }
@@ -142,40 +143,80 @@ async function processCheckoutSessionCompleted(session: Stripe.Checkout.Session)
   }
 
   if (session.payment_status !== 'paid') {
-    console.warn(`${LOG_PREFIX} checkout.session.completed payment_status=${session.payment_status} (not paid) — skipping activation for business ${businessId}`);
+    console.warn(`${LOG_PREFIX} checkout.session.completed payment_status=${session.payment_status} (not paid) — skipping activation for ref ${refId}`);
+    return;
+  }
+
+  // Resolve whether refId is an account_id (new Checkout Session flow)
+  // or a business_id (legacy Payment Link flow).
+  let accountId: string | null = null;
+  let businessId: string | null = null;
+
+  const [accountLookup] = await sql<{ id: string }[]>`
+    SELECT id FROM accounts WHERE id = ${refId}::uuid
+  `;
+  if (accountLookup) {
+    accountId = accountLookup.id;
+  } else {
+    // Legacy Payment Link flow: refId was a business_id.
+    const [bizLookup] = await sql<{ account_id: string }[]>`
+      SELECT account_id FROM businesses WHERE id = ${refId}::uuid
+    `;
+    if (bizLookup) {
+      accountId = bizLookup.account_id;
+      businessId = refId;
+    }
+  }
+
+  if (!accountId) {
+    console.warn(`${LOG_PREFIX} checkout.session.completed ref_id=${refId} matches neither account nor business — skipping`);
     return;
   }
 
   // Serialize concurrent checkout.session.completed / customer.subscription.updated
-  // deliveries for the same business on an advisory lock. The lock key is
-  // shared with /api/onboarding/business so the wizard cannot race a webhook
-  // delivery for the same business — even though the webhook no longer
-  // enqueues, future activation-adjacent work staying serialized is cheap.
-  //
-  // Initial-sync enqueue moved to /api/onboarding/business (the wizard the
-  // owner submits AFTER Stripe payment confirms). Self-serve businesses
-  // submit business details there; admin-onboarded businesses already had
-  // their outbox row written at signup time. Either way, this webhook only
-  // flips status now.
+  // deliveries for the same account on an advisory lock.
   let activated = false;
   await sql.begin(async (tx) => {
-    await tx`SELECT pg_advisory_xact_lock(hashtext(${businessId + ':activation'}))`;
+    await tx`SELECT pg_advisory_xact_lock(hashtext(${accountId! + ':activation'}))`;
 
-    const [bizRow] = await tx<{ subscription_status: string }[]>`
+    // VAL-BILLING-007: Activate the account
+    const [acctRow] = await tx<{ subscription_status: string }[]>`
       SELECT subscription_status
-      FROM businesses
-      WHERE id = ${businessId}::uuid
+      FROM accounts
+      WHERE id = ${accountId!}::uuid
       FOR UPDATE
     `;
 
-    if (!bizRow) {
-      console.warn(`${LOG_PREFIX} Business ${businessId} not found during activation — skipping`);
+    if (!acctRow) {
+      console.warn(`${LOG_PREFIX} Account ${accountId!} not found during activation — skipping`);
       return;
     }
 
-    const oldStatus = bizRow.subscription_status;
+    const oldStatus = acctRow.subscription_status;
 
-    const updated = await tx`
+    // VAL-BILLING-008: Idempotent — only flip if not already active
+    const updateAcct = await tx`
+      UPDATE accounts
+      SET
+        subscription_status = 'active',
+        stripe_customer_id = ${customerId},
+        stripe_subscription_id = ${subscriptionId},
+        subscription_activated_at = COALESCE(subscription_activated_at, NOW()),
+        updated_at = NOW()
+      WHERE id = ${accountId!}::uuid
+        AND subscription_status IN ('pending_payment', 'past_due')
+    `;
+
+    if (updateAcct.count > 0) {
+      console.log(`${LOG_PREFIX} Account ${accountId!} activated (customer=${customerId}, old_status=${oldStatus})`);
+      activated = true;
+    } else {
+      console.warn(`${LOG_PREFIX} Account ${accountId!} not activated — current status is ${oldStatus}`);
+    }
+
+    // Also write to businesses deprecated columns (retained per VAL-SCHEMA-037).
+    // Only update the primary business for legacy compatibility.
+    await tx`
       UPDATE businesses
       SET
         subscription_status = 'active',
@@ -183,25 +224,31 @@ async function processCheckoutSessionCompleted(session: Stripe.Checkout.Session)
         stripe_subscription_id = ${subscriptionId},
         subscription_activated_at = COALESCE(subscription_activated_at, NOW()),
         updated_at = NOW()
-      WHERE id = ${businessId}::uuid
+      WHERE account_id = ${accountId!}::uuid
+        AND is_primary = TRUE
+        AND archived_at IS NULL
         AND subscription_status IN ('pending_payment', 'past_due')
     `;
-
-    if (updated.count > 0) {
-      console.log(`${LOG_PREFIX} Business ${businessId} activated (customer=${customerId}, old_status=${oldStatus})`);
-      activated = true;
-    } else {
-      console.warn(`${LOG_PREFIX} Business ${businessId} not activated — current status is not pending_payment or past_due`);
-    }
   });
 
-  // Best-effort backfill resume — only after a real status transition so
-  // duplicate webhooks for an already-active business don't burn a SELECT
-  // each. Outside the tx so a missing zernio_connections row is a no-op.
+  // Best-effort backfill resume — only after a real status transition.
+  // Use the primary business for the backfill query.
   if (activated) {
-    await maybeEnqueueBackfillResume(businessId).catch((err) => {
-      console.error(`${LOG_PREFIX} maybeEnqueueBackfillResume failed for business=${businessId}: ${err instanceof Error ? err.message : err}`);
-    });
+    if (!businessId) {
+      // Find the primary business for this account
+      const [primaryBiz] = await sql<{ id: string }[]>`
+        SELECT id FROM businesses
+        WHERE account_id = ${accountId!}::uuid
+          AND is_primary = TRUE AND archived_at IS NULL
+        LIMIT 1
+      `;
+      if (primaryBiz) businessId = primaryBiz.id;
+    }
+    if (businessId) {
+      await maybeEnqueueBackfillResume(businessId).catch((err) => {
+        console.error(`${LOG_PREFIX} maybeEnqueueBackfillResume failed for business=${businessId}: ${err instanceof Error ? err.message : err}`);
+      });
+    }
   }
 }
 
@@ -212,13 +259,25 @@ async function processInvoicePaymentFailed(invoice: Stripe.Invoice): Promise<voi
     return;
   }
 
+  // VAL-BILLING-012: Set accounts.subscription_status = 'past_due'
   await sql`
-    UPDATE businesses
+    UPDATE accounts
     SET subscription_status = 'past_due', updated_at = NOW()
     WHERE stripe_customer_id = ${customerId}
       AND subscription_status = 'active'
   `;
-  console.log(`${LOG_PREFIX} Business with customer=${customerId} marked past_due`);
+
+  // Also update businesses deprecated column
+  await sql`
+    UPDATE businesses
+    SET subscription_status = 'past_due', updated_at = NOW()
+    WHERE account_id IN (
+      SELECT id FROM accounts WHERE stripe_customer_id = ${customerId}
+    )
+      AND subscription_status = 'active'
+  `;
+
+  console.log(`${LOG_PREFIX} Account with customer=${customerId} marked past_due`);
 }
 
 async function processInvoicePaid(invoice: Stripe.Invoice): Promise<void> {
@@ -228,10 +287,10 @@ async function processInvoicePaid(invoice: Stripe.Invoice): Promise<void> {
     return;
   }
 
-  // RETURNING id so we can resume any stalled Zernio backfill the worker
-  // skipped while the business sat in past_due.
+  // VAL-BILLING-013: Recover account from past_due to active
+  // VAL-BILLING-014: No-op for already-active accounts
   const recovered = await sql<{ id: string }[]>`
-    UPDATE businesses
+    UPDATE accounts
     SET subscription_status = 'active', updated_at = NOW()
     WHERE stripe_customer_id = ${customerId}
       AND subscription_status = 'past_due'
@@ -242,12 +301,31 @@ async function processInvoicePaid(invoice: Stripe.Invoice): Promise<void> {
     return;
   }
 
-  console.log(`${LOG_PREFIX} Business with customer=${customerId} recovered from past_due to active`);
+  // Also update businesses deprecated column
+  for (const acct of recovered) {
+    await sql`
+      UPDATE businesses
+      SET subscription_status = 'active', updated_at = NOW()
+      WHERE account_id = ${acct.id}::uuid
+        AND subscription_status = 'past_due'
+    `;
+  }
 
-  for (const row of recovered) {
-    await maybeEnqueueBackfillResume(row.id).catch((err) => {
-      console.error(`${LOG_PREFIX} maybeEnqueueBackfillResume failed for business=${row.id}: ${err instanceof Error ? err.message : err}`);
-    });
+  console.log(`${LOG_PREFIX} Account with customer=${customerId} recovered from past_due to active`);
+
+  for (const acct of recovered) {
+    // Find the primary business for backfill resume
+    const [primaryBiz] = await sql<{ id: string }[]>`
+      SELECT id FROM businesses
+      WHERE account_id = ${acct.id}::uuid
+        AND is_primary = TRUE AND archived_at IS NULL
+      LIMIT 1
+    `;
+    if (primaryBiz) {
+      await maybeEnqueueBackfillResume(primaryBiz.id).catch((err) => {
+        console.error(`${LOG_PREFIX} maybeEnqueueBackfillResume failed for business=${primaryBiz.id}: ${err instanceof Error ? err.message : err}`);
+      });
+    }
   }
 }
 
@@ -258,12 +336,23 @@ async function processSubscriptionDeleted(sub: Stripe.Subscription): Promise<voi
     return;
   }
 
+  // VAL-BILLING-015: Set subscription_status = 'cancelled'
   await sql`
-    UPDATE businesses
+    UPDATE accounts
     SET subscription_status = 'cancelled', updated_at = NOW()
     WHERE stripe_customer_id = ${customerId}
   `;
-  console.log(`${LOG_PREFIX} Business with customer=${customerId} cancelled`);
+
+  // Also update businesses deprecated column
+  await sql`
+    UPDATE businesses
+    SET subscription_status = 'cancelled', updated_at = NOW()
+    WHERE account_id IN (
+      SELECT id FROM accounts WHERE stripe_customer_id = ${customerId}
+    )
+  `;
+
+  console.log(`${LOG_PREFIX} Account with customer=${customerId} cancelled`);
 }
 
 async function processSubscriptionUpdated(sub: Stripe.Subscription): Promise<void> {
@@ -273,30 +362,66 @@ async function processSubscriptionUpdated(sub: Stripe.Subscription): Promise<voi
     return;
   }
 
-  const priceId = sub.items?.data?.[0]?.price?.id;
-  if (!priceId) {
-    console.warn(`${LOG_PREFIX} customer.subscription.updated missing price ID for customer=${customerId} — skipping tier update`);
-    return;
-  }
-
-  const priceToTier: Record<string, 'founding' | 'standard' | 'premium'> = {
-    [process.env.STRIPE_PRICE_FOUNDING ?? '']: 'founding',
+  // VAL-BILLING-009: Map base price_id to tier
+  // VAL-BILLING-030: All 7 price env vars referenced in the reverse-map
+  const priceToTier: Record<string, SubscriptionTierValue> = {
+    [process.env.STRIPE_PRICE_BASIC ?? '']: 'basic',
+    [process.env.STRIPE_PRICE_FOUNDING ?? '']: 'founders',
     [process.env.STRIPE_PRICE_STANDARD ?? '']: 'standard',
     [process.env.STRIPE_PRICE_PREMIUM  ?? '']: 'premium',
   };
 
-  const tier = priceToTier[priceId];
-  if (!tier) {
-    console.warn(`${LOG_PREFIX} Unknown price ID ${priceId} for customer=${customerId} — skipping tier update`);
+  // Overage price IDs (for identifying the overage item)
+  const overagePriceIds = new Set([
+    process.env.STRIPE_PRICE_FOUNDERS_OVERAGE ?? '',
+    process.env.STRIPE_PRICE_STANDARD_OVERAGE ?? '',
+    process.env.STRIPE_PRICE_PREMIUM_OVERAGE ?? '',
+  ].filter(Boolean));
+
+  const items = sub.items?.data ?? [];
+
+  // Find the base item (first non-overage item with quantity=1)
+  const baseItem = items.find(
+    (item) => item.price?.id && !overagePriceIds.has(item.price.id),
+  );
+  if (!baseItem?.price?.id) {
+    console.warn(`${LOG_PREFIX} customer.subscription.updated missing base price ID for customer=${customerId} — skipping tier update`);
     return;
   }
 
+  const tier = priceToTier[baseItem.price.id];
+  if (!tier) {
+    console.warn(`${LOG_PREFIX} Unknown base price ID ${baseItem.price.id} for customer=${customerId} — skipping tier update`);
+    return;
+  }
+
+  // VAL-BILLING-010: Read overage item quantity → accounts.locations_paid
+  // VAL-BILLING-011: Tolerate legacy single-item subscriptions
+  const overageItem = items.find(
+    (item) => item.price?.id && overagePriceIds.has(item.price.id),
+  );
+  const locationsPaid = overageItem?.quantity ?? 0;
+
+  // Update accounts (source of truth)
+  await sql`
+    UPDATE accounts
+    SET
+      subscription_tier = ${tier},
+      locations_paid = ${locationsPaid},
+      updated_at = NOW()
+    WHERE stripe_customer_id = ${customerId}
+  `;
+
+  // Also update businesses deprecated column
   await sql`
     UPDATE businesses
     SET subscription_tier = ${tier}, updated_at = NOW()
-    WHERE stripe_customer_id = ${customerId}
+    WHERE account_id IN (
+      SELECT id FROM accounts WHERE stripe_customer_id = ${customerId}
+    )
   `;
-  console.log(`${LOG_PREFIX} Business with customer=${customerId} tier updated to ${tier}`);
+
+  console.log(`${LOG_PREFIX} Account with customer=${customerId} tier updated to ${tier}, locations_paid=${locationsPaid}`);
 }
 
 export async function handleStripeWebhook(request: FastifyRequest, reply: FastifyReply): Promise<void> {

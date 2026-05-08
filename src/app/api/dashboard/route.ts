@@ -3,7 +3,6 @@ import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
-import { buildPaymentLinkUrl } from '@/lib/payments/payment-link';
 import {
   getActiveDashboardData,
   BusinessNotFoundError,
@@ -77,12 +76,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           businessName: subRow.name,
         });
       }
-      const tier: 'founders' | 'standard' =
-        subRow.subscription_tier === 'founders' ||
-        subRow.subscription_tier === 'standard'
-          ? (subRow.subscription_tier as 'founders' | 'standard')
-          : 'standard';
-      const paymentUrl = buildPaymentLinkUrl(tier, locationId, subRow.owner_email);
+      // Self-serve owners with pending_payment should be directed to
+      // /onboarding/pay where the PlanPickerClient creates a Checkout
+      // Session via /api/onboarding/select-plan.
+      // This replaces the old Payment Link URL flow.
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
+      const paymentUrl = `${baseUrl}/onboarding/pay`;
       return jsonResponse({
         subscriptionStatus: 'pending_payment',
         locationId,

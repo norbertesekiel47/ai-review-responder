@@ -54,18 +54,11 @@ vi.mock('@/lib/db/redis-cache', () => ({
   getCacheRedis: () => ({ get: mockRedisGet }),
 }));
 
-// ── Mock payment-link ────────────────────────────────────────────────
-
-vi.mock('@/lib/payments/payment-link', () => ({
-  buildPaymentLinkUrl: vi.fn(),
-}));
+// ── No more payment-link mock (checkout session replaces it) ───────
 
 // Import AFTER mocks are set up
 import { GET, type DashboardData, type DashboardDataActive } from '../route';
 import { AuthError } from '@/lib/db/auth';
-import { buildPaymentLinkUrl } from '@/lib/payments/payment-link';
-
-const mockBuildPaymentLinkUrl = vi.mocked(buildPaymentLinkUrl);
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -225,7 +218,6 @@ describe('GET /api/dashboard', () => {
 
   it('returns minimal payload for pending_payment, no heavy queries run', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
-    mockBuildPaymentLinkUrl.mockReturnValue('https://pay.stripe.com/test?client_reference_id=...');
 
     mockSqlResults.length = 0;
     sqlCallCounter.value = 0;
@@ -247,7 +239,9 @@ describe('GET /api/dashboard', () => {
     expect(body.subscriptionStatus).toBe('pending_payment');
     expect(body.locationId).toBe(BUSINESS_ID);
     expect(body.businessName).toBe('Pending Biz');
-    expect(body.paymentUrl).toBe('https://pay.stripe.com/test?client_reference_id=...');
+    // The dashboard now redirects to /onboarding/pay instead of a Stripe Payment Link.
+    // The PlanPickerClient on that page creates a Checkout Session.
+    expect(body.paymentUrl).toMatch(/\/onboarding\/pay$/);
 
     // Minimal shape — full dashboard fields must be absent
     expect(body.business).toBeUndefined();
@@ -261,9 +255,8 @@ describe('GET /api/dashboard', () => {
     expect(res.headers.get('Cache-Control')).toBe('no-store, private');
   });
 
-  it('calls buildPaymentLinkUrl with tier, businessId, and owner_email', async () => {
+  it('returns paymentUrl pointing to /onboarding/pay for self-serve pending_payment', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
-    mockBuildPaymentLinkUrl.mockReturnValue('https://pay.stripe.com/founding');
 
     mockSqlResults.length = 0;
     sqlCallCounter.value = 0;
@@ -277,20 +270,13 @@ describe('GET /api/dashboard', () => {
       },
     ]);
 
-    await GET(makeRequest());
-
-    expect(mockBuildPaymentLinkUrl).toHaveBeenCalledOnce();
-    expect(mockBuildPaymentLinkUrl).toHaveBeenCalledWith(
-      'founders',
-      BUSINESS_ID,
-      'founder@example.com',
-    );
+    const res = await GET(makeRequest());
+    const body = await res.json();
+    expect(body.paymentUrl).toMatch(/\/onboarding\/pay$/);
   });
 
   it('returns admin-handoff payload when pending_payment + onboarded_by IS NOT NULL', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
-    // Spy is in place but should NOT be called — admin-handoff path skips the link.
-    mockBuildPaymentLinkUrl.mockReturnValue('https://pay.stripe.com/should-not-be-called');
 
     mockSqlResults.length = 0;
     sqlCallCounter.value = 0;
@@ -314,16 +300,12 @@ describe('GET /api/dashboard', () => {
     // Critical: no paymentUrl in admin-handoff payload (avoids double-charge risk).
     expect(body.paymentUrl).toBeUndefined();
 
-    // buildPaymentLinkUrl must NOT be called on the admin-handoff branch.
-    expect(mockBuildPaymentLinkUrl).not.toHaveBeenCalled();
-
     // Pre-query only — Promise.all heavy queries skipped.
     expect(sqlCallCounter.value).toBe(1);
   });
 
-  it('returns paymentUrl: null when buildPaymentLinkUrl returns null (env not set)', async () => {
+  it('returns paymentUrl pointing to /onboarding/pay even when env vars are unset', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
-    mockBuildPaymentLinkUrl.mockReturnValue(null);
 
     mockSqlResults.length = 0;
     sqlCallCounter.value = 0;
@@ -342,7 +324,8 @@ describe('GET /api/dashboard', () => {
 
     const body = await res.json();
     expect(body.subscriptionStatus).toBe('pending_payment');
-    expect(body.paymentUrl).toBeNull();
+    // Even without Stripe env vars, the dashboard still redirects to /onboarding/pay
+    expect(body.paymentUrl).toMatch(/\/onboarding\/pay$/);
   });
 
   // ── active path — existing behaviour preserved ─────────────────────

@@ -100,8 +100,8 @@ export function PlanPickerClient({ cancelled }: { cancelled: boolean }) {
         setError(
           body.error === 'rate_limited'
             ? 'Too many attempts — wait a moment and try again.'
-            : body.error === 'payment_link_unavailable'
-              ? 'Payment link unavailable. Please contact support.'
+            : body.error === 'checkout_unavailable' || body.error === 'payment_link_unavailable'
+              ? 'Checkout unavailable. Please contact support.'
               : 'Something went wrong. Please try again.',
         );
         setSelecting(null);

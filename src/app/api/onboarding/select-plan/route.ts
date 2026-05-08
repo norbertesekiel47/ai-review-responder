@@ -5,7 +5,7 @@ import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { SelectPlanSchema } from '@/lib/shared/schemas';
 import { getIpKey } from '@/lib/shared/request-ip';
-import { buildPaymentLinkUrl } from '@/lib/payments/payment-link';
+import { createCheckoutSession, CheckoutUnavailableError } from '@/lib/payments/create-checkout-session';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 
 export const dynamic = 'force-dynamic';
@@ -15,19 +15,22 @@ const NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
 /**
  * POST /api/onboarding/select-plan
  *
- * Self-serve owner picks a plan (founding | standard) on /onboarding/pay.
- * We write the choice to `businesses.subscription_tier` BEFORE handing
- * the owner the matching Stripe Payment Link, so by the time
- * `checkout.session.completed` fires the DB tier already matches what
- * they paid for. The Stripe webhook still has a `customer.subscription.updated`
- * branch that maps price→tier as a defense-in-depth fallback.
+ * Self-serve owner picks a plan (founders | standard | premium) on /onboarding/pay.
+ * We write the choice to `accounts.subscription_tier` BEFORE creating a
+ * Stripe Checkout Session, so by the time `checkout.session.completed` fires
+ * the DB tier already matches what they paid for. The Stripe webhook still
+ * has a `customer.subscription.updated` branch that maps price→tier as a
+ * defense-in-depth fallback.
  *
- * Auth: cookie-bound Supabase session. Caller must be the owner of a
- * business in `pending_payment` status. Active / past_due / cancelled
+ * The Checkout Session replaces the old Stripe Payment Link flow.
+ * VAL-BILLING-031: This handler does NOT reference STRIPE_PAYMENT_LINK_* env vars.
+ *
+ * Auth: cookie-bound Supabase session. Caller must be the owner of an
+ * account in `pending_payment` status. Active / past_due / cancelled
  * are rejected — those states are the dashboard's billing-recovery
  * surface, not a fresh signup.
  *
- * Same-origin: yes — this UPDATEs business state, so a CSRF-driven call
+ * Same-origin: yes — this UPDATEs account state, so a CSRF-driven call
  * with a victim's cookies could flip them to a different tier.
  *
  * Rate-limit: 10/auth-id/10min + 30/IP/10min. The legitimate flow is one
@@ -242,15 +245,38 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  const paymentUrl = buildPaymentLinkUrl(tier, businessId, ownerEmail);
-  if (!paymentUrl) {
-    // env var missing or malformed — same posture as /onboarding/pay's
-    // fallback. The picker UI can render a "contact support" message.
+  // Create a Stripe Checkout Session instead of a Payment Link URL.
+  // The session includes the correct base + overage line items.
+  let checkoutUrl: string;
+  try {
+    // Resolve the account_id for this owner
+    const [accountRow] = await sql<{ account_id: string }[]>`
+      SELECT account_id FROM businesses WHERE id = ${businessId}::uuid
+    `;
+    if (!accountRow) {
+      return NextResponse.json(
+        { error: 'account_incomplete' },
+        { status: 404, headers: NO_STORE },
+      );
+    }
+
+    const result = await createCheckoutSession(accountRow.account_id, tier, ownerEmail);
+    checkoutUrl = result.url;
+  } catch (err) {
+    if (err instanceof CheckoutUnavailableError) {
+      // Missing price env vars — same posture as the old payment_link_unavailable.
+      return NextResponse.json(
+        { error: 'checkout_unavailable', detail: err.message },
+        { status: 500, headers: NO_STORE },
+      );
+    }
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[select-plan] Checkout Session creation failed for business=${businessId}: ${message}`);
     return NextResponse.json(
-      { error: 'payment_link_unavailable' },
+      { error: 'checkout_error', detail: message },
       { status: 500, headers: NO_STORE },
     );
   }
 
-  return NextResponse.json({ paymentUrl }, { headers: NO_STORE });
+  return NextResponse.json({ paymentUrl: checkoutUrl }, { headers: NO_STORE });
 }

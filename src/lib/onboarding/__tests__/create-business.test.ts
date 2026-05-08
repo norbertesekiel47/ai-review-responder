@@ -1,15 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { mockSql, mockBuildPaymentLinkUrl } = vi.hoisted(() => {
+const { mockSql } = vi.hoisted(() => {
   const mockSql: any = vi.fn();
   mockSql.begin = vi.fn(async (cb: (tx: any) => Promise<unknown>) => cb(mockSql));
-  const mockBuildPaymentLinkUrl = vi.fn();
-  return { mockSql, mockBuildPaymentLinkUrl };
+  return { mockSql };
 });
 
 vi.mock('@/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
 vi.mock('uuid', () => ({ v7: vi.fn(() => 'test-uuid') }));
-vi.mock('@/lib/payments/payment-link', () => ({ buildPaymentLinkUrl: mockBuildPaymentLinkUrl }));
 
 import {
   createBusinessTx,
@@ -36,8 +34,7 @@ beforeEach(() => {
   mockSql.mockReset();
   mockSql.mockResolvedValue([]);
   mockSql.begin = vi.fn(async (cb: (tx: any) => Promise<unknown>) => cb(mockSql));
-  mockBuildPaymentLinkUrl.mockReset();
-  mockBuildPaymentLinkUrl.mockReturnValue('https://buy.stripe.com/test');
+  // No more mockBuildPaymentLinkUrl — paymentUrl is always null now
 });
 
 describe('createBusinessTx — admin mode', () => {
@@ -231,19 +228,18 @@ describe('createBusinessTx — channel_enrollments', () => {
 });
 
 describe('createBusinessTx — result', () => {
-  it('returns businessId, userId, accountId, and paymentUrl from buildPaymentLinkUrl', async () => {
-    mockBuildPaymentLinkUrl.mockReturnValue('https://buy.stripe.com/xyz');
+  it('returns businessId, userId, accountId, and paymentUrl=null (checkout session created by select-plan)', async () => {
     const res = await createBusinessTx(selfServeInput, { mode: 'self_serve', authId: 'a' });
     expect(res.businessId).toBeTruthy();
     expect(res.userId).toBeTruthy();
     expect(res.accountId).toBeTruthy();
-    expect(res.paymentUrl).toBe('https://buy.stripe.com/xyz');
-    expect(mockBuildPaymentLinkUrl).toHaveBeenCalledWith('standard', res.businessId, 'a@b.com');
+    // paymentUrl is always null now — the select-plan route creates
+    // the Checkout Session instead of using Payment Links
+    expect(res.paymentUrl).toBeNull();
   });
 
-  it('returns paymentUrl=null when buildPaymentLinkUrl returns null', async () => {
-    mockBuildPaymentLinkUrl.mockReturnValue(null);
-    const res = await createBusinessTx(selfServeInput, { mode: 'self_serve', authId: 'a' });
+  it('returns paymentUrl=null for admin mode too', async () => {
+    const res = await createBusinessTx(adminInput, { mode: 'admin', onboardedBy: 'admin-1' });
     expect(res.paymentUrl).toBeNull();
   });
 });
