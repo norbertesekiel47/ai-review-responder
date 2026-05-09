@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
+import { asAccountId } from '@/lib/shared/ids';
+import type { AccountId } from '@/lib/shared/ids';
 
 export const dynamic = 'force-dynamic';
 
@@ -108,6 +110,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     const needsRollup = days > 90;
 
+    // VAL-ADMIN-002: Optional account_id filter enables idx_api_costs_account
+    // index for account-level cost aggregation without a JOIN to businesses.
+    const rawAccountId = request.nextUrl.searchParams.get('account_id') ?? '';
+    const accountId: AccountId | '' = rawAccountId ? asAccountId(rawAccountId) : '';
+
     // Detail queries always run — cover the most recent up-to-90 days.
     // byBusiness is now fully server-side: UNION of detail + rollup inside a
     // CTE, aggregated by business_id, sorted and paginated in SQL. This avoids
@@ -118,14 +125,27 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // platform scale cumulative call counts could cross that. JS numbers
     // safely represent integers up to 2^53 so ::float handles realistic totals.
     const [providerRows, byBusinessRows, businessCountRows, dayRows, todayRows] = await Promise.all([
-      sql<ProviderRow[]>`
-        SELECT provider, SUM(cost_usd)::float AS total_usd, COUNT(*)::float AS call_count
-        FROM api_costs
-        WHERE created_at >= CURRENT_DATE - ${days}::int * INTERVAL '1 day'
-        GROUP BY provider
-        ORDER BY total_usd DESC
-      `,
+      // byProvider: When account_id is provided, filter api_costs directly
+      // by account_id (uses idx_api_costs_account) instead of scanning all rows.
+      accountId
+        ? sql<ProviderRow[]>`
+            SELECT provider, SUM(cost_usd)::float AS total_usd, COUNT(*)::float AS call_count
+            FROM api_costs
+            WHERE account_id = ${accountId}::uuid
+              AND created_at >= CURRENT_DATE - ${days}::int * INTERVAL '1 day'
+            GROUP BY provider
+            ORDER BY total_usd DESC
+          `
+        : sql<ProviderRow[]>`
+            SELECT provider, SUM(cost_usd)::float AS total_usd, COUNT(*)::float AS call_count
+            FROM api_costs
+            WHERE created_at >= CURRENT_DATE - ${days}::int * INTERVAL '1 day'
+            GROUP BY provider
+            ORDER BY total_usd DESC
+          `,
       // byBusiness: server-side aggregation + pagination.
+      // When accountId is provided, filter by account_id directly on api_costs
+      // (VAL-ADMIN-002), enabling idx_api_costs_account index scan.
       // When needsRollup: UNION detail + rollup, sum per business, sort, paginate.
       // When not: direct aggregate from api_costs only.
       //
@@ -136,7 +156,54 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       // The rollup-side filter must be `rollup_date <= CURRENT_DATE - 90`
       // (inclusive), or that boundary day's archived portion becomes
       // invisible. Detail and rollup rows are row-disjoint, so no double-count.
-      needsRollup
+      needsRollup && accountId
+        ? sql<{
+            business_id: string;
+            name: string;
+            subscription_tier: string;
+            total_usd: number;
+            call_count: number;
+            today_usd: number;
+          }[]>`
+            WITH combined AS (
+              SELECT business_id,
+                     SUM(cost_usd)::float AS total_usd,
+                     COUNT(*)::float AS call_count,
+                     SUM(CASE WHEN created_at >= CURRENT_DATE THEN cost_usd ELSE 0 END)::float AS today_usd
+              FROM api_costs
+              WHERE account_id = ${accountId}::uuid
+                AND created_at >= CURRENT_DATE - ${days}::int * INTERVAL '1 day'
+                AND business_id IS NOT NULL
+              GROUP BY business_id
+              UNION ALL
+              SELECT business_id,
+                     SUM(total_cost_usd)::float AS total_usd,
+                     SUM(call_count)::float AS call_count,
+                     0::float AS today_usd
+              FROM api_costs_daily_rollups
+              WHERE rollup_date >= CURRENT_DATE - ${days}::int * INTERVAL '1 day'
+                AND rollup_date <= CURRENT_DATE - INTERVAL '90 days'
+                AND business_id IS NOT NULL
+                AND account_id = ${accountId}::uuid
+              GROUP BY business_id
+            ),
+            business_totals AS (
+              SELECT business_id,
+                     SUM(total_usd)::float AS total_usd,
+                     SUM(call_count)::float AS call_count,
+                     SUM(today_usd)::float AS today_usd
+              FROM combined
+              GROUP BY business_id
+            )
+            SELECT bt.business_id, b.name, a.subscription_tier,
+                   bt.total_usd, bt.call_count, bt.today_usd
+            FROM business_totals bt
+            JOIN businesses b ON b.id = bt.business_id
+            JOIN accounts a ON a.id = b.account_id
+            ORDER BY bt.total_usd DESC, bt.business_id ASC
+            LIMIT ${limit} OFFSET ${offset}
+          `
+        : needsRollup
         ? sql<{
             business_id: string;
             name: string;
@@ -181,6 +248,28 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
             ORDER BY bt.total_usd DESC, bt.business_id ASC
             LIMIT ${limit} OFFSET ${offset}
           `
+        : accountId
+        ? sql<{
+            business_id: string;
+            name: string;
+            subscription_tier: string;
+            total_usd: number;
+            call_count: number;
+            today_usd: number;
+          }[]>`
+            SELECT ac.business_id, b.name, a.subscription_tier,
+                   SUM(ac.cost_usd)::float AS total_usd,
+                   COUNT(ac.id)::float AS call_count,
+                   SUM(CASE WHEN ac.created_at >= CURRENT_DATE THEN ac.cost_usd ELSE 0 END)::float AS today_usd
+            FROM api_costs ac
+            JOIN businesses b ON b.id = ac.business_id
+            JOIN accounts a ON a.id = b.account_id
+            WHERE ac.account_id = ${accountId}::uuid
+              AND ac.created_at >= CURRENT_DATE - ${days}::int * INTERVAL '1 day'
+            GROUP BY ac.business_id, b.name, a.subscription_tier
+            ORDER BY total_usd DESC, ac.business_id ASC
+            LIMIT ${limit} OFFSET ${offset}
+          `
         : sql<{
             business_id: string;
             name: string;
@@ -203,7 +292,26 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           `,
       // Total business count for pagination metadata: counts DISTINCT
       // business_ids across detail ∪ rollup when rollup is active.
-      needsRollup
+      // When accountId is provided, filter by account_id directly.
+      needsRollup && accountId
+        ? sql<{ total: number }[]>`
+            WITH combined AS (
+              SELECT business_id FROM api_costs
+              WHERE account_id = ${accountId}::uuid
+                AND created_at >= CURRENT_DATE - ${days}::int * INTERVAL '1 day'
+                AND business_id IS NOT NULL
+              GROUP BY business_id
+              UNION
+              SELECT business_id FROM api_costs_daily_rollups
+              WHERE account_id = ${accountId}::uuid
+                AND rollup_date >= CURRENT_DATE - ${days}::int * INTERVAL '1 day'
+                AND rollup_date <= CURRENT_DATE - INTERVAL '90 days'
+                AND business_id IS NOT NULL
+              GROUP BY business_id
+            )
+            SELECT COUNT(*)::int AS total FROM combined
+          `
+        : needsRollup
         ? sql<{ total: number }[]>`
             WITH combined AS (
               SELECT business_id FROM api_costs
@@ -219,27 +327,57 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
             )
             SELECT COUNT(*)::int AS total FROM combined
           `
+        : accountId
+        ? sql<{ total: number }[]>`
+            SELECT COUNT(DISTINCT business_id)::int AS total
+            FROM api_costs
+            WHERE account_id = ${accountId}::uuid
+              AND created_at >= CURRENT_DATE - ${days}::int * INTERVAL '1 day'
+              AND business_id IS NOT NULL
+          `
         : sql<{ total: number }[]>`
             SELECT COUNT(DISTINCT business_id)::int AS total
             FROM api_costs
             WHERE created_at >= CURRENT_DATE - ${days}::int * INTERVAL '1 day'
               AND business_id IS NOT NULL
           `,
-      sql<DayRow[]>`
-        SELECT
-          DATE(created_at)::text AS day,
-          SUM(cost_usd)::float AS total_usd,
-          COUNT(*)::float AS call_count
-        FROM api_costs
-        WHERE created_at >= CURRENT_DATE - ${days}::int * INTERVAL '1 day'
-        GROUP BY DATE(created_at)
-        ORDER BY day DESC
-      `,
-      sql<TodayTotalRow[]>`
-        SELECT COALESCE(SUM(cost_usd), 0)::float AS total
-        FROM api_costs
-        WHERE created_at >= CURRENT_DATE
-      `,
+      // byDay: When accountId is provided, filter by account_id directly
+      // (VAL-ADMIN-002, uses idx_api_costs_account for date-range scan).
+      accountId
+        ? sql<DayRow[]>`
+            SELECT
+              DATE(created_at)::text AS day,
+              SUM(cost_usd)::float AS total_usd,
+              COUNT(*)::float AS call_count
+            FROM api_costs
+            WHERE account_id = ${accountId}::uuid
+              AND created_at >= CURRENT_DATE - ${days}::int * INTERVAL '1 day'
+            GROUP BY DATE(created_at)
+            ORDER BY day DESC
+          `
+        : sql<DayRow[]>`
+            SELECT
+              DATE(created_at)::text AS day,
+              SUM(cost_usd)::float AS total_usd,
+              COUNT(*)::float AS call_count
+            FROM api_costs
+            WHERE created_at >= CURRENT_DATE - ${days}::int * INTERVAL '1 day'
+            GROUP BY DATE(created_at)
+            ORDER BY day DESC
+          `,
+      // todayTotal: Same account_id filter pattern.
+      accountId
+        ? sql<TodayTotalRow[]>`
+            SELECT COALESCE(SUM(cost_usd), 0)::float AS total
+            FROM api_costs
+            WHERE account_id = ${accountId}::uuid
+              AND created_at >= CURRENT_DATE
+          `
+        : sql<TodayTotalRow[]>`
+            SELECT COALESCE(SUM(cost_usd), 0)::float AS total
+            FROM api_costs
+            WHERE created_at >= CURRENT_DATE
+          `,
     ]);
 
     // Rollup queries for byProvider and byDay only when range extends beyond 90 days.
@@ -249,20 +387,38 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     if (needsRollup) {
       const [provRes, dayRes] = await Promise.all([
-        sql<ProviderRow[]>`
-          SELECT provider, SUM(total_cost_usd)::float AS total_usd, SUM(call_count)::float AS call_count
-          FROM api_costs_daily_rollups
-          WHERE rollup_date >= CURRENT_DATE - ${days}::int * INTERVAL '1 day'
-            AND rollup_date <= CURRENT_DATE - INTERVAL '90 days'
-          GROUP BY provider
-        `,
-        sql<DayRow[]>`
-          SELECT rollup_date::text AS day, SUM(total_cost_usd)::float AS total_usd, SUM(call_count)::float AS call_count
-          FROM api_costs_daily_rollups
-          WHERE rollup_date >= CURRENT_DATE - ${days}::int * INTERVAL '1 day'
-            AND rollup_date <= CURRENT_DATE - INTERVAL '90 days'
-          GROUP BY rollup_date
-        `,
+        accountId
+          ? sql<ProviderRow[]>`
+              SELECT provider, SUM(total_cost_usd)::float AS total_usd, SUM(call_count)::float AS call_count
+              FROM api_costs_daily_rollups
+              WHERE account_id = ${accountId}::uuid
+                AND rollup_date >= CURRENT_DATE - ${days}::int * INTERVAL '1 day'
+                AND rollup_date <= CURRENT_DATE - INTERVAL '90 days'
+              GROUP BY provider
+            `
+          : sql<ProviderRow[]>`
+              SELECT provider, SUM(total_cost_usd)::float AS total_usd, SUM(call_count)::float AS call_count
+              FROM api_costs_daily_rollups
+              WHERE rollup_date >= CURRENT_DATE - ${days}::int * INTERVAL '1 day'
+                AND rollup_date <= CURRENT_DATE - INTERVAL '90 days'
+              GROUP BY provider
+            `,
+        accountId
+          ? sql<DayRow[]>`
+              SELECT rollup_date::text AS day, SUM(total_cost_usd)::float AS total_usd, SUM(call_count)::float AS call_count
+              FROM api_costs_daily_rollups
+              WHERE account_id = ${accountId}::uuid
+                AND rollup_date >= CURRENT_DATE - ${days}::int * INTERVAL '1 day'
+                AND rollup_date <= CURRENT_DATE - INTERVAL '90 days'
+              GROUP BY rollup_date
+            `
+          : sql<DayRow[]>`
+              SELECT rollup_date::text AS day, SUM(total_cost_usd)::float AS total_usd, SUM(call_count)::float AS call_count
+              FROM api_costs_daily_rollups
+              WHERE rollup_date >= CURRENT_DATE - ${days}::int * INTERVAL '1 day'
+                AND rollup_date <= CURRENT_DATE - INTERVAL '90 days'
+              GROUP BY rollup_date
+            `,
       ]);
       rollupProvider = provRes;
       rollupDay = dayRes;

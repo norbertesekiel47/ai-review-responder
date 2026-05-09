@@ -46,11 +46,16 @@ export default function BusinessDetailPage() {
     );
   }
 
-  const { business, reviews, rankingSnapshots, zernio } = data;
+  const { business, reviews, rankingSnapshots, zernio, account, approvalAuditLog, accountAuditLog } = data;
 
   const mapsUrl = business.googlePlaceId
     ? `https://www.google.com/maps/place/?q=place_id:${business.googlePlaceId}`
     : null;
+
+  // Other locations under the same account (excluding current one)
+  const otherLocations = account.locations.filter(
+    (loc) => loc.id !== businessId && !loc.archivedAt,
+  );
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -119,6 +124,43 @@ export default function BusinessDetailPage() {
           </div>
         )}
 
+        {/* Account context — multi-location info (VAL-ADMIN-001) */}
+        {account.locations.length > 1 && (
+          <div className="mt-4 mb-4 rounded-lg border border-blue-200 bg-blue-50 p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <h2 className="text-sm font-semibold text-blue-900">
+                Account ({account.locations.length} locations)
+              </h2>
+              <span className="rounded bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
+                {account.subscriptionTier}
+              </span>
+              <span className="rounded bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
+                {account.subscriptionStatus.replace(/_/g, ' ')}
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {account.locations.map((loc) => (
+                <a
+                  key={loc.id}
+                  href={`/admin/businesses/${loc.id}`}
+                  className={`inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors ${
+                    loc.id === businessId
+                      ? 'bg-blue-600 text-white'
+                      : loc.archivedAt
+                      ? 'bg-gray-200 text-gray-500 line-through'
+                      : 'bg-white text-blue-700 border border-blue-300 hover:bg-blue-100'
+                  }`}
+                >
+                  {loc.displayLabel ?? loc.name}
+                  {loc.isPrimary && (
+                    <span className="ml-1 rounded bg-yellow-200 px-1 text-[10px] text-yellow-800">primary</span>
+                  )}
+                </a>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Profile editor */}
         <ProfileEditor
           business={business}
@@ -176,6 +218,65 @@ export default function BusinessDetailPage() {
           zernio={zernio}
           onChanged={invalidate}
         />
+
+        {/* Approval Audit Log (VAL-ADMIN-004) */}
+        {approvalAuditLog.length > 0 && (
+          <section className="mt-8 rounded-lg border border-gray-200 bg-white p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">Approval Audit Log</h2>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-100 text-sm">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-2 text-left font-medium text-gray-500">Event</th>
+                    <th className="px-4 py-2 text-left font-medium text-gray-500">Actor</th>
+                    <th className="px-4 py-2 text-left font-medium text-gray-500">Date</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {approvalAuditLog.slice(0, 10).map((entry) => (
+                    <tr key={entry.id} className="hover:bg-gray-50">
+                      <td className="px-4 py-2 text-gray-700 capitalize">{entry.eventType.replace(/_/g, ' ')}</td>
+                      <td className="px-4 py-2 text-gray-500">{entry.actor ?? '—'}</td>
+                      <td className="px-4 py-2 text-gray-500 whitespace-nowrap">{new Date(entry.createdAt).toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
+
+        {/* Account Audit Log — account-level state changes */}
+        {accountAuditLog.length > 0 && (
+          <section className="mt-8 rounded-lg border border-gray-200 bg-white p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">Account Audit Log</h2>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-100 text-sm">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-2 text-left font-medium text-gray-500">Event</th>
+                    <th className="px-4 py-2 text-left font-medium text-gray-500">Location</th>
+                    <th className="px-4 py-2 text-left font-medium text-gray-500">Date</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {accountAuditLog.slice(0, 10).map((entry) => {
+                    const locName = entry.locationId
+                      ? account.locations.find((l) => l.id === entry.locationId)?.name ?? entry.locationId
+                      : '—';
+                    return (
+                      <tr key={entry.id} className="hover:bg-gray-50">
+                        <td className="px-4 py-2 text-gray-700 capitalize">{entry.eventType.replace(/_/g, ' ')}</td>
+                        <td className="px-4 py-2 text-gray-500">{locName}</td>
+                        <td className="px-4 py-2 text-gray-500 whitespace-nowrap">{new Date(entry.createdAt).toLocaleString()}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
 
       </div>
     </div>

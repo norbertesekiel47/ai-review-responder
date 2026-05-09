@@ -37,6 +37,9 @@ export interface BusinessRow {
   ranking_search_location: string | null;
   google_place_address: string | null;
   owner_email_bounced: boolean | null;
+  account_id: string;
+  display_label: string | null;
+  is_primary: boolean;
 }
 
 export interface RankingSnapshotRow {
@@ -124,6 +127,43 @@ export interface ZernioPanelData {
   }>;
 }
 
+// Account context for multi-location support (VAL-ADMIN-001)
+
+export interface AccountLocationSummary {
+  id: string;
+  name: string;
+  displayLabel: string | null;
+  isPrimary: boolean;
+  archivedAt: string | null;
+}
+
+export interface AccountContext {
+  id: string;
+  displayName: string;
+  subscriptionTier: string;
+  subscriptionStatus: string;
+  locations: AccountLocationSummary[];
+}
+
+// Audit log entry returned in business detail (VAL-ADMIN-004)
+
+export interface ApprovalAuditLogEntry {
+  id: string;
+  approvalLinkId: string;
+  eventType: string;
+  actor: string | null;
+  createdAt: string;
+}
+
+export interface AccountAuditLogEntry {
+  id: string;
+  eventType: string;
+  actorUserId: string | null;
+  locationId: string | null;
+  payload: unknown;
+  createdAt: string;
+}
+
 // HTTP response shape for GET
 
 export interface BusinessDetailResponse {
@@ -155,6 +195,7 @@ export interface BusinessDetailResponse {
     whatsappEnabled: boolean;
     churnScore: ChurnScore;
   };
+  account: AccountContext;
   rankingSnapshots: Array<{
     keyword: string;
     rankPosition: number | null;
@@ -176,6 +217,8 @@ export interface BusinessDetailResponse {
     responseVersion: number | null;
   }>;
   zernio: ZernioPanelData;
+  approvalAuditLog: ApprovalAuditLogEntry[];
+  accountAuditLog: AccountAuditLogEntry[];
 }
 
 // PATCH request body shape (derived from the Zod schema so it stays in sync)

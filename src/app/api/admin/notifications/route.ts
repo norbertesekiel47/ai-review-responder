@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
-import { asLocationId } from '@/lib/shared/ids';
-import type { LocationId } from '@/lib/shared/ids';
+import { asLocationId, asAccountId } from '@/lib/shared/ids';
+import type { LocationId, AccountId } from '@/lib/shared/ids';
 
 export const dynamic = 'force-dynamic';
 
@@ -67,14 +67,23 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     const rawBusinessId = params.get('business_id') ?? '';
     const businessId: LocationId | '' = rawBusinessId ? asLocationId(rawBusinessId) : '';
+    const rawAccountId = params.get('account_id') ?? '';
+    const accountId: AccountId | '' = rawAccountId ? asAccountId(rawAccountId) : '';
     const channel = params.get('channel') ?? '';
     const status = params.get('status') ?? '';
 
     // Build dynamic WHERE conditions with positional parameters for sql.unsafe()
+    // VAL-ADMIN-003: When account_id is provided, filter notification_deliveries
+    // by account_id directly, enabling idx_nd_account index scan.
     const conditions: string[] = [];
     const queryParams: (string | number)[] = [];
 
-    if (businessId) {
+    if (accountId) {
+      queryParams.push(accountId as string);
+      conditions.push(`nd.account_id = $${queryParams.length}`);
+    } else if (businessId) {
+      // Only use business_id filter when account_id is NOT provided,
+      // since account_id is the preferred denormalized filter.
       queryParams.push(businessId as string);
       conditions.push(`nd.business_id = $${queryParams.length}`);
     }
@@ -132,12 +141,21 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const [notificationRows, countRows, businessRows] = await Promise.all([
       sql.unsafe<NotificationRow[]>(dataQuery, queryParams as never[]),
       sql.unsafe<CountRow[]>(countQuery, countParams as never[]),
-      sql<BusinessRow[]>`
-        SELECT DISTINCT b.id, b.name
-        FROM businesses b
-        JOIN notification_deliveries nd ON nd.business_id = b.id
-        ORDER BY b.name
-      `,
+      // Businesses list: When account_id is provided, only show businesses
+      // under that account; otherwise show all with notification activity.
+      accountId
+        ? sql<BusinessRow[]>`
+            SELECT DISTINCT b.id, b.name
+            FROM businesses b
+            WHERE b.account_id = ${accountId}::uuid
+            ORDER BY b.name
+          `
+        : sql<BusinessRow[]>`
+            SELECT DISTINCT b.id, b.name
+            FROM businesses b
+            JOIN notification_deliveries nd ON nd.business_id = b.id
+            ORDER BY b.name
+          `,
     ]);
 
     const total = parseInt(countRows[0]?.total ?? '0', 10);
