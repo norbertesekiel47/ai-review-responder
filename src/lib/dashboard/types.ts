@@ -51,6 +51,13 @@ export interface DashboardDataActive {
     hasUnresolvedIncident: boolean;
     lastDisconnectReason?: string;
   };
+  /** VAL-DASH-029: When the requested scope location is archived or not found,
+   *  the API falls back to primary and returns this indicator so the client
+   *  can update the switcher. Only set when a fallback occurred. */
+  scopeFallback?: {
+    reason: 'location_archived' | 'location_not_found';
+    fallbackLocationId: string;
+  };
 }
 
 export interface DashboardDataPendingPayment {
@@ -91,6 +98,9 @@ export interface PerLocationKpi {
   totalReviewsHandled: number;
   pendingApprovalCount: number;
   recentReviewCount: number;
+  /** VAL-DASH-028: True when Stripe overage webhook has not yet confirmed
+   *  the quantity update for this location (active count > locations_paid + locations_included). */
+  billingPending: boolean;
 }
 
 /** Per-location review velocity for stacked-by-location chart mode. */
@@ -165,4 +175,11 @@ export interface AggregateDashboardData {
   locationKpis: PerLocationKpi[];
   /** Number of active locations (for UI display). */
   activeLocationCount: number;
+  /** VAL-DASH-029: When the requested scope location is archived, the API
+   *  falls back to primary and returns this indicator so the client can
+   *  update the switcher. Only set when a fallback occurred. */
+  scopeFallback?: {
+    reason: 'location_archived' | 'location_not_found';
+    fallbackLocationId: string;
+  };
 }

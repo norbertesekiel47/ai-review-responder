@@ -181,4 +181,33 @@ describe('useDashboardData', () => {
 
     expect(mockFetch).toHaveBeenCalledTimes(2);
   });
+
+  // VAL-DASH-029: scopeFallback is set when API returns fallback indicator
+  it('sets scopeFallback when API returns location_archived fallback', async () => {
+    const fallbackData = {
+      business: { name: 'Primary Biz', createdAt: '2026-01-01' },
+      valueSummary: { totalReviewsHandled: 5, totalTimeSavedMinutes: 35, currentResponseRate: 60, baselineResponseRate: null },
+      reviewVelocity: [], ranking: null, recentReviews: [], latestBrief: null,
+      settings: { tone: 'pro', productsServices: '', avoidFacts: [], sampleResponses: [], ownerPhone: '', ownerEmail: '', weeklySummaryEnabled: true, monthlyImpactEnabled: true, category: '', googlePlaceId: '' },
+      zernioConnection: { status: 'none', queuedReconnectCount: 0, hasUnresolvedIncident: false },
+      scopeFallback: { reason: 'location_archived', fallbackLocationId: 'primary-loc-id' },
+    };
+    mockFetch.mockReturnValue(mockJsonResponse(fallbackData));
+
+    const onFallback = vi.fn();
+    const { result } = renderHook(() => useDashboardData('archived-loc-id' as unknown as 'all', { onScopeFallback: onFallback }));
+
+    await waitFor(() => {
+      expect(result.current.data).not.toBeNull();
+    });
+
+    expect(result.current.scopeFallback).toEqual({
+      reason: 'location_archived',
+      fallbackLocationId: 'primary-loc-id',
+    });
+    expect(onFallback).toHaveBeenCalledWith({
+      reason: 'location_archived',
+      fallbackLocationId: 'primary-loc-id',
+    });
+  });
 });

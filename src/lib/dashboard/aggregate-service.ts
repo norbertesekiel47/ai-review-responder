@@ -46,6 +46,21 @@ export async function getAggregateDashboardData(
 ): Promise<AggregateDashboardData> {
   const locations = await getLocationsForAccount(accountId);
 
+  // VAL-DASH-028: Fetch account billing data to determine billingPending flag.
+  // A location's KPI shows "Billing update pending" when the Stripe overage
+  // webhook has not yet confirmed the quantity update (i.e., the active
+  // location count exceeds locations_included + locations_paid).
+  const [accountRow] = await sql<{
+    locations_included: number;
+    locations_paid: number;
+  }[]>`
+    SELECT locations_included, locations_paid
+    FROM accounts WHERE id = ${accountId}::uuid
+  `;
+  const locationsIncluded = accountRow?.locations_included ?? 1;
+  const locationsPaid = accountRow?.locations_paid ?? 0;
+  const billingConfirmedCount = locationsIncluded + locationsPaid;
+
   if (locations.length === 0) {
     // Edge case: account with no active locations
     return {
@@ -107,7 +122,11 @@ export async function getAggregateDashboardData(
   const baselineResponseRate = primaryPair?.data.valueSummary.baselineResponseRate ?? null;
 
   // ── Per-Location KPIs (strip) ────────────────────────────────────────────
-  const locationKpis: PerLocationKpi[] = validPairs.map((p) => {
+  // VAL-DASH-028: billingPending is true for locations whose index exceeds
+  // the billing-confirmed count (locations_included + locations_paid).
+  // This means the Stripe overage webhook hasn't yet confirmed the quantity
+  // update for that location.
+  const locationKpis: PerLocationKpi[] = validPairs.map((p, idx) => {
     const pendingCount = p.data.recentReviews.filter(
       (r) => (r.responseStatus ?? r.status) === 'pending_approval',
     ).length;
@@ -119,6 +138,7 @@ export async function getAggregateDashboardData(
       totalReviewsHandled: p.data.valueSummary.totalReviewsHandled,
       pendingApprovalCount: pendingCount,
       recentReviewCount: recentCount,
+      billingPending: idx >= billingConfirmedCount,
     };
   });
 

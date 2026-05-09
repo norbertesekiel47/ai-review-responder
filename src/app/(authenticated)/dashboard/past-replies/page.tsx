@@ -3,6 +3,7 @@ import { sql } from '@/lib/db/server';
 import { requireOwnerAccess } from '@/lib/auth/require-owner-access';
 import { TopBar } from '@/components/dashboard/TopBar';
 import { PastRepliesClient } from './PastRepliesClient';
+import { getDisplayLabel } from '@/lib/locations/display-label';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,16 +37,20 @@ export default async function PastRepliesPage({
   const locationId = owner.currentLocationId;
 
   const [biz] = await sql<{
+    name: string;
+    display_label: string | null;
     subscription_tier: string;
     subscription_activated_at: Date | null;
   }[]>`
-    SELECT subscription_tier, subscription_activated_at
+    SELECT name, display_label, subscription_tier, subscription_activated_at
     FROM businesses
     WHERE id = ${locationId}
     LIMIT 1
   `;
   if (!biz) notFound();
 
+  // Use display_label (with name fallback) for the subtitle
+  const locationDisplayName = biz.display_label ?? biz.name;
   const isPremium = biz.subscription_tier === 'premium';
   const activatedAtIso = biz.subscription_activated_at
     ? new Date(biz.subscription_activated_at).toISOString()
@@ -128,7 +133,7 @@ export default async function PastRepliesPage({
     <>
       <TopBar
         title="Past Replies"
-        subtitle="Every reply posted to Google for your business — including replies you made before connecting RepWorth."
+        subtitle={`Every reply posted to Google for ${locationDisplayName} — including replies you made before connecting RepWorth.`}
         rightLink={{ href: '/dashboard', label: 'Back to dashboard' }}
       />
       <PastRepliesClient

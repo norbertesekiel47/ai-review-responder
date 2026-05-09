@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useDashboardData } from '@/hooks/useDashboardData';
+import { useLocationScope } from '@/contexts/LocationContext';
 
 /**
  * /dashboard/connect — Zernio Google Business connect entry point.
@@ -16,9 +17,20 @@ import { useDashboardData } from '@/hooks/useDashboardData';
  * pending UI: `oauth_in_progress` shows a Cancel button (owner can abort),
  * `finalizing` shows a spinner only (cancel during finalize would 409 from
  * the API anyway — see spec §3.3.5).
+ *
+ * Respects the selected location scope via LocationContext so that the
+ * Zernio connection status shown corresponds to the currently selected
+ * location (or the primary location when scope is "all").
  */
 export default function ConnectPage() {
-  const { data, error, refresh } = useDashboardData();
+  const { currentScope, setLocationScope } = useLocationScope();
+  const { data, error, refresh } = useDashboardData(currentScope, {
+    // VAL-DASH-029: When the API detects the selected location is archived,
+    // fall back to primary and update the LocationContext switcher.
+    onScopeFallback: (fallback) => {
+      setLocationScope(fallback.fallbackLocationId as import('@/lib/shared/ids').LocationId);
+    },
+  });
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const router = useRouter();

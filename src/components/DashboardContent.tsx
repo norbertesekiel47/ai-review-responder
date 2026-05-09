@@ -21,8 +21,17 @@ import { useSetPendingCount } from '@/components/dashboard/PendingCountContext';
 import { useLocationScope } from '@/contexts/LocationContext';
 
 export function DashboardContent() {
-  const { currentScope } = useLocationScope();
-  const { data, error, loading, refresh } = useDashboardData(currentScope);
+  const { currentScope, setLocationScope } = useLocationScope();
+  const { data, error, loading, refresh, scopeFallback } = useDashboardData(
+    currentScope,
+    {
+      // VAL-DASH-029: When the API detects the selected location is archived,
+      // fall back to primary and update the LocationContext switcher.
+      onScopeFallback: (fallback) => {
+        setLocationScope(fallback.fallbackLocationId as import('@/lib/shared/ids').LocationId);
+      },
+    },
+  );
   const setPendingCount = useSetPendingCount();
   const reviewsRef = useRef<HTMLDivElement | null>(null);
   const [initialTab, setInitialTab] = useState<'needs' | 'all'>('needs');

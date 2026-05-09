@@ -78,11 +78,13 @@ describe('AggregateDashboardData types', () => {
       totalReviewsHandled: 20,
       pendingApprovalCount: 3,
       recentReviewCount: 8,
+      billingPending: false,
     };
 
     expect(kpi.displayName).toBe('Downtown Cafe');
     expect(kpi.isPrimary).toBe(true);
     expect(kpi.pendingApprovalCount).toBe(3);
+    expect(kpi.billingPending).toBe(false);
   });
 
   it('AggregateReviewItem includes location chip fields', () => {
@@ -153,8 +155,8 @@ describe('AggregateDashboardData types', () => {
   // VAL-DASH-019: Aggregate sums match sum of individual per-location values
   it('aggregate valueSummary matches sum of per-location KPIs', () => {
     const kpis: PerLocationKpi[] = [
-      { locationId: 'loc-1', displayName: 'Downtown Cafe', isPrimary: true, totalReviewsHandled: 20, pendingApprovalCount: 3, recentReviewCount: 8 },
-      { locationId: 'loc-2', displayName: 'Westside Bakery', isPrimary: false, totalReviewsHandled: 15, pendingApprovalCount: 1, recentReviewCount: 5 },
+      { locationId: 'loc-1', displayName: 'Downtown Cafe', isPrimary: true, totalReviewsHandled: 20, pendingApprovalCount: 3, recentReviewCount: 8, billingPending: false },
+      { locationId: 'loc-2', displayName: 'Westside Bakery', isPrimary: false, totalReviewsHandled: 15, pendingApprovalCount: 1, recentReviewCount: 5, billingPending: true },
     ];
 
     const aggregateTotalHandled = kpis.reduce((sum, k) => sum + k.totalReviewsHandled, 0);

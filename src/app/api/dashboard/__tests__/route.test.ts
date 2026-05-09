@@ -88,6 +88,7 @@ const DEFAULT_SUB_ROW = {
   subscription_status: 'active',
   subscription_tier: 'standard',
   owner_email: 'owner@test.com',
+  archived_at: null,
 };
 
 /**
@@ -116,7 +117,10 @@ function setDbResults(overrides?: {
   mockSqlResults.length = 0;
   sqlCallCounter.value = 0;
 
-  // Call 0: pre-query (subRow — subscription status check)
+  // Call 0: archived_at check query (added for VAL-DASH-029 fallback)
+  mockSqlResults.push([{ archived_at: null }]);
+
+  // Call 1: pre-query (subRow — subscription status check)
   mockSqlResults.push(overrides?.subRow ?? [DEFAULT_SUB_ROW]);
 
   // Calls 1–8: Promise.all heavy queries (only reached when status !== 'pending_payment')
@@ -221,7 +225,9 @@ describe('GET /api/dashboard', () => {
 
     mockSqlResults.length = 0;
     sqlCallCounter.value = 0;
-    // Only the pre-query result — Promise.all must NOT be reached
+    // Call 0: archived_at check (VAL-DASH-029)
+    mockSqlResults.push([{ archived_at: null }]);
+    // Call 1: pre-query result — Promise.all must NOT be reached
     mockSqlResults.push([
       {
         name: 'Pending Biz',
@@ -229,6 +235,7 @@ describe('GET /api/dashboard', () => {
         subscription_tier: 'standard',
         owner_email: 'owner@pending.com',
         onboarded_by: null, // self-serve — owner sees the payment CTA
+        archived_at: null,
       },
     ]);
 
@@ -249,7 +256,7 @@ describe('GET /api/dashboard', () => {
     expect(body.recentReviews).toBeUndefined();
 
     // Only 1 sql call (the pre-query). Promise.all 8 queries must not have run.
-    expect(sqlCallCounter.value).toBe(1);
+    expect(sqlCallCounter.value).toBe(2);
 
     // No-store header still present
     expect(res.headers.get('Cache-Control')).toBe('no-store, private');
@@ -260,6 +267,9 @@ describe('GET /api/dashboard', () => {
 
     mockSqlResults.length = 0;
     sqlCallCounter.value = 0;
+    // Call 0: archived_at check (VAL-DASH-029)
+    mockSqlResults.push([{ archived_at: null }]);
+    // Call 1: pre-query
     mockSqlResults.push([
       {
         name: 'Founding Biz',
@@ -267,6 +277,7 @@ describe('GET /api/dashboard', () => {
         subscription_tier: 'founders',
         owner_email: 'founder@example.com',
         onboarded_by: null,
+        archived_at: null,
       },
     ]);
 
@@ -280,6 +291,9 @@ describe('GET /api/dashboard', () => {
 
     mockSqlResults.length = 0;
     sqlCallCounter.value = 0;
+    // Call 0: archived_at check (VAL-DASH-029)
+    mockSqlResults.push([{ archived_at: null }]);
+    // Call 1: pre-query
     mockSqlResults.push([
       {
         name: 'Admin Onboarded Biz',
@@ -287,6 +301,7 @@ describe('GET /api/dashboard', () => {
         subscription_tier: 'founders',
         owner_email: 'owner@admin-onboarded.com',
         onboarded_by: 'admin-uuid-1',
+        archived_at: null,
       },
     ]);
 
@@ -301,7 +316,7 @@ describe('GET /api/dashboard', () => {
     expect(body.paymentUrl).toBeUndefined();
 
     // Pre-query only — Promise.all heavy queries skipped.
-    expect(sqlCallCounter.value).toBe(1);
+    expect(sqlCallCounter.value).toBe(2);
   });
 
   it('returns paymentUrl pointing to /onboarding/pay even when env vars are unset', async () => {
@@ -309,6 +324,9 @@ describe('GET /api/dashboard', () => {
 
     mockSqlResults.length = 0;
     sqlCallCounter.value = 0;
+    // Call 0: archived_at check (VAL-DASH-029)
+    mockSqlResults.push([{ archived_at: null }]);
+    // Call 1: pre-query
     mockSqlResults.push([
       {
         name: 'No Env Biz',
@@ -316,6 +334,7 @@ describe('GET /api/dashboard', () => {
         subscription_tier: 'standard',
         owner_email: 'owner@noenv.com',
         onboarded_by: null,
+        archived_at: null,
       },
     ]);
 

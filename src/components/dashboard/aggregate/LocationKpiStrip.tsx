@@ -54,6 +54,12 @@ function LocationKpiCard({ kpi, onClick }: { kpi: PerLocationKpi; onClick: () =>
       </div>
       <div className="loc-kpi-card-handled">
         {kpi.totalReviewsHandled} handled
+        {/* VAL-DASH-028: Billing-pending pill shown when Stripe webhook hasn't confirmed overage */}
+        {kpi.billingPending && (
+          <span className="billing-pending-pill" title="Stripe billing update pending for this location">
+            Billing update pending
+          </span>
+        )}
       </div>
     </button>
   );

@@ -24,6 +24,113 @@ function jsonResponse(body: unknown, status = 200): NextResponse {
   return NextResponse.json(body, { status, headers: NO_STORE_HEADERS });
 }
 
+/** Returns the primary (or first active) location ID for an account. */
+async function getPrimaryLocationId(accountId: string): Promise<string | null> {
+  const [row] = await sql<{ id: string }[]>`
+    SELECT id FROM businesses
+    WHERE account_id = ${accountId}::uuid
+      AND archived_at IS NULL
+    ORDER BY is_primary DESC, created_at ASC
+    LIMIT 1
+  `;
+  return row?.id ?? null;
+}
+
+/**
+ * Fetches per-location dashboard data for a given location ID.
+ * Handles subscription status checks, onboarding state, and returns
+ * the appropriate response shape.
+ *
+ * @param locationId  The location to fetch data for.
+ * @param accountId   The owner's account ID (for fallback resolution).
+ * @param fallback    If provided, a scopeFallback indicator to include in the response.
+ */
+async function fetchPerLocationData(
+  locationId: string,
+  accountId: string,
+  fallback?: { scopeFallback: { reason: string; fallbackLocationId: string } },
+): Promise<NextResponse> {
+  const [subRow] = await sql<{
+    name: string;
+    subscription_status: string;
+    subscription_tier: string;
+    owner_email: string;
+    onboarded_by: string | null;
+    place_id_verified: boolean;
+    google_maps_url: string | null;
+    archived_at: Date | null;
+  }[]>`
+    SELECT b.name, a.subscription_status, a.subscription_tier,
+           b.owner_email, b.onboarded_by,
+           b.place_id_verified, b.google_maps_url,
+           b.archived_at
+    FROM businesses b
+    JOIN accounts a ON a.id = b.account_id
+    WHERE b.id = ${locationId}
+  `;
+
+  if (!subRow) {
+    return jsonResponse({ error: 'Business not found' }, 404);
+  }
+
+  // VAL-DASH-029: If the fallback location itself is archived, we're stuck
+  if (subRow.archived_at !== null) {
+    return jsonResponse({ error: 'No active location available' }, 404);
+  }
+
+  if (subRow.subscription_status === SubscriptionStatus.PENDING_PAYMENT) {
+    // Admin-onboarded businesses should NOT see the self-serve payment CTA —
+    // they already have a handoff path via the partner. Showing the payment
+    // link here would risk a double-charge if the partner's flow used a
+    // different price point or coupon.
+    if (subRow.onboarded_by !== null) {
+      return jsonResponse({
+        subscriptionStatus: 'pending_payment_admin_handoff',
+        locationId,
+        businessName: subRow.name,
+      });
+    }
+    // Self-serve owners with pending_payment should be directed to
+    // /onboarding/pay where the PlanPickerClient creates a Checkout
+    // Session via /api/onboarding/select-plan.
+    // This replaces the old Payment Link URL flow.
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
+    const paymentUrl = `${baseUrl}/onboarding/pay`;
+    return jsonResponse({
+      subscriptionStatus: 'pending_payment',
+      locationId,
+      businessName: subRow.name,
+      paymentUrl,
+    });
+  }
+
+  // Active subscription but the owner skipped or never reached the
+  // /onboarding/business wizard (e.g. bookmarked /dashboard from earlier
+  // or closed the tab during the post-payment redirect). Surface a
+  // CTA-only screen instead of the empty-state dashboard so they have
+  // an obvious next action.
+  if (
+    subRow.subscription_status === SubscriptionStatus.ACTIVE &&
+    !subRow.place_id_verified &&
+    subRow.google_maps_url === null
+  ) {
+    return jsonResponse({
+      subscriptionStatus: 'active_pending_business',
+      locationId,
+      businessName: subRow.name,
+    });
+  }
+
+  const data = await getActiveDashboardData(locationId);
+
+  // VAL-DASH-029: Attach scopeFallback indicator if a fallback occurred
+  if (fallback) {
+    return jsonResponse({ ...data, ...fallback });
+  }
+
+  return jsonResponse(data);
+}
+
 export async function GET(request: NextRequest): Promise<NextResponse> {
   let user;
   try {
@@ -93,75 +200,39 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   try {
-    // Cheap pre-query: determine subscription status + onboarding state
-    // before running the 8 heavy queries.
-    // After migration 034, subscription_status/tier source of truth is accounts.
-    // businesses.subscription_* are deprecated columns (VAL-SCHEMA-036/037).
-    const [subRow] = await sql<{
-      name: string;
-      subscription_status: string;
-      subscription_tier: string;
-      owner_email: string;
-      onboarded_by: string | null;
-      place_id_verified: boolean;
-      google_maps_url: string | null;
+    // Check if the requested location is archived or not found
+    // VAL-DASH-029: Fall back to primary when location is archived
+    const [checkRow] = await sql<{
+      archived_at: Date | null;
     }[]>`
-      SELECT b.name, a.subscription_status, a.subscription_tier,
-             b.owner_email, b.onboarded_by,
-             b.place_id_verified, b.google_maps_url
-      FROM businesses b
-      JOIN accounts a ON a.id = b.account_id
-      WHERE b.id = ${locationId}
+      SELECT archived_at FROM businesses WHERE id = ${locationId}
     `;
-    if (!subRow) {
+
+    if (!checkRow) {
+      // Location not found — fall back to primary
+      const primary = await getPrimaryLocationId(accountId);
+      if (primary) {
+        return fetchPerLocationData(primary, accountId, {
+          scopeFallback: { reason: 'location_not_found', fallbackLocationId: primary },
+        });
+      }
       return jsonResponse({ error: 'Business not found' }, 404);
     }
 
-    if (subRow.subscription_status === SubscriptionStatus.PENDING_PAYMENT) {
-      // Admin-onboarded businesses should NOT see the self-serve payment CTA —
-      // they already have a handoff path via the partner. Showing the payment
-      // link here would risk a double-charge if the partner's flow used a
-      // different price point or coupon.
-      if (subRow.onboarded_by !== null) {
-        return jsonResponse({
-          subscriptionStatus: 'pending_payment_admin_handoff',
-          locationId,
-          businessName: subRow.name,
+    if (checkRow.archived_at !== null) {
+      // Location is archived — fall back to primary
+      const primary = await getPrimaryLocationId(accountId);
+      if (primary && primary !== locationId) {
+        return fetchPerLocationData(primary, accountId, {
+          scopeFallback: { reason: 'location_archived', fallbackLocationId: primary },
         });
       }
-      // Self-serve owners with pending_payment should be directed to
-      // /onboarding/pay where the PlanPickerClient creates a Checkout
-      // Session via /api/onboarding/select-plan.
-      // This replaces the old Payment Link URL flow.
-      const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
-      const paymentUrl = `${baseUrl}/onboarding/pay`;
-      return jsonResponse({
-        subscriptionStatus: 'pending_payment',
-        locationId,
-        businessName: subRow.name,
-        paymentUrl,
-      });
+      // Primary itself archived or same — return error
+      return jsonResponse({ error: 'No active location available' }, 404);
     }
 
-    // Active subscription but the owner skipped or never reached the
-    // /onboarding/business wizard (e.g. bookmarked /dashboard from earlier
-    // or closed the tab during the post-payment redirect). Surface a
-    // CTA-only screen instead of the empty-state dashboard so they have
-    // an obvious next action.
-    if (
-      subRow.subscription_status === SubscriptionStatus.ACTIVE &&
-      !subRow.place_id_verified &&
-      subRow.google_maps_url === null
-    ) {
-      return jsonResponse({
-        subscriptionStatus: 'active_pending_business',
-        locationId,
-        businessName: subRow.name,
-      });
-    }
-
-    const data = await getActiveDashboardData(locationId);
-    return jsonResponse(data);
+    // Location is active — fetch its data normally
+    return fetchPerLocationData(locationId, accountId);
   } catch (error) {
     if (error instanceof BusinessNotFoundError) {
       return jsonResponse({ error: 'Business not found' }, 404);

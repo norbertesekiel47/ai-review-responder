@@ -1051,6 +1051,24 @@
 .loc-kpi-card-handled {
   font-size: 11px;
   color: var(--rw-app-text-muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* VAL-DASH-028: Billing-pending pill on KPI strip card */
+.billing-pending-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 600;
+  color: #92400E;
+  background: #FEF3C7;
+  border: 1px solid #FDE68A;
+  white-space: nowrap;
+  line-height: 1.4;
 }
 
 /* ---------- Aggregate empty state ---------- */
