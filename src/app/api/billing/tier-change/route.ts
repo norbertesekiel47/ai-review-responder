@@ -88,6 +88,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const { accountId, newTier } = parsed.data;
   const tier = newTier as SubscriptionTierValue;
 
+  // ── Ownership: body.accountId must match authenticated user ──────────────
+  if (accountId !== user.accountId) {
+    return NextResponse.json(
+      { error: 'Account ID mismatch' },
+      { status: 403, headers: NO_STORE_HEADERS },
+    );
+  }
+
   // Validate the tier change
   const validation = await validateTierChange(accountId, tier);
 

@@ -9,6 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { sql } from '@/lib/db/server';
+import { requireRole, AuthError } from '@/lib/db/auth';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { getStripe } from '@/lib/payments/create-checkout-session';
 
@@ -16,24 +17,19 @@ export const dynamic = 'force-dynamic';
 
 const NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
 
-// ── Request schema ─────────────────────────────────────────────────────────
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-const PortalSchema = z.object({
-  accountId: z.string().regex(UUID_RE, 'Invalid account ID format'),
-});
-
 // ── Handler ─────────────────────────────────────────────────────────────────
 
 /**
  * POST /api/billing/portal
  *
- * Creates a Stripe Customer Portal session for the given account.
+ * Creates a Stripe Customer Portal session for the authenticated owner's account.
  * The portal allows:
  *   - Card updates (payment method changes)
  *   - Invoice viewing
  *   - Subscription cancellation
+ *
+ * Security: requires owner auth; loads Stripe customer from session user's
+ * accountId only. Body accountId is ignored (prevents cross-account access).
  *
  * VAL-BILLING-068: Portal session is configured to render both subscription
  * items (tier base and location overage) and allows payment method updates.
@@ -43,24 +39,32 @@ const PortalSchema = z.object({
  * customer.subscription.deleted webhook (handled by existing webhook handler).
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  let body: unknown;
+  // ── Auth: require owner role ────────────────────────────────────────────
+  let user;
   try {
-    body = await req.json();
-  } catch {
+    user = await requireRole(req, 'owner');
+  } catch (err) {
+    if (err instanceof AuthError) {
+      return NextResponse.json(
+        { error: err.message },
+        { status: err.statusCode, headers: NO_STORE },
+      );
+    }
     return NextResponse.json(
-      { error: 'invalid_json' },
-      { status: 400, headers: NO_STORE },
+      { error: 'Unauthorized' },
+      { status: 401, headers: NO_STORE },
     );
   }
 
-  const parsed = PortalSchema.safeParse(body);
-  if (!parsed.success) {
+  if (!user.accountId) {
     return NextResponse.json(
-      { error: 'invalid_body', issues: parsed.error.issues },
-      { status: 400, headers: NO_STORE },
+      { error: 'No account associated with this user' },
+      { status: 403, headers: NO_STORE },
     );
   }
-  const { accountId } = parsed.data;
+
+  // Use the authenticated user's accountId — ignore any body accountId
+  const accountId = user.accountId;
 
   // Look up the account
   const [account] = await sql<{

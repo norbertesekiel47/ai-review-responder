@@ -9,6 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { sql } from '@/lib/db/server';
+import { requireRole, AuthError } from '@/lib/db/auth';
 import { isSubscriptionTier, type SubscriptionTierValue } from '@/lib/accounts/tier-config';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { createCheckoutSession, CheckoutUnavailableError } from '@/lib/payments/create-checkout-session';
@@ -38,8 +39,33 @@ const CheckoutSchema = z.object({
  * line_items construction, price ID resolution, and Stripe API call.
  *
  * VAL-BILLING-031: This handler does NOT reference STRIPE_PAYMENT_LINK_* env vars.
+ * Security: requires owner auth and validates body.accountId === user.accountId.
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  // ── Auth: require owner role ────────────────────────────────────────────
+  let user;
+  try {
+    user = await requireRole(req, 'owner');
+  } catch (err) {
+    if (err instanceof AuthError) {
+      return NextResponse.json(
+        { error: err.message },
+        { status: err.statusCode, headers: NO_STORE },
+      );
+    }
+    return NextResponse.json(
+      { error: 'Unauthorized' },
+      { status: 401, headers: NO_STORE },
+    );
+  }
+
+  if (!user.accountId) {
+    return NextResponse.json(
+      { error: 'No account associated with this user' },
+      { status: 403, headers: NO_STORE },
+    );
+  }
+
   // Parse request body
   let body: unknown;
   try {
@@ -59,6 +85,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
   const { accountId } = parsed.data;
+
+  // ── Ownership: body.accountId must match authenticated user ──────────────
+  if (accountId !== user.accountId) {
+    return NextResponse.json(
+      { error: 'Account ID mismatch' },
+      { status: 403, headers: NO_STORE },
+    );
+  }
 
   // Look up the account
   const [account] = await sql<{
