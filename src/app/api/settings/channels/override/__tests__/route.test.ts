@@ -3,10 +3,11 @@ import { NextRequest } from 'next/server';
 
 // ── Hoisted shared state ────────────────────────────────────────────
 
-const { mockRequireRole, mockSql, mockSqlUnsafe } = vi.hoisted(() => ({
+const { mockRequireRole, mockSql, mockSqlUnsafe, mockJsonb } = vi.hoisted(() => ({
   mockRequireRole: vi.fn(),
   mockSql: vi.fn(),
   mockSqlUnsafe: vi.fn(),
+  mockJsonb: vi.fn((val: unknown) => JSON.stringify(val)),
 }));
 
 // ── Mock Auth ───────────────────────────────────────────────────────
@@ -33,7 +34,7 @@ vi.mock('@/lib/db/server', () => {
   const sqlProxy = Object.assign((...args: unknown[]) => mockSql(...args), {
     unsafe: (...args: unknown[]) => mockSqlUnsafe(...args),
   });
-  return { sql: sqlProxy };
+  return { sql: sqlProxy, jsonb: mockJsonb };
 });
 
 // ── Mock uuid ───────────────────────────────────────────────────────
@@ -284,5 +285,72 @@ describe('DELETE /api/settings/channels/override', () => {
       channel: 'invalid',
     }));
     expect(res.status).toBe(400);
+  });
+});
+
+// ── Audit trail for channel override changes ─────────────────────────
+
+describe('Audit trail for channel override changes', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockRequireRole.mockResolvedValue(ownerUser());
+  });
+
+  it('POST writes account_audit_log entry with channel_override_created event', async () => {
+    // Mock: location validation
+    mockSql.mockResolvedValueOnce([{
+      id: LOCATION_ID_1,
+      name: 'Downtown Cafe',
+      display_label: 'Downtown Cafe',
+    }]);
+    // Mock: org-default enrollment exists
+    mockSql.mockResolvedValueOnce([{
+      id: ENROLLMENT_ID_ORG,
+      handle: '@org_bot',
+      status: 'verified',
+      verified_at: new Date('2025-01-01'),
+    }]);
+    // Mock: no existing override
+    mockSql.mockResolvedValueOnce([]);
+    // Mock: INSERT succeeds
+    mockSql.mockResolvedValueOnce([{ id: ENROLLMENT_ID_OVERRIDE }]);
+    // Mock: audit log INSERT succeeds
+    mockSql.mockResolvedValueOnce([{ id: 'audit-1' }]);
+
+    const res = await POST(makePostRequest({
+      locationId: LOCATION_ID_1,
+      channel: 'telegram',
+    }));
+    expect(res.status).toBe(201);
+
+    // Verify audit log INSERT was called (5th SQL call)
+    expect(mockSql).toHaveBeenCalledTimes(5);
+    // The 5th call should be the audit log INSERT — verify the jsonb payload
+    const lastCallArgs = mockSql.mock.calls[4]!;
+    const sqlTemplate = lastCallArgs[0];
+    const sqlString = Array.isArray(sqlTemplate) ? sqlTemplate.join('') : String(sqlTemplate);
+    expect(sqlString).toContain('account_audit_log');
+    expect(sqlString).toContain('channel_override_created');
+  });
+
+  it('DELETE writes account_audit_log entry with channel_override_removed event', async () => {
+    // Mock: override found and archived
+    mockSql.mockResolvedValueOnce([{ id: ENROLLMENT_ID_OVERRIDE }]);
+    // Mock: audit log INSERT succeeds
+    mockSql.mockResolvedValueOnce([{ id: 'audit-2' }]);
+
+    const res = await DELETE(makeDeleteRequest({
+      locationId: LOCATION_ID_1,
+      channel: 'telegram',
+    }));
+    expect(res.status).toBe(200);
+
+    // Verify audit log INSERT was called (2nd SQL call)
+    expect(mockSql).toHaveBeenCalledTimes(2);
+    const lastCallArgs = mockSql.mock.calls[1]!;
+    const sqlTemplate = lastCallArgs[0];
+    const sqlString = Array.isArray(sqlTemplate) ? sqlTemplate.join('') : String(sqlTemplate);
+    expect(sqlString).toContain('account_audit_log');
+    expect(sqlString).toContain('channel_override_removed');
   });
 });

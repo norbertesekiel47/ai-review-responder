@@ -9,11 +9,14 @@
 // VAL-SETTINGS-015: Per-location override displays location name label.
 // VAL-SETTINGS-016: Removing per-location override reverts to org-default.
 // VAL-SETTINGS-033: Per-location override uniqueness is enforced.
+//
+// Audit trail: channel_override_created / channel_override_removed events
+// written to account_audit_log on each override create/delete.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { v7 as uuidv7 } from 'uuid';
-import { sql } from '@/lib/db/server';
+import { sql, jsonb } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 import { invalidateChannelCache } from '@/lib/notifications/resolve-channels';
@@ -146,6 +149,25 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return jsonResponse({ error: 'Failed to create override' }, 500);
     }
 
+    // Audit trail: channel_override_created
+    await sql`
+      INSERT INTO account_audit_log (
+        id, account_id, location_id, event_type, actor_user_id, payload
+      ) VALUES (
+        ${uuidv7()}::uuid,
+        ${user.accountId}::uuid,
+        ${locationId}::uuid,
+        'channel_override_created',
+        ${user.id ?? null}::uuid,
+        ${jsonb({
+          channel,
+          override_enrollment_id: newRow.id,
+          cloned_handle: orgDefault.handle,
+          cloned_status: orgDefault.status,
+        })}
+      )
+    `;
+
     // VAL-NOTIF-009: Invalidate cache on channel_enrollments writes
     await invalidateChannelCache(asAccountId(user.accountId));
 
@@ -229,6 +251,23 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
   if (!archived) {
     return jsonResponse({ error: 'No override found for this location and channel' }, 404);
   }
+
+  // Audit trail: channel_override_removed
+  await sql`
+    INSERT INTO account_audit_log (
+      id, account_id, location_id, event_type, actor_user_id, payload
+    ) VALUES (
+      ${uuidv7()}::uuid,
+      ${user.accountId}::uuid,
+      ${locationId}::uuid,
+      'channel_override_removed',
+      ${user.id ?? null}::uuid,
+      ${jsonb({
+        channel,
+        archived_enrollment_id: archived.id,
+      })}
+    )
+  `;
 
   // VAL-NOTIF-009: Invalidate cache on channel_enrollments writes
   await invalidateChannelCache(asAccountId(user.accountId));

@@ -6,6 +6,9 @@
 // VAL-NOTIF-011: Template prefix includes [locationLabel].
 // VAL-NOTIF-014: locationLabel is resolved at the data layer via
 //   getDisplayLabel({ display_label, name }) — display_label ?? name fallback.
+// VAL-NOTIF-019: Template prefix escapes brackets, colons, long display_labels.
+
+import { sanitizeLocationLabelForPrefix } from './template-prefix';
 
 export interface TelegramApprovalParams {
   /** Resolved location label: display_label ?? businesses.name. Always non-null. */
@@ -45,7 +48,9 @@ function truncate(raw: string, max: number): string {
 }
 
 export function formatApprovalTelegram(p: TelegramApprovalParams): FormattedApprovalMessage {
-  const location = escapeHtml(p.locationLabel);
+  // VAL-NOTIF-019: Sanitize label before inserting into bracket prefix
+  const safeLabel = sanitizeLocationLabelForPrefix(p.locationLabel);
+  const location = escapeHtml(safeLabel);
   const reviewer = escapeHtml(p.reviewerName);
   const reviewBody = p.reviewText ? escapeHtml(truncate(p.reviewText, MAX_EMBED)) : '(no review text)';
   const preview = escapeHtml(truncate(p.responsePreview, MAX_EMBED));

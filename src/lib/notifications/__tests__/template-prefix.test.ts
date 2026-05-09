@@ -4,6 +4,7 @@
 // VAL-NOTIF-012: Email subject includes [locationLabel] prefix
 // VAL-NOTIF-013: Email body H1 includes location label
 // VAL-NOTIF-014: display_label is source; falls back to businesses.name when NULL
+// VAL-NOTIF-019: Template prefix escapes brackets, colons, long display_labels
 //
 // These tests verify the notification template prefix behavior where
 // the location's display_label (with name fallback) appears as a
@@ -12,6 +13,7 @@
 import { describe, it, expect } from 'vitest';
 import { formatApprovalTelegram, type TelegramApprovalParams } from '../channels/telegram-body';
 import { buildApprovalEmailHtml, type ApprovalEmailParams } from '../email/templates/approval';
+import { sanitizeLocationLabelForPrefix } from '../channels/template-prefix';
 
 // ── Telegram template prefix (VAL-NOTIF-011) ───────────────────────────
 
@@ -169,5 +171,132 @@ describe('display_label fallback to name (VAL-NOTIF-014)', () => {
       approvalUrl: 'https://app.repworth.net/approve/test',
     });
     expect(html).toContain('[Acme Inc]');
+  });
+});
+
+// ── VAL-NOTIF-019: Template prefix escapes brackets, colons, long labels ─
+
+describe('sanitizeLocationLabelForPrefix (VAL-NOTIF-019)', () => {
+  it('replaces brackets with parentheses to avoid nesting ambiguity', () => {
+    // "Downtown [Main]" → "Downtown (Main)" — the prefix is [sanitized] so
+    // it becomes "[Downtown (Main)]" instead of "[Downtown [Main]]"
+    expect(sanitizeLocationLabelForPrefix('Downtown [Main]')).toBe('Downtown (Main)');
+  });
+
+  it('handles multiple bracket pairs', () => {
+    expect(sanitizeLocationLabelForPrefix('West [Side] Cafe [Main]')).toBe('West (Side) Cafe (Main)');
+  });
+
+  it('handles closing bracket without matching opening', () => {
+    expect(sanitizeLocationLabelForPrefix('Location ]end')).toBe('Location )end');
+  });
+
+  it('handles opening bracket without matching closing', () => {
+    expect(sanitizeLocationLabelForPrefix('Location [start')).toBe('Location (start');
+  });
+
+  it('preserves colons in label (colons are safe in bracket prefix)', () => {
+    // Colons do not break the template structure — they're just content.
+    expect(sanitizeLocationLabelForPrefix('NYC: Downtown')).toBe('NYC: Downtown');
+  });
+
+  it('truncates labels longer than 30 characters', () => {
+    const long = 'A'.repeat(35);
+    const result = sanitizeLocationLabelForPrefix(long);
+    expect(result.length).toBeLessThanOrEqual(30);
+    expect(result).toContain('…');
+  });
+
+  it('does not truncate labels at exactly 30 characters', () => {
+    const exactly30 = 'A'.repeat(30);
+    expect(sanitizeLocationLabelForPrefix(exactly30)).toBe(exactly30);
+  });
+
+  it('does not truncate labels shorter than 30 characters', () => {
+    expect(sanitizeLocationLabelForPrefix('Short Name')).toBe('Short Name');
+  });
+
+  it('handles brackets AND truncation together', () => {
+    const long = 'A'.repeat(25) + ' [Main]';
+    const result = sanitizeLocationLabelForPrefix(long);
+    // Should be truncated to ≤ 30 chars AND brackets replaced
+    expect(result).toContain('(');
+    expect(result).not.toContain('[');
+    expect(result.length).toBeLessThanOrEqual(30);
+  });
+
+  it('preserves empty-ish labels gracefully', () => {
+    expect(sanitizeLocationLabelForPrefix('')).toBe('');
+  });
+});
+
+describe('VAL-NOTIF-019: Telegram prefix with special characters', () => {
+  function sample(overrides: Partial<TelegramApprovalParams> = {}): TelegramApprovalParams {
+    return {
+      locationLabel: 'Downtown Cafe',
+      reviewerName: 'Sarah K.',
+      starRating: 4,
+      reviewText: 'Great service!',
+      reviewDate: '2026-05-08',
+      responsePreview: 'Thanks!',
+      approvalUrl: 'https://app.repworth.net/approve/test',
+      approvalLinkId: '01932b55-5555-7f60-9abc-abcdefabcdef',
+      ...overrides,
+    };
+  }
+
+  it('brackets in label are replaced with parentheses, prefix renders correctly', () => {
+    // "Downtown [Main]" → sanitized to "Downtown (Main)" → prefix "[Downtown (Main)]"
+    const { text } = formatApprovalTelegram(sample({ locationLabel: 'Downtown [Main]' }));
+    expect(text).toContain('[Downtown (Main)]');
+    expect(text).not.toContain('[Downtown [Main]]');
+  });
+
+  it('colon in label does not break Telegram template', () => {
+    const { text } = formatApprovalTelegram(sample({ locationLabel: 'NYC: Downtown' }));
+    expect(text).toContain('[NYC: Downtown]');
+  });
+
+  it('long label is truncated in Telegram prefix', () => {
+    const long = 'A'.repeat(35);
+    const { text } = formatApprovalTelegram(sample({ locationLabel: long }));
+    // After sanitization + HTML escape, the prefix should not contain the full 35-char string
+    expect(text).toContain('…');
+  });
+});
+
+describe('VAL-NOTIF-019: Email prefix with special characters', () => {
+  function sample(overrides: Partial<ApprovalEmailParams> = {}): ApprovalEmailParams {
+    return {
+      to: 'owner@example.com',
+      from: 'RepWorth <notifications@example.com>',
+      locationLabel: 'Downtown Cafe',
+      businessName: 'Downtown Cafe LLC',
+      reviewerName: 'Sarah K.',
+      starRating: 4,
+      reviewText: 'Great!',
+      reviewDate: '2026-05-08',
+      responsePreview: 'Thanks!',
+      approvalUrl: 'https://app.repworth.net/approve/test',
+      ...overrides,
+    };
+  }
+
+  it('brackets in label are replaced with parentheses in email body', () => {
+    const html = buildApprovalEmailHtml(sample({ locationLabel: 'Downtown [Main]' }));
+    expect(html).toContain('[Downtown (Main)]');
+    expect(html).not.toContain('[Downtown [Main]]');
+  });
+
+  it('colon in label does not break email template', () => {
+    const html = buildApprovalEmailHtml(sample({ locationLabel: 'NYC: Downtown' }));
+    expect(html).toContain('[NYC: Downtown]');
+  });
+
+  it('long label is truncated in email prefix', () => {
+    const long = 'A'.repeat(35);
+    const html = buildApprovalEmailHtml(sample({ locationLabel: long }));
+    // The HTML should contain the truncated label in the prefix
+    expect(html).toContain('…');
   });
 });

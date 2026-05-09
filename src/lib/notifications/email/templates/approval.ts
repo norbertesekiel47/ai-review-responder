@@ -7,6 +7,7 @@
 // VAL-NOTIF-013: Body H1 includes locationLabel.
 // VAL-NOTIF-014: locationLabel is resolved at the data layer via
 //   getDisplayLabel({ display_label, name }) — display_label ?? name fallback.
+// VAL-NOTIF-019: Template prefix escapes brackets, colons, long display_labels.
 
 import { randomUUID } from 'node:crypto';
 import { isMockMode } from '@/lib/shared/mock-mode';
@@ -14,6 +15,7 @@ import { escapeHtml } from '@/lib/shared/html';
 import { getResend } from '../client';
 import { getEmailTags, type EmailCategory } from '../headers';
 import { LOG_PREFIX, renderStars, truncate } from './shared';
+import { sanitizeLocationLabelForPrefix } from '../../channels/template-prefix';
 
 export interface ApprovalEmailParams {
   to: string;
@@ -41,9 +43,11 @@ function formatDate(isoDate: string): string {
 }
 
 function buildApprovalEmailHtml(params: ApprovalEmailParams): string {
-  const { locationLabel, businessName, reviewerName, starRating, reviewText, reviewDate, responsePreview, approvalUrl } = params;
+  const { businessName, reviewerName, starRating, reviewText, reviewDate, responsePreview, approvalUrl } = params;
+  // VAL-NOTIF-019: Sanitize label before inserting into bracket prefix
+  const safeLabel = sanitizeLocationLabelForPrefix(params.locationLabel);
   const stars = renderStars(starRating);
-  const safeLocationLabel = escapeHtml(locationLabel);
+  const safeLocationLabel = escapeHtml(safeLabel);
   const safeName = escapeHtml(businessName);
   const safeReviewer = escapeHtml(reviewerName);
   const safeDate = escapeHtml(formatDate(reviewDate));
@@ -96,9 +100,12 @@ export { buildApprovalEmailHtml };
 export async function sendApprovalEmail(
   params: ApprovalEmailParams,
 ): Promise<{ messageId: string }> {
+  // VAL-NOTIF-019: Sanitize label for subject line and mock log
+  const safeLabel = sanitizeLocationLabelForPrefix(params.locationLabel);
+
   if (isMockMode()) {
     const mockId = `mock-${randomUUID()}`;
-    console.log(`${LOG_PREFIX} [MOCK] Approval email to=${params.to} subject="[${params.locationLabel}] New ${params.starRating}★ review needs approval" messageId=${mockId}\n  → /approve/[redacted]`);
+    console.log(`${LOG_PREFIX} [MOCK] Approval email to=${params.to} subject="[${safeLabel}] New ${params.starRating}★ review needs approval" messageId=${mockId}\n  → /approve/[redacted]`);
     return { messageId: mockId };
   }
 
@@ -113,7 +120,7 @@ export async function sendApprovalEmail(
   const { data, error } = await resend.emails.send({
     from: params.from,
     to: params.to,
-    subject: `[${params.locationLabel}] New ${params.starRating}★ review needs approval`,
+    subject: `[${safeLabel}] New ${params.starRating}★ review needs approval`,
     html,
     tags: getEmailTags(category),
   });
