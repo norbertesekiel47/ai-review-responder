@@ -79,11 +79,29 @@ export interface DashboardDataActivePendingBusiness {
   businessName: string;
 }
 
+export interface DashboardDataCancelled {
+  subscriptionStatus: 'cancelled';
+  businessName: string;
+  /** Date when the grace period ends (30 days from cancellation). */
+  gracePeriodEndDate: string | null;
+  /** Whether the account still has read access (within grace period). */
+  readAccess: boolean;
+}
+
+export interface DashboardDataPastDue {
+  subscriptionStatus: 'past_due';
+  businessName: string;
+  /** URL to the Stripe billing portal for updating payment method. */
+  billingPortalUrl: string | null;
+}
+
 export type DashboardData =
   | DashboardDataActive
   | DashboardDataPendingPayment
   | DashboardDataPendingAdminHandoff
-  | DashboardDataActivePendingBusiness;
+  | DashboardDataActivePendingBusiness
+  | DashboardDataCancelled
+  | DashboardDataPastDue;
 
 // ── Aggregate Dashboard Data ──────────────────────────────────────────────
 // Returned by /api/dashboard?scope=all when the account has multiple

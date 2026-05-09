@@ -8,6 +8,7 @@ import {
   PendingAdminHandoffScreen,
   PendingPaymentScreen,
 } from '@/components/dashboard/AccountStateScreens';
+import { CancelledBanner, PastDueBanner } from '@/components/dashboard/SubscriptionStatusBanner';
 import { ConnectGoogleBanner } from '@/components/dashboard/ConnectGoogleBanner';
 import { TopBar } from '@/components/dashboard/TopBar';
 import { KpiCards } from '@/components/dashboard/KpiCards';
@@ -127,6 +128,54 @@ export function DashboardContent() {
         <TopBar title="Dashboard" />
         <div className="content">
           <PendingPaymentScreen data={data} />
+        </div>
+      </>
+    );
+  }
+
+  // VAL-CROSS-011: Cancelled account — read-only banner, write actions disabled
+  if (data.subscriptionStatus === 'cancelled') {
+    const cancelledData = data as import('@/lib/dashboard/types').DashboardDataCancelled;
+    return (
+      <>
+        <TopBar title="Dashboard" />
+        <div className="content">
+          <CancelledBanner
+            businessName={cancelledData.businessName}
+            gracePeriodEndDate={cancelledData.gracePeriodEndDate}
+            readAccess={cancelledData.readAccess}
+          />
+          {/* Read access is still available during grace period */}
+          {cancelledData.readAccess && (
+            <div className="sub-status-banner__readonly-notice" style={{
+              padding: '10px 16px',
+              borderRadius: 8,
+              border: '1px solid #E5E7EB',
+              background: '#F9FAFB',
+              marginBottom: 14,
+              fontSize: 13,
+              color: '#6B7280',
+            }}>
+              You can still view your reviews and past replies, but all write actions are disabled.
+            </div>
+          )}
+        </div>
+      </>
+    );
+  }
+
+  // VAL-CROSS-012: Past-due account — payment warning banner, features continue
+  if (data.subscriptionStatus === 'past_due') {
+    const pastDueData = data as import('@/lib/dashboard/types').DashboardDataPastDue;
+    return (
+      <>
+        <TopBar title="Dashboard" subtitle="Payment overdue — please update your payment method" />
+        <div className="content">
+          <PastDueBanner
+            businessName={pastDueData.businessName}
+            billingPortalUrl={pastDueData.billingPortalUrl}
+          />
+          {/* During past_due grace period, dashboard features still work */}
         </div>
       </>
     );

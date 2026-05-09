@@ -474,6 +474,52 @@
 .banner-blue .banner-cta { background: var(--rw-blue-600); color: #fff; }
 .banner-blue .banner-cta:hover { background: var(--rw-blue-700); }
 
+/* ---------- Subscription status banners ---------- */
+.sub-status-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 18px;
+  border-radius: 10px;
+  border: 1px solid;
+  margin-bottom: 14px;
+  animation: slideIn 0.3s ease;
+}
+.sub-status-banner--cancelled {
+  border-color: #FECACA;
+  background: #FEF2F2;
+}
+.sub-status-banner--past-due {
+  border-color: #FDE68A;
+  background: #FFFBEB;
+}
+.sub-status-banner__icon {
+  width: 36px; height: 36px;
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.sub-status-banner--cancelled .sub-status-banner__icon {
+  background: #FECACA; color: #991B1B;
+}
+.sub-status-banner--past-due .sub-status-banner__icon {
+  background: #FDE68A; color: #92400E;
+}
+.sub-status-banner__content { flex: 1; min-width: 0; }
+.sub-status-banner__title {
+  font-weight: 600; font-size: 14px;
+}
+.sub-status-banner--cancelled .sub-status-banner__title { color: #991B1B; }
+.sub-status-banner--past-due .sub-status-banner__title { color: #92400E; }
+.sub-status-banner__body {
+  font-size: 13px; margin-top: 4px;
+}
+.sub-status-banner--cancelled .sub-status-banner__body { color: #991B1Bcc; }
+.sub-status-banner--past-due .sub-status-banner__body { color: #92400Ecc; }
+.sub-status-banner__link {
+  color: #1D4ED8; text-decoration: underline; font-weight: 500;
+}
+.sub-status-banner__link:hover { color: #1E40AF; }
 /* ---------- KPI grid ---------- */
 .kpi-grid {
   display: grid;

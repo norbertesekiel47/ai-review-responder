@@ -98,6 +98,7 @@ export interface LocationRow {
   is_primary: boolean;
   archived_at: Date | null;
   google_place_id: string | null;
+  google_place_address: string | null;
   created_at: Date;
 }
 
@@ -123,6 +124,7 @@ export function createLocationRow(
     is_primary: isPrimary,
     archived_at: overrides.archived_at ?? null,
     google_place_id: overrides.google_place_id ?? null,
+    google_place_address: overrides.google_place_address ?? null,
     created_at: overrides.created_at ?? (isPrimary
       ? new Date('2026-01-01')
       : new Date('2026-03-01')),

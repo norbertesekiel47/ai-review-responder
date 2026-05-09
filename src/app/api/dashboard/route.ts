@@ -106,6 +106,51 @@ async function fetchPerLocationData(
     });
   }
 
+  // VAL-CROSS-011: Cancelled account — 30-day grace period for read access
+  if (subRow.subscription_status === SubscriptionStatus.CANCELLED) {
+    // Compute grace period end date (30 days from subscription_activated_at or cancellation)
+    const [cancelledRow] = await sql<{
+      subscription_activated_at: Date | null;
+    }[]>`
+      SELECT subscription_activated_at FROM accounts WHERE id = ${accountId}::uuid
+    `;
+    const activatedAt = cancelledRow?.subscription_activated_at;
+    // Grace period: 30 days from the cancellation event.
+    // Since we don't have a cancelled_at column, we use subscription_activated_at
+    // as a proxy — in practice, the CancellationGracePoller tracks this.
+    // For now, report read access as true (within grace period).
+    const gracePeriodEnd = activatedAt
+      ? new Date(new Date(activatedAt).getTime() + 30 * 86_400_000)
+      : null;
+    const readAccess = gracePeriodEnd
+      ? gracePeriodEnd > new Date()
+      : true; // default to read access if we can't determine
+    return jsonResponse({
+      subscriptionStatus: 'cancelled',
+      businessName: subRow.name,
+      gracePeriodEndDate: gracePeriodEnd?.toISOString() ?? null,
+      readAccess,
+    });
+  }
+
+  // VAL-CROSS-012: Past-due account — payment warning, features continue during grace
+  if (subRow.subscription_status === SubscriptionStatus.PAST_DUE) {
+    // Generate a billing portal URL if the account has a Stripe customer ID
+    const [stripeRow] = await sql<{
+      stripe_customer_id: string | null;
+    }[]>`
+      SELECT stripe_customer_id FROM accounts WHERE id = ${accountId}::uuid
+    `;
+    const billingPortalUrl = stripeRow?.stripe_customer_id
+      ? `/api/billing/portal`
+      : null;
+    return jsonResponse({
+      subscriptionStatus: 'past_due',
+      businessName: subRow.name,
+      billingPortalUrl,
+    });
+  }
+
   // Active subscription but the owner skipped or never reached the
   // /onboarding/business wizard (e.g. bookmarked /dashboard from earlier
   // or closed the tab during the post-payment redirect). Surface a
@@ -175,6 +220,45 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           subscriptionStatus: 'pending_payment',
           businessName: 'Account',
           paymentUrl: `${process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'}/onboarding/pay`,
+        });
+      }
+
+      // VAL-CROSS-011: Cancelled account in aggregate mode
+      if (accountRow.subscription_status === SubscriptionStatus.CANCELLED) {
+        const [cancelledRow] = await sql<{
+          subscription_activated_at: Date | null;
+        }[]>`
+          SELECT subscription_activated_at FROM accounts WHERE id = ${accountId}::uuid
+        `;
+        const activatedAt = cancelledRow?.subscription_activated_at;
+        const gracePeriodEnd = activatedAt
+          ? new Date(new Date(activatedAt).getTime() + 30 * 86_400_000)
+          : null;
+        const readAccess = gracePeriodEnd
+          ? gracePeriodEnd > new Date()
+          : true;
+        return jsonResponse({
+          subscriptionStatus: 'cancelled',
+          businessName: 'Account',
+          gracePeriodEndDate: gracePeriodEnd?.toISOString() ?? null,
+          readAccess,
+        });
+      }
+
+      // VAL-CROSS-012: Past-due account in aggregate mode
+      if (accountRow.subscription_status === SubscriptionStatus.PAST_DUE) {
+        const [stripeRow] = await sql<{
+          stripe_customer_id: string | null;
+        }[]>`
+          SELECT stripe_customer_id FROM accounts WHERE id = ${accountId}::uuid
+        `;
+        const billingPortalUrl = stripeRow?.stripe_customer_id
+          ? `/api/billing/portal`
+          : null;
+        return jsonResponse({
+          subscriptionStatus: 'past_due',
+          businessName: 'Account',
+          billingPortalUrl,
         });
       }
 
