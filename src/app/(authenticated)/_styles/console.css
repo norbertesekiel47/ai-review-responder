@@ -74,6 +74,138 @@
   text-overflow: ellipsis;
 }
 
+/* ---------- Location Picker ---------- */
+.loc-picker {
+  position: relative;
+  margin-top: 2px;
+}
+.loc-picker--compact {
+  margin-top: 0;
+}
+/* Hide mobile LocationPicker in TopBar on desktop (sidebar has the picker) */
+.topbar-loc-picker {
+  display: none;
+}
+.loc-picker-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px 3px 6px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  transition: background 160ms var(--rw-ease), border-color 160ms var(--rw-ease);
+  max-width: 200px;
+  font-family: var(--rw-font-body);
+}
+.loc-picker-trigger:hover {
+  background: #F3F4F6;
+  border-color: var(--rw-app-border);
+}
+.loc-picker-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--rw-app-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
+}
+.loc-picker--compact .loc-picker-label {
+  font-size: 13px;
+  max-width: 120px;
+}
+.loc-picker-chevron {
+  display: inline-flex;
+  color: var(--rw-app-text-muted);
+  transition: transform 200ms var(--rw-ease);
+  flex-shrink: 0;
+}
+.loc-picker-chevron--open {
+  transform: rotate(180deg);
+}
+
+.loc-picker-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 200px;
+  background: #fff;
+  border: 1px solid var(--rw-app-border);
+  border-radius: var(--rw-radius-md);
+  box-shadow: var(--rw-shadow);
+  z-index: 40;
+  padding: 6px 0;
+  animation: fadeUp 200ms var(--rw-ease) both;
+}
+.loc-picker--compact .loc-picker-dropdown {
+  left: auto;
+  right: 0;
+  min-width: 180px;
+}
+.loc-picker-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 14px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--rw-app-text);
+  text-align: left;
+  transition: background 120ms var(--rw-ease);
+  text-decoration: none;
+  font-family: var(--rw-font-body);
+}
+.loc-picker-item:hover {
+  background: #F3F4F6;
+}
+.loc-picker-item--active {
+  color: var(--rw-blue-600);
+  font-weight: 600;
+}
+.loc-picker-item--active:hover {
+  background: var(--rw-blue-50);
+}
+.loc-picker-item-label {
+  flex: 1;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.loc-picker-item-check {
+  color: var(--rw-blue-600);
+  flex-shrink: 0;
+  display: inline-flex;
+}
+.loc-picker-primary-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--rw-teal);
+  flex-shrink: 0;
+}
+.loc-picker-item--cta {
+  color: var(--rw-blue-600);
+  font-weight: 600;
+}
+.loc-picker-item--cta:hover {
+  background: var(--rw-blue-50);
+}
+.loc-picker-divider {
+  height: 1px;
+  background: var(--rw-app-border-soft);
+  margin: 4px 0;
+}
+
 .nav-section {
   display: flex;
   flex-direction: column;
@@ -785,6 +917,10 @@
     min-width: 16px;
     line-height: 14px;
     height: 16px;
+  }
+  /* Mobile LocationPicker in TopBar */
+  .topbar-loc-picker {
+    display: block;
   }
 }
 

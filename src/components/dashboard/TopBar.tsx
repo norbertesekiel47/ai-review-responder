@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Icon } from './Icon';
+import { LocationPicker } from './LocationPicker';
+import { useLocationScope } from '@/contexts/LocationContext';
 
 interface Props {
   title: string;
@@ -13,9 +15,18 @@ interface Props {
   refresh?: () => void | Promise<void>;
   /** Right-side link instead of refresh (used on /past-replies and /settings). */
   rightLink?: { href: string; label: string };
+  /** Business name fallback for single-location (from server). */
+  businessName?: string;
 }
 
-export function TopBar({ title, subtitle, showLive, refresh, rightLink }: Props) {
+export function TopBar({
+  title,
+  subtitle,
+  showLive,
+  refresh,
+  rightLink,
+  businessName,
+}: Props) {
   const [secondsToRefresh, setSecondsToRefresh] = useState(60);
   const [refreshing, setRefreshing] = useState(false);
   const secondsToRefreshRef = useRef(60);
@@ -24,9 +35,10 @@ export function TopBar({ title, subtitle, showLive, refresh, rightLink }: Props)
   const inflightRef = useRef(false);
   const spinTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Read from LocationContext — on mobile, TopBar shows the LocationPicker
+  const { isMultiLocation } = useLocationScope();
+
   const doRefresh = useCallback(async (silent = false) => {
-    // In-flight guard: ignore overlapping requests so a slow /api/dashboard
-    // can't double-fire when the 60s tick lands during a manual click.
     if (inflightRef.current) return;
     if (!refreshRef.current) return;
     inflightRef.current = true;
@@ -35,9 +47,6 @@ export function TopBar({ title, subtitle, showLive, refresh, rightLink }: Props)
       await refreshRef.current();
     } finally {
       inflightRef.current = false;
-      // Match the design's spin duration regardless of API speed. Track the
-      // timeout id so we can clear it on unmount and avoid setState-after-
-      // unmount warnings.
       if (spinTimeoutRef.current) clearTimeout(spinTimeoutRef.current);
       spinTimeoutRef.current = setTimeout(() => setRefreshing(false), 800);
       if (!silent) {
@@ -68,6 +77,13 @@ export function TopBar({ title, subtitle, showLive, refresh, rightLink }: Props)
         <div className="page-title">{title}</div>
         {subtitle && <div className="page-sub">{subtitle}</div>}
       </div>
+      {/* Mobile LocationPicker — rendered between title and spacer on mobile.
+          On desktop (sidebar visible), this is hidden by CSS. */}
+      {isMultiLocation && (
+        <div className="topbar-loc-picker">
+          <LocationPicker compact singleLocationLabel={businessName} />
+        </div>
+      )}
       <div className="topbar-spacer" />
       {showLive && (
         <>

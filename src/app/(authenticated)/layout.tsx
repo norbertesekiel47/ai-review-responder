@@ -6,9 +6,13 @@ import { sql } from '@/lib/db/server';
 import { Sidebar } from '@/components/dashboard/Sidebar';
 import { MobileTabBar } from '@/components/dashboard/MobileTabBar';
 import { PendingCountProvider } from '@/components/dashboard/PendingCountContext';
+import { AuthenticatedProviders } from '@/components/dashboard/AuthenticatedProviders';
 import { asAccountId, asLocationId } from '@/lib/shared/ids';
 import { getRequestScope } from '@/lib/auth/get-request-scope';
+import { getLocationsForAccount } from '@/lib/locations/repo';
 import { getDisplayLabel } from '@/lib/locations/display-label';
+import type { LocationScope } from '@/contexts/LocationContext';
+import type { LocationId } from '@/lib/shared/ids';
 import './_styles/tokens.css';
 import './_styles/console.css';
 import './_styles/past-replies.css';
@@ -69,19 +73,31 @@ export default async function AuthenticatedLayout({
 
   if (!appUser?.account_id) redirect('/admin/login');
 
+  const accountId = asAccountId(appUser.account_id);
+
+  // Determine multi-location state and fetch all active locations
+  const multiLocationEnabled = process.env.MULTI_LOCATION_ENABLED === 'true';
+
   // Reuse getRequestScope() for cookie validation + primary fallback
   // instead of duplicating the same validation logic inline.
   const cookieValue = cookieStore.get(LOCATION_SCOPE_COOKIE)?.value ?? null;
   const scope = await getRequestScope(
-    asAccountId(appUser.account_id),
+    accountId,
     cookieValue ? asLocationId(cookieValue) : null,
   );
   const currentLocationId = scope.currentLocationId;
 
+  // Determine initial client-side scope from cookie
+  let initialScope: LocationScope = currentLocationId;
+  if (multiLocationEnabled && cookieValue === 'all') {
+    initialScope = 'all';
+  }
+
+  // Fetch all active locations for this account in parallel with other queries
   let businessName = '';
   let initialPendingCount = 0;
-  // Run the two reads in parallel — they're independent.
-  const [bizRows, pendingRows] = await Promise.all([
+
+  const [bizRows, pendingRows, allLocations] = await Promise.all([
     sql<{ name: string; display_label: string | null }[]>`
       SELECT name, display_label FROM businesses WHERE id = ${currentLocationId} LIMIT 1
     `,
@@ -91,9 +107,26 @@ export default async function AuthenticatedLayout({
       WHERE business_id = ${currentLocationId}
         AND status = 'pending_approval'
     `,
+    multiLocationEnabled
+      ? getLocationsForAccount(accountId)
+      : Promise.resolve([]),
   ]);
+
   businessName = bizRows[0] ? getDisplayLabel(bizRows[0]) : '';
   initialPendingCount = pendingRows[0]?.count ?? 0;
+
+  // Build the locations list for the client-side LocationContext
+  const locationInfos = allLocations.map((loc) => ({
+    id: loc.id as LocationId,
+    name: loc.name,
+    displayLabel: loc.display_label,
+    isPrimary: loc.is_primary,
+  }));
+
+  // For multi-location accounts, default to "All Locations" when no valid cookie
+  if (multiLocationEnabled && locationInfos.length > 1 && !cookieValue) {
+    initialScope = 'all';
+  }
 
   const ownerName = appUser?.owner_name ?? '';
   const ownerEmail = appUser?.email ?? authUser.email ?? '';
@@ -101,18 +134,24 @@ export default async function AuthenticatedLayout({
 
   return (
     <div className={`rw-console ${plusJakarta.variable} ${dmSans.variable}`}>
-      <PendingCountProvider initialCount={initialPendingCount}>
-        <div className="shell">
-          <Sidebar
-            businessName={businessName}
-            ownerName={ownerName}
-            ownerEmail={ownerEmail}
-            pastRepliesEnabled={pastRepliesEnabled}
-          />
-          <div className="main">{children}</div>
-        </div>
-        <MobileTabBar pastRepliesEnabled={pastRepliesEnabled} />
-      </PendingCountProvider>
+      <AuthenticatedProviders
+        locations={locationInfos}
+        initialScope={initialScope}
+        multiLocationEnabled={multiLocationEnabled}
+      >
+        <PendingCountProvider initialCount={initialPendingCount}>
+          <div className="shell">
+            <Sidebar
+              businessName={businessName}
+              ownerName={ownerName}
+              ownerEmail={ownerEmail}
+              pastRepliesEnabled={pastRepliesEnabled}
+            />
+            <div className="main">{children}</div>
+          </div>
+          <MobileTabBar pastRepliesEnabled={pastRepliesEnabled} />
+        </PendingCountProvider>
+      </AuthenticatedProviders>
     </div>
   );
 }

@@ -5,6 +5,8 @@ import { useRouter, usePathname } from 'next/navigation';
 import { useState } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/db/browser';
 import { Icon } from './Icon';
+import { LocationPicker } from './LocationPicker';
+import { useLocationScope } from '@/contexts/LocationContext';
 
 interface Props {
   businessName: string;
@@ -22,11 +24,18 @@ function deriveInitials(name: string, email: string): string {
   return (email[0] ?? '?').toUpperCase();
 }
 
-export function Sidebar({ businessName, ownerName, ownerEmail, pastRepliesEnabled }: Props) {
+export function Sidebar({
+  businessName,
+  ownerName,
+  ownerEmail,
+  pastRepliesEnabled,
+}: Props) {
   const router = useRouter();
   const pathname = usePathname() ?? '';
   const [signingOut, setSigningOut] = useState(false);
   const [signOutError, setSignOutError] = useState(false);
+
+  const { isMultiLocation } = useLocationScope();
 
   async function handleSignOut() {
     setSigningOut(true);
@@ -62,7 +71,11 @@ export function Sidebar({ businessName, ownerName, ownerEmail, pastRepliesEnable
         <div className="brand-mark" />
         <div style={{ minWidth: 0, flex: 1 }}>
           <div className="brand-name">RepWorth</div>
-          <div className="brand-biz">{businessName}</div>
+          {isMultiLocation ? (
+            <LocationPicker singleLocationLabel={businessName} />
+          ) : (
+            <div className="brand-biz">{businessName}</div>
+          )}
         </div>
       </div>
 
