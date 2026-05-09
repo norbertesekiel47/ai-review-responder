@@ -235,8 +235,8 @@ export default function BusinessDetailPage() {
                 <tbody className="divide-y divide-gray-50">
                   {approvalAuditLog.slice(0, 10).map((entry) => (
                     <tr key={entry.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-2 text-gray-700 capitalize">{entry.eventType.replace(/_/g, ' ')}</td>
-                      <td className="px-4 py-2 text-gray-500">{entry.actor ?? '—'}</td>
+                      <td className="px-4 py-2 text-gray-700 capitalize">{entry.action.replace(/_/g, ' ')}</td>
+                      <td className="px-4 py-2 text-gray-500">{entry.actorUserId ?? '—'}</td>
                       <td className="px-4 py-2 text-gray-500 whitespace-nowrap">{new Date(entry.createdAt).toLocaleString()}</td>
                     </tr>
                   ))}

@@ -71,9 +71,9 @@ export interface AccountContext {
 
 export interface ApprovalAuditLogEntry {
   id: string;
-  approvalLinkId: string;
-  eventType: string;
-  actor: string | null;
+  responseId: string;
+  action: string;
+  actorUserId: string | null;
   createdAt: string;
 }
 

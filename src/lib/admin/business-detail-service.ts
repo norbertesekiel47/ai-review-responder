@@ -229,14 +229,14 @@ export async function getBusinessDetail(
     // the account for admin visibility.
     sql<{
       id: string;
-      approval_link_id: string;
-      event_type: string;
-      actor: string | null;
+      response_id: string;
+      action: string;
+      actor_user_id: string | null;
       created_at: Date;
       business_id: string;
       account_id: string;
     }[]>`
-      SELECT id, approval_link_id, event_type, actor, created_at, business_id, account_id
+      SELECT id, response_id, action, actor_user_id, created_at, business_id, account_id
       FROM approval_audit_log
       WHERE account_id = ${business.account_id}
       ORDER BY created_at DESC
@@ -353,9 +353,9 @@ export async function getBusinessDetail(
     ),
     approvalAuditLog: approvalAuditRows.map((row) => ({
       id: row.id,
-      approvalLinkId: row.approval_link_id,
-      eventType: row.event_type,
-      actor: row.actor,
+      responseId: row.response_id,
+      action: row.action,
+      actorUserId: row.actor_user_id,
       createdAt: row.created_at.toISOString(),
     })),
     accountAuditLog: accountAuditRows.map((row) => ({

@@ -248,9 +248,9 @@ describe('Admin denormalized account_id queries', () => {
       ]);
       mockSqlResults.push([{
         id: 'audit-1',
-        approval_link_id: 'link-1',
-        event_type: 'approved',
-        actor: 'owner',
+        response_id: 'resp-1',
+        action: 'approved',
+        actor_user_id: 'owner-1',
         created_at: new Date(),
         business_id: 'loc-1',
         account_id: 'acct-1',
@@ -276,7 +276,7 @@ describe('Admin denormalized account_id queries', () => {
       // Audit logs should be present
       expect(result!.approvalAuditLog).toBeDefined();
       expect(result!.approvalAuditLog.length).toBe(1);
-      expect(result!.approvalAuditLog[0]!.eventType).toBe('approved');
+      expect(result!.approvalAuditLog[0]!.action).toBe('approved');
 
       expect(result!.accountAuditLog).toBeDefined();
       expect(result!.accountAuditLog.length).toBe(1);
