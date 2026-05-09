@@ -8,7 +8,8 @@ import {
 } from '../unique-violation';
 
 const PG_UNIQUE_VIOLATION = '23505';
-const PARTIAL_INDEX = 'channel_enrollments_one_mobile_per_biz';
+const OLD_CONSTRAINT = 'channel_enrollments_one_mobile_per_biz';
+const NEW_CONSTRAINT = 'channel_enrollments_one_mobile_per_scope';
 
 function pgError(code: string, constraintName?: string): Error {
   // Postgres.js attaches `code` and `constraint_name` directly on Error
@@ -23,8 +24,12 @@ function pgError(code: string, constraintName?: string): Error {
 }
 
 describe('isMultipleMobileChannelsError', () => {
-  it('returns true for 23505 + matching constraint name', () => {
-    expect(isMultipleMobileChannelsError(pgError(PG_UNIQUE_VIOLATION, PARTIAL_INDEX))).toBe(true);
+  it('returns true for 23505 + old constraint name (channel_enrollments_one_mobile_per_biz)', () => {
+    expect(isMultipleMobileChannelsError(pgError(PG_UNIQUE_VIOLATION, OLD_CONSTRAINT))).toBe(true);
+  });
+
+  it('returns true for 23505 + new constraint name (channel_enrollments_one_mobile_per_scope)', () => {
+    expect(isMultipleMobileChannelsError(pgError(PG_UNIQUE_VIOLATION, NEW_CONSTRAINT))).toBe(true);
   });
 
   it('returns false for 23505 + different constraint name', () => {
@@ -36,7 +41,7 @@ describe('isMultipleMobileChannelsError', () => {
   });
 
   it('returns false for non-23505 errors', () => {
-    expect(isMultipleMobileChannelsError(pgError('40001', PARTIAL_INDEX))).toBe(false);
+    expect(isMultipleMobileChannelsError(pgError('40001', OLD_CONSTRAINT))).toBe(false);
   });
 
   it('returns false for plain Error', () => {
@@ -52,8 +57,13 @@ describe('isMultipleMobileChannelsError', () => {
 });
 
 describe('classifyEnrollmentError', () => {
-  it('throws MultipleMobileChannelsError on 23505 + matching constraint', () => {
-    expect(() => classifyEnrollmentError(pgError(PG_UNIQUE_VIOLATION, PARTIAL_INDEX)))
+  it('throws MultipleMobileChannelsError on 23505 + old constraint name', () => {
+    expect(() => classifyEnrollmentError(pgError(PG_UNIQUE_VIOLATION, OLD_CONSTRAINT)))
+      .toThrow(MultipleMobileChannelsError);
+  });
+
+  it('throws MultipleMobileChannelsError on 23505 + new constraint name', () => {
+    expect(() => classifyEnrollmentError(pgError(PG_UNIQUE_VIOLATION, NEW_CONSTRAINT)))
       .toThrow(MultipleMobileChannelsError);
   });
 
@@ -63,7 +73,7 @@ describe('classifyEnrollmentError', () => {
   });
 
   it('rethrows non-23505 errors unchanged', () => {
-    const original = pgError('40001', PARTIAL_INDEX);
+    const original = pgError('40001', OLD_CONSTRAINT);
     expect(() => classifyEnrollmentError(original)).toThrow(original);
   });
 

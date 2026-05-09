@@ -67,7 +67,7 @@ describe('startTelegramEnrollment', () => {
     expect(tx).toHaveBeenCalledTimes(1); // only the SELECT, no UPDATE
   });
 
-  it('throws MultipleMobileChannelsError on 23505 + matching constraint', async () => {
+  it('throws MultipleMobileChannelsError on 23505 + matching constraint (old name)', async () => {
     const err = new Error('duplicate key') as Error & { code: string; constraint_name: string };
     err.code = '23505';
     err.constraint_name = 'channel_enrollments_one_mobile_per_biz';
@@ -77,6 +77,19 @@ describe('startTelegramEnrollment', () => {
     const { MultipleMobileChannelsError } = await import('../unique-violation');
     await expect(
       startTelegramEnrollment(tx as never, 'biz-123', 'acct-456', 'f'.repeat(64), new Date()),
+    ).rejects.toThrow(MultipleMobileChannelsError);
+  });
+
+  it('throws MultipleMobileChannelsError on 23505 + new constraint name (channel_enrollments_one_mobile_per_scope)', async () => {
+    const err = new Error('duplicate key') as Error & { code: string; constraint_name: string };
+    err.code = '23505';
+    err.constraint_name = 'channel_enrollments_one_mobile_per_scope';
+    tx.mockResolvedValueOnce([]); // SELECT
+    tx.mockRejectedValueOnce(err); // INSERT throws
+    const { startTelegramEnrollment } = await import('../telegram-enrollment');
+    const { MultipleMobileChannelsError } = await import('../unique-violation');
+    await expect(
+      startTelegramEnrollment(tx as never, 'biz-123', 'acct-456', 'f2'.repeat(64), new Date()),
     ).rejects.toThrow(MultipleMobileChannelsError);
   });
 

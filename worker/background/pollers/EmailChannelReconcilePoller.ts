@@ -15,9 +15,11 @@ import { v7 as uuidv7 } from 'uuid';
  * and silently drops every approval email — exactly the B10 failure mode.
  *
  * This poller is the durable retry. It scans `active`-subscription owners
- * who lack a verified email enrollment and inserts one. Idempotent via the
- * existing partial-unique constraint on (business_id, channel) WHERE
- * archived_at IS NULL.
+ * who lack a verified email enrollment and inserts one. Idempotent via a
+ * select-then-insert transaction pattern inside `sql.begin()`: first SELECT
+ * for an existing enrollment, then INSERT only if not found. Concurrent
+ * INSERT races produce a 23505 unique violation which is caught and treated
+ * as benign (same semantics as the old ON CONFLICT DO NOTHING).
  *
  * After migration 034, the candidate query joins via users.account_id and
  * reads subscription_status from accounts (not businesses). The INSERT
@@ -128,13 +130,36 @@ async function runOnceInner(
 
   for (const row of candidates) {
     try {
-      const result = await sql`
-        INSERT INTO channel_enrollments (id, account_id, business_id, channel, handle, status, verified_at)
-        VALUES (${uuidv7()}, ${row.account_id}, ${row.business_id}, 'email', ${row.owner_email}, 'verified', NOW())
-        ON CONFLICT (business_id, channel) WHERE archived_at IS NULL DO NOTHING
-      `;
-      // result.count === 1 → inserted; 0 → another writer raced us, that's fine
-      if (result.count > 0) {
+      // Use sql.begin() for a select-then-insert transaction pattern.
+      // The old ON CONFLICT (business_id, channel) WHERE archived_at IS NULL
+      // targeted the dropped channel_enrollments_business_channel_active_key
+      // index. Postgres cannot target expression-based unique indexes (which
+      // use COALESCE) with ON CONFLICT, so we use a transaction instead:
+      // first SELECT for an existing enrollment, then INSERT only if not found.
+      // The transaction serializes the check+insert so that a concurrent
+      // writer inserting the same row will either be visible to our SELECT
+      // (and we skip) or will conflict on the unique index (and we catch
+      // the 23505 as a benign race, same as the old ON CONFLICT DO NOTHING).
+      const wasInserted = await sql.begin(async (tx) => {
+        const existing = await tx<{ id: string }[]>`
+          SELECT id FROM channel_enrollments
+          WHERE business_id = ${row.business_id}
+            AND channel = 'email'
+            AND archived_at IS NULL
+        `;
+        if (existing.length > 0) {
+          // Another writer (verify-otp, concurrent reconcile) already created
+          // an active email enrollment — skip. This is the same semantics as
+          // the old ON CONFLICT DO NOTHING.
+          return false;
+        }
+        await tx`
+          INSERT INTO channel_enrollments (id, account_id, business_id, channel, handle, status, verified_at)
+          VALUES (${uuidv7()}, ${row.account_id}, ${row.business_id}, 'email', ${row.owner_email}, 'verified', NOW())
+        `;
+        return true;
+      });
+      if (wasInserted) {
         inserted++;
         // VAL-NOTIF-009: Invalidate cache on channel_enrollments writes
         try {
@@ -154,6 +179,14 @@ async function runOnceInner(
         );
       }
     } catch (err) {
+      // A 23505 unique violation from a concurrent INSERT racing our
+      // transaction is benign — the row exists, which is the desired end
+      // state. Count it as a non-insert, not a failure.
+      const pg = err as { code?: string };
+      if (pg?.code === '23505') {
+        // Benign race — concurrent writer won. Same as ON CONFLICT DO NOTHING.
+        continue;
+      }
       failed++;
       logger.error(
         `INSERT failed for business ${row.business_id}: ${err instanceof Error ? err.message : err}`,

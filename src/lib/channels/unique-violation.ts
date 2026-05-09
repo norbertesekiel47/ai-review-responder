@@ -1,11 +1,13 @@
 // src/lib/channels/unique-violation.ts
 //
 // Typed errors + Postgres 23505 detector for the multi-channel enrollment
-// surface (Phase 4, migration 027). The shared transaction helpers and route
-// handlers use `classifyEnrollmentError(err)` to convert raw Postgres errors
-// into typed exceptions:
+// surface (Phase 4, migration 027 → migration 034). The shared transaction
+// helpers and route handlers use `classifyEnrollmentError(err)` to convert
+// raw Postgres errors into typed exceptions:
 //
-//   - 23505 + constraint_name='channel_enrollments_one_mobile_per_biz'
+//   - 23505 + constraint_name matching MOBILE_CONSTRAINT_NAMES
+//     (either 'channel_enrollments_one_mobile_per_biz' or
+//      'channel_enrollments_one_mobile_per_scope')
 //     → MultipleMobileChannelsError (route maps to 409)
 //   - 23505 + ANY other constraint name → EnrollmentDatabaseError (route
 //     maps to 500 with no body leakage of constraint_name)
@@ -14,7 +16,16 @@
 // See docs/superpowers/specs/2026-04-28-phase-4-owner-channel-dashboard-design.md §6.1 row 13.
 
 const PG_UNIQUE_VIOLATION = '23505';
-const ONE_MOBILE_CONSTRAINT = 'channel_enrollments_one_mobile_per_biz';
+
+// Migration 027 created channel_enrollments_one_mobile_per_biz (per-business).
+// Migration 034 dropped it and created channel_enrollments_one_mobile_per_scope
+// (per-account+scope). Both names map to MultipleMobileChannelsError so that
+// the transition period — where either constraint could fire — produces 409
+// instead of 500.
+const MOBILE_CONSTRAINT_NAMES = new Set([
+  'channel_enrollments_one_mobile_per_biz',    // pre-migration-034 (dropped)
+  'channel_enrollments_one_mobile_per_scope',  // post-migration-034 (current)
+]);
 
 export class MultipleMobileChannelsError extends Error {
   constructor() {
@@ -45,7 +56,9 @@ function asPostgresError(err: unknown): PostgresErrorShape | null {
 export function isMultipleMobileChannelsError(err: unknown): boolean {
   const pg = asPostgresError(err);
   if (!pg) return false;
-  return pg.code === PG_UNIQUE_VIOLATION && pg.constraint_name === ONE_MOBILE_CONSTRAINT;
+  return pg.code === PG_UNIQUE_VIOLATION
+    && typeof pg.constraint_name === 'string'
+    && MOBILE_CONSTRAINT_NAMES.has(pg.constraint_name);
 }
 
 /**
@@ -55,7 +68,7 @@ export function isMultipleMobileChannelsError(err: unknown): boolean {
 export function classifyEnrollmentError(err: unknown): never {
   const pg = asPostgresError(err);
   if (pg && pg.code === PG_UNIQUE_VIOLATION) {
-    if (pg.constraint_name === ONE_MOBILE_CONSTRAINT) {
+    if (typeof pg.constraint_name === 'string' && MOBILE_CONSTRAINT_NAMES.has(pg.constraint_name)) {
       throw new MultipleMobileChannelsError();
     }
     throw new EnrollmentDatabaseError();
