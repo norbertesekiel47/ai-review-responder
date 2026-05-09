@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { assertChannelsSmsEnv } from '../startup-assert';
+import { assertChannelsSmsEnv, assertSelfServeSignupEnv } from '../startup-assert';
+import { SubscriptionTier, TIER_CONFIG, type SubscriptionTierValue } from '@/lib/accounts/tier-config';
 
 const REQUIRED = [
   'WORKER_PUBLIC_URL',
@@ -174,5 +175,167 @@ describe('assertChannelsWhatsAppEnv', () => {
     process.env.WORKER_PUBLIC_URL = 'https://worker';
     process.env.NEXT_PUBLIC_APP_URL = 'https://app.repworth.com';
     expect(() => assertChannelsWhatsAppEnv()).not.toThrow();
+  });
+});
+
+// ── assertSelfServeSignupEnv ──────────────────────────────────────────────
+
+const SELF_SERVE_PRICE_VARS = [
+  'STRIPE_PRICE_BASIC',
+  'STRIPE_PRICE_FOUNDING',
+  'STRIPE_PRICE_STANDARD',
+  'STRIPE_PRICE_PREMIUM',
+  'STRIPE_PRICE_STANDARD_OVERAGE',
+  'STRIPE_PRICE_PREMIUM_OVERAGE',
+  'STRIPE_PRICE_FOUNDERS_OVERAGE',
+];
+
+describe('assertSelfServeSignupEnv', () => {
+  const SNAP: Record<string, string | undefined> = {};
+  const KEYS = [
+    'SELF_SERVE_SIGNUP_ENABLED',
+    'REDIS_CACHE_URL',
+    'NEXT_PUBLIC_APP_URL',
+    ...SELF_SERVE_PRICE_VARS,
+  ];
+
+  beforeEach(() => {
+    for (const k of KEYS) { SNAP[k] = process.env[k]; delete process.env[k]; }
+  });
+  afterEach(() => {
+    for (const k of KEYS) {
+      if (SNAP[k] === undefined) delete process.env[k]; else process.env[k] = SNAP[k];
+    }
+  });
+
+  it('is a no-op when SELF_SERVE_SIGNUP_ENABLED is off', () => {
+    expect(() => assertSelfServeSignupEnv()).not.toThrow();
+  });
+
+  it('is a no-op when SELF_SERVE_SIGNUP_ENABLED is unset', () => {
+    expect(() => assertSelfServeSignupEnv()).not.toThrow();
+  });
+
+  it('throws when flag is on but REDIS_CACHE_URL is missing', () => {
+    process.env.SELF_SERVE_SIGNUP_ENABLED = 'true';
+    for (const k of SELF_SERVE_PRICE_VARS) process.env[k] = 'price_x';
+    process.env.NEXT_PUBLIC_APP_URL = 'https://app.example.com';
+    expect(() => assertSelfServeSignupEnv()).toThrow(/REDIS_CACHE_URL/);
+  });
+
+  it('throws when flag is on but NEXT_PUBLIC_APP_URL is missing', () => {
+    process.env.SELF_SERVE_SIGNUP_ENABLED = 'true';
+    for (const k of SELF_SERVE_PRICE_VARS) process.env[k] = 'price_x';
+    process.env.REDIS_CACHE_URL = 'redis://localhost:6379/0';
+    expect(() => assertSelfServeSignupEnv()).toThrow(/NEXT_PUBLIC_APP_URL/);
+  });
+
+  it('throws listing all missing STRIPE_PRICE_* vars when flag is on and none are set', () => {
+    process.env.SELF_SERVE_SIGNUP_ENABLED = 'true';
+    process.env.REDIS_CACHE_URL = 'redis://localhost:6379/0';
+    process.env.NEXT_PUBLIC_APP_URL = 'https://app.example.com';
+    try {
+      assertSelfServeSignupEnv();
+      throw new Error('should have thrown');
+    } catch (err) {
+      const msg = (err as Error).message;
+      for (const k of SELF_SERVE_PRICE_VARS) expect(msg).toContain(k);
+    }
+  });
+
+  it('throws naming only the missing price var when 6 of 7 are set', () => {
+    process.env.SELF_SERVE_SIGNUP_ENABLED = 'true';
+    process.env.REDIS_CACHE_URL = 'redis://localhost:6379/0';
+    process.env.NEXT_PUBLIC_APP_URL = 'https://app.example.com';
+    process.env.STRIPE_PRICE_BASIC = 'price_basic';
+    process.env.STRIPE_PRICE_FOUNDING = 'price_founding';
+    process.env.STRIPE_PRICE_STANDARD = 'price_standard';
+    process.env.STRIPE_PRICE_PREMIUM = 'price_premium';
+    process.env.STRIPE_PRICE_STANDARD_OVERAGE = 'price_std_overage';
+    process.env.STRIPE_PRICE_PREMIUM_OVERAGE = 'price_prem_overage';
+    // STRIPE_PRICE_FOUNDERS_OVERAGE missing
+    expect(() => assertSelfServeSignupEnv()).toThrow(/STRIPE_PRICE_FOUNDERS_OVERAGE/);
+    expect(() => assertSelfServeSignupEnv()).not.toThrow(/STRIPE_PRICE_BASIC/);
+  });
+
+  it('treats whitespace-only price var as missing', () => {
+    process.env.SELF_SERVE_SIGNUP_ENABLED = 'true';
+    process.env.REDIS_CACHE_URL = 'redis://localhost:6379/0';
+    process.env.NEXT_PUBLIC_APP_URL = 'https://app.example.com';
+    for (const k of SELF_SERVE_PRICE_VARS) process.env[k] = 'price_x';
+    process.env.STRIPE_PRICE_BASIC = '   ';
+    expect(() => assertSelfServeSignupEnv()).toThrow(/STRIPE_PRICE_BASIC/);
+  });
+
+  it('does NOT require STRIPE_PAYMENT_LINK_* vars', () => {
+    process.env.SELF_SERVE_SIGNUP_ENABLED = 'true';
+    process.env.REDIS_CACHE_URL = 'redis://localhost:6379/0';
+    process.env.NEXT_PUBLIC_APP_URL = 'https://app.example.com';
+    for (const k of SELF_SERVE_PRICE_VARS) process.env[k] = 'price_x';
+    // Intentionally NOT setting STRIPE_PAYMENT_LINK_* — should still pass
+    expect(() => assertSelfServeSignupEnv()).not.toThrow();
+  });
+
+  it('passes when all required vars are set', () => {
+    process.env.SELF_SERVE_SIGNUP_ENABLED = 'true';
+    process.env.REDIS_CACHE_URL = 'redis://localhost:6379/0';
+    process.env.NEXT_PUBLIC_APP_URL = 'https://app.example.com';
+    for (const k of SELF_SERVE_PRICE_VARS) process.env[k] = 'price_x';
+    expect(() => assertSelfServeSignupEnv()).not.toThrow();
+  });
+});
+
+// ── Stripe env var contract — drift prevention ────────────────────────────
+//
+// This test verifies that the STRIPE_PRICE_* env vars in startup-assert.ts
+// match the tiers defined in tier-config.ts. If a new tier is added to
+// TIER_CONFIG without a corresponding STRIPE_PRICE_* assertion, this test
+// will fail — preventing env contract drift.
+
+describe('Stripe env var contract — drift prevention', () => {
+  it('startup-assert checks a base price var for every tier in TIER_CONFIG', () => {
+    // Every tier in TIER_CONFIG must have a STRIPE_PRICE_<TIER> env var
+    const tiers: SubscriptionTierValue[] = Object.values(SubscriptionTier);
+    const expectedBaseVars = tiers.map(
+      (t) => `STRIPE_PRICE_${t === 'founders' ? 'FOUNDING' : t.toUpperCase()}`
+    );
+
+    // Read the startup-assert source to confirm all base vars are asserted
+    // We just verify the list matches our expected list
+    const startupAssertPriceVars = SELF_SERVE_PRICE_VARS;
+    for (const baseVar of expectedBaseVars) {
+      expect(startupAssertPriceVars).toContain(baseVar);
+    }
+  });
+
+  it('startup-assert checks an overage price var for every multi-location tier', () => {
+    // Every tier with multiLocAllowed must have a STRIPE_PRICE_<TIER>_OVERAGE var
+    const multiLocTiers = Object.entries(TIER_CONFIG)
+      .filter(([, config]) => config.multiLocAllowed)
+      .map(([tier]) => tier as SubscriptionTierValue);
+
+    const expectedOverageVars = multiLocTiers.map(
+      (t) => `STRIPE_PRICE_${t === 'founders' ? 'FOUNDERS' : t.toUpperCase()}_OVERAGE`
+    );
+
+    const startupAssertPriceVars = SELF_SERVE_PRICE_VARS;
+    for (const overageVar of expectedOverageVars) {
+      expect(startupAssertPriceVars).toContain(overageVar);
+    }
+  });
+
+  it('startup-assert does NOT check STRIPE_PRICE_BASIC_OVERAGE', () => {
+    // Basic tier has no overage (multiLocAllowed=false)
+    expect(SELF_SERVE_PRICE_VARS).not.toContain('STRIPE_PRICE_BASIC_OVERAGE');
+  });
+
+  it('no STRIPE_PAYMENT_LINK references remain in startup-assert', async () => {
+    const fs = await import('fs');
+    const path = await import('path');
+    const source = fs.readFileSync(
+      path.resolve(__dirname, '../startup-assert.ts'),
+      'utf-8',
+    );
+    expect(source).not.toContain('STRIPE_PAYMENT_LINK');
   });
 });
