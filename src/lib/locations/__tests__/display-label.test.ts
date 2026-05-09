@@ -1,6 +1,6 @@
 // src/lib/locations/__tests__/display-label.test.ts
 //
-// TDD assertions for src/lib/locations/display-label.ts.
+// TDD assertions for display-label module and update-display-label module.
 // Tests: getDisplayLabel (pure function), updateDisplayLabel (DB write).
 //
 // Validation contract: VAL-DASH-004 (display_label with name fallback),
@@ -25,7 +25,8 @@ vi.mock('uuid', () => ({
   v7: vi.fn(() => 'mock-uuid-v7-00000000-000000000002'),
 }));
 
-import { getDisplayLabel, updateDisplayLabel } from '../display-label';
+import { getDisplayLabel } from '../display-label';
+import { updateDisplayLabel } from '../update-display-label';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 

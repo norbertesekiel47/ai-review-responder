@@ -11,7 +11,7 @@ import { z } from 'zod';
 import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
-import { updateDisplayLabel } from '@/lib/locations/display-label';
+import { updateDisplayLabel } from '@/lib/locations/update-display-label';
 
 export const dynamic = 'force-dynamic';
 
