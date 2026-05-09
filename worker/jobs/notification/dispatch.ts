@@ -120,6 +120,7 @@ export async function dispatchAll(
           logger.warn(`SMS cap reached for business ${ctx.businessId} (${err.scope})`);
           attempted++;
           await insertFailedDelivery(
+            ctx.accountId,
             ctx.businessId,
             ctx.responseId,
             'sms',
@@ -156,6 +157,7 @@ export async function dispatchAll(
         logger.error(`createApprovalLink failed for ${channelId} response ${ctx.responseId}: ${reason}`);
         attempted++;
         await insertFailedDelivery(
+          ctx.accountId,
           ctx.businessId,
           ctx.responseId,
           channelId,
@@ -310,6 +312,7 @@ export async function dispatchAll(
         }
 
         await insertFailedDelivery(
+          ctx.accountId,
           ctx.businessId,
           ctx.responseId,
           channelId,
@@ -320,6 +323,7 @@ export async function dispatchAll(
       }
 
       await recordNotificationDelivery({
+        accountId: ctx.accountId,
         businessId: ctx.businessId,
         responseId: ctx.responseId,
         channel: channelId,

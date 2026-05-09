@@ -43,6 +43,7 @@ import type { LocationId } from '../../src/lib/shared/ids';
 
 interface BusinessRow {
   id: string;
+  account_id: string;
   name: string;
   owner_email: string;
   owner_email_bounced: boolean;
@@ -60,7 +61,7 @@ export async function handleOwnerEmail(
 
   const [business] = await sql<BusinessRow[]>`
     SELECT b.id, b.name, b.owner_email, b.owner_email_bounced,
-           a.subscription_status, a.updated_at AS account_updated_at
+           a.id AS account_id, a.subscription_status, a.updated_at AS account_updated_at
     FROM businesses b
     JOIN accounts a ON a.id = b.account_id
     WHERE b.id = ${businessId}
@@ -172,9 +173,9 @@ async function sendReconnectRequired(
   const deliveryId = uuidv7();
   const claimed = await sql<{ id: string }[]>`
     INSERT INTO notification_deliveries
-      (id, business_id, response_id, channel, recipient, template)
+      (id, account_id, business_id, response_id, channel, recipient, template)
     VALUES
-      (${deliveryId}, ${business.id}, ${payload.response_id}, 'email',
+      (${deliveryId}, ${business.account_id}, ${business.id}, ${payload.response_id}, 'email',
        ${business.owner_email}, 'owner_reconnect_required')
     ON CONFLICT (response_id, template)
       WHERE response_id IS NOT NULL AND template = 'owner_reconnect_required'
@@ -280,9 +281,9 @@ async function sendConnectionLost(
   const deliveryId = uuidv7();
   const claimed = await sql<{ id: string }[]>`
     INSERT INTO notification_deliveries
-      (id, business_id, channel, recipient, template)
+      (id, account_id, business_id, channel, recipient, template)
     VALUES
-      (${deliveryId}, ${business.id}, 'email',
+      (${deliveryId}, ${business.account_id}, ${business.id}, 'email',
        ${business.owner_email}, 'owner_connection_lost')
     ON CONFLICT (business_id, template, ((created_at AT TIME ZONE 'UTC')::date))
       WHERE template = 'owner_connection_lost'

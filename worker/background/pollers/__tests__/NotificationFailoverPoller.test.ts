@@ -66,6 +66,7 @@ describe('NotificationFailoverPoller', () => {
     sqlReturnQueue.push([{
       response_id: 'resp-1',
       business_id: 'biz-1',
+      account_id: 'acct-1',
       business_name: 'Test Café',
       reviewer_name: 'Alice',
       star_rating: 2,
@@ -98,6 +99,7 @@ describe('NotificationFailoverPoller', () => {
     sqlReturnQueue.push([{
       response_id: 'resp-2',
       business_id: 'biz-2',
+      account_id: 'acct-2',
       business_name: 'Test Biz',
       reviewer_name: 'Jane',
       star_rating: 1,
@@ -131,6 +133,7 @@ describe('NotificationFailoverPoller', () => {
     sqlReturnQueue.push([{
       response_id: 'resp-3',
       business_id: 'biz-3',
+      account_id: 'acct-3',
       business_name: 'Dup Biz',
       reviewer_name: 'Bob',
       star_rating: 2,
@@ -170,6 +173,7 @@ describe('NotificationFailoverPoller', () => {
     sqlReturnQueue.push([{
       response_id: 'resp-corr',
       business_id: 'biz-corr',
+      account_id: 'acct-corr',
       business_name: 'Corr Biz',
       reviewer_name: 'Tester',
       star_rating: 4,
@@ -217,6 +221,7 @@ describe('NotificationFailoverPoller', () => {
     sqlReturnQueue.push([{
       response_id: 'resp-no-prior',
       business_id: 'biz-xyz',
+      account_id: 'acct-xyz',
       business_name: 'Fallback Biz',
       reviewer_name: 'Reviewer',
       star_rating: 1,
@@ -283,6 +288,7 @@ describe('NotificationFailoverPoller — stale branch (multi-channel era)', () =
     sqlReturnQueue.push([{
       response_id: 'resp-stuck-1',
       business_id: 'biz-1',
+      account_id: 'acct-1',
       business_name: 'Gjelina',
       reviewer_name: 'Jane',
       star_rating: 3,
@@ -308,6 +314,7 @@ describe('NotificationFailoverPoller — stale branch (multi-channel era)', () =
     sqlReturnQueue.push([{
       response_id: 'resp-stuck-1',
       business_id: 'biz-1',
+      account_id: 'acct-1',
       business_name: 'Gjelina',
       reviewer_name: 'Jane',
       star_rating: 3,

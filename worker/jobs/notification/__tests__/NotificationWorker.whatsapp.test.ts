@@ -265,7 +265,7 @@ describe('NotificationWorker — WhatsApp error branches', () => {
 
     // Failed delivery must be recorded with reason 'whatsapp_blocked'
     expect(mockInsertFailedDelivery).toHaveBeenCalledOnce();
-    const [_biz, _resp, channel, handle, reason] = mockInsertFailedDelivery.mock.calls[0]!;
+    const [_acct, _biz, _resp, channel, handle, reason] = mockInsertFailedDelivery.mock.calls[0]!;
     expect(channel).toBe('whatsapp');
     expect(handle).toBe('+15550000001');
     expect(reason).toBe('whatsapp_blocked');
@@ -297,7 +297,7 @@ describe('NotificationWorker — WhatsApp error branches', () => {
     expect(enrollmentUpdate!.values).toContain('+15550000001');
 
     expect(mockInsertFailedDelivery).toHaveBeenCalledOnce();
-    const [, , channel, handle, reason] = mockInsertFailedDelivery.mock.calls[0]!;
+    const [, , , channel, handle, reason] = mockInsertFailedDelivery.mock.calls[0]!;
     expect(channel).toBe('whatsapp');
     expect(handle).toBe('+15550000001');
     expect(reason).toBe('whatsapp_invalid_recipient');
@@ -339,7 +339,7 @@ describe('NotificationWorker — WhatsApp error branches', () => {
 
     // Failed delivery MUST be recorded with a reason prefixed whatsapp_template_config:
     expect(mockInsertFailedDelivery).toHaveBeenCalledOnce();
-    const [, , channel, handle, reason] = mockInsertFailedDelivery.mock.calls[0]!;
+    const [, , , channel, handle, reason] = mockInsertFailedDelivery.mock.calls[0]!;
     expect(channel).toBe('whatsapp');
     expect(handle).toBe('+15550000001');
     expect(reason).toMatch(/^whatsapp_template_config:/);
@@ -371,7 +371,7 @@ describe('NotificationWorker — WhatsApp error branches', () => {
     ).toHaveLength(0);
 
     expect(mockInsertFailedDelivery).toHaveBeenCalledOnce();
-    const [, , channel, handle, reason] = mockInsertFailedDelivery.mock.calls[0]!;
+    const [, , , channel, handle, reason] = mockInsertFailedDelivery.mock.calls[0]!;
     expect(channel).toBe('whatsapp');
     expect(handle).toBe('+15550000001');
     expect(reason).toMatch(/^whatsapp_session_window:/);
@@ -400,7 +400,7 @@ describe('NotificationWorker — WhatsApp error branches', () => {
     expect(enrollmentUpdates, 'TRANSIENT: channel_enrollments must NOT be updated for rate limit').toHaveLength(0);
 
     expect(mockInsertFailedDelivery).toHaveBeenCalledOnce();
-    const [, , channel, handle, reason] = mockInsertFailedDelivery.mock.calls[0]!;
+    const [, , , channel, handle, reason] = mockInsertFailedDelivery.mock.calls[0]!;
     expect(channel).toBe('whatsapp');
     expect(handle).toBe('+15550000001');
     expect(reason).toMatch(/^whatsapp_rate_limit:/);

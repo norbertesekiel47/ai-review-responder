@@ -27,6 +27,7 @@ export async function handleEngagementAlert(job: Job<EngagementAlertPayload>): P
   // ── Step 1: Load business + account subscription ──────────────────
   const [business] = await sql<{
     name: string;
+    account_id: string;
     owner_email: string;
     owner_email_bounced: boolean;
     owner_phone: string | null;
@@ -34,7 +35,7 @@ export async function handleEngagementAlert(job: Job<EngagementAlertPayload>): P
     account_updated_at: Date;
   }[]>`
     SELECT b.name, b.owner_email, b.owner_email_bounced, b.owner_phone,
-           a.subscription_status, a.updated_at AS account_updated_at
+           a.id AS account_id, a.subscription_status, a.updated_at AS account_updated_at
     FROM businesses b
     JOIN accounts a ON a.id = b.account_id
     WHERE b.id = ${businessId}
@@ -80,7 +81,7 @@ async function handleOwnerNudge(
   outboxId: string,
   outboxAttempt: number | undefined,
   businessId: string,
-  business: { name: string; owner_email: string; owner_email_bounced: boolean },
+  business: { name: string; account_id: string; owner_email: string; owner_email_bounced: boolean },
   logger: WorkerLogger,
 ): Promise<void> {
   // Local binding so the env-config branches below read naturally.
@@ -194,6 +195,7 @@ async function handleOwnerNudge(
   });
 
   await recordNotificationDelivery({
+    accountId: business.account_id,
     businessId,
     channel: 'email',
     recipient: business.owner_email,
@@ -213,7 +215,7 @@ async function handlePartnerAlert(
   businessId: string,
   alertType: 'partner_engagement_alert' | 'partner_escalation_alert' | 'partner_low_engagement',
   metrics: NonNullable<EngagementAlertPayload['metrics']>,
-  business: { name: string; owner_email: string; owner_phone: string | null },
+  business: { name: string; account_id: string; owner_email: string; owner_phone: string | null },
   logger: WorkerLogger,
 ): Promise<void> {
   const adminEmail = process.env.ADMIN_NOTIFICATION_EMAIL;
@@ -277,6 +279,7 @@ async function handlePartnerAlert(
   });
 
   await recordNotificationDelivery({
+    accountId: business.account_id,
     businessId,
     channel: 'email',
     recipient: adminEmail,
@@ -294,7 +297,7 @@ async function handleSatisfactionAlert(
   outboxId: string,
   outboxAttempt: number | undefined,
   businessId: string,
-  business: { name: string; owner_email: string; owner_phone: string | null },
+  business: { name: string; account_id: string; owner_email: string; owner_phone: string | null },
   satisfaction: EngagementAlertPayload['satisfaction'] | null,
   logger: WorkerLogger,
 ): Promise<void> {
@@ -397,6 +400,7 @@ async function handleSatisfactionAlert(
 
   // Record delivery with week-scoped template tag for future idempotency checks
   await recordNotificationDelivery({
+    accountId: business.account_id,
     businessId,
     channel: 'email',
     recipient: adminEmail,

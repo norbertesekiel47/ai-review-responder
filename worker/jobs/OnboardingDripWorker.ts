@@ -27,6 +27,7 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
   // ── 1. Load business ─────────────────────────────────────────────
   const [business] = await sql<{
     id: string;
+    account_id: string;
     name: string;
     owner_name: string;
     owner_email: string;
@@ -38,7 +39,7 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
     subscription_activated_at: Date | null;
   }[]>`
     SELECT b.id, b.name, b.owner_name, b.owner_email, b.owner_email_bounced,
-           a.subscription_status, a.updated_at AS account_updated_at,
+           a.id AS account_id, a.subscription_status, a.updated_at AS account_updated_at,
            b.initial_review_count, b.initial_responded_count, b.subscription_activated_at
     FROM businesses b
     JOIN accounts a ON a.id = b.account_id
@@ -177,6 +178,7 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
   // ── 9. Record delivery BEFORE outbox completion — ensures cooldown
   // checks in other workers can see this delivery record.
   await recordNotificationDelivery({
+    accountId: business.account_id,
     businessId: businessId,
     channel: 'email',
     recipient: business.owner_email,

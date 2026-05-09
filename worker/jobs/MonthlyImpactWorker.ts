@@ -24,6 +24,7 @@ export async function handleMonthlyImpact(
   // ── 1. Load business (including ROI baseline fields) + account subscription ──
   const [business] = await sql<{
     id: string;
+    account_id: string;
     name: string;
     owner_email: string;
     owner_email_bounced: boolean;
@@ -35,7 +36,7 @@ export async function handleMonthlyImpact(
     subscription_tier: string;
   }[]>`
     SELECT b.id, b.name, b.owner_email, b.owner_email_bounced,
-           a.subscription_status, a.updated_at AS account_updated_at,
+           a.id AS account_id, a.subscription_status, a.updated_at AS account_updated_at,
            b.initial_review_count, b.initial_responded_count, b.baseline_captured_at,
            a.subscription_tier
     FROM businesses b
@@ -314,6 +315,7 @@ export async function handleMonthlyImpact(
 
   // ── 14. Record notification delivery ─────────────────────────────
   await recordNotificationDelivery({
+    accountId: business.account_id,
     businessId: businessId,
     channel: 'email',
     recipient: business.owner_email,

@@ -342,6 +342,7 @@ describe('NotificationWorker — SMS cap rejection', () => {
     expect(mockCreateApprovalLink).not.toHaveBeenCalled();
     expect(mockRefundSmsCost).not.toHaveBeenCalled();
     expect(mockInsertFailedDelivery).toHaveBeenCalledWith(
+      'acct-1',
       'biz-1',
       'resp-1',
       'sms',
@@ -378,6 +379,7 @@ describe('NotificationWorker — SMS refund on failure', () => {
     expect(mockRefundSmsCost).toHaveBeenCalledWith('biz-1', '2026-04-21');
     expect(mockSmsSend).not.toHaveBeenCalled();
     expect(mockInsertFailedDelivery).toHaveBeenCalledWith(
+      'acct-1',
       'biz-1',
       'resp-1',
       'sms',
@@ -406,6 +408,7 @@ describe('NotificationWorker — SMS refund on failure', () => {
 
     expect(mockRefundSmsCost).toHaveBeenCalledWith('biz-1', '2026-04-21');
     expect(mockInsertFailedDelivery).toHaveBeenCalledWith(
+      'acct-1',
       'biz-1',
       'resp-1',
       'sms',
@@ -456,6 +459,7 @@ describe('NotificationWorker — SMS sender-wide 21610 handling', () => {
     expect(updateSql).toMatch(/archived_at IS NULL/);
 
     expect(mockInsertFailedDelivery).toHaveBeenCalledWith(
+      'acct-1',
       'biz-1',
       'resp-1',
       'sms',

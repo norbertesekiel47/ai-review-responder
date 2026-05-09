@@ -273,6 +273,7 @@ describe('NotificationWorker — Telegram blocked recipient', () => {
 
     // Failed delivery recorded for telegram
     expect(mockInsertFailedDelivery).toHaveBeenCalledWith(
+      'acct-1',
       'biz-1',
       'resp-1',
       'telegram',
@@ -327,6 +328,7 @@ describe('NotificationWorker — Telegram chat not found', () => {
 
     // Failed delivery recorded for telegram
     expect(mockInsertFailedDelivery).toHaveBeenCalledWith(
+      'acct-1',
       'biz-1',
       'resp-1',
       'telegram',
