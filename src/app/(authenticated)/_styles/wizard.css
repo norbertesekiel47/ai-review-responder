@@ -1,0 +1,328 @@
+/* Add-location wizard styles. */
+
+/* ── Wizard container ──────────────────────────────────────────────────── */
+.wizard-container {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 24px 32px 120px;
+}
+@media (max-width: 768px) {
+  .wizard-container { padding: 16px 16px 140px; }
+}
+
+/* ── Step indicator dots ────────────────────────────────────────────────── */
+.wizard-steps {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 32px;
+}
+.wizard-step-dot {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: var(--rw-font-display);
+  background: var(--rw-app-border-soft);
+  color: #9CA3AF;
+  transition: all 200ms var(--rw-ease);
+}
+.wizard-step-dot.active {
+  background: var(--rw-blue-600);
+  color: #fff;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.2);
+}
+.wizard-step-dot.done {
+  background: #DCFCE7;
+  color: #166534;
+}
+
+/* ── Wizard panel (card) ────────────────────────────────────────────────── */
+.wizard-panel {
+  background: #fff;
+  border: 1px solid var(--rw-app-border);
+  border-radius: 12px;
+  box-shadow: var(--rw-shadow-sm);
+  padding: 24px;
+}
+
+.wizard-title {
+  font-family: var(--rw-font-display);
+  font-weight: 700;
+  font-size: 20px;
+  letter-spacing: -0.02em;
+  color: var(--rw-app-text);
+  margin: 0 0 6px;
+}
+
+.wizard-desc {
+  font-size: 14px;
+  color: var(--rw-app-text-muted);
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* ── Error / success messages ───────────────────────────────────────────── */
+.wizard-error {
+  margin-top: 16px;
+  padding: 10px 14px;
+  background: #FEF2F2;
+  border: 1px solid #FECACA;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #991B1B;
+}
+
+.wizard-success {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+  padding: 10px 14px;
+  background: #F0FDF4;
+  border: 1px solid #BBF7D0;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #166534;
+}
+
+/* ── Skip button ────────────────────────────────────────────────────────── */
+.wizard-skip-btn {
+  color: var(--rw-app-text-muted) !important;
+  font-size: 13px !important;
+}
+.wizard-skip-btn:hover {
+  color: var(--rw-app-text) !important;
+}
+
+/* ── Summary section (step 4) ───────────────────────────────────────────── */
+.wizard-summary {
+  margin-top: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.wizard-summary-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  font-size: 14px;
+}
+.wizard-summary-label {
+  color: var(--rw-app-text-muted);
+  flex-shrink: 0;
+  min-width: 120px;
+}
+.wizard-summary-value {
+  color: var(--rw-app-text);
+  font-weight: 500;
+  text-align: right;
+  word-break: break-word;
+}
+
+/* ── Billing breakdown (step 4) ──────────────────────────────────────────── */
+.wizard-billing {
+  margin-top: 24px;
+  padding: 16px 20px;
+  background: var(--rw-app-bg);
+  border: 1px solid var(--rw-app-border);
+  border-radius: 10px;
+}
+.wizard-billing-title {
+  font-family: var(--rw-font-display);
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--rw-app-text);
+  margin: 0 0 14px;
+}
+.wizard-billing-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 14px;
+  color: var(--rw-app-text);
+  padding: 6px 0;
+}
+.wizard-billing-note {
+  font-size: 12px;
+  color: var(--rw-app-text-muted);
+}
+.wizard-billing-proration {
+  color: var(--rw-app-text-muted);
+  font-size: 13px;
+}
+.wizard-billing-divider {
+  border-top: 1px dashed var(--rw-app-border);
+  margin: 8px 0;
+}
+.wizard-billing-total {
+  font-weight: 700;
+  font-size: 16px;
+  color: var(--rw-app-text);
+}
+
+/* ── Submit button (step 4) ─────────────────────────────────────────────── */
+.wizard-submit-btn {
+  font-size: 15px !important;
+  padding: 12px 24px !important;
+}
+
+/* ── Step navigation ────────────────────────────────────────────────────── */
+.wizard-nav {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 20px;
+}
+.wizard-nav-spacer {
+  flex: 1;
+}
+
+/* ── Input error state ──────────────────────────────────────────────────── */
+.input-error {
+  border-color: #FCA5A5 !important;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.15) !important;
+}
+.field-error {
+  font-size: 12px;
+  color: #DC2626;
+  margin-top: 2px;
+}
+
+/* ── Select dropdown ─────────────────────────────────────────────────────── */
+.select {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--rw-app-border);
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: var(--rw-font-body);
+  color: var(--rw-app-text);
+  background: #fff;
+  appearance: auto;
+}
+.select:focus {
+  outline: none;
+  border-color: var(--rw-blue-500);
+  box-shadow: 0 0 0 3px rgba(59,130,246,0.15);
+}
+
+/* ── Spinner ─────────────────────────────────────────────────────────────── */
+.spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: wizard-spin 600ms linear infinite;
+  vertical-align: middle;
+  margin-right: 6px;
+}
+@keyframes wizard-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Tone grid (overrides from settings.css for wizard context) ──────────── */
+.wizard-panel .tone-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.wizard-panel .tone-chip {
+  font-size: 13px;
+  padding: 6px 14px;
+  border-radius: 9999px;
+  border: 1px solid var(--rw-app-border);
+  background: #fff;
+  cursor: pointer;
+  font-family: var(--rw-font-body);
+  color: var(--rw-app-text);
+  transition: all 160ms var(--rw-ease);
+}
+.wizard-panel .tone-chip:hover {
+  border-color: var(--rw-blue-300);
+}
+.wizard-panel .tone-chip.active {
+  background: var(--rw-blue-600);
+  color: #fff;
+  border-color: var(--rw-blue-600);
+}
+
+/* ── List editor (overrides for wizard context) ──────────────────────────── */
+.wizard-panel .list-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.wizard-panel .list-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.wizard-panel .list-row .input {
+  flex: 1;
+}
+.wizard-panel .list-row-x {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: none;
+  color: #9CA3AF;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: all 160ms var(--rw-ease);
+}
+.wizard-panel .list-row-x:hover {
+  background: #FEF2F2;
+  color: #DC2626;
+}
+.wizard-panel .list-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-family: var(--rw-font-body);
+  font-weight: 500;
+  color: var(--rw-blue-600);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 0;
+}
+.wizard-panel .list-add:hover {
+  color: var(--rw-blue-700);
+}
+
+/* ── Tone preview (overrides for wizard context) ─────────────────────────── */
+.wizard-panel .tone-preview {
+  margin-top: 12px;
+  padding: 10px 14px;
+  background: var(--rw-app-bg);
+  border-radius: 8px;
+  border: 1px solid var(--rw-app-border-soft);
+}
+.wizard-panel .tone-preview-eyebrow {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--rw-app-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.wizard-panel .tone-preview-text {
+  font-size: 13px;
+  color: var(--rw-app-text);
+  font-style: italic;
+  line-height: 1.5;
+}

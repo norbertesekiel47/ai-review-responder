@@ -38,6 +38,15 @@ export interface AddLocationTxInput {
   subscriptionStatus: string;
   /** Count of active locations before the add (for audit payload). */
   activeLocationsBefore: number;
+  /** Optional voice config overrides from the wizard. When provided,
+   *  these values are used instead of cloning from the primary location.
+   *  This allows the user to "copy from existing" or manually customize. */
+  voiceConfig?: {
+    tone?: string;
+    productsServices?: string | null;
+    avoidFacts?: string[];
+    sampleResponses?: string[];
+  };
 }
 
 export interface AddLocationTxResult {
@@ -85,43 +94,58 @@ export async function addLocationTransaction(
     subscriptionTier,
     subscriptionStatus,
     activeLocationsBefore,
+    voiceConfig,
   } = input;
 
   const businessId = uuidv7();
 
-  // ── Step 1: Clone voice config from primary location ──────────────────
+  // ── Step 1: Resolve voice config ──────────────────────────────────────
   //
-  // VAL-LOC-031: Voice config is cloned from the account's current primary
-  // location at creation time. This ensures the new location starts with
-  // sensible defaults rather than an empty voice config.
-  //
-  // VAL-LOC-032: After creation, the voice config is independent — each
-  // location's tone/facts/resplies can be edited independently. The cloning
-  // is a one-time snapshot at creation, not ongoing inheritance.
-  const [primaryVoice] = await sql<PrimaryVoiceRow[]>`
-    SELECT
-      tone,
-      products_services,
-      staff_names,
-      highlight_facts,
-      avoid_facts,
-      sample_responses
-    FROM businesses
-    WHERE account_id = ${accountId}::uuid
-      AND is_primary = TRUE
-      AND archived_at IS NULL
-    LIMIT 1
-  `;
+  // When the wizard provides voiceConfig overrides (e.g. "copy from existing"
+  // or manual customization), use those. Otherwise, clone from the account's
+  // current primary location (VAL-LOC-031).
+  let tone: string;
+  let productsServices: string | null;
+  let staffNames: string[] | null;
+  let highlightFacts: string[] | null;
+  let avoidFacts: string[];
+  let sampleResponses: string[];
+  let voiceClonedFromPrimary: boolean;
 
-  // Fallback defaults when no primary exists (edge case: all archived, or
-  // first location somehow not primary — shouldn't happen but be safe)
-  const tone = primaryVoice?.tone ?? 'professional and friendly';
-  const productsServices = primaryVoice?.products_services ?? null;
-  const staffNames = primaryVoice?.staff_names ?? [];
-  const highlightFacts = primaryVoice?.highlight_facts ?? [];
-  const avoidFacts = primaryVoice?.avoid_facts ?? [];
-  const sampleResponses = primaryVoice?.sample_responses ?? [];
-  const voiceClonedFromPrimary = primaryVoice !== undefined && primaryVoice !== null;
+  if (voiceConfig) {
+    // User explicitly provided voice config via the wizard
+    tone = voiceConfig.tone ?? 'professional and friendly';
+    productsServices = voiceConfig.productsServices ?? null;
+    staffNames = [];
+    highlightFacts = [];
+    avoidFacts = voiceConfig.avoidFacts ?? [];
+    sampleResponses = voiceConfig.sampleResponses ?? [];
+    voiceClonedFromPrimary = false;
+  } else {
+    // Clone from primary location
+    const [primaryVoice] = await sql<PrimaryVoiceRow[]>`
+      SELECT
+        tone,
+        products_services,
+        staff_names,
+        highlight_facts,
+        avoid_facts,
+        sample_responses
+      FROM businesses
+      WHERE account_id = ${accountId}::uuid
+        AND is_primary = TRUE
+        AND archived_at IS NULL
+      LIMIT 1
+    `;
+
+    tone = primaryVoice?.tone ?? 'professional and friendly';
+    productsServices = primaryVoice?.products_services ?? null;
+    staffNames = primaryVoice?.staff_names ?? [];
+    highlightFacts = primaryVoice?.highlight_facts ?? [];
+    avoidFacts = primaryVoice?.avoid_facts ?? [];
+    sampleResponses = primaryVoice?.sample_responses ?? [];
+    voiceClonedFromPrimary = primaryVoice !== undefined && primaryVoice !== null;
+  }
 
   // ── Step 2: Execute atomic transaction ────────────────────────────────
   //

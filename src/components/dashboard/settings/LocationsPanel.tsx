@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useState } from 'react';
 import { Icon } from '@/components/dashboard/Icon';
 import type { LocationId } from '@/lib/shared/ids';
@@ -361,6 +362,29 @@ export function LocationsPanel({ locations, activeCount, accountId, onLocationCh
           />
         ))}
       </div>
+
+      {/* Add location CTA — links to the wizard */}
+      <Link
+        href="/dashboard/add-location"
+        className="loc-add-cta"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          marginTop: 16,
+          padding: '10px 16px',
+          border: `1px dashed var(--rw-app-border)`,
+          borderRadius: 8,
+          color: 'var(--rw-blue-600)',
+          fontSize: 14,
+          fontWeight: 500,
+          textDecoration: 'none',
+          transition: 'all 160ms ease',
+        }}
+      >
+        <Icon name="plus" size={14} />
+        Add location
+      </Link>
     </div>
   );
 }

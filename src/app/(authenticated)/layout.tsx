@@ -17,6 +17,7 @@ import './_styles/tokens.css';
 import './_styles/console.css';
 import './_styles/past-replies.css';
 import './_styles/settings.css';
+import './_styles/wizard.css';
 
 const plusJakarta = Plus_Jakarta_Sans({
   subsets: ['latin'],

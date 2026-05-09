@@ -28,6 +28,15 @@ const AddLocationSchema = z.object({
   googlePlaceId: z.string().optional(),
   placeIdVerified: z.boolean().optional().default(false),
   googleMapsUrl: z.string().optional(),
+  // Optional voice config overrides. When provided, these values are used
+  // instead of cloning from the primary location. The wizard sends these
+  // when the user picks "copy from existing" or manually edits the config.
+  voiceConfig: z.object({
+    tone: z.string().optional(),
+    productsServices: z.string().nullable().optional(),
+    avoidFacts: z.array(z.string()).optional(),
+    sampleResponses: z.array(z.string()).optional(),
+  }).optional(),
 });
 
 // ── Handler ─────────────────────────────────────────────────────────────────
@@ -73,7 +82,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       { status: 400, headers: NO_STORE },
     );
   }
-  const { accountId, displayLabel, googlePlaceId, placeIdVerified, googleMapsUrl } = parsed.data;
+  const { accountId, displayLabel, googlePlaceId, placeIdVerified, googleMapsUrl, voiceConfig } = parsed.data;
 
   // Use the quota chokepoint — handles SELECT FOR UPDATE, tier check,
   // subscription check, and quota boundary check in one call.
@@ -121,6 +130,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       subscriptionTier: account.subscription_tier,
       subscriptionStatus: account.subscription_status,
       activeLocationsBefore: activeLocations,
+      voiceConfig: voiceConfig ?? undefined,
     });
 
     return NextResponse.json(
