@@ -108,19 +108,19 @@ async function fetchPerLocationData(
 
   // VAL-CROSS-011: Cancelled account — 30-day grace period for read access
   if (subRow.subscription_status === SubscriptionStatus.CANCELLED) {
-    // Compute grace period end date (30 days from subscription_activated_at or cancellation)
+    // Grace period: 30 days from the cancellation event.
+    // Migration 037 added cancelled_at, which the Stripe webhook sets on
+    // customer.subscription.deleted. Prefer cancelled_at; fall back to
+    // subscription_activated_at only for legacy rows where cancelled_at is null.
     const [cancelledRow] = await sql<{
+      cancelled_at: Date | null;
       subscription_activated_at: Date | null;
     }[]>`
-      SELECT subscription_activated_at FROM accounts WHERE id = ${accountId}::uuid
+      SELECT cancelled_at, subscription_activated_at FROM accounts WHERE id = ${accountId}::uuid
     `;
-    const activatedAt = cancelledRow?.subscription_activated_at;
-    // Grace period: 30 days from the cancellation event.
-    // Since we don't have a cancelled_at column, we use subscription_activated_at
-    // as a proxy — in practice, the CancellationGracePoller tracks this.
-    // For now, report read access as true (within grace period).
-    const gracePeriodEnd = activatedAt
-      ? new Date(new Date(activatedAt).getTime() + 30 * 86_400_000)
+    const cancellationDate = cancelledRow?.cancelled_at ?? cancelledRow?.subscription_activated_at;
+    const gracePeriodEnd = cancellationDate
+      ? new Date(new Date(cancellationDate).getTime() + 30 * 86_400_000)
       : null;
     const readAccess = gracePeriodEnd
       ? gracePeriodEnd > new Date()
@@ -226,13 +226,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       // VAL-CROSS-011: Cancelled account in aggregate mode
       if (accountRow.subscription_status === SubscriptionStatus.CANCELLED) {
         const [cancelledRow] = await sql<{
+          cancelled_at: Date | null;
           subscription_activated_at: Date | null;
         }[]>`
-          SELECT subscription_activated_at FROM accounts WHERE id = ${accountId}::uuid
+          SELECT cancelled_at, subscription_activated_at FROM accounts WHERE id = ${accountId}::uuid
         `;
-        const activatedAt = cancelledRow?.subscription_activated_at;
-        const gracePeriodEnd = activatedAt
-          ? new Date(new Date(activatedAt).getTime() + 30 * 86_400_000)
+        const cancellationDate = cancelledRow?.cancelled_at ?? cancelledRow?.subscription_activated_at;
+        const gracePeriodEnd = cancellationDate
+          ? new Date(new Date(cancellationDate).getTime() + 30 * 86_400_000)
           : null;
         const readAccess = gracePeriodEnd
           ? gracePeriodEnd > new Date()
