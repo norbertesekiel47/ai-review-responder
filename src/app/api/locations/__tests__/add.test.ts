@@ -2,11 +2,32 @@
 //
 // TDD assertions for POST /api/locations/add.
 // Validation contract: VAL-BILLING-072, VAL-LOC-041, VAL-LOC-031.
+// Security: requires owner auth, validates body.accountId === user.accountId.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
 
 // ── Hoisted mocks ──────────────────────────────────────────────────────────
+
+const { mockRequireRole } = vi.hoisted(() => ({
+  mockRequireRole: vi.fn(),
+}));
+
+vi.mock('@/lib/db/auth', () => {
+  class AuthError extends Error {
+    constructor(
+      message: string,
+      public readonly statusCode: number,
+    ) {
+      super(message);
+      this.name = 'AuthError';
+    }
+  }
+  return {
+    requireRole: (...args: unknown[]) => mockRequireRole(...args),
+    AuthError,
+  };
+});
 
 const { mockSql } = vi.hoisted(() => {
   const sqlFn: any = vi.fn();
@@ -60,8 +81,13 @@ vi.mock('@/lib/locations/add-location-tx', () => ({
 process.env.MULTI_LOCATION_ENABLED = 'true';
 
 import { POST } from '../add/route';
+import { AuthError } from '@/lib/db/auth';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
+
+const ACCOUNT_ID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+const OTHER_ACCOUNT_ID = '99999999-8888-7777-6666-555555555555';
+const USER_ID = 'uuuuuuuu-0000-0000-0000-000000000001';
 
 function mkRequest(body: Record<string, unknown>): NextRequest {
   return new NextRequest('http://localhost:3000/api/locations/add', {
@@ -71,10 +97,22 @@ function mkRequest(body: Record<string, unknown>): NextRequest {
   });
 }
 
+function ownerUser(overrides: Record<string, unknown> = {}) {
+  return {
+    id: USER_ID,
+    name: 'Test Owner',
+    email: 'owner@test.com',
+    role: 'owner',
+    accountId: ACCOUNT_ID,
+    locationId: 'bbbbbbbb-0000-0000-0000-000000000001',
+    ...overrides,
+  };
+}
+
 function mockAccountRow(overrides: Record<string, unknown> = {}) {
   return {
-    id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
-    owner_user_id: 'uuuuuuuu-0000-0000-0000-000000000001',
+    id: ACCOUNT_ID,
+    owner_user_id: USER_ID,
     display_name: 'Test Account',
     subscription_tier: 'standard',
     subscription_status: 'active',
@@ -93,10 +131,11 @@ function mockAccountRow(overrides: Record<string, unknown> = {}) {
 }
 
 function setupHappyPathMocks(overrides: Record<string, unknown> = {}) {
+  mockRequireRole.mockResolvedValueOnce(ownerUser());
   mockAssertCanAddLocation.mockResolvedValueOnce({ allowed: true, overageUnits: 1 });
   mockGetActiveLocationCount.mockResolvedValueOnce(1);
   mockGetAccountById.mockResolvedValueOnce(mockAccountRow(overrides));
-  mockGetAccountOwnerUserId.mockResolvedValueOnce('uuuuuuuu-0000-0000-0000-000000000001');
+  mockGetAccountOwnerUserId.mockResolvedValueOnce(USER_ID);
   mockAddLocationTransaction.mockResolvedValueOnce({
     businessId: 'new-biz-id-0000-0000-0000-000000000001',
     displayLabel: 'Downtown Cafe',
@@ -106,16 +145,86 @@ function setupHappyPathMocks(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Reset mock internal state (including Once queues) to prevent
+  // cross-test leakage from unconsumed mockResolvedValueOnce entries.
+  mockRequireRole.mockReset();
+  mockAssertCanAddLocation.mockReset();
+  mockGetAccountById.mockReset();
+  mockGetAccountOwnerUserId.mockReset();
+  mockGetActiveLocationCount.mockReset();
+  mockAddLocationTransaction.mockReset();
 });
 
 // ── Tests ──────────────────────────────────────────────────────────────────
 
 describe('POST /api/locations/add', () => {
-  // VAL-LOC-041: Returns 404 when MULTI_LOCATION_ENABLED is not true
+  // ── Auth & ownership ────────────────────────────────────────────────────
+
+  it('returns 401 when not authenticated', async () => {
+    mockRequireRole.mockRejectedValueOnce(new AuthError('Unauthorized', 401));
+
+    const req = mkRequest({
+      accountId: ACCOUNT_ID,
+      displayLabel: 'Downtown Cafe',
+    });
+    const res = await POST(req);
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 403 when non-owner role', async () => {
+    mockRequireRole.mockRejectedValueOnce(new AuthError('Forbidden', 403));
+
+    const req = mkRequest({
+      accountId: ACCOUNT_ID,
+      displayLabel: 'Downtown Cafe',
+    });
+    const res = await POST(req);
+    expect(res.status).toBe(403);
+  });
+
+  it('returns 403 when user has no accountId', async () => {
+    mockRequireRole.mockResolvedValueOnce(ownerUser({ accountId: null }));
+
+    const req = mkRequest({
+      accountId: ACCOUNT_ID,
+      displayLabel: 'Downtown Cafe',
+    });
+    const res = await POST(req);
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.error).toBe('No account associated with this user');
+  });
+
+  it('returns 403 when body.accountId does not match authenticated user', async () => {
+    mockRequireRole.mockResolvedValueOnce(ownerUser());
+
+    const req = mkRequest({
+      accountId: OTHER_ACCOUNT_ID,
+      displayLabel: 'Downtown Cafe',
+    });
+    const res = await POST(req);
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.error).toBe('Account ID mismatch');
+  });
+
+  it('does not call assertCanAddLocation when accountId mismatches', async () => {
+    mockRequireRole.mockResolvedValueOnce(ownerUser());
+
+    const req = mkRequest({
+      accountId: OTHER_ACCOUNT_ID,
+      displayLabel: 'Downtown Cafe',
+    });
+    await POST(req);
+    expect(mockAssertCanAddLocation).not.toHaveBeenCalled();
+  });
+
+  // ── MULTI_LOCATION_ENABLED gate ─────────────────────────────────────────
+
   it('returns 404 when MULTI_LOCATION_ENABLED is not true', async () => {
     process.env.MULTI_LOCATION_ENABLED = 'false';
     const req = mkRequest({
-      accountId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+      accountId: ACCOUNT_ID,
       displayLabel: 'Downtown Cafe',
     });
     const res = await POST(req);
@@ -125,12 +234,13 @@ describe('POST /api/locations/add', () => {
     process.env.MULTI_LOCATION_ENABLED = 'true';
   });
 
-  // Happy path: creates location and returns 201
+  // ── Happy path ─────────────────────────────────────────────────────────
+
   it('creates location and returns 201 with result', async () => {
     setupHappyPathMocks();
 
     const req = mkRequest({
-      accountId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+      accountId: ACCOUNT_ID,
       displayLabel: 'Downtown Cafe',
     });
     const res = await POST(req);
@@ -149,7 +259,7 @@ describe('POST /api/locations/add', () => {
     setupHappyPathMocks();
 
     const req = mkRequest({
-      accountId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+      accountId: ACCOUNT_ID,
       displayLabel: 'Downtown Cafe',
       googlePlaceId: 'ChIJN1t_tDeuEmsRUsoyG83frY4',
       placeIdVerified: true,
@@ -158,11 +268,11 @@ describe('POST /api/locations/add', () => {
 
     expect(mockAddLocationTransaction).toHaveBeenCalledTimes(1);
     const txInput = mockAddLocationTransaction.mock.calls[0]![0];
-    expect(txInput.accountId).toBe('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee');
+    expect(txInput.accountId).toBe(ACCOUNT_ID);
     expect(txInput.displayLabel).toBe('Downtown Cafe');
     expect(txInput.googlePlaceId).toBe('ChIJN1t_tDeuEmsRUsoyG83frY4');
     expect(txInput.placeIdVerified).toBe(true);
-    expect(txInput.actorUserId).toBe('uuuuuuuu-0000-0000-0000-000000000001');
+    expect(txInput.actorUserId).toBe(USER_ID);
     expect(txInput.subscriptionTier).toBe('standard');
     expect(txInput.subscriptionStatus).toBe('active');
     expect(txInput.activeLocationsBefore).toBe(1);
@@ -170,13 +280,14 @@ describe('POST /api/locations/add', () => {
 
   // Delegates to assertCanAddLocation for quota checks
   it('returns 403 for inactive subscription', async () => {
+    mockRequireRole.mockResolvedValueOnce(ownerUser());
     mockAssertCanAddLocation.mockResolvedValueOnce({
       allowed: false,
       reason: 'subscription_inactive',
     });
 
     const req = mkRequest({
-      accountId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+      accountId: ACCOUNT_ID,
       displayLabel: 'Downtown Cafe',
     });
     const res = await POST(req);
@@ -187,13 +298,14 @@ describe('POST /api/locations/add', () => {
   });
 
   it('returns 403 for basic tier (no multi-location allowed)', async () => {
+    mockRequireRole.mockResolvedValueOnce(ownerUser());
     mockAssertCanAddLocation.mockResolvedValueOnce({
       allowed: false,
       reason: 'tier_disallows_multi_location',
     });
 
     const req = mkRequest({
-      accountId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+      accountId: ACCOUNT_ID,
       displayLabel: 'Downtown Cafe',
     });
     const res = await POST(req);
@@ -204,13 +316,16 @@ describe('POST /api/locations/add', () => {
   });
 
   it('returns 404 when account not found (quota check)', async () => {
+    mockRequireRole.mockResolvedValueOnce(ownerUser());
     mockAssertCanAddLocation.mockResolvedValueOnce({
       allowed: false,
       reason: 'account_not_found',
     });
 
+    // Use the same accountId as the authenticated user — the ownership
+    // check passes, then assertCanAddLocation returns account_not_found.
     const req = mkRequest({
-      accountId: '00000000-0000-7f00-8000-000000000000',
+      accountId: ACCOUNT_ID,
       displayLabel: 'Downtown Cafe',
     });
     const res = await POST(req);
@@ -221,12 +336,13 @@ describe('POST /api/locations/add', () => {
   });
 
   it('returns 404 when account not found (after quota check passes)', async () => {
+    mockRequireRole.mockResolvedValueOnce(ownerUser());
     mockAssertCanAddLocation.mockResolvedValueOnce({ allowed: true, overageUnits: 1 });
     mockGetActiveLocationCount.mockResolvedValueOnce(1);
     mockGetAccountById.mockResolvedValueOnce(null); // account not found
 
     const req = mkRequest({
-      accountId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+      accountId: ACCOUNT_ID,
       displayLabel: 'Downtown Cafe',
     });
     const res = await POST(req);
@@ -236,6 +352,8 @@ describe('POST /api/locations/add', () => {
 
   // Input validation
   it('returns 400 for invalid accountId format', async () => {
+    mockRequireRole.mockResolvedValueOnce(ownerUser());
+
     const req = mkRequest({
       accountId: 'not-a-uuid',
       displayLabel: 'Downtown Cafe',
@@ -246,8 +364,10 @@ describe('POST /api/locations/add', () => {
   });
 
   it('returns 400 for missing displayLabel', async () => {
+    mockRequireRole.mockResolvedValueOnce(ownerUser());
+
     const req = mkRequest({
-      accountId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+      accountId: ACCOUNT_ID,
     });
     const res = await POST(req);
 
@@ -255,8 +375,10 @@ describe('POST /api/locations/add', () => {
   });
 
   it('returns 400 for empty displayLabel', async () => {
+    mockRequireRole.mockResolvedValueOnce(ownerUser());
+
     const req = mkRequest({
-      accountId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+      accountId: ACCOUNT_ID,
       displayLabel: '',
     });
     const res = await POST(req);
@@ -266,14 +388,15 @@ describe('POST /api/locations/add', () => {
 
   // Transaction failure
   it('returns 500 when addLocationTransaction throws', async () => {
+    mockRequireRole.mockResolvedValueOnce(ownerUser());
     mockAssertCanAddLocation.mockResolvedValueOnce({ allowed: true, overageUnits: 1 });
     mockGetActiveLocationCount.mockResolvedValueOnce(1);
     mockGetAccountById.mockResolvedValueOnce(mockAccountRow());
-    mockGetAccountOwnerUserId.mockResolvedValueOnce('uuuuuuuu-0000-0000-0000-000000000001');
+    mockGetAccountOwnerUserId.mockResolvedValueOnce(USER_ID);
     mockAddLocationTransaction.mockRejectedValueOnce(new Error('Transaction failed: constraint violation'));
 
     const req = mkRequest({
-      accountId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+      accountId: ACCOUNT_ID,
       displayLabel: 'Downtown Cafe',
     });
     const res = await POST(req);
@@ -285,10 +408,11 @@ describe('POST /api/locations/add', () => {
 
   // VAL-LOC-031: Voice cloning info returned in response
   it('returns voiceClonedFromPrimary from transaction result', async () => {
+    mockRequireRole.mockResolvedValueOnce(ownerUser());
     mockAssertCanAddLocation.mockResolvedValueOnce({ allowed: true, overageUnits: 0 });
     mockGetActiveLocationCount.mockResolvedValueOnce(0);
     mockGetAccountById.mockResolvedValueOnce(mockAccountRow({ subscription_tier: 'premium' }));
-    mockGetAccountOwnerUserId.mockResolvedValueOnce('uuuuuuuu-0000-0000-0000-000000000001');
+    mockGetAccountOwnerUserId.mockResolvedValueOnce(USER_ID);
     mockAddLocationTransaction.mockResolvedValueOnce({
       businessId: 'new-biz-id-0000-0000-0000-000000000001',
       displayLabel: 'Northside Grill',
@@ -296,7 +420,7 @@ describe('POST /api/locations/add', () => {
     });
 
     const req = mkRequest({
-      accountId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+      accountId: ACCOUNT_ID,
       displayLabel: 'Northside Grill',
     });
     const res = await POST(req);

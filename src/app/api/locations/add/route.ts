@@ -9,6 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import { requireRole, AuthError } from '@/lib/db/auth';
 import { assertCanAddLocation } from '@/lib/accounts/quota';
 import { getAccountById, getAccountOwnerUserId } from '@/lib/accounts/repo';
 import { addLocationTransaction } from '@/lib/locations/add-location-tx';
@@ -65,6 +66,30 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
+  // ── Auth: require owner role ────────────────────────────────────────────
+  let user;
+  try {
+    user = await requireRole(req, 'owner');
+  } catch (err) {
+    if (err instanceof AuthError) {
+      return NextResponse.json(
+        { error: err.message },
+        { status: err.statusCode, headers: NO_STORE },
+      );
+    }
+    return NextResponse.json(
+      { error: 'Unauthorized' },
+      { status: 401, headers: NO_STORE },
+    );
+  }
+
+  if (!user.accountId) {
+    return NextResponse.json(
+      { error: 'No account associated with this user' },
+      { status: 403, headers: NO_STORE },
+    );
+  }
+
   let body: unknown;
   try {
     body = await req.json();
@@ -83,6 +108,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
   const { accountId, displayLabel, googlePlaceId, placeIdVerified, googleMapsUrl, voiceConfig } = parsed.data;
+
+  // ── Ownership: body.accountId must match authenticated user ──────────────
+  if (accountId !== user.accountId) {
+    return NextResponse.json(
+      { error: 'Account ID mismatch' },
+      { status: 403, headers: NO_STORE },
+    );
+  }
 
   // Use the quota chokepoint — handles SELECT FOR UPDATE, tier check,
   // subscription check, and quota boundary check in one call.
