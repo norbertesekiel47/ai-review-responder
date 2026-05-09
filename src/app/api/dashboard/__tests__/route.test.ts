@@ -56,6 +56,18 @@ vi.mock('@/lib/db/redis-cache', () => ({
 
 // ── No more payment-link mock (checkout session replaces it) ───────
 
+// ── Mock location repo (IDOR fix: route now uses getLocationById) ──
+
+const { mockGetLocationById } = vi.hoisted(() => ({
+  mockGetLocationById: vi.fn<(id: string) => Promise<import('@/lib/locations/repo').LocationRow | null>>(async () => null),
+}));
+
+vi.mock('@/lib/locations/repo', () => ({
+  getActiveLocationCount: vi.fn(async () => 1),
+  getLocationsForAccount: vi.fn(async () => []),
+  getLocationById: (id: string) => mockGetLocationById(id),
+}));
+
 // Import AFTER mocks are set up
 import { GET, type DashboardData, type DashboardDataActive } from '../route';
 import { AuthError } from '@/lib/db/auth';
@@ -67,6 +79,7 @@ function makeRequest(): NextRequest {
 }
 
 const BUSINESS_ID = '01234567-0000-0000-0000-000000000001';
+const ACCOUNT_ID = 'a0000000-0000-0000-0000-000000000001';
 
 function ownerUser(overrides?: { locationId?: string | null }) {
   return {
@@ -74,7 +87,7 @@ function ownerUser(overrides?: { locationId?: string | null }) {
     name: 'Test Owner',
     email: 'owner@test.com',
     role: 'owner',
-    accountId: 'a0000000-0000-0000-0000-000000000001',
+    accountId: ACCOUNT_ID,
     locationId: overrides && 'locationId' in overrides ? overrides.locationId : BUSINESS_ID,
   };
 }
@@ -93,8 +106,10 @@ const DEFAULT_SUB_ROW = {
 
 /**
  * Sets up sql query results in order.
- * Call 0  = subRow (pre-query).
- * Calls 1–8  = the Promise.all heavy queries (business/totals/velocity/ranking/reviews/briefs).
+ * The route now uses getLocationById for ownership/archived checks,
+ * so the first SQL call is the subscription status check (with account_id filter).
+ * Calls 0 = subRow (subscription status check).
+ * Calls 1–8 = the Promise.all heavy queries (business/totals/velocity/ranking/reviews/briefs).
  * Calls 9–11 = the Zernio banner queries (zernio_connections, queued reconnects, unresolved incidents).
  *
  * The Promise.all includes a 12th entry (the Redis pending-marker read) but that
@@ -117,10 +132,19 @@ function setDbResults(overrides?: {
   mockSqlResults.length = 0;
   sqlCallCounter.value = 0;
 
-  // Call 0: archived_at check query (added for VAL-DASH-029 fallback)
-  mockSqlResults.push([{ archived_at: null }]);
+  // getLocationById returns an active, owned location (IDOR fix)
+  mockGetLocationById.mockResolvedValue({
+    id: BUSINESS_ID,
+    account_id: ACCOUNT_ID,
+    name: 'Test Biz',
+    display_label: null,
+    is_primary: true,
+    archived_at: null,
+    google_place_id: 'gp1',
+    created_at: new Date(),
+  });
 
-  // Call 1: pre-query (subRow — subscription status check)
+  // Call 0: pre-query (subRow — subscription status check with account_id filter)
   mockSqlResults.push(overrides?.subRow ?? [DEFAULT_SUB_ROW]);
 
   // Calls 1–8: Promise.all heavy queries (only reached when status !== 'pending_payment')
@@ -208,8 +232,23 @@ describe('GET /api/dashboard', () => {
 
   it('returns 404 when pre-query finds no business', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
-    // subRow empty — pre-query returns no rows
+
+    // getLocationById returns an owned location, but the subscription
+    // check query returns empty rows → "Business not found"
+    mockGetLocationById.mockResolvedValue({
+      id: BUSINESS_ID,
+      account_id: ACCOUNT_ID,
+      name: 'Test Biz',
+      display_label: null,
+      is_primary: true,
+      archived_at: null,
+      google_place_id: 'gp1',
+      created_at: new Date(),
+    });
+
+    // subRow empty — subscription check returns no rows (defense-in-depth)
     setDbResults({ subRow: [] });
+    // Override the getLocationById that setDbResults sets (already done above)
 
     const res = await GET(makeRequest());
     expect(res.status).toBe(404);
@@ -225,9 +264,20 @@ describe('GET /api/dashboard', () => {
 
     mockSqlResults.length = 0;
     sqlCallCounter.value = 0;
-    // Call 0: archived_at check (VAL-DASH-029)
-    mockSqlResults.push([{ archived_at: null }]);
-    // Call 1: pre-query result — Promise.all must NOT be reached
+
+    // getLocationById returns an active, owned location
+    mockGetLocationById.mockResolvedValue({
+      id: BUSINESS_ID,
+      account_id: ACCOUNT_ID,
+      name: 'Pending Biz',
+      display_label: null,
+      is_primary: true,
+      archived_at: null,
+      google_place_id: 'gp1',
+      created_at: new Date(),
+    });
+
+    // Call 0: subscription status check (with account_id filter)
     mockSqlResults.push([
       {
         name: 'Pending Biz',
@@ -255,8 +305,8 @@ describe('GET /api/dashboard', () => {
     expect(body.valueSummary).toBeUndefined();
     expect(body.recentReviews).toBeUndefined();
 
-    // Only 1 sql call (the pre-query). Promise.all 8 queries must not have run.
-    expect(sqlCallCounter.value).toBe(2);
+    // Only 1 sql call (the subscription check). Promise.all 8 queries must not have run.
+    expect(sqlCallCounter.value).toBe(1);
 
     // No-store header still present
     expect(res.headers.get('Cache-Control')).toBe('no-store, private');
@@ -267,9 +317,19 @@ describe('GET /api/dashboard', () => {
 
     mockSqlResults.length = 0;
     sqlCallCounter.value = 0;
-    // Call 0: archived_at check (VAL-DASH-029)
-    mockSqlResults.push([{ archived_at: null }]);
-    // Call 1: pre-query
+
+    mockGetLocationById.mockResolvedValue({
+      id: BUSINESS_ID,
+      account_id: ACCOUNT_ID,
+      name: 'Founding Biz',
+      display_label: null,
+      is_primary: true,
+      archived_at: null,
+      google_place_id: 'gp1',
+      created_at: new Date(),
+    });
+
+    // Call 0: subscription status check
     mockSqlResults.push([
       {
         name: 'Founding Biz',
@@ -291,9 +351,19 @@ describe('GET /api/dashboard', () => {
 
     mockSqlResults.length = 0;
     sqlCallCounter.value = 0;
-    // Call 0: archived_at check (VAL-DASH-029)
-    mockSqlResults.push([{ archived_at: null }]);
-    // Call 1: pre-query
+
+    mockGetLocationById.mockResolvedValue({
+      id: BUSINESS_ID,
+      account_id: ACCOUNT_ID,
+      name: 'Admin Onboarded Biz',
+      display_label: null,
+      is_primary: true,
+      archived_at: null,
+      google_place_id: 'gp1',
+      created_at: new Date(),
+    });
+
+    // Call 0: subscription status check
     mockSqlResults.push([
       {
         name: 'Admin Onboarded Biz',
@@ -315,8 +385,8 @@ describe('GET /api/dashboard', () => {
     // Critical: no paymentUrl in admin-handoff payload (avoids double-charge risk).
     expect(body.paymentUrl).toBeUndefined();
 
-    // Pre-query only — Promise.all heavy queries skipped.
-    expect(sqlCallCounter.value).toBe(2);
+    // Subscription check only — Promise.all heavy queries skipped.
+    expect(sqlCallCounter.value).toBe(1);
   });
 
   it('returns paymentUrl pointing to /onboarding/pay even when env vars are unset', async () => {
@@ -324,9 +394,19 @@ describe('GET /api/dashboard', () => {
 
     mockSqlResults.length = 0;
     sqlCallCounter.value = 0;
-    // Call 0: archived_at check (VAL-DASH-029)
-    mockSqlResults.push([{ archived_at: null }]);
-    // Call 1: pre-query
+
+    mockGetLocationById.mockResolvedValue({
+      id: BUSINESS_ID,
+      account_id: ACCOUNT_ID,
+      name: 'No Env Biz',
+      display_label: null,
+      is_primary: true,
+      archived_at: null,
+      google_place_id: 'gp1',
+      created_at: new Date(),
+    });
+
+    // Call 0: subscription status check
     mockSqlResults.push([
       {
         name: 'No Env Biz',

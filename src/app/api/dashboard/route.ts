@@ -8,6 +8,7 @@ import {
   BusinessNotFoundError,
 } from '@/lib/dashboard/service';
 import { getAggregateDashboardData } from '@/lib/dashboard/aggregate-service';
+import { getLocationById } from '@/lib/locations/repo';
 
 export const dynamic = 'force-dynamic';
 
@@ -67,6 +68,7 @@ async function fetchPerLocationData(
     FROM businesses b
     JOIN accounts a ON a.id = b.account_id
     WHERE b.id = ${locationId}
+      AND b.account_id = ${accountId}::uuid
   `;
 
   if (!subRow) {
@@ -200,15 +202,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   try {
-    // Check if the requested location is archived or not found
-    // VAL-DASH-029: Fall back to primary when location is archived
-    const [checkRow] = await sql<{
-      archived_at: Date | null;
-    }[]>`
-      SELECT archived_at FROM businesses WHERE id = ${locationId}
-    `;
+    // IDOR protection: verify the location belongs to the authenticated user's account.
+    // getLocationById fetches the row via service-role SQL (bypasses RLS), so we must
+    // explicitly check account ownership before returning any data.
+    const location = await getLocationById(locationId);
 
-    if (!checkRow) {
+    if (!location) {
       // Location not found — fall back to primary
       const primary = await getPrimaryLocationId(accountId);
       if (primary) {
@@ -219,7 +218,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       return jsonResponse({ error: 'Business not found' }, 404);
     }
 
-    if (checkRow.archived_at !== null) {
+    if (location.account_id !== accountId) {
+      // IDOR attempt: location exists but belongs to a different account
+      return jsonResponse({ error: 'Not authorized to access this location' }, 403);
+    }
+
+    if (location.archived_at !== null) {
       // Location is archived — fall back to primary
       const primary = await getPrimaryLocationId(accountId);
       if (primary && primary !== locationId) {
@@ -231,7 +235,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       return jsonResponse({ error: 'No active location available' }, 404);
     }
 
-    // Location is active — fetch its data normally
+    // Location is active and owned — fetch its data normally
     return fetchPerLocationData(locationId, accountId);
   } catch (error) {
     if (error instanceof BusinessNotFoundError) {
