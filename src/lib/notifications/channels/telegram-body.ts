@@ -2,9 +2,14 @@
 //
 // Pure formatter for Telegram approval messages. No side effects — unit-testable
 // without a network. HTML parse mode is used, so every dynamic field is escaped.
+//
+// VAL-NOTIF-011: Template prefix includes [locationLabel].
+// VAL-NOTIF-014: locationLabel is resolved at the data layer via
+//   getDisplayLabel({ display_label, name }) — display_label ?? name fallback.
 
 export interface TelegramApprovalParams {
-  businessName: string;
+  /** Resolved location label: display_label ?? businesses.name. Always non-null. */
+  locationLabel: string;
   reviewerName: string;
   starRating: number;
   reviewText: string | null;
@@ -40,14 +45,15 @@ function truncate(raw: string, max: number): string {
 }
 
 export function formatApprovalTelegram(p: TelegramApprovalParams): FormattedApprovalMessage {
-  const business = escapeHtml(p.businessName);
+  const location = escapeHtml(p.locationLabel);
   const reviewer = escapeHtml(p.reviewerName);
   const reviewBody = p.reviewText ? escapeHtml(truncate(p.reviewText, MAX_EMBED)) : '(no review text)';
   const preview = escapeHtml(truncate(p.responsePreview, MAX_EMBED));
 
+  // VAL-NOTIF-011: Prefix format: [{locationLabel}] New {rating}★ from {reviewer}
   const text = [
-    `<b>New ⭐${p.starRating} review — ${business}</b>`,
-    `From: ${reviewer} · ${p.reviewDate}`,
+    `<b>[${location}] New ⭐${p.starRating} from ${reviewer}</b>`,
+    p.reviewDate,
     `—`,
     `"${reviewBody}"`,
     `—`,

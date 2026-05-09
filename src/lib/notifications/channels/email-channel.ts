@@ -21,6 +21,7 @@ export class EmailChannel implements NotificationChannel {
     const { messageId } = await sendApprovalEmail({
       to: p.handle,
       from,
+      locationLabel: p.locationLabel,
       businessName: p.businessName,
       reviewerName: p.reviewerName,
       starRating: p.starRating,

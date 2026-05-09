@@ -20,7 +20,7 @@ export class TelegramChannel implements NotificationChannel {
 
   async sendApprovalRequest(p: SendApprovalParams): Promise<SendApprovalResult> {
     const { text, inline_keyboard } = formatApprovalTelegram({
-      businessName: p.businessName,
+      locationLabel: p.locationLabel,
       reviewerName: p.reviewerName,
       starRating: p.starRating,
       reviewText: p.reviewText,

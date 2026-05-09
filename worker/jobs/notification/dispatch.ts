@@ -22,6 +22,7 @@ import {
   refundSmsCost,
   DailySmsLimitExceededError,
 } from './sms-budget';
+import { getDisplayLabel } from '../../../src/lib/locations/display-label';
 
 export interface DispatchLogger {
   log: (msg: string) => void;
@@ -37,6 +38,7 @@ export interface DispatchContext {
   appUrl: string;
   business: {
     name: string;
+    displayLabel: string | null;
     owner_email_bounced: boolean;
   };
   review: {
@@ -167,8 +169,14 @@ export async function dispatchAll(
 
       let externalMessageId: string;
       try {
+        // VAL-NOTIF-014: locationLabel is resolved from display_label ?? name
+        const locationLabel = getDisplayLabel({
+          display_label: ctx.business.displayLabel,
+          name: ctx.business.name,
+        });
         const result = await getChannel(channelId).sendApprovalRequest({
           handle: enrollment.handle,
+          locationLabel,
           businessName: ctx.business.name,
           reviewerName: ctx.review.reviewerName,
           starRating: ctx.review.starRating,

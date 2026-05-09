@@ -25,6 +25,7 @@ describe('sendApprovalEmail', () => {
     await sendApprovalEmail({
       to: 'owner@example.com',
       from: 'RepWorth <notifications@repworth.example>',
+      locationLabel: 'Test Biz',
       businessName: 'Test Biz',
       reviewerName: 'Jane',
       starRating: 5,

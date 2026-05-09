@@ -17,6 +17,7 @@ import { TelegramChannel } from '../telegram-channel';
 function sampleParams() {
   return {
     handle: '123456789',
+    locationLabel: 'Downtown Cafe',
     businessName: 'Acme',
     reviewerName: 'Jane',
     starRating: 4,

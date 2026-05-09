@@ -75,6 +75,7 @@ export async function handleSendNotification(
       appUrl,
       business: {
         name: ctx.business.name,
+        displayLabel: ctx.business.display_label,
         owner_email_bounced: ctx.business.owner_email_bounced,
       },
       review: {
