@@ -1,22 +1,68 @@
 'use client';
 
+// src/app/(authenticated)/settings/channels/ChannelsTabClient.tsx
+//
+// Owns the Notifications tab as a whole:
+//   1. The existing ChannelsClient (Email + Telegram + SMS + WhatsApp rows) — org-level defaults.
+//   2. Per-location channel overrides (collapsible panel).
+//   3. Reports & summaries (weekly + monthly toggles).
+//   4. Contact details (phone editable + email locked).
+//
+// Sections 2–4 hydrate from `/api/dashboard` via useSettingsForm and save
+// via PUT /api/settings — preserving the patch-shape contract that the legacy
+// Settings General form used.
+//
+// VAL-SETTINGS-012: Channels tab shows org-level defaults at top.
+// VAL-SETTINGS-013: Per-location override panel collapsed by default.
+// VAL-SETTINGS-032: Channels tab org-default section shows only Telegram and email.
+
+import { useState } from 'react';
 import { useSettingsForm } from '@/hooks/useSettingsForm';
 import { SettingsShell } from '@/components/dashboard/settings/SettingsShell';
 import { Icon } from '@/components/dashboard/Icon';
 import { ChannelsClient, type ChannelsClientProps } from './ChannelsClient';
+import {
+  PerLocationOverridePanel,
+  type PerLocationOverride,
+  type LocationOption,
+} from '@/components/dashboard/settings/PerLocationOverridePanel';
 
-/**
- * Owns the Notifications tab as a whole:
- *   1. The existing ChannelsClient (Email + Telegram + SMS + WhatsApp rows).
- *   2. Reports & summaries (weekly + monthly toggles).
- *   3. Contact details (phone editable + email locked).
- *
- * Sections 2 and 3 hydrate from `/api/dashboard` via useSettingsForm and save
- * via PUT /api/settings — preserving the patch-shape contract that the legacy
- * Settings General form used.
- */
-export function ChannelsTabClient(props: ChannelsClientProps & { multiLocationEnabled?: boolean }) {
+interface Props extends ChannelsClientProps {
+  multiLocationEnabled?: boolean;
+  perLocationOverrides?: PerLocationOverride[];
+  locationOptions?: LocationOption[];
+  accountId?: string;
+}
+
+export function ChannelsTabClient(props: Props) {
   const f = useSettingsForm();
+
+  // Track overrides in local state so we can update after add/remove
+  // without a full page reload. The initial values come from SSR.
+  const [overrides, setOverrides] = useState<PerLocationOverride[]>(
+    props.perLocationOverrides ?? [],
+  );
+
+  // Refresh overrides from server after add/remove
+  const refreshOverrides = async () => {
+    try {
+      const res = await fetch('/api/settings/channels/overrides');
+      if (res.ok) {
+        const data = await res.json();
+        setOverrides(data.overrides ?? []);
+      }
+    } catch {
+      // Fallback: full page reload
+      window.location.reload();
+    }
+  };
+
+  // Org-level defaults for the override panel to reference
+  const orgDefaults = props.initialEnrollments.map((e) => ({
+    channel: e.channel,
+    handle: e.handle,
+    status: e.status,
+  }));
 
   if (f.fetchError) {
     return (
@@ -54,7 +100,20 @@ export function ChannelsTabClient(props: ChannelsClientProps & { multiLocationEn
         onDiscard: f.discard,
       }}
     >
+      {/* Org-level defaults — the existing ChannelsClient */}
       <ChannelsClient {...props} />
+
+      {/* Per-location overrides — collapsed by default */}
+      {props.multiLocationEnabled && props.locationOptions && props.locationOptions.length > 1 && (
+        <PerLocationOverridePanel
+          overrides={overrides}
+          locationOptions={props.locationOptions}
+          orgDefaults={orgDefaults}
+          accountId={props.accountId ?? ''}
+          onOverrideAdded={refreshOverrides}
+          onOverrideRemoved={refreshOverrides}
+        />
+      )}
 
       <div className="set-section">
         <div className="set-section-head">

@@ -5,6 +5,7 @@
 // When the flag is off, voice config stays on the main /settings page.
 //
 // VAL-SETTINGS-017: Voice tab renders per-location voice config sections.
+// VAL-SETTINGS-036: Voice tab for single-location account when MULTI_LOCATION_ENABLED=true.
 
 import { notFound } from 'next/navigation';
 import { requireOwnerAccess } from '@/lib/auth/require-owner-access';

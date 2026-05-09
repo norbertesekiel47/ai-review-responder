@@ -3,6 +3,14 @@
 // Server component for the owner channel-management page. Auth +
 // subscription guard run before any UI renders. Fetches the canonical
 // enrollment shape and channel availability for SSR-driven hydration.
+//
+// For multi-location accounts, also fetches:
+//   - Per-location channel overrides (channel_enrollments with location_id)
+//   - Active locations list (for per-location override panel)
+//
+// VAL-SETTINGS-012: Channels tab shows org-level defaults at top.
+// VAL-SETTINGS-013: Per-location override panel collapsed by default.
+// VAL-SETTINGS-032: Channels tab org-default section shows only Telegram and email.
 
 import { cookies } from 'next/headers';
 import { createServerClient } from '@supabase/ssr';
@@ -12,6 +20,8 @@ import { TopBar } from '@/components/dashboard/TopBar';
 import { type InitialEnrollment } from './ChannelsClient';
 import { ChannelsTabClient } from './ChannelsTabClient';
 import { isTelegramEnabled, assertTelegramEnvReady } from '@/app/api/admin/channels/telegram/_shared';
+import { getLocationsForAccount, getActiveLocationCount } from '@/lib/locations/repo';
+import { getDisplayLabel, type HasDisplayLabel } from '@/lib/locations/display-label';
 
 const KNOWN_CHANNELS = new Set<string>(['email', 'sms', 'telegram', 'whatsapp']);
 
@@ -34,11 +44,29 @@ function telegramAvailable(): boolean {
   return assertTelegramEnvReady() === null;
 }
 
+// ── Per-location override shape ──────────────────────────────────────────
+
+export interface PerLocationOverride {
+  enrollmentId: string;
+  locationId: string;
+  locationName: string; // display_label ?? name
+  channel: 'email' | 'sms' | 'telegram' | 'whatsapp';
+  handle: string | null;
+  status: string;
+  verified_at: string | null;
+}
+
+export interface LocationOption {
+  id: string;
+  displayName: string; // display_label ?? name
+  isPrimary: boolean;
+}
+
 export default async function ChannelsPage() {
   const access = await requireOwnerAccess();
+  const multiLocationEnabled = process.env.MULTI_LOCATION_ENABLED === 'true';
 
   // Get the owner's email for the email enrollment fallback.
-  // requireOwnerAccess() no longer returns email (VAL-AUTH-023 shape change).
   const cookieStore = await cookies();
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -53,8 +81,9 @@ export default async function ChannelsPage() {
   const { data: { user: authUser } } = await supabase.auth.getUser();
   const ownerEmail = authUser?.email ?? '';
 
-  // verification_token_hash INTENTIONALLY excluded from SELECT.
+  // Fetch ALL active enrollments (both org-level and per-location)
   const enrollmentRows = await sql<{
+    id: string;
     channel: string;
     handle: string | null;
     status: string;
@@ -63,20 +92,37 @@ export default async function ChannelsPage() {
     unsubscribed_at: Date | null;
     unsubscribed_reason: string | null;
     expires_at: Date | null;
+    location_id: string | null;
   }[]>`
     SELECT
-      e.channel, e.handle, e.status,
+      e.id, e.channel, e.handle, e.status,
       e.verified_at, e.disabled_at, e.unsubscribed_at, e.unsubscribed_reason,
-      e.verification_token_expires_at AS expires_at
+      e.verification_token_expires_at AS expires_at,
+      e.location_id
     FROM channel_enrollments e
     WHERE e.account_id = ${access.accountId}
       AND e.archived_at IS NULL
-    ORDER BY e.created_at ASC
+    ORDER BY e.location_id NULLS FIRST, e.created_at ASC
   `;
 
-  const initialEnrollments: InitialEnrollment[] = enrollmentRows
-    .filter((r) => KNOWN_CHANNELS.has(r.channel))
-    .map((r) => ({
+  // Separate org-level defaults from per-location overrides
+  const orgLevelEnrollments: InitialEnrollment[] = [];
+  const perLocationOverrides: PerLocationOverride[] = [];
+
+  // We need location names for the overrides — fetch them
+  let locationMap = new Map<string, { name: string; display_label: string | null }>();
+
+  if (multiLocationEnabled) {
+    const locations = await getLocationsForAccount(access.accountId);
+    for (const loc of locations) {
+      locationMap.set(loc.id, { name: loc.name, display_label: loc.display_label });
+    }
+  }
+
+  for (const r of enrollmentRows) {
+    if (!KNOWN_CHANNELS.has(r.channel)) continue;
+
+    const enrollmentBase = {
       channel: r.channel as InitialEnrollment['channel'],
       handle: r.handle,
       status: r.status,
@@ -85,7 +131,38 @@ export default async function ChannelsPage() {
       unsubscribed_at: r.unsubscribed_at?.toISOString() ?? null,
       unsubscribed_reason: r.unsubscribed_reason,
       expires_at: r.expires_at?.toISOString() ?? null,
+    };
+
+    if (r.location_id === null) {
+      // Org-level default
+      orgLevelEnrollments.push(enrollmentBase);
+    } else {
+      // Per-location override
+      const locInfo = locationMap.get(r.location_id);
+      const locName = locInfo ? getDisplayLabel(locInfo as HasDisplayLabel) : r.location_id;
+
+      perLocationOverrides.push({
+        enrollmentId: r.id,
+        locationId: r.location_id,
+        locationName: locName,
+        channel: r.channel as PerLocationOverride['channel'],
+        handle: r.handle,
+        status: r.status,
+        verified_at: r.verified_at?.toISOString() ?? null,
+      });
+    }
+  }
+
+  // Build location options for the override panel
+  let locationOptions: LocationOption[] = [];
+  if (multiLocationEnabled) {
+    const locations = await getLocationsForAccount(access.accountId);
+    locationOptions = locations.map((loc) => ({
+      id: loc.id,
+      displayName: getDisplayLabel(loc as HasDisplayLabel),
+      isPrimary: loc.is_primary,
     }));
+  }
 
   return (
     <>
@@ -95,14 +172,17 @@ export default async function ChannelsPage() {
         rightLink={{ href: '/dashboard', label: 'Back to dashboard' }}
       />
       <ChannelsTabClient
-        initialEnrollments={initialEnrollments}
+        initialEnrollments={orgLevelEnrollments}
         initialAvailability={{
           telegram: telegramAvailable(),
           sms: smsAvailable(),
           whatsapp: whatsappAvailable(),
         }}
         ownerEmailFallback={ownerEmail}
-        multiLocationEnabled={process.env.MULTI_LOCATION_ENABLED === 'true'}
+        multiLocationEnabled={multiLocationEnabled}
+        perLocationOverrides={perLocationOverrides}
+        locationOptions={locationOptions}
+        accountId={access.accountId}
       />
     </>
   );
