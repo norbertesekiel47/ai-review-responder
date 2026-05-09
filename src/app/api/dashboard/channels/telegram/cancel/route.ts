@@ -6,6 +6,8 @@ import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
 import { isTelegramEnabled, flagOff, assertTelegramEnvReady } from '@/app/api/admin/channels/telegram/_shared';
 import { cancelTelegramEnrollment } from '@/lib/channels/telegram-enrollment';
+import { invalidateChannelCache } from '@/lib/notifications/resolve-channels';
+import { asAccountId } from '@/lib/shared/ids';
 
 async function handler(req: NextRequest): Promise<NextResponse> {
   if (!isTelegramEnabled()) return flagOff();
@@ -41,6 +43,15 @@ async function handler(req: NextRequest): Promise<NextResponse> {
     await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`mobile_enroll:${locationId}`}, 0))`;
     return cancelTelegramEnrollment(tx, locationId);
   });
+
+  // Invalidate channel cache — the cancelled verification changes which
+  // channels are available for dispatch.
+  const [acctRow] = await sql<{ account_id: string }[]>`
+    SELECT account_id FROM businesses WHERE id = ${locationId}
+  `;
+  if (acctRow?.account_id) {
+    await invalidateChannelCache(asAccountId(acctRow.account_id)).catch(() => {});
+  }
 
   return NextResponse.json({ ok: true }, { headers: { 'Cache-Control': 'no-store, private' } });
 }

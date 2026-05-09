@@ -10,6 +10,8 @@ import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { isWhatsAppEnabled, flagOff, assertWhatsAppEnvReady } from '../_shared';
 import { cancelWhatsAppEnrollment } from '@/lib/channels/whatsapp-enrollment';
+import { invalidateChannelCache } from '@/lib/notifications/resolve-channels';
+import { asAccountId } from '@/lib/shared/ids';
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   if (!isWhatsAppEnabled()) return flagOff();
@@ -41,6 +43,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`mobile_enroll:${businessId}`}, 0))`;
     return cancelWhatsAppEnrollment(tx, businessId);
   });
+
+  // Invalidate channel cache — the cancelled verification changes which
+  // channels are available for dispatch.
+  const [acctRow] = await sql<{ account_id: string }[]>`
+    SELECT account_id FROM businesses WHERE id = ${businessId}
+  `;
+  if (acctRow?.account_id) {
+    await invalidateChannelCache(asAccountId(acctRow.account_id)).catch(() => {});
+  }
 
   // M6: no-store for consistency with start/disable routes (admin-action results
   // must not be cached by proxies or the browser).

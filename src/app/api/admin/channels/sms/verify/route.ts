@@ -27,6 +27,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { parsePhoneNumber } from 'libphonenumber-js';
 import twilio from 'twilio';
 import { v7 as uuidv7 } from 'uuid';
+import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import {
   isSmsEnabled,
@@ -42,6 +43,8 @@ import {
 } from '../_shared';
 import { classifyEnrollmentError, MultipleMobileChannelsError, EnrollmentDatabaseError } from '@/lib/channels/unique-violation';
 import { asLocationId } from '@/lib/shared/ids';
+import { invalidateChannelCache } from '@/lib/notifications/resolve-channels';
+import { asAccountId } from '@/lib/shared/ids';
 
 interface VerifyBody {
   business_id?: string;
@@ -80,7 +83,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const subStatus = await loadBusinessSubscriptionStatus(businessId);
   if (!isSubscriptionActive(subStatus)) return subscriptionNotActive();
 
-  return withMobileEnrollmentLock(businessId, async (tx) => {
+  const result = await withMobileEnrollmentLock(businessId, async (tx) => {
     // Load the active (non-archived) SMS enrollment row, if any. At most one
     // exists because of the partial unique index (channel_enrollments
     // (business_id, channel) WHERE archived_at IS NULL) shipped in 021.
@@ -235,4 +238,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json({ ok: true, phoneMasked: maskUsPhone(twilioPhone) });
   });
+
+  // Invalidate channel cache — the enrollment state change affects which
+  // channels are available for dispatch. Best-effort: a Redis failure
+  // should not block the admin response.
+  const [acctRow] = await sql<{ account_id: string }[]>`
+    SELECT account_id FROM businesses WHERE id = ${businessId}
+  `;
+  if (acctRow?.account_id) {
+    await invalidateChannelCache(asAccountId(acctRow.account_id)).catch(() => {});
+  }
+
+  return result;
 }

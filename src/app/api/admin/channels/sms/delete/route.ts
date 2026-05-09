@@ -17,6 +17,7 @@
 // compliance (7-year retention).
 
 import { NextRequest, NextResponse } from 'next/server';
+import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import {
   isSmsEnabled,
@@ -28,7 +29,8 @@ import {
   withMobileEnrollmentLock,
   badRequest,
 } from '../_shared';
-import { asLocationId } from '@/lib/shared/ids';
+import { asLocationId, asAccountId } from '@/lib/shared/ids';
+import { invalidateChannelCache } from '@/lib/notifications/resolve-channels';
 
 interface DeleteBody {
   business_id?: string;
@@ -60,7 +62,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const subStatus = await loadBusinessSubscriptionStatus(businessId);
   if (!isSubscriptionActive(subStatus)) return subscriptionNotActive();
 
-  return withMobileEnrollmentLock(businessId, async (tx) => {
+  const result = await withMobileEnrollmentLock(businessId, async (tx) => {
     await tx`
       UPDATE channel_enrollments
       SET archived_at = NOW(), archive_reason = 'admin_delete', updated_at = NOW()
@@ -68,4 +70,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     `;
     return NextResponse.json({ ok: true });
   });
+
+  // Invalidate channel cache — the archived channel must be removed from
+  // the dispatch resolution immediately.
+  const [acctRow] = await sql<{ account_id: string }[]>`
+    SELECT account_id FROM businesses WHERE id = ${businessId}
+  `;
+  if (acctRow?.account_id) {
+    await invalidateChannelCache(asAccountId(acctRow.account_id)).catch(() => {});
+  }
+
+  return result;
 }

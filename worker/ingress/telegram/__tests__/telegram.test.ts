@@ -100,6 +100,18 @@ vi.mock('../../../../src/lib/notifications/channels/telegram-client', async () =
   };
 });
 
+// Mock invalidateChannelCache — must use vi.hoisted so the vi.mock factory
+// closures can reference the mock function.
+const { mockInvalidateChannelCache } = vi.hoisted(() => ({
+  mockInvalidateChannelCache: vi.fn().mockResolvedValue(undefined),
+}));
+vi.mock('../../../../src/lib/notifications/resolve-channels', () => ({
+  invalidateChannelCache: mockInvalidateChannelCache,
+}));
+vi.mock('../../../../src/lib/shared/ids', () => ({
+  asAccountId: vi.fn((id: string) => id),
+}));
+
 import { handleTelegramWebhook } from '../telegram';
 import {
   ConsumedLinkError,
@@ -136,6 +148,7 @@ beforeEach(() => {
   mockAck.mockResolvedValue(undefined);
   mockEditText.mockResolvedValue(undefined);
   mockEditMarkup.mockResolvedValue(undefined);
+  mockInvalidateChannelCache.mockClear();
   process.env.TELEGRAM_BOT_TOKEN = 'bot-test';
   process.env.TELEGRAM_WEBHOOK_SECRET = 'good-secret';
 });
@@ -304,8 +317,8 @@ describe('telegram ingress — enrollment (/start)', () => {
   it('verifies token, flips status to verified, sends confirmation', async () => {
     mockVerify.mockReturnValueOnce(true);
     mockClaim.mockResolvedValueOnce('claimed');
-    // SELECT channel_enrollments by hash
-    sqlQueue.push([{ id: 'enrl-1', business_id: 'biz-1' }]);
+    // SELECT channel_enrollments by hash (now includes account_id)
+    sqlQueue.push([{ id: 'enrl-1', business_id: 'biz-1', account_id: 'acct-tg-1' }]);
     sqlQueue.push([]); // UPDATE enrollments
     sqlQueue.push([]); // mark processed
 
@@ -319,9 +332,12 @@ describe('telegram ingress — enrollment (/start)', () => {
     const sendText = (mockSendMsg.mock.calls[0]![0] as { text: string }).text;
     expect(sendText).toMatch(/connected/i);
     expect(reply.code).toHaveBeenCalledWith(200);
+    // Cache must be invalidated after enrollment verification
+    expect(mockInvalidateChannelCache).toHaveBeenCalledTimes(1);
+    expect(mockInvalidateChannelCache).toHaveBeenCalledWith('acct-tg-1');
   });
 
-  it('unknown/expired token: sends failure message, no state change', async () => {
+  it('unknown/expired token: sends failure message, no state change, no cache invalidation', async () => {
     mockVerify.mockReturnValueOnce(true);
     mockClaim.mockResolvedValueOnce('claimed');
     sqlQueue.push([]); // SELECT returns no matching enrollment
@@ -337,6 +353,8 @@ describe('telegram ingress — enrollment (/start)', () => {
     const text = (mockSendMsg.mock.calls[0]![0] as { text: string }).text;
     expect(text).toMatch(/invalid|expired/i);
     expect(reply.code).toHaveBeenCalledWith(200);
+    // No enrollment matched — no invalidation
+    expect(mockInvalidateChannelCache).not.toHaveBeenCalled();
   });
 });
 

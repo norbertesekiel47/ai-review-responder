@@ -27,6 +27,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import twilio from 'twilio';
+import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import {
   isSmsEnabled,
@@ -39,7 +40,8 @@ import {
   badRequest,
   conflict,
 } from '../_shared';
-import { asLocationId } from '@/lib/shared/ids';
+import { asLocationId, asAccountId } from '@/lib/shared/ids';
+import { invalidateChannelCache } from '@/lib/notifications/resolve-channels';
 
 interface ConfirmBody {
   business_id?: string;
@@ -69,7 +71,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const subStatus = await loadBusinessSubscriptionStatus(businessId);
   if (!isSubscriptionActive(subStatus)) return subscriptionNotActive();
 
-  return withMobileEnrollmentLock(businessId, async (tx) => {
+  const result = await withMobileEnrollmentLock(businessId, async (tx) => {
     // Step 1: Load active row (any status — row status gates are applied in step 3).
     const activeRows = await tx<{ handle: string; status: string }[]>`
       SELECT handle, status FROM channel_enrollments
@@ -129,4 +131,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json({ ok: true });
   });
+
+  // Invalidate channel cache — the newly verified channel must be
+  // immediately available for notification dispatch.
+  const [acctRow] = await sql<{ account_id: string }[]>`
+    SELECT account_id FROM businesses WHERE id = ${businessId}
+  `;
+  if (acctRow?.account_id) {
+    await invalidateChannelCache(asAccountId(acctRow.account_id)).catch(() => {});
+  }
+
+  return result;
 }

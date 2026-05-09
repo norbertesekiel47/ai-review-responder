@@ -24,6 +24,7 @@
 //   3. Single CTE inside the lock.
 
 import { NextRequest, NextResponse } from 'next/server';
+import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import {
   isSmsEnabled,
@@ -35,7 +36,8 @@ import {
   withMobileEnrollmentLock,
   badRequest,
 } from '../_shared';
-import { asLocationId } from '@/lib/shared/ids';
+import { asLocationId, asAccountId } from '@/lib/shared/ids';
+import { invalidateChannelCache } from '@/lib/notifications/resolve-channels';
 
 interface CancelBody {
   business_id?: string;
@@ -63,7 +65,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const subStatus = await loadBusinessSubscriptionStatus(businessId);
   if (!isSubscriptionActive(subStatus)) return subscriptionNotActive();
 
-  return withMobileEnrollmentLock(businessId, async (tx) => {
+  const result = await withMobileEnrollmentLock(businessId, async (tx) => {
     // State-revert CTE: UPDATE in-place based on prior terminal timestamps,
     // then DELETE any rows that remained 'pending_verification' (brand-new).
     await tx`
@@ -85,4 +87,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     `;
     return NextResponse.json({ ok: true });
   });
+
+  // Invalidate channel cache — the cancelled verification changes which
+  // channels are available for dispatch.
+  const [acctRow] = await sql<{ account_id: string }[]>`
+    SELECT account_id FROM businesses WHERE id = ${businessId}
+  `;
+  if (acctRow?.account_id) {
+    await invalidateChannelCache(asAccountId(acctRow.account_id)).catch(() => {});
+  }
+
+  return result;
 }
