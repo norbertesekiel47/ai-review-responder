@@ -89,3 +89,12 @@ zernio-debug.log
 AGENTS.md
 graphify-out/
 scripts/zernio-count-reviews.ts
+
+# Temp scratch scripts (investigation/debug artifacts)
+.tmp-*.cjs
+
+# Literal "-w" file (accidental git add of vim swap-like artifact)
+\-w
+
+# Mission runtime artifacts (evidence, scripts — not for source control)
+.factory/missions/
