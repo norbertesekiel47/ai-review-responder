@@ -82,8 +82,18 @@ vi.mock('../../../../src/lib/shared/outbox', () => ({
   extractOutboxHandle: (d: any, fallback: string) => ({ outboxId: (d && typeof d.outbox_id === 'string') ? d.outbox_id : fallback, attempt: (d && typeof d.outbox_attempt === 'number') ? d.outbox_attempt : undefined }),
 }));
 
-vi.mock('../../../../src/lib/notifications/enrollments', () => ({
-  getVerifiedEnrollments: mockGetVerifiedEnrollments,
+vi.mock('../../../../src/lib/notifications/resolve-channels', () => ({
+  resolveChannels: mockGetVerifiedEnrollments,
+  invalidateChannelCache: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('../../../../src/lib/db/redis-cache', () => ({
+  getCacheRedis: () => ({
+    get: vi.fn().mockResolvedValue(null),
+    set: vi.fn().mockResolvedValue('OK'),
+    keys: vi.fn().mockResolvedValue([]),
+    del: vi.fn().mockResolvedValue(0),
+  }),
 }));
 
 vi.mock('../../../../src/lib/notifications/channels', () => ({
@@ -148,6 +158,7 @@ function mockResponseRow(overrides: Record<string, unknown> = {}) {
 
 function mockBusinessRow(overrides: Record<string, unknown> = {}) {
   return {
+    account_id: 'acct-1',
     name: 'Test Biz',
     owner_email_bounced: false,
     archived_at: null,
@@ -205,8 +216,8 @@ describe('NotificationWorker — Telegram flag gate', () => {
     stubBothChannels();
 
     mockGetVerifiedEnrollments.mockResolvedValue([
-      { channel: 'email', handle: 'owner@example.com' },
-      { channel: 'telegram', handle: '123456789' },
+      { channel: 'email', handle: 'owner@example.com', location_id: null },
+      { channel: 'telegram', handle: '123456789', location_id: null },
     ]);
 
     sqlReturnQueue.push(
@@ -237,8 +248,8 @@ describe('NotificationWorker — Telegram blocked recipient', () => {
     mockTelegramSend.mockRejectedValue(new TelegramRecipientBlockedError());
 
     mockGetVerifiedEnrollments.mockResolvedValue([
-      { channel: 'email', handle: 'owner@example.com' },
-      { channel: 'telegram', handle: '123456789' },
+      { channel: 'email', handle: 'owner@example.com', location_id: null },
+      { channel: 'telegram', handle: '123456789', location_id: null },
     ]);
 
     sqlReturnQueue.push(
@@ -287,8 +298,8 @@ describe('NotificationWorker — Telegram chat not found', () => {
     mockTelegramSend.mockRejectedValue(new TelegramChatNotFoundError());
 
     mockGetVerifiedEnrollments.mockResolvedValue([
-      { channel: 'email', handle: 'owner@example.com' },
-      { channel: 'telegram', handle: '123456789' },
+      { channel: 'email', handle: 'owner@example.com', location_id: null },
+      { channel: 'telegram', handle: '123456789', location_id: null },
     ]);
 
     sqlReturnQueue.push(

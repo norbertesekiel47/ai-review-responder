@@ -44,6 +44,7 @@ export interface ResponseRow {
 }
 
 export interface BusinessRow {
+  account_id: string;
   name: string;
   owner_email_bounced: boolean;
   subscription_status: string;
@@ -87,7 +88,8 @@ export async function loadNotificationContext(
   }
 
   const [business] = await sql<BusinessRow[]>`
-    SELECT b.name, b.owner_email_bounced, b.archived_at, a.subscription_status, a.updated_at AS account_updated_at
+    SELECT b.name, b.owner_email_bounced, b.archived_at,
+           a.id AS account_id, a.subscription_status, a.updated_at AS account_updated_at
     FROM businesses b
     JOIN accounts a ON a.id = b.account_id
     WHERE b.id = ${input.businessId}

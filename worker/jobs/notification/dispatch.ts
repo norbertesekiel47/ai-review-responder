@@ -13,7 +13,9 @@ import {
 import { getChannel } from '../../../src/lib/notifications/channels';
 import { createApprovalLink } from '../../../src/lib/approval/create-link';
 import type { ChannelId } from '../../../src/lib/notifications/channels/types';
-import type { VerifiedEnrollment } from '../../../src/lib/notifications/enrollments';
+import { invalidateChannelCache, type ResolvedChannel } from '../../../src/lib/notifications/resolve-channels';
+import type { AccountId } from '../../../src/lib/shared/ids';
+import { asAccountId } from '../../../src/lib/shared/ids';
 import { classifyChannelError } from './errors';
 import {
   reserveSmsCost,
@@ -30,6 +32,7 @@ export interface DispatchLogger {
 export interface DispatchContext {
   responseId: string;
   businessId: string;
+  accountId: string;
   isFailover: boolean;
   appUrl: string;
   business: {
@@ -59,7 +62,7 @@ export interface DispatchOutcome {
  */
 export async function dispatchAll(
   ctx: DispatchContext,
-  enrollments: VerifiedEnrollment[],
+  enrollments: ResolvedChannel[],
   logger: DispatchLogger,
 ): Promise<DispatchOutcome> {
   let attempted = 0;
@@ -281,6 +284,16 @@ export async function dispatchAll(
         // CONFIG-ERROR (whatsapp_template_config / whatsapp_session_window),
         // TRANSIENT (whatsapp_rate_limit / whatsapp_timeout), and 'unknown'
         // intentionally leave channel_enrollments unchanged.
+
+        // VAL-NOTIF-009: Invalidate cache on channel_enrollments writes.
+        // The above mutation branches all write to channel_enrollments,
+        // so the cached resolver results are now stale.
+        try {
+          await invalidateChannelCache(asAccountId(ctx.accountId));
+        } catch {
+          // Cache invalidation failure is non-blocking — the cache will
+          // expire via TTL anyway (5 minutes). Log nothing to avoid noise.
+        }
 
         // Primary log line (preserved verbatim from the original branches).
         logger[directive.logLevel](directive.logMessage);

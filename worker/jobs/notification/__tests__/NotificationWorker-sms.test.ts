@@ -135,8 +135,18 @@ vi.mock('../../../../src/lib/shared/outbox', () => ({
   extractOutboxHandle: (d: any, fallback: string) => ({ outboxId: (d && typeof d.outbox_id === 'string') ? d.outbox_id : fallback, attempt: (d && typeof d.outbox_attempt === 'number') ? d.outbox_attempt : undefined }),
 }));
 
-vi.mock('../../../../src/lib/notifications/enrollments', () => ({
-  getVerifiedEnrollments: mockGetVerifiedEnrollments,
+vi.mock('../../../../src/lib/notifications/resolve-channels', () => ({
+  resolveChannels: mockGetVerifiedEnrollments,
+  invalidateChannelCache: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('../../../../src/lib/db/redis-cache', () => ({
+  getCacheRedis: () => ({
+    get: vi.fn().mockResolvedValue(null),
+    set: vi.fn().mockResolvedValue('OK'),
+    keys: vi.fn().mockResolvedValue([]),
+    del: vi.fn().mockResolvedValue(0),
+  }),
 }));
 
 vi.mock('../../../../src/lib/notifications/channels', () => ({
@@ -200,6 +210,7 @@ function mockResponseRow(overrides: Record<string, unknown> = {}) {
 
 function mockBusinessRow(overrides: Record<string, unknown> = {}) {
   return {
+    account_id: 'acct-1',
     name: 'Test Biz',
     owner_email_bounced: false,
     archived_at: null,
@@ -257,8 +268,8 @@ describe('NotificationWorker — SMS flag gate', () => {
     stubBothChannels();
 
     mockGetVerifiedEnrollments.mockResolvedValue([
-      { channel: 'email', handle: 'owner@example.com' },
-      { channel: 'sms', handle: '+15551234567' },
+      { channel: 'email', handle: 'owner@example.com', location_id: null },
+      { channel: 'sms', handle: '+15551234567', location_id: null },
     ]);
 
     sqlReturnQueue.push(
@@ -286,7 +297,7 @@ describe('NotificationWorker — SMS happy path', () => {
     mockReserveSmsCost.mockResolvedValue('2026-04-21');
 
     mockGetVerifiedEnrollments.mockResolvedValue([
-      { channel: 'sms', handle: '+15551234567' },
+      { channel: 'sms', handle: '+15551234567', location_id: null },
     ]);
 
     sqlReturnQueue.push(
@@ -315,7 +326,7 @@ describe('NotificationWorker — SMS cap rejection', () => {
     mockReserveSmsCost.mockRejectedValue(new DailySmsLimitExceededError('per_business'));
 
     mockGetVerifiedEnrollments.mockResolvedValue([
-      { channel: 'sms', handle: '+15551234567' },
+      { channel: 'sms', handle: '+15551234567', location_id: null },
     ]);
 
     sqlReturnQueue.push(
@@ -350,7 +361,7 @@ describe('NotificationWorker — SMS refund on failure', () => {
     mockCreateApprovalLink.mockRejectedValue(new Error('DB down'));
 
     mockGetVerifiedEnrollments.mockResolvedValue([
-      { channel: 'sms', handle: '+15551234567' },
+      { channel: 'sms', handle: '+15551234567', location_id: null },
     ]);
 
     sqlReturnQueue.push(
@@ -382,7 +393,7 @@ describe('NotificationWorker — SMS refund on failure', () => {
     mockSmsSend.mockRejectedValue(new Error('Twilio 500'));
 
     mockGetVerifiedEnrollments.mockResolvedValue([
-      { channel: 'sms', handle: '+15551234567' },
+      { channel: 'sms', handle: '+15551234567', location_id: null },
     ]);
 
     sqlReturnQueue.push(
@@ -416,7 +427,7 @@ describe('NotificationWorker — SMS sender-wide 21610 handling', () => {
     mockSmsSend.mockRejectedValue(new SmsRecipientUnsubscribedError());
 
     mockGetVerifiedEnrollments.mockResolvedValue([
-      { channel: 'sms', handle: '+15551234567' },
+      { channel: 'sms', handle: '+15551234567', location_id: null },
     ]);
 
     sqlReturnQueue.push(
@@ -465,7 +476,7 @@ describe('NotificationWorker — post-send recordDelivery failure', () => {
     mockRecordDelivery.mockRejectedValue(new Error('PG down'));
 
     mockGetVerifiedEnrollments.mockResolvedValue([
-      { channel: 'sms', handle: '+15551234567' },
+      { channel: 'sms', handle: '+15551234567', location_id: null },
     ]);
 
     sqlReturnQueue.push(

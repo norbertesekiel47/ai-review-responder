@@ -50,7 +50,7 @@ const {
   const mockMarkOutboxFailed = vi.fn(() => Promise.resolve());
   const mockCheckSubscription = vi.fn(() => ({ allowed: true, reason: '' }));
   const mockGetVerifiedEnrollments = vi.fn(() =>
-    Promise.resolve([{ channel: 'whatsapp' as const, handle: '+15550000001' }]),
+    Promise.resolve([{ channel: 'whatsapp' as const, handle: '+15550000001', location_id: null }]),
   );
   const mockGetChannel = vi.fn();
   const mockCreateApprovalLink = vi.fn(() =>
@@ -104,8 +104,18 @@ vi.mock('@/lib/shared/subscription-guard', () => ({
   checkSubscription: mockCheckSubscription,
 }));
 
-vi.mock('@/lib/notifications/enrollments', () => ({
-  getVerifiedEnrollments: mockGetVerifiedEnrollments,
+vi.mock('@/lib/notifications/resolve-channels', () => ({
+  resolveChannels: mockGetVerifiedEnrollments,
+  invalidateChannelCache: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('@/lib/db/redis-cache', () => ({
+  getCacheRedis: () => ({
+    get: vi.fn().mockResolvedValue(null),
+    set: vi.fn().mockResolvedValue('OK'),
+    keys: vi.fn().mockResolvedValue([]),
+    del: vi.fn().mockResolvedValue(0),
+  }),
 }));
 
 vi.mock('@/lib/notifications/channels', async () => {
@@ -182,6 +192,7 @@ function seedResponseAndBusiness() {
     archived_at: null,
     subscription_status: 'active',
     account_updated_at: new Date('2026-04-01'),
+    account_id: 'acct-1',
   }]);
 }
 
@@ -210,7 +221,7 @@ beforeEach(() => {
 
   // Default: single whatsapp enrollment.
   mockGetVerifiedEnrollments.mockResolvedValue([
-    { channel: 'whatsapp', handle: '+15550000001' },
+    { channel: 'whatsapp', handle: '+15550000001', location_id: null },
   ]);
 
   // Default: subscription allowed.

@@ -42,7 +42,8 @@ export async function handleSendNotification(
 
   const eligibility = await getEligibleChannels(
     {
-      businessId,
+      accountId: ctx.business.account_id,
+      locationId: businessId,
       subscriptionStatus: ctx.business.subscription_status,
       businessUpdatedAt: new Date(ctx.business.account_updated_at),
     },
@@ -50,9 +51,9 @@ export async function handleSendNotification(
   );
   if (!eligibility.ok) {
     if (eligibility.reason === 'no_verified_enrollments') {
-      logger.warn(`Business ${businessId} has no verified channel enrollments — skipping`);
+      logger.warn(`Location ${businessId} has no verified channel enrollments — skipping`);
     } else {
-      logger.log(`Business ${businessId} skipped: ${eligibility.reason}`);
+      logger.log(`Location ${businessId} skipped: ${eligibility.reason}`);
     }
     await markOutboxCompleted(outboxId, outboxAttempt);
     return;
@@ -69,6 +70,7 @@ export async function handleSendNotification(
     {
       responseId: response_id,
       businessId,
+      accountId: ctx.business.account_id,
       isFailover: !!(job.data as SendNotificationPayload).failover,
       appUrl,
       business: {

@@ -16,6 +16,8 @@ import { v7 as uuidv7 } from 'uuid';
 import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
+import { invalidateChannelCache } from '@/lib/notifications/resolve-channels';
+import { asAccountId } from '@/lib/shared/ids';
 
 export const dynamic = 'force-dynamic';
 
@@ -144,6 +146,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return jsonResponse({ error: 'Failed to create override' }, 500);
     }
 
+    // VAL-NOTIF-009: Invalidate cache on channel_enrollments writes
+    await invalidateChannelCache(asAccountId(user.accountId));
+
     return jsonResponse({
       success: true,
       override: {
@@ -224,6 +229,9 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
   if (!archived) {
     return jsonResponse({ error: 'No override found for this location and channel' }, 404);
   }
+
+  // VAL-NOTIF-009: Invalidate cache on channel_enrollments writes
+  await invalidateChannelCache(asAccountId(user.accountId));
 
   return jsonResponse({ success: true });
 }

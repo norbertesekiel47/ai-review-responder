@@ -42,6 +42,17 @@ vi.mock('uuid', () => ({
   v7: () => 'mock-uuid-v7',
 }));
 
+// ── Mock redis-cache (invalidateChannelCache calls getCacheRedis) ───
+
+vi.mock('@/lib/db/redis-cache', () => ({
+  getCacheRedis: () => ({
+    get: vi.fn().mockResolvedValue(null),
+    set: vi.fn().mockResolvedValue('OK'),
+    keys: vi.fn().mockResolvedValue([]),
+    del: vi.fn().mockResolvedValue(0),
+  }),
+}));
+
 // Import AFTER mocks
 import { POST, DELETE } from '../route';
 import { AuthError } from '@/lib/db/auth';

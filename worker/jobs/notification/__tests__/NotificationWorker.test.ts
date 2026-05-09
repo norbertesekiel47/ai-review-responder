@@ -138,8 +138,18 @@ const {
   };
 });
 
-vi.mock('../../../../src/lib/notifications/enrollments', () => ({
-  getVerifiedEnrollments: mockGetVerifiedEnrollments,
+vi.mock('../../../../src/lib/notifications/resolve-channels', () => ({
+  resolveChannels: mockGetVerifiedEnrollments,
+  invalidateChannelCache: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('../../../../src/lib/db/redis-cache', () => ({
+  getCacheRedis: () => ({
+    get: vi.fn().mockResolvedValue(null),
+    set: vi.fn().mockResolvedValue('OK'),
+    keys: vi.fn().mockResolvedValue([]),
+    del: vi.fn().mockResolvedValue(0),
+  }),
 }));
 
 vi.mock('../../../../src/lib/notifications/channels', () => ({
@@ -200,6 +210,7 @@ function mockResponseRow(overrides: Record<string, unknown> = {}) {
 
 function mockBusinessRow(overrides: Record<string, unknown> = {}) {
   return {
+    account_id: 'acct-1',
     name: 'Test Biz',
     owner_email_bounced: false,
     archived_at: null,
@@ -256,7 +267,7 @@ describe('NotificationWorker – handleSendNotification', () => {
   it('creates approval link, sends email, records delivery, and completes outbox', async () => {
     stubEmailChannel();
     mockGetVerifiedEnrollments.mockResolvedValue([
-      { channel: 'email', handle: 'owner@example.com' },
+      { channel: 'email', handle: 'owner@example.com', location_id: null },
     ]);
 
     sqlReturnQueue.push(
@@ -277,7 +288,7 @@ describe('NotificationWorker – handleSendNotification', () => {
   // 2. Subscription pending_payment blocks notification worker
   it('skips notification for pending_payment subscription', async () => {
     mockGetVerifiedEnrollments.mockResolvedValue([
-      { channel: 'email', handle: 'owner@example.com' },
+      { channel: 'email', handle: 'owner@example.com', location_id: null },
     ]);
 
     sqlReturnQueue.push(
@@ -296,7 +307,7 @@ describe('NotificationWorker – handleSendNotification', () => {
   it('completes outbox without sending when delivery already exists', async () => {
     stubEmailChannel();
     mockGetVerifiedEnrollments.mockResolvedValue([
-      { channel: 'email', handle: 'owner@example.com' },
+      { channel: 'email', handle: 'owner@example.com', location_id: null },
     ]);
 
     sqlReturnQueue.push(
@@ -315,7 +326,7 @@ describe('NotificationWorker – handleSendNotification', () => {
   // 4. Email send failure — throws for BullMQ retry (all channels fail)
   it('throws when channel send fails and no channels succeed', async () => {
     mockGetVerifiedEnrollments.mockResolvedValue([
-      { channel: 'email', handle: 'owner@example.com' },
+      { channel: 'email', handle: 'owner@example.com', location_id: null },
     ]);
     mockChannelSend.mockRejectedValue(new Error('Resend API timeout'));
     mockGetChannel.mockImplementation((id: string) => {
@@ -343,7 +354,7 @@ describe('NotificationWorker – handleSendNotification', () => {
 
     stubEmailChannel();
     mockGetVerifiedEnrollments.mockResolvedValue([
-      { channel: 'email', handle: 'owner@example.com' },
+      { channel: 'email', handle: 'owner@example.com', location_id: null },
     ]);
 
     sqlReturnQueue.push(
@@ -366,7 +377,7 @@ describe('NotificationWorker – handleSendNotification', () => {
 
     stubEmailChannel();
     mockGetVerifiedEnrollments.mockResolvedValue([
-      { channel: 'email', handle: 'owner@example.com' },
+      { channel: 'email', handle: 'owner@example.com', location_id: null },
     ]);
 
     sqlReturnQueue.push(
@@ -389,7 +400,7 @@ describe('NotificationWorker – handleSendNotification', () => {
     (job.data as any).failover = { reason: 'all_deliveries_failed' as const };
 
     mockGetVerifiedEnrollments.mockResolvedValue([
-      { channel: 'email', handle: 'owner@example.com' },
+      { channel: 'email', handle: 'owner@example.com', location_id: null },
     ]);
 
     sqlReturnQueue.push(
@@ -409,8 +420,8 @@ describe('NotificationWorker — dispatcher (multi-channel)', () => {
 
   it('sends on every verified enrollment sequentially', async () => {
     mockGetVerifiedEnrollments.mockResolvedValue([
-      { channel: 'email', handle: 'owner@example.com' },
-      { channel: 'sms', handle: '+15551234567' },
+      { channel: 'email', handle: 'owner@example.com', location_id: null },
+      { channel: 'sms', handle: '+15551234567', location_id: null },
     ]);
     const smsSend = vi.fn().mockResolvedValue({ externalMessageId: 'twi-msg-1' });
     mockChannelSend.mockResolvedValue({ externalMessageId: 'resend-msg-1' });
@@ -437,7 +448,7 @@ describe('NotificationWorker — dispatcher (multi-channel)', () => {
   });
 
   it('throws (for BullMQ retry) when ALL attempted channels fail', async () => {
-    mockGetVerifiedEnrollments.mockResolvedValue([{ channel: 'email', handle: 'owner@example.com' }]);
+    mockGetVerifiedEnrollments.mockResolvedValue([{ channel: 'email', handle: 'owner@example.com', location_id: null }]);
     mockChannelSend.mockRejectedValue(new Error('Resend 500'));
     mockGetChannel.mockImplementation((id: string) => {
       if (id === 'email') return { id: 'email', supportsInlineActions: false, requiresOptInHandshake: false, sendApprovalRequest: mockChannelSend };
@@ -457,8 +468,8 @@ describe('NotificationWorker — dispatcher (multi-channel)', () => {
 
   it('continues to other channels when one channel send throws', async () => {
     mockGetVerifiedEnrollments.mockResolvedValue([
-      { channel: 'email', handle: 'owner@example.com' },
-      { channel: 'sms', handle: '+15551234567' },
+      { channel: 'email', handle: 'owner@example.com', location_id: null },
+      { channel: 'sms', handle: '+15551234567', location_id: null },
     ]);
     const smsSend = vi.fn().mockRejectedValue(new Error('Twilio 500'));
     mockChannelSend.mockResolvedValue({ externalMessageId: 'resend-msg-1' });
@@ -486,7 +497,7 @@ describe('NotificationWorker — dispatcher (multi-channel)', () => {
   });
 
   it('skips channel when a prior successful delivery already exists (per-channel idempotency)', async () => {
-    mockGetVerifiedEnrollments.mockResolvedValue([{ channel: 'email', handle: 'owner@example.com' }]);
+    mockGetVerifiedEnrollments.mockResolvedValue([{ channel: 'email', handle: 'owner@example.com', location_id: null }]);
     stubEmailChannel();
 
     sqlReturnQueue.push(
@@ -503,8 +514,8 @@ describe('NotificationWorker — dispatcher (multi-channel)', () => {
 
   it('skips email channel when owner_email_bounced is true, but still sends on other channels', async () => {
     mockGetVerifiedEnrollments.mockResolvedValue([
-      { channel: 'email', handle: 'owner@example.com' },
-      { channel: 'sms', handle: '+15551234567' },
+      { channel: 'email', handle: 'owner@example.com', location_id: null },
+      { channel: 'sms', handle: '+15551234567', location_id: null },
     ]);
     const smsSend = vi.fn().mockResolvedValue({ externalMessageId: 'twi-msg-1' });
     mockChannelSend.mockResolvedValue({ externalMessageId: 'resend-msg-1' });

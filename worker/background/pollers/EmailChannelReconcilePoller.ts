@@ -1,5 +1,7 @@
 import { sql } from '../../../src/lib/db/server';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
+import { invalidateChannelCache } from '../../../src/lib/notifications/resolve-channels';
+import { asAccountId } from '../../../src/lib/shared/ids';
 import { v7 as uuidv7 } from 'uuid';
 
 /**
@@ -134,6 +136,12 @@ async function runOnceInner(
       // result.count === 1 → inserted; 0 → another writer raced us, that's fine
       if (result.count > 0) {
         inserted++;
+        // VAL-NOTIF-009: Invalidate cache on channel_enrollments writes
+        try {
+          await invalidateChannelCache(asAccountId(row.account_id));
+        } catch {
+          // Non-blocking — cache expires via TTL anyway
+        }
         // Log only the business_id — never raw owner_email. Worker logs
         // aggregate into Sentry / Railway / etc. where PII becomes a
         // permanent record subject to GDPR/CCPA scrubbing requests. If
