@@ -14,12 +14,14 @@ interface Props {
     onDiscard: () => void;
   };
   savedFlash?: boolean;
+  /** When true, shows 4-tab layout (Account, Locations, Voice, Notifications). */
+  multiLocationEnabled?: boolean;
 }
 
-export function SettingsShell({ activeTab, children, saveBar, savedFlash }: Props) {
+export function SettingsShell({ activeTab, children, saveBar, savedFlash, multiLocationEnabled }: Props) {
   return (
     <div className="settings-content">
-      <SettingsTabs activeTab={activeTab} />
+      <SettingsTabs activeTab={activeTab} multiLocationEnabled={multiLocationEnabled} />
       {children}
 
       {/* Conditional render rather than CSS-toggle — keeps a clean DOM

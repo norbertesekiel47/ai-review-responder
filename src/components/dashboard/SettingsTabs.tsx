@@ -4,7 +4,9 @@ import Link from 'next/link';
 import { useLayoutEffect, useRef, useState } from 'react';
 import { Icon, type IconName } from './Icon';
 
-export type SettingsTab = 'general' | 'voice' | 'channels';
+// ── Tab types ──────────────────────────────────────────────────────────
+
+export type SettingsTab = 'account' | 'locations' | 'voice' | 'channels' | 'general';
 
 interface Tab {
   id: SettingsTab;
@@ -13,32 +15,47 @@ interface Tab {
   href: string;
 }
 
-const TABS: Tab[] = [
+// ── Tab arrays ──────────────────────────────────────────────────────────
+
+/** Multi-location: 4 tabs — Account, Locations, Voice, Notifications */
+const TABS_MULTI: Tab[] = [
+  { id: 'account', label: 'Account', icon: 'cog', href: '/settings' },
+  { id: 'locations', label: 'Locations', icon: 'location', href: '/settings/locations' },
+  { id: 'voice', label: 'Voice', icon: 'sparkle', href: '/settings/voice' },
+  { id: 'channels', label: 'Notifications', icon: 'inbox', href: '/settings/channels' },
+];
+
+/** Single-location (flag off): 3 tabs — General, Brand Voice, Notifications */
+const TABS_SINGLE: Tab[] = [
   { id: 'general', label: 'General', icon: 'cog', href: '/settings' },
   { id: 'voice', label: 'Brand Voice', icon: 'sparkle', href: '/settings#brand-voice' },
   { id: 'channels', label: 'Notifications', icon: 'inbox', href: '/settings/channels' },
 ];
 
+// ── Component ───────────────────────────────────────────────────────────
+
 interface Props {
   activeTab: SettingsTab;
+  /** When true, shows 4-tab layout (Account, Locations, Voice, Notifications).
+   *  When false or undefined, shows 3-tab layout (General, Brand Voice, Notifications). */
+  multiLocationEnabled?: boolean;
 }
 
-export function SettingsTabs({ activeTab }: Props) {
-  const refs = useRef<Record<SettingsTab, HTMLAnchorElement | null>>({
-    general: null,
-    voice: null,
-    channels: null,
-  });
+export function SettingsTabs({ activeTab, multiLocationEnabled }: Props) {
+  const tabs = multiLocationEnabled ? TABS_MULTI : TABS_SINGLE;
+
+  // Build the refs object dynamically based on which tab set is active
+  const refs = useRef<Record<string, HTMLAnchorElement | null>>({});
   const [u, setU] = useState({ left: 0, width: 0 });
 
   useLayoutEffect(() => {
     const el = refs.current[activeTab];
     if (el) setU({ left: el.offsetLeft, width: el.offsetWidth });
-  }, [activeTab]);
+  }, [activeTab, multiLocationEnabled]);
 
   return (
     <div className="settings-tabs" role="tablist">
-      {TABS.map((t) => (
+      {tabs.map((t) => (
         <Link
           key={t.id}
           ref={(el) => {

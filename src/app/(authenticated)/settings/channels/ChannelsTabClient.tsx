@@ -15,12 +15,12 @@ import { ChannelsClient, type ChannelsClientProps } from './ChannelsClient';
  * via PUT /api/settings — preserving the patch-shape contract that the legacy
  * Settings General form used.
  */
-export function ChannelsTabClient(props: ChannelsClientProps) {
+export function ChannelsTabClient(props: ChannelsClientProps & { multiLocationEnabled?: boolean }) {
   const f = useSettingsForm();
 
   if (f.fetchError) {
     return (
-      <SettingsShell activeTab="channels">
+      <SettingsShell activeTab="channels" multiLocationEnabled={props.multiLocationEnabled}>
         <ChannelsClient {...props} />
         <div className="set-section" style={{ borderColor: '#FCA5A5' }}>
           <div className="set-section-title" style={{ color: '#991B1B' }}>Couldn&apos;t load notification preferences</div>
@@ -32,7 +32,7 @@ export function ChannelsTabClient(props: ChannelsClientProps) {
 
   if (!f.form || !f.data) {
     return (
-      <SettingsShell activeTab="channels">
+      <SettingsShell activeTab="channels" multiLocationEnabled={props.multiLocationEnabled}>
         <ChannelsClient {...props} />
         <div className="set-section">
           <p style={{ textAlign: 'center', color: '#6B7280', padding: '24px 0' }}>Loading preferences…</p>
@@ -44,6 +44,7 @@ export function ChannelsTabClient(props: ChannelsClientProps) {
   return (
     <SettingsShell
       activeTab="channels"
+      multiLocationEnabled={props.multiLocationEnabled}
       savedFlash={f.savedFlash}
       saveBar={{
         visible: f.dirty,

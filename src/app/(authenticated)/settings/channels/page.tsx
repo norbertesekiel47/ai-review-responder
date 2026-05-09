@@ -102,6 +102,7 @@ export default async function ChannelsPage() {
           whatsapp: whatsappAvailable(),
         }}
         ownerEmailFallback={ownerEmail}
+        multiLocationEnabled={process.env.MULTI_LOCATION_ENABLED === 'true'}
       />
     </>
   );
