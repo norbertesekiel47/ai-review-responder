@@ -527,4 +527,38 @@ describe('GET /api/admin/costs', () => {
     void seenQueries;
     void intercept;
   });
+
+  // Regression: api_costs_daily_rollups has NO account_id column — rollup
+  // queries must JOIN through businesses instead of filtering directly.
+  // This prevents a runtime SQL error when account_id parameter is provided
+  // with days > 90.
+  it('rollup queries use JOIN-through-businesses pattern, not direct account_id on rollups table', async () => {
+    queueDetailPlusRollupResults();
+    const { GET } = await import('../route');
+    await GET(makeRequest('/api/admin/costs?days=180&account_id=acct-123'));
+
+    // Every SQL that references api_costs_daily_rollups must NOT contain
+    // a direct `AND account_id =` predicate on that table. Instead it
+    // must use a subquery: business_id IN (SELECT id FROM businesses WHERE account_id = ...)
+    const rollupQueries = capturedSqlTexts.filter(
+      (sql) => sql.includes('api_costs_daily_rollups'),
+    );
+    expect(rollupQueries.length).toBeGreaterThanOrEqual(1);
+
+    for (const sql of rollupQueries) {
+      // Must NOT have direct account_id filter on the rollups table
+      // (e.g., "AND account_id = ...::uuid" appearing before the first
+      // subquery keyword). The only account_id reference allowed is
+      // inside a businesses subquery.
+      expect(sql).not.toMatch(
+        /api_costs_daily_rollups[^]*?AND\s+account_id\s*=\s*\$.*::uuid/,
+      );
+      // When accountId is provided, must use businesses subquery
+      if (sql.includes('acct-123') || sql.includes('accountId')) {
+        expect(sql).toMatch(
+          /business_id\s+IN\s*\(\s*SELECT\s+id\s+FROM\s+businesses\s+WHERE\s+account_id/,
+        );
+      }
+    }
+  });
 });

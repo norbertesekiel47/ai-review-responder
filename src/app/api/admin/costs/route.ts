@@ -184,7 +184,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
               WHERE rollup_date >= CURRENT_DATE - ${days}::int * INTERVAL '1 day'
                 AND rollup_date <= CURRENT_DATE - INTERVAL '90 days'
                 AND business_id IS NOT NULL
-                AND account_id = ${accountId}::uuid
+                AND business_id IN (SELECT id FROM businesses WHERE account_id = ${accountId}::uuid)
               GROUP BY business_id
             ),
             business_totals AS (
@@ -303,7 +303,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
               GROUP BY business_id
               UNION
               SELECT business_id FROM api_costs_daily_rollups
-              WHERE account_id = ${accountId}::uuid
+              WHERE business_id IN (SELECT id FROM businesses WHERE account_id = ${accountId}::uuid)
                 AND rollup_date >= CURRENT_DATE - ${days}::int * INTERVAL '1 day'
                 AND rollup_date <= CURRENT_DATE - INTERVAL '90 days'
                 AND business_id IS NOT NULL
@@ -391,7 +391,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           ? sql<ProviderRow[]>`
               SELECT provider, SUM(total_cost_usd)::float AS total_usd, SUM(call_count)::float AS call_count
               FROM api_costs_daily_rollups
-              WHERE account_id = ${accountId}::uuid
+              WHERE business_id IN (SELECT id FROM businesses WHERE account_id = ${accountId}::uuid)
                 AND rollup_date >= CURRENT_DATE - ${days}::int * INTERVAL '1 day'
                 AND rollup_date <= CURRENT_DATE - INTERVAL '90 days'
               GROUP BY provider
@@ -407,7 +407,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           ? sql<DayRow[]>`
               SELECT rollup_date::text AS day, SUM(total_cost_usd)::float AS total_usd, SUM(call_count)::float AS call_count
               FROM api_costs_daily_rollups
-              WHERE account_id = ${accountId}::uuid
+              WHERE business_id IN (SELECT id FROM businesses WHERE account_id = ${accountId}::uuid)
                 AND rollup_date >= CURRENT_DATE - ${days}::int * INTERVAL '1 day'
                 AND rollup_date <= CURRENT_DATE - INTERVAL '90 days'
               GROUP BY rollup_date
