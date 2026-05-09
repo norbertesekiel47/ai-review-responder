@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto';
 import { sql } from '@/lib/db/server';
-import { getDisplayLabel, type HasDisplayLabel } from '@/lib/locations/display-label';
 import ApprovalClient from '@/components/approval/approval-client';
 
 interface PageProps {
@@ -44,35 +43,12 @@ export default async function ApprovalPage({ params }: PageProps) {
     );
   }
 
-  // Get business info for the shell — include display_label and archived_at
-  const [biz] = await sql<{ name: string; display_label: string | null; archived_at: Date | null }[]>`
-    SELECT name, display_label, archived_at FROM businesses WHERE id = ${link.business_id}
-  `;
-
-  const locationLabel = biz ? getDisplayLabel(biz as HasDisplayLabel) : 'Your Business';
-  const isArchived = biz?.archived_at != null;
-
+  // Location chip, archived badge, and heading are rendered ONLY in the
+  // client component (approval-client.tsx) to avoid duplication.
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="mx-auto max-w-lg px-4 py-8">
-        <h1 className="text-xl font-semibold text-gray-900">
-          {locationLabel}
-        </h1>
-        <div className="mt-1 flex items-center gap-2">
-          <span className="inline-flex items-center gap-1 text-[11px] font-medium text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full whitespace-nowrap max-w-[160px] truncate">
-            <svg className="h-2.5 w-2.5" viewBox="0 0 16 16" fill="currentColor">
-              <path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm0 14.4a6.4 6.4 0 1 1 0-12.8 6.4 6.4 0 0 1 0 12.8z" />
-              <path d="M8 4a1.6 1.6 0 1 0 0 3.2A1.6 1.6 0 0 0 8 4zm0 4.8a1.6 1.6 0 0 0-1.6 1.6v.8a1.6 1.6 0 0 0 3.2 0v-.8A1.6 1.6 0 0 0 8 8.8z" />
-            </svg>
-            {locationLabel}
-          </span>
-          {isArchived && (
-            <span className="inline-flex items-center text-[10px] font-semibold uppercase tracking-wider text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
-              Archived
-            </span>
-          )}
-        </div>
-        <p className="mt-1 text-sm text-gray-500">Review a draft response</p>
+        <p className="text-sm text-gray-500">Review a draft response</p>
         <div className="mt-6">
           <ApprovalClient token={rawToken} />
         </div>

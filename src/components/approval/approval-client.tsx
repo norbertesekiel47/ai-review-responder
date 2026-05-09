@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { Icon } from '@/components/dashboard/Icon';
 
 interface ReviewData {
   review: {
@@ -190,10 +191,7 @@ export default function ApprovalClient({ token }: { token: string }) {
       {/* Location context chip — VAL-APPROVAL-001/004 */}
       <div className="flex items-center gap-2">
         <span className="inline-flex items-center gap-1 text-[11px] font-medium text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full whitespace-nowrap max-w-[160px] truncate">
-          <svg className="h-2.5 w-2.5" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm0 14.4a6.4 6.4 0 1 1 0-12.8 6.4 6.4 0 0 1 0 12.8z" />
-            <path d="M8 4a1.6 1.6 0 1 0 0 3.2A1.6 1.6 0 0 0 8 4zm0 4.8a1.6 1.6 0 0 0-1.6 1.6v.8a1.6 1.6 0 0 0 3.2 0v-.8A1.6 1.6 0 0 0 8 8.8z" />
-          </svg>
+          <Icon name="location" size={10} />
           {data.locationLabel}
         </span>
         {data.isArchived && (
