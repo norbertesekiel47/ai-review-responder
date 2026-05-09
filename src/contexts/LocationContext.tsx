@@ -10,6 +10,7 @@ import {
 } from 'react';
 import { useRouter } from 'next/navigation';
 import type { LocationId } from '@/lib/shared/ids';
+import { getDisplayLabel } from '@/lib/locations/display-label';
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
@@ -57,7 +58,7 @@ function getSelectedLabel(
 ): string {
   if (scope === 'all') return 'All Locations';
   const loc = locations.find((l) => l.id === scope);
-  return loc ? (loc.displayLabel ?? loc.name) : 'All Locations';
+  return loc ? getDisplayLabel(loc) : 'All Locations';
 }
 
 // ── Provider ────────────────────────────────────────────────────────────────

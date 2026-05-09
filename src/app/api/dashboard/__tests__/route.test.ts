@@ -141,6 +141,7 @@ function setDbResults(overrides?: {
     is_primary: true,
     archived_at: null,
     google_place_id: 'gp1',
+    google_place_address: null,
     created_at: new Date(),
   });
 
@@ -243,6 +244,7 @@ describe('GET /api/dashboard', () => {
       is_primary: true,
       archived_at: null,
       google_place_id: 'gp1',
+      google_place_address: null,
       created_at: new Date(),
     });
 
@@ -274,6 +276,7 @@ describe('GET /api/dashboard', () => {
       is_primary: true,
       archived_at: null,
       google_place_id: 'gp1',
+      google_place_address: null,
       created_at: new Date(),
     });
 
@@ -326,6 +329,7 @@ describe('GET /api/dashboard', () => {
       is_primary: true,
       archived_at: null,
       google_place_id: 'gp1',
+      google_place_address: null,
       created_at: new Date(),
     });
 
@@ -360,6 +364,7 @@ describe('GET /api/dashboard', () => {
       is_primary: true,
       archived_at: null,
       google_place_id: 'gp1',
+      google_place_address: null,
       created_at: new Date(),
     });
 
@@ -403,6 +408,7 @@ describe('GET /api/dashboard', () => {
       is_primary: true,
       archived_at: null,
       google_place_id: 'gp1',
+      google_place_address: null,
       created_at: new Date(),
     });
 

@@ -49,6 +49,7 @@ export default async function LocationsPage() {
     id: loc.id,
     name: loc.name,
     displayLabel: loc.display_label,
+    address: loc.google_place_address,
     isPrimary: loc.is_primary,
     googlePlaceId: loc.google_place_id,
     zernioStatus: (zernioMap.get(loc.id) ?? 'none') as 'none' | 'pending' | 'active' | 'disconnected',

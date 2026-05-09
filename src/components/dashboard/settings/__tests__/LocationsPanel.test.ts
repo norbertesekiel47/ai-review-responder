@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { getDisplayLabel } from '@/lib/locations/display-label';
 
 // ── LocationsPanel guard logic ─────────────────────────────────────────────
 
@@ -36,26 +37,29 @@ describe('LocationsPanel archive guard logic', () => {
 
 describe('LocationsPanel display label logic', () => {
   it('uses display_label when set', () => {
-    const displayLabel = 'Downtown Cafe';
-    const name = 'Business Name';
-    const displayName = displayLabel ?? name;
-    expect(displayName).toBe('Downtown Cafe');
+    const result = getDisplayLabel({
+      displayLabel: 'Downtown Cafe',
+      name: 'Business Name',
+    });
+    expect(result).toBe('Downtown Cafe');
   });
 
   it('falls back to name when display_label is null', () => {
-    const displayLabel: string | null = null;
-    const name = 'Business Name';
-    const displayName = displayLabel ?? name;
-    expect(displayName).toBe('Business Name');
+    const result = getDisplayLabel({
+      displayLabel: null,
+      name: 'Business Name',
+    });
+    expect(result).toBe('Business Name');
   });
 
   it('falls back to name when display_label is empty string (non-null)', () => {
-    const displayLabel: string | null = '';
-    const name = 'Business Name';
     // Empty string is truthy enough to not trigger nullish coalescing
     // This is by design — empty string is a valid display label
-    const displayName = displayLabel ?? name;
-    expect(displayName).toBe('');
+    const result = getDisplayLabel({
+      displayLabel: '',
+      name: 'Business Name',
+    });
+    expect(result).toBe('');
   });
 });
 

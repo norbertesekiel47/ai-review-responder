@@ -25,6 +25,7 @@ export interface LocationRow {
   is_primary: boolean;
   archived_at: Date | null;
   google_place_id: string | null;
+  google_place_address: string | null;
   created_at: Date;
 }
 
@@ -71,6 +72,7 @@ export async function getLocationsForAccount(
       is_primary,
       archived_at,
       google_place_id,
+      google_place_address,
       created_at
     FROM businesses
     WHERE account_id = ${accountId}::uuid
@@ -102,6 +104,7 @@ export async function getLocationById(
       is_primary,
       archived_at,
       google_place_id,
+      google_place_address,
       created_at
     FROM businesses
     WHERE id = ${locationId}::uuid

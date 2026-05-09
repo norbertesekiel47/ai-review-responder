@@ -682,6 +682,11 @@
   gap: 8px;
   margin-top: 2px;
 }
+.loc-row-address {
+  font-size: 13px;
+  color: var(--rw-app-muted, #6B7280);
+  margin-top: 2px;
+}
 .loc-row-actions {
   display: flex;
   gap: 8px;

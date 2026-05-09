@@ -81,8 +81,8 @@ const { mockGetLocationById } = vi.hoisted(() => ({
 vi.mock('@/lib/locations/repo', () => ({
   getActiveLocationCount: vi.fn(async () => 2),
   getLocationsForAccount: vi.fn(async () => [
-    { id: 'loc-1', account_id: 'acc-1', name: 'Downtown Cafe', display_label: 'Downtown', is_primary: true, archived_at: null, google_place_id: 'g1', created_at: new Date() },
-    { id: 'loc-2', account_id: 'acc-1', name: 'Westside Bakery', display_label: null, is_primary: false, archived_at: null, google_place_id: 'g2', created_at: new Date() },
+    { id: 'loc-1', account_id: 'acc-1', name: 'Downtown Cafe', display_label: 'Downtown', is_primary: true, archived_at: null, google_place_id: 'g1', google_place_address: null, created_at: new Date() },
+    { id: 'loc-2', account_id: 'acc-1', name: 'Westside Bakery', display_label: null, is_primary: false, archived_at: null, google_place_id: 'g2', google_place_address: null, created_at: new Date() },
   ]),
   getLocationById: (id: string) => mockGetLocationById(id),
 }));
@@ -139,6 +139,7 @@ function setActiveSubRow(locationId = LOCATION_ID) {
     is_primary: true,
     archived_at: null,
     google_place_id: 'gp1',
+    google_place_address: null,
     created_at: new Date(),
   });
 
@@ -308,6 +309,7 @@ describe('GET /api/dashboard scope parameter', () => {
       is_primary: false,
       archived_at: new Date(),
       google_place_id: 'gp1',
+      google_place_address: null,
       created_at: new Date(),
     });
 
@@ -428,6 +430,7 @@ describe('GET /api/dashboard scope parameter', () => {
       is_primary: true,
       archived_at: null,
       google_place_id: 'gp3',
+      google_place_address: null,
       created_at: new Date(),
     });
 
@@ -458,6 +461,7 @@ describe('GET /api/dashboard scope parameter', () => {
       is_primary: false,
       archived_at: new Date(),
       google_place_id: 'gp3',
+      google_place_address: null,
       created_at: new Date(),
     });
 
@@ -505,6 +509,7 @@ describe('GET /api/dashboard scope parameter', () => {
       is_primary: true,
       archived_at: null,
       google_place_id: 'gp4',
+      google_place_address: null,
       created_at: new Date(),
     });
 

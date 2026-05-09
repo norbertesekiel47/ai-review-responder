@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useLocationScope, type LocationInfo } from '@/contexts/LocationContext';
 import type { LocationId } from '@/lib/shared/ids';
+import { getDisplayLabel } from '@/lib/locations/display-label';
 import { Icon } from './Icon';
 
 // ── Props ───────────────────────────────────────────────────────────────────
@@ -95,7 +96,7 @@ export function LocationPicker({ compact, singleLocationLabel }: LocationPickerP
 
           {/* Per-location options */}
           {locations.map((loc) => {
-            const label = loc.displayLabel ?? loc.name;
+            const label = getDisplayLabel(loc);
             const isActive = currentScope === loc.id;
             return (
               <button

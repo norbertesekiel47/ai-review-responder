@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { Icon } from '@/components/dashboard/Icon';
 import type { LocationId } from '@/lib/shared/ids';
+import { getDisplayLabel } from '@/lib/locations/display-label';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -11,6 +12,7 @@ export interface LocationEntry {
   id: string;
   name: string;
   displayLabel: string | null;
+  address: string | null;
   isPrimary: boolean;
   googlePlaceId: string | null;
   zernioStatus: 'none' | 'pending' | 'active' | 'disconnected';
@@ -114,7 +116,7 @@ function LocationRow({
   accountId: string;
   onLocationChange: () => void;
 }) {
-  const displayName = location.displayLabel ?? location.name;
+  const displayName = getDisplayLabel(location);
   const [archiving, setArchiving] = useState(false);
   const [promoting, setPromoting] = useState(false);
   const [showArchiveConfirm, setShowArchiveConfirm] = useState(false);
@@ -276,6 +278,9 @@ function LocationRow({
             {zernioLabel}
           </span>
         </div>
+        {location.address && (
+          <div className="loc-row-address">{location.address}</div>
+        )}
       </div>
       <div className="loc-row-actions">
         {!location.isPrimary && (
