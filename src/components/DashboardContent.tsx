@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import type { DashboardDataActive } from '@/lib/dashboard/types';
+import type { DashboardDataActive, AggregateDashboardData } from '@/lib/dashboard/types';
+import type { DashboardOrAggregate } from '@/hooks/useDashboardData';
 import {
   ActivePendingBusinessScreen,
   PendingAdminHandoffScreen,
@@ -14,11 +15,14 @@ import { ReviewsCard } from '@/components/dashboard/ReviewsCard';
 import { VelocityCard } from '@/components/dashboard/VelocityCard';
 import { RankingCard } from '@/components/dashboard/RankingCard';
 import { IntelligenceBriefCard } from '@/components/dashboard/IntelligenceBriefCard';
+import { AggregateDashboardContent } from '@/components/dashboard/aggregate/AggregateDashboardContent';
 import { useDashboardData } from '@/hooks/useDashboardData';
 import { useSetPendingCount } from '@/components/dashboard/PendingCountContext';
+import { useLocationScope } from '@/contexts/LocationContext';
 
 export function DashboardContent() {
-  const { data, error, refresh } = useDashboardData();
+  const { currentScope } = useLocationScope();
+  const { data, error, loading, refresh } = useDashboardData(currentScope);
   const setPendingCount = useSetPendingCount();
   const reviewsRef = useRef<HTMLDivElement | null>(null);
   const [initialTab, setInitialTab] = useState<'needs' | 'all'>('needs');
@@ -40,13 +44,8 @@ export function DashboardContent() {
   }, []);
 
   // Push pending count to the layout-scoped context so MobileTabBar's "Needs
-  // Action" tab can show a red badge on every authenticated route. Derived
-  // from the same data the active-state branch reads below; we must compute
-  // it here (above the early returns) to keep hook order stable.
-  const pendingFromData =
-    data && data.subscriptionStatus === undefined
-      ? data.recentReviews.filter((r) => (r.responseStatus ?? r.status) === 'pending_approval').length
-      : 0;
+  // Action" tab can show a red badge on every authenticated route.
+  const pendingFromData = computePendingCount(data);
   useEffect(() => {
     setPendingCount(pendingFromData);
   }, [pendingFromData, setPendingCount]);
@@ -65,17 +64,32 @@ export function DashboardContent() {
     );
   }
 
-  if (!data) {
+  // VAL-DASH-025: Loading state with skeleton/spinner
+  if (loading || !data) {
     return (
       <>
         <TopBar title="Dashboard" />
         <div className="content">
-          <p style={{ textAlign: 'center', color: '#6B7280', padding: '80px 0' }}>Loading dashboard…</p>
+          <div className="dashboard-skeleton">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
+              <div className="skeleton-card" />
+              <div className="skeleton-card" />
+              <div className="skeleton-card" />
+            </div>
+            <div className="skeleton-card-lg" />
+            <div className="skeleton-card-lg" />
+          </div>
         </div>
       </>
     );
   }
 
+  // Aggregate view: scope === 'all'
+  if (isAggregateData(data)) {
+    return <AggregateDashboardContent data={data} refresh={refresh} />;
+  }
+
+  // Non-active subscription states (per-location only)
   if (data.subscriptionStatus === 'active_pending_business') {
     return (
       <>
@@ -109,6 +123,7 @@ export function DashboardContent() {
     );
   }
 
+  // Active per-location view (same as before redesign)
   const activeData: DashboardDataActive = data;
   const { valueSummary, reviewVelocity, ranking, recentReviews, latestBrief, zernioConnection, business } = activeData;
   const pending = recentReviews.filter((r) => (r.responseStatus ?? r.status) === 'pending_approval').length;
@@ -151,4 +166,25 @@ export function DashboardContent() {
       </div>
     </>
   );
+}
+
+/** Type guard to distinguish AggregateDashboardData from per-location DashboardData. */
+function isAggregateData(data: DashboardOrAggregate): data is AggregateDashboardData {
+  return 'scope' in data && data.scope === 'aggregate';
+}
+
+/** Compute pending approval count from either aggregate or per-location data. */
+function computePendingCount(data: DashboardOrAggregate | null): number {
+  if (!data) return 0;
+  if (isAggregateData(data)) {
+    return data.recentReviews.filter(
+      (r) => (r.responseStatus ?? r.status) === 'pending_approval',
+    ).length;
+  }
+  if (data.subscriptionStatus === undefined) {
+    return data.recentReviews.filter(
+      (r) => (r.responseStatus ?? r.status) === 'pending_approval',
+    ).length;
+  }
+  return 0;
 }

@@ -77,3 +77,92 @@ export type DashboardData =
   | DashboardDataPendingPayment
   | DashboardDataPendingAdminHandoff
   | DashboardDataActivePendingBusiness;
+
+// ── Aggregate Dashboard Data ──────────────────────────────────────────────
+// Returned by /api/dashboard?scope=all when the account has multiple
+// active locations. Each per-location entry carries enough data to render
+// the KPI strip and location chips. Aggregate sums are computed server-side.
+
+/** Per-location summary used in the KPI strip and as grouping key. */
+export interface PerLocationKpi {
+  locationId: string;
+  displayName: string; // display_label ?? name
+  isPrimary: boolean;
+  totalReviewsHandled: number;
+  pendingApprovalCount: number;
+  recentReviewCount: number;
+}
+
+/** Per-location review velocity for stacked-by-location chart mode. */
+export interface PerLocationVelocity {
+  locationId: string;
+  displayName: string;
+  velocity: Array<{ weekStart: string; count: number }>;
+}
+
+/** Per-location ranking for stacked-by-location chart mode. */
+export interface PerLocationRanking {
+  locationId: string;
+  displayName: string;
+  ranking: Array<{
+    keyword: string;
+    snapshots: Array<{ date: string; position: number }>;
+  }> | null;
+}
+
+/** Per-location intelligence brief with location prefix. */
+export interface PerLocationBrief {
+  locationId: string;
+  displayName: string;
+  brief: {
+    text: string;
+    type: 'monthly' | 'weekly';
+    periodLabel: string;
+  } | null;
+}
+
+/** Review row extended with location chip data for the aggregate feed. */
+export interface AggregateReviewItem {
+  id: string;
+  reviewerName: string;
+  starRating: number | null;
+  reviewText: string | null;
+  reviewDate: string;
+  status: string;
+  responseText: string | null;
+  responseStatus: string | null;
+  locationId: string;
+  locationDisplayName: string;
+}
+
+/** The full aggregate dashboard data shape. */
+export interface AggregateDashboardData {
+  /** Discriminator: always 'aggregate' to distinguish from per-location DashboardData. */
+  scope: 'aggregate';
+  /** Aggregate value summary — sums across all active locations. */
+  valueSummary: {
+    totalReviewsHandled: number;
+    totalTimeSavedMinutes: number;
+    currentResponseRate: number;
+    baselineResponseRate: number | null;
+  };
+  /** Combined review velocity (total) across all locations. */
+  reviewVelocity: Array<{ weekStart: string; count: number }>;
+  /** Per-location velocity for stacked chart mode. */
+  perLocationVelocity: PerLocationVelocity[];
+  /** Aggregate ranking (best position across locations per keyword). */
+  ranking: Array<{
+    keyword: string;
+    snapshots: Array<{ date: string; position: number }>;
+  }> | null;
+  /** Per-location ranking for stacked chart mode. */
+  perLocationRanking: PerLocationRanking[];
+  /** Combined recent reviews from all locations with location chips. */
+  recentReviews: AggregateReviewItem[];
+  /** Per-location briefs for grouped display. */
+  perLocationBriefs: PerLocationBrief[];
+  /** Per-location KPI strip data (one entry per active location). */
+  locationKpis: PerLocationKpi[];
+  /** Number of active locations (for UI display). */
+  activeLocationCount: number;
+}

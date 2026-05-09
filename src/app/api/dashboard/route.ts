@@ -7,6 +7,7 @@ import {
   getActiveDashboardData,
   BusinessNotFoundError,
 } from '@/lib/dashboard/service';
+import { getAggregateDashboardData } from '@/lib/dashboard/aggregate-service';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,6 +15,7 @@ export type {
   DashboardData,
   DashboardDataActive,
   DashboardSettings,
+  AggregateDashboardData,
 } from '@/lib/dashboard/types';
 
 
@@ -33,11 +35,62 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return jsonResponse({ error: 'Unauthorized' }, 401);
   }
 
-  if (!user.locationId) {
-    return jsonResponse({ error: 'No business associated with this account' }, 403);
+  if (!user.accountId) {
+    return jsonResponse({ error: 'No account associated with this user' }, 403);
   }
 
-  const locationId = user.locationId;
+  const accountId = user.accountId;
+
+  // VAL-DASH-024: Accept `scope` query parameter
+  // scope=all → aggregate dashboard data
+  // scope=<locationId> → per-location dashboard data
+  // no scope → use the user's current location from session/cookie
+  const scopeParam = request.nextUrl.searchParams.get('scope');
+  const multiLocationEnabled = process.env.MULTI_LOCATION_ENABLED === 'true';
+
+  // Aggregate mode: scope=all
+  if (multiLocationEnabled && scopeParam === 'all') {
+    try {
+      // Verify account subscription status before returning aggregate data
+      const [accountRow] = await sql<{
+        subscription_status: string;
+      }[]>`
+        SELECT subscription_status FROM accounts WHERE id = ${accountId}::uuid
+      `;
+      if (!accountRow) {
+        return jsonResponse({ error: 'Account not found' }, 404);
+      }
+
+      if (accountRow.subscription_status === SubscriptionStatus.PENDING_PAYMENT) {
+        return jsonResponse({
+          subscriptionStatus: 'pending_payment',
+          businessName: 'Account',
+          paymentUrl: `${process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'}/onboarding/pay`,
+        });
+      }
+
+      if (accountRow.subscription_status !== SubscriptionStatus.ACTIVE) {
+        return jsonResponse({
+          subscriptionStatus: accountRow.subscription_status,
+        });
+      }
+
+      const data = await getAggregateDashboardData(accountId);
+      return jsonResponse(data);
+    } catch (error) {
+      console.error('[api/dashboard] Failed to fetch aggregate data:', error);
+      return jsonResponse({ error: 'Failed to fetch aggregate dashboard data' }, 500);
+    }
+  }
+
+  // Per-location mode: use scope parameter or fall back to user's current location
+  const locationId = (scopeParam && scopeParam !== 'all')
+    ? scopeParam
+    : user.locationId;
+
+  if (!locationId) {
+    return jsonResponse({ error: 'No business associated with this account' }, 403);
+  }
 
   try {
     // Cheap pre-query: determine subscription status + onboarding state

@@ -970,3 +970,136 @@
 
 /* selection */
 ::selection { background: var(--rw-blue-100); color: var(--rw-blue-800); }
+
+/* ---------- Location chip (aggregate reviews, briefs) ---------- */
+.location-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--rw-blue-700);
+  background: var(--rw-blue-100);
+  padding: 2px 8px;
+  border-radius: 9999px;
+  white-space: nowrap;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--rw-font-body);
+}
+
+/* ---------- Location KPI strip ---------- */
+.loc-kpi-strip {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  padding: 4px 0;
+  -webkit-overflow-scrolling: touch;
+}
+.loc-kpi-strip::-webkit-scrollbar { height: 0; }
+.loc-kpi-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 16px;
+  border-radius: var(--rw-radius-md);
+  border: 1px solid var(--rw-app-border);
+  background: #fff;
+  cursor: pointer;
+  transition: all 160ms var(--rw-ease);
+  min-width: 160px;
+  max-width: 200px;
+  flex: 0 0 auto;
+  text-align: left;
+  font-family: var(--rw-font-body);
+}
+.loc-kpi-card:hover {
+  border-color: var(--rw-blue-500);
+  background: var(--rw-blue-50);
+  transform: translateY(-1px);
+  box-shadow: var(--rw-shadow-sm);
+}
+.loc-kpi-card--has-pending {
+  background: linear-gradient(180deg, #FFFBEB 0%, #fff 100%);
+  border-color: #FDE68A;
+}
+.loc-kpi-card--has-pending:hover {
+  border-color: #FCD34D;
+  background: linear-gradient(180deg, #FEF3C7 0%, #fff 100%);
+}
+.loc-kpi-card-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--rw-app-text);
+  line-height: 1.2;
+}
+.loc-kpi-card-stats {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--rw-app-text-muted);
+}
+.stat-pending {
+  color: #92400E;
+  font-weight: 600;
+}
+.loc-kpi-card-handled {
+  font-size: 11px;
+  color: var(--rw-app-text-muted);
+}
+
+/* ---------- Aggregate empty state ---------- */
+.aggregate-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 60px 24px;
+  gap: 12px;
+}
+.aggregate-empty-emoji {
+  font-size: 56px;
+  animation: float 3s ease-in-out infinite;
+}
+.aggregate-empty-title {
+  font-family: var(--rw-font-display);
+  font-weight: 700;
+  font-size: 22px;
+  letter-spacing: -0.01em;
+  color: var(--rw-app-text);
+}
+.aggregate-empty-sub {
+  font-size: 14px;
+  color: var(--rw-app-text-muted);
+  max-width: 400px;
+  line-height: 1.5;
+}
+
+/* ---------- Skeleton/Loading for dashboard ---------- */
+.dashboard-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  animation: pulse 2s ease-in-out infinite;
+}
+.skeleton-line {
+  height: 16px;
+  background: #F3F4F6;
+  border-radius: 6px;
+  width: 100%;
+}
+.skeleton-card {
+  background: #F3F4F6;
+  border-radius: var(--rw-radius-md);
+  height: 120px;
+}
+.skeleton-card-lg {
+  background: #F3F4F6;
+  border-radius: var(--rw-radius-md);
+  height: 260px;
+}
