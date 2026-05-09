@@ -6,7 +6,7 @@
 //
 // Steps:
 //   1. Place autocomplete + display_label input
-//   2. Zernio connection (optional, can skip)
+//   2. Google Business info (informational only, connect later from Settings)
 //   3. Voice config (ToneChipPicker + ListEditor + copy-from-existing shortcut)
 //   4. Confirm-and-pay with proration preview
 //
@@ -17,13 +17,16 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+
+// NOTE: Step 2 (Zernio) is now informational only — the OAuth redirect
+// that previously caused wizard state loss has been removed. Users connect
+// Google Business post-creation from /dashboard/connect or Settings.
 import { PlaceAutocomplete, type PlaceSelection } from '@/components/PlaceAutocomplete';
 import { ToneChipPicker } from '@/components/dashboard/settings/ToneChipPicker';
 import { ListEditor } from '@/components/dashboard/settings/ListEditor';
 import { Icon } from '@/components/dashboard/Icon';
 import { TopBar } from '@/components/dashboard/TopBar';
 import type { BillingSnapshot } from '@/lib/accounts/quota';
-import type { LocationId } from '@/lib/shared/ids';
 import { useLocationScope } from '@/contexts/LocationContext';
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -114,10 +117,7 @@ export function AddLocationWizard({
   const [displayLabelError, setDisplayLabelError] = useState<string | null>(null);
   const [placeIdDuplicateError, setPlaceIdDuplicateError] = useState<string | null>(null);
 
-  // ── Step 2 state: Zernio ────────────────────────────────────────────
-  const [zernioConnecting, setZernioConnecting] = useState(false);
-  const [zernioConnected, setZernioConnected] = useState(false);
-  const [zernioError, setZernioError] = useState<string | null>(null);
+  // ── Step 2 state: Zernio (informational only, no OAuth redirect) ───
 
   // ── Step 3 state: Voice config ──────────────────────────────────────
   const [voiceForm, setVoiceForm] = useState<VoiceFormState>({ ...DEFAULT_VOICE });
@@ -260,29 +260,8 @@ export function AddLocationWizard({
     [],
   );
 
-  // ── Step 2: Zernio connect ──────────────────────────────────────────
-
-  const handleZernioConnect = useCallback(async () => {
-    setZernioConnecting(true);
-    setZernioError(null);
-    try {
-      const res = await fetch('/api/zernio/connect/start', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok || !body.authUrl) {
-        setZernioError(body.error ?? `Connection failed (${res.status})`);
-        setZernioConnecting(false);
-        return;
-      }
-      // Redirect to Google OAuth
-      window.location.href = body.authUrl;
-    } catch {
-      setZernioError('Network error — please try again.');
-      setZernioConnecting(false);
-    }
-  }, []);
+  // ── Step 2: Zernio is informational only (no in-wizard OAuth) ───────
+  // Connection is deferred to post-creation via /dashboard/connect
 
   // ── Step 4: Submit ──────────────────────────────────────────────────
 
@@ -426,55 +405,46 @@ export function AddLocationWizard({
             </div>
           )}
 
-          {/* ── Step 2: Zernio Connection ──────────────────────────────── */}
+          {/* ── Step 2: Zernio (informational only) ────────────────────── */}
           {step === 2 && (
             <div className="wizard-panel">
-              <h2 className="wizard-title">Connect Google Business</h2>
+              <h2 className="wizard-title">Google Business Profile</h2>
               <p className="wizard-desc">
-                Connect your Google Business Profile to automatically publish
-                approved responses and import reviews. You can skip this and
-                connect later.
+                After adding your location, you can connect your Google Business
+                Profile to automatically publish approved responses and import
+                reviews. This can be done at any time from Settings.
               </p>
 
-              {zernioError && (
-                <div className="wizard-error">{zernioError}</div>
-              )}
-
-              {zernioConnected ? (
-                <div className="wizard-success">
-                  <Icon name="check" size={16} />
-                  <span>Google Business connected successfully</span>
+              <div className="wizard-info-box" style={{ marginTop: 20 }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+                  <Icon name="google" size={20} />
+                  <div>
+                    <p style={{ fontWeight: 500, marginBottom: 4 }}>
+                      Connect later from Settings
+                    </p>
+                    <p style={{ color: '#6B7280', fontSize: 14 }}>
+                      After creating your location, go to{' '}
+                      <Link
+                        href="/dashboard/connect"
+                        style={{ color: 'var(--color-teal-500, #0D9488)', textDecoration: 'underline' }}
+                      >
+                        Connect
+                      </Link>{' '}
+                      or Settings → Locations to link your Google Business
+                      Profile and start importing reviews.
+                    </p>
+                  </div>
                 </div>
-              ) : (
-                <div style={{ marginTop: 20 }}>
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    onClick={handleZernioConnect}
-                    disabled={zernioConnecting}
-                    style={{ width: '100%' }}
-                  >
-                    {zernioConnecting ? (
-                      <>
-                        <span className="spinner" /> Connecting…
-                      </>
-                    ) : (
-                      <>
-                        <Icon name="google" size={16} /> Connect Google Business
-                      </>
-                    )}
-                  </button>
-                </div>
-              )}
+              </div>
 
-              {/* VAL-LOC-073: Skip button for optional Zernio step */}
+              {/* Continue to Step 3 */}
               <button
                 type="button"
-                className="btn btn-secondary wizard-skip-btn"
+                className="btn btn-primary"
                 onClick={goNext}
-                style={{ marginTop: 12, width: '100%' }}
+                style={{ marginTop: 20, width: '100%' }}
               >
-                Skip for now
+                Continue <Icon name="chevron-down" size={14} style={{ transform: 'rotate(-90deg)' }} />
               </button>
             </div>
           )}
@@ -639,7 +609,7 @@ export function AddLocationWizard({
                 <div className="wizard-summary-row">
                   <span className="wizard-summary-label">Google Business</span>
                   <span className="wizard-summary-value">
-                    {zernioConnected ? 'Connected' : 'Not connected (can set up later)'}
+                    Connect later from Settings
                   </span>
                 </div>
                 <div className="wizard-summary-row">
@@ -731,7 +701,7 @@ export function AddLocationWizard({
             </button>
           )}
           <div className="wizard-nav-spacer" />
-          {step < 4 && step !== 2 && (
+          {step < 4 && (
             <button
               type="button"
               className="btn btn-primary"

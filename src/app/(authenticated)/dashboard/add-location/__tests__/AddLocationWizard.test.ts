@@ -2,8 +2,9 @@
 //
 // Tests for the AddLocationWizard utility functions and validation logic.
 //
-// Validation contract: VAL-LOC-066 (proration), VAL-SETTINGS-043
-// (display_label validation), VAL-SETTINGS-044 (duplicate Place ID).
+// Validation contract: VAL-LOC-066 (proration), VAL-LOC-073 (Step 2 optional,
+// no OAuth redirect — informational only), VAL-SETTINGS-043 (display_label
+// validation), VAL-SETTINGS-044 (duplicate Place ID).
 
 import { describe, it, expect } from 'vitest';
 import { computeProration } from '../AddLocationWizard';
@@ -79,6 +80,54 @@ describe('computeProration', () => {
     expect(result.daysRemaining).toBe(11);
     // 2500 / 31 * 11 = 887.10 → 887
     expect(result.prorationCents).toBe(Math.round((2500 / 31) * 11));
+  });
+});
+
+// ── Step 2 Zernio informational-only check ───────────────────────────────
+//
+// VAL-LOC-073: Step 2 is optional and skippable. After the fix, Step 2
+// must NOT contain any OAuth redirect — it shows informational text about
+// connecting Google Business later, with a link to /dashboard/connect.
+
+describe('Step 2 Zernio informational-only (no OAuth redirect)', () => {
+  it('has no handleZernioConnect export or window.location redirect', () => {
+    // Static analysis: the wizard module must NOT export or reference
+    // handleZernioConnect or window.location.href assignment for Zernio.
+    //
+    // We verify by reading the source code — the function was removed.
+    // This is a regression guard: if someone re-adds an OAuth redirect
+    // to Step 2, this test fails.
+    const fs = require('fs');
+    const path = require('path');
+    const sourcePath = path.resolve(__dirname, '../AddLocationWizard.tsx');
+    const source = fs.readFileSync(sourcePath, 'utf-8');
+
+    // No handleZernioConnect function
+    expect(source).not.toContain('handleZernioConnect');
+
+    // No window.location.href assignment (the OAuth redirect pattern)
+    expect(source).not.toContain('window.location.href');
+
+    // No /api/zernio/connect/start fetch call (the OAuth initiation)
+    expect(source).not.toContain('/api/zernio/connect/start');
+
+    // Must contain informational message about connecting later
+    expect(source).toContain('Connect later from Settings');
+
+    // Must contain link to /dashboard/connect
+    expect(source).toContain('/dashboard/connect');
+  });
+
+  it('has no zernioConnecting or zernioConnected state variables', () => {
+    const fs = require('fs');
+    const path = require('path');
+    const sourcePath = path.resolve(__dirname, '../AddLocationWizard.tsx');
+    const source = fs.readFileSync(sourcePath, 'utf-8');
+
+    // These state variables were removed — they tracked the OAuth flow
+    expect(source).not.toContain('zernioConnecting');
+    expect(source).not.toContain('zernioConnected');
+    expect(source).not.toContain('zernioError');
   });
 });
 
