@@ -129,10 +129,7 @@ export function PerLocationOverridePanel({
     overridesByLocation.set(o.locationId, list);
   }
 
-  // Locations that don't yet have overrides (available for adding)
-  const telegramOrgDefault = orgDefaults.find((d) => d.channel === 'telegram');
-
-  // Only allow adding overrides for channels that have org-defaults
+  // Only allow adding overrides for channels that have verified org-defaults
   const overridableChannels = orgDefaults
     .filter((d) => d.status === 'verified')
     .map((d) => d.channel);
@@ -235,7 +232,12 @@ export function PerLocationOverridePanel({
           {/* Show existing overrides per location */}
           {locationOptions.map((loc) => {
             const locOverrides = overridesByLocation.get(loc.id) ?? [];
-            const hasTelegramOverride = locOverrides.some((o) => o.channel === 'telegram');
+            const overriddenChannels = new Set<string>(locOverrides.map((o) => o.channel));
+
+            // Channels that have verified org-defaults but no per-location override yet
+            const availableChannels = overridableChannels.filter(
+              (ch) => !overriddenChannels.has(ch),
+            );
 
             return (
               <div key={loc.id} style={{ marginBottom: 12 }}>
@@ -259,24 +261,27 @@ export function PerLocationOverridePanel({
                   />
                 ))}
 
-                {/* Add override button for telegram (if org-default exists and no override yet) */}
-                {telegramOrgDefault && !hasTelegramOverride && (
+                {/* VAL-SETTINGS-014: Add override button per location per channel */}
+                {availableChannels.map((channel) => (
                   <button
+                    key={channel}
                     type="button"
                     className="list-add"
-                    style={{ marginTop: 4, fontSize: 12 }}
-                    onClick={() => handleAdd(loc.id, 'telegram')}
-                    disabled={addingFor === loc.id + ':telegram'}
+                    style={{ marginTop: 4, fontSize: 12, marginLeft: locOverrides.length > 0 ? 0 : 0 }}
+                    onClick={() => handleAdd(loc.id, channel)}
+                    disabled={addingFor === loc.id + ':' + channel}
                   >
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
                       <path d="M12 5v14M5 12h14" />
                     </svg>
-                    {addingFor === loc.id + ':telegram' ? 'Adding…' : `Add Telegram override`}
+                    {addingFor === loc.id + ':' + channel
+                      ? 'Adding…'
+                      : `Add ${CHANNEL_LABELS[channel] ?? channel} override`}
                   </button>
-                )}
+                ))}
 
-                {/* No overrides and no org-default to clone */}
-                {!telegramOrgDefault && locOverrides.length === 0 && (
+                {/* No overrides and no org-defaults to clone */}
+                {availableChannels.length === 0 && locOverrides.length === 0 && (
                   <div style={{ fontSize: 12, color: '#9CA3AF', padding: '4px 0' }}>
                     No overrides — uses default channels
                   </div>

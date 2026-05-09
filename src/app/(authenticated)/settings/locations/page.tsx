@@ -13,7 +13,7 @@ import { sql } from '@/lib/db/server';
 import { requireOwnerAccess } from '@/lib/auth/require-owner-access';
 import { TopBar } from '@/components/dashboard/TopBar';
 import { LocationsClient } from './LocationsClient';
-import { getLocationsForAccount, getActiveLocationCount } from '@/lib/locations/repo';
+import { getLocationsForAccount, getActiveLocationCount, getArchivedLocationsForAccount } from '@/lib/locations/repo';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,21 +25,22 @@ export default async function LocationsPage() {
 
   const access = await requireOwnerAccess();
 
-  // Fetch all active locations for this account
-  const [locations, activeCount] = await Promise.all([
+  // Fetch all active and archived locations for this account
+  const [locations, activeCount, archivedLocations] = await Promise.all([
     getLocationsForAccount(access.accountId),
     getActiveLocationCount(access.accountId),
+    getArchivedLocationsForAccount(access.accountId),
   ]);
 
-  // Fetch Zernio connection status for each location
-  const locationIds = locations.map((l) => l.id);
+  // Fetch Zernio connection status for each location (active + archived)
+  const allLocationIds = [...locations, ...archivedLocations].map((l) => l.id);
 
   let zernioRows: { business_id: string; status: string }[] = [];
-  if (locationIds.length > 0) {
+  if (allLocationIds.length > 0) {
     zernioRows = await sql<{ business_id: string; status: string }[]>`
       SELECT business_id, status
       FROM zernio_connections
-      WHERE business_id = ANY(${locationIds}::uuid[])
+      WHERE business_id = ANY(${allLocationIds}::uuid[])
     `;
   }
 
@@ -55,6 +56,15 @@ export default async function LocationsPage() {
     zernioStatus: (zernioMap.get(loc.id) ?? 'none') as 'none' | 'pending' | 'active' | 'disconnected',
   }));
 
+  // VAL-SETTINGS-038: Archived locations shown in separate collapsed section
+  const archivedEntries = archivedLocations.map((loc) => ({
+    id: loc.id,
+    name: loc.name,
+    displayLabel: loc.display_label,
+    address: loc.google_place_address,
+    archivedAt: loc.archived_at?.toISOString() ?? null,
+  }));
+
   return (
     <>
       <TopBar
@@ -64,6 +74,7 @@ export default async function LocationsPage() {
       />
       <LocationsClient
         locations={locationEntries}
+        archivedLocations={archivedEntries}
         activeCount={activeCount}
         accountId={access.accountId}
       />

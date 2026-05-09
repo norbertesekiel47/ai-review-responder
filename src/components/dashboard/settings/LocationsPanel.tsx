@@ -18,13 +18,23 @@ export interface LocationEntry {
   zernioStatus: 'none' | 'pending' | 'active' | 'disconnected';
 }
 
+export interface ArchivedLocationEntry {
+  id: string;
+  name: string;
+  displayLabel: string | null;
+  address: string | null;
+  archivedAt: string | null;
+}
+
 interface Props {
   locations: LocationEntry[];
+  /** Archived locations for the collapsed section. */
+  archivedLocations: ArchivedLocationEntry[];
   /** Total active location count (for last-active guard). */
   activeCount: number;
   /** Account ID for API calls. */
   accountId: string;
-  /** Callback after a location is archived (for parent to refetch). */
+  /** Callback after a location is archived or reactivated (for parent to refetch). */
   onLocationChange: () => void;
 }
 
@@ -334,9 +344,97 @@ function LocationRow({
   );
 }
 
+// ── ArchivedLocationRow ──────────────────────────────────────────────
+
+function ArchivedLocationRow({
+  location,
+  accountId,
+  onLocationChange,
+}: {
+  location: ArchivedLocationEntry;
+  accountId: string;
+  onLocationChange: () => void;
+}) {
+  const displayName = location.displayLabel ?? location.name;
+  const [reactivating, setReactivating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleReactivate() {
+    setReactivating(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/locations/reactivate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ locationId: location.id, accountId }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? 'Reactivate failed');
+      }
+      onLocationChange();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to reactivate location');
+    } finally {
+      setReactivating(false);
+    }
+  }
+
+  const archivedDate = location.archivedAt
+    ? new Date(location.archivedAt).toLocaleDateString()
+    : null;
+
+  return (
+    <div className="loc-row archived">
+      <div className="loc-row-info">
+        <div className="loc-row-name-wrap">
+          <span className="loc-row-name" style={{ color: '#9CA3AF' }}>{displayName}</span>
+          <span style={{
+            fontSize: 10,
+            fontWeight: 500,
+            color: '#9CA3AF',
+            background: '#F3F4F6',
+            padding: '1px 6px',
+            borderRadius: 4,
+          }}>
+            Archived
+          </span>
+        </div>
+        <div className="loc-row-meta">
+          {archivedDate && (
+            <span style={{ fontSize: 12, color: '#9CA3AF' }}>
+              Archived {archivedDate}
+            </span>
+          )}
+        </div>
+        {location.address && (
+          <div className="loc-row-address" style={{ color: '#9CA3AF' }}>{location.address}</div>
+        )}
+      </div>
+      <div className="loc-row-actions">
+        <button
+          type="button"
+          className="btn btn-secondary loc-action-btn"
+          onClick={handleReactivate}
+          disabled={reactivating}
+          title="Reactivate this location"
+        >
+          <Icon name="check" size={12} /> {reactivating ? '…' : 'Reactivate'}
+        </button>
+      </div>
+      {error && (
+        <div style={{ fontSize: 12, color: '#DC2626', marginTop: 4, gridColumn: '1 / -1' }}>
+          {error}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── LocationsPanel ─────────────────────────────────────────────────────
 
-export function LocationsPanel({ locations, activeCount, accountId, onLocationChange }: Props) {
+export function LocationsPanel({ locations, archivedLocations, activeCount, accountId, onLocationChange }: Props) {
+  const [archivedExpanded, setArchivedExpanded] = useState(false);
   return (
     <div className="set-section">
       <div className="set-section-head">
@@ -390,6 +488,55 @@ export function LocationsPanel({ locations, activeCount, accountId, onLocationCh
         <Icon name="plus" size={14} />
         Add location
       </Link>
+
+      {/* VAL-SETTINGS-038: Archived locations in collapsed section */}
+      {/* VAL-LOC-070: Each archived location has a Reactivate button */}
+      {archivedLocations.length > 0 && (
+        <div style={{ marginTop: 24 }}>
+          <button
+            type="button"
+            onClick={() => setArchivedExpanded(!archivedExpanded)}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              width: '100%',
+              border: 'none',
+              background: 'none',
+              cursor: 'pointer',
+              padding: '8px 0',
+              color: '#6B7280',
+              fontSize: 13,
+              fontWeight: 600,
+              textAlign: 'left',
+            }}
+            aria-expanded={archivedExpanded}
+            aria-controls="archived-locations-content"
+          >
+            <span style={{
+              transition: 'transform 0.2s',
+              transform: archivedExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+              display: 'inline-flex',
+            }}>
+              <Icon name="chevron-down" size={14} />
+            </span>
+            Archived ({archivedLocations.length})
+          </button>
+
+          {archivedExpanded && (
+            <div id="archived-locations-content" style={{ marginTop: 4 }}>
+              {archivedLocations.map((loc) => (
+                <ArchivedLocationRow
+                  key={loc.id}
+                  location={loc}
+                  accountId={accountId}
+                  onLocationChange={onLocationChange}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -19,7 +19,9 @@ const LOCATION_SCOPE_COOKIE = 'rw_location_scope';
 // ── Cookie helpers (document.cookie — no external dependency) ───────────────
 
 function setScopeCookie(value: string): void {
-  document.cookie = `${LOCATION_SCOPE_COOKIE}=${value};path=/;max-age=${60 * 60 * 24 * 365};samesite=lax`;
+  // VAL-SETTINGS-047: cookie must include SameSite=Lax, Secure, and Path=/
+  const isSecure = window.location.protocol === 'https:';
+  document.cookie = `${LOCATION_SCOPE_COOKIE}=${value};path=/;max-age=${60 * 60 * 24 * 365};samesite=lax${isSecure ? ';secure' : ''}`;
 }
 
 // ── Types ───────────────────────────────────────────────────────────────────

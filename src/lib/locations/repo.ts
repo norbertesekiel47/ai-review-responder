@@ -83,6 +83,37 @@ export async function getLocationsForAccount(
   return rows;
 }
 
+// ── getArchivedLocationsForAccount ──────────────────────────────────────────
+
+/**
+ * Returns all archived locations for an account, ordered by archived_at DESC
+ * (most recently archived first).
+ *
+ * Used by the Settings → Locations tab to display the "Archived" section.
+ */
+export async function getArchivedLocationsForAccount(
+  accountId: string,
+): Promise<LocationRow[]> {
+  const rows = await sql<LocationRow[]>`
+    SELECT
+      id,
+      account_id,
+      name,
+      display_label,
+      is_primary,
+      archived_at,
+      google_place_id,
+      google_place_address,
+      created_at
+    FROM businesses
+    WHERE account_id = ${accountId}::uuid
+      AND archived_at IS NOT NULL
+    ORDER BY archived_at DESC
+  `;
+
+  return rows;
+}
+
 // ── getLocationById ────────────────────────────────────────────────────────
 
 /**
