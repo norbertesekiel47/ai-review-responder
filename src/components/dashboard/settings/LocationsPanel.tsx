@@ -134,6 +134,45 @@ function PromoteFirstModal({
 
 // ── LocationRow ────────────────────────────────────────────────────────
 
+function PromotePrimaryConfirmModal({
+  locationName,
+  onConfirm,
+  onCancel,
+  loading,
+}: {
+  locationName: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+  loading: boolean;
+}) {
+  return (
+    <div className="modal-overlay" onClick={onCancel}>
+      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+        <div className="set-section-title" style={{ marginBottom: 8 }}>
+          Make &quot;{locationName}&quot; primary?
+        </div>
+        <p style={{ fontSize: 13, color: '#6B7280', lineHeight: 1.5, marginBottom: 16 }}>
+          This changes the primary marker for the account. Existing reviews,
+          Google connections, and billing stay attached to their locations.
+        </p>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button type="button" className="btn btn-secondary" onClick={onCancel} disabled={loading}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={onConfirm}
+            disabled={loading}
+          >
+            {loading ? 'Promoting...' : 'Confirm primary'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function LocationRow({
   location,
   isLastActive,
@@ -150,6 +189,7 @@ function LocationRow({
   const [promoting, setPromoting] = useState(false);
   const [showArchiveConfirm, setShowArchiveConfirm] = useState(false);
   const [showPromoteFirst, setShowPromoteFirst] = useState(false);
+  const [showPromoteConfirm, setShowPromoteConfirm] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editingLabel, setEditingLabel] = useState(false);
   const [newLabel, setNewLabel] = useState(displayName);
@@ -195,6 +235,7 @@ function LocationRow({
       setError(err instanceof Error ? err.message : 'Failed to promote location');
     } finally {
       setPromoting(false);
+      setShowPromoteConfirm(false);
     }
   }
 
@@ -323,7 +364,10 @@ function LocationRow({
           <button
             type="button"
             className="btn btn-secondary loc-action-btn"
-            onClick={handlePromote}
+            onClick={() => {
+              setError(null);
+              setShowPromoteConfirm(true);
+            }}
             disabled={promoting}
             title="Set as primary location"
           >
@@ -374,6 +418,14 @@ function LocationRow({
           locationName={displayName}
           onPromote={() => setShowPromoteFirst(false)}
           onCancel={() => setShowPromoteFirst(false)}
+        />
+      )}
+      {showPromoteConfirm && (
+        <PromotePrimaryConfirmModal
+          locationName={displayName}
+          onConfirm={handlePromote}
+          onCancel={() => setShowPromoteConfirm(false)}
+          loading={promoting}
         />
       )}
     </div>

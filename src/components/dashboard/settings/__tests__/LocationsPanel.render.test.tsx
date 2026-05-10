@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
-import { describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { LocationsPanel, type LocationEntry } from '../LocationsPanel';
 
 vi.mock('next/link', () => ({
@@ -14,6 +15,10 @@ vi.mock('next/link', () => ({
 const ACCOUNT_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const PRIMARY_LOCATION_ID = '11111111-1111-4111-8111-111111111111';
 const SECONDARY_LOCATION_ID = '22222222-2222-4222-8222-222222222222';
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 function location(overrides: Partial<LocationEntry>): LocationEntry {
   return {
@@ -81,5 +86,85 @@ describe('LocationsPanel connection action', () => {
       'href',
       `/dashboard/connect?locationId=${SECONDARY_LOCATION_ID}`,
     );
+  });
+});
+
+describe('LocationsPanel primary promotion', () => {
+  it('requires confirmation before promoting a location to primary', async () => {
+    const user = userEvent.setup();
+    const onLocationChange = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ promoted: true }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(
+      <LocationsPanel
+        locations={[
+          location({}),
+          location({
+            id: SECONDARY_LOCATION_ID,
+            name: 'Tanicia',
+            displayLabel: 'Tanicia',
+            isPrimary: false,
+            googlePlaceId: 'place-secondary',
+            zernioStatus: 'active',
+          }),
+        ]}
+        archivedLocations={[]}
+        activeCount={2}
+        accountId={ACCOUNT_ID}
+        onLocationChange={onLocationChange}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: /make primary/i }));
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(screen.getByText('Make "Tanicia" primary?')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Confirm primary' }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith('/api/locations/promote-primary', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ newPrimaryId: SECONDARY_LOCATION_ID, accountId: ACCOUNT_ID }),
+      });
+    });
+    expect(onLocationChange).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancels primary promotion without sending a request', async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(
+      <LocationsPanel
+        locations={[
+          location({}),
+          location({
+            id: SECONDARY_LOCATION_ID,
+            name: 'Tanicia',
+            displayLabel: 'Tanicia',
+            isPrimary: false,
+            googlePlaceId: 'place-secondary',
+            zernioStatus: 'active',
+          }),
+        ]}
+        archivedLocations={[]}
+        activeCount={2}
+        accountId={ACCOUNT_ID}
+        onLocationChange={() => {}}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: /make primary/i }));
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(screen.queryByText('Make "Tanicia" primary?')).not.toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
