@@ -6,8 +6,8 @@
 // Reads outbox rows with topic 'update_stripe_overage_quantity', then:
 //   1. Looks up the account's Stripe subscription
 //   2. Finds or creates the overage subscription item
-//   3. Calls stripe.subscriptionItems.update with the new quantity
-//      and proration_behavior = 'create_prorations'
+//   3. Updates, creates, or deletes the overage subscription item
+//      and uses proration_behavior = 'create_prorations' for billed changes
 //
 // Validation contract: VAL-BILLING-071, VAL-LOC-010, VAL-LOC-011, VAL-LOC-012.
 
@@ -65,6 +65,14 @@ function overageCreateIdempotencyKey(
   operationScope: string,
 ): string {
   return `stripe-overage-create:${accountId}:${subscriptionId}:${priceId}:${quantity}:${operationScope}`;
+}
+
+function overageDeleteIdempotencyKey(
+  accountId: string,
+  subscriptionItemId: string,
+  operationScope: string,
+): string {
+  return `stripe-overage-delete:${accountId}:${subscriptionItemId}:0:${operationScope}`;
 }
 
 function overageOperationScope(outboxId: string, correlationId: string | undefined): string {
@@ -168,9 +176,21 @@ export async function handleUpdateStripeOverage(
       (item) => item.price?.id && overagePriceIds.has(item.price.id),
     );
 
-    if (existingOverageItem) {
+    if (existingOverageItem && newQuantity === 0) {
+      await stripe.subscriptionItems.del(
+        existingOverageItem.id,
+        {},
+        {
+          idempotencyKey: overageDeleteIdempotencyKey(
+            account_id,
+            existingOverageItem.id,
+            operationScope,
+          ),
+        },
+      );
+      logger.log(`Deleted overage item ${existingOverageItem.id} for account ${account_id} because computed quantity=0`);
+    } else if (existingOverageItem) {
       // VAL-LOC-010: Update existing overage item quantity
-      // VAL-LOC-012: Set quantity to 0 when locations ≤ included
       await stripe.subscriptionItems.update(
         existingOverageItem.id,
         {

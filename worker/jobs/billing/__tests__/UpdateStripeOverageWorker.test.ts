@@ -12,6 +12,7 @@ const {
   mockStripeSubscriptionsRetrieve,
   mockStripeSubscriptionItemsUpdate,
   mockStripeSubscriptionItemsCreate,
+  mockStripeSubscriptionItemsDel,
   mockMarkOutboxCompleted,
   mockMarkOutboxFailed,
 } = vi.hoisted(() => ({
@@ -19,6 +20,7 @@ const {
   mockStripeSubscriptionsRetrieve: vi.fn(),
   mockStripeSubscriptionItemsUpdate: vi.fn(),
   mockStripeSubscriptionItemsCreate: vi.fn(),
+  mockStripeSubscriptionItemsDel: vi.fn(),
   mockMarkOutboxCompleted: vi.fn(),
   mockMarkOutboxFailed: vi.fn(),
 }));
@@ -46,6 +48,7 @@ vi.mock('stripe', () => {
       subscriptionItems = {
         update: mockStripeSubscriptionItemsUpdate,
         create: mockStripeSubscriptionItemsCreate,
+        del: mockStripeSubscriptionItemsDel,
       };
     },
   };
@@ -91,6 +94,7 @@ beforeEach(() => {
   mockStripeSubscriptionsRetrieve.mockReset();
   mockStripeSubscriptionItemsUpdate.mockReset();
   mockStripeSubscriptionItemsCreate.mockReset();
+  mockStripeSubscriptionItemsDel.mockReset();
   mockMarkOutboxCompleted.mockReset();
   mockMarkOutboxFailed.mockReset();
 
@@ -158,8 +162,8 @@ describe('UpdateStripeOverageWorker', () => {
     );
   });
 
-  // VAL-LOC-012: Sets quantity to 0 when locations ≤ included
-  it('sets overage quantity to 0 when all locations fit in included quota', async () => {
+  // VAL-LOC-012: Deletes overage item when locations fit in included quota
+  it('deletes existing overage item when all locations fit in included quota', async () => {
     mockSql.mockReset();
     mockSql.mockResolvedValueOnce([mockAccountRow({ locations_included: 5, subscription_tier: 'premium' })]);
     mockSql.mockResolvedValueOnce([{ count: 3 }]); // 3 locations, 5 included
@@ -175,15 +179,16 @@ describe('UpdateStripeOverageWorker', () => {
 
     await handleUpdateStripeOverage(mockJob());
 
-    expect(mockStripeSubscriptionItemsUpdate).toHaveBeenCalledWith(
+    expect(mockStripeSubscriptionItemsDel).toHaveBeenCalledWith(
       'si_overage',
-      expect.objectContaining({
-        quantity: 0,
-      }),
-      expect.objectContaining({
-        idempotencyKey: 'stripe-overage-update:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee:si_overage:0:outbox:outbox-1:corr:corr-1',
-      }),
+      {},
+      {
+        idempotencyKey: 'stripe-overage-delete:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee:si_overage:0:outbox:outbox-1:corr:corr-1',
+      },
     );
+    expect(mockStripeSubscriptionItemsUpdate).not.toHaveBeenCalled();
+    expect(mockStripeSubscriptionItemsCreate).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
   });
 
   // VAL-BILLING-071: Creates overage subscription item when none exists
