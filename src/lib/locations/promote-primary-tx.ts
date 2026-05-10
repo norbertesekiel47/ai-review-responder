@@ -100,6 +100,32 @@ export async function promotePrimaryTransaction(
   let oldPrimaryId: string = '';
 
   await sql.begin(async (tx) => {
+    await tx`
+      SELECT id
+      FROM accounts
+      WHERE id = ${accountId}::uuid
+      FOR UPDATE
+    `;
+
+    const [lockedTarget] = await tx<{ id: string; is_primary: boolean }[]>`
+      SELECT id, is_primary
+      FROM businesses
+      WHERE id = ${newPrimaryId}::uuid
+        AND account_id = ${accountId}::uuid
+        AND archived_at IS NULL
+      FOR UPDATE
+    `;
+    if (!lockedTarget) {
+      throw new Error(
+        `new primary location not found or not accessible: ${newPrimaryId}`,
+      );
+    }
+    if (lockedTarget.is_primary) {
+      throw new Error(
+        `location ${newPrimaryId} is already the primary location`,
+      );
+    }
+
     // 1. Demote the current primary
     const [demoted] = await tx<{ id: string }[]>`
       UPDATE businesses
@@ -120,14 +146,20 @@ export async function promotePrimaryTransaction(
     }
 
     // 2. Promote the new primary
-    await tx`
+    const [promoted] = await tx<{ id: string }[]>`
       UPDATE businesses
       SET is_primary = TRUE,
           updated_at = NOW()
       WHERE id = ${newPrimaryId}::uuid
         AND account_id = ${accountId}::uuid
         AND archived_at IS NULL
+      RETURNING id
     `;
+    if (!promoted) {
+      throw new Error(
+        `new primary location not found or not accessible: ${newPrimaryId}`,
+      );
+    }
 
     // 3. Insert audit log entry
     await tx`

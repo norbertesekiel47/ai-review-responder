@@ -62,8 +62,7 @@ function connectionCutoff(connectedAt: Date | null): Date | null {
   return new Date(connectedMs - graceMs);
 }
 
-async function loadActiveConnections(): Promise<ConnectionRow[]> {
-  const limit = readPositiveInt('ZERNIO_RECENT_REVIEW_POLL_BATCH_SIZE', 50);
+async function loadActiveConnections(limit: number, offset: number): Promise<ConnectionRow[]> {
   return await sql<ConnectionRow[]>`
     SELECT
       zc.business_id,
@@ -77,9 +76,21 @@ async function loadActiveConnections(): Promise<ConnectionRow[]> {
     JOIN accounts a ON a.id = b.account_id
     WHERE zc.status = 'active'
       AND b.archived_at IS NULL
-    ORDER BY zc.connected_at DESC NULLS LAST
+    ORDER BY zc.connected_at DESC NULLS LAST, zc.business_id ASC
     LIMIT ${limit}
+    OFFSET ${offset}
   `;
+}
+
+async function loadAllActiveConnections(): Promise<ConnectionRow[]> {
+  const batchSize = readPositiveInt('ZERNIO_RECENT_REVIEW_POLL_BATCH_SIZE', 50);
+  const connections: ConnectionRow[] = [];
+  for (let offset = 0; ; offset += batchSize) {
+    const batch = await loadActiveConnections(batchSize, offset);
+    connections.push(...batch);
+    if (batch.length < batchSize) break;
+  }
+  return connections;
 }
 
 async function processZernioReview(
@@ -116,9 +127,10 @@ async function processZernioReview(
 async function tombstoneMissingSourceReviews(
   connection: ConnectionRow,
   sourceReviewIds: Set<string>,
+  feedComplete: boolean,
 ): Promise<number> {
   const cutoff = connectionCutoff(connection.connected_at);
-  if (!cutoff || sourceReviewIds.size === 0) return 0;
+  if (!cutoff || !feedComplete) return 0;
 
   const providerLocationName =
     `zernio://${connection.zernio_account_id}/locations/${connection.zernio_location_id}`;
@@ -171,7 +183,7 @@ export async function runOnce(): Promise<ZernioRecentReviewPollResult> {
     return result;
   }
 
-  const connections = await loadActiveConnections();
+  const connections = await loadAllActiveConnections();
   const pageSize = readPositiveInt('ZERNIO_RECENT_REVIEW_POLL_PAGE_SIZE', DEFAULT_PAGE_SIZE);
   const maxPages = readPositiveInt('ZERNIO_RECENT_REVIEW_POLL_MAX_PAGES', DEFAULT_MAX_PAGES);
 
@@ -187,6 +199,7 @@ export async function runOnce(): Promise<ZernioRecentReviewPollResult> {
     }
 
     const reviews: ZernioReview[] = [];
+    let feedComplete = false;
     try {
       let pageToken: string | undefined;
       for (let i = 0; i < maxPages; i++) {
@@ -196,7 +209,10 @@ export async function runOnce(): Promise<ZernioRecentReviewPollResult> {
           pageToken,
         });
         reviews.push(...page.reviews);
-        if (!page.nextPageToken) break;
+        if (!page.nextPageToken) {
+          feedComplete = true;
+          break;
+        }
         pageToken = page.nextPageToken;
       }
       result.reviewsSeen += reviews.length;
@@ -227,6 +243,7 @@ export async function runOnce(): Promise<ZernioRecentReviewPollResult> {
       result.reviewsDeleted += await tombstoneMissingSourceReviews(
         connection,
         new Set(reviews.map((review) => review.id)),
+        feedComplete,
       );
     } catch (err) {
       result.errors += 1;

@@ -154,8 +154,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[locations/archive] Transaction failed for location=${locationId}: ${message}`);
+    if (message === 'last_active_location' || message === 'location_archive_conflict') {
+      return NextResponse.json(
+        { error: message },
+        { status: 409, headers: NO_STORE },
+      );
+    }
     return NextResponse.json(
-      { error: 'archive_location_failed', detail: message },
+      { error: 'archive_location_failed' },
       { status: 500, headers: NO_STORE },
     );
   }

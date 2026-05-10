@@ -20,6 +20,7 @@ const {
   const txScenario = {
     needsBackfill: false,
     accountSubscriptionActivatedAt: new Date('2026-05-01T00:00:00.000Z'),
+    existingConnectionId: null as string | null,
   };
 
   const mockTx = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
@@ -34,6 +35,13 @@ const {
     }
     if (/needs_backfill/.test(raw)) {
       return Promise.resolve([{ needs_backfill: txScenario.needsBackfill }]);
+    }
+    if (/FROM zernio_connections[\s\S]*FOR UPDATE/.test(raw)) {
+      return Promise.resolve(
+        txScenario.existingConnectionId
+          ? [{ id: txScenario.existingConnectionId }]
+          : [],
+      );
     }
     return Promise.resolve([]);
   });
@@ -78,8 +86,8 @@ const {
   return {
     mockRequireRole: vi.fn(),
     mockRedis,
-    mockSelectLocation: vi.fn(async () => ({ accountId: 'zernio-account-1' })),
-    mockDeleteAccount: vi.fn(async () => undefined),
+    mockSelectLocation: vi.fn(async (_input: unknown) => ({ accountId: 'zernio-account-1' })),
+    mockDeleteAccount: vi.fn(async (_accountId: unknown) => undefined),
     sqlCalls,
     txCalls,
     txScenario,
@@ -130,8 +138,8 @@ vi.mock('@/lib/zernio/connect-session-cookie', () => ({
 
 vi.mock('@/lib/zernio/client', () => ({
   zernioClient: {
-    selectLocation: (...args: unknown[]) => mockSelectLocation(...args),
-    deleteAccount: (...args: unknown[]) => mockDeleteAccount(...args),
+    selectLocation: (input: unknown) => mockSelectLocation(input),
+    deleteAccount: (accountId: unknown) => mockDeleteAccount(accountId),
   },
 }));
 
@@ -154,6 +162,7 @@ describe('POST /api/zernio/connect/select-location account scoping', () => {
     txCalls.length = 0;
     txScenario.needsBackfill = false;
     txScenario.accountSubscriptionActivatedAt = new Date('2026-05-01T00:00:00.000Z');
+    txScenario.existingConnectionId = null;
     mockRequireRole.mockResolvedValue({
       id: 'user-1',
       role: 'owner',
@@ -206,5 +215,20 @@ describe('POST /api/zernio/connect/select-location account scoping', () => {
       subscription_tier: 'standard',
       subscription_activated_at: '2026-05-01T00:00:00.000Z',
     });
+  });
+
+  it('updates a stale active connection instead of failing on the active-connection unique index', async () => {
+    txScenario.existingConnectionId = 'existing-connection-1';
+
+    const res = await POST(makeRequest());
+
+    expect(res.status).toBe(200);
+    expect(txCalls.some((call) =>
+      /UPDATE zernio_connections[\s\S]*SET/.test(call.raw) &&
+      call.values.includes('existing-connection-1'),
+    )).toBe(true);
+    expect(txCalls.some((call) =>
+      /INSERT INTO zernio_connections/.test(call.raw),
+    )).toBe(false);
   });
 });

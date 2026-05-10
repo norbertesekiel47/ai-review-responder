@@ -417,22 +417,46 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           throw new ZernioRouteError(403, 'subscription_required');
         }
 
-        await tx`
-          INSERT INTO zernio_connections (
-            id, business_id, zernio_profile_id, zernio_account_id,
-            zernio_location_id, status, connected_at, created_at, updated_at
-          ) VALUES (
-            ${newConnectionId},
-            ${stored.businessId},
-            ${stored.profileId},
-            ${accountId},
-            ${locationId},
-            'active',
-            NOW(),
-            NOW(),
-            NOW()
-          )
+        const [existingConnection] = await tx<{ id: string }[]>`
+          SELECT id
+          FROM zernio_connections
+          WHERE business_id = ${stored.businessId}
+            AND status IN ('active', 'pending')
+          ORDER BY connected_at DESC NULLS LAST, created_at DESC
+          LIMIT 1
+          FOR UPDATE
         `;
+
+        const connectionId = existingConnection?.id ?? newConnectionId;
+        if (existingConnection) {
+          await tx`
+            UPDATE zernio_connections
+            SET zernio_profile_id = ${stored.profileId},
+                zernio_account_id = ${accountId},
+                zernio_location_id = ${locationId},
+                status = 'active',
+                connected_at = NOW(),
+                updated_at = NOW()
+            WHERE id = ${existingConnection.id}
+          `;
+        } else {
+          await tx`
+            INSERT INTO zernio_connections (
+              id, business_id, zernio_profile_id, zernio_account_id,
+              zernio_location_id, status, connected_at, created_at, updated_at
+            ) VALUES (
+              ${newConnectionId},
+              ${stored.businessId},
+              ${stored.profileId},
+              ${accountId},
+              ${locationId},
+              'active',
+              NOW(),
+              NOW(),
+              NOW()
+            )
+          `;
+        }
 
         await tx`
           INSERT INTO job_outbox (
@@ -459,7 +483,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             NOT EXISTS (
               SELECT 1 FROM zernio_connections
               WHERE business_id = ${stored.businessId}
-                AND id != ${newConnectionId}
+                AND id != ${connectionId}
                 AND connected_at IS NOT NULL
             )
             OR NOT EXISTS (

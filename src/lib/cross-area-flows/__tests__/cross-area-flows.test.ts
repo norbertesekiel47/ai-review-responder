@@ -396,7 +396,19 @@ describe('VAL-CROSS-005: Archive mid-flow', () => {
 
     // Step 2: Execute archive transaction
     (mockSql.begin as ReturnType<typeof vi.fn>) = vi.fn().mockImplementation(async (cb: Function) => {
-      const mockTx = vi.fn().mockResolvedValue(undefined);
+      const mockTx = vi.fn((strings: TemplateStringsArray) => {
+        const raw = strings.join('?');
+        if (/FROM accounts[\s\S]*FOR UPDATE/.test(raw)) {
+          return Promise.resolve([{ id: account.id }]);
+        }
+        if (/SELECT COUNT\(\*\) AS count[\s\S]*FROM businesses/.test(raw)) {
+          return Promise.resolve([{ count: 2 }]);
+        }
+        if (/UPDATE businesses/.test(raw)) {
+          return Promise.resolve([{ id: locB.id }]);
+        }
+        return Promise.resolve([]);
+      });
       await cb(mockTx);
     });
 

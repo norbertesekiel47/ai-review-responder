@@ -110,10 +110,10 @@ const SUBSCRIPTION_ID = 'sub_test123';
 const BASE_ITEM_ID = 'si_base_test';
 const OVERAGE_ITEM_ID = 'si_overage_test';
 
-function mkRequest(body: Record<string, unknown>): NextRequest {
+function mkRequest(body: Record<string, unknown>, extraHeaders: Record<string, string> = {}): NextRequest {
   return new NextRequest('http://localhost:3000/api/billing/tier-change', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...extraHeaders },
     body: JSON.stringify(body),
   });
 }
@@ -316,6 +316,27 @@ describe('POST /api/billing/tier-change', () => {
         price: 'price_premium_test',
         proration_behavior: 'create_prorations',
       }),
+      expect.any(Object),
+    );
+  });
+
+  it('uses the request idempotency key for all Stripe tier-change mutations', async () => {
+    setupHappyPathMocks();
+
+    const req = mkRequest(
+      { accountId: ACCOUNT_ID, newTier: 'premium' },
+      { 'Idempotency-Key': 'tier-op-123' },
+    );
+    await POST(req);
+
+    expect(mockSubscriptionItemsUpdate).toHaveBeenCalledWith(
+      BASE_ITEM_ID,
+      expect.objectContaining({
+        price: 'price_premium_test',
+      }),
+      expect.objectContaining({
+        idempotencyKey: `tier-change:${ACCOUNT_ID}:tier-op-123:base`,
+      }),
     );
   });
 
@@ -389,12 +410,13 @@ describe('POST /api/billing/tier-change', () => {
         price: 'price_premium_test',
         proration_behavior: 'create_prorations',
       }),
+      expect.any(Object),
     );
     expect(mockSubscriptionItemsUpdate).not.toHaveBeenCalledWith(
       OVERAGE_ITEM_ID,
       expect.anything(),
     );
-    expect(mockSubscriptionItemsDel).toHaveBeenCalledWith(OVERAGE_ITEM_ID);
+    expect(mockSubscriptionItemsDel).toHaveBeenCalledWith(OVERAGE_ITEM_ID, {}, expect.any(Object));
   });
 
   it('updates existing overage item price and quantity when overage units remain', async () => {
@@ -434,6 +456,7 @@ describe('POST /api/billing/tier-change', () => {
         quantity: 2,
         proration_behavior: 'create_prorations',
       }),
+      expect.any(Object),
     );
     expect(mockSubscriptionItemsDel).not.toHaveBeenCalled();
   });

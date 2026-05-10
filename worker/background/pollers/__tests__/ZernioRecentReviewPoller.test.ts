@@ -63,6 +63,7 @@ describe('ZernioRecentReviewPoller', () => {
     sqlReturnQueue.length = 0;
     sqlCalls.length = 0;
     process.env.ZERNIO_PUBLISHING_ENABLED = 'true';
+    delete process.env.ZERNIO_RECENT_REVIEW_POLL_MAX_PAGES;
   });
 
   it('imports recent connected-account reviews and ignores older reviews', async () => {
@@ -162,5 +163,61 @@ describe('ZernioRecentReviewPoller', () => {
       call.template.includes('UPDATE responses') &&
       call.template.includes("posting_error = 'review_deleted_at_source'"),
     )).toBe(true);
+  });
+
+  it('marks recent local reviews deleted when the complete Zernio feed is empty', async () => {
+    sqlReturnQueue.push([
+      {
+        business_id: 'business-1',
+        zernio_account_id: 'zernio-account-1',
+        zernio_location_id: 'location-1',
+        connected_at: new Date('2026-05-10T06:28:15.000Z'),
+        subscription_status: 'active',
+        updated_at: new Date('2026-05-10T06:28:15.000Z'),
+      },
+    ]);
+    mockListReviews.mockResolvedValueOnce({ reviews: [] });
+    sqlReturnQueue.push([
+      {
+        id: 'local-deleted-review-id',
+        provider_review_id: 'deleted-review-id',
+      },
+    ]);
+    sqlReturnQueue.push([{ count: '1' }]);
+    sqlReturnQueue.push([{ count: '1' }]);
+
+    const result = await runOnce();
+
+    expect(result.reviewsDeleted).toBe(1);
+    expect(sqlCalls.some((call) =>
+      call.template.includes('UPDATE reviews') &&
+      call.template.includes("status = 'deleted'"),
+    )).toBe(true);
+  });
+
+  it('does not tombstone local reviews when pagination stops before the feed is complete', async () => {
+    process.env.ZERNIO_RECENT_REVIEW_POLL_MAX_PAGES = '1';
+    sqlReturnQueue.push([
+      {
+        business_id: 'business-1',
+        zernio_account_id: 'zernio-account-1',
+        zernio_location_id: 'location-1',
+        connected_at: new Date('2026-05-10T06:28:15.000Z'),
+        subscription_status: 'active',
+        updated_at: new Date('2026-05-10T06:28:15.000Z'),
+      },
+    ]);
+    mockListReviews.mockResolvedValueOnce({
+      reviews: [makeReview()],
+      nextPageToken: 'next-page',
+    });
+
+    const result = await runOnce();
+
+    expect(result.reviewsDeleted).toBe(0);
+    expect(sqlCalls.some((call) =>
+      call.template.includes('provider_review_id <> ALL') ||
+      call.template.includes('provider_review_id = ANY'),
+    )).toBe(false);
   });
 });

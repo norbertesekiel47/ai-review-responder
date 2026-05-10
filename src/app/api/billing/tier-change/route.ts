@@ -8,6 +8,7 @@
 // with new billing summary.
 
 import { v7 as uuidv7 } from 'uuid';
+import { createHash } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { sql, jsonb } from '@/lib/db/server';
@@ -68,6 +69,13 @@ function configuredOveragePriceIds(): Set<string> {
       .map(getOveragePriceId)
       .filter((priceId): priceId is string => Boolean(priceId)),
   );
+}
+
+function normalizeIdempotencyKey(raw: string | null): string {
+  const source = raw && raw.trim().length > 0 ? raw.trim() : uuidv7();
+  const safe = source.replace(/[^a-zA-Z0-9_-]/g, '-');
+  if (safe.length > 0 && safe.length <= 96) return safe;
+  return createHash('sha256').update(source).digest('hex');
 }
 
 // ── Handler ─────────────────────────────────────────────────────────────────
@@ -163,6 +171,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const newConfig = TIER_CONFIG[tier];
   const newOverageUnits = validation.newBillingPreview?.overageUnits ?? 0;
   const actorUserId = await getAccountOwnerUserId(accountId);
+  const operationKey = normalizeIdempotencyKey(req.headers.get('Idempotency-Key'));
+  const stripeOptions = (step: string) => ({
+    idempotencyKey: `tier-change:${accountId}:${operationKey}:${step}`,
+  });
 
   try {
     const stripe = getStripe();
@@ -193,7 +205,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     await stripe.subscriptionItems.update(baseItem.id, {
       price: newBasePriceId,
       proration_behavior: 'create_prorations',
-    });
+    }, stripeOptions('base'));
 
     // Handle overage item:
     // - If overage units remain, update/create the overage item with quantity.
@@ -207,7 +219,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             price: overagePriceId,
             quantity: newOverageUnits,
             proration_behavior: 'create_prorations',
-          });
+          }, stripeOptions('overage-update'));
         }
       } else if (overagePriceId) {
         // Create overage item
@@ -216,40 +228,50 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           price: overagePriceId,
           quantity: newOverageUnits,
           proration_behavior: 'create_prorations',
-        });
+        }, stripeOptions('overage-create'));
       }
     } else {
       if (overageItem) {
-        await stripe.subscriptionItems.del(overageItem.id);
+        await stripe.subscriptionItems.del(overageItem.id, {}, stripeOptions('overage-delete'));
       }
     }
 
-    // Update the accounts row immediately (webhook will confirm)
-    await sql`
-      UPDATE accounts
-      SET subscription_tier = ${tier},
-          locations_included = ${newConfig.included},
-          updated_at = NOW()
-      WHERE id = ${accountId}::uuid
-    `;
+    await sql.begin(async (tx) => {
+      await tx`
+        SELECT id
+        FROM accounts
+        WHERE id = ${accountId}::uuid
+        FOR UPDATE
+      `;
 
-    // Insert audit log
-    await sql`
-      INSERT INTO account_audit_log (
-        id, account_id, event_type, actor_user_id, payload
-      ) VALUES (
-        ${uuidv7()}::uuid,
-        ${accountId}::uuid,
-        'tier_changed',
-        ${actorUserId ?? null}::uuid,
-        ${jsonb({
-          old_tier: account.subscription_tier,
-          new_tier: tier,
-          new_base_price_cents: newConfig.baseCents,
-          new_overage_price_cents: newConfig.overageCents,
-        })}
-      )
-    `;
+      // Update the accounts row immediately (webhook will confirm)
+      await tx`
+        UPDATE accounts
+        SET subscription_tier = ${tier},
+            locations_included = ${newConfig.included},
+            updated_at = NOW()
+        WHERE id = ${accountId}::uuid
+      `;
+
+      // Insert audit log
+      await tx`
+        INSERT INTO account_audit_log (
+          id, account_id, event_type, actor_user_id, payload
+        ) VALUES (
+          ${uuidv7()}::uuid,
+          ${accountId}::uuid,
+          'tier_changed',
+          ${actorUserId ?? null}::uuid,
+          ${jsonb({
+            old_tier: account.subscription_tier,
+            new_tier: tier,
+            new_base_price_cents: newConfig.baseCents,
+            new_overage_price_cents: newConfig.overageCents,
+            idempotency_key: operationKey,
+          })}
+        )
+      `;
+    });
 
     return NextResponse.json(
       {

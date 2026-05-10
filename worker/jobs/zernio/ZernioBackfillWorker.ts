@@ -1,6 +1,7 @@
 // worker/jobs/zernio/ZernioBackfillWorker.ts
 //
-// Handles zernio_initial_backfill outbox topic. One-shot per business.
+// Handles zernio_initial_backfill outbox topic. Initial runs are one-shot per
+// business; reactivation catch-up runs are keyed by correlation_id.
 // Idempotent via zernio_backfill_runs.completed_at IS NOT NULL sentinel —
 // row-existence alone is NOT the done marker (a listAllReviews timeout
 // after row insert would otherwise lose backfill on retry).
@@ -44,25 +45,59 @@ export async function handleZernioBackfill(job: Job<ZernioInitialBackfillPayload
     zernio_location_id,
     subscription_tier,
     subscription_activated_at,
+    backfill_reason,
   } = job.data;
   const { outboxId, attempt } = extractOutboxHandle(job.data, job.id!);
+  const isReactivationBackfill = backfill_reason === 'reactivation';
+  const runReason = isReactivationBackfill ? 'reactivation' : 'initial';
+  const correlationId = job.data.correlation_id ?? uuidv7();
 
   // Idempotent claim — insert only if no row exists yet for this business.
   const runId = uuidv7();
-  await sql`
-    INSERT INTO zernio_backfill_runs (
-      id, business_id, zernio_account_id, zernio_location_id,
-      subscription_tier, subscription_activated_at
-    ) VALUES (
-      ${runId}, ${business_id}, ${zernio_account_id}, ${zernio_location_id},
-      ${subscription_tier}, ${subscription_activated_at}
-    )
-    ON CONFLICT (business_id) DO NOTHING
-  `;
+  if (isReactivationBackfill) {
+    await sql`
+      INSERT INTO zernio_backfill_runs (
+        id, business_id, zernio_account_id, zernio_location_id,
+        subscription_tier, subscription_activated_at, run_reason, correlation_id,
+        completed_at,
+        gap_processed_count, historical_processed_count,
+        gap_skipped_count, historical_skipped_count,
+        oldest_skipped_create_time, started_at, updated_at
+      ) VALUES (
+        ${runId}, ${business_id}, ${zernio_account_id}, ${zernio_location_id},
+        ${subscription_tier}, ${subscription_activated_at}, ${runReason}, ${correlationId}::uuid,
+        NULL,
+        0, 0, 0, 0, NULL, NOW(), NOW()
+      )
+      ON CONFLICT (correlation_id) WHERE correlation_id IS NOT NULL DO NOTHING
+    `;
+  } else {
+    await sql`
+      INSERT INTO zernio_backfill_runs (
+        id, business_id, zernio_account_id, zernio_location_id,
+        subscription_tier, subscription_activated_at, run_reason, correlation_id
+      ) VALUES (
+        ${runId}, ${business_id}, ${zernio_account_id}, ${zernio_location_id},
+        ${subscription_tier}, ${subscription_activated_at}, ${runReason}, ${correlationId}::uuid
+      )
+      ON CONFLICT (business_id) WHERE run_reason = 'initial' DO NOTHING
+    `;
+  }
 
-  const [run] = await sql<{ id: string; completed_at: Date | null }[]>`
-    SELECT id, completed_at FROM zernio_backfill_runs WHERE business_id = ${business_id}
-  `;
+  const [run] = isReactivationBackfill
+    ? await sql<{ id: string; completed_at: Date | null }[]>`
+        SELECT id, completed_at
+        FROM zernio_backfill_runs
+        WHERE correlation_id = ${correlationId}::uuid
+        LIMIT 1
+      `
+    : await sql<{ id: string; completed_at: Date | null }[]>`
+        SELECT id, completed_at
+        FROM zernio_backfill_runs
+        WHERE business_id = ${business_id}
+          AND run_reason = 'initial'
+        LIMIT 1
+      `;
 
   if (!run) {
     throw new Error(`Backfill row not found for business=${business_id} after upsert`);
@@ -191,7 +226,7 @@ export async function handleZernioBackfill(job: Job<ZernioInitialBackfillPayload
         historical_skipped_count = ${historicalSkipped},
         oldest_skipped_create_time = ${oldestSkipped},
         updated_at = NOW()
-    WHERE business_id = ${business_id}
+    WHERE id = ${run.id}
   `;
 
   if (reconcileFailures.length > 0) {
@@ -206,7 +241,7 @@ export async function handleZernioBackfill(job: Job<ZernioInitialBackfillPayload
   await sql`
     UPDATE zernio_backfill_runs
     SET completed_at = NOW(), updated_at = NOW()
-    WHERE business_id = ${business_id}
+    WHERE id = ${run.id}
   `;
 
   logger.log(

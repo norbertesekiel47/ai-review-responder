@@ -89,6 +89,14 @@ beforeEach(() => {
     if (template.includes('UPDATE businesses')) {
       return [{ id: SECONDARY_LOCATION_ID }];
     }
+    if (template.includes('FROM zernio_connections') && template.includes('JOIN accounts')) {
+      return [{
+        zernio_account_id: 'zernio-account-1',
+        zernio_location_id: 'zernio-location-1',
+        subscription_tier: 'standard',
+        subscription_activated_at: new Date('2026-05-01T00:00:00.000Z'),
+      }];
+    }
     return [];
   });
   mockSql.begin = vi.fn(async (cb: (tx: any) => Promise<unknown>) => cb(mockSql));
@@ -577,6 +585,32 @@ describe('reactivateLocationTransaction', () => {
       (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('zernio_initial_backfill'),
     );
     expect(zernioCall).toBeDefined();
+  });
+
+  it('enqueues reactivation backfill with the full Zernio/account payload', async () => {
+    await reactivateLocationTransaction({
+      locationId: SECONDARY_LOCATION_ID,
+      accountId: ACCOUNT_ID,
+      actorUserId: ACTOR_USER_ID,
+    });
+
+    const zernioCall = mockSql.mock.calls.find(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('zernio_initial_backfill'),
+    );
+    expect(zernioCall).toBeDefined();
+    const payload = zernioCall?.find((value: unknown) =>
+      typeof value === 'object' &&
+      value !== null &&
+      (value as { business_id?: string }).business_id === SECONDARY_LOCATION_ID,
+    ) as Record<string, unknown> | undefined;
+    expect(payload).toMatchObject({
+      business_id: SECONDARY_LOCATION_ID,
+      zernio_account_id: 'zernio-account-1',
+      zernio_location_id: 'zernio-location-1',
+      subscription_tier: 'standard',
+      subscription_activated_at: '2026-05-01T00:00:00.000Z',
+      backfill_reason: 'reactivation',
+    });
   });
 
   it('runs all operations inside sql.begin()', async () => {

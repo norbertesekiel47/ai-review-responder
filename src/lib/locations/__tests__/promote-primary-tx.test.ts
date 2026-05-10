@@ -72,8 +72,13 @@ describe('promotePrimaryTransaction', () => {
       is_primary: false,
       archived_at: null,
     }]); // validation query
+    mockSql.mockResolvedValueOnce([{ id: ACCOUNT_ID }]); // account lock
+    mockSql.mockResolvedValueOnce([{
+      id: NEW_PRIMARY_ID,
+      is_primary: false,
+    }]); // target row lock
     mockSql.mockResolvedValueOnce([{ id: OLD_PRIMARY_ID }]); // demotion UPDATE RETURNING
-    mockSql.mockResolvedValueOnce([]); // promotion UPDATE
+    mockSql.mockResolvedValueOnce([{ id: NEW_PRIMARY_ID }]); // promotion UPDATE RETURNING
     mockSql.mockResolvedValueOnce([]); // audit INSERT
   }
 
@@ -218,5 +223,29 @@ describe('promotePrimaryTransaction', () => {
     await expect(promotePrimaryTransaction(mkInput())).rejects.toThrow(
       'audit INSERT failed',
     );
+  });
+
+  it('throws and skips audit when the target is archived before the transaction promotes it', async () => {
+    mockSql.mockResolvedValueOnce([{
+      id: NEW_PRIMARY_ID,
+      account_id: ACCOUNT_ID,
+      is_primary: false,
+      archived_at: null,
+    }]);
+    mockSql.mockResolvedValueOnce([{ id: ACCOUNT_ID }]);
+    mockSql.mockResolvedValueOnce([]);
+
+    await expect(promotePrimaryTransaction(mkInput())).rejects.toThrow(
+      'new primary location not found',
+    );
+
+    const demoteCall = mockSql.mock.calls.find(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('SET is_primary = FALSE'),
+    );
+    const auditCall = mockSql.mock.calls.find(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO account_audit_log'),
+    );
+    expect(demoteCall).toBeUndefined();
+    expect(auditCall).toBeUndefined();
   });
 });

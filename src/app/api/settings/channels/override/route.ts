@@ -169,7 +169,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     `;
 
     // VAL-NOTIF-009: Invalidate cache on channel_enrollments writes
-    await safeInvalidateChannelCache(asAccountId(user.accountId), 'settings.channels.override.delete');
+    await safeInvalidateChannelCache(asAccountId(user.accountId), 'settings.channels.override.upsert');
 
     return jsonResponse({
       success: true,
@@ -270,7 +270,7 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
   `;
 
   // VAL-NOTIF-009: Invalidate cache on channel_enrollments writes
-  await safeInvalidateChannelCache(asAccountId(user.accountId), 'settings.channels.override.upsert');
+  await safeInvalidateChannelCache(asAccountId(user.accountId), 'settings.channels.override.delete');
 
   return jsonResponse({ success: true });
 }

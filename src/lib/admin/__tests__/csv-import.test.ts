@@ -75,6 +75,15 @@ Row 3,ChIJ3`;
     expect(result.rows[0]!.productsServices).toBe('Coffee, tea, pastries');
   });
 
+  it('handles quoted fields with embedded newlines', () => {
+    const csv = 'name,placeId,productsServices\n"Downtown\nCafe",ChIJ1234,"Coffee\nTea"';
+    const result = parseCsv(csv);
+    if ('error' in result) throw new Error(`Unexpected error: ${result.error}`);
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]!.name).toBe('Downtown\nCafe');
+    expect(result.rows[0]!.productsServices).toBe('Coffee\nTea');
+  });
+
   it('handles escaped double-quotes in fields', () => {
     const csv = `name,placeId
 "The ""Best"" Cafe",ChIJ1234`;

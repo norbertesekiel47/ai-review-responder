@@ -80,18 +80,17 @@ export interface ProcessRowOptions {
 export function parseCsv(
   csvText: string,
 ): { rows: ParsedCsvRow[] } | { error: string } {
-  const lines = csvText
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0);
-
-  if (lines.length === 0) {
+  const parsedRecords = parseCsvRecords(csvText);
+  if ('error' in parsedRecords) return parsedRecords;
+  const records = parsedRecords.records.filter((record) =>
+    !(record.length === 1 && (record[0] ?? '').trim().length === 0),
+  );
+  if (records.length === 0) {
     return { error: 'CSV file is empty — no header row found' };
   }
 
   // Parse header row
-  const headerLine = lines[0]!;
-  const headers = parseCsvLine(headerLine).map((h) => h.toLowerCase().trim());
+  const headers = records[0]!.map((h) => h.toLowerCase().trim());
 
   const nameIdx = headers.indexOf('name');
   const placeIdIdx = headers.indexOf('placeid');
@@ -111,8 +110,8 @@ export function parseCsv(
 
   // Parse data rows
   const rows: ParsedCsvRow[] = [];
-  for (let i = 1; i < lines.length; i++) {
-    const fields = parseCsvLine(lines[i]!);
+  for (let i = 1; i < records.length; i++) {
+    const fields = records[i]!;
     const rowIndex = i; // 1-based row number (excluding header)
 
     const name = (fields[nameIdx] ?? '').trim();
@@ -140,45 +139,56 @@ export function parseCsv(
   return { rows };
 }
 
-/**
- * Parses a single CSV line, respecting quoted fields (double-quote delimited).
- * Fields containing commas or double-quotes must be wrapped in double-quotes,
- * and internal double-quotes are escaped by doubling ("").
- */
-function parseCsvLine(line: string): string[] {
-  const fields: string[] = [];
+function parseCsvRecords(csvText: string): { records: string[][] } | { error: string } {
+  const records: string[][] = [];
+  let fields: string[] = [];
   let current = '';
   let inQuotes = false;
 
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
+  for (let i = 0; i < csvText.length; i++) {
+    const ch = csvText[i];
     if (inQuotes) {
       if (ch === '"') {
-        if (i + 1 < line.length && line[i + 1] === '"') {
-          // Escaped double-quote
+        if (i + 1 < csvText.length && csvText[i + 1] === '"') {
           current += '"';
           i++;
         } else {
-          // End of quoted field
           inQuotes = false;
         }
       } else {
         current += ch;
       }
-    } else {
-      if (ch === '"') {
-        inQuotes = true;
-      } else if (ch === ',') {
-        fields.push(current);
-        current = '';
-      } else {
-        current += ch;
+      continue;
+    }
+
+    if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === ',') {
+      fields.push(current);
+      current = '';
+    } else if (ch === '\n' || ch === '\r') {
+      fields.push(current);
+      records.push(fields);
+      fields = [];
+      current = '';
+      if (ch === '\r' && i + 1 < csvText.length && csvText[i + 1] === '\n') {
+        i++;
       }
+    } else {
+      current += ch;
     }
   }
-  fields.push(current);
 
-  return fields;
+  if (inQuotes) {
+    return { error: 'CSV file has an unterminated quoted field' };
+  }
+
+  if (current.length > 0 || fields.length > 0 || csvText.length > 0) {
+    fields.push(current);
+    records.push(fields);
+  }
+
+  return { records };
 }
 
 // ── Row Validation ────────────────────────────────────────────────────────

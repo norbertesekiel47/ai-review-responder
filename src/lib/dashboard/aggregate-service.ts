@@ -25,6 +25,7 @@ import type { DashboardDataActive } from './types';
 
 /** Heuristic minutes saved per response — must match service.ts. */
 const MINUTES_SAVED_PER_RESPONSE = 7;
+const AGGREGATE_LOCATION_CONCURRENCY = 5;
 
 /**
  * Builds aggregate dashboard data for all active locations in an account.
@@ -79,25 +80,37 @@ export async function getAggregateDashboardData(
       perLocationBriefs: [],
       locationKpis: [],
       activeLocationCount: 0,
+      partialFailures: [],
     };
   }
 
-  // Fetch per-location dashboard data in parallel
-  const locationDataPairs = await Promise.all(
-    locations.map(async (loc) => {
+  const locationDataPairs = await mapWithConcurrency(
+    locations,
+    AGGREGATE_LOCATION_CONCURRENCY,
+    async (loc) => {
       try {
         const data = await getActiveDashboardData(loc.id);
         return { location: loc, data };
-      } catch {
-        // If a single location fails, skip it in the aggregate
+      } catch (err) {
+        console.error(
+          `[dashboard/aggregate] Failed to load location=${loc.id} account=${accountId}:`,
+          err,
+        );
         return null;
       }
-    }),
+    },
   );
 
   const validPairs = locationDataPairs.filter(
     (p): p is { location: (typeof locations)[number]; data: DashboardDataActive } => p !== null,
   );
+  const partialFailures = locationDataPairs
+    .map((pair, index) => pair === null ? locations[index] : null)
+    .filter((loc): loc is (typeof locations)[number] => loc !== null)
+    .map((loc) => ({
+      locationId: loc.id,
+      displayName: getDisplayLabel(loc),
+    }));
 
   // ── Aggregate Value Summary ──────────────────────────────────────────────
   const totalReviewsHandled = validPairs.reduce(
@@ -247,7 +260,28 @@ export async function getAggregateDashboardData(
     perLocationBriefs,
     locationKpis,
     activeLocationCount: locations.length,
+    partialFailures,
   };
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  const workerCount = Math.min(concurrency, items.length);
+
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await mapper(items[index]!);
+    }
+  }));
+
+  return results;
 }
 
 // ── Helper queries for accurate aggregate rates ─────────────────────────────

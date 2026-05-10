@@ -193,6 +193,8 @@ export interface AggregateDashboardData {
   locationKpis: PerLocationKpi[];
   /** Number of active locations (for UI display). */
   activeLocationCount: number;
+  /** Locations whose per-location dashboard query failed while building aggregate data. */
+  partialFailures?: Array<{ locationId: string; displayName: string }>;
   /** VAL-DASH-029: When the requested scope location is archived, the API
    *  falls back to primary and returns this indicator so the client can
    *  update the switcher. Only set when a fallback occurred. */

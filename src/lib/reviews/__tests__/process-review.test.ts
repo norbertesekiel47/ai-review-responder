@@ -112,6 +112,7 @@ describe('processReview', () => {
       .mockResolvedValueOnce(withCount([{
         id: 'winner-id',
         review_content_hash: 'same-hash',
+        status: 'new',
       }], 1));
 
     const result = await processReview(monitored, 'biz-1', 'corr-1');
@@ -124,6 +125,25 @@ describe('processReview', () => {
       (call) => ((call[0] as TemplateStringsArray | undefined)?.join('?') ?? '').includes('job_outbox'),
     );
     expect(wroteOutbox).toBe(false);
+  });
+
+  it('restores a deleted review that reappears unchanged at the source', async () => {
+    const monitored = makeMonitoredReview({ contentHash: 'same-hash' });
+
+    tx
+      .mockResolvedValueOnce(withCount([{
+        id: 'existing-rev',
+        review_content_hash: 'same-hash',
+        status: 'deleted',
+      }], 1))
+      .mockResolvedValueOnce(withCount([], 0));
+
+    const result = await processReview(monitored, 'biz-1', 'corr-1');
+
+    expect(result).toBe('updated');
+    const restoreSql = (tx.mock.calls[1]?.[0] as TemplateStringsArray | undefined)?.join('?') ?? '';
+    expect(restoreSql).toContain("status = 'new'");
+    expect(restoreSql).toContain('WHERE id =');
   });
 
   it('suppressNotification=true is propagated into the generate_response outbox payload', async () => {

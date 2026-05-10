@@ -168,6 +168,26 @@ describe('ZernioBackfillWorker', () => {
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-backfill-1', undefined);
   });
 
+  it('reactivation backfill does not skip when an initial backfill completed earlier', async () => {
+    sqlReturnQueue.push(mkTaggedResult([]));
+    sqlReturnQueue.push(mkTaggedResult([{ id: 'run-1', completed_at: null }]));
+    sqlReturnQueue.push(mkTaggedResult([{ subscription_status: 'active', updated_at: new Date() }]));
+    pushCountsUpdate();
+    pushCompletedUpdate();
+    mockListAllReviews.mockResolvedValueOnce([
+      makeReview('rev-reactivated', ACTIVATED_MS + 60_000),
+    ]);
+
+    await handleZernioBackfill(makeJob({ backfill_reason: 'reactivation' }));
+
+    expect(mockListAllReviews).toHaveBeenCalled();
+    expect(mockProcessReview).toHaveBeenCalledTimes(1);
+    const firstSql = mockSql.mock.calls[0]?.[0] as TemplateStringsArray | undefined;
+    const firstSqlText = firstSql?.join('?') ?? '';
+    expect(firstSqlText).toContain('run_reason');
+    expect(firstSqlText).toContain('ON CONFLICT (correlation_id)');
+  });
+
   // Test 2: Historical fixture, non-premium tier → historical=0
   it('standard tier: historical reviews are NOT processed, historicalSkipped=total', async () => {
     pushStandardSqlSetup();

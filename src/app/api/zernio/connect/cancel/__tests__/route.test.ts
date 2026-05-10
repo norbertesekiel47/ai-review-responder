@@ -32,7 +32,7 @@ const {
   return {
     mockRequireRole: vi.fn(),
     mockRedis,
-    mockDeleteProfile: vi.fn(async () => undefined),
+    mockDeleteProfile: vi.fn(async (_profileId: unknown) => undefined),
     sqlCalls,
   };
 });
@@ -85,7 +85,7 @@ vi.mock('@/lib/zernio/connect-session-cookie', () => ({
 
 vi.mock('@/lib/zernio/client', () => ({
   zernioClient: {
-    deleteProfile: (...args: unknown[]) => mockDeleteProfile(...args),
+    deleteProfile: (profileId: unknown) => mockDeleteProfile(profileId),
   },
 }));
 

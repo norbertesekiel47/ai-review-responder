@@ -14,7 +14,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { requireRole, AuthError } from '@/lib/db/auth';
-import { sql } from '@/lib/db/server';
 import { assertCanAddLocation } from '@/lib/accounts/quota';
 import { reactivateLocationTransaction } from '@/lib/locations/archive-location-tx';
 import { getAccountOwnerUserId } from '@/lib/accounts/repo';
@@ -164,8 +163,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[locations/reactivate] Transaction failed for location=${locationId}: ${message}`);
+    if (message === 'location_reactivate_conflict') {
+      return NextResponse.json(
+        { error: message },
+        { status: 409, headers: NO_STORE },
+      );
+    }
     return NextResponse.json(
-      { error: 'reactivate_location_failed', detail: message },
+      { error: 'reactivate_location_failed' },
       { status: 500, headers: NO_STORE },
     );
   }

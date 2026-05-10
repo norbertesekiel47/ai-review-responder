@@ -309,24 +309,51 @@ export async function reactivateLocationTransaction(
       )
     `;
 
-    // 4. Enqueue Zernio initial backfill for the reactivated location
+    const [backfillContext] = await tx<{
+      zernio_account_id: string;
+      zernio_location_id: string;
+      subscription_tier: string;
+      subscription_activated_at: Date | null;
+    }[]>`
+      SELECT
+        zc.zernio_account_id,
+        zc.zernio_location_id,
+        a.subscription_tier,
+        a.subscription_activated_at
+      FROM zernio_connections zc
+      JOIN businesses b ON b.id = zc.business_id
+      JOIN accounts a ON a.id = b.account_id
+      WHERE zc.business_id = ${locationId}::uuid
+        AND b.account_id = ${accountId}::uuid
+        AND zc.status = 'active'
+      ORDER BY zc.connected_at DESC NULLS LAST
+      LIMIT 1
+    `;
+
+    // 4. Enqueue Zernio backfill for connected reactivated locations
     // VAL-LOC-071: Review sync jobs enqueued for the restored location
     // to catch up on any reviews that arrived during the archived period.
-    await tx`
-      INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-      VALUES (
-        ${uuidv7()},
-        'zernio_initial_backfill',
-        'business',
-        ${locationId}::uuid,
-        ${jsonb({
-          business_id: locationId,
-          account_id: accountId,
-          correlation_id: uuidv7(),
-        })},
-        'pending'
-      )
-    `;
+    if (backfillContext?.subscription_activated_at) {
+      await tx`
+        INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+        VALUES (
+          ${uuidv7()},
+          'zernio_initial_backfill',
+          'business',
+          ${locationId}::uuid,
+          ${jsonb({
+            business_id: locationId,
+            zernio_account_id: backfillContext.zernio_account_id,
+            zernio_location_id: backfillContext.zernio_location_id,
+            subscription_tier: backfillContext.subscription_tier,
+            subscription_activated_at: backfillContext.subscription_activated_at.toISOString(),
+            backfill_reason: 'reactivation',
+            correlation_id: uuidv7(),
+          })},
+          'pending'
+        )
+      `;
+    }
   });
 
   return {

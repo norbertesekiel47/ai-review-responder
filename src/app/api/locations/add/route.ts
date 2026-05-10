@@ -181,7 +181,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[locations/add] Transaction failed for account=${accountId}: ${message}`);
     return NextResponse.json(
-      { error: 'add_location_failed', detail: message },
+      { error: 'add_location_failed' },
       { status: 500, headers: NO_STORE },
     );
   }

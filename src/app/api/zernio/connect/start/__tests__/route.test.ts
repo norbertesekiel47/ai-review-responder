@@ -29,12 +29,12 @@ const {
     mockRequireRole: vi.fn(),
     sqlCalls,
     mockRedis,
-    mockCreateProfile: vi.fn(async () => ({ profileId: 'profile-secondary' })),
-    mockStartConnect: vi.fn(async () => ({
+    mockCreateProfile: vi.fn(async (_input: unknown) => ({ profileId: 'profile-secondary' })),
+    mockStartConnect: vi.fn(async (_input: unknown) => ({
       authUrl: 'https://zernio.test/connect',
       state: 'returned-state',
     })),
-    mockDeleteProfile: vi.fn(async () => undefined),
+    mockDeleteProfile: vi.fn(async (_profileId: unknown) => undefined),
   };
 });
 
@@ -90,9 +90,9 @@ vi.mock('@/lib/db/server', () => ({
 
 vi.mock('@/lib/zernio/client', () => ({
   zernioClient: {
-    createProfile: (...args: unknown[]) => mockCreateProfile(...args),
-    startConnect: (...args: unknown[]) => mockStartConnect(...args),
-    deleteProfile: (...args: unknown[]) => mockDeleteProfile(...args),
+    createProfile: (input: unknown) => mockCreateProfile(input),
+    startConnect: (input: unknown) => mockStartConnect(input),
+    deleteProfile: (profileId: unknown) => mockDeleteProfile(profileId),
   },
 }));
 
@@ -137,7 +137,7 @@ describe('POST /api/zernio/connect/start location targeting', () => {
       name: `test-profile-${SECONDARY_LOCATION_ID}`,
     });
 
-    const stateWrite = mockRedis.setex.mock.calls.find(([key]) =>
+    const stateWrite = (mockRedis.setex.mock.calls as unknown as [string, number, string][]).find(([key]) =>
       String(key).startsWith('connect_state:returned-state'),
     );
     expect(JSON.parse(String(stateWrite?.[2]))).toMatchObject({

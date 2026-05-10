@@ -104,7 +104,7 @@ async function recoverLinkCorrelationId(
 
 interface DashboardOwner {
   id: string;
-  businessId: string;
+  accountId: string;
 }
 
 interface DashboardReviewActionContext {
@@ -128,11 +128,11 @@ export async function requireDashboardReviewOwner(
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: NO_STORE_HEADERS });
   }
 
-  if (!user.locationId) {
-    return NextResponse.json({ error: 'No business associated with this account' }, { status: 403, headers: NO_STORE_HEADERS });
+  if (!user.accountId) {
+    return NextResponse.json({ error: 'No account associated with this user' }, { status: 403, headers: NO_STORE_HEADERS });
   }
 
-  return { id: user.id, businessId: user.locationId };
+  return { id: user.id, accountId: user.accountId };
 }
 
 export async function runDashboardReviewAction(
@@ -147,8 +147,10 @@ export async function runDashboardReviewAction(
     SELECT r.id, r.business_id, r.status
     FROM responses r
     JOIN reviews rv ON rv.id = r.review_id
+    JOIN businesses b ON b.id = rv.business_id
     WHERE rv.id = ${reviewId}
-      AND rv.business_id = ${owner.businessId}
+      AND b.account_id = ${owner.accountId}::uuid
+      AND b.archived_at IS NULL
       AND r.status NOT IN ('superseded', 'failed')
     ORDER BY r.version DESC LIMIT 1
   `;
@@ -170,7 +172,7 @@ export async function runDashboardReviewAction(
       await action({
         tx,
         responseId: response.id as string,
-        businessId: owner.businessId,
+        businessId: response.business_id as string,
         audit,
         correlationId,
       });
