@@ -142,6 +142,7 @@ function setupHappyPathRow() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockSql.mockResolvedValue([]);
   mockRequireRole.mockResolvedValue(mockAdminUser());
 });
 
@@ -472,6 +473,38 @@ Uptown Bistro,ChIJ5678`;
   });
 
   // ── Voice config columns ───────────────────────────────────────────────
+
+  it('writes csv_bulk_import audit log even when aggregate billing enqueue fails', async () => {
+    setupHappyPathRow();
+    mockAssertCanAddLocation.mockResolvedValue({ allowed: true, overageUnits: 1 });
+    mockGetActiveLocationCount.mockResolvedValue(1);
+    mockSql.mockImplementation((strings: TemplateStringsArray) => {
+      const text = strings.raw.join('');
+      if (text.includes('update_stripe_overage_quantity')) {
+        throw new Error('outbox unavailable');
+      }
+      return Promise.resolve([]);
+    });
+
+    const csv = `name,placeId
+Downtown Cafe,ChIJ1234`;
+
+    const req = mkCsvRequest(csv);
+    const res = await POST(req);
+
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.error).toContain('Failed to enqueue billing update after import');
+    expect(body.created).toBe(1);
+    expect(body.failedCount).toBe(0);
+
+    const auditCall = mockSql.mock.calls.find((call: any[]) => {
+      const raw = call?.[0]?.raw;
+      if (raw) return raw.join('').includes('csv_bulk_import');
+      return false;
+    });
+    expect(auditCall).toBeDefined();
+  });
 
   it('passes voice config columns from CSV to addLocationTransaction', async () => {
     mockGetAccountById.mockResolvedValue(mockAccountRow());

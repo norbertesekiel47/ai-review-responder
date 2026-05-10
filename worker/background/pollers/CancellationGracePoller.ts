@@ -57,21 +57,15 @@ async function runCancellationGrace(): Promise<void> {
       console.log(`${LOG_PREFIX} Soft-archiving ${cancelled_count} locations for expired cancelled account ${account_id}`);
 
       await sql.begin(async (tx) => {
-        // Soft-archive all active locations
-        await tx`
+        // Soft-archive all active locations and use the updated row set for
+        // audit logs. A second timestamp-window SELECT can pick up unrelated
+        // rows archived by another process in the same time window.
+        const locations = await tx<{ id: string; display_label: string | null; name: string }[]>`
           UPDATE businesses
           SET archived_at = NOW(), updated_at = NOW()
           WHERE account_id = ${account_id}::uuid
             AND archived_at IS NULL
-        `;
-
-        // Insert audit log entries for each archived location
-        const locations = await tx<{ id: string; display_label: string | null; name: string }[]>`
-          SELECT id, display_label, name
-          FROM businesses
-          WHERE account_id = ${account_id}::uuid
-            AND archived_at IS NOT NULL
-            AND archived_at > NOW() - INTERVAL '1 minute'
+          RETURNING id, display_label, name
         `;
 
         for (const loc of locations) {

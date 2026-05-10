@@ -200,8 +200,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       (item) => item.id !== baseItem.id && overagePriceIds.has(item.price.id),
     ) ?? subscription.items.data.find((item) => item.id !== baseItem.id);
 
-    // Update the base item to the new tier price
-    // Stripe will prorate automatically
+    // Stripe is updated before the local DB row. If the DB transaction below
+    // fails after these calls, the client receives a retryable 502 and Stripe
+    // webhooks remain the reconciliation path back into accounts.subscription_tier.
+    // Keep operationKey stable across retries so reruns can safely complete the
+    // local DB/audit update without double-applying Stripe changes.
+    // Stripe will prorate automatically.
     await stripe.subscriptionItems.update(baseItem.id, {
       price: newBasePriceId,
       proration_behavior: 'create_prorations',

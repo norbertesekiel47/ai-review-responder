@@ -64,10 +64,7 @@ describe('CancellationGracePoller', () => {
       { account_id: 'acct-1', cancelled_count: 2 },
     ]);
 
-    // Inside tx: UPDATE businesses result
-    sqlReturnQueue.push(undefined);
-
-    // SELECT recently archived locations
+    // Inside tx: UPDATE businesses RETURNING archived locations
     sqlReturnQueue.push([
       { id: 'loc-1', display_label: 'Downtown', name: 'Downtown Cafe' },
       { id: 'loc-2', display_label: 'Westside', name: 'Westside Bakery' },
@@ -123,8 +120,7 @@ describe('CancellationGracePoller', () => {
       { account_id: 'acct-expired', cancelled_count: 3 },
     ]);
 
-    // Inside tx
-    sqlReturnQueue.push(undefined); // UPDATE businesses
+    // Inside tx: UPDATE businesses RETURNING archived locations
     sqlReturnQueue.push([
       { id: 'loc-a', display_label: 'A', name: 'Location A' },
       { id: 'loc-b', display_label: 'B', name: 'Location B' },
@@ -144,5 +140,32 @@ describe('CancellationGracePoller', () => {
       },
     );
     expect(updateCalls.length).toBeGreaterThan(0);
+  });
+
+  it('uses UPDATE RETURNING rows for audit logs instead of a timestamp-window SELECT', async () => {
+    sqlReturnQueue.push([
+      { account_id: 'acct-returning', cancelled_count: 2 },
+    ]);
+
+    sqlReturnQueue.push([
+      { id: 'loc-returned-1', display_label: 'Returned A', name: 'Location A' },
+      { id: 'loc-returned-2', display_label: 'Returned B', name: 'Location B' },
+    ]);
+    sqlReturnQueue.push(undefined);
+    sqlReturnQueue.push(undefined);
+
+    await runOneCycle();
+
+    const templates: string[] = mockSql.mock.calls.map(
+      (c: any[]) => (c[0] as TemplateStringsArray).join(' '),
+    );
+    const updateTemplate = templates.find((template: string) =>
+      template.includes('UPDATE businesses') && template.includes('archived_at'),
+    );
+    expect(updateTemplate).toContain('RETURNING id, display_label, name');
+    expect(templates.some((template: string) =>
+      template.includes('SELECT id, display_label, name') &&
+      template.includes("archived_at > NOW() - INTERVAL '1 minute'"),
+    )).toBe(false);
   });
 });

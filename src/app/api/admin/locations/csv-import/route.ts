@@ -152,17 +152,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
   }
 
-  if (successes.length > 0) {
-    try {
-      await enqueueCsvImportStripeOverageUpdate(accountId);
-    } catch (err) {
-      const reason = err instanceof Error ? err.message : String(err);
-      return NextResponse.json(
-        { error: `Failed to enqueue billing update after import: ${reason}` },
-        { status: 500, headers: NO_STORE },
-      );
-    }
-  }
+  const report: CsvImportReport = {
+    created: successes.length,
+    failedCount: failures.length,
+    failed: failures,
+  };
 
   // ── Step 8: Write aggregate audit log (VAL-ADMIN-014) ──────────────
   try {
@@ -178,12 +172,22 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     console.error('[csv-import] Failed to write audit log:', err);
   }
 
-  // ── Step 9: Return partial-success report ────────────────────────────
-  const report: CsvImportReport = {
-    created: successes.length,
-    failedCount: failures.length,
-    failed: failures,
-  };
+  // Step 9: Enqueue aggregate billing update after audit logging.
+  if (successes.length > 0) {
+    try {
+      await enqueueCsvImportStripeOverageUpdate(accountId);
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      return NextResponse.json(
+        {
+          error: `Failed to enqueue billing update after import: ${reason}`,
+          ...report,
+        },
+        { status: 500, headers: NO_STORE },
+      );
+    }
+  }
 
+  // Step 10: Return partial-success report.
   return NextResponse.json(report, { status: 200, headers: NO_STORE });
 }
