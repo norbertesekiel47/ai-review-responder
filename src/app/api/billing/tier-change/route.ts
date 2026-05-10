@@ -185,10 +185,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const basePriceIds = configuredBasePriceIds();
     const overagePriceIds = configuredOveragePriceIds();
 
-    // Find the base price item by configured base price IDs. Quantity is not
-    // reliable because an overage line can also have quantity=1.
-    const baseItem = subscription.items.data.find((item) => basePriceIds.has(item.price.id))
-      ?? subscription.items.data.find((item) => !overagePriceIds.has(item.price.id) && item.quantity === 1);
+    // Only configured base price IDs are safe to mutate. Quantity-based
+    // fallbacks can match setup fees, credits, or legacy add-ons.
+    const baseItem = subscription.items.data.find((item) => basePriceIds.has(item.price.id));
     if (!baseItem) {
       return NextResponse.json(
         { error: 'base_item_not_found', detail: 'Could not identify the base subscription item' },
