@@ -114,8 +114,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // VAL-BILLING-006: reject already-active accounts
-  if (account.subscription_status === SubscriptionStatus.ACTIVE) {
+  // VAL-BILLING-006: reject already-active or past-due accounts.
+  // Past-due recovery must use the billing portal, not a new checkout session.
+  if (
+    account.subscription_status === SubscriptionStatus.ACTIVE ||
+    account.subscription_status === SubscriptionStatus.PAST_DUE
+  ) {
     return NextResponse.json(
       { error: 'account_already_active', subscriptionStatus: account.subscription_status },
       { status: 409, headers: NO_STORE },
