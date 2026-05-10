@@ -25,7 +25,7 @@ import { requireRole, AuthError } from '@/lib/db/auth';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { isWhatsAppEnabled, flagOff, assertWhatsAppEnvReady } from '../_shared';
 import { classifyEnrollmentError, MultipleMobileChannelsError, EnrollmentDatabaseError } from '@/lib/channels/unique-violation';
-import { invalidateChannelCache } from '@/lib/notifications/resolve-channels';
+import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
 import { asAccountId } from '@/lib/shared/ids';
 
 const TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
@@ -140,7 +140,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // Invalidate channel cache — the enrollment state change affects which
   // channels are available for dispatch. Best-effort: a Redis failure
   // should not block the admin response.
-  await invalidateChannelCache(asAccountId(accountId)).catch(() => {});
+  await safeInvalidateChannelCache(asAccountId(accountId), 'admin.whatsapp.start');
 
   // wa.me requires digits only (no +, no whatsapp:) per https://faq.whatsapp.com/5246659compatibly
   const digits = process.env.TWILIO_WHATSAPP_NUMBER!.replace(/^whatsapp:\+?/, '');

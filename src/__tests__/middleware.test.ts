@@ -63,4 +63,18 @@ describe('middleware public launch host behavior', () => {
     expect(redirect.pathname).toBe('/admin/login');
     expect(redirect.searchParams.get('from')).toBe('/admin/overview');
   });
+
+  it('returns 401 for unauthenticated billing API requests', async () => {
+    const response = await middleware(request('https://repworth.net/api/billing/checkout'));
+
+    expect(response.status).toBe(401);
+    expect(createServerClient).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns 401 for unauthenticated location API requests', async () => {
+    const response = await middleware(request('https://repworth.net/api/locations/add'));
+
+    expect(response.status).toBe(401);
+    expect(createServerClient).toHaveBeenCalledTimes(1);
+  });
 });

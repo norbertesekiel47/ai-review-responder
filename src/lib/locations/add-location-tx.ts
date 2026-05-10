@@ -47,6 +47,8 @@ export interface AddLocationTxInput {
     avoidFacts?: string[];
     sampleResponses?: string[];
   };
+  /** Disable when a batch caller will enqueue one aggregate overage update. */
+  enqueueStripeOverageUpdate?: boolean;
 }
 
 export interface AddLocationTxResult {
@@ -95,6 +97,7 @@ export async function addLocationTransaction(
     subscriptionStatus,
     activeLocationsBefore,
     voiceConfig,
+    enqueueStripeOverageUpdate = true,
   } = input;
 
   const businessId = uuidv7();
@@ -204,22 +207,24 @@ export async function addLocationTransaction(
       )
     `;
 
-    // 2c. Enqueue Stripe overage update
-    // VAL-BILLING-072: Uses outbox pattern instead of Checkout redirect for active accounts
-    await tx`
-      INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-      VALUES (
-        ${uuidv7()},
-        'update_stripe_overage_quantity',
-        'account',
-        ${accountId}::uuid,
-        ${jsonb({
-          account_id: accountId,
-          correlation_id: uuidv7(),
-        })},
-        'pending'
-      )
-    `;
+    if (enqueueStripeOverageUpdate) {
+      // 2c. Enqueue Stripe overage update
+      // VAL-BILLING-072: Uses outbox pattern instead of Checkout redirect for active accounts
+      await tx`
+        INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+        VALUES (
+          ${uuidv7()},
+          'update_stripe_overage_quantity',
+          'account',
+          ${accountId}::uuid,
+          ${jsonb({
+            account_id: accountId,
+            correlation_id: uuidv7(),
+          })},
+          'pending'
+        )
+      `;
+    }
 
     // 2d. Enqueue Zernio initial backfill for the new location
     // VAL-LOC-052: zernio_initial_backfill job enqueued for new location.

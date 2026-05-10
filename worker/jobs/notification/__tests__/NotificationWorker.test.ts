@@ -141,6 +141,7 @@ const {
 vi.mock('../../../../src/lib/notifications/resolve-channels', () => ({
   resolveChannels: mockGetVerifiedEnrollments,
   invalidateChannelCache: vi.fn().mockResolvedValue(undefined),
+  safeInvalidateChannelCache: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('../../../../src/lib/db/redis-cache', () => ({

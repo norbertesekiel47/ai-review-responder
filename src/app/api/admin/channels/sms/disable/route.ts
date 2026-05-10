@@ -26,7 +26,7 @@ import {
   conflict,
 } from '../_shared';
 import { asLocationId, asAccountId } from '@/lib/shared/ids';
-import { invalidateChannelCache } from '@/lib/notifications/resolve-channels';
+import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
 
 interface DisableBody {
   business_id?: string;
@@ -72,7 +72,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     SELECT account_id FROM businesses WHERE id = ${businessId}
   `;
   if (acctRow?.account_id) {
-    await invalidateChannelCache(asAccountId(acctRow.account_id)).catch(() => {});
+    await safeInvalidateChannelCache(asAccountId(acctRow.account_id), 'admin.sms.disable');
   }
 
   return result;

@@ -49,7 +49,7 @@ vi.mock('../../db/redis-cache', () => ({
 }));
 
 // Import after mocks are wired
-import { resolveChannels, invalidateChannelCache, type ResolvedChannel } from '../resolve-channels';
+import { resolveChannels, invalidateChannelCache, safeInvalidateChannelCache, type ResolvedChannel } from '../resolve-channels';
 import type { AccountId, LocationId } from '../../shared/ids';
 import { asAccountId, asLocationId } from '../../shared/ids';
 
@@ -363,6 +363,24 @@ describe('resolveChannels — channel cache', () => {
     // The keys array passed to del should contain both location keys
     const delArgs = mockRedisDel.mock.calls[0]![0];
     expect(delArgs).toHaveLength(2);
+  });
+
+  it('logs and resolves when safe cache invalidation fails', async () => {
+    const logger = { warn: vi.fn() };
+    mockRedisKeys.mockRejectedValueOnce(new Error('redis unavailable'));
+
+    await expect(
+      safeInvalidateChannelCache(ACCOUNT_A, 'test.context', logger),
+    ).resolves.toBeUndefined();
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      'channel-cache-invalidate-failed',
+      expect.objectContaining({
+        accountId: ACCOUNT_A,
+        context: 'test.context',
+        error: 'redis unavailable',
+      }),
+    );
   });
 
   it('cache miss followed by cache hit returns same data', async () => {

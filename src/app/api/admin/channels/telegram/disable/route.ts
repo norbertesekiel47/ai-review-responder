@@ -4,7 +4,7 @@ import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { isTelegramEnabled, flagOff, assertTelegramEnvReady } from '../_shared';
 import { disableTelegramEnrollment } from '@/lib/channels/telegram-enrollment';
-import { invalidateChannelCache } from '@/lib/notifications/resolve-channels';
+import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
 import { asAccountId } from '@/lib/shared/ids';
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
@@ -39,7 +39,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     SELECT account_id FROM businesses WHERE id = ${businessId}
   `;
   if (acctRow?.account_id) {
-    await invalidateChannelCache(asAccountId(acctRow.account_id)).catch(() => {});
+    await safeInvalidateChannelCache(asAccountId(acctRow.account_id), 'admin.telegram.disable');
   }
 
   return NextResponse.json({ ok: true }, { headers: noStore });

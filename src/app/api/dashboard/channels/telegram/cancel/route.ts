@@ -6,7 +6,7 @@ import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
 import { isTelegramEnabled, flagOff, assertTelegramEnvReady } from '@/app/api/admin/channels/telegram/_shared';
 import { cancelTelegramEnrollment } from '@/lib/channels/telegram-enrollment';
-import { invalidateChannelCache } from '@/lib/notifications/resolve-channels';
+import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
 import { asAccountId } from '@/lib/shared/ids';
 
 async function handler(req: NextRequest): Promise<NextResponse> {
@@ -50,7 +50,7 @@ async function handler(req: NextRequest): Promise<NextResponse> {
     SELECT account_id FROM businesses WHERE id = ${locationId}
   `;
   if (acctRow?.account_id) {
-    await invalidateChannelCache(asAccountId(acctRow.account_id)).catch(() => {});
+    await safeInvalidateChannelCache(asAccountId(acctRow.account_id), 'dashboard.telegram.cancel');
   }
 
   return NextResponse.json({ ok: true }, { headers: { 'Cache-Control': 'no-store, private' } });

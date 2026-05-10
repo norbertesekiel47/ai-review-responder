@@ -31,16 +31,13 @@
 --
 -- Postgres RLS policies can restrict which ROWS are updatable (USING)
 -- and which new row states are allowed (WITH CHECK), but they CANNOT
--- restrict which COLUMNS can be updated. Column-level write protection
--- requires either:
---   (a) REVOKE UPDATE(column) from authenticated role
---   (b) BEFORE UPDATE trigger that raises an exception for column changes
+-- restrict which COLUMNS can be updated.
 --
--- We use approach (a) for both tables: REVOKE UPDATE on sensitive columns
--- from the authenticated role. This is cleaner than triggers and prevents
--- the column from being written even if a future policy accidentally
--- allows it. Service-role (postgres) bypasses RLS and is unaffected by
--- column-level GRANT/REVOKE since it's the table owner.
+-- We revoke table-level UPDATE/INSERT from the authenticated role, then
+-- explicitly grant UPDATE only on safe columns. This avoids the Postgres
+-- privilege trap where column-level REVOKEs do not protect a column if
+-- the role still has table-level UPDATE. Service-role (postgres) bypasses
+-- RLS and is unaffected because it owns the tables.
 --
 -- Idempotent: uses DO blocks with existence checks, REVOKE is safe to
 -- re-run.
@@ -56,16 +53,31 @@ DROP POLICY IF EXISTS businesses_owner_update ON businesses;
 -- 1b. Create a new narrowed UPDATE policy
 -- USING: owner can only update rows belonging to their account
 -- WITH CHECK: the updated row must still belong to their account
--- Column-level REVOKE (below) ensures sensitive columns cannot be written
+-- Table-level REVOKE plus explicit safe-column GRANTs below ensure sensitive
+-- columns cannot be written by authenticated users.
 CREATE POLICY businesses_owner_update ON businesses
   FOR UPDATE TO authenticated
   USING (account_id = owner_account_id())
   WITH CHECK (account_id = owner_account_id());
 
--- 1c. REVOKE UPDATE on sensitive columns from authenticated role
--- These columns should ONLY be writable by service-role (table owner).
--- authenticated users can still read these columns via the SELECT policy.
--- Service-role (postgres user, table owner) bypasses column-level privileges.
+-- 1c. Remove broad table-level UPDATE, then grant only safe owner columns.
+-- These are owner-editable profile/prompt columns. Sensitive columns remain
+-- writable only by service-role code.
+REVOKE UPDATE ON businesses FROM authenticated;
+GRANT UPDATE (
+  tone,
+  products_services,
+  staff_names,
+  highlight_facts,
+  avoid_facts,
+  sample_responses,
+  owner_phone,
+  display_label,
+  updated_at
+) ON businesses TO authenticated;
+
+-- 1d. Keep explicit sensitive-column revokes as defense-in-depth for
+-- environments where grants were customized manually.
 DO $$ BEGIN
   -- Subscription/billing fields — managed by Stripe webhooks (service-role)
   REVOKE UPDATE (subscription_tier) ON businesses FROM authenticated;
@@ -115,8 +127,8 @@ END $$;
 COMMENT ON POLICY businesses_owner_update ON businesses IS
   'Owner can UPDATE their own businesses row, but only safe columns. '
   'Sensitive columns (subscription_*, stripe_*, account_id, is_primary, '
-  'archived_at, etc.) are protected by column-level REVOKE from authenticated role. '
-  'Service-role (table owner) bypasses column-level privileges.';
+  'archived_at, etc.) are protected by table-level REVOKE plus explicit '
+  'safe-column GRANTs to authenticated. Service-role owns the table.';
 
 -- ==============================================================================
 -- 2. Channel enrollments: remove INSERT policy
@@ -128,6 +140,7 @@ COMMENT ON POLICY businesses_owner_update ON businesses IS
 -- owners to create verified enrollments without going through verification.
 
 DROP POLICY IF EXISTS channel_enrollments_owner_insert ON channel_enrollments;
+REVOKE INSERT ON channel_enrollments FROM authenticated;
 
 -- ==============================================================================
 -- 3. Channel enrollments: narrow UPDATE to safe columns only
@@ -137,7 +150,7 @@ DROP POLICY IF EXISTS channel_enrollments_owner_insert ON channel_enrollments;
 DROP POLICY IF EXISTS channel_enrollments_owner_update ON channel_enrollments;
 
 -- 3b. Create a new narrowed UPDATE policy
--- Owner can UPDATE rows they own, but column-level REVOKE ensures
+-- Owner can UPDATE rows they own, but table-level REVOKE plus explicit grants ensure
 -- they can only change safe columns (unsubscribed_at, unsubscribed_reason,
 -- updated_at). Sensitive columns (status, verified_at, handle,
 -- verification_token_hash, etc.) are protected.
@@ -146,7 +159,16 @@ CREATE POLICY channel_enrollments_owner_update ON channel_enrollments
   USING (account_id = owner_account_id())
   WITH CHECK (account_id = owner_account_id());
 
--- 3c. REVOKE UPDATE on sensitive columns from authenticated role
+-- 3c. Remove broad table-level UPDATE, then grant only opt-out columns.
+REVOKE UPDATE ON channel_enrollments FROM authenticated;
+GRANT UPDATE (
+  unsubscribed_at,
+  unsubscribed_reason,
+  updated_at
+) ON channel_enrollments TO authenticated;
+
+-- 3d. Keep explicit sensitive-column revokes as defense-in-depth for
+-- environments where grants were customized manually.
 DO $$ BEGIN
   -- Status — managed by verification flows, admin routes, and workers
   -- Owners must NOT be able to flip status to 'verified' directly
@@ -189,4 +211,5 @@ COMMENT ON POLICY channel_enrollments_owner_update ON channel_enrollments IS
   'Owner can UPDATE their own enrollments, but only safe columns '
   '(unsubscribed_at, unsubscribed_reason, updated_at). Sensitive columns '
   '(status, verified_at, handle, verification_token_hash, etc.) are protected '
-  'by column-level REVOKE. Service-role bypasses column-level privileges.';
+  'by table-level REVOKE plus explicit safe-column GRANTs. Service-role owns '
+  'the table.';

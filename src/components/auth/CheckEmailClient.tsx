@@ -1,8 +1,19 @@
 'use client';
 
 import { Suspense, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+
+export function redirectAfterServerSessionCookie(
+  value: unknown,
+  assign: (url: string) => void = (url) => window.location.assign(url),
+): void {
+  const destination =
+    typeof value === 'string' && value.startsWith('/') && !value.startsWith('//')
+      ? value
+      : '/onboarding/pay';
+  assign(destination);
+}
 
 export function CheckEmailClient() {
   return (
@@ -14,7 +25,6 @@ export function CheckEmailClient() {
 
 function CheckEmailInner() {
   const searchParams = useSearchParams();
-  const router = useRouter();
   const fromLogin = searchParams.get('from') === 'login';
   const email = (searchParams.get('email') ?? '').trim().toLowerCase();
 
@@ -59,7 +69,10 @@ function CheckEmailInner() {
         );
         return;
       }
-      router.push(body.redirectTo ?? '/onboarding/pay');
+      // verify-otp writes the Supabase session through Set-Cookie. Use a
+      // document navigation so the next protected request definitely carries
+      // the fresh cookies instead of racing an app-router transition.
+      redirectAfterServerSessionCookie(body.redirectTo);
     } catch {
       setVerifyError('Connection failed. Please try again.');
     } finally {

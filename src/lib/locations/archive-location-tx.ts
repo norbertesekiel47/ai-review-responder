@@ -154,6 +154,7 @@ export async function archiveLocationTransaction(
           is_primary = FALSE,
           updated_at = NOW()
       WHERE id = ${locationId}::uuid
+        AND account_id = ${accountId}::uuid
     `;
 
     // 2. Insert audit log entry

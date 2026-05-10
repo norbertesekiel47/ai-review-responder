@@ -45,7 +45,7 @@ vi.mock('@/lib/db/server', () => {
       if (!isTaggedTemplate) {
         return { __helper: true };
       }
-      capturedSqlTexts.push((first as TemplateStringsArray).raw.join(''));
+      capturedSqlTexts.push((first as TemplateStringsArray).raw.join('?'));
       const result = mockSqlResults[sqlCallCounter.value] ?? [];
       sqlCallCounter.value++;
       return Promise.resolve(result);
@@ -546,17 +546,18 @@ describe('GET /api/admin/costs', () => {
     expect(rollupQueries.length).toBeGreaterThanOrEqual(1);
 
     for (const sql of rollupQueries) {
-      // Must NOT have direct account_id filter on the rollups table
-      // (e.g., "AND account_id = ...::uuid" appearing before the first
-      // subquery keyword). The only account_id reference allowed is
-      // inside a businesses subquery.
-      expect(sql).not.toMatch(
-        /api_costs_daily_rollups[^]*?AND\s+account_id\s*=\s*\$.*::uuid/,
-      );
-      // When accountId is provided, must use businesses subquery
-      if (sql.includes('acct-123') || sql.includes('accountId')) {
-        expect(sql).toMatch(
-          /business_id\s+IN\s*\(\s*SELECT\s+id\s+FROM\s+businesses\s+WHERE\s+account_id/,
+      const rollupClauses = sql
+        .split(/FROM\s+api_costs_daily_rollups/i)
+        .slice(1)
+        .map((part) => part.split(/GROUP BY/i)[0]);
+      expect(rollupClauses.length).toBeGreaterThanOrEqual(1);
+
+      // Must NOT have a direct account_id predicate against the rollups table.
+      // The only allowed account_id predicate is inside the businesses subquery.
+      for (const clause of rollupClauses) {
+        expect(clause).not.toMatch(/^\s*(AND|WHERE)\s+account_id\s*=\s*\?::uuid/im);
+        expect(clause).toMatch(
+          /business_id\s+IN\s*\(\s*SELECT\s+id\s+FROM\s+businesses\s+WHERE\s+account_id\s*=\s*\?::uuid\s*\)/i,
         );
       }
     }

@@ -48,6 +48,7 @@ const { mockInvalidateChannelCache } = vi.hoisted(() => ({
 }));
 vi.mock('../../../../src/lib/notifications/resolve-channels', () => ({
   invalidateChannelCache: mockInvalidateChannelCache,
+  safeInvalidateChannelCache: mockInvalidateChannelCache,
 }));
 vi.mock('../../../../src/lib/shared/ids', () => ({
   asAccountId: vi.fn((id: string) => id),
@@ -144,7 +145,7 @@ describe('handleTwilioInbound', () => {
 
     // TCPA-critical: cache must be invalidated after STOP
     expect(mockInvalidateChannelCache).toHaveBeenCalledTimes(1);
-    expect(mockInvalidateChannelCache).toHaveBeenCalledWith('acct-1');
+    expect(mockInvalidateChannelCache).toHaveBeenCalledWith('acct-1', 'worker.twilio.sms.inbound');
   });
 
   it('STOP via keyword (no OptOutType) — REVOKE, OPTOUT, UNSUBSCRIBE, CANCEL, PARAR all recognized', async () => {
@@ -202,8 +203,8 @@ describe('handleTwilioInbound', () => {
 
     // Should invalidate once per unique account_id (deduped)
     expect(mockInvalidateChannelCache).toHaveBeenCalledTimes(2);
-    expect(mockInvalidateChannelCache).toHaveBeenCalledWith('acct-a');
-    expect(mockInvalidateChannelCache).toHaveBeenCalledWith('acct-b');
+    expect(mockInvalidateChannelCache).toHaveBeenCalledWith('acct-a', 'worker.twilio.sms.inbound');
+    expect(mockInvalidateChannelCache).toHaveBeenCalledWith('acct-b', 'worker.twilio.sms.inbound');
   });
 
   it('SMS STOP with no matching enrollments still succeeds without cache invalidation', async () => {

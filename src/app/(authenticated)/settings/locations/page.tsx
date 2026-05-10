@@ -46,6 +46,19 @@ export default async function LocationsPage() {
 
   const zernioMap = new Map(zernioRows.map((r) => [r.business_id, r.status]));
 
+  // VAL-LOC-067: Fetch pending approval count per location for archive dialog
+  let pendingApprovalRows: { business_id: string; count: number }[] = [];
+  if (allLocationIds.length > 0) {
+    pendingApprovalRows = await sql<{ business_id: string; count: number }[]>`
+      SELECT business_id, COUNT(*)::int AS count
+      FROM responses
+      WHERE business_id = ANY(${allLocationIds}::uuid[])
+        AND status = 'pending_approval'
+      GROUP BY business_id
+    `;
+  }
+  const pendingApprovalMap = new Map(pendingApprovalRows.map((r) => [r.business_id, r.count]));
+
   const locationEntries = locations.map((loc) => ({
     id: loc.id,
     name: loc.name,
@@ -54,6 +67,7 @@ export default async function LocationsPage() {
     isPrimary: loc.is_primary,
     googlePlaceId: loc.google_place_id,
     zernioStatus: (zernioMap.get(loc.id) ?? 'none') as 'none' | 'pending' | 'active' | 'disconnected',
+    pendingApprovalCount: pendingApprovalMap.get(loc.id) ?? 0,
   }));
 
   // VAL-SETTINGS-038: Archived locations shown in separate collapsed section

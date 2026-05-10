@@ -16,6 +16,8 @@ export interface LocationEntry {
   isPrimary: boolean;
   googlePlaceId: string | null;
   zernioStatus: 'none' | 'pending' | 'active' | 'disconnected';
+  /** Count of responses with status 'pending_approval' for this location. */
+  pendingApprovalCount: number;
 }
 
 export interface ArchivedLocationEntry {
@@ -42,11 +44,13 @@ interface Props {
 
 function ArchiveConfirmModal({
   locationName,
+  pendingApprovalCount,
   onConfirm,
   onCancel,
   loading,
 }: {
   locationName: string;
+  pendingApprovalCount: number;
   onConfirm: () => void;
   onCancel: () => void;
   loading: boolean;
@@ -61,6 +65,21 @@ function ArchiveConfirmModal({
           This location will be archived and its data will become read-only.
           You can restore it later by contacting support.
         </p>
+        {/* VAL-LOC-067: Show pending approval count with warning */}
+        {pendingApprovalCount > 0 && (
+          <div style={{
+            marginBottom: 16,
+            padding: '10px 12px',
+            borderRadius: 8,
+            background: '#FEF3C7',
+            border: '1px solid #F59E0B',
+            fontSize: 13,
+            color: '#92400E',
+            lineHeight: 1.5,
+          }}>
+            <strong>{pendingApprovalCount} pending approval{pendingApprovalCount !== 1 ? 's' : ''}</strong> will not be published after archiving.
+          </div>
+        )}
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button type="button" className="btn btn-secondary" onClick={onCancel} disabled={loading}>
             Cancel
@@ -328,6 +347,7 @@ function LocationRow({
       {showArchiveConfirm && (
         <ArchiveConfirmModal
           locationName={displayName}
+          pendingApprovalCount={location.pendingApprovalCount}
           onConfirm={handleArchive}
           onCancel={() => setShowArchiveConfirm(false)}
           loading={archiving}

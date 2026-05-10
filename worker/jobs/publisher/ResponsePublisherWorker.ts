@@ -69,8 +69,9 @@ export async function handlePublishResponse(
     name: string;
     subscription_status: string;
     account_updated_at: Date;
+    archived_at: Date | null;
   }[]>`
-    SELECT b.id, b.name, a.subscription_status, a.updated_at AS account_updated_at
+    SELECT b.id, b.name, b.archived_at, a.subscription_status, a.updated_at AS account_updated_at
     FROM businesses b
     JOIN accounts a ON a.id = b.account_id
     WHERE b.id = ${businessId}
@@ -79,6 +80,14 @@ export async function handlePublishResponse(
   if (!business) {
     logger.error(`Business ${businessId} not found`);
     await markOutboxFailed(outboxId, `business_not_found: ${businessId}`, outboxAttempt);
+    return;
+  }
+
+  if (business.archived_at !== null) {
+    logger.warn(
+      `Business ${businessId} is archived; skipping public publish for response ${response_id}`,
+    );
+    await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }
 

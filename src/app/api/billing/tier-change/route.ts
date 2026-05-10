@@ -132,6 +132,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   const newConfig = TIER_CONFIG[tier];
+  const newOverageUnits = validation.newBillingPreview?.overageUnits ?? 0;
   const actorUserId = await getAccountOwnerUserId(accountId);
 
   try {
@@ -174,12 +175,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             proration_behavior: 'create_prorations',
           });
         }
-      } else if (overagePriceId) {
+      } else if (overagePriceId && newOverageUnits > 0) {
         // Create overage item
         await stripe.subscriptionItems.create({
           subscription: account.stripe_subscription_id,
           price: overagePriceId,
-          quantity: 0,
+          quantity: newOverageUnits,
           proration_behavior: 'create_prorations',
         });
       }

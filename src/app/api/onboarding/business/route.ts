@@ -8,6 +8,7 @@ import { BusinessOnboardingSchema, BusinessOnboardingPostPaySchema } from '@/lib
 import { extractPlaceId } from '@/lib/reviews/url-parser';
 import type { ValidatePlaceIdPayload } from '@/lib/shared/worker-types';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
+import { PLACEHOLDER_BUSINESS_NAME } from '@/lib/onboarding/create-business';
 
 export const dynamic = 'force-dynamic';
 
@@ -34,6 +35,7 @@ const NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
 
 interface BusinessRow {
   id: string;
+  account_id: string;
   subscription_status: string;
   place_id_verified: boolean;
   google_maps_url: string | null;
@@ -101,7 +103,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   //    Filtering at the SQL boundary makes this an authorization invariant
   //    that survives middleware refactors.
   const [bizRow] = await sql<BusinessRow[]>`
-    SELECT b.id, a.subscription_status, b.place_id_verified, b.google_maps_url
+    SELECT b.id, a.id AS account_id, a.subscription_status, b.place_id_verified, b.google_maps_url
     FROM users u
     JOIN accounts a ON a.id = u.account_id
     JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE
@@ -318,6 +320,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             website = ${data.website ?? null},
             updated_at = NOW()
           WHERE id = ${bizRow.id}::uuid
+        `;
+      }
+
+      if (data.businessName) {
+        await tx`
+          UPDATE accounts
+          SET display_name = ${data.businessName}, updated_at = NOW()
+          WHERE id = ${bizRow.account_id}::uuid
+            AND display_name = ${PLACEHOLDER_BUSINESS_NAME}
         `;
       }
 

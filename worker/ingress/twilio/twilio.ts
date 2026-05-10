@@ -16,7 +16,7 @@ import { claimInboundEvent } from '../shared';
 import { parseTwilioBody, verifyTwilioSignature } from './twilio-verify';
 import { classifyIntent } from './twilio-intent';
 import { handleTwilioDeliveryStatus } from './twilio-delivery-status';
-import { invalidateChannelCache } from '../../../src/lib/notifications/resolve-channels';
+import { safeInvalidateChannelCache } from '../../../src/lib/notifications/resolve-channels';
 import { asAccountId } from '../../../src/lib/shared/ids';
 
 const LOG_PREFIX = '[ingress/twilio]';
@@ -155,7 +155,11 @@ export async function handleTwilioInbound(
       // channel. The 5-minute TTL would eventually expire, but that window
       // risks a TCPA-violating send.
       const uniqueAccountIds = [...new Set(affectedAccounts.map((r) => r.account_id))];
-      await Promise.all(uniqueAccountIds.map((id) => invalidateChannelCache(asAccountId(id)).catch(() => {})));
+      await Promise.all(
+        uniqueAccountIds.map((id) =>
+          safeInvalidateChannelCache(asAccountId(id), 'worker.twilio.sms.inbound'),
+        ),
+      );
     } else if (intent === 'start') {
       // Audit event is written UNCONDITIONALLY inside the txn, even if the
       // UPDATE affects 0 rows (spontaneous START without prior STOP is still

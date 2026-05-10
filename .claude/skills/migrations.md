@@ -6,7 +6,7 @@ description: Full Supabase migration inventory (001–032) for the RepWorth proj
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **032** — next migration is **033**
+Current head: **041** — next migration is **042**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **Worker file paths (as of 2026-05-05):** Class names below are
@@ -161,6 +161,91 @@ All tables use UUIDv7 (time-ordered primary keys).
   on parked tag `wip/edit-existing-replies-zernio-v1` (introduced there
   first). Apply only once.
 
+- **033** — `owner_leads` table for the public contact + demo-request
+  endpoints. Stores `name`, `email`, `email_normalized`, `business_name`,
+  optional `google_maps_url`, `intent` (CHECK-constrained set), `source`,
+  `status` (`new` default), `metadata JSONB`. Independent of all
+  authenticated paths — pure marketing capture.
+
+- **034** — Multi-location schema (`feature/multi-location`).
+  - Creates `accounts` table — the billing parent / org. Owns
+    `subscription_tier`, `subscription_status`, `stripe_customer_id`,
+    `stripe_subscription_id`, `subscription_activated_at`,
+    `locations_included`, `locations_paid`,
+    `locations_overage_price_cents`, `flags JSONB`.
+  - `businesses` gains `account_id NOT NULL FK`, `display_label`,
+    `is_primary BOOL`, `archived_at`. Partial unique index
+    `businesses_account_primary_uniq` on `(account_id) WHERE is_primary
+    AND archived_at IS NULL` — exactly one primary per active account.
+  - `users.business_id` is **dropped outright** (no dual-read window).
+    Auth now reads `users.account_id` and resolves the primary location
+    via JOIN. Anywhere reading `users.business_id` will not compile.
+  - Denormalized `account_id` added to `api_costs`,
+    `notification_deliveries`, `approval_audit_log`,
+    `channel_enrollments` (with new `location_id` for per-location
+    overrides).
+  - New `account_audit_log` table for lifecycle events
+    (`location_created`, `location_archived`, `primary_promoted`,
+    `tier_changed`, `csv_bulk_import`, …).
+  - `channel_enrollments` uniqueness moves from
+    `(business_id, channel)` to per-scope `(account_id, channel,
+    COALESCE(location_id, '00000000-…'))`. Same shape for
+    `one_mobile_per_scope`. Old `_one_mobile_per_biz` dropped.
+
+- **035** — Row-Level Security policies on 22 tables. Adds
+  `owner_account_id()` helper that resolves the calling auth user's
+  `account_id` via `users.auth_id = auth.uid()::text`. Every owner-scoped
+  table gets a policy enforcing `account_id = owner_account_id()`. RLS
+  is the second layer of defense after the app-level scope check —
+  service-role queries bypass RLS, so app-level checks remain mandatory.
+
+- **036** — Defers the circular `accounts ↔ users` FK references so the
+  combined backfill in 034 can commit. `DEFERRABLE INITIALLY DEFERRED`
+  on `accounts.owner_user_id` and `users.account_id`.
+
+- **037** — Adds `accounts.cancelled_at TIMESTAMPTZ`. Stripe
+  `customer.subscription.deleted` webhook stamps this. The dashboard
+  grace-period computation now uses `cancelled_at + 30 days` (with
+  `subscription_activated_at` fallback for legacy rows that lack
+  `cancelled_at`). Replaces a long-standing bug where grace was computed
+  off `subscription_activated_at` directly — which gave months-long
+  grace to old subscriptions.
+
+- **038** — Partial unique index on `accounts(owner_user_id) WHERE
+  owner_user_id IS NOT NULL`. Prevents two `accounts` rows sharing the
+  same owner.
+
+- **039** — Corrective: drops `NOT NULL` on `users.account_id`,
+  `api_costs.account_id`, `notification_deliveries.account_id`. Reasons:
+  admin / sales_partner users have no account; platform-level cost rows
+  (e.g. demo lane) have no account; some legacy notification deliveries
+  predate the column. Adds partial index
+  `idx_api_costs_account_partial` on `(account_id) WHERE account_id IS
+  NOT NULL`.
+
+- **040** — RLS tightening on `businesses` and `channel_enrollments`.
+  - **`businesses`**: table-level `REVOKE UPDATE`, then explicit `GRANT
+    UPDATE` only on safe columns (tone, products_services, staff_names,
+    highlight_facts, avoid_facts, sample_responses, owner_name,
+    owner_email, last_sync_at, display_label, name, archive_reason).
+    Subscription / Stripe / `is_primary` / `archived_at` columns become
+    write-protected from direct owner UPDATEs — only service-role +
+    application code go through the dedicated transactions.
+  - **`channel_enrollments`**: `REVOKE INSERT` entirely (only
+    application code inserts via service-role); `REVOKE UPDATE` table-
+    level then `GRANT UPDATE` only on `(unsubscribed_at,
+    unsubscribed_reason, updated_at)`.
+  - **Important learning:** column-level REVOKEs alone do nothing if
+    the table-level grant still exists — Postgres treats the broader
+    grant as authoritative. You MUST `REVOKE UPDATE ON TABLE` first,
+    then re-`GRANT UPDATE (col1, col2, …)`.
+
+- **041** — Follow-up to 040: adds REVOKEs on columns missed during
+  the first sweep — `subscription_activated_at`, `place_id_verified`,
+  `google_maps_url` on `businesses`, and `archived_at`,
+  `archive_reason` on `channel_enrollments`. Same table-level-revoke-
+  then-explicit-grant pattern as 040.
+
 ## Key Tables Reference
 
 | Table | Purpose |
@@ -187,6 +272,9 @@ All tables use UUIDv7 (time-ordered primary keys).
 | `zernio_connections` | Active Zernio OAuth connections per business |
 | `zernio_finalize_incidents` | Zernio publish finalization errors |
 | `zernio_backfill_runs` | First-connect backfill state per business |
+| `accounts` | Billing parent / org. Owns subscription state, Stripe IDs, location quota. One per owner. |
+| `account_audit_log` | Lifecycle events on accounts: location create / archive / promote / tier-change / CSV import. |
+| `owner_leads` | Marketing capture from contact + demo-request endpoints (independent of authenticated paths). |
 
 ## Response Status Values
 

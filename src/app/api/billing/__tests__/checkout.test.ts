@@ -215,8 +215,12 @@ describe('POST /api/billing/checkout', () => {
 
     // Verify stripe.checkout.sessions.create was called with correct base line item
     const createArgs = mockStripeCheckoutCreate.mock.calls[0]![0];
+    expect(createArgs.line_items).toHaveLength(1);
     expect(createArgs.line_items[0]!.price).toBe('price_standard_test');
     expect(createArgs.line_items[0]!.quantity).toBe(1);
+    expect(
+      createArgs.line_items.some((item: { quantity: number }) => item.quantity === 0),
+    ).toBe(false);
   });
 
   // VAL-BILLING-002 — standard tier with overage locations
@@ -239,8 +243,8 @@ describe('POST /api/billing/checkout', () => {
     expect(createArgs.line_items[1].quantity).toBe(2);
   });
 
-  // VAL-BILLING-003 — overage quantity = 0 when locations ≤ included
-  it('sets overage quantity to 0 when locations ≤ included', async () => {
+  // VAL-BILLING-003 — omit overage item when locations ≤ included
+  it('omits overage line item when locations ≤ included', async () => {
     mockRequireRole.mockResolvedValueOnce(ownerUser());
     mockSql.mockResolvedValueOnce([mockAccountRow('premium', 'pending_payment')]);
     mockSql.mockResolvedValueOnce([{ count: 3 }]); // 3 locations, 5 included → 0 overage
@@ -254,15 +258,16 @@ describe('POST /api/billing/checkout', () => {
     const res = await POST(req);
 
     const createArgs = mockStripeCheckoutCreate.mock.calls[0]![0];
-    // Premium has overage, so the item should be present with quantity 0
-    // or omitted entirely (VAL-BILLING-003 allows either)
-    const overageItem = createArgs.line_items.find(
-      (item: { price: string }) => item.price === 'price_premium_overage_test',
-    );
-    if (overageItem) {
-      expect(overageItem.quantity).toBe(0);
-    }
-    // If omitted entirely, that's also acceptable per VAL-BILLING-003
+    expect(
+      createArgs.line_items.some(
+        (item: { price: string }) => item.price === 'price_premium_overage_test',
+      ),
+    ).toBe(false);
+    expect(
+      createArgs.line_items.some(
+        (item: { quantity: number }) => item.quantity === 0,
+      ),
+    ).toBe(false);
   });
 
   // VAL-BILLING-004 — basic tier omits overage line item

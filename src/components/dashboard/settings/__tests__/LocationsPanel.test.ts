@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { getDisplayLabel } from '@/lib/locations/display-label';
+import * as fs from 'fs';
+import * as path from 'path';
 
 // ── LocationsPanel guard logic ─────────────────────────────────────────────
 

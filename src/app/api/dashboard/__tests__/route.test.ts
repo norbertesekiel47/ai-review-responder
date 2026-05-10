@@ -3,10 +3,11 @@ import { NextRequest } from 'next/server';
 
 // ── Hoisted shared state (available inside vi.mock factories) ────────
 
-const { mockRequireRole, mockSqlResults, sqlCallCounter } = vi.hoisted(() => ({
+const { mockRequireRole, mockSqlResults, sqlCallCounter, capturedSqlTexts } = vi.hoisted(() => ({
   mockRequireRole: vi.fn(),
   mockSqlResults: [] as unknown[][],
   sqlCallCounter: { value: 0 },
+  capturedSqlTexts: [] as string[],
 }));
 
 // ── Mock Auth ────────────────────────────────────────────────────────
@@ -25,13 +26,29 @@ vi.mock('@/lib/db/auth', () => {
     requireRole: (...args: unknown[]) => mockRequireRole(...args),
     AuthError,
   };
+  it('excludes source-deleted reviews from dashboard queries', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+    setDbResults();
+
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(200);
+
+    const reviewSql = capturedSqlTexts.filter((text) =>
+      text.includes('FROM reviews'),
+    ).join('\n');
+    expect(reviewSql).toContain("status <> 'deleted'");
+  });
 });
 
 // ── Mock DB ──────────────────────────────────────────────────────────
 
 vi.mock('@/lib/db/server', () => ({
   sql: new Proxy(() => {}, {
-    apply: () => {
+    apply: (_target, _thisArg, argumentsList) => {
+      const first = argumentsList[0];
+      if (first != null && typeof first === 'object' && 'raw' in (first as object)) {
+        capturedSqlTexts.push((first as TemplateStringsArray).raw.join('?'));
+      }
       const result = mockSqlResults[sqlCallCounter.value] ?? [];
       sqlCallCounter.value++;
       return Promise.resolve(result);
@@ -199,6 +216,7 @@ describe('GET /api/dashboard', () => {
     vi.clearAllMocks();
     mockSqlResults.length = 0;
     sqlCallCounter.value = 0;
+    capturedSqlTexts.length = 0;
   });
 
   it('returns 401 when requireRole throws AuthError(401)', async () => {
@@ -694,8 +712,8 @@ describe('GET /api/dashboard', () => {
 
     // Verify the SQL query selected cancelled_at (not just subscription_activated_at)
     // The second SQL call should be the grace period query
-    const secondCall = mockSqlResults[1];
-    expect(secondCall).toBeDefined();
+    const graceSql = capturedSqlTexts[1];
+    expect(graceSql).toMatch(/SELECT\s+cancelled_at\s*,\s*subscription_activated_at\s+FROM\s+accounts/i);
   });
 
   it('cancelled account shows correct future date when cancelled months after activation', async () => {

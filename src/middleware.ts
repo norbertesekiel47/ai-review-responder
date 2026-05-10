@@ -92,7 +92,12 @@ export async function middleware(request: NextRequest) {
   }
 
   // 5. Owner API routes
-  if (pathname.startsWith('/api/dashboard') || pathname.startsWith('/api/settings')) {
+  if (
+    pathname.startsWith('/api/dashboard') ||
+    pathname.startsWith('/api/settings') ||
+    pathname.startsWith('/api/billing') ||
+    pathname.startsWith('/api/locations')
+  ) {
     const noStoreHeaders = { 'Cache-Control': 'no-store, private' };
     if (!authUser) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: noStoreHeaders });

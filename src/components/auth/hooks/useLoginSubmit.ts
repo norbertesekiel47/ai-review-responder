@@ -94,19 +94,19 @@ export function useLoginSubmit({
       }
 
       let destinationOverride: string | null = null;
+      const from = searchParams.get('from') ?? '';
       if (portal === 'owner') {
         try {
           const statusRes = await fetch('/api/auth/signup-status');
           if (statusRes.ok) {
             const status = (await statusRes.json()) as SignupStatusPayload;
-            destinationOverride = applySubscriptionGuard(portal, status);
+            destinationOverride = applySubscriptionGuard(portal, status, from);
           }
         } catch {
           // Soft-fail; downstream guards will catch this on next nav.
         }
       }
 
-      const from = searchParams.get('from') ?? '';
       const destination =
         destinationOverride ??
         resolvePostLoginDestination(portal, from, defaultRoute);

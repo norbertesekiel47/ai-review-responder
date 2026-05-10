@@ -107,6 +107,7 @@ const { mockInvalidateChannelCache } = vi.hoisted(() => ({
 }));
 vi.mock('../../../../src/lib/notifications/resolve-channels', () => ({
   invalidateChannelCache: mockInvalidateChannelCache,
+  safeInvalidateChannelCache: mockInvalidateChannelCache,
 }));
 vi.mock('../../../../src/lib/shared/ids', () => ({
   asAccountId: vi.fn((id: string) => id),
@@ -334,7 +335,7 @@ describe('telegram ingress — enrollment (/start)', () => {
     expect(reply.code).toHaveBeenCalledWith(200);
     // Cache must be invalidated after enrollment verification
     expect(mockInvalidateChannelCache).toHaveBeenCalledTimes(1);
-    expect(mockInvalidateChannelCache).toHaveBeenCalledWith('acct-tg-1');
+    expect(mockInvalidateChannelCache).toHaveBeenCalledWith('acct-tg-1', 'worker.telegram.enrollment');
   });
 
   it('unknown/expired token: sends failure message, no state change, no cache invalidation', async () => {

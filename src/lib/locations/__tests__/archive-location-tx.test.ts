@@ -246,6 +246,17 @@ describe('archiveLocationTransaction', () => {
     expect(template).toContain('NOW()');
   });
 
+  it('filters archive UPDATE by both location id and account id', async () => {
+    await archiveLocationTransaction(mkInput());
+
+    const updateCall = mockSql.mock.calls.find(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('UPDATE businesses'),
+    );
+    expect(updateCall).toBeDefined();
+    const template = (updateCall![0] as TemplateStringsArray).join('?');
+    expect(template).toMatch(/WHERE\s+id\s*=\s*\?::uuid\s+AND\s+account_id\s*=\s*\?::uuid/i);
+  });
+
   // Also sets is_primary = FALSE when archiving a primary
   it('sets is_primary = FALSE when archiving a primary location', async () => {
     await archiveLocationTransaction(mkInput());

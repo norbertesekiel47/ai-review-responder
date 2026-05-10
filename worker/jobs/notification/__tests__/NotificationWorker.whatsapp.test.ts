@@ -107,6 +107,7 @@ vi.mock('@/lib/shared/subscription-guard', () => ({
 vi.mock('@/lib/notifications/resolve-channels', () => ({
   resolveChannels: mockGetVerifiedEnrollments,
   invalidateChannelCache: vi.fn().mockResolvedValue(undefined),
+  safeInvalidateChannelCache: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('@/lib/db/redis-cache', () => ({

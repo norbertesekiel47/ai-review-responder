@@ -10,7 +10,7 @@ import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { isWhatsAppEnabled, flagOff, assertWhatsAppEnvReady } from '../_shared';
 import { cancelWhatsAppEnrollment } from '@/lib/channels/whatsapp-enrollment';
-import { invalidateChannelCache } from '@/lib/notifications/resolve-channels';
+import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
 import { asAccountId } from '@/lib/shared/ids';
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
@@ -50,7 +50,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     SELECT account_id FROM businesses WHERE id = ${businessId}
   `;
   if (acctRow?.account_id) {
-    await invalidateChannelCache(asAccountId(acctRow.account_id)).catch(() => {});
+    await safeInvalidateChannelCache(asAccountId(acctRow.account_id), 'admin.whatsapp.cancel');
   }
 
   // M6: no-store for consistency with start/disable routes (admin-action results

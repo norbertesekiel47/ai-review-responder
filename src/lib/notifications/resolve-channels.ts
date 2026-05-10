@@ -159,3 +159,28 @@ export async function invalidateChannelCache(accountId: AccountId): Promise<void
     await redis.del(keys);
   }
 }
+
+export interface ChannelCacheInvalidationLogger {
+  warn: (message: string, meta?: unknown) => void;
+}
+
+/**
+ * Best-effort cache invalidation wrapper for write paths. Redis failures must
+ * not roll back enrollment writes, but they should be visible in logs because a
+ * stale channel cache can briefly affect notification routing.
+ */
+export async function safeInvalidateChannelCache(
+  accountId: AccountId,
+  context: string,
+  logger: ChannelCacheInvalidationLogger = console,
+): Promise<void> {
+  try {
+    await invalidateChannelCache(accountId);
+  } catch (err) {
+    logger.warn('channel-cache-invalidate-failed', {
+      accountId,
+      context,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}

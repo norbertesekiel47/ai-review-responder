@@ -43,7 +43,7 @@ import {
 } from '../_shared';
 import { classifyEnrollmentError, MultipleMobileChannelsError, EnrollmentDatabaseError } from '@/lib/channels/unique-violation';
 import { asLocationId } from '@/lib/shared/ids';
-import { invalidateChannelCache } from '@/lib/notifications/resolve-channels';
+import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
 import { asAccountId } from '@/lib/shared/ids';
 
 interface VerifyBody {
@@ -246,7 +246,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     SELECT account_id FROM businesses WHERE id = ${businessId}
   `;
   if (acctRow?.account_id) {
-    await invalidateChannelCache(asAccountId(acctRow.account_id)).catch(() => {});
+    await safeInvalidateChannelCache(asAccountId(acctRow.account_id), 'admin.sms.verify');
   }
 
   return result;

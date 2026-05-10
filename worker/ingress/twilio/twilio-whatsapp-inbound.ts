@@ -26,7 +26,7 @@ import {
 import { WhatsAppClient } from '../../../src/lib/notifications/channels/whatsapp-client';
 import { stripWaPrefix, toWaRecipient } from '../../../src/lib/notifications/channels/whatsapp-body';
 import { classifyIntent } from './twilio-intent';
-import { invalidateChannelCache } from '../../../src/lib/notifications/resolve-channels';
+import { safeInvalidateChannelCache } from '../../../src/lib/notifications/resolve-channels';
 import { asAccountId } from '../../../src/lib/shared/ids';
 
 const LOG_PREFIX = '[ingress/twilio-whatsapp]';
@@ -199,7 +199,11 @@ export async function handleTwilioWhatsAppInbound(
     // channel. The 5-minute TTL would eventually expire, but that window
     // risks a TCPA-violating send.
     const uniqueAccountIds = [...new Set(affectedAccounts.map((r) => r.account_id))];
-    await Promise.all(uniqueAccountIds.map((id) => invalidateChannelCache(asAccountId(id)).catch(() => {})));
+    await Promise.all(
+      uniqueAccountIds.map((id) =>
+        safeInvalidateChannelCache(asAccountId(id), 'worker.twilio.whatsapp.stop'),
+      ),
+    );
     await markInboundEventProcessed(dedupKey);
     reply.status(200).send({ received: true });
     return;
@@ -246,7 +250,10 @@ export async function handleTwilioWhatsAppInbound(
     // Invalidate channel cache so the newly verified channel is immediately
     // available for notification dispatch (no 5-minute stale window).
     if (result.accountId) {
-      await invalidateChannelCache(asAccountId(result.accountId)).catch(() => {});
+      await safeInvalidateChannelCache(
+        asAccountId(result.accountId),
+        'worker.twilio.whatsapp.verify',
+      );
     }
 
     const body = result.matched

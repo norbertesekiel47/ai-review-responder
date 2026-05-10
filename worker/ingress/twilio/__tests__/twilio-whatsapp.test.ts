@@ -87,6 +87,7 @@ const { mockInvalidateChannelCache } = vi.hoisted(() => ({
 }));
 vi.mock('../../../../src/lib/notifications/resolve-channels', () => ({
   invalidateChannelCache: mockInvalidateChannelCache,
+  safeInvalidateChannelCache: mockInvalidateChannelCache,
 }));
 vi.mock('../../../../src/lib/shared/ids', () => ({
   asAccountId: vi.fn((id: string) => id),
@@ -260,7 +261,7 @@ describe('handleTwilioWhatsAppInbound — enrollment path (start-<token>)', () =
     expect(reply.status).toHaveBeenCalledWith(200);
     // Cache must be invalidated after enrollment verification
     expect(mockInvalidateChannelCache).toHaveBeenCalledTimes(1);
-    expect(mockInvalidateChannelCache).toHaveBeenCalledWith('acct-wa-1');
+    expect(mockInvalidateChannelCache).toHaveBeenCalledWith('acct-wa-1', 'worker.twilio.whatsapp.verify');
   });
 
   it('sends "invalid or expired" when no matching token', async () => {
@@ -416,7 +417,7 @@ describe('handleTwilioWhatsAppInbound — STOP keyword', () => {
     expect(unsubCall).toBeDefined();
     // TCPA-critical: cache must be invalidated after STOP
     expect(mockInvalidateChannelCache).toHaveBeenCalledTimes(1);
-    expect(mockInvalidateChannelCache).toHaveBeenCalledWith('acct-stop-1');
+    expect(mockInvalidateChannelCache).toHaveBeenCalledWith('acct-stop-1', 'worker.twilio.whatsapp.stop');
   });
 
   it('STOP invalidates cache for each unique affected account (deduped)', async () => {
@@ -432,8 +433,8 @@ describe('handleTwilioWhatsAppInbound — STOP keyword', () => {
     expect(reply.status).toHaveBeenCalledWith(200);
     // Should invalidate once per unique account_id (deduped)
     expect(mockInvalidateChannelCache).toHaveBeenCalledTimes(2);
-    expect(mockInvalidateChannelCache).toHaveBeenCalledWith('acct-a');
-    expect(mockInvalidateChannelCache).toHaveBeenCalledWith('acct-b');
+    expect(mockInvalidateChannelCache).toHaveBeenCalledWith('acct-a', 'worker.twilio.whatsapp.stop');
+    expect(mockInvalidateChannelCache).toHaveBeenCalledWith('acct-b', 'worker.twilio.whatsapp.stop');
   });
 
   it('STOP with no matching enrollments still succeeds without cache invalidation', async () => {

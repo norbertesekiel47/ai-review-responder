@@ -44,6 +44,7 @@ import { startCleanupAbandonedSignupsPoller, stopCleanupAbandonedSignupsPoller }
 import { startEmailChannelReconcilePoller, stopEmailChannelReconcilePoller } from './background/pollers/EmailChannelReconcilePoller';
 import { startCancellationGracePoller, stopCancellationGracePoller } from './background/pollers/CancellationGracePoller';
 import { startStripeLocationsReconcilePoller, stopStripeLocationsReconcilePoller } from './background/pollers/StripeLocationsReconcilePoller';
+import { startZernioRecentReviewPoller, stopZernioRecentReviewPoller } from './background/pollers/ZernioRecentReviewPoller';
 import { isMockMode } from '../src/lib/shared/mock-mode';
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
@@ -267,6 +268,7 @@ async function main(): Promise<void> {
   startEmailChannelReconcilePoller();
   startCancellationGracePoller();
   startStripeLocationsReconcilePoller();
+  startZernioRecentReviewPoller();
   console.log(`Worker service running on port ${PORT}`);
 }
 
@@ -287,6 +289,7 @@ async function shutdown(): Promise<void> {
   stopEmailChannelReconcilePoller();
   stopCancellationGracePoller();
   stopStripeLocationsReconcilePoller();
+  stopZernioRecentReviewPoller();
   await Promise.all(workers.map((w) => w.close()));
   await Promise.all(Object.values(queues).map((q) => q.close()));
   await app.close();

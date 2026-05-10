@@ -295,6 +295,32 @@ Uptown Bistro,ChIJ5678`;
     expect(mockAddLocationTransaction).toHaveBeenCalledTimes(2);
   });
 
+  it('suppresses per-row Stripe overage jobs and enqueues one aggregate job after successful rows', async () => {
+    mockGetAccountById.mockResolvedValue(mockAccountRow());
+    setupHappyPathRow();
+    mockAssertCanAddLocation.mockResolvedValue({ allowed: true, overageUnits: 1 });
+    mockGetActiveLocationCount.mockResolvedValue(1);
+
+    const csv = `name,placeId
+Downtown Cafe,ChIJ1234
+Uptown Bistro,ChIJ5678
+Westside Grill,ChIJ9012`;
+
+    const req = mkCsvRequest(csv);
+    await POST(req);
+
+    expect(mockAddLocationTransaction).toHaveBeenCalledTimes(3);
+    for (const [input] of mockAddLocationTransaction.mock.calls) {
+      expect(input).toMatchObject({ enqueueStripeOverageUpdate: false });
+    }
+
+    const overageOutboxCalls = mockSql.mock.calls.filter((call: any[]) => {
+      const raw = call?.[0]?.raw;
+      return Array.isArray(raw) && raw.join('').includes('update_stripe_overage_quantity');
+    });
+    expect(overageOutboxCalls).toHaveLength(1);
+  });
+
   // ── VAL-ADMIN-010: Partial-success report ──────────────────────────────
 
   it('returns partial-success report with X created, Y failed with reasons', async () => {

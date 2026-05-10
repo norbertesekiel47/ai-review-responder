@@ -48,6 +48,23 @@ function getOveragePriceId(tier: SubscriptionTierValue): string | null {
   return map[tier] ?? null;
 }
 
+function overageUpdateIdempotencyKey(
+  accountId: string,
+  subscriptionItemId: string,
+  quantity: number,
+): string {
+  return `stripe-overage-update:${accountId}:${subscriptionItemId}:${quantity}`;
+}
+
+function overageCreateIdempotencyKey(
+  accountId: string,
+  subscriptionId: string,
+  priceId: string,
+  quantity: number,
+): string {
+  return `stripe-overage-create:${accountId}:${subscriptionId}:${priceId}:${quantity}`;
+}
+
 export async function handleUpdateStripeOverage(
   job: Job<UpdateStripeOveragePayload>,
 ): Promise<void> {
@@ -55,7 +72,9 @@ export async function handleUpdateStripeOverage(
   const { account_id } = job.data;
   const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
 
-  // Read account row with lock
+  // Read account row. Stripe idempotency keys below handle concurrent jobs;
+  // a SELECT FOR UPDATE here would not survive PgBouncer transaction pooling
+  // unless the entire Stripe call happened inside a DB transaction.
   const [account] = await sql<{
     id: string;
     subscription_tier: string;
@@ -68,7 +87,6 @@ export async function handleUpdateStripeOverage(
            stripe_customer_id, stripe_subscription_id, locations_included
     FROM accounts
     WHERE id = ${account_id}::uuid
-    FOR UPDATE
   `;
 
   if (!account) {
@@ -152,17 +170,36 @@ export async function handleUpdateStripeOverage(
           quantity: newQuantity,
           proration_behavior: 'create_prorations',
         },
+        {
+          idempotencyKey: overageUpdateIdempotencyKey(
+            account_id,
+            existingOverageItem.id,
+            newQuantity,
+          ),
+        },
       );
       logger.log(`Updated overage item ${existingOverageItem.id} to quantity=${newQuantity} for account ${account_id}`);
-    } else {
+    } else if (newQuantity > 0) {
       // VAL-BILLING-071: Create overage subscription item when none exists
-      await stripe.subscriptionItems.create({
-        subscription: account.stripe_subscription_id,
-        price: overagePriceId,
-        quantity: newQuantity,
-        proration_behavior: 'create_prorations',
-      });
+      await stripe.subscriptionItems.create(
+        {
+          subscription: account.stripe_subscription_id,
+          price: overagePriceId,
+          quantity: newQuantity,
+          proration_behavior: 'create_prorations',
+        },
+        {
+          idempotencyKey: overageCreateIdempotencyKey(
+            account_id,
+            account.stripe_subscription_id,
+            overagePriceId,
+            newQuantity,
+          ),
+        },
+      );
       logger.log(`Created overage item with price=${overagePriceId} quantity=${newQuantity} for account ${account_id}`);
+    } else {
+      logger.log(`No overage item exists and computed quantity=0 for account ${account_id} — nothing to create`);
     }
 
     await markOutboxCompleted(outboxId, outboxAttempt);

@@ -80,9 +80,8 @@ export class CheckoutUnavailableError extends Error {
  *
  * The session includes:
  *   - A base price line item (1x tier base price)
- *   - An overage line item for non-basic tiers (quantity = max(0, activeLocations - included))
- *     - For accounts where locations ≤ included, the overage item has quantity = 0
- *       (included so the subscription item exists for future quantity updates).
+ *   - An overage line item for non-basic tiers only when quantity is > 0
+ *     (Stripe Checkout rejects zero-quantity line items).
  *   - Basic tier: single base item only (no overage line item) — VAL-BILLING-004
  *
  * VAL-BILLING-005: mode=subscription, client_reference_id, customer_email,
@@ -123,7 +122,9 @@ export async function createCheckoutSession(
     `;
     const activeLocations = Number(locationRow?.count ?? 0);
     const overageQuantity = computeOverageQuantity(activeLocations, config.included);
-    lineItems.push({ price: overagePriceId, quantity: overageQuantity });
+    if (overageQuantity > 0) {
+      lineItems.push({ price: overagePriceId, quantity: overageQuantity });
+    }
   }
 
   // Build URLs

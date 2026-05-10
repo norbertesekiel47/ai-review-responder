@@ -15,7 +15,7 @@ import { createHash } from 'node:crypto';
 import { sql } from '../../../src/lib/db/server';
 import { markInboundEventProcessed } from '../shared';
 import { TelegramClient } from '../../../src/lib/notifications/channels/telegram-client';
-import { invalidateChannelCache } from '../../../src/lib/notifications/resolve-channels';
+import { safeInvalidateChannelCache } from '../../../src/lib/notifications/resolve-channels';
 import { asAccountId } from '../../../src/lib/shared/ids';
 import type { TelegramUpdate } from './telegram-shared';
 
@@ -98,7 +98,10 @@ export async function handleEnrollment(
 
   // Invalidate channel cache so the newly verified Telegram channel is
   // immediately available for notification dispatch (no 5-minute stale window).
-  await invalidateChannelCache(asAccountId(enrollment.account_id)).catch(() => {});
+  await safeInvalidateChannelCache(
+    asAccountId(enrollment.account_id),
+    'worker.telegram.enrollment',
+  );
 
   // State already mutated — mark processed before confirmation send so a
   // sendMessage failure does not cause the outer catch to call markFailed.

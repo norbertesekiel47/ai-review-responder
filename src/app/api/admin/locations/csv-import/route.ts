@@ -14,6 +14,7 @@ import {
   parseCsv,
   validateRow,
   processRow,
+  enqueueCsvImportStripeOverageUpdate,
   writeCsvImportAuditLog,
   MAX_FILE_SIZE,
   MAX_ROWS,
@@ -137,7 +138,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     // 7b. Process through add-location flow (VAL-ADMIN-009)
-    const result = await processRow(row, accountId);
+    const result = await processRow(row, accountId, {
+      enqueueStripeOverageUpdate: false,
+    });
     if ('reason' in result) {
       failures.push({ row: row.rowIndex, reason: result.reason });
     } else {
@@ -146,6 +149,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         businessId: result.businessId,
         displayLabel: result.displayLabel,
       });
+    }
+  }
+
+  if (successes.length > 0) {
+    try {
+      await enqueueCsvImportStripeOverageUpdate(accountId);
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      return NextResponse.json(
+        { error: `Failed to enqueue billing update after import: ${reason}` },
+        { status: 500, headers: NO_STORE },
+      );
     }
   }
 

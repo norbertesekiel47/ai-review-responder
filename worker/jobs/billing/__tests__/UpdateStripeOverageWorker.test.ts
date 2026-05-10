@@ -119,6 +119,9 @@ describe('UpdateStripeOverageWorker', () => {
         quantity: 2, // 3 locations - 1 included = 2 overage
         proration_behavior: 'create_prorations',
       },
+      {
+        idempotencyKey: 'stripe-overage-update:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee:si_overage_123:2',
+      },
     );
     expect(mockStripeSubscriptionItemsCreate).not.toHaveBeenCalled();
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
@@ -146,6 +149,9 @@ describe('UpdateStripeOverageWorker', () => {
       expect.objectContaining({
         quantity: 2, // 7 - 5 = 2
       }),
+      expect.objectContaining({
+        idempotencyKey: 'stripe-overage-update:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee:si_overage:2',
+      }),
     );
   });
 
@@ -171,6 +177,9 @@ describe('UpdateStripeOverageWorker', () => {
       expect.objectContaining({
         quantity: 0,
       }),
+      expect.objectContaining({
+        idempotencyKey: 'stripe-overage-update:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee:si_overage:0',
+      }),
     );
   });
 
@@ -194,6 +203,9 @@ describe('UpdateStripeOverageWorker', () => {
         quantity: 2, // 3 - 1 = 2
         proration_behavior: 'create_prorations',
       }),
+      {
+        idempotencyKey: 'stripe-overage-create:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee:sub_test:price_std_overage:2',
+      },
     );
     expect(mockStripeSubscriptionItemsUpdate).not.toHaveBeenCalled();
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
@@ -279,6 +291,9 @@ describe('UpdateStripeOverageWorker', () => {
     expect(mockStripeSubscriptionItemsUpdate).toHaveBeenCalledWith(
       overageItemId,
       { quantity: 2, proration_behavior: 'create_prorations' },
+      {
+        idempotencyKey: 'stripe-overage-update:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee:si_overage_idem:2',
+      },
     );
 
     // Second call (same account, same state)
@@ -293,7 +308,26 @@ describe('UpdateStripeOverageWorker', () => {
     expect(mockStripeSubscriptionItemsUpdate).toHaveBeenCalledWith(
       overageItemId,
       { quantity: 2, proration_behavior: 'create_prorations' },
+      {
+        idempotencyKey: 'stripe-overage-update:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee:si_overage_idem:2',
+      },
     );
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
+  });
+
+  it('does not use FOR UPDATE without a surrounding transaction', async () => {
+    mockStripeSubscriptionsRetrieve.mockResolvedValueOnce({
+      items: {
+        data: [
+          { id: 'si_base', price: { id: 'price_standard' }, quantity: 1 },
+          { id: 'si_overage', price: { id: 'price_std_overage' }, quantity: 1 },
+        ],
+      },
+    });
+
+    await handleUpdateStripeOverage(mockJob());
+
+    const accountLookupSql = (mockSql.mock.calls[0]![0] as TemplateStringsArray).join('?');
+    expect(accountLookupSql).not.toMatch(/\bFOR\s+UPDATE\b/i);
   });
 });

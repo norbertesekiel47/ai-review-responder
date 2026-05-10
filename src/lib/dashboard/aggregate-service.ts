@@ -259,6 +259,7 @@ async function getTotalReviewsForAccount(accountId: string): Promise<number> {
     JOIN businesses b ON b.id = r.business_id
     WHERE b.account_id = ${accountId}::uuid
       AND b.archived_at IS NULL
+      AND r.status <> 'deleted'
   `;
   return row?.count ?? 0;
 }
@@ -271,6 +272,7 @@ async function getTotalRespondedForAccount(accountId: string): Promise<number> {
     JOIN businesses b ON b.id = r.business_id
     WHERE b.account_id = ${accountId}::uuid
       AND b.archived_at IS NULL
+      AND r.status <> 'deleted'
       AND resp.status = ANY(ARRAY['approved', 'posted', 'edited', 'awaiting_owner_connect']::text[])
   `;
   return row?.count ?? 0;

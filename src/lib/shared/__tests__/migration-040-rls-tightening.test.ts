@@ -89,6 +89,15 @@ describe('migration 040 — businesses UPDATE policy tightening', () => {
 // ── businesses: all sensitive columns REVOKE'd (across migrations 040 + 041) ──
 
 describe('migrations 040+041 — businesses sensitive columns REVOKE check', () => {
+  it('revokes table-level UPDATE before granting safe business columns', () => {
+    expect(sql040NoComments).toMatch(
+      /REVOKE UPDATE ON businesses FROM authenticated/i,
+    );
+    expect(sql040NoComments).toMatch(
+      /GRANT UPDATE \([\s\S]*tone[\s\S]*products_services[\s\S]*display_label[\s\S]*updated_at[\s\S]*\) ON businesses TO authenticated/i,
+    );
+  });
+
   // Sensitive columns that MUST be REVOKE'd from authenticated role.
   // Columns revoked in migration 040:
   const sensitiveBusinessColumnsFrom040 = [
@@ -248,6 +257,21 @@ describe('migration 040 — channel_enrollments UPDATE policy narrowing', () => 
 // ── channel_enrollments: all sensitive columns REVOKE'd (across migrations 040 + 041) ──
 
 describe('migrations 040+041 — channel_enrollments sensitive columns REVOKE check', () => {
+  it('revokes table-level UPDATE before granting safe enrollment columns', () => {
+    expect(sql040NoComments).toMatch(
+      /REVOKE UPDATE ON channel_enrollments FROM authenticated/i,
+    );
+    expect(sql040NoComments).toMatch(
+      /GRANT UPDATE \([\s\S]*unsubscribed_at[\s\S]*unsubscribed_reason[\s\S]*updated_at[\s\S]*\) ON channel_enrollments TO authenticated/i,
+    );
+  });
+
+  it('revokes table-level INSERT on channel_enrollments from authenticated', () => {
+    expect(sql040NoComments).toMatch(
+      /REVOKE INSERT ON channel_enrollments FROM authenticated/i,
+    );
+  });
+
   // Columns revoked in migration 040:
   const sensitiveEnrollmentColumnsFrom040 = [
     'status',                       // prevents flipping to 'verified'

@@ -19,7 +19,7 @@ import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
-import { invalidateChannelCache } from '@/lib/notifications/resolve-channels';
+import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
 import { asAccountId } from '@/lib/shared/ids';
 
 export const dynamic = 'force-dynamic';
@@ -169,7 +169,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     `;
 
     // VAL-NOTIF-009: Invalidate cache on channel_enrollments writes
-    await invalidateChannelCache(asAccountId(user.accountId));
+    await safeInvalidateChannelCache(asAccountId(user.accountId), 'settings.channels.override.delete');
 
     return jsonResponse({
       success: true,
@@ -270,7 +270,7 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
   `;
 
   // VAL-NOTIF-009: Invalidate cache on channel_enrollments writes
-  await invalidateChannelCache(asAccountId(user.accountId));
+  await safeInvalidateChannelCache(asAccountId(user.accountId), 'settings.channels.override.upsert');
 
   return jsonResponse({ success: true });
 }

@@ -141,7 +141,6 @@ export function DashboardContent() {
         <TopBar title="Dashboard" />
         <div className="content">
           <CancelledBanner
-            businessName={cancelledData.businessName}
             gracePeriodEndDate={cancelledData.gracePeriodEndDate}
             readAccess={cancelledData.readAccess}
           />
@@ -172,7 +171,6 @@ export function DashboardContent() {
         <TopBar title="Dashboard" subtitle="Payment overdue — please update your payment method" />
         <div className="content">
           <PastDueBanner
-            businessName={pastDueData.businessName}
             billingPortalUrl={pastDueData.billingPortalUrl}
           />
           {/* During past_due grace period, dashboard features still work */}

@@ -137,6 +137,54 @@ owner opt-outs. Do NOT flip enrollment status on these errors.
 
 ---
 
+### `MULTI_LOCATION_ENABLED`
+
+Gates the entire multi-location surface — add-location wizard,
+`/api/locations/*` mutation routes, switcher dropdown, aggregate
+dashboard scope, per-location voice / channel override settings,
+admin CSV bulk import. When OFF, all multi-location routes return
+404 and the UI behaves as the legacy single-location flow.
+
+Server-authoritative. Schema (migrations 034–041) ships on regardless
+of the flag — flipping the flag only exposes the user surface. The
+`accounts` table is populated for every business either way.
+
+**Required when on:**
+- `STRIPE_PRICE_STANDARD_OVERAGE`
+- `STRIPE_PRICE_PREMIUM_OVERAGE`
+- `STRIPE_PRICE_FOUNDERS_OVERAGE` (when founders tier is in use)
+  Each is the Stripe Price ID for the per-extra-location overage line
+  on the corresponding tier. The `UpdateStripeOverageWorker` reads
+  these via `getOveragePriceId(tier)` and refuses to run otherwise.
+
+**Tier configuration** (`src/lib/accounts/tier-config.ts`):
+
+| Tier | Base | Included | Overage / extra | Multi-loc |
+|---|---|---|---|---|
+| basic | $29 | 1 | n/a | No |
+| standard | $79 | 1 | $25 | Yes |
+| premium | $199 | 5 | $20 | Yes |
+| founders | $19 | 1 | $25 | Yes |
+
+**Stripe model:** one subscription per account, two subscription
+items — base price (qty 1) + overage price (qty = active locations
+beyond included). Add/archive/reactivate go through the outbox →
+`UpdateStripeOverageWorker`, which calls
+`stripe.subscriptionItems.update/create` with idempotency keys keyed
+on (account, item, quantity). NO Stripe Payment Links are used
+anywhere in the multi-location flow — initial checkout uses
+server-built Checkout Sessions instead.
+
+**Channel cache:** every `channel_enrollments` write must call
+`safeInvalidateChannelCache(accountId, context)` after the
+transaction commits. This wraps `invalidateChannelCache` with a
+`logger.warn('channel-cache-invalidate-failed', …)` fallback so
+Redis hiccups are visible but do not roll back the enrollment
+write. Never use the bare `.catch(() => {})` pattern that preceded
+this — it silently masked TCPA-relevant cache staleness.
+
+---
+
 ### `ZERNIO_PUBLISHING_ENABLED`
 
 Single flag controlling BOTH publishing AND ingestion (no separate flags).

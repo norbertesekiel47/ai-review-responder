@@ -6,8 +6,10 @@
 
 import { v7 as uuidv7 } from 'uuid';
 import { sql } from '@/lib/db/server';
+import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
 import { computeChurnRiskScore } from '@/lib/shared/churn-score';
 import { parseDbArray } from '@/lib/shared/db-array';
+import { asAccountId } from '@/lib/shared/ids';
 import { HANDLED_STATUSES } from '@/lib/shared/response-status';
 import type {
   AccountAuditLogEntry,
@@ -461,6 +463,7 @@ export async function updateBusiness(
 
   const setClause = setClauses.join(', ');
   const query = `UPDATE businesses SET ${setClause} WHERE id = $1`;
+  let accountIdToInvalidate: string | null = null;
 
   await sql.begin(async (tx) => {
     const result = await tx.unsafe(query, values);
@@ -481,6 +484,7 @@ export async function updateBusiness(
       if (!accountId) {
         throw new Error(`[admin-business-detail] business ${businessId} has no account_id — data inconsistency after migration 034`);
       }
+      accountIdToInvalidate = accountId;
       await tx`
         INSERT INTO channel_enrollments
           (id, account_id, business_id, channel, handle, status, verified_at)
@@ -497,4 +501,11 @@ export async function updateBusiness(
       `;
     }
   });
+
+  if (accountIdToInvalidate) {
+    await safeInvalidateChannelCache(
+      asAccountId(accountIdToInvalidate),
+      'admin.business.owner-email',
+    );
+  }
 }

@@ -19,7 +19,7 @@ import { isTelegramEnabled, flagOff, assertTelegramEnvReady } from '../_shared';
 import { startTelegramEnrollment } from '@/lib/channels/telegram-enrollment';
 import { MultipleMobileChannelsError, EnrollmentDatabaseError } from '@/lib/channels/unique-violation';
 import { TOKEN_TTL_MS } from '@/lib/notifications/channels/constants';
-import { invalidateChannelCache } from '@/lib/notifications/resolve-channels';
+import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
 import { asAccountId } from '@/lib/shared/ids';
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
@@ -86,7 +86,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // Invalidate channel cache — the enrollment state change affects which
   // channels are available for dispatch. Best-effort: a Redis failure
   // should not block the admin response.
-  await invalidateChannelCache(asAccountId(accountId)).catch(() => {});
+  await safeInvalidateChannelCache(asAccountId(accountId), 'admin.telegram.start');
 
   const botUsername = process.env.TELEGRAM_BOT_USERNAME ?? 'RepWorthBot';
   const deepLink = `https://t.me/${botUsername}?start=${rawToken}`;

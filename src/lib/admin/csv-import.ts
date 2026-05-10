@@ -64,6 +64,10 @@ export interface ParsedCsvRow {
   sampleResponses?: string[];
 }
 
+export interface ProcessRowOptions {
+  enqueueStripeOverageUpdate?: boolean;
+}
+
 // ── CSV Parsing ───────────────────────────────────────────────────────────
 
 /**
@@ -212,6 +216,7 @@ export function validateRow(row: ParsedCsvRow): RowValidationResult {
 export async function processRow(
   row: ParsedCsvRow,
   accountId: string,
+  options: ProcessRowOptions = {},
 ): Promise<{ businessId: string; displayLabel: string } | { reason: string }> {
   try {
     // Step 1: Quota check via the chokepoint (VAL-ADMIN-009)
@@ -254,6 +259,7 @@ export async function processRow(
       subscriptionStatus: account.subscription_status,
       activeLocationsBefore: activeLocations,
       voiceConfig: Object.keys(voiceConfig).length > 0 ? voiceConfig : undefined,
+      enqueueStripeOverageUpdate: options.enqueueStripeOverageUpdate ?? true,
     });
 
     return {
@@ -264,6 +270,23 @@ export async function processRow(
     const message = err instanceof Error ? err.message : String(err);
     return { reason: `Transaction error: ${message}` };
   }
+}
+
+export async function enqueueCsvImportStripeOverageUpdate(accountId: string): Promise<void> {
+  await sql`
+    INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+    VALUES (
+      ${uuidv7()},
+      'update_stripe_overage_quantity',
+      'account',
+      ${accountId}::uuid,
+      ${jsonb({
+        account_id: accountId,
+        correlation_id: uuidv7(),
+      })},
+      'pending'
+    )
+  `;
 }
 
 // ── Audit Log ─────────────────────────────────────────────────────────────

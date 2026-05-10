@@ -45,7 +45,15 @@ approval before posting.
   No source-specific fields leak into the prompt builder.
 - **Auth scope is app-enforced.** `users.auth_id` must map to Supabase Auth
   identity. Browser code never receives `SUPABASE_SERVICE_KEY`. Every
-  owner read/write scoped by `business_id`.
+  owner read/write scoped by `account_id` (the billing parent) and, when
+  per-location, by `business_id` (= a single Google Business Profile
+  location).
+- **`businesses` row = location; `accounts` row = billing parent.** Since
+  multi-location (migration 034), the `businesses` table holds one row per
+  Google Business Profile location. Subscription / Stripe / quota state
+  lives on `accounts`. Naming kept for blast-radius reasons; do not
+  re-introduce subscription columns on `businesses`. See
+  `docs/runbooks/multi-location.md`.
 - **Use Node.js native crypto.** `import { createHash, randomUUID } from
 'node:crypto'`. Never `crypto-js`.
 - **Subscription guard in all customer-facing workers.** Check status early:
@@ -92,7 +100,7 @@ approval before posting.
 
 - All tables: UUIDv7 (time-ordered)
 - Base schema: `supabase/migrations/001_initial_schema.sql`
-- Current head: migration **032** (next: **033**)
+- Current head: migration **041** (next: **042**)
 - For migration details: see `.claude/skills/migrations.md`
 
 ## Non-obvious gotchas — read these before touching related code

@@ -43,12 +43,14 @@ export default async function ApprovalPage({ params }: PageProps) {
     );
   }
 
-  // Location chip, archived badge, and heading are rendered ONLY in the
-  // client component (approval-client.tsx) to avoid duplication.
+  // Location chip and archived badge are rendered in the client component
+  // after it fetches the token-bound review data.
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="mx-auto max-w-lg px-4 py-8">
-        <p className="text-sm text-gray-500">Review a draft response</p>
+        <h1 className="text-2xl font-semibold tracking-tight text-gray-900">
+          Review a draft response
+        </h1>
         <div className="mt-6">
           <ApprovalClient token={rawToken} />
         </div>
