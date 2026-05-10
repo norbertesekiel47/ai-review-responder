@@ -101,9 +101,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     subscription_status: string;
     owner_email: string;
   }[]>`
-    SELECT id, subscription_tier, subscription_status, owner_email
-    FROM accounts
-    WHERE id = ${accountId}::uuid
+    SELECT a.id, a.subscription_tier, a.subscription_status, u.email AS owner_email
+    FROM accounts a
+    JOIN users u ON u.id = a.owner_user_id
+    WHERE a.id = ${accountId}::uuid
   `;
 
   if (!account) {

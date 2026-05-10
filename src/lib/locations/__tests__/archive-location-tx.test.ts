@@ -80,6 +80,12 @@ beforeEach(() => {
   mockSql.mockReset();
   mockSql.mockImplementation(async (strings: TemplateStringsArray) => {
     const template = strings.join('?');
+    if (template.includes('SELECT id') && template.includes('FROM accounts')) {
+      return [{ id: ACCOUNT_ID }];
+    }
+    if (template.includes('SELECT COUNT(*) AS count') && template.includes('FROM businesses')) {
+      return [{ count: 2 }];
+    }
     if (template.includes('UPDATE businesses')) {
       return [{ id: SECONDARY_LOCATION_ID }];
     }
@@ -263,9 +269,72 @@ describe('archiveLocationTransaction', () => {
     expect(template).toMatch(/WHERE\s+id\s*=\s*\?::uuid\s+AND\s+account_id\s*=\s*\?::uuid/i);
   });
 
+  it('locks the account and re-checks active count inside the archive transaction', async () => {
+    await archiveLocationTransaction(mkInput());
+
+    const lockIndex = mockSql.mock.calls.findIndex(
+      (c: any[]) => {
+        const template = (c[0] as TemplateStringsArray).join('?');
+        return template.includes('FROM accounts') && template.includes('FOR UPDATE');
+      },
+    );
+    const countIndex = mockSql.mock.calls.findIndex(
+      (c: any[]) => {
+        const template = (c[0] as TemplateStringsArray).join('?');
+        return template.includes('SELECT COUNT(*) AS count') && template.includes('FROM businesses');
+      },
+    );
+    const updateIndex = mockSql.mock.calls.findIndex(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('UPDATE businesses'),
+    );
+
+    expect(lockIndex).toBeGreaterThanOrEqual(0);
+    expect(countIndex).toBeGreaterThan(lockIndex);
+    expect(updateIndex).toBeGreaterThan(countIndex);
+  });
+
+  it('throws last_active_location inside the transaction before update/audit/outbox', async () => {
+    mockSql.mockImplementation(async (strings: TemplateStringsArray) => {
+      const template = strings.join('?');
+      if (template.includes('SELECT id') && template.includes('FROM accounts')) {
+        return [{ id: ACCOUNT_ID }];
+      }
+      if (template.includes('SELECT COUNT(*) AS count') && template.includes('FROM businesses')) {
+        return [{ count: 1 }];
+      }
+      if (template.includes('UPDATE businesses')) {
+        return [{ id: SECONDARY_LOCATION_ID }];
+      }
+      return [];
+    });
+
+    await expect(archiveLocationTransaction(mkInput())).rejects.toThrow(
+      'last_active_location',
+    );
+
+    const updateCall = mockSql.mock.calls.find(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('UPDATE businesses'),
+    );
+    const auditCall = mockSql.mock.calls.find(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO account_audit_log'),
+    );
+    const outboxCall = mockSql.mock.calls.find(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO job_outbox'),
+    );
+    expect(updateCall).toBeUndefined();
+    expect(auditCall).toBeUndefined();
+    expect(outboxCall).toBeUndefined();
+  });
+
   it('throws and skips audit/outbox when archive UPDATE affects no rows', async () => {
     mockSql.mockImplementation(async (strings: TemplateStringsArray) => {
       const template = strings.join('?');
+      if (template.includes('SELECT id') && template.includes('FROM accounts')) {
+        return [{ id: ACCOUNT_ID }];
+      }
+      if (template.includes('SELECT COUNT(*) AS count') && template.includes('FROM businesses')) {
+        return [{ count: 2 }];
+      }
       if (template.includes('UPDATE businesses')) {
         return [];
       }

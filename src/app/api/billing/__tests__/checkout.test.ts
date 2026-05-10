@@ -223,6 +223,20 @@ describe('POST /api/billing/checkout', () => {
     ).toBe(false);
   });
 
+  // Regression: accounts.owner_email does not exist after migration 034.
+  it('loads owner email by joining users instead of selecting accounts.owner_email', async () => {
+    setupHappyPathMocks('standard', 'pending_payment');
+
+    const req = mkRequest({ accountId: ACCOUNT_ID });
+    await POST(req);
+
+    const accountLookup = (mockSql.mock.calls[0]![0] as TemplateStringsArray).join('?');
+    expect(accountLookup).toMatch(/FROM\s+accounts\s+a/i);
+    expect(accountLookup).toMatch(/JOIN\s+users\s+u\s+ON\s+u\.id\s*=\s*a\.owner_user_id/i);
+    expect(accountLookup).toMatch(/u\.email\s+AS\s+owner_email/i);
+    expect(accountLookup).not.toMatch(/SELECT\s+id,\s*subscription_tier,\s*subscription_status,\s*owner_email/i);
+  });
+
   // VAL-BILLING-002 — standard tier with overage locations
   it('creates Checkout Session with base + overage line items for standard tier with overage', async () => {
     mockRequireRole.mockResolvedValueOnce(ownerUser());

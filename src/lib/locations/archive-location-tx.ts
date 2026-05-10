@@ -143,6 +143,23 @@ export async function archiveLocationTransaction(
 
   // Execute atomic transaction
   await sql.begin(async (tx) => {
+    await tx`
+      SELECT id
+      FROM accounts
+      WHERE id = ${accountId}::uuid
+      FOR UPDATE
+    `;
+
+    const [activeRow] = await tx<{ count: number }[]>`
+      SELECT COUNT(*) AS count
+      FROM businesses
+      WHERE account_id = ${accountId}::uuid
+        AND archived_at IS NULL
+    `;
+    if (Number(activeRow?.count ?? 0) <= 1) {
+      throw new Error('last_active_location');
+    }
+
     // 1. Set archived_at and is_primary = FALSE on the location
     //    is_primary is set FALSE as a safety measure — even though the guard
     //    should prevent archiving a primary with other locations, this ensures
