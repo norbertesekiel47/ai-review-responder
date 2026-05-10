@@ -54,6 +54,8 @@ function mkInput(overrides: Partial<AddLocationTxInput> = {}): AddLocationTxInpu
     placeIdVerified: false,
     googleMapsUrl: null,
     actorUserId: ACTOR_USER_ID,
+    ownerName: 'Test Owner',
+    ownerEmail: 'owner@test.com',
     subscriptionTier: 'standard',
     subscriptionStatus: 'active',
     activeLocationsBefore: 1,
@@ -109,6 +111,23 @@ describe('addLocationTransaction', () => {
     const template = (insertCall![0] as TemplateStringsArray).join('?');
     // The template should contain FALSE for is_primary
     expect(template).toContain('FALSE');
+  });
+
+  it('inserts owner_name and owner_email for businesses NOT NULL constraints', async () => {
+    mockSql.mockResolvedValueOnce([mkPrimaryVoiceRow()]);
+
+    await addLocationTransaction(mkInput({
+      ownerName: 'Norbert Sunn',
+      ownerEmail: 'nsunn@usc.edu',
+    } as any));
+
+    const txCalls = mockSql.mock.calls.slice(1);
+    const insertCall = txCalls.find(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO businesses'),
+    );
+    expect(insertCall).toBeDefined();
+    expect(insertCall).toContain('Norbert Sunn');
+    expect(insertCall).toContain('nsunn@usc.edu');
   });
 
   // VAL-LOC-024: Audit log records 'location_created' with actor and payload
@@ -291,18 +310,18 @@ describe('addLocationTransaction', () => {
     // sql.begin should have been called exactly once
     expect(mockSql.begin).toHaveBeenCalledTimes(1);
 
-    // Inside the transaction, there should be 4 INSERT calls:
-    // businesses, account_audit_log, update_stripe_overage_quantity, zernio_initial_backfill
+    // Inside the transaction, there should be 3 INSERT calls:
+    // businesses, account_audit_log, update_stripe_overage_quantity.
+    // Zernio initial backfill is queued only after the location has an
+    // active Zernio connection, in /api/zernio/connect/select-location.
     const txCalls = mockSql.mock.calls.slice(1);
     const insertCalls = txCalls.filter(
       (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO'),
     );
-    // 4 INSERTs: businesses, account_audit_log, job_outbox (overage), job_outbox (zernio)
-    expect(insertCalls.length).toBeGreaterThanOrEqual(4);
+    expect(insertCalls.length).toBeGreaterThanOrEqual(3);
   });
 
-  // VAL-LOC-052: zernio_initial_backfill enqueued for new location
-  it('enqueues zernio_initial_backfill outbox row for the new location', async () => {
+  it('does not enqueue zernio_initial_backfill before the new location is connected', async () => {
     mockSql.mockResolvedValueOnce([mkPrimaryVoiceRow()]);
 
     await addLocationTransaction(mkInput());
@@ -312,34 +331,28 @@ describe('addLocationTransaction', () => {
       (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO job_outbox'),
     );
 
-    // Should have 2 outbox INSERTs: update_stripe_overage_quantity + zernio_initial_backfill
-    expect(outboxCalls.length).toBeGreaterThanOrEqual(2);
+    expect(outboxCalls).toHaveLength(1);
 
-    // Verify zernio_initial_backfill topic is present
     const zernioCall = outboxCalls.find(
       (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('zernio_initial_backfill'),
     );
-    expect(zernioCall).toBeDefined();
+    expect(zernioCall).toBeUndefined();
   });
 
-  // VAL-LOC-052 variant: zernio backfill job references the new location's businessId
-  it('zernio_initial_backfill payload includes the new location business_id', async () => {
+  it('only enqueues Stripe overage from add-location; Zernio backfill waits for connect finalize', async () => {
     mockSql.mockResolvedValueOnce([mkPrimaryVoiceRow()]);
 
-    const result = await addLocationTransaction(mkInput());
+    await addLocationTransaction(mkInput());
 
     const txCalls = mockSql.mock.calls.slice(1);
     const outboxCalls = txCalls.filter(
       (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO job_outbox'),
     );
 
-    const zernioCall = outboxCalls.find(
-      (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('zernio_initial_backfill'),
+    const overageCall = outboxCalls.find(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('update_stripe_overage_quantity'),
     );
-    expect(zernioCall).toBeDefined();
-    // The zernio backfill job's aggregate_id should be the new location's business ID
-    // (verified by the presence of the job with correct topic)
-    expect(result.businessId).toBeDefined();
+    expect(overageCall).toBeDefined();
   });
 });
 

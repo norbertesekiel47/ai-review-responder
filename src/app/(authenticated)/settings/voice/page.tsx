@@ -11,6 +11,8 @@ import { notFound } from 'next/navigation';
 import { requireOwnerAccess } from '@/lib/auth/require-owner-access';
 import { TopBar } from '@/components/dashboard/TopBar';
 import { VoiceClient } from './VoiceClient';
+import { getActiveLocationCount } from '@/lib/locations/repo';
+import { shouldUseMultiLocationSettings } from '@/lib/locations/multi-location-mode';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,7 +22,11 @@ export default async function VoicePage() {
     notFound();
   }
 
-  await requireOwnerAccess();
+  const access = await requireOwnerAccess();
+  const activeLocationCount = await getActiveLocationCount(access.accountId);
+  if (!shouldUseMultiLocationSettings(true, activeLocationCount)) {
+    notFound();
+  }
 
   return (
     <>

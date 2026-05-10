@@ -28,6 +28,7 @@ import { Icon } from '@/components/dashboard/Icon';
 import { TopBar } from '@/components/dashboard/TopBar';
 import type { BillingSnapshot } from '@/lib/accounts/quota';
 import { useLocationScope } from '@/contexts/LocationContext';
+import type { LocationId } from '@/lib/shared/ids';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -38,6 +39,7 @@ interface Props {
 }
 
 type WizardStep = 1 | 2 | 3 | 4;
+export type LocationInputMode = 'autocomplete' | 'url';
 
 export interface VoiceFormState {
   tone: string;
@@ -98,6 +100,56 @@ const DEFAULT_VOICE: VoiceFormState = {
   sampleResponses: [],
 };
 
+interface Step1LocationInput {
+  inputMode: LocationInputMode;
+  placeSelection: PlaceSelection | null;
+  googleMapsUrl: string;
+}
+
+interface BuildAddLocationPayloadInput extends Step1LocationInput {
+  accountId: string;
+  displayLabel: string;
+  voiceForm: VoiceFormState;
+}
+
+export function hasStep1LocationDetails({
+  inputMode,
+  placeSelection,
+  googleMapsUrl,
+}: Step1LocationInput): boolean {
+  if (inputMode === 'url') return googleMapsUrl.trim().length > 0;
+  return placeSelection !== null;
+}
+
+export function buildAddLocationPayload({
+  accountId,
+  displayLabel,
+  inputMode,
+  placeSelection,
+  googleMapsUrl,
+  voiceForm,
+}: BuildAddLocationPayloadInput) {
+  const trimmedMapsUrl = googleMapsUrl.trim();
+
+  return {
+    accountId,
+    displayLabel: displayLabel.trim(),
+    ...(inputMode === 'autocomplete' && placeSelection?.placeId
+      ? { googlePlaceId: placeSelection.placeId }
+      : {}),
+    ...(inputMode === 'url' && trimmedMapsUrl
+      ? { googleMapsUrl: trimmedMapsUrl }
+      : {}),
+    placeIdVerified: inputMode === 'autocomplete' && !!placeSelection,
+    voiceConfig: {
+      tone: voiceForm.tone,
+      productsServices: voiceForm.productsServices || null,
+      avoidFacts: voiceForm.avoidFacts.filter(Boolean),
+      sampleResponses: voiceForm.sampleResponses.filter(Boolean),
+    },
+  };
+}
+
 // ── Component ──────────────────────────────────────────────────────────────
 
 export function AddLocationWizard({
@@ -106,13 +158,15 @@ export function AddLocationWizard({
   activeLocationCount,
 }: Props) {
   const router = useRouter();
-  const { setLocations } = useLocationScope();
+  const { setLocationScope } = useLocationScope();
 
   // ── Step state ──────────────────────────────────────────────────────
   const [step, setStep] = useState<WizardStep>(1);
 
   // ── Step 1 state: Place selection + display_label ───────────────────
+  const [inputMode, setInputMode] = useState<LocationInputMode>('autocomplete');
   const [placeSelection, setPlaceSelection] = useState<PlaceSelection | null>(null);
+  const [googleMapsUrl, setGoogleMapsUrl] = useState('');
   const [displayLabel, setDisplayLabel] = useState('');
   const [displayLabelError, setDisplayLabelError] = useState<string | null>(null);
   const [placeIdDuplicateError, setPlaceIdDuplicateError] = useState<string | null>(null);
@@ -203,20 +257,20 @@ export function AddLocationWizard({
     }
     setDisplayLabelError(null);
 
-    // Place selection is required
-    if (!placeSelection) {
+    // Location details are required
+    if (!hasStep1LocationDetails({ inputMode, placeSelection, googleMapsUrl })) {
       return false; // No explicit error — the autocomplete UI makes this clear
     }
 
     // VAL-SETTINGS-044: Check for duplicate Place ID
-    if (placeSelection.placeId && existingPlaceIds.has(placeSelection.placeId)) {
+    if (inputMode === 'autocomplete' && placeSelection?.placeId && existingPlaceIds.has(placeSelection.placeId)) {
       setPlaceIdDuplicateError('This location is already added');
       return false;
     }
     setPlaceIdDuplicateError(null);
 
     return true;
-  }, [displayLabel, placeSelection, existingPlaceIds]);
+  }, [displayLabel, inputMode, placeSelection, googleMapsUrl, existingPlaceIds]);
 
   // ── Step navigation ──────────────────────────────────────────────────
 
@@ -273,22 +327,16 @@ export function AddLocationWizard({
       const res = await fetch('/api/locations/add', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+        body: JSON.stringify(buildAddLocationPayload({
           accountId,
-          displayLabel: displayLabel.trim(),
-          googlePlaceId: placeSelection?.placeId ?? null,
-          placeIdVerified: !!placeSelection,
-          googleMapsUrl: null,
-          // Voice config overrides — when the user chose "copy from existing"
-          // or manually customized, we send these instead of relying on the
-          // default primary-clone behavior in the backend.
-          voiceConfig: {
-            tone: voiceForm.tone,
-            productsServices: voiceForm.productsServices || null,
-            avoidFacts: voiceForm.avoidFacts.filter(Boolean),
-            sampleResponses: voiceForm.sampleResponses.filter(Boolean),
-          },
-        }),
+          displayLabel,
+          inputMode,
+          placeSelection,
+          // Helper omits unused optional fields so the API receives either
+          // a verified Place ID or a manual Google Maps URL.
+          googleMapsUrl,
+          voiceForm,
+        })),
       });
 
       if (!res.ok) {
@@ -304,17 +352,20 @@ export function AddLocationWizard({
       // Set the newly created location as the active scope
       // VAL-SETTINGS-047: Cookie set with SameSite=Lax, path=/
       if (result.businessId) {
-        document.cookie = `rw_location_scope=${result.businessId};path=/;max-age=${60 * 60 * 24 * 365};samesite=lax`;
+        setLocationScope(result.businessId as LocationId);
       }
 
-      // Navigate to the dashboard with the new location selected
-      router.push('/dashboard');
+      // Navigate straight to the scoped connect flow for the new location.
+      const connectHref = result.businessId
+        ? `/dashboard/connect?locationId=${encodeURIComponent(result.businessId)}`
+        : '/dashboard/connect';
+      router.push(connectHref);
       router.refresh();
     } catch {
       setSubmitError('Network error — please try again.');
       setSubmitting(false);
     }
-  }, [accountId, displayLabel, placeSelection, voiceForm, router]);
+  }, [accountId, displayLabel, inputMode, placeSelection, googleMapsUrl, voiceForm, router, setLocationScope]);
 
   // ── Computed billing for step 4 ────────────────────────────────────
 
@@ -323,6 +374,11 @@ export function AddLocationWizard({
   const newMonthlyTotalCents =
     billingSnapshot.basePriceCents +
     newOverageUnits * billingSnapshot.overagePriceCents;
+  const step1HasLocationDetails = hasStep1LocationDetails({
+    inputMode,
+    placeSelection,
+    googleMapsUrl,
+  });
 
   // ── TopBar info for current step ────────────────────────────────────
   const stepInfo = STEP_INFO[step];
@@ -383,19 +439,48 @@ export function AddLocationWizard({
 
               <div className="field" style={{ marginTop: 16 }}>
                 <label className="field-label">Business address</label>
-                <PlaceAutocomplete
-                  onPlaceSelect={(selection) => {
-                    setPlaceSelection(selection);
+                {inputMode === 'autocomplete' ? (
+                  <PlaceAutocomplete
+                    onPlaceSelect={(selection) => {
+                      setPlaceSelection(selection);
+                      setGoogleMapsUrl('');
+                      setPlaceIdDuplicateError(null);
+                      // Auto-fill display label from address if empty
+                      if (!displayLabel.trim()) {
+                        const shortName = selection.formattedAddress.split(',')[0]?.trim() ?? '';
+                        setDisplayLabel(shortName);
+                      }
+                    }}
+                    onClear={() => setPlaceSelection(null)}
+                    placeholder="Search for your business..."
+                  />
+                ) : (
+                  <input
+                    className="input"
+                    type="url"
+                    value={googleMapsUrl}
+                    onChange={(e) => setGoogleMapsUrl(e.target.value)}
+                    placeholder="https://maps.google.com/..."
+                    autoComplete="url"
+                  />
+                )}
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => {
                     setPlaceIdDuplicateError(null);
-                    // Auto-fill display label from address if empty
-                    if (!displayLabel.trim()) {
-                      const shortName = selection.formattedAddress.split(',')[0]?.trim() ?? '';
-                      setDisplayLabel(shortName);
+                    if (inputMode === 'autocomplete') {
+                      setPlaceSelection(null);
+                      setInputMode('url');
+                    } else {
+                      setGoogleMapsUrl('');
+                      setInputMode('autocomplete');
                     }
                   }}
-                  onClear={() => setPlaceSelection(null)}
-                  placeholder="Search for your business..."
-                />
+                  style={{ marginTop: 8, fontSize: 12, padding: '6px 10px' }}
+                >
+                  {inputMode === 'autocomplete' ? 'Paste Google Maps URL' : 'Use Google search'}
+                </button>
                 {placeIdDuplicateError && (
                   <p className="field-error" style={{ marginTop: 4 }}>
                     {placeIdDuplicateError}
@@ -606,6 +691,14 @@ export function AddLocationWizard({
                     </span>
                   </div>
                 )}
+                {!placeSelection && inputMode === 'url' && googleMapsUrl.trim() && (
+                  <div className="wizard-summary-row">
+                    <span className="wizard-summary-label">Google Maps URL</span>
+                    <span className="wizard-summary-value">
+                      {googleMapsUrl.trim()}
+                    </span>
+                  </div>
+                )}
                 <div className="wizard-summary-row">
                   <span className="wizard-summary-label">Google Business</span>
                   <span className="wizard-summary-value">
@@ -706,7 +799,7 @@ export function AddLocationWizard({
               type="button"
               className="btn btn-primary"
               onClick={goNext}
-              disabled={step === 1 && !placeSelection}
+              disabled={step === 1 && !step1HasLocationDetails}
             >
               Continue <Icon name="chevron-down" size={14} style={{ transform: 'rotate(-90deg)' }} />
             </button>

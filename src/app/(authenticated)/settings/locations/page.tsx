@@ -14,6 +14,7 @@ import { requireOwnerAccess } from '@/lib/auth/require-owner-access';
 import { TopBar } from '@/components/dashboard/TopBar';
 import { LocationsClient } from './LocationsClient';
 import { getLocationsForAccount, getActiveLocationCount, getArchivedLocationsForAccount } from '@/lib/locations/repo';
+import { shouldUseMultiLocationSettings } from '@/lib/locations/multi-location-mode';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,6 +32,10 @@ export default async function LocationsPage() {
     getActiveLocationCount(access.accountId),
     getArchivedLocationsForAccount(access.accountId),
   ]);
+
+  if (!shouldUseMultiLocationSettings(true, activeCount)) {
+    notFound();
+  }
 
   // Fetch Zernio connection status for each location (active + archived)
   const allLocationIds = [...locations, ...archivedLocations].map((l) => l.id);

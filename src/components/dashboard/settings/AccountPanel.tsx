@@ -284,7 +284,7 @@ export function AccountPanel({ data, accountData, accountLoading, accountError, 
       const res = await fetch('/api/billing/tier-change', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accountId: accountData.accountId, newTier }),
+        body: JSON.stringify({ accountId: accountData.accountId, newTier, preview: true }),
       });
 
       if (!res.ok) {

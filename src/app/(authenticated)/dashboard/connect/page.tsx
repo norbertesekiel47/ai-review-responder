@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useDashboardData } from '@/hooks/useDashboardData';
 import { useLocationScope } from '@/contexts/LocationContext';
+import type { LocationId } from '@/lib/shared/ids';
 
 /**
  * /dashboard/connect — Zernio Google Business connect entry point.
@@ -24,18 +25,30 @@ import { useLocationScope } from '@/contexts/LocationContext';
  */
 export default function ConnectPage() {
   const { currentScope, setLocationScope } = useLocationScope();
-  const { data, error, refresh } = useDashboardData(currentScope, {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const requestedLocationId = searchParams.get('locationId');
+  const requestedScope =
+    requestedLocationId && requestedLocationId !== 'all'
+      ? (requestedLocationId as LocationId)
+      : null;
+  const effectiveScope = requestedScope ?? currentScope;
+  const { data, error, refresh } = useDashboardData(effectiveScope, {
     // VAL-DASH-029: When the API detects the selected location is archived,
     // fall back to primary and update the LocationContext switcher.
     onScopeFallback: (fallback) => {
-      setLocationScope(fallback.fallbackLocationId as import('@/lib/shared/ids').LocationId);
+      setLocationScope(fallback.fallbackLocationId as LocationId);
     },
   });
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
-  const router = useRouter();
-  const searchParams = useSearchParams();
   const urlError = searchParams.get('error');
+
+  useEffect(() => {
+    if (requestedScope && currentScope !== requestedScope) {
+      setLocationScope(requestedScope);
+    }
+  }, [currentScope, requestedScope, setLocationScope]);
 
   // SSR-equivalent redirect: if the connection is already active, send the
   // owner back to the dashboard. Done in an effect so we can also `return null`
@@ -102,6 +115,9 @@ export default function ConnectPage() {
       const res = await fetch('/api/zernio/connect/start', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
+        ...(effectiveScope === 'all'
+          ? {}
+          : { body: JSON.stringify({ locationId: effectiveScope }) }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok || !body.authUrl) {
@@ -123,6 +139,9 @@ export default function ConnectPage() {
       const res = await fetch('/api/zernio/connect/cancel', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
+        ...(effectiveScope === 'all'
+          ? {}
+          : { body: JSON.stringify({ locationId: effectiveScope }) }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {

@@ -29,6 +29,7 @@ const TierChangeSchema = z.object({
   newTier: z.string().refine(isSubscriptionTier, {
     message: 'Invalid subscription tier',
   }),
+  preview: z.boolean().optional().default(false),
 });
 
 // ── Price ID reverse map ──────────────────────────────────────────────────
@@ -51,6 +52,22 @@ function getOveragePriceId(tier: SubscriptionTierValue): string | null {
     founders: process.env.STRIPE_PRICE_FOUNDERS_OVERAGE,
   };
   return envMap[tier] ?? null;
+}
+
+function configuredBasePriceIds(): Set<string> {
+  return new Set(
+    (Object.keys(TIER_CONFIG) as SubscriptionTierValue[])
+      .map(getBasePriceId)
+      .filter((priceId): priceId is string => Boolean(priceId)),
+  );
+}
+
+function configuredOveragePriceIds(): Set<string> {
+  return new Set(
+    (Object.keys(TIER_CONFIG) as SubscriptionTierValue[])
+      .map(getOveragePriceId)
+      .filter((priceId): priceId is string => Boolean(priceId)),
+  );
 }
 
 // ── Handler ─────────────────────────────────────────────────────────────────
@@ -85,7 +102,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  const { accountId, newTier } = parsed.data;
+  const { accountId, newTier, preview } = parsed.data;
   const tier = newTier as SubscriptionTierValue;
 
   // ── Ownership: body.accountId must match authenticated user ──────────────
@@ -103,6 +120,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json(
       { error: validation.reason ?? 'tier_change_not_allowed' },
       { status: 409, headers: NO_STORE_HEADERS },
+    );
+  }
+
+  if (preview) {
+    return NextResponse.json(
+      {
+        success: true,
+        preview: true,
+        newTier: tier,
+        newBilling: validation.newBillingPreview,
+      },
+      { status: 200, headers: NO_STORE_HEADERS },
     );
   }
 
@@ -141,14 +170,23 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // Retrieve the current subscription to find the base item ID
     const subscription = await stripe.subscriptions.retrieve(account.stripe_subscription_id);
 
-    // Find the base price item (quantity=1, not the overage item)
-    const baseItem = subscription.items.data.find((item) => item.quantity === 1);
+    const basePriceIds = configuredBasePriceIds();
+    const overagePriceIds = configuredOveragePriceIds();
+
+    // Find the base price item by configured base price IDs. Quantity is not
+    // reliable because an overage line can also have quantity=1.
+    const baseItem = subscription.items.data.find((item) => basePriceIds.has(item.price.id))
+      ?? subscription.items.data.find((item) => !overagePriceIds.has(item.price.id) && item.quantity === 1);
     if (!baseItem) {
       return NextResponse.json(
         { error: 'base_item_not_found', detail: 'Could not identify the base subscription item' },
         { status: 500, headers: NO_STORE_HEADERS },
       );
     }
+
+    const overageItem = subscription.items.data.find(
+      (item) => item.id !== baseItem.id && overagePriceIds.has(item.price.id),
+    ) ?? subscription.items.data.find((item) => item.id !== baseItem.id);
 
     // Update the base item to the new tier price
     // Stripe will prorate automatically
@@ -158,24 +196,20 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     });
 
     // Handle overage item:
-    // - If new tier supports overage and an overage item exists, update its price
-    // - If new tier supports overage but no item exists, create one
-    // - If new tier is basic (no overage), remove the overage item if it exists
-    if (newConfig.overageCents > 0 && newConfig.multiLocAllowed) {
+    // - If overage units remain, update/create the overage item with quantity.
+    // - If overage drops to zero or the tier has no overage, remove stale items.
+    if (newConfig.overageCents > 0 && newConfig.multiLocAllowed && newOverageUnits > 0) {
       const overagePriceId = getOveragePriceId(tier);
-      const overageItem = subscription.items.data.find(
-        (item) => item.id !== baseItem.id,
-      );
 
       if (overageItem) {
-        // Update existing overage item price
         if (overagePriceId) {
           await stripe.subscriptionItems.update(overageItem.id, {
             price: overagePriceId,
+            quantity: newOverageUnits,
             proration_behavior: 'create_prorations',
           });
         }
-      } else if (overagePriceId && newOverageUnits > 0) {
+      } else if (overagePriceId) {
         // Create overage item
         await stripe.subscriptionItems.create({
           subscription: account.stripe_subscription_id,
@@ -185,10 +219,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         });
       }
     } else {
-      // Basic tier: remove overage item if it exists
-      const overageItem = subscription.items.data.find(
-        (item) => item.id !== baseItem.id,
-      );
       if (overageItem) {
         await stripe.subscriptionItems.del(overageItem.id);
       }

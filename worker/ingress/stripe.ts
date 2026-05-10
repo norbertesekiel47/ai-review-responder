@@ -70,13 +70,16 @@ async function maybeEnqueueBackfillResume(businessId: string): Promise<void> {
     SELECT
       zc.zernio_account_id,
       zc.zernio_location_id,
-      b.subscription_tier,
-      b.subscription_activated_at
+      a.subscription_tier,
+      a.subscription_activated_at
     FROM zernio_connections zc
     JOIN businesses b ON b.id = zc.business_id
+    JOIN accounts a ON a.id = b.account_id
     WHERE zc.business_id = ${businessId}::uuid
       AND zc.status = 'active'
-      AND b.subscription_activated_at IS NOT NULL
+      AND b.archived_at IS NULL
+      AND a.subscription_status = 'active'
+      AND a.subscription_activated_at IS NOT NULL
       AND NOT EXISTS (
         SELECT 1 FROM zernio_backfill_runs br
         WHERE br.business_id = ${businessId}::uuid

@@ -160,6 +160,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       placeIdVerified,
       googleMapsUrl,
       actorUserId,
+      ownerName: user.name,
+      ownerEmail: user.email,
       subscriptionTier: account.subscription_tier,
       subscriptionStatus: account.subscription_status,
       activeLocationsBefore: activeLocations,

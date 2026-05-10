@@ -43,13 +43,15 @@ vi.mock('@/lib/accounts/quota', () => ({
 }));
 
 // Mock accounts repo
-const { mockGetAccountById, mockGetAccountOwnerUserId } = vi.hoisted(() => ({
+const { mockGetAccountById, mockGetAccountOwnerUser, mockGetAccountOwnerUserId } = vi.hoisted(() => ({
   mockGetAccountById: vi.fn(),
+  mockGetAccountOwnerUser: vi.fn(),
   mockGetAccountOwnerUserId: vi.fn(),
 }));
 
 vi.mock('@/lib/accounts/repo', () => ({
   getAccountById: mockGetAccountById,
+  getAccountOwnerUser: mockGetAccountOwnerUser,
   getAccountOwnerUserId: mockGetAccountOwnerUserId,
 }));
 
@@ -125,6 +127,11 @@ function setupHappyPathRow() {
   mockGetAccountById.mockResolvedValue(mockAccountRow());
   mockAssertCanAddLocation.mockResolvedValue({ allowed: true, overageUnits: 1 });
   mockGetActiveLocationCount.mockResolvedValue(1);
+  mockGetAccountOwnerUser.mockResolvedValue({
+    id: 'uuuuuuuu-0000-0000-0000-000000000001',
+    name: 'Test Owner',
+    email: 'owner@test.com',
+  });
   mockGetAccountOwnerUserId.mockResolvedValue('uuuuuuuu-0000-0000-0000-000000000001');
   mockAddLocationTransaction.mockResolvedValue({
     businessId: 'new-biz-id-0000-0000-0000-000000000001',
@@ -491,6 +498,7 @@ Downtown Cafe,ChIJ1234,friendly,"Coffee and pastries","Bad coffee|Overpriced"`;
 
   it('returns 404 when accountId does not match any account', async () => {
     mockGetAccountById.mockResolvedValue(null);
+    mockGetAccountOwnerUser.mockResolvedValue(null);
     mockGetAccountOwnerUserId.mockResolvedValue(null);
 
     const csv = 'name,placeId\nTest,ChIJ1234';
@@ -560,6 +568,11 @@ Bad Account Loc,ChIJ5678`;
     mockAssertCanAddLocation.mockResolvedValue({ allowed: true, overageUnits: 1 });
     mockGetActiveLocationCount.mockResolvedValue(1);
     mockGetAccountById.mockResolvedValue(mockAccountRow());
+    mockGetAccountOwnerUser.mockResolvedValue({
+      id: 'uuuuuuuu-0000-0000-0000-000000000001',
+      name: 'Test Owner',
+      email: 'owner@test.com',
+    });
     mockGetAccountOwnerUserId.mockResolvedValue('uuuuuuuu-0000-0000-0000-000000000001');
 
     mockAddLocationTransaction

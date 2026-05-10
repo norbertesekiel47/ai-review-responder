@@ -5,6 +5,7 @@ import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { ZernioRouteError } from '@/lib/zernio/errors';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
+import { isValidUuid } from '@/lib/shared/ids';
 import { zernioClient } from '@/lib/zernio/client';
 import {
   pendingKey,
@@ -25,6 +26,10 @@ export const dynamic = 'force-dynamic';
 const NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
 const PENDING_TTL_SECONDS = 900; // 15 min — matches Zernio connect_token TTL
 const LOCK_TTL_SECONDS = 30;
+
+interface StartConnectBody {
+  locationId?: unknown;
+}
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   // Feature flag — subsystem A is flag-gated by ZERNIO_PUBLISHING_ENABLED (§1.1).
@@ -56,12 +61,28 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return errorToResponse(err);
   }
 
-  // Round-9: AppUser uses camelCase locationId (TS); requireRole does NOT
-  // guarantee non-null business scope.
-  if (!user.locationId) {
+  let body: StartConnectBody = {};
+  try {
+    const rawBody = await req.text();
+    body = rawBody ? (JSON.parse(rawBody) as StartConnectBody) : {};
+  } catch {
+    return NextResponse.json({ error: 'invalid_body' }, { status: 400, headers: NO_STORE });
+  }
+
+  const requestedLocationId =
+    typeof body.locationId === 'string' && body.locationId.trim().length > 0
+      ? body.locationId.trim()
+      : null;
+  if (requestedLocationId && !isValidUuid(requestedLocationId)) {
+    return NextResponse.json({ error: 'invalid_body' }, { status: 400, headers: NO_STORE });
+  }
+
+  // AppUser.locationId is the primary location. Secondary-location connects
+  // pass an explicit locationId and are validated against the account below.
+  if (!user.accountId || (!requestedLocationId && !user.locationId)) {
     return NextResponse.json({ error: 'unscoped_owner' }, { status: 403, headers: NO_STORE });
   }
-  const locationId = user.locationId;
+  const locationId = requestedLocationId ?? user.locationId!;
   const userId = user.id;
 
   // 3. Subscription guard — spec §3.2 step 1: skip if subscription_status != 'active'.
@@ -69,13 +90,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
     const [accountRow] = await sql<{ subscription_status: string }[]>`
       SELECT a.subscription_status
-      FROM accounts a
-      JOIN businesses b ON b.account_id = a.id
+      FROM businesses b
+      JOIN accounts a ON a.id = b.account_id
       WHERE b.id = ${locationId}
+        AND b.account_id = ${user.accountId}
+        AND b.archived_at IS NULL
       LIMIT 1
     `;
     if (!accountRow) {
-      return NextResponse.json({ error: 'business_not_found' }, { status: 404, headers: NO_STORE });
+      return NextResponse.json(
+        { error: 'invalid_location_scope' },
+        { status: 403, headers: NO_STORE },
+      );
     }
     if (accountRow.subscription_status !== SubscriptionStatus.ACTIVE) {
       return NextResponse.json(

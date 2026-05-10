@@ -6,7 +6,7 @@
 // Validation contract: VAL-ADMIN-008 through VAL-ADMIN-014.
 
 import { assertCanAddLocation } from '@/lib/accounts/quota';
-import { getAccountById, getAccountOwnerUserId } from '@/lib/accounts/repo';
+import { getAccountById, getAccountOwnerUser } from '@/lib/accounts/repo';
 import { addLocationTransaction } from '@/lib/locations/add-location-tx';
 import { getActiveLocationCount } from '@/lib/locations/repo';
 import { sql, jsonb } from '@/lib/db/server';
@@ -226,14 +226,17 @@ export async function processRow(
     }
 
     // Step 2: Gather pre-transaction data
-    const [activeLocations, account, actorUserId] = await Promise.all([
+    const [activeLocations, account, ownerUser] = await Promise.all([
       getActiveLocationCount(accountId),
       getAccountById(accountId),
-      getAccountOwnerUserId(accountId),
+      getAccountOwnerUser(accountId),
     ]);
 
     if (!account) {
       return { reason: 'Account not found' };
+    }
+    if (!ownerUser) {
+      return { reason: 'Account owner not found' };
     }
 
     // Step 3: Build voice config from CSV columns
@@ -254,7 +257,9 @@ export async function processRow(
       displayLabel: row.name,
       googlePlaceId: row.placeId,
       placeIdVerified: false,
-      actorUserId,
+      actorUserId: ownerUser.id,
+      ownerName: ownerUser.name,
+      ownerEmail: ownerUser.email,
       subscriptionTier: account.subscription_tier,
       subscriptionStatus: account.subscription_status,
       activeLocationsBefore: activeLocations,

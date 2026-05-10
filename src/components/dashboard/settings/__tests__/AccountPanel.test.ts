@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import fs from 'fs';
+import path from 'path';
 import { TIER_CONFIG, type SubscriptionTierValue } from '@/lib/accounts/tier-config';
 
 // ── QuotaBar label formatting ──────────────────────────────────────────────
@@ -148,5 +150,16 @@ describe('AccountPanel tier change button logic', () => {
 
     expect(overageUnits).toBe(2);
     expect(totalCents).toBe(19900 + 2 * 2000); // 23900
+  });
+});
+
+describe('AccountPanel tier preview request', () => {
+  it('marks the modal-opening tier-change request as preview-only', () => {
+    const sourcePath = path.resolve(__dirname, '../AccountPanel.tsx');
+    const source = fs.readFileSync(sourcePath, 'utf-8');
+
+    expect(source).toMatch(
+      /body:\s*JSON\.stringify\(\{[\s\S]*accountId:\s*accountData\.accountId,[\s\S]*newTier,[\s\S]*preview:\s*true[\s\S]*\}\)/,
+    );
   });
 });

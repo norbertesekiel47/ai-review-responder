@@ -22,6 +22,7 @@ import { ChannelsTabClient } from './ChannelsTabClient';
 import { isTelegramEnabled, assertTelegramEnvReady } from '@/app/api/admin/channels/telegram/_shared';
 import { getLocationsForAccount, getActiveLocationCount } from '@/lib/locations/repo';
 import { getDisplayLabel, type HasDisplayLabel } from '@/lib/locations/display-label';
+import { shouldUseMultiLocationSettings } from '@/lib/locations/multi-location-mode';
 
 const KNOWN_CHANNELS = new Set<string>(['email', 'sms', 'telegram', 'whatsapp']);
 
@@ -64,7 +65,11 @@ export interface LocationOption {
 
 export default async function ChannelsPage() {
   const access = await requireOwnerAccess();
-  const multiLocationEnabled = process.env.MULTI_LOCATION_ENABLED === 'true';
+  const activeLocationCount = await getActiveLocationCount(access.accountId);
+  const multiLocationEnabled = shouldUseMultiLocationSettings(
+    process.env.MULTI_LOCATION_ENABLED === 'true',
+    activeLocationCount,
+  );
 
   // Get the owner's email for the email enrollment fallback.
   const cookieStore = await cookies();

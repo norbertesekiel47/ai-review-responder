@@ -32,6 +32,9 @@ export interface AddLocationTxInput {
   googleMapsUrl?: string | null;
   /** User ID of the actor performing the add (for audit log). */
   actorUserId?: string | null;
+  /** Owner identity copied onto the businesses row for legacy NOT NULL columns. */
+  ownerName?: string | null;
+  ownerEmail?: string | null;
   /** Account's subscription tier (read before tx, passed in to avoid re-read). */
   subscriptionTier: string;
   /** Account's subscription status (read before tx, passed in to avoid re-read). */
@@ -93,6 +96,8 @@ export async function addLocationTransaction(
     placeIdVerified,
     googleMapsUrl,
     actorUserId,
+    ownerName: inputOwnerName,
+    ownerEmail: inputOwnerEmail,
     subscriptionTier,
     subscriptionStatus,
     activeLocationsBefore,
@@ -150,6 +155,24 @@ export async function addLocationTransaction(
     voiceClonedFromPrimary = primaryVoice !== undefined && primaryVoice !== null;
   }
 
+  let ownerName = inputOwnerName?.trim() || null;
+  let ownerEmail = inputOwnerEmail?.trim() || null;
+  if (!ownerName || !ownerEmail) {
+    const [ownerRow] = await sql<{ name: string | null; email: string | null }[]>`
+      SELECT u.name, u.email
+      FROM accounts a
+      JOIN users u ON u.id = a.owner_user_id
+      WHERE a.id = ${accountId}::uuid
+      LIMIT 1
+    `;
+    ownerName = ownerName ?? ownerRow?.name?.trim() ?? null;
+    ownerEmail = ownerEmail ?? ownerRow?.email?.trim() ?? null;
+  }
+
+  if (!ownerName || !ownerEmail) {
+    throw new Error('account_owner_identity_required');
+  }
+
   // ── Step 2: Execute atomic transaction ────────────────────────────────
   //
   // VAL-LOC-007: All three INSERTs happen inside sql.begin(). If any
@@ -180,8 +203,8 @@ export async function addLocationTransaction(
         ${highlightFacts ?? []},
         ${avoidFacts ?? []},
         ${sampleResponses ?? []},
-        ${null},
-        ${null},
+        ${ownerName},
+        ${ownerEmail},
         ${subscriptionTier},
         ${subscriptionStatus}
       )
@@ -226,28 +249,10 @@ export async function addLocationTransaction(
       `;
     }
 
-    // 2d. Enqueue Zernio initial backfill for the new location
-    // VAL-LOC-052: zernio_initial_backfill job enqueued for new location.
-    // The job will be picked up by the ZernioInitialBackfillWorker, which
-    // checks for an active Zernio connection for this location. If no
-    // connection exists (owner skipped the Zernio step), the job completes
-    // as a no-op. This ensures per-location Zernio independence — each
-    // location gets its own backfill, and skipping is graceful.
-    await tx`
-      INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-      VALUES (
-        ${uuidv7()},
-        'zernio_initial_backfill',
-        'business',
-        ${businessId}::uuid,
-        ${jsonb({
-          business_id: businessId,
-          account_id: accountId,
-          correlation_id: uuidv7(),
-        })},
-        'pending'
-      )
-    `;
+    // Zernio backfill is queued by /api/zernio/connect/select-location after
+    // the owner connects this location. At add-location time there is no
+    // zernio_connections row yet, so enqueueing here would create a malformed
+    // worker payload.
   });
 
   return {

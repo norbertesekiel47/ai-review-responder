@@ -108,6 +108,7 @@ const OTHER_ACCOUNT_ID = '99999999-8888-7777-6666-555555555555';
 const USER_ID = 'uuuuuuuu-0000-0000-0000-000000000001';
 const SUBSCRIPTION_ID = 'sub_test123';
 const BASE_ITEM_ID = 'si_base_test';
+const OVERAGE_ITEM_ID = 'si_overage_test';
 
 function mkRequest(body: Record<string, unknown>): NextRequest {
   return new NextRequest('http://localhost:3000/api/billing/tier-change', {
@@ -316,6 +317,125 @@ describe('POST /api/billing/tier-change', () => {
         proration_behavior: 'create_prorations',
       }),
     );
+  });
+
+  it('previews the billing change without mutating Stripe or account rows', async () => {
+    mockRequireRole.mockResolvedValueOnce(ownerUser());
+    mockValidateTierChange.mockResolvedValueOnce({
+      allowed: true,
+      newBillingPreview: {
+        basePriceCents: 19900,
+        overagePriceCents: 2000,
+        overageUnits: 0,
+        totalCents: 19900,
+      },
+    });
+
+    const req = mkRequest({ accountId: ACCOUNT_ID, newTier: 'premium', preview: true });
+    const res = await POST(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body).toMatchObject({
+      success: true,
+      preview: true,
+      newTier: 'premium',
+      newBilling: {
+        basePriceCents: 19900,
+        overageUnits: 0,
+      },
+    });
+    expect(mockSql).not.toHaveBeenCalled();
+    expect(mockSubscriptionsRetrieve).not.toHaveBeenCalled();
+    expect(mockSubscriptionItemsUpdate).not.toHaveBeenCalled();
+    expect(mockSubscriptionItemsCreate).not.toHaveBeenCalled();
+    expect(mockSubscriptionItemsDel).not.toHaveBeenCalled();
+  });
+
+  it('finds the base item by price and deletes stale overage when the new tier has zero overage units', async () => {
+    mockRequireRole.mockResolvedValueOnce(ownerUser());
+    mockValidateTierChange.mockResolvedValueOnce({
+      allowed: true,
+      newBillingPreview: {
+        basePriceCents: 19900,
+        overagePriceCents: 2000,
+        overageUnits: 0,
+        totalCents: 19900,
+      },
+    });
+    mockSql.mockResolvedValueOnce([{
+      stripe_subscription_id: SUBSCRIPTION_ID,
+      subscription_tier: 'standard',
+    }]);
+    mockGetAccountOwnerUserId.mockResolvedValueOnce(USER_ID);
+    mockSubscriptionsRetrieve.mockResolvedValueOnce({
+      items: {
+        data: [
+          { id: OVERAGE_ITEM_ID, quantity: 1, price: { id: 'price_standard_overage_test' } },
+          { id: BASE_ITEM_ID, quantity: 1, price: { id: 'price_standard_test' } },
+        ],
+      },
+    });
+    mockSubscriptionItemsUpdate.mockResolvedValueOnce({});
+    mockSubscriptionItemsDel.mockResolvedValueOnce({});
+
+    const req = mkRequest({ accountId: ACCOUNT_ID, newTier: 'premium' });
+    const res = await POST(req);
+
+    expect(res.status).toBe(200);
+    expect(mockSubscriptionItemsUpdate).toHaveBeenCalledWith(
+      BASE_ITEM_ID,
+      expect.objectContaining({
+        price: 'price_premium_test',
+        proration_behavior: 'create_prorations',
+      }),
+    );
+    expect(mockSubscriptionItemsUpdate).not.toHaveBeenCalledWith(
+      OVERAGE_ITEM_ID,
+      expect.anything(),
+    );
+    expect(mockSubscriptionItemsDel).toHaveBeenCalledWith(OVERAGE_ITEM_ID);
+  });
+
+  it('updates existing overage item price and quantity when overage units remain', async () => {
+    mockRequireRole.mockResolvedValueOnce(ownerUser());
+    mockValidateTierChange.mockResolvedValueOnce({
+      allowed: true,
+      newBillingPreview: {
+        basePriceCents: 7900,
+        overagePriceCents: 2500,
+        overageUnits: 2,
+        totalCents: 12900,
+      },
+    });
+    mockSql.mockResolvedValueOnce([{
+      stripe_subscription_id: SUBSCRIPTION_ID,
+      subscription_tier: 'premium',
+    }]);
+    mockGetAccountOwnerUserId.mockResolvedValueOnce(USER_ID);
+    mockSubscriptionsRetrieve.mockResolvedValueOnce({
+      items: {
+        data: [
+          { id: BASE_ITEM_ID, quantity: 1, price: { id: 'price_premium_test' } },
+          { id: OVERAGE_ITEM_ID, quantity: 1, price: { id: 'price_premium_overage_test' } },
+        ],
+      },
+    });
+    mockSubscriptionItemsUpdate.mockResolvedValue({});
+
+    const req = mkRequest({ accountId: ACCOUNT_ID, newTier: 'standard' });
+    const res = await POST(req);
+
+    expect(res.status).toBe(200);
+    expect(mockSubscriptionItemsUpdate).toHaveBeenCalledWith(
+      OVERAGE_ITEM_ID,
+      expect.objectContaining({
+        price: 'price_standard_overage_test',
+        quantity: 2,
+        proration_behavior: 'create_prorations',
+      }),
+    );
+    expect(mockSubscriptionItemsDel).not.toHaveBeenCalled();
   });
 
   it('inserts account_audit_log on successful tier change', async () => {

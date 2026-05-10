@@ -2,6 +2,14 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
+const mocks = vi.hoisted(() => ({
+  useGoogleOAuth: vi.fn(() => ({
+    start: vi.fn(),
+    loading: false,
+    error: '',
+  })),
+}));
+
 // next/navigation hooks throw outside an app/ router context. Stub them so
 // LoginForm can be rendered with renderToStaticMarkup. We re-read
 // `mockSearchParams` on each call so tests can swap query params per case.
@@ -16,6 +24,10 @@ vi.mock('next/navigation', () => ({
     forward: () => {},
     prefetch: () => {},
   }),
+}));
+
+vi.mock('@/components/auth/hooks/useGoogleOAuth', () => ({
+  useGoogleOAuth: mocks.useGoogleOAuth,
 }));
 
 // Imported after vi.mock so the mock is in place when the module loads.
@@ -35,5 +47,15 @@ describe('LoginForm', () => {
     mockSearchParams = new URLSearchParams('email=a%40b.co');
     const html = renderToStaticMarkup(createElement(LoginForm));
     expect(html).toContain('value="a@b.co"');
+  });
+
+  it('routes Google login through signup finish so new Google users can be provisioned', () => {
+    mockSearchParams = new URLSearchParams();
+    mocks.useGoogleOAuth.mockClear();
+    renderToStaticMarkup(createElement(LoginForm));
+    expect(mocks.useGoogleOAuth).toHaveBeenCalledWith({
+      flow: 'owner',
+      next: '/signup/finish',
+    });
   });
 });

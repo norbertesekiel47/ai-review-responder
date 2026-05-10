@@ -273,6 +273,8 @@ describe('POST /api/locations/add', () => {
     expect(txInput.googlePlaceId).toBe('ChIJN1t_tDeuEmsRUsoyG83frY4');
     expect(txInput.placeIdVerified).toBe(true);
     expect(txInput.actorUserId).toBe(USER_ID);
+    expect(txInput.ownerName).toBe('Test Owner');
+    expect(txInput.ownerEmail).toBe('owner@test.com');
     expect(txInput.subscriptionTier).toBe('standard');
     expect(txInput.subscriptionStatus).toBe('active');
     expect(txInput.activeLocationsBefore).toBe(1);

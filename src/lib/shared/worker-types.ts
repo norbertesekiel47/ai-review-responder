@@ -135,6 +135,6 @@ export interface ZernioInitialBackfillPayload extends BasePayload {
   zernio_location_id: string;
   /** Subscription tier string (forward-compat, use SubscriptionTier.FOUNDERS etc.) */
   subscription_tier: string;
-  /** ISO timestamp from businesses.subscription_activated_at */
+  /** ISO timestamp from accounts.subscription_activated_at */
   subscription_activated_at: string;
 }

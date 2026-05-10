@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import * as Sentry from '@sentry/nextjs';
+import { sql } from '@/lib/db/server';
 import { getCacheRedis } from '@/lib/db/redis-cache';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { ZernioRouteError } from '@/lib/zernio/errors';
+import { isValidUuid } from '@/lib/shared/ids';
 import { zernioClient } from '@/lib/zernio/client';
 import {
   pendingKey,
@@ -21,6 +23,10 @@ import type { ConnectPendingMarker } from '@/lib/zernio/types';
 export const dynamic = 'force-dynamic';
 
 const NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
+
+interface CancelConnectBody {
+  locationId?: unknown;
+}
 
 /**
  * POST /api/zernio/connect/cancel
@@ -58,7 +64,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return errorToResponse(err);
   }
 
-  // 2. Auth — owner only; null locationId is the unscoped-owner edge case.
+  // 2. Auth — owner only; secondary-location flows pass an explicit
+  // locationId and are validated against the account below.
   let user;
   try {
     user = await requireRole(req, 'owner');
@@ -71,13 +78,54 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
     return errorToResponse(err);
   }
-  if (!user.locationId) {
+  let body: CancelConnectBody = {};
+  try {
+    const rawBody = await req.text();
+    body = rawBody ? (JSON.parse(rawBody) as CancelConnectBody) : {};
+  } catch {
+    return NextResponse.json(
+      { error: 'invalid_body' },
+      { status: 400, headers: NO_STORE },
+    );
+  }
+
+  const requestedLocationId =
+    typeof body.locationId === 'string' && body.locationId.trim().length > 0
+      ? body.locationId.trim()
+      : null;
+  if (requestedLocationId && !isValidUuid(requestedLocationId)) {
+    return NextResponse.json(
+      { error: 'invalid_body' },
+      { status: 400, headers: NO_STORE },
+    );
+  }
+
+  if (!user.accountId || (!requestedLocationId && !user.locationId)) {
     return NextResponse.json(
       { error: 'unscoped_owner' },
       { status: 403, headers: NO_STORE },
     );
   }
-  const locationId = user.locationId;
+  const locationId = requestedLocationId ?? user.locationId!;
+
+  try {
+    const [business] = await sql<{ exists: number }[]>`
+      SELECT 1 AS exists
+      FROM businesses
+      WHERE id = ${locationId}
+        AND account_id = ${user.accountId}
+        AND archived_at IS NULL
+      LIMIT 1
+    `;
+    if (!business) {
+      return NextResponse.json(
+        { error: 'invalid_location_scope' },
+        { status: 403, headers: NO_STORE },
+      );
+    }
+  } catch (err) {
+    return errorToResponse(err);
+  }
 
   const redis = getCacheRedis();
   const pKey = pendingKey(locationId);

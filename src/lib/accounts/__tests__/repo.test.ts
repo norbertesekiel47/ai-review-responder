@@ -15,7 +15,7 @@ vi.mock('@/lib/db/server', () => ({
   sql: mockSql,
 }));
 
-import { getAccountById, getAccountOwnerUserId } from '../repo';
+import { getAccountById, getAccountOwnerUser, getAccountOwnerUserId } from '../repo';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -153,5 +153,43 @@ describe('getAccountOwnerUserId', () => {
     const template = (call![0] as TemplateStringsArray).join('?');
     expect(template).toContain('owner_user_id');
     expect(template).toContain('FROM accounts');
+  });
+});
+
+describe('getAccountOwnerUser', () => {
+  it('returns owner identity when account owner exists', async () => {
+    mockSql.mockResolvedValueOnce([{
+      id: OWNER_USER_ID,
+      name: 'Test Owner',
+      email: 'owner@test.com',
+    }]);
+
+    const result = await getAccountOwnerUser(ACCOUNT_ID);
+
+    expect(result).toEqual({
+      id: OWNER_USER_ID,
+      name: 'Test Owner',
+      email: 'owner@test.com',
+    });
+  });
+
+  it('returns null when account owner does not exist', async () => {
+    mockSql.mockResolvedValueOnce([]);
+
+    const result = await getAccountOwnerUser('00000000-0000-7f00-8000-000000000000');
+
+    expect(result).toBeNull();
+  });
+
+  it('joins accounts to users by owner_user_id', async () => {
+    mockSql.mockResolvedValueOnce([{ id: OWNER_USER_ID, name: 'Test Owner', email: 'owner@test.com' }]);
+
+    await getAccountOwnerUser(ACCOUNT_ID);
+
+    const call = mockSql.mock.calls[0];
+    const template = (call![0] as TemplateStringsArray).join('?');
+    expect(template).toContain('FROM accounts');
+    expect(template).toContain('JOIN users');
+    expect(template).toContain('owner_user_id');
   });
 });

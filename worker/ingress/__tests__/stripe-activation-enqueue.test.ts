@@ -296,6 +296,17 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
       zernio_location_id: 'zloc-1',
       subscription_tier: 'standard',
     });
+
+    const resumeSelect = sqlCalls.find(
+      (c) => c.text.includes('FROM zernio_connections zc')
+        && c.text.includes('JOIN businesses b'),
+    );
+    expect(resumeSelect).toBeDefined();
+    expect(resumeSelect!.text).toMatch(/JOIN\s+accounts\s+a\s+ON\s+a\.id\s*=\s*b\.account_id/i);
+    expect(resumeSelect!.text).toMatch(/a\.subscription_tier/);
+    expect(resumeSelect!.text).toMatch(/a\.subscription_activated_at/);
+    expect(resumeSelect!.text).not.toMatch(/b\.subscription_tier/);
+    expect(resumeSelect!.text).not.toMatch(/b\.subscription_activated_at/);
   });
 
   it('flag=ON + predicate miss (no active connection OR completed run exists) → NO outbox INSERT', async () => {

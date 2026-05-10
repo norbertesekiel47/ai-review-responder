@@ -1,0 +1,210 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { NextRequest } from 'next/server';
+
+const PRIMARY_LOCATION_ID = '11111111-1111-4111-8111-111111111111';
+const SECONDARY_LOCATION_ID = '22222222-2222-4222-8222-222222222222';
+const ACCOUNT_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
+const {
+  mockRequireRole,
+  mockRedis,
+  mockSelectLocation,
+  mockDeleteAccount,
+  sqlCalls,
+  txCalls,
+  txScenario,
+  mockSql,
+} = vi.hoisted(() => {
+  const sqlCalls: Array<{ raw: string; values: unknown[] }> = [];
+  const txCalls: Array<{ raw: string; values: unknown[] }> = [];
+  const txScenario = {
+    needsBackfill: false,
+    accountSubscriptionActivatedAt: new Date('2026-05-01T00:00:00.000Z'),
+  };
+
+  const mockTx = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
+    const raw = strings.join('?');
+    txCalls.push({ raw, values });
+    if (/subscription_activated_at[\s\S]*FROM businesses b[\s\S]*JOIN accounts a/.test(raw)) {
+      return Promise.resolve([{
+        subscription_status: 'active',
+        subscription_tier: 'standard',
+        subscription_activated_at: txScenario.accountSubscriptionActivatedAt,
+      }]);
+    }
+    if (/needs_backfill/.test(raw)) {
+      return Promise.resolve([{ needs_backfill: txScenario.needsBackfill }]);
+    }
+    return Promise.resolve([]);
+  });
+
+  const mockSql: any = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
+    const raw = strings.join('?');
+    sqlCalls.push({ raw, values });
+    if (/FROM businesses/.test(raw) && /account_id/.test(raw)) {
+      return Promise.resolve([{ exists: 1 }]);
+    }
+    return Promise.resolve([]);
+  });
+  mockSql.begin = vi.fn(async (cb: (tx: typeof mockTx) => Promise<unknown>) => cb(mockTx));
+
+  const mockRedis = {
+    get: vi.fn(async (key: string) => {
+      if (key === 'connect_locations:session-1') {
+        return JSON.stringify({
+          userId: 'user-1',
+          businessId: SECONDARY_LOCATION_ID,
+          profileId: 'profile-secondary',
+          flowId: 'flow-1',
+          pending_data_token: 'pending-token',
+          connect_token: 'connect-token',
+          locations: [{ id: 'google-location-1', name: 'Tanicia' }],
+        });
+      }
+      if (key === `connect_pending:${SECONDARY_LOCATION_ID}`) {
+        return JSON.stringify({
+          flowId: 'flow-1',
+          userId: 'user-1',
+          status: 'oauth_in_progress',
+        });
+      }
+      return null;
+    }),
+    set: vi.fn(async () => 'OK'),
+    eval: vi.fn(async () => 'OK'),
+    del: vi.fn(async () => 1),
+  };
+
+  return {
+    mockRequireRole: vi.fn(),
+    mockRedis,
+    mockSelectLocation: vi.fn(async () => ({ accountId: 'zernio-account-1' })),
+    mockDeleteAccount: vi.fn(async () => undefined),
+    sqlCalls,
+    txCalls,
+    txScenario,
+    mockSql,
+  };
+});
+
+vi.mock('@sentry/nextjs', () => ({
+  captureMessage: vi.fn(),
+  captureException: vi.fn(),
+  addBreadcrumb: vi.fn(),
+}));
+
+vi.mock('@/lib/shared/csrf', () => ({
+  assertSameOrigin: vi.fn(),
+  SameOriginError: class SameOriginError extends Error {},
+}));
+
+vi.mock('@/lib/db/auth', () => {
+  class AuthError extends Error {
+    constructor(
+      message: string,
+      public readonly statusCode: number,
+    ) {
+      super(message);
+      this.name = 'AuthError';
+    }
+  }
+  return {
+    requireRole: (...args: unknown[]) => mockRequireRole(...args),
+    AuthError,
+  };
+});
+
+vi.mock('@/lib/db/server', () => ({
+  sql: mockSql,
+  jsonb: (value: unknown) => value,
+}));
+
+vi.mock('@/lib/db/redis-cache', () => ({
+  getCacheRedis: () => mockRedis,
+}));
+
+vi.mock('@/lib/zernio/connect-session-cookie', () => ({
+  readConnectSessionCookie: () => 'session-1',
+  clearConnectSessionCookie: vi.fn(),
+}));
+
+vi.mock('@/lib/zernio/client', () => ({
+  zernioClient: {
+    selectLocation: (...args: unknown[]) => mockSelectLocation(...args),
+    deleteAccount: (...args: unknown[]) => mockDeleteAccount(...args),
+  },
+}));
+
+process.env.ZERNIO_PUBLISHING_ENABLED = 'true';
+
+import { POST } from '../route';
+
+function makeRequest(): NextRequest {
+  return new NextRequest('http://localhost:3000/api/zernio/connect/select-location', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ locationId: 'google-location-1' }),
+  });
+}
+
+describe('POST /api/zernio/connect/select-location account scoping', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sqlCalls.length = 0;
+    txCalls.length = 0;
+    txScenario.needsBackfill = false;
+    txScenario.accountSubscriptionActivatedAt = new Date('2026-05-01T00:00:00.000Z');
+    mockRequireRole.mockResolvedValue({
+      id: 'user-1',
+      role: 'owner',
+      accountId: ACCOUNT_ID,
+      locationId: PRIMARY_LOCATION_ID,
+    });
+  });
+
+  it('allows finalizing a secondary RepWorth location owned by the same account', async () => {
+    const res = await POST(makeRequest());
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+    expect(mockSelectLocation).toHaveBeenCalledWith({
+      profileId: 'profile-secondary',
+      pendingDataToken: 'pending-token',
+      connectToken: 'connect-token',
+      locationId: 'google-location-1',
+    });
+    expect(sqlCalls[0]?.values).toContain(SECONDARY_LOCATION_ID);
+    expect(sqlCalls[0]?.values).toContain(ACCOUNT_ID);
+  });
+
+  it('uses account subscription fields under a row lock when enqueueing initial backfill', async () => {
+    txScenario.needsBackfill = true;
+
+    const res = await POST(makeRequest());
+
+    expect(res.status).toBe(200);
+    const scopeQuery = txCalls.find((call) =>
+      /subscription_activated_at[\s\S]*FROM businesses b[\s\S]*JOIN accounts a/.test(call.raw),
+    );
+    expect(scopeQuery?.raw).toMatch(/FOR UPDATE OF b,\s*a/i);
+    expect(scopeQuery?.values).toContain(SECONDARY_LOCATION_ID);
+    expect(scopeQuery?.values).toContain(ACCOUNT_ID);
+
+    const backfillInsert = txCalls.find((call) =>
+      /zernio_initial_backfill/.test(call.raw),
+    );
+    expect(backfillInsert).toBeDefined();
+    expect(backfillInsert?.raw).not.toMatch(/FROM businesses WHERE id/);
+
+    const payload = backfillInsert?.values.find(
+      (value) =>
+        typeof value === 'object' &&
+        value !== null &&
+        (value as { business_id?: string }).business_id === SECONDARY_LOCATION_ID,
+    ) as { subscription_tier?: string; subscription_activated_at?: string } | undefined;
+    expect(payload).toMatchObject({
+      subscription_tier: 'standard',
+      subscription_activated_at: '2026-05-01T00:00:00.000Z',
+    });
+  });
+});

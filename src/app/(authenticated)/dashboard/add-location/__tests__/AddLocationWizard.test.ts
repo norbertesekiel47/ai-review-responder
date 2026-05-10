@@ -7,7 +7,11 @@
 // validation), VAL-SETTINGS-044 (duplicate Place ID).
 
 import { describe, it, expect } from 'vitest';
-import { computeProration } from '../AddLocationWizard';
+import {
+  buildAddLocationPayload,
+  computeProration,
+  hasStep1LocationDetails,
+} from '../AddLocationWizard';
 
 // ── computeProration ─────────────────────────────────────────────────────
 
@@ -128,6 +132,80 @@ describe('Step 2 Zernio informational-only (no OAuth redirect)', () => {
     expect(source).not.toContain('zernioConnecting');
     expect(source).not.toContain('zernioConnected');
     expect(source).not.toContain('zernioError');
+  });
+});
+
+// Submit payload shape
+//
+// The API schema treats googleMapsUrl as optional, not nullable. When the
+// wizard uses Place Autocomplete, it must omit googleMapsUrl entirely.
+describe('submit payload shape', () => {
+  it('does not send googleMapsUrl:null for Place Autocomplete submissions', () => {
+    const fs = require('fs');
+    const path = require('path');
+    const sourcePath = path.resolve(__dirname, '../AddLocationWizard.tsx');
+    const source = fs.readFileSync(sourcePath, 'utf-8');
+
+    expect(source).not.toContain('googleMapsUrl: null');
+  });
+
+  it('routes the newly added location directly to its Google connect flow', () => {
+    const fs = require('fs');
+    const path = require('path');
+    const sourcePath = path.resolve(__dirname, '../AddLocationWizard.tsx');
+    const source = fs.readFileSync(sourcePath, 'utf-8');
+
+    expect(source).toContain('/dashboard/connect?locationId=');
+    expect(source).toContain('encodeURIComponent(result.businessId)');
+    expect(source).not.toContain("router.push('/dashboard');");
+  });
+});
+
+// Manual Google Maps URL fallback
+//
+// TC-3: The add-location wizard must remain usable when Google Places
+// autocomplete cannot be selected in the browser.
+describe('manual Google Maps URL fallback', () => {
+  it('allows step 1 to continue with a Maps URL and no Place selection', () => {
+    expect(hasStep1LocationDetails({
+      inputMode: 'url',
+      placeSelection: null,
+      googleMapsUrl: ' https://maps.app.goo.gl/example ',
+    })).toBe(true);
+  });
+
+  it('does not allow step 1 URL mode to continue with a blank URL', () => {
+    expect(hasStep1LocationDetails({
+      inputMode: 'url',
+      placeSelection: null,
+      googleMapsUrl: '   ',
+    })).toBe(false);
+  });
+
+  it('sends googleMapsUrl and omits googlePlaceId for manual URL submissions', () => {
+    const payload = buildAddLocationPayload({
+      accountId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+      displayLabel: 'Tanicia',
+      inputMode: 'url',
+      placeSelection: null,
+      googleMapsUrl: ' https://maps.google.com/?cid=123 ',
+      voiceForm: {
+        tone: 'professional and friendly',
+        productsServices: '',
+        avoidFacts: [''],
+        sampleResponses: ['Thanks for visiting'],
+      },
+    });
+
+    expect(payload).toMatchObject({
+      accountId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+      displayLabel: 'Tanicia',
+      googleMapsUrl: 'https://maps.google.com/?cid=123',
+      placeIdVerified: false,
+    });
+    expect(payload).not.toHaveProperty('googlePlaceId');
+    expect(payload.voiceConfig.avoidFacts).toEqual([]);
+    expect(payload.voiceConfig.sampleResponses).toEqual(['Thanks for visiting']);
   });
 });
 

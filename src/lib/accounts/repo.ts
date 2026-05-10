@@ -37,6 +37,12 @@ export interface AccountRow {
   updated_at: Date;
 }
 
+export interface AccountOwnerUserRow {
+  id: string;
+  name: string;
+  email: string;
+}
+
 // ── getAccountById ─────────────────────────────────────────────────────────
 
 /**
@@ -89,4 +95,18 @@ export async function getAccountOwnerUserId(
   `;
 
   return row?.owner_user_id ?? null;
+}
+
+export async function getAccountOwnerUser(
+  accountId: string,
+): Promise<AccountOwnerUserRow | null> {
+  const [row] = await sql<AccountOwnerUserRow[]>`
+    SELECT u.id, u.name, u.email
+    FROM accounts a
+    JOIN users u ON u.id = a.owner_user_id
+    WHERE a.id = ${accountId}::uuid
+    LIMIT 1
+  `;
+
+  return row ?? null;
 }

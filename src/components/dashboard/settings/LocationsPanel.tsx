@@ -251,6 +251,13 @@ function LocationRow({
     active: 'cs-on',
     disconnected: 'cs-soon',
   }[location.zernioStatus];
+  const connectActionLabel = {
+    none: 'Connect Google',
+    pending: 'Continue setup',
+    active: null,
+    disconnected: 'Reconnect Google',
+  }[location.zernioStatus];
+  const connectHref = `/dashboard/connect?locationId=${encodeURIComponent(location.id)}`;
 
   return (
     <div className={`loc-row ${location.isPrimary ? 'primary' : ''}`}>
@@ -322,6 +329,15 @@ function LocationRow({
           >
             <Icon name="check" size={12} /> {promoting ? '…' : 'Make primary'}
           </button>
+        )}
+        {connectActionLabel && (
+          <Link
+            href={connectHref}
+            className="btn btn-primary loc-action-btn"
+            title={`${connectActionLabel} for ${displayName}`}
+          >
+            <Icon name="google" size={12} /> {connectActionLabel}
+          </Link>
         )}
         <a
           href={`/settings/voice`}

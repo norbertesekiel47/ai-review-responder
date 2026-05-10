@@ -111,11 +111,11 @@ describe('Zernio per-location independence (VAL-LOC-074)', () => {
     expect(conn1.location_id).not.toBe(conn2.location_id);
   });
 
-  it('zernio_initial_backfill is enqueued per add-location tx', () => {
-    // VAL-LOC-052: After the add-location transaction commits, the system
-    // enqueues a zernio_initial_backfill job for the new location.
-    // This is verified in add-location-tx.test.ts by the test
-    // "enqueues zernio_initial_backfill outbox row for the new location"
+  it('zernio_initial_backfill is enqueued after per-location connect finalize', () => {
+    // The add-location transaction cannot enqueue Zernio backfill yet because
+    // the new location has no zernio_connections row. Backfill is queued by
+    // /api/zernio/connect/select-location after selectLocation succeeds and
+    // the account/location rows have been scoped and locked.
     expect(true).toBe(true);
   });
 

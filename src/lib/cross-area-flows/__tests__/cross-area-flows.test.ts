@@ -50,6 +50,7 @@ vi.mock('@/lib/locations/repo', () => ({
 
 vi.mock('@/lib/accounts/repo', () => ({
   getAccountById: vi.fn(),
+  getAccountOwnerUser: vi.fn(),
   getAccountOwnerUserId: vi.fn(),
 }));
 
@@ -61,7 +62,7 @@ import { resolveChannels, invalidateChannelCache } from '@/lib/notifications/res
 import { isAccountActive } from '@/lib/db/account-guard';
 import { parseCsv, validateRow, processRow, writeCsvImportAuditLog } from '@/lib/admin/csv-import';
 import { getActiveLocationCount, getLocationsForAccount, getLocationById } from '@/lib/locations/repo';
-import { getAccountById, getAccountOwnerUserId } from '@/lib/accounts/repo';
+import { getAccountById, getAccountOwnerUser, getAccountOwnerUserId } from '@/lib/accounts/repo';
 
 // ── Test data setup ──────────────────────────────────────────────────────
 
@@ -76,6 +77,7 @@ beforeEach(() => {
   vi.mocked(getLocationsForAccount).mockReset();
   vi.mocked(getLocationById).mockReset();
   vi.mocked(getAccountById).mockReset();
+  vi.mocked(getAccountOwnerUser).mockReset();
   vi.mocked(getAccountOwnerUserId).mockReset();
 });
 
@@ -153,6 +155,8 @@ describe('VAL-CROSS-001: Signup-to-multi-location end-to-end', () => {
       googlePlaceId: 'ChIJ_west',
       placeIdVerified: true,
       actorUserId: 'user-001',
+      ownerName: 'Test Owner',
+      ownerEmail: 'owner@test.com',
       subscriptionTier: SubscriptionTier.STANDARD,
       subscriptionStatus: SubscriptionStatus.ACTIVE,
       activeLocationsBefore: 1,
@@ -604,6 +608,11 @@ Uptown Diner,ChIJ003,casual`;
       .mockResolvedValueOnce(3); // before row 3
 
     vi.mocked(getAccountById).mockResolvedValue(account);
+    vi.mocked(getAccountOwnerUser).mockResolvedValue({
+      id: 'admin-user',
+      name: 'Test Owner',
+      email: 'owner@test.com',
+    });
     vi.mocked(getAccountOwnerUserId).mockResolvedValue('admin-user');
 
     // Mock sql for assertCanAddLocation calls (3 calls, each returning allowed)
