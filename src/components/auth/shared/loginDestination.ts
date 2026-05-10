@@ -32,8 +32,10 @@ export interface SignupStatusPayload {
 export function applySubscriptionGuard(
   portal: AuthFlow,
   status: SignupStatusPayload | undefined,
+  from = '',
 ): string | null {
   if (portal !== 'owner' || !status) return null;
+  if (from.startsWith('/onboarding') && !from.startsWith('//')) return null;
   if (status.subscriptionStatus === 'pending_payment') return '/onboarding/pay';
   if (status.subscriptionStatus === 'active' && status.businessOnboarded === false) {
     return '/onboarding/business';

@@ -566,3 +566,201 @@
   background: var(--rw-app-border-soft);
   margin: 4px -4px;
 }
+
+/* Quota bar */
+.quota-bar-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.quota-bar-label {
+  font-size: 13px;
+  color: #374151;
+}
+.quota-bar-label strong {
+  font-weight: 700;
+  color: var(--rw-app-text);
+}
+.quota-bar-track {
+  height: 10px;
+  background: #F3F4F6;
+  border-radius: 9999px;
+  overflow: hidden;
+  display: flex;
+}
+.quota-bar-fill {
+  height: 100%;
+  border-radius: 9999px;
+  transition: width 320ms var(--rw-ease);
+}
+.quota-bar-fill.included {
+  background: var(--rw-blue-500);
+}
+.quota-bar-fill.overage {
+  background: #F59E0B;
+  border-radius: 0 9999px 9999px 0;
+}
+
+/* Locations list */
+.loc-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.loc-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid var(--rw-app-border);
+  border-radius: 10px;
+  background: #fff;
+  transition: border-color 160ms var(--rw-ease);
+}
+.loc-row.primary {
+  border-color: var(--rw-blue-500);
+  background: linear-gradient(180deg, #EFF6FF66 0%, #fff 100%);
+}
+.loc-row-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.loc-row-name-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.loc-row-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--rw-app-text);
+}
+.loc-row-edit-btn {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #9CA3AF;
+  cursor: pointer;
+  transition: all 140ms var(--rw-ease);
+  padding: 0;
+}
+.loc-row-edit-btn:hover {
+  color: var(--rw-blue-700);
+  background: var(--rw-blue-50);
+  border-color: #BFDBFE;
+}
+.loc-row-edit {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.loc-row-edit .input {
+  flex: 1;
+  padding: 6px 10px;
+  font-weight: 600;
+}
+.primary-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  background: var(--rw-blue-100);
+  color: var(--rw-blue-800);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.loc-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+.loc-row-address {
+  font-size: 13px;
+  color: var(--rw-app-muted, #6B7280);
+  margin-top: 2px;
+}
+.loc-row-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-top: 4px;
+  border-top: 1px solid var(--rw-app-border-soft);
+}
+.loc-action-btn {
+  padding: 6px 12px !important;
+  font-size: 12px !important;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.zernio-status {
+  font-size: 11px !important;
+}
+
+/* Modal overlay */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(0,0,0,0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 160ms var(--rw-ease);
+}
+.modal-content {
+  background: #fff;
+  border-radius: 14px;
+  padding: 24px;
+  max-width: 420px;
+  width: 90%;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+  animation: fadeUp 200ms var(--rw-ease);
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Button base styles (used by secondary/primary/danger) */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: var(--rw-font-body);
+  border: 1px solid transparent;
+  transition: all 140ms var(--rw-ease);
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.btn-primary {
+  background: var(--rw-blue-600);
+  color: #fff;
+  border-color: var(--rw-blue-600);
+}
+.btn-primary:hover:not(:disabled) { background: var(--rw-blue-700); }
+.btn-secondary {
+  background: #fff;
+  color: #374151;
+  border-color: var(--rw-app-border);
+}
+.btn-secondary:hover:not(:disabled) { background: #F9FAFB; border-color: #9CA3AF; }

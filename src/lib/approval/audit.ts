@@ -32,6 +32,21 @@ export type {
   CallbackAuditArtifacts,
 } from './types';
 
+// ── Account ID resolution ───────────────────────────────────────────────
+// VAL-APPROVAL-008: Every audit log row includes both business_id (location)
+// and account_id (denormalized). account_id is resolved from businesses at
+// write time.
+
+async function resolveAccountIdFromBusiness(
+  tx: TxClient,
+  businessId: string,
+): Promise<string> {
+  const [row] = await tx<{ account_id: string }[]>`
+    SELECT account_id FROM businesses WHERE id = ${businessId}
+  `;
+  return row?.account_id ?? '';
+}
+
 // ── Insert helpers ────────────────────────────────────────────────────────
 
 export async function insertAuditLog(
@@ -42,12 +57,14 @@ export async function insertAuditLog(
   audit: AuditContext,
   metadata?: Record<string, unknown>,
 ): Promise<void> {
+  const accountId = await resolveAccountIdFromBusiness(tx, businessId);
   await tx`
-    INSERT INTO approval_audit_log (id, response_id, business_id, token_hash, device_cookie_hash, action, ip_address, metadata)
+    INSERT INTO approval_audit_log (id, response_id, business_id, account_id, token_hash, device_cookie_hash, action, ip_address, metadata)
     VALUES (
       ${uuidv7()},
       ${responseId},
       ${businessId},
+      ${accountId},
       ${audit.tokenHash},
       ${audit.deviceCookieHash},
       ${action},
@@ -65,10 +82,11 @@ export async function insertAuditLogSession(
   audit: SessionAuditContext,
   metadata?: Record<string, unknown>,
 ): Promise<void> {
+  const accountId = await resolveAccountIdFromBusiness(tx, businessId);
   await tx`
-    INSERT INTO approval_audit_log (id, response_id, business_id, token_hash, device_cookie_hash, action, ip_address, metadata, actor_user_id, auth_method)
+    INSERT INTO approval_audit_log (id, response_id, business_id, account_id, token_hash, device_cookie_hash, action, ip_address, metadata, actor_user_id, auth_method)
     VALUES (
-      ${uuidv7()}, ${responseId}, ${businessId}, ${null}, ${null},
+      ${uuidv7()}, ${responseId}, ${businessId}, ${accountId}, ${null}, ${null},
       ${action}, ${audit.ipAddress}, ${jsonb(metadata ?? {})},
       ${audit.actorUserId}, 'owner_session'
     )

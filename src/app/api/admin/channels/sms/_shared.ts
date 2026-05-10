@@ -9,6 +9,7 @@
 
 import { NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
+import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 
 // ── Flag gate ────────────────────────────────────────────────────────
 
@@ -46,12 +47,21 @@ export function assertSmsEnvReady(): NextResponse | null {
 
 // ── Subscription gate ────────────────────────────────────────────────
 
-/** Loads the business subscription_status. Returns null if the business doesn't exist. */
+/** Loads the account subscription_status via the business's account_id. Returns null if the business doesn't exist. */
 export async function loadBusinessSubscriptionStatus(businessId: string): Promise<string | null> {
+  // After migration 034, subscription_status source of truth is accounts.
   const rows = await sql<{ subscription_status: string }[]>`
-    SELECT subscription_status FROM businesses WHERE id = ${businessId}
+    SELECT a.subscription_status
+    FROM accounts a
+    JOIN businesses b ON b.account_id = a.id
+    WHERE b.id = ${businessId}
   `;
   return rows[0]?.subscription_status ?? null;
+}
+
+/** Returns true when the business's account has an active subscription. */
+export function isSubscriptionActive(status: string | null): status is typeof SubscriptionStatus.ACTIVE {
+  return status === SubscriptionStatus.ACTIVE;
 }
 
 /** 403 response for business not in 'active' subscription state. */

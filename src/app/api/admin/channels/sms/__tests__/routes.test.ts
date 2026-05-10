@@ -105,7 +105,8 @@ function resetMocks() {
   mockRequireRole.mockResolvedValue({
     id: 'admin-1',
     role: 'admin',
-    businessId: null,
+    accountId: null,
+    locationId: null,
     name: 'Admin',
     email: 'a@b.com',
   });
@@ -299,6 +300,7 @@ describe('POST /api/admin/channels/sms/verify', () => {
     sqlReturnQueue.push([]);                       // opt-out — not present
     sqlReturnQueue.push([]);                       // mobile pre-check — no other channels
     sqlReturnQueue.push([]);                       // post-Twilio opt-out re-check
+    sqlReturnQueue.push([{ account_id: 'acct-1' }]); // SELECT account_id from businesses
     sqlReturnQueue.push([]);                       // INSERT
     const res = await verifyPOST(adminReq({ business_id: 'biz', phone: '+14155552671' }));
     expect(res.status).toBe(200);

@@ -41,6 +41,7 @@ export type StartTelegramResult = { kind: 'ok' } | { kind: 'already_verified' };
 export async function startTelegramEnrollment(
   tx: TxLike,
   businessId: string,
+  accountId: string,
   tokenHash: string,
   expiresAt: Date,
 ): Promise<StartTelegramResult> {
@@ -72,9 +73,9 @@ export async function startTelegramEnrollment(
     } else {
       await tx`
         INSERT INTO channel_enrollments
-          (id, business_id, channel, status, verification_token_hash, verification_token_expires_at)
+          (id, account_id, business_id, channel, status, verification_token_hash, verification_token_expires_at)
         VALUES
-          (${uuidv7()}, ${businessId}, 'telegram', 'pending_verification', ${tokenHash}, ${expiresAt})
+          (${uuidv7()}, ${accountId}, ${businessId}, 'telegram', 'pending_verification', ${tokenHash}, ${expiresAt})
       `;
     }
   } catch (err) {

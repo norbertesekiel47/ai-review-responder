@@ -24,16 +24,20 @@
 //   3. Single CTE inside the lock.
 
 import { NextRequest, NextResponse } from 'next/server';
+import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import {
   isSmsEnabled,
   flagOff,
   assertSmsEnvReady,
   loadBusinessSubscriptionStatus,
+  isSubscriptionActive,
   subscriptionNotActive,
   withMobileEnrollmentLock,
   badRequest,
 } from '../_shared';
+import { asLocationId, asAccountId } from '@/lib/shared/ids';
+import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
 
 interface CancelBody {
   business_id?: string;
@@ -54,13 +58,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   const body = (await request.json()) as CancelBody;
-  const businessId = body.business_id;
-  if (!businessId) return badRequest('business_id_required');
+  const rawBusinessId = body.business_id;
+  if (!rawBusinessId) return badRequest('business_id_required');
+  const businessId = asLocationId(rawBusinessId);
 
   const subStatus = await loadBusinessSubscriptionStatus(businessId);
-  if (subStatus !== 'active') return subscriptionNotActive();
+  if (!isSubscriptionActive(subStatus)) return subscriptionNotActive();
 
-  return withMobileEnrollmentLock(businessId, async (tx) => {
+  const result = await withMobileEnrollmentLock(businessId, async (tx) => {
     // State-revert CTE: UPDATE in-place based on prior terminal timestamps,
     // then DELETE any rows that remained 'pending_verification' (brand-new).
     await tx`
@@ -82,4 +87,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     `;
     return NextResponse.json({ ok: true });
   });
+
+  // Invalidate channel cache — the cancelled verification changes which
+  // channels are available for dispatch.
+  const [acctRow] = await sql<{ account_id: string }[]>`
+    SELECT account_id FROM businesses WHERE id = ${businessId}
+  `;
+  if (acctRow?.account_id) {
+    await safeInvalidateChannelCache(asAccountId(acctRow.account_id), 'admin.sms.cancel');
+  }
+
+  return result;
 }

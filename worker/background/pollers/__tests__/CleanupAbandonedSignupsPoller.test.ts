@@ -90,7 +90,6 @@ import {
 // 4. Helpers.
 // ---------------------------------------------------------------------------
 type Candidate = {
-  business_id: string;
   user_id: string;
   owner_email: string;
   auth_id: string;
@@ -98,7 +97,6 @@ type Candidate = {
 
 function makeCandidate(overrides: Partial<Candidate> = {}): Candidate {
   return {
-    business_id: overrides.business_id ?? 'biz-1',
     user_id: overrides.user_id ?? 'user-1',
     owner_email: overrides.owner_email ?? 'owner@example.com',
     auth_id: overrides.auth_id ?? 'auth-1',
@@ -106,51 +104,29 @@ function makeCandidate(overrides: Partial<Candidate> = {}): Candidate {
 }
 
 /**
- * Seed the rows for a "clean" (no refs) candidate. After the TOCTOU fix the
- * tx now does:
+ * Seed the rows for a "clean" (no refs) candidate. The tx now does:
  *   1. pg_advisory_xact_lock(:signup)
- *   2. pg_advisory_xact_lock(:activation)
- *   3. SELECT businesses ... FOR UPDATE  (re-validate predicates)
- *   4. SELECT users ... FOR UPDATE       (re-validate role + auth_id)
- *   5. SELECT EXISTS refs                (no orphan-FK collisions)
- *   6. supabase.auth.admin.deleteUser    (mocked separately)
- *   7. DELETE FROM users
- *   8. DELETE FROM businesses
+ *   2. SELECT users ... FOR UPDATE       (re-validate role + auth_id + account_id)
+ *   3. SELECT EXISTS refs                (no orphan-FK collisions)
+ *   4. supabase.auth.admin.deleteUser    (mocked separately)
+ *   5. DELETE FROM onboarding_demos
+ *   6. DELETE FROM users
  *
  * Caller still provides the candidates list as the first queued row.
  */
 function seedCleanCandidateRows() {
   const oldEnough = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
   sqlQueue.push([{}]); // pg_advisory_xact_lock(:signup)
-  sqlQueue.push([{}]); // pg_advisory_xact_lock(:activation)
-  sqlQueue.push([
-    {
-      subscription_status: 'pending_payment',
-      stripe_customer_id: null,
-      onboarded_by: null,
-      created_at: oldEnough,
-    },
-  ]); // SELECT businesses FOR UPDATE
-  sqlQueue.push([{ auth_id: 'auth-1', role: 'owner' }]); // SELECT users FOR UPDATE
+  sqlQueue.push([{ auth_id: 'auth-1', role: 'owner', account_id: null, created_at: oldEnough }]); // SELECT users FOR UPDATE
   sqlQueue.push([{ has_onboarded: false, has_prospect_demos: false }]); // refs check
   sqlQueue.push([]); // DELETE FROM onboarding_demos (PR #2 explicit cascade)
   sqlQueue.push([]); // DELETE FROM users
-  sqlQueue.push([]); // DELETE FROM businesses
 }
 
 function seedRefsCollisionRows(has_onboarded: boolean, has_prospect_demos: boolean) {
   const oldEnough = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
   sqlQueue.push([{}]); // pg_advisory_xact_lock(:signup)
-  sqlQueue.push([{}]); // pg_advisory_xact_lock(:activation)
-  sqlQueue.push([
-    {
-      subscription_status: 'pending_payment',
-      stripe_customer_id: null,
-      onboarded_by: null,
-      created_at: oldEnough,
-    },
-  ]); // SELECT businesses FOR UPDATE
-  sqlQueue.push([{ auth_id: 'auth-1', role: 'owner' }]); // SELECT users FOR UPDATE
+  sqlQueue.push([{ auth_id: 'auth-1', role: 'owner', account_id: null, created_at: oldEnough }]); // SELECT users FOR UPDATE
   sqlQueue.push([{ has_onboarded, has_prospect_demos }]); // refs check — skip branch
 }
 
@@ -198,7 +174,7 @@ describe('CleanupAbandonedSignupsPoller', () => {
       expect(String(logCall![0])).toContain('deleted=0');
     });
 
-    it('self-serve candidate with no refs: advisory lock, supabase delete, users+businesses delete', async () => {
+    it('self-serve candidate with no refs: advisory lock, supabase delete, users delete', async () => {
       sqlQueue.push([makeCandidate()]); // candidates query
       seedCleanCandidateRows();
       mockSupabaseDeleteUser.mockResolvedValueOnce({ data: null, error: null });
@@ -222,16 +198,17 @@ describe('CleanupAbandonedSignupsPoller', () => {
       expect(mockSupabaseDeleteUser).toHaveBeenCalledOnce();
       expect(mockSupabaseDeleteUser).toHaveBeenCalledWith('auth-1');
 
-      // DELETE FROM users BEFORE businesses (FK-aware ordering)
+      // DELETE FROM users was issued
       const deleteUsersIdx = sqlCalls.findIndex(
         (c) => c.template.includes('DELETE FROM users'),
       );
+      expect(deleteUsersIdx).toBeGreaterThanOrEqual(0);
+
+      // No DELETE FROM businesses (abandoned signups have no account, no business to delete)
       const deleteBusinessesIdx = sqlCalls.findIndex(
         (c) => c.template.includes('DELETE FROM businesses'),
       );
-      expect(deleteUsersIdx).toBeGreaterThanOrEqual(0);
-      expect(deleteBusinessesIdx).toBeGreaterThanOrEqual(0);
-      expect(deleteUsersIdx).toBeLessThan(deleteBusinessesIdx);
+      expect(deleteBusinessesIdx).toBeLessThan(0);
 
       // Run-complete log records 1 deleted
       const logCall = mockLoggerLog.mock.calls.find((args) =>
@@ -241,7 +218,7 @@ describe('CleanupAbandonedSignupsPoller', () => {
       expect(String(logCall![0])).toContain('skipped_refs=0');
     });
 
-    it('candidates SQL filter enforces self-serve scope (onboarded_by IS NULL + auth_id IS NOT NULL)', async () => {
+    it('candidates SQL filter enforces abandoned-signup scope (no account + auth_id IS NOT NULL)', async () => {
       sqlQueue.push([]); // candidates query — empty result fine for template-assertion
 
       await runOnce();
@@ -249,14 +226,14 @@ describe('CleanupAbandonedSignupsPoller', () => {
       // Candidates SELECT is now sqlCalls[1] — sqlCalls[0] is the
       // top-of-loop stale-onboarding-demos DELETE (Task 15 PR #2).
       const candidatesCall = sqlCalls.find((c) =>
-        c.template.includes('SELECT b.id AS business_id'),
+        c.template.includes('SELECT u.id AS user_id'),
       );
       expect(candidatesCall).toBeDefined();
-      expect(candidatesCall!.template).toContain('onboarded_by IS NULL');
       expect(candidatesCall!.template).toContain('auth_id IS NOT NULL');
-      expect(candidatesCall!.template).toContain("subscription_status = 'pending_payment'");
-      expect(candidatesCall!.template).toContain('stripe_customer_id IS NULL');
+      expect(candidatesCall!.template).toContain('a.id IS NULL');
       expect(candidatesCall!.template).toContain("INTERVAL '7 days'");
+      // LEFT JOIN accounts is used instead of reading businesses.subscription_status
+      expect(candidatesCall!.template).toContain('LEFT JOIN accounts a ON a.owner_user_id = u.id');
 
       // Stale-cleanup DELETE was the very first query.
       const staleCall = sqlCalls.find((c) =>
@@ -276,9 +253,7 @@ describe('CleanupAbandonedSignupsPoller', () => {
 
       // No DELETE issued
       const deleteUsers = sqlCalls.find((c) => c.template.includes('DELETE FROM users'));
-      const deleteBizzes = sqlCalls.find((c) => c.template.includes('DELETE FROM businesses'));
       expect(deleteUsers).toBeUndefined();
-      expect(deleteBizzes).toBeUndefined();
 
       expect(mockLoggerWarn).toHaveBeenCalled();
       const warnCall = mockLoggerWarn.mock.calls.find((args) =>
@@ -311,25 +286,21 @@ describe('CleanupAbandonedSignupsPoller', () => {
     });
 
     // TOCTOU regression guard — without the FOR UPDATE re-check inside the tx,
-    // a Stripe activation between SELECT (line 38) and DELETE (line 125) would
-    // delete a paid customer. This test simulates that race: the candidate
-    // list contains the row, but by the time the tx acquires its locks the
-    // business has flipped to subscription_status='active'. Expect: no DELETE,
+    // an account creation between SELECT and DELETE would delete a paid
+    // customer's user. This test simulates that race: the candidate list
+    // contains the row, but by the time the tx acquires its locks the user
+    // has an account_id set (account was created mid-cycle). Expect: no DELETE,
     // no Supabase admin call, run-complete log shows skipped_state_changed=1.
-    it('TOCTOU: state changed (subscription_status active) between SELECT and tx — skipped, no delete', async () => {
+    it('TOCTOU: state changed (account created) between SELECT and tx — skipped, no delete', async () => {
       sqlQueue.push([makeCandidate()]); // candidates query
       sqlQueue.push([{}]); // pg_advisory_xact_lock(:signup)
-      sqlQueue.push([{}]); // pg_advisory_xact_lock(:activation)
-      // SELECT businesses FOR UPDATE returns the row but with status flipped.
-      sqlQueue.push([
-        {
-          subscription_status: 'active', // ← Stripe activated mid-cycle
-          stripe_customer_id: 'cus_test_1',
-          onboarded_by: null,
-          created_at: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000),
-        },
-      ]);
-      sqlQueue.push([{ auth_id: 'auth-1', role: 'owner' }]); // SELECT users FOR UPDATE
+      // SELECT users FOR UPDATE returns the row but with account_id populated.
+      sqlQueue.push([{
+        auth_id: 'auth-1',
+        role: 'owner',
+        account_id: 'acct-new', // ← Account created mid-cycle
+        created_at: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000),
+      }]);
 
       await runOnce();
 
@@ -341,11 +312,7 @@ describe('CleanupAbandonedSignupsPoller', () => {
       const deleteUsers = sqlCalls.find((c) =>
         c.template.includes('DELETE FROM users'),
       );
-      const deleteBizzes = sqlCalls.find((c) =>
-        c.template.includes('DELETE FROM businesses'),
-      );
       expect(deleteUsers).toBeUndefined();
-      expect(deleteBizzes).toBeUndefined();
 
       const logCall = mockLoggerLog.mock.calls.find((args) =>
         String(args[0]).includes('Run complete'),
@@ -354,19 +321,15 @@ describe('CleanupAbandonedSignupsPoller', () => {
       expect(String(logCall![0])).toContain('deleted=0');
     });
 
-    it('TOCTOU: state changed (stripe_customer_id populated) between SELECT and tx — skipped', async () => {
+    it('TOCTOU: user auth_id changed between SELECT and tx — skipped', async () => {
       sqlQueue.push([makeCandidate()]);
       sqlQueue.push([{}]); // pg_advisory_xact_lock(:signup)
-      sqlQueue.push([{}]); // pg_advisory_xact_lock(:activation)
-      sqlQueue.push([
-        {
-          subscription_status: 'pending_payment', // status didn't flip
-          stripe_customer_id: 'cus_test_1', // ← but Stripe attached the customer
-          onboarded_by: null,
-          created_at: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000),
-        },
-      ]);
-      sqlQueue.push([{ auth_id: 'auth-1', role: 'owner' }]);
+      sqlQueue.push([{
+        auth_id: 'auth-different', // ← auth_id was changed
+        role: 'owner',
+        account_id: null,
+        created_at: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000),
+      }]);
 
       await runOnce();
 
@@ -381,12 +344,10 @@ describe('CleanupAbandonedSignupsPoller', () => {
       expect(String(logCall![0])).toContain('skipped_state_changed=1');
     });
 
-    it('TOCTOU: business row vanished between SELECT and tx — skipped (cleanly), no delete', async () => {
+    it('TOCTOU: user row vanished between SELECT and tx — skipped (cleanly), no delete', async () => {
       sqlQueue.push([makeCandidate()]);
       sqlQueue.push([{}]); // pg_advisory_xact_lock(:signup)
-      sqlQueue.push([{}]); // pg_advisory_xact_lock(:activation)
-      sqlQueue.push([]); // SELECT businesses FOR UPDATE returns NO row
-      sqlQueue.push([]); // SELECT users FOR UPDATE also empty
+      sqlQueue.push([]); // SELECT users FOR UPDATE returns NO row
 
       await runOnce();
 
@@ -409,9 +370,11 @@ describe('CleanupAbandonedSignupsPoller', () => {
 
       // DB delete still ran despite the 404
       const deleteUsers = sqlCalls.find((c) => c.template.includes('DELETE FROM users'));
-      const deleteBizzes = sqlCalls.find((c) => c.template.includes('DELETE FROM businesses'));
       expect(deleteUsers).toBeDefined();
-      expect(deleteBizzes).toBeDefined();
+
+      // No businesses to delete (abandoned signups have no account)
+      const deleteBizzes = sqlCalls.find((c) => c.template.includes('DELETE FROM businesses'));
+      expect(deleteBizzes).toBeUndefined();
 
       // Counted as deleted
       const logCall = mockLoggerLog.mock.calls.find((args) =>
@@ -422,22 +385,13 @@ describe('CleanupAbandonedSignupsPoller', () => {
 
     it('Supabase non-404 error: tx rolls back, error logged, loop continues to next candidate', async () => {
       sqlQueue.push([
-        makeCandidate({ business_id: 'biz-1', user_id: 'user-1', auth_id: 'auth-1', owner_email: 'a@e.com' }),
-        makeCandidate({ business_id: 'biz-2', user_id: 'user-2', auth_id: 'auth-2', owner_email: 'b@e.com' }),
+        makeCandidate({ user_id: 'user-1', auth_id: 'auth-1', owner_email: 'a@e.com' }),
+        makeCandidate({ user_id: 'user-2', auth_id: 'auth-2', owner_email: 'b@e.com' }),
       ]);
       const oldEnough = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
       // Candidate 1: passes TOCTOU re-check, refs check, then supabase ERRORS.
       sqlQueue.push([{}]); // pg_advisory_xact_lock(:signup) (candidate 1)
-      sqlQueue.push([{}]); // pg_advisory_xact_lock(:activation) (candidate 1)
-      sqlQueue.push([
-        {
-          subscription_status: 'pending_payment',
-          stripe_customer_id: null,
-          onboarded_by: null,
-          created_at: oldEnough,
-        },
-      ]); // SELECT businesses FOR UPDATE
-      sqlQueue.push([{ auth_id: 'auth-1', role: 'owner' }]); // SELECT users FOR UPDATE
+      sqlQueue.push([{ auth_id: 'auth-1', role: 'owner', account_id: null, created_at: oldEnough }]); // SELECT users FOR UPDATE
       sqlQueue.push([{ has_onboarded: false, has_prospect_demos: false }]); // refs check
       mockSupabaseDeleteUser.mockResolvedValueOnce({
         data: null,
@@ -445,20 +399,10 @@ describe('CleanupAbandonedSignupsPoller', () => {
       });
       // Candidate 2: clean path succeeds
       sqlQueue.push([{}]); // pg_advisory_xact_lock(:signup) (candidate 2)
-      sqlQueue.push([{}]); // pg_advisory_xact_lock(:activation) (candidate 2)
-      sqlQueue.push([
-        {
-          subscription_status: 'pending_payment',
-          stripe_customer_id: null,
-          onboarded_by: null,
-          created_at: oldEnough,
-        },
-      ]); // SELECT businesses FOR UPDATE (candidate 2)
-      sqlQueue.push([{ auth_id: 'auth-2', role: 'owner' }]); // SELECT users FOR UPDATE (candidate 2)
+      sqlQueue.push([{ auth_id: 'auth-2', role: 'owner', account_id: null, created_at: oldEnough }]); // SELECT users FOR UPDATE (candidate 2)
       sqlQueue.push([{ has_onboarded: false, has_prospect_demos: false }]); // refs check
       sqlQueue.push([]); // DELETE FROM onboarding_demos (PR #2 explicit cascade)
       sqlQueue.push([]); // DELETE users
-      sqlQueue.push([]); // DELETE businesses
       mockSupabaseDeleteUser.mockResolvedValueOnce({ data: null, error: null });
 
       await runOnce();
@@ -489,7 +433,7 @@ describe('CleanupAbandonedSignupsPoller', () => {
 
       // sqlCalls[0] is the stale-cleanup DELETE; locate the candidates SELECT.
       const candidatesCall = sqlCalls.find((c) =>
-        c.template.includes('SELECT b.id AS business_id'),
+        c.template.includes('SELECT u.id AS user_id'),
       );
       expect(candidatesCall).toBeDefined();
       expect(candidatesCall!.values).toContain(5);
@@ -501,7 +445,7 @@ describe('CleanupAbandonedSignupsPoller', () => {
       await runOnce();
 
       const candidatesCall = sqlCalls.find((c) =>
-        c.template.includes('SELECT b.id AS business_id'),
+        c.template.includes('SELECT u.id AS user_id'),
       );
       expect(candidatesCall!.values).toContain(100);
     });
@@ -513,7 +457,7 @@ describe('CleanupAbandonedSignupsPoller', () => {
       await runOnce();
 
       const candidatesCall = sqlCalls.find((c) =>
-        c.template.includes('SELECT b.id AS business_id'),
+        c.template.includes('SELECT u.id AS user_id'),
       );
       expect(candidatesCall!.values).toContain(100);
     });

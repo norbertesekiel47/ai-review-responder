@@ -43,7 +43,7 @@ function bouncedBusiness(overrides: Record<string, unknown> = {}) {
     owner_email: 'bounced@example.com',
     owner_email_bounced: true,
     subscription_status: 'active',
-    updated_at: new Date(),
+    account_updated_at: new Date(),
     ...overrides,
   };
 }

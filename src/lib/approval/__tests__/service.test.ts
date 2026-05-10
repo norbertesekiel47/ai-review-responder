@@ -125,13 +125,15 @@ describe('establishApprovalSession', () => {
       [{ device_cookie_hash: null, response_id: 'resp-1', business_id: 'biz-1' }],
       // UPDATE approval_links SET device_cookie_hash
       [],
+      // resolveAccountIdFromBusiness: SELECT account_id FROM businesses
+      [{ account_id: 'acc-1' }],
       // INSERT audit log
       [],
     ]);
 
     await establishApprovalSession(tx, 'link-1', 'device-hash-abc', AUDIT);
 
-    expect(tx).toHaveBeenCalledTimes(3);
+    expect(tx).toHaveBeenCalledTimes(4);
   });
 
   it('throws DeviceConflictError on different device', async () => {
@@ -166,13 +168,15 @@ describe('approve', () => {
       [],
       // INSERT INTO job_outbox
       [],
+      // resolveAccountIdFromBusiness: SELECT account_id FROM businesses
+      [{ account_id: 'acc-1' }],
       // insertAuditLog: INSERT INTO approval_audit_log
       [],
     ]);
 
     await approve(tx, link, 'device-hash-abc', AUDIT, 'test-correlation-xyz');
 
-    expect(tx).toHaveBeenCalledTimes(6);
+    expect(tx).toHaveBeenCalledTimes(7);
 
     // Verify the outbox INSERT received the correct publish_response payload.
     // The outbox INSERT binds payload via jsonb(payload) — the test mock of
@@ -220,13 +224,15 @@ describe('edit', () => {
       [],
       // INSERT INTO job_outbox
       [],
+      // resolveAccountIdFromBusiness: SELECT account_id FROM businesses
+      [{ account_id: 'acc-1' }],
       // insertAuditLog
       [],
     ]);
 
     await edit(tx, link, editedText, 'device-hash-abc', AUDIT, 'test-correlation-xyz');
 
-    expect(tx).toHaveBeenCalledTimes(6);
+    expect(tx).toHaveBeenCalledTimes(7);
 
     // Verify the edit distance was computed correctly
     const { distance } = await import('fastest-levenshtein');
@@ -283,13 +289,15 @@ describe('regenerate', () => {
       [],
       // INSERT INTO job_outbox (generate_response)
       [],
+      // resolveAccountIdFromBusiness: SELECT account_id FROM businesses
+      [{ account_id: 'acc-1' }],
       // insertAuditLog
       [],
     ]);
 
     await regenerate(tx, link, 'device-hash-abc', AUDIT, 'test-correlation-xyz');
 
-    expect(tx).toHaveBeenCalledTimes(6);
+    expect(tx).toHaveBeenCalledTimes(7);
 
     // Verify the outbox INSERT received the correct generate_response payload.
     // Literal SQL strings like 'generate_response' are part of the template, not interpolated.

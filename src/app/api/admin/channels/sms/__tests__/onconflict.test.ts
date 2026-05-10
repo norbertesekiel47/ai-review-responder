@@ -21,7 +21,16 @@ const { sqlCalls, mockSql } = vi.hoisted(() => {
   // carries `count` (for callers that check result.count like PATCH does).
   const mockSql: any = vi.fn((strings: TemplateStringsArray, ..._values: unknown[]) => {
     if (Array.isArray(strings) && 'raw' in (strings as any)) {
-      sqlCalls.push(strings.join('?'));
+      const text = strings.join('?');
+      sqlCalls.push(text);
+      // After migration 034, business-detail-service queries account_id
+      // from businesses before the channel_enrollments INSERT. Return a
+      // row so the INSERT path is taken (not the error-throw path).
+      if (/SELECT account_id FROM businesses/i.test(text)) {
+        const promise: any = Promise.resolve([{ account_id: 'acct-1' }]);
+        promise.count = 1;
+        return promise;
+      }
     }
     const promise: any = Promise.resolve([]);
     promise.count = 1; // non-zero so PATCH doesn't throw BusinessNotFoundError
@@ -82,7 +91,8 @@ vi.mock('@/lib/db/auth', () => ({
     name: 'Admin',
     email: 'admin@example.com',
     role: 'admin',
-    businessId: null,
+    accountId: null,
+    locationId: null,
   }),
   AuthError: class AuthError extends Error {
     statusCode: number;
@@ -152,8 +162,11 @@ describe('Phase 0 email enrollment upserts — ON CONFLICT regression', () => {
       upsertCall,
       'expected an INSERT against channel_enrollments with email literal',
     ).toBeDefined();
+    // After migration 034, the ON CONFLICT target changed from
+    // (business_id, channel) to (account_id, channel, COALESCE(location_id, ...))
+    // to support multi-location per-account overrides.
     expect(upsertCall!).toMatch(
-      /ON CONFLICT \(business_id, channel\) WHERE archived_at IS NULL/,
+      /ON CONFLICT \(account_id, channel, COALESCE\(location_id,/,
     );
   });
 
@@ -178,8 +191,9 @@ describe('Phase 0 email enrollment upserts — ON CONFLICT regression', () => {
       upsertCall,
       'expected an INSERT against channel_enrollments with email literal',
     ).toBeDefined();
+    // After migration 034, ON CONFLICT target uses account_id + location_id scope.
     expect(upsertCall!).toMatch(
-      /ON CONFLICT \(business_id, channel\) WHERE archived_at IS NULL/,
+      /ON CONFLICT \(account_id, channel, COALESCE\(location_id,/,
     );
   });
 });

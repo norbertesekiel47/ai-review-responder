@@ -82,7 +82,10 @@ async function runEngagementCheck(): Promise<void> {
   try {
     const rows = await sql<BusinessMetrics[]>`
       WITH active_biz AS (
-        SELECT id, owner_email_bounced FROM businesses WHERE subscription_status = 'active'
+        SELECT b.id, b.owner_email_bounced
+        FROM businesses b
+        JOIN accounts a ON a.id = b.account_id
+        WHERE a.subscription_status = 'active'
       ),
       response_metrics AS (
         SELECT

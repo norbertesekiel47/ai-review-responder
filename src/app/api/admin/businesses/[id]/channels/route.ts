@@ -7,6 +7,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
+import { asLocationId } from '@/lib/shared/ids';
+import type { LocationId } from '@/lib/shared/ids';
 
 // Admin/customer data — never cache. Matches the pattern in the existing
 // admin business detail API at src/app/api/admin/businesses/[id]/route.ts:7.
@@ -16,7 +18,8 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
-  const { id: businessId } = await params;
+  const { id: rawBusinessId } = await params;
+  const businessId: LocationId = asLocationId(rawBusinessId);
 
   try {
     await requireRole(request, 'admin', 'sales_partner');

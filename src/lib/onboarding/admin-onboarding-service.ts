@@ -314,13 +314,15 @@ export async function onboardBusinessAsAdmin(
       //      001 line 301), so leaving these rows in place would orphan
       //      pending jobs that the OutboxPoller would then dispatch into
       //      a void (no business_id to look up).
-      //   2. users next — users.business_id is a FK to businesses.id without
-      //      CASCADE so users must be deleted before businesses.
-      //   3. businesses last — channel_enrollments cascade-deletes via
+      //   2. users next — users.account_id is a FK to accounts.id without
+      //      CASCADE so users must be deleted before accounts.
+      //   3. accounts — the accounts row links everything together.
+      //   4. businesses last — channel_enrollments cascade-deletes via
       //      businesses.id ON DELETE CASCADE.
       await sql.begin(async (tx) => {
         await tx`DELETE FROM job_outbox WHERE aggregate_id = ${createdResult.businessId}::uuid`;
         await tx`DELETE FROM users WHERE id = ${createdResult.userId}::uuid`;
+        await tx`DELETE FROM accounts WHERE id = ${createdResult.accountId}::uuid`;
         await tx`DELETE FROM businesses WHERE id = ${createdResult.businessId}::uuid`;
       });
       delete rollback.orphanBusinessId;
@@ -417,6 +419,7 @@ export async function onboardBusinessAsAdmin(
       await sql.begin(async (tx) => {
         await tx`DELETE FROM job_outbox WHERE aggregate_id = ${createdResult.businessId}::uuid`;
         await tx`DELETE FROM users WHERE id = ${createdResult.userId}::uuid`;
+        await tx`DELETE FROM accounts WHERE id = ${createdResult.accountId}::uuid`;
         await tx`DELETE FROM businesses WHERE id = ${createdResult.businessId}::uuid`;
       });
       delete rollback.orphanBusinessId;

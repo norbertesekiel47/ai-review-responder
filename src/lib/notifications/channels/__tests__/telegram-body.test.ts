@@ -3,7 +3,7 @@ import { formatApprovalTelegram } from '../telegram-body';
 
 function sample(overrides: Partial<Parameters<typeof formatApprovalTelegram>[0]> = {}) {
   return {
-    businessName: 'Acme Auto',
+    locationLabel: 'Downtown Cafe',
     reviewerName: 'Jane Doe',
     starRating: 3,
     reviewText: 'Service was okay.',
@@ -16,19 +16,24 @@ function sample(overrides: Partial<Parameters<typeof formatApprovalTelegram>[0]>
 }
 
 describe('formatApprovalTelegram', () => {
-  it('returns text containing business name, star rating, and reviewer', () => {
+  it('returns text containing location label prefix and reviewer', () => {
     const { text } = formatApprovalTelegram(sample());
-    expect(text).toContain('Acme Auto');
+    expect(text).toContain('[Downtown Cafe]');
     expect(text).toContain('Jane Doe');
     expect(text).toContain('⭐3');
   });
 
-  it('HTML-escapes special chars in reviewer name and business name', () => {
+  it('first line format: [locationLabel] New ⭐N from reviewer', () => {
+    const { text } = formatApprovalTelegram(sample());
+    expect(text).toMatch(/\[Downtown Cafe\] New ⭐3 from Jane Doe/);
+  });
+
+  it('HTML-escapes special chars in location label and reviewer name', () => {
     const { text } = formatApprovalTelegram(
-      sample({ reviewerName: 'Tom & Jerry <>', businessName: 'A & B' }),
+      sample({ reviewerName: 'Tom & Jerry <>', locationLabel: 'A & B' }),
     );
     expect(text).toContain('Tom &amp; Jerry &lt;&gt;');
-    expect(text).toContain('A &amp; B');
+    expect(text).toContain('[A &amp; B]');
     expect(text).not.toContain('<>');
   });
 
@@ -94,5 +99,25 @@ describe('formatApprovalTelegram', () => {
     const { inline_keyboard } = formatApprovalTelegram(sample({ approvalLinkId: id }));
     expect(inline_keyboard[0]![0]!.callback_data).toBe(`a:${id}`);
     expect(inline_keyboard[0]![1]!.callback_data).toBe(`r:${id}`);
+  });
+
+  // VAL-NOTIF-011: Template prefix includes [locationLabel]
+  it('VAL-NOTIF-011: includes [locationLabel] prefix in message text', () => {
+    const { text } = formatApprovalTelegram(sample({ locationLabel: 'Downtown Cafe' }));
+    expect(text).toContain('[Downtown Cafe]');
+  });
+
+  // VAL-NOTIF-014: locationLabel falls back to name when display_label is NULL
+  // (the fallback is resolved at the data layer; the template just uses the resolved value)
+  it('VAL-NOTIF-014: uses resolved locationLabel (fallback handled upstream)', () => {
+    // When display_label is NULL, the data layer resolves locationLabel to businesses.name
+    const { text } = formatApprovalTelegram(sample({ locationLabel: 'Acme Inc' }));
+    expect(text).toContain('[Acme Inc]');
+  });
+
+  // Single-location accounts: prefix still shown (no conditional logic)
+  it('prefix is always shown even for single-location accounts', () => {
+    const { text } = formatApprovalTelegram(sample({ locationLabel: 'Only Location' }));
+    expect(text).toContain('[Only Location]');
   });
 });

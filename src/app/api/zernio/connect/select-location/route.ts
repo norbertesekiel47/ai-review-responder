@@ -10,6 +10,7 @@ import {
   ZernioAuthError,
   ZernioValidationError,
 } from '@/lib/zernio/errors';
+import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { zernioClient } from '@/lib/zernio/client';
 import {
   pendingKey,
@@ -91,7 +92,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
     return errorToResponse(err);
   }
-  if (!user.businessId) {
+  if (!user.accountId) {
     return NextResponse.json(
       { error: 'unscoped_owner' },
       { status: 403, headers: NO_STORE },
@@ -159,11 +160,23 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       { status: 403, headers: NO_STORE },
     );
   }
-  if (stored.businessId !== user.businessId) {
-    return NextResponse.json(
-      { error: 'business_mismatch' },
-      { status: 403, headers: NO_STORE },
-    );
+  try {
+    const [business] = await sql<{ exists: number }[]>`
+      SELECT 1 AS exists
+      FROM businesses
+      WHERE id = ${stored.businessId}
+        AND account_id = ${user.accountId}
+        AND archived_at IS NULL
+      LIMIT 1
+    `;
+    if (!business) {
+      return NextResponse.json(
+        { error: 'business_mismatch' },
+        { status: 403, headers: NO_STORE },
+      );
+    }
+  } catch (err) {
+    return errorToResponse(err);
   }
   const locationKnown = stored.locations.some((loc) => loc.id === locationId);
   if (!locationKnown) {
@@ -380,22 +393,70 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const newConnectionId = uuidv7();
     try {
       await sql.begin(async (tx) => {
-        await tx`
-          INSERT INTO zernio_connections (
-            id, business_id, zernio_profile_id, zernio_account_id,
-            zernio_location_id, status, connected_at, created_at, updated_at
-          ) VALUES (
-            ${newConnectionId},
-            ${stored.businessId},
-            ${stored.profileId},
-            ${accountId},
-            ${locationId},
-            'active',
-            NOW(),
-            NOW(),
-            NOW()
-          )
+        const [accountLocation] = await tx<{
+          subscription_status: string;
+          subscription_tier: string;
+          subscription_activated_at: Date | null;
+        }[]>`
+          SELECT
+            a.subscription_status,
+            a.subscription_tier,
+            a.subscription_activated_at
+          FROM businesses b
+          JOIN accounts a ON a.id = b.account_id
+          WHERE b.id = ${stored.businessId}
+            AND b.account_id = ${user.accountId}
+            AND b.archived_at IS NULL
+          FOR UPDATE OF b, a
         `;
+
+        if (!accountLocation) {
+          throw new ZernioRouteError(403, 'business_mismatch');
+        }
+        if (accountLocation.subscription_status !== SubscriptionStatus.ACTIVE) {
+          throw new ZernioRouteError(403, 'subscription_required');
+        }
+
+        const [existingConnection] = await tx<{ id: string }[]>`
+          SELECT id
+          FROM zernio_connections
+          WHERE business_id = ${stored.businessId}
+            AND status IN ('active', 'pending')
+          ORDER BY connected_at DESC NULLS LAST, created_at DESC
+          LIMIT 1
+          FOR UPDATE
+        `;
+
+        const connectionId = existingConnection?.id ?? newConnectionId;
+        if (existingConnection) {
+          await tx`
+            UPDATE zernio_connections
+            SET zernio_profile_id = ${stored.profileId},
+                zernio_account_id = ${accountId},
+                zernio_location_id = ${locationId},
+                status = 'active',
+                connected_at = NOW(),
+                updated_at = NOW()
+            WHERE id = ${existingConnection.id}
+          `;
+        } else {
+          await tx`
+            INSERT INTO zernio_connections (
+              id, business_id, zernio_profile_id, zernio_account_id,
+              zernio_location_id, status, connected_at, created_at, updated_at
+            ) VALUES (
+              ${newConnectionId},
+              ${stored.businessId},
+              ${stored.profileId},
+              ${accountId},
+              ${locationId},
+              'active',
+              NOW(),
+              NOW(),
+              NOW()
+            )
+          `;
+        }
 
         await tx`
           INSERT INTO job_outbox (
@@ -422,7 +483,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             NOT EXISTS (
               SELECT 1 FROM zernio_connections
               WHERE business_id = ${stored.businessId}
-                AND id != ${newConnectionId}
+                AND id != ${connectionId}
                 AND connected_at IS NOT NULL
             )
             OR NOT EXISTS (
@@ -434,15 +495,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         `;
 
         if (predicate?.needs_backfill) {
-          const [bizRow] = await tx<{
-            subscription_tier: string;
-            subscription_activated_at: Date | null;
-          }[]>`
-            SELECT subscription_tier, subscription_activated_at
-            FROM businesses WHERE id = ${stored.businessId}
-          `;
-
-          if (bizRow?.subscription_activated_at) {
+          if (accountLocation.subscription_activated_at) {
             await tx`
               INSERT INTO job_outbox (
                 id, topic, aggregate_type, aggregate_id, payload, status
@@ -455,8 +508,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                   business_id: stored.businessId,
                   zernio_account_id: accountId,
                   zernio_location_id: locationId,
-                  subscription_tier: bizRow.subscription_tier,
-                  subscription_activated_at: bizRow.subscription_activated_at.toISOString(),
+                  subscription_tier: accountLocation.subscription_tier,
+                  subscription_activated_at: accountLocation.subscription_activated_at.toISOString(),
                   correlation_id: uuidv7(),
                 })},
                 'pending'

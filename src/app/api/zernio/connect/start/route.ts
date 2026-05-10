@@ -4,6 +4,8 @@ import { getCacheRedis } from '@/lib/db/redis-cache';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { ZernioRouteError } from '@/lib/zernio/errors';
+import { SubscriptionStatus } from '@/lib/shared/subscription-status';
+import { isValidUuid } from '@/lib/shared/ids';
 import { zernioClient } from '@/lib/zernio/client';
 import {
   pendingKey,
@@ -24,6 +26,10 @@ export const dynamic = 'force-dynamic';
 const NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
 const PENDING_TTL_SECONDS = 900; // 15 min — matches Zernio connect_token TTL
 const LOCK_TTL_SECONDS = 30;
+
+interface StartConnectBody {
+  locationId?: unknown;
+}
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   // Feature flag — subsystem A is flag-gated by ZERNIO_PUBLISHING_ENABLED (§1.1).
@@ -55,27 +61,49 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return errorToResponse(err);
   }
 
-  // Round-9: AppUser uses camelCase businessId (TS); requireRole does NOT
-  // guarantee non-null business scope.
-  if (!user.businessId) {
+  let body: StartConnectBody = {};
+  try {
+    const rawBody = await req.text();
+    body = rawBody ? (JSON.parse(rawBody) as StartConnectBody) : {};
+  } catch {
+    return NextResponse.json({ error: 'invalid_body' }, { status: 400, headers: NO_STORE });
+  }
+
+  const requestedLocationId =
+    typeof body.locationId === 'string' && body.locationId.trim().length > 0
+      ? body.locationId.trim()
+      : null;
+  if (requestedLocationId && !isValidUuid(requestedLocationId)) {
+    return NextResponse.json({ error: 'invalid_body' }, { status: 400, headers: NO_STORE });
+  }
+
+  // AppUser.locationId is the primary location. Secondary-location connects
+  // pass an explicit locationId and are validated against the account below.
+  if (!user.accountId || (!requestedLocationId && !user.locationId)) {
     return NextResponse.json({ error: 'unscoped_owner' }, { status: 403, headers: NO_STORE });
   }
-  const businessId = user.businessId;
+  const locationId = requestedLocationId ?? user.locationId!;
   const userId = user.id;
 
   // 3. Subscription guard — spec §3.2 step 1: skip if subscription_status != 'active'.
+  // After migration 034, subscription_status source of truth is accounts.
   try {
-    const bizRows = await sql<{ subscription_status: string }[]>`
-      SELECT subscription_status
-      FROM businesses
-      WHERE id = ${businessId}
+    const [accountRow] = await sql<{ subscription_status: string }[]>`
+      SELECT a.subscription_status
+      FROM businesses b
+      JOIN accounts a ON a.id = b.account_id
+      WHERE b.id = ${locationId}
+        AND b.account_id = ${user.accountId}
+        AND b.archived_at IS NULL
       LIMIT 1
     `;
-    const biz = bizRows[0];
-    if (!biz) {
-      return NextResponse.json({ error: 'business_not_found' }, { status: 404, headers: NO_STORE });
+    if (!accountRow) {
+      return NextResponse.json(
+        { error: 'invalid_location_scope' },
+        { status: 403, headers: NO_STORE },
+      );
     }
-    if (biz.subscription_status !== 'active') {
+    if (accountRow.subscription_status !== SubscriptionStatus.ACTIVE) {
       return NextResponse.json(
         { error: 'subscription_required' },
         { status: 403, headers: NO_STORE },
@@ -86,8 +114,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   const redis = getCacheRedis();
-  const pKey = pendingKey(businessId);
-  const lKey = lockKey(businessId);
+  const pKey = pendingKey(locationId);
+  const lKey = lockKey(locationId);
 
   // 4. Step A — Pending-flow marker check (long-lived, 15-min TTL).
   try {
@@ -157,7 +185,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const existingActive = await sql<{ exists: number }[]>`
       SELECT 1 AS exists
       FROM zernio_connections
-      WHERE business_id = ${businessId} AND status IN ('pending', 'active')
+      WHERE business_id = ${locationId} AND status IN ('pending', 'active')
       LIMIT 1
     `;
     if (existingActive.length > 0) {
@@ -168,7 +196,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const unresolvedIncident = await sql<{ exists: number }[]>`
       SELECT 1 AS exists
       FROM zernio_finalize_incidents
-      WHERE business_id = ${businessId} AND resolved_at IS NULL
+      WHERE business_id = ${locationId} AND resolved_at IS NULL
       LIMIT 1
     `;
     if (unresolvedIncident.length > 0) {
@@ -189,7 +217,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       // 9. Step D — Start work (now safely behind the pending marker).
       const profileIdPrefix = process.env.ZERNIO_PROFILE_ID_PREFIX ?? 'repworth-prod-';
       const { profileId } = await zernioClient.createProfile({
-        name: `${profileIdPrefix}${businessId}`,
+        name: `${profileIdPrefix}${locationId}`,
       });
       createdProfileId = profileId;
 
@@ -207,7 +235,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       });
       const state = returnedState ?? requestedState;
       const stateBlob: ConnectStateBlob = {
-        businessId,
+        businessId: locationId,
         profileId,
         userId,
         createdAt: startedAt,

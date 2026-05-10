@@ -74,6 +74,7 @@ const mockUser = { id: 'auth-uuid-123', email: 'owner@example.com' };
 
 const activeBizRow = {
   id: 'biz-1',
+  account_id: 'acct-1',
   subscription_status: 'active',
   place_id_verified: false,
   google_maps_url: null,
@@ -139,7 +140,7 @@ describe('POST /api/onboarding/business', () => {
 
     const lookupCall = mockSql.mock.calls.find((c: any[]) => {
       const text = (c[0] as TemplateStringsArray).join('?');
-      return text.includes('SELECT b.id, b.subscription_status') &&
+      return text.includes('SELECT b.id, a.id AS account_id') &&
         text.includes('FROM users u');
     });
     expect(lookupCall).toBeDefined();
@@ -230,6 +231,26 @@ describe('POST /api/onboarding/business', () => {
     // Confirm sync_reviews is never referenced.
     const allArgs = mockSql.mock.calls.flat();
     expect(allArgs.some((v: unknown) => v === 'sync_reviews')).toBe(false);
+  });
+
+  it('updates placeholder account display_name on the profile wizard path', async () => {
+    mockSql.mockResolvedValueOnce([activeBizRow]); // initial JOIN read
+
+    const txCalls: string[] = [];
+    mockSql.begin = vi.fn(async (cb: any) => {
+      const tx: any = vi.fn(async (strings: TemplateStringsArray) => {
+        const text = strings.join('?');
+        txCalls.push(text);
+        if (text.includes('FOR UPDATE')) return [activeBizRow];
+        return [];
+      });
+      return cb(tx);
+    });
+
+    const res = await POST(mkReq(validBody));
+
+    expect(res.status).toBe(200);
+    expect(txCalls.some((text) => text.includes('UPDATE accounts'))).toBe(true);
   });
 
   it('returns 200 + INSERTs validate_place_id outbox on googleMapsUrl path', async () => {

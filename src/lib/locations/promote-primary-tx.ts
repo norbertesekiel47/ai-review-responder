@@ -1,0 +1,186 @@
+// src/lib/locations/promote-primary-tx.ts
+//
+// Primary promotion transaction. Atomically changes is_primary from the
+// current primary location to a new primary location within the same account.
+//
+// Feature spec:
+//   - Primary promotion changes is_primary atomically from old to new
+//   - Exactly one primary per active account maintained by partial unique index
+//
+// The partial unique index `businesses_account_primary_uniq` enforces that
+// at most one row per account has is_primary = TRUE AND archived_at IS NULL.
+// The transaction must set the old primary to FALSE before setting the new
+// one to TRUE to avoid a transient constraint violation. Because both UPDATEs
+// happen in the same transaction, the constraint check at commit time sees
+// a consistent state.
+//
+// Implementation note: We use two separate UPDATE statements rather than a
+// CTE because the order of operations matters — the old primary must be
+// set to FALSE first, then the new one to TRUE. In a single transaction,
+// PostgreSQL evaluates constraints at statement boundaries (deferred) or
+// at commit time, so both approaches work. The two-UPDATE approach is
+// clearer and easier to reason about.
+
+import { v7 as uuidv7 } from 'uuid';
+import { sql, jsonb } from '@/lib/db/server';
+import type { AccountId, LocationId } from '@/lib/shared/ids';
+
+// ── Input / Output types ───────────────────────────────────────────────────
+
+export interface PromotePrimaryTxInput {
+  /** Account ID that owns both locations. */
+  accountId: string;
+  /** Location ID to promote to primary. Must be active and belong to the account. */
+  newPrimaryId: string;
+  /** User ID of the actor performing the promotion (for audit log). */
+  actorUserId?: string | null;
+}
+
+export interface PromotePrimaryTxResult {
+  /** ID of the location that was demoted from primary. */
+  oldPrimaryId: string;
+  /** ID of the location that was promoted to primary. */
+  newPrimaryId: string;
+}
+
+// ── promotePrimaryTransaction ────────────────────────────────────────────────
+
+/**
+ * Atomically promotes a location to primary, demoting the current primary.
+ *
+ * Steps:
+ *   0. Validate the new primary exists, is active, belongs to the account,
+ *      and is not already primary.
+ *   1. (Inside tx) Set is_primary = FALSE on the current primary for this account
+ *   2. (Inside tx) Set is_primary = TRUE on the new primary
+ *   3. (Inside tx) Insert account_audit_log with event_type 'primary_promoted'
+ *
+ * The partial unique index `businesses_account_primary_uniq` ensures that
+ * at commit time, exactly one row per active account has is_primary = TRUE.
+ */
+export async function promotePrimaryTransaction(
+  input: PromotePrimaryTxInput,
+): Promise<PromotePrimaryTxResult> {
+  const { accountId, newPrimaryId, actorUserId } = input;
+
+  // ── Step 0: Validate the new primary ─────────────────────────────────
+  const [newPrimary] = await sql<{
+    id: string;
+    account_id: string;
+    is_primary: boolean;
+    archived_at: Date | null;
+  }[]>`
+    SELECT id, account_id, is_primary, archived_at
+    FROM businesses
+    WHERE id = ${newPrimaryId}::uuid
+      AND account_id = ${accountId}::uuid
+      AND archived_at IS NULL
+  `;
+
+  if (!newPrimary) {
+    throw new Error(
+      `new primary location not found or not accessible: ${newPrimaryId}`,
+    );
+  }
+
+  if (newPrimary.is_primary) {
+    throw new Error(
+      `location ${newPrimaryId} is already the primary location`,
+    );
+  }
+
+  if (newPrimary.archived_at !== null) {
+    throw new Error(
+      `location ${newPrimaryId} is archived and cannot be promoted to primary`,
+    );
+  }
+
+  // ── Step 1-3: Atomic transaction ─────────────────────────────────────
+
+  let oldPrimaryId: string = '';
+
+  await sql.begin(async (tx) => {
+    await tx`
+      SELECT id
+      FROM accounts
+      WHERE id = ${accountId}::uuid
+      FOR UPDATE
+    `;
+
+    const [lockedTarget] = await tx<{ id: string; is_primary: boolean }[]>`
+      SELECT id, is_primary
+      FROM businesses
+      WHERE id = ${newPrimaryId}::uuid
+        AND account_id = ${accountId}::uuid
+        AND archived_at IS NULL
+      FOR UPDATE
+    `;
+    if (!lockedTarget) {
+      throw new Error(
+        `new primary location not found or not accessible: ${newPrimaryId}`,
+      );
+    }
+    if (lockedTarget.is_primary) {
+      throw new Error(
+        `location ${newPrimaryId} is already the primary location`,
+      );
+    }
+
+    // 1. Demote the current primary
+    const [demoted] = await tx<{ id: string }[]>`
+      UPDATE businesses
+      SET is_primary = FALSE,
+          updated_at = NOW()
+      WHERE account_id = ${accountId}::uuid
+        AND is_primary = TRUE
+        AND archived_at IS NULL
+      RETURNING id
+    `;
+
+    oldPrimaryId = demoted?.id ?? '';
+
+    if (!oldPrimaryId) {
+      throw new Error(
+        `no current primary location found for account ${accountId} — cannot promote`,
+      );
+    }
+
+    // 2. Promote the new primary
+    const [promoted] = await tx<{ id: string }[]>`
+      UPDATE businesses
+      SET is_primary = TRUE,
+          updated_at = NOW()
+      WHERE id = ${newPrimaryId}::uuid
+        AND account_id = ${accountId}::uuid
+        AND archived_at IS NULL
+      RETURNING id
+    `;
+    if (!promoted) {
+      throw new Error(
+        `new primary location not found or not accessible: ${newPrimaryId}`,
+      );
+    }
+
+    // 3. Insert audit log entry
+    await tx`
+      INSERT INTO account_audit_log (
+        id, account_id, location_id, event_type, actor_user_id, payload
+      ) VALUES (
+        ${uuidv7()}::uuid,
+        ${accountId}::uuid,
+        ${newPrimaryId}::uuid,
+        'primary_promoted',
+        ${actorUserId ?? null}::uuid,
+        ${jsonb({
+          old_primary_id: oldPrimaryId,
+          new_primary_id: newPrimaryId,
+        })}
+      )
+    `;
+  });
+
+  return {
+    oldPrimaryId,
+    newPrimaryId,
+  };
+}

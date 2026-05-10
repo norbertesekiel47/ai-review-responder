@@ -50,6 +50,7 @@ const validBody = {
 const mockUser = { id: 'auth-uuid-123', email: 'owner@example.com' };
 const pendingBizRow = {
   id: 'biz-1',
+  account_id: 'acct-1',
   subscription_status: 'pending_payment',
   place_id_verified: false,
   google_maps_url: null,
@@ -93,6 +94,26 @@ describe('POST /api/onboarding/start', () => {
     const json = await res.json();
     expect(json.redirectTo).toBe('/onboarding/demo');
     expect(json.demoQueued).toBe(true);
+  });
+
+  it('updates placeholder account display_name when start captures the business name', async () => {
+    mockSql.mockResolvedValueOnce([pendingBizRow]);
+
+    const txCalls: string[] = [];
+    mockSql.begin = vi.fn(async (cb: any) => {
+      const tx: any = vi.fn(async (strings: TemplateStringsArray) => {
+        const text = strings.join('?');
+        txCalls.push(text);
+        if (text.includes('FOR UPDATE')) return [pendingBizRow];
+        return [];
+      });
+      return cb(tx);
+    });
+
+    const res = await POST(mkReq(validBody));
+
+    expect(res.status).toBe(200);
+    expect(txCalls.some((text) => text.includes('UPDATE accounts'))).toBe(true);
   });
 
   it('returns 200 + demoQueued=false reason=cost_ceiling when cost guard trips', async () => {

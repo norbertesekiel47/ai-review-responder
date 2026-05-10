@@ -4,6 +4,8 @@ import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { isTelegramEnabled, flagOff, assertTelegramEnvReady } from '../_shared';
 import { disableTelegramEnrollment } from '@/lib/channels/telegram-enrollment';
+import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
+import { asAccountId } from '@/lib/shared/ids';
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   if (!isTelegramEnabled()) return flagOff();
@@ -30,5 +32,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   if (result.kind === 'not_found') {
     return NextResponse.json({ error: 'not_found' }, { status: 404, headers: noStore });
   }
+
+  // Invalidate channel cache — the disabled channel must be removed from
+  // the dispatch resolution immediately.
+  const [acctRow] = await sql<{ account_id: string }[]>`
+    SELECT account_id FROM businesses WHERE id = ${businessId}
+  `;
+  if (acctRow?.account_id) {
+    await safeInvalidateChannelCache(asAccountId(acctRow.account_id), 'admin.telegram.disable');
+  }
+
   return NextResponse.json({ ok: true }, { headers: noStore });
 }

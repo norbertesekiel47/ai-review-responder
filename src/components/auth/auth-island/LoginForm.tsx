@@ -40,7 +40,10 @@ export function LoginForm() {
     allowedRoles: ['owner'],
     defaultRoute: '/dashboard',
   });
-  const oauth = useGoogleOAuth({ flow: 'owner', next: '/dashboard' });
+  // Existing owners are routed to /dashboard by the callback once their
+  // users row is found. New Google identities need /signup/finish so the app
+  // can create the public users/accounts rows after Supabase creates auth.users.
+  const oauth = useGoogleOAuth({ flow: 'owner', next: '/signup/finish' });
 
   const initialQueryError = mapInitialQueryError(searchParams.get('error'));
   const displayError = error || oauth.error || initialQueryError;

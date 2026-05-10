@@ -185,11 +185,37 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   //    so we log loudly but don't block the redirect — admin backfill is
   //    safer than rejecting the request after createBusinessTx committed.
   try {
-    await sql`
-      INSERT INTO channel_enrollments (id, business_id, channel, handle, status, verified_at)
-      VALUES (${uuidv7()}, ${businessId}, 'email', ${ownerEmail}, 'verified', NOW())
-      ON CONFLICT (business_id, channel) WHERE archived_at IS NULL DO NOTHING
+    // Look up the account_id and primary business_id for the channel enrollment.
+    // After migration 034, channel_enrollments requires account_id.
+    const [ownerRow] = await sql<{ account_id: string }[]>`
+      SELECT u.account_id
+      FROM users u
+      WHERE u.id = (SELECT id FROM users WHERE email = ${ownerEmail} LIMIT 1)
+      LIMIT 1
     `;
+    const accountId = ownerRow?.account_id;
+
+    if (accountId) {
+      await sql`
+        INSERT INTO channel_enrollments (id, account_id, business_id, channel, handle, status, verified_at)
+        VALUES (${uuidv7()}::uuid, ${accountId}::uuid, ${businessId}::uuid, 'email', ${ownerEmail}, 'verified', NOW())
+        ON CONFLICT (account_id, channel, COALESCE(location_id, '00000000-0000-0000-0000-000000000000')) WHERE archived_at IS NULL DO NOTHING
+      `;
+    } else {
+      // Fallback: account_id not yet set (shouldn't happen after migration 034
+      // since createBusinessTx always sets it, but defensive).
+      // NOTE: ON CONFLICT (business_id, channel) references the pre-migration-034
+      // partial unique index that no longer exists. If this path ever fires,
+      // it will error with "there is no unique or exclusion constraint matching
+      // the ON CONFLICT specification". That's acceptable for an impossible
+      // edge case — the primary path above uses the correct index.
+      await sql`
+        INSERT INTO channel_enrollments (id, account_id, business_id, channel, handle, status, verified_at)
+        SELECT ${uuidv7()}::uuid, b.account_id, ${businessId}::uuid, 'email', ${ownerEmail}, 'verified', NOW()
+        FROM businesses b WHERE b.id = ${businessId}::uuid
+        ON CONFLICT (account_id, channel, COALESCE(location_id, '00000000-0000-0000-0000-000000000000')) WHERE archived_at IS NULL DO NOTHING
+      `;
+    }
   } catch (err) {
     console.error(
       `[api/auth/finish-signup] channel_enrollments INSERT failed for business ${businessId}:`,

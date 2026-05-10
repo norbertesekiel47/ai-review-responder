@@ -10,35 +10,43 @@ import type { WeeklySummaryPayload } from '../../src/lib/shared/worker-types';
 import { buildFeedbackUrl } from '../../src/lib/shared/feedback-hmac';
 import { createWorkerLogger } from '../../src/lib/shared/logger';
 import { HANDLED_STATUSES } from '../../src/lib/shared/response-status';
+import { asLocationId } from '../../src/lib/shared/ids';
+import type { LocationId } from '../../src/lib/shared/ids';
 
 export async function handleWeeklySummary(
   job: Job<WeeklySummaryPayload>,
 ): Promise<void> {
   const logger = createWorkerLogger('[WeeklySummaryWorker]', job.data.correlation_id);
-  const { business_id, week_start_date } = job.data;
+  const { week_start_date } = job.data;
+  // Cast job data IDs to branded types at entry point
+  const businessId: LocationId = asLocationId(job.data.business_id);
   const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
 
-  // ── 1. Load business (including ROI baseline fields) ──────────────
+  // ── 1. Load business (including ROI baseline fields) + account subscription ──
   const [business] = await sql<{
     id: string;
+    account_id: string;
     name: string;
     owner_email: string;
     owner_email_bounced: boolean;
     subscription_status: string;
-    updated_at: Date;
+    account_updated_at: Date;
     initial_review_count: number | null;
     initial_responded_count: number | null;
     baseline_captured_at: Date | null;
     subscription_tier: string;
   }[]>`
-    SELECT id, name, owner_email, owner_email_bounced, subscription_status, updated_at,
-           initial_review_count, initial_responded_count, baseline_captured_at,
-           subscription_tier
-    FROM businesses WHERE id = ${business_id}
+    SELECT b.id, b.name, b.owner_email, b.owner_email_bounced,
+           a.id AS account_id, a.subscription_status, a.updated_at AS account_updated_at,
+           b.initial_review_count, b.initial_responded_count, b.baseline_captured_at,
+           a.subscription_tier
+    FROM businesses b
+    JOIN accounts a ON a.id = b.account_id
+    WHERE b.id = ${businessId}
   `;
 
   if (!business) {
-    logger.warn(`Business ${business_id} not found`);
+    logger.warn(`Business ${businessId} not found`);
     await markOutboxFailed(outboxId, 'business_not_found', outboxAttempt);
     return;
   }
@@ -46,12 +54,12 @@ export async function handleWeeklySummary(
   // ── 2. Subscription guard ─────────────────────────────────────────
   const subCheck = checkSubscription(
     business.subscription_status,
-    new Date(business.updated_at),
+    new Date(business.account_updated_at),
     'summary',
   );
 
   if (!subCheck.allowed) {
-    logger.log(`Business ${business_id} skipped: ${subCheck.reason}`);
+    logger.log(`Business ${businessId} skipped: ${subCheck.reason}`);
     await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }
@@ -60,7 +68,7 @@ export async function handleWeeklySummary(
   // Skip owner-directed emails when the owner's email has hard-bounced.
   // Admin verifies and clears owner_email_bounced manually from /admin/businesses/[id].
   if (business.owner_email_bounced) {
-    logger.log(`Business ${business_id} owner email bounced — skipping`);
+    logger.log(`Business ${businessId} owner email bounced — skipping`);
     await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }
@@ -72,7 +80,7 @@ export async function handleWeeklySummary(
 
   const [reviewCount] = await sql<{ count: string }[]>`
     SELECT COUNT(*)::text AS count FROM reviews
-    WHERE business_id = ${business_id}
+    WHERE business_id = ${businessId}
       AND detected_at >= ${week_start_date}::date
       AND detected_at < ${weekEndDate}::date
   `;
@@ -81,7 +89,7 @@ export async function handleWeeklySummary(
     SELECT COUNT(DISTINCT r.id)::text AS count FROM reviews r
     JOIN responses resp ON resp.review_id = r.id
       AND resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[])
-    WHERE r.business_id = ${business_id}
+    WHERE r.business_id = ${businessId}
       AND r.detected_at >= ${week_start_date}::date
       AND r.detected_at < ${weekEndDate}::date
   `;
@@ -92,7 +100,7 @@ export async function handleWeeklySummary(
     review_text: string | null;
   }[]>`
     SELECT reviewer_name, star_rating, review_text FROM reviews
-    WHERE business_id = ${business_id}
+    WHERE business_id = ${businessId}
       AND star_rating <= 2
       AND detected_at >= ${week_start_date}::date
       AND detected_at < ${weekEndDate}::date
@@ -111,7 +119,7 @@ export async function handleWeeklySummary(
     review_text: string | null;
   }[]>`
     SELECT star_rating, review_text FROM reviews
-    WHERE business_id = ${business_id}
+    WHERE business_id = ${businessId}
       AND detected_at >= ${week_start_date}::date
       AND detected_at < ${weekEndDate}::date
       AND review_text IS NOT NULL
@@ -124,7 +132,7 @@ export async function handleWeeklySummary(
   const [avgRow] = await sql<{ avg: string }[]>`
     SELECT COALESCE(
       (SELECT COUNT(*)::float / 4.0 FROM reviews
-       WHERE business_id = ${business_id}
+       WHERE business_id = ${businessId}
          AND detected_at >= (${week_start_date}::date - INTERVAL '28 days')
          AND detected_at < ${week_start_date}::date),
       0
@@ -139,14 +147,14 @@ export async function handleWeeklySummary(
     rank_position: number;
   }[]>`
     SELECT keyword, rank_position FROM ranking_snapshots
-    WHERE business_id = ${business_id} AND rank_position IS NOT NULL
+    WHERE business_id = ${businessId} AND rank_position IS NOT NULL
     ORDER BY snapshot_date DESC LIMIT 1
   `;
 
   if (latestRanking) {
     const [initialRanking] = await sql<{ rank_position: number }[]>`
       SELECT rank_position FROM ranking_snapshots
-      WHERE business_id = ${business_id} AND keyword = ${latestRanking.keyword} AND rank_position IS NOT NULL
+      WHERE business_id = ${businessId} AND keyword = ${latestRanking.keyword} AND rank_position IS NOT NULL
       ORDER BY snapshot_date ASC LIMIT 1
     `;
     ranking = {
@@ -159,7 +167,7 @@ export async function handleWeeklySummary(
   // 4d. Dashboard link eligibility
   const [ownerWithAuth] = await sql<{ exists: number }[]>`
     SELECT 1 AS exists FROM users
-    WHERE business_id = ${business_id} AND role = 'owner' AND auth_id IS NOT NULL
+    WHERE business_id = ${businessId} AND role = 'owner' AND auth_id IS NOT NULL
     LIMIT 1
   `;
   const appUrl = process.env.NEXT_PUBLIC_APP_URL;
@@ -174,7 +182,7 @@ export async function handleWeeklySummary(
   const [upsertRow] = await sql<{ sent_at: string | null; summary_text: string | null }[]>`
     INSERT INTO weekly_summaries (id, business_id, week_start_date, total_reviews, total_responded, notable_reviews)
     VALUES (
-      ${uuidv7()}, ${business_id}, ${week_start_date}::date,
+      ${uuidv7()}, ${businessId}, ${week_start_date}::date,
       ${totalReviews}, ${totalResponded},
       ${jsonb(notableReviews)}
     )
@@ -194,14 +202,14 @@ export async function handleWeeklySummary(
     // Check which case to decide whether to complete or retry.
     const [existing] = await sql<{ sent_at: string | null; claimed_at: string | null }[]>`
       SELECT sent_at, claimed_at FROM weekly_summaries
-      WHERE business_id = ${business_id} AND week_start_date = ${week_start_date}::date
+      WHERE business_id = ${businessId} AND week_start_date = ${week_start_date}::date
     `;
     if (existing?.sent_at) {
-      logger.log(`Weekly summary for ${business_id} week ${week_start_date} already sent`);
+      logger.log(`Weekly summary for ${businessId} week ${week_start_date} already sent`);
       await markOutboxCompleted(outboxId, outboxAttempt);
     } else {
       // Freshly claimed by another worker — throw so BullMQ retries after backoff
-      logger.log(`Weekly summary for ${business_id} week ${week_start_date} claimed by another worker, will retry`);
+      logger.log(`Weekly summary for ${businessId} week ${week_start_date} claimed by another worker, will retry`);
       throw new Error('Report claimed by another worker');
     }
     return;
@@ -214,7 +222,7 @@ export async function handleWeeklySummary(
   const [claimed] = await sql<{ id: string }[]>`
     UPDATE weekly_summaries
     SET claimed_at = NOW()
-    WHERE business_id = ${business_id}
+    WHERE business_id = ${businessId}
       AND week_start_date = ${week_start_date}::date
       AND sent_at IS NULL
       AND (claimed_at IS NULL
@@ -223,7 +231,7 @@ export async function handleWeeklySummary(
   `;
   if (!claimed) {
     // Another worker just claimed it between the upsert and this UPDATE — retry
-    logger.log(`Weekly summary for ${business_id} week ${week_start_date} claimed by another worker, will retry`);
+    logger.log(`Weekly summary for ${businessId} week ${week_start_date} claimed by another worker, will retry`);
     throw new Error('Report claimed by another worker');
   }
 
@@ -236,7 +244,7 @@ export async function handleWeeklySummary(
         starRating: r.star_rating,
         reviewText: r.review_text,
       })),
-      business_id,
+      businessId,
       business.subscription_tier,
     );
     intelligenceBrief = summaryResult?.summaryText ?? null;
@@ -246,7 +254,7 @@ export async function handleWeeklySummary(
       await sql`
         UPDATE weekly_summaries
         SET summary_text = ${intelligenceBrief}
-        WHERE business_id = ${business_id} AND week_start_date = ${week_start_date}::date
+        WHERE business_id = ${businessId} AND week_start_date = ${week_start_date}::date
       `;
     }
   }
@@ -268,9 +276,9 @@ export async function handleWeeklySummary(
   let feedbackUrls: { great: string; ok: string; notGreat: string } | null = null;
   if (appUrl && process.env.CSRF_SECRET) {
     feedbackUrls = {
-      great: buildFeedbackUrl(appUrl, business_id, 'great', week_start_date),
-      ok: buildFeedbackUrl(appUrl, business_id, 'ok', week_start_date),
-      notGreat: buildFeedbackUrl(appUrl, business_id, 'not_great', week_start_date),
+      great: buildFeedbackUrl(appUrl, businessId, 'great', week_start_date),
+      ok: buildFeedbackUrl(appUrl, businessId, 'ok', week_start_date),
+      notGreat: buildFeedbackUrl(appUrl, businessId, 'not_great', week_start_date),
     };
   }
 
@@ -298,7 +306,7 @@ export async function handleWeeklySummary(
   await sql`
     UPDATE weekly_summaries
     SET sent_at = NOW()
-    WHERE business_id = ${business_id} AND week_start_date = ${week_start_date}::date
+    WHERE business_id = ${businessId} AND week_start_date = ${week_start_date}::date
   `;
 
   // ── 10. Send email ────────────────────────────────────────────────
@@ -313,7 +321,7 @@ export async function handleWeeklySummary(
     });
     messageId = result.messageId;
   } catch (err) {
-    logger.error(`Failed to send weekly value report for business ${business_id} (week ${week_start_date}): ${err instanceof Error ? err.message : err}`);
+    logger.error(`Failed to send weekly value report for business ${businessId} (week ${week_start_date}): ${err instanceof Error ? err.message : err}`);
     // Keep sent_at set — Resend may have accepted the email before the error.
     // Clearing would risk a duplicate if the scheduler re-queues this business.
     // Prompt 19a accepts the rare missed-email risk over duplicate sends.
@@ -323,7 +331,8 @@ export async function handleWeeklySummary(
 
   // ── 11. Record notification delivery ──────────────────────────────
   await recordNotificationDelivery({
-    businessId: business_id,
+    accountId: business.account_id,
+    businessId: businessId,
     channel: 'email',
     recipient: business.owner_email,
     template: 'weekly_value_report',
@@ -331,5 +340,5 @@ export async function handleWeeklySummary(
   });
 
   await markOutboxCompleted(outboxId, outboxAttempt);
-  logger.log(`Weekly value report sent for business ${business_id} (week ${week_start_date})`);
+  logger.log(`Weekly value report sent for business ${businessId} (week ${week_start_date})`);
 }

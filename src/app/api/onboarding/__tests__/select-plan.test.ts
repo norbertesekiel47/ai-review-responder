@@ -7,7 +7,7 @@ const {
   mockCheckRateLimit,
   mockCreateServerClient,
   mockGetUser,
-  mockBuildPaymentLinkUrl,
+  mockCreateCheckoutSession,
   mockSql,
 } = vi.hoisted(() => {
   const sqlFn: any = vi.fn();
@@ -16,7 +16,7 @@ const {
     mockCheckRateLimit: vi.fn(),
     mockCreateServerClient: vi.fn(),
     mockGetUser: vi.fn(),
-    mockBuildPaymentLinkUrl: vi.fn(),
+    mockCreateCheckoutSession: vi.fn(),
     mockSql: sqlFn,
   };
 });
@@ -34,8 +34,11 @@ vi.mock('@supabase/ssr', () => ({
   createServerClient: mockCreateServerClient,
 }));
 
-vi.mock('@/lib/payments/payment-link', () => ({
-  buildPaymentLinkUrl: mockBuildPaymentLinkUrl,
+vi.mock('@/lib/payments/create-checkout-session', () => ({
+  createCheckoutSession: mockCreateCheckoutSession,
+  CheckoutUnavailableError: class CheckoutUnavailableError extends Error {
+    constructor(message: string) { super(message); this.name = 'CheckoutUnavailableError'; }
+  },
 }));
 
 process.env.SELF_SERVE_SIGNUP_ENABLED = 'true';
@@ -61,7 +64,7 @@ function mkReq(
   });
 }
 
-const validBody = { tier: 'founding' as const };
+const validBody = { tier: 'founders' as const };
 
 beforeEach(() => {
   mockCheckRateLimit.mockReset();
@@ -81,8 +84,9 @@ beforeEach(() => {
   // The route now runs:
   //   1. Outside-tx lookup: SELECT b.id, b.owner_email FROM users JOIN businesses ...
   //   2. Inside-tx lock: pg_advisory_xact_lock(...)
-  //   3. Inside-tx FOR UPDATE: SELECT subscription_status FROM businesses ...
-  //   4. Inside-tx UPDATE: UPDATE businesses SET subscription_tier = ... — must return { count: > 0 }
+  //   3. Inside-tx FOR UPDATE: SELECT a.subscription_status FROM accounts a JOIN businesses b ... (source of truth after migration 034)
+  //   4. Inside-tx UPDATE: UPDATE accounts SET subscription_tier = ... — must return { count: > 0 }
+  //   5. Inside-tx UPDATE: UPDATE businesses SET subscription_tier = ... (deprecated column, retained)
   // Dispatch by template substring so individual tests can override
   // specific calls via mockResolvedValueOnce without needing to know the
   // exact ordering.
@@ -101,11 +105,17 @@ beforeEach(() => {
     if (/SELECT\s+b\.id,\s*b\.owner_email/i.test(text)) {
       return pgResult([{ id: 'biz-1', owner_email: 'owner@example.com' }]);
     }
+    if (/SELECT\s+account_id\s+FROM\s+businesses/i.test(text)) {
+      return pgResult([{ account_id: 'acct-1' }]);
+    }
     if (text.includes('pg_advisory_xact_lock')) {
       return pgResult([{}]);
     }
-    if (/SELECT\s+subscription_status[\s\S]*FOR UPDATE/i.test(text)) {
+    if (/SELECT\s+(a\.)?subscription_status[\s\S]*FOR UPDATE/i.test(text)) {
       return pgResult([{ subscription_status: 'pending_payment' }]);
+    }
+    if (/UPDATE\s+accounts/i.test(text)) {
+      return pgResult([], 1);
     }
     if (/UPDATE\s+businesses/i.test(text)) {
       return pgResult([], 1);
@@ -114,10 +124,11 @@ beforeEach(() => {
   });
   mockSql.begin = vi.fn(async (cb: (tx: any) => Promise<unknown>) => cb(mockSql));
 
-  mockBuildPaymentLinkUrl.mockReset();
-  mockBuildPaymentLinkUrl.mockReturnValue(
-    'https://buy.stripe.com/test?ref=biz-1',
-  );
+  mockCreateCheckoutSession.mockReset();
+  mockCreateCheckoutSession.mockResolvedValue({
+    url: 'https://checkout.stripe.com/test/session-1',
+    sessionId: 'cs_test_1',
+  });
 
   process.env.SELF_SERVE_SIGNUP_ENABLED = 'true';
 });
@@ -160,18 +171,18 @@ describe('POST /api/onboarding/select-plan', () => {
     expect(res.status).toBe(400);
   });
 
-  it('accepts tier="premium" and returns the Premium payment link', async () => {
-    process.env.STRIPE_PAYMENT_LINK_PREMIUM = 'https://buy.stripe.com/test_premium';
-    mockBuildPaymentLinkUrl.mockReturnValueOnce(
-      'https://buy.stripe.com/test_premium?ref=biz-1',
-    );
+  it('accepts tier="premium" and returns the Premium checkout URL', async () => {
+    mockCreateCheckoutSession.mockResolvedValueOnce({
+      url: 'https://checkout.stripe.com/test/premium',
+      sessionId: 'cs_test_premium',
+    });
     const res = await POST(mkReq({ tier: 'premium' }));
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.paymentUrl).toBe('https://buy.stripe.com/test_premium?ref=biz-1');
-    expect(mockBuildPaymentLinkUrl).toHaveBeenCalledWith(
+    expect(body.paymentUrl).toBe('https://checkout.stripe.com/test/premium');
+    expect(mockCreateCheckoutSession).toHaveBeenCalledWith(
+      expect.any(String), // accountId
       'premium',
-      'biz-1',
       'owner@example.com',
     );
   });
@@ -243,7 +254,7 @@ describe('POST /api/onboarding/select-plan', () => {
       const text = tpl.join('?');
       if (
         !calledOnce &&
-        /SELECT\s+subscription_status[\s\S]*FOR UPDATE/i.test(text)
+        /SELECT\s+(a\.)?subscription_status[\s\S]*FOR UPDATE/i.test(text)
       ) {
         calledOnce = true;
         return Promise.resolve([{ subscription_status: 'active' }]);
@@ -257,13 +268,13 @@ describe('POST /api/onboarding/select-plan', () => {
   });
 
   it('returns 409 race_lost when UPDATE matches 0 rows despite pending_payment check', async () => {
-    // Lookup ok, FOR UPDATE returns pending_payment, but UPDATE.count = 0 —
+    // Lookup ok, FOR UPDATE returns pending_payment, but UPDATE accounts count = 0 —
     // simulates the impossible-but-defended race the new code logs.
     let calledOnce = false;
     const originalImpl = mockSql.getMockImplementation()!;
     mockSql.mockImplementation((tpl: TemplateStringsArray) => {
       const text = tpl.join('?');
-      if (!calledOnce && /UPDATE\s+businesses/i.test(text)) {
+      if (!calledOnce && /UPDATE\s+accounts/i.test(text)) {
         calledOnce = true;
         const arr = [] as unknown[] & { count?: number };
         Object.defineProperty(arr, 'count', { value: 0, enumerable: false });
@@ -280,43 +291,48 @@ describe('POST /api/onboarding/select-plan', () => {
     consoleSpy.mockRestore();
   });
 
-  it('returns 500 payment_link_unavailable when env var missing', async () => {
-    mockBuildPaymentLinkUrl.mockReturnValueOnce(null);
+  it('returns 500 checkout_unavailable when price env var missing', async () => {
+    const { CheckoutUnavailableError } = await import('@/lib/payments/create-checkout-session');
+    mockCreateCheckoutSession.mockRejectedValueOnce(
+      new CheckoutUnavailableError('Missing base price ID for tier: founders'),
+    );
     const res = await POST(mkReq(validBody));
-    expect(res.status).toBe(500);
+    // VAL-BILLING-066: Returns 502 with user-facing error for Stripe failures
+    expect(res.status).toBe(502);
     const body = await res.json();
-    expect(body.error).toBe('payment_link_unavailable');
+    expect(body.error).toBe('checkout_unavailable');
   });
 
-  it('returns 200 with founding payment URL on success', async () => {
-    const res = await POST(mkReq({ tier: 'founding' }));
+  it('returns 200 with founders checkout URL on success', async () => {
+    const res = await POST(mkReq({ tier: 'founders' }));
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.paymentUrl).toBe('https://buy.stripe.com/test?ref=biz-1');
-    expect(mockBuildPaymentLinkUrl).toHaveBeenCalledWith(
-      'founding',
-      'biz-1',
+    expect(body.paymentUrl).toBe('https://checkout.stripe.com/test/session-1');
+    expect(mockCreateCheckoutSession).toHaveBeenCalledWith(
+      expect.any(String), // accountId
+      'founders',
       'owner@example.com',
     );
-    // UPDATE template fired with 'founding' tier bound
+    // UPDATE template fired with 'founders' tier bound
     const updateCall = mockSql.mock.calls.find((c: unknown[]) =>
       (c[0] as TemplateStringsArray).join('?').includes('UPDATE businesses'),
     );
     expect(updateCall).toBeDefined();
-    expect(updateCall!.some((a: unknown) => a === 'founding')).toBe(true);
+    expect(updateCall!.some((a: unknown) => a === 'founders')).toBe(true);
   });
 
-  it('returns 200 with standard payment URL on success', async () => {
-    mockBuildPaymentLinkUrl.mockReturnValueOnce(
-      'https://buy.stripe.com/std?ref=biz-1',
-    );
+  it('returns 200 with standard checkout URL on success', async () => {
+    mockCreateCheckoutSession.mockResolvedValueOnce({
+      url: 'https://checkout.stripe.com/test/standard',
+      sessionId: 'cs_test_std',
+    });
     const res = await POST(mkReq({ tier: 'standard' }));
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.paymentUrl).toBe('https://buy.stripe.com/std?ref=biz-1');
-    expect(mockBuildPaymentLinkUrl).toHaveBeenCalledWith(
+    expect(body.paymentUrl).toBe('https://checkout.stripe.com/test/standard');
+    expect(mockCreateCheckoutSession).toHaveBeenCalledWith(
+      expect.any(String), // accountId
       'standard',
-      'biz-1',
       'owner@example.com',
     );
   });

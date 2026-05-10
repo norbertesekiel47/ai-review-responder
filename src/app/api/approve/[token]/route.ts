@@ -67,10 +67,16 @@ export async function GET(
     review_text: string | null;
     review_date: string;
     business_name: string;
+    display_label: string | null;
+    account_id: string;
+    is_archived: boolean;
   }[]>`
     SELECT resp.response_text, resp.version, resp.status,
            r.reviewer_name, r.star_rating, r.review_text, r.review_date,
-           b.name AS business_name
+           b.name AS business_name,
+           b.display_label,
+           b.account_id,
+           (b.archived_at IS NOT NULL) AS is_archived
     FROM responses resp
     JOIN reviews r ON resp.review_id = r.id
     JOIN businesses b ON resp.business_id = b.id
@@ -97,6 +103,9 @@ export async function GET(
       status: data.status,
     },
     businessName: data.business_name,
+    locationLabel: data.display_label ?? data.business_name,
+    accountId: data.account_id,
+    isArchived: data.is_archived,
     expiresAt: link.expires_at,
   }, { status: 200, headers: NO_STORE_HEADERS });
 

@@ -3,10 +3,11 @@ import { NextRequest } from 'next/server';
 
 // ── Hoisted shared state (available inside vi.mock factories) ────────
 
-const { mockRequireRole, mockSqlResults, sqlCallCounter } = vi.hoisted(() => ({
+const { mockRequireRole, mockSqlResults, sqlCallCounter, capturedSqlTexts } = vi.hoisted(() => ({
   mockRequireRole: vi.fn(),
   mockSqlResults: [] as unknown[][],
   sqlCallCounter: { value: 0 },
+  capturedSqlTexts: [] as string[],
 }));
 
 // ── Mock Auth ────────────────────────────────────────────────────────
@@ -25,13 +26,29 @@ vi.mock('@/lib/db/auth', () => {
     requireRole: (...args: unknown[]) => mockRequireRole(...args),
     AuthError,
   };
+  it('excludes source-deleted reviews from dashboard queries', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+    setDbResults();
+
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(200);
+
+    const reviewSql = capturedSqlTexts.filter((text) =>
+      text.includes('FROM reviews'),
+    ).join('\n');
+    expect(reviewSql).toContain("status <> 'deleted'");
+  });
 });
 
 // ── Mock DB ──────────────────────────────────────────────────────────
 
 vi.mock('@/lib/db/server', () => ({
   sql: new Proxy(() => {}, {
-    apply: () => {
+    apply: (_target, _thisArg, argumentsList) => {
+      const first = argumentsList[0];
+      if (first != null && typeof first === 'object' && 'raw' in (first as object)) {
+        capturedSqlTexts.push((first as TemplateStringsArray).raw.join('?'));
+      }
       const result = mockSqlResults[sqlCallCounter.value] ?? [];
       sqlCallCounter.value++;
       return Promise.resolve(result);
@@ -54,18 +71,23 @@ vi.mock('@/lib/db/redis-cache', () => ({
   getCacheRedis: () => ({ get: mockRedisGet }),
 }));
 
-// ── Mock payment-link ────────────────────────────────────────────────
+// ── No more payment-link mock (checkout session replaces it) ───────
 
-vi.mock('@/lib/payments/payment-link', () => ({
-  buildPaymentLinkUrl: vi.fn(),
+// ── Mock location repo (IDOR fix: route now uses getLocationById) ──
+
+const { mockGetLocationById } = vi.hoisted(() => ({
+  mockGetLocationById: vi.fn<(id: string) => Promise<import('@/lib/locations/repo').LocationRow | null>>(async () => null),
+}));
+
+vi.mock('@/lib/locations/repo', () => ({
+  getActiveLocationCount: vi.fn(async () => 1),
+  getLocationsForAccount: vi.fn(async () => []),
+  getLocationById: (id: string) => mockGetLocationById(id),
 }));
 
 // Import AFTER mocks are set up
 import { GET, type DashboardData, type DashboardDataActive } from '../route';
 import { AuthError } from '@/lib/db/auth';
-import { buildPaymentLinkUrl } from '@/lib/payments/payment-link';
-
-const mockBuildPaymentLinkUrl = vi.mocked(buildPaymentLinkUrl);
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -74,14 +96,16 @@ function makeRequest(): NextRequest {
 }
 
 const BUSINESS_ID = '01234567-0000-0000-0000-000000000001';
+const ACCOUNT_ID = 'a0000000-0000-0000-0000-000000000001';
 
-function ownerUser(overrides?: { businessId?: string | null }) {
+function ownerUser(overrides?: { locationId?: string | null }) {
   return {
     id: 'user-1',
     name: 'Test Owner',
     email: 'owner@test.com',
     role: 'owner',
-    businessId: overrides && 'businessId' in overrides ? overrides.businessId : BUSINESS_ID,
+    accountId: ACCOUNT_ID,
+    locationId: overrides && 'locationId' in overrides ? overrides.locationId : BUSINESS_ID,
   };
 }
 
@@ -94,12 +118,15 @@ const DEFAULT_SUB_ROW = {
   subscription_status: 'active',
   subscription_tier: 'standard',
   owner_email: 'owner@test.com',
+  archived_at: null,
 };
 
 /**
  * Sets up sql query results in order.
- * Call 0  = subRow (pre-query).
- * Calls 1–8  = the Promise.all heavy queries (business/totals/velocity/ranking/reviews/briefs).
+ * The route now uses getLocationById for ownership/archived checks,
+ * so the first SQL call is the subscription status check (with account_id filter).
+ * Calls 0 = subRow (subscription status check).
+ * Calls 1–8 = the Promise.all heavy queries (business/totals/velocity/ranking/reviews/briefs).
  * Calls 9–11 = the Zernio banner queries (zernio_connections, queued reconnects, unresolved incidents).
  *
  * The Promise.all includes a 12th entry (the Redis pending-marker read) but that
@@ -122,7 +149,20 @@ function setDbResults(overrides?: {
   mockSqlResults.length = 0;
   sqlCallCounter.value = 0;
 
-  // Call 0: pre-query (subRow — subscription status check)
+  // getLocationById returns an active, owned location (IDOR fix)
+  mockGetLocationById.mockResolvedValue({
+    id: BUSINESS_ID,
+    account_id: ACCOUNT_ID,
+    name: 'Test Biz',
+    display_label: null,
+    is_primary: true,
+    archived_at: null,
+    google_place_id: 'gp1',
+    google_place_address: null,
+    created_at: new Date(),
+  });
+
+  // Call 0: pre-query (subRow — subscription status check with account_id filter)
   mockSqlResults.push(overrides?.subRow ?? [DEFAULT_SUB_ROW]);
 
   // Calls 1–8: Promise.all heavy queries (only reached when status !== 'pending_payment')
@@ -176,6 +216,7 @@ describe('GET /api/dashboard', () => {
     vi.clearAllMocks();
     mockSqlResults.length = 0;
     sqlCallCounter.value = 0;
+    capturedSqlTexts.length = 0;
   });
 
   it('returns 401 when requireRole throws AuthError(401)', async () => {
@@ -198,8 +239,8 @@ describe('GET /api/dashboard', () => {
     expect(body.error).toBe('Forbidden');
   });
 
-  it('returns 403 when user has no businessId', async () => {
-    mockRequireRole.mockResolvedValue(ownerUser({ businessId: null }));
+  it('returns 403 when user has no locationId', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser({ locationId: null }));
 
     const res = await GET(makeRequest());
     expect(res.status).toBe(403);
@@ -210,8 +251,24 @@ describe('GET /api/dashboard', () => {
 
   it('returns 404 when pre-query finds no business', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
-    // subRow empty — pre-query returns no rows
+
+    // getLocationById returns an owned location, but the subscription
+    // check query returns empty rows → "Business not found"
+    mockGetLocationById.mockResolvedValue({
+      id: BUSINESS_ID,
+      account_id: ACCOUNT_ID,
+      name: 'Test Biz',
+      display_label: null,
+      is_primary: true,
+      archived_at: null,
+      google_place_id: 'gp1',
+      google_place_address: null,
+      created_at: new Date(),
+    });
+
+    // subRow empty — subscription check returns no rows (defense-in-depth)
     setDbResults({ subRow: [] });
+    // Override the getLocationById that setDbResults sets (already done above)
 
     const res = await GET(makeRequest());
     expect(res.status).toBe(404);
@@ -224,11 +281,24 @@ describe('GET /api/dashboard', () => {
 
   it('returns minimal payload for pending_payment, no heavy queries run', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
-    mockBuildPaymentLinkUrl.mockReturnValue('https://pay.stripe.com/test?client_reference_id=...');
 
     mockSqlResults.length = 0;
     sqlCallCounter.value = 0;
-    // Only the pre-query result — Promise.all must NOT be reached
+
+    // getLocationById returns an active, owned location
+    mockGetLocationById.mockResolvedValue({
+      id: BUSINESS_ID,
+      account_id: ACCOUNT_ID,
+      name: 'Pending Biz',
+      display_label: null,
+      is_primary: true,
+      archived_at: null,
+      google_place_id: 'gp1',
+      google_place_address: null,
+      created_at: new Date(),
+    });
+
+    // Call 0: subscription status check (with account_id filter)
     mockSqlResults.push([
       {
         name: 'Pending Biz',
@@ -236,6 +306,7 @@ describe('GET /api/dashboard', () => {
         subscription_tier: 'standard',
         owner_email: 'owner@pending.com',
         onboarded_by: null, // self-serve — owner sees the payment CTA
+        archived_at: null,
       },
     ]);
 
@@ -244,62 +315,86 @@ describe('GET /api/dashboard', () => {
 
     const body = await res.json();
     expect(body.subscriptionStatus).toBe('pending_payment');
-    expect(body.businessId).toBe(BUSINESS_ID);
+    expect(body.locationId).toBe(BUSINESS_ID);
     expect(body.businessName).toBe('Pending Biz');
-    expect(body.paymentUrl).toBe('https://pay.stripe.com/test?client_reference_id=...');
+    // The dashboard now redirects to /onboarding/pay instead of a Stripe Payment Link.
+    // The PlanPickerClient on that page creates a Checkout Session.
+    expect(body.paymentUrl).toMatch(/\/onboarding\/pay$/);
 
     // Minimal shape — full dashboard fields must be absent
     expect(body.business).toBeUndefined();
     expect(body.valueSummary).toBeUndefined();
     expect(body.recentReviews).toBeUndefined();
 
-    // Only 1 sql call (the pre-query). Promise.all 8 queries must not have run.
+    // Only 1 sql call (the subscription check). Promise.all 8 queries must not have run.
     expect(sqlCallCounter.value).toBe(1);
 
     // No-store header still present
     expect(res.headers.get('Cache-Control')).toBe('no-store, private');
   });
 
-  it('calls buildPaymentLinkUrl with tier, businessId, and owner_email', async () => {
+  it('returns paymentUrl pointing to /onboarding/pay for self-serve pending_payment', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
-    mockBuildPaymentLinkUrl.mockReturnValue('https://pay.stripe.com/founding');
 
     mockSqlResults.length = 0;
     sqlCallCounter.value = 0;
+
+    mockGetLocationById.mockResolvedValue({
+      id: BUSINESS_ID,
+      account_id: ACCOUNT_ID,
+      name: 'Founding Biz',
+      display_label: null,
+      is_primary: true,
+      archived_at: null,
+      google_place_id: 'gp1',
+      google_place_address: null,
+      created_at: new Date(),
+    });
+
+    // Call 0: subscription status check
     mockSqlResults.push([
       {
         name: 'Founding Biz',
         subscription_status: 'pending_payment',
-        subscription_tier: 'founding',
+        subscription_tier: 'founders',
         owner_email: 'founder@example.com',
         onboarded_by: null,
+        archived_at: null,
       },
     ]);
 
-    await GET(makeRequest());
-
-    expect(mockBuildPaymentLinkUrl).toHaveBeenCalledOnce();
-    expect(mockBuildPaymentLinkUrl).toHaveBeenCalledWith(
-      'founding',
-      BUSINESS_ID,
-      'founder@example.com',
-    );
+    const res = await GET(makeRequest());
+    const body = await res.json();
+    expect(body.paymentUrl).toMatch(/\/onboarding\/pay$/);
   });
 
   it('returns admin-handoff payload when pending_payment + onboarded_by IS NOT NULL', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
-    // Spy is in place but should NOT be called — admin-handoff path skips the link.
-    mockBuildPaymentLinkUrl.mockReturnValue('https://pay.stripe.com/should-not-be-called');
 
     mockSqlResults.length = 0;
     sqlCallCounter.value = 0;
+
+    mockGetLocationById.mockResolvedValue({
+      id: BUSINESS_ID,
+      account_id: ACCOUNT_ID,
+      name: 'Admin Onboarded Biz',
+      display_label: null,
+      is_primary: true,
+      archived_at: null,
+      google_place_id: 'gp1',
+      google_place_address: null,
+      created_at: new Date(),
+    });
+
+    // Call 0: subscription status check
     mockSqlResults.push([
       {
         name: 'Admin Onboarded Biz',
         subscription_status: 'pending_payment',
-        subscription_tier: 'founding',
+        subscription_tier: 'founders',
         owner_email: 'owner@admin-onboarded.com',
         onboarded_by: 'admin-uuid-1',
+        archived_at: null,
       },
     ]);
 
@@ -308,24 +403,34 @@ describe('GET /api/dashboard', () => {
 
     const body = await res.json();
     expect(body.subscriptionStatus).toBe('pending_payment_admin_handoff');
-    expect(body.businessId).toBe(BUSINESS_ID);
+    expect(body.locationId).toBe(BUSINESS_ID);
     expect(body.businessName).toBe('Admin Onboarded Biz');
     // Critical: no paymentUrl in admin-handoff payload (avoids double-charge risk).
     expect(body.paymentUrl).toBeUndefined();
 
-    // buildPaymentLinkUrl must NOT be called on the admin-handoff branch.
-    expect(mockBuildPaymentLinkUrl).not.toHaveBeenCalled();
-
-    // Pre-query only — Promise.all heavy queries skipped.
+    // Subscription check only — Promise.all heavy queries skipped.
     expect(sqlCallCounter.value).toBe(1);
   });
 
-  it('returns paymentUrl: null when buildPaymentLinkUrl returns null (env not set)', async () => {
+  it('returns paymentUrl pointing to /onboarding/pay even when env vars are unset', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
-    mockBuildPaymentLinkUrl.mockReturnValue(null);
 
     mockSqlResults.length = 0;
     sqlCallCounter.value = 0;
+
+    mockGetLocationById.mockResolvedValue({
+      id: BUSINESS_ID,
+      account_id: ACCOUNT_ID,
+      name: 'No Env Biz',
+      display_label: null,
+      is_primary: true,
+      archived_at: null,
+      google_place_id: 'gp1',
+      google_place_address: null,
+      created_at: new Date(),
+    });
+
+    // Call 0: subscription status check
     mockSqlResults.push([
       {
         name: 'No Env Biz',
@@ -333,6 +438,7 @@ describe('GET /api/dashboard', () => {
         subscription_tier: 'standard',
         owner_email: 'owner@noenv.com',
         onboarded_by: null,
+        archived_at: null,
       },
     ]);
 
@@ -341,7 +447,8 @@ describe('GET /api/dashboard', () => {
 
     const body = await res.json();
     expect(body.subscriptionStatus).toBe('pending_payment');
-    expect(body.paymentUrl).toBeNull();
+    // Even without Stripe env vars, the dashboard still redirects to /onboarding/pay
+    expect(body.paymentUrl).toMatch(/\/onboarding\/pay$/);
   });
 
   // ── active path — existing behaviour preserved ─────────────────────
@@ -548,6 +655,219 @@ describe('GET /api/dashboard', () => {
     expect(body.zernioConnection.hasUnresolvedIncident).toBe(true);
     // No marker → no leaked flow data.
     expect(body.zernioConnection.pendingFlow).toBeUndefined();
+  });
+
+  // ── Cancelled account grace period (cancelled_at) ──────────────────────
+
+  it('cancelled account uses cancelled_at for grace period calculation', async () => {
+    // Scenario: account was activated months ago but just cancelled.
+    // Grace period should be cancelled_at + 30 days (future), not
+    // subscription_activated_at + 30 days (which would be in the past).
+    mockRequireRole.mockResolvedValue(ownerUser());
+
+    mockSqlResults.length = 0;
+    sqlCallCounter.value = 0;
+
+    mockGetLocationById.mockResolvedValue({
+      id: BUSINESS_ID,
+      account_id: ACCOUNT_ID,
+      name: 'Cancelled Biz',
+      display_label: null,
+      is_primary: true,
+      archived_at: null,
+      google_place_id: 'gp1',
+      google_place_address: null,
+      created_at: new Date(),
+    });
+
+    // Call 0: subscription status check (cancelled)
+    mockSqlResults.push([
+      {
+        name: 'Cancelled Biz',
+        subscription_status: 'cancelled',
+        subscription_tier: 'standard',
+        owner_email: 'owner@cancelled.com',
+        archived_at: null,
+      },
+    ]);
+
+    // Call 1: grace period query — should query cancelled_at
+    const cancelledAt = new Date('2026-05-05T00:00:00Z');
+    const activatedAt = new Date('2025-11-01T00:00:00Z'); // activated months ago
+    mockSqlResults.push([
+      { cancelled_at: cancelledAt, subscription_activated_at: activatedAt },
+    ]);
+
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(200);
+
+    const body = await res.json();
+    expect(body.subscriptionStatus).toBe('cancelled');
+    expect(body.readAccess).toBe(true);
+
+    // Grace period end should be cancelled_at + 30 days = 2026-06-04
+    const graceEnd = new Date(body.gracePeriodEndDate);
+    const expectedEnd = new Date(cancelledAt.getTime() + 30 * 86_400_000);
+    expect(graceEnd.getTime()).toBe(expectedEnd.getTime());
+
+    // Verify the SQL query selected cancelled_at (not just subscription_activated_at)
+    // The second SQL call should be the grace period query
+    const graceSql = capturedSqlTexts[1];
+    expect(graceSql).toMatch(/SELECT\s+cancelled_at\s*,\s*subscription_activated_at\s+FROM\s+accounts/i);
+  });
+
+  it('cancelled account shows correct future date when cancelled months after activation', async () => {
+    // This is the key bug fix scenario:
+    // - subscription_activated_at = 6 months ago
+    // - cancelled_at = just now
+    // - Old bug: grace period = activated_at + 30 days = 6 months ago (expired!)
+    // - New behavior: grace period = cancelled_at + 30 days = 30 days from now (active!)
+    mockRequireRole.mockResolvedValue(ownerUser());
+
+    mockSqlResults.length = 0;
+    sqlCallCounter.value = 0;
+
+    mockGetLocationById.mockResolvedValue({
+      id: BUSINESS_ID,
+      account_id: ACCOUNT_ID,
+      name: 'Long Sub Biz',
+      display_label: null,
+      is_primary: true,
+      archived_at: null,
+      google_place_id: 'gp1',
+      google_place_address: null,
+      created_at: new Date(),
+    });
+
+    // Call 0: subscription status check (cancelled)
+    mockSqlResults.push([
+      {
+        name: 'Long Sub Biz',
+        subscription_status: 'cancelled',
+        subscription_tier: 'standard',
+        owner_email: 'owner@longsub.com',
+        archived_at: null,
+      },
+    ]);
+
+    // Call 1: grace period query — cancelled just now, activated long ago
+    const now = new Date();
+    const sixMonthsAgo = new Date(now.getTime() - 180 * 86_400_000);
+    mockSqlResults.push([
+      { cancelled_at: now, subscription_activated_at: sixMonthsAgo },
+    ]);
+
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(200);
+
+    const body = await res.json();
+    expect(body.subscriptionStatus).toBe('cancelled');
+    expect(body.readAccess).toBe(true);
+
+    // Grace period end should be ~30 days from now (cancelled_at + 30)
+    // NOT ~30 days from 6 months ago (which would be in the past)
+    const graceEnd = new Date(body.gracePeriodEndDate);
+    const expectedEnd = new Date(now.getTime() + 30 * 86_400_000);
+
+    // Allow 5-second tolerance for test execution time
+    expect(Math.abs(graceEnd.getTime() - expectedEnd.getTime())).toBeLessThan(5000);
+
+    // Grace period must be in the future
+    expect(graceEnd.getTime()).toBeGreaterThan(Date.now() - 5000);
+  });
+
+  it('legacy row with null cancelled_at falls back to subscription_activated_at', async () => {
+    // Legacy rows created before migration 037 may have cancelled_at = NULL.
+    // In this case, fall back to subscription_activated_at for grace period.
+    mockRequireRole.mockResolvedValue(ownerUser());
+
+    mockSqlResults.length = 0;
+    sqlCallCounter.value = 0;
+
+    mockGetLocationById.mockResolvedValue({
+      id: BUSINESS_ID,
+      account_id: ACCOUNT_ID,
+      name: 'Legacy Cancelled Biz',
+      display_label: null,
+      is_primary: true,
+      archived_at: null,
+      google_place_id: 'gp1',
+      google_place_address: null,
+      created_at: new Date(),
+    });
+
+    // Call 0: subscription status check (cancelled)
+    mockSqlResults.push([
+      {
+        name: 'Legacy Cancelled Biz',
+        subscription_status: 'cancelled',
+        subscription_tier: 'standard',
+        owner_email: 'owner@legacy.com',
+        archived_at: null,
+      },
+    ]);
+
+    // Call 1: grace period query — cancelled_at is null, activated_at is recent
+    const activatedAt = new Date('2026-04-20T00:00:00Z');
+    mockSqlResults.push([
+      { cancelled_at: null, subscription_activated_at: activatedAt },
+    ]);
+
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(200);
+
+    const body = await res.json();
+    expect(body.subscriptionStatus).toBe('cancelled');
+
+    // Grace period should fall back to activated_at + 30 days
+    const graceEnd = new Date(body.gracePeriodEndDate);
+    const expectedEnd = new Date(activatedAt.getTime() + 30 * 86_400_000);
+    expect(graceEnd.getTime()).toBe(expectedEnd.getTime());
+  });
+
+  it('cancelled account with no cancelled_at and no activated_at defaults to read access', async () => {
+    // Edge case: both cancelled_at and subscription_activated_at are null.
+    // Should default to readAccess=true (defensive — don't lock out without evidence).
+    mockRequireRole.mockResolvedValue(ownerUser());
+
+    mockSqlResults.length = 0;
+    sqlCallCounter.value = 0;
+
+    mockGetLocationById.mockResolvedValue({
+      id: BUSINESS_ID,
+      account_id: ACCOUNT_ID,
+      name: 'No Dates Biz',
+      display_label: null,
+      is_primary: true,
+      archived_at: null,
+      google_place_id: 'gp1',
+      google_place_address: null,
+      created_at: new Date(),
+    });
+
+    // Call 0: subscription status check (cancelled)
+    mockSqlResults.push([
+      {
+        name: 'No Dates Biz',
+        subscription_status: 'cancelled',
+        subscription_tier: 'standard',
+        owner_email: 'owner@nodates.com',
+        archived_at: null,
+      },
+    ]);
+
+    // Call 1: grace period query — both dates null
+    mockSqlResults.push([
+      { cancelled_at: null, subscription_activated_at: null },
+    ]);
+
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(200);
+
+    const body = await res.json();
+    expect(body.subscriptionStatus).toBe('cancelled');
+    expect(body.gracePeriodEndDate).toBeNull();
+    expect(body.readAccess).toBe(true);
   });
 
   it('pending marker with status=finalize_unknown → status=finalize_unknown, marker is surfaced', async () => {

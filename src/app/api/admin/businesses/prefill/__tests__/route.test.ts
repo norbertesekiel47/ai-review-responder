@@ -48,7 +48,8 @@ describe('GET /api/admin/businesses/prefill', () => {
     mockRequireRole.mockResolvedValue({
       id: 'admin-1',
       role: 'admin',
-      businessId: null,
+      accountId: null,
+      locationId: null,
     });
     mockCheckRateLimit.mockResolvedValue({ allowed: true, remaining: 10 });
     mockIsPlaceId.mockReturnValue(true);

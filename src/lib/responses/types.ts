@@ -17,7 +17,7 @@ export interface BusinessContext extends DemoBusinessContext {
   highlightFacts: string[];
   avoidFacts: string[];
   sampleResponses: string[];
-  subscriptionTier: 'founding' | 'standard' | 'premium';
+  subscriptionTier: 'founders' | 'standard' | 'premium';
 }
 
 // ── Voice learning examples ─────────────────────────────────────────
@@ -39,7 +39,7 @@ export interface GenerationOptions {
   /** Required in production mode for cost reservation */
   businessId?: string;
   /** Required in production mode for tier-aware limits */
-  subscriptionTier?: 'founding' | 'standard' | 'premium';
+  subscriptionTier?: 'founders' | 'standard' | 'premium';
   /** Skip idempotent cache read AND write. Used by avoid-facts retry so a
    *  cached violating response doesn't short-circuit the regeneration. */
   skipCache?: boolean;

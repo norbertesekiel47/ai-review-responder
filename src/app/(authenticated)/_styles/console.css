@@ -74,6 +74,138 @@
   text-overflow: ellipsis;
 }
 
+/* ---------- Location Picker ---------- */
+.loc-picker {
+  position: relative;
+  margin-top: 2px;
+}
+.loc-picker--compact {
+  margin-top: 0;
+}
+/* Hide mobile LocationPicker in TopBar on desktop (sidebar has the picker) */
+.topbar-loc-picker {
+  display: none;
+}
+.loc-picker-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px 3px 6px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  transition: background 160ms var(--rw-ease), border-color 160ms var(--rw-ease);
+  max-width: 200px;
+  font-family: var(--rw-font-body);
+}
+.loc-picker-trigger:hover {
+  background: #F3F4F6;
+  border-color: var(--rw-app-border);
+}
+.loc-picker-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--rw-app-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
+}
+.loc-picker--compact .loc-picker-label {
+  font-size: 13px;
+  max-width: 120px;
+}
+.loc-picker-chevron {
+  display: inline-flex;
+  color: var(--rw-app-text-muted);
+  transition: transform 200ms var(--rw-ease);
+  flex-shrink: 0;
+}
+.loc-picker-chevron--open {
+  transform: rotate(180deg);
+}
+
+.loc-picker-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 200px;
+  background: #fff;
+  border: 1px solid var(--rw-app-border);
+  border-radius: var(--rw-radius-md);
+  box-shadow: var(--rw-shadow);
+  z-index: 40;
+  padding: 6px 0;
+  animation: fadeUp 200ms var(--rw-ease) both;
+}
+.loc-picker--compact .loc-picker-dropdown {
+  left: auto;
+  right: 0;
+  min-width: 180px;
+}
+.loc-picker-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 14px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--rw-app-text);
+  text-align: left;
+  transition: background 120ms var(--rw-ease);
+  text-decoration: none;
+  font-family: var(--rw-font-body);
+}
+.loc-picker-item:hover {
+  background: #F3F4F6;
+}
+.loc-picker-item--active {
+  color: var(--rw-blue-600);
+  font-weight: 600;
+}
+.loc-picker-item--active:hover {
+  background: var(--rw-blue-50);
+}
+.loc-picker-item-label {
+  flex: 1;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.loc-picker-item-check {
+  color: var(--rw-blue-600);
+  flex-shrink: 0;
+  display: inline-flex;
+}
+.loc-picker-primary-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--rw-teal);
+  flex-shrink: 0;
+}
+.loc-picker-item--cta {
+  color: var(--rw-blue-600);
+  font-weight: 600;
+}
+.loc-picker-item--cta:hover {
+  background: var(--rw-blue-50);
+}
+.loc-picker-divider {
+  height: 1px;
+  background: var(--rw-app-border-soft);
+  margin: 4px 0;
+}
+
 .nav-section {
   display: flex;
   flex-direction: column;
@@ -342,6 +474,57 @@
 .banner-blue .banner-cta { background: var(--rw-blue-600); color: #fff; }
 .banner-blue .banner-cta:hover { background: var(--rw-blue-700); }
 
+/* ---------- Subscription status banners ---------- */
+.sub-status-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 18px;
+  border-radius: 10px;
+  border: 1px solid;
+  margin-bottom: 14px;
+  animation: slideIn 0.3s ease;
+}
+.sub-status-banner--cancelled {
+  border-color: #FECACA;
+  background: #FEF2F2;
+}
+.sub-status-banner--past-due {
+  border-color: #FDE68A;
+  background: #FFFBEB;
+}
+.sub-status-banner__icon {
+  width: 36px; height: 36px;
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.sub-status-banner--cancelled .sub-status-banner__icon {
+  background: #FECACA; color: #991B1B;
+}
+.sub-status-banner--past-due .sub-status-banner__icon {
+  background: #FDE68A; color: #92400E;
+}
+.sub-status-banner__content { flex: 1; min-width: 0; }
+.sub-status-banner__title {
+  font-weight: 600; font-size: 14px;
+}
+.sub-status-banner--cancelled .sub-status-banner__title { color: #991B1B; }
+.sub-status-banner--past-due .sub-status-banner__title { color: #92400E; }
+.sub-status-banner__body {
+  font-size: 13px; margin-top: 4px;
+}
+.sub-status-banner--cancelled .sub-status-banner__body { color: #991B1Bcc; }
+.sub-status-banner--past-due .sub-status-banner__body { color: #92400Ecc; }
+.sub-status-banner__link {
+  background: none; border: 0; padding: 0; color: #1D4ED8; cursor: pointer;
+  font: inherit; text-decoration: underline; font-weight: 500;
+}
+.sub-status-banner__link:hover { color: #1E40AF; }
+.sub-status-banner__link:disabled { cursor: progress; opacity: 0.7; }
+.sub-status-banner__error {
+  display: inline-block; margin-left: 8px; color: #991B1B; font-weight: 500;
+}
 /* ---------- KPI grid ---------- */
 .kpi-grid {
   display: grid;
@@ -786,6 +969,10 @@
     line-height: 14px;
     height: 16px;
   }
+  /* Mobile LocationPicker in TopBar */
+  .topbar-loc-picker {
+    display: block;
+  }
 }
 
 /* ---------- Toast ---------- */
@@ -834,3 +1021,154 @@
 
 /* selection */
 ::selection { background: var(--rw-blue-100); color: var(--rw-blue-800); }
+
+/* ---------- Location chip (aggregate reviews, briefs) ---------- */
+.location-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--rw-blue-700);
+  background: var(--rw-blue-100);
+  padding: 2px 8px;
+  border-radius: 9999px;
+  white-space: nowrap;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--rw-font-body);
+}
+
+/* ---------- Location KPI strip ---------- */
+.loc-kpi-strip {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  padding: 4px 0;
+  -webkit-overflow-scrolling: touch;
+}
+.loc-kpi-strip::-webkit-scrollbar { height: 0; }
+.loc-kpi-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 16px;
+  border-radius: var(--rw-radius-md);
+  border: 1px solid var(--rw-app-border);
+  background: #fff;
+  cursor: pointer;
+  transition: all 160ms var(--rw-ease);
+  min-width: 160px;
+  max-width: 200px;
+  flex: 0 0 auto;
+  text-align: left;
+  font-family: var(--rw-font-body);
+}
+.loc-kpi-card:hover {
+  border-color: var(--rw-blue-500);
+  background: var(--rw-blue-50);
+  transform: translateY(-1px);
+  box-shadow: var(--rw-shadow-sm);
+}
+.loc-kpi-card--has-pending {
+  background: linear-gradient(180deg, #FFFBEB 0%, #fff 100%);
+  border-color: #FDE68A;
+}
+.loc-kpi-card--has-pending:hover {
+  border-color: #FCD34D;
+  background: linear-gradient(180deg, #FEF3C7 0%, #fff 100%);
+}
+.loc-kpi-card-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--rw-app-text);
+  line-height: 1.2;
+}
+.loc-kpi-card-stats {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--rw-app-text-muted);
+}
+.stat-pending {
+  color: #92400E;
+  font-weight: 600;
+}
+.loc-kpi-card-handled {
+  font-size: 11px;
+  color: var(--rw-app-text-muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* VAL-DASH-028: Billing-pending pill on KPI strip card */
+.billing-pending-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 600;
+  color: #92400E;
+  background: #FEF3C7;
+  border: 1px solid #FDE68A;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+
+/* ---------- Aggregate empty state ---------- */
+.aggregate-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 60px 24px;
+  gap: 12px;
+}
+.aggregate-empty-emoji {
+  font-size: 56px;
+  animation: float 3s ease-in-out infinite;
+}
+.aggregate-empty-title {
+  font-family: var(--rw-font-display);
+  font-weight: 700;
+  font-size: 22px;
+  letter-spacing: -0.01em;
+  color: var(--rw-app-text);
+}
+.aggregate-empty-sub {
+  font-size: 14px;
+  color: var(--rw-app-text-muted);
+  max-width: 400px;
+  line-height: 1.5;
+}
+
+/* ---------- Skeleton/Loading for dashboard ---------- */
+.dashboard-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  animation: pulse 2s ease-in-out infinite;
+}
+.skeleton-line {
+  height: 16px;
+  background: #F3F4F6;
+  border-radius: 6px;
+  width: 100%;
+}
+.skeleton-card {
+  background: #F3F4F6;
+  border-radius: var(--rw-radius-md);
+  height: 120px;
+}
+.skeleton-card-lg {
+  background: #F3F4F6;
+  border-radius: var(--rw-radius-md);
+  height: 260px;
+}

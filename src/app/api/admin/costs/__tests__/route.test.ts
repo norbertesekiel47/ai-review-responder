@@ -45,7 +45,7 @@ vi.mock('@/lib/db/server', () => {
       if (!isTaggedTemplate) {
         return { __helper: true };
       }
-      capturedSqlTexts.push((first as TemplateStringsArray).raw.join(''));
+      capturedSqlTexts.push((first as TemplateStringsArray).raw.join('?'));
       const result = mockSqlResults[sqlCallCounter.value] ?? [];
       sqlCallCounter.value++;
       return Promise.resolve(result);
@@ -159,7 +159,8 @@ describe('GET /api/admin/costs', () => {
     mockRequireRole.mockResolvedValue({
       id: 'admin-1',
       role: 'admin',
-      businessId: null,
+      accountId: null,
+      locationId: null,
     });
   });
 
@@ -499,7 +500,8 @@ describe('GET /api/admin/costs', () => {
     originalFactory.mockResolvedValue({
       id: 'admin-1',
       role: 'admin',
-      businessId: null,
+      accountId: null,
+      locationId: null,
     });
 
     // Intercept sql calls by wrapping mockSqlResults with a logger.
@@ -524,5 +526,40 @@ describe('GET /api/admin/costs', () => {
     // Suppress unused var warnings
     void seenQueries;
     void intercept;
+  });
+
+  // Regression: api_costs_daily_rollups has NO account_id column — rollup
+  // queries must JOIN through businesses instead of filtering directly.
+  // This prevents a runtime SQL error when account_id parameter is provided
+  // with days > 90.
+  it('rollup queries use JOIN-through-businesses pattern, not direct account_id on rollups table', async () => {
+    queueDetailPlusRollupResults();
+    const { GET } = await import('../route');
+    await GET(makeRequest('/api/admin/costs?days=180&account_id=acct-123'));
+
+    // Every SQL that references api_costs_daily_rollups must NOT contain
+    // a direct `AND account_id =` predicate on that table. Instead it
+    // must use a subquery: business_id IN (SELECT id FROM businesses WHERE account_id = ...)
+    const rollupQueries = capturedSqlTexts.filter(
+      (sql) => sql.includes('api_costs_daily_rollups'),
+    );
+    expect(rollupQueries.length).toBeGreaterThanOrEqual(1);
+
+    for (const sql of rollupQueries) {
+      const rollupClauses = sql
+        .split(/FROM\s+api_costs_daily_rollups/i)
+        .slice(1)
+        .map((part) => part.split(/GROUP BY/i)[0]);
+      expect(rollupClauses.length).toBeGreaterThanOrEqual(1);
+
+      // Must NOT have a direct account_id predicate against the rollups table.
+      // The only allowed account_id predicate is inside the businesses subquery.
+      for (const clause of rollupClauses) {
+        expect(clause).not.toMatch(/^\s*(AND|WHERE)\s+account_id\s*=\s*\?::uuid/im);
+        expect(clause).toMatch(
+          /business_id\s+IN\s*\(\s*SELECT\s+id\s+FROM\s+businesses\s+WHERE\s+account_id\s*=\s*\?::uuid\s*\)/i,
+        );
+      }
+    }
   });
 });

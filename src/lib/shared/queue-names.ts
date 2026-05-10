@@ -26,6 +26,7 @@ export const QUEUE_NAMES = {
   DRAIN_OWNER_CONNECT: 'drain_pending_owner_connect',
   SEND_OWNER_EMAIL: 'send_owner_email',
   ONBOARDING_DEMO_RESPONSE: 'onboarding_demo_response',
+  UPDATE_STRIPE_OVERAGE: 'update_stripe_overage_quantity',
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];

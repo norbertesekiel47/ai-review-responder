@@ -129,7 +129,7 @@ function mockBusinessRow(overrides = {}) {
     id: 'biz-1', name: 'Test Biz', category: 'restaurant', tone: 'warm',
     products_services: null, staff_names: [], highlight_facts: [], avoid_facts: [],
     sample_responses: [], subscription_status: 'active', subscription_tier: 'standard',
-    updated_at: new Date(), ...overrides,
+    account_updated_at: new Date(), ...overrides,
   };
 }
 

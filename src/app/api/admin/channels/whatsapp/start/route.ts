@@ -22,8 +22,11 @@ import { v7 as uuidv7 } from 'uuid';
 import QRCode from 'qrcode';
 import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
+import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { isWhatsAppEnabled, flagOff, assertWhatsAppEnvReady } from '../_shared';
 import { classifyEnrollmentError, MultipleMobileChannelsError, EnrollmentDatabaseError } from '@/lib/channels/unique-violation';
+import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
+import { asAccountId } from '@/lib/shared/ids';
 
 const TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
 
@@ -46,14 +49,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const businessId = body?.businessId;
   if (!businessId) return NextResponse.json({ error: 'businessId required' }, { status: 400 });
 
-  const businessRows = await sql<{ subscription_status: string }[]>`
-    SELECT subscription_status FROM businesses WHERE id = ${businessId}
+  // After migration 034, subscription_status source of truth is accounts.
+  const [accountRow] = await sql<{ id: string; subscription_status: string }[]>`
+    SELECT a.id, a.subscription_status
+    FROM accounts a
+    JOIN businesses b ON b.account_id = a.id
+    WHERE b.id = ${businessId}
   `;
-  const business = businessRows[0];
-  if (!business) return NextResponse.json({ error: 'not_found' }, { status: 404 });
-  if (business.subscription_status !== 'active') {
+  if (!accountRow) return NextResponse.json({ error: 'not_found' }, { status: 404 });
+  if (accountRow.subscription_status !== SubscriptionStatus.ACTIVE) {
     return NextResponse.json({ error: 'subscription_not_active' }, { status: 403 });
   }
+  const accountId = accountRow.id;
 
   // Advisory lock + enrollment state machine run in a single transaction so
   // the lock is held across the SELECT + UPDATE/INSERT. pg_advisory_xact_lock
@@ -99,9 +106,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         } else {
           await tx`
             INSERT INTO channel_enrollments
-              (id, business_id, channel, status, verification_token_hash, verification_token_expires_at)
+              (id, account_id, business_id, channel, status, verification_token_hash, verification_token_expires_at)
             VALUES
-              (${uuidv7()}, ${businessId}, 'whatsapp', 'pending_verification', ${tokenHash}, ${expiresAt})
+              (${uuidv7()}, ${accountId}, ${businessId}, 'whatsapp', 'pending_verification', ${tokenHash}, ${expiresAt})
           `;
         }
       } catch (err) {
@@ -129,6 +136,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   if (result?.kind === 'already_verified') {
     return NextResponse.json({ error: 'already_verified' }, { status: 409, headers: noStore });
   }
+
+  // Invalidate channel cache — the enrollment state change affects which
+  // channels are available for dispatch. Best-effort: a Redis failure
+  // should not block the admin response.
+  await safeInvalidateChannelCache(asAccountId(accountId), 'admin.whatsapp.start');
 
   // wa.me requires digits only (no +, no whatsapp:) per https://faq.whatsapp.com/5246659compatibly
   const digits = process.env.TWILIO_WHATSAPP_NUMBER!.replace(/^whatsapp:\+?/, '');

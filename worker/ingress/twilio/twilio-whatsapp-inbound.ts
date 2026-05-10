@@ -26,6 +26,8 @@ import {
 import { WhatsAppClient } from '../../../src/lib/notifications/channels/whatsapp-client';
 import { stripWaPrefix, toWaRecipient } from '../../../src/lib/notifications/channels/whatsapp-body';
 import { classifyIntent } from './twilio-intent';
+import { safeInvalidateChannelCache } from '../../../src/lib/notifications/resolve-channels';
+import { asAccountId } from '../../../src/lib/shared/ids';
 
 const LOG_PREFIX = '[ingress/twilio-whatsapp]';
 
@@ -181,7 +183,7 @@ export async function handleTwilioWhatsAppInbound(
     // Single-statement UPDATE — no need for sql.begin. Scope is intentionally
     // handle-wide across all businesses (TCPA opt-out semantics); one inbound
     // STOP unsubscribes the handle everywhere it's verified.
-    await sql`
+    const affectedAccounts = await sql<{ account_id: string }[]>`
       UPDATE channel_enrollments
       SET status = 'unsubscribed',
           unsubscribed_at = COALESCE(unsubscribed_at, NOW()),
@@ -190,7 +192,18 @@ export async function handleTwilioWhatsAppInbound(
       WHERE handle = ${senderHandle}
         AND channel = 'whatsapp'
         AND archived_at IS NULL
+      RETURNING account_id
     `;
+    // TCPA-critical: immediately invalidate channel cache so the next
+    // notification dispatch does not attempt to send to an opted-out
+    // channel. The 5-minute TTL would eventually expire, but that window
+    // risks a TCPA-violating send.
+    const uniqueAccountIds = [...new Set(affectedAccounts.map((r) => r.account_id))];
+    await Promise.all(
+      uniqueAccountIds.map((id) =>
+        safeInvalidateChannelCache(asAccountId(id), 'worker.twilio.whatsapp.stop'),
+      ),
+    );
     await markInboundEventProcessed(dedupKey);
     reply.status(200).send({ received: true });
     return;
@@ -209,8 +222,8 @@ export async function handleTwilioWhatsAppInbound(
     const tokenHash = createHash('sha256').update(rawToken).digest('hex');
 
     const result = await sql.begin(async (tx) => {
-      const rows = await tx<{ id: string }[]>`
-        SELECT id FROM channel_enrollments
+      const rows = await tx<{ id: string; account_id: string }[]>`
+        SELECT id, account_id FROM channel_enrollments
         WHERE verification_token_hash = ${tokenHash}
           AND channel = 'whatsapp'
           AND status = 'pending_verification'
@@ -219,7 +232,7 @@ export async function handleTwilioWhatsAppInbound(
         FOR UPDATE
       `;
       const row = rows[0];
-      if (!row) return { matched: false as const };
+      if (!row) return { matched: false as const, accountId: null as string | null };
       await tx`
         UPDATE channel_enrollments
         SET handle = ${senderHandle},
@@ -231,8 +244,17 @@ export async function handleTwilioWhatsAppInbound(
         WHERE id = ${row.id}
           AND archived_at IS NULL
       `;
-      return { matched: true as const };
+      return { matched: true as const, accountId: row.account_id as string | null };
     });
+
+    // Invalidate channel cache so the newly verified channel is immediately
+    // available for notification dispatch (no 5-minute stale window).
+    if (result.accountId) {
+      await safeInvalidateChannelCache(
+        asAccountId(result.accountId),
+        'worker.twilio.whatsapp.verify',
+      );
+    }
 
     const body = result.matched
       ? "✅ You're connected to RepWorth — we'll ping you here when a review needs approval."

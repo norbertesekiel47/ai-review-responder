@@ -140,14 +140,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // 6. Defensive role check + business lookup. The expected case is
+  // 6. Defensive role check + account/business lookup. The expected case is
   //    role='owner' (the only callers who land here are self-serve signups).
   //    An admin auth_id reaching this route would be a misconfigured email
   //    template or a manual call — sign out and reject so we don't drop
-  //    the caller into an unexpected redirect. business_id is needed for
-  //    step 7 (channel enrollment).
-  const [row] = await sql<{ role: string; business_id: string }[]>`
-    SELECT role, business_id FROM users WHERE auth_id = ${data.user.id} LIMIT 1
+  //    the caller into an unexpected redirect. After migration 034, users
+  //    no longer have business_id; we read account_id and resolve the
+  //    primary business for the channel enrollment INSERT in step 7.
+  const [row] = await sql<{ role: string; account_id: string; business_id: string }[]>`
+    SELECT u.role, u.account_id, b.id AS business_id
+    FROM users u
+    JOIN businesses b ON b.account_id = u.account_id AND b.is_primary = TRUE
+    WHERE u.auth_id = ${data.user.id}
+    LIMIT 1
   `;
   if (!row || row.role !== 'owner') {
     await supabase.auth.signOut();
@@ -177,9 +182,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   //    don't block the redirect to /onboarding/pay.
   try {
     await sql`
-      INSERT INTO channel_enrollments (id, business_id, channel, handle, status, verified_at)
-      VALUES (${uuidv7()}, ${row.business_id}, 'email', ${email}, 'verified', NOW())
-      ON CONFLICT (business_id, channel) WHERE archived_at IS NULL DO NOTHING
+      INSERT INTO channel_enrollments (id, account_id, business_id, channel, handle, status, verified_at)
+      VALUES (${uuidv7()}, ${row.account_id}::uuid, ${row.business_id}::uuid, 'email', ${email}, 'verified', NOW())
+      ON CONFLICT (account_id, channel, COALESCE(location_id, '00000000-0000-0000-0000-000000000000')) WHERE archived_at IS NULL DO NOTHING
     `;
   } catch (err) {
     console.error(

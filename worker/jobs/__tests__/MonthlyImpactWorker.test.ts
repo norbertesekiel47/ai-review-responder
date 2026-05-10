@@ -75,7 +75,7 @@ function mockBusinessRow(overrides: Record<string, unknown> = {}) {
     name: 'Test Biz',
     owner_email: 'owner@test.com',
     subscription_status: 'active',
-    updated_at: new Date(),
+    account_updated_at: new Date(),
     initial_review_count: 50,
     initial_responded_count: 10,
     baseline_captured_at: new Date('2026-01-01'),

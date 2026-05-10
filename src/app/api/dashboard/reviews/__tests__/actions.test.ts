@@ -87,13 +87,14 @@ const OTHER_BUSINESS_ID = '01234567-0000-0000-0000-000000000099';
 const REVIEW_ID = 'rev-001';
 const RESPONSE_ID = 'resp-001';
 
-function ownerUser(overrides?: { businessId?: string | null }) {
+function ownerUser(overrides?: { accountId?: string | null; locationId?: string | null }) {
   return {
     id: 'user-1',
     name: 'Test Owner',
     email: 'owner@test.com',
     role: 'owner',
-    businessId: overrides && 'businessId' in overrides ? overrides.businessId : BUSINESS_ID,
+    accountId: overrides && 'accountId' in overrides ? overrides.accountId : 'a0000000-0000-0000-0000-000000000001',
+    locationId: overrides && 'locationId' in overrides ? overrides.locationId : BUSINESS_ID,
   };
 }
 
@@ -189,8 +190,8 @@ describe('POST /api/dashboard/reviews/[reviewId]/approve', () => {
     expect(res.status).toBe(401);
   });
 
-  it('returns 403 when user has no businessId', async () => {
-    mockRequireRole.mockResolvedValue(ownerUser({ businessId: null }));
+  it('returns 403 when user has no accountId', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser({ accountId: null, locationId: null }));
 
     const { POST } = await import('../[reviewId]/approve/route');
     const res = await POST(
@@ -200,7 +201,7 @@ describe('POST /api/dashboard/reviews/[reviewId]/approve', () => {
 
     expect(res.status).toBe(403);
     const body = await res.json();
-    expect(body.error).toContain('No business');
+    expect(body.error).toContain('No account');
   });
 
   it('returns 409 when response is no longer pending', async () => {

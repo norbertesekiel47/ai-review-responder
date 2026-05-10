@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { sql } from '@/lib/db/server';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
+import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 
 export const dynamic = 'force-dynamic';
 
@@ -84,11 +85,12 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       updated_at: Date;
     }[]
   >`
-    SELECT b.subscription_status, u.role,
+    SELECT a.subscription_status, u.role,
            b.place_id_verified, b.google_maps_url,
-           b.subscription_activated_at, b.updated_at
+           a.subscription_activated_at, b.updated_at
     FROM users u
-    JOIN businesses b ON b.id = u.business_id
+    JOIN accounts a ON a.id = u.account_id
+    JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE
     WHERE u.auth_id = ${user.id}
     LIMIT 1
   `;
@@ -104,7 +106,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   //    call, plain row return) stay simple — and the proxy logic is easier
   //    to reason about co-located with the comment above.
   const businessOnboarded = demoFlowEnabled
-    ? row.subscription_status === 'active'
+    ? row.subscription_status === SubscriptionStatus.ACTIVE
       && row.subscription_activated_at !== null
       && new Date(row.updated_at).getTime()
          > new Date(row.subscription_activated_at).getTime() + 2_000

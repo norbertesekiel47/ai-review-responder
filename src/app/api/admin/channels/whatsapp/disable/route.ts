@@ -7,6 +7,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { isWhatsAppEnabled, flagOff, assertWhatsAppEnvReady } from '../_shared';
+import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
+import { asAccountId } from '@/lib/shared/ids';
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   if (!isWhatsAppEnabled()) return flagOff();
@@ -42,6 +44,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   if (updated.length === 0) {
     return NextResponse.json({ error: 'not_found' }, { status: 404, headers: noStore });
+  }
+
+  // Invalidate channel cache — the disabled channel must be removed from
+  // the dispatch resolution immediately.
+  const [acctRow] = await sql<{ account_id: string }[]>`
+    SELECT account_id FROM businesses WHERE id = ${businessId}
+  `;
+  if (acctRow?.account_id) {
+    await safeInvalidateChannelCache(asAccountId(acctRow.account_id), 'admin.whatsapp.disable');
   }
 
   return NextResponse.json({ ok: true }, { headers: noStore });

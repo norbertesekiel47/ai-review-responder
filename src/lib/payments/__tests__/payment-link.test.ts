@@ -28,8 +28,8 @@ afterEach(() => {
 });
 
 describe('buildPaymentLinkUrl', () => {
-  it('appends client_reference_id + prefilled_email for founding tier', () => {
-    const url = buildPaymentLinkUrl('founding', 'biz-123', 'owner@example.com');
+  it('appends client_reference_id + prefilled_email for founders tier', () => {
+    const url = buildPaymentLinkUrl('founders', 'biz-123', 'owner@example.com');
     expect(url).not.toBeNull();
     const parsed = new URL(url!);
     expect(parsed.searchParams.get('client_reference_id')).toBe('biz-123');
@@ -47,12 +47,12 @@ describe('buildPaymentLinkUrl', () => {
 
   it('returns null when env var is unset', () => {
     delete process.env.STRIPE_PAYMENT_LINK_FOUNDING;
-    const url = buildPaymentLinkUrl('founding', 'biz-789', 'owner@example.com');
+    const url = buildPaymentLinkUrl('founders', 'biz-789', 'owner@example.com');
     expect(url).toBeNull();
   });
 
   it('URL-encodes email with special characters', () => {
-    const url = buildPaymentLinkUrl('founding', 'biz-001', 'owner+tag@e.com');
+    const url = buildPaymentLinkUrl('founders', 'biz-001', 'owner+tag@e.com');
     expect(url).not.toBeNull();
     // URLSearchParams encodes '+' as '%2B so the raw query string contains it
     expect(url!).toContain('owner%2Btag%40e.com');
@@ -60,7 +60,7 @@ describe('buildPaymentLinkUrl', () => {
 
   it('appends with & when base URL already has a query string', () => {
     process.env.STRIPE_PAYMENT_LINK_FOUNDING = 'https://buy.stripe.com/test_F?utm_source=x';
-    const url = buildPaymentLinkUrl('founding', 'biz-002', 'owner@example.com');
+    const url = buildPaymentLinkUrl('founders', 'biz-002', 'owner@example.com');
     expect(url).not.toBeNull();
     expect(url!).toMatch(/\?utm_source=x&/);
     const parsed = new URL(url!);
@@ -70,7 +70,7 @@ describe('buildPaymentLinkUrl', () => {
 
   it('returns null when env var is a malformed URL', () => {
     process.env.STRIPE_PAYMENT_LINK_FOUNDING = 'not a url';
-    expect(buildPaymentLinkUrl('founding', 'biz-1', 'a@b.com')).toBeNull();
+    expect(buildPaymentLinkUrl('founders', 'biz-1', 'a@b.com')).toBeNull();
   });
 
   // Scheme enforcement — Stripe Payment Links are always https://. The URL
@@ -80,34 +80,34 @@ describe('buildPaymentLinkUrl', () => {
   describe('scheme enforcement (https-only)', () => {
     it('rejects javascript: URL (XSS vector)', () => {
       process.env.STRIPE_PAYMENT_LINK_FOUNDING = 'javascript:alert(1)';
-      expect(buildPaymentLinkUrl('founding', 'biz-1', 'a@b.com')).toBeNull();
+      expect(buildPaymentLinkUrl('founders', 'biz-1', 'a@b.com')).toBeNull();
     });
 
     it('rejects data: URL (phishing vector)', () => {
       process.env.STRIPE_PAYMENT_LINK_FOUNDING =
         'data:text/html,<script>alert(1)</script>';
-      expect(buildPaymentLinkUrl('founding', 'biz-1', 'a@b.com')).toBeNull();
+      expect(buildPaymentLinkUrl('founders', 'biz-1', 'a@b.com')).toBeNull();
     });
 
     it('rejects http: URL (downgrade attack)', () => {
       process.env.STRIPE_PAYMENT_LINK_FOUNDING = 'http://buy.stripe.com/test_F';
-      expect(buildPaymentLinkUrl('founding', 'biz-1', 'a@b.com')).toBeNull();
+      expect(buildPaymentLinkUrl('founders', 'biz-1', 'a@b.com')).toBeNull();
     });
 
     it('rejects file: URL', () => {
       process.env.STRIPE_PAYMENT_LINK_FOUNDING = 'file:///etc/passwd';
-      expect(buildPaymentLinkUrl('founding', 'biz-1', 'a@b.com')).toBeNull();
+      expect(buildPaymentLinkUrl('founders', 'biz-1', 'a@b.com')).toBeNull();
     });
 
     it('rejects ftp: URL', () => {
       process.env.STRIPE_PAYMENT_LINK_FOUNDING = 'ftp://buy.stripe.com/test_F';
-      expect(buildPaymentLinkUrl('founding', 'biz-1', 'a@b.com')).toBeNull();
+      expect(buildPaymentLinkUrl('founders', 'biz-1', 'a@b.com')).toBeNull();
     });
 
     it('accepts a real https:// Stripe Payment Link', () => {
       process.env.STRIPE_PAYMENT_LINK_FOUNDING =
         'https://buy.stripe.com/test_F';
-      const url = buildPaymentLinkUrl('founding', 'biz-1', 'a@b.com');
+      const url = buildPaymentLinkUrl('founders', 'biz-1', 'a@b.com');
       expect(url).not.toBeNull();
       expect(url!.startsWith('https://')).toBe(true);
     });

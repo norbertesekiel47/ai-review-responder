@@ -45,7 +45,7 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
     return jsonResponse({ error: 'Unauthorized' }, 401);
   }
 
-  if (!user.businessId) {
+  if (!user.locationId) {
     return jsonResponse(
       { error: 'No business associated with this account' },
       403,
@@ -71,9 +71,9 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
 
   const fields = Object.keys(data) as (keyof typeof data)[];
 
-  // $1 reserved for businessId, fields start at $2.
+  // $1 reserved for locationId, fields start at $2.
   const setClauses: string[] = [];
-  const values: unknown[] = [user.businessId];
+  const values: unknown[] = [user.locationId];
 
   for (const field of fields) {
     const column = FIELD_TO_COLUMN[field];

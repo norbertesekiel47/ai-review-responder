@@ -41,6 +41,19 @@ vi.mock('../../../../src/lib/db/server', () => ({
   jsonb: (x: unknown) => x,
 }));
 
+// Mock invalidateChannelCache + asAccountId — must use vi.hoisted so the
+// vi.mock factory closures can reference the mock functions.
+const { mockInvalidateChannelCache } = vi.hoisted(() => ({
+  mockInvalidateChannelCache: vi.fn().mockResolvedValue(undefined),
+}));
+vi.mock('../../../../src/lib/notifications/resolve-channels', () => ({
+  invalidateChannelCache: mockInvalidateChannelCache,
+  safeInvalidateChannelCache: mockInvalidateChannelCache,
+}));
+vi.mock('../../../../src/lib/shared/ids', () => ({
+  asAccountId: vi.fn((id: string) => id),
+}));
+
 // Import AFTER the mock is registered.
 import { handleTwilioInbound } from '../twilio';
 
@@ -56,6 +69,7 @@ describe('handleTwilioInbound', () => {
     sqlReturnQueue.length = 0;
     mockSql.mockClear();
     mockSql.begin.mockClear();
+    mockInvalidateChannelCache.mockClear();
   });
 
   it('401 on invalid signature', async () => {
@@ -87,13 +101,13 @@ describe('handleTwilioInbound', () => {
     // 3. sql.begin starts; inside:
     //    3a. UPSERT sms_sender_opt_outs
     //    3b. INSERT sms_sender_opt_out_events
-    //    3c. UPDATE channel_enrollments
+    //    3c. UPDATE channel_enrollments RETURNING account_id
     // 4. UPDATE inbound_events status=processed
     sqlReturnQueue.push(Object.assign([], { count: 1 })); // claim insert
     sqlReturnQueue.push([{ id: 'inbound-evt-1' }]); // SELECT id
     sqlReturnQueue.push([]); // UPSERT opt_outs
     sqlReturnQueue.push([]); // INSERT audit event
-    sqlReturnQueue.push([]); // UPDATE enrollments
+    sqlReturnQueue.push([{ account_id: 'acct-1' }]); // UPDATE enrollments RETURNING
     sqlReturnQueue.push([]); // mark processed
 
     const { req, reply } = buildInboundRequest({
@@ -114,6 +128,7 @@ describe('handleTwilioInbound', () => {
     expect(raw).toMatch(/UPDATE channel_enrollments/);
     expect(raw).toMatch(/status = 'unsubscribed'/);
     expect(raw).toMatch(/archived_at IS NULL/);
+    expect(raw).toMatch(/RETURNING account_id/);
     expect(mockSql.begin).toHaveBeenCalledTimes(1);
 
     // Audit event source should be 'twilio_optouttype'. event_type 'stop' is a
@@ -127,17 +142,22 @@ describe('handleTwilioInbound', () => {
     expect(eventInsert.values).toContain('+15551234567');
     expect(eventInsert.values).toContain('MGtest');
     expect(eventInsert.values).toContain('inbound-evt-1');
+
+    // TCPA-critical: cache must be invalidated after STOP
+    expect(mockInvalidateChannelCache).toHaveBeenCalledTimes(1);
+    expect(mockInvalidateChannelCache).toHaveBeenCalledWith('acct-1', 'worker.twilio.sms.inbound');
   });
 
   it('STOP via keyword (no OptOutType) — REVOKE, OPTOUT, UNSUBSCRIBE, CANCEL, PARAR all recognized', async () => {
     for (const keyword of ['STOP', 'REVOKE', 'OPTOUT', 'UNSUBSCRIBE', 'CANCEL', 'PARAR']) {
       sqlCallsLog.length = 0;
       sqlReturnQueue.length = 0;
+      mockInvalidateChannelCache.mockClear();
       sqlReturnQueue.push(Object.assign([], { count: 1 }));
       sqlReturnQueue.push([{ id: `evt-${keyword}` }]);
       sqlReturnQueue.push([]);
       sqlReturnQueue.push([]);
-      sqlReturnQueue.push([]);
+      sqlReturnQueue.push([{ account_id: 'acct-x' }]); // RETURNING account_id
       sqlReturnQueue.push([]);
 
       const { req, reply } = buildInboundRequest({
@@ -157,7 +177,56 @@ describe('handleTwilioInbound', () => {
       expect(evt!.values, `keyword ${keyword} source`).toContain('twilio_inbound_keyword');
       // event_type is a SQL literal, not a parameter — assert against raw SQL.
       expect(evt!.raw, `keyword ${keyword} event type`).toMatch(/'stop'/);
+      // All STOP keywords should trigger cache invalidation
+      expect(mockInvalidateChannelCache, `keyword ${keyword} cache invalidation`).toHaveBeenCalledTimes(1);
     }
+  });
+
+  it('SMS STOP invalidates cache for each affected account (deduped)', async () => {
+    // Simulate the phone number being enrolled in two accounts
+    sqlReturnQueue.push(Object.assign([], { count: 1 })); // claim
+    sqlReturnQueue.push([{ id: 'evt-dedup' }]); // SELECT id
+    sqlReturnQueue.push([]); // UPSERT opt_outs
+    sqlReturnQueue.push([]); // INSERT audit event
+    sqlReturnQueue.push([{ account_id: 'acct-a' }, { account_id: 'acct-a' }, { account_id: 'acct-b' }]); // UPDATE RETURNING (3 rows, 2 unique accounts)
+    sqlReturnQueue.push([]); // mark processed
+
+    const { req, reply } = buildInboundRequest({
+      From: '+15551234567',
+      Body: 'STOP',
+      MessageSid: 'SM_dedup',
+      MessagingServiceSid: 'MGtest',
+      OptOutType: 'STOP',
+    });
+    await handleTwilioInbound(req as AnyReq, reply as AnyReply);
+    expect(reply.statusCode).toBe(200);
+
+    // Should invalidate once per unique account_id (deduped)
+    expect(mockInvalidateChannelCache).toHaveBeenCalledTimes(2);
+    expect(mockInvalidateChannelCache).toHaveBeenCalledWith('acct-a', 'worker.twilio.sms.inbound');
+    expect(mockInvalidateChannelCache).toHaveBeenCalledWith('acct-b', 'worker.twilio.sms.inbound');
+  });
+
+  it('SMS STOP with no matching enrollments still succeeds without cache invalidation', async () => {
+    sqlReturnQueue.push(Object.assign([], { count: 1 })); // claim
+    sqlReturnQueue.push([{ id: 'evt-nomatch' }]); // SELECT id
+    sqlReturnQueue.push([]); // UPSERT opt_outs
+    sqlReturnQueue.push([]); // INSERT audit event
+    sqlReturnQueue.push([]); // UPDATE RETURNING (0 rows — no enrollments match)
+    sqlReturnQueue.push([]); // mark processed
+
+    const { req, reply } = buildInboundRequest({
+      From: '+15551234567',
+      Body: 'STOP',
+      MessageSid: 'SM_nomatch',
+      MessagingServiceSid: 'MGtest',
+      OptOutType: 'STOP',
+    });
+    await handleTwilioInbound(req as AnyReq, reply as AnyReply);
+    expect(reply.statusCode).toBe(200);
+
+    // No affected accounts — no invalidation call
+    expect(mockInvalidateChannelCache).not.toHaveBeenCalled();
   });
 
   it('START after prior STOP: UPDATEs opted_in_at, writes audit event; does NOT touch channel_enrollments', async () => {

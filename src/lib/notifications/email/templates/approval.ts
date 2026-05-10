@@ -2,16 +2,27 @@
 //
 // Owner approval email — transactional. No List-Unsubscribe header
 // because these are required for service operation, not marketing.
+//
+// VAL-NOTIF-012: Subject includes [locationLabel] prefix.
+// VAL-NOTIF-013: Body H1 includes locationLabel.
+// VAL-NOTIF-014: locationLabel is resolved at the data layer via
+//   getDisplayLabel({ display_label, name }) — display_label ?? name fallback.
+// VAL-NOTIF-019: Template prefix escapes brackets, colons, long display_labels.
+
 import { randomUUID } from 'node:crypto';
 import { isMockMode } from '@/lib/shared/mock-mode';
 import { escapeHtml } from '@/lib/shared/html';
 import { getResend } from '../client';
 import { getEmailTags, type EmailCategory } from '../headers';
 import { LOG_PREFIX, renderStars, truncate } from './shared';
+import { sanitizeLocationLabelForPrefix } from '../../channels/template-prefix';
 
 export interface ApprovalEmailParams {
   to: string;
   from: string;
+  /** Resolved location label: display_label ?? businesses.name. Always non-null. */
+  locationLabel: string;
+  /** Raw business name from the businesses table. Used in body text. */
   businessName: string;
   reviewerName: string;
   starRating: number;
@@ -33,7 +44,10 @@ function formatDate(isoDate: string): string {
 
 function buildApprovalEmailHtml(params: ApprovalEmailParams): string {
   const { businessName, reviewerName, starRating, reviewText, reviewDate, responsePreview, approvalUrl } = params;
+  // VAL-NOTIF-019: Sanitize label before inserting into bracket prefix
+  const safeLabel = sanitizeLocationLabelForPrefix(params.locationLabel);
   const stars = renderStars(starRating);
+  const safeLocationLabel = escapeHtml(safeLabel);
   const safeName = escapeHtml(businessName);
   const safeReviewer = escapeHtml(reviewerName);
   const safeDate = escapeHtml(formatDate(reviewDate));
@@ -52,7 +66,7 @@ function buildApprovalEmailHtml(params: ApprovalEmailParams): string {
     <tr><td align="center">
       <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;max-width:600px;width:100%;">
         <tr><td style="padding:32px 24px 0;">
-          <h2 style="margin:0 0 4px;font-size:18px;color:#111;">New review for ${safeName}</h2>
+          <h1 style="margin:0 0 4px;font-size:20px;color:#111;">[${safeLocationLabel}] New ${starRating}★ review needs approval</h1>
           <p style="margin:0 0 20px;font-size:14px;color:#666;">A draft response is ready for your approval.</p>
         </td></tr>
         <tr><td style="padding:0 24px;">
@@ -81,12 +95,17 @@ function buildApprovalEmailHtml(params: ApprovalEmailParams): string {
 </html>`;
 }
 
+export { buildApprovalEmailHtml };
+
 export async function sendApprovalEmail(
   params: ApprovalEmailParams,
 ): Promise<{ messageId: string }> {
+  // VAL-NOTIF-019: Sanitize label for subject line and mock log
+  const safeLabel = sanitizeLocationLabelForPrefix(params.locationLabel);
+
   if (isMockMode()) {
     const mockId = `mock-${randomUUID()}`;
-    console.log(`${LOG_PREFIX} [MOCK] Approval email to=${params.to} subject="New review for ${params.businessName} — response ready" messageId=${mockId}\n  → /approve/[redacted]`);
+    console.log(`${LOG_PREFIX} [MOCK] Approval email to=${params.to} subject="[${safeLabel}] New ${params.starRating}★ review needs approval" messageId=${mockId}\n  → /approve/[redacted]`);
     return { messageId: mockId };
   }
 
@@ -97,10 +116,11 @@ export async function sendApprovalEmail(
   // necessary for service operation, not marketing, so bulk-sender rules
   // don't require (and shouldn't include) an unsubscribe link.
   const category: EmailCategory = 'transactional';
+  // VAL-NOTIF-012: Subject includes [locationLabel] prefix with star rating.
   const { data, error } = await resend.emails.send({
     from: params.from,
     to: params.to,
-    subject: `New review for ${params.businessName} — response ready`,
+    subject: `[${safeLabel}] New ${params.starRating}★ review needs approval`,
     html,
     tags: getEmailTags(category),
   });

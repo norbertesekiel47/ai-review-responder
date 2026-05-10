@@ -127,14 +127,16 @@ export interface IngestZernioReviewPayload extends BasePayload {
 
 /**
  * ZernioInitialBackfillPayload — emitted by the connect-callback when the
- * `needs_backfill` predicate is satisfied. One-shot per business.
+ * `needs_backfill` predicate is satisfied, and by reactivation catch-up.
  */
 export interface ZernioInitialBackfillPayload extends BasePayload {
   business_id: string;
   zernio_account_id: string;
   zernio_location_id: string;
-  /** 'founding' | 'standard' | 'premium' (string for forward-compat) */
+  /** Subscription tier string (forward-compat, use SubscriptionTier.FOUNDERS etc.) */
   subscription_tier: string;
-  /** ISO timestamp from businesses.subscription_activated_at */
+  /** ISO timestamp from accounts.subscription_activated_at */
   subscription_activated_at: string;
+  /** Initial connect is one-shot; reactivation catch-up may run after archive/restore. */
+  backfill_reason?: 'initial' | 'reactivation';
 }

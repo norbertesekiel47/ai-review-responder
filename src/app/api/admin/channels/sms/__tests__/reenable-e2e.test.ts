@@ -129,7 +129,8 @@ function resetAll() {
   mockRequireRole.mockResolvedValue({
     id: 'admin-1',
     role: 'admin',
-    businessId: null,
+    accountId: null,
+    locationId: null,
     name: 'Admin',
     email: 'a@b.com',
   });
@@ -193,7 +194,7 @@ describe('SMS re-enable lifecycle (E2E)', () => {
     // Twilio call, because the opt-out row still shows opted_in_at
     // IS NULL (from the STOP above).
     // SQL order:
-    //   1. SELECT subscription_status FROM businesses
+    //   1. SELECT a.subscription_status FROM accounts a JOIN businesses b ...
     //   2. SELECT pg_advisory_xact_lock(...)  (inside sql.begin)
     //   3. SELECT active-row (handle, status) — returns unsubscribed row
     //   4. SELECT opt-out row — returns opted_out_at, opted_in_at=null

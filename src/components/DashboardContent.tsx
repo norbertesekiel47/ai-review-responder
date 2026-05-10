@@ -1,12 +1,14 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import type { DashboardDataActive } from '@/lib/dashboard/types';
+import type { DashboardDataActive, AggregateDashboardData } from '@/lib/dashboard/types';
+import type { DashboardOrAggregate } from '@/hooks/useDashboardData';
 import {
   ActivePendingBusinessScreen,
   PendingAdminHandoffScreen,
   PendingPaymentScreen,
 } from '@/components/dashboard/AccountStateScreens';
+import { CancelledBanner, PastDueBanner } from '@/components/dashboard/SubscriptionStatusBanner';
 import { ConnectGoogleBanner } from '@/components/dashboard/ConnectGoogleBanner';
 import { TopBar } from '@/components/dashboard/TopBar';
 import { KpiCards } from '@/components/dashboard/KpiCards';
@@ -14,11 +16,23 @@ import { ReviewsCard } from '@/components/dashboard/ReviewsCard';
 import { VelocityCard } from '@/components/dashboard/VelocityCard';
 import { RankingCard } from '@/components/dashboard/RankingCard';
 import { IntelligenceBriefCard } from '@/components/dashboard/IntelligenceBriefCard';
+import { AggregateDashboardContent } from '@/components/dashboard/aggregate/AggregateDashboardContent';
 import { useDashboardData } from '@/hooks/useDashboardData';
 import { useSetPendingCount } from '@/components/dashboard/PendingCountContext';
+import { useLocationScope } from '@/contexts/LocationContext';
 
 export function DashboardContent() {
-  const { data, error, refresh } = useDashboardData();
+  const { currentScope, setLocationScope } = useLocationScope();
+  const { data, error, loading, refresh, scopeFallback } = useDashboardData(
+    currentScope,
+    {
+      // VAL-DASH-029: When the API detects the selected location is archived,
+      // fall back to primary and update the LocationContext switcher.
+      onScopeFallback: (fallback) => {
+        setLocationScope(fallback.fallbackLocationId as import('@/lib/shared/ids').LocationId);
+      },
+    },
+  );
   const setPendingCount = useSetPendingCount();
   const reviewsRef = useRef<HTMLDivElement | null>(null);
   const [initialTab, setInitialTab] = useState<'needs' | 'all'>('needs');
@@ -40,13 +54,8 @@ export function DashboardContent() {
   }, []);
 
   // Push pending count to the layout-scoped context so MobileTabBar's "Needs
-  // Action" tab can show a red badge on every authenticated route. Derived
-  // from the same data the active-state branch reads below; we must compute
-  // it here (above the early returns) to keep hook order stable.
-  const pendingFromData =
-    data && data.subscriptionStatus === undefined
-      ? data.recentReviews.filter((r) => (r.responseStatus ?? r.status) === 'pending_approval').length
-      : 0;
+  // Action" tab can show a red badge on every authenticated route.
+  const pendingFromData = computePendingCount(data);
   useEffect(() => {
     setPendingCount(pendingFromData);
   }, [pendingFromData, setPendingCount]);
@@ -65,17 +74,32 @@ export function DashboardContent() {
     );
   }
 
-  if (!data) {
+  // VAL-DASH-025: Loading state with skeleton/spinner
+  if (loading || !data) {
     return (
       <>
         <TopBar title="Dashboard" />
         <div className="content">
-          <p style={{ textAlign: 'center', color: '#6B7280', padding: '80px 0' }}>Loading dashboard…</p>
+          <div className="dashboard-skeleton">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
+              <div className="skeleton-card" />
+              <div className="skeleton-card" />
+              <div className="skeleton-card" />
+            </div>
+            <div className="skeleton-card-lg" />
+            <div className="skeleton-card-lg" />
+          </div>
         </div>
       </>
     );
   }
 
+  // Aggregate view: scope === 'all'
+  if (isAggregateData(data)) {
+    return <AggregateDashboardContent data={data} refresh={refresh} />;
+  }
+
+  // Non-active subscription states (per-location only)
   if (data.subscriptionStatus === 'active_pending_business') {
     return (
       <>
@@ -109,6 +133,53 @@ export function DashboardContent() {
     );
   }
 
+  // VAL-CROSS-011: Cancelled account — read-only banner, write actions disabled
+  if (data.subscriptionStatus === 'cancelled') {
+    const cancelledData = data as import('@/lib/dashboard/types').DashboardDataCancelled;
+    return (
+      <>
+        <TopBar title="Dashboard" />
+        <div className="content">
+          <CancelledBanner
+            gracePeriodEndDate={cancelledData.gracePeriodEndDate}
+            readAccess={cancelledData.readAccess}
+          />
+          {/* Read access is still available during grace period */}
+          {cancelledData.readAccess && (
+            <div className="sub-status-banner__readonly-notice" style={{
+              padding: '10px 16px',
+              borderRadius: 8,
+              border: '1px solid #E5E7EB',
+              background: '#F9FAFB',
+              marginBottom: 14,
+              fontSize: 13,
+              color: '#6B7280',
+            }}>
+              You can still view your reviews and past replies, but all write actions are disabled.
+            </div>
+          )}
+        </div>
+      </>
+    );
+  }
+
+  // VAL-CROSS-012: Past-due account — payment warning banner, features continue
+  if (data.subscriptionStatus === 'past_due') {
+    const pastDueData = data as import('@/lib/dashboard/types').DashboardDataPastDue;
+    return (
+      <>
+        <TopBar title="Dashboard" subtitle="Payment overdue — please update your payment method" />
+        <div className="content">
+          <PastDueBanner
+            billingPortalUrl={pastDueData.billingPortalUrl}
+          />
+          {/* During past_due grace period, dashboard features still work */}
+        </div>
+      </>
+    );
+  }
+
+  // Active per-location view (same as before redesign)
   const activeData: DashboardDataActive = data;
   const { valueSummary, reviewVelocity, ranking, recentReviews, latestBrief, zernioConnection, business } = activeData;
   const pending = recentReviews.filter((r) => (r.responseStatus ?? r.status) === 'pending_approval').length;
@@ -151,4 +222,25 @@ export function DashboardContent() {
       </div>
     </>
   );
+}
+
+/** Type guard to distinguish AggregateDashboardData from per-location DashboardData. */
+function isAggregateData(data: DashboardOrAggregate): data is AggregateDashboardData {
+  return 'scope' in data && data.scope === 'aggregate';
+}
+
+/** Compute pending approval count from either aggregate or per-location data. */
+function computePendingCount(data: DashboardOrAggregate | null): number {
+  if (!data) return 0;
+  if (isAggregateData(data)) {
+    return data.recentReviews.filter(
+      (r) => (r.responseStatus ?? r.status) === 'pending_approval',
+    ).length;
+  }
+  if (data.subscriptionStatus === undefined) {
+    return data.recentReviews.filter(
+      (r) => (r.responseStatus ?? r.status) === 'pending_approval',
+    ).length;
+  }
+  return 0;
 }

@@ -6,10 +6,16 @@
 
 import { v7 as uuidv7 } from 'uuid';
 import { sql } from '@/lib/db/server';
+import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
 import { computeChurnRiskScore } from '@/lib/shared/churn-score';
 import { parseDbArray } from '@/lib/shared/db-array';
+import { asAccountId } from '@/lib/shared/ids';
 import { HANDLED_STATUSES } from '@/lib/shared/response-status';
 import type {
+  AccountAuditLogEntry,
+  AccountContext,
+  AccountLocationSummary,
+  ApprovalAuditLogEntry,
   AwaitingOwnerConnectRow,
   BusinessDetailResponse,
   BusinessPatch,
@@ -75,13 +81,16 @@ export async function getBusinessDetail(
   ] = await Promise.all([
     sql<BusinessRow[]>`
       SELECT
-        id, name, category, website, google_place_id, tone, products_services,
-        staff_names, highlight_facts, avoid_facts, sample_responses,
-        subscription_status, subscription_tier, owner_name, owner_email, last_sync_at,
-        tracked_keywords, google_place_lat, google_place_lng,
-        ranking_search_location, google_place_address, owner_email_bounced
-      FROM businesses
-      WHERE id = ${businessId}
+        b.id, b.name, b.category, b.website, b.google_place_id, b.tone, b.products_services,
+        b.staff_names, b.highlight_facts, b.avoid_facts, b.sample_responses,
+        a.subscription_status, a.subscription_tier,
+        b.owner_name, b.owner_email, b.last_sync_at,
+        b.tracked_keywords, b.google_place_lat, b.google_place_lng,
+        b.ranking_search_location, b.google_place_address, b.owner_email_bounced,
+        b.account_id, b.display_label, b.is_primary
+      FROM businesses b
+      JOIN accounts a ON a.id = b.account_id
+      WHERE b.id = ${businessId}
     `,
     sql<ReviewRow[]>`
       SELECT
@@ -151,56 +160,110 @@ export async function getBusinessDetail(
     return null;
   }
 
-  const [metrics] = await sql<{
-    approval_rate: number | null;
-    notified_count: number;
-    pending_count: number;
-    days_since_approval: number | null;
-    account_age_days: number;
-    avg_hours_current: number | null;
-    avg_hours_prev: number | null;
-  }[]>`
-    WITH notif AS (
+  const [metricsRows, accountLocationRows, approvalAuditRows, accountAuditRows] = await Promise.all([
+    sql<{
+      approval_rate: number | null;
+      notified_count: number;
+      pending_count: number;
+      days_since_approval: number | null;
+      account_age_days: number;
+      avg_hours_current: number | null;
+      avg_hours_prev: number | null;
+    }[]>`
+      WITH notif AS (
+        SELECT
+          COUNT(DISTINCT nd.response_id)::int AS notified_count,
+          COUNT(DISTINCT nd.response_id) FILTER (
+            WHERE r.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[])
+          )::int AS approved_count
+        FROM notification_deliveries nd
+        JOIN responses r ON r.id = nd.response_id
+        WHERE nd.business_id = ${businessId}
+          AND nd.template = 'approval_request'
+          AND nd.sent_at IS NOT NULL
+          AND nd.sent_at >= CURRENT_DATE - 30
+      ),
+      resp AS (
+        SELECT
+          COUNT(*) FILTER (WHERE rp.status = 'pending_approval')::int AS pending_count,
+          EXTRACT(DAY FROM CURRENT_TIMESTAMP - MAX(rp.approved_at)
+            FILTER (WHERE rp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[]))
+          )::int AS days_since_approval,
+          AVG(EXTRACT(EPOCH FROM rp.approved_at - rp.created_at) / 3600.0)
+            FILTER (WHERE rp.approved_at IS NOT NULL AND rp.created_at >= CURRENT_DATE - 7)::float AS avg_hours_current,
+          AVG(EXTRACT(EPOCH FROM rp.approved_at - rp.created_at) / 3600.0)
+            FILTER (WHERE rp.approved_at IS NOT NULL AND rp.created_at >= CURRENT_DATE - 35 AND rp.created_at < CURRENT_DATE - 7)::float AS avg_hours_prev
+        FROM responses rp
+        WHERE rp.business_id = ${businessId}
+      )
       SELECT
-        COUNT(DISTINCT nd.response_id)::int AS notified_count,
-        COUNT(DISTINCT nd.response_id) FILTER (
-          WHERE r.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[])
-        )::int AS approved_count
-      FROM notification_deliveries nd
-      JOIN responses r ON r.id = nd.response_id
-      WHERE nd.business_id = ${businessId}
-        AND nd.template = 'approval_request'
-        AND nd.sent_at IS NOT NULL
-        AND nd.sent_at >= CURRENT_DATE - 30
-    ),
-    resp AS (
-      SELECT
-        COUNT(*) FILTER (WHERE rp.status = 'pending_approval')::int AS pending_count,
-        EXTRACT(DAY FROM CURRENT_TIMESTAMP - MAX(rp.approved_at)
-          FILTER (WHERE rp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[]))
-        )::int AS days_since_approval,
-        AVG(EXTRACT(EPOCH FROM rp.approved_at - rp.created_at) / 3600.0)
-          FILTER (WHERE rp.approved_at IS NOT NULL AND rp.created_at >= CURRENT_DATE - 7)::float AS avg_hours_current,
-        AVG(EXTRACT(EPOCH FROM rp.approved_at - rp.created_at) / 3600.0)
-          FILTER (WHERE rp.approved_at IS NOT NULL AND rp.created_at >= CURRENT_DATE - 35 AND rp.created_at < CURRENT_DATE - 7)::float AS avg_hours_prev
-      FROM responses rp
-      WHERE rp.business_id = ${businessId}
-    )
-    SELECT
-      CASE WHEN COALESCE(n.notified_count, 0) >= 3
-           THEN n.approved_count::float / NULLIF(n.notified_count, 0)
-           ELSE NULL END AS approval_rate,
-      COALESCE(n.notified_count, 0)::int AS notified_count,
-      COALESCE(r.pending_count, 0)::int AS pending_count,
-      r.days_since_approval,
-      EXTRACT(DAY FROM CURRENT_TIMESTAMP - b.created_at)::int AS account_age_days,
-      r.avg_hours_current,
-      r.avg_hours_prev
-    FROM businesses b
-    CROSS JOIN notif n
-    CROSS JOIN resp r
-    WHERE b.id = ${businessId}
-  `;
+        CASE WHEN COALESCE(n.notified_count, 0) >= 3
+             THEN n.approved_count::float / NULLIF(n.notified_count, 0)
+             ELSE NULL END AS approval_rate,
+        COALESCE(n.notified_count, 0)::int AS notified_count,
+        COALESCE(r.pending_count, 0)::int AS pending_count,
+        r.days_since_approval,
+        EXTRACT(DAY FROM CURRENT_TIMESTAMP - b.created_at)::int AS account_age_days,
+        r.avg_hours_current,
+        r.avg_hours_prev
+      FROM businesses b
+      CROSS JOIN notif n
+      CROSS JOIN resp r
+      WHERE b.id = ${businessId}
+    `,
+    // Account locations — all locations under the same account (VAL-ADMIN-001)
+    // Uses idx_businesses_account partial index on (account_id) WHERE archived_at IS NULL.
+    // Also includes archived locations for admin visibility.
+    sql<{
+      id: string;
+      name: string;
+      display_label: string | null;
+      is_primary: boolean;
+      archived_at: Date | null;
+    }[]>`
+      SELECT id, name, display_label, is_primary, archived_at
+      FROM businesses
+      WHERE account_id = ${business.account_id}
+      ORDER BY is_primary DESC, archived_at ASC, created_at ASC
+    `,
+    // Approval audit log — queried by account_id using idx_audit_account
+    // (VAL-ADMIN-004). Returns recent entries across all locations under
+    // the account for admin visibility.
+    sql<{
+      id: string;
+      response_id: string;
+      action: string;
+      actor_user_id: string | null;
+      created_at: Date;
+      business_id: string;
+      account_id: string;
+    }[]>`
+      SELECT id, response_id, action, actor_user_id, created_at, business_id, account_id
+      FROM approval_audit_log
+      WHERE account_id = ${business.account_id}
+      ORDER BY created_at DESC
+      LIMIT 50
+    `,
+    // Account audit log — queried by account_id using idx_account_audit
+    // (account_id, created_at composite index). Returns recent entries
+    // for admin visibility into account-level state changes.
+    sql<{
+      id: string;
+      event_type: string;
+      actor_user_id: string | null;
+      location_id: string | null;
+      payload: unknown;
+      created_at: Date;
+    }[]>`
+      SELECT id, event_type, actor_user_id, location_id, payload, created_at
+      FROM account_audit_log
+      WHERE account_id = ${business.account_id}
+      ORDER BY created_at DESC
+      LIMIT 50
+    `,
+  ]);
+
+  const metrics = metricsRows[0];
 
   let responseTimeTrend: 'faster_or_stable' | 'slower' | 'stopped' | null = null;
   if (metrics?.avg_hours_current != null && metrics?.avg_hours_prev != null) {
@@ -218,6 +281,22 @@ export async function getBusinessDetail(
     responseTimeTrend,
     accountAgeDays: metrics?.account_age_days ?? 0,
   });
+
+  const accountLocations: AccountLocationSummary[] = accountLocationRows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    displayLabel: row.display_label,
+    isPrimary: row.is_primary,
+    archivedAt: row.archived_at ? row.archived_at.toISOString() : null,
+  }));
+
+  const accountContext: AccountContext = {
+    id: business.account_id,
+    displayName: business.name, // Use the primary business name or account display_name
+    subscriptionTier: business.subscription_tier,
+    subscriptionStatus: business.subscription_status,
+    locations: accountLocations,
+  };
 
   return {
     business: {
@@ -248,6 +327,7 @@ export async function getBusinessDetail(
       whatsappEnabled: process.env.CHANNELS_WHATSAPP_ENABLED === 'true',
       churnScore,
     },
+    account: accountContext,
     rankingSnapshots: rankingSnapshots.map((s) => ({
       keyword: s.keyword,
       rankPosition: s.rank_position,
@@ -273,6 +353,21 @@ export async function getBusinessDetail(
       awaitingOwnerConnectRows,
       finalizeIncidentRows,
     ),
+    approvalAuditLog: approvalAuditRows.map((row) => ({
+      id: row.id,
+      responseId: row.response_id,
+      action: row.action,
+      actorUserId: row.actor_user_id,
+      createdAt: row.created_at.toISOString(),
+    })),
+    accountAuditLog: accountAuditRows.map((row) => ({
+      id: row.id,
+      eventType: row.event_type,
+      actorUserId: row.actor_user_id,
+      locationId: row.location_id,
+      payload: row.payload,
+      createdAt: row.created_at.toISOString(),
+    })),
   };
 }
 
@@ -368,6 +463,7 @@ export async function updateBusiness(
 
   const setClause = setClauses.join(', ');
   const query = `UPDATE businesses SET ${setClause} WHERE id = $1`;
+  let accountIdToInvalidate: string | null = null;
 
   await sql.begin(async (tx) => {
     const result = await tx.unsafe(query, values);
@@ -379,12 +475,22 @@ export async function updateBusiness(
       // unsubscribed, a fresh owner_email edit is an explicit admin action
       // to re-enable the channel — refresh to verified state in the same
       // transaction as the business UPDATE.
+      // After migration 034, channel_enrollments requires account_id and
+      // uses the partial unique index on (account_id, channel, COALESCE(location_id, ...)).
+      const [bizAccount] = await tx<{ account_id: string }[]>`
+        SELECT account_id FROM businesses WHERE id = ${businessId}
+      `;
+      const accountId = bizAccount?.account_id;
+      if (!accountId) {
+        throw new Error(`[admin-business-detail] business ${businessId} has no account_id — data inconsistency after migration 034`);
+      }
+      accountIdToInvalidate = accountId;
       await tx`
         INSERT INTO channel_enrollments
-          (id, business_id, channel, handle, status, verified_at)
+          (id, account_id, business_id, channel, handle, status, verified_at)
         VALUES
-          (${uuidv7()}, ${businessId}, 'email', ${patch.ownerEmail}, 'verified', NOW())
-        ON CONFLICT (business_id, channel) WHERE archived_at IS NULL DO UPDATE SET
+          (${uuidv7()}, ${accountId}::uuid, ${businessId}, 'email', ${patch.ownerEmail}, 'verified', NOW())
+        ON CONFLICT (account_id, channel, COALESCE(location_id, '00000000-0000-0000-0000-000000000000')) WHERE archived_at IS NULL DO UPDATE SET
           handle              = EXCLUDED.handle,
           status              = 'verified',
           verified_at         = NOW(),
@@ -395,4 +501,11 @@ export async function updateBusiness(
       `;
     }
   });
+
+  if (accountIdToInvalidate) {
+    await safeInvalidateChannelCache(
+      asAccountId(accountIdToInvalidate),
+      'admin.business.owner-email',
+    );
+  }
 }

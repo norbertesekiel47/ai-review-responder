@@ -25,6 +25,8 @@ export function isProtectedRoute(pathname: string): boolean {
   return (
     normalized === '/admin' || normalized.startsWith('/admin/') ||
     normalized === '/api/admin' || normalized.startsWith('/api/admin/') ||
+    normalized === '/api/billing' || normalized.startsWith('/api/billing/') ||
+    normalized === '/api/locations' || normalized.startsWith('/api/locations/') ||
     normalized === '/api/dashboard' || normalized.startsWith('/api/dashboard/') ||
     normalized === '/api/settings' || normalized.startsWith('/api/settings/') ||
     normalized === '/dashboard' || normalized.startsWith('/dashboard/') ||

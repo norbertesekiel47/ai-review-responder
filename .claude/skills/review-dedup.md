@@ -24,6 +24,15 @@ description: Complete review deduplication logic for RepWorth — stable identit
 Identity is stable (immutable fields only). Content is mutable (detected via
 hash comparison). These are separate concerns — never mix them.
 
+> **Multi-location naming note (since migration 034):** `reviews.business_id`
+> and `responses.business_id` now mean "location_id" — one Google Business
+> Profile location, not the billing parent. The dedup logic below is
+> unchanged: a review's identity is scoped to its `business_id` (= location).
+> Two locations under the same `account_id` never collide because each
+> Place ID has its own `business_id`. When working on aggregate dashboards
+> or CSV bulk-imports, scope by `account_id` first, then fan out per
+> `business_id`.
+
 ## Stable Identity Construction (SerpAPI mode)
 
 Identity must NOT include mutable text (review body, star rating can be

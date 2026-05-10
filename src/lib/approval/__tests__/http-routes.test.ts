@@ -112,11 +112,12 @@ function request(path = '/api/test'): NextRequest {
   });
 }
 
-function owner(overrides?: { businessId?: string | null }) {
+function owner(overrides?: { accountId?: string | null; locationId?: string | null }) {
   return {
     id: 'owner-1',
     role: 'owner',
-    businessId: overrides && 'businessId' in overrides ? overrides.businessId : 'biz-1',
+    accountId: overrides && 'accountId' in overrides ? overrides.accountId : 'a0000000-0000-0000-0000-000000000001',
+    locationId: overrides && 'locationId' in overrides ? overrides.locationId : 'biz-1',
   };
 }
 
@@ -238,7 +239,7 @@ describe('runTokenApprovalAction', () => {
 });
 
 describe('requireDashboardReviewOwner', () => {
-  it('maps auth failures and owner rows without a business to no-store responses', async () => {
+  it('maps auth failures and owner rows without an account to no-store responses', async () => {
     const { AuthError } = await import('@/lib/db/auth');
     mockRequireRole.mockRejectedValueOnce(new AuthError('Nope', 403));
 
@@ -247,32 +248,32 @@ describe('requireDashboardReviewOwner', () => {
     expect((authRes as NextResponse).status).toBe(403);
     expect((authRes as NextResponse).headers.get('Cache-Control')).toBe('no-store, private');
 
-    mockRequireRole.mockResolvedValueOnce(owner({ businessId: null }));
-    const noBusinessRes = await requireDashboardReviewOwner(request());
-    expect(noBusinessRes).toBeInstanceOf(NextResponse);
-    expect((noBusinessRes as NextResponse).status).toBe(403);
-    expect(await (noBusinessRes as NextResponse).json()).toEqual({
-      error: 'No business associated with this account',
+    mockRequireRole.mockResolvedValueOnce(owner({ accountId: null, locationId: null }));
+    const noAccountRes = await requireDashboardReviewOwner(request());
+    expect(noAccountRes).toBeInstanceOf(NextResponse);
+    expect((noAccountRes as NextResponse).status).toBe(403);
+    expect(await (noAccountRes as NextResponse).json()).toEqual({
+      error: 'No account associated with this user',
     });
   });
 });
 
 describe('runDashboardReviewAction', () => {
-  it('scopes the response lookup by owner business and passes session audit context', async () => {
-    sqlResults.push([{ id: 'resp-1', business_id: 'biz-1', status: 'pending_approval' }]);
+  it('scopes the response lookup by owner account and passes the review location to the action', async () => {
+    sqlResults.push([{ id: 'resp-1', business_id: 'biz-secondary', status: 'pending_approval' }]);
     const action = vi.fn();
 
     const res = await runDashboardReviewAction(
       request(),
       'rev-1',
-      { id: 'owner-1', businessId: 'biz-1' },
+      { id: 'owner-1', accountId: 'acct-1' },
       'approve',
       'Response approved.',
       action,
     );
 
     expect(res.status).toBe(200);
-    expect(sqlCalls[0]?.values).toEqual(['rev-1', 'biz-1']);
+    expect(sqlCalls[0]?.values).toEqual(['rev-1', 'acct-1']);
     expect(mockRecoverCorrelationId).toHaveBeenCalledWith(mockSql, {
       reviewId: 'rev-1',
       responseId: 'resp-1',
@@ -280,7 +281,7 @@ describe('runDashboardReviewAction', () => {
     expect(action).toHaveBeenCalledWith(expect.objectContaining({
       tx: mockSql,
       responseId: 'resp-1',
-      businessId: 'biz-1',
+      businessId: 'biz-secondary',
       audit: { actorUserId: 'owner-1', ipAddress: '203.0.113.10' },
       correlationId: 'corr-1',
     }));
@@ -293,7 +294,7 @@ describe('runDashboardReviewAction', () => {
     const res = await runDashboardReviewAction(
       request(),
       'rev-1',
-      { id: 'owner-1', businessId: 'biz-1' },
+      { id: 'owner-1', accountId: 'acct-1' },
       'approve',
       'Response approved.',
       action,
@@ -310,7 +311,7 @@ describe('runDashboardReviewAction', () => {
     const staleRes = await runDashboardReviewAction(
       request(),
       'rev-1',
-      { id: 'owner-1', businessId: 'biz-1' },
+      { id: 'owner-1', accountId: 'acct-1' },
       'approve',
       'Response approved.',
       () => {
@@ -324,7 +325,7 @@ describe('runDashboardReviewAction', () => {
     const unexpectedRes = await runDashboardReviewAction(
       request(),
       'rev-1',
-      { id: 'owner-1', businessId: 'biz-1' },
+      { id: 'owner-1', accountId: 'acct-1' },
       'approve',
       'Response approved.',
       () => {

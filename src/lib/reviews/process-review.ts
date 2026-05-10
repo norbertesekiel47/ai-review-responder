@@ -32,8 +32,9 @@ export async function processReview(
     const [existing] = await tx<{
       id: string;
       review_content_hash: string | null;
+      status: string | null;
     }[]>`
-      SELECT id, review_content_hash
+      SELECT id, review_content_hash, status
       FROM reviews
       WHERE provider = ${identity.provider}
         AND provider_review_name = ${identity.providerReviewName}
@@ -86,8 +87,9 @@ export async function processReview(
       const [winner] = await tx<{
         id: string;
         review_content_hash: string | null;
+        status: string | null;
       }[]>`
-        SELECT id, review_content_hash
+        SELECT id, review_content_hash, status
         FROM reviews
         WHERE provider = ${identity.provider}
           AND provider_review_name = ${identity.providerReviewName}
@@ -127,7 +129,7 @@ export async function processReview(
 
 async function processExistingReview(
   tx: TxClient,
-  existing: { id: string; review_content_hash: string | null },
+  existing: { id: string; review_content_hash: string | null; status?: string | null },
   monitored: MonitoredReview,
   businessId: string,
   correlationId: string | undefined,
@@ -137,6 +139,15 @@ async function processExistingReview(
   const existingHash = existing.review_content_hash;
 
   if (existingHash === contentHash) {
+    if (existing.status === 'deleted') {
+      await tx`
+        UPDATE reviews
+        SET status = 'new',
+            detected_at = NOW()
+        WHERE id = ${existing.id}
+      `;
+      return 'updated' as const;
+    }
     return 'unchanged' as const;
   }
 
@@ -148,7 +159,9 @@ async function processExistingReview(
         review_text = ${review.reviewText},
         review_date = ${review.reviewDate},
         detected_language = ${review.detectedLanguage},
-        review_content_hash = ${contentHash}
+        review_content_hash = ${contentHash},
+        status = CASE WHEN status = 'deleted' THEN 'new' ELSE status END,
+        detected_at = CASE WHEN status = 'deleted' THEN NOW() ELSE detected_at END
     WHERE id = ${existing.id}
   `;
 

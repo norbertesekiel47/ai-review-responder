@@ -88,6 +88,7 @@ export async function getActiveDashboardData(
       SELECT COUNT(*)::int AS count
       FROM reviews
       WHERE business_id = ${businessId}
+        AND status <> 'deleted'
     `,
     // Total responded (distinct reviews with non-superseded responses)
     sql`
@@ -95,6 +96,7 @@ export async function getActiveDashboardData(
       FROM reviews r
       JOIN responses resp ON resp.review_id = r.id
       WHERE r.business_id = ${businessId}
+        AND r.status <> 'deleted'
         AND resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[])
     `,
     // Review velocity: last 8 weeks (zero-filled)
@@ -111,6 +113,7 @@ export async function getActiveDashboardData(
         FROM reviews
         WHERE business_id = ${businessId}
           AND detected_at >= NOW() - INTERVAL '8 weeks'
+          AND status <> 'deleted'
         GROUP BY DATE_TRUNC('week', detected_at)
       ) r ON r.wk = gs::date
       ORDER BY week_start ASC
@@ -146,6 +149,7 @@ export async function getActiveDashboardData(
         LIMIT 1
       ) resp ON true
       WHERE rev.business_id = ${businessId}
+        AND rev.status <> 'deleted'
       ORDER BY rev.detected_at DESC
       LIMIT 10
     `,

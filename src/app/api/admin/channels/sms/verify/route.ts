@@ -27,12 +27,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { parsePhoneNumber } from 'libphonenumber-js';
 import twilio from 'twilio';
 import { v7 as uuidv7 } from 'uuid';
+import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import {
   isSmsEnabled,
   flagOff,
   assertSmsEnvReady,
   loadBusinessSubscriptionStatus,
+  isSubscriptionActive,
   subscriptionNotActive,
   withMobileEnrollmentLock,
   badRequest,
@@ -40,6 +42,9 @@ import {
   twilioVerifyError,
 } from '../_shared';
 import { classifyEnrollmentError, MultipleMobileChannelsError, EnrollmentDatabaseError } from '@/lib/channels/unique-violation';
+import { asLocationId } from '@/lib/shared/ids';
+import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
+import { asAccountId } from '@/lib/shared/ids';
 
 interface VerifyBody {
   business_id?: string;
@@ -70,14 +75,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   const body = (await request.json()) as VerifyBody;
-  const businessId = body.business_id;
+  const rawBusinessId = body.business_id;
+  if (!rawBusinessId) return badRequest('business_id_required');
+  const businessId = asLocationId(rawBusinessId);
   const submittedPhone = body.phone;
-  if (!businessId) return badRequest('business_id_required');
 
   const subStatus = await loadBusinessSubscriptionStatus(businessId);
-  if (subStatus !== 'active') return subscriptionNotActive();
+  if (!isSubscriptionActive(subStatus)) return subscriptionNotActive();
 
-  return withMobileEnrollmentLock(businessId, async (tx) => {
+  const result = await withMobileEnrollmentLock(businessId, async (tx) => {
     // Load the active (non-archived) SMS enrollment row, if any. At most one
     // exists because of the partial unique index (channel_enrollments
     // (business_id, channel) WHERE archived_at IS NULL) shipped in 021.
@@ -186,9 +192,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     try {
       if (dbAction === 'insert') {
+        // Resolve account_id from businesses within the same tx so the
+        // INSERT satisfies the NOT NULL constraint added by migration 034.
+        const [bizRow] = await tx<{ account_id: string }[]>`
+          SELECT account_id FROM businesses WHERE id = ${businessId}
+        `;
+        if (!bizRow?.account_id) {
+          return NextResponse.json({ error: 'account_not_found' }, { status: 404 });
+        }
         await tx`
-          INSERT INTO channel_enrollments (id, business_id, channel, handle, status)
-          VALUES (${uuidv7()}, ${businessId}, 'sms', ${twilioPhone}, 'pending_verification')
+          INSERT INTO channel_enrollments (id, account_id, business_id, channel, handle, status)
+          VALUES (${uuidv7()}, ${bizRow.account_id}, ${businessId}, 'sms', ${twilioPhone}, 'pending_verification')
         `;
       } else if (dbAction === 'update') {
         // dbAction='update' is only set in the else branch above where `row`
@@ -224,4 +238,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json({ ok: true, phoneMasked: maskUsPhone(twilioPhone) });
   });
+
+  // Invalidate channel cache — the enrollment state change affects which
+  // channels are available for dispatch. Best-effort: a Redis failure
+  // should not block the admin response.
+  const [acctRow] = await sql<{ account_id: string }[]>`
+    SELECT account_id FROM businesses WHERE id = ${businessId}
+  `;
+  if (acctRow?.account_id) {
+    await safeInvalidateChannelCache(asAccountId(acctRow.account_id), 'admin.sms.verify');
+  }
+
+  return result;
 }

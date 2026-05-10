@@ -51,15 +51,16 @@ function makeRequest(body: unknown): NextRequest {
   });
 }
 
-function ownerUser(overrides?: { businessId?: string | null }) {
+function ownerUser(overrides?: { locationId?: string | null }) {
   return {
     id: 'user-1',
     name: 'Test Owner',
     email: 'owner@test.com',
     role: 'owner',
-    businessId:
-      overrides && 'businessId' in overrides
-        ? overrides.businessId
+    accountId: 'a0000000-0000-0000-0000-000000000001',
+    locationId:
+      overrides && 'locationId' in overrides
+        ? overrides.locationId
         : BUSINESS_ID,
   };
 }
@@ -72,8 +73,8 @@ describe('PUT /api/settings', () => {
     mockSqlUnsafe.mockResolvedValue({ count: 1 });
   });
 
-  it('returns 403 when user has no businessId', async () => {
-    mockRequireRole.mockResolvedValue(ownerUser({ businessId: null }));
+  it('returns 403 when user has no locationId', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser({ locationId: null }));
 
     const res = await PUT(makeRequest({ tone: 'friendly' }));
     expect(res.status).toBe(403);
@@ -131,7 +132,7 @@ describe('PUT /api/settings', () => {
     expect(values[1]).toBe(false);
   });
 
-  it('ignores business_id in body and uses user.businessId', async () => {
+  it('ignores business_id in body and uses user.locationId', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
 
     const res = await PUT(

@@ -1,0 +1,77 @@
+// src/app/api/settings/channels/overrides/route.ts
+//
+// GET endpoint for fetching all per-location channel overrides for the
+// current account. Used by ChannelsTabClient to refresh after add/remove
+// operations.
+//
+// VAL-SETTINGS-013: Per-location override panel collapsed by default.
+// VAL-SETTINGS-015: Per-location override displays location name label.
+
+import { NextRequest, NextResponse } from 'next/server';
+import { sql } from '@/lib/db/server';
+import { requireRole, AuthError } from '@/lib/db/auth';
+import { NO_STORE_HEADERS } from '@/lib/shared/constants';
+import { getLocationsForAccount } from '@/lib/locations/repo';
+import { getDisplayLabel, type HasDisplayLabel } from '@/lib/locations/display-label';
+
+export const dynamic = 'force-dynamic';
+
+function jsonResponse(body: unknown, status = 200): NextResponse {
+  return NextResponse.json(body, { status, headers: NO_STORE_HEADERS });
+}
+
+export async function GET(request: NextRequest): Promise<NextResponse> {
+  let user;
+  try {
+    user = await requireRole(request, 'owner');
+  } catch (err) {
+    if (err instanceof AuthError) {
+      return jsonResponse({ error: err.message }, err.statusCode);
+    }
+    return jsonResponse({ error: 'Unauthorized' }, 401);
+  }
+
+  if (!user.accountId) {
+    return jsonResponse({ error: 'No account associated with this user' }, 403);
+  }
+
+  // Fetch per-location overrides (location_id IS NOT NULL)
+  const overrides = await sql<{
+    id: string;
+    channel: string;
+    handle: string | null;
+    status: string;
+    verified_at: Date | null;
+    location_id: string;
+  }[]>`
+    SELECT e.id, e.channel, e.handle, e.status, e.verified_at, e.location_id
+    FROM channel_enrollments e
+    WHERE e.account_id = ${user.accountId}::uuid
+      AND e.location_id IS NOT NULL
+      AND e.archived_at IS NULL
+    ORDER BY e.location_id, e.channel
+  `;
+
+  // Fetch location names for display
+  const locations = await getLocationsForAccount(user.accountId);
+  const locationMap = new Map(
+    locations.map((loc) => [loc.id, { name: loc.name, display_label: loc.display_label }]),
+  );
+
+  const result = overrides.map((o) => {
+    const locInfo = locationMap.get(o.location_id);
+    const locName = locInfo ? getDisplayLabel(locInfo as HasDisplayLabel) : o.location_id;
+
+    return {
+      enrollmentId: o.id,
+      locationId: o.location_id,
+      locationName: locName,
+      channel: o.channel,
+      handle: o.handle,
+      status: o.status,
+      verified_at: o.verified_at?.toISOString() ?? null,
+    };
+  });
+
+  return jsonResponse({ overrides: result });
+}

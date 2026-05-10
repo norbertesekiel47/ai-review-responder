@@ -5,7 +5,9 @@ import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { SelectPlanSchema } from '@/lib/shared/schemas';
 import { getIpKey } from '@/lib/shared/request-ip';
-import { buildPaymentLinkUrl } from '@/lib/payments/payment-link';
+import { createCheckoutSession, CheckoutUnavailableError } from '@/lib/payments/create-checkout-session';
+import { SubscriptionStatus } from '@/lib/shared/subscription-status';
+import { TIER_CONFIG, type SubscriptionTierValue } from '@/lib/accounts/tier-config';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,19 +16,22 @@ const NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
 /**
  * POST /api/onboarding/select-plan
  *
- * Self-serve owner picks a plan (founding | standard) on /onboarding/pay.
- * We write the choice to `businesses.subscription_tier` BEFORE handing
- * the owner the matching Stripe Payment Link, so by the time
- * `checkout.session.completed` fires the DB tier already matches what
- * they paid for. The Stripe webhook still has a `customer.subscription.updated`
- * branch that maps price→tier as a defense-in-depth fallback.
+ * Self-serve owner picks a plan (founders | standard | premium) on /onboarding/pay.
+ * We write the choice to `accounts.subscription_tier` BEFORE creating a
+ * Stripe Checkout Session, so by the time `checkout.session.completed` fires
+ * the DB tier already matches what they paid for. The Stripe webhook still
+ * has a `customer.subscription.updated` branch that maps price→tier as a
+ * defense-in-depth fallback.
  *
- * Auth: cookie-bound Supabase session. Caller must be the owner of a
- * business in `pending_payment` status. Active / past_due / cancelled
+ * The Checkout Session replaces the old Stripe Payment Link flow.
+ * VAL-BILLING-031: This handler does NOT reference STRIPE_PAYMENT_LINK_* env vars.
+ *
+ * Auth: cookie-bound Supabase session. Caller must be the owner of an
+ * account in `pending_payment` status. Active / past_due / cancelled
  * are rejected — those states are the dashboard's billing-recovery
  * surface, not a fresh signup.
  *
- * Same-origin: yes — this UPDATEs business state, so a CSRF-driven call
+ * Same-origin: yes — this UPDATEs account state, so a CSRF-driven call
  * with a victim's cookies could flip them to a different tier.
  *
  * Rate-limit: 10/auth-id/10min + 30/IP/10min. The legitimate flow is one
@@ -145,13 +150,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // Owner-only filter at the SQL boundary. Middleware does NOT gate
   // `/api/onboarding/*` on role, so an admin/sales_partner session
   // calling this directly would otherwise hit whichever business their
-  // (potentially misconfigured) users.business_id pointed at. Returning
+  // account points at via the primary location. Returning
   // 404 on non-owner sessions keeps this an authorization invariant
   // independent of middleware.
   const lookup = await sql<{ id: string; owner_email: string }[]>`
     SELECT b.id, b.owner_email
     FROM users u
-    JOIN businesses b ON b.id = u.business_id
+    JOIN accounts a ON a.id = u.account_id
+    JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE
     WHERE u.auth_id = ${user.id}
       AND u.role = 'owner'
     LIMIT 1
@@ -170,38 +176,52 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // commits before we proceed.
     await tx`SELECT pg_advisory_xact_lock(hashtext(${businessId + ':activation'}))`;
 
+    // Read subscription_status from accounts (source of truth after migration 034).
+    // Also lock the accounts row FOR UPDATE to prevent concurrent writes.
     const [row] = await tx<{ subscription_status: string }[]>`
-      SELECT subscription_status
-      FROM businesses
-      WHERE id = ${businessId}::uuid
-      FOR UPDATE
+      SELECT a.subscription_status
+      FROM accounts a
+      JOIN businesses b ON b.account_id = a.id
+      WHERE b.id = ${businessId}::uuid
+      FOR UPDATE OF a
     `;
     if (!row) {
       // The row vanished between the lookup above and now (e.g., cleanup
       // poller deleted it). Surface as account_incomplete.
       return { kind: 'not_found' as const };
     }
-    if (row.subscription_status !== 'pending_payment') {
+    if (row.subscription_status !== SubscriptionStatus.PENDING_PAYMENT) {
       return {
         kind: 'wrong_status' as const,
         status: row.subscription_status,
       };
     }
 
-    // UPDATE under the same lock + re-checked status. Verify count > 0
-    // as defense-in-depth — if for any reason the WHERE didn't match
-    // (status changed inside this same tx, which shouldn't be possible
-    // but is the kind of paranoia that catches future refactors), fail
-    // loudly rather than handing out a Stripe link.
+    // UPDATE accounts (source of truth) and businesses (deprecated column
+    // retained for backward compat per VAL-SCHEMA-037). Verify count > 0
+    // as defense-in-depth.
+    // VAL-BILLING-065: Also snapshot locations_included and
+    // locations_overage_price_cents from TIER_CONFIG so the account's
+    // billing snapshot is self-consistent from this point forward.
+    const tierConfig = TIER_CONFIG[tier as SubscriptionTierValue];
     const update = await tx`
-      UPDATE businesses
-      SET subscription_tier = ${tier}, updated_at = NOW()
-      WHERE id = ${businessId}::uuid
-        AND subscription_status = 'pending_payment'
+      UPDATE accounts
+      SET subscription_tier = ${tier},
+          locations_included = ${tierConfig?.included ?? 1},
+          locations_overage_price_cents = ${tierConfig?.overageCents ?? 2500},
+          updated_at = NOW()
+      WHERE id = (SELECT account_id FROM businesses WHERE id = ${businessId}::uuid)
+        AND subscription_status = ${SubscriptionStatus.PENDING_PAYMENT}
     `;
     if (update.count === 0) {
       return { kind: 'race_lost' as const };
     }
+    // Also write to businesses.subscription_tier (deprecated, retained).
+    await tx`
+      UPDATE businesses
+      SET subscription_tier = ${tier}, updated_at = NOW()
+      WHERE id = ${businessId}::uuid
+    `;
     return { kind: 'ok' as const };
   });
 
@@ -230,15 +250,39 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  const paymentUrl = buildPaymentLinkUrl(tier, businessId, ownerEmail);
-  if (!paymentUrl) {
-    // env var missing or malformed — same posture as /onboarding/pay's
-    // fallback. The picker UI can render a "contact support" message.
+  // Create a Stripe Checkout Session instead of a Payment Link URL.
+  // The session includes the correct base + overage line items.
+  let checkoutUrl: string;
+  try {
+    // Resolve the account_id for this owner
+    const [accountRow] = await sql<{ account_id: string }[]>`
+      SELECT account_id FROM businesses WHERE id = ${businessId}::uuid
+    `;
+    if (!accountRow) {
+      return NextResponse.json(
+        { error: 'account_incomplete' },
+        { status: 404, headers: NO_STORE },
+      );
+    }
+
+    const result = await createCheckoutSession(accountRow.account_id, tier, ownerEmail);
+    checkoutUrl = result.url;
+  } catch (err) {
+    if (err instanceof CheckoutUnavailableError) {
+      // Missing price env vars — same posture as the old payment_link_unavailable.
+      return NextResponse.json(
+        { error: 'checkout_unavailable', detail: err.message },
+        { status: 502, headers: NO_STORE },
+      );
+    }
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[select-plan] Checkout Session creation failed for business=${businessId}: ${message}`);
+    // VAL-BILLING-066: Return 502 with user-facing error for Stripe failures
     return NextResponse.json(
-      { error: 'payment_link_unavailable' },
-      { status: 500, headers: NO_STORE },
+      { error: 'checkout_error', detail: 'Unable to connect to payment provider. Please try again later.' },
+      { status: 502, headers: NO_STORE },
     );
   }
 
-  return NextResponse.json({ paymentUrl }, { headers: NO_STORE });
+  return NextResponse.json({ paymentUrl: checkoutUrl }, { headers: NO_STORE });
 }

@@ -105,10 +105,22 @@ function setCheckoutSessionCompletedEvent(overrides: {
 }
 
 function queueHappyPath(currentStatus: string, options: { updateBusinessesCount?: number } = {}) {
+  // New flow: account lookup first (outside tx)
   const insertInbound: any = []; insertInbound.count = 1;
   sqlReturnQueue.push(insertInbound);
+  // Account lookup: SELECT id FROM accounts WHERE id = ${refId}::uuid
+  sqlReturnQueue.push([{ id: '019dc366-29ce-7000-a000-000000000000' }]); // account found
+  // Inside tx:
   sqlReturnQueue.push([]); // pg_advisory_xact_lock
-  sqlReturnQueue.push([{ subscription_status: currentStatus }]); // SELECT ... FOR UPDATE
+  // SELECT subscription_status FROM accounts ... FOR UPDATE
+  sqlReturnQueue.push([{ subscription_status: currentStatus }]);
+  // UPDATE accounts → active
+  const updateAcct: any = []; updateAcct.count = 1;
+  sqlReturnQueue.push(updateAcct);
+  // INSERT account_audit_log (subscription_status_changed)
+  const auditLog: any = []; auditLog.count = 1;
+  sqlReturnQueue.push(auditLog);
+  // UPDATE businesses (deprecated column compat)
   const updateBiz: any = []; updateBiz.count = options.updateBusinessesCount ?? 1;
   sqlReturnQueue.push(updateBiz);
 }
@@ -146,9 +158,9 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
     const { handleStripeWebhook } = await import('../stripe');
     await handleStripeWebhook(makeRequest(), makeReply());
 
-    // Status flip happened.
+    // Status flip happened — check for accounts UPDATE (source of truth)
     const updateCall = sqlCalls.find(
-      (c) => c.text.includes('UPDATE') && c.text.includes('businesses') && c.text.includes("'active'"),
+      (c) => c.text.includes('UPDATE') && c.text.includes('accounts') && c.text.includes("'active'"),
     );
     expect(updateCall).toBeDefined();
     // ZERNIO_PUBLISHING_ENABLED is unset in beforeEach, so the post-activation
@@ -164,7 +176,7 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
     await handleStripeWebhook(makeRequest(), makeReply());
 
     const updateCall = sqlCalls.find(
-      (c) => c.text.includes('UPDATE') && c.text.includes('businesses') && c.text.includes("'active'"),
+      (c) => c.text.includes('UPDATE') && c.text.includes('accounts') && c.text.includes("'active'"),
     );
     expect(updateCall).toBeDefined();
     expect(getInsertOutboxCall()).toBeUndefined();
@@ -180,7 +192,7 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
     expect(getInsertOutboxCall()).toBeUndefined();
   });
 
-  it('serialization ordering: advisory lock runs before FOR UPDATE select and before UPDATE businesses', async () => {
+  it('serialization ordering: advisory lock runs before FOR UPDATE select and before UPDATE accounts', async () => {
     setCheckoutSessionCompletedEvent({ businessId: TEST_BIZ_CONCURRENT });
     queueHappyPath('pending_payment');
 
@@ -191,21 +203,23 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
     const selectIdx = sqlCalls.findIndex(
       (c) => c.text.includes('FOR UPDATE') && c.text.includes('subscription_status'),
     );
-    const updateBizIdx = sqlCalls.findIndex(
+    const updateAcctIdx = sqlCalls.findIndex(
       (c) =>
         c.text.includes('UPDATE') &&
-        c.text.includes('businesses') &&
+        c.text.includes('accounts') &&
         c.text.includes("'active'"),
     );
 
     expect(lockIdx).toBeGreaterThanOrEqual(0);
     expect(selectIdx).toBeGreaterThan(lockIdx);
-    expect(updateBizIdx).toBeGreaterThan(selectIdx);
+    expect(updateAcctIdx).toBeGreaterThan(selectIdx);
 
-    // Lock key is hash-stable per business.
+    // Lock key is hash-stable per account (after migration 034, lock key
+    // uses accountId instead of businessId). The account lookup mock returns
+    // id='019dc366-29ce-7000-a000-000000000000' for all happy-path tests.
     const lockCall = sqlCalls[lockIdx]!;
     expect(lockCall.text).toContain('hashtext');
-    expect(lockCall.values).toContain(`${TEST_BIZ_CONCURRENT}:activation`);
+    expect(lockCall.values).toContain('019dc366-29ce-7000-a000-000000000000:activation');
   });
 
   it('biz-row-deleted race: still completes the outer flow with no enqueue', async () => {
@@ -213,9 +227,9 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
     // Inbound INSERT → count=1
     const insertInbound: any = []; insertInbound.count = 1;
     sqlReturnQueue.push(insertInbound);
-    // advisory lock → []
+    // Account lookup returns no row (new flow)
     sqlReturnQueue.push([]);
-    // FOR UPDATE returns no row.
+    // Business lookup also returns no row (legacy fallback)
     sqlReturnQueue.push([]);
 
     const { handleStripeWebhook } = await import('../stripe');
@@ -242,8 +256,10 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
     tier?: string;
     activatedAt?: Date;
   } = {}) {
-    // After the activation tx, processCheckoutSessionCompleted calls
-    // maybeEnqueueBackfillResume which does:
+    // After the activation tx, processCheckoutSessionCompleted needs
+    // to find the primary business for the account (new step).
+    sqlReturnQueue.push([{ id: TEST_BIZ_PENDING }]); // primary business lookup
+    // Then maybeEnqueueBackfillResume does:
     //   SELECT … (predicate match → returns target row)
     //   INSERT INTO job_outbox … (conditional on no in-flight outbox row)
     sqlReturnQueue.push([{
@@ -280,12 +296,25 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
       zernio_location_id: 'zloc-1',
       subscription_tier: 'standard',
     });
+
+    const resumeSelect = sqlCalls.find(
+      (c) => c.text.includes('FROM zernio_connections zc')
+        && c.text.includes('JOIN businesses b'),
+    );
+    expect(resumeSelect).toBeDefined();
+    expect(resumeSelect!.text).toMatch(/JOIN\s+accounts\s+a\s+ON\s+a\.id\s*=\s*b\.account_id/i);
+    expect(resumeSelect!.text).toMatch(/a\.subscription_tier/);
+    expect(resumeSelect!.text).toMatch(/a\.subscription_activated_at/);
+    expect(resumeSelect!.text).not.toMatch(/b\.subscription_tier/);
+    expect(resumeSelect!.text).not.toMatch(/b\.subscription_activated_at/);
   });
 
   it('flag=ON + predicate miss (no active connection OR completed run exists) → NO outbox INSERT', async () => {
     process.env.ZERNIO_PUBLISHING_ENABLED = 'true';
     setCheckoutSessionCompletedEvent({ businessId: TEST_BIZ_PENDING });
     queueHappyPath('pending_payment');
+    // Primary business lookup (new step)
+    sqlReturnQueue.push([{ id: TEST_BIZ_PENDING }]);
     // SELECT returns no row (no active connection OR completed run exists).
     sqlReturnQueue.push([]);
 
@@ -318,6 +347,8 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
     process.env.ZERNIO_PUBLISHING_ENABLED = 'true';
     setCheckoutSessionCompletedEvent({ businessId: TEST_BIZ_PENDING });
     queueHappyPath('pending_payment');
+    // Primary business lookup (new step)
+    sqlReturnQueue.push([{ id: TEST_BIZ_PENDING }]);
     // SELECT for predicate → returns target.
     sqlReturnQueue.push([{
       zernio_account_id: 'zacct-1',

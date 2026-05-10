@@ -87,7 +87,7 @@ function mockResponseRow(overrides: Record<string, unknown> = {}) {
 function mockBusinessRow(overrides: Record<string, unknown> = {}) {
   return {
     id: 'biz-1', name: 'Test Biz', subscription_status: 'active',
-    updated_at: new Date(),
+    account_updated_at: new Date(), archived_at: null,
     ...overrides,
   };
 }
@@ -190,6 +190,18 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     expect(mockLookupZernioReviewId).not.toHaveBeenCalled();
     expect(mockPostReply).not.toHaveBeenCalled();
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+  });
+
+  it('completes outbox without action when location is archived before publishing', async () => {
+    sqlReturnQueue.push([mockResponseRow()]);
+    sqlReturnQueue.push([mockBusinessRow({ archived_at: new Date('2026-05-09T00:00:00Z') })]);
+
+    await handlePublishResponse(makeJob());
+
+    expect(mockLookupZernioReviewId).not.toHaveBeenCalled();
+    expect(mockPostReply).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
   });
 
   it('marks outbox failed when response not found', async () => {

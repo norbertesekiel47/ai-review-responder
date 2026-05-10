@@ -30,6 +30,7 @@ describe('EmailChannel', () => {
 
     const result = await ch.sendApprovalRequest({
       handle: 'owner@example.com',
+      locationLabel: 'Downtown Cafe',
       businessName: 'Gjelina',
       reviewerName: 'Jane',
       starRating: 4,
@@ -45,6 +46,7 @@ describe('EmailChannel', () => {
     expect(mockSendApprovalEmail).toHaveBeenCalledWith({
       to: 'owner@example.com',
       from: 'RepWorth <notifications@example.com>',
+      locationLabel: 'Downtown Cafe',
       businessName: 'Gjelina',
       reviewerName: 'Jane',
       starRating: 4,
@@ -61,7 +63,7 @@ describe('EmailChannel', () => {
 
     await expect(
       ch.sendApprovalRequest({
-        handle: 'x@y.com', businessName: 'b', reviewerName: 'r',
+        handle: 'x@y.com', locationLabel: 'L', businessName: 'b', reviewerName: 'r',
         starRating: 3, reviewText: null, reviewDate: '2026-04-01',
         responsePreview: 'p', approvalUrl: 'u', approvalLinkId: 'id-1',
       }),
@@ -74,7 +76,7 @@ describe('EmailChannel', () => {
 
     await expect(
       ch.sendApprovalRequest({
-        handle: 'x@y.com', businessName: 'b', reviewerName: 'r',
+        handle: 'x@y.com', locationLabel: 'L', businessName: 'b', reviewerName: 'r',
         starRating: 3, reviewText: null, reviewDate: '2026-04-01',
         responsePreview: 'p', approvalUrl: 'u', approvalLinkId: 'id-1',
       }),

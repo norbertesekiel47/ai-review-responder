@@ -63,7 +63,7 @@ async function tryClaimAlert(
   template: string,
   recipient: string,
   sendFn: () => Promise<string>,
-  ctx: { businessId: string; responseId: string },
+  ctx: { accountId: string; businessId: string; responseId: string },
 ): Promise<AlertOutcome> {
   let outcome: AlertOutcome = 'deduped';
   try {
@@ -86,9 +86,9 @@ async function tryClaimAlert(
       const messageId = await sendFn();
       await tx`
         INSERT INTO notification_deliveries
-          (id, business_id, response_id, channel, recipient, template, sent_at, external_message_id)
+          (id, account_id, business_id, response_id, channel, recipient, template, sent_at, external_message_id)
         VALUES (
-          ${uuidv7()}, ${ctx.businessId}, ${ctx.responseId}, 'email',
+          ${uuidv7()}, ${ctx.accountId}, ${ctx.businessId}, ${ctx.responseId}, 'email',
           ${recipient}, ${template}, NOW(), ${messageId}
         )
       `;
@@ -138,12 +138,13 @@ export async function runFailoverPollerOnce(): Promise<void> {
     const allFailedResponses = await sql<{
       response_id: string;
       business_id: string;
+      account_id: string;
       business_name: string;
       reviewer_name: string;
       star_rating: number;
     }[]>`
       SELECT resp.id AS response_id, resp.business_id,
-             b.name AS business_name, r.reviewer_name, r.star_rating
+             b.account_id, b.name AS business_name, r.reviewer_name, r.star_rating
       FROM responses resp
       JOIN businesses b ON resp.business_id = b.id
       JOIN reviews r ON resp.review_id = r.id
@@ -189,6 +190,7 @@ export async function runFailoverPollerOnce(): Promise<void> {
             return messageId;
           },
           {
+            accountId: row.account_id,
             businessId: row.business_id,
             responseId: row.response_id,
           },
@@ -246,12 +248,13 @@ export async function runFailoverPollerOnce(): Promise<void> {
     const staleResponses = await sql<{
       response_id: string;
       business_id: string;
+      account_id: string;
       business_name: string;
       reviewer_name: string;
       star_rating: number;
     }[]>`
       SELECT resp.id AS response_id, resp.business_id,
-             b.name AS business_name, r.reviewer_name, r.star_rating
+             b.account_id, b.name AS business_name, r.reviewer_name, r.star_rating
       FROM responses resp
       JOIN businesses b ON resp.business_id = b.id
       JOIN reviews r ON resp.review_id = r.id
@@ -295,6 +298,7 @@ export async function runFailoverPollerOnce(): Promise<void> {
           return messageId;
         },
         {
+          accountId: row.account_id,
           businessId: row.business_id,
           responseId: row.response_id,
         },

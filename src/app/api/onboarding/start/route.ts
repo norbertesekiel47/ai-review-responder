@@ -8,6 +8,8 @@ import { OnboardingStartSchema } from '@/lib/shared/schemas';
 import { extractPlaceId } from '@/lib/reviews/url-parser';
 import type { ValidatePlaceIdPayload } from '@/lib/shared/worker-types';
 import { reserveOnboardingDemoBudget, CostCeilingExceeded } from '@/lib/costs/onboarding-demo-cost-guard';
+import { SubscriptionStatus } from '@/lib/shared/subscription-status';
+import { PLACEHOLDER_BUSINESS_NAME } from '@/lib/onboarding/create-business';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,8 +17,18 @@ const NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
 
 interface BizRow {
   id: string;
+  account_id: string;
   user_id: string;
   subscription_status: string;
+  place_id_verified: boolean;
+  google_maps_url: string | null;
+}
+
+// Subset of BizRow for the FOR UPDATE re-read inside the transaction.
+// subscription_status is NOT re-checked inside the tx — the outer query
+// already gates on it.
+interface ForUpdateRow {
+  id: string;
   place_id_verified: boolean;
   google_maps_url: string | null;
 }
@@ -56,9 +68,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   const [bizRow] = await sql<BizRow[]>`
-    SELECT b.id, u.id AS user_id, b.subscription_status, b.place_id_verified, b.google_maps_url
+    SELECT b.id, a.id AS account_id, u.id AS user_id, a.subscription_status, b.place_id_verified, b.google_maps_url
     FROM users u
-    JOIN businesses b ON b.id = u.business_id
+    JOIN accounts a ON a.id = u.account_id
+    JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE
     WHERE u.auth_id = ${user.id}
       AND u.role = 'owner'
     LIMIT 1
@@ -67,7 +80,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'account_incomplete' }, { status: 404, headers: NO_STORE });
   }
 
-  if (bizRow.subscription_status !== 'pending_payment') {
+  if (bizRow.subscription_status !== SubscriptionStatus.PENDING_PAYMENT) {
     return NextResponse.json(
       { error: 'subscription_inactive', subscriptionStatus: bizRow.subscription_status },
       { status: 409, headers: NO_STORE },
@@ -173,8 +186,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     await sql.begin(async (tx) => {
       await tx`SELECT pg_advisory_xact_lock(hashtext(${bizRow.id + ':activation'}))`;
 
-      const [forUpdateRow] = await tx<BizRow[]>`
-        SELECT id, subscription_status, place_id_verified, google_maps_url
+      const [forUpdateRow] = await tx<ForUpdateRow[]>`
+        SELECT id, place_id_verified, google_maps_url
         FROM businesses
         WHERE id = ${bizRow.id}::uuid
         FOR UPDATE
@@ -193,6 +206,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           website = ${data.prefilledWebsite ?? null},
           updated_at = NOW()
         WHERE id = ${bizRow.id}::uuid
+      `;
+
+      await tx`
+        UPDATE accounts
+        SET display_name = ${data.businessName}, updated_at = NOW()
+        WHERE id = ${bizRow.account_id}::uuid
+          AND display_name = ${PLACEHOLDER_BUSINESS_NAME}
       `;
 
       if (validatePayload) {

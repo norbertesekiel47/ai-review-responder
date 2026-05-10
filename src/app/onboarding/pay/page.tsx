@@ -2,6 +2,7 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { redirect, notFound } from 'next/navigation';
 import { sql } from '@/lib/db/server';
+import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { PlanPickerClient } from './PlanPickerClient';
 
 export const dynamic = 'force-dynamic';
@@ -51,11 +52,12 @@ export default async function OnboardingPayPage({
   >`
     SELECT
       b.id                AS business_id,
-      b.subscription_status,
+      a.subscription_status,
       b.place_id_verified,
       b.google_maps_url
     FROM users u
-    JOIN businesses b ON b.id = u.business_id
+    JOIN accounts a ON a.id = u.account_id
+    JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE
     WHERE u.auth_id = ${user.id}
     LIMIT 1
   `;
@@ -65,7 +67,7 @@ export default async function OnboardingPayPage({
     const emailParam = encodeURIComponent(user.email ?? '');
     redirect(`/signup/check-email?from=pay&email=${emailParam}`);
   }
-  if (row.subscription_status === 'active') {
+  if (row.subscription_status === SubscriptionStatus.ACTIVE) {
     // Active but wizard not yet completed → push to wizard, not dashboard.
     // The dashboard has a "Set up your business" CTA fallback, but routing
     // active-but-not-onboarded owners straight to the wizard matches the
@@ -78,7 +80,7 @@ export default async function OnboardingPayPage({
   // past_due / cancelled / unknown must NOT see the picker — a click would
   // create a duplicate Stripe subscription. Billing recovery for these
   // states lives on the dashboard side (Customer Portal / banner flows).
-  if (row.subscription_status !== 'pending_payment') redirect('/dashboard');
+  if (row.subscription_status !== SubscriptionStatus.PENDING_PAYMENT) redirect('/dashboard');
 
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4 py-12">

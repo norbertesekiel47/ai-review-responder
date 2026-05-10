@@ -14,27 +14,35 @@ import { recordNotificationDelivery } from '../../src/lib/notifications/delivery
 import { createApprovalLink } from '../../src/lib/approval/create-link';
 import type { EngagementAlertPayload } from '../../src/lib/shared/worker-types';
 import { createWorkerLogger, type WorkerLogger } from '../../src/lib/shared/logger';
+import { asLocationId } from '../../src/lib/shared/ids';
+import type { LocationId } from '../../src/lib/shared/ids';
 
 export async function handleEngagementAlert(job: Job<EngagementAlertPayload>): Promise<void> {
   const logger = createWorkerLogger('[EngagementAlertWorker]', job.data.correlation_id);
-  const { business_id, alert_type, metrics } = job.data;
+  const { alert_type, metrics } = job.data;
+  // Cast job data IDs to branded types at entry point
+  const businessId: LocationId = asLocationId(job.data.business_id);
   const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
 
-  // ── Step 1: Load business ─────────────────────────────────────────
+  // ── Step 1: Load business + account subscription ──────────────────
   const [business] = await sql<{
     name: string;
+    account_id: string;
     owner_email: string;
     owner_email_bounced: boolean;
     owner_phone: string | null;
     subscription_status: string;
-    updated_at: Date;
+    account_updated_at: Date;
   }[]>`
-    SELECT name, owner_email, owner_email_bounced, owner_phone, subscription_status, updated_at
-    FROM businesses WHERE id = ${business_id}
+    SELECT b.name, b.owner_email, b.owner_email_bounced, b.owner_phone,
+           a.id AS account_id, a.subscription_status, a.updated_at AS account_updated_at
+    FROM businesses b
+    JOIN accounts a ON a.id = b.account_id
+    WHERE b.id = ${businessId}
   `;
 
   if (!business) {
-    logger.warn(`Business ${business_id} not found`);
+    logger.warn(`Business ${businessId} not found`);
     await markOutboxFailed(outboxId, 'business_not_found', outboxAttempt);
     return;
   }
@@ -42,28 +50,28 @@ export async function handleEngagementAlert(job: Job<EngagementAlertPayload>): P
   // ── Step 2: Subscription guard ────────────────────────────────────
   const subCheck = checkSubscription(
     business.subscription_status,
-    new Date(business.updated_at),
+    new Date(business.account_updated_at),
     'notification',
   );
 
   if (!subCheck.allowed) {
-    logger.log(`Business ${business_id} skipped: ${subCheck.reason}`);
+    logger.log(`Business ${businessId} skipped: ${subCheck.reason}`);
     await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }
 
   if (alert_type === 'owner_nudge') {
-    await handleOwnerNudge(outboxId, outboxAttempt, business_id, business, logger);
+    await handleOwnerNudge(outboxId, outboxAttempt, businessId, business, logger);
   } else if (alert_type === 'partner_satisfaction_alert') {
     const satisfaction = (job.data as EngagementAlertPayload).satisfaction;
-    await handleSatisfactionAlert(outboxId, outboxAttempt, business_id, business, satisfaction ?? null, logger);
+    await handleSatisfactionAlert(outboxId, outboxAttempt, businessId, business, satisfaction ?? null, logger);
   } else {
     if (!metrics) {
-      logger.warn(`${alert_type} missing metrics for business ${business_id}`);
+      logger.warn(`${alert_type} missing metrics for business ${businessId}`);
       await markOutboxFailed(outboxId, 'missing metrics payload', outboxAttempt);
       return;
     }
-    await handlePartnerAlert(outboxId, outboxAttempt, business_id, alert_type, metrics, business, logger);
+    await handlePartnerAlert(outboxId, outboxAttempt, businessId, alert_type, metrics, business, logger);
   }
 }
 
@@ -73,7 +81,7 @@ async function handleOwnerNudge(
   outboxId: string,
   outboxAttempt: number | undefined,
   businessId: string,
-  business: { name: string; owner_email: string; owner_email_bounced: boolean },
+  business: { name: string; account_id: string; owner_email: string; owner_email_bounced: boolean },
   logger: WorkerLogger,
 ): Promise<void> {
   // Local binding so the env-config branches below read naturally.
@@ -187,6 +195,7 @@ async function handleOwnerNudge(
   });
 
   await recordNotificationDelivery({
+    accountId: business.account_id,
     businessId,
     channel: 'email',
     recipient: business.owner_email,
@@ -206,7 +215,7 @@ async function handlePartnerAlert(
   businessId: string,
   alertType: 'partner_engagement_alert' | 'partner_escalation_alert' | 'partner_low_engagement',
   metrics: NonNullable<EngagementAlertPayload['metrics']>,
-  business: { name: string; owner_email: string; owner_phone: string | null },
+  business: { name: string; account_id: string; owner_email: string; owner_phone: string | null },
   logger: WorkerLogger,
 ): Promise<void> {
   const adminEmail = process.env.ADMIN_NOTIFICATION_EMAIL;
@@ -270,6 +279,7 @@ async function handlePartnerAlert(
   });
 
   await recordNotificationDelivery({
+    accountId: business.account_id,
     businessId,
     channel: 'email',
     recipient: adminEmail,
@@ -287,7 +297,7 @@ async function handleSatisfactionAlert(
   outboxId: string,
   outboxAttempt: number | undefined,
   businessId: string,
-  business: { name: string; owner_email: string; owner_phone: string | null },
+  business: { name: string; account_id: string; owner_email: string; owner_phone: string | null },
   satisfaction: EngagementAlertPayload['satisfaction'] | null,
   logger: WorkerLogger,
 ): Promise<void> {
@@ -390,6 +400,7 @@ async function handleSatisfactionAlert(
 
   // Record delivery with week-scoped template tag for future idempotency checks
   await recordNotificationDelivery({
+    accountId: business.account_id,
     businessId,
     channel: 'email',
     recipient: adminEmail,

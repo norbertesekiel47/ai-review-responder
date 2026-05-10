@@ -11,6 +11,7 @@ import { SmsChannel, SmsRecipientUnsubscribedError } from '../sms-channel';
 function sampleParams() {
   return {
     handle: '+15551234567',
+    locationLabel: 'Test Biz',
     businessName: 'Test Biz',
     reviewerName: 'Jane Doe',
     starRating: 3,

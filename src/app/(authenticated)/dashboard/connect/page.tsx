@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useDashboardData } from '@/hooks/useDashboardData';
+import { useLocationScope } from '@/contexts/LocationContext';
+import type { LocationId } from '@/lib/shared/ids';
 
 /**
  * /dashboard/connect — Zernio Google Business connect entry point.
@@ -16,14 +18,37 @@ import { useDashboardData } from '@/hooks/useDashboardData';
  * pending UI: `oauth_in_progress` shows a Cancel button (owner can abort),
  * `finalizing` shows a spinner only (cancel during finalize would 409 from
  * the API anyway — see spec §3.3.5).
+ *
+ * Respects the selected location scope via LocationContext so that the
+ * Zernio connection status shown corresponds to the currently selected
+ * location (or the primary location when scope is "all").
  */
 export default function ConnectPage() {
-  const { data, error, refresh } = useDashboardData();
-  const [busy, setBusy] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
+  const { currentScope, setLocationScope } = useLocationScope();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const requestedLocationId = searchParams.get('locationId');
+  const requestedScope =
+    requestedLocationId && requestedLocationId !== 'all'
+      ? (requestedLocationId as LocationId)
+      : null;
+  const effectiveScope = requestedScope ?? currentScope;
+  const { data, error, refresh } = useDashboardData(effectiveScope, {
+    // VAL-DASH-029: When the API detects the selected location is archived,
+    // fall back to primary and update the LocationContext switcher.
+    onScopeFallback: (fallback) => {
+      setLocationScope(fallback.fallbackLocationId as LocationId);
+    },
+  });
+  const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const urlError = searchParams.get('error');
+
+  useEffect(() => {
+    if (requestedScope && currentScope !== requestedScope) {
+      setLocationScope(requestedScope);
+    }
+  }, [currentScope, requestedScope, setLocationScope]);
 
   // SSR-equivalent redirect: if the connection is already active, send the
   // owner back to the dashboard. Done in an effect so we can also `return null`
@@ -90,6 +115,9 @@ export default function ConnectPage() {
       const res = await fetch('/api/zernio/connect/start', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
+        ...(effectiveScope === 'all'
+          ? {}
+          : { body: JSON.stringify({ locationId: effectiveScope }) }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok || !body.authUrl) {
@@ -111,6 +139,9 @@ export default function ConnectPage() {
       const res = await fetch('/api/zernio/connect/cancel', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
+        ...(effectiveScope === 'all'
+          ? {}
+          : { body: JSON.stringify({ locationId: effectiveScope }) }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {

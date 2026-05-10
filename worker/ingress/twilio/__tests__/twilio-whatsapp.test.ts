@@ -80,6 +80,19 @@ vi.mock('../../../../src/lib/approval/service', () => ({
   regenerateViaCallback: mockRegenerateViaCallback,
 }));
 
+// Mock invalidateChannelCache — must use vi.hoisted so the vi.mock factory
+// closures can reference the mock function.
+const { mockInvalidateChannelCache } = vi.hoisted(() => ({
+  mockInvalidateChannelCache: vi.fn().mockResolvedValue(undefined),
+}));
+vi.mock('../../../../src/lib/notifications/resolve-channels', () => ({
+  invalidateChannelCache: mockInvalidateChannelCache,
+  safeInvalidateChannelCache: mockInvalidateChannelCache,
+}));
+vi.mock('../../../../src/lib/shared/ids', () => ({
+  asAccountId: vi.fn((id: string) => id),
+}));
+
 import { handleTwilioWhatsAppStatus, handleTwilioWhatsAppInbound, redactWhatsAppPayload } from '../twilio-whatsapp';
 import { verifyTwilioSignature } from '../twilio-verify';
 import { claimInboundEvent } from '../../shared';
@@ -124,6 +137,7 @@ beforeEach(() => {
   mockSendFreeform.mockReset();
   mockApproveViaCallback.mockReset();
   mockRegenerateViaCallback.mockReset();
+  mockInvalidateChannelCache.mockClear();
 
   // Default: signature valid, claim succeeds, sendFreeform resolves
   mockVerifyTwilioSignature.mockReturnValue(true);
@@ -227,8 +241,8 @@ describe('handleTwilioWhatsAppInbound — signature + missing fields', () => {
 describe('handleTwilioWhatsAppInbound — enrollment path (start-<token>)', () => {
   it('hashes inbound token, UPDATEs the matching pending_verification row, confirms success', async () => {
     const rawToken = 'RAW123';
-    // enrollment SELECT returns a match; UPDATE returns nothing
-    sqlQueue.push([{ id: 'enroll-1' }]);
+    // enrollment SELECT returns a match (with account_id); UPDATE returns nothing
+    sqlQueue.push([{ id: 'enroll-1', account_id: 'acct-wa-1' }]);
     sqlQueue.push([]); // UPDATE
     sqlQueue.push([]); // markProcessed
 
@@ -245,6 +259,9 @@ describe('handleTwilioWhatsAppInbound — enrollment path (start-<token>)', () =
       body: expect.stringMatching(/connected to RepWorth/i),
     }));
     expect(reply.status).toHaveBeenCalledWith(200);
+    // Cache must be invalidated after enrollment verification
+    expect(mockInvalidateChannelCache).toHaveBeenCalledTimes(1);
+    expect(mockInvalidateChannelCache).toHaveBeenCalledWith('acct-wa-1', 'worker.twilio.whatsapp.verify');
   });
 
   it('sends "invalid or expired" when no matching token', async () => {
@@ -263,6 +280,8 @@ describe('handleTwilioWhatsAppInbound — enrollment path (start-<token>)', () =
       body: expect.stringMatching(/invalid or expired/i),
     }));
     expect(reply.status).toHaveBeenCalledWith(200);
+    // No enrollment matched — no invalidation
+    expect(mockInvalidateChannelCache).not.toHaveBeenCalled();
   });
 });
 
@@ -383,7 +402,7 @@ describe('handleTwilioWhatsAppInbound — button tap path', () => {
 
 describe('handleTwilioWhatsAppInbound — STOP keyword', () => {
   it('flips enrollment to unsubscribed with whatsapp_stop reason', async () => {
-    sqlQueue.push([]); // UPDATE channel_enrollments (single-statement, no tx)
+    sqlQueue.push([{ account_id: 'acct-stop-1' }]); // UPDATE channel_enrollments RETURNING
     sqlQueue.push([]); // markProcessed
 
     const req = buildRequest({
@@ -396,6 +415,40 @@ describe('handleTwilioWhatsAppInbound — STOP keyword', () => {
     // The tx must have run (UPDATE channel_enrollments)
     const unsubCall = sqlCalls.find((c) => c.sql.includes('unsubscribed'));
     expect(unsubCall).toBeDefined();
+    // TCPA-critical: cache must be invalidated after STOP
+    expect(mockInvalidateChannelCache).toHaveBeenCalledTimes(1);
+    expect(mockInvalidateChannelCache).toHaveBeenCalledWith('acct-stop-1', 'worker.twilio.whatsapp.stop');
+  });
+
+  it('STOP invalidates cache for each unique affected account (deduped)', async () => {
+    sqlQueue.push([{ account_id: 'acct-a' }, { account_id: 'acct-b' }, { account_id: 'acct-a' }]); // 3 rows, 2 unique
+    sqlQueue.push([]); // markProcessed
+
+    const req = buildRequest({
+      MessageSid: 'SM_stop_multi', From: 'whatsapp:+15551234567', Body: 'STOP',
+    });
+    const reply = buildReply();
+    await handleTwilioWhatsAppInbound(req, reply);
+
+    expect(reply.status).toHaveBeenCalledWith(200);
+    // Should invalidate once per unique account_id (deduped)
+    expect(mockInvalidateChannelCache).toHaveBeenCalledTimes(2);
+    expect(mockInvalidateChannelCache).toHaveBeenCalledWith('acct-a', 'worker.twilio.whatsapp.stop');
+    expect(mockInvalidateChannelCache).toHaveBeenCalledWith('acct-b', 'worker.twilio.whatsapp.stop');
+  });
+
+  it('STOP with no matching enrollments still succeeds without cache invalidation', async () => {
+    sqlQueue.push([]); // UPDATE RETURNING (0 rows)
+    sqlQueue.push([]); // markProcessed
+
+    const req = buildRequest({
+      MessageSid: 'SM_stop_none', From: 'whatsapp:+15551234567', Body: 'STOP',
+    });
+    const reply = buildReply();
+    await handleTwilioWhatsAppInbound(req, reply);
+
+    expect(reply.status).toHaveBeenCalledWith(200);
+    expect(mockInvalidateChannelCache).not.toHaveBeenCalled();
   });
 });
 

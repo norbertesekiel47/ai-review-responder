@@ -168,7 +168,7 @@ describe('handleStripeWebhook — unhandled event types are safely ignored', () 
   });
 
   // B23 — malformed client_reference_id used to trigger the
-  // `${businessId}::uuid` cast inside the tx, raising a Postgres "invalid
+  // `${refId}::uuid` cast inside the tx, raising a Postgres "invalid
   // input syntax for type uuid" error → handler 500 → inbound_events
   // marked failed → Stripe retries the event for ~3 days. The UUID_RE
   // guard returns early (200, no SQL writes, log warn) so Stripe stops
@@ -196,12 +196,11 @@ describe('handleStripeWebhook — unhandled event types are safely ignored', () 
     // Stripe gets 200 — stops retrying.
     expect(status).toHaveBeenCalledWith(200);
 
-    // Critical: no business-table SQL fires. The malformed UUID would
-    // have crashed the transaction.
-    const businessTouches = sqlTexts().filter((t) =>
-      /UPDATE\s+businesses|SELECT\s+subscription_status[\s\S]*FROM\s+businesses|DELETE\s+FROM\s+businesses/i.test(t),
+    // Critical: no account or business-table SQL fires.
+    const dataTouches = sqlTexts().filter((t) =>
+      /UPDATE\s+(accounts|businesses)|SELECT\s+subscription_status[\s\S]*FROM\s+(accounts|businesses)|DELETE\s+FROM\s+(accounts|businesses)/i.test(t),
     );
-    expect(businessTouches).toEqual([]);
+    expect(dataTouches).toEqual([]);
 
     // The advisory-lock template should also not fire (we returned before
     // entering the tx).
@@ -212,7 +211,7 @@ describe('handleStripeWebhook — unhandled event types are safely ignored', () 
 
     // Log line tells oncall the event was dropped intentionally.
     const warnedText = consoleSpy.mock.calls.flat().join(' ');
-    expect(warnedText).toMatch(/malformed business_id/);
+    expect(warnedText).toMatch(/malformed ref_id/);
     expect(warnedText).toMatch(/"not-a-uuid"/);
 
     // inbound_events still gets marked processed at the tail of the
@@ -226,7 +225,7 @@ describe('handleStripeWebhook — unhandled event types are safely ignored', () 
     consoleSpy.mockRestore();
   });
 
-  it('checkout.session.completed with empty-string client_reference_id → 200 + no SQL writes (handled by the existing !businessId guard)', async () => {
+  it('checkout.session.completed with empty-string client_reference_id → 200 + no SQL writes (handled by the existing !refId guard)', async () => {
     mockConstructEvent.mockReturnValue({
       id: 'evt_checkout_empty_id_1',
       type: 'checkout.session.completed',
@@ -247,14 +246,14 @@ describe('handleStripeWebhook — unhandled event types are safely ignored', () 
     await handleStripeWebhook(mkRequest('checkout.session.completed'), reply);
 
     expect(status).toHaveBeenCalledWith(200);
-    const businessTouches = sqlTexts().filter((t) =>
-      /UPDATE\s+businesses|SELECT\s+subscription_status[\s\S]*FROM\s+businesses/i.test(t),
+    const dataTouches = sqlTexts().filter((t) =>
+      /UPDATE\s+(accounts|businesses)|SELECT\s+subscription_status[\s\S]*FROM\s+(accounts|businesses)/i.test(t),
     );
-    expect(businessTouches).toEqual([]);
+    expect(dataTouches).toEqual([]);
     consoleSpy.mockRestore();
   });
 
-  it('positive control: checkout.session.completed DOES UPDATE businesses', async () => {
+  it('positive control: checkout.session.completed DOES UPDATE accounts', async () => {
     mockConstructEvent.mockReturnValue({
       id: 'evt_checkout_1',
       type: 'checkout.session.completed',
@@ -269,18 +268,27 @@ describe('handleStripeWebhook — unhandled event types are safely ignored', () 
         },
       },
     });
-    // The activation tx reads the current subscription_status, then UPDATEs.
+    // The activation tx reads the current subscription_status from accounts,
+    // then UPDATEs. Mock sql for both the account lookup (outside tx)
+    // and the in-tx operations.
     mockSql.mockImplementation((tpl: TemplateStringsArray) => {
       const text = tpl.join('?');
-      if (/SELECT\s+subscription_status/i.test(text)) {
+      // Account lookup outside tx
+      if (/SELECT\s+id\s+FROM\s+accounts/i.test(text)) {
+        return Promise.resolve([{ id: '019dc366-29ce-736d-ae75-d19dc561e58f' }]);
+      }
+      // Inside tx: SELECT subscription_status FROM accounts
+      if (/SELECT\s+subscription_status/i.test(text) && /FROM\s+accounts/i.test(text)) {
         return Promise.resolve([{ subscription_status: 'pending_payment' }]);
       }
+      // Inside tx: UPDATE accounts
+      if (/UPDATE\s+accounts/i.test(text)) {
+        const result: any[] = [];
+        (result as any).count = 1;
+        return Promise.resolve(result);
+      }
+      // Inside tx: UPDATE businesses (deprecated column compat)
       if (/UPDATE\s+businesses/i.test(text)) {
-        // Postgres.js attaches `.count` to the RESOLVED array, not the
-        // Promise wrapper. `Object.assign(Promise.resolve([]), { count: 1 })`
-        // puts count on the Promise itself — `await` discards it and the
-        // handler sees `result.count === undefined`. Build the array first,
-        // attach count, then resolve.
         const result: any[] = [];
         (result as any).count = 1;
         return Promise.resolve(result);
@@ -292,12 +300,12 @@ describe('handleStripeWebhook — unhandled event types are safely ignored', () 
     await handleStripeWebhook(mkRequest('checkout.session.completed'), reply);
 
     expect(status).toHaveBeenCalledWith(200);
-    const businessUpdates = sqlTexts().filter((t) =>
-      /UPDATE\s+businesses/i.test(t),
+    const accountUpdates = sqlTexts().filter((t) =>
+      /UPDATE\s+accounts/i.test(t),
     );
-    // At minimum one UPDATE businesses fired (proves test harness flows
-    // through to the dispatch + handler path correctly).
-    expect(businessUpdates.length).toBeGreaterThan(0);
+    // At minimum one UPDATE accounts fired (proves the handler now
+    // targets the accounts table as source of truth).
+    expect(accountUpdates.length).toBeGreaterThan(0);
   });
 
   it('returns 401 when stripe-signature header is missing', async () => {

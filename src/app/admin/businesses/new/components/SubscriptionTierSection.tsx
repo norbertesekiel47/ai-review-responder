@@ -20,7 +20,7 @@ export function SubscriptionTierSection({
           <input
             {...register('subscriptionTier')}
             type="radio"
-            value="founding"
+            value="founders"
             className="mt-0.5"
           />
           <div>

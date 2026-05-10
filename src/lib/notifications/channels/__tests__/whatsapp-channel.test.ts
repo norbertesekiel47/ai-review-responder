@@ -36,6 +36,7 @@ describe('WhatsAppChannel', () => {
     const ch = new WhatsAppChannel();
     const out = await ch.sendApprovalRequest({
       handle: '+15551234567',
+      locationLabel: 'Downtown Cafe',
       businessName: 'Acme',
       reviewerName: 'Jane',
       starRating: 3,
@@ -61,7 +62,7 @@ describe('WhatsAppChannel', () => {
     mockSendTemplate.mockRejectedValueOnce(new WhatsAppRecipientBlockedError(63014));
     const ch = new WhatsAppChannel();
     await expect(ch.sendApprovalRequest({
-      handle: '+15551234567', businessName: 'X', reviewerName: 'Y', starRating: 3,
+      handle: '+15551234567', locationLabel: 'X', businessName: 'X', reviewerName: 'Y', starRating: 3,
       reviewText: 'r', reviewDate: 'd', responsePreview: 'p',
       approvalUrl: 'https://app.repworth.com/approve/T', approvalLinkId: 'L',
     })).rejects.toBeInstanceOf(WhatsAppRecipientBlockedError);

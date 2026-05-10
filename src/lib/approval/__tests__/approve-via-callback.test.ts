@@ -63,6 +63,7 @@ describe('approveViaCallback', () => {
     txQueue.push([]);                        // UPDATE responses status=approved
     txQueue.push([]);                        // revokeSiblings UPDATE
     txQueue.push([]);                        // INSERT job_outbox publish_response
+    txQueue.push([{ account_id: 'acc-1' }]); // resolveAccountIdFromBusiness: SELECT account_id FROM businesses
     txQueue.push([]);                        // insertAuditLog INSERT
     await approveViaCallback({
       approvalLinkId: 'link-1',
@@ -127,6 +128,7 @@ describe('regenerateViaCallback', () => {
     txQueue.push([]); // revokeSiblings
     txQueue.push([]); // UPDATE responses superseded
     txQueue.push([]); // INSERT outbox
+    txQueue.push([{ account_id: 'acc-1' }]); // resolveAccountIdFromBusiness
     txQueue.push([]); // audit
     await regenerateViaCallback({
       approvalLinkId: 'link-1',

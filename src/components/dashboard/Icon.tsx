@@ -17,7 +17,10 @@ export type IconName =
   | 'scroll-down'
   | 'lightbulb'
   | 'edit'
-  | 'regenerate';
+  | 'regenerate'
+  | 'chevron-down'
+  | 'plus'
+  | 'location';
 
 interface Props extends Omit<SVGProps<SVGSVGElement>, 'name'> {
   name: IconName;
@@ -162,6 +165,25 @@ export function Icon({ name, size = 18, ...rest }: Props) {
         <svg {...props}>
           <path d="M21 12a9 9 0 11-3-6.7" />
           <path d="M21 4v5h-5" />
+        </svg>
+      );
+    case 'chevron-down':
+      return (
+        <svg {...props}>
+          <path d="M6 9l6 6 6-6" />
+        </svg>
+      );
+    case 'plus':
+      return (
+        <svg {...props}>
+          <path d="M12 5v14M5 12h14" />
+        </svg>
+      );
+    case 'location':
+      return (
+        <svg {...props}>
+          <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" />
+          <circle cx="12" cy="9" r="2.5" fill="currentColor" stroke="none" />
         </svg>
       );
   }

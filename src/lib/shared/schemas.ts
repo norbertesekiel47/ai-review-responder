@@ -180,7 +180,7 @@ export const OnboardBusinessSchema = z
     highlightFacts: z.string().max(2000).optional(),
     avoidFacts: z.string().max(2000).optional(),
     sampleResponses: z.string().max(5000).optional(),
-    subscriptionTier: z.enum(['founding', 'standard']).default('standard'),
+    subscriptionTier: z.enum(['founders', 'standard']).default('standard'),
     website: websiteUrlSchema.optional().nullable(),
   })
   // True XOR — exactly one of googlePlaceId / googleMapsUrl, never both.
@@ -320,11 +320,11 @@ export const VerifyEmailOtpSchema = z.object({
 });
 type VerifyEmailOtpInput = z.infer<typeof VerifyEmailOtpSchema>;
 
-// Plan selection on /onboarding/pay. Owner picks founding, standard, or premium;
+// Plan selection on /onboarding/pay. Owner picks founders, standard, or premium;
 // the route writes the choice to businesses.subscription_tier and returns
 // the matching Stripe Payment Link.
 export const SelectPlanSchema = z.object({
-  tier: z.enum(['founding', 'standard', 'premium']),
+  tier: z.enum(['founders', 'standard', 'premium']),
 });
 type SelectPlanInput = z.infer<typeof SelectPlanSchema>;
 

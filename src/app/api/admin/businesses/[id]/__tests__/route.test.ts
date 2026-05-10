@@ -3,10 +3,11 @@ import { NextRequest } from 'next/server';
 
 // ── Hoisted shared state ────────────────────────────────────────────
 
-const { mockRequireRole, mockTxCalls, mockTxReturns } = vi.hoisted(() => ({
+const { mockRequireRole, mockTxCalls, mockTxReturns, mockInvalidateChannelCache } = vi.hoisted(() => ({
   mockRequireRole: vi.fn(),
   mockTxCalls: [] as unknown[][],
   mockTxReturns: [] as unknown[],
+  mockInvalidateChannelCache: vi.fn(),
 }));
 
 // ── Mock auth ───────────────────────────────────────────────────────
@@ -51,6 +52,10 @@ vi.mock('@/lib/db/server', () => {
   return { sql: sqlProxy, jsonb: (v: unknown) => v };
 });
 
+vi.mock('@/lib/notifications/resolve-channels', () => ({
+  safeInvalidateChannelCache: mockInvalidateChannelCache,
+}));
+
 // ── Mock churn-score (imported by route for GET handler) ────────────
 
 vi.mock('@/lib/shared/churn-score', () => ({
@@ -87,14 +92,18 @@ describe('PATCH /api/admin/businesses/[id] — ownerEmail enrollment sync', () =
     mockRequireRole.mockReset();
     mockTxCalls.length = 0;
     mockTxReturns.length = 0;
+    mockInvalidateChannelCache.mockReset().mockResolvedValue(undefined);
   });
 
   it('PATCH with ownerEmail upserts channel_enrollments inside same txn', async () => {
     mockRequireRole.mockResolvedValue({ role: 'admin' });
-    // First tx call is tx.unsafe (UPDATE businesses) — return { count: 1 }
-    // Second tx call is the tx`INSERT INTO channel_enrollments...`
-    mockTxReturns.push({ count: 1 });  // for UPDATE businesses
-    mockTxReturns.push([]);             // for INSERT channel_enrollments
+    // tx calls inside the transaction callback (in order):
+    // 1. tx.unsafe (UPDATE businesses) — return { count: 1 }
+    // 2. tx`SELECT account_id FROM businesses` — return account_id row
+    // 3. tx`INSERT INTO channel_enrollments...` — return []
+    mockTxReturns.push({ count: 1 });                // for UPDATE businesses
+    mockTxReturns.push([{ account_id: 'acct-1' }]); // for SELECT account_id
+    mockTxReturns.push([]);                          // for INSERT channel_enrollments
 
     const res = await PATCH(
       makePatchRequest({ ownerEmail: 'new@example.com' }),
@@ -108,6 +117,28 @@ describe('PATCH /api/admin/businesses/[id] — ownerEmail enrollment sync', () =
       return Array.isArray(t) && (t as string[]).join('').includes('INSERT INTO channel_enrollments');
     });
     expect(enrollmentCall).toBeDefined();
+    expect(mockInvalidateChannelCache).toHaveBeenCalledWith('acct-1', 'admin.business.owner-email');
+  });
+
+  it('PATCH with ownerEmail delegates cache invalidation to safe helper', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    mockRequireRole.mockResolvedValue({ role: 'admin' });
+    mockTxReturns.push({ count: 1 });
+    mockTxReturns.push([{ account_id: 'acct-1' }]);
+    mockTxReturns.push([]);
+
+    try {
+      const res = await PATCH(
+        makePatchRequest({ ownerEmail: 'new@example.com' }),
+        paramsFor('biz-1'),
+      );
+
+      expect(res.status).toBe(200);
+      expect(mockInvalidateChannelCache).toHaveBeenCalledWith('acct-1', 'admin.business.owner-email');
+      expect(warnSpy).not.toHaveBeenCalled();
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 
   it('PATCH without ownerEmail does NOT touch channel_enrollments', async () => {
@@ -125,6 +156,7 @@ describe('PATCH /api/admin/businesses/[id] — ownerEmail enrollment sync', () =
       return Array.isArray(t) && (t as string[]).join('').includes('INSERT INTO channel_enrollments');
     });
     expect(enrollmentCall).toBeUndefined();
+    expect(mockInvalidateChannelCache).not.toHaveBeenCalled();
   });
 
   it('PATCH on unknown id returns 404 and rolls back (no enrollment upsert)', async () => {
@@ -142,5 +174,6 @@ describe('PATCH /api/admin/businesses/[id] — ownerEmail enrollment sync', () =
       return Array.isArray(t) && (t as string[]).join('').includes('INSERT INTO channel_enrollments');
     });
     expect(enrollmentCall).toBeUndefined();
+    expect(mockInvalidateChannelCache).not.toHaveBeenCalled();
   });
 });

@@ -5,6 +5,7 @@ import { sql, jsonb } from '@/lib/db/server';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { reserveOnboardingDemoBudget, CostCeilingExceeded } from '@/lib/costs/onboarding-demo-cost-guard';
+import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 
 export const dynamic = 'force-dynamic';
 
@@ -47,9 +48,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   const [owner] = await sql<OwnerRow[]>`
-    SELECT u.id AS user_id, b.id AS id, b.subscription_status
+    SELECT u.id AS user_id, b.id AS id, a.subscription_status
     FROM users u
-    JOIN businesses b ON b.id = u.business_id
+    JOIN accounts a ON a.id = u.account_id
+    JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE
     WHERE u.auth_id = ${user.id}
       AND u.role = 'owner'
     LIMIT 1
@@ -62,7 +64,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // calling this endpoint would archive their completed demo and enqueue a
   // new one; the worker's inverted subscription guard would then mark it
   // failed (subscription_state_changed), leaving them with no completed demo.
-  if (owner.subscription_status !== 'pending_payment') {
+  if (owner.subscription_status !== SubscriptionStatus.PENDING_PAYMENT) {
     return NextResponse.json(
       { error: 'subscription_inactive', subscriptionStatus: owner.subscription_status },
       { status: 409, headers: NO_STORE },

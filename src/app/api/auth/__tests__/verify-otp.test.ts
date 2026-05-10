@@ -75,10 +75,10 @@ beforeEach(() => {
   mockSignOut.mockResolvedValue({ error: null });
 
   mockSql.mockReset();
-  // Default: SELECT users → owner role + business_id; subsequent calls
+  // Default: SELECT users → owner role + account_id; subsequent calls
   // (the channel_enrollments INSERT) also resolve to []. Tests that need
   // a different first response use `mockResolvedValueOnce`.
-  mockSql.mockResolvedValue([{ role: 'owner', business_id: 'biz-1' }]);
+  mockSql.mockResolvedValue([{ role: 'owner', account_id: 'acct-1', business_id: 'biz-1' }]);
 
   mockCreateServerClient.mockReset();
   mockCreateServerClient.mockImplementation(() => ({
@@ -226,15 +226,16 @@ describe('POST /api/auth/verify-otp', () => {
     const template = (enrollCall![0] as TemplateStringsArray).join('?');
     expect(template).toContain("'email'");
     expect(template).toContain("'verified'");
-    expect(template).toContain('ON CONFLICT (business_id, channel) WHERE archived_at IS NULL');
-    // bound args: business_id from users row + email passed in body
+    expect(template).toContain('ON CONFLICT (account_id, channel, COALESCE(location_id,');
+    // bound args: account_id + business_id (primary location) from users JOIN accounts JOIN businesses + email passed in body
+    expect(enrollCall!.some((a) => a === 'acct-1')).toBe(true);
     expect(enrollCall!.some((a) => a === 'biz-1')).toBe(true);
     expect(enrollCall!.some((a) => a === 'owner@example.com')).toBe(true);
   });
 
   it('does NOT insert channel_enrollments when role is not owner', async () => {
     mockSql.mockReset();
-    mockSql.mockResolvedValue([{ role: 'admin', business_id: 'biz-1' }]);
+    mockSql.mockResolvedValue([{ role: 'admin', account_id: 'acct-1', business_id: 'biz-1' }]);
     const res = await POST(mkReq(validBody));
     expect(res.status).toBe(500);
     const enrollCall = mockSql.mock.calls.find((c: unknown[]) =>
@@ -244,10 +245,10 @@ describe('POST /api/auth/verify-otp', () => {
   });
 
   it('still returns 200 when channel_enrollments INSERT throws (logged, non-blocking)', async () => {
-    // First call (SELECT) succeeds with role+business_id. Second call (INSERT) throws.
+    // First call (SELECT) succeeds with role+account_id+business_id. Second call (INSERT) throws.
     mockSql.mockReset();
     mockSql
-      .mockResolvedValueOnce([{ role: 'owner', business_id: 'biz-1' }])
+      .mockResolvedValueOnce([{ role: 'owner', account_id: 'acct-1', business_id: 'biz-1' }])
       .mockRejectedValueOnce(new Error('db transient'));
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const res = await POST(mkReq(validBody));

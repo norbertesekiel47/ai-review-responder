@@ -13,13 +13,16 @@ import {
 import { getChannel } from '../../../src/lib/notifications/channels';
 import { createApprovalLink } from '../../../src/lib/approval/create-link';
 import type { ChannelId } from '../../../src/lib/notifications/channels/types';
-import type { VerifiedEnrollment } from '../../../src/lib/notifications/enrollments';
+import { safeInvalidateChannelCache, type ResolvedChannel } from '../../../src/lib/notifications/resolve-channels';
+import type { AccountId } from '../../../src/lib/shared/ids';
+import { asAccountId } from '../../../src/lib/shared/ids';
 import { classifyChannelError } from './errors';
 import {
   reserveSmsCost,
   refundSmsCost,
   DailySmsLimitExceededError,
 } from './sms-budget';
+import { getDisplayLabel } from '../../../src/lib/locations/display-label';
 
 export interface DispatchLogger {
   log: (msg: string) => void;
@@ -30,10 +33,12 @@ export interface DispatchLogger {
 export interface DispatchContext {
   responseId: string;
   businessId: string;
+  accountId: string;
   isFailover: boolean;
   appUrl: string;
   business: {
     name: string;
+    displayLabel: string | null;
     owner_email_bounced: boolean;
   };
   review: {
@@ -59,7 +64,7 @@ export interface DispatchOutcome {
  */
 export async function dispatchAll(
   ctx: DispatchContext,
-  enrollments: VerifiedEnrollment[],
+  enrollments: ResolvedChannel[],
   logger: DispatchLogger,
 ): Promise<DispatchOutcome> {
   let attempted = 0;
@@ -115,6 +120,7 @@ export async function dispatchAll(
           logger.warn(`SMS cap reached for business ${ctx.businessId} (${err.scope})`);
           attempted++;
           await insertFailedDelivery(
+            ctx.accountId,
             ctx.businessId,
             ctx.responseId,
             'sms',
@@ -151,6 +157,7 @@ export async function dispatchAll(
         logger.error(`createApprovalLink failed for ${channelId} response ${ctx.responseId}: ${reason}`);
         attempted++;
         await insertFailedDelivery(
+          ctx.accountId,
           ctx.businessId,
           ctx.responseId,
           channelId,
@@ -164,8 +171,14 @@ export async function dispatchAll(
 
       let externalMessageId: string;
       try {
+        // VAL-NOTIF-014: locationLabel is resolved from display_label ?? name
+        const locationLabel = getDisplayLabel({
+          display_label: ctx.business.displayLabel,
+          name: ctx.business.name,
+        });
         const result = await getChannel(channelId).sendApprovalRequest({
           handle: enrollment.handle,
+          locationLabel,
           businessName: ctx.business.name,
           reviewerName: ctx.review.reviewerName,
           starRating: ctx.review.starRating,
@@ -182,6 +195,7 @@ export async function dispatchAll(
           businessId: ctx.businessId,
           responseId: ctx.responseId,
         });
+        let accountIdsToInvalidate: string[] | null = null;
 
         // Apply the enrollment mutation. Each branch writes the SAME SQL
         // text as the original NotificationWorker — channel names are
@@ -199,7 +213,7 @@ export async function dispatchAll(
               'TWILIO_MESSAGING_SERVICE_SID missing — cannot record SMS opt-out for TCPA audit',
             );
           }
-          await sql.begin(async (tx) => {
+          const affectedAccounts = await sql.begin(async (tx) => {
             await tx`
               INSERT INTO sms_sender_opt_outs (messaging_service_sid, handle, opted_out_at, opted_in_at, last_event_at)
               VALUES (${msid}, ${enrollment.handle}, NOW(), NULL, NOW())
@@ -212,15 +226,20 @@ export async function dispatchAll(
               INSERT INTO sms_sender_opt_out_events (id, messaging_service_sid, handle, event_type, source, inbound_event_id)
               VALUES (${uuidv7()}, ${msid}, ${enrollment.handle}, '21610_at_send', 'twilio_21610', NULL)
             `;
-            await tx`
+            const updated = await tx<{ account_id: string }[]>`
               UPDATE channel_enrollments
               SET status = 'unsubscribed',
                   unsubscribed_at = COALESCE(unsubscribed_at, NOW()),
                   unsubscribed_reason = COALESCE(unsubscribed_reason, 'twilio_21610_at_send'),
                   updated_at = NOW()
               WHERE handle = ${enrollment.handle} AND channel = 'sms' AND archived_at IS NULL
+              RETURNING account_id
             `;
+            return updated;
           });
+          accountIdsToInvalidate = [
+            ...new Set(affectedAccounts.map((row) => row.account_id).filter(Boolean)),
+          ];
         } else if (directive.kind === 'telegram_blocked') {
           // Filter by handle too (mirrors SMS 21610 pattern) so a stale send
           // failure cannot stomp a freshly-re-enrolled handle.
@@ -282,6 +301,28 @@ export async function dispatchAll(
         // TRANSIENT (whatsapp_rate_limit / whatsapp_timeout), and 'unknown'
         // intentionally leave channel_enrollments unchanged.
 
+        // VAL-NOTIF-009: Invalidate cache on channel_enrollments writes.
+        // SMS 21610 can update every account sharing a handle, so invalidate
+        // each account returned by the update rather than only ctx.accountId.
+        const cacheAccountIds =
+          accountIdsToInvalidate && accountIdsToInvalidate.length > 0
+            ? accountIdsToInvalidate
+            : [ctx.accountId];
+        try {
+          await Promise.all(
+            cacheAccountIds.map((accountId) =>
+              safeInvalidateChannelCache(
+                asAccountId(accountId),
+                'worker.notification.dispatch.channel-write',
+                logger,
+              ),
+            ),
+          );
+        } catch (err) {
+          const reason = err instanceof Error ? err.message : String(err);
+          logger.warn(`channel cache invalidation wrapper failed: ${reason}`);
+        }
+
         // Primary log line (preserved verbatim from the original branches).
         logger[directive.logLevel](directive.logMessage);
         if (directive.extraLog) {
@@ -289,6 +330,7 @@ export async function dispatchAll(
         }
 
         await insertFailedDelivery(
+          ctx.accountId,
           ctx.businessId,
           ctx.responseId,
           channelId,
@@ -299,6 +341,7 @@ export async function dispatchAll(
       }
 
       await recordNotificationDelivery({
+        accountId: ctx.accountId,
         businessId: ctx.businessId,
         responseId: ctx.responseId,
         channel: channelId,

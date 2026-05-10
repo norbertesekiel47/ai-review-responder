@@ -53,11 +53,47 @@ export interface RankingSnapshot {
   source: string;
 }
 
+export interface AccountLocationSummary {
+  id: string;
+  name: string;
+  displayLabel: string | null;
+  isPrimary: boolean;
+  archivedAt: string | null;
+}
+
+export interface AccountContext {
+  id: string;
+  displayName: string;
+  subscriptionTier: string;
+  subscriptionStatus: string;
+  locations: AccountLocationSummary[];
+}
+
+export interface ApprovalAuditLogEntry {
+  id: string;
+  responseId: string;
+  action: string;
+  actorUserId: string | null;
+  createdAt: string;
+}
+
+export interface AccountAuditLogEntry {
+  id: string;
+  eventType: string;
+  actorUserId: string | null;
+  locationId: string | null;
+  payload: unknown;
+  createdAt: string;
+}
+
 export interface DetailData {
   business: BusinessDetail;
+  account: AccountContext;
   reviews: ReviewRow[];
   rankingSnapshots: RankingSnapshot[];
   zernio: ZernioPanelData;
+  approvalAuditLog: ApprovalAuditLogEntry[];
+  accountAuditLog: AccountAuditLogEntry[];
 }
 
 export interface ZernioConnectionSummary {

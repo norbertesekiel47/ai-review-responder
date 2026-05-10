@@ -14,10 +14,13 @@ import { createHash, randomUUID } from 'node:crypto';
 import QRCode from 'qrcode';
 import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
+import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { isTelegramEnabled, flagOff, assertTelegramEnvReady } from '../_shared';
 import { startTelegramEnrollment } from '@/lib/channels/telegram-enrollment';
 import { MultipleMobileChannelsError, EnrollmentDatabaseError } from '@/lib/channels/unique-violation';
 import { TOKEN_TTL_MS } from '@/lib/notifications/channels/constants';
+import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
+import { asAccountId } from '@/lib/shared/ids';
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   if (!isTelegramEnabled()) return flagOff();
@@ -38,14 +41,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const businessId = body?.businessId;
   if (!businessId) return NextResponse.json({ error: 'businessId required' }, { status: 400 });
 
-  const businessRows = await sql<{ subscription_status: string }[]>`
-    SELECT subscription_status FROM businesses WHERE id = ${businessId}
+  // After migration 034, subscription_status source of truth is accounts.
+  const [accountRow] = await sql<{ id: string; subscription_status: string }[]>`
+    SELECT a.id, a.subscription_status
+    FROM accounts a
+    JOIN businesses b ON b.account_id = a.id
+    WHERE b.id = ${businessId}
   `;
-  const business = businessRows[0];
-  if (!business) return NextResponse.json({ error: 'not_found' }, { status: 404 });
-  if (business.subscription_status !== 'active') {
+  if (!accountRow) return NextResponse.json({ error: 'not_found' }, { status: 404 });
+  if (accountRow.subscription_status !== SubscriptionStatus.ACTIVE) {
     return NextResponse.json({ error: 'subscription_not_active' }, { status: 403 });
   }
+  const accountId = accountRow.id;
 
   // Generate token + hash + expiresAt OUTSIDE the tx so the secret doesn't
   // depend on a possibly-rolled-back transaction.
@@ -59,7 +66,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
     result = await sql.begin(async (tx) => {
       await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`mobile_enroll:${businessId}`}, 0))`;
-      return startTelegramEnrollment(tx, businessId, tokenHash, expiresAt);
+      return startTelegramEnrollment(tx, businessId, accountId, tokenHash, expiresAt);
     });
   } catch (err) {
     if (err instanceof MultipleMobileChannelsError) {
@@ -75,6 +82,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   if (result.kind === 'already_verified') {
     return NextResponse.json({ error: 'already_verified' }, { status: 409, headers: noStore });
   }
+
+  // Invalidate channel cache — the enrollment state change affects which
+  // channels are available for dispatch. Best-effort: a Redis failure
+  // should not block the admin response.
+  await safeInvalidateChannelCache(asAccountId(accountId), 'admin.telegram.start');
 
   const botUsername = process.env.TELEGRAM_BOT_USERNAME ?? 'RepWorthBot';
   const deepLink = `https://t.me/${botUsername}?start=${rawToken}`;

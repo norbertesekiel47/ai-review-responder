@@ -2,6 +2,7 @@ import { notFound, redirect } from 'next/navigation';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { sql } from '@/lib/db/server';
+import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { StartLocationClient } from './StartLocationClient';
 
 export const dynamic = 'force-dynamic';
@@ -33,17 +34,18 @@ export default async function OnboardingStartPage() {
   if (!user) redirect('/login');
 
   const [row] = await sql<GuardRow[]>`
-    SELECT u.role, b.subscription_status, b.place_id_verified, b.google_maps_url
+    SELECT u.role, a.subscription_status, b.place_id_verified, b.google_maps_url
     FROM users u
-    JOIN businesses b ON b.id = u.business_id
+    JOIN accounts a ON a.id = u.account_id
+    JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE
     WHERE u.auth_id = ${user.id}
     LIMIT 1
   `;
 
   if (!row) redirect('/signup');
   if (row.role !== 'owner') redirect('/admin/overview');
-  if (row.subscription_status === 'active') redirect('/dashboard');
-  if (row.subscription_status === 'cancelled') redirect('/dashboard');
+  if (row.subscription_status === SubscriptionStatus.ACTIVE) redirect('/dashboard');
+  if (row.subscription_status === SubscriptionStatus.CANCELLED) redirect('/dashboard');
   if (row.place_id_verified || row.google_maps_url) redirect('/onboarding/demo');
 
   return <StartLocationClient />;

@@ -2,9 +2,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
+import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
 import { isTelegramEnabled, flagOff, assertTelegramEnvReady } from '@/app/api/admin/channels/telegram/_shared';
 import { cancelTelegramEnrollment } from '@/lib/channels/telegram-enrollment';
+import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
+import { asAccountId } from '@/lib/shared/ids';
 
 async function handler(req: NextRequest): Promise<NextResponse> {
   if (!isTelegramEnabled()) return flagOff();
@@ -22,20 +25,33 @@ async function handler(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
-  if (!user.businessId) return NextResponse.json({ error: 'no_business' }, { status: 403 });
+  if (!user.locationId) return NextResponse.json({ error: 'no_business' }, { status: 403 });
 
-  const businessRows = await sql<{ subscription_status: string }[]>`
-    SELECT subscription_status FROM businesses WHERE id = ${user.businessId}
+  // After migration 034, subscription_status source of truth is accounts.
+  const [accountRow] = await sql<{ subscription_status: string }[]>`
+    SELECT a.subscription_status
+    FROM accounts a
+    JOIN businesses b ON b.account_id = a.id
+    WHERE b.id = ${user.locationId}
   `;
-  if (businessRows[0]?.subscription_status !== 'active') {
+  if (accountRow?.subscription_status !== SubscriptionStatus.ACTIVE) {
     return NextResponse.json({ error: 'subscription_not_active' }, { status: 403 });
   }
 
-  const businessId = user.businessId;
+  const locationId = user.locationId;
   await sql.begin(async (tx) => {
-    await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`mobile_enroll:${businessId}`}, 0))`;
-    return cancelTelegramEnrollment(tx, businessId);
+    await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`mobile_enroll:${locationId}`}, 0))`;
+    return cancelTelegramEnrollment(tx, locationId);
   });
+
+  // Invalidate channel cache — the cancelled verification changes which
+  // channels are available for dispatch.
+  const [acctRow] = await sql<{ account_id: string }[]>`
+    SELECT account_id FROM businesses WHERE id = ${locationId}
+  `;
+  if (acctRow?.account_id) {
+    await safeInvalidateChannelCache(asAccountId(acctRow.account_id), 'dashboard.telegram.cancel');
+  }
 
   return NextResponse.json({ ok: true }, { headers: { 'Cache-Control': 'no-store, private' } });
 }

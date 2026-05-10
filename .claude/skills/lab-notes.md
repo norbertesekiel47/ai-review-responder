@@ -426,6 +426,119 @@ Generalizes: any state-machine table with an `archived` terminal value
 where the archive can be created later than other terminal rows for the
 same logical entity.
 
+### Column-level Postgres `REVOKE` does nothing without a table-level revoke first
+[2026-05-09] Migration 040 originally tried to lock down owner-edit
+surface on `businesses` by issuing `REVOKE UPDATE (col1, col2, …) ON
+businesses FROM authenticated`. Postgres still allowed UPDATEs on those
+columns: the broader table-level `GRANT UPDATE` was authoritative, and
+column-level revokes don't shrink an existing table grant.
+
+Correct pattern:
+
+```sql
+-- 1. Drop the broad grant first
+REVOKE UPDATE ON TABLE businesses FROM authenticated;
+-- 2. Re-grant only the safe columns
+GRANT UPDATE (tone, products_services, staff_names, …) ON businesses TO authenticated;
+```
+
+Migration 040 fixed this for the obvious columns; migration 041 caught
+the columns missed in the first sweep (`subscription_activated_at`,
+`place_id_verified`, `google_maps_url` on `businesses`,
+`archived_at` / `archive_reason` on `channel_enrollments`). Always
+verify with `\dp businesses` after running these — the privileges
+column should show only the GRANTed columns, not `arwdDxt`.
+
+### `SELECT … FOR UPDATE` outside `sql.begin()` is a no-op under PgBouncer
+[2026-05-09] `UpdateStripeOverageWorker` originally read the account
+row with `FOR UPDATE` to "serialize" concurrent overage updates. With
+PgBouncer in transaction-pooling mode (Supabase default), the lock is
+released the moment the SELECT statement completes — there is no
+surrounding transaction to hold it across the subsequent Stripe
+network call.
+
+Two valid patterns:
+
+1. **Wrap the whole flow in `sql.begin()`** so the lock survives
+   across the Stripe call. Holds a Postgres row lock through a network
+   I/O — fine if you trust Stripe to respond quickly, but a slow
+   Stripe response now blocks any concurrent worker on the same
+   account.
+2. **Drop `FOR UPDATE` and rely on Stripe-side idempotency.** Pass an
+   `idempotencyKey` on the `subscriptionItems.update` /
+   `subscriptionItems.create` call that includes the target quantity
+   (e.g. `stripe-overage-update:${accountId}:${itemId}:${qty}`). Two
+   concurrent jobs computing the same quantity dedup at Stripe; two
+   computing different quantities (because one saw a state the other
+   didn't) execute independently — exactly what you want.
+
+We picked (2). The misleading `FOR UPDATE` was removed and a comment
+added explaining why. Do not re-add it without also wrapping the
+worker body in a transaction.
+
+### `archived_at` is a separate skip from the subscription guard
+[2026-05-09] `ResponsePublisherWorker` had a JOIN to `accounts` for
+the subscription guard but never selected `businesses.archived_at`.
+A response approved before archive, with the publisher job already
+queued, would still post to Google after the location was archived.
+The subscription guard reads from the *account*, not the location, so
+it doesn't catch a per-location archive.
+
+Add `b.archived_at` to the load query and short-circuit with
+`markOutboxCompleted` (graceful skip — not a failure). The
+NotificationWorker's `loadNotificationContext` already does this for
+the dispatch path; the publisher needed the same gate. Always check
+both subscription_status (account-level) AND archived_at
+(location-level) for any worker that operates on a single
+business_id.
+
+### Channel cache invalidation must log on Redis failure, not silently swallow
+[2026-05-09] Every `channel_enrollments` write path was using
+`invalidateChannelCache(...).catch(() => {})` — silently dropping
+Redis errors. If Redis was down, channel writes (including TCPA STOP
+unsubscribes) would not propagate to the in-memory resolver cache for
+up to 5 minutes, and you would not even know it failed.
+
+Fix pattern: `safeInvalidateChannelCache(accountId, context, logger?)`
+exported from `resolve-channels.ts`. Wraps `invalidateChannelCache`
+with a try/catch that logs `'channel-cache-invalidate-failed'` with
+`{accountId, context, error}` as structured fields. The context
+string (`'admin.sms.delete'`, `'settings.channels.override.upsert'`,
+…) is what you'll grep for when an alert fires.
+
+The wrapper must NEVER throw — channel writes are the source of
+truth, the cache is best-effort. But silent failure for a
+TCPA-compliance-critical path is not acceptable.
+
+### Migration `034` dropped `users.business_id` outright — no dual-read window
+[2026-05-09] The original multi-location design spec proposed keeping
+`users.business_id` as a deprecated pointer for one release before
+dropping. The implementation took the simpler path: migration 034
+drops the column outright. Anywhere reading `users.business_id` will
+fail to compile.
+
+Auth code now reads `users.account_id` and resolves the user's
+"primary location" by joining to `businesses` with `is_primary = TRUE
+AND archived_at IS NULL`. See `src/lib/db/auth.ts:readSelf` and
+`src/lib/auth/require-owner-access.ts`. The middleware's
+`users_self_select` RLS policy works unchanged because it gates on
+`auth_id = auth.uid()`, not on the column being selected.
+
+### CSV bulk-import: enqueue ONE aggregate Stripe overage job, not one-per-row
+[2026-05-09] The first cut of admin CSV import called
+`addLocationTransaction` for each row, which inserts a
+`update_stripe_overage_quantity` outbox row each time. A 100-row
+import produced 100 separate worker invocations that each retrieved
+the subscription and updated the quantity — 99 of them redundant.
+
+The fix: `addLocationTransaction` accepts
+`enqueueStripeOverageUpdate?: boolean` (default `true`). The CSV
+import passes `false` per row, then calls
+`enqueueCsvImportStripeOverageUpdate(accountId)` exactly once after
+the loop if any rows succeeded. Pattern generalizes: any batch
+caller of an outbox-enqueueing transaction should be able to
+suppress the per-call enqueue and emit one aggregate job.
+
 ### Don't bifurcate the post-pay wizard guard with the same "duplicate-submit" check
 [2026-05-04] PR #2 wired the existing `/api/onboarding/business`
 "already-onboarded" guard (`if (place_id_verified || google_maps_url)

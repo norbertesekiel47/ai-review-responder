@@ -56,6 +56,15 @@ describe('applySubscriptionGuard', () => {
       applySubscriptionGuard('owner', { subscriptionStatus: 'pending_payment' }),
     ).toBe('/onboarding/pay');
   });
+  it('does not override an explicit onboarding return path for pending_payment owners', () => {
+    expect(
+      applySubscriptionGuard(
+        'owner',
+        { subscriptionStatus: 'pending_payment' },
+        '/onboarding/start',
+      ),
+    ).toBeNull();
+  });
   it('returns /onboarding/business for active+!businessOnboarded owners', () => {
     expect(
       applySubscriptionGuard('owner', {

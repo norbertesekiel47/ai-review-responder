@@ -43,18 +43,14 @@ export default async function ApprovalPage({ params }: PageProps) {
     );
   }
 
-  // Get business name for the shell
-  const [biz] = await sql<{ name: string }[]>`
-    SELECT name FROM businesses WHERE id = ${link.business_id}
-  `;
-
+  // Location chip and archived badge are rendered in the client component
+  // after it fetches the token-bound review data.
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="mx-auto max-w-lg px-4 py-8">
-        <h1 className="text-xl font-semibold text-gray-900">
-          {biz?.name ?? 'Your Business'}
+        <h1 className="text-2xl font-semibold tracking-tight text-gray-900">
+          Review a draft response
         </h1>
-        <p className="mt-1 text-sm text-gray-500">Review a draft response</p>
         <div className="mt-6">
           <ApprovalClient token={rawToken} />
         </div>

@@ -27,17 +27,21 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import twilio from 'twilio';
+import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import {
   isSmsEnabled,
   flagOff,
   assertSmsEnvReady,
   loadBusinessSubscriptionStatus,
+  isSubscriptionActive,
   subscriptionNotActive,
   withMobileEnrollmentLock,
   badRequest,
   conflict,
 } from '../_shared';
+import { asLocationId, asAccountId } from '@/lib/shared/ids';
+import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
 
 interface ConfirmBody {
   business_id?: string;
@@ -59,14 +63,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   const body = (await request.json()) as ConfirmBody;
-  const businessId = body.business_id;
+  const rawBusinessId = body.business_id;
   const code = body.code;
-  if (!businessId || !code) return badRequest('missing_fields');
+  if (!rawBusinessId || !code) return badRequest('missing_fields');
+  const businessId = asLocationId(rawBusinessId);
 
   const subStatus = await loadBusinessSubscriptionStatus(businessId);
-  if (subStatus !== 'active') return subscriptionNotActive();
+  if (!isSubscriptionActive(subStatus)) return subscriptionNotActive();
 
-  return withMobileEnrollmentLock(businessId, async (tx) => {
+  const result = await withMobileEnrollmentLock(businessId, async (tx) => {
     // Step 1: Load active row (any status — row status gates are applied in step 3).
     const activeRows = await tx<{ handle: string; status: string }[]>`
       SELECT handle, status FROM channel_enrollments
@@ -126,4 +131,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json({ ok: true });
   });
+
+  // Invalidate channel cache — the newly verified channel must be
+  // immediately available for notification dispatch.
+  const [acctRow] = await sql<{ account_id: string }[]>`
+    SELECT account_id FROM businesses WHERE id = ${businessId}
+  `;
+  if (acctRow?.account_id) {
+    await safeInvalidateChannelCache(asAccountId(acctRow.account_id), 'admin.sms.confirm');
+  }
+
+  return result;
 }

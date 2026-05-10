@@ -20,6 +20,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { sql } from '@/lib/db/server';
+import { asLocationId } from '@/lib/shared/ids';
+import type { LocationId } from '@/lib/shared/ids';
 import { isSmsEnabled, flagOff, assertSmsEnvReady, badRequest } from '../_shared';
 
 interface StatusRow {
@@ -47,8 +49,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     throw err;
   }
 
-  const businessId = request.nextUrl.searchParams.get('business_id');
-  if (!businessId) return badRequest('business_id_required');
+  const rawBusinessId = request.nextUrl.searchParams.get('business_id');
+  if (!rawBusinessId) return badRequest('business_id_required');
+  const businessId: LocationId = asLocationId(rawBusinessId);
 
   const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID!;
 

@@ -3,6 +3,7 @@ import { sql } from '@/lib/db/server';
 import { requireOwnerAccess } from '@/lib/auth/require-owner-access';
 import { TopBar } from '@/components/dashboard/TopBar';
 import { PastRepliesClient } from './PastRepliesClient';
+import { getDisplayLabel } from '@/lib/locations/display-label';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,17 +34,23 @@ export default async function PastRepliesPage({
   const page = Math.max(1, Number.isFinite(requested) ? requested : 1);
   const offset = (page - 1) * PAGE_SIZE;
 
+  const locationId = owner.currentLocationId;
+
   const [biz] = await sql<{
+    name: string;
+    display_label: string | null;
     subscription_tier: string;
     subscription_activated_at: Date | null;
   }[]>`
-    SELECT subscription_tier, subscription_activated_at
+    SELECT name, display_label, subscription_tier, subscription_activated_at
     FROM businesses
-    WHERE id = ${owner.businessId}
+    WHERE id = ${locationId}
     LIMIT 1
   `;
   if (!biz) notFound();
 
+  // Use display_label (with name fallback) for the subtitle
+  const locationDisplayName = biz.display_label ?? biz.name;
   const isPremium = biz.subscription_tier === 'premium';
   const activatedAtIso = biz.subscription_activated_at
     ? new Date(biz.subscription_activated_at).toISOString()
@@ -64,7 +71,7 @@ export default async function PastRepliesPage({
         resp.posted_at
       FROM reviews r
       JOIN responses resp ON resp.review_id = r.id AND resp.status = 'posted'
-      WHERE r.business_id = ${owner.businessId}
+      WHERE r.business_id = ${locationId}
       ORDER BY r.review_date DESC
       LIMIT ${PAGE_SIZE} OFFSET ${offset}
     `,
@@ -72,7 +79,7 @@ export default async function PastRepliesPage({
       SELECT COUNT(*)::int AS count
       FROM reviews r
       JOIN responses resp ON resp.review_id = r.id AND resp.status = 'posted'
-      WHERE r.business_id = ${owner.businessId}
+      WHERE r.business_id = ${locationId}
         AND ${activatedAtIso}::timestamptz IS NOT NULL
         AND r.review_date >= ${activatedAtIso}::timestamptz
     `,
@@ -80,7 +87,7 @@ export default async function PastRepliesPage({
       SELECT COUNT(*)::int AS count
       FROM reviews r
       JOIN responses resp ON resp.review_id = r.id AND resp.status = 'posted'
-      WHERE r.business_id = ${owner.businessId}
+      WHERE r.business_id = ${locationId}
         AND ( ${activatedAtIso}::timestamptz IS NULL
               OR r.review_date < ${activatedAtIso}::timestamptz )
     `,
@@ -88,7 +95,7 @@ export default async function PastRepliesPage({
       SELECT AVG(r.star_rating)::float AS avg
       FROM reviews r
       JOIN responses resp ON resp.review_id = r.id AND resp.status = 'posted'
-      WHERE r.business_id = ${owner.businessId}
+      WHERE r.business_id = ${locationId}
     `,
   ]);
   const gapTotal = gapCountRows[0]?.count ?? 0;
@@ -126,7 +133,7 @@ export default async function PastRepliesPage({
     <>
       <TopBar
         title="Past Replies"
-        subtitle="Every reply posted to Google for your business — including replies you made before connecting RepWorth."
+        subtitle={`Every reply posted to Google for ${locationDisplayName} — including replies you made before connecting RepWorth.`}
         rightLink={{ href: '/dashboard', label: 'Back to dashboard' }}
       />
       <PastRepliesClient

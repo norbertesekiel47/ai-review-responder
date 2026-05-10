@@ -12,6 +12,8 @@ export type ChannelId = 'email' | 'sms' | 'telegram' | 'whatsapp';
 export interface SendApprovalParams {
   /** Per-enrollment recipient: email address, E.164 phone, or telegram chat_id. */
   handle: string;
+  /** Resolved location label: display_label ?? businesses.name. Used for template prefix. */
+  locationLabel: string;
   businessName: string;
   reviewerName: string;
   starRating: number;

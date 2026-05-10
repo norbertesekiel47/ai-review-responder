@@ -48,13 +48,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           b.id,
           b.name,
           b.category,
-          b.subscription_status,
+          a.subscription_status,
           b.last_sync_at,
           COUNT(CASE WHEN resp.status = 'pending_approval' THEN 1 END)::int AS pending_count
         FROM businesses b
+        JOIN accounts a ON a.id = b.account_id
         LEFT JOIN responses resp
           ON resp.business_id = b.id AND resp.status != 'superseded'
-        GROUP BY b.id
+        GROUP BY b.id, b.name, b.category, a.subscription_status, b.last_sync_at
         ORDER BY b.name ASC
         LIMIT ${limit} OFFSET ${offset}
       `,

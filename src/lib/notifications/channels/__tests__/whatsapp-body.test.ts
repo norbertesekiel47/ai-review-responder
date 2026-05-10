@@ -86,6 +86,7 @@ describe('extractTokenFromApprovalUrl', () => {
 describe('formatApprovalWhatsApp', () => {
   const baseParams = {
     handle: '+15551234567',
+    locationLabel: 'Downtown Cafe',
     businessName: 'Acme Co',
     reviewerName: 'Jane D',
     starRating: 3,

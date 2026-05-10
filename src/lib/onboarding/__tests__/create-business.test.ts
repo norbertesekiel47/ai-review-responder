@@ -1,15 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { mockSql, mockBuildPaymentLinkUrl } = vi.hoisted(() => {
+const { mockSql } = vi.hoisted(() => {
   const mockSql: any = vi.fn();
   mockSql.begin = vi.fn(async (cb: (tx: any) => Promise<unknown>) => cb(mockSql));
-  const mockBuildPaymentLinkUrl = vi.fn();
-  return { mockSql, mockBuildPaymentLinkUrl };
+  return { mockSql };
 });
 
 vi.mock('@/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
 vi.mock('uuid', () => ({ v7: vi.fn(() => 'test-uuid') }));
-vi.mock('@/lib/payments/payment-link', () => ({ buildPaymentLinkUrl: mockBuildPaymentLinkUrl }));
 
 import {
   createBusinessTx,
@@ -36,8 +34,7 @@ beforeEach(() => {
   mockSql.mockReset();
   mockSql.mockResolvedValue([]);
   mockSql.begin = vi.fn(async (cb: (tx: any) => Promise<unknown>) => cb(mockSql));
-  mockBuildPaymentLinkUrl.mockReset();
-  mockBuildPaymentLinkUrl.mockReturnValue('https://buy.stripe.com/test');
+  // No more mockBuildPaymentLinkUrl — paymentUrl is always null now
 });
 
 describe('createBusinessTx — admin mode', () => {
@@ -219,7 +216,7 @@ describe('createBusinessTx — channel_enrollments', () => {
     const enrollTemplate = (enrollCall[0] as TemplateStringsArray).join('?');
     expect(enrollTemplate).toContain("'email'");
     expect(enrollTemplate).toContain("'verified'");
-    expect(enrollTemplate).toContain('ON CONFLICT (business_id, channel) WHERE archived_at IS NULL');
+    expect(enrollTemplate).toContain('ON CONFLICT (account_id, channel, COALESCE(location_id,');
   });
 
   it('self_serve mode does NOT insert channel_enrollments at signup time (deferred to /api/auth/verify-otp post-OTP)', async () => {
@@ -231,18 +228,75 @@ describe('createBusinessTx — channel_enrollments', () => {
 });
 
 describe('createBusinessTx — result', () => {
-  it('returns businessId, userId, and paymentUrl from buildPaymentLinkUrl', async () => {
-    mockBuildPaymentLinkUrl.mockReturnValue('https://buy.stripe.com/xyz');
+  it('returns businessId, userId, accountId, and paymentUrl=null (checkout session created by select-plan)', async () => {
     const res = await createBusinessTx(selfServeInput, { mode: 'self_serve', authId: 'a' });
     expect(res.businessId).toBeTruthy();
     expect(res.userId).toBeTruthy();
-    expect(res.paymentUrl).toBe('https://buy.stripe.com/xyz');
-    expect(mockBuildPaymentLinkUrl).toHaveBeenCalledWith('standard', res.businessId, 'a@b.com');
+    expect(res.accountId).toBeTruthy();
+    // paymentUrl is always null now — the select-plan route creates
+    // the Checkout Session instead of using Payment Links
+    expect(res.paymentUrl).toBeNull();
   });
 
-  it('returns paymentUrl=null when buildPaymentLinkUrl returns null', async () => {
-    mockBuildPaymentLinkUrl.mockReturnValue(null);
-    const res = await createBusinessTx(selfServeInput, { mode: 'self_serve', authId: 'a' });
+  it('returns paymentUrl=null for admin mode too', async () => {
+    const res = await createBusinessTx(adminInput, { mode: 'admin', onboardedBy: 'admin-1' });
     expect(res.paymentUrl).toBeNull();
+  });
+});
+
+// VAL-BILLING-064: createBusinessTx creates accounts row with
+// tier-selected fields (locations_included, locations_overage_price_cents)
+describe('createBusinessTx — tier config fields in accounts row', () => {
+  it('admin mode: sets locations_included=1 and locations_overage_price_cents=2500 for standard tier', async () => {
+    await createBusinessTx(adminInput, { mode: 'admin', onboardedBy: 'admin-1' });
+    const accountsCall = mockSql.mock.calls.find((c: any[]) =>
+      (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO accounts'))!;
+    // Standard tier: included=1, overageCents=2500
+    expect(accountsCall.some((a: unknown) => a === 1)).toBe(true);
+    expect(accountsCall.some((a: unknown) => a === 2500)).toBe(true);
+  });
+
+  it('admin mode: sets locations_included=5 and locations_overage_price_cents=2000 for premium tier', async () => {
+    const premiumInput = {
+      ...adminInput,
+      subscriptionTier: 'premium' as 'founders' | 'standard' | 'premium',
+    };
+    await createBusinessTx(premiumInput as AdminBusinessTxInput, { mode: 'admin', onboardedBy: 'admin-1' });
+    const accountsCall = mockSql.mock.calls.find((c: any[]) =>
+      (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO accounts'))!;
+    // Premium tier: included=5, overageCents=2000
+    expect(accountsCall.some((a: unknown) => a === 5)).toBe(true);
+    expect(accountsCall.some((a: unknown) => a === 2000)).toBe(true);
+  });
+
+  it('admin mode: sets locations_included=1 and locations_overage_price_cents=0 for basic tier', async () => {
+    const basicInput: AdminBusinessTxInput = {
+      ...adminInput,
+      subscriptionTier: 'basic' as any,
+    };
+    await createBusinessTx(basicInput, { mode: 'admin', onboardedBy: 'admin-1' });
+    const accountsCall = mockSql.mock.calls.find((c: any[]) =>
+      (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO accounts'))!;
+    // Basic tier: included=1, overageCents=0
+    expect(accountsCall.some((a: unknown) => a === 1)).toBe(true);
+    expect(accountsCall.some((a: unknown) => a === 0)).toBe(true);
+  });
+
+  it('self_serve mode: sets locations_included=1 and locations_overage_price_cents=2500 for standard tier', async () => {
+    await createBusinessTx(selfServeInput, { mode: 'self_serve', authId: 'auth-xyz' });
+    const accountsCall = mockSql.mock.calls.find((c: any[]) =>
+      (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO accounts'))!;
+    // Self-serve defaults to standard: included=1, overageCents=2500
+    expect(accountsCall.some((a: unknown) => a === 1)).toBe(true);
+    expect(accountsCall.some((a: unknown) => a === 2500)).toBe(true);
+  });
+
+  it('accounts INSERT includes locations_included and locations_overage_price_cents columns', async () => {
+    await createBusinessTx(adminInput, { mode: 'admin', onboardedBy: 'admin-1' });
+    const accountsCall = mockSql.mock.calls.find((c: any[]) =>
+      (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO accounts'))!;
+    const template = (accountsCall[0] as TemplateStringsArray).join('?');
+    expect(template).toContain('locations_included');
+    expect(template).toContain('locations_overage_price_cents');
   });
 });

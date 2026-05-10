@@ -16,6 +16,8 @@ import { claimInboundEvent } from '../shared';
 import { parseTwilioBody, verifyTwilioSignature } from './twilio-verify';
 import { classifyIntent } from './twilio-intent';
 import { handleTwilioDeliveryStatus } from './twilio-delivery-status';
+import { safeInvalidateChannelCache } from '../../../src/lib/notifications/resolve-channels';
+import { asAccountId } from '../../../src/lib/shared/ids';
 
 const LOG_PREFIX = '[ingress/twilio]';
 
@@ -124,7 +126,7 @@ export async function handleTwilioInbound(
 
   try {
     if (intent === 'stop') {
-      await sql.begin(async (tx) => {
+      const affectedAccounts = await sql.begin(async (tx) => {
         await tx`
           INSERT INTO sms_sender_opt_outs (messaging_service_sid, handle, opted_out_at, opted_in_at, last_event_at)
           VALUES (${msid}, ${From}, NOW(), NULL, NOW())
@@ -137,15 +139,27 @@ export async function handleTwilioInbound(
           INSERT INTO sms_sender_opt_out_events (id, messaging_service_sid, handle, event_type, source, inbound_event_id)
           VALUES (${uuidv7()}, ${msid}, ${From}, 'stop', ${source}, ${inboundEventId})
         `;
-        await tx`
+        const updated = await tx<{ account_id: string }[]>`
           UPDATE channel_enrollments
           SET status = 'unsubscribed',
               unsubscribed_at = COALESCE(unsubscribed_at, NOW()),
               unsubscribed_reason = COALESCE(unsubscribed_reason, 'sms_stop'),
               updated_at = NOW()
           WHERE handle = ${From} AND channel = 'sms' AND archived_at IS NULL
+          RETURNING account_id
         `;
+        return updated;
       });
+      // TCPA-critical: immediately invalidate channel cache so the next
+      // notification dispatch does not attempt to send to an opted-out
+      // channel. The 5-minute TTL would eventually expire, but that window
+      // risks a TCPA-violating send.
+      const uniqueAccountIds = [...new Set(affectedAccounts.map((r) => r.account_id))];
+      await Promise.all(
+        uniqueAccountIds.map((id) =>
+          safeInvalidateChannelCache(asAccountId(id), 'worker.twilio.sms.inbound'),
+        ),
+      );
     } else if (intent === 'start') {
       // Audit event is written UNCONDITIONALLY inside the txn, even if the
       // UPDATE affects 0 rows (spontaneous START without prior STOP is still

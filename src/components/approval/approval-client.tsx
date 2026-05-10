@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { Icon } from '@/components/dashboard/Icon';
 
 interface ReviewData {
   review: {
@@ -15,6 +16,8 @@ interface ReviewData {
     status: string;
   };
   businessName: string;
+  locationLabel: string;
+  isArchived: boolean;
   expiresAt: string;
 }
 
@@ -184,6 +187,19 @@ export default function ApprovalClient({ token }: { token: string }) {
           {error}
         </div>
       )}
+
+      {/* Location context chip — VAL-APPROVAL-001/004 */}
+      <div className="flex items-center gap-2">
+        <span className="inline-flex items-center gap-1 text-[11px] font-medium text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full whitespace-nowrap max-w-[160px] truncate">
+          <Icon name="location" size={10} />
+          {data.locationLabel}
+        </span>
+        {data.isArchived && (
+          <span className="inline-flex items-center text-[10px] font-semibold uppercase tracking-wider text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
+            Archived
+          </span>
+        )}
+      </div>
 
       {/* Review card */}
       <div className="rounded-lg border border-gray-200 bg-white p-4">

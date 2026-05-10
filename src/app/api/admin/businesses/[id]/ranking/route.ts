@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { v7 as uuidv7 } from 'uuid';
 import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
+import { asLocationId } from '@/lib/shared/ids';
+import type { LocationId } from '@/lib/shared/ids';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 
 export const dynamic = 'force-dynamic';
@@ -17,7 +19,8 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
-  const { id: businessId } = await params;
+  const { id: rawBusinessId } = await params;
+  const businessId: LocationId = asLocationId(rawBusinessId);
 
   try {
     await requireRole(request, 'admin', 'sales_partner');

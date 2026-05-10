@@ -5,6 +5,8 @@ import { checkSubscription } from '../../../src/lib/shared/subscription-guard';
 import { markOutboxCompleted, markOutboxFailed, extractOutboxHandle } from '../../../src/lib/shared/outbox';
 import type { PublishResponsePayload, SendOwnerEmailPayload } from '../../../src/lib/shared/worker-types';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
+import { asLocationId } from '../../../src/lib/shared/ids';
+import type { LocationId } from '../../../src/lib/shared/ids';
 import { lookupZernioReviewId } from '../../../src/lib/publishing/zernio-publisher';
 import { zernioClient } from '../../../src/lib/zernio/client';
 import {
@@ -32,7 +34,9 @@ export async function handlePublishResponse(
   job: Job<PublishResponsePayload>,
 ): Promise<void> {
   const logger = createWorkerLogger('[ResponsePublisherWorker]', job.data.correlation_id);
-  const { response_id, business_id } = job.data;
+  const { response_id } = job.data;
+  // Cast job data IDs to branded types at entry point
+  const businessId: LocationId = asLocationId(job.data.business_id);
   const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
 
   // ── Step 1: Load response + review + business ──────────────────────
@@ -54,8 +58,8 @@ export async function handlePublishResponse(
     return;
   }
 
-  if (response.business_id !== business_id) {
-    logger.error(`Response ${response_id} belongs to business ${response.business_id}, not ${business_id}`);
+  if (response.business_id !== businessId) {
+    logger.error(`Response ${response_id} belongs to business ${response.business_id}, not ${businessId}`);
     await markOutboxFailed(outboxId, 'business_id_mismatch', outboxAttempt);
     return;
   }
@@ -64,16 +68,26 @@ export async function handlePublishResponse(
     id: string;
     name: string;
     subscription_status: string;
-    updated_at: Date;
+    account_updated_at: Date;
+    archived_at: Date | null;
   }[]>`
-    SELECT id, name, subscription_status, updated_at
-    FROM businesses
-    WHERE id = ${business_id}
+    SELECT b.id, b.name, b.archived_at, a.subscription_status, a.updated_at AS account_updated_at
+    FROM businesses b
+    JOIN accounts a ON a.id = b.account_id
+    WHERE b.id = ${businessId}
   `;
 
   if (!business) {
-    logger.error(`Business ${business_id} not found`);
-    await markOutboxFailed(outboxId, `business_not_found: ${business_id}`, outboxAttempt);
+    logger.error(`Business ${businessId} not found`);
+    await markOutboxFailed(outboxId, `business_not_found: ${businessId}`, outboxAttempt);
+    return;
+  }
+
+  if (business.archived_at !== null) {
+    logger.warn(
+      `Business ${businessId} is archived; skipping public publish for response ${response_id}`,
+    );
+    await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }
 
@@ -100,13 +114,13 @@ export async function handlePublishResponse(
   // ── Step 3: Subscription guard ─────────────────────────────────────
   const subCheck = checkSubscription(
     business.subscription_status,
-    new Date(business.updated_at),
+    new Date(business.account_updated_at),
     'publisher',
   );
 
   if (!subCheck.allowed) {
     logger.warn(
-      `Business ${business_id} subscription blocked: ${subCheck.reason}`,
+      `Business ${businessId} subscription blocked: ${subCheck.reason}`,
     );
     await markOutboxCompleted(outboxId, outboxAttempt);
     return;
@@ -116,7 +130,7 @@ export async function handlePublishResponse(
   const [zernioConnection] = await sql<ZernioConnectionRow[]>`
     SELECT zernio_account_id, zernio_location_id
     FROM zernio_connections
-    WHERE business_id = ${business_id} AND status = 'active'
+    WHERE business_id = ${businessId} AND status = 'active'
     LIMIT 1
   `;
 
@@ -131,7 +145,7 @@ export async function handlePublishResponse(
         UPDATE responses
         SET status = 'awaiting_owner_connect', updated_at = NOW()
         WHERE id = ${response_id}
-          AND business_id = ${business_id}
+          AND business_id = ${businessId}
           AND status IN ('approved', 'edited', 'awaiting_owner_connect')
         RETURNING 1
       `;
@@ -149,7 +163,7 @@ export async function handlePublishResponse(
       const reconnectPayload = {
         kind: 'reconnect_required',
         response_id,
-        business_id,
+        business_id: businessId,
       } satisfies SendOwnerEmailPayload;
       await tx`
         INSERT INTO job_outbox (
@@ -167,7 +181,7 @@ export async function handlePublishResponse(
     });
 
     logger.log(
-      `No active Zernio connection for business ${business_id}; response ${response_id} parked at awaiting_owner_connect`,
+      `No active Zernio connection for business ${businessId}; response ${response_id} parked at awaiting_owner_connect`,
     );
     await markOutboxCompleted(outboxId, outboxAttempt);
     return;
@@ -186,7 +200,7 @@ export async function handlePublishResponse(
   let zernioReviewId: string;
   try {
     zernioReviewId = await lookupZernioReviewId(
-      business_id,
+      businessId,
       response.review_id,
       zernioConnection.zernio_account_id,
       zernioConnection.zernio_location_id,
@@ -200,7 +214,7 @@ export async function handlePublishResponse(
           UPDATE responses
           SET status = 'failed', updated_at = NOW()
           WHERE id = ${response_id}
-            AND business_id = ${business_id}
+            AND business_id = ${businessId}
             AND status IN ('approved', 'edited', 'awaiting_owner_connect')
           RETURNING 1
         `;
@@ -219,7 +233,7 @@ export async function handlePublishResponse(
             id, business_id, review_id, response_id, type, payload
           ) VALUES (
             ${uuidv7()},
-            ${business_id},
+            ${businessId},
             ${response.review_id},
             ${response_id},
             'zernio_review_id_mismatch',
@@ -253,7 +267,7 @@ export async function handlePublishResponse(
             ${response.review_id},
             ${jsonb({
               review_exception_id: exception.id,
-              business_id,
+              business_id: businessId,
             })},
             0,
             5
@@ -274,7 +288,7 @@ export async function handlePublishResponse(
     if (err instanceof ZernioTransientError) {
       throw new PublisherTransientWithContext(err, {
         response_id,
-        business_id,
+        business_id: businessId,
         account_id: zernioConnection.zernio_account_id,
         location_id: zernioConnection.zernio_location_id,
       });
@@ -296,7 +310,7 @@ export async function handlePublishResponse(
     if (err instanceof ZernioReplyAlreadyExistsError) {
       const result = await verify409AndDispose({
         response_id,
-        business_id,
+        business_id: businessId,
         review_id: response.review_id,
         account_id: zernioConnection.zernio_account_id,
         location_id: zernioConnection.zernio_location_id,
@@ -316,7 +330,7 @@ export async function handlePublishResponse(
         case 'transient':
           throw new PublisherTransientWithContext(result.lookupErr, {
             response_id,
-            business_id,
+            business_id: businessId,
             account_id: zernioConnection.zernio_account_id,
             location_id: zernioConnection.zernio_location_id,
           });
@@ -325,7 +339,7 @@ export async function handlePublishResponse(
           const lookupErr = result.lookupErr;
           await handlePublisherAuthErrorTerminal({
             response_id,
-            business_id,
+            business_id: businessId,
             account_id: zernioConnection.zernio_account_id,
             location_id: zernioConnection.zernio_location_id,
             error_body: lookupErr.body ? String(lookupErr.body).slice(0, 500) : lookupErr.message,
@@ -349,7 +363,7 @@ export async function handlePublishResponse(
               : { code: lookupErr.code, body: lookupErr.body };
           await handlePublisherPermanentErrorTerminal({
             response_id,
-            business_id,
+            business_id: businessId,
             review_id: response.review_id,
             endpoint_kind: endpointKind,
             http_status: 400,
@@ -364,7 +378,7 @@ export async function handlePublishResponse(
         case 'indeterminate':
           throw new ZernioReplyVerificationIndeterminateError({
             response_id,
-            business_id,
+            business_id: businessId,
             review_id: response.review_id,
             account_id: zernioConnection.zernio_account_id,
             location_id: zernioConnection.zernio_location_id,
@@ -379,7 +393,7 @@ export async function handlePublishResponse(
     if (err instanceof ZernioAuthError) {
       await handlePublisherAuthErrorTerminal({
         response_id,
-        business_id,
+        business_id: businessId,
         account_id: zernioConnection.zernio_account_id,
         location_id: zernioConnection.zernio_location_id,
         error_body: err.body ? String(err.body).slice(0, 500) : err.message,
@@ -402,7 +416,7 @@ export async function handlePublishResponse(
 
       await handlePublisherPermanentErrorTerminal({
         response_id,
-        business_id,
+        business_id: businessId,
         review_id: response.review_id,
         endpoint_kind: endpointKind,
         http_status: 400,
@@ -420,7 +434,7 @@ export async function handlePublishResponse(
     if (err instanceof ZernioTransientError) {
       throw new PublisherTransientWithContext(err, {
         response_id,
-        business_id,
+        business_id: businessId,
         account_id: zernioConnection.zernio_account_id,
         location_id: zernioConnection.zernio_location_id,
       });
@@ -437,12 +451,12 @@ export async function handlePublishResponse(
     UPDATE responses
     SET status = 'posted', posted_at = NOW(), updated_at = NOW()
     WHERE id = ${response_id}
-      AND business_id = ${business_id}
+      AND business_id = ${businessId}
       AND status IN ('approved', 'edited', 'awaiting_owner_connect')
   `;
 
   logger.log(
-    `Response ${response_id} posted via Zernio for business ${business_id}`,
+    `Response ${response_id} posted via Zernio for business ${businessId}`,
   );
 
   await markOutboxCompleted(outboxId, outboxAttempt);

@@ -1,13 +1,27 @@
 'use client';
 
 import { Icon } from '@/components/dashboard/Icon';
-import type { SettingsForm } from '@/hooks/useSettingsForm';
 import { ToneChipPicker } from './ToneChipPicker';
 import { ListEditor } from './ListEditor';
 
+// Voice form fields shared by both SettingsForm (single-location) and
+// VoiceFormState (per-location). BrandVoicePanel only needs the voice-
+// specific fields, not the full settings form.
+export interface VoiceFormFields {
+  tone: string;
+  productsServices: string;
+  avoidFacts: string[];
+  sampleResponses: string[];
+}
+
+/**
+ * Props for BrandVoicePanel.
+ * Uses a simple setter signature compatible with both useSettingsForm.set
+ * and useLocationVoiceForm.set, regardless of the parent form's exact type.
+ */
 interface Props {
-  form: SettingsForm;
-  set: <K extends keyof SettingsForm>(key: K, value: SettingsForm[K]) => void;
+  form: VoiceFormFields;
+  set: (key: 'tone' | 'productsServices' | 'avoidFacts' | 'sampleResponses', value: string | string[]) => void;
 }
 
 export function BrandVoicePanel({ form, set }: Props) {

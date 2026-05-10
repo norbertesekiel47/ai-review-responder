@@ -1,19 +1,23 @@
 // worker/jobs/notification/eligibility.ts
 //
 // Determines which channels are eligible to dispatch an approval
-// notification: subscription gate, per-channel feature flag, verified
-// enrollments. Returns the list of channels that should receive the
+// notification: subscription gate, per-channel feature flag, resolved
+// channels. Returns the list of channels that should receive the
 // notification — owner_email_bounced is applied per-enrollment in the
 // dispatch loop because it depends on business row data the dispatch
 // already has in hand.
+//
+// VAL-NOTIF-010: Uses resolveChannels instead of getVerifiedEnrollments.
 
 import { checkSubscription } from '../../../src/lib/shared/subscription-guard';
-import { getVerifiedEnrollments } from '../../../src/lib/notifications/enrollments';
-import type { VerifiedEnrollment } from '../../../src/lib/notifications/enrollments';
+import { resolveChannels, type ResolvedChannel } from '../../../src/lib/notifications/resolve-channels';
 import type { ChannelId } from '../../../src/lib/notifications/channels/types';
+import type { AccountId, LocationId } from '../../../src/lib/shared/ids';
+import { asAccountId, asLocationId } from '../../../src/lib/shared/ids';
 
 export interface EligibilityInput {
-  businessId: string;
+  accountId: string;
+  locationId: string;
   subscriptionStatus: string;
   businessUpdatedAt: Date;
 }
@@ -23,7 +27,7 @@ export interface EligibilityLogger {
 }
 
 export type EligibilityResult =
-  | { ok: true; enrollments: VerifiedEnrollment[] }
+  | { ok: true; enrollments: ResolvedChannel[] }
   | { ok: false; reason: string };
 
 /**
@@ -41,9 +45,10 @@ function isChannelFlagEnabled(channelId: ChannelId): boolean {
 }
 
 /**
- * Subscription gate + per-channel flag filter + verified enrollment load.
- * Returns either an enrollment list to dispatch on, or a skip reason for
- * the caller to log + complete the outbox entry.
+ * Subscription gate + per-channel flag filter + channel resolution via
+ * resolveChannels (VAL-NOTIF-010). Returns either an enrollment list
+ * to dispatch on, or a skip reason for the caller to log + complete
+ * the outbox entry.
  *
  * Skip-log lines for flag-disabled channels match the original verbatim.
  */
@@ -60,12 +65,15 @@ export async function getEligibleChannels(
     return { ok: false, reason: subCheck.reason };
   }
 
-  const enrollments = await getVerifiedEnrollments(input.businessId);
+  const accountId: AccountId = asAccountId(input.accountId);
+  const locationId: LocationId = asLocationId(input.locationId);
+
+  const enrollments = await resolveChannels(accountId, locationId);
   if (enrollments.length === 0) {
     return { ok: false, reason: 'no_verified_enrollments' };
   }
 
-  const filtered: VerifiedEnrollment[] = [];
+  const filtered: ResolvedChannel[] = [];
   for (const enrollment of enrollments) {
     if (!isChannelFlagEnabled(enrollment.channel)) {
       const channelLabel =
@@ -77,7 +85,7 @@ export async function getEligibleChannels(
               ? 'WhatsApp'
               : enrollment.channel;
       logger.log(
-        `${channelLabel} channel disabled by flag — skipping enrollment for business ${input.businessId}`,
+        `${channelLabel} channel disabled by flag — skipping enrollment for location ${input.locationId}`,
       );
       continue;
     }

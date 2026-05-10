@@ -89,11 +89,14 @@ export async function handleZernioReviewIngest(job: Job<IngestZernioReviewPayloa
   const { business_id, zernio_account_id, zernio_location_id, zernio_review_id } = job.data;
   const { outboxId, attempt } = extractOutboxHandle(job.data, job.id!);
 
-  // 1. Subscription guard
-  const [biz] = await sql<{ subscription_status: string; updated_at: Date }[]>`
-    SELECT subscription_status, updated_at FROM businesses WHERE id = ${business_id}
+  // 1. Subscription guard (reads from accounts, not deprecated businesses.subscription_status)
+  const [acct] = await sql<{ subscription_status: string; updated_at: Date }[]>`
+    SELECT a.subscription_status, a.updated_at
+    FROM businesses b
+    JOIN accounts a ON a.id = b.account_id
+    WHERE b.id = ${business_id}
   `;
-  if (!biz || !checkSubscription(biz.subscription_status, biz.updated_at, 'generator').allowed) {
+  if (!acct || !checkSubscription(acct.subscription_status, acct.updated_at, 'generator').allowed) {
     await markOutboxCompleted(outboxId, attempt);
     return;
   }

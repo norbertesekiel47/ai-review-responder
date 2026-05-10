@@ -53,7 +53,8 @@ export async function runRankingCheck(): Promise<void> {
     const candidates = await sql<{ id: string; google_place_id: string }[]>`
       SELECT b.id, b.google_place_id
       FROM businesses b
-      WHERE b.subscription_status = 'active'
+      JOIN accounts a ON a.id = b.account_id
+      WHERE a.subscription_status = 'active'
         AND b.place_id_verified = TRUE
         AND b.google_place_id IS NOT NULL
         AND b.tracked_keywords <> '[]'::jsonb

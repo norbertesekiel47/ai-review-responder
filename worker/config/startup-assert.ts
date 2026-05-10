@@ -18,8 +18,22 @@ export function assertSelfServeSignupEnv(): void {
   if (!process.env.NEXT_PUBLIC_APP_URL) {
     throw new Error('[startup] SELF_SERVE_SIGNUP_ENABLED=true requires NEXT_PUBLIC_APP_URL');
   }
-  if (!process.env.STRIPE_PAYMENT_LINK_FOUNDING || !process.env.STRIPE_PAYMENT_LINK_STANDARD || !process.env.STRIPE_PAYMENT_LINK_PREMIUM) {
-    throw new Error('[startup] SELF_SERVE_SIGNUP_ENABLED=true requires STRIPE_PAYMENT_LINK_FOUNDING + STRIPE_PAYMENT_LINK_STANDARD + STRIPE_PAYMENT_LINK_PREMIUM');
+  // Checkout Sessions replaced Payment Links — STRIPE_PRICE_* vars are
+  // required instead of the obsolete payment-link URL vars.
+  const requiredPriceVars = [
+    'STRIPE_PRICE_BASIC',
+    'STRIPE_PRICE_FOUNDING',
+    'STRIPE_PRICE_STANDARD',
+    'STRIPE_PRICE_PREMIUM',
+    'STRIPE_PRICE_STANDARD_OVERAGE',
+    'STRIPE_PRICE_PREMIUM_OVERAGE',
+    'STRIPE_PRICE_FOUNDERS_OVERAGE',
+  ];
+  const missing = requiredPriceVars.filter((k) => !process.env[k] || process.env[k]!.trim().length === 0);
+  if (missing.length > 0) {
+    throw new Error(
+      `[startup] SELF_SERVE_SIGNUP_ENABLED=true requires ${missing.join(', ')}`,
+    );
   }
 }
 

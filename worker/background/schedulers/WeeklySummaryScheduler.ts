@@ -48,7 +48,8 @@ async function checkAndSchedule(): Promise<void> {
     // Find businesses that need a summary
     const businesses = await sql<{ id: string }[]>`
       SELECT b.id FROM businesses b
-      WHERE b.subscription_status IN ('active', 'past_due')
+      JOIN accounts a ON a.id = b.account_id
+      WHERE a.subscription_status IN ('active', 'past_due')
         AND (b.weekly_summary_enabled IS NULL OR b.weekly_summary_enabled = TRUE)
         AND NOT EXISTS (
           SELECT 1 FROM weekly_summaries ws
