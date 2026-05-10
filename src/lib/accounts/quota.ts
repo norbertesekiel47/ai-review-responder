@@ -134,10 +134,10 @@ export type QuotaCheckResult = QuotaAllowed | QuotaRejected;
  * computing quota inline (per AGENTS.md coding conventions).
  *
  * The function:
- *   1. SELECT FOR UPDATE on the accounts row (race safety — VAL-LOC-006)
+ *   1. Reads the account's subscription and quota fields
  *   2. Checks subscription is active (VAL-LOC-002)
  *   3. Checks tier allows multi-location (VAL-LOC-001)
- *   4. Checks active location count < included + paid (VAL-LOC-003)
+ *   4. Checks active location count for overage preview (VAL-LOC-003)
  *
  * When allowed, reports the overageUnits that will apply (0 when within
  * included quota, >0 when overage billing kicks in).
@@ -147,14 +147,14 @@ export type QuotaCheckResult = QuotaAllowed | QuotaRejected;
  * VAL-LOC-003: quota boundary — overage policy
  * VAL-LOC-004: allows add when within quota
  * VAL-LOC-005: allows add with overage when above included quota
- * VAL-LOC-006: SELECT FOR UPDATE prevents concurrent adds from exceeding quota
+ * VAL-LOC-006: no hard cap; Stripe overage jobs reconcile from committed count
  */
 export async function assertCanAddLocation(
   accountId: string,
 ): Promise<QuotaCheckResult> {
-  // 1. Lock the account row with SELECT FOR UPDATE
-  //    This prevents concurrent add-location calls from both reading the same
-  //    quota state and both succeeding (race condition — VAL-LOC-006).
+  // 1. Read the account row. This helper is not a serialization boundary:
+  //    callers perform the location INSERT separately and may read the same
+  //    quota state. The overage worker reconciles from committed counts.
   const [account] = await sql<{
     id: string;
     subscription_tier: string;
@@ -166,7 +166,6 @@ export async function assertCanAddLocation(
            locations_included, locations_paid
     FROM accounts
     WHERE id = ${accountId}::uuid
-    FOR UPDATE
   `;
 
   if (!account) {

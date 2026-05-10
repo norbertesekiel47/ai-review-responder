@@ -52,8 +52,9 @@ function overageUpdateIdempotencyKey(
   accountId: string,
   subscriptionItemId: string,
   quantity: number,
+  operationScope: string,
 ): string {
-  return `stripe-overage-update:${accountId}:${subscriptionItemId}:${quantity}`;
+  return `stripe-overage-update:${accountId}:${subscriptionItemId}:${quantity}:${operationScope}`;
 }
 
 function overageCreateIdempotencyKey(
@@ -61,8 +62,13 @@ function overageCreateIdempotencyKey(
   subscriptionId: string,
   priceId: string,
   quantity: number,
+  operationScope: string,
 ): string {
-  return `stripe-overage-create:${accountId}:${subscriptionId}:${priceId}:${quantity}`;
+  return `stripe-overage-create:${accountId}:${subscriptionId}:${priceId}:${quantity}:${operationScope}`;
+}
+
+function overageOperationScope(outboxId: string, correlationId: string | undefined): string {
+  return `outbox:${outboxId}:corr:${correlationId ?? 'none'}`;
 }
 
 export async function handleUpdateStripeOverage(
@@ -71,6 +77,7 @@ export async function handleUpdateStripeOverage(
   const logger = createWorkerLogger('[UpdateStripeOverageWorker]', job.data.correlation_id);
   const { account_id } = job.data;
   const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
+  const operationScope = overageOperationScope(outboxId, job.data.correlation_id);
 
   // Read account row. Stripe idempotency keys below handle concurrent jobs;
   // a SELECT FOR UPDATE here would not survive PgBouncer transaction pooling
@@ -175,6 +182,7 @@ export async function handleUpdateStripeOverage(
             account_id,
             existingOverageItem.id,
             newQuantity,
+            operationScope,
           ),
         },
       );
@@ -194,6 +202,7 @@ export async function handleUpdateStripeOverage(
             account.stripe_subscription_id,
             overagePriceId,
             newQuantity,
+            operationScope,
           ),
         },
       );

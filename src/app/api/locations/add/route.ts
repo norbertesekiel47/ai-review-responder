@@ -117,8 +117,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // Use the quota chokepoint — handles SELECT FOR UPDATE, tier check,
-  // subscription check, and quota boundary check in one call.
+  // Use the quota chokepoint for tier, subscription, and overage preview.
   // Per AGENTS.md: "Never compute quota inline."
   const quotaResult = await assertCanAddLocation(accountId);
 

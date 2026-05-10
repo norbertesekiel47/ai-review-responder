@@ -148,14 +148,19 @@ export async function archiveLocationTransaction(
     //    should prevent archiving a primary with other locations, this ensures
     //    no orphaned primary remains. The partial unique index guarantees
     //    at most one is_primary=TRUE per active account.
-    await tx`
+    const [updatedLocation] = await tx<{ id: string }[]>`
       UPDATE businesses
       SET archived_at = NOW(),
           is_primary = FALSE,
           updated_at = NOW()
       WHERE id = ${locationId}::uuid
         AND account_id = ${accountId}::uuid
+        AND archived_at IS NULL
+      RETURNING id
     `;
+    if (!updatedLocation) {
+      throw new Error('location_archive_conflict');
+    }
 
     // 2. Insert audit log entry
     await tx`
@@ -242,13 +247,18 @@ export async function reactivateLocationTransaction(
 
   await sql.begin(async (tx) => {
     // 1. Set archived_at = NULL (reactivate)
-    await tx`
+    const [updatedLocation] = await tx<{ id: string }[]>`
       UPDATE businesses
       SET archived_at = NULL,
           updated_at = NOW()
       WHERE id = ${locationId}::uuid
         AND account_id = ${accountId}::uuid
+        AND archived_at IS NOT NULL
+      RETURNING id
     `;
+    if (!updatedLocation) {
+      throw new Error('location_reactivate_conflict');
+    }
 
     // 2. Insert audit log entry
     await tx`

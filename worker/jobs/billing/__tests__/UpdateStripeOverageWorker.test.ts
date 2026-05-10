@@ -31,7 +31,10 @@ vi.mock('../../../../src/lib/db/server', () => ({
 vi.mock('../../../../src/lib/shared/outbox', () => ({
   markOutboxCompleted: mockMarkOutboxCompleted,
   markOutboxFailed: mockMarkOutboxFailed,
-  extractOutboxHandle: vi.fn(() => ({ outboxId: 'outbox-1', attempt: 1 })),
+  extractOutboxHandle: vi.fn((data: { outbox_id?: string; outbox_attempt?: number }, jobId: string) => ({
+    outboxId: data.outbox_id ?? jobId,
+    attempt: data.outbox_attempt ?? 1,
+  })),
 }));
 
 vi.mock('stripe', () => {
@@ -120,7 +123,7 @@ describe('UpdateStripeOverageWorker', () => {
         proration_behavior: 'create_prorations',
       },
       {
-        idempotencyKey: 'stripe-overage-update:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee:si_overage_123:2',
+        idempotencyKey: 'stripe-overage-update:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee:si_overage_123:2:outbox:outbox-1:corr:corr-1',
       },
     );
     expect(mockStripeSubscriptionItemsCreate).not.toHaveBeenCalled();
@@ -150,7 +153,7 @@ describe('UpdateStripeOverageWorker', () => {
         quantity: 2, // 7 - 5 = 2
       }),
       expect.objectContaining({
-        idempotencyKey: 'stripe-overage-update:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee:si_overage:2',
+        idempotencyKey: 'stripe-overage-update:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee:si_overage:2:outbox:outbox-1:corr:corr-1',
       }),
     );
   });
@@ -178,7 +181,7 @@ describe('UpdateStripeOverageWorker', () => {
         quantity: 0,
       }),
       expect.objectContaining({
-        idempotencyKey: 'stripe-overage-update:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee:si_overage:0',
+        idempotencyKey: 'stripe-overage-update:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee:si_overage:0:outbox:outbox-1:corr:corr-1',
       }),
     );
   });
@@ -204,7 +207,7 @@ describe('UpdateStripeOverageWorker', () => {
         proration_behavior: 'create_prorations',
       }),
       {
-        idempotencyKey: 'stripe-overage-create:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee:sub_test:price_std_overage:2',
+        idempotencyKey: 'stripe-overage-create:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee:sub_test:price_std_overage:2:outbox:outbox-1:corr:corr-1',
       },
     );
     expect(mockStripeSubscriptionItemsUpdate).not.toHaveBeenCalled();
@@ -292,7 +295,7 @@ describe('UpdateStripeOverageWorker', () => {
       overageItemId,
       { quantity: 2, proration_behavior: 'create_prorations' },
       {
-        idempotencyKey: 'stripe-overage-update:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee:si_overage_idem:2',
+        idempotencyKey: 'stripe-overage-update:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee:si_overage_idem:2:outbox:outbox-1:corr:corr-1',
       },
     );
 
@@ -309,10 +312,47 @@ describe('UpdateStripeOverageWorker', () => {
       overageItemId,
       { quantity: 2, proration_behavior: 'create_prorations' },
       {
-        idempotencyKey: 'stripe-overage-update:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee:si_overage_idem:2',
+        idempotencyKey: 'stripe-overage-update:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee:si_overage_idem:2:outbox:outbox-1:corr:corr-1',
       },
     );
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
+  });
+
+  it('uses different idempotency keys for different outbox jobs with the same target quantity', async () => {
+    mockSql.mockReset();
+    mockStripeSubscriptionsRetrieve.mockResolvedValue({
+      items: {
+        data: [
+          { id: 'si_base', price: { id: 'price_standard' }, quantity: 1 },
+          { id: 'si_overage_repeat', price: { id: 'price_std_overage' }, quantity: 0 },
+        ],
+      },
+    });
+
+    mockSql.mockResolvedValueOnce([mockAccountRow()]);
+    mockSql.mockResolvedValueOnce([{ count: 2 }]);
+    await handleUpdateStripeOverage(mockJob({
+      outbox_id: 'outbox-add-2',
+      correlation_id: 'corr-add-2',
+    }));
+
+    mockSql.mockResolvedValueOnce([mockAccountRow()]);
+    mockSql.mockResolvedValueOnce([{ count: 2 }]);
+    await handleUpdateStripeOverage(mockJob({
+      outbox_id: 'outbox-add-3',
+      correlation_id: 'corr-add-3',
+    }));
+
+    const firstKey = mockStripeSubscriptionItemsUpdate.mock.calls[0]?.[2]?.idempotencyKey;
+    const secondKey = mockStripeSubscriptionItemsUpdate.mock.calls[1]?.[2]?.idempotencyKey;
+
+    expect(firstKey).toBe(
+      'stripe-overage-update:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee:si_overage_repeat:1:outbox:outbox-add-2:corr:corr-add-2',
+    );
+    expect(secondKey).toBe(
+      'stripe-overage-update:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee:si_overage_repeat:1:outbox:outbox-add-3:corr:corr-add-3',
+    );
+    expect(firstKey).not.toBe(secondKey);
   });
 
   it('does not use FOR UPDATE without a surrounding transaction', async () => {

@@ -218,8 +218,8 @@ describe('currentBillingSnapshot', () => {
 // ── assertCanAddLocation ────────────────────────────────────────────────────
 
 // Helper to mock the account row that assertCanAddLocation expects from
-// SELECT FOR UPDATE (returns id, subscription_tier, subscription_status,
-// locations_included, locations_paid).
+// the account eligibility read (returns id, subscription_tier,
+// subscription_status, locations_included, locations_paid).
 function mockQuotaAccountRow(
   overrides: {
     tier?: SubscriptionTierValue;
@@ -241,7 +241,7 @@ describe('assertCanAddLocation', () => {
   // VAL-LOC-001: rejects basic tier (multiLocAllowed = false)
   it('rejects basic tier accounts (multiLocAllowed = false)', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-    // SELECT FOR UPDATE on accounts
+    // Account eligibility read
     mockSql.mockResolvedValueOnce([mockQuotaAccountRow({ tier: 'basic', status: 'active' })]);
 
     const result = await assertCanAddLocation(accountId);
@@ -276,7 +276,7 @@ describe('assertCanAddLocation', () => {
   // should allow the add and report overage units.
   it('at quota boundary (standard, 1 included, 0 paid, 1 active): allows with overage', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-    // SELECT FOR UPDATE
+    // Account eligibility read
     mockSql.mockResolvedValueOnce([mockQuotaAccountRow({ tier: 'standard', locationsIncluded: 1, locationsPaid: 0 })]);
     // Location count query
     mockSql.mockResolvedValueOnce([{ count: 1 }]);
@@ -428,19 +428,14 @@ describe('assertCanAddLocation', () => {
 
   // ── Concurrent add simulation (VAL-LOC-006) ────────────────────────────
   //
-  // True concurrency testing requires a live PostgreSQL database with
-  // SELECT FOR UPDATE lock enforcement. In a unit test with mocked SQL,
-  // we verify:
-  //   1. The SQL query uses SELECT FOR UPDATE (structural guarantee)
-  //   2. The logic correctly handles the quota boundary scenario that
-  //      would arise under concurrent access
-  //   3. A simulation showing that if two concurrent calls read the same
-  //      state, both would be allowed, but the DB lock ensures only one
-  //      proceeds at a time, and the second re-reads the updated count.
+  // assertCanAddLocation is an eligibility/quota-preview helper. It does
+  // not hold row locks across the later INSERT because callers execute the
+  // INSERT in a separate transaction. Billing consistency is handled by the
+  // Stripe overage outbox worker, which reconciles from the actual active
+  // location count.
 
   describe('concurrent add at quota boundary', () => {
-    // VAL-LOC-006: SELECT FOR UPDATE prevents concurrent adds from exceeding quota
-    it('structural: SQL uses SELECT FOR UPDATE on accounts row', async () => {
+    it('does not use standalone SELECT FOR UPDATE outside the add transaction', async () => {
       const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
       mockSql.mockResolvedValueOnce([mockQuotaAccountRow()]);
       mockSql.mockResolvedValueOnce([{ count: 0 }]);
@@ -450,7 +445,7 @@ describe('assertCanAddLocation', () => {
       const firstCall = mockSql.mock.calls[0];
       expect(firstCall).toBeDefined();
       const template = (firstCall![0] as TemplateStringsArray).join('?');
-      expect(template).toContain('FOR UPDATE');
+      expect(template).not.toMatch(/\bFOR\s+UPDATE\b/i);
       expect(template).toContain('accounts');
     });
 
@@ -467,15 +462,11 @@ describe('assertCanAddLocation', () => {
       expect(template).toContain('archived_at IS NULL');
     });
 
-    it('simulation: at quota boundary, two concurrent calls both see same count but FOR UPDATE serializes them', async () => {
+    it('computes overage from the latest active count it reads', async () => {
       // This test simulates the scenario described in VAL-LOC-006:
       // Two concurrent calls at the quota boundary would both read the same
-      // account state (1 active, 1 included). With SELECT FOR UPDATE,
-      // the DB serializes them — call A locks the row, adds the location,
-      // then call B re-reads with the updated count.
-      //
-      // In this unit test, we simulate what call B would see AFTER call A
-      // has added its location: the active count is now 2 instead of 1.
+      // account state (1 active, 1 included). The helper reports overage
+      // for whatever active-location count it reads.
       const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
 
       // Call A sees 1 active location at quota boundary → allowed with overage
@@ -487,8 +478,7 @@ describe('assertCanAddLocation', () => {
         expect(resultA.overageUnits).toBe(1); // 1 active + 1 new = 2, over included=1 → 1 overage
       }
 
-      // Reset for call B — which would see the updated state (2 active)
-      // because FOR UPDATE forced serialization
+      // Call B sees the updated state if it runs after call A commits.
       mockSql.mockResolvedValueOnce([mockQuotaAccountRow({ tier: 'standard', locationsIncluded: 1 })]);
       mockSql.mockResolvedValueOnce([{ count: 2 }]); // After call A's add, now 2 active
       const resultB = await assertCanAddLocation(accountId);
@@ -498,34 +488,26 @@ describe('assertCanAddLocation', () => {
       }
     });
 
-    it('simulation: if FOR UPDATE were missing, double-add at quota would both succeed (demonstrating the race)', async () => {
-      // This test demonstrates the race condition that FOR UPDATE prevents.
-      // Without FOR UPDATE, both calls read the same state simultaneously.
-      // With FOR UPDATE, the second call waits for the first to complete.
+    it('allows concurrent same-state reads because overage billing has no hard cap', async () => {
+      // Both calls may read the same state because this helper does not
+      // serialize the later location INSERT.
       //
       // We can't test the actual lock in a unit test, but we demonstrate
-      // that the business logic correctly handles both scenarios:
-      // - Same state read (race condition) → both allowed (would be wrong without lock)
-      // - Serialized reads → first allowed, second sees updated count (correct)
+      // that the business logic allows the current no-hard-cap overage policy.
       const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
 
       // Both calls see the same state (simulating no lock / race condition)
       // Both would be allowed, but the second should see updated state
-      // with FOR UPDATE serializing them.
-      // The point is: the LOGIC is correct; the LOCK provides the guarantee.
+      // under the current no-hard-cap overage policy.
       mockSql.mockResolvedValueOnce([mockQuotaAccountRow({ tier: 'standard', locationsIncluded: 1 })]);
       mockSql.mockResolvedValueOnce([{ count: 1 }]);
       const result1 = await assertCanAddLocation(accountId);
       expect(result1.allowed).toBe(true);
 
       mockSql.mockResolvedValueOnce([mockQuotaAccountRow({ tier: 'standard', locationsIncluded: 1 })]);
-      mockSql.mockResolvedValueOnce([{ count: 1 }]); // Same count — this is the race
+      mockSql.mockResolvedValueOnce([{ count: 1 }]);
       const result2 = await assertCanAddLocation(accountId);
-      // Without FOR UPDATE, both would succeed (double-add).
-      // With FOR UPDATE, call 2 would see count=2 after call 1 commits.
-      // The business logic allows both here, which is correct when
-      // the DB provides serialization — the lock ensures the second
-      // call re-reads the updated state.
+      // Billing is reconciled asynchronously from the actual committed count.
       expect(result2.allowed).toBe(true);
     });
   });

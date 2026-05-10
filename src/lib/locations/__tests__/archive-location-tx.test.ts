@@ -78,7 +78,13 @@ function mkInput(overrides: Partial<ArchiveLocationTxInput> = {}): ArchiveLocati
 
 beforeEach(() => {
   mockSql.mockReset();
-  mockSql.mockResolvedValue([]);
+  mockSql.mockImplementation(async (strings: TemplateStringsArray) => {
+    const template = strings.join('?');
+    if (template.includes('UPDATE businesses')) {
+      return [{ id: SECONDARY_LOCATION_ID }];
+    }
+    return [];
+  });
   mockSql.begin = vi.fn(async (cb: (tx: any) => Promise<unknown>) => cb(mockSql));
 });
 
@@ -257,6 +263,30 @@ describe('archiveLocationTransaction', () => {
     expect(template).toMatch(/WHERE\s+id\s*=\s*\?::uuid\s+AND\s+account_id\s*=\s*\?::uuid/i);
   });
 
+  it('throws and skips audit/outbox when archive UPDATE affects no rows', async () => {
+    mockSql.mockImplementation(async (strings: TemplateStringsArray) => {
+      const template = strings.join('?');
+      if (template.includes('UPDATE businesses')) {
+        return [];
+      }
+      return [];
+    });
+
+    await expect(archiveLocationTransaction(mkInput())).rejects.toThrow(
+      'location_archive_conflict',
+    );
+
+    const txCalls = mockSql.mock.calls;
+    const auditCall = txCalls.find(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO account_audit_log'),
+    );
+    const outboxCall = txCalls.find(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO job_outbox'),
+    );
+    expect(auditCall).toBeUndefined();
+    expect(outboxCall).toBeUndefined();
+  });
+
   // Also sets is_primary = FALSE when archiving a primary
   it('sets is_primary = FALSE when archiving a primary location', async () => {
     await archiveLocationTransaction(mkInput());
@@ -399,6 +429,32 @@ describe('reactivateLocationTransaction', () => {
     expect(template).toContain('NULL');
   });
 
+  it('throws and skips audit/outbox when reactivate UPDATE affects no rows', async () => {
+    mockSql.mockImplementation(async (strings: TemplateStringsArray) => {
+      const template = strings.join('?');
+      if (template.includes('UPDATE businesses')) {
+        return [];
+      }
+      return [];
+    });
+
+    await expect(reactivateLocationTransaction({
+      locationId: SECONDARY_LOCATION_ID,
+      accountId: ACCOUNT_ID,
+      actorUserId: ACTOR_USER_ID,
+    })).rejects.toThrow('location_reactivate_conflict');
+
+    const txCalls = mockSql.mock.calls;
+    const auditCall = txCalls.find(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO account_audit_log'),
+    );
+    const outboxCall = txCalls.find(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO job_outbox'),
+    );
+    expect(auditCall).toBeUndefined();
+    expect(outboxCall).toBeUndefined();
+  });
+
   it('inserts audit log with event_type location_reactivated', async () => {
     await reactivateLocationTransaction({
       locationId: SECONDARY_LOCATION_ID,
@@ -468,10 +524,9 @@ describe('reactivateLocationTransaction', () => {
 // ══════════════════════════════════════════════════════════════════════════
 // Concurrent safety (VAL-LOC-047)
 // ══════════════════════════════════════════════════════════════════════════
-// VAL-LOC-047: Concurrent archive and add at quota boundary is safe.
-// The SELECT FOR UPDATE on accounts row in assertCanAddLocation already
-// provides race safety for add. For archive, the getActiveLocationCount
-// must be read within a locked context to prevent TOCTOU races.
+// VAL-LOC-047: Concurrent archive and add at quota boundary is handled by
+// state-conditional archive/reactivate updates plus asynchronous Stripe
+// reconciliation from the committed active-location count.
 
 describe('concurrent safety (VAL-LOC-047)', () => {
   it('archiveLocationTransaction does not use SELECT FOR UPDATE on accounts (outbox handles consistency)', async () => {
