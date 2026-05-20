@@ -29,7 +29,7 @@ export const QUEUE_NAMES = {
   UPDATE_STRIPE_OVERAGE: 'update_stripe_overage_quantity',
 } as const;
 
-export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
+type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
 
 /** Immutable list of every queue the worker operates on. */
 export const ALL_QUEUE_NAMES = Object.values(QUEUE_NAMES) as readonly QueueName[];

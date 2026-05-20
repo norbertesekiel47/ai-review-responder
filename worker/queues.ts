@@ -1,10 +1,9 @@
 import { Queue } from 'bullmq';
 import type { RedisOptions } from 'ioredis';
-import { QUEUE_NAMES, type QueueName } from '../src/lib/shared/queue-names';
+import { QUEUE_NAMES } from '../src/lib/shared/queue-names';
 
 // Re-export for existing callers (worker entry points, tests).
 export { QUEUE_NAMES };
-export type { QueueName };
 
 // ---------------------------------------------------------------------------
 // Redis connection options for BullMQ

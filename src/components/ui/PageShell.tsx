@@ -3,7 +3,7 @@
 import { useRef, type RefObject } from 'react';
 import { motion, useScroll, useTransform } from 'motion/react';
 
-export interface PageSection {
+interface PageSection {
   ref: RefObject<HTMLDivElement | null>;
   label: string;
 }

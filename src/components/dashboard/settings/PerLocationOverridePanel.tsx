@@ -32,7 +32,7 @@ export interface LocationOption {
   isPrimary: boolean;
 }
 
-export interface OrgDefaultEnrollment {
+interface OrgDefaultEnrollment {
   channel: string;
   handle: string | null;
   status: string;

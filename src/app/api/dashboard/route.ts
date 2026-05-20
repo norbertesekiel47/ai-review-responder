@@ -13,10 +13,7 @@ import { getLocationById } from '@/lib/locations/repo';
 export const dynamic = 'force-dynamic';
 
 export type {
-  DashboardData,
   DashboardDataActive,
-  DashboardSettings,
-  AggregateDashboardData,
 } from '@/lib/dashboard/types';
 
 

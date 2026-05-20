@@ -1016,9 +1016,6 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* hide scrollbars on the chart legend if narrow */
-.chart-shell .recharts-tooltip-wrapper { outline: none; }
-
 /* selection */
 ::selection { background: var(--rw-blue-100); color: var(--rw-blue-800); }
 

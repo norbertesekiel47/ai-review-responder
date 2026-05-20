@@ -47,7 +47,7 @@ function telegramAvailable(): boolean {
 
 // ── Per-location override shape ──────────────────────────────────────────
 
-export interface PerLocationOverride {
+interface PerLocationOverride {
   enrollmentId: string;
   locationId: string;
   locationName: string; // display_label ?? name
@@ -57,7 +57,7 @@ export interface PerLocationOverride {
   verified_at: string | null;
 }
 
-export interface LocationOption {
+interface LocationOption {
   id: string;
   displayName: string; // display_label ?? name
   isPrimary: boolean;

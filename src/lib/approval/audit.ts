@@ -28,7 +28,6 @@ type TxClient = postgres.TransactionSql;
 export type {
   AuditContext,
   SessionAuditContext,
-  CallbackAuditContext,
   CallbackAuditArtifacts,
 } from './types';
 
