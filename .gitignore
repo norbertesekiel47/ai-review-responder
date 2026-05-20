@@ -1,6 +1,9 @@
 # dependencies
 /node_modules
 
+# pnpm local content-addressable store (never committed)
+.pnpm-store/
+
 # binaries
 stripe.exe
 /.pnp
