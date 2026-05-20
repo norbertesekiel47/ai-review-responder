@@ -23,6 +23,7 @@ import {
   DailySmsLimitExceededError,
 } from './sms-budget';
 import { getDisplayLabel } from '../../../src/lib/locations/display-label';
+import type { DispatchOutcome } from './outcomes';
 
 export interface DispatchLogger {
   log: (msg: string) => void;
@@ -48,11 +49,6 @@ export interface DispatchContext {
     reviewDate: string;
     responsePreview: string;
   };
-}
-
-export interface DispatchOutcome {
-  attempted: number;
-  succeeded: number;
 }
 
 /**

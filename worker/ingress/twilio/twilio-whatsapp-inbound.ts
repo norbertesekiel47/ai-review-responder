@@ -28,6 +28,7 @@ import { stripWaPrefix, toWaRecipient } from '../../../src/lib/notifications/cha
 import { classifyIntent } from './twilio-intent';
 import { safeInvalidateChannelCache } from '../../../src/lib/notifications/resolve-channels';
 import { asAccountId } from '../../../src/lib/shared/ids';
+import { parseTwilioWhatsAppInbound } from './parse-inbound';
 
 const LOG_PREFIX = '[ingress/twilio-whatsapp]';
 
@@ -50,7 +51,11 @@ export async function handleTwilioWhatsAppInbound(
     return;
   }
 
-  const { MessageSid, From, ButtonPayload, Body } = params;
+  const inbound = parseTwilioWhatsAppInbound(params);
+  const MessageSid = inbound.messageSid;
+  const From = inbound.from;
+  const Body = inbound.body;
+  const { ButtonPayload } = params;
   if (!MessageSid || !From) {
     reply.status(400).send({ error: 'missing_fields' });
     return;
