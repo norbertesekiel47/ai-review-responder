@@ -23,4 +23,18 @@ describe('parseTwilioWhatsAppInbound', () => {
       messageSid: '',
     });
   });
+
+  it('returns empty strings for non-string fields', () => {
+    expect(
+      parseTwilioWhatsAppInbound({
+        From: 15551234567,
+        Body: null,
+        MessageSid: ['SM123'],
+      }),
+    ).toEqual({
+      from: '',
+      body: '',
+      messageSid: '',
+    });
+  });
 });

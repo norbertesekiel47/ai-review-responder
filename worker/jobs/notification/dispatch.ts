@@ -24,6 +24,7 @@ import {
 } from './sms-budget';
 import { getDisplayLabel } from '../../../src/lib/locations/display-label';
 import type { DispatchOutcome } from './outcomes';
+import { orderNotificationDispatchEnrollments } from './plan';
 
 export interface DispatchLogger {
   log: (msg: string) => void;
@@ -66,7 +67,9 @@ export async function dispatchAll(
   let attempted = 0;
   let succeeded = 0;
 
-  for (const enrollment of enrollments) {
+  const orderedEnrollments = orderNotificationDispatchEnrollments(enrollments);
+
+  for (const enrollment of orderedEnrollments) {
     const channelId: ChannelId = enrollment.channel;
 
     // Per-channel feature flag filtering happens in getEligibleChannels.

@@ -52,16 +52,16 @@ export async function handleTwilioWhatsAppInbound(
   }
 
   const inbound = parseTwilioWhatsAppInbound(params);
-  const MessageSid = inbound.messageSid;
-  const From = inbound.from;
-  const Body = inbound.body;
+  const messageSid = inbound.messageSid;
+  const from = inbound.from;
+  const body = inbound.body;
   const { ButtonPayload } = params;
-  if (!MessageSid || !From) {
+  if (!messageSid || !from) {
     reply.status(400).send({ error: 'missing_fields' });
     return;
   }
 
-  const dedupKey = MessageSid;
+  const dedupKey = messageSid;
   const eventType = ButtonPayload ? 'whatsapp_button' : 'whatsapp_inbound';
   const claim = await claimInboundEvent('twilio', dedupKey, eventType, redactWhatsAppPayload(params));
   if (claim === 'duplicate') {
@@ -69,7 +69,7 @@ export async function handleTwilioWhatsAppInbound(
     return;
   }
 
-  const senderHandle = stripWaPrefix(From);
+  const senderHandle = stripWaPrefix(from);
   const client = new WhatsAppClient();
 
   // Post-claim work runs inside an outer try/catch. The inbound_events row is
@@ -139,9 +139,9 @@ export async function handleTwilioWhatsAppInbound(
         chatHandle: senderHandle,
         viaChannel: 'whatsapp',
         audit: {
-          providerEventId: MessageSid,
+          providerEventId: messageSid,
           ipAddress: (request as unknown as { ip?: string | null }).ip ?? null,
-          twilioMessageSid: MessageSid,
+          twilioMessageSid: messageSid,
         },
       });
       const body = parsed.action === 'approve'
@@ -222,8 +222,8 @@ export async function handleTwilioWhatsAppInbound(
   }
 
   // ── Path 2: enrollment via click-to-chat (Body = 'start-<raw_token>') ───
-  if (Body && Body.startsWith('start-')) {
-    const rawToken = Body.slice(6).trim();
+  if (body && body.startsWith('start-')) {
+    const rawToken = body.slice(6).trim();
     const tokenHash = createHash('sha256').update(rawToken).digest('hex');
 
     const result = await sql.begin(async (tx) => {
@@ -261,14 +261,14 @@ export async function handleTwilioWhatsAppInbound(
       );
     }
 
-    const body = result.matched
+    const responseBody = result.matched
       ? "✅ You're connected to RepWorth — we'll ping you here when a review needs approval."
       : 'This link is invalid or expired.';
     // Enrollment-path confirmation is the ONLY signal the user gets that
     // verification succeeded. Log failures so they surface in oncall rather
     // than silently hiding a Twilio outage. The enrollment tx has already
     // committed — we proceed to markProcessed regardless.
-    await client.sendFreeform({ to: toWaRecipient(senderHandle), body })
+    await client.sendFreeform({ to: toWaRecipient(senderHandle), body: responseBody })
       .catch((err) => console.warn(`${LOG_PREFIX} enrollment confirmation send failed: ${(err as Error).message}`));
     await markInboundEventProcessed(dedupKey);
     reply.status(200).send({ received: true });
@@ -281,7 +281,7 @@ export async function handleTwilioWhatsAppInbound(
   const maskedSender = senderHandle.length > 4
     ? `***${senderHandle.slice(-4)}`
     : '***';
-  console.log(`${LOG_PREFIX} unrecognised inbound from ${maskedSender} (MessageSid=${MessageSid})`);
+  console.log(`${LOG_PREFIX} unrecognised inbound from ${maskedSender} (MessageSid=${messageSid})`);
   await markInboundEventProcessed(dedupKey);
   reply.status(200).send({ received: true });
   } catch (err) {

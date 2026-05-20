@@ -448,6 +448,50 @@ describe('NotificationWorker — dispatcher (multi-channel)', () => {
     expect(mockMarkOutboxCompleted).toHaveBeenCalledTimes(1);
   });
 
+  it('dispatches unordered enrollments in canonical channel order without dropping duplicates', async () => {
+    mockGetVerifiedEnrollments.mockResolvedValue([
+      { channel: 'sms', handle: '+15550000002', location_id: null },
+      { channel: 'email', handle: 'owner@example.com', location_id: null },
+      { channel: 'sms', handle: '+15550000001', location_id: null },
+    ]);
+    const sendOrder: string[] = [];
+    mockChannelSend.mockImplementation(async ({ handle }: { handle: string }) => {
+      sendOrder.push(`email:${handle}`);
+      return { externalMessageId: 'resend-msg-1' };
+    });
+    const smsSend = vi.fn().mockImplementation(async ({ handle }: { handle: string }) => {
+      sendOrder.push(`sms:${handle}`);
+      return { externalMessageId: `twi-${handle}` };
+    });
+    mockGetChannel.mockImplementation((id: string) => {
+      if (id === 'email') return { id: 'email', supportsInlineActions: false, requiresOptInHandshake: false, sendApprovalRequest: mockChannelSend };
+      if (id === 'sms') return { id: 'sms', supportsInlineActions: false, requiresOptInHandshake: false, sendApprovalRequest: smsSend };
+      throw new Error(`unexpected channel ${id}`);
+    });
+
+    sqlReturnQueue.push(
+      [mockResponseRow()],
+      [mockBusinessRow()],
+      [],  // email idempotency
+      [],  // email delivery insert
+      [],  // first sms idempotency
+      [],  // first sms delivery insert
+      [],  // second sms idempotency
+      [],  // second sms delivery insert
+    );
+
+    await handleSendNotification(makeJob());
+
+    expect(sendOrder).toEqual([
+      'email:owner@example.com',
+      'sms:+15550000002',
+      'sms:+15550000001',
+    ]);
+    expect(mockChannelSend).toHaveBeenCalledTimes(1);
+    expect(smsSend).toHaveBeenCalledTimes(2);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledTimes(1);
+  });
+
   it('throws (for BullMQ retry) when ALL attempted channels fail', async () => {
     mockGetVerifiedEnrollments.mockResolvedValue([{ channel: 'email', handle: 'owner@example.com', location_id: null }]);
     mockChannelSend.mockRejectedValue(new Error('Resend 500'));
