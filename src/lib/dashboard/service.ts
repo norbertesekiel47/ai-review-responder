@@ -15,6 +15,8 @@ import {
 } from '@/lib/shared/response-status';
 import { pendingKey } from '@/lib/zernio/connect-state';
 import type { ConnectPendingMarker } from '@/lib/zernio/types';
+import { mapRecentReviews, mapReviewVelocity } from './active-mappers';
+import { resolveZernioConnectionState } from './zernio-banner';
 import type { DashboardDataActive } from './types';
 
 /**
@@ -330,42 +332,14 @@ export async function getActiveDashboardData(
     }
   }
 
-  let status: DashboardDataActive['zernioConnection']['status'];
-  let surfacedPendingFlow: typeof pendingFlow;
-  if (hasUnresolvedIncident || pendingFlow?.status === 'finalize_unknown') {
-    status = 'finalize_unknown';
-    // Only surface the pending flow when it itself is the finalize_unknown
-    // signal — an unresolved DB incident alone shouldn't leak unrelated flow
-    // data into the UI.
-    surfacedPendingFlow =
-      pendingFlow?.status === 'finalize_unknown' ? pendingFlow : undefined;
-  } else if (connStatus === 'active') {
-    // Active DB connection beats any non-finalize stale pending marker —
-    // the DB is authoritative once select-location has succeeded. Drop
-    // pendingFlow so the UI renders cleanly as "active" instead of
-    // "active but with weird in-flight flow data".
-    status = 'active';
-    surfacedPendingFlow = undefined;
-  } else if (pendingFlow) {
-    status = 'pending';
-    surfacedPendingFlow = pendingFlow;
-  } else if (connStatus) {
-    // 'pending' | 'disconnected'
-    status = connStatus;
-    surfacedPendingFlow = undefined;
-  } else {
-    status = 'none';
-    surfacedPendingFlow = undefined;
-  }
-
-  const zernioConnection: DashboardDataActive['zernioConnection'] = {
-    status,
-    pendingFlow: surfacedPendingFlow,
-    queuedReconnectCount,
+  const zernioConnection = resolveZernioConnectionState({
     hasUnresolvedIncident,
+    connectionStatus: connStatus,
+    pendingFlow,
+    queuedReconnectCount,
     lastDisconnectReason:
       (zernioRow?.disconnect_reason as string | null) ?? undefined,
-  };
+  });
 
   const data: DashboardDataActive = {
     business: {
@@ -378,23 +352,13 @@ export async function getActiveDashboardData(
       currentResponseRate,
       baselineResponseRate,
     },
-    reviewVelocity: velocityRows.map((row) => ({
-      weekStart: String(row.week_start),
-      count: row.count as number,
-    })),
+    reviewVelocity: mapReviewVelocity(
+      velocityRows as unknown as Array<{ week_start: unknown; count: unknown }>,
+    ),
     ranking,
-    recentReviews: recentReviewRows.map((row) => ({
-      id: row.id as string,
-      reviewerName: (row.reviewer_name as string) ?? 'Anonymous',
-      starRating: (row.star_rating as number) ?? null,
-      reviewText: (row.review_text as string) ?? null,
-      reviewDate: row.review_date
-        ? (row.review_date as Date).toISOString()
-        : '',
-      status: row.status as string,
-      responseText: (row.response_text as string) ?? null,
-      responseStatus: (row.response_status as string) ?? null,
-    })),
+    recentReviews: mapRecentReviews(
+      recentReviewRows as unknown as Array<Record<string, unknown>>,
+    ),
     latestBrief,
     settings: {
       tone: (business.tone as string) ?? 'professional and friendly',

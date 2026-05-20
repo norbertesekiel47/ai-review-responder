@@ -9,6 +9,7 @@ import {
 } from '@/lib/dashboard/service';
 import { getAggregateDashboardData } from '@/lib/dashboard/aggregate-service';
 import { getLocationById } from '@/lib/locations/repo';
+import { resolveDashboardScopePolicy } from './policy';
 
 export const dynamic = 'force-dynamic';
 
@@ -198,9 +199,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   // no scope → use the user's current location from session/cookie
   const scopeParam = request.nextUrl.searchParams.get('scope');
   const multiLocationEnabled = process.env.MULTI_LOCATION_ENABLED === 'true';
+  const scopePolicy = resolveDashboardScopePolicy({
+    scopeParam,
+    userLocationId: user.locationId,
+    multiLocationEnabled,
+  });
 
   // Aggregate mode: scope=all
-  if (multiLocationEnabled && scopeParam === 'all') {
+  if (scopePolicy.mode === 'aggregate') {
     try {
       // Verify account subscription status before returning aggregate data
       const [accountRow] = await sql<{
@@ -275,9 +281,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   // Per-location mode: use scope parameter or fall back to user's current location
-  const locationId = (scopeParam && scopeParam !== 'all')
-    ? scopeParam
-    : user.locationId;
+  const locationId = scopePolicy.locationId;
 
   if (!locationId) {
     return jsonResponse({ error: 'No business associated with this account' }, 403);
