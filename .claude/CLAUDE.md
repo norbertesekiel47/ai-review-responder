@@ -29,6 +29,10 @@ approval before posting.
 
 - **Vercel = UI only.** LLM calls, external API calls, and long-running
   operations MUST run on Railway workers. Never in Next.js API routes.
+  Exception (ADR 0001): Next.js routes may make short, user-blocking
+  OAuth-handshake calls when they must set/clear cookies or return a redirect
+  synchronously (Zernio connect callback + select-location). Durable recovery
+  and long-running work still belong in modules/workers.
 - **Transactional outbox.** State change + follow-up work go in ONE Postgres
   transaction via `job_outbox`. Never write Postgres then separately enqueue
   BullMQ — silent data loss on enqueue failure.
