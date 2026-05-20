@@ -73,6 +73,7 @@ export async function handleOnboardingDemo(
       outboxId,
       outboxAttempt,
       error: new Error('subscription_state_changed'),
+      failureKind: 'subscription_state_changed',
       logger,
     });
     await releaseReservation();

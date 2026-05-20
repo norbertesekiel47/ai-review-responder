@@ -1,21 +1,20 @@
-export type ConnectPendingStatus =
-  | 'starting'
-  | 'oauth_in_progress'
-  | 'finalizing'
-  | 'finalize_unknown';
+import {
+  CONNECT_PENDING_STATUSES,
+  type ConnectPendingMarker,
+} from '@/lib/zernio/types';
 
-export interface ConnectPendingMarkerShape {
-  flowId: string;
-  userId: string;
-  started_at: number;
-  status: ConnectPendingStatus;
-  profileId?: string;
-  state?: string;
+export type ConnectPendingMarkerShape = Pick<
+  ConnectPendingMarker,
+  'flowId' | 'userId' | 'started_at' | 'status' | 'profileId' | 'state'
+>;
+
+function isConnectPendingStatus(status: string): status is ConnectPendingMarkerShape['status'] {
+  return (CONNECT_PENDING_STATUSES as readonly string[]).includes(status);
 }
 
 export function parseConnectPendingMarker(raw: string): ConnectPendingMarkerShape | null {
   try {
-    const parsed = JSON.parse(raw) as Partial<ConnectPendingMarkerShape>;
+    const parsed = JSON.parse(raw) as Partial<ConnectPendingMarker>;
     if (
       !parsed ||
       typeof parsed.flowId !== 'string' ||
@@ -26,15 +25,12 @@ export function parseConnectPendingMarker(raw: string): ConnectPendingMarkerShap
       return null;
     }
 
-    if (
-      parsed.status !== 'starting' &&
-      parsed.status !== 'oauth_in_progress' &&
-      parsed.status !== 'finalizing' &&
-      parsed.status !== 'finalize_unknown'
-    ) {
+    if (!isConnectPendingStatus(parsed.status)) {
       return null;
     }
 
+    // This parser intentionally returns only fields consumed by start/route.ts.
+    // It validates canonical statuses but does not round-trip finalize_unknown_at.
     return {
       flowId: parsed.flowId,
       userId: parsed.userId,

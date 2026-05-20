@@ -14,6 +14,17 @@ export function resolveZernioConnectionState(
   let status: DashboardDataActive['zernioConnection']['status'];
   let surfacedPendingFlow: typeof input.pendingFlow;
 
+  // Zernio banner state precedence, highest to lowest:
+  //   1. Unresolved finalize incident in DB            -> 'finalize_unknown'
+  //   2. Pending marker with status='finalize_unknown' -> 'finalize_unknown'
+  //      (mirrors #1 before OutboxPoller has written the incident row, or
+  //      during the brief window between markUnknown and incident insert)
+  //   3. zernio_connections.status === 'active'        -> 'active'
+  //      (beats stale non-finalize pending markers; select-location's
+  //      best-effort Redis cleanup can leave one behind for up to the TTL)
+  //   4. Pending marker with any non-finalize status   -> 'pending'
+  //   5. zernio_connections.status ('pending'|'disconnected')
+  //   6. Fallback                                      -> 'none'
   if (
     input.hasUnresolvedIncident ||
     input.pendingFlow?.status === 'finalize_unknown'

@@ -5,6 +5,7 @@ export async function failOnboardingDemoTerminal(input: {
   outboxId: string;
   outboxAttempt: number | undefined;
   error: Error;
+  failureKind?: 'subscription_state_changed';
   logger: { error(message: string): void };
 }): Promise<void> {
   try {
@@ -16,7 +17,7 @@ export async function failOnboardingDemoTerminal(input: {
       input.error,
     );
   } catch (txError) {
-    if (input.error.message === 'subscription_state_changed') {
+    if (input.failureKind === 'subscription_state_changed') {
       input.logger.error(
         `Failed to record subscription_state_changed for demo ${input.demoId}: ${txError instanceof Error ? txError.message : String(txError)}`,
       );

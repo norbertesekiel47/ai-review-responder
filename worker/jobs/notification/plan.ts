@@ -41,6 +41,9 @@ export function orderNotificationDispatchEnrollments<
     dispatchPlan.map((channel, index) => [channel, index]),
   );
 
+  // Defensive normalization: callers currently provide a complete,
+  // alphabetically ordered channel set, so this preserves behavior while
+  // keeping dispatch tied to the canonical order above if input order drifts.
   return [...enrollments].sort((a, b) => {
     const aOrder = channelOrder.get(a.channel) ?? Number.MAX_SAFE_INTEGER;
     const bOrder = channelOrder.get(b.channel) ?? Number.MAX_SAFE_INTEGER;

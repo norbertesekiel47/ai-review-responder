@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { classifyAndParse, zernioClient } from '../client';
+import { classifyAndParse, createZernioTransport, zernioClient } from '../client';
 import {
   ZernioAuthError,
   ZernioValidationError,
@@ -227,6 +227,33 @@ describe('request() timeout handling', () => {
         endpointKind: 'select_location',
       }),
     ).rejects.toMatchObject({ name: 'ZernioAuthError' });
+  });
+});
+
+describe('createZernioTransport', () => {
+  it('uses injected base URL, API key, and fetch implementation', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ ok: true }), { status: 200 }),
+    );
+    const transport = createZernioTransport({
+      baseUrl: 'https://zernio.injected/api',
+      apiKey: 'injected-key',
+      fetchImpl: fetchMock as unknown as typeof fetch,
+    });
+
+    const result = await transport.request<{ ok: boolean }>({
+      method: 'GET',
+      path: '/v1/test',
+      endpointKind: 'list_reviews',
+    });
+
+    expect(result).toEqual({ ok: true });
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe('https://zernio.injected/api/v1/test');
+    expect(init).toMatchObject({
+      method: 'GET',
+      headers: expect.objectContaining({ Authorization: 'Bearer injected-key' }),
+    });
   });
 });
 

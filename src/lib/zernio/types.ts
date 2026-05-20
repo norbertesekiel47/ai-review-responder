@@ -26,11 +26,20 @@ export interface ZernioLocationOption {
   address: string;
 }
 
+export const CONNECT_PENDING_STATUSES = [
+  'starting',
+  'oauth_in_progress',
+  'finalizing',
+  'finalize_unknown',
+] as const;
+
+export type ConnectPendingStatus = (typeof CONNECT_PENDING_STATUSES)[number];
+
 export interface ConnectPendingMarker {
   flowId: string;
   userId: string;
   started_at: number;
-  status: 'starting' | 'oauth_in_progress' | 'finalizing' | 'finalize_unknown';
+  status: ConnectPendingStatus;
   profileId?: string;
   state?: string;
   finalize_unknown_at?: string;

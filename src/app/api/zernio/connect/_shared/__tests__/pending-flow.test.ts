@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { CONNECT_PENDING_STATUSES } from '@/lib/zernio/types';
 import { parseConnectPendingMarker } from '../pending-flow';
 
 describe('parseConnectPendingMarker', () => {
@@ -40,6 +41,21 @@ describe('parseConnectPendingMarker', () => {
       flowId: 'flow_123',
       status: 'finalizing',
     });
+  });
+
+  it('parses every canonical pending marker status', () => {
+    for (const status of CONNECT_PENDING_STATUSES) {
+      expect(
+        parseConnectPendingMarker(
+          JSON.stringify({
+            flowId: 'flow_123',
+            userId: 'user_123',
+            started_at: 1_700_000_000_000,
+            status,
+          }),
+        ),
+      ).toMatchObject({ status });
+    }
   });
 
   it('returns null when required shape is missing', () => {

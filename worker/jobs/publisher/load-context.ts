@@ -24,7 +24,7 @@ export async function loadPublishResponseContext(input: {
   outboxId: string;
   outboxAttempt: number | undefined;
   logger: { error(message: string): void; warn(message: string): void };
-}): Promise<PublishResponseContext | 'completed'> {
+}): Promise<PublishResponseContext | 'terminal'> {
   const { responseId, businessId, outboxId, outboxAttempt, logger } = input;
 
   const [response] = await sql<PublishResponseContext['response'][]>`
@@ -36,13 +36,13 @@ export async function loadPublishResponseContext(input: {
   if (!response) {
     logger.error(`Response ${responseId} not found`);
     await markOutboxFailed(outboxId, `response_not_found: ${responseId}`, outboxAttempt);
-    return 'completed';
+    return 'terminal';
   }
 
   if (response.business_id !== businessId) {
     logger.error(`Response ${responseId} belongs to business ${response.business_id}, not ${businessId}`);
     await markOutboxFailed(outboxId, 'business_id_mismatch', outboxAttempt);
-    return 'completed';
+    return 'terminal';
   }
 
   const [business] = await sql<PublishResponseContext['business'][]>`
@@ -55,7 +55,7 @@ export async function loadPublishResponseContext(input: {
   if (!business) {
     logger.error(`Business ${businessId} not found`);
     await markOutboxFailed(outboxId, `business_not_found: ${businessId}`, outboxAttempt);
-    return 'completed';
+    return 'terminal';
   }
 
   if (business.archived_at !== null) {
@@ -63,7 +63,7 @@ export async function loadPublishResponseContext(input: {
       `Business ${businessId} is archived; skipping public publish for response ${responseId}`,
     );
     await markOutboxCompleted(outboxId, outboxAttempt);
-    return 'completed';
+    return 'terminal';
   }
 
   return { response, business };

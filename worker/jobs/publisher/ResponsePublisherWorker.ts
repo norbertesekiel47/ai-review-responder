@@ -28,7 +28,7 @@ export async function handlePublishResponse(
     outboxAttempt,
     logger,
   });
-  if (context === 'completed') return;
+  if (context === 'terminal') return;
 
   const { response, business } = context;
 

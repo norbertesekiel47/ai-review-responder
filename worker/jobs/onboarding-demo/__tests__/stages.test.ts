@@ -229,7 +229,13 @@ describe('buildOnboardingDemoSource', () => {
     const generated = {
       reviews: selected,
       responses: [response({ responseText: 'Generated response' })],
-      metadata: { totalCostUsd: 0.03 },
+      metadata: {
+        totalReviews: 1,
+        successfulResponses: 1,
+        failedResponses: 0,
+        totalCostUsd: 0.03,
+        generationDurationMs: 125,
+      },
     };
     vi.mocked(fetchSerpApiReviews).mockResolvedValue([review()]);
     vi.mocked(selectQualifyingReviews).mockReturnValue(selected);
@@ -304,12 +310,32 @@ describe('failOnboardingDemoTerminal', () => {
         outboxId: 'outbox_123',
         outboxAttempt: undefined,
         error: new Error('subscription_state_changed'),
+        failureKind: 'subscription_state_changed',
         logger,
       }),
     ).rejects.toThrow('tx failed');
 
     expect(logger.error).toHaveBeenCalledWith(
       'Failed to record subscription_state_changed for demo demo_123: tx failed',
+    );
+  });
+
+  it('does not infer subscription-state logging from the error message alone', async () => {
+    const logger = { error: vi.fn() };
+    vi.mocked(failDemo).mockRejectedValue(new Error('tx failed'));
+
+    await expect(
+      failOnboardingDemoTerminal({
+        demoId: 'demo_123',
+        outboxId: 'outbox_123',
+        outboxAttempt: undefined,
+        error: new Error('subscription_state_changed'),
+        logger,
+      }),
+    ).rejects.toThrow('tx failed');
+
+    expect(logger.error).toHaveBeenCalledWith(
+      'Failed to record failure for demo demo_123: tx failed',
     );
   });
 
