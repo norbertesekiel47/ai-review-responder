@@ -19,9 +19,11 @@ const baseData = {
 
 describe('buildBusinessWizardPayload', () => {
   it('excludes location fields in demo flow', () => {
-    expect(buildBusinessWizardPayload(baseData, { demoFlowEnabled: true })).not.toHaveProperty(
-      'googlePlaceId',
-    );
+    const payload = buildBusinessWizardPayload(baseData, { demoFlowEnabled: true });
+
+    expect(payload).not.toHaveProperty('googlePlaceId');
+    expect(payload).not.toHaveProperty('googlePlaceAddress');
+    expect(payload).not.toHaveProperty('googleMapsUrl');
   });
 
   it('includes autocomplete location fields in legacy flow', () => {
@@ -33,11 +35,33 @@ describe('buildBusinessWizardPayload', () => {
   });
 
   it('omits voice fields when skipVoice is true', () => {
+    const payload = buildBusinessWizardPayload(baseData, {
+      demoFlowEnabled: false,
+      skipVoice: true,
+    });
+
+    expect(payload).not.toHaveProperty('productsServices');
+    expect(payload).not.toHaveProperty('staffNames');
+    expect(payload).not.toHaveProperty('highlightFacts');
+    expect(payload).not.toHaveProperty('avoidFacts');
+    expect(payload).not.toHaveProperty('sampleResponses');
+  });
+
+  it('includes URL location fields in legacy URL mode', () => {
     expect(
-      buildBusinessWizardPayload(baseData, {
-        demoFlowEnabled: false,
-        skipVoice: true,
-      }),
-    ).not.toHaveProperty('productsServices');
+      buildBusinessWizardPayload(
+        {
+          ...baseData,
+          inputMode: 'url',
+          googleMapsUrl: 'https://maps.google.com/?cid=123',
+        },
+        { demoFlowEnabled: false },
+      ),
+    ).toMatchObject({
+      businessName: 'RepWorth Cafe',
+      googlePlaceId: undefined,
+      googlePlaceAddress: undefined,
+      googleMapsUrl: 'https://maps.google.com/?cid=123',
+    });
   });
 });
