@@ -1,10 +1,7 @@
 import Stripe from 'stripe';
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '../../../src/lib/db/server';
-import {
-  isSubscriptionTier,
-  type SubscriptionTierValue,
-} from '../../../src/lib/accounts/tier-config';
+import { type SubscriptionTierValue } from '../../../src/lib/accounts/tier-config';
 import { LOG_PREFIX, extractCustomerId } from './shared';
 
 export async function processSubscriptionUpdated(sub: Stripe.Subscription): Promise<void> {
