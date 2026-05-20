@@ -1,7 +1,9 @@
 // src/lib/admin/business-detail-service.ts
 //
 // Service layer for `GET/PATCH /api/admin/businesses/[id]`.
-// Owns the SQL queries; the route handler is a thin HTTP wrapper.
+// Orchestrates the business-detail fetch: batch1 → null guard → batch2 → map.
+// SQL lives in ./business-detail/queries, mapping in ./business-detail/mappers,
+// the write path in ./business-detail/update.
 // Mirrors the src/lib/dashboard/service.ts split shipped earlier in this branch.
 
 import { fetchBusinessDetailBatch1, fetchBusinessDetailBatch2 } from './business-detail/queries';

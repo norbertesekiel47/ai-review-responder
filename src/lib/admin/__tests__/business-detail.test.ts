@@ -8,9 +8,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ── Hoisted mocks ───────────────────────────────────────────────────
 
-const { mockSqlResults, sqlCallCounter } = vi.hoisted(() => ({
+const { mockSqlResults, sqlCallCounter, mockComputeChurnRiskScore } = vi.hoisted(() => ({
   mockSqlResults: [] as unknown[][],
   sqlCallCounter: { value: 0 },
+  mockComputeChurnRiskScore: vi.fn(() => ({
+    score: 42,
+    level: 'watch',
+    breakdown: [{ signal: 'approvalRate', value: '0.5', contribution: 15 }],
+  })),
 }));
 
 vi.mock('@/lib/db/server', () => {
@@ -38,11 +43,7 @@ vi.mock('@/lib/db/server', () => {
 });
 
 vi.mock('@/lib/shared/churn-score', () => ({
-  computeChurnRiskScore: () => ({
-    score: 42,
-    level: 'watch',
-    breakdown: [{ signal: 'approvalRate', value: '0.5', contribution: 15 }],
-  }),
+  computeChurnRiskScore: mockComputeChurnRiskScore,
 }));
 
 // ── Helpers ─────────────────────────────────────────────────────────
@@ -171,7 +172,12 @@ const ACCOUNT_AUDIT_ROW = {
   created_at: new Date('2026-01-01T10:00:00Z'),
 };
 
-/** Queue results for all 10 queries in the correct call order. */
+/**
+ * Queue results for all 10 queries in call order. The order and COUNT are
+ * load-bearing: results are consumed positionally as `sql` is invoked
+ * (batch-1's 6 parallel queries, then batch-2's 4). Adding/removing a query
+ * in queries.ts means updating every manual push sequence in this file.
+ */
 function queueAllResults() {
   // Batch 1 (6 parallel queries)
   mockSqlResults.push([BUSINESS_ROW]);            // 0: business
@@ -404,9 +410,12 @@ describe('getBusinessDetail — full DTO characterization', () => {
     mockSqlResults.push([]);
     mockSqlResults.push([]);
 
-    // computeChurnRiskScore is mocked; we just verify the call shape doesn't throw
     const result = await getBusinessDetail('biz-abc');
     expect(result).not.toBeNull();
+    // responseTimeTrend is fed into computeChurnRiskScore; assert the derived value.
+    expect(mockComputeChurnRiskScore).toHaveBeenCalledWith(
+      expect.objectContaining({ responseTimeTrend: 'slower' }),
+    );
   });
 
   it('maps responseTimeTrend=stopped when pending > 0 and days_since_approval > 7 (no current/prev hours)', async () => {
@@ -433,9 +442,10 @@ describe('getBusinessDetail — full DTO characterization', () => {
 
     const result = await getBusinessDetail('biz-abc');
     expect(result).not.toBeNull();
-    // The churnScore mock is called — no assertion on trend value since
-    // computeChurnRiskScore is mocked, but this verifies the path completes.
-    expect(result!.business.churnScore).toBeDefined();
+    // 'stopped' trend: pending > 0, days_since_approval > 7, no current/prev hours.
+    expect(mockComputeChurnRiskScore).toHaveBeenCalledWith(
+      expect.objectContaining({ responseTimeTrend: 'stopped' }),
+    );
   });
 
   it('handles null last_sync_at and null detected_at gracefully', async () => {

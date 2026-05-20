@@ -2,7 +2,7 @@
 //
 // Pure mapping functions: DB rows → BusinessDetailResponse DTO.
 // Extracted verbatim from business-detail-service.ts; only
-// export/import wiring changed. No edits to SQL, computation, or mapping logic.
+// export/import wiring changed. No edits to computation or mapping logic.
 
 import { computeChurnRiskScore } from '@/lib/shared/churn-score';
 import { parseDbArray } from '@/lib/shared/db-array';
