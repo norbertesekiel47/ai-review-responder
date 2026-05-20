@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCacheRedis } from '@/lib/db/redis-cache';
-import { getCurrentUser } from '@/lib/db/auth';
 import { zernioClient } from '@/lib/zernio/client';
 import {
   pendingKey,
@@ -17,6 +16,7 @@ import type {
   ConnectLocationsBlob,
 } from '@/lib/zernio/types';
 import { cleanupAfterOauthDenial } from '../_shared/callback/oauth-denial';
+import { claimAndVerifyConnectState } from '../_shared/callback/claim-and-verify';
 
 export const dynamic = 'force-dynamic';
 
@@ -225,68 +225,15 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
   const redis = getCacheRedis();
 
-  // 3. Atomic state claim. ioredis exposes `getdel` (atomic GET+DEL) on Redis
-  // 6.2+. Single-use prevents replay even if every later step fails.
-  let stateRaw: string | null;
-  try {
-    stateRaw = await redis.getdel(stateKey(state));
-  } catch (err) {
-    console.error('[api/zernio/connect/callback] redis getdel failed:', err);
-    return redirectError(origin, 'internal_error');
+  // 3–5. Atomic single-use state claim, first pending verification, re-auth.
+  const claim = await claimAndVerifyConnectState(req, state);
+  if (!claim.ok) {
+    if (claim.cleanupProfileId) {
+      await cleanupOrphanedProfileBestEffort(claim.cleanupProfileId);
+    }
+    return redirectError(origin, claim.code);
   }
-  if (!stateRaw) {
-    return redirectError(origin, 'state_expired');
-  }
-
-  let stored: ConnectStateBlob;
-  try {
-    stored = JSON.parse(stateRaw) as ConnectStateBlob;
-  } catch {
-    return redirectError(origin, 'malformed_state');
-  }
-  await redis.del(profileStateKey(stored.profileId)).catch(() => {
-    // Best-effort: profile lookup auto-expires.
-  });
-
-  // 4. First pending verification.
-  let pendingRaw: string | null;
-  try {
-    pendingRaw = await redis.get(pendingKey(stored.businessId));
-  } catch (err) {
-    console.error('[api/zernio/connect/callback] redis get pending failed:', err);
-    await cleanupOrphanedProfileBestEffort(stored.profileId);
-    return redirectError(origin, 'internal_error');
-  }
-  if (!pendingRaw) {
-    await cleanupOrphanedProfileBestEffort(stored.profileId);
-    return redirectError(origin, 'pending_missing');
-  }
-
-  let pending: ConnectPendingMarker;
-  try {
-    pending = JSON.parse(pendingRaw) as ConnectPendingMarker;
-  } catch {
-    await cleanupOrphanedProfileBestEffort(stored.profileId);
-    return redirectError(origin, 'malformed_pending');
-  }
-
-  if (
-    pending.state !== state ||
-    pending.profileId !== stored.profileId ||
-    pending.status !== 'oauth_in_progress'
-  ) {
-    await cleanupOrphanedProfileBestEffort(stored.profileId);
-    return redirectError(origin, 'flow_mismatch');
-  }
-
-  // 5. Re-auth — owner session must match the user who initiated the flow.
-  // Use getCurrentUser (returns null) instead of requireRole (throws) so we
-  // can convert auth failures into the same friendly redirect surface.
-  const user = await getCurrentUser(req).catch(() => null);
-  if (!user || user.id !== stored.userId || user.id !== pending.userId) {
-    await cleanupOrphanedProfileBestEffort(stored.profileId);
-    return redirectError(origin, 'user_mismatch');
-  }
+  const { stored, pending } = claim;
 
   // 6. Zernio listLocations + round-11 second pending re-check + stash + cookie.
   // Cleanup-on-failure runs in the catch branch.
