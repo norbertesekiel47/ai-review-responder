@@ -11,17 +11,19 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { requireRole, AuthError } from '@/lib/db/auth';
 import { promotePrimaryTransaction } from '@/lib/locations/promote-primary-tx';
 import { getLocationById } from '@/lib/locations/repo';
+import {
+  LOCATION_ROUTE_NO_STORE as NO_STORE,
+  ownerAccountMismatchResponse,
+  readLocationRouteJson,
+  readOwnerForMultiLocationRoute,
+  UUID_RE,
+} from '@/lib/locations/owner-route';
 
 export const dynamic = 'force-dynamic';
 
-const NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
-
 // ── Request schema ─────────────────────────────────────────────────────────
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const PromotePrimarySchema = z.object({
   newPrimaryId: z.string().regex(UUID_RE, 'Invalid location ID format'),
@@ -40,63 +42,17 @@ const PromotePrimarySchema = z.object({
  *   3. Inserts account_audit_log with event_type 'primary_promoted'
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  // Gate by MULTI_LOCATION_ENABLED
-  if (process.env.MULTI_LOCATION_ENABLED !== 'true') {
-    return NextResponse.json(
-      { error: 'not_found' },
-      { status: 404, headers: NO_STORE },
-    );
-  }
+  const owner = await readOwnerForMultiLocationRoute(req);
+  if (!owner.ok) return owner.response;
+  const { user } = owner;
 
-  // ── Auth: require owner role ────────────────────────────────────────────
-  let user;
-  try {
-    user = await requireRole(req, 'owner');
-  } catch (err) {
-    if (err instanceof AuthError) {
-      return NextResponse.json(
-        { error: err.message },
-        { status: err.statusCode, headers: NO_STORE },
-      );
-    }
-    return NextResponse.json(
-      { error: 'Unauthorized' },
-      { status: 401, headers: NO_STORE },
-    );
-  }
-
-  if (!user.accountId) {
-    return NextResponse.json(
-      { error: 'No account associated with this user' },
-      { status: 403, headers: NO_STORE },
-    );
-  }
-
-  let body: unknown;
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json(
-      { error: 'invalid_json' },
-      { status: 400, headers: NO_STORE },
-    );
-  }
-
-  const parsed = PromotePrimarySchema.safeParse(body);
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: 'invalid_body', issues: parsed.error.issues },
-      { status: 400, headers: NO_STORE },
-    );
-  }
-  const { newPrimaryId, accountId } = parsed.data;
+  const body = await readLocationRouteJson(req, PromotePrimarySchema);
+  if (!body.ok) return body.response;
+  const { newPrimaryId, accountId } = body.data;
 
   // ── Ownership: body.accountId must match authenticated user ──────────────
   if (accountId !== user.accountId) {
-    return NextResponse.json(
-      { error: 'Account ID mismatch' },
-      { status: 403, headers: NO_STORE },
-    );
+    return ownerAccountMismatchResponse();
   }
 
   // ── Ownership: verify the target location belongs to this account ───────

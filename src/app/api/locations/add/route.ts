@@ -9,19 +9,21 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { requireRole, AuthError } from '@/lib/db/auth';
 import { assertCanAddLocation } from '@/lib/accounts/quota';
 import { getAccountById, getAccountOwnerUserId } from '@/lib/accounts/repo';
 import { addLocationTransaction } from '@/lib/locations/add-location-tx';
 import { getActiveLocationCount } from '@/lib/locations/repo';
+import {
+  LOCATION_ROUTE_NO_STORE as NO_STORE,
+  ownerAccountMismatchResponse,
+  readLocationRouteJson,
+  readOwnerForMultiLocationRoute,
+  UUID_RE,
+} from '@/lib/locations/owner-route';
 
 export const dynamic = 'force-dynamic';
 
-const NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
-
 // ── Request schema ─────────────────────────────────────────────────────────
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const AddLocationSchema = z.object({
   accountId: z.string().regex(UUID_RE, 'Invalid account ID format'),
@@ -58,63 +60,17 @@ const AddLocationSchema = z.object({
  * Gated by MULTI_LOCATION_ENABLED — returns 404 when disabled (VAL-LOC-041).
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  // VAL-LOC-041: Gate by MULTI_LOCATION_ENABLED flag
-  if (process.env.MULTI_LOCATION_ENABLED !== 'true') {
-    return NextResponse.json(
-      { error: 'not_found' },
-      { status: 404, headers: NO_STORE },
-    );
-  }
+  const owner = await readOwnerForMultiLocationRoute(req);
+  if (!owner.ok) return owner.response;
+  const { user } = owner;
 
-  // ── Auth: require owner role ────────────────────────────────────────────
-  let user;
-  try {
-    user = await requireRole(req, 'owner');
-  } catch (err) {
-    if (err instanceof AuthError) {
-      return NextResponse.json(
-        { error: err.message },
-        { status: err.statusCode, headers: NO_STORE },
-      );
-    }
-    return NextResponse.json(
-      { error: 'Unauthorized' },
-      { status: 401, headers: NO_STORE },
-    );
-  }
-
-  if (!user.accountId) {
-    return NextResponse.json(
-      { error: 'No account associated with this user' },
-      { status: 403, headers: NO_STORE },
-    );
-  }
-
-  let body: unknown;
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json(
-      { error: 'invalid_json' },
-      { status: 400, headers: NO_STORE },
-    );
-  }
-
-  const parsed = AddLocationSchema.safeParse(body);
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: 'invalid_body', issues: parsed.error.issues },
-      { status: 400, headers: NO_STORE },
-    );
-  }
-  const { accountId, displayLabel, googlePlaceId, placeIdVerified, googleMapsUrl, voiceConfig } = parsed.data;
+  const body = await readLocationRouteJson(req, AddLocationSchema);
+  if (!body.ok) return body.response;
+  const { accountId, displayLabel, googlePlaceId, placeIdVerified, googleMapsUrl, voiceConfig } = body.data;
 
   // ── Ownership: body.accountId must match authenticated user ──────────────
   if (accountId !== user.accountId) {
-    return NextResponse.json(
-      { error: 'Account ID mismatch' },
-      { status: 403, headers: NO_STORE },
-    );
+    return ownerAccountMismatchResponse();
   }
 
   // Use the quota chokepoint for tier, subscription, and overage preview.

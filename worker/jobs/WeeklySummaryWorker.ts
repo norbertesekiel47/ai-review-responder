@@ -1,7 +1,6 @@
 import type { Job } from 'bullmq';
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '../../src/lib/db/server';
-import { checkSubscription } from '../../src/lib/shared/subscription-guard';
 import { markOutboxCompleted, markOutboxFailed, extractOutboxHandle } from '../../src/lib/shared/outbox';
 import { sendInternalEmail, buildWeeklyValueReportHtml } from '../../src/lib/notifications/email';
 import { recordNotificationDelivery } from '../../src/lib/notifications/delivery';
@@ -12,6 +11,15 @@ import { createWorkerLogger } from '../../src/lib/shared/logger';
 import { HANDLED_STATUSES } from '../../src/lib/shared/response-status';
 import { asLocationId } from '../../src/lib/shared/ids';
 import type { LocationId } from '../../src/lib/shared/ids';
+import {
+  buildDashboardUrl,
+  calculateBaselineResponseRate,
+  completeOrFailSkippedSummaryReport,
+  loadLatestRankingSummary,
+  loadSummaryReportBusiness,
+  mapSummaryReviews,
+  ownerHasDashboardAuth,
+} from './summary-report-helpers';
 
 export async function handleWeeklySummary(
   job: Job<WeeklySummaryPayload>,
@@ -22,56 +30,15 @@ export async function handleWeeklySummary(
   const businessId: LocationId = asLocationId(job.data.business_id);
   const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
 
-  // ── 1. Load business (including ROI baseline fields) + account subscription ──
-  const [business] = await sql<{
-    id: string;
-    account_id: string;
-    name: string;
-    owner_email: string;
-    owner_email_bounced: boolean;
-    subscription_status: string;
-    account_updated_at: Date;
-    initial_review_count: number | null;
-    initial_responded_count: number | null;
-    baseline_captured_at: Date | null;
-    subscription_tier: string;
-  }[]>`
-    SELECT b.id, b.name, b.owner_email, b.owner_email_bounced,
-           a.id AS account_id, a.subscription_status, a.updated_at AS account_updated_at,
-           b.initial_review_count, b.initial_responded_count, b.baseline_captured_at,
-           a.subscription_tier
-    FROM businesses b
-    JOIN accounts a ON a.id = b.account_id
-    WHERE b.id = ${businessId}
-  `;
-
-  if (!business) {
-    logger.warn(`Business ${businessId} not found`);
-    await markOutboxFailed(outboxId, 'business_not_found', outboxAttempt);
-    return;
-  }
-
-  // ── 2. Subscription guard ─────────────────────────────────────────
-  const subCheck = checkSubscription(
-    business.subscription_status,
-    new Date(business.account_updated_at),
-    'summary',
-  );
-
-  if (!subCheck.allowed) {
-    logger.log(`Business ${businessId} skipped: ${subCheck.reason}`);
-    await markOutboxCompleted(outboxId, outboxAttempt);
-    return;
-  }
-
-  // ── Hard bounce check ──────────────────────────────────
-  // Skip owner-directed emails when the owner's email has hard-bounced.
-  // Admin verifies and clears owner_email_bounced manually from /admin/businesses/[id].
-  if (business.owner_email_bounced) {
-    logger.log(`Business ${businessId} owner email bounced — skipping`);
-    await markOutboxCompleted(outboxId, outboxAttempt);
-    return;
-  }
+  const business = await loadSummaryReportBusiness(businessId);
+  const skipped = await completeOrFailSkippedSummaryReport({
+    business,
+    businessId,
+    outboxId,
+    outboxAttempt,
+    logger,
+  });
+  if (skipped || !business) return;
 
   // ── 3. Query week stats ───────────────────────────────────────────
   const weekEnd = new Date(week_start_date + 'T00:00:00Z');
@@ -141,39 +108,14 @@ export async function handleWeeklySummary(
   const fourWeekAvgReviews = parseFloat(avgRow?.avg ?? '0');
 
   // 4c. Ranking snapshot (conditional, no SerpAPI calls)
-  let ranking: { keyword: string; currentRank: number; initialRank: number } | null = null;
-  const [latestRanking] = await sql<{
-    keyword: string;
-    rank_position: number;
-  }[]>`
-    SELECT keyword, rank_position FROM ranking_snapshots
-    WHERE business_id = ${businessId} AND rank_position IS NOT NULL
-    ORDER BY snapshot_date DESC LIMIT 1
-  `;
-
-  if (latestRanking) {
-    const [initialRanking] = await sql<{ rank_position: number }[]>`
-      SELECT rank_position FROM ranking_snapshots
-      WHERE business_id = ${businessId} AND keyword = ${latestRanking.keyword} AND rank_position IS NOT NULL
-      ORDER BY snapshot_date ASC LIMIT 1
-    `;
-    ranking = {
-      keyword: latestRanking.keyword,
-      currentRank: latestRanking.rank_position,
-      initialRank: initialRanking?.rank_position ?? latestRanking.rank_position,
-    };
-  }
+  const ranking = await loadLatestRankingSummary(businessId);
 
   // 4d. Dashboard link eligibility
-  const [ownerWithAuth] = await sql<{ exists: number }[]>`
-    SELECT 1 AS exists FROM users
-    WHERE business_id = ${businessId} AND role = 'owner' AND auth_id IS NOT NULL
-    LIMIT 1
-  `;
   const appUrl = process.env.NEXT_PUBLIC_APP_URL;
-  const dashboardUrl = ownerWithAuth && appUrl
-    ? `${appUrl}/dashboard`
-    : null;
+  const dashboardUrl = buildDashboardUrl(
+    await ownerHasDashboardAuth(businessId),
+    appUrl,
+  );
 
   // ── 5. Upsert weekly_summaries row (idempotent) ───────────────────
   // Allow reclaim of stale claims (>15 min) so a crashed worker doesn't
@@ -240,10 +182,7 @@ export async function handleWeeklySummary(
 
   if (!intelligenceBrief && reviewsForSummary.length > 0) {
     const summaryResult = await generateReviewSummary(
-      reviewsForSummary.map((r) => ({
-        starRating: r.star_rating,
-        reviewText: r.review_text,
-      })),
+      mapSummaryReviews(reviewsForSummary),
       businessId,
       business.subscription_tier,
     );
@@ -260,17 +199,7 @@ export async function handleWeeklySummary(
   }
 
   // ── 7. Compute baseline response rate ─────────────────────────────
-  let baselineResponseRate: number | null = null;
-  if (
-    business.baseline_captured_at &&
-    business.initial_review_count !== null &&
-    business.initial_review_count > 0 &&
-    business.initial_responded_count !== null
-  ) {
-    baselineResponseRate = Math.round(
-      (business.initial_responded_count / business.initial_review_count) * 100,
-    );
-  }
+  const baselineResponseRate = calculateBaselineResponseRate(business);
 
   // ── 8. Build feedback URLs (satisfaction pulse) ───────────────────
   let feedbackUrls: { great: string; ok: string; notGreat: string } | null = null;

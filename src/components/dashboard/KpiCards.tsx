@@ -1,9 +1,7 @@
 'use client';
 
 import type { DashboardDataActive } from '@/lib/dashboard/types';
-import { Icon } from './Icon';
-import { Sparkline } from './Sparkline';
-import { useCountUp } from './useCountUp';
+import { ValueKpiGrid } from './ValueKpiGrid';
 
 interface Props {
   valueSummary: DashboardDataActive['valueSummary'];
@@ -12,83 +10,13 @@ interface Props {
 }
 
 export function KpiCards({ valueSummary, pendingCount, onScrollToReviews }: Props) {
-  const reviewsHandled = valueSummary.totalReviewsHandled;
-  const timeSavedH = Math.round((valueSummary.totalTimeSavedMinutes / 60) * 10) / 10;
-  const responseRate = valueSummary.currentResponseRate;
-  const baseline = valueSummary.baselineResponseRate;
-
-  const v1 = useCountUp(reviewsHandled, 900);
-  const v2 = useCountUp(timeSavedH * 10, 900);
-  const v3 = useCountUp(responseRate, 1100);
-
-  const rateClass = responseRate >= 80 ? 'green' : responseRate >= 50 ? 'amber' : 'red';
-  const showPending = pendingCount > 0;
-
-  // Sparkline data: existing payload doesn't expose a per-week handled count
-  // history, so we synthesize a smooth ramp toward the current total. This is
-  // visual only — labels make clear we're showing the cumulative trajectory.
-  const sparkHandled = synthesizeSpark(reviewsHandled, 8);
-  const sparkSaved = synthesizeSpark(timeSavedH, 8);
-
   return (
-    <div className={`kpi-grid ${showPending ? 'has-pending' : ''}`}>
-      <div className="kpi">
-        <div className="kpi-eyebrow">
-          <Icon name="inbox" size={14} /> Reviews handled
-        </div>
-        <Sparkline data={sparkHandled} color="#2563eb" />
-        <div className="kpi-value">{Math.round(v1).toLocaleString()}</div>
-        <div className="kpi-foot">since joining RepWorth</div>
-      </div>
-
-      <div className="kpi">
-        <div className="kpi-eyebrow">
-          <Icon name="clock" size={14} /> Time saved
-        </div>
-        <Sparkline data={sparkSaved} color="#16a34a" />
-        <div className="kpi-value">
-          {(v2 / 10).toFixed(1)}
-          <span className="kpi-unit">h</span>
-        </div>
-        <div className="kpi-foot">≈ 4 hours per week back in your day</div>
-      </div>
-
-      <div className="kpi">
-        <div className="kpi-eyebrow">
-          <Icon name="trend" size={14} /> Response rate
-        </div>
-        <div className="kpi-value">
-          {Math.round(v3)}
-          <span className="kpi-unit">%</span>
-        </div>
-        <div className="kpi-bar-wrap">
-          <div className={`kpi-bar ${rateClass}`} style={{ width: `${responseRate}%` }} />
-        </div>
-        {baseline != null && <div className="kpi-foot">was {baseline}% before RepWorth</div>}
-      </div>
-
-      {showPending && (
-        <div className="kpi pending">
-          <div className="kpi-eyebrow">
-            <Icon name="alert" size={14} /> Pending approvals
-          </div>
-          <div className="kpi-value">{pendingCount}</div>
-          <button type="button" className="scroll-link" onClick={onScrollToReviews}>
-            Review now <Icon name="scroll-down" size={12} />
-          </button>
-        </div>
-      )}
-    </div>
+    <ValueKpiGrid
+      valueSummary={valueSummary}
+      pendingCount={pendingCount}
+      reviewsHandledFoot="since joining RepWorth"
+      timeSavedFoot="≈ 4 hours per week back in your day"
+      onScrollToReviews={onScrollToReviews}
+    />
   );
-}
-
-/** Visual-only smooth ramp ending at `total`, length `n`. */
-function synthesizeSpark(total: number, n: number): number[] {
-  if (total <= 0) return Array(n).fill(0);
-  const out: number[] = [];
-  for (let i = 0; i < n; i++) {
-    const progress = (i + 1) / n;
-    out.push(Math.round(total * progress * (0.4 + 0.6 * progress)));
-  }
-  return out;
 }
