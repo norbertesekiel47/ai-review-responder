@@ -5,8 +5,8 @@ import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { ZernioRouteError } from '@/lib/zernio/errors';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
-import { isValidUuid } from '@/lib/shared/ids';
 import { zernioClient } from '@/lib/zernio/client';
+import { parseRequestedLocationId, preflightErrorResponse } from '../_shared/preflight';
 import {
   pendingKey,
   stateKey,
@@ -69,12 +69,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'invalid_body' }, { status: 400, headers: NO_STORE });
   }
 
-  const requestedLocationId =
-    typeof body.locationId === 'string' && body.locationId.trim().length > 0
-      ? body.locationId.trim()
-      : null;
-  if (requestedLocationId && !isValidUuid(requestedLocationId)) {
-    return NextResponse.json({ error: 'invalid_body' }, { status: 400, headers: NO_STORE });
+  let requestedLocationId: string | null;
+  try {
+    requestedLocationId = parseRequestedLocationId(body);
+  } catch (err) {
+    return preflightErrorResponse(err);
   }
 
   // AppUser.locationId is the primary location. Secondary-location connects
