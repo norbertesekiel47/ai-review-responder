@@ -5,8 +5,9 @@ import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { ZernioRouteError } from '@/lib/zernio/errors';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
-import { isValidUuid } from '@/lib/shared/ids';
 import { zernioClient } from '@/lib/zernio/client';
+import { isFreshPendingMarker, parseConnectPendingMarker } from '../_shared/pending-flow';
+import { parseRequestedLocationId, preflightErrorResponse } from '../_shared/preflight';
 import {
   pendingKey,
   stateKey,
@@ -69,12 +70,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'invalid_body' }, { status: 400, headers: NO_STORE });
   }
 
-  const requestedLocationId =
-    typeof body.locationId === 'string' && body.locationId.trim().length > 0
-      ? body.locationId.trim()
-      : null;
-  if (requestedLocationId && !isValidUuid(requestedLocationId)) {
-    return NextResponse.json({ error: 'invalid_body' }, { status: 400, headers: NO_STORE });
+  let requestedLocationId: string | null;
+  try {
+    requestedLocationId = parseRequestedLocationId(body);
+  } catch (err) {
+    return preflightErrorResponse(err);
   }
 
   // AppUser.locationId is the primary location. Secondary-location connects
@@ -121,10 +121,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
     const existingPending = await redis.get(pKey);
     if (existingPending) {
-      let parsed: ConnectPendingMarker | null = null;
-      try {
-        parsed = JSON.parse(existingPending) as ConnectPendingMarker;
-      } catch {
+      const parsed = parseConnectPendingMarker(existingPending);
+      if (!parsed) {
         return NextResponse.json(
           { error: 'malformed_pending_marker' },
           { status: 409, headers: NO_STORE },
@@ -144,9 +142,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       // Defensive: if started >15 min ago, the TTL should have already
       // expired but Redis clock skew or a freshly-bumped marker can leave
       // a stale entry. Fall through and recreate in that case.
-      const ageMs = Date.now() - (parsed.started_at ?? 0);
-      const fifteenMinMs = PENDING_TTL_SECONDS * 1000;
-      if (ageMs <= fifteenMinMs) {
+      if (isFreshPendingMarker(parsed, PENDING_TTL_SECONDS)) {
         return NextResponse.json(
           { error: 'connect_pending', status: parsed.status },
           { status: 409, headers: NO_STORE },
