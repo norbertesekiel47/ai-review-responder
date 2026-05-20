@@ -7,7 +7,7 @@ import { ListEditor } from './ListEditor';
 // Voice form fields shared by both SettingsForm (single-location) and
 // VoiceFormState (per-location). BrandVoicePanel only needs the voice-
 // specific fields, not the full settings form.
-export interface VoiceFormFields {
+interface VoiceFormFields {
   tone: string;
   productsServices: string;
   avoidFacts: string[];

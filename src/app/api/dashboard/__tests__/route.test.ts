@@ -86,7 +86,7 @@ vi.mock('@/lib/locations/repo', () => ({
 }));
 
 // Import AFTER mocks are set up
-import { GET, type DashboardData, type DashboardDataActive } from '../route';
+import { GET, type DashboardDataActive } from '../route';
 import { AuthError } from '@/lib/db/auth';
 
 // ── Helpers ──────────────────────────────────────────────────────────

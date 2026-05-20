@@ -29,15 +29,6 @@ export interface CsvRowFailure {
   reason: string;
 }
 
-export interface CsvRowSuccess {
-  /** 1-based row number in the CSV. */
-  row: number;
-  /** ID of the newly created businesses row. */
-  businessId: string;
-  /** Display label that was stored. */
-  displayLabel: string;
-}
-
 export interface CsvImportReport {
   /** Number of rows successfully created. */
   created: number;

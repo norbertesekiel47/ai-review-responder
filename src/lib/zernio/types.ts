@@ -8,24 +8,6 @@ export type EndpointKind =
   | 'delete_account'
   | 'start_connect';
 
-export type ZernioConnectionStatus = 'pending' | 'active' | 'disconnected';
-
-export interface ZernioConnectionRow {
-  id: string;
-  business_id: string;
-  zernio_profile_id: string;
-  zernio_account_id: string;
-  zernio_location_id: string;
-  status: ZernioConnectionStatus;
-  connected_at: Date | null;
-  disconnected_at: Date | null;
-  disconnect_reason: string | null;
-  last_error: string | null;
-  last_error_at: Date | null;
-  created_at: Date;
-  updated_at: Date;
-}
-
 export interface ZernioReview {
   id: string;
   name: string;

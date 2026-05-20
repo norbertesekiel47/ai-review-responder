@@ -18,6 +18,7 @@ export class TelegramChannel implements NotificationChannel {
   readonly supportsInlineActions = true;
   readonly requiresOptInHandshake = true;
 
+  // fallow-ignore-next-line unused-class-member
   async sendApprovalRequest(p: SendApprovalParams): Promise<SendApprovalResult> {
     const { text, inline_keyboard } = formatApprovalTelegram({
       locationLabel: p.locationLabel,

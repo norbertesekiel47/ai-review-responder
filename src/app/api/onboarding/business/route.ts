@@ -4,7 +4,12 @@ import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '@/lib/db/server';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
-import { BusinessOnboardingSchema, BusinessOnboardingPostPaySchema } from '@/lib/shared/schemas';
+import {
+  BusinessOnboardingSchema,
+  BusinessOnboardingPostPaySchema,
+  type BusinessOnboardingInput,
+  type BusinessOnboardingPostPayInput,
+} from '@/lib/shared/schemas';
 import { extractPlaceId } from '@/lib/reviews/url-parser';
 import type { ValidatePlaceIdPayload } from '@/lib/shared/worker-types';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
@@ -203,9 +208,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // input (z.never), so those fields are always undefined when demoFlowEnabled.
   // We share `data` via the broader union; each branch reads only fields it
   // knows are present.
-  type LegacyData = import('@/lib/shared/schemas').BusinessOnboardingInput;
-  type PostPayData = import('@/lib/shared/schemas').BusinessOnboardingPostPayInput;
-  const data = parsed.data as LegacyData & Partial<PostPayData>;
+  const data = parsed.data as BusinessOnboardingInput & Partial<BusinessOnboardingPostPayInput>;
 
   // 9. Resolve place id state. PlaceAutocomplete path supplies googlePlaceId
   //    directly (verified) — review ingestion is now webhook-driven via Zernio,

@@ -39,9 +39,9 @@ interface Props {
 }
 
 type WizardStep = 1 | 2 | 3 | 4;
-export type LocationInputMode = 'autocomplete' | 'url';
+type LocationInputMode = 'autocomplete' | 'url';
 
-export interface VoiceFormState {
+interface VoiceFormState {
   tone: string;
   productsServices: string;
   avoidFacts: string[];

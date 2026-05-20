@@ -7,12 +7,6 @@
 import { sql } from '@/lib/db/server';
 import { v7 as uuidv7 } from 'uuid';
 
-import type { HasDisplayLabel, HasDisplayLabelCamelCase } from './display-label';
-
-// Re-export interfaces for convenience so server code can import
-// both the update function and the types from this single module.
-export type { HasDisplayLabel, HasDisplayLabelCamelCase };
-
 // ── updateDisplayLabel ───────────────────────────────────────────────────
 
 /**

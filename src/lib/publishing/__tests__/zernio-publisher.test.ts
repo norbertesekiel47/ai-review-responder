@@ -1,8 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('@/lib/db/redis-cache');
-vi.mock('@/lib/db/server');
-vi.mock('@/lib/zernio/client');
+vi.mock('@/lib/db/redis-cache', () => ({
+  getCacheRedis: vi.fn(),
+}));
+vi.mock('@/lib/db/server', () => ({
+  sql: vi.fn(),
+  jsonb: (value: unknown) => value,
+}));
+vi.mock('@/lib/zernio/client', () => ({
+  zernioClient: {
+    listReviews: vi.fn(),
+  },
+}));
 
 import { lookupZernioReviewId, getCachedZernioReviewPage } from '../zernio-publisher';
 

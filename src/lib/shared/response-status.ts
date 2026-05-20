@@ -20,8 +20,6 @@ export const ALL_RESPONSE_STATUSES = [
   'failed',
 ] as const;
 
-export type ResponseStatus = (typeof ALL_RESPONSE_STATUSES)[number];
-
 // Non-terminal statuses — at most one such response can exist per review
 // at a time (enforced by the partial unique index in migration 023+026+029).
 export const NON_TERMINAL_STATUSES = [

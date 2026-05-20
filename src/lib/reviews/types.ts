@@ -50,15 +50,3 @@ export interface MonitoredReview {
   identity: ReviewIdentity;
   contentHash: string;
 }
-
-export interface IdentityCollision {
-  review: NormalizedReview;
-  identity: ReviewIdentity;
-  contentHash: string;
-  collidesWithContentHash: string;
-}
-
-export interface MonitorResult {
-  reviews: MonitoredReview[];
-  collisions: IdentityCollision[];
-}
