@@ -1,6 +1,7 @@
 export type ConnectPendingStatus =
   | 'starting'
   | 'oauth_in_progress'
+  | 'finalizing'
   | 'finalize_unknown';
 
 export interface ConnectPendingMarkerShape {
@@ -28,6 +29,7 @@ export function parseConnectPendingMarker(raw: string): ConnectPendingMarkerShap
     if (
       parsed.status !== 'starting' &&
       parsed.status !== 'oauth_in_progress' &&
+      parsed.status !== 'finalizing' &&
       parsed.status !== 'finalize_unknown'
     ) {
       return null;

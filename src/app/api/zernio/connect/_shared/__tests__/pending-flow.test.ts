@@ -26,6 +26,22 @@ describe('parseConnectPendingMarker', () => {
     expect(parseConnectPendingMarker('{bad json')).toBeNull();
   });
 
+  it('parses a finalizing pending marker', () => {
+    expect(
+      parseConnectPendingMarker(
+        JSON.stringify({
+          flowId: 'flow_123',
+          userId: 'user_123',
+          started_at: 1_700_000_000_000,
+          status: 'finalizing',
+        }),
+      ),
+    ).toMatchObject({
+      flowId: 'flow_123',
+      status: 'finalizing',
+    });
+  });
+
   it('returns null when required shape is missing', () => {
     expect(parseConnectPendingMarker(JSON.stringify({ status: 'starting' }))).toBeNull();
   });
