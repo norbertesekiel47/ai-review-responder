@@ -26,6 +26,22 @@ The current `fallow health` report shows a project that is broadly healthy but h
 5. Do not chase the health score directly. Score improvement is a secondary effect of clearer seams.
 6. Avoid suppression except for intentional static-analysis noise that has been reviewed.
 
+## Architecture Invariants
+
+Implementation must preserve the invariants in `.claude/CLAUDE.md`. This cleanup is especially meant to realize the invariant: entry points orchestrate, while modules own durable failure behavior.
+
+The main tripwires for this work are:
+
+- Transactional outbox: state changes and follow-up work stay in one Postgres transaction through `job_outbox`.
+- No auto-posting: response generation must never reach Google/Zernio posting without explicit owner approval.
+- Approval tokens are never stored raw.
+- Third-party ingress terminates on Railway; webhook refactors must not move production ingress through Next.js.
+- Auth scope is app-enforced by account and location.
+- Subscription guards stay early in customer-facing workers.
+- Long failure branches in routes, workers, and ingress handlers should move behind named module interfaces with focused tests.
+
+If an existing flow already has a documented exception or legacy shape, the cleanup must not widen it. Any broader invariant correction should be split into its own design and implementation plan.
+
 ## Non-Goals
 
 - No broad rewrite of the app router, worker runner, database layer, or Supabase schema.
@@ -68,7 +84,7 @@ Files likely involved:
 - `src/lib/zernio/connect-state.ts`
 - `src/lib/zernio/connect-session-cookie.ts`
 - `worker/jobs/publisher/ResponsePublisherWorker.ts`
-- `worker/jobs/publisher/publisher-error-handlers.ts`
+- `worker/jobs/publisher/publisher-error-handlers.ts` as an existing extracted module to preserve and sharpen, not a fresh extraction target.
 - Existing tests under `src/app/api/zernio/**/__tests__` and `worker/jobs/publisher/__tests__`
 
 Design:
@@ -198,7 +214,7 @@ Purpose: clean up intentional noise after production seams are improved.
 
 Work:
 
-- Remove confirmed unused exports such as `synthesizeSpark` if still unused.
+- Downgrade exported-but-internally-only symbols, such as `synthesizeSpark`, to non-exported functions when Fallow flags only the export surface and the function is still used locally.
 - Consolidate repeated test setup only where it reduces maintenance friction.
 - Consider shared route test harnesses for auth/account/location mocks.
 - Re-run Fallow in normal and production modes.
@@ -207,8 +223,8 @@ Work:
 
 Success criteria:
 
-- Health score improves without relying on broad suppressions.
-- Production-mode Fallow output has fewer high-priority architecture targets.
+- Production-mode Fallow output has fewer high-priority architecture targets without relying on broad suppressions.
+- Concrete worst offenders have been split or have an explicit deferred rationale: `getActiveDashboardData`, Zernio `select-location` `POST`, Zernio callback `GET`, and `handlePublishResponse`.
 - Tests and build pass.
 
 ## Testing Strategy
@@ -216,6 +232,7 @@ Success criteria:
 Each phase should use the narrowest relevant tests first, then broader verification before completion.
 
 - Zernio: route tests for start/callback/select-location/cancel and publisher worker tests.
+- Zernio E2E: `e2e/zernio-connect.spec.ts` currently covers only the unauthenticated surface and documents the authenticated happy path as `fixme`. Slice 2 should either build the Redis/session harness needed to run the authenticated flow as a real Playwright gate, or explicitly record that route/unit tests are the gate for that slice and leave the E2E harness as deferred work.
 - Dashboard: dashboard route tests, dashboard scope tests, dashboard hook tests, and any data-service tests added for pure mappers.
 - Onboarding: onboarding route tests, business wizard tests, demo worker tests, demo lifecycle tests.
 - Worker ingress/notifications: notification worker tests, Twilio ingress tests, Resend webhook tests, Zernio ingress tests, Stripe ingress tests where touched.
