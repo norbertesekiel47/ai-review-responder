@@ -95,7 +95,7 @@ export function ValueKpiGrid({
 }
 
 /** Visual-only smooth ramp ending at `total`, length `n`. */
-export function synthesizeSpark(total: number, n: number): number[] {
+function synthesizeSpark(total: number, n: number): number[] {
   if (total <= 0) return Array(n).fill(0);
   const out: number[] = [];
   for (let i = 0; i < n; i++) {
