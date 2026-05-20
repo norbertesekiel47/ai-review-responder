@@ -4,19 +4,19 @@ import type { AccountId } from '@/lib/shared/ids';
 
 // ── Types ─────────────────────────────────────────────────────────────
 
-export interface ProviderRow {
+interface ProviderRow {
   provider: string;
   total_usd: number;
   call_count: number;
 }
 
-export interface DayRow {
+interface DayRow {
   day: string;
   total_usd: number;
   call_count: number;
 }
 
-export interface TodayTotalRow {
+interface TodayTotalRow {
   total: number;
 }
 
@@ -56,7 +56,7 @@ export interface CostQuery {
 // "10_000" or "12.5" would silently apply the WRONG budget math on the
 // admin dashboard. Require digits-only, validate as a safe integer, else
 // fall back to default.
-export function safeLimit(envVal: string | undefined, fallback: number): number {
+function safeLimit(envVal: string | undefined, fallback: number): number {
   if (envVal === undefined || envVal === null) return fallback;
   const trimmed = envVal.trim();
   if (trimmed === '' || !/^\d+$/.test(trimmed)) return fallback;
@@ -76,7 +76,7 @@ const GLOBAL_DAILY_LIMIT_CENTS = safeLimit(
   10_000,
 );
 
-export function tierLimitCents(tier: string): number {
+function tierLimitCents(tier: string): number {
   return TIER_LIMITS_CENTS[tier] ?? TIER_LIMITS_CENTS['standard'] ?? 1000;
 }
 
