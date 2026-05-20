@@ -29,13 +29,14 @@ export function ValueKpiGrid({
   const reviewsHandled = valueSummary.totalReviewsHandled;
   const timeSavedH = Math.round((valueSummary.totalTimeSavedMinutes / 60) * 10) / 10;
   const responseRate = valueSummary.currentResponseRate;
+  const clampedResponseRate = Math.max(0, Math.min(100, responseRate));
   const baseline = valueSummary.baselineResponseRate;
 
   const v1 = useCountUp(reviewsHandled, 900);
   const v2 = useCountUp(timeSavedH * 10, 900);
   const v3 = useCountUp(responseRate, 1100);
 
-  const rateClass = responseRate >= 80 ? 'green' : responseRate >= 50 ? 'amber' : 'red';
+  const rateClass = clampedResponseRate >= 80 ? 'green' : clampedResponseRate >= 50 ? 'amber' : 'red';
   const showPending = pendingCount > 0;
 
   const sparkHandled = synthesizeSpark(reviewsHandled, 8);
@@ -73,7 +74,7 @@ export function ValueKpiGrid({
           <span className="kpi-unit">%</span>
         </div>
         <div className="kpi-bar-wrap">
-          <div className={`kpi-bar ${rateClass}`} style={{ width: `${responseRate}%` }} />
+          <div className={`kpi-bar ${rateClass}`} style={{ width: `${clampedResponseRate}%` }} />
         </div>
         {baseline != null && <div className="kpi-foot">was {baseline}% before RepWorth</div>}
       </div>

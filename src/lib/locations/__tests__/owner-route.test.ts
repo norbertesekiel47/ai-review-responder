@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
+import { z } from 'zod';
 
 const { mockRequireRole } = vi.hoisted(() => ({
   mockRequireRole: vi.fn(),
@@ -22,7 +23,10 @@ vi.mock('@/lib/db/auth', () => {
 });
 
 import {
+  invalidBodyResponse,
+  invalidJsonResponse,
   ownerAccountMismatchResponse,
+  readLocationRouteJson,
   readOwnerForMultiLocationRoute,
 } from '@/lib/locations/owner-route';
 import { AuthError } from '@/lib/db/auth';
@@ -31,6 +35,14 @@ const ACCOUNT_ID = 'aaaaaaaa-0000-0000-0000-000000000001';
 
 function req() {
   return new NextRequest('http://localhost:3000/api/locations/test', { method: 'POST' });
+}
+
+function jsonReq(body: string) {
+  return new NextRequest('http://localhost:3000/api/locations/test', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body,
+  });
 }
 
 describe('location owner route helpers', () => {
@@ -74,10 +86,87 @@ describe('location owner route helpers', () => {
     if (result.ok) expect(result.user.accountId).toBe(ACCOUNT_ID);
   });
 
+  it('returns 403 when the authenticated user has no account', async () => {
+    mockRequireRole.mockResolvedValueOnce({ id: 'user-1', accountId: null, role: 'owner' });
+
+    const result = await readOwnerForMultiLocationRoute(req());
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.response.status).toBe(403);
+      expect(await result.response.json()).toEqual({
+        error: 'No account associated with this user',
+      });
+    }
+  });
+
+  it('falls back to 401 when auth rejects with a non-AuthError', async () => {
+    mockRequireRole.mockRejectedValueOnce(new Error('redis down'));
+
+    const result = await readOwnerForMultiLocationRoute(req());
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.response.status).toBe(401);
+      expect(await result.response.json()).toEqual({ error: 'Unauthorized' });
+    }
+  });
+
   it('builds the standard account mismatch response', async () => {
     const response = ownerAccountMismatchResponse();
 
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({ error: 'Account ID mismatch' });
+  });
+});
+
+describe('readLocationRouteJson', () => {
+  const schema = z.object({ accountId: z.string().min(1) });
+
+  it('returns parsed data on valid JSON', async () => {
+    const result = await readLocationRouteJson(jsonReq(JSON.stringify({ accountId: ACCOUNT_ID })), schema);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.data).toEqual({ accountId: ACCOUNT_ID });
+  });
+
+  it('returns invalidJsonResponse (400) on malformed JSON', async () => {
+    const result = await readLocationRouteJson(jsonReq('not json'), schema);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.response.status).toBe(400);
+      expect(await result.response.json()).toEqual({ error: 'invalid_json' });
+    }
+  });
+
+  it('returns invalidBodyResponse (400) with Zod issues on schema failure', async () => {
+    const result = await readLocationRouteJson(jsonReq(JSON.stringify({ accountId: '' })), schema);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.response.status).toBe(400);
+      const body = await result.response.json();
+      expect(body.error).toBe('invalid_body');
+      expect(Array.isArray(body.issues)).toBe(true);
+      expect(body.issues.length).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe('response helpers', () => {
+  it('invalidJsonResponse is a 400 invalid_json', async () => {
+    const response = invalidJsonResponse();
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: 'invalid_json' });
+  });
+
+  it('invalidBodyResponse is a 400 invalid_body carrying the issues', async () => {
+    const response = invalidBodyResponse([{ path: ['accountId'], message: 'Required' }]);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: 'invalid_body',
+      issues: [{ path: ['accountId'], message: 'Required' }],
+    });
   });
 });

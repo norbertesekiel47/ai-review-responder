@@ -100,7 +100,7 @@ export function RankingChart({
           {labelByDate.get(date) ?? ''}
         </text>
       ))}
-      {series.map((s) => {
+      {series.map((s, si) => {
         const sorted = [...s.points].sort((a, b) => a.date.localeCompare(b.date));
         const path = sorted
           .map((p, i) => {
@@ -114,10 +114,10 @@ export function RankingChart({
         const lastX = xFor(last.date);
         const lastY = yFor(last.position);
         return (
-          <g key={s.keyword}>
+          <g key={`${s.keyword}-${si}`}>
             <path d={path} stroke={s.color} strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
-            {sorted.map((p) => (
-              <circle key={p.date} cx={xFor(p.date)} cy={yFor(p.position)} r="3" fill="#fff" stroke={s.color} strokeWidth="2" />
+            {sorted.map((p, pi) => (
+              <circle key={`${si}-${pi}-${p.date}`} cx={xFor(p.date)} cy={yFor(p.position)} r="3" fill="#fff" stroke={s.color} strokeWidth="2" />
             ))}
             <text x={lastX + 8} y={lastY + 3} fontSize={labelFontSize} fontWeight={labelFontWeight} fill={s.color} fontFamily="DM Sans">
               {formatSeriesLabel(s.keyword)}
