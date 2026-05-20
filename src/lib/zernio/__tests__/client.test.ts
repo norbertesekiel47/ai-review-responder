@@ -415,4 +415,16 @@ describe('mock mode', () => {
     expect(result.profileId).toMatch(/^mock-profile-/);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
+
+  it('throws for unknown mock endpoint kinds', async () => {
+    const { request } = await import('../client');
+
+    await expect(
+      request({
+        method: 'GET',
+        path: '/v1/test',
+        endpointKind: 'new_endpoint' as never,
+      }),
+    ).rejects.toThrow('Unknown endpointKind: new_endpoint');
+  });
 });

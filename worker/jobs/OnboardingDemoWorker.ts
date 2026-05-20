@@ -68,15 +68,18 @@ export async function handleOnboardingDemo(
   `;
   if (biz && biz.subscription_status !== 'pending_payment') {
     logger.warn(`Demo ${demoId} account status=${biz.subscription_status}, marking failed`);
-    await failOnboardingDemoTerminal({
-      demoId,
-      outboxId,
-      outboxAttempt,
-      error: new Error('subscription_state_changed'),
-      failureKind: 'subscription_state_changed',
-      logger,
-    });
-    await releaseReservation();
+    try {
+      await failOnboardingDemoTerminal({
+        demoId,
+        outboxId,
+        outboxAttempt,
+        error: new Error('subscription_state_changed'),
+        failureKind: 'subscription_state_changed',
+        logger,
+      });
+    } finally {
+      await releaseReservation();
+    }
     return;
   }
 
@@ -153,13 +156,16 @@ export async function handleOnboardingDemo(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     logger.error(`Onboarding demo ${demoId} failed: ${message}`);
-    await failOnboardingDemoTerminal({
-      demoId,
-      outboxId,
-      outboxAttempt,
-      error: new Error(message),
-      logger,
-    });
-    await releaseReservation();
+    try {
+      await failOnboardingDemoTerminal({
+        demoId,
+        outboxId,
+        outboxAttempt,
+        error: new Error(message),
+        logger,
+      });
+    } finally {
+      await releaseReservation();
+    }
   }
 }

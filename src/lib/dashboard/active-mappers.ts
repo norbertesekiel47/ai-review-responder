@@ -1,5 +1,20 @@
 import type { DashboardDataActive } from './types';
 
+function toReviewDateIso(value: unknown): string {
+  if (!value) return '';
+
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? '' : value.toISOString();
+  }
+
+  if (typeof value === 'string' || typeof value === 'number') {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? '' : parsed.toISOString();
+  }
+
+  return '';
+}
+
 export function mapReviewVelocity(
   rows: Array<{ week_start: unknown; count: unknown }>,
 ): DashboardDataActive['reviewVelocity'] {
@@ -17,7 +32,7 @@ export function mapRecentReviews(
     reviewerName: (row.reviewer_name as string) ?? 'Anonymous',
     starRating: (row.star_rating as number) ?? null,
     reviewText: (row.review_text as string) ?? null,
-    reviewDate: row.review_date ? (row.review_date as Date).toISOString() : '',
+    reviewDate: toReviewDateIso(row.review_date),
     status: row.status as string,
     responseText: (row.response_text as string) ?? null,
     responseStatus: (row.response_status as string) ?? null,

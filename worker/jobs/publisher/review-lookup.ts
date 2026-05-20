@@ -39,7 +39,7 @@ export async function resolvePublishableZernioReviewId(input: {
     );
   } catch (err) {
     if (err instanceof ZernioReviewNotFoundError) {
-      await sql.begin(async (tx) => {
+      const openedException = await sql.begin(async (tx) => {
         const updated = await tx`
           UPDATE responses
           SET status = 'failed', updated_at = NOW()
@@ -53,7 +53,7 @@ export async function resolvePublishableZernioReviewId(input: {
           logger.log(
             `Response ${responseId} already terminal, skipping zernio_review_id_mismatch exception`,
           );
-          return;
+          return false;
         }
 
         const [exception] = await tx<{ id: string }[]>`
@@ -80,7 +80,7 @@ export async function resolvePublishableZernioReviewId(input: {
           logger.error(
             `review_exceptions UPSERT returned no row for response ${responseId} (review-not-found)`,
           );
-          return;
+          return false;
         }
 
         await tx`
@@ -99,11 +99,14 @@ export async function resolvePublishableZernioReviewId(input: {
             5
           )
         `;
+        return true;
       });
 
-      logger.warn(
-        `Zernio review id not found for response ${responseId}; opened review_exception`,
-      );
+      if (openedException) {
+        logger.warn(
+          `Zernio review id not found for response ${responseId}; opened review_exception`,
+        );
+      }
       await markOutboxCompleted(outboxId, outboxAttempt);
       return 'completed';
     }

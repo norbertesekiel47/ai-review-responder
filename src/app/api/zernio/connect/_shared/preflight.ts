@@ -28,13 +28,22 @@ export function isValidUuid(value: string): boolean {
   );
 }
 
-export function parseRequestedLocationId(body: { locationId?: unknown }): string | null {
-  const requestedLocationId =
-    typeof body.locationId === 'string' && body.locationId.trim().length > 0
-      ? body.locationId.trim()
-      : null;
+export function parseRequestedLocationId(body: unknown): string | null {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    throw new ZernioPreflightError(400, 'invalid_body');
+  }
 
-  if (requestedLocationId && !isValidUuid(requestedLocationId)) {
+  const locationId = (body as { locationId?: unknown }).locationId;
+  if (locationId === undefined) {
+    return null;
+  }
+
+  if (typeof locationId !== 'string') {
+    throw new ZernioPreflightError(400, 'invalid_body');
+  }
+
+  const requestedLocationId = locationId.trim();
+  if (requestedLocationId.length === 0 || !isValidUuid(requestedLocationId)) {
     throw new ZernioPreflightError(400, 'invalid_body');
   }
 

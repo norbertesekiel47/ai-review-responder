@@ -6,6 +6,18 @@ describe('parseRequestedLocationId', () => {
     expect(parseRequestedLocationId({})).toBeNull();
   });
 
+  it('throws invalid_body for a non-object body', () => {
+    expect(() => parseRequestedLocationId(null as unknown as { locationId?: unknown })).toThrow(
+      'invalid_body',
+    );
+  });
+
+  it('throws invalid_body for a non-string locationId', () => {
+    expect(() => parseRequestedLocationId({ locationId: 123 })).toThrow(
+      'invalid_body',
+    );
+  });
+
   it('trims a valid locationId', () => {
     expect(
       parseRequestedLocationId({

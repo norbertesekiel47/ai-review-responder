@@ -13,7 +13,7 @@ export async function parkResponseForOwnerReconnect(input: {
 }): Promise<void> {
   const { responseId, businessId, outboxId, outboxAttempt, responseStatus, logger } = input;
 
-  await sql.begin(async (tx) => {
+  const parked = await sql.begin(async (tx) => {
     const updated = await tx`
       UPDATE responses
       SET status = 'awaiting_owner_connect', updated_at = NOW()
@@ -27,7 +27,7 @@ export async function parkResponseForOwnerReconnect(input: {
       logger.log(
         `Response ${responseId} already terminal (status=${responseStatus ?? 'unknown'}), skipping reconnect notify`,
       );
-      return;
+      return false;
     }
 
     const reconnectPayload = {
@@ -48,7 +48,13 @@ export async function parkResponseForOwnerReconnect(input: {
         5
       )
     `;
+    return true;
   });
+
+  if (!parked) {
+    await markOutboxCompleted(outboxId, outboxAttempt);
+    return;
+  }
 
   logger.log(
     `No active Zernio connection for business ${businessId}; response ${responseId} parked at awaiting_owner_connect`,

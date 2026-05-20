@@ -42,6 +42,16 @@ describe('resolveDashboardScopePolicy', () => {
     ).toEqual({ mode: 'location', locationId: 'loc-1' });
   });
 
+  it('uses user location when scope is an empty string', () => {
+    expect(
+      resolveDashboardScopePolicy({
+        scopeParam: '',
+        userLocationId: 'loc-1',
+        multiLocationEnabled: true,
+      }),
+    ).toEqual({ mode: 'location', locationId: 'loc-1' });
+  });
+
   it('uses null location when no scope or user location is available', () => {
     expect(
       resolveDashboardScopePolicy({

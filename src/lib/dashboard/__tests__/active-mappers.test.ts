@@ -32,6 +32,36 @@ describe('dashboard active mappers', () => {
     ]);
   });
 
+  it('normalizes string review dates to dashboard shape', () => {
+    const reviewDateString = '2026-05-20T12:34:56.000Z';
+
+    expect(
+      mapRecentReviews([
+        {
+          id: 'review-1',
+          reviewer_name: null,
+          star_rating: 5,
+          review_text: 'Useful review',
+          review_date: reviewDateString,
+          status: 'pending_approval',
+          response_text: 'Draft response',
+          response_status: 'approved',
+        },
+      ]),
+    ).toEqual([
+      {
+        id: 'review-1',
+        reviewerName: 'Anonymous',
+        starRating: 5,
+        reviewText: 'Useful review',
+        reviewDate: reviewDateString,
+        status: 'pending_approval',
+        responseText: 'Draft response',
+        responseStatus: 'approved',
+      },
+    ]);
+  });
+
   it('maps review velocity week_start and count', () => {
     expect(
       mapReviewVelocity([
