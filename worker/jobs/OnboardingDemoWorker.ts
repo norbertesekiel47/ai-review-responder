@@ -1,23 +1,19 @@
 import type { Job } from 'bullmq';
 import { sql } from '../../src/lib/db/server';
 import type { BasePayload } from '../../src/lib/shared/worker-types';
-import { fetchSerpApiReviews } from '../../src/lib/demos/fetch-reviews';
-import { selectQualifyingReviews } from '../../src/lib/demos/select-qualifying';
-import { generateResponsesForReviews } from '../../src/lib/demos/generate-responses';
-import { getFallbackDemo } from '../../src/lib/demos/fallback-content';
-import { claimDemo, completeDemo, failDemo } from '../../src/lib/demos/lifecycle';
+import { claimDemo, completeDemo } from '../../src/lib/demos/lifecycle';
 import { createWorkerLogger } from '../../src/lib/shared/logger';
 import { extractOutboxHandle, markOutboxCompleted } from '../../src/lib/shared/outbox';
-import { isPlaceId, parseGoogleMapsUrl } from '../../src/lib/reviews/url-parser';
-import { resolvePlaceId } from '../../src/lib/reviews/place-id-resolver';
 import {
   finalizeOnboardingDemoCost,
   checkCostThreshold,
 } from '../../src/lib/costs/onboarding-demo-cost-guard';
 import { isMockMode } from '../../src/lib/shared/mock-mode';
 import * as Sentry from '@sentry/node';
-import type { NormalizedReview } from '../../src/lib/reviews/types';
-import type { GenerationResult } from '../../src/lib/responses/types';
+import { buildOnboardingDemoSource } from './onboarding-demo/demo-source';
+import { resolveOnboardingDemoPlaceId } from './onboarding-demo/place-resolution';
+import { releaseOnboardingDemoReservation } from './onboarding-demo/reservation';
+import { failOnboardingDemoTerminal } from './onboarding-demo/terminal';
 
 /**
  * Onboarding demo job payload — extends the base payload with the
@@ -39,7 +35,7 @@ export async function handleOnboardingDemo(
 ): Promise<void> {
   const logger = createWorkerLogger('[OnboardingDemoWorker]', job.data.correlation_id);
   const { demoId, businessName, category, cost_reservation_date: reservationDate } = job.data;
-  let { googlePlaceId } = job.data;
+  const { googlePlaceId } = job.data;
   const googleMapsUrl = job.data.googleMapsUrl;
   const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
 
@@ -47,13 +43,11 @@ export async function handleOnboardingDemo(
   // done, pass actualCents=0 — finalizeOnboardingDemoCost computes
   // delta = 0 - 20¢ = release the pessimistic reserve.
   const releaseReservation = async () => {
-    if (reservationDate) {
-      try {
-        await finalizeOnboardingDemoCost(reservationDate, 0);
-      } catch (err) {
-        logger.error(`Failed to release cost reservation: ${err instanceof Error ? err.message : err}`);
-      }
-    }
+    await releaseOnboardingDemoReservation({
+      reservationDate,
+      logger,
+      finalizeCost: finalizeOnboardingDemoCost,
+    });
   };
 
   // Tier-2: Mock leak guard
@@ -74,20 +68,13 @@ export async function handleOnboardingDemo(
   `;
   if (biz && biz.subscription_status !== 'pending_payment') {
     logger.warn(`Demo ${demoId} account status=${biz.subscription_status}, marking failed`);
-    try {
-      await failDemo(
-        'onboarding_demos',
-        demoId,
-        outboxId,
-        outboxAttempt,
-        new Error('subscription_state_changed'),
-      );
-    } catch (txError) {
-      logger.error(
-        `Failed to record subscription_state_changed for demo ${demoId}: ${txError instanceof Error ? txError.message : String(txError)}`,
-      );
-      throw txError;
-    }
+    await failOnboardingDemoTerminal({
+      demoId,
+      outboxId,
+      outboxAttempt,
+      error: new Error('subscription_state_changed'),
+      logger,
+    });
     await releaseReservation();
     return;
   }
@@ -110,59 +97,18 @@ export async function handleOnboardingDemo(
 
   // claimResult === 'claimed' — proceed.
   try {
-    if (!isPlaceId(googlePlaceId)) {
-      if (isMockMode()) {
-        // In mock mode fetchSerpApiReviews is stubbed — any non-empty string
-        // works as the place identifier. Skip the real SerpAPI resolution.
-        googlePlaceId = googlePlaceId || 'mock-place-id';
-      } else if (googleMapsUrl) {
-        const urlData = parseGoogleMapsUrl(googleMapsUrl);
-        googlePlaceId = await resolvePlaceId(urlData);
-      } else {
-        throw new Error('Invalid Place ID and no URL available for resolution');
-      }
-    }
-
-    let result: {
-      reviews: NormalizedReview[];
-      responses: (GenerationResult | null)[];
-      metadata: { totalCostUsd: number };
-    };
-    let source: 'serpapi' | 'curated_fallback';
-
-    // SerpAPI fetch + review-selection failures should NOT fail the demo —
-    // the spec calls for graceful degradation to curated fallback so the user
-    // still sees something compelling and the paywall stays in front of them.
-    // Hard failure is reserved for downstream stages: invalid place resolution
-    // (above) and total LLM provider failure (caught below by the outer catch).
-    let selected: NormalizedReview[] = [];
-    let serpapiOk = true;
-    try {
-      const reviews = await fetchSerpApiReviews(googlePlaceId);
-      selected = selectQualifyingReviews(reviews, { rule: 'positive-with-moderate-tail' });
-    } catch (serpErr) {
-      serpapiOk = false;
-      logger.warn(
-        `SerpAPI fetch failed for demo ${demoId}; falling back to curated content: ${serpErr instanceof Error ? serpErr.message : serpErr}`,
-      );
-    }
-
-    const hasAnchor = selected.some((r) => r.starRating >= 4);
-    if (serpapiOk && hasAnchor) {
-      result = await generateResponsesForReviews(selected, {
-        name: businessName,
-        category: category ?? null,
-      });
-      source = 'serpapi';
-    } else {
-      const fallback = getFallbackDemo(category ?? null);
-      result = {
-        reviews: fallback.reviews,
-        responses: fallback.responses,
-        metadata: { totalCostUsd: 0 },
-      };
-      source = 'curated_fallback';
-    }
+    const resolvedGooglePlaceId = await resolveOnboardingDemoPlaceId({
+      googlePlaceId,
+      googleMapsUrl,
+      mockMode: isMockMode(),
+    });
+    const { result, source } = await buildOnboardingDemoSource({
+      demoId,
+      googlePlaceId: resolvedGooglePlaceId,
+      businessName,
+      category,
+      logger,
+    });
 
     await completeDemo('onboarding_demos', demoId, outboxId, outboxAttempt, {
       reviews: result.reviews,
@@ -206,14 +152,13 @@ export async function handleOnboardingDemo(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     logger.error(`Onboarding demo ${demoId} failed: ${message}`);
-    try {
-      await failDemo('onboarding_demos', demoId, outboxId, outboxAttempt, new Error(message));
-    } catch (txError) {
-      logger.error(
-        `Failed to record failure for demo ${demoId}: ${txError instanceof Error ? txError.message : String(txError)}`,
-      );
-      throw txError;
-    }
+    await failOnboardingDemoTerminal({
+      demoId,
+      outboxId,
+      outboxAttempt,
+      error: new Error(message),
+      logger,
+    });
     await releaseReservation();
   }
 }

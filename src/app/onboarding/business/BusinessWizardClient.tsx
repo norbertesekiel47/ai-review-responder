@@ -7,6 +7,7 @@ import { StepLocation } from './StepLocation';
 import { StepProfile } from './StepProfile';
 import { StepVoice } from './StepVoice';
 import { StepConnect } from './StepConnect';
+import { buildBusinessWizardPayload } from './payload';
 
 export interface WizardFormData {
   // Location (legacy 3-step only — empty/unused in post-pay flow)
@@ -93,48 +94,10 @@ export function BusinessWizardClient({
     setSubmitting(true);
     setError('');
     try {
-      const payload = demoFlowEnabled
-        ? {
-            // Post-pay: location was set at /start; never resubmit it here.
-            businessName: data.businessName || undefined,
-            category: data.category || undefined,
-            tone: data.tone || undefined,
-            website: data.website || undefined,
-            ...(opts.skipVoice
-              ? {}
-              : {
-                  productsServices: data.productsServices || undefined,
-                  staffNames: data.staffNames || undefined,
-                  highlightFacts: data.highlightFacts || undefined,
-                  avoidFacts: data.avoidFacts || undefined,
-                  sampleResponses: data.sampleResponses || undefined,
-                }),
-          }
-        : {
-            businessName: data.businessName,
-            category: data.category || undefined,
-            googlePlaceId:
-              data.inputMode === 'autocomplete'
-                ? data.googlePlaceId || undefined
-                : undefined,
-            googlePlaceAddress:
-              data.inputMode === 'autocomplete'
-                ? data.googlePlaceAddress || undefined
-                : undefined,
-            googleMapsUrl:
-              data.inputMode === 'url' ? data.googleMapsUrl || undefined : undefined,
-            tone: data.tone || undefined,
-            website: data.website || undefined,
-            ...(opts.skipVoice
-              ? {}
-              : {
-                  productsServices: data.productsServices || undefined,
-                  staffNames: data.staffNames || undefined,
-                  highlightFacts: data.highlightFacts || undefined,
-                  avoidFacts: data.avoidFacts || undefined,
-                  sampleResponses: data.sampleResponses || undefined,
-                }),
-          };
+      const payload = buildBusinessWizardPayload(data, {
+        demoFlowEnabled,
+        skipVoice: opts.skipVoice,
+      });
 
       const res = await fetch('/api/onboarding/business', {
         method: 'POST',
