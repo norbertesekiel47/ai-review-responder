@@ -12,7 +12,6 @@ import { zernioClient } from "@/lib/zernio/client";
 import {
   pendingKey,
   locationsKey,
-  luaCASToFinalizing,
   luaCASRevertToOauth,
   luaCASToFinalizeUnknown,
   luaDeletePendingByFlowIdAnyStatus,
@@ -20,6 +19,7 @@ import {
 import { clearConnectSessionCookie } from "@/lib/zernio/connect-session-cookie";
 import { authorizeSelectLocation } from "../_shared/finalize/authorize";
 import { withFinalizeLock } from "../_shared/finalize/finalize-lock";
+import { transitionPendingToFinalizing } from "../_shared/finalize/pending-transition";
 
 export const dynamic = "force-dynamic";
 
@@ -56,53 +56,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // inside it and the lock is token-CAS released on every exit path.
   try {
     return await withFinalizeLock(redis, sessionId, async () => {
-      // 8a. Read pending marker; sanity-check flowId.
-      const pendingRaw = await redis.get(pendingKey(stored.businessId));
-      if (!pendingRaw) {
-        throw new ZernioRouteError(410, "connect_pending_missing");
-      }
-      let parsedPending: { flowId?: string; status?: string } | null;
-      try {
-        parsedPending = JSON.parse(pendingRaw) as {
-          flowId?: string;
-          status?: string;
-        };
-      } catch {
-        throw new ZernioRouteError(409, "malformed_pending_marker");
-      }
-      if (parsedPending.flowId !== stored.flowId) {
-        throw new ZernioRouteError(410, "flow_changed");
-      }
-
-      // 8b. CAS pending status oauth_in_progress → finalizing.
-      const transitioned = await redis.eval(
-        luaCASToFinalizing,
-        1,
-        pendingKey(stored.businessId),
-        stored.flowId,
-        String(PENDING_TTL_SECONDS),
-      );
-      if (transitioned === "OK") {
-        // success — fall through
-      } else if (transitioned === 0) {
-        throw new ZernioRouteError(410, "flow_changed");
-      } else if (transitioned === -1) {
-        throw new ZernioRouteError(410, "connect_pending_missing");
-      } else if (transitioned === -2) {
-        throw new ZernioRouteError(409, "malformed_pending_marker");
-      } else if (transitioned === -3) {
-        // Marker is already 'finalizing' or 'finalize_unknown' — refuse to
-        // double-call the non-idempotent selectLocation (round-13).
-        throw new ZernioRouteError(409, "finalize_in_progress");
-      } else {
-        // Unexpected return value — fail closed.
-        Sentry.captureMessage("zernio_select_location_unexpected_lua_result", {
-          level: "error",
-          tags: { business_id: stored.businessId },
-          extra: { flowId: stored.flowId, lua_result: String(transitioned) },
-        });
-        throw new ZernioRouteError(409, "finalize_in_progress");
-      }
+      // 8a + 8b. Read pending marker, sanity-check flowId, CAS
+      // oauth_in_progress → finalizing.
+      await transitionPendingToFinalizing(redis, stored);
 
       // 8c. Call Zernio selectLocation, with outcome-known vs outcome-unknown
       // branching on failure (round-14 + round-15 + round-16 + round-17).
