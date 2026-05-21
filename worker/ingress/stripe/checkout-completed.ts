@@ -63,8 +63,11 @@ export async function processCheckoutSessionCompleted(session: Stripe.Checkout.S
     return;
   }
 
-  // Serialize concurrent checkout.session.completed / customer.subscription.updated
-  // deliveries for the same account on an advisory lock.
+  // The ':activation' advisory lock serializes concurrent
+  // checkout.session.completed deliveries for the same account. Cross-handler
+  // ordering against customer.subscription.updated/deleted (which take
+  // differently-keyed advisory locks) is provided by the FOR UPDATE row lock on
+  // accounts below, not by this advisory lock.
   let activated = false;
   await sql.begin(async (tx) => {
     await tx`SELECT pg_advisory_xact_lock(hashtext(${accountId! + ':activation'}))`;

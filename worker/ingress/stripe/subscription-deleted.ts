@@ -27,8 +27,9 @@ export async function processSubscriptionDeleted(sub: Stripe.Subscription): Prom
 
     await tx`SELECT pg_advisory_xact_lock(hashtext(${acctRow.id + ':status_change'}))`;
 
-    // Idempotent: cancelled → cancelled is a no-op at the data level,
-    // but we still write for consistency (last-write-wins produces same result).
+    // Idempotent: when the account is already cancelled we intentionally skip
+    // the write (and log the skip in the else branch); re-applying 'cancelled'
+    // would be a no-op.
     if (acctRow.subscription_status !== 'cancelled') {
       const oldStatus = acctRow.subscription_status;
 
