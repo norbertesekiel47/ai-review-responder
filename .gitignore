@@ -61,6 +61,9 @@ docs/**/*.zip
 # .claude/ (CLAUDE.md and skills/) IS tracked.
 .claude/settings.local.json
 
+# claude-mem per-machine cross-session memory (populated locally, not shared)
+.agents/
+
 # Local-only design handoff archives (Claude Design exports)
 .tmp-design/
 
