@@ -297,6 +297,7 @@ describe('Audit trail for channel override changes', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockRequireRole.mockResolvedValue(ownerUser());
+    process.env.NEXT_PUBLIC_APP_URL = APP_URL;
   });
 
   it('POST writes account_audit_log entry with channel_override_created event', async () => {

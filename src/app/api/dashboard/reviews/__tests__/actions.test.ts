@@ -271,6 +271,34 @@ describe('POST /api/dashboard/reviews/[reviewId]/edit', () => {
     process.env.NEXT_PUBLIC_APP_URL = APP_URL;
   });
 
+  it('returns 403 when Origin header is absent', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+
+    const { POST } = await import('../[reviewId]/edit/route');
+    const res = await POST(
+      makeRequest(`/api/dashboard/reviews/${REVIEW_ID}/edit`, { editedText: 'Thanks!' }, undefined, { origin: null }),
+      makeParams(REVIEW_ID),
+    );
+
+    expect(res.status).toBe(403);
+    expect(mockRequireRole).not.toHaveBeenCalled();
+  });
+
+  it('returns 403 when Origin does not match the app origin', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+
+    const { POST } = await import('../[reviewId]/edit/route');
+    const res = await POST(
+      makeRequest(`/api/dashboard/reviews/${REVIEW_ID}/edit`, { editedText: 'Thanks!' }, undefined, {
+        origin: 'https://evil.example.com',
+      }),
+      makeParams(REVIEW_ID),
+    );
+
+    expect(res.status).toBe(403);
+    expect(mockRequireRole).not.toHaveBeenCalled();
+  });
+
   it('returns 200 with valid edited text', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
     setResponseLookup([{ id: RESPONSE_ID, business_id: BUSINESS_ID, status: 'pending_approval' }]);
@@ -385,6 +413,34 @@ describe('POST /api/dashboard/reviews/[reviewId]/regenerate', () => {
     sqlCallCounter.value = 0;
     mockBeginCallback.fn = null;
     process.env.NEXT_PUBLIC_APP_URL = APP_URL;
+  });
+
+  it('returns 403 when Origin header is absent', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+
+    const { POST } = await import('../[reviewId]/regenerate/route');
+    const res = await POST(
+      makeRequest(`/api/dashboard/reviews/${REVIEW_ID}/regenerate`, undefined, undefined, { origin: null }),
+      makeParams(REVIEW_ID),
+    );
+
+    expect(res.status).toBe(403);
+    expect(mockRequireRole).not.toHaveBeenCalled();
+  });
+
+  it('returns 403 when Origin does not match the app origin', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+
+    const { POST } = await import('../[reviewId]/regenerate/route');
+    const res = await POST(
+      makeRequest(`/api/dashboard/reviews/${REVIEW_ID}/regenerate`, undefined, undefined, {
+        origin: 'https://evil.example.com',
+      }),
+      makeParams(REVIEW_ID),
+    );
+
+    expect(res.status).toBe(403);
+    expect(mockRequireRole).not.toHaveBeenCalled();
   });
 
   it('returns 200 on successful regeneration request', async () => {

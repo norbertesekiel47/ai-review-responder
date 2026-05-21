@@ -193,6 +193,7 @@ describe('PUT /api/settings/voice', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockRequireRole.mockResolvedValue(ownerUser());
+    process.env.NEXT_PUBLIC_APP_URL = APP_URL;
   });
 
   it('updates tone for a specific location', async () => {
