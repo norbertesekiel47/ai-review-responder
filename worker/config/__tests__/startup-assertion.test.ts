@@ -1,5 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { assertChannelsSmsEnv, assertSelfServeSignupEnv } from '../startup-assert';
+import {
+  assertChannelsSmsEnv,
+  assertProductionMockModeEnv,
+  assertSelfServeSignupEnv,
+  assertStripeWorkerEnv,
+  assertWorkerStartupEnv,
+} from '../startup-assert';
 import { SubscriptionTier, TIER_CONFIG, type SubscriptionTierValue } from '@/lib/accounts/tier-config';
 
 const REQUIRED = [
@@ -9,6 +15,167 @@ const REQUIRED = [
   'TWILIO_MESSAGING_SERVICE_SID',
   'TWILIO_VERIFY_SERVICE_SID',
 ];
+
+const STRIPE_WORKER_REQUIRED = [
+  'STRIPE_SECRET_KEY',
+  'STRIPE_WEBHOOK_SECRET',
+  'STRIPE_PRICE_BASIC',
+  'STRIPE_PRICE_FOUNDING',
+  'STRIPE_PRICE_STANDARD',
+  'STRIPE_PRICE_PREMIUM',
+  'STRIPE_PRICE_STANDARD_OVERAGE',
+  'STRIPE_PRICE_PREMIUM_OVERAGE',
+  'STRIPE_PRICE_FOUNDERS_OVERAGE',
+];
+
+function restoreEnv(snapshot: Record<string, string | undefined>): void {
+  for (const k of Object.keys(snapshot)) {
+    if (snapshot[k] === undefined) delete process.env[k];
+    else process.env[k] = snapshot[k];
+  }
+}
+
+function setEnv(key: string, value: string): void {
+  process.env[key] = value;
+}
+
+describe('assertProductionMockModeEnv', () => {
+  const SNAP: Record<string, string | undefined> = {};
+  const KEYS = ['NODE_ENV', 'MOCK_EXTERNAL_APIS'];
+
+  beforeEach(() => {
+    for (const k of KEYS) { SNAP[k] = process.env[k]; delete process.env[k]; }
+  });
+  afterEach(() => {
+    restoreEnv(SNAP);
+  });
+
+  it('throws when production is configured with MOCK_EXTERNAL_APIS=true', () => {
+    setEnv('NODE_ENV', 'production');
+    process.env.MOCK_EXTERNAL_APIS = 'true';
+    expect(() => assertProductionMockModeEnv()).toThrow(/NODE_ENV=production.*MOCK_EXTERNAL_APIS=true/);
+  });
+
+  it('allows MOCK_EXTERNAL_APIS=true outside production', () => {
+    setEnv('NODE_ENV', 'test');
+    process.env.MOCK_EXTERNAL_APIS = 'true';
+    expect(() => assertProductionMockModeEnv()).not.toThrow();
+  });
+
+  it('allows production when MOCK_EXTERNAL_APIS is not true', () => {
+    setEnv('NODE_ENV', 'production');
+    process.env.MOCK_EXTERNAL_APIS = 'false';
+    expect(() => assertProductionMockModeEnv()).not.toThrow();
+  });
+});
+
+describe('assertStripeWorkerEnv', () => {
+  const SNAP: Record<string, string | undefined> = {};
+  const KEYS = ['NODE_ENV', 'MOCK_EXTERNAL_APIS', ...STRIPE_WORKER_REQUIRED];
+
+  beforeEach(() => {
+    for (const k of KEYS) { SNAP[k] = process.env[k]; delete process.env[k]; }
+  });
+  afterEach(() => {
+    restoreEnv(SNAP);
+  });
+
+  it('is a no-op in non-production MOCK_EXTERNAL_APIS mode', () => {
+    setEnv('NODE_ENV', 'test');
+    process.env.MOCK_EXTERNAL_APIS = 'true';
+    expect(() => assertStripeWorkerEnv()).not.toThrow();
+  });
+
+  it('throws with all missing Stripe worker env vars', () => {
+    try {
+      assertStripeWorkerEnv();
+      throw new Error('should have thrown');
+    } catch (err) {
+      const msg = (err as Error).message;
+      for (const k of STRIPE_WORKER_REQUIRED) expect(msg).toContain(k);
+    }
+  });
+
+  it('throws in production non-mock mode when Stripe worker env vars are missing', () => {
+    setEnv('NODE_ENV', 'production');
+    process.env.MOCK_EXTERNAL_APIS = 'false';
+    expect(() => assertStripeWorkerEnv()).toThrow(/STRIPE_SECRET_KEY/);
+  });
+
+  it('treats whitespace-only Stripe worker env vars as missing', () => {
+    for (const k of STRIPE_WORKER_REQUIRED) process.env[k] = 'x';
+    process.env.STRIPE_WEBHOOK_SECRET = '   ';
+    expect(() => assertStripeWorkerEnv()).toThrow(/STRIPE_WEBHOOK_SECRET/);
+  });
+
+  it('passes when all required Stripe worker env vars are set', () => {
+    for (const k of STRIPE_WORKER_REQUIRED) process.env[k] = 'x';
+    expect(() => assertStripeWorkerEnv()).not.toThrow();
+  });
+});
+
+describe('assertWorkerStartupEnv', () => {
+  const SNAP: Record<string, string | undefined> = {};
+  const KEYS = ['NODE_ENV', 'MOCK_EXTERNAL_APIS', ...STRIPE_WORKER_REQUIRED];
+
+  beforeEach(() => {
+    for (const k of KEYS) { SNAP[k] = process.env[k]; delete process.env[k]; }
+  });
+  afterEach(() => {
+    restoreEnv(SNAP);
+  });
+
+  it('checks unsafe production mock mode before Stripe env vars', () => {
+    setEnv('NODE_ENV', 'production');
+    process.env.MOCK_EXTERNAL_APIS = 'true';
+    expect(() => assertWorkerStartupEnv()).toThrow(/MOCK_EXTERNAL_APIS=true/);
+    expect(() => assertWorkerStartupEnv()).not.toThrow(/STRIPE_SECRET_KEY/);
+  });
+
+  it('does not require Stripe env vars in non-production MOCK_EXTERNAL_APIS mode', () => {
+    setEnv('NODE_ENV', 'test');
+    process.env.MOCK_EXTERNAL_APIS = 'true';
+    expect(() => assertWorkerStartupEnv()).not.toThrow();
+  });
+
+  it('passes when production mock mode is off and Stripe env vars are present', () => {
+    setEnv('NODE_ENV', 'production');
+    process.env.MOCK_EXTERNAL_APIS = 'false';
+    for (const k of STRIPE_WORKER_REQUIRED) process.env[k] = 'x';
+    expect(() => assertWorkerStartupEnv()).not.toThrow();
+  });
+});
+
+describe('worker startup guard import order', () => {
+  it('imports the side-effect full startup guard before queues can evaluate', async () => {
+    const fs = await import('fs');
+    const path = await import('path');
+    const source = fs.readFileSync(
+      path.resolve(__dirname, '../../index.ts'),
+      'utf-8',
+    );
+
+    const envImport = source.indexOf("import './env'");
+    const guardImport = source.indexOf("import './config/startup-side-effect-guard'");
+    const queuesImport = source.indexOf("from './queues'");
+
+    expect(envImport).toBeGreaterThanOrEqual(0);
+    expect(guardImport).toBeGreaterThan(envImport);
+    expect(guardImport).toBeLessThan(queuesImport);
+  });
+
+  it('side-effect guard runs assertWorkerStartupEnv', async () => {
+    const fs = await import('fs');
+    const path = await import('path');
+    const source = fs.readFileSync(
+      path.resolve(__dirname, '../startup-side-effect-guard.ts'),
+      'utf-8',
+    );
+
+    expect(source).toContain('assertWorkerStartupEnv');
+    expect(source).not.toContain('assertProductionMockModeEnv');
+  });
+});
 
 describe('assertChannelsSmsEnv', () => {
   beforeEach(() => {

@@ -1,4 +1,5 @@
 import './env'; // Must be first — loads .env.local before other modules read process.env
+import './config/startup-side-effect-guard';
 import { Sentry } from './sentry';
 
 import Fastify from 'fastify';
@@ -183,7 +184,7 @@ for (const worker of workers) {
 // Re-export for use by other modules (ingress handlers, tests)
 export { queues, QUEUE_NAMES } from './queues';
 export { sql } from '../src/lib/db/server';
-export { assertChannelsSmsEnv, assertChannelsTelegramEnv, assertChannelsWhatsAppEnv, assertSelfServeSignupEnv, assertZernioPublishingEnv } from './config/startup-assert';
+export { assertChannelsSmsEnv, assertChannelsTelegramEnv, assertChannelsWhatsAppEnv, assertSelfServeSignupEnv, assertWorkerStartupEnv, assertZernioPublishingEnv } from './config/startup-assert';
 
 // ---------------------------------------------------------------------------
 // Startup — register plugins, routes, then listen
