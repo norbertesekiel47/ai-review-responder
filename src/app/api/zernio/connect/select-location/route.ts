@@ -1,53 +1,30 @@
 import { NextRequest, NextResponse } from 'next/server';
-import * as Sentry from '@sentry/nextjs';
-import { v7 as uuidv7 } from 'uuid';
-import { sql, jsonb } from '@/lib/db/server';
-import { getCacheRedis } from '@/lib/db/redis-cache';
-import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
-import { requireRole, AuthError } from '@/lib/db/auth';
 import {
   ZernioRouteError,
   ZernioAuthError,
   ZernioValidationError,
 } from '@/lib/zernio/errors';
-import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { zernioClient } from '@/lib/zernio/client';
 import {
   pendingKey,
   locationsKey,
-  finalizeLockKey,
-  generateLockToken,
-  luaCASToFinalizing,
   luaCASRevertToOauth,
-  luaCASToFinalizeUnknown,
   luaDeletePendingByFlowIdAnyStatus,
-  luaTokenCAS,
 } from '@/lib/zernio/connect-state';
-import {
-  readConnectSessionCookie,
-  clearConnectSessionCookie,
-} from '@/lib/zernio/connect-session-cookie';
-import type { ConnectLocationsBlob } from '@/lib/zernio/types';
+import { clearConnectSessionCookie } from '@/lib/zernio/connect-session-cookie';
+import { authorizeSelectLocation } from '../_shared/finalize/authorize';
+import { withFinalizeLock } from '../_shared/finalize/finalize-lock';
+import { transitionPendingToFinalizing } from '../_shared/finalize/pending-transition';
+import { recordFinalizeUnknownAndThrow } from '../_shared/finalize/finalize-unknown';
+import { finalizeConnectionTx } from '../_shared/finalize/finalize-tx';
+import { recoverFromFinalizeTxFailure } from '../_shared/finalize/orphan-recovery';
 
 export const dynamic = 'force-dynamic';
 
 const NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
 
-// Spec §3.2 step 3: lock TTL widened from 30s → 60s to comfortably cover
-// the Zernio call (15s budget) + DB tx + 3 Redis ops + cookie set, even
-// on a slow network.
-const FINALIZE_LOCK_TTL_SECONDS = 60;
-
 // Pending marker keeps the original 15-min TTL on revert / re-extend.
 const PENDING_TTL_SECONDS = 900;
-
-// On finalize_unknown the marker is bumped to 7 days so the owner stays
-// blocked from starting a fresh flow until admin reconciles.
-const PENDING_FINALIZE_UNKNOWN_TTL_SECONDS = 60 * 60 * 24 * 7;
-
-interface SelectLocationBody {
-  locationId?: unknown;
-}
 
 /**
  * POST /api/zernio/connect/select-location
@@ -58,541 +35,103 @@ interface SelectLocationBody {
  * business. Each numbered step below maps to the spec choreography.
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  // Feature flag — subsystem A is gated by ZERNIO_PUBLISHING_ENABLED (§1.1).
-  if (process.env.ZERNIO_PUBLISHING_ENABLED !== 'true') {
-    return NextResponse.json(
-      { error: 'feature_disabled' },
-      { status: 503, headers: NO_STORE },
-    );
-  }
-
-  // 1. CSRF (FIRST, before any DB or external work).
+  // Steps 1–7: feature flag, CSRF, auth, body parse, session cookie,
+  // cached-locations load, and auth-scope verify. Validation failures throw
+  // ZernioRouteError; untyped errors propagate to errorToResponse below.
+  let ctx;
   try {
-    assertSameOrigin(req);
-  } catch (err) {
-    if (err instanceof SameOriginError) {
-      return NextResponse.json(
-        { error: 'forbidden' },
-        { status: 403, headers: NO_STORE },
-      );
-    }
-    return errorToResponse(err);
-  }
-
-  // 2. Auth.
-  let user;
-  try {
-    user = await requireRole(req, 'owner');
-  } catch (err) {
-    if (err instanceof AuthError) {
-      return NextResponse.json(
-        { error: err.statusCode === 401 ? 'unauthorized' : 'forbidden' },
-        { status: err.statusCode, headers: NO_STORE },
-      );
-    }
-    return errorToResponse(err);
-  }
-  if (!user.accountId) {
-    return NextResponse.json(
-      { error: 'unscoped_owner' },
-      { status: 403, headers: NO_STORE },
-    );
-  }
-
-  // 3. Parse body.
-  let body: SelectLocationBody;
-  try {
-    body = (await req.json()) as SelectLocationBody;
-  } catch {
-    return NextResponse.json(
-      { error: 'invalid_body' },
-      { status: 400, headers: NO_STORE },
-    );
-  }
-  const locationId =
-    typeof body.locationId === 'string' && body.locationId.length > 0
-      ? body.locationId
-      : null;
-  if (!locationId) {
-    return NextResponse.json(
-      { error: 'invalid_location_id' },
-      { status: 400, headers: NO_STORE },
-    );
-  }
-
-  // 4. Read signed cookie → sessionId.
-  const sessionId = readConnectSessionCookie(req);
-  if (!sessionId) {
-    return NextResponse.json(
-      { error: 'connect_session_missing' },
-      { status: 401, headers: NO_STORE },
-    );
-  }
-
-  const redis = getCacheRedis();
-
-  // 5. Load the cached locations blob.
-  let stored: ConnectLocationsBlob;
-  try {
-    const raw = await redis.get(locationsKey(sessionId));
-    if (!raw) {
-      return NextResponse.json(
-        { error: 'connect_session_expired' },
-        { status: 410, headers: NO_STORE },
-      );
-    }
-    try {
-      stored = JSON.parse(raw) as ConnectLocationsBlob;
-    } catch {
-      return NextResponse.json(
-        { error: 'connect_session_expired' },
-        { status: 410, headers: NO_STORE },
-      );
-    }
+    ctx = await authorizeSelectLocation(req);
   } catch (err) {
     return errorToResponse(err);
   }
+  const { user, sessionId, stored, locationId, redis } = ctx;
 
-  // 6. Auth-scope verify (defence-in-depth — cookie alone is insufficient).
-  if (stored.userId !== user.id) {
-    return NextResponse.json(
-      { error: 'user_mismatch' },
-      { status: 403, headers: NO_STORE },
-    );
-  }
+  // 7. Acquire the finalize lock; the FULL finalize sequence (8a–8f) runs
+  // inside it and the lock is token-CAS released on every exit path.
   try {
-    const [business] = await sql<{ exists: number }[]>`
-      SELECT 1 AS exists
-      FROM businesses
-      WHERE id = ${stored.businessId}
-        AND account_id = ${user.accountId}
-        AND archived_at IS NULL
-      LIMIT 1
-    `;
-    if (!business) {
-      return NextResponse.json(
-        { error: 'business_mismatch' },
-        { status: 403, headers: NO_STORE },
-      );
-    }
-  } catch (err) {
-    return errorToResponse(err);
-  }
-  const locationKnown = stored.locations.some((loc) => loc.id === locationId);
-  if (!locationKnown) {
-    return NextResponse.json(
-      { error: 'invalid_location_id' },
-      { status: 400, headers: NO_STORE },
-    );
-  }
+    return await withFinalizeLock(redis, sessionId, async () => {
+      // 8a + 8b. Read pending marker, sanity-check flowId, CAS
+      // oauth_in_progress → finalizing.
+      await transitionPendingToFinalizing(redis, stored);
 
-  // 7. Acquire finalize lock — the FULL finalize sequence happens inside it
-  // (round-7 correction). 60s TTL covers Zernio call + DB tx + 3 Redis ops
-  // + cookie set; explicit release in finally on every path.
-  const finalizeKey = finalizeLockKey(sessionId);
-  const finalizeToken = generateLockToken();
-  let acquired: 'OK' | null;
-  try {
-    acquired = await redis.set(
-      finalizeKey,
-      finalizeToken,
-      'EX',
-      FINALIZE_LOCK_TTL_SECONDS,
-      'NX',
-    );
-  } catch (err) {
-    return errorToResponse(err);
-  }
-  if (!acquired) {
-    return NextResponse.json(
-      { error: 'finalize_in_progress' },
-      { status: 409, headers: NO_STORE },
-    );
-  }
+      // 8c. Call Zernio selectLocation, with outcome-known vs outcome-unknown
+      // branching on failure (round-14 + round-15 + round-16 + round-17).
+      let accountId: string;
+      try {
+        const result = await zernioClient.selectLocation({
+          profileId: stored.profileId,
+          pendingDataToken: stored.pending_data_token,
+          connectToken: stored.connect_token,
+          locationId,
+        });
+        accountId = result.accountId;
+      } catch (zernioErr) {
+        const isOutcomeKnown =
+          zernioErr instanceof ZernioAuthError ||
+          zernioErr instanceof ZernioValidationError;
 
-  try {
-    // 8a. Read pending marker; sanity-check flowId.
-    const pendingRaw = await redis.get(pendingKey(stored.businessId));
-    if (!pendingRaw) {
-      throw new ZernioRouteError(410, 'connect_pending_missing');
-    }
-    let parsedPending: { flowId?: string; status?: string } | null;
-    try {
-      parsedPending = JSON.parse(pendingRaw) as {
-        flowId?: string;
-        status?: string;
-      };
-    } catch {
-      throw new ZernioRouteError(409, 'malformed_pending_marker');
-    }
-    if (parsedPending.flowId !== stored.flowId) {
-      throw new ZernioRouteError(410, 'flow_changed');
-    }
+        if (isOutcomeKnown) {
+          // Pre-mutation reject → revert finalizing → oauth_in_progress so
+          // the owner can retry or cancel cleanly. Best-effort.
+          await redis
+            .eval(
+              luaCASRevertToOauth,
+              1,
+              pendingKey(stored.businessId),
+              stored.flowId,
+              String(PENDING_TTL_SECONDS),
+            )
+            .catch(() => {
+              // Best-effort: marker auto-expires; original error still bubbles.
+            });
+          throw zernioErr;
+        }
 
-    // 8b. CAS pending status oauth_in_progress → finalizing.
-    const transitioned = await redis.eval(
-      luaCASToFinalizing,
-      1,
-      pendingKey(stored.businessId),
-      stored.flowId,
-      String(PENDING_TTL_SECONDS),
-    );
-    if (transitioned === 'OK') {
-      // success — fall through
-    } else if (transitioned === 0) {
-      throw new ZernioRouteError(410, 'flow_changed');
-    } else if (transitioned === -1) {
-      throw new ZernioRouteError(410, 'connect_pending_missing');
-    } else if (transitioned === -2) {
-      throw new ZernioRouteError(409, 'malformed_pending_marker');
-    } else if (transitioned === -3) {
-      // Marker is already 'finalizing' or 'finalize_unknown' — refuse to
-      // double-call the non-idempotent selectLocation (round-13).
-      throw new ZernioRouteError(409, 'finalize_in_progress');
-    } else {
-      // Unexpected return value — fail closed.
-      Sentry.captureMessage('zernio_select_location_unexpected_lua_result', {
-        level: 'error',
-        tags: { business_id: stored.businessId },
-        extra: { flowId: stored.flowId, lua_result: String(transitioned) },
-      });
-      throw new ZernioRouteError(409, 'finalize_in_progress');
-    }
-
-    // 8c. Call Zernio selectLocation, with outcome-known vs outcome-unknown
-    // branching on failure (round-14 + round-15 + round-16 + round-17).
-    let accountId: string;
-    try {
-      const result = await zernioClient.selectLocation({
-        profileId: stored.profileId,
-        pendingDataToken: stored.pending_data_token,
-        connectToken: stored.connect_token,
-        locationId,
-      });
-      accountId = result.accountId;
-    } catch (zernioErr) {
-      const isOutcomeKnown =
-        zernioErr instanceof ZernioAuthError ||
-        zernioErr instanceof ZernioValidationError;
-
-      if (isOutcomeKnown) {
-        // Pre-mutation reject → revert finalizing → oauth_in_progress so
-        // the owner can retry or cancel cleanly. Best-effort.
-        await redis
-          .eval(
-            luaCASRevertToOauth,
-            1,
-            pendingKey(stored.businessId),
-            stored.flowId,
-            String(PENDING_TTL_SECONDS),
-          )
-          .catch(() => {
-            // Best-effort: marker auto-expires; original error still bubbles.
-          });
-        throw zernioErr;
+        // OUTCOME UNKNOWN — record incident (non-fatal) and always 409.
+        return recordFinalizeUnknownAndThrow({ redis, stored, zernioErr });
       }
 
-      // OUTCOME UNKNOWN — round-15 + round-16 + round-17 sequence:
-      //   Step 1: Redis CAS finalizing → finalize_unknown (7-day TTL).
-      //   Step 2: INSERT INTO zernio_finalize_incidents (durable record).
-      //   Step 3: Sentry alert.
-      //   Step 4: throw ZernioRouteError(409, 'finalize_unknown_admin_required').
-      const finalizeUnknownAt = new Date();
-
-      // Step 1 — Redis 7-day update. Round-17: CHECK return value; only
-      // "OK" counts as success.
-      let redisMarkedUnknown = false;
+      // 8d. Single durable finalize transaction (connection upsert + outbox
+      // drain + conditional initial-backfill enqueue).
       try {
-        const result = await redis.eval(
-          luaCASToFinalizeUnknown,
-          1,
-          pendingKey(stored.businessId),
-          stored.flowId,
-          String(PENDING_FINALIZE_UNKNOWN_TTL_SECONDS),
-          finalizeUnknownAt.toISOString(),
-        );
-        redisMarkedUnknown = result === 'OK';
-        if (!redisMarkedUnknown) {
-          Sentry.captureMessage('zernio_finalize_unknown_redis_cas_failed', {
-            level: 'error',
-            tags: { business_id: stored.businessId },
-            extra: {
-              flowId: stored.flowId,
-              lua_result: String(result),
-            },
-          });
-        }
-      } catch (redisErr) {
-        Sentry.captureMessage('zernio_finalize_unknown_no_record', {
-          level: 'fatal',
-          tags: { business_id: stored.businessId, kind: 'redis_failure' },
-          extra: {
-            flowId: stored.flowId,
-            redisErr:
-              redisErr instanceof Error ? redisErr.message : String(redisErr),
-          },
+        await finalizeConnectionTx({ user, stored, locationId, accountId });
+      } catch (dbErr) {
+        // 8e. Post-accountId orphan recovery (best-effort cleanup; 23505 → 409
+        // already_connected_by_parallel_flow, otherwise rethrow).
+        return recoverFromFinalizeTxFailure({
+          redis,
+          stored,
+          accountId,
+          dbErr,
         });
       }
 
-      // Step 2 — Durable DB incident row. Idempotent on 23505 (existing
-      // unresolved incident already covers this business).
-      let incidentPersisted = false;
-      try {
-        await sql`
-          INSERT INTO zernio_finalize_incidents (
-            id, business_id, zernio_profile_id, flow_id, finalize_unknown_at
-          ) VALUES (
-            ${uuidv7()},
-            ${stored.businessId},
-            ${stored.profileId},
-            ${stored.flowId},
-            ${finalizeUnknownAt}
-          )
-        `;
-        incidentPersisted = true;
-      } catch (incidentErr) {
-        const code = (incidentErr as { code?: string }).code;
-        if (code === '23505') {
-          incidentPersisted = true;
-        } else {
-          Sentry.captureMessage('zernio_finalize_unknown_db_insert_failed', {
-            level: 'error',
-            tags: { business_id: stored.businessId },
-            extra: {
-              flowId: stored.flowId,
-              dbErr:
-                incidentErr instanceof Error
-                  ? incidentErr.message
-                  : String(incidentErr),
-            },
-          });
-        }
-      }
-
-      // Step 3 — Always-on Sentry alert (additive to the worst-case
-      // alerts above).
-      Sentry.captureMessage('zernio_finalize_unknown', {
-        level: 'error',
-        tags: { business_id: stored.businessId },
-        extra: {
-          flowId: stored.flowId,
-          error:
-            zernioErr instanceof Error ? zernioErr.message : String(zernioErr),
-          incidentPersisted,
-          redisMarkedUnknown,
-        },
-      });
-
-      // Step 4 — Controlled 409 instead of bubbling the raw transient error.
-      throw new ZernioRouteError(409, 'finalize_unknown_admin_required');
-    }
-
-    // 8d. DB transaction: INSERT zernio_connections + drain outbox + (on
-    // first activation per the needs_backfill predicate) initial-backfill
-    // outbox enqueue. All in the same transaction per spec §6.8.
-    const newConnectionId = uuidv7();
-    try {
-      await sql.begin(async (tx) => {
-        const [accountLocation] = await tx<{
-          subscription_status: string;
-          subscription_tier: string;
-          subscription_activated_at: Date | null;
-        }[]>`
-          SELECT
-            a.subscription_status,
-            a.subscription_tier,
-            a.subscription_activated_at
-          FROM businesses b
-          JOIN accounts a ON a.id = b.account_id
-          WHERE b.id = ${stored.businessId}
-            AND b.account_id = ${user.accountId}
-            AND b.archived_at IS NULL
-          FOR UPDATE OF b, a
-        `;
-
-        if (!accountLocation) {
-          throw new ZernioRouteError(403, 'business_mismatch');
-        }
-        if (accountLocation.subscription_status !== SubscriptionStatus.ACTIVE) {
-          throw new ZernioRouteError(403, 'subscription_required');
-        }
-
-        const [existingConnection] = await tx<{ id: string }[]>`
-          SELECT id
-          FROM zernio_connections
-          WHERE business_id = ${stored.businessId}
-            AND status IN ('active', 'pending')
-          ORDER BY connected_at DESC NULLS LAST, created_at DESC
-          LIMIT 1
-          FOR UPDATE
-        `;
-
-        const connectionId = existingConnection?.id ?? newConnectionId;
-        if (existingConnection) {
-          await tx`
-            UPDATE zernio_connections
-            SET zernio_profile_id = ${stored.profileId},
-                zernio_account_id = ${accountId},
-                zernio_location_id = ${locationId},
-                status = 'active',
-                connected_at = NOW(),
-                updated_at = NOW()
-            WHERE id = ${existingConnection.id}
-          `;
-        } else {
-          await tx`
-            INSERT INTO zernio_connections (
-              id, business_id, zernio_profile_id, zernio_account_id,
-              zernio_location_id, status, connected_at, created_at, updated_at
-            ) VALUES (
-              ${newConnectionId},
-              ${stored.businessId},
-              ${stored.profileId},
-              ${accountId},
-              ${locationId},
-              'active',
-              NOW(),
-              NOW(),
-              NOW()
-            )
-          `;
-        }
-
-        await tx`
-          INSERT INTO job_outbox (
-            id, topic, aggregate_type, aggregate_id, payload, attempts, max_attempts
-          ) VALUES (
-            ${uuidv7()},
-            'drain_pending_owner_connect',
-            'business',
-            ${stored.businessId},
-            ${jsonb({ business_id: stored.businessId, kind: 'drain' })},
-            0,
-            5
-          )
-        `;
-
-        // Backfill-needed predicate (spec §6.8 round-final M2). Fires when
-        // EITHER (a) no prior connect existed for this business OR
-        // (b) prior connections existed but no backfill has ever COMPLETED
-        // (handles the case where a prior backfill auth-failed mid-flight).
-        // The worker's ON CONFLICT (business_id) DO NOTHING on
-        // zernio_backfill_runs is the second-line guard.
-        const [predicate] = await tx<{ needs_backfill: boolean }[]>`
-          SELECT (
-            NOT EXISTS (
-              SELECT 1 FROM zernio_connections
-              WHERE business_id = ${stored.businessId}
-                AND id != ${connectionId}
-                AND connected_at IS NOT NULL
-            )
-            OR NOT EXISTS (
-              SELECT 1 FROM zernio_backfill_runs
-              WHERE business_id = ${stored.businessId}
-                AND completed_at IS NOT NULL
-            )
-          ) AS needs_backfill
-        `;
-
-        if (predicate?.needs_backfill) {
-          if (accountLocation.subscription_activated_at) {
-            await tx`
-              INSERT INTO job_outbox (
-                id, topic, aggregate_type, aggregate_id, payload, status
-              ) VALUES (
-                ${uuidv7()},
-                'zernio_initial_backfill',
-                'business',
-                ${stored.businessId},
-                ${jsonb({
-                  business_id: stored.businessId,
-                  zernio_account_id: accountId,
-                  zernio_location_id: locationId,
-                  subscription_tier: accountLocation.subscription_tier,
-                  subscription_activated_at: accountLocation.subscription_activated_at.toISOString(),
-                  correlation_id: uuidv7(),
-                })},
-                'pending'
-              )
-            `;
-          } else {
-            // Pre-payment connect — connect flow is gated on active
-            // subscription upstream, so this branch is unreachable.
-            console.warn(
-              `[zernio-connect] Connect succeeded but subscription_activated_at NULL for ${stored.businessId}`,
-            );
-          }
-        }
-      });
-    } catch (dbErr) {
-      // 8e. Round-12 + round-13 post-accountId recovery. Zernio committed
-      // server-side but our durable DB row doesn't exist yet. Two failure
-      // modes — same recovery, different surface:
-      //   (a) 23505 unique violation → another flow finalized first; OUR
-      //       accountId is now an orphan. 409 already_connected_by_parallel_flow.
-      //   (b) any other DB error → still an orphan; bubble the original
-      //       error up so it surfaces as 500.
-      // Both branches: best-effort delete the orphan Zernio account and
-      // best-effort clear the pending marker (luaDeletePendingByFlowIdAnyStatus,
-      // NOT luaCASCancel which would refuse the 'finalizing' status).
-      await zernioClient.deleteAccount(accountId).catch(() => {
-        // Best-effort: orphan stays at Zernio, will be cleaned up by ops.
-      });
-
-      const cleared = await redis
+      // 8f. Full success — clear pending marker (any status, by flowId),
+      // drop the locations blob, clear the cookie, return 200.
+      await redis
         .eval(
           luaDeletePendingByFlowIdAnyStatus,
           1,
           pendingKey(stored.businessId),
           stored.flowId,
         )
-        .catch(() => 0);
-      if (cleared !== 1) {
-        Sentry.addBreadcrumb({
-          category: 'zernio.finalize',
-          message: 'pending_marker_not_cleared_post_accountid_failure',
-          data: { flowId: stored.flowId, cleared: String(cleared) },
+        .catch(() => {
+          // Best-effort: marker auto-expires.
         });
-      }
 
-      const isUniqueViolation = (dbErr as { code?: string }).code === '23505';
-      if (isUniqueViolation) {
-        throw new ZernioRouteError(409, 'already_connected_by_parallel_flow');
-      }
-      throw dbErr;
-    }
-
-    // 8f. Full success — clear pending marker (any status, by flowId),
-    // drop the locations blob, clear the cookie, return 200.
-    await redis
-      .eval(
-        luaDeletePendingByFlowIdAnyStatus,
-        1,
-        pendingKey(stored.businessId),
-        stored.flowId,
-      )
-      .catch(() => {
-        // Best-effort: marker auto-expires.
+      await redis.del(locationsKey(sessionId)).catch(() => {
+        // Best-effort: cached locations auto-expire.
       });
 
-    await redis.del(locationsKey(sessionId)).catch(() => {
-      // Best-effort: cached locations auto-expire.
+      const response = NextResponse.json(
+        { ok: true },
+        { status: 200, headers: NO_STORE },
+      );
+      clearConnectSessionCookie(response);
+      return response;
     });
-
-    const response = NextResponse.json(
-      { ok: true },
-      { status: 200, headers: NO_STORE },
-    );
-    clearConnectSessionCookie(response);
-    return response;
   } catch (err) {
     return errorToResponse(err);
-  } finally {
-    // 9. Release the finalize lock — token-stamped CAS so we never
-    // accidentally release a lock acquired by a parallel finalize.
-    await redis.eval(luaTokenCAS, 1, finalizeKey, finalizeToken).catch(() => {
-      // Best-effort: 60s TTL is the safety net.
-    });
   }
 }
 
