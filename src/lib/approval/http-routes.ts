@@ -161,7 +161,7 @@ export async function runDashboardReviewAction(
     return NextResponse.json({ error: 'No actionable response found for this review' }, { status: 404, headers: NO_STORE_HEADERS });
   }
 
-  const ip = request.headers.get('x-forwarded-for') ?? null;
+  const ip = getRequestIp(request);
   const audit: SessionAuditContext = { actorUserId: owner.id, ipAddress: ip };
 
   try {
