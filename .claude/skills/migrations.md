@@ -1,12 +1,12 @@
 ---
 name: migrations
-description: Full Supabase migration inventory (001–032) for the RepWorth project, plus known residual risks tied to schema decisions. Read this before writing any migration, querying migration state, debugging schema issues, or planning work that touches the database.
+description: Full Supabase migration inventory (001–042) for the RepWorth project, plus known residual risks tied to schema decisions. Read this before writing any migration, querying migration state, debugging schema issues, or planning work that touches the database.
 ---
 
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **041** — next migration is **042**
+Current head: **042** — next migration is **043**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **Worker file paths (as of 2026-05-05):** Class names below are
@@ -245,6 +245,22 @@ All tables use UUIDv7 (time-ordered primary keys).
   `google_maps_url` on `businesses`, and `archived_at`,
   `archive_reason` on `channel_enrollments`. Same table-level-revoke-
   then-explicit-grant pattern as 040.
+
+- **042** — Zernio backfill run reasons (reactivation catch-up runs).
+  Relaxes the one-row-per-business model so reactivated locations can
+  record later catch-up runs without overwriting the first-connect run.
+  - Adds `zernio_backfill_runs.run_reason TEXT NOT NULL DEFAULT 'initial'`
+    (`'initial'` = first-connect one-shot; `'reactivation'` = later
+    archive/restore catch-up) and `correlation_id UUID` (idempotency key
+    for non-initial runs, usually copied from the outbox payload).
+  - Drops `zernio_backfill_runs_one_per_business` (from 028) and replaces
+    it with `zernio_backfill_runs_one_initial_per_business` on
+    `(business_id) WHERE run_reason = 'initial'` — still exactly one
+    initial run per business, but reactivation runs are now unconstrained.
+  - `zernio_backfill_runs_correlation_id_uniq` on `(correlation_id) WHERE
+    correlation_id IS NOT NULL` — dedup key for reactivation runs.
+  - `zernio_backfill_runs_business_reason_started_idx` on
+    `(business_id, run_reason, started_at DESC)` for latest-run lookups.
 
 ## Key Tables Reference
 

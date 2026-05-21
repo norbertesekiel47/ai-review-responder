@@ -8,6 +8,7 @@
   },
   "scripts": {
     "dev": "next dev",
+    "dev:all": "bash scripts/dev-stack.sh",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
