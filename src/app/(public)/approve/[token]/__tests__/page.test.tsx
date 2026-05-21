@@ -30,7 +30,7 @@ describe('ApprovalPage', () => {
       },
     ]);
 
-    render(await ApprovalPage({ params: { token: 'raw-token' } }));
+    render(await ApprovalPage({ params: Promise.resolve({ token: 'raw-token' }) }));
 
     expect(
       screen.getByRole('heading', {

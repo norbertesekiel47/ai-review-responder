@@ -1,5 +1,19 @@
 import type { NextRequest } from 'next/server';
 
+type LegacyNextRequestIp = NextRequest & { ip?: unknown };
+
+export function getRequestIp(req: NextRequest): string | null {
+  const raw = req.headers.get('x-forwarded-for');
+  const first = raw?.split(',')[0]?.trim();
+  if (first && first.length > 0) return first;
+
+  const legacyIp = (req as LegacyNextRequestIp).ip;
+  if (typeof legacyIp !== 'string') return null;
+
+  const trimmedLegacyIp = legacyIp.trim();
+  return trimmedLegacyIp.length > 0 ? trimmedLegacyIp : null;
+}
+
 /**
  * Build a rate-limit key prefixed by the request IP. Uses the leftmost
  * `x-forwarded-for` entry (set by Vercel / Next.js's edge), falling back
@@ -19,8 +33,6 @@ import type { NextRequest } from 'next/server';
  * `${prefix}:ip:${ip}` is guaranteed to receive a non-empty `ip`.
  */
 export function getIpKey(req: NextRequest, prefix: string): string {
-  const raw = req.headers.get('x-forwarded-for');
-  const first = raw?.split(',')[0]?.trim();
-  const ip = first && first.length > 0 ? first : 'unknown';
+  const ip = getRequestIp(req) ?? 'unknown';
   return `${prefix}:ip:${ip}`;
 }

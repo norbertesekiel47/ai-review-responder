@@ -12,6 +12,7 @@ import { lockValidLink } from '@/lib/approval/service';
 import type { ApprovalLink, AuditContext, SessionAuditContext } from '@/lib/approval/types';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
+import { getRequestIp } from '@/lib/shared/request-ip';
 
 type TxClient = postgres.TransactionSql;
 
@@ -64,7 +65,7 @@ export async function runTokenApprovalAction<TPrepared = undefined>(
     return prepared;
   }
 
-  const ip = request.headers.get('x-forwarded-for') ?? request.ip ?? null;
+  const ip = getRequestIp(request);
 
   try {
     await sql.begin(async (tx) => {
@@ -160,7 +161,7 @@ export async function runDashboardReviewAction(
     return NextResponse.json({ error: 'No actionable response found for this review' }, { status: 404, headers: NO_STORE_HEADERS });
   }
 
-  const ip = request.headers.get('x-forwarded-for') ?? null;
+  const ip = getRequestIp(request);
   const audit: SessionAuditContext = { actorUserId: owner.id, ipAddress: ip };
 
   try {

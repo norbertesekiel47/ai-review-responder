@@ -1,6 +1,8 @@
 import * as Sentry from '@sentry/nextjs';
 import { scrubSentryEvent } from '@/lib/shared/sentry-scrub';
 
+export const onRequestError = Sentry.captureRequestError;
+
 export async function register() {
   if (process.env.NEXT_RUNTIME === 'nodejs') {
     Sentry.init({

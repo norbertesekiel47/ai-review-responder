@@ -4,13 +4,17 @@ import { sql } from '@/lib/db/server';
 import { setDeviceCookie, setCsrfCookie, verifyDeviceCookie } from '@/lib/approval/cookies';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
+import { getIpKey } from '@/lib/shared/request-ip';
+
+type TokenRouteContext = {
+  params: Promise<{ token: string }>;
+};
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { token: string } },
+  { params }: TokenRouteContext,
 ) {
-  const ip = request.headers.get('x-forwarded-for') ?? request.ip ?? 'unknown';
-  const rateCheck = await checkRateLimit(`approve:get:${ip}`, 10, 60);
+  const rateCheck = await checkRateLimit(getIpKey(request, 'approve:get'), 10, 60);
   if (!rateCheck.allowed) {
     return NextResponse.json(
       { error: 'Rate limit exceeded' },
@@ -18,7 +22,7 @@ export async function GET(
     );
   }
 
-  const rawToken = params.token;
+  const { token: rawToken } = await params;
   const tokenHash = createHash('sha256').update(rawToken).digest('hex');
 
   const [link] = await sql<{
