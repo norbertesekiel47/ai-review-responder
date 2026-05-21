@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
+import { ZernioAuthError, ZernioValidationError } from '@/lib/zernio/errors';
+import { luaCASRevertToOauth } from '@/lib/zernio/connect-state';
 
 const PRIMARY_LOCATION_ID = '11111111-1111-4111-8111-111111111111';
 const SECONDARY_LOCATION_ID = '22222222-2222-4222-8222-222222222222';
@@ -78,9 +80,9 @@ const {
       }
       return null;
     }),
-    set: vi.fn(async () => 'OK'),
-    eval: vi.fn(async () => 'OK'),
-    del: vi.fn(async () => 1),
+    set: vi.fn(async (..._args: unknown[]) => 'OK'),
+    eval: vi.fn(async (..._args: unknown[]) => 'OK'),
+    del: vi.fn(async (..._args: unknown[]) => 1),
   };
 
   return {
@@ -230,5 +232,43 @@ describe('POST /api/zernio/connect/select-location account scoping', () => {
     expect(txCalls.some((call) =>
       /INSERT INTO zernio_connections/.test(call.raw),
     )).toBe(false);
+  });
+
+  // 8c outcome-KNOWN failure: selectLocation rejects with a typed pre-mutation
+  // error. The route reverts finalizing -> oauth_in_progress (best-effort
+  // luaCASRevertToOauth) and rethrows the original error; no DB transaction runs.
+  it('reverts to oauth_in_progress and surfaces 400 on a ZernioValidationError', async () => {
+    mockSelectLocation.mockRejectedValueOnce(
+      new ZernioValidationError('bad_location', { detail: 'rejected' }),
+    );
+
+    const res = await POST(makeRequest());
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: 'zernio_validation_error',
+      code: 'bad_location',
+    });
+    // Revert CAS fired with the correct script.
+    expect(
+      mockRedis.eval.mock.calls.some((call) => call[0] === luaCASRevertToOauth),
+    ).toBe(true);
+    // Outcome known -> no finalize transaction.
+    expect(mockSql.begin).not.toHaveBeenCalled();
+  });
+
+  it('reverts to oauth_in_progress and surfaces 502 on a ZernioAuthError', async () => {
+    mockSelectLocation.mockRejectedValueOnce(
+      new ZernioAuthError(401, 'stale connect token'),
+    );
+
+    const res = await POST(makeRequest());
+
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ error: 'zernio_auth_error' });
+    expect(
+      mockRedis.eval.mock.calls.some((call) => call[0] === luaCASRevertToOauth),
+    ).toBe(true);
+    expect(mockSql.begin).not.toHaveBeenCalled();
   });
 });
