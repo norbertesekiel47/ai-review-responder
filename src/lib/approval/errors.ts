@@ -40,6 +40,13 @@ export class ResponseNotPendingError extends Error {
   }
 }
 
+export class EmptyEditedResponseError extends Error {
+  constructor() {
+    super('editedText is required');
+    this.name = 'EmptyEditedResponseError';
+  }
+}
+
 export class ConsumedLinkError extends Error {
   constructor() {
     super('This approval link has already been used');

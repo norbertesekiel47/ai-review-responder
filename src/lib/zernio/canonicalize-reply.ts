@@ -8,9 +8,10 @@
 //
 // Conservative normalization only:
 //   - strip BOM (U+FEFF) and zero-width chars (U+200B-U+200D) globally
-//     (these can appear from copy-paste through web UIs and break equality
-//     comparisons silently — internal occurrences are removed too because
-//     they have no semantic value in user-visible text)
+//     for equality only. sanitizePublicResponseText deliberately preserves
+//     U+200C/U+200D because they can affect visible shaping and emoji joins;
+//     this canonicalizer must not be reused as a persistence or publish-time
+//     sanitizer.
 //   - collapse \r\n and lone \r → \n
 //   - Unicode-normalize to NFC
 //   - trim outer whitespace

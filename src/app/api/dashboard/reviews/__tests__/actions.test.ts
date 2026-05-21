@@ -70,6 +70,12 @@ vi.mock('@/lib/approval/service', () => ({
 }));
 
 vi.mock('@/lib/approval/errors', () => ({
+  EmptyEditedResponseError: class EmptyEditedResponseError extends Error {
+    constructor() {
+      super('editedText is required');
+      this.name = 'EmptyEditedResponseError';
+    }
+  },
   ResponseNotPendingError: class ResponseNotPendingError extends Error {
     currentStatus: string;
     constructor(status: string) {
@@ -320,6 +326,43 @@ describe('POST /api/dashboard/reviews/[reviewId]/edit', () => {
     expect(callArgs?.[5]).toBe('upstream-corr-abc');
   });
 
+  it('passes sanitized edited text to the session edit service', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+    setResponseLookup([{ id: RESPONSE_ID, business_id: BUSINESS_ID, status: 'pending_approval' }]);
+    mockSqlResults.push([{ correlation_id: 'upstream-corr-abc' }]);
+    mockEditBySession.mockResolvedValue(undefined);
+
+    const { POST } = await import('../[reviewId]/edit/route');
+    const res = await POST(
+      makeRequest(`/api/dashboard/reviews/${REVIEW_ID}/edit`, {
+        editedText: '  Thank\t\tyou\u200B\n\n\nCome\u202E back!  ',
+      }),
+      makeParams(REVIEW_ID),
+    );
+
+    expect(res.status).toBe(200);
+    const callArgs = mockEditBySession.mock.calls[0];
+    expect(callArgs?.[3]).toBe('Thank you\n\nCome back!');
+  });
+
+  it('does not count leading or trailing whitespace against the 2000 character limit', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+    setResponseLookup([{ id: RESPONSE_ID, business_id: BUSINESS_ID, status: 'pending_approval' }]);
+    mockSqlResults.push([{ correlation_id: 'upstream-corr-abc' }]);
+    mockEditBySession.mockResolvedValue(undefined);
+    const content = 'x'.repeat(2000);
+
+    const { POST } = await import('../[reviewId]/edit/route');
+    const res = await POST(
+      makeRequest(`/api/dashboard/reviews/${REVIEW_ID}/edit`, { editedText: `   ${content}   ` }),
+      makeParams(REVIEW_ID),
+    );
+
+    expect(res.status).toBe(200);
+    const callArgs = mockEditBySession.mock.calls[0];
+    expect(callArgs?.[3]).toBe(content);
+  });
+
   it('returns 400 when editedText is empty', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
 
@@ -332,6 +375,22 @@ describe('POST /api/dashboard/reviews/[reviewId]/edit', () => {
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error).toBe('Validation failed');
+  });
+
+  it('returns 400 when editedText is empty after sanitization', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+
+    const { POST } = await import('../[reviewId]/edit/route');
+    const res = await POST(
+      makeRequest(`/api/dashboard/reviews/${REVIEW_ID}/edit`, { editedText: '\x00\x01\x7F\u200B\u202E\u2066\uFEFF' }),
+      makeParams(REVIEW_ID),
+    );
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe('Validation failed');
+    expect(mockEditBySession).not.toHaveBeenCalled();
+    expect(sqlCallCounter.value).toBe(0);
   });
 
   it('returns 400 when editedText exceeds 2000 chars', async () => {
