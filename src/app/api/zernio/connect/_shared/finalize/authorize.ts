@@ -1,13 +1,13 @@
-import type { NextRequest } from 'next/server';
-import { sql } from '@/lib/db/server';
-import { getCacheRedis } from '@/lib/db/redis-cache';
-import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
-import { requireRole, AuthError } from '@/lib/db/auth';
-import { ZernioRouteError } from '@/lib/zernio/errors';
-import { locationsKey } from '@/lib/zernio/connect-state';
-import { readConnectSessionCookie } from '@/lib/zernio/connect-session-cookie';
-import type { AppUser } from '@/lib/db/auth';
-import type { ConnectLocationsBlob } from '@/lib/zernio/types';
+import type { NextRequest } from "next/server";
+import { sql } from "@/lib/db/server";
+import { getCacheRedis } from "@/lib/db/redis-cache";
+import { assertSameOrigin, SameOriginError } from "@/lib/shared/csrf";
+import { requireRole, AuthError } from "@/lib/db/auth";
+import { ZernioRouteError } from "@/lib/zernio/errors";
+import { locationsKey } from "@/lib/zernio/connect-state";
+import { readConnectSessionCookie } from "@/lib/zernio/connect-session-cookie";
+import type { AppUser } from "@/lib/db/auth";
+import type { ConnectLocationsBlob } from "@/lib/zernio/types";
 
 interface SelectLocationBody {
   locationId?: unknown;
@@ -38,8 +38,8 @@ export async function authorizeSelectLocation(
   req: NextRequest,
 ): Promise<SelectLocationContext> {
   // Feature flag — subsystem A is gated by ZERNIO_PUBLISHING_ENABLED (§1.1).
-  if (process.env.ZERNIO_PUBLISHING_ENABLED !== 'true') {
-    throw new ZernioRouteError(503, 'feature_disabled');
+  if (process.env.ZERNIO_PUBLISHING_ENABLED !== "true") {
+    throw new ZernioRouteError(503, "feature_disabled");
   }
 
   // 1. CSRF (FIRST, before any DB or external work).
@@ -47,7 +47,7 @@ export async function authorizeSelectLocation(
     assertSameOrigin(req);
   } catch (err) {
     if (err instanceof SameOriginError) {
-      throw new ZernioRouteError(403, 'forbidden');
+      throw new ZernioRouteError(403, "forbidden");
     }
     throw err;
   }
@@ -55,18 +55,18 @@ export async function authorizeSelectLocation(
   // 2. Auth.
   let user: AppUser;
   try {
-    user = await requireRole(req, 'owner');
+    user = await requireRole(req, "owner");
   } catch (err) {
     if (err instanceof AuthError) {
       throw new ZernioRouteError(
         err.statusCode,
-        err.statusCode === 401 ? 'unauthorized' : 'forbidden',
+        err.statusCode === 401 ? "unauthorized" : "forbidden",
       );
     }
     throw err;
   }
   if (!user.accountId) {
-    throw new ZernioRouteError(403, 'unscoped_owner');
+    throw new ZernioRouteError(403, "unscoped_owner");
   }
 
   // 3. Parse body.
@@ -74,20 +74,20 @@ export async function authorizeSelectLocation(
   try {
     body = (await req.json()) as SelectLocationBody;
   } catch {
-    throw new ZernioRouteError(400, 'invalid_body');
+    throw new ZernioRouteError(400, "invalid_body");
   }
   const locationId =
-    typeof body.locationId === 'string' && body.locationId.length > 0
+    typeof body.locationId === "string" && body.locationId.length > 0
       ? body.locationId
       : null;
   if (!locationId) {
-    throw new ZernioRouteError(400, 'invalid_location_id');
+    throw new ZernioRouteError(400, "invalid_location_id");
   }
 
   // 4. Read signed cookie → sessionId.
   const sessionId = readConnectSessionCookie(req);
   if (!sessionId) {
-    throw new ZernioRouteError(401, 'connect_session_missing');
+    throw new ZernioRouteError(401, "connect_session_missing");
   }
 
   const redis = getCacheRedis();
@@ -95,18 +95,18 @@ export async function authorizeSelectLocation(
   // 5. Load the cached locations blob.
   const raw = await redis.get(locationsKey(sessionId));
   if (!raw) {
-    throw new ZernioRouteError(410, 'connect_session_expired');
+    throw new ZernioRouteError(410, "connect_session_expired");
   }
   let stored: ConnectLocationsBlob;
   try {
     stored = JSON.parse(raw) as ConnectLocationsBlob;
   } catch {
-    throw new ZernioRouteError(410, 'connect_session_expired');
+    throw new ZernioRouteError(410, "connect_session_expired");
   }
 
   // 6. Auth-scope verify (defence-in-depth — cookie alone is insufficient).
   if (stored.userId !== user.id) {
-    throw new ZernioRouteError(403, 'user_mismatch');
+    throw new ZernioRouteError(403, "user_mismatch");
   }
   const [business] = await sql<{ exists: number }[]>`
     SELECT 1 AS exists
@@ -117,11 +117,11 @@ export async function authorizeSelectLocation(
     LIMIT 1
   `;
   if (!business) {
-    throw new ZernioRouteError(403, 'business_mismatch');
+    throw new ZernioRouteError(403, "business_mismatch");
   }
   const locationKnown = stored.locations.some((loc) => loc.id === locationId);
   if (!locationKnown) {
-    throw new ZernioRouteError(400, 'invalid_location_id');
+    throw new ZernioRouteError(400, "invalid_location_id");
   }
 
   return { user, sessionId, stored, locationId, redis };
