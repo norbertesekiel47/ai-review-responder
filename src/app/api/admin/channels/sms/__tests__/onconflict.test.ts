@@ -83,7 +83,8 @@ vi.mock('@/lib/db/server', () => ({
 // restores the prior value so this suite can't leak env state to other
 // tests sharing the vitest worker.
 const _origNextPublicAppUrl = process.env.NEXT_PUBLIC_APP_URL;
-process.env.NEXT_PUBLIC_APP_URL = 'http://localhost:3000';
+const APP_URL = 'http://localhost:3000';
+process.env.NEXT_PUBLIC_APP_URL = APP_URL;
 
 vi.mock('@/lib/db/auth', () => ({
   requireRole: vi.fn().mockResolvedValue({
@@ -129,7 +130,7 @@ describe('Phase 0 email enrollment upserts — ON CONFLICT regression', () => {
     const { POST } = await import('@/app/api/admin/businesses/route');
     const req = new NextRequest('http://localhost/api/admin/businesses', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Origin: APP_URL },
       body: JSON.stringify({
         name: 'Test Biz',
         category: 'restaurant',
@@ -174,7 +175,7 @@ describe('Phase 0 email enrollment upserts — ON CONFLICT regression', () => {
     const { PATCH } = await import('@/app/api/admin/businesses/[id]/route');
     const req = new NextRequest('http://localhost/api/admin/businesses/biz-1', {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Origin: APP_URL },
       body: JSON.stringify({ ownerEmail: 'new@example.com' }),
     });
 

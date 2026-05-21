@@ -6,6 +6,7 @@ import {
 } from '@/lib/approval/http-routes';
 import { editBySession } from '@/lib/approval/service';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
+import { withSameOrigin } from '@/lib/auth/route-helpers';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,7 +14,7 @@ const editSchema = z.object({
   editedText: z.string().trim().min(1).max(2000),
 });
 
-export async function POST(
+async function editReview(
   request: NextRequest,
   { params }: { params: Promise<{ reviewId: string }> },
 ): Promise<NextResponse> {
@@ -47,3 +48,5 @@ export async function POST(
     ),
   );
 }
+
+export const POST = withSameOrigin()(editReview);

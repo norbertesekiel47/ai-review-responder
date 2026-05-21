@@ -1,7 +1,7 @@
 // src/app/api/admin/channels/whatsapp/disable — admin disables a verified enrollment.
 // Returns 404 if no verified row matches (user-facing signal that there's nothing to disable).
 //
-// Handler order: flag → env → auth → businessId.
+// Handler order: same-origin wrapper → flag → env → auth → businessId.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
@@ -9,8 +9,9 @@ import { requireRole, AuthError } from '@/lib/db/auth';
 import { isWhatsAppEnabled, flagOff, assertWhatsAppEnvReady } from '../_shared';
 import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
 import { asAccountId } from '@/lib/shared/ids';
+import { withSameOrigin } from '@/lib/auth/route-helpers';
 
-export async function POST(req: NextRequest): Promise<NextResponse> {
+async function disableWhatsApp(req: NextRequest): Promise<NextResponse> {
   if (!isWhatsAppEnabled()) return flagOff();
 
   const envErr = assertWhatsAppEnvReady();
@@ -57,3 +58,5 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   return NextResponse.json({ ok: true }, { headers: noStore });
 }
+
+export const POST = withSameOrigin()(disableWhatsApp);

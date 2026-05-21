@@ -3,6 +3,7 @@ import { requireRole, AuthError } from '@/lib/db/auth';
 import type { AppUser } from '@/lib/db/auth';
 import type { AccountId } from '@/lib/shared/ids';
 import type { z } from 'zod';
+import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 
 export const LOCATION_ROUTE_NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -28,6 +29,21 @@ export async function readOwnerForMultiLocationRoute(
         { status: 404, headers: LOCATION_ROUTE_NO_STORE },
       ),
     };
+  }
+
+  try {
+    assertSameOrigin(req);
+  } catch (err) {
+    if (err instanceof SameOriginError) {
+      return {
+        ok: false,
+        response: NextResponse.json(
+          { error: 'forbidden' },
+          { status: 403, headers: LOCATION_ROUTE_NO_STORE },
+        ),
+      };
+    }
+    throw err;
   }
 
   let user: AppUser;

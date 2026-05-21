@@ -39,11 +39,13 @@ import { POST } from '../route';
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
+const APP_URL = 'http://localhost:3000';
+
 function makeRequest(body: unknown): NextRequest {
   return new NextRequest('http://localhost:3000/api/admin/businesses/biz-1/ranking', {
     method: 'POST',
     body: JSON.stringify(body),
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', Origin: APP_URL },
   });
 }
 
@@ -56,6 +58,7 @@ describe('POST /api/admin/businesses/[id]/ranking', () => {
     vi.clearAllMocks();
     mockRequireRole.mockResolvedValue({ id: 'u1', role: 'admin', accountId: null, locationId: null });
     mockSqlReturn.value = [{ id: 'mock-uuid-v7' }];
+    process.env.NEXT_PUBLIC_APP_URL = APP_URL;
   });
 
   it('returns 400 for missing keyword', async () => {

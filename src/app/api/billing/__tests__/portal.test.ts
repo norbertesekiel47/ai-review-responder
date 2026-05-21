@@ -66,11 +66,12 @@ import { AuthError } from '@/lib/db/auth';
 const ACCOUNT_ID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
 const OTHER_ACCOUNT_ID = '99999999-8888-7777-6666-555555555555';
 const USER_ID = 'uuuuuuuu-0000-0000-0000-000000000001';
+const APP_URL = 'http://localhost:3000';
 
 function mkRequest(body?: Record<string, unknown>): NextRequest {
   return new NextRequest('http://localhost:3000/api/billing/portal', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', Origin: APP_URL },
     body: body ? JSON.stringify(body) : undefined,
   });
 }
@@ -114,6 +115,7 @@ beforeEach(() => {
     id: 'bps_test_1',
     url: 'https://billing.stripe.com/p/test/portal',
   });
+  process.env.NEXT_PUBLIC_APP_URL = APP_URL;
 });
 
 // ── Tests ──────────────────────────────────────────────────────────────────

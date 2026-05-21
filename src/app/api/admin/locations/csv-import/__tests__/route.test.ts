@@ -79,6 +79,8 @@ import { POST } from '../route';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
+const APP_URL = 'http://localhost:3000';
+
 function mockAdminUser() {
   return { id: 'admin-1', role: 'admin', email: 'admin@test.com', name: 'Admin' };
 }
@@ -119,6 +121,7 @@ function mkCsvRequest(
 
   return new NextRequest('http://localhost:3000/api/admin/locations/csv-import', {
     method: 'POST',
+    headers: { Origin: APP_URL },
     body: formData,
   });
 }
@@ -144,6 +147,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockSql.mockResolvedValue([]);
   mockRequireRole.mockResolvedValue(mockAdminUser());
+  process.env.NEXT_PUBLIC_APP_URL = APP_URL;
 });
 
 // ── Tests ──────────────────────────────────────────────────────────────────
@@ -388,6 +392,7 @@ Westside Grill,ChIJ9012`;
 
     const req = new NextRequest('http://localhost:3000/api/admin/locations/csv-import', {
       method: 'POST',
+      headers: { Origin: APP_URL },
       body: formData,
     });
 
@@ -404,6 +409,7 @@ Westside Grill,ChIJ9012`;
 
     const req = new NextRequest('http://localhost:3000/api/admin/locations/csv-import', {
       method: 'POST',
+      headers: { Origin: APP_URL },
       body: formData,
     });
 

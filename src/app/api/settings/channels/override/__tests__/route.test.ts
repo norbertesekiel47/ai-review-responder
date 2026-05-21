@@ -64,6 +64,7 @@ const ACCOUNT_ID = 'a0000000-0000-4000-8000-000000000001';
 const LOCATION_ID_1 = 'b1111111-0000-4000-8000-000000000001';
 const ENROLLMENT_ID_ORG = 'e0000000-0000-4000-8000-000000000001';
 const ENROLLMENT_ID_OVERRIDE = 'e0000000-0000-4000-8000-000000000002';
+const APP_URL = 'http://localhost:3000';
 
 function ownerUser() {
   return {
@@ -79,7 +80,7 @@ function ownerUser() {
 function makePostRequest(body: unknown): NextRequest {
   return new NextRequest('http://localhost:3000/api/settings/channels/override', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', Origin: APP_URL },
     body: JSON.stringify(body),
   });
 }
@@ -87,7 +88,7 @@ function makePostRequest(body: unknown): NextRequest {
 function makeDeleteRequest(body: unknown): NextRequest {
   return new NextRequest('http://localhost:3000/api/settings/channels/override', {
     method: 'DELETE',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', Origin: APP_URL },
     body: JSON.stringify(body),
   });
 }
@@ -98,6 +99,7 @@ describe('POST /api/settings/channels/override', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockRequireRole.mockResolvedValue(ownerUser());
+    process.env.NEXT_PUBLIC_APP_URL = APP_URL;
   });
 
   it('creates per-location override cloning org-default values', async () => {
@@ -242,6 +244,7 @@ describe('DELETE /api/settings/channels/override', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockRequireRole.mockResolvedValue(ownerUser());
+    process.env.NEXT_PUBLIC_APP_URL = APP_URL;
   });
 
   it('soft-deletes per-location override', async () => {
@@ -294,6 +297,7 @@ describe('Audit trail for channel override changes', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockRequireRole.mockResolvedValue(ownerUser());
+    process.env.NEXT_PUBLIC_APP_URL = APP_URL;
   });
 
   it('POST writes account_audit_log entry with channel_override_created event', async () => {

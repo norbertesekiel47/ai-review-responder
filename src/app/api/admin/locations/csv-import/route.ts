@@ -22,6 +22,7 @@ import {
   type CsvRowFailure,
 } from '@/lib/admin/csv-import';
 import { getAccountById } from '@/lib/accounts/repo';
+import { withSameOrigin } from '@/lib/auth/route-helpers';
 
 export const dynamic = 'force-dynamic';
 
@@ -47,7 +48,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  * VAL-ADMIN-013: Oversized files rejected (>5MB or >100 rows).
  * VAL-ADMIN-014: account_audit_log records 'csv_bulk_import' event with row counts.
  */
-export async function POST(req: NextRequest): Promise<NextResponse> {
+async function importLocationsCsv(req: NextRequest): Promise<NextResponse> {
   // ── Step 1: Auth gate (VAL-ADMIN-011) ──────────────────────────────
   let authUser;
   try {
@@ -191,3 +192,5 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // Step 10: Return partial-success report.
   return NextResponse.json(report, { status: 200, headers: NO_STORE });
 }
+
+export const POST = withSameOrigin()(importLocationsCsv);

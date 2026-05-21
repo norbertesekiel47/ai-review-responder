@@ -13,6 +13,7 @@ import { requireRole, AuthError } from '@/lib/db/auth';
 import { isSubscriptionTier, type SubscriptionTierValue } from '@/lib/accounts/tier-config';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { createCheckoutSession, CheckoutUnavailableError } from '@/lib/payments/create-checkout-session';
+import { withSameOrigin } from '@/lib/auth/route-helpers';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,7 +42,7 @@ const CheckoutSchema = z.object({
  * VAL-BILLING-031: This handler does NOT reference STRIPE_PAYMENT_LINK_* env vars.
  * Security: requires owner auth and validates body.accountId === user.accountId.
  */
-export async function POST(req: NextRequest): Promise<NextResponse> {
+async function createBillingCheckout(req: NextRequest): Promise<NextResponse> {
   // ── Auth: require owner role ────────────────────────────────────────────
   let user;
   try {
@@ -160,3 +161,5 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 }
+
+export const POST = withSameOrigin()(createBillingCheckout);

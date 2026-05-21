@@ -5,7 +5,7 @@
 // future /verify call can re-enable via the UPDATE branch.
 //
 // Ordering invariants:
-//   1. Flag → auth → body parse → subscription.
+//   1. Same-origin wrapper → flag → env → auth → body parse → subscription.
 //   2. Per-(business_id, 'sms') advisory lock — matches /verify, /confirm,
 //      /cancel.
 //   3. UPDATE gated on `status = 'verified'` + `archived_at IS NULL`; empty
@@ -27,12 +27,13 @@ import {
 } from '../_shared';
 import { asLocationId, asAccountId } from '@/lib/shared/ids';
 import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
+import { withSameOrigin } from '@/lib/auth/route-helpers';
 
 interface DisableBody {
   business_id?: string;
 }
 
-export async function POST(request: NextRequest): Promise<NextResponse> {
+async function disableSms(request: NextRequest): Promise<NextResponse> {
   if (!isSmsEnabled()) return flagOff();
   const envError = assertSmsEnvReady();
   if (envError) return envError;
@@ -77,3 +78,5 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   return result;
 }
+
+export const POST = withSameOrigin()(disableSms);

@@ -22,6 +22,23 @@ describe('assertSameOrigin', () => {
     expect(() => assertSameOrigin(req)).not.toThrow();
   });
 
+  it('passes when Sec-Fetch-Site is same-origin and Origin matches APP_URL', () => {
+    const req = new Request('https://app.example.com/api/test', {
+      method: 'POST',
+      headers: { Origin: APP_URL, 'Sec-Fetch-Site': 'same-origin' },
+    });
+    expect(() => assertSameOrigin(req)).not.toThrow();
+  });
+
+  it('throws SameOriginError when Sec-Fetch-Site is cross-site', () => {
+    const req = new Request('https://app.example.com/api/test', {
+      method: 'POST',
+      headers: { Origin: APP_URL, 'Sec-Fetch-Site': 'cross-site' },
+    });
+    expect(() => assertSameOrigin(req)).toThrow(SameOriginError);
+    expect(() => assertSameOrigin(req)).toThrow(/cross-site/);
+  });
+
   it('throws SameOriginError when Origin differs', () => {
     const req = new Request('https://app.example.com/api/test', {
       method: 'POST',

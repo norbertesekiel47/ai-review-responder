@@ -9,6 +9,7 @@ import {
   getBusinessDetail,
   updateBusiness,
 } from '@/lib/admin/business-detail-service';
+import { withSameOrigin } from '@/lib/auth/route-helpers';
 
 export const dynamic = 'force-dynamic';
 
@@ -48,7 +49,7 @@ export async function GET(
 // PATCH /api/admin/businesses/[id] — update business settings
 // ---------------------------------------------------------------------------
 
-export async function PATCH(
+async function patchBusiness(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
@@ -115,3 +116,5 @@ export async function PATCH(
     return NextResponse.json({ error: 'Failed to update business' }, { status: 500 });
   }
 }
+
+export const PATCH = withSameOrigin()(patchBusiness);

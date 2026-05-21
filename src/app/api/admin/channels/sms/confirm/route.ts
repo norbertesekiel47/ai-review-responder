@@ -42,13 +42,14 @@ import {
 } from '../_shared';
 import { asLocationId, asAccountId } from '@/lib/shared/ids';
 import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
+import { withSameOrigin } from '@/lib/auth/route-helpers';
 
 interface ConfirmBody {
   business_id?: string;
   code?: string;
 }
 
-export async function POST(request: NextRequest): Promise<NextResponse> {
+async function confirmSms(request: NextRequest): Promise<NextResponse> {
   if (!isSmsEnabled()) return flagOff();
   const envError = assertSmsEnvReady();
   if (envError) return envError;
@@ -143,3 +144,5 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   return result;
 }
+
+export const POST = withSameOrigin()(confirmSms);

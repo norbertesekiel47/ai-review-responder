@@ -91,8 +91,9 @@ vi.mock('@/lib/db/server', () => {
   };
 });
 
+const APP_URL = 'https://app.example.com';
 // inviteUserByEmail success path needs APP_URL to build redirectTo.
-process.env.NEXT_PUBLIC_APP_URL = 'https://app.example.com';
+process.env.NEXT_PUBLIC_APP_URL = APP_URL;
 
 // Import AFTER mocks + env
 import { POST } from '../route';
@@ -116,7 +117,7 @@ function makePostRequest(body: Record<string, unknown>): NextRequest {
   return new NextRequest('http://localhost/api/admin/businesses', {
     method: 'POST',
     body: JSON.stringify(body),
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', Origin: APP_URL },
   });
 }
 
@@ -143,6 +144,7 @@ describe('POST /api/admin/businesses — channel enrollment insert', () => {
     });
     mockDeleteUser.mockReset();
     mockDeleteUser.mockResolvedValue({ data: null, error: null });
+    process.env.NEXT_PUBLIC_APP_URL = APP_URL;
   });
 
   it('inserts business + email enrollment inside a single sql.begin transaction', async () => {
@@ -245,21 +247,16 @@ describe('POST /api/admin/businesses — channel enrollment insert', () => {
     consoleSpy.mockRestore();
   });
 
-  it('returns 500 when NEXT_PUBLIC_APP_URL is missing', async () => {
-    const original = process.env.NEXT_PUBLIC_APP_URL;
+  it('returns 403 when NEXT_PUBLIC_APP_URL is missing', async () => {
     delete process.env.NEXT_PUBLIC_APP_URL;
-    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     const req = makePostRequest(makeBody());
     const res = await POST(req);
 
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(403);
     const body = await res.json();
-    expect(body.error).toMatch(/APP_URL/);
+    expect(body.error).toBe('forbidden');
     expect(mockInviteUserByEmail).not.toHaveBeenCalled();
-
-    process.env.NEXT_PUBLIC_APP_URL = original;
-    consoleSpy.mockRestore();
   });
 
   // B18 finding #2 — regression guard for the auth_id link UPDATE

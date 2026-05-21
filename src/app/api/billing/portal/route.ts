@@ -12,6 +12,7 @@ import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { getStripe } from '@/lib/payments/create-checkout-session';
+import { withSameOrigin } from '@/lib/auth/route-helpers';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,7 +39,7 @@ const NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
  * VAL-BILLING-070: Cancellation via portal triggers
  * customer.subscription.deleted webhook (handled by existing webhook handler).
  */
-export async function POST(req: NextRequest): Promise<NextResponse> {
+async function createBillingPortal(req: NextRequest): Promise<NextResponse> {
   // ── Auth: require owner role ────────────────────────────────────────────
   let user;
   try {
@@ -169,3 +170,5 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 }
+
+export const POST = withSameOrigin()(createBillingPortal);

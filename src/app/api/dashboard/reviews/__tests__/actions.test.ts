@@ -86,6 +86,7 @@ const BUSINESS_ID = '01234567-0000-0000-0000-000000000001';
 const OTHER_BUSINESS_ID = '01234567-0000-0000-0000-000000000099';
 const REVIEW_ID = 'rev-001';
 const RESPONSE_ID = 'resp-001';
+const APP_URL = 'http://localhost:3000';
 
 function ownerUser(overrides?: { accountId?: string | null; locationId?: string | null }) {
   return {
@@ -98,12 +99,22 @@ function ownerUser(overrides?: { accountId?: string | null; locationId?: string 
   };
 }
 
-function makeRequest(url: string, body?: unknown, rawBody?: string): NextRequest {
+function makeRequest(
+  url: string,
+  body?: unknown,
+  rawBody?: string,
+  opts: { origin?: string | null } = {},
+): NextRequest {
   const bodyStr = rawBody ?? (body != null ? JSON.stringify(body) : undefined);
+  const headers: Record<string, string> = {};
+  const origin = opts.origin === undefined ? APP_URL : opts.origin;
+  if (origin !== null) headers.Origin = origin;
+  if (bodyStr != null) headers['Content-Type'] = 'application/json';
+
   return new NextRequest(`http://localhost:3000${url}`, {
     method: 'POST',
     body: bodyStr,
-    headers: bodyStr != null ? { 'Content-Type': 'application/json' } : undefined,
+    headers,
   });
 }
 
@@ -125,6 +136,35 @@ describe('POST /api/dashboard/reviews/[reviewId]/approve', () => {
     mockSqlResults.length = 0;
     sqlCallCounter.value = 0;
     mockBeginCallback.fn = null;
+    process.env.NEXT_PUBLIC_APP_URL = APP_URL;
+  });
+
+  it('returns 403 when Origin header is absent', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+
+    const { POST } = await import('../[reviewId]/approve/route');
+    const res = await POST(
+      makeRequest(`/api/dashboard/reviews/${REVIEW_ID}/approve`, undefined, undefined, { origin: null }),
+      makeParams(REVIEW_ID),
+    );
+
+    expect(res.status).toBe(403);
+    expect(mockRequireRole).not.toHaveBeenCalled();
+  });
+
+  it('returns 403 when Origin does not match the app origin', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+
+    const { POST } = await import('../[reviewId]/approve/route');
+    const res = await POST(
+      makeRequest(`/api/dashboard/reviews/${REVIEW_ID}/approve`, undefined, undefined, {
+        origin: 'https://evil.example.com',
+      }),
+      makeParams(REVIEW_ID),
+    );
+
+    expect(res.status).toBe(403);
+    expect(mockRequireRole).not.toHaveBeenCalled();
   });
 
   it('returns 200 when owner approves their own review response', async () => {
@@ -228,6 +268,35 @@ describe('POST /api/dashboard/reviews/[reviewId]/edit', () => {
     mockSqlResults.length = 0;
     sqlCallCounter.value = 0;
     mockBeginCallback.fn = null;
+    process.env.NEXT_PUBLIC_APP_URL = APP_URL;
+  });
+
+  it('returns 403 when Origin header is absent', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+
+    const { POST } = await import('../[reviewId]/edit/route');
+    const res = await POST(
+      makeRequest(`/api/dashboard/reviews/${REVIEW_ID}/edit`, { editedText: 'Thanks!' }, undefined, { origin: null }),
+      makeParams(REVIEW_ID),
+    );
+
+    expect(res.status).toBe(403);
+    expect(mockRequireRole).not.toHaveBeenCalled();
+  });
+
+  it('returns 403 when Origin does not match the app origin', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+
+    const { POST } = await import('../[reviewId]/edit/route');
+    const res = await POST(
+      makeRequest(`/api/dashboard/reviews/${REVIEW_ID}/edit`, { editedText: 'Thanks!' }, undefined, {
+        origin: 'https://evil.example.com',
+      }),
+      makeParams(REVIEW_ID),
+    );
+
+    expect(res.status).toBe(403);
+    expect(mockRequireRole).not.toHaveBeenCalled();
   });
 
   it('returns 200 with valid edited text', async () => {
@@ -343,6 +412,35 @@ describe('POST /api/dashboard/reviews/[reviewId]/regenerate', () => {
     mockSqlResults.length = 0;
     sqlCallCounter.value = 0;
     mockBeginCallback.fn = null;
+    process.env.NEXT_PUBLIC_APP_URL = APP_URL;
+  });
+
+  it('returns 403 when Origin header is absent', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+
+    const { POST } = await import('../[reviewId]/regenerate/route');
+    const res = await POST(
+      makeRequest(`/api/dashboard/reviews/${REVIEW_ID}/regenerate`, undefined, undefined, { origin: null }),
+      makeParams(REVIEW_ID),
+    );
+
+    expect(res.status).toBe(403);
+    expect(mockRequireRole).not.toHaveBeenCalled();
+  });
+
+  it('returns 403 when Origin does not match the app origin', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+
+    const { POST } = await import('../[reviewId]/regenerate/route');
+    const res = await POST(
+      makeRequest(`/api/dashboard/reviews/${REVIEW_ID}/regenerate`, undefined, undefined, {
+        origin: 'https://evil.example.com',
+      }),
+      makeParams(REVIEW_ID),
+    );
+
+    expect(res.status).toBe(403);
+    expect(mockRequireRole).not.toHaveBeenCalled();
   });
 
   it('returns 200 on successful regeneration request', async () => {

@@ -109,11 +109,12 @@ const USER_ID = 'uuuuuuuu-0000-0000-0000-000000000001';
 const SUBSCRIPTION_ID = 'sub_test123';
 const BASE_ITEM_ID = 'si_base_test';
 const OVERAGE_ITEM_ID = 'si_overage_test';
+const APP_URL = 'http://localhost:3000';
 
 function mkRequest(body: Record<string, unknown>, extraHeaders: Record<string, string> = {}): NextRequest {
   return new NextRequest('http://localhost:3000/api/billing/tier-change', {
     method: 'POST',
-    headers: { 'content-type': 'application/json', ...extraHeaders },
+    headers: { 'content-type': 'application/json', Origin: APP_URL, ...extraHeaders },
     body: JSON.stringify(body),
   });
 }
@@ -167,6 +168,7 @@ beforeEach(() => {
   mockSubscriptionItemsUpdate.mockReset();
   mockSubscriptionItemsCreate.mockReset();
   mockSubscriptionItemsDel.mockReset();
+  process.env.NEXT_PUBLIC_APP_URL = APP_URL;
 });
 
 // ── Tests ──────────────────────────────────────────────────────────────────
