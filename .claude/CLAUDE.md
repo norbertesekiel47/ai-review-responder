@@ -83,7 +83,6 @@ approval before posting.
   `@supabase/supabase-js` for auth/storage/reads
 - Two Redis instances: Upstash cache (separate from) Upstash BullMQ queue
 - LLM: GPT-4o-mini primary, `claude-haiku-4-5-20251001` fallback
-  (NOT `claude-3-5-haiku-latest` — that model is 404)
 - JSONB via Postgres.js: use `jsonb()` helper (`sql.json(value)`, OID 3802).
   `${JSON.stringify(x)}::jsonb` double-encodes in Postgres.js v3.
 - Package manager: pnpm
@@ -173,16 +172,4 @@ design questions. Never dump `graph.json` whole into context — use
 | **Playwright** | E2E tests                                                          |
 | **Sentry**     | Error tracking, production debugging                               |
 
-## Agent skills
 
-### Issue tracker
-
-GitHub Issues on `norbertesekiel47/ai-review-responder` via the `gh` CLI. See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-Canonical defaults (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-Single-context — `CONTEXT.md` + `docs/adr/` at repo root (neither exists yet; skills proceed silently if absent). See `docs/agents/domain.md`.
