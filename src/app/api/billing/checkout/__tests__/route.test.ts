@@ -48,11 +48,12 @@ import { POST } from '../route';
 
 const ACCOUNT_ID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
 const USER_ID = 'uuuuuuuu-0000-0000-0000-000000000001';
+const APP_URL = 'http://localhost:3000';
 
 function mkRequest(body: Record<string, unknown>): NextRequest {
   return new NextRequest('http://localhost:3000/api/billing/checkout', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', Origin: APP_URL },
     body: JSON.stringify(body),
   });
 }
@@ -84,6 +85,7 @@ beforeEach(() => {
     url: 'https://checkout.stripe.test/session',
     sessionId: 'cs_test_123',
   });
+  process.env.NEXT_PUBLIC_APP_URL = APP_URL;
 });
 
 describe('POST /api/billing/checkout', () => {

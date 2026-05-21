@@ -5,6 +5,7 @@ import { requireRole, AuthError } from '@/lib/db/auth';
 import { asLocationId } from '@/lib/shared/ids';
 import type { LocationId } from '@/lib/shared/ids';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
+import { withSameOrigin } from '@/lib/auth/route-helpers';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,7 +14,7 @@ const KeywordsSchema = z.object({
   keywords: z.array(z.string().trim().min(1, 'Keyword cannot be empty').max(255)).max(5, 'Maximum 5 keywords'),
 });
 
-export async function PUT(
+async function updateKeywords(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
@@ -66,3 +67,5 @@ export async function PUT(
     );
   }
 }
+
+export const PUT = withSameOrigin()(updateKeywords);

@@ -27,16 +27,25 @@ vi.mock('@/lib/db/auth', () => ({
 
 import { POST } from '../start/route';
 
-function mkReq(body: unknown) {
+const APP_URL = 'http://localhost';
+
+function mkReq(body: unknown, opts: { origin?: string | null } = {}) {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  const origin = opts.origin === undefined ? APP_URL : opts.origin;
+  if (origin !== null) headers.Origin = origin;
+
   return new Request('http://localhost/api/admin/channels/telegram/start', {
     method: 'POST',
     body: JSON.stringify(body),
-    headers: { 'Content-Type': 'application/json' },
+    headers,
   });
 }
 
 beforeEach(() => {
   sqlQueue.length = 0;
+  process.env.NEXT_PUBLIC_APP_URL = APP_URL;
   delete process.env.CHANNELS_TELEGRAM_ENABLED;
   delete process.env.TELEGRAM_BOT_TOKEN;
   delete process.env.TELEGRAM_WEBHOOK_SECRET;
@@ -45,6 +54,20 @@ beforeEach(() => {
 });
 
 describe('POST /api/admin/channels/telegram/start', () => {
+  it('returns 403 when Origin header is absent', async () => {
+    process.env.CHANNELS_TELEGRAM_ENABLED = 'true';
+
+    const res = await POST(mkReq({ businessId: 'biz-1' }, { origin: null }) as any);
+    expect(res.status).toBe(403);
+  });
+
+  it('returns 403 when Origin does not match the app origin', async () => {
+    process.env.CHANNELS_TELEGRAM_ENABLED = 'true';
+
+    const res = await POST(mkReq({ businessId: 'biz-1' }, { origin: 'https://evil.example.com' }) as any);
+    expect(res.status).toBe(403);
+  });
+
   it('returns 404 when flag is off', async () => {
     const res = await POST(mkReq({ businessId: 'biz-1' }) as any);
     expect(res.status).toBe(404);

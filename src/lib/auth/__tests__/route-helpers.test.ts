@@ -38,10 +38,11 @@ const APP_URL = 'https://app.example.com';
 
 function makeReq(
   url = 'https://app.example.com/api/auth/signup',
-  opts: { origin?: string; method?: string } = {},
+  opts: { origin?: string; method?: string; secFetchSite?: string } = {},
 ): NextRequest {
   const headers: Record<string, string> = {};
   if (opts.origin !== undefined) headers['origin'] = opts.origin;
+  if (opts.secFetchSite !== undefined) headers['sec-fetch-site'] = opts.secFetchSite;
   return new NextRequest(url, {
     method: opts.method ?? 'POST',
     headers,
@@ -122,6 +123,28 @@ describe('withSameOrigin', () => {
 
     expect(res.status).toBe(200);
     expect(okHandler).toHaveBeenCalledOnce();
+  });
+
+  it('calls handler when Sec-Fetch-Site is same-origin and Origin matches APP_URL', async () => {
+    const wrapped = withSameOrigin()(okHandler);
+    const res = await wrapped(makeReq(undefined, {
+      origin: APP_URL,
+      secFetchSite: 'same-origin',
+    }));
+
+    expect(res.status).toBe(200);
+    expect(okHandler).toHaveBeenCalledOnce();
+  });
+
+  it('returns 403 when Sec-Fetch-Site is cross-site', async () => {
+    const wrapped = withSameOrigin()(okHandler);
+    const res = await wrapped(makeReq(undefined, {
+      origin: APP_URL,
+      secFetchSite: 'cross-site',
+    }));
+
+    expect(res.status).toBe(403);
+    expect(okHandler).not.toHaveBeenCalled();
   });
 
   it('returns 403 when Origin does not match', async () => {

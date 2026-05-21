@@ -6,8 +6,9 @@ import { isTelegramEnabled, flagOff, assertTelegramEnvReady } from '../_shared';
 import { disableTelegramEnrollment } from '@/lib/channels/telegram-enrollment';
 import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
 import { asAccountId } from '@/lib/shared/ids';
+import { withSameOrigin } from '@/lib/auth/route-helpers';
 
-export async function POST(req: NextRequest): Promise<NextResponse> {
+async function disableTelegram(req: NextRequest): Promise<NextResponse> {
   if (!isTelegramEnabled()) return flagOff();
 
   const envErr = assertTelegramEnvReady();
@@ -44,3 +45,5 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   return NextResponse.json({ ok: true }, { headers: noStore });
 }
+
+export const POST = withSameOrigin()(disableTelegram);

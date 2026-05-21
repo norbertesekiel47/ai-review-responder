@@ -88,10 +88,12 @@ import { POST as disablePOST } from '../disable/route';
 import { POST as deletePOST } from '../delete/route';
 import { GET as statusGET } from '../status/route';
 
+const APP_URL = 'http://localhost';
+
 function adminReq(body: unknown): NextRequest {
   return new NextRequest('http://localhost/api/admin/channels/sms/verify', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', Origin: APP_URL },
     body: JSON.stringify(body),
   });
 }
@@ -120,6 +122,7 @@ function resetMocks() {
   process.env.TWILIO_AUTH_TOKEN = 't';
   process.env.TWILIO_MESSAGING_SERVICE_SID = 'MGtest';
   process.env.TWILIO_VERIFY_SERVICE_SID = 'VAtest';
+  process.env.NEXT_PUBLIC_APP_URL = APP_URL;
   delete process.env.MOCK_EXTERNAL_APIS;
 }
 
@@ -402,7 +405,7 @@ describe('POST /api/admin/channels/sms/confirm', () => {
   function confirmReq(body: unknown): NextRequest {
     return new NextRequest('http://localhost/api/admin/channels/sms/confirm', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Origin: APP_URL },
       body: JSON.stringify(body),
     });
   }
@@ -538,7 +541,7 @@ describe('POST /api/admin/channels/sms/cancel', () => {
   function cancelReq(body: unknown): NextRequest {
     return new NextRequest('http://localhost/api/admin/channels/sms/cancel', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Origin: APP_URL },
       body: JSON.stringify(body),
     });
   }
@@ -607,7 +610,7 @@ describe('POST /api/admin/channels/sms/disable', () => {
   function disableReq(body: unknown): NextRequest {
     return new NextRequest('http://localhost/api/admin/channels/sms/disable', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Origin: APP_URL },
       body: JSON.stringify(body),
     });
   }
@@ -648,7 +651,7 @@ describe('POST /api/admin/channels/sms/delete', () => {
   function deleteReq(body: unknown): NextRequest {
     return new NextRequest('http://localhost/api/admin/channels/sms/delete', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Origin: APP_URL },
       body: JSON.stringify(body),
     });
   }

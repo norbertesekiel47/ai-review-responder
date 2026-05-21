@@ -3,7 +3,7 @@
 // POST /api/admin/channels/telegram/start — admin generates a one-time Telegram
 // verification deep link + QR for owner scan.
 //
-// Handler order: flag → env → auth → businessId → subscription → advisory lock → state-machine upsert.
+// Handler order: same-origin wrapper → flag → env → auth → businessId → subscription → advisory lock → state-machine upsert.
 //
 // State machine logic lives in src/lib/channels/telegram-enrollment.ts and is
 // shared with the owner route at /api/dashboard/channels/telegram/start.
@@ -21,8 +21,9 @@ import { MultipleMobileChannelsError, EnrollmentDatabaseError } from '@/lib/chan
 import { TOKEN_TTL_MS } from '@/lib/notifications/channels/constants';
 import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
 import { asAccountId } from '@/lib/shared/ids';
+import { withSameOrigin } from '@/lib/auth/route-helpers';
 
-export async function POST(req: NextRequest): Promise<NextResponse> {
+async function startTelegram(req: NextRequest): Promise<NextResponse> {
   if (!isTelegramEnabled()) return flagOff();
 
   const envErr = assertTelegramEnvReady();
@@ -97,3 +98,5 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     { headers: noStore },
   );
 }
+
+export const POST = withSameOrigin()(startTelegram);

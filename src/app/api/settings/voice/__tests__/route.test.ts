@@ -53,6 +53,7 @@ import { AuthError } from '@/lib/db/auth';
 const ACCOUNT_ID = 'a0000000-0000-4000-8000-000000000001';
 const LOCATION_ID_1 = 'b1111111-0000-4000-8000-000000000001';
 const LOCATION_ID_2 = 'b2222222-0000-4000-8000-000000000002';
+const APP_URL = 'http://localhost:3000';
 
 function ownerUser() {
   return {
@@ -78,7 +79,7 @@ function makeGetRequest(params?: Record<string, string>): NextRequest {
 function makePutRequest(body: unknown): NextRequest {
   return new NextRequest('http://localhost:3000/api/settings/voice', {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', Origin: APP_URL },
     body: JSON.stringify(body),
   });
 }
@@ -89,6 +90,7 @@ describe('GET /api/settings/voice', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockRequireRole.mockResolvedValue(ownerUser());
+    process.env.NEXT_PUBLIC_APP_URL = APP_URL;
   });
 
   it('returns voice config for a specific location', async () => {

@@ -12,6 +12,7 @@ import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 import { updateDisplayLabel } from '@/lib/locations/update-display-label';
+import { withSameOrigin } from '@/lib/auth/route-helpers';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,7 +28,7 @@ function jsonResponse(body: unknown, status = 200): NextResponse {
   return NextResponse.json(body, { status, headers: NO_STORE_HEADERS });
 }
 
-export async function PUT(request: NextRequest): Promise<NextResponse> {
+async function updateLocationDisplayLabel(request: NextRequest): Promise<NextResponse> {
   let user;
   try {
     user = await requireRole(request, 'owner');
@@ -82,3 +83,5 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
     return jsonResponse({ error: 'Failed to update display label' }, 500);
   }
 }
+
+export const PUT = withSameOrigin()(updateLocationDisplayLabel);

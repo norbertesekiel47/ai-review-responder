@@ -10,6 +10,10 @@ export function assertSameOrigin(request: Request): void {
   if (!appUrl) {
     throw new SameOriginError('NEXT_PUBLIC_APP_URL not configured — cannot validate Origin header');
   }
+  const secFetchSite = request.headers.get('sec-fetch-site')?.trim().toLowerCase();
+  if (secFetchSite === 'cross-site') {
+    throw new SameOriginError('Sec-Fetch-Site cross-site requests are forbidden');
+  }
   const origin = request.headers.get('origin');
   if (!origin) {
     throw new SameOriginError('Missing Origin header');

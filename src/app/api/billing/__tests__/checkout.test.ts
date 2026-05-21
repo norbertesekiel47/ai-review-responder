@@ -67,6 +67,7 @@ import { afterAll } from 'vitest';
 const ACCOUNT_ID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
 const OTHER_ACCOUNT_ID = '99999999-8888-7777-6666-555555555555';
 const USER_ID = 'uuuuuuuu-0000-0000-0000-000000000001';
+const APP_URL = 'http://localhost:3000';
 
 function setPriceEnvVars() {
   process.env.STRIPE_PRICE_BASIC = 'price_basic_test';
@@ -91,7 +92,7 @@ function clearPriceEnvVars() {
 function mkRequest(body: Record<string, unknown>): NextRequest {
   return new NextRequest('http://localhost:3000/api/billing/checkout', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', Origin: APP_URL },
     body: JSON.stringify(body),
   });
 }
@@ -146,6 +147,7 @@ describe('POST /api/billing/checkout', () => {
     mockSql.mockResolvedValue([]);
     mockStripeCheckoutCreate.mockReset();
     setPriceEnvVars();
+    process.env.NEXT_PUBLIC_APP_URL = APP_URL;
   });
 
   afterAll(() => {

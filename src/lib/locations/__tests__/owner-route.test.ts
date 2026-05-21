@@ -32,15 +32,23 @@ import {
 import { AuthError } from '@/lib/db/auth';
 
 const ACCOUNT_ID = 'aaaaaaaa-0000-0000-0000-000000000001';
+const APP_URL = 'http://localhost:3000';
 
-function req() {
-  return new NextRequest('http://localhost:3000/api/locations/test', { method: 'POST' });
+function req(opts: { origin?: string | null } = {}) {
+  const headers: Record<string, string> = {};
+  const origin = opts.origin === undefined ? APP_URL : opts.origin;
+  if (origin !== null) headers.Origin = origin;
+
+  return new NextRequest('http://localhost:3000/api/locations/test', {
+    method: 'POST',
+    headers,
+  });
 }
 
 function jsonReq(body: string) {
   return new NextRequest('http://localhost:3000/api/locations/test', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', Origin: APP_URL },
     body,
   });
 }
@@ -50,6 +58,7 @@ describe('location owner route helpers', () => {
     vi.clearAllMocks();
     mockRequireRole.mockReset();
     process.env.MULTI_LOCATION_ENABLED = 'true';
+    process.env.NEXT_PUBLIC_APP_URL = APP_URL;
   });
 
   it('returns 404 before auth when multi-location is disabled', async () => {
@@ -75,6 +84,19 @@ describe('location owner route helpers', () => {
       expect(result.response.status).toBe(403);
       expect(await result.response.json()).toEqual({ error: 'Forbidden' });
     }
+  });
+
+  it('returns 403 before auth when Origin header is absent', async () => {
+    mockRequireRole.mockResolvedValueOnce({ id: 'user-1', accountId: ACCOUNT_ID, role: 'owner' });
+
+    const result = await readOwnerForMultiLocationRoute(req({ origin: null }));
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.response.status).toBe(403);
+      expect(await result.response.json()).toEqual({ error: 'forbidden' });
+    }
+    expect(mockRequireRole).not.toHaveBeenCalled();
   });
 
   it('returns an owner when auth succeeds and account is scoped', async () => {

@@ -4,10 +4,11 @@ import {
   runDashboardReviewAction,
 } from '@/lib/approval/http-routes';
 import { approveBySession } from '@/lib/approval/service';
+import { withSameOrigin } from '@/lib/auth/route-helpers';
 
 export const dynamic = 'force-dynamic';
 
-export async function POST(
+async function approveReview(
   request: NextRequest,
   { params }: { params: Promise<{ reviewId: string }> },
 ): Promise<NextResponse> {
@@ -26,3 +27,5 @@ export async function POST(
     ),
   );
 }
+
+export const POST = withSameOrigin()(approveReview);

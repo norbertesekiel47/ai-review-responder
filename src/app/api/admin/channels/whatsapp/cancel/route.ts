@@ -1,7 +1,7 @@
 // src/app/api/admin/channels/whatsapp/cancel — admin cancels a pending verification,
 // clearing the token hash + expiry.
 //
-// Handler order: flag → env → auth → businessId.
+// Handler order: same-origin wrapper → flag → env → auth → businessId.
 // Idempotent: if no pending_verification row matches, the UPDATE silently affects
 // 0 rows (no error — the task is already done).
 
@@ -12,8 +12,9 @@ import { isWhatsAppEnabled, flagOff, assertWhatsAppEnvReady } from '../_shared';
 import { cancelWhatsAppEnrollment } from '@/lib/channels/whatsapp-enrollment';
 import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
 import { asAccountId } from '@/lib/shared/ids';
+import { withSameOrigin } from '@/lib/auth/route-helpers';
 
-export async function POST(req: NextRequest): Promise<NextResponse> {
+async function cancelWhatsApp(req: NextRequest): Promise<NextResponse> {
   if (!isWhatsAppEnabled()) return flagOff();
 
   const envErr = assertWhatsAppEnvReady();
@@ -57,3 +58,5 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // must not be cached by proxies or the browser).
   return NextResponse.json({ ok: true }, { headers: { 'Cache-Control': 'no-store, private' } });
 }
+
+export const POST = withSameOrigin()(cancelWhatsApp);

@@ -112,10 +112,12 @@ import { buildInboundRequest } from '../../../../../../../worker/ingress/test-he
 type AnyReq = any;
 type AnyReply = any;
 
+const APP_URL = 'http://localhost';
+
 function adminReq(path: 'verify' | 'confirm', body: unknown): NextRequest {
   return new NextRequest(`http://localhost/api/admin/channels/sms/${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', Origin: APP_URL },
     body: JSON.stringify(body),
   });
 }
@@ -144,6 +146,7 @@ function resetAll() {
   process.env.TWILIO_MESSAGING_SERVICE_SID = 'MGtest';
   process.env.TWILIO_VERIFY_SERVICE_SID = 'VAtest';
   process.env.WORKER_PUBLIC_URL = 'https://worker.example.com';
+  process.env.NEXT_PUBLIC_APP_URL = APP_URL;
 }
 
 describe('SMS re-enable lifecycle (E2E)', () => {

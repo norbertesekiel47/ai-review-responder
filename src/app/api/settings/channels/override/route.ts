@@ -21,6 +21,7 @@ import { requireRole, AuthError } from '@/lib/db/auth';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
 import { asAccountId } from '@/lib/shared/ids';
+import { withSameOrigin } from '@/lib/auth/route-helpers';
 
 export const dynamic = 'force-dynamic';
 
@@ -42,7 +43,7 @@ const CreateOverrideSchema = z.object({
   channel: z.enum(['email', 'telegram', 'sms', 'whatsapp']),
 });
 
-export async function POST(request: NextRequest): Promise<NextResponse> {
+async function createOverride(request: NextRequest): Promise<NextResponse> {
   let user;
   try {
     user = await requireRole(request, 'owner');
@@ -204,7 +205,7 @@ const DeleteOverrideSchema = z.object({
   channel: z.enum(['email', 'telegram', 'sms', 'whatsapp']),
 });
 
-export async function DELETE(request: NextRequest): Promise<NextResponse> {
+async function deleteOverride(request: NextRequest): Promise<NextResponse> {
   let user;
   try {
     user = await requireRole(request, 'owner');
@@ -274,3 +275,6 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
 
   return jsonResponse({ success: true });
 }
+
+export const POST = withSameOrigin()(createOverride);
+export const DELETE = withSameOrigin()(deleteOverride);

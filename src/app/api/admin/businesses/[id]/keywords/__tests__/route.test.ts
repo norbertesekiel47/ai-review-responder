@@ -35,11 +35,13 @@ import { PUT } from '../route';
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
+const APP_URL = 'http://localhost:3000';
+
 function makeRequest(body: unknown): NextRequest {
   return new NextRequest('http://localhost:3000/api/admin/businesses/biz-1/keywords', {
     method: 'PUT',
     body: JSON.stringify(body),
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', Origin: APP_URL },
   });
 }
 
@@ -52,6 +54,7 @@ describe('PUT /api/admin/businesses/[id]/keywords', () => {
     vi.clearAllMocks();
     mockRequireRole.mockResolvedValue({ id: 'u1', role: 'admin', accountId: null, locationId: null });
     mockSqlReturn.value = [{ id: 'biz-1' }];
+    process.env.NEXT_PUBLIC_APP_URL = APP_URL;
   });
 
   it('returns 400 for non-array keywords', async () => {

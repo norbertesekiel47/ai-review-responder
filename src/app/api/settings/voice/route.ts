@@ -15,6 +15,7 @@ import { requireRole, AuthError } from '@/lib/db/auth';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 import { getLocationsForAccount } from '@/lib/locations/repo';
 import { getDisplayLabel, type HasDisplayLabel } from '@/lib/locations/display-label';
+import { withSameOrigin } from '@/lib/auth/route-helpers';
 
 export const dynamic = 'force-dynamic';
 
@@ -135,7 +136,7 @@ const VOICE_FIELD_TO_COLUMN: Record<string, string> = {
   sampleResponses: 'sample_responses',
 };
 
-export async function PUT(request: NextRequest): Promise<NextResponse> {
+async function putVoiceConfig(request: NextRequest): Promise<NextResponse> {
   let user;
   try {
     user = await requireRole(request, 'owner');
@@ -215,3 +216,5 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
     return jsonResponse({ error: 'Failed to update voice config' }, 500);
   }
 }
+
+export const PUT = withSameOrigin()(putVoiceConfig);

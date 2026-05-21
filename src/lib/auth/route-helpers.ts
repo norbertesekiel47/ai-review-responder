@@ -4,7 +4,14 @@ import type { User } from '@supabase/supabase-js';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 
-type NextHandler = (req: NextRequest) => Promise<Response> | Response;
+type NextHandler<TArgs extends unknown[] = []> = (
+  req: NextRequest,
+  ...args: TArgs
+) => Promise<Response> | Response;
+type WrappedNextHandler<TArgs extends unknown[] = []> = (
+  req: NextRequest,
+  ...args: TArgs
+) => Promise<Response>;
 
 /**
  * Wraps a handler with a fixed-window rate limit using the cache Redis instance.
@@ -43,8 +50,10 @@ export function withRateLimit(
  * NEXT_PUBLIC_APP_URL is not configured. Any other unexpected error
  * from assertSameOrigin is re-thrown so it surfaces as a 500.
  */
-export function withSameOrigin(): (handler: NextHandler) => NextHandler {
-  return (handler) => async (req) => {
+export function withSameOrigin(): <TArgs extends unknown[]>(
+  handler: NextHandler<TArgs>
+) => WrappedNextHandler<TArgs> {
+  return (handler) => async (req, ...args) => {
     try {
       assertSameOrigin(req);
     } catch (err) {
@@ -53,7 +62,7 @@ export function withSameOrigin(): (handler: NextHandler) => NextHandler {
       }
       throw err;
     }
-    return handler(req);
+    return handler(req, ...args);
   };
 }
 

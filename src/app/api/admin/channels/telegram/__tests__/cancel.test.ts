@@ -18,16 +18,19 @@ vi.mock('@/lib/db/auth', () => ({
 
 import { POST } from '../cancel/route';
 
+const APP_URL = 'http://localhost';
+
 function mkReq(body: unknown) {
   return new Request('http://localhost/api/admin/channels/telegram/cancel', {
     method: 'POST',
     body: JSON.stringify(body),
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', Origin: APP_URL },
   });
 }
 
 beforeEach(() => {
   sqlQueue.length = 0;
+  process.env.NEXT_PUBLIC_APP_URL = APP_URL;
   delete process.env.CHANNELS_TELEGRAM_ENABLED;
   delete process.env.TELEGRAM_BOT_TOKEN;
   delete process.env.TELEGRAM_WEBHOOK_SECRET;

@@ -6,7 +6,7 @@
 // archive_reason are set.
 //
 // Ordering invariants:
-//   1. Flag → auth → body parse → explicit confirm gate → subscription.
+//   1. Same-origin wrapper → flag → env → auth → body parse → explicit confirm gate → subscription.
 //   2. Per-(business_id, 'sms') advisory lock — matches /verify, /confirm,
 //      /cancel, /disable.
 //   3. UPDATE gated on `archived_at IS NULL` so repeated calls are idempotent
@@ -31,13 +31,14 @@ import {
 } from '../_shared';
 import { asLocationId, asAccountId } from '@/lib/shared/ids';
 import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
+import { withSameOrigin } from '@/lib/auth/route-helpers';
 
 interface DeleteBody {
   business_id?: string;
   confirm?: boolean;
 }
 
-export async function POST(request: NextRequest): Promise<NextResponse> {
+async function deleteSms(request: NextRequest): Promise<NextResponse> {
   if (!isSmsEnabled()) return flagOff();
   const envError = assertSmsEnvReady();
   if (envError) return envError;
@@ -82,3 +83,5 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   return result;
 }
+
+export const POST = withSameOrigin()(deleteSms);

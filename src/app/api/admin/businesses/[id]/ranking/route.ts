@@ -6,6 +6,7 @@ import { requireRole, AuthError } from '@/lib/db/auth';
 import { asLocationId } from '@/lib/shared/ids';
 import type { LocationId } from '@/lib/shared/ids';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
+import { withSameOrigin } from '@/lib/auth/route-helpers';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,7 +16,7 @@ const RankingSchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be YYYY-MM-DD').optional(),
 });
 
-export async function POST(
+async function createRankingSnapshot(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
@@ -93,3 +94,5 @@ export async function POST(
     );
   }
 }
+
+export const POST = withSameOrigin()(createRankingSnapshot);

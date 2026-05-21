@@ -3,7 +3,7 @@
 // POST /api/admin/channels/whatsapp/start — admin generates a one-time WhatsApp
 // verification deep link + QR for owner scan via wa.me click-to-chat.
 //
-// Handler order: flag → env → auth → businessId → subscription → advisory lock → state-machine upsert.
+// Handler order: same-origin wrapper → flag → env → auth → businessId → subscription → advisory lock → state-machine upsert.
 //
 // State machine (§2.4 of Phase 3 design spec):
 //   no row                → INSERT pending_verification, fresh hash + 1h expiry
@@ -27,10 +27,11 @@ import { isWhatsAppEnabled, flagOff, assertWhatsAppEnvReady } from '../_shared';
 import { classifyEnrollmentError, MultipleMobileChannelsError, EnrollmentDatabaseError } from '@/lib/channels/unique-violation';
 import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
 import { asAccountId } from '@/lib/shared/ids';
+import { withSameOrigin } from '@/lib/auth/route-helpers';
 
 const TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
 
-export async function POST(req: NextRequest): Promise<NextResponse> {
+async function startWhatsApp(req: NextRequest): Promise<NextResponse> {
   if (!isWhatsAppEnabled()) return flagOff();
 
   const envErr = assertWhatsAppEnvReady();
@@ -153,3 +154,5 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     { headers: noStore },
   );
 }
+
+export const POST = withSameOrigin()(startWhatsApp);

@@ -18,6 +18,7 @@ import { validateTierChange } from '@/lib/accounts/tier-change';
 import { isSubscriptionTier, type SubscriptionTierValue, TIER_CONFIG } from '@/lib/accounts/tier-config';
 import { getAccountOwnerUserId } from '@/lib/accounts/repo';
 import { getStripe } from '@/lib/payments/create-checkout-session';
+import { withSameOrigin } from '@/lib/auth/route-helpers';
 
 export const dynamic = 'force-dynamic';
 
@@ -80,7 +81,7 @@ function normalizeIdempotencyKey(raw: string | null): string {
 
 // ── Handler ─────────────────────────────────────────────────────────────────
 
-export async function POST(req: NextRequest): Promise<NextResponse> {
+async function changeBillingTier(req: NextRequest): Promise<NextResponse> {
   let user;
   try {
     user = await requireRole(req, 'owner');
@@ -293,3 +294,5 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 }
+
+export const POST = withSameOrigin()(changeBillingTier);

@@ -16,7 +16,7 @@
 //   verified           → 400 already_verified (admin must Disable/Delete first)
 //
 // Ordering invariants:
-//   1. Auth → flag → subscription → per-(business_id,'sms') advisory lock.
+//   1. Same-origin wrapper → flag → env → auth → subscription → per-(business_id,'sms') advisory lock.
 //   2. Resolve dbAction inside the lock so concurrent admins can't race.
 //   3. Sender-opt-out check scoped to current Messaging Service SID.
 //   4. Twilio Verify call happens BEFORE the INSERT/UPDATE, so a Twilio
@@ -45,6 +45,7 @@ import { classifyEnrollmentError, MultipleMobileChannelsError, EnrollmentDatabas
 import { asLocationId } from '@/lib/shared/ids';
 import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
 import { asAccountId } from '@/lib/shared/ids';
+import { withSameOrigin } from '@/lib/auth/route-helpers';
 
 interface VerifyBody {
   business_id?: string;
@@ -60,7 +61,7 @@ function maskUsPhone(e164: string): string {
   return `+1 ${rest.slice(0, 3)}-XXX-${rest.slice(6)}`;
 }
 
-export async function POST(request: NextRequest): Promise<NextResponse> {
+async function verifySms(request: NextRequest): Promise<NextResponse> {
   if (!isSmsEnabled()) return flagOff();
   const envError = assertSmsEnvReady();
   if (envError) return envError;
@@ -251,3 +252,5 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   return result;
 }
+
+export const POST = withSameOrigin()(verifySms);

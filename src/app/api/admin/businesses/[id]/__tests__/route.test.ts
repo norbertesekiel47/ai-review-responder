@@ -73,11 +73,13 @@ import { PATCH } from '../route';
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
+const APP_URL = 'http://localhost';
+
 function makePatchRequest(body: Record<string, unknown>): NextRequest {
   return new NextRequest('http://localhost/api/admin/businesses/biz-1', {
     method: 'PATCH',
     body: JSON.stringify(body),
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', Origin: APP_URL },
   });
 }
 
@@ -93,6 +95,7 @@ describe('PATCH /api/admin/businesses/[id] — ownerEmail enrollment sync', () =
     mockTxCalls.length = 0;
     mockTxReturns.length = 0;
     mockInvalidateChannelCache.mockReset().mockResolvedValue(undefined);
+    process.env.NEXT_PUBLIC_APP_URL = APP_URL;
   });
 
   it('PATCH with ownerEmail upserts channel_enrollments inside same txn', async () => {

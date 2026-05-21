@@ -6,6 +6,7 @@ import {
   onboardBusinessAsAdmin,
   AdminOnboardingError,
 } from '@/lib/onboarding/admin-onboarding-service';
+import { withSameOrigin } from '@/lib/auth/route-helpers';
 
 export const dynamic = 'force-dynamic';
 
@@ -88,7 +89,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 // POST /api/admin/businesses — onboard a new business
 // ---------------------------------------------------------------------------
 
-export async function POST(request: NextRequest): Promise<NextResponse> {
+async function createBusiness(request: NextRequest): Promise<NextResponse> {
   let authUser;
   try {
     authUser = await requireRole(request, 'admin');
@@ -143,3 +144,5 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
   }
 }
+
+export const POST = withSameOrigin()(createBusiness);

@@ -42,11 +42,18 @@ import { AuthError } from '@/lib/db/auth';
 // ── Helpers ─────────────────────────────────────────────────────────
 
 const BUSINESS_ID = '01234567-0000-0000-0000-000000000001';
+const APP_URL = 'http://localhost:3000';
 
-function makeRequest(body: unknown): NextRequest {
+function makeRequest(body: unknown, opts: { origin?: string | null } = {}): NextRequest {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  const origin = opts.origin === undefined ? APP_URL : opts.origin;
+  if (origin !== null) headers.Origin = origin;
+
   return new NextRequest('http://localhost:3000/api/settings', {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify(body),
   });
 }
@@ -71,6 +78,23 @@ describe('PUT /api/settings', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSqlUnsafe.mockResolvedValue({ count: 1 });
+    process.env.NEXT_PUBLIC_APP_URL = APP_URL;
+  });
+
+  it('returns 403 when Origin header is absent', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+
+    const res = await PUT(makeRequest({ tone: 'friendly' }, { origin: null }));
+    expect(res.status).toBe(403);
+    expect(mockRequireRole).not.toHaveBeenCalled();
+  });
+
+  it('returns 403 when Origin does not match the app origin', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+
+    const res = await PUT(makeRequest({ tone: 'friendly' }, { origin: 'https://evil.example.com' }));
+    expect(res.status).toBe(403);
+    expect(mockRequireRole).not.toHaveBeenCalled();
   });
 
   it('returns 403 when user has no locationId', async () => {

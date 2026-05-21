@@ -7,6 +7,7 @@ import { isPlaceId, extractPlaceId } from '@/lib/reviews/url-parser';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import type { DemoJobPayload } from '@/lib/demos/types';
+import { withSameOrigin } from '@/lib/auth/route-helpers';
 
 const GenerateDemoSchema = z
   .object({
@@ -20,7 +21,7 @@ const GenerateDemoSchema = z
     { message: 'Either a Place ID or Google Maps URL is required', path: ['googlePlaceId'] },
   );
 
-export async function POST(request: NextRequest): Promise<NextResponse> {
+async function generateDemo(request: NextRequest): Promise<NextResponse> {
   try {
     await requireRole(request, 'admin');
   } catch (err) {
@@ -134,3 +135,5 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     { status: 201 },
   );
 }
+
+export const POST = withSameOrigin()(generateDemo);
