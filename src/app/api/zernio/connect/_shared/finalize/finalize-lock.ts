@@ -1,10 +1,10 @@
-import { getCacheRedis } from "@/lib/db/redis-cache";
-import { ZernioRouteError } from "@/lib/zernio/errors";
+import { getCacheRedis } from '@/lib/db/redis-cache';
+import { ZernioRouteError } from '@/lib/zernio/errors';
 import {
   finalizeLockKey,
   generateLockToken,
   luaTokenCAS,
-} from "@/lib/zernio/connect-state";
+} from '@/lib/zernio/connect-state';
 
 type CacheRedis = ReturnType<typeof getCacheRedis>;
 
@@ -33,12 +33,12 @@ export async function withFinalizeLock<T>(
   const acquired = await redis.set(
     finalizeKey,
     finalizeToken,
-    "EX",
+    'EX',
     FINALIZE_LOCK_TTL_SECONDS,
-    "NX",
+    'NX',
   );
   if (!acquired) {
-    throw new ZernioRouteError(409, "finalize_in_progress");
+    throw new ZernioRouteError(409, 'finalize_in_progress');
   }
 
   try {

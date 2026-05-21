@@ -1,13 +1,13 @@
-import * as Sentry from "@sentry/nextjs";
-import { v7 as uuidv7 } from "uuid";
-import { sql } from "@/lib/db/server";
-import { getCacheRedis } from "@/lib/db/redis-cache";
-import { ZernioRouteError } from "@/lib/zernio/errors";
+import * as Sentry from '@sentry/nextjs';
+import { v7 as uuidv7 } from 'uuid';
+import { sql } from '@/lib/db/server';
+import { getCacheRedis } from '@/lib/db/redis-cache';
+import { ZernioRouteError } from '@/lib/zernio/errors';
 import {
   pendingKey,
   luaCASToFinalizeUnknown,
-} from "@/lib/zernio/connect-state";
-import type { ConnectLocationsBlob } from "@/lib/zernio/types";
+} from '@/lib/zernio/connect-state';
+import type { ConnectLocationsBlob } from '@/lib/zernio/types';
 
 type CacheRedis = ReturnType<typeof getCacheRedis>;
 
@@ -55,10 +55,10 @@ export async function recordFinalizeUnknownAndThrow({
       String(PENDING_FINALIZE_UNKNOWN_TTL_SECONDS),
       finalizeUnknownAt.toISOString(),
     );
-    redisMarkedUnknown = result === "OK";
+    redisMarkedUnknown = result === 'OK';
     if (!redisMarkedUnknown) {
-      Sentry.captureMessage("zernio_finalize_unknown_redis_cas_failed", {
-        level: "error",
+      Sentry.captureMessage('zernio_finalize_unknown_redis_cas_failed', {
+        level: 'error',
         tags: { business_id: stored.businessId },
         extra: {
           flowId: stored.flowId,
@@ -67,9 +67,9 @@ export async function recordFinalizeUnknownAndThrow({
       });
     }
   } catch (redisErr) {
-    Sentry.captureMessage("zernio_finalize_unknown_no_record", {
-      level: "fatal",
-      tags: { business_id: stored.businessId, kind: "redis_failure" },
+    Sentry.captureMessage('zernio_finalize_unknown_no_record', {
+      level: 'fatal',
+      tags: { business_id: stored.businessId, kind: 'redis_failure' },
       extra: {
         flowId: stored.flowId,
         redisErr:
@@ -96,11 +96,11 @@ export async function recordFinalizeUnknownAndThrow({
     incidentPersisted = true;
   } catch (incidentErr) {
     const code = (incidentErr as { code?: string }).code;
-    if (code === "23505") {
+    if (code === '23505') {
       incidentPersisted = true;
     } else {
-      Sentry.captureMessage("zernio_finalize_unknown_db_insert_failed", {
-        level: "error",
+      Sentry.captureMessage('zernio_finalize_unknown_db_insert_failed', {
+        level: 'error',
         tags: { business_id: stored.businessId },
         extra: {
           flowId: stored.flowId,
@@ -115,8 +115,8 @@ export async function recordFinalizeUnknownAndThrow({
 
   // Step 3 — Always-on Sentry alert (additive to the worst-case
   // alerts above).
-  Sentry.captureMessage("zernio_finalize_unknown", {
-    level: "error",
+  Sentry.captureMessage('zernio_finalize_unknown', {
+    level: 'error',
     tags: { business_id: stored.businessId },
     extra: {
       flowId: stored.flowId,
@@ -127,5 +127,5 @@ export async function recordFinalizeUnknownAndThrow({
   });
 
   // Step 4 — Controlled 409 instead of bubbling the raw transient error.
-  throw new ZernioRouteError(409, "finalize_unknown_admin_required");
+  throw new ZernioRouteError(409, 'finalize_unknown_admin_required');
 }

@@ -1,9 +1,9 @@
-import { v7 as uuidv7 } from "uuid";
-import { sql, jsonb } from "@/lib/db/server";
-import { ZernioRouteError } from "@/lib/zernio/errors";
-import { SubscriptionStatus } from "@/lib/shared/subscription-status";
-import type { AppUser } from "@/lib/db/auth";
-import type { ConnectLocationsBlob } from "@/lib/zernio/types";
+import { v7 as uuidv7 } from 'uuid';
+import { sql, jsonb } from '@/lib/db/server';
+import { ZernioRouteError } from '@/lib/zernio/errors';
+import { SubscriptionStatus } from '@/lib/shared/subscription-status';
+import type { AppUser } from '@/lib/db/auth';
+import type { ConnectLocationsBlob } from '@/lib/zernio/types';
 
 interface FinalizeConnectionTxArgs {
   user: AppUser;
@@ -48,10 +48,10 @@ export async function finalizeConnectionTx({
     `;
 
     if (!accountLocation) {
-      throw new ZernioRouteError(403, "business_mismatch");
+      throw new ZernioRouteError(403, 'business_mismatch');
     }
     if (accountLocation.subscription_status !== SubscriptionStatus.ACTIVE) {
-      throw new ZernioRouteError(403, "subscription_required");
+      throw new ZernioRouteError(403, 'subscription_required');
     }
 
     const [existingConnection] = await tx<{ id: string }[]>`
@@ -103,7 +103,7 @@ export async function finalizeConnectionTx({
         'drain_pending_owner_connect',
         'business',
         ${stored.businessId},
-        ${jsonb({ business_id: stored.businessId, kind: "drain" })},
+        ${jsonb({ business_id: stored.businessId, kind: 'drain' })},
         0,
         5
       )

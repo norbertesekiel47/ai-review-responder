@@ -1,27 +1,27 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from 'next/server';
 import {
   ZernioRouteError,
   ZernioAuthError,
   ZernioValidationError,
-} from "@/lib/zernio/errors";
-import { zernioClient } from "@/lib/zernio/client";
+} from '@/lib/zernio/errors';
+import { zernioClient } from '@/lib/zernio/client';
 import {
   pendingKey,
   locationsKey,
   luaCASRevertToOauth,
   luaDeletePendingByFlowIdAnyStatus,
-} from "@/lib/zernio/connect-state";
-import { clearConnectSessionCookie } from "@/lib/zernio/connect-session-cookie";
-import { authorizeSelectLocation } from "../_shared/finalize/authorize";
-import { withFinalizeLock } from "../_shared/finalize/finalize-lock";
-import { transitionPendingToFinalizing } from "../_shared/finalize/pending-transition";
-import { recordFinalizeUnknownAndThrow } from "../_shared/finalize/finalize-unknown";
-import { finalizeConnectionTx } from "../_shared/finalize/finalize-tx";
-import { recoverFromFinalizeTxFailure } from "../_shared/finalize/orphan-recovery";
+} from '@/lib/zernio/connect-state';
+import { clearConnectSessionCookie } from '@/lib/zernio/connect-session-cookie';
+import { authorizeSelectLocation } from '../_shared/finalize/authorize';
+import { withFinalizeLock } from '../_shared/finalize/finalize-lock';
+import { transitionPendingToFinalizing } from '../_shared/finalize/pending-transition';
+import { recordFinalizeUnknownAndThrow } from '../_shared/finalize/finalize-unknown';
+import { finalizeConnectionTx } from '../_shared/finalize/finalize-tx';
+import { recoverFromFinalizeTxFailure } from '../_shared/finalize/orphan-recovery';
 
-export const dynamic = "force-dynamic";
+export const dynamic = 'force-dynamic';
 
-const NO_STORE = { "Cache-Control": "no-store, private" } as const;
+const NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
 
 // Pending marker keeps the original 15-min TTL on revert / re-extend.
 const PENDING_TTL_SECONDS = 900;
@@ -146,28 +146,28 @@ function errorToResponse(err: unknown): NextResponse {
     // Outcome-known revert path bubbled up — surface as 502 since Zernio
     // refused at auth layer (likely stale connect_token).
     console.error(
-      "[api/zernio/connect/select-location] Zernio auth error:",
+      '[api/zernio/connect/select-location] Zernio auth error:',
       err,
     );
     return NextResponse.json(
-      { error: "zernio_auth_error" },
+      { error: 'zernio_auth_error' },
       { status: 502, headers: NO_STORE },
     );
   }
   if (err instanceof ZernioValidationError) {
     // Outcome-known revert path bubbled up — pre-mutation reject.
     console.error(
-      "[api/zernio/connect/select-location] Zernio validation error:",
+      '[api/zernio/connect/select-location] Zernio validation error:',
       err,
     );
     return NextResponse.json(
-      { error: "zernio_validation_error", code: err.code },
+      { error: 'zernio_validation_error', code: err.code },
       { status: 400, headers: NO_STORE },
     );
   }
-  console.error("[api/zernio/connect/select-location] internal error:", err);
+  console.error('[api/zernio/connect/select-location] internal error:', err);
   return NextResponse.json(
-    { error: "internal_error" },
+    { error: 'internal_error' },
     { status: 500, headers: NO_STORE },
   );
 }
