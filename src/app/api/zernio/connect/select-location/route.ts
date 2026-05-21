@@ -1,13 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import * as Sentry from "@sentry/nextjs";
-import { v7 as uuidv7 } from "uuid";
-import { sql, jsonb } from "@/lib/db/server";
 import {
   ZernioRouteError,
   ZernioAuthError,
   ZernioValidationError,
 } from "@/lib/zernio/errors";
-import { SubscriptionStatus } from "@/lib/shared/subscription-status";
 import { zernioClient } from "@/lib/zernio/client";
 import {
   pendingKey,
@@ -20,6 +16,8 @@ import { authorizeSelectLocation } from "../_shared/finalize/authorize";
 import { withFinalizeLock } from "../_shared/finalize/finalize-lock";
 import { transitionPendingToFinalizing } from "../_shared/finalize/pending-transition";
 import { recordFinalizeUnknownAndThrow } from "../_shared/finalize/finalize-unknown";
+import { finalizeConnectionTx } from "../_shared/finalize/finalize-tx";
+import { recoverFromFinalizeTxFailure } from "../_shared/finalize/orphan-recovery";
 
 export const dynamic = "force-dynamic";
 
@@ -93,184 +91,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         return recordFinalizeUnknownAndThrow({ redis, stored, zernioErr });
       }
 
-      // 8d. DB transaction: INSERT zernio_connections + drain outbox + (on
-      // first activation per the needs_backfill predicate) initial-backfill
-      // outbox enqueue. All in the same transaction per spec §6.8.
-      const newConnectionId = uuidv7();
+      // 8d. Single durable finalize transaction (connection upsert + outbox
+      // drain + conditional initial-backfill enqueue).
       try {
-        await sql.begin(async (tx) => {
-          const [accountLocation] = await tx<
-            {
-              subscription_status: string;
-              subscription_tier: string;
-              subscription_activated_at: Date | null;
-            }[]
-          >`
-          SELECT
-            a.subscription_status,
-            a.subscription_tier,
-            a.subscription_activated_at
-          FROM businesses b
-          JOIN accounts a ON a.id = b.account_id
-          WHERE b.id = ${stored.businessId}
-            AND b.account_id = ${user.accountId}
-            AND b.archived_at IS NULL
-          FOR UPDATE OF b, a
-        `;
-
-          if (!accountLocation) {
-            throw new ZernioRouteError(403, "business_mismatch");
-          }
-          if (
-            accountLocation.subscription_status !== SubscriptionStatus.ACTIVE
-          ) {
-            throw new ZernioRouteError(403, "subscription_required");
-          }
-
-          const [existingConnection] = await tx<{ id: string }[]>`
-          SELECT id
-          FROM zernio_connections
-          WHERE business_id = ${stored.businessId}
-            AND status IN ('active', 'pending')
-          ORDER BY connected_at DESC NULLS LAST, created_at DESC
-          LIMIT 1
-          FOR UPDATE
-        `;
-
-          const connectionId = existingConnection?.id ?? newConnectionId;
-          if (existingConnection) {
-            await tx`
-            UPDATE zernio_connections
-            SET zernio_profile_id = ${stored.profileId},
-                zernio_account_id = ${accountId},
-                zernio_location_id = ${locationId},
-                status = 'active',
-                connected_at = NOW(),
-                updated_at = NOW()
-            WHERE id = ${existingConnection.id}
-          `;
-          } else {
-            await tx`
-            INSERT INTO zernio_connections (
-              id, business_id, zernio_profile_id, zernio_account_id,
-              zernio_location_id, status, connected_at, created_at, updated_at
-            ) VALUES (
-              ${newConnectionId},
-              ${stored.businessId},
-              ${stored.profileId},
-              ${accountId},
-              ${locationId},
-              'active',
-              NOW(),
-              NOW(),
-              NOW()
-            )
-          `;
-          }
-
-          await tx`
-          INSERT INTO job_outbox (
-            id, topic, aggregate_type, aggregate_id, payload, attempts, max_attempts
-          ) VALUES (
-            ${uuidv7()},
-            'drain_pending_owner_connect',
-            'business',
-            ${stored.businessId},
-            ${jsonb({ business_id: stored.businessId, kind: "drain" })},
-            0,
-            5
-          )
-        `;
-
-          // Backfill-needed predicate (spec §6.8 round-final M2). Fires when
-          // EITHER (a) no prior connect existed for this business OR
-          // (b) prior connections existed but no backfill has ever COMPLETED
-          // (handles the case where a prior backfill auth-failed mid-flight).
-          // The worker's ON CONFLICT (business_id) DO NOTHING on
-          // zernio_backfill_runs is the second-line guard.
-          const [predicate] = await tx<{ needs_backfill: boolean }[]>`
-          SELECT (
-            NOT EXISTS (
-              SELECT 1 FROM zernio_connections
-              WHERE business_id = ${stored.businessId}
-                AND id != ${connectionId}
-                AND connected_at IS NOT NULL
-            )
-            OR NOT EXISTS (
-              SELECT 1 FROM zernio_backfill_runs
-              WHERE business_id = ${stored.businessId}
-                AND completed_at IS NOT NULL
-            )
-          ) AS needs_backfill
-        `;
-
-          if (predicate?.needs_backfill) {
-            if (accountLocation.subscription_activated_at) {
-              await tx`
-              INSERT INTO job_outbox (
-                id, topic, aggregate_type, aggregate_id, payload, status
-              ) VALUES (
-                ${uuidv7()},
-                'zernio_initial_backfill',
-                'business',
-                ${stored.businessId},
-                ${jsonb({
-                  business_id: stored.businessId,
-                  zernio_account_id: accountId,
-                  zernio_location_id: locationId,
-                  subscription_tier: accountLocation.subscription_tier,
-                  subscription_activated_at:
-                    accountLocation.subscription_activated_at.toISOString(),
-                  correlation_id: uuidv7(),
-                })},
-                'pending'
-              )
-            `;
-            } else {
-              // Pre-payment connect — connect flow is gated on active
-              // subscription upstream, so this branch is unreachable.
-              console.warn(
-                `[zernio-connect] Connect succeeded but subscription_activated_at NULL for ${stored.businessId}`,
-              );
-            }
-          }
-        });
+        await finalizeConnectionTx({ user, stored, locationId, accountId });
       } catch (dbErr) {
-        // 8e. Round-12 + round-13 post-accountId recovery. Zernio committed
-        // server-side but our durable DB row doesn't exist yet. Two failure
-        // modes — same recovery, different surface:
-        //   (a) 23505 unique violation → another flow finalized first; OUR
-        //       accountId is now an orphan. 409 already_connected_by_parallel_flow.
-        //   (b) any other DB error → still an orphan; bubble the original
-        //       error up so it surfaces as 500.
-        // Both branches: best-effort delete the orphan Zernio account and
-        // best-effort clear the pending marker (luaDeletePendingByFlowIdAnyStatus,
-        // NOT luaCASCancel which would refuse the 'finalizing' status).
-        await zernioClient.deleteAccount(accountId).catch(() => {
-          // Best-effort: orphan stays at Zernio, will be cleaned up by ops.
+        // 8e. Post-accountId orphan recovery (best-effort cleanup; 23505 → 409
+        // already_connected_by_parallel_flow, otherwise rethrow).
+        return recoverFromFinalizeTxFailure({
+          redis,
+          stored,
+          accountId,
+          dbErr,
         });
-
-        const cleared = await redis
-          .eval(
-            luaDeletePendingByFlowIdAnyStatus,
-            1,
-            pendingKey(stored.businessId),
-            stored.flowId,
-          )
-          .catch(() => 0);
-        if (cleared !== 1) {
-          Sentry.addBreadcrumb({
-            category: "zernio.finalize",
-            message: "pending_marker_not_cleared_post_accountid_failure",
-            data: { flowId: stored.flowId, cleared: String(cleared) },
-          });
-        }
-
-        const isUniqueViolation = (dbErr as { code?: string }).code === "23505";
-        if (isUniqueViolation) {
-          throw new ZernioRouteError(409, "already_connected_by_parallel_flow");
-        }
-        throw dbErr;
       }
 
       // 8f. Full success — clear pending marker (any status, by flowId),
