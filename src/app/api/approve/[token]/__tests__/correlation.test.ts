@@ -217,6 +217,63 @@ describe('POST /api/approve/[token]/edit — correlation recovery', () => {
     expect(editArgs?.[5]).toBe(UPSTREAM_CORRELATION_ID);
     expect(editArgs?.[5]).not.toBe(RESPONSE_ID);
   });
+
+  it('passes sanitized edited text to edit()', async () => {
+    setupHappyPath();
+    mockEdit.mockResolvedValue(undefined);
+
+    const { POST } = await import('../edit/route');
+    const res = await POST(
+      makeRequest('/api/approve/test-raw-token-xyz/edit', {
+        editedText: '  My\t\tedited\u200B response\x00  ',
+      }),
+      tokenParams(),
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockEdit).toHaveBeenCalledOnce();
+    const editArgs = mockEdit.mock.calls[0];
+    // Signature: edit(tx, link, editedText, deviceCookieHash, audit, correlationId)
+    expect(editArgs?.[2]).toBe('My edited response');
+  });
+
+  it('returns 400 when editedText is empty after sanitization', async () => {
+    setupHappyPath();
+    mockEdit.mockResolvedValue(undefined);
+
+    const { POST } = await import('../edit/route');
+    const res = await POST(
+      makeRequest('/api/approve/test-raw-token-xyz/edit', {
+        editedText: '\x00\x01\x7F\u200B\u202E\u2066\uFEFF',
+      }),
+      tokenParams(),
+    );
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe('editedText is required');
+    expect(mockLockValidLink).not.toHaveBeenCalled();
+    expect(mockEdit).not.toHaveBeenCalled();
+  });
+
+  it('keeps the token route raw 2000 character length guard', async () => {
+    setupHappyPath();
+    mockEdit.mockResolvedValue(undefined);
+
+    const { POST } = await import('../edit/route');
+    const res = await POST(
+      makeRequest('/api/approve/test-raw-token-xyz/edit', {
+        editedText: `   ${'x'.repeat(2000)}   `,
+      }),
+      tokenParams(),
+    );
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe('editedText exceeds 2000 characters');
+    expect(mockLockValidLink).not.toHaveBeenCalled();
+    expect(mockEdit).not.toHaveBeenCalled();
+  });
 });
 
 describe('POST /api/approve/[token]/regenerate — correlation recovery', () => {

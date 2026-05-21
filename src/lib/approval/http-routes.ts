@@ -6,7 +6,7 @@ import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { recoverCorrelationId } from '@/lib/approval/correlation';
 import { getDeviceCookieHash, validateCsrf, verifyDeviceCookie } from '@/lib/approval/cookies';
-import { ResponseNotPendingError } from '@/lib/approval/errors';
+import { EmptyEditedResponseError, ResponseNotPendingError } from '@/lib/approval/errors';
 import { handleApprovalError } from '@/lib/approval/http-errors';
 import { lockValidLink } from '@/lib/approval/service';
 import type { ApprovalLink, AuditContext, SessionAuditContext } from '@/lib/approval/types';
@@ -183,6 +183,9 @@ export async function runDashboardReviewAction(
       { status: 200, headers: NO_STORE_HEADERS },
     );
   } catch (err) {
+    if (err instanceof EmptyEditedResponseError) {
+      return NextResponse.json({ error: err.message }, { status: 400, headers: NO_STORE_HEADERS });
+    }
     if (err instanceof ResponseNotPendingError) {
       return NextResponse.json({ error: err.message }, { status: 409, headers: NO_STORE_HEADERS });
     }

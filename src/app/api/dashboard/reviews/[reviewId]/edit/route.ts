@@ -6,12 +6,19 @@ import {
 } from '@/lib/approval/http-routes';
 import { editBySession } from '@/lib/approval/service';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
+import { sanitizePublicResponseText } from '@/lib/shared/sanitize';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
 
 export const dynamic = 'force-dynamic';
 
+const MAX_EDIT_LENGTH = 2000;
+
 const editSchema = z.object({
-  editedText: z.string().trim().min(1).max(2000),
+  editedText: z
+    .string()
+    .transform((value) => sanitizePublicResponseText(value))
+    .refine((value) => value.length > 0)
+    .refine((value) => value.length <= MAX_EDIT_LENGTH),
 });
 
 async function editReview(

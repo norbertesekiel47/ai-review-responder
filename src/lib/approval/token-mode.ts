@@ -13,6 +13,7 @@ import { v7 as uuidv7 } from 'uuid';
 import { distance } from 'fastest-levenshtein';
 import type postgres from 'postgres';
 import { jsonb } from '@/lib/db/server';
+import { sanitizePublicResponseText } from '@/lib/shared/sanitize';
 import {
   verifyDevice,
   lockPendingResponse,
@@ -20,6 +21,7 @@ import {
   revokeSiblings,
 } from './locks';
 import { insertAuditLog, type AuditContext } from './audit';
+import { EmptyEditedResponseError } from './errors';
 import type { ApprovalLink } from './types';
 import type { PublishResponsePayload, GenerateResponsePayload } from '@/lib/shared/worker-types';
 
@@ -80,17 +82,20 @@ export async function edit(
   correlationId?: string,
 ): Promise<void> {
   verifyDevice(link, deviceCookieHash);
+  const sanitizedText = sanitizePublicResponseText(editedText);
+  if (sanitizedText.length === 0) throw new EmptyEditedResponseError();
+
   const resp = await lockPendingResponse(tx, link.response_id);
   await consumeLink(tx, link.id);
 
-  const editDist = distance(resp.original_draft_text, editedText);
+  const editDist = distance(resp.original_draft_text, sanitizedText);
 
   await tx`
     UPDATE responses
     SET status = 'edited',
         approved_at = NOW(),
-        approved_text = ${editedText},
-        edited_text = ${editedText},
+        approved_text = ${sanitizedText},
+        edited_text = ${sanitizedText},
         edit_distance = ${editDist}
     WHERE id = ${link.response_id}
   `;

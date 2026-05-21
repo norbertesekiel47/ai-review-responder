@@ -16,9 +16,10 @@ import {
   establishApprovalSession,
   approve,
   edit,
+  editBySession,
   regenerate,
 } from '../service';
-import type { ApprovalLink, AuditContext } from '../service';
+import type { ApprovalLink, AuditContext, SessionAuditContext } from '../service';
 import {
   InvalidTokenError,
   ExpiredTokenError,
@@ -51,6 +52,11 @@ function validLink(overrides: Partial<ApprovalLink> = {}): ApprovalLink {
 const AUDIT: AuditContext = {
   tokenHash: TOKEN_HASH,
   deviceCookieHash: 'device-hash-abc',
+  ipAddress: '127.0.0.1',
+};
+
+const SESSION_AUDIT: SessionAuditContext = {
+  actorUserId: 'user-1',
   ipAddress: '127.0.0.1',
 };
 
@@ -209,9 +215,10 @@ describe('edit', () => {
     vi.clearAllMocks();
   });
 
-  it('computes edit distance using real levenshtein, updates response with edited text', async () => {
+  it('sanitizes edited text before storing it and computing edit distance', async () => {
     const link = validLink({ device_cookie_hash: 'device-hash-abc' });
-    const editedText = 'Modified text';
+    const editedText = '  Modified\t\ttext\u200B\x00  ';
+    const sanitizedText = 'Modified text';
 
     const tx = createMockTx([
       // lockPendingResponse: SELECT ... FOR UPDATE
@@ -236,7 +243,7 @@ describe('edit', () => {
 
     // Verify the edit distance was computed correctly
     const { distance } = await import('fastest-levenshtein');
-    const expectedDist = distance('Original text', editedText);
+    const expectedDist = distance('Original text', sanitizedText);
 
     // The edit distance appears as an interpolated number in one of the tagged template calls
     const allNumArgs = tx.mock.calls
@@ -258,10 +265,68 @@ describe('edit', () => {
     const payloadArg = allObjectArgs.find((p: Record<string, unknown>) => 'business_id' in p,
     );
     expect(payloadArg).toBeDefined();
-    expect(allStringArgs).toContain(editedText);
+    expect(allStringArgs).toContain(sanitizedText);
+    expect(allStringArgs).not.toContain(editedText);
 
     // Verify correlation_id propagates into the publish_response outbox payload.
     const publishPayload = allObjectArgs.find((p: Record<string, unknown>) => p.response_id === link.response_id && !('satisfaction' in p),
+    );
+    expect(publishPayload).toBeDefined();
+    expect(publishPayload!.correlation_id).toBe('test-correlation-xyz');
+  });
+});
+
+// ── editBySession ────────────────────────────────────────────────────────
+
+describe('editBySession', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('sanitizes edited text before storing it and computing edit distance', async () => {
+    const editedText = '  Session\t\tedit\u202E\n\n\nSecond line  ';
+    const sanitizedText = 'Session edit\n\nSecond line';
+
+    const tx = createMockTx([
+      // lockPendingResponse: SELECT ... FOR UPDATE
+      [{ status: 'pending_approval', original_draft_text: 'Session draft', version: 1, review_id: 'rev-1' }],
+      // revokeOpenLinksForResponse
+      [],
+      // UPDATE responses SET status = 'edited'
+      [],
+      // INSERT INTO job_outbox
+      [],
+      // resolveAccountIdFromBusiness: SELECT account_id FROM businesses
+      [{ account_id: 'acc-1' }],
+      // insertAuditLogSession
+      [],
+    ]);
+
+    await editBySession(tx, 'resp-1', 'biz-1', editedText, SESSION_AUDIT, 'test-correlation-xyz');
+
+    expect(tx).toHaveBeenCalledTimes(6);
+
+    const { distance } = await import('fastest-levenshtein');
+    const expectedDist = distance('Session draft', sanitizedText);
+
+    const allNumArgs = tx.mock.calls
+      .flat()
+      .filter((arg: unknown): arg is number => typeof arg === 'number');
+    expect(allNumArgs).toContain(expectedDist);
+
+    const allStringArgs = tx.mock.calls
+      .flat()
+      .filter((arg: unknown): arg is string => typeof arg === 'string');
+    expect(allStringArgs).toContain(sanitizedText);
+    expect(allStringArgs).not.toContain(editedText);
+
+    const allObjectArgs = tx.mock.calls
+      .flat()
+      .filter(
+        (arg: unknown): arg is Record<string, unknown> =>
+          !!arg && typeof arg === 'object' && !Array.isArray(arg) && 'response_id' in (arg as Record<string, unknown>),
+      );
+    const publishPayload = allObjectArgs.find((p: Record<string, unknown>) => p.response_id === 'resp-1' && !('satisfaction' in p),
     );
     expect(publishPayload).toBeDefined();
     expect(publishPayload!.correlation_id).toBe('test-correlation-xyz');
