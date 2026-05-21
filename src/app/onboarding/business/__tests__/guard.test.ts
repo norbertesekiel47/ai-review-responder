@@ -28,7 +28,7 @@ describe('resolveWizardDestination — Scenario L wizard guards', () => {
     ).toEqual({ kind: 'redirect', path: '/admin/overview' });
   });
 
-  it('L.2b sales_partner role → /admin/overview (same admin-class rule)', () => {
+  it('L.2b sales_partner role → /login (unsupported legacy role fails closed)', () => {
     expect(
       resolveWizardDestination({
         role: 'sales_partner',
@@ -36,7 +36,7 @@ describe('resolveWizardDestination — Scenario L wizard guards', () => {
         place_id_verified: false,
         google_maps_url: null,
       }),
-    ).toEqual({ kind: 'redirect', path: '/admin/overview' });
+    ).toEqual({ kind: 'redirect', path: '/login' });
   });
 
   it('L.3 pending_payment owner → /onboarding/pay', () => {

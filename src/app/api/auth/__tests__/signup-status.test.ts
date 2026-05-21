@@ -93,6 +93,18 @@ describe('GET /api/auth/signup-status', () => {
     expect(json.error).toBe('account_incomplete');
   });
 
+  it('returns 404 account_incomplete when authenticated row is not owner', async () => {
+    mockSql.mockResolvedValueOnce([
+      rowFor({ role: 'sales_partner', subscription_status: 'active' }),
+    ]);
+
+    const res = await GET(mkReq());
+
+    expect(res.status).toBe(404);
+    const json = await res.json();
+    expect(json.error).toBe('account_incomplete');
+  });
+
   // Helper — the route now selects raw columns and computes businessOnboarded
   // in JS (instead of SQL). Tests provide the raw columns directly.
   function rowFor(opts: {
@@ -210,6 +222,18 @@ describe('GET /api/auth/signup-status', () => {
     // values are at index 1 onward (index 0 is TemplateStringsArray).
     const interpolatedValues = callArgs.slice(1);
     expect(interpolatedValues).toContain('auth-uuid-123');
+  });
+
+  it('SQL boundary: lookup filters on u.role = owner', async () => {
+    mockSql.mockResolvedValueOnce([rowFor()]);
+
+    await GET(mkReq());
+
+    const callArgs = mockSql.mock.calls[0] as unknown[];
+    const query = (callArgs[0] as TemplateStringsArray).join('?');
+    const interpolatedValues = callArgs.slice(1);
+    expect(query).toContain('u.role =');
+    expect(interpolatedValues).toContain('owner');
   });
 
   it('returns 429 when rate-limit exceeded (30/min per authId)', async () => {

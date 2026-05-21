@@ -18,7 +18,7 @@ vi.mock('@/lib/db/server', () => ({
   sql: mockSql,
 }));
 
-// Admin/sales_partner auth: stub requireRole to a no-op so the handler
+// Admin auth: stub requireRole to a no-op so the handler
 // proceeds to the query we want to inspect. AuthError is still exported
 // because the route references it in the catch block.
 vi.mock('@/lib/db/auth', () => ({

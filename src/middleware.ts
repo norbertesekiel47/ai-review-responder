@@ -75,7 +75,7 @@ export async function middleware(request: NextRequest) {
       return redirectToLogin(request);
     }
     const self = await readSelf();
-    if (!self || !['admin', 'sales_partner'].includes(self.role)) {
+    if (!self || self.role !== 'admin') {
       return redirectToLogin(request);
     }
   }
@@ -86,7 +86,7 @@ export async function middleware(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
     const self = await readSelf();
-    if (!self || !['admin', 'sales_partner'].includes(self.role)) {
+    if (!self || self.role !== 'admin') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
   }
@@ -127,7 +127,7 @@ export async function middleware(request: NextRequest) {
   // URL, which is what the page-level guard already correctly avoids):
   //   a. No session → owner login (this IS the right destination — they
   //      need to authenticate as an owner to reach onboarding).
-  //   b. Authenticated as admin/sales_partner → admin home (they're already
+  //   b. Authenticated as admin → admin home (they're already
   //      logged in correctly, just on the wrong page; don't make them
   //      re-authenticate).
   //   c. Authenticated as owner without account_id → owner login with
@@ -142,7 +142,7 @@ export async function middleware(request: NextRequest) {
       // signup. Owner login lets them retry.
       return redirectToLogin(request, 'owner');
     }
-    if (self.role === 'admin' || self.role === 'sales_partner') {
+    if (self.role === 'admin') {
       // Admin landed here by mistake — bounce to admin home, not owner login.
       return NextResponse.redirect(new URL('/admin/overview', request.url));
     }

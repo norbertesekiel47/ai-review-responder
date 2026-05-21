@@ -160,6 +160,18 @@ describe('requireOwnerAccess', () => {
     expect(redirect).toHaveBeenCalledWith('/admin/overview');
   });
 
+  it('redirects sales_partner to owner login instead of admin overview', async () => {
+    mockSql.mockImplementation(() =>
+      Promise.resolve([
+        { role: 'sales_partner', account_id: ACCOUNT_ID, subscription_status: 'active', email: EMAIL },
+      ]),
+    );
+
+    const { redirect } = await import('next/navigation');
+    await expect(requireOwnerAccess()).rejects.toThrow('NEXT_REDIRECT');
+    expect(redirect).toHaveBeenCalledWith('/login');
+  });
+
   it('redirects when subscription_status is not active', async () => {
     mockSql.mockImplementation(() =>
       Promise.resolve([{ role: 'owner', account_id: ACCOUNT_ID, subscription_status: 'pending_payment', email: EMAIL }]),

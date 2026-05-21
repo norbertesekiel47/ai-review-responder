@@ -1,6 +1,6 @@
 'use client';
 
-// Auth: Supabase session checked by src/middleware.ts (admin/sales_partner role required)
+// Auth: Supabase session checked by src/middleware.ts (admin role required)
 
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';

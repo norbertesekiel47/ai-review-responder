@@ -270,20 +270,14 @@ describe('POST /api/auth/forgot-password', () => {
     );
   });
 
-  it('returns 200 + proceeds when admin email + role=admin and actual role=sales_partner (admin bucket)', async () => {
+  it('returns generic 200 + NO call when submitted role=admin but actual role=sales_partner', async () => {
     mockSql.mockResolvedValueOnce([{ role: 'sales_partner' }]);
 
     const res = await POST(
       mkReq({ email: 'partner@example.com', role: 'admin' }),
     );
     expect(res.status).toBe(200);
-    expect(mockSupabaseServer.auth.resetPasswordForEmail).toHaveBeenCalledWith(
-      'partner@example.com',
-      {
-        redirectTo:
-          'https://app.example.com/api/auth/callback?flow=admin&next=/admin/reset-password',
-      },
-    );
+    expect(mockSupabaseServer.auth.resetPasswordForEmail).not.toHaveBeenCalled();
   });
 
   it('returns 200 even when resetPasswordForEmail rejects (no enumeration leak, error swallowed + logged)', async () => {

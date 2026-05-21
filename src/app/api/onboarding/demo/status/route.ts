@@ -45,16 +45,19 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     generation_status: string;
     completed_at: Date | null;
     source: string | null;
+    role: string;
   }[]>`
-    SELECT generation_status, completed_at, source
-    FROM onboarding_demos
-    WHERE user_id = (SELECT id FROM users WHERE auth_id = ${user.id} LIMIT 1)
-      AND generation_status <> 'archived'
-    ORDER BY created_at DESC
+    SELECT d.generation_status, d.completed_at, d.source, u.role
+    FROM onboarding_demos d
+    JOIN users u ON u.id = d.user_id
+    WHERE u.auth_id = ${user.id}
+      AND u.role = 'owner'
+      AND d.generation_status <> 'archived'
+    ORDER BY d.created_at DESC
     LIMIT 1
   `;
 
-  if (!row) {
+  if (!row || row.role !== 'owner') {
     return NextResponse.json({ error: 'not_found' }, { status: 404, headers: NO_STORE });
   }
 

@@ -7,7 +7,7 @@ export default function AdminLoginPage() {
       brandName="RepWorth Admin"
       showGoogleButton={false}
       defaultRoute="/admin/overview"
-      allowedRoles={['admin', 'sales_partner']}
+      allowedRoles={['admin']}
     />
   );
 }

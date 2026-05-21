@@ -6,7 +6,8 @@
 // on any of the standard failure cases:
 //   - no auth session               → /admin/login
 //   - no users row matching auth_id → /admin/login
-//   - role !== 'owner'              → /admin/overview
+//   - role === 'admin'              → /admin/overview
+//   - unsupported legacy role       → /login
 //   - subscription_status !== 'active' → /onboarding/pay
 //
 // Returns { accountId, currentLocationId, role } when all checks pass.
@@ -70,7 +71,8 @@ export async function requireOwnerAccess(): Promise<OwnerAccess> {
   `;
   const row = rows[0];
   if (!row) redirect('/admin/login');
-  if (row.role !== 'owner') redirect('/admin/overview');
+  if (row.role === 'admin') redirect('/admin/overview');
+  if (row.role !== 'owner') redirect('/login');
   if (row.subscription_status !== SubscriptionStatus.ACTIVE) redirect('/onboarding/pay');
 
   const accountId = asAccountId(row.account_id);

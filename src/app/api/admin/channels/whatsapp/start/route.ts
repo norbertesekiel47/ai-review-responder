@@ -37,7 +37,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   if (envErr) return envErr;
 
   try {
-    await requireRole(req, 'admin', 'sales_partner');
+    await requireRole(req, 'admin');
   } catch (e) {
     if (e instanceof AuthError) {
       return NextResponse.json({ error: e.message }, { status: e.statusCode });
