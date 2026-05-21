@@ -1,5 +1,5 @@
-onlyBuiltDependencies:
-  - '@sentry/cli'
-  - esbuild
-  - msgpackr-extract
-  - unrs-resolver
+allowBuilds:
+  '@sentry/cli': true
+  esbuild: true
+  msgpackr-extract: true
+  unrs-resolver: true
