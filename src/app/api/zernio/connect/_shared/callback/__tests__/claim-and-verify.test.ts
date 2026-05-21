@@ -71,7 +71,7 @@ describe('claimAndVerifyConnectState', () => {
     mockGetCurrentUser.mockReset();
   });
 
-  it('returns ok:true with stored/pending/userId on the happy path', async () => {
+  it('returns ok:true with stored/pending on the happy path', async () => {
     seedState();
     seedPending();
     mockGetCurrentUser.mockResolvedValue({ id: USER_ID });
@@ -82,7 +82,6 @@ describe('claimAndVerifyConnectState', () => {
     if (result.ok) {
       expect(result.stored.profileId).toBe(PROFILE_ID);
       expect(result.pending.flowId).toBe(FLOW_ID);
-      expect(result.userId).toBe(USER_ID);
     }
     // State was atomically claimed; profile_state best-effort delete ran.
     expect(redisData.has(`connect_state:${STATE}`)).toBe(false);

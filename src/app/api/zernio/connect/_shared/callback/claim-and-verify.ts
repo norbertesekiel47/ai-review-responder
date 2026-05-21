@@ -5,7 +5,7 @@ import { pendingKey, stateKey, profileStateKey } from '@/lib/zernio/connect-stat
 import type { ConnectStateBlob, ConnectPendingMarker } from '@/lib/zernio/types';
 
 export type ClaimResult =
-  | { ok: true; stored: ConnectStateBlob; pending: ConnectPendingMarker; userId: string }
+  | { ok: true; stored: ConnectStateBlob; pending: ConnectPendingMarker }
   | {
       ok: false;
       code:
@@ -98,5 +98,5 @@ export async function claimAndVerifyConnectState(
     return { ok: false, code: 'user_mismatch', cleanupProfileId: stored.profileId };
   }
 
-  return { ok: true, stored, pending, userId: user.id };
+  return { ok: true, stored, pending };
 }
