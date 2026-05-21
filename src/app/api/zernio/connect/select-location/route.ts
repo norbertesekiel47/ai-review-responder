@@ -2,9 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import * as Sentry from '@sentry/nextjs';
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '@/lib/db/server';
-import { getCacheRedis } from '@/lib/db/redis-cache';
-import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
-import { requireRole, AuthError } from '@/lib/db/auth';
 import {
   ZernioRouteError,
   ZernioAuthError,
@@ -23,11 +20,8 @@ import {
   luaDeletePendingByFlowIdAnyStatus,
   luaTokenCAS,
 } from '@/lib/zernio/connect-state';
-import {
-  readConnectSessionCookie,
-  clearConnectSessionCookie,
-} from '@/lib/zernio/connect-session-cookie';
-import type { ConnectLocationsBlob } from '@/lib/zernio/types';
+import { clearConnectSessionCookie } from '@/lib/zernio/connect-session-cookie';
+import { authorizeSelectLocation } from '../_shared/finalize/authorize';
 
 export const dynamic = 'force-dynamic';
 
@@ -45,10 +39,6 @@ const PENDING_TTL_SECONDS = 900;
 // blocked from starting a fresh flow until admin reconciles.
 const PENDING_FINALIZE_UNKNOWN_TTL_SECONDS = 60 * 60 * 24 * 7;
 
-interface SelectLocationBody {
-  locationId?: unknown;
-}
-
 /**
  * POST /api/zernio/connect/select-location
  *
@@ -58,133 +48,16 @@ interface SelectLocationBody {
  * business. Each numbered step below maps to the spec choreography.
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  // Feature flag — subsystem A is gated by ZERNIO_PUBLISHING_ENABLED (§1.1).
-  if (process.env.ZERNIO_PUBLISHING_ENABLED !== 'true') {
-    return NextResponse.json(
-      { error: 'feature_disabled' },
-      { status: 503, headers: NO_STORE },
-    );
-  }
-
-  // 1. CSRF (FIRST, before any DB or external work).
+  // Steps 1–7: feature flag, CSRF, auth, body parse, session cookie,
+  // cached-locations load, and auth-scope verify. Validation failures throw
+  // ZernioRouteError; untyped errors propagate to errorToResponse below.
+  let ctx;
   try {
-    assertSameOrigin(req);
-  } catch (err) {
-    if (err instanceof SameOriginError) {
-      return NextResponse.json(
-        { error: 'forbidden' },
-        { status: 403, headers: NO_STORE },
-      );
-    }
-    return errorToResponse(err);
-  }
-
-  // 2. Auth.
-  let user;
-  try {
-    user = await requireRole(req, 'owner');
-  } catch (err) {
-    if (err instanceof AuthError) {
-      return NextResponse.json(
-        { error: err.statusCode === 401 ? 'unauthorized' : 'forbidden' },
-        { status: err.statusCode, headers: NO_STORE },
-      );
-    }
-    return errorToResponse(err);
-  }
-  if (!user.accountId) {
-    return NextResponse.json(
-      { error: 'unscoped_owner' },
-      { status: 403, headers: NO_STORE },
-    );
-  }
-
-  // 3. Parse body.
-  let body: SelectLocationBody;
-  try {
-    body = (await req.json()) as SelectLocationBody;
-  } catch {
-    return NextResponse.json(
-      { error: 'invalid_body' },
-      { status: 400, headers: NO_STORE },
-    );
-  }
-  const locationId =
-    typeof body.locationId === 'string' && body.locationId.length > 0
-      ? body.locationId
-      : null;
-  if (!locationId) {
-    return NextResponse.json(
-      { error: 'invalid_location_id' },
-      { status: 400, headers: NO_STORE },
-    );
-  }
-
-  // 4. Read signed cookie → sessionId.
-  const sessionId = readConnectSessionCookie(req);
-  if (!sessionId) {
-    return NextResponse.json(
-      { error: 'connect_session_missing' },
-      { status: 401, headers: NO_STORE },
-    );
-  }
-
-  const redis = getCacheRedis();
-
-  // 5. Load the cached locations blob.
-  let stored: ConnectLocationsBlob;
-  try {
-    const raw = await redis.get(locationsKey(sessionId));
-    if (!raw) {
-      return NextResponse.json(
-        { error: 'connect_session_expired' },
-        { status: 410, headers: NO_STORE },
-      );
-    }
-    try {
-      stored = JSON.parse(raw) as ConnectLocationsBlob;
-    } catch {
-      return NextResponse.json(
-        { error: 'connect_session_expired' },
-        { status: 410, headers: NO_STORE },
-      );
-    }
+    ctx = await authorizeSelectLocation(req);
   } catch (err) {
     return errorToResponse(err);
   }
-
-  // 6. Auth-scope verify (defence-in-depth — cookie alone is insufficient).
-  if (stored.userId !== user.id) {
-    return NextResponse.json(
-      { error: 'user_mismatch' },
-      { status: 403, headers: NO_STORE },
-    );
-  }
-  try {
-    const [business] = await sql<{ exists: number }[]>`
-      SELECT 1 AS exists
-      FROM businesses
-      WHERE id = ${stored.businessId}
-        AND account_id = ${user.accountId}
-        AND archived_at IS NULL
-      LIMIT 1
-    `;
-    if (!business) {
-      return NextResponse.json(
-        { error: 'business_mismatch' },
-        { status: 403, headers: NO_STORE },
-      );
-    }
-  } catch (err) {
-    return errorToResponse(err);
-  }
-  const locationKnown = stored.locations.some((loc) => loc.id === locationId);
-  if (!locationKnown) {
-    return NextResponse.json(
-      { error: 'invalid_location_id' },
-      { status: 400, headers: NO_STORE },
-    );
-  }
+  const { user, sessionId, stored, locationId, redis } = ctx;
 
   // 7. Acquire finalize lock — the FULL finalize sequence happens inside it
   // (round-7 correction). 60s TTL covers Zernio call + DB tx + 3 Redis ops
