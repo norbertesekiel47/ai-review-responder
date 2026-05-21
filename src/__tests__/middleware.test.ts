@@ -12,6 +12,18 @@ vi.mock('@supabase/ssr', () => ({
     auth: {
       getUser,
     },
+    from: () => ({
+      select: () => ({
+        eq: () => ({
+          limit: () => ({
+            single: () => Promise.resolve({
+              data: { role: 'sales_partner', account_id: null },
+              error: null,
+            }),
+          }),
+        }),
+      }),
+    }),
   })),
 }));
 
@@ -76,5 +88,37 @@ describe('middleware public launch host behavior', () => {
 
     expect(response.status).toBe(401);
     expect(createServerClient).toHaveBeenCalledTimes(1);
+  });
+
+  it('redirects sales_partner away from protected admin pages', async () => {
+    getUser.mockResolvedValueOnce({ data: { user: { id: 'auth-sales' } } });
+
+    const response = await middleware(request('https://repworth.net/admin/overview'));
+    const location = response.headers.get('location');
+
+    expect(location).not.toBeNull();
+    const redirect = new URL(location!);
+    expect(redirect.pathname).toBe('/admin/login');
+    expect(redirect.searchParams.get('from')).toBe('/admin/overview');
+  });
+
+  it('returns 403 for sales_partner admin API requests', async () => {
+    getUser.mockResolvedValueOnce({ data: { user: { id: 'auth-sales' } } });
+
+    const response = await middleware(request('https://repworth.net/api/admin/overview'));
+
+    expect(response.status).toBe(403);
+  });
+
+  it('redirects sales_partner away from protected onboarding pages', async () => {
+    getUser.mockResolvedValueOnce({ data: { user: { id: 'auth-sales' } } });
+
+    const response = await middleware(request('https://repworth.net/onboarding/start'));
+    const location = response.headers.get('location');
+
+    expect(location).not.toBeNull();
+    const redirect = new URL(location!);
+    expect(redirect.pathname).toBe('/login');
+    expect(redirect.searchParams.get('from')).toBe('/onboarding/start');
   });
 });

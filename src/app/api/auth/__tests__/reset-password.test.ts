@@ -155,7 +155,7 @@ describe('POST /api/auth/reset-password', () => {
     expect(mockUpdateUser).not.toHaveBeenCalled();
   });
 
-  it('returns 200 + calls updateUser when flag off AND session role=admin (staff never gated)', async () => {
+  it('returns 200 + calls updateUser when flag off AND session role=admin (admins never gated)', async () => {
     process.env.SELF_SERVE_SIGNUP_ENABLED = 'false';
     mockSql.mockResolvedValueOnce([{ role: 'admin' }]);
 
@@ -238,13 +238,17 @@ describe('POST /api/auth/reset-password', () => {
     expect(json.redirectTo).toBe('/admin/login');
   });
 
-  it('returns 200 + { redirectTo: "/admin/login" } for sales_partner role', async () => {
+  it('returns 403 unsupported_role and signs out for sales_partner role', async () => {
     mockSql.mockResolvedValueOnce([{ role: 'sales_partner' }]);
 
     const res = await POST(mkReq({ password: 'a-new-strong-password' }));
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(403);
     const json = await res.json();
+    expect(json.error).toBe('unsupported_role');
     expect(json.redirectTo).toBe('/admin/login');
+    expect(mockSignOut).toHaveBeenCalledTimes(1);
+    expect(mockCheckRateLimit).not.toHaveBeenCalled();
+    expect(mockUpdateUser).not.toHaveBeenCalled();
   });
 
   // ── Rate limiting ────────────────────────────────────────────────

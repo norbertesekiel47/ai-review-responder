@@ -48,7 +48,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'rate_limited' }, { status: 429 });
   }
 
-  // 4. Service-role sql query — join users + businesses by auth_id.
+  // 4. Service-role sql query — join users + businesses by auth_id and
+  //    require owner role before returning owner self-service state.
   //    Explicit auth_id scoping: there is no owner-scoped RLS on businesses,
   //    so we enforce the scope in the WHERE clause.
   //
@@ -75,6 +76,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   //      Stripe; for the autocomplete path (pre-verified Place ID, no
   //      validation worker enqueued) the proxy is exact.
   const demoFlowEnabled = process.env.ONBOARDING_DEMO_ENABLED === 'true';
+  const ownerRole = 'owner';
   const [row] = await sql<
     {
       subscription_status: string;
@@ -92,12 +94,13 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     JOIN accounts a ON a.id = u.account_id
     JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE
     WHERE u.auth_id = ${user.id}
+      AND u.role = ${ownerRole}
     LIMIT 1
   `;
 
-  if (!row) {
+  if (!row || row.role !== ownerRole) {
     // Signup flow not yet complete (no users row provisioned yet) or
-    // business not attached — tell the poller to keep waiting.
+    // business not attached, or this is not an owner self-service user.
     return NextResponse.json({ error: 'account_incomplete' }, { status: 404 });
   }
 

@@ -53,7 +53,8 @@ export default async function OnboardingDemoPage() {
     LIMIT 1
   `;
   if (!row) redirect('/signup');
-  if (row.role !== 'owner') redirect('/admin/overview');
+  if (row.role === 'admin') redirect('/admin/overview');
+  if (row.role !== 'owner') redirect('/login');
   if (row.subscription_status === SubscriptionStatus.ACTIVE) redirect('/dashboard');
   if (row.subscription_status === SubscriptionStatus.CANCELLED) redirect('/dashboard');
 

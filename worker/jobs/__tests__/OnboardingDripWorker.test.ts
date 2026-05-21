@@ -346,6 +346,29 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
     });
   });
 
+  it('day_30: looks up staff sign-off from admin users only', async () => {
+    sqlReturnQueue.push([mockBusinessRow()]);       // 1. business
+    sqlReturnQueue.push([{ id: 'drip-log-id' }]);   // 2. claim drip_log — success
+    sqlReturnQueue.push([{ id: 'user-1' }]);         // 3. owner with auth
+
+    sqlReturnQueue.push([{ total: 15 }]);            // 4. total reviews
+    sqlReturnQueue.push([{ responded: 12 }]);        // 5. responded
+    sqlReturnQueue.push([]);                         // 6. no latest ranking
+    sqlReturnQueue.push([{ name: 'Admin Pat' }]);    // 7. admin sign-off
+    sqlReturnQueue.push([]);                         // 8. UPDATE sent_at
+
+    await handleOnboardingDrip(makeJob({ drip_type: 'day_30' }));
+
+    const statements = mockSql.mock.calls
+      .map(([strings]: [TemplateStringsArray]) => strings.join(' ? '))
+      .join('\n');
+    expect(statements).toContain("WHERE role = 'admin'");
+    expect(statements).not.toContain('sales_partner');
+    expect(mockBuildOnboardingDay30Html).toHaveBeenCalledWith(
+      expect.objectContaining({ salesPartnerName: 'Admin Pat' }),
+    );
+  });
+
   it('day_30: sends without ranking when no data', async () => {
     sqlReturnQueue.push([mockBusinessRow({
       initial_review_count: null,

@@ -22,7 +22,7 @@ export async function GET(
   const businessId: LocationId = asLocationId(rawBusinessId);
 
   try {
-    await requireRole(request, 'admin', 'sales_partner');
+    await requireRole(request, 'admin');
   } catch (err) {
     if (err instanceof AuthError) {
       return NextResponse.json({ error: err.message }, { status: err.statusCode });

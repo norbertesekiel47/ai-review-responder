@@ -17,12 +17,12 @@ export const dynamic = 'force-dynamic';
  * identity + the `users.role` column are the source of truth.
  *
  * Role-based flag gate: owners are gated on `SELF_SERVE_SIGNUP_ENABLED` (the
- * whole self-serve surface hides when the flag is off), but admin and
- * sales_partner callers are NEVER gated — staff need a functional reset flow
- * regardless of rollout state.
+ * whole self-serve surface hides when the flag is off), but admin callers are
+ * never gated — admins need a functional reset flow regardless of rollout
+ * state.
  *
  * `redirectTo` is the caller's next location after the password is updated.
- * Owners land on `/login`; admin + sales_partner land on `/admin/login`.
+ * Owners land on `/login`; admins land on `/admin/login`.
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
   // 1. Same-origin check. Password updates against an active Supabase session
@@ -79,9 +79,33 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // 4. Role-based flag gate. Admin + sales_partner are never gated (staff
-  //    reset flow must work regardless of the self-serve rollout). Only
-  //    owners 404 when the flag is off.
+  if (row.role !== 'owner' && row.role !== 'admin') {
+    const response = NextResponse.json(
+      { error: 'unsupported_role', redirectTo: '/admin/login' },
+      { status: 403 },
+    );
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          getAll() {
+            return req.cookies.getAll();
+          },
+          setAll(cookiesToSet) {
+            for (const { name, value, options } of cookiesToSet) {
+              response.cookies.set(name, value, options);
+            }
+          },
+        },
+      },
+    );
+    await supabase.auth.signOut();
+    return response;
+  }
+
+  // 4. Role-based flag gate. Admin reset flow must work regardless of the
+  //    self-serve rollout. Only owners 404 when the flag is off.
   const isOwner = row.role === 'owner';
   if (isOwner && process.env.SELF_SERVE_SIGNUP_ENABLED !== 'true') {
     return NextResponse.json({ error: 'not_found' }, { status: 404 });

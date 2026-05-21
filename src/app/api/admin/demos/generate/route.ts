@@ -22,7 +22,7 @@ const GenerateDemoSchema = z
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
-    await requireRole(request, 'admin', 'sales_partner');
+    await requireRole(request, 'admin');
   } catch (err) {
     if (err instanceof AuthError) {
       return NextResponse.json({ error: err.message }, { status: err.statusCode });

@@ -7,6 +7,7 @@ import type { AuthFlow } from '@/lib/shared/auth-flow';
 import {
   isEmailNotConfirmedError,
   mapSupabaseAuthError,
+  UNSUPPORTED_ROLE_MESSAGE,
 } from '@/components/auth/shared/mapLoginError';
 import {
   applySubscriptionGuard,
@@ -85,6 +86,10 @@ export function useLoginSubmit({
       const role = (userRow as { role: string }).role;
       if (!allowedRoles.includes(role)) {
         await supabase.auth.signOut();
+        if (role === 'sales_partner') {
+          setError(UNSUPPORTED_ROLE_MESSAGE);
+          return;
+        }
         setError(
           portal === 'owner'
             ? 'That account is for the admin portal. Use /admin/login instead.'

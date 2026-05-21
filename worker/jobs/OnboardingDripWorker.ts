@@ -402,14 +402,14 @@ async function buildDay30(
     }
   }
 
-  // Sales partner name — same scoped chain as ResponsePublisherWorker:
-  // 1. Business-scoped admin/sales_partner
-  // 2. Onboarding partner via businesses.onboarded_by with role check
+  // Staff sign-off name — same scoped chain as ResponsePublisherWorker:
+  // 1. Business-scoped admin
+  // 2. Onboarding staff via businesses.onboarded_by with role check
   // 3. null (no sign-off)
   let salesPartnerName: string | null = null;
   const [scopedPartner] = await sql<{ name: string }[]>`
     SELECT name FROM users
-    WHERE role IN ('admin', 'sales_partner') AND business_id = ${business.id}
+    WHERE role = 'admin' AND business_id = ${business.id}
     LIMIT 1
   `;
   if (scopedPartner) {
@@ -418,7 +418,7 @@ async function buildDay30(
     const [onboarder] = await sql<{ name: string }[]>`
       SELECT u.name FROM users u
       JOIN businesses b ON b.onboarded_by = u.id
-      WHERE b.id = ${business.id} AND u.role IN ('admin', 'sales_partner')
+      WHERE b.id = ${business.id} AND u.role = 'admin'
       LIMIT 1
     `;
     salesPartnerName = onboarder?.name ?? null;

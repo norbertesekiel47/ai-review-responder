@@ -34,7 +34,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   // 1. Auth
   let user: { id: string };
   try {
-    user = await requireRole(request, 'admin', 'sales_partner');
+    user = await requireRole(request, 'admin');
   } catch (err) {
     if (err instanceof AuthError) {
       return NextResponse.json(

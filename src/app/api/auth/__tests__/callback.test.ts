@@ -163,7 +163,9 @@ describe('GET /api/auth/callback', () => {
     );
   });
 
-  it('verifyOtp(type=recovery) lands on /reset-password without role lookup', async () => {
+  it('verifyOtp(type=recovery) lands on /reset-password for owner after role lookup', async () => {
+    mockSingle.mockResolvedValueOnce({ data: { role: 'owner' }, error: null });
+
     const res = await GET(
       mkReq(
         buildUrl({
@@ -182,7 +184,7 @@ describe('GET /api/auth/callback', () => {
     expect(res.headers.get('Location')).toBe(
       'https://app.example.com/reset-password',
     );
-    expect(mockSingle).not.toHaveBeenCalled();
+    expect(mockSingle).toHaveBeenCalledTimes(1);
   });
 
   it('rejects token_hash without type', async () => {
@@ -268,7 +270,9 @@ describe('GET /api/auth/callback', () => {
 
   // ── Reset-password branches (no role lookup) ──
 
-  it('redirects to /reset-password with valid code + next=/reset-password (no role lookup)', async () => {
+  it('redirects to /reset-password with valid code + next=/reset-password after role lookup', async () => {
+    mockSingle.mockResolvedValueOnce({ data: { role: 'owner' }, error: null });
+
     const res = await GET(
       mkReq(
         buildUrl({
@@ -281,12 +285,13 @@ describe('GET /api/auth/callback', () => {
     expect(res.headers.get('Location')).toBe(
       'https://app.example.com/reset-password',
     );
-    // Reset branch MUST NOT query the users table.
-    expect(mockSingle).not.toHaveBeenCalled();
+    expect(mockSingle).toHaveBeenCalledTimes(1);
     expect(mockSignOut).not.toHaveBeenCalled();
   });
 
-  it('redirects to /admin/reset-password with valid code + next=/admin/reset-password (no role lookup)', async () => {
+  it('redirects to /admin/reset-password with valid code + next=/admin/reset-password after role lookup', async () => {
+    mockSingle.mockResolvedValueOnce({ data: { role: 'admin' }, error: null });
+
     const res = await GET(
       mkReq(
         buildUrl({
@@ -299,8 +304,31 @@ describe('GET /api/auth/callback', () => {
     expect(res.headers.get('Location')).toBe(
       'https://app.example.com/admin/reset-password',
     );
-    expect(mockSingle).not.toHaveBeenCalled();
+    expect(mockSingle).toHaveBeenCalledTimes(1);
     expect(mockSignOut).not.toHaveBeenCalled();
+  });
+
+  it('signs out and redirects unsupported sales_partner recovery callback to admin login', async () => {
+    mockSingle.mockResolvedValueOnce({
+      data: { role: 'sales_partner' },
+      error: null,
+    });
+
+    const res = await GET(
+      mkReq(
+        buildUrl({
+          token_hash: 'pkce_rec',
+          type: 'recovery',
+          flow: 'admin',
+          next: '/admin/reset-password',
+        }),
+      ),
+    );
+
+    expect(res.headers.get('Location')).toBe(
+      'https://app.example.com/admin/login?error=unsupported_role',
+    );
+    expect(mockSignOut).toHaveBeenCalledTimes(1);
   });
 
   // ── Google-signup branch: next=/signup/finish ──
@@ -442,7 +470,7 @@ describe('GET /api/auth/callback', () => {
     );
   });
 
-  it('redirects sales_partner to /admin/overview with valid code + no next', async () => {
+  it('signs out and redirects unsupported sales_partner to /admin/login by default', async () => {
     mockSingle.mockResolvedValueOnce({
       data: { role: 'sales_partner' },
       error: null,
@@ -450,8 +478,24 @@ describe('GET /api/auth/callback', () => {
 
     const res = await GET(mkReq(buildUrl({ code: 'valid-code' })));
     expect(res.headers.get('Location')).toBe(
-      'https://app.example.com/admin/overview',
+      'https://app.example.com/admin/login?error=unsupported_role',
     );
+    expect(mockSignOut).toHaveBeenCalledTimes(1);
+  });
+
+  it('signs out and redirects unsupported sales_partner to /login for owner flow', async () => {
+    mockSingle.mockResolvedValueOnce({
+      data: { role: 'sales_partner' },
+      error: null,
+    });
+
+    const res = await GET(
+      mkReq(buildUrl({ code: 'valid-code', flow: 'owner' })),
+    );
+    expect(res.headers.get('Location')).toBe(
+      'https://app.example.com/login?error=unsupported_role',
+    );
+    expect(mockSignOut).toHaveBeenCalledTimes(1);
   });
 
   it('honors owner-appropriate next paths (/dashboard, /settings, /onboarding)', async () => {

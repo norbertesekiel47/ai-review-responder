@@ -113,18 +113,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     userId = data.user?.id;
   }
 
-  // Recovery branches — reset page reads session directly, no role lookup.
-  if (
-    requestedNext === '/reset-password' ||
-    requestedNext === '/admin/reset-password'
-  ) {
-    const final = NextResponse.redirect(new URL(requestedNext, origin));
-    for (const cookie of response.cookies.getAll()) {
-      final.cookies.set(cookie);
-    }
-    return final;
-  }
-
   // Role-aware post-callback redirect. An owner arriving via an email link
   // must go to /dashboard, not /admin/overview (which they can't access).
   // If `next` points to a role-appropriate path, honor it; otherwise fall
@@ -183,7 +171,40 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return incomplete;
   }
 
-  // Role-aware destination resolution.
+  if (role === 'sales_partner') {
+    await supabase.auth.signOut();
+    const unsupported = NextResponse.redirect(
+      new URL(`${loginUrl}?error=unsupported_role`, origin),
+    );
+    for (const cookie of response.cookies.getAll()) {
+      unsupported.cookies.set(cookie);
+    }
+    return unsupported;
+  }
+
+  if (role !== 'owner' && role !== 'admin') {
+    await supabase.auth.signOut();
+    const incomplete = NextResponse.redirect(
+      new URL(`${loginUrl}?error=account_incomplete`, origin),
+    );
+    for (const cookie of response.cookies.getAll()) {
+      incomplete.cookies.set(cookie);
+    }
+    return incomplete;
+  }
+
+  if (
+    requestedNext === '/reset-password' ||
+    requestedNext === '/admin/reset-password'
+  ) {
+    const final = NextResponse.redirect(new URL(requestedNext, origin));
+    for (const cookie of response.cookies.getAll()) {
+      final.cookies.set(cookie);
+    }
+    return final;
+  }
+
+  // Role-aware destination resolution for supported runtime roles.
   const nextIsAdmin = requestedNext.startsWith('/admin');
   const nextIsOwner =
     requestedNext.startsWith('/dashboard') ||
@@ -193,19 +214,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   let destination: string;
   if (role === 'owner') {
     destination = nextIsOwner ? requestedNext : '/dashboard';
-  } else if (role === 'admin' || role === 'sales_partner') {
-    destination = nextIsAdmin ? requestedNext : '/admin/overview';
   } else {
-    // Unknown role — treat as account_incomplete. Same signOut + cookie-copy
-    // path as the no-users-row branch above.
-    await supabase.auth.signOut();
-    const incomplete = NextResponse.redirect(
-      new URL(`${loginUrl}?error=account_incomplete`, origin),
-    );
-    for (const cookie of response.cookies.getAll()) {
-      incomplete.cookies.set(cookie);
-    }
-    return incomplete;
+    destination = nextIsAdmin ? requestedNext : '/admin/overview';
   }
 
   // Build a fresh redirect response with the resolved destination, copying

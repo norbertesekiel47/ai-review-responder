@@ -8,6 +8,9 @@ describe('mapInitialQueryError', () => {
   it('maps auth_callback_failed', () => {
     expect(mapInitialQueryError('auth_callback_failed')).toMatch(/Sign-in failed/);
   });
+  it('maps unsupported_role', () => {
+    expect(mapInitialQueryError('unsupported_role')).toMatch(/no longer supported/);
+  });
   it('returns empty for null/unknown', () => {
     expect(mapInitialQueryError(null)).toBe('');
     expect(mapInitialQueryError('mystery')).toBe('');

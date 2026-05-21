@@ -51,7 +51,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // ── Step 1: Auth gate (VAL-ADMIN-011) ──────────────────────────────
   let authUser;
   try {
-    authUser = await requireRole(req, 'admin', 'sales_partner');
+    authUser = await requireRole(req, 'admin');
   } catch (err) {
     if (err instanceof AuthError) {
       return NextResponse.json(

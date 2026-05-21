@@ -24,7 +24,7 @@ interface BusinessListRow {
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
-    await requireRole(request, 'admin', 'sales_partner');
+    await requireRole(request, 'admin');
   } catch (err) {
     if (err instanceof AuthError) {
       return NextResponse.json({ error: err.message }, { status: err.statusCode });
@@ -91,7 +91,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 export async function POST(request: NextRequest): Promise<NextResponse> {
   let authUser;
   try {
-    authUser = await requireRole(request, 'admin', 'sales_partner');
+    authUser = await requireRole(request, 'admin');
   } catch (err) {
     if (err instanceof AuthError) {
       return NextResponse.json({ error: err.message }, { status: err.statusCode });

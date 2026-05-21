@@ -1,6 +1,23 @@
+// @vitest-environment jsdom
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+
+const {
+  mockMaybeSingle,
+  mockSignInWithPassword,
+  mockSignOut,
+  routerPush,
+  routerRefresh,
+} = vi.hoisted(() => ({
+  mockMaybeSingle: vi.fn(),
+  mockSignInWithPassword: vi.fn(),
+  mockSignOut: vi.fn(),
+  routerPush: vi.fn(),
+  routerRefresh: vi.fn(),
+}));
 
 // next/navigation hooks throw outside an app/ router context. Stub them so
 // LoginFormInner can be rendered with renderToStaticMarkup. We render the
@@ -9,12 +26,30 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(),
   useRouter: () => ({
-    push: () => {},
+    push: routerPush,
     replace: () => {},
-    refresh: () => {},
+    refresh: routerRefresh,
     back: () => {},
     forward: () => {},
     prefetch: () => {},
+  }),
+}));
+
+vi.mock('@/lib/db/browser', () => ({
+  createBrowserSupabaseClient: () => ({
+    auth: {
+      signInWithPassword: mockSignInWithPassword,
+      signOut: mockSignOut,
+    },
+    from: () => ({
+      select: () => ({
+        eq: () => ({
+          limit: () => ({
+            maybeSingle: mockMaybeSingle,
+          }),
+        }),
+      }),
+    }),
   }),
 }));
 
@@ -22,6 +57,19 @@ vi.mock('next/navigation', () => ({
 const { LoginFormInner } = await import('../LoginFormClient');
 
 describe('LoginFormClient (admin)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockSignInWithPassword.mockResolvedValue({
+      data: { user: { id: 'auth-sales' } },
+      error: null,
+    });
+    mockMaybeSingle.mockResolvedValue({
+      data: { role: 'sales_partner' },
+      error: null,
+    });
+    mockSignOut.mockResolvedValue({ error: null });
+  });
+
   it('does not render the Google button when showGoogleButton is false', () => {
     const html = renderToStaticMarkup(
       createElement(LoginFormInner, {
@@ -29,11 +77,33 @@ describe('LoginFormClient (admin)', () => {
         brandName: 'RepWorth Admin',
         showGoogleButton: false,
         defaultRoute: '/admin/overview',
-        allowedRoles: ['admin', 'sales_partner'] as const,
+        allowedRoles: ['admin'] as const,
       }),
     );
     expect(html).toContain('RepWorth Admin');
     expect(html).not.toContain('Continue with Google');
+  });
+
+  it('signs out sales_partner password login and shows an unsupported-role message', async () => {
+    render(
+      createElement(LoginFormInner, {
+        portal: 'admin',
+        brandName: 'RepWorth Admin',
+        showGoogleButton: false,
+        defaultRoute: '/admin/overview',
+        allowedRoles: ['admin'] as const,
+      }),
+    );
+
+    await userEvent.type(screen.getByLabelText('Email'), 'sales@example.com');
+    await userEvent.type(screen.getByLabelText('Password'), 'password123');
+    await userEvent.click(screen.getByRole('button', { name: 'Sign In' }));
+
+    await waitFor(() => {
+      expect(mockSignOut).toHaveBeenCalledTimes(1);
+    });
+    expect(routerPush).not.toHaveBeenCalled();
+    expect(screen.getByText(/no longer supported/i)).toBeInTheDocument();
   });
 
   it('renders the Google button when showGoogleButton is true', () => {
