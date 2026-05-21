@@ -1,0 +1,806 @@
+# RepWorth — Directory Reference
+
+A guide to every folder and file in `src/` and `worker/`, what each one does, and how they connect.
+
+---
+
+## High-Level Architecture
+
+```
+Browser / Vercel (Next.js)          Railway (worker process)
+─────────────────────────           ────────────────────────
+src/app/                            worker/
+  (public)/   ← owner + visitor       index.ts        ← entry point
+  (authenticated)/ ← owner dashboard  jobs/           ← BullMQ handlers
+  admin/       ← sales partner        ingress/        ← webhook receivers
+  onboarding/  ← self-serve signup    queues.ts       ← queue definitions
+  api/         ← API routes
+src/lib/      ← shared logic
+src/components/
+src/hooks/
+src/middleware.ts
+                   ↑ both sides share ↓
+              src/lib/shared/   (types, queue names, outbox helpers)
+              src/lib/db/       (Postgres.js client, Redis)
+              src/lib/reviews/, responses/, approval/, etc.
+```
+
+**Key rule:** Next.js handles UI and thin API routes only. Every LLM call, SerpAPI call, slow operation, and inbound webhook is handled by the Railway worker.
+
+---
+
+## `src/middleware.ts`
+
+Edge middleware that runs before every request. Does two things:
+
+1. **Domain routing** — rewrites requests from `repworth.net` to the correct path.
+2. **Auth protection** — creates a Supabase SSR client, reads the session cookie, and redirects unauthenticated visitors away from protected routes (owner dashboard, admin).
+
+Imports `protected-routes.ts` to know which paths need a session.
+
+---
+
+## `src/instrumentation.ts` / `src/instrumentation-client.ts`
+
+Next.js instrumentation hooks. `instrumentation.ts` initialises Sentry for the Node.js server runtime (scrubs sensitive fields before sending). `instrumentation-client.ts` initialises Sentry for the browser and hooks router transitions.
+
+---
+
+## `src/app/`
+
+Next.js App Router pages, grouped by access level.
+
+### `(public)/` — No login required
+
+| Path | What it does |
+|------|--------------|
+| `page.tsx` | Landing page. Reads `SELF_SERVE_SIGNUP_ENABLED` + `x-coming-soon` header to decide whether to show the coming-soon screen or the full landing. Delegates to `LandingContent`. |
+| `login/page.tsx` | Owner login page. Renders `LoginFormClient`. |
+| `login/error.tsx` | Error boundary for the login flow. |
+| `signup/page.tsx` | Self-serve signup entry. Collects email. |
+| `signup/error.tsx` | Error boundary for signup. |
+| `signup/SignupFormClient.tsx` | Form component. Rate-checks via `checkRateLimit`, then POSTs to `/api/auth/signup`. |
+| `signup/check-email/page.tsx` | "Check your inbox" screen. |
+| `signup/check-email/CheckEmailClient.tsx` | Polls `/api/auth/signup-status` until confirmation completes. |
+| `signup/finish/page.tsx` | Server shell for the Google OAuth finish-signup step. |
+| `signup/finish/FinishSignupClient.tsx` | Second signup step (after Google OAuth). Collects business name, Place ID, tone, etc. POSTs to `/api/auth/finish-signup`. |
+| `forgot-password/page.tsx` | Request a password reset email. |
+| `reset-password/page.tsx` | Consume the reset token and set a new password. |
+| `approve/[token]/page.tsx` | Approval page reached via email link. Server component loads the approval context. |
+| `approve/[token]/approval-client.tsx` | Interactive Approve / Edit / Regenerate UI. |
+| `demo/[slug]/page.tsx` | Public demo page for a prospect. |
+| `book-a-demo/page.tsx` | Demo booking form → `/api/demo-request`. |
+| `features/page.tsx` | Features marketing page. |
+| `features/FeaturesContent.tsx` | Features page content component. |
+| `how-it-works/page.tsx` | How-it-works marketing page. |
+| `how-it-works/HowItWorksContent.tsx` | How-it-works content component. |
+| `pricing/page.tsx` | Pricing marketing page. |
+| `terms/page.tsx` | Terms of service. |
+| `privacy/page.tsx` | Privacy policy. |
+| `feedback/thanks/page.tsx` | Confirmation after feedback form submission. |
+
+**Shared components under `(public)/components/`:**
+
+- `landing/LandingContent.tsx` — hero, how-it-works carousel, CTA buttons.
+- `landing/HowItWorksCarousel.tsx` — carousel for the workflow walkthrough.
+- `landing/BookDemoForm.tsx` — demo request form.
+- `landing/ContactForm.tsx` — contact form → `/api/contact`.
+- `shared/PageShell.tsx` — header + footer wrapper used by all public pages.
+- `shared/SiteNav.tsx` — navigation bar with logo and links.
+
+---
+
+### `(authenticated)/` — Owner login required
+
+Middleware redirects to `/login` if no session.
+
+| Path | What it does |
+|------|--------------|
+| `layout.tsx` | Verifies session; queries `users` by `auth_id` to get `business_id`; renders `OwnerNav`. |
+| `dashboard/page.tsx` | Owner dashboard — reviews list, approval actions, charts, Zernio connection banner. Renders `DashboardContent`. |
+| `dashboard/connect/page.tsx` | Zernio Google Business Profile connect entry point. 6-state UI: none / starting / oauth_in_progress / finalizing / active / finalize_unknown / disconnected. Shows Cancel button during oauth_in_progress; spinner-only during finalizing. |
+| `dashboard/connect/select-location/page.tsx` | Server component that loads candidate GBP locations from Zernio after OAuth returns. |
+| `dashboard/connect/select-location/LocationPicker.tsx` | Client component displaying the location list; POSTs selected location to `/api/zernio/connect/select-location`. |
+| `dashboard/past-replies/page.tsx` | "Past Replies" tab — read-only paginated list of every review with a `posted` response, bucketed into "From your active period" (review_date >= subscription_activated_at) and "From before you joined" (review_date < activated_at, or all rows when activated_at IS NULL). Renders `PastReplyCard` rows + `HistoricalUpgradeBanner` above the historical section for non-premium owners. Gated by `PAST_REPLIES_VIEW_ENABLED`; companion ingest path gated by `EXTERNAL_REPLY_IMPORT_ENABLED`. The full edit/regenerate/recovery feature is parked on tag `wip/edit-existing-replies-zernio-v1` pending direct GBP API. |
+| `settings/page.tsx` | Owner settings shell — renders `SettingsTabs` + `SettingsGeneralForm` (tone, products/services, avoid-facts). |
+| `settings/SettingsGeneralForm.tsx` | Client form for general business settings. |
+| `settings/channels/page.tsx` | Server shell for the owner channel-management page. Auth + subscription guard run server-side; fetches enrollment state for SSR hydration. |
+| `settings/channels/ChannelsClient.tsx` | Client component. Renders `OwnerTelegramWidget` for Telegram (live enrollment UI) and `ComingSoonChannelRow` for SMS and WhatsApp. |
+
+---
+
+### `admin/` — Sales partner or admin role required
+
+| Path | What it does |
+|------|--------------|
+| `layout.tsx` | Role-checks session; renders `AdminNav`. |
+| `providers.tsx` | React context providers wrapping the admin layout. |
+| `overview/page.tsx` | Admin dashboard overview stats. |
+| `login/page.tsx` | Admin login (never gated by `SELF_SERVE_SIGNUP_ENABLED`). |
+| `forgot-password/page.tsx` | Admin forgot-password. |
+| `reset-password/page.tsx` | Admin reset-password. |
+| `businesses/page.tsx` | List all businesses. |
+| `businesses/new/page.tsx` | Create a new business. |
+| `businesses/new/schema.ts` | Zod schema for the new-business form. |
+| `businesses/new/components/BusinessInfoSection.tsx` | Form section: business name, Place ID, address. |
+| `businesses/new/components/OwnerInfoSection.tsx` | Form section: owner email, name. |
+| `businesses/new/components/SubscriptionTierSection.tsx` | Form section: tier picker. |
+| `businesses/new/components/VoiceContextSection.tsx` | Form section: tone + product context. |
+| `businesses/new/components/_shared.tsx` | Shared field primitives for the new-business form. |
+| `businesses/new/hooks/useBusinessPrefill.ts` | Hook that calls `/api/admin/businesses/prefill` on Place ID change. |
+| `businesses/[id]/page.tsx` | Business detail page (shell; delegates to sub-components). |
+| `businesses/[id]/types.ts` | TypeScript types for the business detail page. |
+| `businesses/[id]/hooks/useBusinessDetail.ts` | Hook that fetches and refreshes `GET /api/admin/businesses/[id]`. |
+| `businesses/[id]/components/ChannelsPanel.tsx` | Displays all three channel enrollment widgets side-by-side. |
+| `businesses/[id]/components/ManualPostFlow.tsx` | UI for marking a response as manually posted. |
+| `businesses/[id]/components/ManualRankingSection.tsx` | Manual ranking snapshot input. |
+| `businesses/[id]/components/ProfileEditor.tsx` | Inline editor for business profile fields. |
+| `businesses/[id]/components/ReviewsList.tsx` | Reviews + responses list for the admin detail view. |
+| `businesses/[id]/components/TrackedKeywordsSection.tsx` | Add/remove ranking keywords. |
+| `businesses/[id]/components/ZernioConnectionPanel.tsx` | Displays Zernio connection status; lets admin disconnect. |
+| `jobs/page.tsx` | BullMQ queue health and counts. |
+| `costs/page.tsx` | API cost tracking and usage. |
+| `demos/page.tsx` | Demo requests list. |
+| `notifications/page.tsx` | Notification delivery logs. |
+| `runbook/page.tsx` | Internal runbook (links to `NEXT_PUBLIC_DOCS_BASE_URL`). |
+| `payment-success/page.tsx` | Post-Stripe confirmation page. |
+
+---
+
+### `onboarding/`
+
+| Path | What it does |
+|------|--------------|
+| `error.tsx` | Error boundary for the onboarding flow. |
+| `pay/page.tsx` | Stripe checkout step during owner onboarding. |
+| `pay/PlanPickerClient.tsx` | Plan tier picker; redirects to Stripe Payment Link. |
+| `payment-success/page.tsx` | Shown after payment. |
+| `payment-success/PaymentSuccessClient.tsx` | Polls `/api/admin/payment-success` until `subscription_status` flips to `active`. |
+| `business/page.tsx` | 3-step onboarding wizard shell. |
+| `business/BusinessWizardClient.tsx` | Client orchestrator for the 3-step wizard. Tracks current step, validates each step before advancing. |
+| `business/ProgressDots.tsx` | Step progress indicator. |
+| `business/StepLocation.tsx` | Step 1 — business name + Place ID (uses `PlaceAutocomplete`). |
+| `business/StepProfile.tsx` | Step 2 — products/services, avoid-facts. |
+| `business/StepVoice.tsx` | Step 3 — response tone. |
+| `business/guard.ts` | `resolveWizardDestination` — 4-rule redirect guard called server-side before rendering the wizard. |
+
+---
+
+### `api/` — API routes (all thin; no LLM or heavy work)
+
+#### `auth/`
+
+| Route | What it does |
+|-------|--------------|
+| `signup/route.ts` | Creates `users` + `businesses` rows in one transaction (`createBusinessTx`). Rate-limited. Returns 409 on duplicate email. |
+| `finish-signup/route.ts` | Saves business details after Google OAuth. Guards against non-`email_confirmed` calls. |
+| `callback/route.ts` | Supabase OAuth callback (Google sign-in). |
+| `verify-otp/route.ts` | Verifies the 6-digit OTP from the confirmation email; transitions user to the onboarding flow. |
+| `forgot-password/route.ts` | Requests password reset email via Supabase. |
+| `reset-password/route.ts` | Consumes reset token and updates password. Signs out immediately after. |
+| `resend-confirmation/route.ts` | Resends verification email. Owner-only. |
+| `signup-status/route.ts` | Polls whether the email confirmation has been clicked. |
+
+#### `approve/[token]/`
+
+The approval API. All routes read the token from the URL path and verify a device cookie + CSRF header.
+
+| Route | What it does |
+|-------|--------------|
+| `route.ts` (GET) | Returns approval session data (review text, draft response, business name). |
+| `session/route.ts` | POST: binds a device cookie to the approval session. Called on first page load. |
+| `approve/route.ts` | POST: approves the draft. |
+| `edit/route.ts` | POST: saves the owner's edited text. |
+| `regenerate/route.ts` | POST: marks current draft superseded; enqueues a new generation job. |
+
+#### `dashboard/`
+
+| Route | What it does |
+|-------|--------------|
+| `route.ts` (GET) | Returns all dashboard data for the logged-in owner (reviews, responses, metrics, Zernio connection state, pending-payment banner flag). Delegates to `src/lib/dashboard/service.ts`. |
+| `reviews/[reviewId]/approve/route.ts` | Approve from dashboard. |
+| `reviews/[reviewId]/edit/route.ts` | Edit from dashboard. |
+| `reviews/[reviewId]/regenerate/route.ts` | Regenerate from dashboard. |
+_(No `past-replies/*` API routes on `feat/past-replies-view` — the tab is read-only, all data fetched server-side from the page component. The full edit/publish/retry/restore-original route set is parked on tag `wip/edit-existing-replies-zernio-v1`.)_
+| `channels/route.ts` | GET: returns owner-scoped enrollment status for all channels (`{ enrollments, available, reasons }`). Auth: `businessId` from session only. |
+| `channels/telegram/start/route.ts` | POST: starts a Telegram enrollment for the owner (generates QR token). |
+| `channels/telegram/cancel/route.ts` | POST: cancels a pending Telegram enrollment. |
+| `channels/telegram/disable/route.ts` | POST: disables an active Telegram enrollment. |
+
+#### `settings/route.ts`
+
+GET + POST owner settings (tone, products/services, avoid-facts).
+
+#### `onboarding/`
+
+| Route | What it does |
+|-------|--------------|
+| `business/route.ts` | POST: persists step-by-step business profile data from the 3-step wizard (`/onboarding/business`). Validates step input via `signup-schemas.ts` and updates the existing `businesses` row created at signup. |
+| `select-plan/route.ts` | POST: records the selected tier and returns the matching `STRIPE_PAYMENT_LINK_*` URL for the client to redirect to. |
+
+#### `signup/place-prefill/route.ts`
+
+POST: hits SerpAPI for a Place ID during the self-serve signup wizard to prefill business name, address, and category. Strict rate-limited (10/min per session, 75/day global) to cap SerpAPI cost. Gated by `SELF_SERVE_SIGNUP_ENABLED`.
+
+#### `zernio/connect/`
+
+Handles the Zernio OAuth connect flow for GBP auto-posting. All routes gated by `ZERNIO_PUBLISHING_ENABLED`.
+
+| Route | What it does |
+|-------|--------------|
+| `start/route.ts` | Initiates the Zernio OAuth flow; creates a Zernio profile, sets a signed connect-session cookie, and redirects the owner to Zernio. |
+| `callback/route.ts` | Receives the OAuth callback from Zernio; creates a `zernio_connections` row and redirects to `select-location`. |
+| `select-location/route.ts` | POST: finalises connection by selecting a GBP location; updates `zernio_connections` to `active`. |
+| `cancel/route.ts` | POST: cancels an in-progress OAuth flow; cleans up pending DB + Redis state. |
+
+#### `zernio/disconnect/route.ts`
+
+POST: disconnects an active Zernio connection; marks `zernio_connections` status `disconnected`.
+
+#### `admin/`
+
+| Route | What it does |
+|-------|--------------|
+| `overview/route.ts` | Admin overview stats. |
+| `businesses/route.ts` | GET list + POST create (calls `AdminOnboardingService`). |
+| `businesses/prefill/route.ts` | Prefill form from Google Place ID (via SerpAPI). |
+| `businesses/[id]/route.ts` | GET / PATCH / DELETE a business. |
+| `businesses/[id]/channels/route.ts` | GET + POST channel enrollments. |
+| `businesses/[id]/keywords/route.ts` | GET + POST ranking keywords. |
+| `businesses/[id]/ranking/route.ts` | GET ranking snapshot. |
+| `businesses/[id]/mark-posted/route.ts` | Mark a response as manually posted. |
+| `costs/route.ts` | GET cost summary. |
+| `demos/route.ts` | GET + POST demo requests. |
+| `demos/generate/route.ts` | POST: queues a demo generation job via outbox. |
+| `jobs/route.ts` | GET queue health. |
+| `notifications/route.ts` | GET delivery logs. |
+| `payment-success/route.ts` | POST Stripe payment confirmation (writes to `job_outbox`). |
+| `channels/sms/_shared.ts` | Feature-flag helpers and env-var assertions shared by all SMS admin routes. |
+| `channels/sms/verify/route.ts` | POST: initiate SMS verification (Twilio Verify). |
+| `channels/sms/confirm/route.ts` | POST: confirm OTP. |
+| `channels/sms/cancel/route.ts` | POST: cancel pending enrollment. |
+| `channels/sms/disable/route.ts` | POST: disable active enrollment. |
+| `channels/sms/delete/route.ts` | POST: hard-delete enrollment row. |
+| `channels/sms/status/route.ts` | GET: enrollment status. |
+| `channels/telegram/_shared.ts` | `isTelegramEnabled()`, `flagOff()`, `assertTelegramEnvReady()` — shared by all Telegram admin routes. |
+| `channels/telegram/start/route.ts` | POST: start Telegram enrollment (generates QR token). |
+| `channels/telegram/cancel/route.ts` | POST: cancel pending enrollment. |
+| `channels/telegram/disable/route.ts` | POST: disable active enrollment. |
+| `channels/whatsapp/_shared.ts` | `isWhatsAppEnabled()`, `flagOff()`, `assertWhatsAppEnvReady()` — shared by all WhatsApp admin routes. |
+| `channels/whatsapp/start/route.ts` | POST: start WhatsApp enrollment (sends click-to-chat link). |
+| `channels/whatsapp/cancel/route.ts` | POST: cancel pending enrollment. |
+| `channels/whatsapp/disable/route.ts` | POST: disable active enrollment. |
+
+#### `contact/route.ts` / `demo-request/route.ts` / `feedback/route.ts`
+
+Public form submission handlers. Write to DB and optionally send an internal notification email.
+
+---
+
+## `src/hooks/`
+
+Custom React hooks shared across pages.
+
+| File | What it does |
+|------|--------------|
+| `useDashboardData.ts` | Fetches and refreshes `/api/dashboard` data. Returns `{ data, error, refresh }`. Used by `DashboardContent` and the connect page. |
+
+---
+
+## `src/components/`
+
+Reusable React components imported by multiple pages.
+
+| File | What it does |
+|------|--------------|
+| `DashboardContent.tsx` | Top-level owner dashboard shell. Composes sub-components (`ReviewsList`, `Charts`, `ValueSummary`, `ConnectGoogleBanner`, etc.) and passes dashboard data down. |
+| `OwnerNav.tsx` | Top nav bar for the owner dashboard (logo, business name, settings link, logout). |
+| `AdminNav.tsx` | Top nav bar for the admin panel. |
+| `PlaceAutocomplete.tsx` | Google Places autocomplete input (uses `PlaceAutocompleteElement`; guarded for SSR with `typeof window !== 'undefined'`). |
+| `admin/ChannelsSection.tsx` | Admin panel section showing all three channel widgets side-by-side. |
+| `admin/SmsEnrollmentWidget.tsx` | 7-state machine UI for SMS enrollment (idle → verifying → confirmed, etc.). Polls server state. |
+| `admin/TelegramEnrollmentWidget.tsx` | 8-state machine UI for Telegram enrollment. Shows QR code (server-rendered data URL). 3s polling + 1h TTL countdown. |
+| `admin/WhatsAppEnrollmentWidget.tsx` | 8-state machine UI for WhatsApp enrollment. Masked phone `+15•••4567`. Same polling pattern as Telegram. |
+| `auth/LoginFormClient.tsx` | Login form (email + password → Supabase sign-in). |
+| `auth/ForgotPasswordFormClient.tsx` | Forgot-password form. |
+| `auth/ResetPasswordFormClient.tsx` | Reset-password form. |
+| `dashboard/AccountStateScreens.tsx` | Full-page states for non-active accounts (pending payment, cancelled, past-due). |
+| `dashboard/Charts.tsx` | Recharts-based charts for the owner dashboard (response rate, star distribution, etc.). |
+| `dashboard/ConnectGoogleBanner.tsx` | Banner surfacing the owner's Zernio GBP connection state. States: active (hidden), none (blue CTA), disconnected (orange CTA), finalize_unknown (yellow ops-alert). |
+| `dashboard/ComingSoonChannelRow.tsx` | Placeholder row for channels not yet available to owners (SMS, WhatsApp). |
+| `dashboard/HistoricalUpgradeBanner.tsx` | Soft upsell banner shown on the "Past Replies" tab to non-premium owners above the historical section. References the future GBP-era edit feature. Rendered when `PAST_REPLIES_VIEW_ENABLED=true` and the owner is non-premium. |
+| `dashboard/PastReplyCard.tsx` | Read-only card for one already-posted Google reply on the Past Replies tab. Shows review summary on the left, current Google reply on the right, and a provenance label ("Imported from Google · YYYY-MM-DD" / "Posted via RepWorth · YYYY-MM-DD"). No edit affordances — the full edit drawer (`EditReplyDrawer`) is parked on tag `wip/edit-existing-replies-zernio-v1`. |
+| `dashboard/OwnerTelegramWidget.tsx` | Owner-facing Telegram enrollment widget. Uses `useEnrollment` + `enrollmentReducer`; SSR-hydrated from server-loaded enrollment row. |
+| `dashboard/ReviewActions.tsx` | Approve / Edit / Regenerate action buttons for a single review. |
+| `dashboard/ReviewsList.tsx` | List of reviews with inline response drafts and action buttons. |
+| `dashboard/SettingsTabs.tsx` | Tab strip for owner settings pages ("General" and "Channels" tabs). |
+| `dashboard/ValueSummary.tsx` | Value-at-a-glance metrics strip (e.g. responses sent, approval rate). |
+
+---
+
+## `src/lib/`
+
+All shared business logic. Both `src/app/` and `worker/` import from here.
+
+### `db/`
+
+Database and cache clients.
+
+| File | What it does |
+|------|--------------|
+| `server.ts` | Exports the Postgres.js `sql` tagged-template client (PgBouncer pool) and `supabaseServer` (service-role Supabase client). Also exports `jsonb(value)` helper — the only correct way to pass JSONB values. |
+| `browser.ts` | `supabaseClient` — Supabase JS client for browser-side code (anon key, SSR-safe cookie management). |
+| `supabase-server.ts` | `createSupabaseServerClient()` — SSR Supabase client (anon key, reads request cookies). Used in API routes and middleware. |
+| `auth.ts` | `requireRole(req, role)` — throws `AuthError` if the session lacks the required role. |
+| `redis-cache.ts` | `getCacheRedis()` — Redis client for application caching (separate Redis instance from BullMQ). |
+| `client.ts` | **Tombstone.** Previously re-exported server + browser clients. Now a comment directing imports to the correct modules. |
+| `index.ts` | **Tombstone.** Same as `client.ts` — do not barrel-import server and browser together. |
+
+### `dashboard/`
+
+Dashboard query layer.
+
+| File | What it does |
+|------|--------------|
+| `service.ts` | `buildDashboardData(businessId)` — queries reviews, responses, weekly metrics, and Zernio connection state. Returns `DashboardDataActive`. Used by `GET /api/dashboard`. |
+| `types.ts` | `DashboardData` discriminated union (`DashboardDataActive | DashboardDataPendingPayment | ...`), `ZernioConnectionState`. |
+
+### `shared/`
+
+Cross-cutting utilities imported by both Next.js and worker.
+
+| File | What it does |
+|------|--------------|
+| `queue-names.ts` | Canonical queue name constants. Single source of truth for `job_outbox.topic` strings and BullMQ queue names. |
+| `worker-types.ts` | TypeScript types for every BullMQ job payload (`SyncReviewsPayload`, `GenerateResponsePayload`, etc.). |
+| `outbox.ts` | `markOutboxCompleted()`, `markOutboxFailed()`, `extractOutboxHandle()` — called at the end of every job handler. |
+| `subscription-guard.ts` | `checkSubscription(business)` — returns the subscription status and whether the worker should proceed. Checks `cancelled` / `past_due` grace window / `pending_payment`. |
+| `response-status.ts` | `ALL_RESPONSE_STATUSES`, `HANDLED_STATUSES`, `RECENT_REVIEW_DISPLAY_STATUSES` — centralized status groups used across dashboard metrics, admin counts, and weekly/monthly summaries. Single source of truth so `awaiting_owner_connect` is counted alongside `awaiting_manual_post` everywhere. |
+| `protected-routes.ts` | List of route prefixes that require auth (used by `middleware.ts`). |
+| `schemas.ts` | Zod validation schemas for API request bodies (admin onboarding, mark-posted, etc.). |
+| `signup-schemas.ts` | Zod schemas specific to the owner signup / onboarding wizard flow. |
+| `rate-limit.ts` | Redis-backed rate limiter (gracefully skips if Redis is unavailable). |
+| `csrf.ts` | `assertSameOrigin()` / `SameOriginError` — CSRF guard for owner-facing POST routes. Also generates + validates CSRF tokens for the approval flow. |
+| `auth-flow.ts` | Helpers for the owner signup / login flow (e.g., redirect destination resolution). |
+| `auth-responses.ts` | `accountExistsResponse()` — standard anti-enumeration 409 response used by both signup and finish-signup to prevent timing-based email probing. |
+| `mock-mode.ts` | `isMockMode()` — reads `MOCK_EXTERNAL_APIS`. Used everywhere external APIs are called. |
+| `logger.ts` | Structured logger with correlation ID support. `createWorkerLogger(correlationId)` for worker jobs. |
+| `sanitize.ts` | HTML sanitisation (strips tags from user-provided content before saving). |
+| `html.ts` | `escapeHtml()` — used in notification formatters. |
+| `churn-score.ts` | Computes a churn-risk score (0–100) from review + engagement metrics. |
+| `feedback-hmac.ts` | HMAC generation + verification for satisfaction-pulse feedback links. |
+| `db-array.ts` | `parseDbArray(val)` — parses a TEXT[] column that PgBouncer may return as a JSON-encoded string. Filters out non-string elements. |
+| `request-ip.ts` | `getRequestIp(req)` — extracts the leftmost `x-forwarded-for` entry for rate-limit keying. Consistent across all callsites. |
+| `constants.ts` | `NO_STORE_HEADERS` and other shared HTTP header presets. |
+
+### `auth/`
+
+| File | What it does |
+|------|--------------|
+| `route-helpers.ts` | `requireOwnerSession()` — reads Supabase session from cookies and returns `{ authUser, businessId }` or throws. Used in every authenticated API route. |
+| `require-owner-access.ts` | Server-component guard for owner-only pages. Resolves auth user → `users` row → validates role + subscription_status; redirects on failure. Returns `{ authId, businessId, email }` when all checks pass. |
+
+### `approval/`
+
+Everything related to the email approval link flow.
+
+| File | What it does |
+|------|--------------|
+| `service.ts` | Core logic: `approve()`, `edit()`, `regenerate()`. Also `approveViaCallback()` and `regenerateViaCallback()` for Telegram and WhatsApp button presses. Contains typed errors (`ConsumedLinkError`, `RevokedLinkError`, `ExpiredLinkError`, `ChannelMismatchError`, `ResponseNotPendingError`). |
+| `create-link.ts` | `createApprovalLink()` — generates a secure raw token (random bytes), hashes it with SHA-256, stores only the hash in `approval_links`. Channel-scoped. |
+| `cookies.ts` | Device-cookie and CSRF-cookie management (set / read / clear). |
+| `correlation.ts` | `recoverCorrelationId()` — reads correlation ID from the current approval session for audit logging. |
+| `errors.ts` | Approval-specific error classes (`ConsumedLinkError`, `RevokedLinkError`, `ExpiredLinkError`, `ChannelMismatchError`, `ResponseNotPendingError`). |
+| `http-errors.ts` | Maps approval errors to HTTP status codes and response bodies. |
+
+**Connection:** `NotificationWorker` calls `create-link.ts` to produce the token before sending the email. The approval API routes call `service.ts` to consume the token.
+
+### `reviews/`
+
+Everything about fetching and normalising Google reviews.
+
+| File | What it does |
+|------|--------------|
+| `types.ts` | `NormalizedReview` DTO, `ReviewSource` interface, `MonitoredReview`. |
+| `serpapi-source.ts` | `SerpApiSource` — implements `ReviewSource`. Calls SerpAPI to fetch reviews for a Place ID. |
+| `serpapi-monitor.ts` | `SerpApiMonitor` — wraps `SerpApiSource` and detects new / edited / deleted reviews by comparing against DB. |
+| `serpapi-normalize.ts` | Converts raw SerpAPI JSON to `NormalizedReview`. Computes `provider_review_id` and `review_content_hash`. |
+| `serpapi-prefill.ts` | Calls SerpAPI to get business name, address, and initial star rating (used at signup). |
+| `url-parser.ts` | `extractPlaceId()` / `isPlaceId()` — extracts or validates a Place ID from a Google Maps URL. |
+| `place-id-resolver.ts` | Resolves a canonical Place ID from a business name + address string via SerpAPI. |
+| `process-review.ts` | Processes one `NormalizedReview`: deduplication, identity-collision detection, upsert into `reviews` table. |
+| `detect-language.ts` | Detects the language of a review text (used to make AI respond in the same language). |
+| `mock-source.ts` / `mock-monitor.ts` | Canned data used when `MOCK_EXTERNAL_APIS=true`. |
+
+**Connection:** `ReviewSyncWorker` instantiates `SerpApiMonitor` → calls `process-review.ts` for each result → writes to DB → enqueues `GenerateResponsePayload` via outbox.
+
+### `responses/`
+
+AI response generation.
+
+| File | What it does |
+|------|--------------|
+| `types.ts` | `BusinessContext`, `GenerationOptions`, `GenerationResult`, `VoiceExample`. |
+| `generator.ts` | `generateResponse(review, context, options)` — full pipeline: cost guard → concurrency slot → OpenAI / Claude call → save → cache. Two modes: `demo` (fast, no cost guard) and `production`. |
+| `prompt-builder.ts` | Builds the system prompt and user message from `BusinessContext` + `VoiceExample[]`. |
+| `voice-learning.ts` | Queries DB for recent owner-edited responses to use as few-shot examples. Returns empty array until ≥ 5 examples exist. |
+| `review-summary.ts` | Generates a one-line summary of a review for the weekly report. |
+| `mock-generator.ts` | Returns a template response string when `MOCK_EXTERNAL_APIS=true`. |
+
+**Connection:** `ResponseGeneratorWorker` calls `generateResponse()`. `DemoGenerationWorker` calls it in `demo` mode.
+
+### `notifications/`
+
+Sending approval notifications to business owners.
+
+| File | What it does |
+|------|--------------|
+| `email.ts` | Barrel re-export of the modularized email layer. New code should import directly from `email/client`, `email/headers`, or `email/templates/<family>`. |
+| `email/client.ts` | `getResend()` — lazy Resend client (constructed on first use). |
+| `email/headers.ts` | Shared email header helpers (List-Unsubscribe, etc.). |
+| `email/templates/approval.ts` | HTML template for the approval request email. |
+| `email/templates/internal.ts` | HTML template for internal admin notification emails. |
+| `email/templates/manual-post.ts` | HTML template for manual-posting instruction emails. |
+| `email/templates/monthly-impact.ts` | HTML template for monthly impact report emails. |
+| `email/templates/onboarding.ts` | HTML template for onboarding drip emails. |
+| `email/templates/owner-nudge.ts` | HTML template for owner re-engagement nudge emails. |
+| `email/templates/partner-alerts.ts` | HTML templates for partner/admin alert emails. |
+| `email/templates/shared.ts` | Shared layout primitives (header, footer, button) used by all templates. |
+| `email/templates/weekly-value-report.ts` | HTML template for weekly value report emails. |
+| `email/templates/owner-connection-lost.ts` | HTML template for Zernio "connection lost" owner email (GBP connection went offline). |
+| `email/templates/owner-reconnect-required.ts` | HTML template for Zernio "reconnect required" owner email (response queued, reconnect to post). |
+| `delivery.ts` | `recordNotificationDelivery()` / `insertFailedDelivery()` — writes to `notification_deliveries` table. |
+| `enrollments.ts` | `getVerifiedEnrollments(businessId)` — returns all `verified` channel enrollments for a business. |
+| `sms-body.ts` | Formats the SMS message text (GSM-7 single-segment). |
+| `channels/types.ts` | `ChannelId` union type; `NotificationChannel` interface (`send()`). |
+| `channels/index.ts` | `getChannel(channelId)` factory — returns the correct channel implementation. Re-exports all channel classes and typed errors. |
+| `channels/email-channel.ts` | Email implementation of `NotificationChannel`. |
+| `channels/sms-channel.ts` | SMS via Twilio Messaging Service. Checks `CHANNELS_SMS_ENABLED`. |
+| `channels/telegram-channel.ts` | Telegram via Bot API. Checks `CHANNELS_TELEGRAM_ENABLED`. |
+| `channels/telegram-client.ts` | Low-level Telegram REST client (native `fetch`, 10s timeout, 4 typed error classes). |
+| `channels/telegram-body.ts` | Formats the Telegram HTML message and inline keyboard. |
+| `channels/whatsapp-channel.ts` | WhatsApp via Twilio Content API. Checks `CHANNELS_WHATSAPP_ENABLED`. |
+| `channels/whatsapp-client.ts` | Low-level WhatsApp client (Twilio SDK, 7 typed error classes, `classifyError` dispatch). |
+| `channels/whatsapp-body.ts` | Builds 9 content variables for the `repworth_approval_request_v1` template; extracts token from approval URL. |
+| `channels/enrollment-reducer.ts` | Pure `(state, action) => state` reducer for QR/deep-link channel enrollment (8 states, 27 unit tests). Handles Telegram (and future Discord/Slack). No I/O or timers — all logic is side-effect-free. |
+| `channels/use-enrollment.ts` | React hook wiring `enrollmentReducer` to fetch calls (start / cancel / disable / status), 3s polling loop, 1s TTL tick, and HTTP error classification. Browser-only (marked `'use client'`). |
+
+**Connection:** `NotificationWorker` calls `getVerifiedEnrollments()` then iterates, calling `getChannel(id).send(...)` for each. Delivery is recorded with `recordNotificationDelivery()`.
+
+### `costs/`
+
+LLM cost tracking and enforcement.
+
+| File | What it does |
+|------|--------------|
+| `tracker.ts` | `reserveCost()` / `finalizeCost()` / `refundCost()` — Redis INCRBY/DECRBY for pessimistic reservation before LLM calls. Enforces per-business and global daily ceilings. |
+| `audit.ts` | `recordApiCost()` — writes completed costs to the `api_costs` table (audit trail, reconciled hourly by `ReconciliationPoller`). |
+| `sms-tracker.ts` | Same pattern as `tracker.ts` but for SMS — `SMS_DAILY_LIMIT_CENTS_PER_BUSINESS` and `SMS_DAILY_LIMIT_CENTS_GLOBAL`. |
+
+### `payments/`
+
+| File | What it does |
+|------|--------------|
+| `payment-link.ts` | `getPaymentLink(businessId)` — returns the correct Stripe Payment Link URL (`STRIPE_PAYMENT_LINK_*` env vars). |
+
+### `onboarding/`
+
+| File | What it does |
+|------|--------------|
+| `create-business.ts` | `createBusinessTx(sql, params)` — atomic transaction that inserts `users` + `businesses` + `channel_enrollments` (email) rows. Used by both admin and self-serve signup. Dual mode (`admin` / `self_serve`). |
+| `admin-onboarding-service.ts` | `AdminOnboardingService` — validates admin onboarding input, calls `createBusinessTx` in `admin` mode, handles `DuplicateEmailError`, and invites the owner via Supabase `inviteUserByEmail`. Used by `POST /api/admin/businesses`. |
+
+### `demos/`
+
+| File | What it does |
+|------|--------------|
+| `generator.ts` | `generateDemoResponses(reviews, context)` — calls `generateResponse` in `demo` mode for each review. |
+| `types.ts` | Demo-specific types (`DemoRequest`, `DemoResult`). |
+
+### `publishing/`
+
+GBP reply publishing logic.
+
+| File | What it does |
+|------|--------------|
+| `index.ts` | Barrel re-export for the publishing module. |
+| `zernio-publisher.ts` | `resolveZernioReviewId()` + `publishViaZernio()` — resolves our internal SerpAPI review ID to Zernio's canonical review ID via a Redis-cached field match (displayName + rating + comment + createTime ±24h), then posts the reply via `zernioClient.publishReply()`. Falls back on transient errors. |
+
+### `zernio/`
+
+All Zernio API client code and shared connect-flow state.
+
+| File | What it does |
+|------|--------------|
+| `client.ts` | `ZernioClient` class — typed HTTP client for the Zernio API (all endpoint kinds: `createProfile`, `startConnect`, `selectLocation`, `listReviews`, `getReview`, `publishReply`, `editReply`, `deleteReply`). Handles auth errors, validation errors, transient vs permanent errors, and the no-body endpoint set. Includes strict allowlists for safe pre-mutation 400 codes and 409 "reply already exists" codes. |
+| `connect-state.ts` | Lua CAS scripts (`luaTokenCAS`, `luaCASUpdate`, `luaCASDel`) + `pendingKey(businessId)` helper for the Redis connect-flow state machine. Prevents race conditions when concurrent start/cancel flows race. |
+| `connect-session-cookie.ts` | HMAC-signed cookie for the Zernio connect session. Format: `{sessionId}.{hmac}`. Mirrors the approval device-cookie pattern (`SameSite=Lax` to survive top-level OAuth redirect). |
+| `errors.ts` | Typed error classes: `ZernioAuthError`, `ZernioValidationError`, `ZernioTransientError`, `ZernioPermanentError`, `ZernioReviewNotFoundError`, `ZernioReplyAlreadyExistsError`, `ZernioReplyAlreadyDeletedError`, `ZernioReplyVerificationIndeterminateError`, `ZernioRateLimitError`, plus the `inbox_addon_required` validation classification. |
+| `parse-review-webhook.ts` | Parses Zernio `review.new` / `review.updated` webhook bodies. Extracts nested `account.id` per spec §5.4 (NOT flat `accountId` — common gotcha). Returns the normalized review payload used for outbox fan-out. |
+| `canonicalize-reply.ts` | Normalizes reply text for comparison — strips trailing whitespace, normalizes line endings. Used by the edit-publisher to detect whether owner edits actually changed anything before calling Zernio (skips no-op writes). |
+| `auth-error-fallback.ts` | `applyTransientExhaustionFallback()` — single Postgres tx that flips `zernio_connections.status='disconnected'`, transitions the response to `awaiting_owner_connect`, and enqueues `owner-email` (connection_lost). Triggered when Zernio auth/transient errors exhaust retries. |
+| `types.ts` | `EndpointKind`, `ZernioConnectionStatus`, `ZernioConnectionRow`, `ZernioReview`, `ZernioLocationOption`, `ConnectPendingMarker`. |
+
+---
+
+## `worker/`
+
+Standalone Node.js process (Railway). Entry point is `worker/index.ts`.
+
+### `worker/env.ts`
+
+Calls `dotenv.config({ path: '.env.local' })`. **Must be the first import in `index.ts`** — before any module that reads `process.env`.
+
+### `worker/index.ts`
+
+Starts everything:
+
+1. Calls `env.ts` (dotenv load).
+2. Runs startup assertions (env vars for enabled channels).
+3. Creates a Fastify server on `PORT` (default 3001) with `rawBody` enabled.
+4. Registers BullMQ workers (one per queue, handler imported from `jobs/`).
+5. Registers webhook routes (`POST /ingress/*`).
+6. Starts all pollers and schedulers.
+7. On `SIGTERM` / `SIGINT`: drains workers, stops pollers, closes Fastify, exits.
+
+### `worker/queues.ts`
+
+Defines all BullMQ `Queue` instances (one per job type). Exports:
+
+- `queues` — object keyed by queue name.
+- `topicToQueue` — maps `job_outbox.topic` strings to `Queue` instances (used by `OutboxPoller`).
+- `getRedisOptions()` — Upstash Redis connection config for BullMQ.
+
+Imports queue name constants from `src/lib/shared/queue-names.ts`.
+
+### `worker/config/startup-assert.ts`
+
+`assertChannelsSmsEnv()`, `assertChannelsTelegramEnv()`, `assertChannelsWhatsAppEnv()`, `assertSelfServeSignupEnv()`, `assertZernioEnv()` — each checks that required env vars are present when the corresponding feature flag is `true`. Called once at startup; throws if invalid.
+
+---
+
+### `worker/jobs/` — BullMQ Job Handlers
+
+Each file exports a single `handle*` function that a BullMQ `Worker` calls per job.
+
+**All handlers follow this contract:**
+1. Parse the typed job payload.
+2. Load DB data.
+3. Check subscription status (via `checkSubscription`).
+4. Do the work.
+5. Call `markOutboxCompleted()` or `markOutboxFailed()`.
+6. All operations are idempotent — safe to replay.
+
+| File | Queue | What it does |
+|------|-------|--------------|
+| `ReviewSyncWorker.ts` | `sync-reviews` | Calls `SerpApiMonitor.poll()`, deduplicates via `process-review.ts`, enqueues `GenerateResponsePayload` per new/updated review. **Legacy SerpAPI ingestion path** — superseded by `ZernioReviewIngestWorker` when `ZERNIO_PUBLISHING_ENABLED=true`. |
+| `ZernioReviewIngestWorker.ts` | `ingest-zernio-review` | Zernio webhook → outbox → this handler. Per-location `listReviews` call, dedups by Zernio's canonical `provider_review_id`, upserts into `reviews`, creates a `responses` row (`status='pending_approval'`), and enqueues `generate-response` via outbox. Migration 030's partial unique index on `(business_id, zernio_review_id)` keeps in-flight rows from duplicating during webhook retries. Maps `ZernioReviewNotFoundError` to a `review_exceptions` row + admin alert. |
+| `ZernioBackfillWorker.ts` | `zernio-initial-backfill` | First-connect bulk ingestion. Walks Zernio paginated `listReviews` up to `ZERNIO_INGEST_MAX_PAGES` (default 4), gap-window-aware (uses `subscription_activated_at` to classify reviews older than the gap as "older skipped" + record count in `zernio_backfill_runs`). Concurrency 1 (heavy). Subscription-guarded. |
+| `ResponseGeneratorWorker.ts` | `generate-response` | Loads review + business context, calls `generateResponse()`, saves draft, enqueues notification via outbox. |
+| `NotificationWorker.ts` | `send-notification` | Orchestrates the notification send loop. Delegates context loading to `notification/context.ts`, eligibility filtering to `notification/eligibility.ts`, and per-channel dispatch to `notification/dispatch.ts`. Skips `pending_payment` and `cancelled`. |
+| `ResponsePublisherWorker.ts` | `publish-response` | POST-only flow. Checks `zernio_connections` for the business. Active Zernio → resolves review ID + posts via `zernio-publisher.ts`, marking `posted`. Connection required but absent → transitions to `awaiting_owner_connect` + enqueues `owner-email` (reconnect_required). Uses `publisher-error-handlers.ts` for error classification. The DELETE+POST edit branch (`runEditPublisherIfApplicable`) is parked on tag `wip/edit-existing-replies-zernio-v1` pending direct GBP API. |
+| `DrainOwnerConnectWorker.ts` | `drain-owner-connect` | Re-enqueues stuck `publish_response` outbox rows when an owner (re)connects Zernio. Inserts fresh outbox entries for all `awaiting_owner_connect` responses, with three layers of idempotency (partial unique index, NOT EXISTS guard, ResponsePublisher early-exit). |
+| `OwnerEmailWorker.ts` | `owner-email` | Discriminated payload router for owner-directed Zernio emails. `reconnect_required` → owner needs to reconnect Zernio so the queued reply can be published. `connection_lost` → Zernio reported GBP connection went offline. Both handlers apply subscription guard + bounce check + claim-before-send deduplication. |
+| `AdminExceptionWorker.ts` | `notify-admin-exception` | Sends an internal alert email when a review processing failure requires human review. |
+| `WeeklySummaryWorker.ts` | `weekly-summary` | Queries 7-day metrics, renders email template, sends via Resend. |
+| `PlaceIdValidationWorker.ts` | `validate-place-id` | Verifies a Place ID is still accessible via SerpAPI; updates `place_id_verified` flag. |
+| `MonthlyImpactWorker.ts` | `monthly-impact` | Generates monthly impact report email. |
+| `EngagementAlertWorker.ts` | `engagement-alert` | Checks engagement thresholds, sends alert if below floor. |
+| `RankingTrackingWorker.ts` | `track-ranking` | Calls SerpAPI for each keyword, saves ranking snapshots. |
+| `OnboardingDripWorker.ts` | `onboarding-drip` | Sends onboarding email at the configured step (day 1 / 7 / 30). |
+| `DemoGenerationWorker.ts` | `generate-demo` | Fetches SerpAPI reviews for a prospect, calls `generateResponse()` in `demo` mode, saves to `prospect_demos`. |
+
+#### `worker/jobs/notification/` — NotificationWorker sub-modules
+
+Extracted from `NotificationWorker.ts` to keep each concern focused. The orchestrator imports all four.
+
+| File | What it does |
+|------|--------------|
+| `NotificationWorker.ts` | Orchestrator. Imports all four sub-modules below and runs the notification send loop. |
+| `context.ts` | Loads response + business rows; applies early-exit guards (not found, ID mismatch, wrong status). Returns discriminated `{ result: 'ok' | 'skip' | 'fail' }`. |
+| `dispatch.ts` | Per-channel send loop with isolated error handling. One failed channel does not abort the rest. Calls `getChannel()`, `createApprovalLink()`, `recordNotificationDelivery()`, and the SMS cost reserve/refund flow. |
+| `eligibility.ts` | Subscription guard + feature-flag check + `getVerifiedEnrollments()`. Returns the list of channels eligible to receive the notification. |
+| `errors.ts` | `classifyChannelError()` — maps provider errors to a discriminated dispatch directive (enrollment mutation, failure reason, log level). No DB writes; the dispatcher applies the directive. |
+| `sms-budget.ts` | Re-exports `reserveSmsCost`, `refundSmsCost`, `DailySmsLimitExceededError` from `src/lib/costs/sms-tracker` so the dispatcher's import surface stays scoped to `./notification/*`. |
+
+#### `worker/jobs/publisher/` — ResponsePublisher helpers
+
+| File | What it does |
+|------|--------------|
+| `publisher-error-handlers.ts` | Maps Zernio API errors raised by `ResponsePublisherWorker` to typed dispatch outcomes (`PublisherTransientWithContext`, `PublisherTerminalWithContext`, etc.). Keeps the worker handler small by externalizing the error → action mapping. |
+
+#### `worker/jobs/zernio/` — Zernio ingestion helpers
+
+| File | What it does |
+|------|--------------|
+| `zernio-ingest-shared.ts` | Shared helpers for `ZernioReviewIngestWorker` and `ZernioBackfillWorker` — webhook fan-out (insert one outbox row per active Zernio connection), pagination state, `processReview()` deduplication, and outbox claim helpers. |
+
+### `worker/background/` — Background Loops (Pollers & Schedulers)
+
+These are not BullMQ job handlers — they run as standalone loops inside the worker process. Split into two subfolders by trigger model: `pollers/` react to Postgres state, `schedulers/` fire on time-based cadences.
+
+#### `worker/background/pollers/` — Postgres-state-driven loops
+
+| File | What it does |
+|------|--------------|
+| `OutboxPoller.ts` | Every 10s: (1) watchdog resets stuck `dispatching` rows, (2) reads `pending` rows and dispatches to BullMQ via `topicToQueue`, (3) marks corresponding rows `completed`. Uses `FOR UPDATE SKIP LOCKED` for safe concurrency. |
+| `NotificationFailoverPoller.ts` | Detects notifications stuck in `sent` without a delivery confirmation; alerts admin if all channels failed. Skipped when `NOTIFICATION_FAILOVER_DISABLED=true` or mock mode. |
+| `ArchivalPoller.ts` | Archives old reviews, responses, and cost rows to keep the main tables fast. |
+| `EngagementMonitorPoller.ts` | Scans businesses for low-engagement signals and enqueues `engagement-alert` jobs. |
+| `CleanupAbandonedSignupsPoller.ts` | Deletes `users` + `businesses` rows where signup was never completed (configurable batch + interval). TOCTOU-safe via `FOR UPDATE` re-validation inside the tx. |
+| `EmailChannelReconcilePoller.ts` | Detects `active`-subscription owner businesses with no `channel_enrollments` email row and inserts one. Recovers from `verify-otp` / `finish-signup` inline INSERT failures. |
+
+#### `worker/background/schedulers/` — Time-cadence-driven loops
+
+| File | What it does |
+|------|--------------|
+| `WeeklySummaryScheduler.ts` | Enqueues `weekly-summary` jobs for all `active` businesses on schedule. |
+| `MonthlyImpactScheduler.ts` | Enqueues `monthly-impact` jobs. |
+| `RankingTrackingScheduler.ts` | Enqueues `track-ranking` jobs when `RANKING_TRACKING_ENABLED=true`. |
+| `OnboardingDripScheduler.ts` | Enqueues `onboarding-drip` jobs at configured intervals. |
+
+---
+
+### `worker/ingress/` — Inbound Webhook Handlers
+
+Each handler is registered as a Fastify route in `worker/index.ts`. They all follow the same pattern:
+
+1. Verify the request signature.
+2. Write an `inbound_events` row first (deduplication — rejects duplicate event IDs).
+3. Execute business logic (update DB, write to `job_outbox`).
+4. Return `200` quickly.
+
+| File | Route | What it does |
+|------|-------|--------------|
+| `shared.ts` | *(utility)* | `claimInboundEvent()`, `markInboundEventProcessed()`, `markInboundEventFailed()` — atomically insert/update `inbound_events` rows. Used as the dedup guard in every other ingress handler. |
+| `stripe.ts` | `POST /ingress/stripe` | Verifies Stripe webhook signature. `checkout.session.completed` → transitions `subscription_status` to `active` + enqueues `SyncReviewsPayload`. `customer.subscription.updated` → updates status. |
+| `resend.ts` | `POST /ingress/resend` | Verifies Svix signature. Maps `email.delivered` / `email.bounced` / `email.complained` events to `notification_deliveries` status updates and `owner_email_bounced` flag. |
+| `twilio/twilio.ts` | `POST /ingress/twilio/status`, `POST /ingress/twilio/inbound` | Status callback: records SMS delivery result. Inbound: handles `STOP` (opt-out fan-out + TCPA audit) and `START` (opt back in). |
+| `twilio/twilio-intent.ts` | *(utility)* | `classifyIntent(body)` — shared STOP/START keyword detection used by both SMS and WhatsApp ingress. |
+| `twilio/twilio-verify.ts` | *(utility)* | Verifies Twilio request signatures (HMAC-SHA1 on URL + params). |
+| `twilio/twilio-whatsapp.ts` | *(barrel)* | Re-exports both WhatsApp ingress handlers and shared helpers for unit tests. Mounts were moved to focused modules. |
+| `twilio/twilio-whatsapp-status.ts` | `POST /ingress/twilio/whatsapp-status` | WhatsApp delivery status callback. Signature verify → dedup on `${MessageSid}:${MessageStatus}` → first-wins terminal state → update `notification_deliveries`. |
+| `twilio/twilio-whatsapp-inbound.ts` | `POST /ingress/twilio/whatsapp-inbound` | WhatsApp inbound message handler. Routes: ButtonPayload (Approve/Regenerate tap) → `approveViaCallback`; `start-<token>` deep link → enrollment; STOP keyword → opt-out; everything else → log + mark processed. |
+| `twilio/whatsapp-shared.ts` | *(utility)* | `fullUrl()` and redaction helpers shared by both WhatsApp status and inbound handlers. |
+| `telegram/telegram.ts` | `POST /ingress/telegram` | Orchestrator. Verifies webhook secret, dispatches to `telegram-enrollment.ts` (`/start <token>`) or `telegram-callback.ts` (callback_query). Rejects group/channel chats on `/start`. PII stripped before `inbound_events.payload` write. |
+| `telegram/telegram-enrollment.ts` | *(called by telegram.ts)* | Handles `/start <rawToken>` — looks up `channel_enrollments` by SHA-256(token), flips status to `verified`, stores `chat_id` as handle. Model A ack ordering: `markInboundEventProcessed` before confirmation `sendMessage`. |
+| `telegram/telegram-callback.ts` | *(called by telegram.ts)* | Handles `callback_query` (Approve / Regenerate button taps). Model A ack ordering: validate → `answerCallbackQuery` → approval tx → `editMessageText`. Permanent link-state errors edit message in place; unexpected errors return 503 for retry. |
+| `telegram/telegram-shared.ts` | *(utility)* | Narrow Telegram update DTO type, link-state error classifier, and small helpers shared by `telegram-enrollment.ts` and `telegram-callback.ts`. |
+| `telegram/telegram-verify.ts` | *(utility)* | Constant-time comparison of `X-Telegram-Bot-Api-Secret-Token` header against `TELEGRAM_WEBHOOK_SECRET`. |
+| `zernio/zernio.ts` | `POST /ingress/zernio` | Zernio event webhook handler. HMAC-SHA256 verification (via `zernio-verify.ts`). Routes: `account.disconnected` → marks `zernio_connections` disconnected + enqueues `owner-email` (connection_lost). Reads nested `body.account.id` per spec §5.4. |
+| `zernio/zernio-verify.ts` | *(utility)* | `verifyZernioSignature()` — HMAC-SHA256 verification using `ZERNIO_WEBHOOK_SECRET`. |
+
+---
+
+## How the Main Flows Connect
+
+### Owner signup (self-serve)
+
+```
+SignupFormClient → POST /api/auth/signup
+  → createBusinessTx (users + businesses + email enrollment in one tx)
+  → Supabase sends OTP confirmation email
+/signup/check-email polls /api/auth/signup-status
+  → POST /api/auth/verify-otp → email confirmed
+  → /onboarding/pay → Stripe checkout → stripe.ts ingress webhook
+  → subscription_status = 'active' + job_outbox row (sync-reviews)
+  → OutboxPoller → ReviewSyncWorker → process-review → outbox row (generate-response)
+  → OutboxPoller → ResponseGeneratorWorker → generateResponse() → outbox row (send-notification)
+  → OutboxPoller → NotificationWorker → approval email sent
+```
+
+### Owner approves via email
+
+```
+Email link → /approve/[token] (page loads, binds device cookie via /session)
+  → POST /api/approve/[token]/approve
+  → ApprovalService.approve() → response status = 'approved'
+  → job_outbox row (publish-response)
+  → OutboxPoller → ResponsePublisherWorker
+      → if Zernio active: resolveZernioReviewId + publishReply → status = 'posted'
+      → if Zernio absent: status = 'awaiting_owner_connect' + owner-email (reconnect_required)
+      → if no Zernio flag: status = 'awaiting_manual_post'
+```
+
+### Zernio (re)connect — drain parked responses
+
+```
+Owner visits /dashboard/connect → /api/zernio/connect/start
+  → ZernioClient.createProfile + startConnect → OAuth redirect to Zernio
+  → Zernio redirects back → /api/zernio/connect/callback
+  → zernio_connections row created (pending)
+  → /dashboard/connect/select-location → owner picks location
+  → POST /api/zernio/connect/select-location → zernio_connections status = 'active'
+  → job_outbox row (drain-owner-connect)
+  → OutboxPoller → DrainOwnerConnectWorker
+  → inserts publish_response outbox rows for all awaiting_owner_connect responses
+  → OutboxPoller → ResponsePublisherWorker → status = 'posted'
+```
+
+### Telegram / WhatsApp button tap
+
+```
+Owner taps "Approve" button in Telegram / WhatsApp
+  → telegram.ts / twilio-whatsapp-inbound.ts ingress
+  → claimInboundEvent (dedup)
+  → approveViaCallback(token, channel, auditContext)
+  → same approval path as email flow
+  → editMessageText / answerCallbackQuery confirms in-chat
+```
+
+### Demo generation (admin-triggered)
+
+```
+Admin submits demo form → POST /api/admin/demos
+  → INSERT prospect_demos + job_outbox (generate-demo) in one tx
+  → OutboxPoller → DemoGenerationWorker
+  → SerpApiSource (real) + generateResponse (demo mode, no cost guard)
+  → prospect_demos status = 'completed'
+  → /demo/[slug] public page shows results
+```
+
+### Zernio webhook ingestion (live)
+
+```
+Zernio fires review.new / review.updated → POST /ingress/zernio
+  → verifyZernioSignature (HMAC-SHA256)
+  → claimInboundEvent (dedup by event ID)
+  → parseReviewWebhook (extracts nested account.id)
+  → fan-out: one job_outbox row per active zernio_connection on this account
+    (topic='ingest-zernio-review', dedup'd by migration 030 partial index)
+  → OutboxPoller → ZernioReviewIngestWorker
+  → listReviews → processReview (dedup by provider_review_id)
+  → INSERT reviews + INSERT responses (pending_approval) + outbox (generate-response)
+  → ResponseGeneratorWorker → NotificationWorker → owner email
+```
+
+### Past replies — read-only history of every posted Google reply
+
+```
+Owner navigates to /dashboard/past-replies (PAST_REPLIES_VIEW_ENABLED=true)
+  → server component reads reviews JOIN responses ON status='posted'
+  → bucketed into "From your active period" (review_date >= activated_at)
+                + "From before you joined" (review_date < activated_at)
+  → renders PastReplyCard rows (review + reply + provenance label)
+  → HistoricalUpgradeBanner above the historical section for non-premium owners
+  → no further action — the tab is read-only on this branch
+```
+
+Imported replies arrive via the `EXTERNAL_REPLY_IMPORT_ENABLED` ingest path
+inside `reconcileExternallyAnsweredReview` (see `worker/jobs/zernio/zernio-ingest-shared.ts`).
+
+Edit / regenerate / publish / retry / restore-original flows are parked on
+tag `wip/edit-existing-replies-zernio-v1` pending direct GBP API approval.
+When GBP arrives, the parked branch's structural patterns (route shapes,
+drawer state machine minus the recovery state, optimistic-concurrency
+snapshot) can be cherry-picked; the orphan-marker / DELETE+POST locked-tx /
+verify409InTx machinery gets dropped (GBP's single PUT makes them moot).
+
+---
+
+## `scripts/`
+
+Operational scripts. Run with `tsx scripts/<name>.ts`. Not part of the runtime.
+
+| File | What it does |
+|------|--------------|
+| `redis.ts` | Helpers for the other scripts to construct Redis clients from env vars (avoids re-implementing `getCacheRedis` outside the app). |
+| `clear-signup-rate-limits.ts` | Wipes signup rate-limit keys in Redis. Used when a real owner gets stuck behind rate limits during dev / first-customer onboarding. |
+| `zernio-count-reviews.ts` | One-shot diagnostic: hits Zernio `listReviews` for a given business and prints counts per page. Used during the Zernio ingestion smoke test to verify pagination + tier caps. |
+| `zernio-backfill-external-replies.ts` | One-off backfill helper for the read-only Past Replies feature (migration 031). Walks Zernio reviews for a business and ingests existing owner replies as `posted` responses so they appear in the "Past Replies" tab. Requires `EXTERNAL_REPLY_IMPORT_ENABLED=true` to run (otherwise the underlying helpers no-op). Idempotent. |
+
+---
+
+## `supabase/migrations/`
+
+All schema migrations live here, numbered `001` … `031` (head). The user runs migrations manually in Supabase SQL editor — Claude does not apply them. For a per-migration narrative (what each file does, ordering rules, the `awaiting_manual_post` removal in 029, and the migration-031 non-transactional execution requirement), read `.claude/skills/migrations.md`.
+
+---
+
+## Other top-level surfaces (not detailed here)
+
+- `.claude/skills/` — engineering rules and patterns (cost guard, approval security, outbox, review dedup, feature flags, lab notes, migrations). Read these before touching the matching code area.
+- `.claude/CLAUDE.md` — project-level invariants, env-var inventory, current branch status, gotchas. Always loaded into Claude's context.
+- `docs/runbooks/` — operational + deployment runbooks (Zernio launch, smoke tests, ops, email deliverability, beta deployment plan).
+- `docs/superpowers/` — historical specs + plans for every feature, dated. The plan file at the head of each branch is the spec of record for that feature.
+- `tests/` and per-module `__tests__/` directories — Vitest unit + integration tests; Playwright E2E lives in `tests/e2e/`.

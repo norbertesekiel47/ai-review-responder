@@ -45,13 +45,12 @@ next-env.d.ts
 .vscode/
 .idea/
 
-# private docs (except Zernio guides, which are committed for oncall + dev reference)
-/docs/*
-!/docs/runbooks/
-/docs/runbooks/*
-!/docs/runbooks/zernio-launch-runbook.md
-!/docs/runbooks/zernio-testing-and-shipping.md
-!/docs/runbooks/zernio-ingestion-test-runbook.md
+# docs/ is tracked by default (private repo — specs, runbooks, ADRs, agent
+# docs are shared with the team). Ignore only generated/binary noise:
+docs/graphify-out/
+docs/superpowers/landingPageScreenshots/
+docs/**/*.docx
+docs/**/*.zip
 .superpowers
 
 # firecrawl scrape output (market research, not code)
