@@ -13,13 +13,13 @@ import {
   pendingKey,
   locationsKey,
   luaCASRevertToOauth,
-  luaCASToFinalizeUnknown,
   luaDeletePendingByFlowIdAnyStatus,
 } from "@/lib/zernio/connect-state";
 import { clearConnectSessionCookie } from "@/lib/zernio/connect-session-cookie";
 import { authorizeSelectLocation } from "../_shared/finalize/authorize";
 import { withFinalizeLock } from "../_shared/finalize/finalize-lock";
 import { transitionPendingToFinalizing } from "../_shared/finalize/pending-transition";
+import { recordFinalizeUnknownAndThrow } from "../_shared/finalize/finalize-unknown";
 
 export const dynamic = "force-dynamic";
 
@@ -27,10 +27,6 @@ const NO_STORE = { "Cache-Control": "no-store, private" } as const;
 
 // Pending marker keeps the original 15-min TTL on revert / re-extend.
 const PENDING_TTL_SECONDS = 900;
-
-// On finalize_unknown the marker is bumped to 7 days so the owner stays
-// blocked from starting a fresh flow until admin reconciles.
-const PENDING_FINALIZE_UNKNOWN_TTL_SECONDS = 60 * 60 * 24 * 7;
 
 /**
  * POST /api/zernio/connect/select-location
@@ -93,101 +89,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           throw zernioErr;
         }
 
-        // OUTCOME UNKNOWN — round-15 + round-16 + round-17 sequence:
-        //   Step 1: Redis CAS finalizing → finalize_unknown (7-day TTL).
-        //   Step 2: INSERT INTO zernio_finalize_incidents (durable record).
-        //   Step 3: Sentry alert.
-        //   Step 4: throw ZernioRouteError(409, 'finalize_unknown_admin_required').
-        const finalizeUnknownAt = new Date();
-
-        // Step 1 — Redis 7-day update. Round-17: CHECK return value; only
-        // "OK" counts as success.
-        let redisMarkedUnknown = false;
-        try {
-          const result = await redis.eval(
-            luaCASToFinalizeUnknown,
-            1,
-            pendingKey(stored.businessId),
-            stored.flowId,
-            String(PENDING_FINALIZE_UNKNOWN_TTL_SECONDS),
-            finalizeUnknownAt.toISOString(),
-          );
-          redisMarkedUnknown = result === "OK";
-          if (!redisMarkedUnknown) {
-            Sentry.captureMessage("zernio_finalize_unknown_redis_cas_failed", {
-              level: "error",
-              tags: { business_id: stored.businessId },
-              extra: {
-                flowId: stored.flowId,
-                lua_result: String(result),
-              },
-            });
-          }
-        } catch (redisErr) {
-          Sentry.captureMessage("zernio_finalize_unknown_no_record", {
-            level: "fatal",
-            tags: { business_id: stored.businessId, kind: "redis_failure" },
-            extra: {
-              flowId: stored.flowId,
-              redisErr:
-                redisErr instanceof Error ? redisErr.message : String(redisErr),
-            },
-          });
-        }
-
-        // Step 2 — Durable DB incident row. Idempotent on 23505 (existing
-        // unresolved incident already covers this business).
-        let incidentPersisted = false;
-        try {
-          await sql`
-          INSERT INTO zernio_finalize_incidents (
-            id, business_id, zernio_profile_id, flow_id, finalize_unknown_at
-          ) VALUES (
-            ${uuidv7()},
-            ${stored.businessId},
-            ${stored.profileId},
-            ${stored.flowId},
-            ${finalizeUnknownAt}
-          )
-        `;
-          incidentPersisted = true;
-        } catch (incidentErr) {
-          const code = (incidentErr as { code?: string }).code;
-          if (code === "23505") {
-            incidentPersisted = true;
-          } else {
-            Sentry.captureMessage("zernio_finalize_unknown_db_insert_failed", {
-              level: "error",
-              tags: { business_id: stored.businessId },
-              extra: {
-                flowId: stored.flowId,
-                dbErr:
-                  incidentErr instanceof Error
-                    ? incidentErr.message
-                    : String(incidentErr),
-              },
-            });
-          }
-        }
-
-        // Step 3 — Always-on Sentry alert (additive to the worst-case
-        // alerts above).
-        Sentry.captureMessage("zernio_finalize_unknown", {
-          level: "error",
-          tags: { business_id: stored.businessId },
-          extra: {
-            flowId: stored.flowId,
-            error:
-              zernioErr instanceof Error
-                ? zernioErr.message
-                : String(zernioErr),
-            incidentPersisted,
-            redisMarkedUnknown,
-          },
-        });
-
-        // Step 4 — Controlled 409 instead of bubbling the raw transient error.
-        throw new ZernioRouteError(409, "finalize_unknown_admin_required");
+        // OUTCOME UNKNOWN — record incident (non-fatal) and always 409.
+        return recordFinalizeUnknownAndThrow({ redis, stored, zernioErr });
       }
 
       // 8d. DB transaction: INSERT zernio_connections + drain outbox + (on
