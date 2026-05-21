@@ -1,42 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCacheRedis } from '@/lib/db/redis-cache';
-import { getCurrentUser } from '@/lib/db/auth';
 import { zernioClient } from '@/lib/zernio/client';
 import {
   pendingKey,
   stateKey,
   profileStateKey,
-  locationsKey,
-  generateSessionId,
   luaDeletePendingByFlowIdAnyStatus,
 } from '@/lib/zernio/connect-state';
 import { setConnectSessionCookie } from '@/lib/zernio/connect-session-cookie';
 import type {
   ConnectStateBlob,
   ConnectPendingMarker,
-  ConnectLocationsBlob,
 } from '@/lib/zernio/types';
+import { cleanupAfterOauthDenial } from '../_shared/callback/oauth-denial';
+import { claimAndVerifyConnectState } from '../_shared/callback/claim-and-verify';
+import { listLocationsAndStash } from '../_shared/callback/list-and-stash';
 
 export const dynamic = 'force-dynamic';
 
 const NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
-const LOCATIONS_TTL_SECONDS = 900; // 15 min — matches signed-cookie Max-Age
-
-/**
- * Lua compare-and-delete used in callback failure cleanup.
- *
- * Round-13 (spec §3.2 step 2): a stale OAuth callback from a flow that has
- * been "cancel & restart"-superseded must NOT delete the NEWER pending
- * marker. The DEL fires only if the stored value still byte-matches the
- * value we read. If a parallel flow overwrote it between GET and DEL, the
- * comparison fails and we leave it alone.
- */
-const luaCASDelByValue = `
-  if redis.call("get", KEYS[1]) == ARGV[1] then
-    return redis.call("del", KEYS[1])
-  else
-    return 0
-  end`;
 
 function connectTokenFromState(state: string | null): string | null {
   if (!state) return null;
@@ -193,71 +175,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   const oauthError = searchParams.get('error');
   const stateParam = searchParams.get('state');
   if (oauthError) {
-    // Owner denied OAuth on Google's side (or Zernio surfaced an explicit
-    // error). Best-effort cleanup BEFORE redirecting:
-    //   1. Atomically claim connect_state (so it can't be reused).
-    //   2. Verify connect_pending still belongs to this flow, then CAS-delete
-    //      it via luaDeletePendingByFlowIdAnyStatus so the user isn't blocked
-    //      from starting a new flow for up to 15 min.
-    //   3. Best-effort deleteProfile so the orphaned Zernio profile is freed.
-    // Every step is wrapped in catch() — failures don't block the
-    // user-facing redirect.
     if (stateParam) {
-      const redisCleanup = getCacheRedis();
-      try {
-        const stateRaw = await redisCleanup.getdel(stateKey(stateParam)).catch(() => null);
-        if (stateRaw) {
-          let stored: ConnectStateBlob | null = null;
-          try {
-            stored = JSON.parse(stateRaw) as ConnectStateBlob;
-          } catch {
-            // malformed state blob — already claimed, nothing more to do
-          }
-          if (stored) {
-            try {
-              const pendingRaw = await redisCleanup
-                .get(pendingKey(stored.businessId))
-                .catch(() => null);
-              if (pendingRaw) {
-                try {
-                  const pending = JSON.parse(pendingRaw) as ConnectPendingMarker;
-                  if (
-                    pending.state === stateParam &&
-                    pending.profileId === stored.profileId
-                  ) {
-                    await redisCleanup
-                      .eval(
-                        luaDeletePendingByFlowIdAnyStatus,
-                        1,
-                        pendingKey(stored.businessId),
-                        pending.flowId,
-                      )
-                      .catch(() => 0);
-                  }
-                } catch {
-                  // malformed pending — leave it (TTL will handle it)
-                }
-              }
-            } catch (e) {
-              console.error(
-                '[zernio/callback] OAuth-denial pending cleanup failed:',
-                e,
-              );
-            }
-            await zernioClient.deleteProfile(stored.profileId).catch((e) => {
-              console.error(
-                '[zernio/callback] OAuth-denial deleteProfile failed:',
-                e,
-              );
-            });
-            await redisCleanup.del(profileStateKey(stored.profileId)).catch(() => {
-              // Best-effort.
-            });
-          }
-        }
-      } catch (e) {
-        console.error('[zernio/callback] OAuth-denial cleanup failed:', e);
-      }
+      await cleanupAfterOauthDenial(stateParam);
     }
     return redirectError(origin, 'oauth_denied');
   }
@@ -285,182 +204,40 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     return redirectError(origin, 'missing_params');
   }
 
-  const redis = getCacheRedis();
+  // 3–5. Atomic single-use state claim, first pending verification, re-auth.
+  const claim = await claimAndVerifyConnectState(req, state);
+  if (!claim.ok) {
+    if (claim.cleanupProfileId) {
+      await cleanupOrphanedProfileBestEffort(claim.cleanupProfileId);
+    }
+    return redirectError(origin, claim.code);
+  }
+  const { stored, pending } = claim;
 
-  // 3. Atomic state claim. ioredis exposes `getdel` (atomic GET+DEL) on Redis
-  // 6.2+. Single-use prevents replay even if every later step fails.
-  let stateRaw: string | null;
-  try {
-    stateRaw = await redis.getdel(stateKey(state));
-  } catch (err) {
-    console.error('[api/zernio/connect/callback] redis getdel failed:', err);
-    return redirectError(origin, 'internal_error');
-  }
-  if (!stateRaw) {
-    return redirectError(origin, 'state_expired');
-  }
-
-  let stored: ConnectStateBlob;
-  try {
-    stored = JSON.parse(stateRaw) as ConnectStateBlob;
-  } catch {
-    return redirectError(origin, 'malformed_state');
-  }
-  await redis.del(profileStateKey(stored.profileId)).catch(() => {
-    // Best-effort: profile lookup auto-expires.
+  // 6. Zernio listLocations + round-11 second pending re-check + stash.
+  // Two distinct failure surfaces: controlled re-verify returns (caller
+  // cleans up) vs the thrown catch (cleanup happens in-module).
+  const listing = await listLocationsAndStash({
+    stored,
+    pending,
+    state,
+    pendingDataToken,
+    apiConnectToken,
   });
-
-  // 4. First pending verification.
-  let pendingRaw: string | null;
-  try {
-    pendingRaw = await redis.get(pendingKey(stored.businessId));
-  } catch (err) {
-    console.error('[api/zernio/connect/callback] redis get pending failed:', err);
-    await cleanupOrphanedProfileBestEffort(stored.profileId);
-    return redirectError(origin, 'internal_error');
-  }
-  if (!pendingRaw) {
-    await cleanupOrphanedProfileBestEffort(stored.profileId);
-    return redirectError(origin, 'pending_missing');
-  }
-
-  let pending: ConnectPendingMarker;
-  try {
-    pending = JSON.parse(pendingRaw) as ConnectPendingMarker;
-  } catch {
-    await cleanupOrphanedProfileBestEffort(stored.profileId);
-    return redirectError(origin, 'malformed_pending');
-  }
-
-  if (
-    pending.state !== state ||
-    pending.profileId !== stored.profileId ||
-    pending.status !== 'oauth_in_progress'
-  ) {
-    await cleanupOrphanedProfileBestEffort(stored.profileId);
-    return redirectError(origin, 'flow_mismatch');
-  }
-
-  // 5. Re-auth — owner session must match the user who initiated the flow.
-  // Use getCurrentUser (returns null) instead of requireRole (throws) so we
-  // can convert auth failures into the same friendly redirect surface.
-  const user = await getCurrentUser(req).catch(() => null);
-  if (!user || user.id !== stored.userId || user.id !== pending.userId) {
-    await cleanupOrphanedProfileBestEffort(stored.profileId);
-    return redirectError(origin, 'user_mismatch');
-  }
-
-  // 6. Zernio listLocations + round-11 second pending re-check + stash + cookie.
-  // Cleanup-on-failure runs in the catch branch.
-  try {
-    const { locations } = await zernioClient.listLocations({
-      profileId: stored.profileId,
-      pendingDataToken,
-      connectToken: apiConnectToken,
-    });
-
-    // Round-11: re-verify pending marker AFTER the network round-trip.
-    // listLocations can take seconds; a parallel cancel/restart could have
-    // overwritten connect_pending in the meantime. If that happened, do NOT
-    // write connect_locations and do NOT set the cookie — the newer flow
-    // owns the slot now.
-    const pending2Raw = await redis.get(pendingKey(stored.businessId));
-    if (!pending2Raw) {
-      await cleanupOrphanedProfileBestEffort(stored.profileId);
-      return redirectError(origin, 'flow_cancelled_during_listing');
+  if (!listing.ok) {
+    if (listing.kind === 'controlled') {
+      await cleanupOrphanedProfileBestEffort(listing.cleanupProfileId);
     }
-    let pending2: ConnectPendingMarker;
-    try {
-      pending2 = JSON.parse(pending2Raw) as ConnectPendingMarker;
-    } catch {
-      await cleanupOrphanedProfileBestEffort(stored.profileId);
-      return redirectError(origin, 'malformed_pending');
-    }
-    if (
-      pending2.flowId !== pending.flowId ||
-      pending2.state !== state ||
-      pending2.profileId !== stored.profileId ||
-      pending2.status !== 'oauth_in_progress'
-    ) {
-      await cleanupOrphanedProfileBestEffort(stored.profileId);
-      return redirectError(origin, 'flow_superseded_during_listing');
-    }
-
-    // 7. Stash for the picker. Includes flowId + state + userId + businessId
-    // so /select-location can verify cross-route flow identity (spec §3.2
-    // step 3 round-10) and per-user/per-business scope.
-    const sessionId = generateSessionId();
-    const blob: ConnectLocationsBlob = {
-      flowId: pending2.flowId,
-      state,
-      connect_token: apiConnectToken ?? pendingDataToken,
-      pending_data_token: pendingDataToken,
-      profileId: stored.profileId,
-      businessId: stored.businessId,
-      userId: stored.userId,
-      locations,
-    };
-    await redis.setex(
-      locationsKey(sessionId),
-      LOCATIONS_TTL_SECONDS,
-      JSON.stringify(blob),
-    );
-
-    // 8. Build 302 redirect with the signed cookie attached.
-    const redirectResp = NextResponse.redirect(
-      new URL('/dashboard/connect/select-location', origin),
-      { status: 302, headers: NO_STORE },
-    );
-    setConnectSessionCookie(redirectResp, sessionId);
-    return redirectResp;
-  } catch (cbErr) {
-    // Round-13 callback failure cleanup. connect_state is already gone via
-    // GETDEL above so replay is blocked regardless of what we do here.
-    //
-    // For connect_pending: only delete if it's STILL byte-equal to the value
-    // we already validated. A parallel flow could have overwritten it during
-    // the failed listLocations call; deleting that newer marker would orphan
-    // the second flow.
-    try {
-      const currentPending = await redis
-        .get(pendingKey(stored.businessId))
-        .catch(() => null);
-      if (currentPending) {
-        let shouldDelete = false;
-        try {
-          const p = JSON.parse(currentPending) as ConnectPendingMarker;
-          if (p.state === state && p.profileId === stored.profileId) {
-            shouldDelete = true;
-          }
-        } catch {
-          // Malformed JSON — leave the marker, it will auto-expire on TTL.
-        }
-        if (shouldDelete) {
-          await redis
-            .eval(luaCASDelByValue, 1, pendingKey(stored.businessId), currentPending)
-            .catch(() => {
-              // Best-effort: parallel writer raced, marker auto-expires.
-            });
-        }
-      }
-
-      // Best-effort Zernio Profile cleanup. The profile was created for THIS
-      // flow in /start, so it's always safe to delete on our path failure.
-      if (stored.profileId) {
-        await zernioClient.deleteProfile(stored.profileId).catch(() => {
-          // Best-effort orphan cleanup.
-        });
-      }
-    } catch (cleanupErr) {
-      console.error(
-        '[api/zernio/connect/callback] cleanup failed (non-fatal):',
-        cleanupErr,
-      );
-    }
-
-    console.error('[api/zernio/connect/callback] listLocations failed:', cbErr);
-    return redirectError(origin, 'zernio_listlocations_failed');
+    return redirectError(origin, listing.code);
   }
+
+  // 7. Build 302 redirect with the signed cookie attached.
+  const redirectResp = NextResponse.redirect(
+    new URL('/dashboard/connect/select-location', origin),
+    { status: 302, headers: NO_STORE },
+  );
+  setConnectSessionCookie(redirectResp, listing.sessionId);
+  return redirectResp;
 }
 
 function redirectError(origin: string, code: string): NextResponse {

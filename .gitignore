@@ -101,3 +101,6 @@ scripts/zernio-count-reviews.ts
 
 # Mission runtime artifacts (evidence, scripts — not for source control)
 .factory/missions/
+
+# Local pnpm store (store-dir target; never source-controlled)
+.pnpm-store/
