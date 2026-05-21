@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { asAccountId } from '@/lib/shared/ids';
 import { parseCostQuery } from '../cost-report-service';
 
 // ── getCostReport quadrant coverage ──────────────────────────────────
@@ -166,7 +167,7 @@ describe('getCostReport — accountId set, no rollup (days ≤ 90)', () => {
       days: 30,
       limit: 20,
       offset: 0,
-      accountId: 'acct-abc-123' as ReturnType<typeof import('@/lib/shared/ids').asAccountId>,
+      accountId: asAccountId('acct-abc-123'),
     });
 
     expect(sqlCallCounter.value).toBe(5);
@@ -201,12 +202,12 @@ describe('getCostReport — accountId set, no rollup (days ≤ 90)', () => {
       days: 7,
       limit: 20,
       offset: 0,
-      accountId: 'acct-xyz' as ReturnType<typeof import('@/lib/shared/ids').asAccountId>,
+      accountId: asAccountId('acct-xyz'),
     });
 
     // All 5 queries that touch api_costs directly should include account_id filter.
     const apiCostQueries = capturedSqlTexts.filter((s) => s.includes('api_costs') && !s.includes('api_costs_daily_rollups'));
-    expect(apiCostQueries.length).toBeGreaterThanOrEqual(3);
+    expect(apiCostQueries.length).toBe(5);
     for (const q of apiCostQueries) {
       expect(q).toMatch(/account_id\s*=\s*\?::uuid/);
     }
@@ -224,7 +225,7 @@ describe('getCostReport — accountId set, no rollup (days ≤ 90)', () => {
       days: 90,
       limit: 20,
       offset: 0,
-      accountId: 'acct-xyz' as ReturnType<typeof import('@/lib/shared/ids').asAccountId>,
+      accountId: asAccountId('acct-xyz'),
     });
 
     const rollupQueries = capturedSqlTexts.filter((s) => s.includes('api_costs_daily_rollups'));
