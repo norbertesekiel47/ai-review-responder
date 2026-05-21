@@ -123,8 +123,8 @@ function makeRequest(url: string, body?: unknown): NextRequest {
   });
 }
 
-function tokenParams(): { params: { token: string } } {
-  return { params: { token: RAW_TOKEN } };
+function tokenParams(): { params: Promise<{ token: string }> } {
+  return { params: Promise.resolve({ token: RAW_TOKEN }) };
 }
 
 function setupHappyPath() {

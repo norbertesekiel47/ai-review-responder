@@ -6,13 +6,19 @@ import { sanitizePublicResponseText } from '@/lib/shared/sanitize';
 
 const MAX_EDIT_LENGTH = 2000;
 
+type TokenRouteContext = {
+  params: Promise<{ token: string }>;
+};
+
 export async function POST(
   request: NextRequest,
-  { params }: { params: { token: string } },
+  { params }: TokenRouteContext,
 ): Promise<NextResponse> {
+  const { token } = await params;
+
   return runTokenApprovalAction<string>(
     request,
-    params.token,
+    token,
     'edit',
     { success: true, message: "Response approved with your edits! We'll post it to Google shortly." },
     ({ tx, link, deviceCookieHash, audit, correlationId, prepared }) => (

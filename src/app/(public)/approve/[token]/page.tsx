@@ -3,11 +3,11 @@ import { sql } from '@/lib/db/server';
 import ApprovalClient from '@/components/approval/approval-client';
 
 interface PageProps {
-  params: { token: string };
+  params: Promise<{ token: string }>;
 }
 
 export default async function ApprovalPage({ params }: PageProps) {
-  const rawToken = params.token;
+  const { token: rawToken } = await params;
   const tokenHash = createHash('sha256').update(rawToken).digest('hex');
 
   // Minimal server-side check — just enough to render shell or error

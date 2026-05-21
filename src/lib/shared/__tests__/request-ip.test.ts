@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { NextRequest } from 'next/server';
-import { getIpKey } from '../request-ip';
+import { getIpKey, getRequestIp } from '../request-ip';
 
 function mkReq(headers: Record<string, string> = {}): NextRequest {
   return new NextRequest('https://app.example.com/test', {
@@ -8,6 +8,36 @@ function mkReq(headers: Record<string, string> = {}): NextRequest {
     headers,
   });
 }
+
+function withLegacyIp(req: NextRequest, ip: string): NextRequest {
+  Object.defineProperty(req, 'ip', {
+    value: ip,
+    configurable: true,
+  });
+  return req;
+}
+
+describe('getRequestIp', () => {
+  it('extracts the leftmost IP from x-forwarded-for', () => {
+    const req = mkReq({ 'x-forwarded-for': '1.2.3.4, 5.6.7.8' });
+    expect(getRequestIp(req)).toBe('1.2.3.4');
+  });
+
+  it('falls back to legacy request.ip when x-forwarded-for is absent', () => {
+    const req = withLegacyIp(mkReq(), '203.0.113.42');
+    expect(getRequestIp(req)).toBe('203.0.113.42');
+  });
+
+  it('falls back to legacy request.ip when x-forwarded-for is malformed empty', () => {
+    const req = withLegacyIp(mkReq({ 'x-forwarded-for': ' , ' }), '203.0.113.42');
+    expect(getRequestIp(req)).toBe('203.0.113.42');
+  });
+
+  it('returns null when neither x-forwarded-for nor legacy request.ip is usable', () => {
+    expect(getRequestIp(mkReq())).toBeNull();
+    expect(getRequestIp(withLegacyIp(mkReq(), '   '))).toBeNull();
+  });
+});
 
 describe('getIpKey', () => {
   it('extracts the leftmost IP from x-forwarded-for', () => {
@@ -28,6 +58,11 @@ describe('getIpKey', () => {
   it('falls back to unknown when header is absent', () => {
     const req = mkReq();
     expect(getIpKey(req, 'signup')).toBe('signup:ip:unknown');
+  });
+
+  it('uses legacy request.ip before falling back to unknown', () => {
+    const req = withLegacyIp(mkReq(), '203.0.113.42');
+    expect(getIpKey(req, 'signup')).toBe('signup:ip:203.0.113.42');
   });
 
   // B22 — the ?? fallback only caught null/undefined, not empty strings.

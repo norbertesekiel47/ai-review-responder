@@ -112,6 +112,17 @@ function request(path = '/api/test'): NextRequest {
   });
 }
 
+function requestWithLegacyIp(path = '/api/test'): NextRequest {
+  const req = new NextRequest(`http://localhost:3000${path}`, {
+    method: 'POST',
+  });
+  Object.defineProperty(req, 'ip', {
+    value: '203.0.113.42',
+    configurable: true,
+  });
+  return req;
+}
+
 function owner(overrides?: { accountId?: string | null; locationId?: string | null }) {
   return {
     id: 'owner-1',
@@ -210,6 +221,26 @@ describe('runTokenApprovalAction', () => {
         ipAddress: '203.0.113.10',
       },
       correlationId: 'corr-1',
+    }));
+  });
+
+  it('preserves legacy request.ip fallback for token-action audit context', async () => {
+    sqlResults.push([{ review_id: 'rev-1' }]);
+    const action = vi.fn();
+
+    const res = await runTokenApprovalAction(
+      requestWithLegacyIp(),
+      RAW_TOKEN,
+      'approve',
+      { success: true },
+      action,
+    );
+
+    expect(res.status).toBe(200);
+    expect(action).toHaveBeenCalledWith(expect.objectContaining({
+      audit: expect.objectContaining({
+        ipAddress: '203.0.113.42',
+      }),
     }));
   });
 

@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic';
 export default async function OnboardingPayPage({
   searchParams,
 }: {
-  searchParams: { cancelled?: string };
+  searchParams: Promise<{ cancelled?: string }>;
 }) {
   // Self-serve signup must hide the entire onboarding flow when the flag is
   // off — including this server-rendered page. Otherwise a leaked URL could
@@ -82,9 +82,11 @@ export default async function OnboardingPayPage({
   // states lives on the dashboard side (Customer Portal / banner flows).
   if (row.subscription_status !== SubscriptionStatus.PENDING_PAYMENT) redirect('/dashboard');
 
+  const { cancelled } = await searchParams;
+
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4 py-12">
-      <PlanPickerClient cancelled={Boolean(searchParams.cancelled)} />
+      <PlanPickerClient cancelled={Boolean(cancelled)} />
     </div>
   );
 }
