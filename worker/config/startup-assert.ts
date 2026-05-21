@@ -5,6 +5,42 @@
 // heavy top-level side effects of index.ts (Sentry.init, Fastify instance,
 // BullMQ Worker construction which opens Redis connections, etc.).
 
+const STRIPE_WORKER_REQUIRED_ENV = [
+  'STRIPE_SECRET_KEY',
+  'STRIPE_WEBHOOK_SECRET',
+  'STRIPE_PRICE_BASIC',
+  'STRIPE_PRICE_FOUNDING',
+  'STRIPE_PRICE_STANDARD',
+  'STRIPE_PRICE_PREMIUM',
+  'STRIPE_PRICE_STANDARD_OVERAGE',
+  'STRIPE_PRICE_PREMIUM_OVERAGE',
+  'STRIPE_PRICE_FOUNDERS_OVERAGE',
+];
+
+function missingEnvVars(required: string[]): string[] {
+  return required.filter((k) => !process.env[k] || process.env[k]!.trim().length === 0);
+}
+
+export function assertProductionMockModeEnv(): void {
+  if (process.env.NODE_ENV === 'production' && process.env.MOCK_EXTERNAL_APIS === 'true') {
+    throw new Error('[startup] NODE_ENV=production cannot run with MOCK_EXTERNAL_APIS=true');
+  }
+}
+
+export function assertStripeWorkerEnv(): void {
+  if (process.env.NODE_ENV !== 'production' && process.env.MOCK_EXTERNAL_APIS === 'true') return;
+
+  const missing = missingEnvVars(STRIPE_WORKER_REQUIRED_ENV);
+  if (missing.length > 0) {
+    throw new Error(`[startup] Worker requires ${missing.join(', ')}`);
+  }
+}
+
+export function assertWorkerStartupEnv(): void {
+  assertProductionMockModeEnv();
+  assertStripeWorkerEnv();
+}
+
 /**
  * Boot-time assertion. When SELF_SERVE_SIGNUP_ENABLED=true, verifies all
  * required env vars are set. Fail fast at startup rather than at first
