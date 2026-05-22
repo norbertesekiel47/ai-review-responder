@@ -149,7 +149,7 @@ export async function runOnce(): Promise<ReconcileResult> {
 
         // Compute expected overage from DB
         const activeLocations = Number(account.active_location_count);
-        const dbExpectedOverage = computeOverageQuantity(activeLocations, config.included);
+        const dbExpectedOverage = computeOverageQuantity(activeLocations, account.locations_included);
 
         // Retrieve Stripe subscription
         const subscription = await stripe.subscriptions.retrieve(

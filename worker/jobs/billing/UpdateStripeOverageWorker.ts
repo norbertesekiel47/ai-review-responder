@@ -149,7 +149,7 @@ export async function handleUpdateStripeOverage(
     return;
   }
 
-  const newQuantity = computeOverageQuantity(activeLocations, config.included);
+  const newQuantity = computeOverageQuantity(activeLocations, account.locations_included);
   const overagePriceId = getOveragePriceId(tier);
 
   if (!overagePriceId) {
