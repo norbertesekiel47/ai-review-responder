@@ -35,6 +35,41 @@ function location(overrides: Partial<LocationEntry>): LocationEntry {
 }
 
 describe('LocationsPanel connection action', () => {
+  it('uses the configured brand voice anchor for single-location accounts', () => {
+    render(
+      <LocationsPanel
+        locations={[location({})]}
+        archivedLocations={[]}
+        activeCount={1}
+        accountId={ACCOUNT_ID}
+        voiceHref="/settings#brand-voice"
+        onLocationChange={() => {}}
+      />,
+    );
+
+    expect(screen.getByRole('link', { name: /^voice$/i })).toHaveAttribute(
+      'href',
+      '/settings#brand-voice',
+    );
+  });
+
+  it('defaults the Voice action to the multi-location voice page', () => {
+    render(
+      <LocationsPanel
+        locations={[location({})]}
+        archivedLocations={[]}
+        activeCount={1}
+        accountId={ACCOUNT_ID}
+        onLocationChange={() => {}}
+      />,
+    );
+
+    expect(screen.getByRole('link', { name: /^voice$/i })).toHaveAttribute(
+      'href',
+      '/settings/voice',
+    );
+  });
+
   it('shows a Connect Google action for an unconnected secondary location', () => {
     render(
       <LocationsPanel
@@ -166,5 +201,51 @@ describe('LocationsPanel primary promotion', () => {
 
     expect(screen.queryByText('Make "Tanicia" primary?')).not.toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('LocationsPanel add-location state', () => {
+  it('shows Add location for eligible accounts', () => {
+    render(
+      <LocationsPanel
+        locations={[location({})]}
+        archivedLocations={[]}
+        activeCount={1}
+        accountId={ACCOUNT_ID}
+        addLocationState={{ kind: 'enabled' }}
+        onLocationChange={() => {}}
+      />,
+    );
+
+    expect(screen.getByRole('link', { name: /add location/i })).toHaveAttribute(
+      'href',
+      '/dashboard/add-location',
+    );
+  });
+
+  it('shows a Basic locked upgrade state instead of Add location', () => {
+    render(
+      <LocationsPanel
+        locations={[location({})]}
+        archivedLocations={[]}
+        activeCount={1}
+        accountId={ACCOUNT_ID}
+        addLocationState={{
+          kind: 'locked',
+          title: 'Upgrade to add locations',
+          description: 'Basic includes one location. Upgrade to Standard or Premium to add more.',
+          ctaHref: '/settings#subscription-billing',
+          ctaLabel: 'View plan options',
+        }}
+        onLocationChange={() => {}}
+      />,
+    );
+
+    expect(screen.queryByRole('link', { name: /^add location$/i })).not.toBeInTheDocument();
+    expect(screen.getByText('Upgrade to add locations')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /view plan options/i })).toHaveAttribute(
+      'href',
+      '/settings#subscription-billing',
+    );
   });
 });

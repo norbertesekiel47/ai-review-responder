@@ -91,6 +91,38 @@ export function computeProration(
   return { prorationCents, daysRemaining, daysInMonth };
 }
 
+export function computeNextLocationBillingPreview({
+  activeLocationCount,
+  billingSnapshot,
+}: {
+  activeLocationCount: number;
+  billingSnapshot: BillingSnapshot;
+}): {
+  nextOverageUnits: number;
+  additionalLocationMonthlyCents: number;
+  newMonthlyTotalCents: number;
+} {
+  const nextActiveLocations = activeLocationCount + 1;
+  const nextOverageUnits = Math.max(
+    0,
+    nextActiveLocations - billingSnapshot.includedLocations,
+  );
+  const additionalOverageUnits = Math.max(
+    0,
+    nextOverageUnits - billingSnapshot.overageUnits,
+  );
+  const additionalLocationMonthlyCents =
+    additionalOverageUnits * billingSnapshot.overagePriceCents;
+
+  return {
+    nextOverageUnits,
+    additionalLocationMonthlyCents,
+    newMonthlyTotalCents:
+      billingSnapshot.basePriceCents +
+      nextOverageUnits * billingSnapshot.overagePriceCents,
+  };
+}
+
 // ── Default voice config ──────────────────────────────────────────────────
 
 const DEFAULT_VOICE: VoiceFormState = {
@@ -369,11 +401,14 @@ export function AddLocationWizard({
 
   // ── Computed billing for step 4 ────────────────────────────────────
 
-  const proration = computeProration(billingSnapshot.overagePriceCents);
-  const newOverageUnits = billingSnapshot.overageUnits + 1;
-  const newMonthlyTotalCents =
-    billingSnapshot.basePriceCents +
-    newOverageUnits * billingSnapshot.overagePriceCents;
+  const billingPreview = computeNextLocationBillingPreview({
+    activeLocationCount,
+    billingSnapshot,
+  });
+  const proration = computeProration(
+    billingPreview.additionalLocationMonthlyCents,
+  );
+  const newMonthlyTotalCents = billingPreview.newMonthlyTotalCents;
   const step1HasLocationDetails = hasStep1LocationDetails({
     inputMode,
     placeSelection,
@@ -727,21 +762,21 @@ export function AddLocationWizard({
                 <div className="wizard-billing-row">
                   <span>
                     + Additional location
-                    {billingSnapshot.overagePriceCents > 0 && (
+                    {billingPreview.additionalLocationMonthlyCents > 0 && (
                       <span className="wizard-billing-note">
-                        {' '}(${(billingSnapshot.overagePriceCents / 100).toFixed(2)}/mo)
+                        {' '}(${(billingPreview.additionalLocationMonthlyCents / 100).toFixed(2)}/mo)
                       </span>
                     )}
                   </span>
                   <span>
-                    {billingSnapshot.overagePriceCents > 0
-                      ? `$${(billingSnapshot.overagePriceCents / 100).toFixed(2)}/mo`
+                    {billingPreview.additionalLocationMonthlyCents > 0
+                      ? `$${(billingPreview.additionalLocationMonthlyCents / 100).toFixed(2)}/mo`
                       : 'Included'}
                   </span>
                 </div>
 
                 {/* Proration line — VAL-LOC-066 */}
-                {billingSnapshot.overagePriceCents > 0 && proration.daysRemaining > 0 && (
+                {billingPreview.additionalLocationMonthlyCents > 0 && proration.daysRemaining > 0 && (
                   <div className="wizard-billing-row wizard-billing-proration">
                     <span>
                       Prorated charge today

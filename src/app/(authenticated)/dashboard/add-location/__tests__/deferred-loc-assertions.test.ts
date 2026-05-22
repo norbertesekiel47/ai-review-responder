@@ -213,12 +213,12 @@ describe('VAL-LOC-066: Proration line shows actual prorated charge', () => {
     expect(source).not.toContain('pending');
   });
 
-  it('step 4 renders proration row only when overage > 0 and days remaining > 0', () => {
+  it('step 4 renders proration row only when the new location adds monthly cost and days remain', () => {
     const sourcePath = path.resolve(__dirname, '../AddLocationWizard.tsx');
     const source = fs.readFileSync(sourcePath, 'utf-8');
 
     // Conditional rendering: only show when both conditions are met
-    expect(source).toContain('billingSnapshot.overagePriceCents > 0');
+    expect(source).toContain('billingPreview.additionalLocationMonthlyCents > 0');
     expect(source).toContain('proration.daysRemaining > 0');
   });
 });

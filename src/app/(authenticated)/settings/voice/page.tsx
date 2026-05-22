@@ -1,11 +1,9 @@
 // src/app/(authenticated)/settings/voice/page.tsx
 //
-// Server component for the Voice tab in Settings.
-// Only rendered when MULTI_LOCATION_ENABLED is true.
-// When the flag is off, voice config stays on the main /settings page.
+// Server component for the multi-location Voice tab in Settings.
+// Single-location accounts keep voice config on /settings#brand-voice.
 //
 // VAL-SETTINGS-017: Voice tab renders per-location voice config sections.
-// VAL-SETTINGS-036: Voice tab for single-location account when MULTI_LOCATION_ENABLED=true.
 
 import { notFound } from 'next/navigation';
 import { requireOwnerAccess } from '@/lib/auth/require-owner-access';

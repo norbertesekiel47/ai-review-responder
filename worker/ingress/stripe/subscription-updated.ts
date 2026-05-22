@@ -1,7 +1,7 @@
 import Stripe from 'stripe';
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '../../../src/lib/db/server';
-import { type SubscriptionTierValue } from '../../../src/lib/accounts/tier-config';
+import { TIER_CONFIG, type SubscriptionTierValue } from '../../../src/lib/accounts/tier-config';
 import { LOG_PREFIX, extractCustomerId } from './shared';
 
 export async function processSubscriptionUpdated(sub: Stripe.Subscription): Promise<void> {
@@ -68,19 +68,22 @@ export async function processSubscriptionUpdated(sub: Stripe.Subscription): Prom
 
     await tx`SELECT pg_advisory_xact_lock(hashtext(${acctRow.id + ':subscription_update'}))`;
 
+    const tierChanged = acctRow.subscription_tier !== tier;
+
     // Update accounts (source of truth)
     await tx`
       UPDATE accounts
       SET
         subscription_tier = ${tier},
         locations_paid = ${locationsPaid},
+        locations_included = CASE WHEN ${tierChanged} THEN ${TIER_CONFIG[tier].included} ELSE locations_included END,
         updated_at = NOW()
       WHERE id = ${acctRow.id}::uuid
     `;
 
     // VAL-LOC-029 / VAL-LOC-058: Audit log for tier change and locations_paid update
     const auditPayload: Record<string, unknown> = {};
-    if (acctRow.subscription_tier !== tier) {
+    if (tierChanged) {
       auditPayload.fromTier = acctRow.subscription_tier;
       auditPayload.toTier = tier;
     }

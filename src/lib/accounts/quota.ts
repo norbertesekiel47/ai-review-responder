@@ -36,6 +36,8 @@ export function computeOverageQuantity(
 export interface BillingSnapshot {
   /** Monthly base price in cents. */
   basePriceCents: number;
+  /** Number of locations included in the base price for this tier. */
+  includedLocations: number;
   /** Per-location overage price in cents (0 for basic tier). */
   overagePriceCents: number;
   /** Number of overage units (max(0, activeLocations - included)). */
@@ -48,7 +50,7 @@ export interface BillingSnapshot {
 
 /**
  * Returns the current billing breakdown for an account.
- * Reads the account's subscription_tier, locations_included, locations_paid,
+ * Reads the account's subscription_tier, stored location quota/overage price,
  * and the count of active (non-archived) locations to compute the snapshot.
  *
  * VAL-BILLING-024 through VAL-BILLING-027: per-tier snapshots tested.
@@ -61,8 +63,10 @@ export async function currentBillingSnapshot(
     subscription_tier: string;
     locations_included: number;
     locations_paid: number;
+    locations_overage_price_cents: number;
   }[]>`
-    SELECT subscription_tier, locations_included, locations_paid
+    SELECT subscription_tier, locations_included, locations_paid,
+           locations_overage_price_cents
     FROM accounts
     WHERE id = ${accountId}::uuid
   `;
@@ -77,11 +81,14 @@ export async function currentBillingSnapshot(
   }
 
   const config = TIER_CONFIG[tier];
+  const includedLocations = account.locations_included;
+  const overagePriceCents = account.locations_overage_price_cents;
 
   // Basic tier: no overage at all
   if (!config.multiLocAllowed || config.overageCents === 0) {
     return {
       basePriceCents: config.baseCents,
+      includedLocations,
       overagePriceCents: 0,
       overageUnits: 0,
       totalCents: config.baseCents,
@@ -97,13 +104,14 @@ export async function currentBillingSnapshot(
   `;
 
   const activeLocations = Number(locationRow?.count ?? 0);
-  const overageUnits = computeOverageQuantity(activeLocations, config.included);
+  const overageUnits = computeOverageQuantity(activeLocations, includedLocations);
 
   return {
     basePriceCents: config.baseCents,
-    overagePriceCents: config.overageCents,
+    includedLocations,
+    overagePriceCents,
     overageUnits,
-    totalCents: config.baseCents + overageUnits * config.overageCents,
+    totalCents: config.baseCents + overageUnits * overagePriceCents,
   };
 }
 
@@ -208,7 +216,7 @@ export async function assertCanAddLocation(
   // The `quota_exhausted` reason is reserved for future hard-cap scenarios
   // (e.g., platform-imposed maximums) but is not triggered in the current
   // implementation because overage billing is automatic.
-  const overageUnits = computeOverageQuantity(activeLocations + 1, tierConfig.included);
+  const overageUnits = computeOverageQuantity(activeLocations + 1, account.locations_included);
 
   return { allowed: true, overageUnits };
 }

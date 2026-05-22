@@ -96,11 +96,13 @@ function mockAccountRow(
   tier: SubscriptionTierValue,
   locationsIncluded: number,
   locationsPaid: number,
+  locationsOveragePriceCents: number = tier === 'premium' ? 2000 : tier === 'basic' ? 0 : 2500,
 ) {
   return {
     subscription_tier: tier,
     locations_included: locationsIncluded,
     locations_paid: locationsPaid,
+    locations_overage_price_cents: locationsOveragePriceCents,
   };
 }
 
@@ -123,9 +125,58 @@ describe('currentBillingSnapshot', () => {
     const snapshot = await currentBillingSnapshot(accountId);
 
     expect(snapshot.basePriceCents).toBe(7900);
+    expect(snapshot.includedLocations).toBe(1);
     expect(snapshot.overagePriceCents).toBe(2500);
     expect(snapshot.overageUnits).toBe(3); // 4 - 1 = 3
     expect(snapshot.totalCents).toBe(7900 + 3 * 2500); // 15400
+  });
+
+  it('uses stored included quota for standard snapshot below custom quota', async () => {
+    const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+    mockSql.mockResolvedValueOnce([
+      mockAccountRow('standard', 3, 0),
+    ]);
+    mockSql.mockResolvedValueOnce(mockLocationCount(2));
+
+    const snapshot = await currentBillingSnapshot(accountId);
+
+    expect(snapshot.basePriceCents).toBe(7900);
+    expect(snapshot.includedLocations).toBe(3);
+    expect(snapshot.overagePriceCents).toBe(2500);
+    expect(snapshot.overageUnits).toBe(0);
+    expect(snapshot.totalCents).toBe(7900);
+  });
+
+  it('uses stored included quota for standard snapshot above custom quota', async () => {
+    const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+    mockSql.mockResolvedValueOnce([
+      mockAccountRow('standard', 3, 0),
+    ]);
+    mockSql.mockResolvedValueOnce(mockLocationCount(5));
+
+    const snapshot = await currentBillingSnapshot(accountId);
+
+    expect(snapshot.basePriceCents).toBe(7900);
+    expect(snapshot.includedLocations).toBe(3);
+    expect(snapshot.overagePriceCents).toBe(2500);
+    expect(snapshot.overageUnits).toBe(2);
+    expect(snapshot.totalCents).toBe(7900 + 2 * 2500);
+  });
+
+  it('uses stored overage price for standard snapshot totals', async () => {
+    const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+    mockSql.mockResolvedValueOnce([
+      mockAccountRow('standard', 1, 0, 3000),
+    ]);
+    mockSql.mockResolvedValueOnce(mockLocationCount(3));
+
+    const snapshot = await currentBillingSnapshot(accountId);
+
+    expect(snapshot.basePriceCents).toBe(7900);
+    expect(snapshot.includedLocations).toBe(1);
+    expect(snapshot.overagePriceCents).toBe(3000);
+    expect(snapshot.overageUnits).toBe(2);
+    expect(snapshot.totalCents).toBe(7900 + 2 * 3000);
   });
 
   // VAL-BILLING-025 — basic tier, no overage
@@ -139,6 +190,7 @@ describe('currentBillingSnapshot', () => {
     const snapshot = await currentBillingSnapshot(accountId);
 
     expect(snapshot.basePriceCents).toBe(2900);
+    expect(snapshot.includedLocations).toBe(1);
     expect(snapshot.overagePriceCents).toBe(0);
     expect(snapshot.overageUnits).toBe(0);
     expect(snapshot.totalCents).toBe(2900);
@@ -155,6 +207,7 @@ describe('currentBillingSnapshot', () => {
     const snapshot = await currentBillingSnapshot(accountId);
 
     expect(snapshot.basePriceCents).toBe(19900);
+    expect(snapshot.includedLocations).toBe(5);
     expect(snapshot.overagePriceCents).toBe(2000);
     expect(snapshot.overageUnits).toBe(2); // 7 - 5 = 2
     expect(snapshot.totalCents).toBe(19900 + 2 * 2000); // 23900
@@ -171,6 +224,7 @@ describe('currentBillingSnapshot', () => {
     const snapshot = await currentBillingSnapshot(accountId);
 
     expect(snapshot.basePriceCents).toBe(1900);
+    expect(snapshot.includedLocations).toBe(1);
     expect(snapshot.overagePriceCents).toBe(2500);
     expect(snapshot.overageUnits).toBe(2); // 3 - 1 = 2
     expect(snapshot.totalCents).toBe(1900 + 2 * 2500); // 6900
@@ -179,7 +233,12 @@ describe('currentBillingSnapshot', () => {
   it('throws for unknown tier', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
     mockSql.mockResolvedValueOnce([
-      { subscription_tier: 'enterprise', locations_included: 1, locations_paid: 0 },
+      {
+        subscription_tier: 'enterprise',
+        locations_included: 1,
+        locations_paid: 0,
+        locations_overage_price_cents: 2500,
+      },
     ]);
     mockSql.mockResolvedValueOnce(mockLocationCount(1));
 
@@ -319,6 +378,45 @@ describe('assertCanAddLocation', () => {
     expect(result.allowed).toBe(true);
     if (result.allowed) {
       expect(result.overageUnits).toBe(0);
+    }
+  });
+
+  it('uses stored standard included quota when adding the second location', async () => {
+    const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+    mockSql.mockResolvedValueOnce([mockQuotaAccountRow({ tier: 'standard', locationsIncluded: 3, locationsPaid: 0 })]);
+    mockSql.mockResolvedValueOnce([{ count: 1 }]);
+
+    const result = await assertCanAddLocation(accountId);
+
+    expect(result.allowed).toBe(true);
+    if (result.allowed) {
+      expect(result.overageUnits).toBe(0);
+    }
+  });
+
+  it('uses stored standard included quota when adding the third location', async () => {
+    const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+    mockSql.mockResolvedValueOnce([mockQuotaAccountRow({ tier: 'standard', locationsIncluded: 3, locationsPaid: 0 })]);
+    mockSql.mockResolvedValueOnce([{ count: 2 }]);
+
+    const result = await assertCanAddLocation(accountId);
+
+    expect(result.allowed).toBe(true);
+    if (result.allowed) {
+      expect(result.overageUnits).toBe(0);
+    }
+  });
+
+  it('uses stored standard included quota when reporting overage above the custom quota', async () => {
+    const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+    mockSql.mockResolvedValueOnce([mockQuotaAccountRow({ tier: 'standard', locationsIncluded: 3, locationsPaid: 0 })]);
+    mockSql.mockResolvedValueOnce([{ count: 5 }]);
+
+    const result = await assertCanAddLocation(accountId);
+
+    expect(result.allowed).toBe(true);
+    if (result.allowed) {
+      expect(result.overageUnits).toBe(3);
     }
   });
 

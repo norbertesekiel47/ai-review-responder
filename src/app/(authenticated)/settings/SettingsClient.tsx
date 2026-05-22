@@ -9,19 +9,27 @@ import { BrandVoicePanel } from '@/components/dashboard/settings/BrandVoicePanel
 import type { SettingsTab } from '@/components/dashboard/SettingsTabs';
 
 interface Props {
+  locationsSettingsEnabled: boolean;
   multiLocationEnabled: boolean;
 }
 
-export function SettingsClient({ multiLocationEnabled }: Props) {
+export function SettingsClient({ locationsSettingsEnabled, multiLocationEnabled }: Props) {
   const f = useSettingsForm();
   const accountData = useAccountData();
 
-  // For multi-location: use 'account' tab; for single-location: use 'general'
-  const activeTab: SettingsTab = multiLocationEnabled ? 'account' : 'general';
+  const activeTab: SettingsTab = multiLocationEnabled
+    ? 'account'
+    : locationsSettingsEnabled
+      ? 'account'
+      : 'general';
 
   if (f.fetchError) {
     return (
-      <SettingsShell activeTab={activeTab} multiLocationEnabled={multiLocationEnabled}>
+      <SettingsShell
+        activeTab={activeTab}
+        locationsSettingsEnabled={locationsSettingsEnabled}
+        multiLocationEnabled={multiLocationEnabled}
+      >
         <div className="set-section" style={{ borderColor: '#FCA5A5' }}>
           <div className="set-section-title" style={{ color: '#991B1B' }}>Error</div>
           <p style={{ fontSize: 13, color: '#B91C1C' }}>{f.fetchError}</p>
@@ -32,7 +40,11 @@ export function SettingsClient({ multiLocationEnabled }: Props) {
 
   if (!f.data || !f.form) {
     return (
-      <SettingsShell activeTab={activeTab} multiLocationEnabled={multiLocationEnabled}>
+      <SettingsShell
+        activeTab={activeTab}
+        locationsSettingsEnabled={locationsSettingsEnabled}
+        multiLocationEnabled={multiLocationEnabled}
+      >
         <p style={{ textAlign: 'center', color: '#6B7280', padding: '60px 0' }}>Loading settings…</p>
       </SettingsShell>
     );
@@ -43,7 +55,8 @@ export function SettingsClient({ multiLocationEnabled }: Props) {
   if (multiLocationEnabled) {
     return (
       <SettingsShell
-        activeTab="account"
+        activeTab={activeTab}
+        locationsSettingsEnabled={locationsSettingsEnabled}
         multiLocationEnabled
       >
         <AccountPanel
@@ -60,7 +73,8 @@ export function SettingsClient({ multiLocationEnabled }: Props) {
   // Single-location: General + Brand Voice on the same page (existing redesign layout)
   return (
     <SettingsShell
-      activeTab="general"
+      activeTab={activeTab}
+      locationsSettingsEnabled={locationsSettingsEnabled}
       savedFlash={f.savedFlash}
       saveBar={{
         visible: f.dirty,
@@ -70,7 +84,17 @@ export function SettingsClient({ multiLocationEnabled }: Props) {
         onDiscard: f.discard,
       }}
     >
-      <GeneralPanel data={f.data} />
+      {locationsSettingsEnabled ? (
+        <AccountPanel
+          data={f.data}
+          accountData={accountData.data}
+          accountLoading={accountData.loading}
+          accountError={accountData.error}
+          onAccountRefetch={accountData.refetch}
+        />
+      ) : (
+        <GeneralPanel data={f.data} />
+      )}
       <BrandVoicePanel form={f.form} set={f.set} />
       {f.saveError && (
         <p style={{ fontSize: 13, color: '#DC2626', marginTop: 4 }}>{f.saveError}</p>

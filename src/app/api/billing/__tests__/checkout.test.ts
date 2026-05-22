@@ -123,6 +123,10 @@ function mockAccountRow(
   };
 }
 
+function mockCheckoutUsageRow(count: number, locationsIncluded: number) {
+  return { count, locations_included: locationsIncluded };
+}
+
 function setupHappyPathMocks(
   tier: string = 'standard',
   status: string = 'pending_payment',
@@ -130,7 +134,9 @@ function setupHappyPathMocks(
   mockRequireRole.mockResolvedValueOnce(ownerUser());
   mockSql.mockResolvedValueOnce([mockAccountRow(tier, status)]);
   // Active location count for overage
-  mockSql.mockResolvedValueOnce([{ count: 1 }]);
+  mockSql.mockResolvedValueOnce([
+    mockCheckoutUsageRow(1, tier === 'premium' ? 5 : 1),
+  ]);
   mockStripeCheckoutCreate.mockResolvedValue({
     id: 'cs_test_happy',
     url: 'https://checkout.stripe.com/test/happy',
@@ -243,7 +249,7 @@ describe('POST /api/billing/checkout', () => {
   it('creates Checkout Session with base + overage line items for standard tier with overage', async () => {
     mockRequireRole.mockResolvedValueOnce(ownerUser());
     mockSql.mockResolvedValueOnce([mockAccountRow('standard', 'pending_payment')]);
-    mockSql.mockResolvedValueOnce([{ count: 3 }]); // 3 locations, 1 included → 2 overage
+    mockSql.mockResolvedValueOnce([mockCheckoutUsageRow(3, 1)]); // 3 locations, 1 included → 2 overage
 
     mockStripeCheckoutCreate.mockResolvedValue({
       id: 'cs_test_2',
@@ -259,11 +265,57 @@ describe('POST /api/billing/checkout', () => {
     expect(createArgs.line_items[1].quantity).toBe(2);
   });
 
+  it('uses stored included quota to omit standard overage line item', async () => {
+    mockRequireRole.mockResolvedValueOnce(ownerUser());
+    mockSql.mockResolvedValueOnce([
+      { ...mockAccountRow('standard', 'pending_payment'), locations_included: 3 },
+    ]);
+    mockSql.mockResolvedValueOnce([mockCheckoutUsageRow(3, 3)]);
+
+    mockStripeCheckoutCreate.mockResolvedValue({
+      id: 'cs_test_custom_quota_no_overage',
+      url: 'https://checkout.stripe.com/test/custom-quota-no-overage',
+    });
+
+    const req = mkRequest({ accountId: ACCOUNT_ID });
+    await POST(req);
+
+    const createArgs = mockStripeCheckoutCreate.mock.calls[0]![0];
+    expect(createArgs.line_items).toHaveLength(1);
+    expect(createArgs.line_items[0].price).toBe('price_standard_test');
+    expect(
+      createArgs.line_items.some(
+        (item: { price: string }) => item.price === 'price_standard_overage_test',
+      ),
+    ).toBe(false);
+  });
+
+  it('uses stored included quota for standard overage line item quantity', async () => {
+    mockRequireRole.mockResolvedValueOnce(ownerUser());
+    mockSql.mockResolvedValueOnce([
+      { ...mockAccountRow('standard', 'pending_payment'), locations_included: 3 },
+    ]);
+    mockSql.mockResolvedValueOnce([mockCheckoutUsageRow(5, 3)]);
+
+    mockStripeCheckoutCreate.mockResolvedValue({
+      id: 'cs_test_custom_quota_overage',
+      url: 'https://checkout.stripe.com/test/custom-quota-overage',
+    });
+
+    const req = mkRequest({ accountId: ACCOUNT_ID });
+    await POST(req);
+
+    const createArgs = mockStripeCheckoutCreate.mock.calls[0]![0];
+    expect(createArgs.line_items).toHaveLength(2);
+    expect(createArgs.line_items[1].price).toBe('price_standard_overage_test');
+    expect(createArgs.line_items[1].quantity).toBe(2);
+  });
+
   // VAL-BILLING-003 — omit overage item when locations ≤ included
   it('omits overage line item when locations ≤ included', async () => {
     mockRequireRole.mockResolvedValueOnce(ownerUser());
     mockSql.mockResolvedValueOnce([mockAccountRow('premium', 'pending_payment')]);
-    mockSql.mockResolvedValueOnce([{ count: 3 }]); // 3 locations, 5 included → 0 overage
+    mockSql.mockResolvedValueOnce([mockCheckoutUsageRow(3, 5)]); // 3 locations, 5 included → 0 overage
 
     mockStripeCheckoutCreate.mockResolvedValue({
       id: 'cs_test_3',
@@ -290,7 +342,7 @@ describe('POST /api/billing/checkout', () => {
   it('creates Checkout Session with only base line item for basic tier', async () => {
     setupHappyPathMocks('basic', 'pending_payment');
     // Even with more locations (shouldn't happen for basic, but tested)
-    mockSql.mockResolvedValueOnce([{ count: 1 }]);
+    mockSql.mockResolvedValueOnce([mockCheckoutUsageRow(1, 1)]);
 
     const req = mkRequest({ accountId: ACCOUNT_ID });
     const res = await POST(req);
@@ -311,7 +363,7 @@ describe('POST /api/billing/checkout', () => {
   it('sets mode=subscription, client_reference_id, payment-success return URL, cancel_url, allow_promotion_codes', async () => {
     mockRequireRole.mockResolvedValueOnce(ownerUser());
     mockSql.mockResolvedValueOnce([mockAccountRow('standard', 'pending_payment', 'test@example.com')]);
-    mockSql.mockResolvedValueOnce([{ count: 1 }]);
+    mockSql.mockResolvedValueOnce([mockCheckoutUsageRow(1, 1)]);
 
     mockStripeCheckoutCreate.mockResolvedValue({
       id: 'cs_test_5',
@@ -350,7 +402,7 @@ describe('POST /api/billing/checkout', () => {
   it('creates Checkout Session with correct overage for premium tier', async () => {
     mockRequireRole.mockResolvedValueOnce(ownerUser());
     mockSql.mockResolvedValueOnce([mockAccountRow('premium', 'pending_payment')]);
-    mockSql.mockResolvedValueOnce([{ count: 7 }]); // 7 locations, 5 included → 2 overage
+    mockSql.mockResolvedValueOnce([mockCheckoutUsageRow(7, 5)]); // 7 locations, 5 included → 2 overage
 
     mockStripeCheckoutCreate.mockResolvedValue({
       id: 'cs_test_premium',
@@ -370,7 +422,7 @@ describe('POST /api/billing/checkout', () => {
   it('creates Checkout Session with correct overage for founders tier', async () => {
     mockRequireRole.mockResolvedValueOnce(ownerUser());
     mockSql.mockResolvedValueOnce([mockAccountRow('founders', 'pending_payment')]);
-    mockSql.mockResolvedValueOnce([{ count: 3 }]); // 3 locations, 1 included → 2 overage
+    mockSql.mockResolvedValueOnce([mockCheckoutUsageRow(3, 1)]); // 3 locations, 1 included → 2 overage
 
     mockStripeCheckoutCreate.mockResolvedValue({
       id: 'cs_test_founders',
@@ -432,7 +484,7 @@ describe('POST /api/billing/checkout', () => {
     clearPriceEnvVars();
     mockRequireRole.mockResolvedValueOnce(ownerUser());
     mockSql.mockResolvedValueOnce([mockAccountRow('standard', 'pending_payment')]);
-    mockSql.mockResolvedValueOnce([{ count: 1 }]);
+    mockSql.mockResolvedValueOnce([mockCheckoutUsageRow(1, 1)]);
 
     const req = mkRequest({ accountId: ACCOUNT_ID });
     const res = await POST(req);

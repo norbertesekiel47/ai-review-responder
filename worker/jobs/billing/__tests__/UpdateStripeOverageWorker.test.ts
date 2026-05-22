@@ -162,6 +162,66 @@ describe('UpdateStripeOverageWorker', () => {
     );
   });
 
+  it('deletes existing standard overage item when custom included quota covers active locations', async () => {
+    mockSql.mockReset();
+    mockSql.mockResolvedValueOnce([mockAccountRow({ locations_included: 3, subscription_tier: 'standard' })]);
+    mockSql.mockResolvedValueOnce([{ count: 3 }]); // 3 active, 3 included
+
+    mockStripeSubscriptionsRetrieve.mockResolvedValueOnce({
+      items: {
+        data: [
+          { id: 'si_base', price: { id: 'price_standard' }, quantity: 1 },
+          { id: 'si_custom_overage', price: { id: 'price_std_overage' }, quantity: 2 },
+        ],
+      },
+    });
+
+    await handleUpdateStripeOverage(mockJob());
+
+    expect(mockStripeSubscriptionItemsDel).toHaveBeenCalledWith(
+      'si_custom_overage',
+      {},
+      {
+        idempotencyKey: 'stripe-overage-delete:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee:si_custom_overage:0:outbox:outbox-1:corr:corr-1',
+      },
+    );
+    expect(mockStripeSubscriptionItemsUpdate).not.toHaveBeenCalled();
+    expect(mockStripeSubscriptionItemsCreate).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
+  });
+
+  it('creates standard overage quantity from active locations minus custom included quota', async () => {
+    mockSql.mockReset();
+    mockSql.mockResolvedValueOnce([mockAccountRow({ locations_included: 3, subscription_tier: 'standard' })]);
+    mockSql.mockResolvedValueOnce([{ count: 5 }]); // 5 active, 3 included
+
+    mockStripeSubscriptionsRetrieve.mockResolvedValueOnce({
+      items: {
+        data: [
+          { id: 'si_base', price: { id: 'price_standard' }, quantity: 1 },
+          // No overage item
+        ],
+      },
+    });
+
+    await handleUpdateStripeOverage(mockJob());
+
+    expect(mockStripeSubscriptionItemsCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        subscription: 'sub_test',
+        price: 'price_std_overage',
+        quantity: 2,
+        proration_behavior: 'create_prorations',
+      }),
+      {
+        idempotencyKey: 'stripe-overage-create:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee:sub_test:price_std_overage:2:outbox:outbox-1:corr:corr-1',
+      },
+    );
+    expect(mockStripeSubscriptionItemsUpdate).not.toHaveBeenCalled();
+    expect(mockStripeSubscriptionItemsDel).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
+  });
+
   // VAL-LOC-012: Deletes overage item when locations fit in included quota
   it('deletes existing overage item when all locations fit in included quota', async () => {
     mockSql.mockReset();

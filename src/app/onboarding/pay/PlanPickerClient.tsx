@@ -2,82 +2,19 @@
 
 import { useState } from 'react';
 
-interface Plan {
-  tier: 'founders' | 'standard' | 'premium';
-  name: string;
-  price: string;
-  badge: string;
-  badgeColor: string;
-  badgeText: string;
-  description: string;
-  highlight: boolean;
-  features: readonly string[];
-  cta: string;
-}
+import type { SubscriptionTierValue } from '@/lib/accounts/tier-config';
 
-const PLANS: readonly Plan[] = [
-  {
-    tier: 'founders',
-    name: 'Founding Member',
-    price: '$99',
-    badge: 'Limited — 10 slots',
-    badgeColor: '#F2C3B9',
-    badgeText: '#2a2a2a',
-    description: 'Rate locked for life.',
-    highlight: true,
-    cta: 'Claim founding rate',
-    features: [
-      'Google review monitoring (hourly)',
-      'AI-powered personalized responses',
-      'One-tap email approval',
-      'Weekly review intelligence brief',
-      'ROI dashboard',
-      'Dedicated onboarding call',
-      'Rate locked for life',
-    ],
-  },
-  {
-    tier: 'standard',
-    name: 'Standard',
-    price: '$149',
-    badge: 'Most popular',
-    badgeColor: '#97B3AE',
-    badgeText: '#ffffff',
-    description: 'Everything you need to dominate your reviews.',
-    highlight: false,
-    cta: 'Choose Standard',
-    features: [
-      'Everything in Founding Member',
-      'Priority support',
-      'Advanced analytics',
-      'Custom response style guide',
-    ],
-  },
-  {
-    tier: 'premium',
-    name: 'Premium',
-    price: '$199',
-    badge: 'High volume',
-    badgeColor: '#2a2a2a',
-    badgeText: '#ffffff',
-    description: 'For high-volume reviewers who want extended backfill and priority support.',
-    highlight: false,
-    cta: 'Choose Premium',
-    features: [
-      'Everything in Standard',
-      'Up to 50 historical reviews backfilled on connect',
-      'Priority support',
-    ],
-  },
-] as const;
+import { getOnboardingPlans } from './plan-options';
+
+const PLANS = getOnboardingPlans();
 
 export function PlanPickerClient({ cancelled }: { cancelled: boolean }) {
-  const [selecting, setSelecting] = useState<'founders' | 'standard' | 'premium' | null>(
+  const [selecting, setSelecting] = useState<SubscriptionTierValue | null>(
     null,
   );
   const [error, setError] = useState('');
 
-  async function handlePick(tier: 'founders' | 'standard' | 'premium') {
+  async function handlePick(tier: SubscriptionTierValue) {
     if (selecting) return;
     setSelecting(tier);
     setError('');
@@ -131,7 +68,7 @@ export function PlanPickerClient({ cancelled }: { cancelled: boolean }) {
         You can switch tiers any time from your dashboard.
       </p>
 
-      <div className="grid md:grid-cols-3 gap-6">
+      <div className="grid md:grid-cols-4 gap-6">
         {PLANS.map((plan) => {
           const isLoading = selecting === plan.tier;
           const isOtherLoading = selecting !== null && !isLoading;
@@ -204,7 +141,9 @@ export function PlanPickerClient({ cancelled }: { cancelled: boolean }) {
       </div>
 
       {error && (
-        <p className="text-sm text-red-600 text-center mt-6">{error}</p>
+        <p role="alert" className="text-sm text-red-600 text-center mt-6">
+          {error}
+        </p>
       )}
     </div>
   );

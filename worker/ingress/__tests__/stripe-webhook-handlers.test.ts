@@ -306,6 +306,75 @@ describe('customer.subscription.updated — two-item subscription', () => {
     expect(updateAcct!.values).toContain(5);
   });
 
+  it('refreshes locations_included to premium default when Stripe changes tier from standard to premium', async () => {
+    mockConstructEvent.mockReturnValue({
+      id: 'evt_sub_updated_standard_to_premium',
+      type: 'customer.subscription.updated',
+      data: {
+        object: {
+          id: TEST_SUBSCRIPTION_ID,
+          customer: TEST_CUSTOMER_ID,
+          items: {
+            data: [
+              { price: { id: 'price_premium_test' }, quantity: 1 },
+              { price: { id: 'price_premium_overage_test' }, quantity: 2 },
+            ],
+          },
+        },
+      },
+    });
+
+    queueSubscriptionUpdated({ tier: 'standard' });
+
+    const { status, send } = mkReply();
+    await handleStripeWebhook(mkRequest(), { status, send } as any);
+
+    expect(status).toHaveBeenCalledWith(200);
+
+    const updateAcct = sqlCalls.find(
+      (c) => /\bUPDATE\s+accounts\b/.test(c.text) && c.text.includes('subscription_tier'),
+    );
+    expect(updateAcct).toBeDefined();
+    expect(updateAcct!.text).toContain('locations_included');
+    expect(updateAcct!.values).toContain('premium');
+    expect(updateAcct!.values).toContain(2);
+    expect(updateAcct!.values).toContain(5);
+  });
+
+  it('preserves custom locations_included when Stripe sends same-tier overage-only update', async () => {
+    mockConstructEvent.mockReturnValue({
+      id: 'evt_sub_updated_standard_overage_only',
+      type: 'customer.subscription.updated',
+      data: {
+        object: {
+          id: TEST_SUBSCRIPTION_ID,
+          customer: TEST_CUSTOMER_ID,
+          items: {
+            data: [
+              { price: { id: 'price_standard_test' }, quantity: 1 },
+              { price: { id: 'price_standard_overage_test' }, quantity: 4 },
+            ],
+          },
+        },
+      },
+    });
+
+    queueSubscriptionUpdated({ tier: 'standard' });
+
+    const { status, send } = mkReply();
+    await handleStripeWebhook(mkRequest(), { status, send } as any);
+
+    expect(status).toHaveBeenCalledWith(200);
+
+    const updateAcct = sqlCalls.find(
+      (c) => /\bUPDATE\s+accounts\b/.test(c.text) && c.text.includes('subscription_tier'),
+    );
+    expect(updateAcct).toBeDefined();
+    expect(updateAcct!.text).toMatch(/locations_included\s*=\s*CASE\s+WHEN\s+\?\s+THEN\s+\?\s+ELSE\s+locations_included\s+END/);
+    expect(updateAcct!.values).toContain(false);
+    expect(updateAcct!.values).toContain(4);
+  });
+
   it('maps founders base price → tier "founders" with overage', async () => {
     mockConstructEvent.mockReturnValue({
       id: 'evt_sub_updated_3',

@@ -187,6 +187,24 @@ describe('POST /api/onboarding/select-plan', () => {
     );
   });
 
+  it('accepts tier="basic" and returns the Basic checkout URL', async () => {
+    mockCreateCheckoutSession.mockResolvedValueOnce({
+      url: 'https://checkout.stripe.com/test/basic',
+      sessionId: 'cs_test_basic',
+    });
+
+    const res = await POST(mkReq({ tier: 'basic' }));
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.paymentUrl).toBe('https://checkout.stripe.com/test/basic');
+    expect(mockCreateCheckoutSession).toHaveBeenCalledWith(
+      expect.any(String),
+      'basic',
+      'owner@example.com',
+    );
+  });
+
   it('returns 401 when no Supabase session', async () => {
     mockGetUser.mockResolvedValueOnce({ data: { user: null } });
     const res = await POST(mkReq(validBody));

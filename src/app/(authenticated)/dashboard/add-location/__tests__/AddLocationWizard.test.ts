@@ -9,9 +9,48 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildAddLocationPayload,
+  computeNextLocationBillingPreview,
   computeProration,
   hasStep1LocationDetails,
 } from '../AddLocationWizard';
+
+// ── computeNextLocationBillingPreview ────────────────────────────────────
+
+describe('computeNextLocationBillingPreview', () => {
+  it('does not add premium overage while below included locations', () => {
+    const result = computeNextLocationBillingPreview({
+      activeLocationCount: 3,
+      billingSnapshot: {
+        basePriceCents: 19900,
+        includedLocations: 5,
+        overagePriceCents: 2000,
+        overageUnits: 0,
+        totalCents: 19900,
+      },
+    });
+
+    expect(result.nextOverageUnits).toBe(0);
+    expect(result.additionalLocationMonthlyCents).toBe(0);
+    expect(result.newMonthlyTotalCents).toBe(19900);
+  });
+
+  it('adds one standard overage when adding a second location', () => {
+    const result = computeNextLocationBillingPreview({
+      activeLocationCount: 1,
+      billingSnapshot: {
+        basePriceCents: 7900,
+        includedLocations: 1,
+        overagePriceCents: 2500,
+        overageUnits: 0,
+        totalCents: 7900,
+      },
+    });
+
+    expect(result.nextOverageUnits).toBe(1);
+    expect(result.additionalLocationMonthlyCents).toBe(2500);
+    expect(result.newMonthlyTotalCents).toBe(10400);
+  });
+});
 
 // ── computeProration ─────────────────────────────────────────────────────
 

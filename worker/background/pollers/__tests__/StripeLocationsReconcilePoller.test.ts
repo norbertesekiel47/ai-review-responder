@@ -196,6 +196,50 @@ describe('StripeLocationsReconcilePoller', () => {
     expect(warnSpy).not.toHaveBeenCalled();
   });
 
+  it('no alert for standard custom included quota when active locations equal included quota', async () => {
+    sqlReturnQueue.push([
+      makeAccountRow({
+        id: 'acct-custom-within',
+        subscription_tier: 'standard',
+        locations_included: 3,
+        active_location_count: 3,
+      }),
+    ]);
+
+    mockStripeRetrieve.mockResolvedValue(
+      makeStripeSubscription(0, 'price_overage_std'),
+    );
+
+    const result = await runOnce();
+
+    expect(result.accountsChecked).toBe(1);
+    expect(result.driftsFound).toBe(0);
+    expect(mockCaptureMessage).not.toHaveBeenCalled();
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it('no alert for standard custom included quota when Stripe overage matches stored quota math', async () => {
+    sqlReturnQueue.push([
+      makeAccountRow({
+        id: 'acct-custom-overage',
+        subscription_tier: 'standard',
+        locations_included: 3,
+        active_location_count: 5,
+      }),
+    ]);
+
+    mockStripeRetrieve.mockResolvedValue(
+      makeStripeSubscription(2, 'price_overage_std'),
+    );
+
+    const result = await runOnce();
+
+    expect(result.accountsChecked).toBe(1);
+    expect(result.driftsFound).toBe(0);
+    expect(mockCaptureMessage).not.toHaveBeenCalled();
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
   // ── Drift detected ──────────────────────────────────────────────
 
   it('emits alert when Stripe overage quantity exceeds DB expectation', async () => {
