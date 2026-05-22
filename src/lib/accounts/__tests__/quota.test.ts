@@ -96,11 +96,13 @@ function mockAccountRow(
   tier: SubscriptionTierValue,
   locationsIncluded: number,
   locationsPaid: number,
+  locationsOveragePriceCents: number = tier === 'premium' ? 2000 : tier === 'basic' ? 0 : 2500,
 ) {
   return {
     subscription_tier: tier,
     locations_included: locationsIncluded,
     locations_paid: locationsPaid,
+    locations_overage_price_cents: locationsOveragePriceCents,
   };
 }
 
@@ -161,6 +163,22 @@ describe('currentBillingSnapshot', () => {
     expect(snapshot.totalCents).toBe(7900 + 2 * 2500);
   });
 
+  it('uses stored overage price for standard snapshot totals', async () => {
+    const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+    mockSql.mockResolvedValueOnce([
+      mockAccountRow('standard', 1, 0, 3000),
+    ]);
+    mockSql.mockResolvedValueOnce(mockLocationCount(3));
+
+    const snapshot = await currentBillingSnapshot(accountId);
+
+    expect(snapshot.basePriceCents).toBe(7900);
+    expect(snapshot.includedLocations).toBe(1);
+    expect(snapshot.overagePriceCents).toBe(3000);
+    expect(snapshot.overageUnits).toBe(2);
+    expect(snapshot.totalCents).toBe(7900 + 2 * 3000);
+  });
+
   // VAL-BILLING-025 — basic tier, no overage
   it('returns no overage for basic tier', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
@@ -215,7 +233,12 @@ describe('currentBillingSnapshot', () => {
   it('throws for unknown tier', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
     mockSql.mockResolvedValueOnce([
-      { subscription_tier: 'enterprise', locations_included: 1, locations_paid: 0 },
+      {
+        subscription_tier: 'enterprise',
+        locations_included: 1,
+        locations_paid: 0,
+        locations_overage_price_cents: 2500,
+      },
     ]);
     mockSql.mockResolvedValueOnce(mockLocationCount(1));
 

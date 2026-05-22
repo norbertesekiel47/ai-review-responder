@@ -50,7 +50,7 @@ export interface BillingSnapshot {
 
 /**
  * Returns the current billing breakdown for an account.
- * Reads the account's subscription_tier, locations_included, locations_paid,
+ * Reads the account's subscription_tier, stored location quota/overage price,
  * and the count of active (non-archived) locations to compute the snapshot.
  *
  * VAL-BILLING-024 through VAL-BILLING-027: per-tier snapshots tested.
@@ -63,8 +63,10 @@ export async function currentBillingSnapshot(
     subscription_tier: string;
     locations_included: number;
     locations_paid: number;
+    locations_overage_price_cents: number;
   }[]>`
-    SELECT subscription_tier, locations_included, locations_paid
+    SELECT subscription_tier, locations_included, locations_paid,
+           locations_overage_price_cents
     FROM accounts
     WHERE id = ${accountId}::uuid
   `;
@@ -80,6 +82,7 @@ export async function currentBillingSnapshot(
 
   const config = TIER_CONFIG[tier];
   const includedLocations = account.locations_included;
+  const overagePriceCents = account.locations_overage_price_cents;
 
   // Basic tier: no overage at all
   if (!config.multiLocAllowed || config.overageCents === 0) {
@@ -106,9 +109,9 @@ export async function currentBillingSnapshot(
   return {
     basePriceCents: config.baseCents,
     includedLocations,
-    overagePriceCents: config.overageCents,
+    overagePriceCents,
     overageUnits,
-    totalCents: config.baseCents + overageUnits * config.overageCents,
+    totalCents: config.baseCents + overageUnits * overagePriceCents,
   };
 }
 
