@@ -94,6 +94,7 @@ export async function validateTierChange(
 
   const newBillingPreview: BillingSnapshot = {
     basePriceCents: newConfig.baseCents,
+    includedLocations: newConfig.included,
     overagePriceCents: newConfig.overageCents,
     overageUnits,
     totalCents: newConfig.baseCents + overageUnits * newConfig.overageCents,

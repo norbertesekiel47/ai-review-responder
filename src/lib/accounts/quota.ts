@@ -36,6 +36,8 @@ export function computeOverageQuantity(
 export interface BillingSnapshot {
   /** Monthly base price in cents. */
   basePriceCents: number;
+  /** Number of locations included in the base price for this tier. */
+  includedLocations: number;
   /** Per-location overage price in cents (0 for basic tier). */
   overagePriceCents: number;
   /** Number of overage units (max(0, activeLocations - included)). */
@@ -82,6 +84,7 @@ export async function currentBillingSnapshot(
   if (!config.multiLocAllowed || config.overageCents === 0) {
     return {
       basePriceCents: config.baseCents,
+      includedLocations: config.included,
       overagePriceCents: 0,
       overageUnits: 0,
       totalCents: config.baseCents,
@@ -101,6 +104,7 @@ export async function currentBillingSnapshot(
 
   return {
     basePriceCents: config.baseCents,
+    includedLocations: config.included,
     overagePriceCents: config.overageCents,
     overageUnits,
     totalCents: config.baseCents + overageUnits * config.overageCents,

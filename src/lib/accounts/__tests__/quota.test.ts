@@ -123,6 +123,7 @@ describe('currentBillingSnapshot', () => {
     const snapshot = await currentBillingSnapshot(accountId);
 
     expect(snapshot.basePriceCents).toBe(7900);
+    expect(snapshot.includedLocations).toBe(1);
     expect(snapshot.overagePriceCents).toBe(2500);
     expect(snapshot.overageUnits).toBe(3); // 4 - 1 = 3
     expect(snapshot.totalCents).toBe(7900 + 3 * 2500); // 15400
@@ -139,6 +140,7 @@ describe('currentBillingSnapshot', () => {
     const snapshot = await currentBillingSnapshot(accountId);
 
     expect(snapshot.basePriceCents).toBe(2900);
+    expect(snapshot.includedLocations).toBe(1);
     expect(snapshot.overagePriceCents).toBe(0);
     expect(snapshot.overageUnits).toBe(0);
     expect(snapshot.totalCents).toBe(2900);
@@ -155,6 +157,7 @@ describe('currentBillingSnapshot', () => {
     const snapshot = await currentBillingSnapshot(accountId);
 
     expect(snapshot.basePriceCents).toBe(19900);
+    expect(snapshot.includedLocations).toBe(5);
     expect(snapshot.overagePriceCents).toBe(2000);
     expect(snapshot.overageUnits).toBe(2); // 7 - 5 = 2
     expect(snapshot.totalCents).toBe(19900 + 2 * 2000); // 23900
@@ -171,6 +174,7 @@ describe('currentBillingSnapshot', () => {
     const snapshot = await currentBillingSnapshot(accountId);
 
     expect(snapshot.basePriceCents).toBe(1900);
+    expect(snapshot.includedLocations).toBe(1);
     expect(snapshot.overagePriceCents).toBe(2500);
     expect(snapshot.overageUnits).toBe(2); // 3 - 1 = 2
     expect(snapshot.totalCents).toBe(1900 + 2 * 2500); // 6900
