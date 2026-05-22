@@ -84,6 +84,17 @@ export async function currentBillingSnapshot(
   const includedLocations = account.locations_included;
   const overagePriceCents = account.locations_overage_price_cents;
 
+  // Included count and overage price are read from the stored account columns
+  // (point-in-time, grandfathered). Base price still comes from live TIER_CONFIG
+  // because there is no stored base-price column yet.
+  // TODO: base price is NOT grandfathered. If TIER_CONFIG[tier].baseCents ever
+  // changes, this snapshot's basePriceCents will drift from the actual Stripe
+  // charge (Stripe keeps the original base Price ID on existing subscriptions).
+  // Critical for the `founders` tier ("Rate locked for life"). Fix needs a
+  // schema change: add accounts.base_price_cents, snapshot it at
+  // signup/select-plan + tier-change, and read it here. See
+  // docs/runbooks/multi-location.md (Known Issues & Tech Debt).
+
   // Basic tier: no overage at all
   if (!config.multiLocAllowed || config.overageCents === 0) {
     return {
