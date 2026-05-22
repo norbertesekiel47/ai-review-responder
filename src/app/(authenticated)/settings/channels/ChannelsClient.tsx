@@ -1,6 +1,7 @@
 'use client';
 
 import { OwnerTelegramWidget } from '@/components/dashboard/OwnerTelegramWidget';
+import { OwnerWhatsAppWidget } from '@/components/dashboard/OwnerWhatsAppWidget';
 import { ComingSoonChannelRow } from '@/components/dashboard/ComingSoonChannelRow';
 
 export interface InitialEnrollment {
@@ -75,12 +76,16 @@ export function ChannelsClient({ initialEnrollments, initialAvailability, ownerE
           reason={initialAvailability.sms ? 'SMS owner widget ships in a follow-up phase' : 'Available once 10DLC verification clears'}
         />
 
-        {/* WhatsApp — always coming-soon in Phase 4 */}
-        <ComingSoonChannelRow
-          icon="🟢"
-          name="WhatsApp"
-          reason={initialAvailability.whatsapp ? 'WhatsApp owner widget ships in a follow-up phase' : 'Available once Meta business verification clears'}
-        />
+        {/* WhatsApp — interactive if available, coming-soon otherwise */}
+        {initialAvailability.whatsapp ? (
+          <OwnerWhatsAppWidget initialEnrollment={findChannel(initialEnrollments, 'whatsapp')} />
+        ) : (
+          <ComingSoonChannelRow
+            icon="🟢"
+            name="WhatsApp"
+            reason="Available once Meta business verification clears"
+          />
+        )}
       </div>
     </div>
   );
