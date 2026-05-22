@@ -68,6 +68,14 @@ describe('SettingsClient', () => {
     expect(screen.queryByText('General panel')).not.toBeInTheDocument();
   });
 
+  it('prefers account tab when multi-location enabled even if locations settings are disabled', () => {
+    render(<SettingsClient locationsSettingsEnabled={false} multiLocationEnabled />);
+
+    expect(screen.getByTestId('settings-shell')).toHaveAttribute('data-active-tab', 'account');
+    expect(screen.getByText('Account panel')).toBeInTheDocument();
+    expect(screen.queryByText('General panel')).not.toBeInTheDocument();
+  });
+
   it('selects the general tab when locations settings are disabled', () => {
     render(<SettingsClient locationsSettingsEnabled={false} multiLocationEnabled={false} />);
 

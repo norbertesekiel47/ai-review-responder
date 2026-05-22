@@ -17,7 +17,11 @@ export function SettingsClient({ locationsSettingsEnabled, multiLocationEnabled 
   const f = useSettingsForm();
   const accountData = useAccountData();
 
-  const activeTab: SettingsTab = locationsSettingsEnabled ? 'account' : 'general';
+  const activeTab: SettingsTab = multiLocationEnabled
+    ? 'account'
+    : locationsSettingsEnabled
+      ? 'account'
+      : 'general';
 
   if (f.fetchError) {
     return (
