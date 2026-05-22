@@ -1,4 +1,5 @@
 import { lookupTierConfig } from '@/lib/accounts/tier-config';
+import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 
 export function shouldUseMultiLocationSettings(
   featureEnabled: boolean,
@@ -17,6 +18,6 @@ export function canAddLocationForAccount(
   subscriptionStatus: string,
 ): boolean {
   if (!featureEnabled) return false;
-  if (subscriptionStatus !== 'active') return false;
+  if (subscriptionStatus !== SubscriptionStatus.ACTIVE) return false;
   return lookupTierConfig(subscriptionTier)?.multiLocAllowed === true;
 }

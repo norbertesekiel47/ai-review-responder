@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { SubscriptionTier } from '@/lib/accounts/tier-config';
+import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import {
   canAddLocationForAccount,
   shouldShowLocationsSettings,
@@ -30,26 +32,56 @@ describe('shouldShowLocationsSettings', () => {
 });
 
 describe('canAddLocationForAccount', () => {
-  it.each(['founders', 'standard', 'premium'] as const)(
+  it.each([
+    SubscriptionTier.FOUNDERS,
+    SubscriptionTier.STANDARD,
+    SubscriptionTier.PREMIUM,
+  ] as const)(
     'allows active %s accounts when the feature flag is on',
     (tier) => {
-      expect(canAddLocationForAccount(true, tier, 'active')).toBe(true);
+      expect(
+        canAddLocationForAccount(true, tier, SubscriptionStatus.ACTIVE),
+      ).toBe(true);
     },
   );
 
   it('does not allow Basic even when active', () => {
-    expect(canAddLocationForAccount(true, 'basic', 'active')).toBe(false);
+    expect(
+      canAddLocationForAccount(
+        true,
+        SubscriptionTier.BASIC,
+        SubscriptionStatus.ACTIVE,
+      ),
+    ).toBe(false);
   });
 
-  it('does not allow eligible tiers when subscription is not active', () => {
-    expect(canAddLocationForAccount(true, 'standard', 'pending_payment')).toBe(false);
-  });
+  it.each([
+    SubscriptionStatus.PENDING_PAYMENT,
+    SubscriptionStatus.PAST_DUE,
+    SubscriptionStatus.CANCELLED,
+    'unknown',
+  ] as const)(
+    'does not allow standard accounts when subscription status is %s',
+    (status) => {
+      expect(
+        canAddLocationForAccount(true, SubscriptionTier.STANDARD, status),
+      ).toBe(false);
+    },
+  );
 
   it('does not allow eligible tiers when the feature flag is off', () => {
-    expect(canAddLocationForAccount(false, 'standard', 'active')).toBe(false);
+    expect(
+      canAddLocationForAccount(
+        false,
+        SubscriptionTier.STANDARD,
+        SubscriptionStatus.ACTIVE,
+      ),
+    ).toBe(false);
   });
 
   it('does not allow unknown tiers', () => {
-    expect(canAddLocationForAccount(true, 'enterprise', 'active')).toBe(false);
+    expect(
+      canAddLocationForAccount(true, 'enterprise', SubscriptionStatus.ACTIVE),
+    ).toBe(false);
   });
 });
