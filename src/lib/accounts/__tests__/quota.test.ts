@@ -358,6 +358,45 @@ describe('assertCanAddLocation', () => {
     }
   });
 
+  it('uses stored standard included quota when adding the second location', async () => {
+    const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+    mockSql.mockResolvedValueOnce([mockQuotaAccountRow({ tier: 'standard', locationsIncluded: 3, locationsPaid: 0 })]);
+    mockSql.mockResolvedValueOnce([{ count: 1 }]);
+
+    const result = await assertCanAddLocation(accountId);
+
+    expect(result.allowed).toBe(true);
+    if (result.allowed) {
+      expect(result.overageUnits).toBe(0);
+    }
+  });
+
+  it('uses stored standard included quota when adding the third location', async () => {
+    const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+    mockSql.mockResolvedValueOnce([mockQuotaAccountRow({ tier: 'standard', locationsIncluded: 3, locationsPaid: 0 })]);
+    mockSql.mockResolvedValueOnce([{ count: 2 }]);
+
+    const result = await assertCanAddLocation(accountId);
+
+    expect(result.allowed).toBe(true);
+    if (result.allowed) {
+      expect(result.overageUnits).toBe(0);
+    }
+  });
+
+  it('uses stored standard included quota when reporting overage above the custom quota', async () => {
+    const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+    mockSql.mockResolvedValueOnce([mockQuotaAccountRow({ tier: 'standard', locationsIncluded: 3, locationsPaid: 0 })]);
+    mockSql.mockResolvedValueOnce([{ count: 5 }]);
+
+    const result = await assertCanAddLocation(accountId);
+
+    expect(result.allowed).toBe(true);
+    if (result.allowed) {
+      expect(result.overageUnits).toBe(3);
+    }
+  });
+
   // VAL-LOC-005: allows add with overage when above included quota but sub is active
   it('allows add with overage when above included quota (standard, 1 included, 0 paid, 1 active)', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';

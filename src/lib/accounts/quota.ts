@@ -213,7 +213,7 @@ export async function assertCanAddLocation(
   // The `quota_exhausted` reason is reserved for future hard-cap scenarios
   // (e.g., platform-imposed maximums) but is not triggered in the current
   // implementation because overage billing is automatic.
-  const overageUnits = computeOverageQuantity(activeLocations + 1, tierConfig.included);
+  const overageUnits = computeOverageQuantity(activeLocations + 1, account.locations_included);
 
   return { allowed: true, overageUnits };
 }
