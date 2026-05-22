@@ -64,7 +64,7 @@ surfaces real drift, it converts to a fix task in the implementation plan.
 |---|----------|-----------|
 | 1 | **Reconcile drift, then go live** — verify the Phase 3 code against multi-location/billing first, then activate | Code is months old; cheap to verify before flipping a customer-facing flag |
 | 2 | **Build the owner self-service widget now** — replace the "coming soon" stub | True self-serve GA; owners connect WhatsApp themselves, not just admin-on-behalf |
-| 3 | **Mobile-channel conflict → block with a clear message** | Smallest change; matches the existing 409 (`MultipleMobileChannelsError`) backend exactly. No auto-swap, no radio-picker redesign |
+| 3 | **Mobile-channel conflict → block** (owner disconnects current channel first) | Smallest change; reuses the existing 409 (`MultipleMobileChannelsError`) + the shared reducer's generic "disconnect your current channel" copy. No auto-swap, no radio-picker redesign, no reducer change (channel-named copy is an explicit optional enhancement) |
 | 4 | **Run the three streams in parallel** | Meta template review is the multi-day long pole; submit it day-1 while the owner widget lands safely behind the flag, converge at the ship gate |
 
 ## Non-goals (explicit / YAGNI)
@@ -89,10 +89,29 @@ surfaces real drift, it converts to a fix task in the implementation plan.
 
 ---
 
-## Stream ② — Owner self-service widget (the only net-new code)
+## Stream ② — Owner self-service widget
 
 Lands behind `CHANNELS_WHATSAPP_ENABLED` — zero customer surface until the flag
 flips. Every new unit mirrors its existing Telegram counterpart.
+
+### Refactor first — extract enrollment helpers (entry-point invariant)
+
+`src/lib/channels/whatsapp-enrollment.ts` currently exports only
+`cancelWhatsAppEnrollment`. The admin start route
+(`src/app/api/admin/channels/whatsapp/start/route.ts`) **inlines** the full
+advisory-lock + SELECT-FOR-UPDATE + state-machine upsert. Per the repo invariant
+*"entry points orchestrate; modules own failure behavior,"* extract the logic
+into the helper module so both routes orchestrate rather than duplicate:
+
+- Add `startWhatsAppEnrollment(tx, { accountId, businessId, tokenHash, expiresAt })`
+  → `{ kind: 'ok' } | { kind: 'already_verified' }`, holding the state machine
+  (no row → INSERT; pending/unsubscribed/disabled → reset to pending; verified →
+  `already_verified`). Caller holds the `mobile_enroll:${businessId}` advisory
+  lock inside `sql.begin`. Mirrors `startTelegramEnrollment`.
+- Add `disableWhatsAppEnrollment(tx, businessId)`, mirroring `disableTelegramEnrollment`.
+- **Refactor the existing admin start route** to call `startWhatsAppEnrollment`
+  (pure move, zero behavior change; its tests are the regression net).
+- The new owner routes call the same helpers.
 
 ### New files
 
@@ -125,9 +144,11 @@ flips. Every new unit mirrors its existing Telegram counterpart.
 - Flag check → 404 (`flagOff`); env not ready → 503 (`assertWhatsAppEnvReady`).
 - Subscription guard: `SELECT a.id, a.subscription_status FROM accounts a JOIN businesses b ON b.account_id = a.id WHERE b.id = ${locationId}`; non-`ACTIVE` → 403 `subscription_not_active`.
 - Generate `rawToken = randomUUID()`, `tokenHash = sha256(rawToken)`, TTL from `TOKEN_TTL_MS`; build QR/deep link.
-- Insert pending enrollment inside `sql.begin`; on Postgres 23505 call
-  `classifyEnrollmentError(err)` → `MultipleMobileChannelsError` → **409**
-  `{ error: 'multiple_mobile_channels' }`; `EnrollmentDatabaseError` → 500 (no constraint leak).
+- Inside `sql.begin`: take the `mobile_enroll:${locationId}` advisory lock, then
+  call `startWhatsAppEnrollment(...)` (the extracted helper). On Postgres 23505 the
+  helper's caught path calls `classifyEnrollmentError(err)` → `MultipleMobileChannelsError`
+  → **409** `{ error: 'multiple_mobile_channels' }`; `EnrollmentDatabaseError` → 500 (no constraint leak).
+  `already_verified` → 409 `{ error: 'already_verified' }`.
 - `safeInvalidateChannelCache` after commit.
 - Response headers: `Cache-Control: no-store, private`.
 
@@ -149,6 +170,24 @@ flips. Every new unit mirrors its existing Telegram counterpart.
 - `whatsappAvailable()` and `KNOWN_CHANNELS` already include WhatsApp. Verify the
   SSR enrollment query returns the `whatsapp` row for hydration; adjust only if missing.
 
+### Unify the env-readiness predicate (review finding #4)
+
+The "is WhatsApp available?" check is currently **inconsistent across three call
+sites**, which lets the UI render a Connect button that immediately 503s:
+
+| Call site | Vars checked |
+|---|---|
+| `worker/config/startup-assert.ts::assertChannelsWhatsAppEnv` | 7 vars + `whatsapp:+…` format + URL-base equality |
+| `src/app/api/admin/channels/whatsapp/_shared.ts::assertWhatsAppEnvReady` | 5 vars (incl. `WHATSAPP_APPROVAL_URL_BASE`) |
+| `page.tsx::whatsappAvailable` + `api/dashboard/channels/route.ts::whatsappAvailable` | **4 vars (missing `WHATSAPP_APPROVAL_URL_BASE`)** |
+
+Fix: introduce a single shared predicate (the **5-var Next.js list** — the worker
+keeps its stricter 7-var boot assertion since `WORKER_PUBLIC_URL` is worker-only)
+in `whatsapp/_shared.ts`, e.g. `whatsappEnvReady(): boolean`, and have
+`assertWhatsAppEnvReady`, both `whatsappAvailable()` functions, and the new owner
+route guard all derive from it. After this change, `whatsappAvailable()` ⟺ the
+route guard passes — no Connect button that the start route would reject.
+
 ### Data flow
 
 ```
@@ -166,59 +205,126 @@ owner-initiated *start* of that flow.
 
 ### Error handling
 
-| Condition | Response | Owner-facing |
+The owner-facing copy is produced by the **shared** `classifyConnectError` in
+`enrollment-reducer.ts` (used by every channel via `useEnrollment`). The default
+scope of this spec **does not change that shared reducer** — so the spec promises
+exactly the strings the reducer already emits (review finding #3). The route
+status codes below are what the reducer maps from:
+
+| Condition | Route response | Reducer copy (current, shared) |
 |---|---|---|
-| `CHANNELS_WHATSAPP_ENABLED !== 'true'` | 404 | Row stays "coming soon" |
-| Env incomplete | 503 | "WhatsApp is temporarily unavailable" |
-| Not `owner` role | 401 | — |
-| Subscription not `ACTIVE` | 403 `subscription_not_active` | "Complete payment to enable WhatsApp" |
-| **Another mobile channel pending/verified** | **409 `multiple_mobile_channels`** | **"Disconnect Telegram first to use WhatsApp."** (name the conflicting channel if known, else generic) |
-| Other Postgres unique violation | 500 `EnrollmentDatabaseError` | Generic error (no constraint leak) |
-| Token expired | per `useEnrollment` TTL handling | "Link expired — tap Connect again" |
+| `CHANNELS_WHATSAPP_ENABLED !== 'true'` | 404 | "This channel is currently unavailable." (row stays "coming soon" anyway) |
+| Env incomplete | 503 | "Service temporarily unavailable. Please try again." |
+| Not `owner` role | 401 | "Session expired — please sign in again." |
+| Subscription not `ACTIVE` | 403 `subscription_not_active` | "Session expired — please sign in again." *(generic — see note)* |
+| **Another mobile channel pending/verified** | **409 `multiple_mobile_channels`** | **"Disconnect your current channel before connecting another."** *(generic, not channel-named)* |
+| Already verified | 409 `already_verified` | "Already connected." |
+| Other Postgres unique violation | 500 `EnrollmentDatabaseError` | "Could not connect (500)." (no constraint leak) |
+| Token expired | `useEnrollment` TTL handling | re-prompt to tap Connect again |
+
+**Optional enhancement (out of default scope, flag in plan):** to get
+channel-specific 409 copy ("Disconnect Telegram first") and a distinct 403
+subscription message, extend `classifyConnectError` to read an optional
+`reason`/`conflictChannel` from the JSON error body and branch on it. This touches
+the reducer shared by SMS/Telegram/WhatsApp, so it carries cross-channel test
+cost and is deliberately excluded unless the user wants it. The 403→"session
+expired" mismapping is **pre-existing** (affects Telegram today) and is not
+introduced by this work.
 
 ---
 
 ## Stream ③ — Activate (ops runbook)
 
-Extends `docs/runbooks/whatsapp-templates.md` with a go-live checklist. **Copy is
-locked before submission** — the `repworth_approval_request_v1` body copy and
-button labels in the runbook are final; any change after submission restarts the
-Meta review clock.
+Extends `docs/runbooks/whatsapp-templates.md` with a go-live checklist.
+
+### 0. Verify the template type, THEN lock copy (review finding #5)
+
+The runbook currently specifies `twilio/card`. Per Twilio's current Content API
+docs, **`twilio/card` puts all WhatsApp text in `title` (the `body` field is
+RCS-only)** and constrains button-type mixing. Our template needs body text **plus
+a mix of 2 QUICK_REPLY + 1 URL button** — that is the **`whatsapp/card`** content
+type (real `body` field up to 1024 chars with variables; supports mixed
+QUICK_REPLY/URL buttons; optional `footer`/`header`).
+
+Actions before copy-lock:
+- Update the runbook template definition from `twilio/card` → `whatsapp/card`,
+  moving the message into `body`, buttons into `actions`.
+- Validate the exact Content API submission JSON and the **9-variable mapping
+  against `src/lib/notifications/channels/whatsapp-body.ts`** (`formatApprovalWhatsApp`
+  must emit the same indices the submitted template references). The send code is
+  content-type-agnostic (it passes `contentSid` + `contentVariables`), so this is
+  a runbook/submission change only — *provided* the variable layout matches.
+- Refs: twilio/card, whatsapp/card, WhatsApp buttons (Twilio docs).
+
+Only after the type + variable map are verified is the copy **locked** — any
+change after Meta submission restarts the review clock.
+
+### Provisioning + env + gate
 
 1. **Provision** WABA → Twilio WhatsApp sender.
-2. **Submit** `repworth_approval_request_v1` (`twilio/card`, 2 quick-reply + 1 URL
-   button, 9 body variables) to Meta verbatim from the runbook → capture the
-   returned Content SID.
-3. **Set Railway env** (flag stays `false` until the gate passes):
-   - `TWILIO_WHATSAPP_NUMBER` — `whatsapp:+<digits>`
-   - `WHATSAPP_APPROVAL_TEMPLATE_SID` — the captured SID
-   - `WHATSAPP_APPROVAL_URL_BASE` — must equal `NEXT_PUBLIC_APP_URL + '/approve/'`
-   - existing: `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `WORKER_PUBLIC_URL`, `NEXT_PUBLIC_APP_URL`
+2. **Submit** `repworth_approval_request_v1` (`whatsapp/card`, 2 quick-reply + 1 URL
+   button, 9 variables) to Meta verbatim from the runbook → capture the returned
+   Content SID.
+3. **Set env in BOTH platforms** — Next.js routes + `/settings/channels` run on
+   **Vercel**, the worker runs on **Railway** (CLAUDE.md: "Vercel = UI only").
+   The flag and WhatsApp env must be set in **both**, or the UI/routes stay
+   hidden/404/503 even with the worker ready (review finding #1). Flag stays
+   `false` everywhere until the gate passes.
+
+   | Var | Vercel (UI/routes) | Railway (worker) |
+   |---|---|---|
+   | `CHANNELS_WHATSAPP_ENABLED` | ✅ | ✅ |
+   | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` | ✅ | ✅ |
+   | `TWILIO_WHATSAPP_NUMBER` (`whatsapp:+<digits>`) | ✅ | ✅ |
+   | `WHATSAPP_APPROVAL_TEMPLATE_SID` | ✅ | ✅ |
+   | `WHATSAPP_APPROVAL_URL_BASE` (= `NEXT_PUBLIC_APP_URL + '/approve/'`) | ✅ | ✅ |
+   | `NEXT_PUBLIC_APP_URL` | ✅ | ✅ |
+   | `WORKER_PUBLIC_URL` | — | ✅ (worker-only) |
+
 4. **Pin Twilio webhooks** → `WORKER_PUBLIC_URL/ingress/twilio/whatsapp-inbound`
    and `…/whatsapp-status`.
-5. **Run the Phase 3 §5.1 eight-point ship gate** on a pilot business
-   (enrollment via admin OR the new owner widget):
-   webhook signature verify · click-to-chat enroll · Approve round-trip ·
-   Regenerate round-trip · blocked-recipient handling · re-enrollment ·
-   cross-channel race · STOP inside session.
-6. **Flip** `CHANNELS_WHATSAPP_ENABLED=true` in Railway + redeploy the worker.
-   `assertChannelsWhatsAppEnv` validates all env on boot (refuses to start on
-   URL-base mismatch).
+5. **Canary enablement for the gate (review finding #2).** The §5.1 ship gate
+   exercises admin/owner enrollment routes, which are flag-gated — so the flag
+   must be ON in a controlled scope *before* the gate runs. There is no
+   per-business flag; the global flag gates the routes. Pick one:
+   - **(a) Staging canary (preferred):** enable the flag in a staging environment
+     that has its **own** Meta-approved template SID + URL base (the URL-base
+     equality check forbids sharing the prod template). Run the full gate there.
+   - **(b) Prod time-boxed canary:** flip the flag in prod but enroll **only the
+     pilot business**. Send attempts are naturally scoped to businesses with a
+     verified WhatsApp enrollment, so only the pilot receives WhatsApp. Run the
+     gate, then keep the flag on for GA (or flip back off if the gate fails).
 
-**Environment note:** the URL-base equality check means staging/local must either
-use their own Meta-approved template SID or run with the flag off — they cannot
-share the production template.
+   Run the Phase 3 §5.1 **eight-point gate** in the chosen scope: webhook
+   signature verify · click-to-chat enroll · Approve round-trip · Regenerate
+   round-trip · blocked-recipient handling · re-enrollment · cross-channel race ·
+   STOP inside session.
+6. **Full flip** once the gate passes: set `CHANNELS_WHATSAPP_ENABLED=true` in
+   **both Vercel and Railway** and redeploy. Vercel exposes the owner widget +
+   routes; the worker boots through `assertChannelsWhatsAppEnv` (refuses to start
+   on URL-base mismatch).
+
+**Environment note:** the URL-base equality check means staging/local must use
+their own Meta-approved template SID or run flag-off — they cannot share the
+production template.
 
 ---
 
 ## Testing
 
 **Unit (Vitest):**
+- `startWhatsAppEnrollment` / `disableWhatsAppEnrollment` helpers: each state
+  transition (no row → INSERT; pending/unsubscribed/disabled → reset; verified →
+  `already_verified`), mirroring the Telegram helper tests.
 - Owner whatsapp routes (`start`/`cancel`/`disable`): flag-off 404, env-not-ready
   503, auth 401, subscription-not-active 403, **409 multiple_mobile_channels**,
-  happy-path token+QR generation. Mirror the admin/telegram route test files.
+  `already_verified` 409, happy-path token+QR generation. Mirror the admin/telegram route test files.
 - `start` route: assert no raw token appears in any `console.*` argument
   (raw-token invariant), mirroring the Phase 3 anti-regression assertion.
+- Admin start-route regression suite stays green after the helper refactor.
+- Env unification: `whatsappEnvReady()` returns false when any of the 5 vars
+  (incl. `WHATSAPP_APPROVAL_URL_BASE`) is missing, and `whatsappAvailable()` ⟺
+  the route guard (no Connect button when the route would 503).
 
 **Component:**
 - `OwnerWhatsAppWidget` renders each state (idle / generating / awaiting_scan /
@@ -250,6 +356,9 @@ share the production template.
 | Template copy edited after submission | Runbook enforces copy-lock before submit; `_v1` naming reserves room for versioned resubmits |
 | Staging sends URLs the prod template doesn't point at | `WHATSAPP_APPROVAL_URL_BASE` equality check in `assertChannelsWhatsAppEnv` refuses boot on mismatch |
 | Owner widget regresses Telegram/SMS rows | New component + routes only; existing rows untouched; their tests are the regression net |
+| Flag/env set on Railway but not Vercel (or vice versa) | Stream ③ env matrix sets both platforms; gate is run only after both are configured; `whatsappEnvReady()` UI check matches the route guard |
+| Wrong Content type (`twilio/card`) drops body text on WhatsApp | Stream ③ step 0 switches to `whatsapp/card` and validates the 9-variable map against `whatsapp-body.ts` before copy-lock/submission |
+| Admin start-route refactor changes behavior | Extraction is a pure move; existing admin route tests are the regression net and must stay green |
 
 ---
 
@@ -264,11 +373,16 @@ share the production template.
 - `src/components/dashboard/__tests__/OwnerWhatsAppWidget.test.tsx`
 
 ### Stream ② (modify)
-- `src/app/(authenticated)/settings/channels/ChannelsClient.tsx`
-- `src/app/(authenticated)/settings/channels/page.tsx` (verify only; modify if SSR row missing)
+- `src/lib/channels/whatsapp-enrollment.ts` — add `startWhatsAppEnrollment`, `disableWhatsAppEnrollment`
+- `src/lib/channels/__tests__/whatsapp-enrollment.test.ts` — cover the new helpers
+- `src/app/api/admin/channels/whatsapp/start/route.ts` — refactor to call `startWhatsAppEnrollment` (pure move)
+- `src/app/api/admin/channels/whatsapp/_shared.ts` — add unified `whatsappEnvReady()`; `assertWhatsAppEnvReady` derives from it
+- `src/app/(authenticated)/settings/channels/page.tsx` — `whatsappAvailable()` uses `whatsappEnvReady()` (5-var); verify SSR whatsapp row
+- `src/app/api/dashboard/channels/route.ts` — `whatsappAvailable()` uses `whatsappEnvReady()` (5-var)
+- `src/app/(authenticated)/settings/channels/ChannelsClient.tsx` — swap WhatsApp stub for `OwnerWhatsAppWidget`
 
 ### Stream ③ (modify)
-- `docs/runbooks/whatsapp-templates.md` (add go-live checklist + copy-lock note)
+- `docs/runbooks/whatsapp-templates.md` — switch template to `whatsapp/card`, validate 9-var mapping, add Vercel+Railway env matrix, canary-before-gate step, copy-lock note
 
 ### Tests touching existing harnesses
 - Owner enrollment integration test (new file alongside the Phase 3 integration suite)
