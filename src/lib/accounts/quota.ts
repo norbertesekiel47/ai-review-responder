@@ -79,12 +79,13 @@ export async function currentBillingSnapshot(
   }
 
   const config = TIER_CONFIG[tier];
+  const includedLocations = account.locations_included;
 
   // Basic tier: no overage at all
   if (!config.multiLocAllowed || config.overageCents === 0) {
     return {
       basePriceCents: config.baseCents,
-      includedLocations: config.included,
+      includedLocations,
       overagePriceCents: 0,
       overageUnits: 0,
       totalCents: config.baseCents,
@@ -100,11 +101,11 @@ export async function currentBillingSnapshot(
   `;
 
   const activeLocations = Number(locationRow?.count ?? 0);
-  const overageUnits = computeOverageQuantity(activeLocations, config.included);
+  const overageUnits = computeOverageQuantity(activeLocations, includedLocations);
 
   return {
     basePriceCents: config.baseCents,
-    includedLocations: config.included,
+    includedLocations,
     overagePriceCents: config.overageCents,
     overageUnits,
     totalCents: config.baseCents + overageUnits * config.overageCents,

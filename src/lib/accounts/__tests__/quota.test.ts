@@ -129,6 +129,38 @@ describe('currentBillingSnapshot', () => {
     expect(snapshot.totalCents).toBe(7900 + 3 * 2500); // 15400
   });
 
+  it('uses stored included quota for standard snapshot below custom quota', async () => {
+    const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+    mockSql.mockResolvedValueOnce([
+      mockAccountRow('standard', 3, 0),
+    ]);
+    mockSql.mockResolvedValueOnce(mockLocationCount(2));
+
+    const snapshot = await currentBillingSnapshot(accountId);
+
+    expect(snapshot.basePriceCents).toBe(7900);
+    expect(snapshot.includedLocations).toBe(3);
+    expect(snapshot.overagePriceCents).toBe(2500);
+    expect(snapshot.overageUnits).toBe(0);
+    expect(snapshot.totalCents).toBe(7900);
+  });
+
+  it('uses stored included quota for standard snapshot above custom quota', async () => {
+    const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+    mockSql.mockResolvedValueOnce([
+      mockAccountRow('standard', 3, 0),
+    ]);
+    mockSql.mockResolvedValueOnce(mockLocationCount(5));
+
+    const snapshot = await currentBillingSnapshot(accountId);
+
+    expect(snapshot.basePriceCents).toBe(7900);
+    expect(snapshot.includedLocations).toBe(3);
+    expect(snapshot.overagePriceCents).toBe(2500);
+    expect(snapshot.overageUnits).toBe(2);
+    expect(snapshot.totalCents).toBe(7900 + 2 * 2500);
+  });
+
   // VAL-BILLING-025 — basic tier, no overage
   it('returns no overage for basic tier', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
