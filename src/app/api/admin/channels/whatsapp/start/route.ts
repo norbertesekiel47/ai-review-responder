@@ -28,8 +28,7 @@ import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels
 import { asAccountId } from '@/lib/shared/ids';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
 import { startWhatsAppEnrollment } from '@/lib/channels/whatsapp-enrollment';
-
-const TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
+import { TOKEN_TTL_MS } from '@/lib/notifications/channels/constants';
 
 async function startWhatsApp(req: NextRequest): Promise<NextResponse> {
   if (!isWhatsAppEnabled()) return flagOff();
