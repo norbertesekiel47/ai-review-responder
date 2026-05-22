@@ -456,6 +456,7 @@ These are non-blocking issues identified during validation. They don't affect co
 | `recordApiCost` omits account_id | Low | Platform-level costs have no account by design — `account_id` is nullable on `api_costs` per migration 039. |
 | CSRF protection inconsistency | Medium | Some API routes lack CSRF token verification. Broader concern beyond multi-location feature. |
 | Admin email cache `.catch(() => {})` swallows errors | Low | Redis cache invalidation failures in admin email enrollment sync are silently swallowed. Optional polish to log warnings instead. |
+| Base price not grandfathered in billing snapshot | Medium | `currentBillingSnapshot` now reads `accounts.locations_included` and `accounts.locations_overage_price_cents` (stored, point-in-time), but `basePriceCents` still comes from live `TIER_CONFIG[tier].baseCents` — there is no stored base-price column. If a tier's base price ever changes in `TIER_CONFIG`/Stripe, existing accounts' **displayed** base will drift from the **actual** charge, since Stripe grandfathers the original base Price ID on existing subscriptions. This matters most for the **`founders`** tier, whose copy promises "Rate locked for life." True base grandfathering needs a schema change (add `accounts.base_price_cents`, snapshot it at signup/select-plan + tier-change, read it in `currentBillingSnapshot`). See `src/lib/accounts/quota.ts`. |
 
 ---
 
