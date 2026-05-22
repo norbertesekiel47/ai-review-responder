@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { isWhatsAppEnabled, flagOff, assertWhatsAppEnvReady } from '../_shared';
+import { isWhatsAppEnabled, flagOff, assertWhatsAppEnvReady, whatsappEnvReady, missingWhatsAppEnv } from '../_shared';
 
 describe('isWhatsAppEnabled', () => {
   it('returns false when env unset', () => {
@@ -68,5 +68,40 @@ describe('assertWhatsAppEnvReady', () => {
     process.env.WHATSAPP_APPROVAL_TEMPLATE_SID = 'HX';
     process.env.WHATSAPP_APPROVAL_URL_BASE = 'https://app.repworth.com/approve/';
     expect(assertWhatsAppEnvReady()).toBe(null);
+  });
+});
+
+const ALL = {
+  TWILIO_ACCOUNT_SID: 'AC', TWILIO_AUTH_TOKEN: 'tok',
+  TWILIO_WHATSAPP_NUMBER: 'whatsapp:+15551230000',
+  WHATSAPP_APPROVAL_TEMPLATE_SID: 'HX', WHATSAPP_APPROVAL_URL_BASE: 'http://localhost/approve/',
+};
+
+describe('whatsappEnvReady / missingWhatsAppEnv', () => {
+  beforeEach(() => {
+    delete process.env.MOCK_EXTERNAL_APIS;
+    for (const k of Object.keys(ALL)) delete process.env[k];
+  });
+
+  it('reports all five vars missing when none set', () => {
+    expect(missingWhatsAppEnv().sort()).toEqual(Object.keys(ALL).sort());
+    expect(whatsappEnvReady()).toBe(false);
+  });
+
+  it('treats WHATSAPP_APPROVAL_URL_BASE as required (the var the old 4-var checks dropped)', () => {
+    for (const [k, v] of Object.entries(ALL)) process.env[k] = v;
+    delete process.env.WHATSAPP_APPROVAL_URL_BASE;
+    expect(missingWhatsAppEnv()).toEqual(['WHATSAPP_APPROVAL_URL_BASE']);
+    expect(whatsappEnvReady()).toBe(false);
+  });
+
+  it('is ready when all five present', () => {
+    for (const [k, v] of Object.entries(ALL)) process.env[k] = v;
+    expect(whatsappEnvReady()).toBe(true);
+  });
+
+  it('MOCK_EXTERNAL_APIS bypasses the check', () => {
+    process.env.MOCK_EXTERNAL_APIS = 'true';
+    expect(whatsappEnvReady()).toBe(true);
   });
 });
