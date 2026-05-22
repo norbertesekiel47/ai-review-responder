@@ -320,11 +320,11 @@ export const VerifyEmailOtpSchema = z.object({
 });
 type VerifyEmailOtpInput = z.infer<typeof VerifyEmailOtpSchema>;
 
-// Plan selection on /onboarding/pay. Owner picks founders, standard, or premium;
-// the route writes the choice to businesses.subscription_tier and returns
-// the matching Stripe Payment Link.
+// Plan selection on /onboarding/pay. Owner picks founders, basic, standard,
+// or premium; the route writes the choice to accounts.subscription_tier and
+// returns the matching Stripe Checkout Session URL.
 export const SelectPlanSchema = z.object({
-  tier: z.enum(['founders', 'standard', 'premium']),
+  tier: z.enum(['founders', 'basic', 'standard', 'premium']),
 });
 type SelectPlanInput = z.infer<typeof SelectPlanSchema>;
 

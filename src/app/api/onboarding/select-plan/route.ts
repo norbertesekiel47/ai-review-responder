@@ -16,7 +16,7 @@ const NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
 /**
  * POST /api/onboarding/select-plan
  *
- * Self-serve owner picks a plan (founders | standard | premium) on /onboarding/pay.
+ * Self-serve owner picks a plan (founders | basic | standard | premium) on /onboarding/pay.
  * We write the choice to `accounts.subscription_tier` BEFORE creating a
  * Stripe Checkout Session, so by the time `checkout.session.completed` fires
  * the DB tier already matches what they paid for. The Stripe webhook still

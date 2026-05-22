@@ -22,7 +22,7 @@ export const ONBOARDING_PLAN_ORDER = [
   SubscriptionTier.BASIC,
   SubscriptionTier.STANDARD,
   SubscriptionTier.PREMIUM,
-] satisfies readonly SubscriptionTierValue[];
+] as const satisfies readonly SubscriptionTierValue[];
 
 type PlanCopy = Omit<OnboardingPlan, 'tier' | 'price'>;
 
