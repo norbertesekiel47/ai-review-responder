@@ -15,7 +15,11 @@ import { handlePublisherFailed } from './jobs/publisher/failed-hook';
 import { handleZernioReviewIngest } from './jobs/zernio/ZernioReviewIngestWorker';
 import { handleIngestFailed } from './jobs/zernio/ingest-failed-hook';
 import { handleZernioBackfill } from './jobs/zernio/ZernioBackfillWorker';
-import type { IngestZernioReviewPayload, ZernioInitialBackfillPayload } from '../src/lib/shared/worker-types';
+import type {
+  IngestZernioReviewPayload,
+  StripeCheckoutReconcilePayload,
+  ZernioInitialBackfillPayload,
+} from '../src/lib/shared/worker-types';
 import { handleAdminException } from './jobs/AdminExceptionWorker';
 import { handleWeeklySummary } from './jobs/WeeklySummaryWorker';
 import { handlePlaceIdValidation } from './jobs/PlaceIdValidationWorker';
@@ -41,6 +45,7 @@ import { handleOwnerEmail } from './jobs/OwnerEmailWorker';
 import { handleDrainOwnerConnect } from './jobs/DrainOwnerConnectWorker';
 import { handleOnboardingDemo } from './jobs/OnboardingDemoWorker';
 import { handleUpdateStripeOverage } from './jobs/billing/UpdateStripeOverageWorker';
+import { handleStripeCheckoutReconcile } from './jobs/billing/StripeCheckoutReconcileWorker';
 import { startCleanupAbandonedSignupsPoller, stopCleanupAbandonedSignupsPoller } from './background/pollers/CleanupAbandonedSignupsPoller';
 import { startEmailChannelReconcilePoller, stopEmailChannelReconcilePoller } from './background/pollers/EmailChannelReconcilePoller';
 import { startCancellationGracePoller, stopCancellationGracePoller } from './background/pollers/CancellationGracePoller';
@@ -142,6 +147,12 @@ const onboardingDemoWorker = new Worker(QUEUE_NAMES.ONBOARDING_DEMO_RESPONSE, ha
 
 const updateStripeOverageWorker = new Worker(QUEUE_NAMES.UPDATE_STRIPE_OVERAGE, handleUpdateStripeOverage, workerOpts);
 
+const stripeCheckoutReconcileWorker = new Worker<StripeCheckoutReconcilePayload>(
+  QUEUE_NAMES.STRIPE_CHECKOUT_RECONCILE,
+  handleStripeCheckoutReconcile,
+  workerOpts,
+);
+
 // Workers map keyed by queue name. Single source of truth for the
 // graceful-shutdown loop, Sentry breadcrumb wiring, and any future
 // observability hook that needs to enumerate workers without keeping a
@@ -164,6 +175,7 @@ const workersByQueue = {
   [QUEUE_NAMES.DRAIN_OWNER_CONNECT]: drainOwnerConnectWorker,
   [QUEUE_NAMES.ONBOARDING_DEMO_RESPONSE]: onboardingDemoWorker,
   [QUEUE_NAMES.UPDATE_STRIPE_OVERAGE]: updateStripeOverageWorker,
+  [QUEUE_NAMES.STRIPE_CHECKOUT_RECONCILE]: stripeCheckoutReconcileWorker,
 } as const;
 
 const workers = Object.values(workersByQueue);

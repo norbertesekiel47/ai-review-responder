@@ -2,9 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '@/lib/db/server';
-import { getStripe } from '@/lib/payments/create-checkout-session';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
+import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,99 +27,49 @@ function getCheckoutSessionId(req: NextRequest): string | null {
   return value;
 }
 
-function extractStripeId(value: unknown): string | null {
-  if (!value) return null;
-  if (typeof value === 'string') return value;
-  if (typeof value === 'object' && 'id' in value) {
-    const id = (value as { id?: unknown }).id;
-    return typeof id === 'string' ? id : null;
-  }
-  return null;
-}
-
-async function reconcilePaidCheckoutSessionForAccount(
+async function enqueueCheckoutSessionReconciliation(
   sessionId: string,
   accountId: string,
-): Promise<boolean> {
-  const session = await getStripe().checkout.sessions.retrieve(sessionId);
-  if (session.client_reference_id !== accountId) {
-    console.warn(
-      `[signup-status] Checkout Session ${sessionId} does not belong to account ${accountId}`,
-    );
-    return false;
-  }
+): Promise<void> {
+  const correlationId = uuidv7();
+  const payload = {
+    account_id: accountId,
+    checkout_session_id: sessionId,
+    correlation_id: correlationId,
+  };
+  const lockKey = `stripe_checkout_session_reconcile:${accountId}:${sessionId}`;
 
-  if (session.mode !== 'subscription' || session.payment_status !== 'paid') {
-    return false;
-  }
-
-  const customerId = extractStripeId(session.customer);
-  const subscriptionId = extractStripeId(session.subscription);
-  if (!subscriptionId) {
-    console.warn(
-      `[signup-status] Checkout Session ${sessionId} is paid but missing subscription id`,
-    );
-    return false;
-  }
-
-  let active = false;
   await sql.begin(async (tx) => {
-    await tx`SELECT pg_advisory_xact_lock(hashtext(${accountId + ':activation'}))`;
-
-    const [acctRow] = await tx<{ subscription_status: string }[]>`
-      SELECT subscription_status
-      FROM accounts
-      WHERE id = ${accountId}::uuid
-      FOR UPDATE
+    await tx`
+      SELECT pg_advisory_xact_lock(
+        hashtext(${lockKey})
+      )
     `;
-    if (!acctRow) return;
-    if (acctRow.subscription_status === SubscriptionStatus.ACTIVE) {
-      active = true;
-      return;
-    }
-
-    const oldStatus = acctRow.subscription_status;
-    const updateAcct = await tx`
-      UPDATE accounts
-      SET
-        subscription_status = 'active',
-        stripe_customer_id = ${customerId},
-        stripe_subscription_id = ${subscriptionId},
-        subscription_activated_at = COALESCE(subscription_activated_at, NOW()),
-        updated_at = NOW()
-      WHERE id = ${accountId}::uuid
-        AND subscription_status IN ('pending_payment', 'past_due')
-    `;
-
-    if (updateAcct.count > 0) {
-      active = true;
-      await tx`
-        INSERT INTO account_audit_log (id, account_id, event_type, payload)
-        VALUES (
-          ${uuidv7()}::uuid,
-          ${accountId}::uuid,
-          'subscription_status_changed',
-          ${jsonb({ fromStatus: oldStatus, toStatus: 'active' })}
-        )
-      `;
-    }
 
     await tx`
-      UPDATE businesses
-      SET
-        subscription_status = 'active',
-        stripe_customer_id = ${customerId},
-        stripe_subscription_id = ${subscriptionId},
-        subscription_activated_at = COALESCE(subscription_activated_at, NOW()),
-        updated_at = NOW()
-      WHERE account_id = ${accountId}::uuid
-        AND is_primary = TRUE
-        AND archived_at IS NULL
-        AND subscription_status IN ('pending_payment', 'past_due')
+      INSERT INTO job_outbox (
+        id, topic, aggregate_type, aggregate_id, payload, status
+      )
+      SELECT
+        ${uuidv7()}::uuid,
+        ${QUEUE_NAMES.STRIPE_CHECKOUT_RECONCILE},
+        'account',
+        ${accountId}::uuid,
+        ${jsonb(payload)},
+        'pending'
+      WHERE NOT EXISTS (
+        SELECT 1
+        FROM job_outbox jo
+        WHERE jo.topic = ${QUEUE_NAMES.STRIPE_CHECKOUT_RECONCILE}
+          AND jo.aggregate_id = ${accountId}::uuid
+          AND jo.payload->>'checkout_session_id' = ${sessionId}
+          AND (
+            jo.status IN ('pending', 'dispatching', 'dispatched')
+            OR jo.created_at > NOW() - INTERVAL '10 minutes'
+          )
+      )
     `;
   });
-
-  return active;
 }
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
@@ -211,26 +161,22 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'account_incomplete' }, { status: 404 });
   }
 
-  let subscriptionStatus = row.subscription_status;
-  let subscriptionActivatedAt = row.subscription_activated_at;
+  const subscriptionStatus = row.subscription_status;
+  const subscriptionActivatedAt = row.subscription_activated_at;
   const checkoutSessionId = getCheckoutSessionId(req);
   if (
     subscriptionStatus !== SubscriptionStatus.ACTIVE &&
     checkoutSessionId !== null
   ) {
     try {
-      const reconciled = await reconcilePaidCheckoutSessionForAccount(
+      await enqueueCheckoutSessionReconciliation(
         checkoutSessionId,
         row.account_id,
       );
-      if (reconciled) {
-        subscriptionStatus = SubscriptionStatus.ACTIVE;
-        subscriptionActivatedAt = new Date();
-      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error(
-        `[signup-status] Checkout Session reconciliation failed for account=${row.account_id}: ${message}`,
+        `[signup-status] Checkout Session reconciliation enqueue failed for account=${row.account_id}: ${message}`,
       );
     }
   }
@@ -247,9 +193,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     : row.place_id_verified || row.google_maps_url !== null;
 
   // 6. Return subscription status + role + businessOnboarded. The
-  //    /onboarding/payment-success page polls every 2s and redirects to
-  //    /onboarding/business when status === 'active' && !businessOnboarded,
-  //    otherwise to /dashboard.
+  //    /onboarding/payment-success page polls with exponential backoff
+  //    (2s → 30s, up to 5 min) and redirects to /onboarding/business when
+  //    status === 'active' && !businessOnboarded, otherwise to /dashboard.
   return NextResponse.json(
     {
       subscriptionStatus,

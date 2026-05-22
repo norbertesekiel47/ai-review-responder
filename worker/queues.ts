@@ -76,6 +76,7 @@ export const queues = {
   sendOwnerEmail: new Queue(QUEUE_NAMES.SEND_OWNER_EMAIL, { connection: opts, defaultJobOptions }),
   onboardingDemoResponse: new Queue(QUEUE_NAMES.ONBOARDING_DEMO_RESPONSE, { connection: opts, defaultJobOptions }),
   updateStripeOverage: new Queue(QUEUE_NAMES.UPDATE_STRIPE_OVERAGE, { connection: opts, defaultJobOptions }),
+  stripeCheckoutReconcile: new Queue(QUEUE_NAMES.STRIPE_CHECKOUT_RECONCILE, { connection: opts, defaultJobOptions }),
 } as const;
 
 // Lookup table: outbox topic string → Queue instance
@@ -103,4 +104,5 @@ export const topicToQueue: Record<string, Queue> = {
   ['notify_owner_connection_lost']: queues.sendOwnerEmail,
   [QUEUE_NAMES.ONBOARDING_DEMO_RESPONSE]: queues.onboardingDemoResponse,
   [QUEUE_NAMES.UPDATE_STRIPE_OVERAGE]: queues.updateStripeOverage,
+  [QUEUE_NAMES.STRIPE_CHECKOUT_RECONCILE]: queues.stripeCheckoutReconcile,
 };

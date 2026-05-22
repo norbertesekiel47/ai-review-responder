@@ -27,6 +27,7 @@ export const QUEUE_NAMES = {
   SEND_OWNER_EMAIL: 'send_owner_email',
   ONBOARDING_DEMO_RESPONSE: 'onboarding_demo_response',
   UPDATE_STRIPE_OVERAGE: 'update_stripe_overage_quantity',
+  STRIPE_CHECKOUT_RECONCILE: 'stripe_checkout_session_reconcile',
 } as const;
 
 type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];

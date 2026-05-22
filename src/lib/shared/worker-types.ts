@@ -140,3 +140,8 @@ export interface ZernioInitialBackfillPayload extends BasePayload {
   /** Initial connect is one-shot; reactivation catch-up may run after archive/restore. */
   backfill_reason?: 'initial' | 'reactivation';
 }
+
+export interface StripeCheckoutReconcilePayload extends BasePayload {
+  account_id: string;
+  checkout_session_id: string;
+}

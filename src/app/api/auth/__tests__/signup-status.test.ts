@@ -175,19 +175,8 @@ describe('GET /api/auth/signup-status', () => {
     expect(json.subscriptionStatus).toBe('active');
   });
 
-  it('reconciles a paid Checkout Session when the Stripe webhook has not updated Supabase yet', async () => {
+  it('enqueues Checkout Session reconciliation instead of calling Stripe inline when the webhook has not updated Supabase yet', async () => {
     const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-    const sqlResponses = [
-      pgResult([rowFor({ account_id: accountId, subscription_status: 'pending_payment' })]),
-      pgResult([]), // activation advisory lock
-      pgResult([{ subscription_status: 'pending_payment' }]), // FOR UPDATE read
-      pgResult([], 1), // accounts activation UPDATE
-      pgResult([], 1), // account audit log INSERT
-      pgResult([], 1), // businesses compatibility UPDATE
-    ];
-    mockSql.mockImplementation(() =>
-      Promise.resolve(sqlResponses.shift() ?? pgResult([])),
-    );
     mockStripeCheckoutRetrieve.mockResolvedValueOnce({
       id: 'cs_test_paid',
       client_reference_id: accountId,
@@ -196,6 +185,9 @@ describe('GET /api/auth/signup-status', () => {
       customer: 'cus_paid',
       subscription: 'sub_paid',
     });
+    mockSql.mockResolvedValueOnce(
+      pgResult([rowFor({ account_id: accountId, subscription_status: 'pending_payment' })]),
+    );
 
     const res = await GET(
       new NextRequest(
@@ -205,19 +197,33 @@ describe('GET /api/auth/signup-status', () => {
 
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json.subscriptionStatus).toBe('active');
-    expect(mockStripeCheckoutRetrieve).toHaveBeenCalledWith('cs_test_paid');
+    expect(json.subscriptionStatus).toBe('pending_payment');
+    expect(mockStripeCheckoutRetrieve).not.toHaveBeenCalled();
 
-    const sqlTexts = mockSql.mock.calls.map((call: unknown[]) =>
-      (call[0] as TemplateStringsArray).join('?'),
-    );
+    const sqlCalls = mockSql.mock.calls.map((call: unknown[]) => ({
+      text: (call[0] as TemplateStringsArray).join('?'),
+      values: call.slice(1),
+    }));
     expect(
-      sqlTexts.some(
-        (text) =>
-          /UPDATE\s+accounts/i.test(text) &&
-          /subscription_status\s*=\s*'active'/i.test(text),
+      sqlCalls.some(
+        (call) =>
+          call.text.includes('INSERT INTO job_outbox') &&
+          call.values.includes('stripe_checkout_session_reconcile') &&
+          call.values.some((value) =>
+            typeof value === 'object' &&
+            value !== null &&
+            (value as Record<string, unknown>).checkout_session_id === 'cs_test_paid' &&
+            (value as Record<string, unknown>).account_id === accountId,
+          ),
       ),
     ).toBe(true);
+    expect(
+      sqlCalls.some(
+        (call) =>
+          /UPDATE\s+accounts/i.test(call.text) &&
+          /subscription_status\s*=\s*'active'/i.test(call.text),
+      ),
+    ).toBe(false);
   });
 
   it('legacy flow: businessOnboarded=true when place_id_verified is true (placeAutocomplete path)', async () => {
