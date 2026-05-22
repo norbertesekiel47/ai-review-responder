@@ -370,7 +370,7 @@ describe('customer.subscription.updated — two-item subscription', () => {
       (c) => /\bUPDATE\s+accounts\b/.test(c.text) && c.text.includes('subscription_tier'),
     );
     expect(updateAcct).toBeDefined();
-    expect(updateAcct!.text).toMatch(/locations_included\s*=\s*CASE\s+WHEN\s+\?\s+THEN\s+\?\s+ELSE\s+locations_included\s+END/s);
+    expect(updateAcct!.text).toMatch(/locations_included\s*=\s*CASE\s+WHEN\s+\?\s+THEN\s+\?\s+ELSE\s+locations_included\s+END/);
     expect(updateAcct!.values).toContain(false);
     expect(updateAcct!.values).toContain(4);
   });
