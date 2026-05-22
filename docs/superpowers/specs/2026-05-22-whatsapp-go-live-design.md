@@ -227,9 +227,12 @@ channel-specific 409 copy ("Disconnect Telegram first") and a distinct 403
 subscription message, extend `classifyConnectError` to read an optional
 `reason`/`conflictChannel` from the JSON error body and branch on it. This touches
 the reducer shared by SMS/Telegram/WhatsApp, so it carries cross-channel test
-cost and is deliberately excluded unless the user wants it. The 403→"session
-expired" mismapping is **pre-existing** (affects Telegram today) and is not
-introduced by this work.
+cost and is deliberately excluded unless the user wants it — it only becomes
+worthwhile once the backend returns `conflictingChannel` reliably and the
+reducer/hook maps `multiple_mobile_channels` with that context. The 403→"session
+expired" mismapping is **pre-existing** (affects Telegram today), not introduced
+by this work, and low-impact: lapsed owners are normally caught by the page-level
+subscription guard before they reach the channel widget.
 
 ---
 
@@ -329,6 +332,11 @@ production template.
 **Component:**
 - `OwnerWhatsAppWidget` renders each state (idle / generating / awaiting_scan /
   verified / conflict / error) with correct copy and the QR for awaiting_scan.
+- **Conflict copy lock:** on a 409 `multiple_mobile_channels`, assert the widget
+  renders the existing generic reducer string verbatim — *"Disconnect your current
+  channel before connecting another."* This pins the launch behavior and will fail
+  loudly if the optional channel-named enhancement is ever added without updating
+  the contract.
 
 **Integration (Vitest + real Supabase pool):**
 - Owner `start` → simulate `/ingress/twilio/whatsapp-inbound` with `start-<token>`
