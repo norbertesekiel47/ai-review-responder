@@ -400,7 +400,7 @@ export function AccountPanel({ data, accountData, accountLoading, accountError, 
       </div>
 
       {/* Subscription & Billing section */}
-      <div className="set-section">
+      <div id="subscription-billing" className="set-section">
         <div className="set-section-head">
           <div className="set-section-icon violet">
             <Icon name="chart" size={18} />

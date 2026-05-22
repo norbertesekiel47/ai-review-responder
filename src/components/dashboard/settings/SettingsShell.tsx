@@ -14,14 +14,27 @@ interface Props {
     onDiscard: () => void;
   };
   savedFlash?: boolean;
+  /** When true, exposes the Locations tab without switching to true multi-location content mode. */
+  locationsSettingsEnabled?: boolean;
   /** When true, shows 4-tab layout (Account, Locations, Voice, Notifications). */
   multiLocationEnabled?: boolean;
 }
 
-export function SettingsShell({ activeTab, children, saveBar, savedFlash, multiLocationEnabled }: Props) {
+export function SettingsShell({
+  activeTab,
+  children,
+  saveBar,
+  savedFlash,
+  locationsSettingsEnabled,
+  multiLocationEnabled,
+}: Props) {
   return (
     <div className="settings-content">
-      <SettingsTabs activeTab={activeTab} multiLocationEnabled={multiLocationEnabled} />
+      <SettingsTabs
+        activeTab={activeTab}
+        locationsSettingsEnabled={locationsSettingsEnabled}
+        multiLocationEnabled={multiLocationEnabled}
+      />
       {children}
 
       {/* Conditional render rather than CSS-toggle — keeps a clean DOM

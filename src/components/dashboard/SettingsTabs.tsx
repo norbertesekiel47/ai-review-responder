@@ -32,17 +32,31 @@ const TABS_SINGLE: Tab[] = [
   { id: 'channels', label: 'Notifications', icon: 'inbox', href: '/settings/channels' },
 ];
 
+/** Single-location with locations settings: 4 tabs — General, Locations, Brand Voice, Notifications */
+const TABS_SINGLE_WITH_LOCATIONS: Tab[] = [
+  { id: 'general', label: 'General', icon: 'cog', href: '/settings' },
+  { id: 'locations', label: 'Locations', icon: 'location', href: '/settings/locations' },
+  { id: 'voice', label: 'Brand Voice', icon: 'sparkle', href: '/settings#brand-voice' },
+  { id: 'channels', label: 'Notifications', icon: 'inbox', href: '/settings/channels' },
+];
+
 // ── Component ───────────────────────────────────────────────────────────
 
 interface Props {
   activeTab: SettingsTab;
+  /** When true, exposes the Locations tab without switching to true multi-location content mode. */
+  locationsSettingsEnabled?: boolean;
   /** When true, shows 4-tab layout (Account, Locations, Voice, Notifications).
    *  When false or undefined, shows 3-tab layout (General, Brand Voice, Notifications). */
   multiLocationEnabled?: boolean;
 }
 
-export function SettingsTabs({ activeTab, multiLocationEnabled }: Props) {
-  const tabs = multiLocationEnabled ? TABS_MULTI : TABS_SINGLE;
+export function SettingsTabs({ activeTab, locationsSettingsEnabled, multiLocationEnabled }: Props) {
+  const tabs = multiLocationEnabled
+    ? TABS_MULTI
+    : locationsSettingsEnabled
+      ? TABS_SINGLE_WITH_LOCATIONS
+      : TABS_SINGLE;
 
   // Build the refs object dynamically based on which tab set is active
   const refs = useRef<Record<string, HTMLAnchorElement | null>>({});
@@ -51,7 +65,7 @@ export function SettingsTabs({ activeTab, multiLocationEnabled }: Props) {
   useLayoutEffect(() => {
     const el = refs.current[activeTab];
     if (el) setU({ left: el.offsetLeft, width: el.offsetWidth });
-  }, [activeTab, multiLocationEnabled]);
+  }, [activeTab, locationsSettingsEnabled, multiLocationEnabled]);
 
   return (
     <div className="settings-tabs" role="tablist">
