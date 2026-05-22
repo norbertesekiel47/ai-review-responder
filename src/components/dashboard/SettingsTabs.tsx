@@ -46,8 +46,7 @@ interface Props {
   activeTab: SettingsTab;
   /** When true, exposes the Locations tab without switching to true multi-location content mode. */
   locationsSettingsEnabled?: boolean;
-  /** When true, shows 4-tab layout (Account, Locations, Voice, Notifications).
-   *  When false or undefined, shows 3-tab layout (General, Brand Voice, Notifications). */
+  /** When true, uses the true multi-location layout (Account, Locations, Voice, Notifications). */
   multiLocationEnabled?: boolean;
 }
 
