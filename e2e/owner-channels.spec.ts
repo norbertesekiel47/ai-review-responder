@@ -92,7 +92,7 @@ test.describe('Owner /settings/channels — authenticated (deferred)', () => {
       test.skip(process.env.CHANNELS_WHATSAPP_ENABLED !== 'true', 'WhatsApp disabled');
       await page.goto('/settings/channels');
 
-      const whatsappRow = page.getByText('WhatsApp').locator('xpath=ancestor::*[contains(@class,"rounded-lg")]').first();
+      const whatsappRow = page.getByText('WhatsApp').locator('xpath=ancestor::*[contains(@class,"channel-row")]').first();
       await whatsappRow.getByRole('button', { name: 'Connect' }).click();
 
       await expect(page.locator('img[alt="WhatsApp QR"]')).toBeVisible();
@@ -122,7 +122,7 @@ test.describe('Owner /settings/channels — authenticated (deferred)', () => {
       test.skip(process.env.CHANNELS_WHATSAPP_ENABLED !== 'true', 'WhatsApp disabled');
       await page.goto('/settings/channels');
       page.on('dialog', (dialog) => dialog.accept());
-      const whatsappRow = page.getByText('WhatsApp').locator('xpath=ancestor::*[contains(@class,"rounded-lg")]').first();
+      const whatsappRow = page.getByText('WhatsApp').locator('xpath=ancestor::*[contains(@class,"channel-row")]').first();
       await whatsappRow.getByRole('button', { name: 'Disconnect' }).click();
       await expect(whatsappRow.getByRole('button', { name: 'Connect' })).toBeVisible({ timeout: 10_000 });
     },

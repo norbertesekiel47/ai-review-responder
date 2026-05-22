@@ -138,10 +138,10 @@ Run all eight checks in the chosen canary scope before the full flag flip:
 - [ ] Click-to-chat enrollment — owner scans QR / opens deep link → sends `start-<token>` → enrollment status transitions to `verified`.
 - [ ] Approve round-trip — send a test notification → tap Approve → response posts (or queues for posting) correctly.
 - [ ] Regenerate round-trip — tap Regenerate → new draft generated and re-sent via WhatsApp.
-- [ ] Blocked-recipient handling — STOP sent by recipient → enrollment disabled; no further messages sent to that handle.
+- [ ] Blocked-recipient handling — recipient blocks the business (Twilio 63014/63033) → enrollment set to `unsubscribed` (reason `whatsapp_blocked`); no further messages sent to that handle.
 - [ ] Re-enrollment — after STOP, owner re-initiates enrollment → new token issued → enrollment returns to `verified`.
 - [ ] Cross-channel race — pilot business has an active Telegram enrollment; WhatsApp start attempt returns 409 `multiple_mobile_channels` with the correct reducer copy.
-- [ ] STOP inside session — STOP sent during a 24-hour session window → Twilio's native opt-out is honored; no further messages sent.
+- [ ] STOP inside session — recipient replies STOP → enrollment set to `unsubscribed` (reason `whatsapp_stop`); Twilio's native opt-out is also honored; no further messages sent.
 
 #### Full flag flip
 
