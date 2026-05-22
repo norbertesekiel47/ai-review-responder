@@ -21,6 +21,7 @@
 import { test, expect } from '@playwright/test';
 import { isE2eConfigured } from './seed';
 import { simulateTelegramStart } from './helpers/telegram-test-ingress';
+import { simulateWhatsAppStart } from './helpers/whatsapp-test-ingress';
 
 test.describe('Owner /settings/channels — unauthenticated', () => {
   test('unauthenticated /settings/channels redirects to login', async ({ page }) => {
@@ -82,6 +83,48 @@ test.describe('Owner /settings/channels — authenticated (deferred)', () => {
       page.on('dialog', (dialog) => dialog.accept());
       await page.getByRole('button', { name: 'Disconnect' }).click();
       await expect(page.getByRole('button', { name: 'Connect' })).toBeVisible({ timeout: 10_000 });
+    },
+  );
+
+  test.fixme(
+    'connect WhatsApp → simulated inbound webhook → verified',
+    async ({ page }) => {
+      test.skip(process.env.CHANNELS_WHATSAPP_ENABLED !== 'true', 'WhatsApp disabled');
+      await page.goto('/settings/channels');
+
+      const whatsappRow = page.getByText('WhatsApp').locator('xpath=ancestor::*[contains(@class,"rounded-lg")]').first();
+      await whatsappRow.getByRole('button', { name: 'Connect' }).click();
+
+      await expect(page.locator('img[alt="WhatsApp QR"]')).toBeVisible();
+      // The wa.me deep link carries the raw token in the URL-encoded `text`
+      // query param as `start-<rawToken>` (see whatsapp/start/route.ts).
+      const linkLocator = page.locator('a[href^="https://wa.me/"]');
+      const deepLink = await linkLocator.getAttribute('href');
+      expect(deepLink).toMatch(/^https:\/\/wa\.me\/\d+\?text=start-/);
+      const prefilledText = new URL(deepLink!).searchParams.get('text');
+      expect(prefilledText).toMatch(/^start-/);
+      const rawToken = prefilledText!.slice('start-'.length);
+      expect(rawToken).toBeTruthy();
+
+      const ingressRes = await simulateWhatsAppStart({ rawToken });
+      expect(ingressRes.status).toBeLessThan(400);
+
+      // OwnerWhatsAppWidget renders `Connected · <masked handle>` once verified
+      // (mirrors OwnerTelegramWidget). The row also swaps Connect → Disconnect.
+      await expect(whatsappRow.getByText(/Connected/)).toBeVisible({ timeout: 10_000 });
+      await expect(whatsappRow.getByRole('button', { name: 'Disconnect' })).toBeVisible();
+    },
+  );
+
+  test.fixme(
+    'disconnect verified WhatsApp → idle',
+    async ({ page }) => {
+      test.skip(process.env.CHANNELS_WHATSAPP_ENABLED !== 'true', 'WhatsApp disabled');
+      await page.goto('/settings/channels');
+      page.on('dialog', (dialog) => dialog.accept());
+      const whatsappRow = page.getByText('WhatsApp').locator('xpath=ancestor::*[contains(@class,"rounded-lg")]').first();
+      await whatsappRow.getByRole('button', { name: 'Disconnect' }).click();
+      await expect(whatsappRow.getByRole('button', { name: 'Connect' })).toBeVisible({ timeout: 10_000 });
     },
   );
 
