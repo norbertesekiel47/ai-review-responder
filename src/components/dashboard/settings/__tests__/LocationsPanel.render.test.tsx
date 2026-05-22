@@ -35,6 +35,41 @@ function location(overrides: Partial<LocationEntry>): LocationEntry {
 }
 
 describe('LocationsPanel connection action', () => {
+  it('uses the configured brand voice anchor for single-location accounts', () => {
+    render(
+      <LocationsPanel
+        locations={[location({})]}
+        archivedLocations={[]}
+        activeCount={1}
+        accountId={ACCOUNT_ID}
+        voiceHref="/settings#brand-voice"
+        onLocationChange={() => {}}
+      />,
+    );
+
+    expect(screen.getByRole('link', { name: /^voice$/i })).toHaveAttribute(
+      'href',
+      '/settings#brand-voice',
+    );
+  });
+
+  it('defaults the Voice action to the multi-location voice page', () => {
+    render(
+      <LocationsPanel
+        locations={[location({})]}
+        archivedLocations={[]}
+        activeCount={1}
+        accountId={ACCOUNT_ID}
+        onLocationChange={() => {}}
+      />,
+    );
+
+    expect(screen.getByRole('link', { name: /^voice$/i })).toHaveAttribute(
+      'href',
+      '/settings/voice',
+    );
+  });
+
   it('shows a Connect Google action for an unconnected secondary location', () => {
     render(
       <LocationsPanel

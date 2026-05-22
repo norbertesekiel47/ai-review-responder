@@ -14,6 +14,8 @@ interface Props {
   activeCount: number;
   accountId: string;
   addLocationState: AddLocationState;
+  multiLocationEnabled: boolean;
+  voiceHref: string;
 }
 
 export function LocationsClient({
@@ -22,6 +24,8 @@ export function LocationsClient({
   activeCount,
   accountId,
   addLocationState,
+  multiLocationEnabled,
+  voiceHref,
 }: Props) {
   const handleLocationChange = () => {
     // Reload the page to get fresh server data and update the switcher context via the layout
@@ -31,7 +35,7 @@ export function LocationsClient({
   return (
     <SettingsShell
       activeTab="locations"
-      multiLocationEnabled={locations.length > 1}
+      multiLocationEnabled={multiLocationEnabled}
       locationsSettingsEnabled
     >
       <LocationsPanel
@@ -40,6 +44,7 @@ export function LocationsClient({
         activeCount={activeCount}
         accountId={accountId}
         addLocationState={addLocationState}
+        voiceHref={voiceHref}
         onLocationChange={handleLocationChange}
       />
     </SettingsShell>

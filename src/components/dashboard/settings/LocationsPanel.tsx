@@ -48,6 +48,8 @@ interface Props {
   accountId: string;
   /** Whether the account can add another location, or why the action is locked. */
   addLocationState?: AddLocationState;
+  /** Destination for the per-location voice action. */
+  voiceHref?: string;
   /** Callback after a location is archived or reactivated (for parent to refetch). */
   onLocationChange: () => void;
 }
@@ -189,11 +191,13 @@ function LocationRow({
   location,
   isLastActive,
   accountId,
+  voiceHref,
   onLocationChange,
 }: {
   location: LocationEntry;
   isLastActive: boolean;
   accountId: string;
+  voiceHref: string;
   onLocationChange: () => void;
 }) {
   const displayName = getDisplayLabel(location);
@@ -396,7 +400,7 @@ function LocationRow({
           </Link>
         )}
         <a
-          href={`/settings/voice`}
+          href={voiceHref}
           className="btn btn-secondary loc-action-btn"
           title="Edit voice configuration"
         >
@@ -539,6 +543,7 @@ export function LocationsPanel({
   activeCount,
   accountId,
   addLocationState = { kind: 'enabled' },
+  voiceHref = '/settings/voice',
   onLocationChange,
 }: Props) {
   const [archivedExpanded, setArchivedExpanded] = useState(false);
@@ -568,6 +573,7 @@ export function LocationsPanel({
             location={loc}
             isLastActive={activeCount <= 1}
             accountId={accountId}
+            voiceHref={voiceHref}
             onLocationChange={onLocationChange}
           />
         ))}

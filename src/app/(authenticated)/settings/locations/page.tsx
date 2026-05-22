@@ -15,6 +15,7 @@ import type { AddLocationState } from '@/components/dashboard/settings/Locations
 import { getLocationsForAccount, getActiveLocationCount, getArchivedLocationsForAccount } from '@/lib/locations/repo';
 import {
   canAddLocationForAccount,
+  shouldUseMultiLocationSettings,
   shouldShowLocationsSettings,
 } from '@/lib/locations/multi-location-mode';
 import { SubscriptionTier } from '@/lib/accounts/tier-config';
@@ -42,6 +43,9 @@ export default async function LocationsPage() {
       LIMIT 1
     `.then((rows) => rows[0] ?? null),
   ]);
+
+  const multiLocationEnabled = shouldUseMultiLocationSettings(featureEnabled, activeCount);
+  const voiceHref = multiLocationEnabled ? '/settings/voice' : '/settings#brand-voice';
 
   const addLocationState: AddLocationState = canAddLocationForAccount(
     featureEnabled,
@@ -126,6 +130,8 @@ export default async function LocationsPage() {
         activeCount={activeCount}
         accountId={access.accountId}
         addLocationState={addLocationState}
+        multiLocationEnabled={multiLocationEnabled}
+        voiceHref={voiceHref}
       />
     </>
   );
