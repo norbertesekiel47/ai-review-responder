@@ -6,7 +6,9 @@ This file is the authoritative reference for every WhatsApp template RepWorth su
 
 **Purpose:** Notify a business owner that a new review has arrived and a draft response is ready for approval. Sent outbound from RepWorth; receives button replies back via `/ingress/twilio/whatsapp-inbound`.
 
-**Twilio Content type:** `twilio/card`
+**Twilio Content type:** `whatsapp/card`
+
+> **Why `whatsapp/card` not `twilio/card`:** `twilio/card` forces all WhatsApp message text into the `title` field — its `body` field is RCS-only — and constrains button-type mixing. Our approval template requires body text (up to 1024 chars, variable-interpolated) **plus** a mix of 2 QUICK_REPLY + 1 URL button. `whatsapp/card` provides a real `body` field (up to 1024 chars with `{{n}}` variables), optional `header_text` / `footer` (60 chars each), and supports mixed QUICK_REPLY (up to 10; 3 if sent in-session unapproved) + URL (max 2) buttons.
 
 **Meta category:** UTILITY (transactional; not promotional)
 
@@ -41,25 +43,53 @@ Draft reply:
 
 | Index | Type | Label | Dynamic content |
 |-------|------|-------|-----------------|
-| 0 | QUICK_REPLY | Approve | payload = `{{7}}` |
-| 1 | QUICK_REPLY | Regenerate | payload = `{{8}}` |
-| 2 | URL | Edit / view full | url = `https://app.repworth.com/approve/{{9}}` |
+| 0 | QUICK_REPLY | Approve | `id` field = `{{7}}` (this `id` is what WhatsApp returns as the inbound button payload on tap) |
+| 1 | QUICK_REPLY | Regenerate | `id` field = `{{8}}` (returned as inbound payload on tap) |
+| 2 | URL | Edit / view full | `url` field = `https://app.repworth.com/approve/{{9}}` |
 
-**URL button base:** `https://app.repworth.com/approve/` — Meta-approved at submission. Runtime assertion in `worker/startup-assert.ts::assertChannelsWhatsAppEnv` fails boot if `WHATSAPP_APPROVAL_URL_BASE` env var does not equal `NEXT_PUBLIC_APP_URL + '/approve/'`. Staging / local environments MUST use a different approved template SID (with their own URL base) or run flag-off.
+**URL button base:** `https://app.repworth.com/approve/` — Meta-approved at submission. Runtime assertion in `worker/config/startup-assert.ts::assertChannelsWhatsAppEnv` fails boot if `WHATSAPP_APPROVAL_URL_BASE` env var does not equal `NEXT_PUBLIC_APP_URL + '/approve/'`. Staging / local environments MUST use a different approved template SID (with their own URL base) or run flag-off.
+
+### Variable map validation gate
+
+**BEFORE submitting to Meta**, diff the template's `{{1}}`–`{{9}}` indices against `formatApprovalWhatsApp` in `src/lib/notifications/channels/whatsapp-body.ts`. The send code passes `contentVariables` positionally (keys `"1"`–`"9"`); there is no runtime re-mapping.
+
+Canonical 9-variable map (source of truth is `formatApprovalWhatsApp`):
+
+| Key | Code expression | Template placeholder |
+|-----|----------------|----------------------|
+| `"1"` | `params.businessName` | `{{1}}` in body |
+| `"2"` | `params.reviewerName \|\| 'Reviewer'` | `{{2}}` in body |
+| `"3"` | `String(params.starRating)` | `{{3}}` in body |
+| `"4"` | `params.reviewDate` | `{{4}}` in body |
+| `"5"` | `truncate(params.reviewText ?? '(no comment)', 400)` | `{{5}}` in body |
+| `"6"` | `truncate(params.responsePreview, 400)` | `{{6}}` in body |
+| `"7"` | `` `a:${params.approvalLinkId}` `` | `{{7}}` → Approve button `id` |
+| `"8"` | `` `r:${params.approvalLinkId}` `` | `{{8}}` → Regenerate button `id` |
+| `"9"` | `extractTokenFromApprovalUrl(params.approvalUrl)` | `{{9}}` → URL button suffix |
+
+Any change to `formatApprovalWhatsApp` (add/remove/reorder variables) requires a matching template edit **and** a fresh Meta review cycle. Copy is locked only after this diff passes — see [Copy-lock note](#copy-lock-note) below.
 
 ### Submission JSON (Twilio Content API)
 
-When submitting via the Content Editor UI or the `/v1/Content` POST endpoint:
+Submit via the Content Editor UI or the `/v1/Content` POST endpoint. Field names verified against https://www.twilio.com/docs/content/whatsappcard (2026-05-22).
 
 ```json
 {
   "friendly_name": "repworth_approval_request_v1",
   "language": "en",
-  "variables": { "1": "Acme Co", "2": "Jane D", "3": "3", "4": "Apr 18", "5": "Good service", "6": "Thanks Jane!", "7": "a:abc", "8": "r:abc", "9": "tok123" },
+  "variables": {
+    "1": "Acme Co",
+    "2": "Jane D",
+    "3": "3",
+    "4": "Apr 18",
+    "5": "Good service",
+    "6": "Thanks Jane!",
+    "7": "a:abc123",
+    "8": "r:abc123",
+    "9": "tok_abc123"
+  },
   "types": {
-    "twilio/card": {
-      "title": "",
-      "subtitle": "",
+    "whatsapp/card": {
       "body": "New ⭐{{3}} review for {{1}}\n\nFrom: {{2}} · {{4}}\n\n\"{{5}}\"\n\nDraft reply:\n{{6}}",
       "actions": [
         { "type": "QUICK_REPLY", "title": "Approve", "id": "{{7}}" },
@@ -71,7 +101,60 @@ When submitting via the Content Editor UI or the `/v1/Content` POST endpoint:
 }
 ```
 
-After Meta approves, Twilio returns a Content SID prefixed `HX...`. That SID goes into the `WHATSAPP_APPROVAL_TEMPLATE_SID` env var. Record the SID in the launch runbook.
+After Meta approves, Twilio returns a Content SID prefixed `HX...`. That SID goes into the `WHATSAPP_APPROVAL_TEMPLATE_SID` env var. Record the SID in this section once issued.
+
+### Vercel + Railway environment matrix
+
+Next.js routes and the `/settings/channels` UI run on **Vercel**; the notification worker runs on **Railway**. The flag and all WhatsApp env vars must be set on **both platforms** — missing vars on either side leave the UI hidden/404/503 even when the other side is ready.
+
+| Variable | Vercel (UI + routes) | Railway (worker) | Notes |
+|----------|---------------------|-----------------|-------|
+| `CHANNELS_WHATSAPP_ENABLED` | ✅ | ✅ | Keep `false` until ship gate passes |
+| `TWILIO_ACCOUNT_SID` | ✅ | ✅ | |
+| `TWILIO_AUTH_TOKEN` | ✅ | ✅ | |
+| `TWILIO_WHATSAPP_NUMBER` | ✅ | ✅ | Format: `whatsapp:+<digits>` |
+| `WHATSAPP_APPROVAL_TEMPLATE_SID` | ✅ | ✅ | `HX...` SID returned by Twilio after Meta approves |
+| `WHATSAPP_APPROVAL_URL_BASE` | ✅ | ✅ | Must equal `NEXT_PUBLIC_APP_URL + '/approve/'` exactly |
+| `NEXT_PUBLIC_APP_URL` | ✅ | ✅ | |
+| `WORKER_PUBLIC_URL` | — | ✅ | Worker-only; used for Twilio webhook registration |
+
+`assertChannelsWhatsAppEnv` (worker boot) enforces 7 vars + `whatsapp:+…` format + URL-base equality on the Railway side. If `WHATSAPP_APPROVAL_URL_BASE` does not equal `NEXT_PUBLIC_APP_URL + '/approve/'` the worker refuses to start.
+
+The flag stays `false` on both platforms until the canary + ship gate completes (see below).
+
+### Canary enablement + ship gate
+
+The Phase 3 §5.1 ship gate exercises the flag-gated enrollment routes, so the flag must be `true` in a controlled scope **before** the full flip. Choose one canary approach:
+
+**(a) Staging canary (preferred):** Enable the flag in a dedicated staging environment that has its **own** Meta-approved template SID and URL base. The URL-base equality check (`assertChannelsWhatsAppEnv`) forbids sharing the production template SID with a staging URL base — staging must submit its own template variant to Meta. Run the full eight-point gate in staging.
+
+**(b) Prod time-boxed canary:** Flip `CHANNELS_WHATSAPP_ENABLED=true` in production but enroll **only the pilot business**. Send attempts are naturally scoped to businesses with a verified WhatsApp enrollment, so only the pilot receives WhatsApp notifications. Run the gate, then keep the flag on for GA or flip back off if the gate fails.
+
+#### Eight-point ship gate (Phase 3 §5.1)
+
+Run all eight checks in the chosen canary scope before the full flag flip:
+
+- [ ] Webhook signature verification — Twilio signature on inbound messages is validated; replayed/unsigned requests are rejected.
+- [ ] Click-to-chat enrollment — owner scans QR / opens deep link → sends `start-<token>` → enrollment status transitions to `verified`.
+- [ ] Approve round-trip — send a test notification → tap Approve → response posts (or queues for posting) correctly.
+- [ ] Regenerate round-trip — tap Regenerate → new draft generated and re-sent via WhatsApp.
+- [ ] Blocked-recipient handling — STOP sent by recipient → enrollment disabled; no further messages sent to that handle.
+- [ ] Re-enrollment — after STOP, owner re-initiates enrollment → new token issued → enrollment returns to `verified`.
+- [ ] Cross-channel race — pilot business has an active Telegram enrollment; WhatsApp start attempt returns 409 `multiple_mobile_channels` with the correct reducer copy.
+- [ ] STOP inside session — STOP sent during a 24-hour session window → Twilio's native opt-out is honored; no further messages sent.
+
+#### Full flag flip
+
+Once all eight gate items pass:
+
+1. Set `CHANNELS_WHATSAPP_ENABLED=true` on **both Vercel and Railway**.
+2. Redeploy both services.
+3. Confirm the Railway worker boots cleanly — `assertChannelsWhatsAppEnv` logs no errors.
+4. Verify the owner widget is visible in `/settings/channels` for at least one pilot account.
+
+### Copy-lock note
+
+Template copy is **locked** only after the variable map validation gate (above) passes and the `whatsapp/card` submission JSON is confirmed correct. Any wording change to `body`, button labels, or button URL after Meta submission restarts the review clock — typically 1–5 business days. The `_v1` suffix in `repworth_approval_request_v1` reserves room for versioned resubmits (`_v2`, etc.) if a copy change is unavoidable.
 
 ### What triggers a resubmission
 
@@ -82,6 +165,7 @@ Any of these changes requires Meta re-review (clock restarts at submit time):
 - Button count change (adding/removing buttons).
 - Button URL base change (`app.repworth.com` → anything else).
 - Category change (UTILITY → MARKETING etc.).
+- Variable count or index order change (requires matching code change first).
 
 These do NOT trigger re-review (safe to change freely per send):
 
@@ -96,4 +180,4 @@ Before Meta approves the real template, use Twilio's WhatsApp sandbox:
 1. Join the sandbox per Twilio console instructions (`join <keyword>` SMS).
 2. `TWILIO_WHATSAPP_NUMBER=whatsapp:+14155238886` (Twilio's sandbox sender).
 3. `WHATSAPP_APPROVAL_TEMPLATE_SID=<sandbox template SID>` — sandbox accepts free-form sends, so a minimal template SID is sufficient for end-to-end wiring.
-4. Keep `CHANNELS_WHATSAPP_ENABLED=false` in production until the real template is approved.
+4. Keep `CHANNELS_WHATSAPP_ENABLED=false` in production until the real template is approved and the ship gate passes.
