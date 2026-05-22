@@ -8,6 +8,8 @@ import {
 } from '../../../src/lib/reviews/zernio-normalize';
 import { processReview } from '../../../src/lib/reviews/process-review';
 import { zernioClient } from '../../../src/lib/zernio/client';
+import { ZernioAuthError } from '../../../src/lib/zernio/errors';
+import { applyIngestionAuthErrorFallback } from '../../../src/lib/zernio/auth-error-fallback';
 import { reconcileExternallyAnsweredReview } from '../../jobs/zernio/zernio-ingest-shared';
 import type { ZernioReview } from '../../../src/lib/zernio/types';
 
@@ -218,6 +220,18 @@ export async function runOnce(): Promise<ZernioRecentReviewPollResult> {
       result.reviewsSeen += reviews.length;
     } catch (err) {
       result.errors += 1;
+      if (err instanceof ZernioAuthError) {
+        await applyIngestionAuthErrorFallback(
+          connection.business_id,
+          connection.zernio_account_id,
+          connection.zernio_location_id,
+          err.message,
+        );
+        console.warn(
+          `${LOG_PREFIX} disconnected business=${connection.business_id} after Zernio auth failure: ${err.message}`,
+        );
+        continue;
+      }
       console.error(`${LOG_PREFIX} listReviews failed for business=${connection.business_id}:`, err);
       continue;
     }

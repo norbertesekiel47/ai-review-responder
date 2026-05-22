@@ -129,7 +129,7 @@ export async function createCheckoutSession(
 
   // Build URLs
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
-  const successUrl = `${baseUrl}/onboarding/business?checkout=success`;
+  const successUrl = `${baseUrl}/onboarding/payment-success?session_id={CHECKOUT_SESSION_ID}`;
   const cancelUrl = `${baseUrl}/onboarding/pay?cancelled=true`;
 
   // Create the Checkout Session

@@ -3,7 +3,13 @@ import { NextRequest } from 'next/server';
 
 // ── Hoisted mocks ───────────────────────────────────────────────────
 
-const { mockSql, mockGetUser, mockCreateServerClient, mockCheckRateLimit } = vi.hoisted(() => {
+const {
+  mockSql,
+  mockGetUser,
+  mockCreateServerClient,
+  mockCheckRateLimit,
+  mockStripeCheckoutRetrieve,
+} = vi.hoisted(() => {
   const sqlFn = vi.fn();
   const getUser = vi.fn();
   return {
@@ -13,6 +19,7 @@ const { mockSql, mockGetUser, mockCreateServerClient, mockCheckRateLimit } = vi.
       auth: { getUser },
     })),
     mockCheckRateLimit: vi.fn(),
+    mockStripeCheckoutRetrieve: vi.fn(),
   };
 });
 
@@ -29,6 +36,16 @@ vi.mock('@/lib/shared/rate-limit', () => ({
   checkRateLimit: mockCheckRateLimit,
 }));
 
+vi.mock('stripe', () => ({
+  default: class FakeStripe {
+    checkout = {
+      sessions: {
+        retrieve: mockStripeCheckoutRetrieve,
+      },
+    };
+  },
+}));
+
 // Flag + env setup — must be set before importing the route.
 process.env.SELF_SERVE_SIGNUP_ENABLED = 'true';
 process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://project.supabase.co';
@@ -43,6 +60,12 @@ function mkReq(): NextRequest {
   return new NextRequest('https://app.example.com/api/auth/signup-status');
 }
 
+function pgResult(rows: unknown[], count = rows.length): unknown[] {
+  const result = [...rows] as unknown[] & { count?: number };
+  Object.defineProperty(result, 'count', { value: count, enumerable: false });
+  return result;
+}
+
 const mockUser = {
   id: 'auth-uuid-123',
   email: 'owner@example.com',
@@ -51,6 +74,9 @@ const mockUser = {
 beforeEach(() => {
   mockSql.mockReset();
   mockSql.mockResolvedValue([]);
+  (mockSql as any).begin = vi.fn(
+    async (cb: (tx: typeof mockSql) => Promise<unknown>) => cb(mockSql),
+  );
 
   mockGetUser.mockReset();
   mockGetUser.mockResolvedValue({ data: { user: mockUser }, error: null });
@@ -63,7 +89,10 @@ beforeEach(() => {
   mockCheckRateLimit.mockReset();
   mockCheckRateLimit.mockResolvedValue({ allowed: true, remaining: 30 });
 
+  mockStripeCheckoutRetrieve.mockReset();
+
   process.env.SELF_SERVE_SIGNUP_ENABLED = 'true';
+  process.env.STRIPE_SECRET_KEY = 'sk_test_fake';
 });
 
 // ── Tests ────────────────────────────────────────────────────────────
@@ -108,6 +137,7 @@ describe('GET /api/auth/signup-status', () => {
   // Helper — the route now selects raw columns and computes businessOnboarded
   // in JS (instead of SQL). Tests provide the raw columns directly.
   function rowFor(opts: {
+    account_id?: string;
     subscription_status?: string;
     role?: string;
     place_id_verified?: boolean;
@@ -116,6 +146,7 @@ describe('GET /api/auth/signup-status', () => {
     updated_at?: Date;
   } = {}) {
     return {
+      account_id: opts.account_id ?? 'acct-uuid-123',
       subscription_status: opts.subscription_status ?? 'pending_payment',
       role: opts.role ?? 'owner',
       place_id_verified: opts.place_id_verified ?? false,
@@ -142,6 +173,51 @@ describe('GET /api/auth/signup-status', () => {
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.subscriptionStatus).toBe('active');
+  });
+
+  it('reconciles a paid Checkout Session when the Stripe webhook has not updated Supabase yet', async () => {
+    const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+    const sqlResponses = [
+      pgResult([rowFor({ account_id: accountId, subscription_status: 'pending_payment' })]),
+      pgResult([]), // activation advisory lock
+      pgResult([{ subscription_status: 'pending_payment' }]), // FOR UPDATE read
+      pgResult([], 1), // accounts activation UPDATE
+      pgResult([], 1), // account audit log INSERT
+      pgResult([], 1), // businesses compatibility UPDATE
+    ];
+    mockSql.mockImplementation(() =>
+      Promise.resolve(sqlResponses.shift() ?? pgResult([])),
+    );
+    mockStripeCheckoutRetrieve.mockResolvedValueOnce({
+      id: 'cs_test_paid',
+      client_reference_id: accountId,
+      mode: 'subscription',
+      payment_status: 'paid',
+      customer: 'cus_paid',
+      subscription: 'sub_paid',
+    });
+
+    const res = await GET(
+      new NextRequest(
+        'https://app.example.com/api/auth/signup-status?session_id=cs_test_paid',
+      ),
+    );
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.subscriptionStatus).toBe('active');
+    expect(mockStripeCheckoutRetrieve).toHaveBeenCalledWith('cs_test_paid');
+
+    const sqlTexts = mockSql.mock.calls.map((call: unknown[]) =>
+      (call[0] as TemplateStringsArray).join('?'),
+    );
+    expect(
+      sqlTexts.some(
+        (text) =>
+          /UPDATE\s+accounts/i.test(text) &&
+          /subscription_status\s*=\s*'active'/i.test(text),
+      ),
+    ).toBe(true);
   });
 
   it('legacy flow: businessOnboarded=true when place_id_verified is true (placeAutocomplete path)', async () => {

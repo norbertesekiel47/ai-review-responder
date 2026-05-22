@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { sqlReturnQueue, mockSql, sqlCalls } = vi.hoisted(() => {
   const sqlReturnQueue: unknown[] = [];
@@ -16,10 +16,12 @@ const {
   mockListReviews,
   mockProcessReview,
   mockReconcileExternallyAnsweredReview,
+  mockApplyAuthErrorFallback,
 } = vi.hoisted(() => ({
   mockListReviews: vi.fn(),
   mockProcessReview: vi.fn(),
   mockReconcileExternallyAnsweredReview: vi.fn(),
+  mockApplyAuthErrorFallback: vi.fn(),
 }));
 
 vi.mock('../../../../src/lib/db/server', () => ({
@@ -40,6 +42,11 @@ vi.mock('../../../jobs/zernio/zernio-ingest-shared', () => ({
   reconcileExternallyAnsweredReview: mockReconcileExternallyAnsweredReview,
 }));
 
+vi.mock('../../../../src/lib/zernio/auth-error-fallback', () => ({
+  applyIngestionAuthErrorFallback: mockApplyAuthErrorFallback,
+}));
+
+import { ZernioAuthError } from '../../../../src/lib/zernio/errors';
 import { runOnce } from '../ZernioRecentReviewPoller';
 
 function makeReview(overrides: Partial<Record<string, unknown>> = {}) {
@@ -58,6 +65,10 @@ function makeReview(overrides: Partial<Record<string, unknown>> = {}) {
 }
 
 describe('ZernioRecentReviewPoller', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     sqlReturnQueue.length = 0;
@@ -219,5 +230,38 @@ describe('ZernioRecentReviewPoller', () => {
       call.template.includes('provider_review_id <> ALL') ||
       call.template.includes('provider_review_id = ANY'),
     )).toBe(false);
+  });
+
+  it('applies the auth-error fallback when recent-review polling loses Zernio auth', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    sqlReturnQueue.push([
+      {
+        business_id: 'business-1',
+        zernio_account_id: 'zernio-account-1',
+        zernio_location_id: 'location-1',
+        connected_at: new Date('2026-05-10T06:28:15.000Z'),
+        subscription_status: 'active',
+        updated_at: new Date('2026-05-10T06:28:15.000Z'),
+      },
+    ]);
+    mockListReviews.mockRejectedValueOnce(
+      new ZernioAuthError(401, '{"code":"token_refresh_failed"}'),
+    );
+
+    const result = await runOnce();
+
+    expect(result.errors).toBe(1);
+    expect(mockApplyAuthErrorFallback).toHaveBeenCalledWith(
+      'business-1',
+      'zernio-account-1',
+      'location-1',
+      'Zernio auth error (401): {"code":"token_refresh_failed"}',
+    );
+    expect(errorSpy).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining(
+      'disconnected business=business-1 after Zernio auth failure',
+    ));
+    expect(mockProcessReview).not.toHaveBeenCalled();
   });
 });

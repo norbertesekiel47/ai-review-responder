@@ -1,10 +1,126 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
-import { sql } from '@/lib/db/server';
+import { v7 as uuidv7 } from 'uuid';
+import { sql, jsonb } from '@/lib/db/server';
+import { getStripe } from '@/lib/payments/create-checkout-session';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 
 export const dynamic = 'force-dynamic';
+
+type SignupStatusRow = {
+  account_id: string;
+  subscription_status: string;
+  role: string;
+  place_id_verified: boolean;
+  google_maps_url: string | null;
+  subscription_activated_at: Date | null;
+  updated_at: Date;
+};
+
+function getCheckoutSessionId(req: NextRequest): string | null {
+  const value =
+    req.nextUrl.searchParams.get('session_id') ??
+    req.nextUrl.searchParams.get('checkout_session_id');
+  if (!value) return null;
+  if (!value.startsWith('cs_') || value.length > 255) return null;
+  return value;
+}
+
+function extractStripeId(value: unknown): string | null {
+  if (!value) return null;
+  if (typeof value === 'string') return value;
+  if (typeof value === 'object' && 'id' in value) {
+    const id = (value as { id?: unknown }).id;
+    return typeof id === 'string' ? id : null;
+  }
+  return null;
+}
+
+async function reconcilePaidCheckoutSessionForAccount(
+  sessionId: string,
+  accountId: string,
+): Promise<boolean> {
+  const session = await getStripe().checkout.sessions.retrieve(sessionId);
+  if (session.client_reference_id !== accountId) {
+    console.warn(
+      `[signup-status] Checkout Session ${sessionId} does not belong to account ${accountId}`,
+    );
+    return false;
+  }
+
+  if (session.mode !== 'subscription' || session.payment_status !== 'paid') {
+    return false;
+  }
+
+  const customerId = extractStripeId(session.customer);
+  const subscriptionId = extractStripeId(session.subscription);
+  if (!subscriptionId) {
+    console.warn(
+      `[signup-status] Checkout Session ${sessionId} is paid but missing subscription id`,
+    );
+    return false;
+  }
+
+  let active = false;
+  await sql.begin(async (tx) => {
+    await tx`SELECT pg_advisory_xact_lock(hashtext(${accountId + ':activation'}))`;
+
+    const [acctRow] = await tx<{ subscription_status: string }[]>`
+      SELECT subscription_status
+      FROM accounts
+      WHERE id = ${accountId}::uuid
+      FOR UPDATE
+    `;
+    if (!acctRow) return;
+    if (acctRow.subscription_status === SubscriptionStatus.ACTIVE) {
+      active = true;
+      return;
+    }
+
+    const oldStatus = acctRow.subscription_status;
+    const updateAcct = await tx`
+      UPDATE accounts
+      SET
+        subscription_status = 'active',
+        stripe_customer_id = ${customerId},
+        stripe_subscription_id = ${subscriptionId},
+        subscription_activated_at = COALESCE(subscription_activated_at, NOW()),
+        updated_at = NOW()
+      WHERE id = ${accountId}::uuid
+        AND subscription_status IN ('pending_payment', 'past_due')
+    `;
+
+    if (updateAcct.count > 0) {
+      active = true;
+      await tx`
+        INSERT INTO account_audit_log (id, account_id, event_type, payload)
+        VALUES (
+          ${uuidv7()}::uuid,
+          ${accountId}::uuid,
+          'subscription_status_changed',
+          ${jsonb({ fromStatus: oldStatus, toStatus: 'active' })}
+        )
+      `;
+    }
+
+    await tx`
+      UPDATE businesses
+      SET
+        subscription_status = 'active',
+        stripe_customer_id = ${customerId},
+        stripe_subscription_id = ${subscriptionId},
+        subscription_activated_at = COALESCE(subscription_activated_at, NOW()),
+        updated_at = NOW()
+      WHERE account_id = ${accountId}::uuid
+        AND is_primary = TRUE
+        AND archived_at IS NULL
+        AND subscription_status IN ('pending_payment', 'past_due')
+    `;
+  });
+
+  return active;
+}
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
   // 1. Feature flag — hide the route entirely when off.
@@ -77,17 +193,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   //      validation worker enqueued) the proxy is exact.
   const demoFlowEnabled = process.env.ONBOARDING_DEMO_ENABLED === 'true';
   const ownerRole = 'owner';
-  const [row] = await sql<
-    {
-      subscription_status: string;
-      role: string;
-      place_id_verified: boolean;
-      google_maps_url: string | null;
-      subscription_activated_at: Date | null;
-      updated_at: Date;
-    }[]
-  >`
-    SELECT a.subscription_status, u.role,
+  const [row] = await sql<SignupStatusRow[]>`
+    SELECT a.id AS account_id, a.subscription_status, u.role,
            b.place_id_verified, b.google_maps_url,
            a.subscription_activated_at, b.updated_at
     FROM users u
@@ -104,15 +211,39 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'account_incomplete' }, { status: 404 });
   }
 
+  let subscriptionStatus = row.subscription_status;
+  let subscriptionActivatedAt = row.subscription_activated_at;
+  const checkoutSessionId = getCheckoutSessionId(req);
+  if (
+    subscriptionStatus !== SubscriptionStatus.ACTIVE &&
+    checkoutSessionId !== null
+  ) {
+    try {
+      const reconciled = await reconcilePaidCheckoutSessionForAccount(
+        checkoutSessionId,
+        row.account_id,
+      );
+      if (reconciled) {
+        subscriptionStatus = SubscriptionStatus.ACTIVE;
+        subscriptionActivatedAt = new Date();
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(
+        `[signup-status] Checkout Session reconciliation failed for account=${row.account_id}: ${message}`,
+      );
+    }
+  }
+
   // 5. Compute business_onboarded based on the active flow. Done in JS
   //    rather than a SQL CASE so the test mocks (single tagged-template
   //    call, plain row return) stay simple — and the proxy logic is easier
   //    to reason about co-located with the comment above.
   const businessOnboarded = demoFlowEnabled
-    ? row.subscription_status === SubscriptionStatus.ACTIVE
-      && row.subscription_activated_at !== null
+    ? subscriptionStatus === SubscriptionStatus.ACTIVE
+      && subscriptionActivatedAt !== null
       && new Date(row.updated_at).getTime()
-         > new Date(row.subscription_activated_at).getTime() + 2_000
+         > new Date(subscriptionActivatedAt).getTime() + 2_000
     : row.place_id_verified || row.google_maps_url !== null;
 
   // 6. Return subscription status + role + businessOnboarded. The
@@ -121,7 +252,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   //    otherwise to /dashboard.
   return NextResponse.json(
     {
-      subscriptionStatus: row.subscription_status,
+      subscriptionStatus,
       role: row.role,
       businessOnboarded,
     },

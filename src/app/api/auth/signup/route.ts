@@ -88,36 +88,55 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   //    confirmation.
   const appUrl = process.env.NEXT_PUBLIC_APP_URL!;
   const emailRedirectTo = `${appUrl}/api/auth/callback?flow=owner&next=/onboarding/pay`;
+  const signUpStartedAt = new Date();
   const { data: authData, error: authError } = await supabaseServer.auth.signUp({
     email: data.ownerEmail,
     password: data.password,
     options: { emailRedirectTo },
   });
+  let authUser = authData.user;
+
+  // Hosted Supabase Auth can return `{ error: null, user: null }` while still
+  // creating auth.users + sending the confirmation email. Recover the id from
+  // the private auth schema so the app rows are linked to the real identity.
+  if (!authError && !authUser) {
+    const [createdAuthUser] = await sql<{ id: string }[]>`
+      SELECT id::text
+      FROM auth.users
+      WHERE lower(email) = ${data.ownerEmail}
+        AND created_at >= ${signUpStartedAt.toISOString()}::timestamptz - interval '5 seconds'
+      ORDER BY created_at DESC
+      LIMIT 1
+    `;
+    if (createdAuthUser) {
+      authUser = { id: createdAuthUser.id } as NonNullable<typeof authData.user>;
+    }
+  }
 
   // Anti-enumeration obfuscation guard.
   //
-  // Supabase's documented anti-enumeration behavior: when an EMAIL ALREADY
-  // EXISTS as a confirmed user, signUp() returns success with a non-null
-  // user object whose `identities` array is EMPTY. The user object's id is
-  // a fake UUID — calling auth.admin.getUserById(id) returns null. If we
-  // proceed to createBusinessTx with this fake auth_id we'd write a
-  // public.users row with an auth_id pointing at no real Supabase identity.
-  // The owner could never log in, password reset would silently no-op, and
-  // a future admin invite (via inviteUserByEmail) would conflict on email.
-  //
-  // Treat empty identities array the same as account_exists. The real
-  // owner (whose Supabase identity DOES match the email) can still log
-  // in / reset password through normal flows.
-  //
-  // Reference: https://supabase.com/docs/reference/javascript/auth-signup
-  if (authData?.user && Array.isArray(authData.user.identities) && authData.user.identities.length === 0) {
+  // Supabase can return `user.identities = []` for the anti-enumeration
+  // duplicate-account response, but current hosted Auth can also return an
+  // empty identities array for a real newly-created email signup while the
+  // identity is already present in auth.identities. Do not use the response
+  // shape alone as the duplicate signal. Confirm the returned id exists in
+  // Auth before using it as users.auth_id; fake ids must still be rejected.
+  if (authUser && Array.isArray(authUser.identities) && authUser.identities.length === 0) {
+    const { data: lookupData, error: lookupError } =
+      await supabaseServer.auth.admin.getUserById(authUser.id);
+    const lookupEmail = lookupData.user?.email?.trim().toLowerCase();
+    if (lookupError || !lookupData.user || lookupEmail !== data.ownerEmail) {
+      console.warn(
+        `[api/auth/signup] Supabase returned unconfirmed/fake user (empty identities) for ${data.ownerEmail} — treating as account_exists`,
+      );
+      return accountExistsResponse();
+    }
     console.warn(
-      `[api/auth/signup] Supabase returned obfuscated user (empty identities) for ${data.ownerEmail} — treating as account_exists`,
+      `[api/auth/signup] Supabase returned empty identities for real new user ${data.ownerEmail}; continuing signup`,
     );
-    return accountExistsResponse();
   }
 
-  if (authError || !authData.user) {
+  if (authError || !authUser) {
     // Disambiguate Supabase email-send rate limits (most common during dev)
     // from account-exists. Conflating them yields a confusing "account
     // exists" message when in fact the inbox is just hot. The auth.users
@@ -153,7 +172,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
     return accountExistsResponse();
   }
-  const authId = authData.user.id;
+  const authId = authUser.id;
 
   // 6. Build the createBusinessTx input — identity-only. Business details
   //    (name, place ID, tone, etc.) are collected after Stripe payment via

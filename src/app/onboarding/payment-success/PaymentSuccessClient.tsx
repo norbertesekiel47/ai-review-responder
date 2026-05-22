@@ -9,7 +9,11 @@ import { useRouter } from 'next/navigation';
 // (or vice versa).
 const MAX_POLL_DURATION_MS = 5 * 60_000;
 
-export function PaymentSuccessClient() {
+export function PaymentSuccessClient({
+  checkoutSessionId,
+}: {
+  checkoutSessionId?: string | null;
+}) {
   const [active, setActive] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const router = useRouter();
@@ -35,7 +39,10 @@ export function PaymentSuccessClient() {
       activeController = controller;
       const abortTimer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
       try {
-        const res = await fetch('/api/auth/signup-status', {
+        const statusUrl = checkoutSessionId
+          ? `/api/auth/signup-status?session_id=${encodeURIComponent(checkoutSessionId)}`
+          : '/api/auth/signup-status';
+        const res = await fetch(statusUrl, {
           signal: controller.signal,
         });
         if (cancelled) return;
@@ -107,7 +114,7 @@ export function PaymentSuccessClient() {
       // even though the component is gone.
       if (activeController) activeController.abort();
     };
-  }, [router]);
+  }, [router, checkoutSessionId]);
 
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">

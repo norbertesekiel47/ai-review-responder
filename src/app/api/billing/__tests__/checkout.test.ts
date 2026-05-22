@@ -308,7 +308,7 @@ describe('POST /api/billing/checkout', () => {
   });
 
   // VAL-BILLING-005 — mode, client_reference_id, success_url, cancel_url, allow_promotion_codes
-  it('sets mode=subscription, client_reference_id, success_url, cancel_url, allow_promotion_codes', async () => {
+  it('sets mode=subscription, client_reference_id, payment-success return URL, cancel_url, allow_promotion_codes', async () => {
     mockRequireRole.mockResolvedValueOnce(ownerUser());
     mockSql.mockResolvedValueOnce([mockAccountRow('standard', 'pending_payment', 'test@example.com')]);
     mockSql.mockResolvedValueOnce([{ count: 1 }]);
@@ -325,7 +325,9 @@ describe('POST /api/billing/checkout', () => {
     expect(createArgs.mode).toBe('subscription');
     expect(createArgs.client_reference_id).toBe(ACCOUNT_ID);
     expect(createArgs.customer_email).toBe('test@example.com');
-    expect(createArgs.success_url).toMatch(/\/onboarding\/business/);
+    expect(createArgs.success_url).toBe(
+      `${APP_URL}/onboarding/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+    );
     expect(createArgs.cancel_url).toMatch(/\/onboarding\/pay/);
     expect(createArgs.allow_promotion_codes).toBe(true);
   });

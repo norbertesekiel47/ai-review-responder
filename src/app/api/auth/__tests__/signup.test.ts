@@ -19,7 +19,7 @@ const {
     mockSupabaseServer: {
       auth: {
         signUp: vi.fn(),
-        admin: { deleteUser: vi.fn() },
+        admin: { deleteUser: vi.fn(), getUserById: vi.fn() },
       },
     },
     mockCreateBusinessTx: vi.fn(),
@@ -82,7 +82,12 @@ beforeEach(() => {
   );
 
   mockSupabaseServer.auth.signUp.mockReset();
+  mockSupabaseServer.auth.admin.getUserById.mockReset();
   mockSupabaseServer.auth.admin.deleteUser.mockReset();
+  mockSupabaseServer.auth.admin.getUserById.mockResolvedValue({
+    data: { user: null },
+    error: null,
+  });
   mockSupabaseServer.auth.admin.deleteUser.mockResolvedValue({
     data: null,
     error: null,
@@ -201,6 +206,81 @@ describe('POST /api/auth/signup', () => {
     expect(res.status).toBe(409);
     expect(mockCreateBusinessTx).not.toHaveBeenCalled();
     // No orphan auth user was created, so nothing to delete.
+    expect(mockSupabaseServer.auth.admin.deleteUser).not.toHaveBeenCalled();
+  });
+
+  it('continues signup when Supabase returns empty identities but admin lookup confirms a real new user', async () => {
+    mockSupabaseServer.auth.signUp.mockResolvedValueOnce({
+      data: { user: { id: 'real-auth-user', identities: [] } },
+      error: null,
+    });
+    mockSupabaseServer.auth.admin.getUserById.mockResolvedValueOnce({
+      data: { user: { id: 'real-auth-user', email: 'owner@example.com' } },
+      error: null,
+    });
+    mockCreateBusinessTx.mockResolvedValueOnce({
+      businessId: 'biz-empty-identities',
+      userId: 'u-empty-identities',
+      paymentUrl: null,
+    });
+
+    const res = await POST(mkReq(validBody));
+
+    expect(res.status).toBe(201);
+    expect(mockCreateBusinessTx).toHaveBeenCalledWith(
+      {
+        ownerEmail: 'owner@example.com',
+        ownerName: 'Jane',
+        ownerPhone: null,
+      },
+      { mode: 'self_serve', authId: 'real-auth-user' },
+    );
+    expect(mockSupabaseServer.auth.admin.deleteUser).not.toHaveBeenCalled();
+  });
+
+  it('continues signup when Supabase returns success with null user but creates an auth.users row', async () => {
+    mockSql
+      .mockResolvedValueOnce([]) // pg_advisory_xact_lock
+      .mockResolvedValueOnce([]) // SELECT id FROM users
+      .mockResolvedValueOnce([{ id: 'recovered-auth-user' }]); // auth.users lookup
+    mockSupabaseServer.auth.signUp.mockResolvedValueOnce({
+      data: { user: null, session: null },
+      error: null,
+    });
+    mockCreateBusinessTx.mockResolvedValueOnce({
+      businessId: 'biz-null-user',
+      userId: 'u-null-user',
+      paymentUrl: null,
+    });
+
+    const res = await POST(mkReq(validBody));
+
+    expect(res.status).toBe(201);
+    expect(mockCreateBusinessTx).toHaveBeenCalledWith(
+      {
+        ownerEmail: 'owner@example.com',
+        ownerName: 'Jane',
+        ownerPhone: null,
+      },
+      { mode: 'self_serve', authId: 'recovered-auth-user' },
+    );
+    expect(mockSupabaseServer.auth.admin.deleteUser).not.toHaveBeenCalled();
+  });
+
+  it('returns 409 when Supabase returns empty identities and admin lookup cannot confirm a real user', async () => {
+    mockSupabaseServer.auth.signUp.mockResolvedValueOnce({
+      data: { user: { id: 'fake-auth-user', identities: [] } },
+      error: null,
+    });
+    mockSupabaseServer.auth.admin.getUserById.mockResolvedValueOnce({
+      data: { user: null },
+      error: { message: 'User not found' },
+    });
+
+    const res = await POST(mkReq(validBody));
+
+    expect(res.status).toBe(409);
+    expect(mockCreateBusinessTx).not.toHaveBeenCalled();
     expect(mockSupabaseServer.auth.admin.deleteUser).not.toHaveBeenCalled();
   });
 
