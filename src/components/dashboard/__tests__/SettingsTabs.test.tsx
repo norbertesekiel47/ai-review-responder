@@ -20,19 +20,19 @@ describe('SettingsTabs', () => {
     expect(screen.getByRole('tab', { name: /brand voice/i })).toHaveAttribute('href', '/settings#brand-voice');
   });
 
-  it('adds Locations while keeping Brand Voice anchored for one-location capable accounts', () => {
+  it('uses Account as the settings home tab when Locations is exposed', () => {
     render(
       <SettingsTabs
-        activeTab="general"
+        activeTab="account"
         locationsSettingsEnabled
         multiLocationEnabled={false}
       />,
     );
 
-    expect(screen.getByRole('tab', { name: /general/i })).toHaveAttribute('href', '/settings');
+    expect(screen.getByRole('tab', { name: /^account$/i })).toHaveAttribute('href', '/settings');
     expect(screen.getByRole('tab', { name: /locations/i })).toHaveAttribute('href', '/settings/locations');
     expect(screen.getByRole('tab', { name: /brand voice/i })).toHaveAttribute('href', '/settings#brand-voice');
-    expect(screen.queryByRole('tab', { name: /^account$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: /general/i })).not.toBeInTheDocument();
   });
 
   it('uses the multi-location account tabs for true multi-location accounts', () => {

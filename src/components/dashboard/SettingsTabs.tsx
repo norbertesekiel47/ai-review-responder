@@ -32,9 +32,9 @@ const TABS_SINGLE: Tab[] = [
   { id: 'channels', label: 'Notifications', icon: 'inbox', href: '/settings/channels' },
 ];
 
-/** Single-location with locations settings: 4 tabs — General, Locations, Brand Voice, Notifications */
+/** Single-location with locations settings: 4 tabs — Account, Locations, Brand Voice, Notifications */
 const TABS_SINGLE_WITH_LOCATIONS: Tab[] = [
-  { id: 'general', label: 'General', icon: 'cog', href: '/settings' },
+  { id: 'account', label: 'Account', icon: 'cog', href: '/settings' },
   { id: 'locations', label: 'Locations', icon: 'location', href: '/settings/locations' },
   { id: 'voice', label: 'Brand Voice', icon: 'sparkle', href: '/settings#brand-voice' },
   { id: 'channels', label: 'Notifications', icon: 'inbox', href: '/settings/channels' },

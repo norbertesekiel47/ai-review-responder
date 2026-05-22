@@ -17,8 +17,7 @@ export function SettingsClient({ locationsSettingsEnabled, multiLocationEnabled 
   const f = useSettingsForm();
   const accountData = useAccountData();
 
-  // For multi-location: use 'account' tab; for single-location: use 'general'
-  const activeTab: SettingsTab = multiLocationEnabled ? 'account' : 'general';
+  const activeTab: SettingsTab = locationsSettingsEnabled ? 'account' : 'general';
 
   if (f.fetchError) {
     return (
@@ -52,7 +51,7 @@ export function SettingsClient({ locationsSettingsEnabled, multiLocationEnabled 
   if (multiLocationEnabled) {
     return (
       <SettingsShell
-        activeTab="account"
+        activeTab={activeTab}
         locationsSettingsEnabled={locationsSettingsEnabled}
         multiLocationEnabled
       >
@@ -70,7 +69,7 @@ export function SettingsClient({ locationsSettingsEnabled, multiLocationEnabled 
   // Single-location: General + Brand Voice on the same page (existing redesign layout)
   return (
     <SettingsShell
-      activeTab="general"
+      activeTab={activeTab}
       locationsSettingsEnabled={locationsSettingsEnabled}
       savedFlash={f.savedFlash}
       saveBar={{
