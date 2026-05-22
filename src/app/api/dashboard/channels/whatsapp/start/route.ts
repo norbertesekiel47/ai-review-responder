@@ -17,6 +17,7 @@ import { MultipleMobileChannelsError, EnrollmentDatabaseError } from '@/lib/chan
 import { TOKEN_TTL_MS } from '@/lib/notifications/channels/constants';
 import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
 import { asAccountId } from '@/lib/shared/ids';
+import { getActiveLocationCount } from '@/lib/locations/repo';
 
 async function handler(req: NextRequest): Promise<NextResponse> {
   if (!isWhatsAppEnabled()) return flagOff();
@@ -50,10 +51,20 @@ async function handler(req: NextRequest): Promise<NextResponse> {
   }
   const accountId = accountRow.id;
 
+  // Interim safeguard: WhatsApp owner self-service is single-location-only until
+  // the cross-channel account-scope fix lands (see
+  // docs/superpowers/specs/2026-05-22-owner-channel-account-scope-design.md).
+  // The org-default enrollment desyncs on multi-location accounts because the
+  // read/write paths key by business_id while the page hydrates by account_id.
+  const noStore = { 'Cache-Control': 'no-store, private' };
+  const activeLocationCount = await getActiveLocationCount(accountId);
+  if (activeLocationCount > 1) {
+    return NextResponse.json({ error: 'multi_location_unsupported' }, { status: 403, headers: noStore });
+  }
+
   const rawToken = randomUUID();
   const tokenHash = createHash('sha256').update(rawToken).digest('hex');
   const expiresAt = new Date(Date.now() + TOKEN_TTL_MS);
-  const noStore = { 'Cache-Control': 'no-store, private' };
 
   let result: Awaited<ReturnType<typeof startWhatsAppEnrollment>> | undefined;
   try {
