@@ -168,3 +168,49 @@ describe('LocationsPanel primary promotion', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
+
+describe('LocationsPanel add-location state', () => {
+  it('shows Add location for eligible accounts', () => {
+    render(
+      <LocationsPanel
+        locations={[location({})]}
+        archivedLocations={[]}
+        activeCount={1}
+        accountId={ACCOUNT_ID}
+        addLocationState={{ kind: 'enabled' }}
+        onLocationChange={() => {}}
+      />,
+    );
+
+    expect(screen.getByRole('link', { name: /add location/i })).toHaveAttribute(
+      'href',
+      '/dashboard/add-location',
+    );
+  });
+
+  it('shows a Basic locked upgrade state instead of Add location', () => {
+    render(
+      <LocationsPanel
+        locations={[location({})]}
+        archivedLocations={[]}
+        activeCount={1}
+        accountId={ACCOUNT_ID}
+        addLocationState={{
+          kind: 'locked',
+          title: 'Upgrade to add locations',
+          description: 'Basic includes one location. Upgrade to Standard or Premium to add more.',
+          ctaHref: '/settings#subscription-billing',
+          ctaLabel: 'View plan options',
+        }}
+        onLocationChange={() => {}}
+      />,
+    );
+
+    expect(screen.queryByRole('link', { name: /^add location$/i })).not.toBeInTheDocument();
+    expect(screen.getByText('Upgrade to add locations')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /view plan options/i })).toHaveAttribute(
+      'href',
+      '/settings#subscription-billing',
+    );
+  });
+});

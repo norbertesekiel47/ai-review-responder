@@ -28,6 +28,16 @@ export interface ArchivedLocationEntry {
   archivedAt: string | null;
 }
 
+export type AddLocationState =
+  | { kind: 'enabled' }
+  | {
+      kind: 'locked';
+      title: string;
+      description: string;
+      ctaHref?: string;
+      ctaLabel?: string;
+    };
+
 interface Props {
   locations: LocationEntry[];
   /** Archived locations for the collapsed section. */
@@ -36,6 +46,8 @@ interface Props {
   activeCount: number;
   /** Account ID for API calls. */
   accountId: string;
+  /** Whether the account can add another location, or why the action is locked. */
+  addLocationState?: AddLocationState;
   /** Callback after a location is archived or reactivated (for parent to refetch). */
   onLocationChange: () => void;
 }
@@ -521,7 +533,14 @@ function ArchivedLocationRow({
 
 // ── LocationsPanel ─────────────────────────────────────────────────────
 
-export function LocationsPanel({ locations, archivedLocations, activeCount, accountId, onLocationChange }: Props) {
+export function LocationsPanel({
+  locations,
+  archivedLocations,
+  activeCount,
+  accountId,
+  addLocationState = { kind: 'enabled' },
+  onLocationChange,
+}: Props) {
   const [archivedExpanded, setArchivedExpanded] = useState(false);
   return (
     <div className="set-section">
@@ -554,28 +573,55 @@ export function LocationsPanel({ locations, archivedLocations, activeCount, acco
         ))}
       </div>
 
-      {/* Add location CTA — links to the wizard */}
-      <Link
-        href="/dashboard/add-location"
-        className="loc-add-cta"
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          marginTop: 16,
-          padding: '10px 16px',
-          border: `1px dashed var(--rw-app-border)`,
-          borderRadius: 8,
-          color: 'var(--rw-blue-600)',
-          fontSize: 14,
-          fontWeight: 500,
-          textDecoration: 'none',
-          transition: 'all 160ms ease',
-        }}
-      >
-        <Icon name="plus" size={14} />
-        Add location
-      </Link>
+      {addLocationState.kind === 'enabled' ? (
+        <Link
+          href="/dashboard/add-location"
+          className="loc-add-cta"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            marginTop: 16,
+            padding: '10px 16px',
+            border: `1px dashed var(--rw-app-border)`,
+            borderRadius: 8,
+            color: 'var(--rw-blue-600)',
+            fontSize: 14,
+            fontWeight: 500,
+            textDecoration: 'none',
+            transition: 'all 160ms ease',
+          }}
+        >
+          <Icon name="plus" size={14} />
+          Add location
+        </Link>
+      ) : (
+        <div
+          style={{
+            marginTop: 16,
+            padding: '12px 14px',
+            border: '1px solid var(--rw-app-border)',
+            borderRadius: 8,
+            background: '#F9FAFB',
+          }}
+        >
+          <div className="set-section-title" style={{ fontSize: 14 }}>
+            {addLocationState.title}
+          </div>
+          <p style={{ margin: '4px 0 0', color: '#6B7280', fontSize: 13, lineHeight: 1.5 }}>
+            {addLocationState.description}
+          </p>
+          {addLocationState.ctaHref && addLocationState.ctaLabel && (
+            <Link
+              href={addLocationState.ctaHref}
+              className="btn btn-secondary"
+              style={{ marginTop: 10, display: 'inline-flex', textDecoration: 'none' }}
+            >
+              {addLocationState.ctaLabel}
+            </Link>
+          )}
+        </div>
+      )}
 
       {/* VAL-SETTINGS-038: Archived locations in collapsed section */}
       {/* VAL-LOC-070: Each archived location has a Reactivate button */}
