@@ -25,7 +25,13 @@ const {
   const mockInsertAuditLogSession = vi.fn();
 
   const topLevelQueue: unknown[][] = [];
-  const topLevelMock = vi.fn(async () => topLevelQueue.shift() ?? []);
+  const topLevelMock = vi.fn(async (strings?: TemplateStringsArray) => {
+    const text = Array.isArray(strings) ? strings.join('') : String(strings ?? '');
+    if (text.includes('subscription_status')) {
+      return [{ subscription_status: 'active' }];
+    }
+    return topLevelQueue.shift() ?? [];
+  });
 
   const txQueue: unknown[][] = [];
   const txMock = vi.fn(async () => txQueue.shift() ?? []);
@@ -438,7 +444,11 @@ describe('POST /api/dashboard/past-replies/:responseId/retry', () => {
     expect(res.status).toBe(200);
 
     // Top-level response lookup must be scoped by the ALT location's business_id.
-    const topLevelCall = topLevelMock.mock.calls[0] as unknown as unknown[];
+    // resolveOwnerScope's subscription_status lookup is the first top-level call;
+    // the route's response lookup is the one that interpolates the location id.
+    const topLevelCall = topLevelMock.mock.calls.find(
+      (call) => !(call[0] as TemplateStringsArray).join('').includes('subscription_status'),
+    ) as unknown as unknown[];
     expect(topLevelCall).toContain(ALT_LOCATION_ID);
     // assertCanEditReply receives the ALT location, not the primary.
     expect(mockAssertCanEdit).toHaveBeenCalledWith(REVIEW_ID, {

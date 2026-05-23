@@ -16,8 +16,10 @@
 import type { NextRequest } from 'next/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { getRequestScope } from '@/lib/auth/get-request-scope';
+import { sql } from '@/lib/db/server';
 import { asAccountId, asLocationId, isValidUuid } from '@/lib/shared/ids';
 import type { AccountId, LocationId } from '@/lib/shared/ids';
+import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 
 export class ScopeError extends Error {
   constructor(
@@ -62,6 +64,22 @@ export async function resolveOwnerScope(
   }
 
   const accountId = asAccountId(user.accountId);
+
+  // Subscription enforcement — mirror the SSR page guard (requireOwnerAccess
+  // redirects non-ACTIVE accounts to /onboarding/pay). requireRole only checks
+  // the auth identity, so without this gate blocked accounts (cancelled /
+  // past_due / pending_payment) could still drive edit mutation routes.
+  const accountRows = await sql<{ subscription_status: string }[]>`
+    SELECT subscription_status FROM accounts WHERE id = ${accountId} LIMIT 1
+  `;
+  const account = accountRows[0];
+  if (!account) {
+    throw new ScopeError('no_business', 403);
+  }
+  if (account.subscription_status !== SubscriptionStatus.ACTIVE) {
+    throw new ScopeError('subscription_inactive', 403);
+  }
+
   const rawCookie = request.cookies.get('rw_location_scope')?.value ?? null;
   const cookieLocationId = rawCookie && isValidUuid(rawCookie) ? asLocationId(rawCookie) : null;
   const { currentLocationId } = await getRequestScope(accountId, cookieLocationId);

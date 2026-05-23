@@ -25,7 +25,16 @@ const {
   // sql.begin runs the callback synchronously with the tx mock.
   const beginMock = vi.fn(async (cb: (tx: unknown) => Promise<Response>) => cb(txMock));
 
-  const sqlProxy = new Proxy(() => Promise.resolve([]), {
+  // Top-level sql`...`: resolveOwnerScope's subscription_status lookup must
+  // return an ACTIVE account; everything else resolves to [].
+  const sqlTop = (strings: TemplateStringsArray, ..._args: unknown[]) => {
+    const text = Array.isArray(strings) ? strings.join('') : String(strings);
+    if (text.includes('subscription_status')) {
+      return Promise.resolve([{ subscription_status: 'active' }]);
+    }
+    return Promise.resolve([]);
+  };
+  const sqlProxy = new Proxy(sqlTop, {
     get: (_t, prop) => {
       if (prop === 'begin') return beginMock;
       return undefined;

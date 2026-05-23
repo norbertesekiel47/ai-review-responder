@@ -3,10 +3,13 @@ import { NextRequest } from 'next/server';
 
 // ── Hoisted shared state ────────────────────────────────────────────
 
-const { mockRequireRole, mockGetRequestScope } = vi.hoisted(() => {
+const { mockRequireRole, mockGetRequestScope, mockSql } = vi.hoisted(() => {
   return {
     mockRequireRole: vi.fn(),
     mockGetRequestScope: vi.fn(),
+    // Tagged-template sql`...` mock. Default resolves to an ACTIVE account so
+    // the subscription gate passes; individual tests override with mockResolvedValueOnce.
+    mockSql: vi.fn(),
   };
 });
 
@@ -30,6 +33,10 @@ vi.mock('@/lib/db/auth', () => {
 
 vi.mock('@/lib/auth/get-request-scope', () => ({
   getRequestScope: (...args: unknown[]) => mockGetRequestScope(...args),
+}));
+
+vi.mock('@/lib/db/server', () => ({
+  sql: (...args: unknown[]) => mockSql(...args),
 }));
 
 // ── Helpers ─────────────────────────────────────────────────────────
@@ -67,6 +74,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   process.env.NEXT_PUBLIC_APP_URL = APP_URL;
   mockGetRequestScope.mockResolvedValue({ accountId: ACCOUNT_ID, currentLocationId: LOCATION_ID });
+  // Default: accounts.subscription_status lookup returns ACTIVE.
+  mockSql.mockResolvedValue([{ subscription_status: 'active' }]);
 });
 
 // ── Tests ───────────────────────────────────────────────────────────
@@ -143,6 +152,39 @@ describe('resolveOwnerScope', () => {
       statusCode: 403,
     });
     // getRequestScope must NOT be called when accountId is missing.
+    expect(mockGetRequestScope).not.toHaveBeenCalled();
+  });
+
+  it('non-ACTIVE subscription (cancelled) → throws ScopeError 403 subscription_inactive, getRequestScope NOT called', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+    mockSql.mockResolvedValueOnce([{ subscription_status: 'cancelled' }]);
+    const { resolveOwnerScope, ScopeError } = await importResolveOwnerScope();
+
+    await expect(resolveOwnerScope(makeRequest())).rejects.toThrow(ScopeError);
+    expect(mockGetRequestScope).not.toHaveBeenCalled();
+  });
+
+  it('non-ACTIVE subscription error carries message subscription_inactive + statusCode 403', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+    mockSql.mockResolvedValueOnce([{ subscription_status: 'past_due' }]);
+    const { resolveOwnerScope } = await importResolveOwnerScope();
+
+    await expect(resolveOwnerScope(makeRequest())).rejects.toMatchObject({
+      message: 'subscription_inactive',
+      statusCode: 403,
+    });
+    expect(mockGetRequestScope).not.toHaveBeenCalled();
+  });
+
+  it('account row missing → throws ScopeError 403 no_business, getRequestScope NOT called', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+    mockSql.mockResolvedValueOnce([]);
+    const { resolveOwnerScope } = await importResolveOwnerScope();
+
+    await expect(resolveOwnerScope(makeRequest())).rejects.toMatchObject({
+      message: 'no_business',
+      statusCode: 403,
+    });
     expect(mockGetRequestScope).not.toHaveBeenCalled();
   });
 });

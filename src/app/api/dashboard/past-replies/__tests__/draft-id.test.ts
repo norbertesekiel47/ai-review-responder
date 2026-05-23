@@ -22,7 +22,13 @@ const {
 
   // Top-level sql`...` calls (outside sql.begin) consume from this queue.
   const topLevelQueue: unknown[][] = [];
-  const topLevelMock = vi.fn(async () => topLevelQueue.shift() ?? []);
+  const topLevelMock = vi.fn(async (strings?: TemplateStringsArray) => {
+    const text = Array.isArray(strings) ? strings.join('') : String(strings ?? '');
+    if (text.includes('subscription_status')) {
+      return [{ subscription_status: 'active' }];
+    }
+    return topLevelQueue.shift() ?? [];
+  });
 
   // Each call to tx`...` returns the next array from the queue.
   const txQueue: unknown[][] = [];
@@ -357,7 +363,11 @@ describe('PATCH /api/dashboard/past-replies/draft/:responseId', () => {
 
     // The top-level SELECT must have scoped to ALT_LOCATION_ID (not LOCATION_ID).
     // topLevelMock was called with a tagged template — the bound arg for business_id is ALT_LOCATION_ID.
-    const topLevelCall = topLevelMock.mock.calls[0] as unknown as unknown[];
+    // resolveOwnerScope's subscription_status lookup is a separate top-level call;
+    // pick the route's response lookup (the one that does not query subscription_status).
+    const topLevelCall = topLevelMock.mock.calls.find(
+      (call) => !(call[0] as TemplateStringsArray).join('').includes('subscription_status'),
+    ) as unknown as unknown[];
     const topLevelArgs = topLevelCall.slice(1);
     // args: [responseId, locationId] → second bound value is the locationId
     expect(topLevelArgs[1]).toBe(ALT_LOCATION_ID);

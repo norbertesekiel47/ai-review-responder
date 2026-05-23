@@ -31,7 +31,15 @@ const {
 
   // Top-level sql`...` (used by route's pre-tx response_id → review_id lookup).
   const topLevelQueue: unknown[][] = [];
-  const sqlTopMock = vi.fn(async () => topLevelQueue.shift() ?? []);
+  const sqlTopMock = vi.fn(async (strings?: TemplateStringsArray) => {
+    const text = Array.isArray(strings) ? strings.join('') : String(strings ?? '');
+    // resolveOwnerScope's subscription_status lookup must see an ACTIVE account
+    // without consuming the route's own top-level queue entries.
+    if (text.includes('subscription_status')) {
+      return [{ subscription_status: 'active' }];
+    }
+    return topLevelQueue.shift() ?? [];
+  });
 
   // Calling sql`...` returns from the top-level queue; sql.begin uses beginMock.
   const sqlProxy = new Proxy(sqlTopMock, {

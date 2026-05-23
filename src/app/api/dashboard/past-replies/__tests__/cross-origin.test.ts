@@ -47,6 +47,20 @@ vi.mock('@/lib/auth/get-request-scope', () => ({
   })),
 }));
 
+// resolveOwnerScope now reads accounts.subscription_status. Mock sql so that
+// lookup returns an ACTIVE account (otherwise the GET exemption case would 403
+// on subscription_inactive). All other top-level queries resolve to [].
+vi.mock('@/lib/db/server', () => ({
+  sql: vi.fn(async (strings?: TemplateStringsArray) => {
+    const text = Array.isArray(strings) ? strings.join('') : String(strings ?? '');
+    if (text.includes('subscription_status')) {
+      return [{ subscription_status: 'active' }];
+    }
+    return [];
+  }),
+  jsonb: (v: unknown) => v,
+}));
+
 beforeEach(() => {
   process.env.PAST_REPLIES_VIEW_ENABLED = 'true';
   process.env.EDIT_REPLIES_ENABLED = 'true';

@@ -14,7 +14,13 @@ const {
   const mockGetRequestScope = vi.fn();
 
   const topLevelQueue: unknown[][] = [];
-  const topLevelMock = vi.fn(async () => topLevelQueue.shift() ?? []);
+  const topLevelMock = vi.fn(async (strings?: TemplateStringsArray) => {
+    const text = Array.isArray(strings) ? strings.join('') : String(strings ?? '');
+    if (text.includes('subscription_status')) {
+      return [{ subscription_status: 'active' }];
+    }
+    return topLevelQueue.shift() ?? [];
+  });
 
   const sqlProxy = new Proxy(topLevelMock, {
     apply: (target, _this, args) => Reflect.apply(target as never, _this, args),
