@@ -74,7 +74,10 @@ function computePublishMode(
 }
 
 async function handler(request: NextRequest): Promise<Response> {
-  if (process.env.EDIT_REPLIES_ENABLED !== 'true') {
+  if (
+    process.env.PAST_REPLIES_VIEW_ENABLED !== 'true' ||
+    process.env.EDIT_REPLIES_ENABLED !== 'true'
+  ) {
     return NextResponse.json({ error: 'feature_disabled' }, { status: 503 });
   }
 

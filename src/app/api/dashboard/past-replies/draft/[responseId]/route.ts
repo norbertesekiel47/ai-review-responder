@@ -60,7 +60,10 @@ export async function PATCH(
   request: NextRequest,
   context: RouteParams,
 ): Promise<Response> {
-  if (process.env.EDIT_REPLIES_ENABLED !== 'true') {
+  if (
+    process.env.PAST_REPLIES_VIEW_ENABLED !== 'true' ||
+    process.env.EDIT_REPLIES_ENABLED !== 'true'
+  ) {
     return NextResponse.json({ error: 'feature_disabled' }, { status: 503 });
   }
 
@@ -189,7 +192,10 @@ export async function DELETE(
   request: NextRequest,
   context: RouteParams,
 ): Promise<Response> {
-  if (process.env.EDIT_REPLIES_ENABLED !== 'true') {
+  if (
+    process.env.PAST_REPLIES_VIEW_ENABLED !== 'true' ||
+    process.env.EDIT_REPLIES_ENABLED !== 'true'
+  ) {
     return NextResponse.json({ error: 'feature_disabled' }, { status: 503 });
   }
 

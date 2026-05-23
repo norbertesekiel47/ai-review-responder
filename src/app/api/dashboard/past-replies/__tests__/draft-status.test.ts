@@ -99,6 +99,7 @@ function seedTopLevel(...rowsets: unknown[][]) {
 beforeEach(() => {
   vi.clearAllMocks();
   topLevelQueue.length = 0;
+  process.env.PAST_REPLIES_VIEW_ENABLED = 'true';
   process.env.EDIT_REPLIES_ENABLED = 'true';
   process.env.NEXT_PUBLIC_APP_URL = APP_URL;
   // Default: requireRole succeeds; getRequestScope resolves to primary location.
@@ -108,6 +109,7 @@ beforeEach(() => {
 
 afterEach(() => {
   delete process.env.EDIT_REPLIES_ENABLED;
+  delete process.env.PAST_REPLIES_VIEW_ENABLED;
 });
 
 async function importGET() {

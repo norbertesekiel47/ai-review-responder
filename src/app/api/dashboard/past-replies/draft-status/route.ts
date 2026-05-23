@@ -36,7 +36,10 @@ import { resolveOwnerScope, ScopeError } from '@/lib/auth/resolve-owner-scope';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest): Promise<Response> {
-  if (process.env.EDIT_REPLIES_ENABLED !== 'true') {
+  if (
+    process.env.PAST_REPLIES_VIEW_ENABLED !== 'true' ||
+    process.env.EDIT_REPLIES_ENABLED !== 'true'
+  ) {
     return NextResponse.json({ error: 'feature_disabled' }, { status: 503 });
   }
 

@@ -169,6 +169,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   txQueue.length = 0;
   topLevelQueue.length = 0;
+  process.env.PAST_REPLIES_VIEW_ENABLED = 'true';
   process.env.EDIT_REPLIES_ENABLED = 'true';
   process.env.NEXT_PUBLIC_APP_URL = APP_URL;
   // Default: auth + scope resolves to primary location.
@@ -181,6 +182,7 @@ beforeEach(() => {
 
 afterEach(() => {
   delete process.env.EDIT_REPLIES_ENABLED;
+  delete process.env.PAST_REPLIES_VIEW_ENABLED;
 });
 
 async function importPOST() {
