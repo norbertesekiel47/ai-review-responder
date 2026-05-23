@@ -498,7 +498,7 @@ describe('PastRepliesClient', () => {
 
     const EXISTING_ID = 'existing-draft-99';
 
-    function installConflictFetchMock() {
+    function installConflictFetchMock(overrides?: { status?: string }) {
       const calls: { url: string; method: string }[] = [];
       const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url;
@@ -510,7 +510,12 @@ describe('PastRepliesClient', () => {
             status: 409,
             json: async () => ({
               error: 'draft_already_exists',
-              existing: { response_id: EXISTING_ID, text: 'A stranded draft', is_edited: true },
+              existing: {
+                response_id: EXISTING_ID,
+                text: 'A stranded draft',
+                is_edited: true,
+                status: overrides?.status ?? 'pending_approval',
+              },
             }),
           } as Response;
         }
@@ -526,8 +531,10 @@ describe('PastRepliesClient', () => {
       await user.click(screen.getByRole('button', { name: /edit manually/i }));
       // Submit the manual editor → POST /draft → 409 conflict.
       await user.click(screen.getByRole('button', { name: /update on google/i }));
+      // Wait for the conflict panel to render. All three branches contain
+      // the existing draft text 'A stranded draft' which is a reliable sentinel.
       await waitFor(() =>
-        expect(screen.getByRole('button', { name: /^resume$/i })).toBeInTheDocument(),
+        expect(screen.getByText('A stranded draft')).toBeInTheDocument(),
       );
     }
 
@@ -575,6 +582,55 @@ describe('PastRepliesClient', () => {
       // Preview state shows the stranded draft text + Edit further affordance.
       expect(screen.getByText('A stranded draft')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /edit further/i })).toBeInTheDocument();
+    });
+
+    // ── Non-pending statuses: no Resume/Discard ────────────────────────────
+    //
+    // For 'approved' / 'edited' (publish already in flight) and
+    // 'awaiting_owner_connect' (parked until Google reconnect), Resume/Discard
+    // dead-end: /publish rejects non-pending_approval, DELETE is a no-op.
+    // The drawer must render informational-only states without those buttons.
+
+    it('approved conflict: shows "already approved" message, NO Resume/Discard buttons', async () => {
+      const user = userEvent.setup();
+      installConflictFetchMock({ status: 'approved' });
+      render(
+        <PastRepliesClient {...baseProps} gapRows={[row({ canEdit: true })]} editRepliesEnabled={true} />,
+      );
+
+      await triggerConflict(user);
+
+      expect(screen.getByText(/already approved/i)).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /^resume$/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /^discard$/i })).not.toBeInTheDocument();
+    });
+
+    it('edited conflict: shows "already approved" message, NO Resume/Discard buttons', async () => {
+      const user = userEvent.setup();
+      installConflictFetchMock({ status: 'edited' });
+      render(
+        <PastRepliesClient {...baseProps} gapRows={[row({ canEdit: true })]} editRepliesEnabled={true} />,
+      );
+
+      await triggerConflict(user);
+
+      expect(screen.getByText(/already approved/i)).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /^resume$/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /^discard$/i })).not.toBeInTheDocument();
+    });
+
+    it('awaiting_owner_connect conflict: shows reconnect message, NO Resume/Discard buttons', async () => {
+      const user = userEvent.setup();
+      installConflictFetchMock({ status: 'awaiting_owner_connect' });
+      render(
+        <PastRepliesClient {...baseProps} gapRows={[row({ canEdit: true })]} editRepliesEnabled={true} />,
+      );
+
+      await triggerConflict(user);
+
+      expect(screen.getByText(/reconnect required/i)).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /^resume$/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /^discard$/i })).not.toBeInTheDocument();
     });
   });
 });

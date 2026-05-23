@@ -250,12 +250,12 @@ describe('POST /api/dashboard/past-replies/draft', () => {
     expect(body.error).toBe('response_changed');
   });
 
-  it('returns 409 draft_already_exists with the existing draft so the client can resume', async () => {
+  it('returns 409 draft_already_exists with the existing draft including status so the client can branch correctly', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
     // tx queue: lock-row, existing-check returns the in-progress draft → 409.
     seedTxRows(
       [{ id: REVIEW_ID }],
-      [{ response_id: 'existing-draft-1', text: 'Half-written reply', is_edited: true }],
+      [{ response_id: 'existing-draft-1', text: 'Half-written reply', is_edited: true, status: 'pending_approval' }],
     );
     const POST = await importPOST();
     const res = await POST(makeRequest({ body: validBody() }));
@@ -267,7 +267,36 @@ describe('POST /api/dashboard/past-replies/draft', () => {
       response_id: 'existing-draft-1',
       text: 'Half-written reply',
       is_edited: true,
+      status: 'pending_approval',
     });
+  });
+
+  it('returns 409 draft_already_exists with status=approved when publish is already queued', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+    seedTxRows(
+      [{ id: REVIEW_ID }],
+      [{ response_id: 'existing-draft-2', text: 'Approved reply', is_edited: false, status: 'approved' }],
+    );
+    const POST = await importPOST();
+    const res = await POST(makeRequest({ body: validBody() }));
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error).toBe('draft_already_exists');
+    expect(body.existing.status).toBe('approved');
+  });
+
+  it('returns 409 draft_already_exists with status=awaiting_owner_connect when Google is disconnected', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+    seedTxRows(
+      [{ id: REVIEW_ID }],
+      [{ response_id: 'existing-draft-3', text: 'Parked reply', is_edited: false, status: 'awaiting_owner_connect' }],
+    );
+    const POST = await importPOST();
+    const res = await POST(makeRequest({ body: validBody() }));
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error).toBe('draft_already_exists');
+    expect(body.existing.status).toBe('awaiting_owner_connect');
   });
 
   it('returns 409 regenerate_in_progress when a generate_response outbox row is pending', async () => {

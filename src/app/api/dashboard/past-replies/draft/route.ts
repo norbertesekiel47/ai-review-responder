@@ -117,10 +117,12 @@ async function handler(request: NextRequest): Promise<Response> {
         response_id: string;
         text: string | null;
         is_edited: boolean;
+        status: string;
       }[]>`
         SELECT id AS response_id,
                COALESCE(edited_text, approved_text, response_text) AS text,
-               (edited_text IS NOT NULL) AS is_edited
+               (edited_text IS NOT NULL) AS is_edited,
+               status
         FROM responses
         WHERE review_id = ${parsed.data.review_id}
           AND status IN ('pending_approval', 'approved', 'edited', 'awaiting_owner_connect')
@@ -136,6 +138,7 @@ async function handler(request: NextRequest): Promise<Response> {
               response_id: existingDraft.response_id,
               text: existingDraft.text,
               is_edited: existingDraft.is_edited,
+              status: existingDraft.status,
             },
           },
           { status: 409 },

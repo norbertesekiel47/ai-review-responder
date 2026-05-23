@@ -30,6 +30,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { PastReplyRow } from '@/components/dashboard/PastReplyCard';
 
@@ -89,7 +90,11 @@ type DrawerState =
   // A prior draft (reload / crash / failed-publish) already exists for this
   // review. Rather than dead-ending on 409 'draft_already_exists', offer to
   // Resume it (publish/edit the existing draft) or Discard it and start over.
-  | { kind: 'draft_conflict'; existing: { responseId: string; text: string; isEdited: boolean } }
+  // `status` discriminates which actions are available:
+  //   - 'pending_approval' → Resume + Discard are valid.
+  //   - 'approved' | 'edited' → publish already queued; inform only.
+  //   - 'awaiting_owner_connect' → parked until Google reconnect; inform + link.
+  | { kind: 'draft_conflict'; existing: { responseId: string; text: string; isEdited: boolean; status: string } }
   | { kind: 'error'; message: string }
   | { kind: 'success'; message: string };
 
@@ -101,6 +106,7 @@ interface ApiErrorPayload {
     response_id: string;
     text: string | null;
     is_edited: boolean;
+    status: string;
   };
 }
 
@@ -259,8 +265,10 @@ export function EditReplyDrawer({
         });
         return;
       }
-      // A prior in-progress draft exists. Offer Resume / Discard instead of
-      // dead-ending — the owner can publish or abandon the stranded draft.
+      // A prior in-progress draft exists. The available actions depend on its
+      // status — only pending_approval supports Resume/Discard; the other
+      // non-terminal statuses (approved, edited, awaiting_owner_connect) are
+      // informational-only states where no further client action is needed.
       if (res.status === 409 && body?.error === 'draft_already_exists' && body.existing) {
         setState({
           kind: 'draft_conflict',
@@ -268,6 +276,7 @@ export function EditReplyDrawer({
             responseId: body.existing.response_id,
             text: body.existing.text ?? '',
             isEdited: body.existing.is_edited,
+            status: body.existing.status,
           },
         });
         return;
@@ -817,8 +826,11 @@ export function EditReplyDrawer({
             <DraftConflictPanel
               draftText={state.existing.text}
               isEdited={state.existing.isEdited}
+              status={state.existing.status}
               onResume={() => resumeExistingDraft(state.existing)}
               onDiscard={() => discardExistingDraft(state.existing.responseId)}
+              onClose={onClose}
+              onRefresh={() => router.refresh()}
             />
           )}
 
@@ -1025,14 +1037,98 @@ function RecoveryPanel({
 function DraftConflictPanel({
   draftText,
   isEdited,
+  status,
   onResume,
   onDiscard,
+  onClose,
+  onRefresh,
 }: {
   draftText: string;
   isEdited: boolean;
+  status: string;
   onResume: () => void;
   onDiscard: () => void;
+  onClose: () => void;
+  onRefresh: () => void;
 }) {
+  // approved / edited: the reply is already approved and the publish outbox
+  // is in flight. Resume/Discard cannot help — inform and offer Close/Refresh.
+  if (status === 'approved' || status === 'edited') {
+    return (
+      <div className="space-y-3 rounded-lg border border-[#97B3AE]/40 bg-[#F0EEEA]/40 p-4">
+        <p className="text-sm font-medium text-[#2a2a2a]">Edit already approved</p>
+        <p className="text-sm text-[#6a6a6a]">
+          This reply has been approved and is being published to Google. No further
+          action is needed — check back shortly and the updated reply will appear.
+        </p>
+        <div>
+          <div className="mb-1 text-xs uppercase tracking-wider text-[#97B3AE]">
+            {isEdited ? 'Approved edited draft' : 'Approved draft'}
+          </div>
+          <p className="rounded-md border border-gray-200 bg-white p-3 text-sm text-[#2a2a2a]">
+            {draftText || <em className="text-[#6a6a6a]">(empty)</em>}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={onRefresh}
+            className="rounded-full bg-[#97B3AE] px-5 py-2 text-sm font-medium text-white shadow-sm hover:bg-[#7c9994]"
+          >
+            Refresh
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md border border-gray-200 px-4 py-2 text-sm font-medium text-[#2a2a2a] hover:bg-gray-50"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // awaiting_owner_connect: publishing is paused until the Google account is
+  // reconnected. Resume/Discard cannot resolve this — inform and link to settings.
+  if (status === 'awaiting_owner_connect') {
+    return (
+      <div className="space-y-3 rounded-lg border border-amber-200 bg-amber-50 p-4">
+        <p className="text-sm font-medium text-amber-900">Google reconnect required</p>
+        <p className="text-sm text-amber-800">
+          Publishing is paused because your Google Business Profile connection has
+          expired. Reconnect your account in Settings and this reply will publish
+          automatically.
+        </p>
+        <div>
+          <div className="mb-1 text-xs uppercase tracking-wider text-amber-900/70">
+            {isEdited ? 'Your edited draft' : 'Draft reply'}
+          </div>
+          <p className="rounded-md bg-white p-3 text-sm text-[#2a2a2a]">
+            {draftText || <em className="text-[#6a6a6a]">(empty)</em>}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Link
+            href="/dashboard/connect"
+            className="inline-flex items-center rounded-full bg-[#97B3AE] px-5 py-2 text-sm font-medium text-white shadow-sm hover:bg-[#7c9994]"
+          >
+            Reconnect Google
+          </Link>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md border border-gray-200 px-4 py-2 text-sm font-medium text-[#2a2a2a] hover:bg-gray-50"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // pending_approval: Resume (→ preview, can publish/edit) + Discard (DELETE).
+  // This is the only status where both actions are safe and meaningful.
   return (
     <div className="space-y-3 rounded-lg border border-amber-200 bg-amber-50 p-4">
       <p className="text-sm text-amber-900">
