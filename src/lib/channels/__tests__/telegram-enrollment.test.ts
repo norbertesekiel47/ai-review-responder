@@ -29,10 +29,11 @@ describe('startTelegramEnrollment', () => {
     );
     expect(result.kind).toBe('ok');
     expect(tx).toHaveBeenCalledTimes(2);
-    // Verify the INSERT includes account_id
+    // Verify the INSERT includes both account_id and business_id
     const insertCall = tx.mock.calls[1];
     const insertSql = (insertCall?.[0] as TemplateStringsArray | undefined)?.join('?') ?? '';
     expect(insertSql).toContain('account_id');
+    expect(insertSql).toContain('business_id');
   });
 
   it('updates an existing pending row to a fresh hash', async () => {
@@ -117,13 +118,15 @@ describe('startTelegramEnrollment', () => {
     ).rejects.toThrow('serialization failure');
   });
 
-  it('SELECTs the enrollment row with FOR UPDATE (serializes against webhook)', async () => {
+  it('SELECTs the org-default enrollment row by account_id + location_id IS NULL with FOR UPDATE', async () => {
     tx.mockResolvedValueOnce([]);
     tx.mockResolvedValueOnce([]);
     const { startTelegramEnrollment } = await import('../telegram-enrollment');
     await startTelegramEnrollment(tx as never, 'biz-123', 'acct-456', 'j'.repeat(64), new Date());
     const selectSql = (tx.mock.calls[0]?.[0] as TemplateStringsArray | undefined)?.join('?') ?? '';
     expect(selectSql).toContain('FOR UPDATE');
+    expect(selectSql).toContain('account_id =');
+    expect(selectSql).toContain('location_id IS NULL');
   });
 
   it('does NOT emit pg_advisory_xact_lock SQL (caller responsibility)', async () => {
@@ -144,14 +147,14 @@ describe('cancelTelegramEnrollment', () => {
   it('returns ok when UPDATE affects rows', async () => {
     const sql = vi.fn().mockResolvedValue([{ id: 'row-1' }]);
     const { cancelTelegramEnrollment } = await import('../telegram-enrollment');
-    const result = await cancelTelegramEnrollment(sql as never, 'biz-123');
+    const result = await cancelTelegramEnrollment(sql as never, 'acct-1');
     expect(result.kind).toBe('ok');
   });
 
   it('returns not_found when UPDATE affects 0 rows', async () => {
     const sql = vi.fn().mockResolvedValue([]);
     const { cancelTelegramEnrollment } = await import('../telegram-enrollment');
-    const result = await cancelTelegramEnrollment(sql as never, 'biz-123');
+    const result = await cancelTelegramEnrollment(sql as never, 'acct-1');
     expect(result.kind).toBe('not_found');
   });
 
@@ -161,22 +164,26 @@ describe('cancelTelegramEnrollment', () => {
     // sql.begin, the test would throw TypeError. Verify by attempting
     // a plain call afterward.
     const { cancelTelegramEnrollment } = await import('../telegram-enrollment');
-    await expect(cancelTelegramEnrollment(sql as never, 'biz-123')).resolves.toBeDefined();
+    await expect(cancelTelegramEnrollment(sql as never, 'acct-1')).resolves.toBeDefined();
   });
 
-  it('SQL sets status = disabled and disabled_at = NOW()', async () => {
+  it('SQL sets status = disabled, disabled_at = NOW(), filters by account_id + location_id IS NULL', async () => {
     const sql = vi.fn().mockResolvedValue([{ id: 'row-1' }]);
     const { cancelTelegramEnrollment } = await import('../telegram-enrollment');
-    await cancelTelegramEnrollment(sql as never, 'biz-123');
-    // Introspect the template-strings array from the single tagged-template call.
+    await cancelTelegramEnrollment(sql as never, 'acct-1');
     const firstCall = sql.mock.calls[0];
     expect(firstCall).toBeDefined();
     const sqlText = (firstCall![0] as TemplateStringsArray).join('?');
     expect(sqlText).toContain("status = 'disabled'");
     expect(sqlText).toContain('disabled_at = NOW()');
+    expect(sqlText).toContain('account_id =');
+    expect(sqlText).toContain('location_id IS NULL');
+    expect(sqlText).toContain("channel = 'telegram'");
+    expect(sqlText).toContain("status = 'pending_verification'");
+    expect(sqlText).toContain('archived_at IS NULL');
   });
 
-  it('after cancel a subsequent startTelegramEnrollment on the same business succeeds (disabled → pending branch)', async () => {
+  it('after cancel a subsequent startTelegramEnrollment on the same account succeeds (disabled → pending branch)', async () => {
     // Mock sequence: startTelegramEnrollment does a SELECT that returns the
     // disabled row left by the cancel, then an UPDATE to pending_verification.
     const tx = vi.fn()
@@ -200,14 +207,30 @@ describe('disableTelegramEnrollment', () => {
   it('returns ok when UPDATE affects rows', async () => {
     const sql = vi.fn().mockResolvedValue([{ id: 'row-1' }]);
     const { disableTelegramEnrollment } = await import('../telegram-enrollment');
-    const result = await disableTelegramEnrollment(sql as never, 'biz-123');
+    const result = await disableTelegramEnrollment(sql as never, 'acct-1');
     expect(result.kind).toBe('ok');
   });
 
   it('returns not_found when UPDATE affects 0 rows', async () => {
     const sql = vi.fn().mockResolvedValue([]);
     const { disableTelegramEnrollment } = await import('../telegram-enrollment');
-    const result = await disableTelegramEnrollment(sql as never, 'biz-123');
+    const result = await disableTelegramEnrollment(sql as never, 'acct-1');
     expect(result.kind).toBe('not_found');
+  });
+
+  it('SQL sets status = disabled, handle = NULL, filters by account_id + location_id IS NULL', async () => {
+    const sql = vi.fn().mockResolvedValue([{ id: 'row-1' }]);
+    const { disableTelegramEnrollment } = await import('../telegram-enrollment');
+    await disableTelegramEnrollment(sql as never, 'acct-1');
+    const firstCall = sql.mock.calls[0];
+    expect(firstCall).toBeDefined();
+    const sqlText = (firstCall![0] as TemplateStringsArray).join('?');
+    expect(sqlText).toContain("status = 'disabled'");
+    expect(sqlText).toContain('handle = NULL');
+    expect(sqlText).toContain('account_id =');
+    expect(sqlText).toContain('location_id IS NULL');
+    expect(sqlText).toContain("channel = 'telegram'");
+    expect(sqlText).toContain("status = 'verified'");
+    expect(sqlText).toContain('archived_at IS NULL');
   });
 });
