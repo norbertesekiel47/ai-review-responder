@@ -28,8 +28,14 @@ import {
   PublisherTransientWithContext,
   ZernioReplyVerificationIndeterminateError,
   verify409AndDispose,
+  verify409InTx,
 } from '../publisher-error-handlers';
-import { ZernioTransientError, ZernioAuthError } from '@/lib/zernio/errors';
+import {
+  ZernioTransientError,
+  ZernioAuthError,
+  ZernioPermanentError,
+  ZernioValidationError,
+} from '@/lib/zernio/errors';
 
 const mkLogger = () => ({ log: vi.fn(), warn: vi.fn(), error: vi.fn() });
 
@@ -283,5 +289,215 @@ describe('handlePublisherPermanentErrorTerminal', () => {
       outboxId: 'outbox-1', outboxAttempt: 1, logger: mkLogger() as any,
     });
     expect(callIdx).toBe(1);  // only the UPDATE; no exception INSERT
+  });
+});
+
+describe('verify409InTx — tx-aware verifier', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  const baseInTxArgs = () => ({
+    tx: vi.fn() as any,                  // outer tx — verify409InTx must NOT touch it
+    account_id: 'acct',
+    location_id: 'loc',
+    zernio_review_id: 'zr-1',
+    approved_text: 'Thanks!',
+    logger: { log: vi.fn(), warn: vi.fn(), error: vi.fn() } as any,
+  });
+
+  function makeZernioReviewWith(replyComment: string | null) {
+    return {
+      id: 'zr-1',
+      name: 'accounts/acct/locations/loc/reviews/zr-1',
+      reviewer: { displayName: 'Alice', profilePhotoUrl: null, isAnonymous: false },
+      rating: 5,
+      starRating: 'FIVE' as const,
+      comment: 'Great!',
+      createTime: '2026-04-26T12:00:00Z',
+      updateTime: '2026-04-26T12:00:00Z',
+      reviewReply: replyComment !== null
+        ? { comment: replyComment, updateTime: '2026-04-27T00:00:00Z' }
+        : null,
+    };
+  }
+
+  it('matches_our_text: canonicalized text equals approved_text → returns matches_our_text + verifierText', async () => {
+    const { zernioClient } = await import('@/lib/zernio/client');
+    const { getCachedZernioReviewPage } = await import('@/lib/publishing/zernio-publisher');
+    (getCachedZernioReviewPage as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    // Trailing whitespace must be canonicalized away (canonicalizeReplyText trims).
+    (zernioClient as any).listAllReviews = vi.fn().mockResolvedValue([
+      makeZernioReviewWith('Thanks!\n\n'),
+    ]);
+
+    const result = await verify409InTx(baseInTxArgs());
+
+    expect(result.disposition).toBe('matches_our_text');
+    if (result.disposition === 'matches_our_text') {
+      expect(result.verifierText).toBe('Thanks!');
+    }
+  });
+
+  it('mismatch: canonical text differs → returns mismatch + verifierText', async () => {
+    const { zernioClient } = await import('@/lib/zernio/client');
+    const { getCachedZernioReviewPage } = await import('@/lib/publishing/zernio-publisher');
+    (getCachedZernioReviewPage as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    (zernioClient as any).listAllReviews = vi.fn().mockResolvedValue([
+      makeZernioReviewWith('Someone else replied here'),
+    ]);
+
+    const result = await verify409InTx(baseInTxArgs());
+
+    expect(result.disposition).toBe('mismatch');
+    if (result.disposition === 'mismatch') {
+      expect(result.verifierText).toBe('Someone else replied here');
+    }
+  });
+
+  it('indeterminate: review not in walk results → review_not_found_after_pagination + meta', async () => {
+    const { zernioClient } = await import('@/lib/zernio/client');
+    const { getCachedZernioReviewPage } = await import('@/lib/publishing/zernio-publisher');
+    (getCachedZernioReviewPage as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    // Walk returns 2 unrelated reviews — target zr-1 not present.
+    (zernioClient as any).listAllReviews = vi.fn().mockResolvedValue([
+      { ...makeZernioReviewWith('whatever'), id: 'other-a' },
+      { ...makeZernioReviewWith('whatever'), id: 'other-b' },
+    ]);
+
+    const result = await verify409InTx(baseInTxArgs());
+
+    expect(result.disposition).toBe('indeterminate');
+    if (result.disposition === 'indeterminate') {
+      expect(result.reason).toBe('review_not_found_after_pagination');
+      expect(result.meta.pages_walked).toBe(4);
+      expect(result.meta.reviews_seen).toBe(2);
+    }
+  });
+
+  it('indeterminate: found but reviewReply null → review_found_but_reply_null', async () => {
+    const { zernioClient } = await import('@/lib/zernio/client');
+    const { getCachedZernioReviewPage } = await import('@/lib/publishing/zernio-publisher');
+    (getCachedZernioReviewPage as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    (zernioClient as any).listAllReviews = vi.fn().mockResolvedValue([
+      makeZernioReviewWith(null),
+    ]);
+
+    const result = await verify409InTx(baseInTxArgs());
+
+    expect(result.disposition).toBe('indeterminate');
+    if (result.disposition === 'indeterminate') {
+      expect(result.reason).toBe('review_found_but_reply_null');
+    }
+  });
+
+  it('auth: listAllReviews throws ZernioAuthError → returns auth + lookupErr', async () => {
+    const { zernioClient } = await import('@/lib/zernio/client');
+    const { getCachedZernioReviewPage } = await import('@/lib/publishing/zernio-publisher');
+    (getCachedZernioReviewPage as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    const authErr = new ZernioAuthError(401, 'expired');
+    (zernioClient as any).listAllReviews = vi.fn().mockRejectedValue(authErr);
+
+    const result = await verify409InTx(baseInTxArgs());
+
+    expect(result.disposition).toBe('auth');
+    if (result.disposition === 'auth') {
+      expect(result.lookupErr).toBe(authErr);
+    }
+  });
+
+  it('transient: listAllReviews throws ZernioTransientError → returns transient + lookupErr', async () => {
+    const { zernioClient } = await import('@/lib/zernio/client');
+    const { getCachedZernioReviewPage } = await import('@/lib/publishing/zernio-publisher');
+    (getCachedZernioReviewPage as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    const transErr = new ZernioTransientError('timeout', { httpStatus: 504 });
+    (zernioClient as any).listAllReviews = vi.fn().mockRejectedValue(transErr);
+
+    const result = await verify409InTx(baseInTxArgs());
+
+    expect(result.disposition).toBe('transient');
+    if (result.disposition === 'transient') {
+      expect(result.lookupErr).toBe(transErr);
+    }
+  });
+
+  it('permanent: listAllReviews throws ZernioPermanentError → returns permanent + lookupErr', async () => {
+    const { zernioClient } = await import('@/lib/zernio/client');
+    const { getCachedZernioReviewPage } = await import('@/lib/publishing/zernio-publisher');
+    (getCachedZernioReviewPage as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    const permErr = new ZernioPermanentError('bad_input', { httpStatus: 422 });
+    (zernioClient as any).listAllReviews = vi.fn().mockRejectedValue(permErr);
+
+    const result = await verify409InTx(baseInTxArgs());
+
+    expect(result.disposition).toBe('permanent');
+    if (result.disposition === 'permanent') {
+      expect(result.lookupErr).toBe(permErr);
+    }
+  });
+
+  it('permanent: listAllReviews throws ZernioValidationError → returns permanent + lookupErr', async () => {
+    const { zernioClient } = await import('@/lib/zernio/client');
+    const { getCachedZernioReviewPage } = await import('@/lib/publishing/zernio-publisher');
+    (getCachedZernioReviewPage as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    const valErr = new ZernioValidationError('schema_invalid', { issues: ['bad payload'] });
+    (zernioClient as any).listAllReviews = vi.fn().mockRejectedValue(valErr);
+
+    const result = await verify409InTx(baseInTxArgs());
+
+    expect(result.disposition).toBe('permanent');
+    if (result.disposition === 'permanent') {
+      expect(result.lookupErr).toBe(valErr);
+    }
+  });
+
+  it('indeterminate: listAllReviews throws unknown Error → verifier_unknown_error + meta.underlying_error', async () => {
+    const { zernioClient } = await import('@/lib/zernio/client');
+    const { getCachedZernioReviewPage } = await import('@/lib/publishing/zernio-publisher');
+    (getCachedZernioReviewPage as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    (zernioClient as any).listAllReviews = vi.fn().mockRejectedValue(new Error('connection refused'));
+
+    const result = await verify409InTx(baseInTxArgs());
+
+    expect(result.disposition).toBe('indeterminate');
+    if (result.disposition === 'indeterminate') {
+      expect(result.reason).toBe('verifier_unknown_error');
+      expect(result.meta.underlying_error).toBe('connection refused');
+    }
+  });
+
+  it('does NOT call markOutboxCompleted (caller owns outbox lifecycle)', async () => {
+    const { zernioClient } = await import('@/lib/zernio/client');
+    const { getCachedZernioReviewPage } = await import('@/lib/publishing/zernio-publisher');
+    const { markOutboxCompleted } = await import('@/lib/shared/outbox');
+    (getCachedZernioReviewPage as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    (zernioClient as any).listAllReviews = vi.fn().mockResolvedValue([
+      makeZernioReviewWith('Thanks!'),
+    ]);
+
+    await verify409InTx(baseInTxArgs());
+
+    expect(markOutboxCompleted).not.toHaveBeenCalled();
+  });
+
+  it('does NOT mutate responses or any other DB row (no module-level sql calls)', async () => {
+    const { zernioClient } = await import('@/lib/zernio/client');
+    const { getCachedZernioReviewPage } = await import('@/lib/publishing/zernio-publisher');
+    const { sql } = await import('@/lib/db/server');
+    (getCachedZernioReviewPage as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    (zernioClient as any).listAllReviews = vi.fn().mockResolvedValue([
+      makeZernioReviewWith('Thanks!'),
+    ]);
+
+    const sqlMock = sql as unknown as ReturnType<typeof vi.fn>;
+    sqlMock.mockClear();
+
+    const args = baseInTxArgs();
+    await verify409InTx(args);
+
+    // Module-level sql tagged-template never called.
+    expect(sqlMock).not.toHaveBeenCalled();
+    // Outer tx never called either — verify409InTx reserves it for future use.
+    expect(args.tx).not.toHaveBeenCalled();
   });
 });
