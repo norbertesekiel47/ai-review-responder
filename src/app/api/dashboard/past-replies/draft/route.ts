@@ -35,14 +35,10 @@ import {
   ResponseChangedError,
 } from '@/lib/responses/edit-existing';
 import { mapEditReplyError } from '../_shared/edit-reply-errors';
+import { snapshotSchema } from '../_shared/schemas';
 import type { GenerateResponsePayload } from '@/lib/shared/worker-types';
 
 export const dynamic = 'force-dynamic';
-
-const snapshotSchema = z.object({
-  hash: z.string().min(1),
-  version: z.number().int().positive(),
-});
 
 const bodySchema = z.discriminatedUnion('mode', [
   z.object({

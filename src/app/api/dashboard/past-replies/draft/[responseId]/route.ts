@@ -39,13 +39,9 @@ import {
   ResponseChangedError,
 } from '@/lib/responses/edit-existing';
 import { mapEditReplyError } from '../../_shared/edit-reply-errors';
+import { snapshotSchema } from '../../_shared/schemas';
 
 export const dynamic = 'force-dynamic';
-
-const snapshotSchema = z.object({
-  hash: z.string().min(1),
-  version: z.number().int().positive(),
-});
 
 const patchBodySchema = z.object({
   new_text: z.string().trim().min(1).max(2000),

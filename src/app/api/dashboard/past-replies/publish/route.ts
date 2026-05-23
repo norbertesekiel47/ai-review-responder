@@ -40,16 +40,12 @@ import {
   ResponseChangedError,
 } from '@/lib/responses/edit-existing';
 import { mapEditReplyError } from '../_shared/edit-reply-errors';
+import { snapshotSchema } from '../_shared/schemas';
 import { insertAuditLogSession } from '@/lib/approval/audit';
 import type { SessionAuditContext } from '@/lib/approval/audit';
 import type { PublishResponsePayload } from '@/lib/shared/worker-types';
 
 export const dynamic = 'force-dynamic';
-
-const snapshotSchema = z.object({
-  hash: z.string().min(1),
-  version: z.number().int().positive(),
-});
 
 const bodySchema = z.object({
   response_id: z.string().uuid(),
