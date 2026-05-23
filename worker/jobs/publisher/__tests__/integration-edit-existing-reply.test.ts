@@ -482,6 +482,67 @@ d('HARD-GATE: edit-publisher + recovery against real Postgres', () => {
     expect(afterNew.length).toBe(0);
     expect(afterOld.length).toBe(before.length);
   });
+
+  // ── Scenario 5: Past Replies page posted-rows sidecar attachment policy ─────
+  //
+  // Mirrors the LATERAL sidecar on the posted-rows query in
+  // src/app/(authenticated)/dashboard/past-replies/page.tsx. The fix: only
+  // delete_failed_* siblings attach to a live posted card. A
+  // post_after_delete_failed_* row that coexists with a live posted row is a
+  // RESOLVED/stale orphan (e.g. /restore-original already republished) and must
+  // NOT badge the healthy posted reply. The predicate is the load-bearing
+  // change; prefixes are imported (single source of truth), so this guards
+  // against the predicate regressing back to matching both prefixes.
+  const sidecarForPostedReview = (reviewId: string, businessId: string) =>
+    sql<{ failed_response_id: string | null; failed_posting_error: string | null }[]>`
+      SELECT
+        resp.id                    AS posted_id,
+        fail_sidecar.id            AS failed_response_id,
+        fail_sidecar.posting_error AS failed_posting_error
+      FROM reviews r
+      JOIN responses resp
+        ON resp.review_id = r.id
+       AND resp.status = 'posted'
+      LEFT JOIN LATERAL (
+        SELECT id, posting_error
+        FROM responses
+        WHERE review_id = r.id
+          AND status = 'failed'
+          AND posting_error LIKE ${`${DELETE_FAILED_PREFIX}%`}
+        ORDER BY created_at DESC
+        LIMIT 1
+      ) fail_sidecar ON true
+      WHERE r.id = ${reviewId} AND r.business_id = ${businessId}
+    `;
+
+  it('5a. live posted row + post_after_delete_failed_* sibling → posted card does NOT get a recovery badge (failed_response_id null)', async () => {
+    const { seed } = await seedReviewWithExistingReply();
+    // Stale orphan marker coexisting with the still-live posted row.
+    await insertCandidate(seed, {
+      status: 'failed',
+      version: 2,
+      postingError: `${POST_AFTER_DELETE_FAILED_PREFIX}http_400`,
+    });
+
+    const [row] = await sidecarForPostedReview(seed.reviewId, seed.businessId);
+    expect(row).toBeTruthy();
+    expect(row!.failed_response_id).toBeNull();
+    expect(row!.failed_posting_error).toBeNull();
+  });
+
+  it('5b. live posted row + delete_failed_* sibling → posted card DOES get the recovery sidecar', async () => {
+    const { seed } = await seedReviewWithExistingReply();
+    const failedId = await insertCandidate(seed, {
+      status: 'failed',
+      version: 2,
+      postingError: `${DELETE_FAILED_PREFIX}http_403`,
+    });
+
+    const [row] = await sidecarForPostedReview(seed.reviewId, seed.businessId);
+    expect(row).toBeTruthy();
+    expect(row!.failed_response_id).toBe(failedId);
+    expect(row!.failed_posting_error?.startsWith(DELETE_FAILED_PREFIX)).toBe(true);
+  });
 });
 
 /** Minimal same-origin POST request (assertSameOrigin is mocked to no-op). */
