@@ -14,6 +14,8 @@ interface Props {
   ownerEmail: string;
   /** Server-authoritative — read at layout level. */
   pastRepliesEnabled: boolean;
+  /** Server-authoritative — requires pastRepliesEnabled. Read at layout level. */
+  editRepliesEnabled?: boolean;
 }
 
 function deriveInitials(name: string, email: string): string {
@@ -29,6 +31,7 @@ export function Sidebar({
   ownerName,
   ownerEmail,
   pastRepliesEnabled,
+  editRepliesEnabled = false,
 }: Props) {
   const router = useRouter();
   const pathname = usePathname() ?? '';
