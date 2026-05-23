@@ -31,12 +31,10 @@ import { resolveOwnerScope, ScopeError } from '@/lib/auth/resolve-owner-scope';
 import {
   assertCanEditReply,
   validateOptimisticConcurrency,
-  PremiumRequiredError,
   ReviewChangedError,
   ResponseChangedError,
-  ForbiddenError,
-  NotFoundError,
 } from '@/lib/responses/edit-existing';
+import { mapEditReplyError } from '../_shared/edit-reply-errors';
 import type { GenerateResponsePayload } from '@/lib/shared/worker-types';
 
 export const dynamic = 'force-dynamic';
@@ -88,15 +86,8 @@ async function handler(request: NextRequest): Promise<Response> {
   try {
     await assertCanEditReply(parsed.data.review_id, { accountId, locationId });
   } catch (err) {
-    if (err instanceof PremiumRequiredError) {
-      return NextResponse.json({ error: 'premium_required' }, { status: 403 });
-    }
-    if (err instanceof ForbiddenError) {
-      return NextResponse.json({ error: 'forbidden' }, { status: 403 });
-    }
-    if (err instanceof NotFoundError) {
-      return NextResponse.json({ error: 'review_not_found' }, { status: 404 });
-    }
+    const mapped = mapEditReplyError(err);
+    if (mapped) return mapped;
     throw err;
   }
 

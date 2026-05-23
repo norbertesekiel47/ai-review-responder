@@ -30,12 +30,8 @@ import { v7 as uuidv7 } from 'uuid';
 import { sql } from '@/lib/db/server';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { resolveOwnerScope, ScopeError } from '@/lib/auth/resolve-owner-scope';
-import {
-  assertCanEditReply,
-  PremiumRequiredError,
-  ForbiddenError,
-  NotFoundError,
-} from '@/lib/responses/edit-existing';
+import { assertCanEditReply } from '@/lib/responses/edit-existing';
+import { mapEditReplyError } from '../../_shared/edit-reply-errors';
 import { insertAuditLogSession } from '@/lib/approval/audit';
 import type { SessionAuditContext } from '@/lib/approval/audit';
 import { POST_AFTER_DELETE_FAILED_PREFIX } from '../../../../../../../worker/jobs/publisher/orphan-markers';
@@ -95,15 +91,8 @@ export async function POST(
   try {
     await assertCanEditReply(reviewId, { accountId, locationId });
   } catch (err) {
-    if (err instanceof PremiumRequiredError) {
-      return NextResponse.json({ error: 'premium_required' }, { status: 403 });
-    }
-    if (err instanceof ForbiddenError) {
-      return NextResponse.json({ error: 'forbidden' }, { status: 403 });
-    }
-    if (err instanceof NotFoundError) {
-      return NextResponse.json({ error: 'review_not_found' }, { status: 404 });
-    }
+    const mapped = mapEditReplyError(err);
+    if (mapped) return mapped;
     throw err;
   }
 
