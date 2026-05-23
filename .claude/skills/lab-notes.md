@@ -632,3 +632,22 @@ fallback, `throw err` so unexpected failures surface as a 5xx. Pattern: a catch
 that maps a specific typed error should re-throw everything else, not collapse all
 errors into the typed error's status. (Same anti-pattern still lives in the
 Telegram/SMS owner routes — pre-existing, tracked for a follow-up.)
+
+### Account-scoping a shared helper requires updating ALL call sites — TS + mocked tests won't catch a miss
+[2026-05-22] When `cancelTelegramEnrollment` / `disableTelegramEnrollment` /
+`cancelWhatsAppEnrollment` changed signature from `(sql, businessId)` to
+`(sql, accountId)`, both parameters were `string`. TypeScript did not flag the 3
+admin call sites (`admin/channels/telegram/{cancel,disable}`,
+`admin/channels/whatsapp/cancel`) that still passed `businessId`. Mocked route tests
+didn't catch it either: the queue-based `sql` mock ignores the WHERE predicate and
+returns queued rows regardless of the argument value.
+
+The bug would have silently no-op'd admin cancel/disable in production:
+`WHERE account_id = <businessId>` → no matching row → 0 rows updated → the route
+returned 200 as if it succeeded.
+
+Lesson: when changing a shared helper's parameter semantics while keeping the same
+type, grep ALL callers (`grep -rn 'helperName('`) before considering the change
+complete, and fix every one. Consider using a branded type (e.g. `type AccountId =
+string & { __brand: 'AccountId' }`) so the compiler catches mismatches at the next
+type change.

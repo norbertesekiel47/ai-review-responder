@@ -142,13 +142,11 @@ approval before posting.
   use `displayName` (Pro tier) — use `id + formattedAddress + location` only.
 - Google Maps URLs use hex CIDs (`0x...:0x...`), not canonical Place IDs.
   Resolve via PlaceAutocomplete or SerpAPI, never `data_id`.
-- WhatsApp owner self-service (`/api/dashboard/channels/whatsapp/*`,
-  `OwnerWhatsAppWidget`) is **single-location-only** (interim server guard +
-  "coming soon" UI for multi-location). Reason: owner channel-enrollment
-  read/write paths key by `business_id = user.locationId`, but `/settings/channels`
-  hydrates org-default rows by `account_id` — they desync on multi-location
-  accounts with >1 owner. Pre-existing; affects SMS/Telegram too. See
-  `docs/known-issues.md` + `docs/superpowers/specs/2026-05-22-owner-channel-account-scope-design.md`.
+- Owner channel enrollment org-default is **account-scoped** — keyed by
+  `account_id` + `channel` + `location_id IS NULL`, matching migration 034's unique
+  index. `business_id` is a legacy FK written on INSERT but NOT used for org-default
+  lookup. All cancel/disable enrollment helpers take `accountId` (owner + admin
+  callers). See `docs/superpowers/specs/2026-05-22-owner-channel-account-scope-design.md`.
 
 ## Codebase intelligence
 
