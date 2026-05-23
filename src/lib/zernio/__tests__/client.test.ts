@@ -7,6 +7,7 @@ import {
   ZernioPermanentError,
   ZernioReviewNotFoundError,
   ZernioReplyAlreadyExistsError,
+  ZernioReplyAlreadyDeletedError,
 } from '../errors';
 
 function mkRes(opts: { status: number; body?: unknown }): Response {
@@ -426,5 +427,72 @@ describe('mock mode', () => {
         endpointKind: 'new_endpoint' as never,
       }),
     ).rejects.toThrow('Unknown endpointKind: new_endpoint');
+  });
+});
+
+describe('deleteReply', () => {
+  it('calls transport.request with correct method, path, endpointKind, and timeoutMs', async () => {
+    const mockRequest = vi.fn().mockResolvedValue(undefined);
+    const transport = { request: mockRequest };
+    const { createReplyClient } = await import('../client/replies');
+    const replyClient = createReplyClient(transport);
+
+    await replyClient.deleteReply('acct_1', 'rev_1');
+
+    expect(mockRequest).toHaveBeenCalledOnce();
+    expect(mockRequest).toHaveBeenCalledWith({
+      method: 'DELETE',
+      path: '/v1/inbox/reviews/rev_1/reply',
+      endpointKind: 'delete_reply',
+      timeoutMs: 15_000,
+    });
+  });
+
+  it('URL-encodes the reviewId in the path', async () => {
+    const mockRequest = vi.fn().mockResolvedValue(undefined);
+    const transport = { request: mockRequest };
+    const { createReplyClient } = await import('../client/replies');
+    const replyClient = createReplyClient(transport);
+
+    await replyClient.deleteReply('acct_1', 'rev/with spaces&special');
+
+    const [opts] = mockRequest.mock.calls[0]!;
+    expect(opts.path).toBe('/v1/inbox/reviews/rev%2Fwith%20spaces%26special/reply');
+  });
+});
+
+describe('ZernioReplyAlreadyDeletedError', () => {
+  it('is throwable and instanceof-checkable', () => {
+    const err = new ZernioReplyAlreadyDeletedError('rev_123');
+    expect(err).toBeInstanceOf(ZernioReplyAlreadyDeletedError);
+    expect(err).toBeInstanceOf(Error);
+  });
+
+  it('carries the reviewId', () => {
+    const err = new ZernioReplyAlreadyDeletedError('rev_abc');
+    expect(err.reviewId).toBe('rev_abc');
+  });
+
+  it('has the correct name and message', () => {
+    const err = new ZernioReplyAlreadyDeletedError('rev_xyz');
+    expect(err.name).toBe('ZernioReplyAlreadyDeletedError');
+    expect(err.message).toContain('rev_xyz');
+  });
+});
+
+describe('mock mode — delete_reply', () => {
+  beforeEach(() => {
+    process.env.MOCK_EXTERNAL_APIS = 'true';
+  });
+  afterEach(() => {
+    delete process.env.MOCK_EXTERNAL_APIS;
+  });
+
+  it('deleteReply returns undefined without hitting fetch in mock mode', async () => {
+    const fetchSpy = vi.fn();
+    global.fetch = fetchSpy;
+    const result = await zernioClient.deleteReply('acct_1', 'rev_1');
+    expect(result).toBeUndefined();
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

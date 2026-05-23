@@ -46,6 +46,13 @@ export class ZernioReplyAlreadyExistsError extends Error {
   }
 }
 
+export class ZernioReplyAlreadyDeletedError extends Error {
+  constructor(public readonly reviewId: string) {
+    super(`Zernio reply for review ${reviewId} already deleted (404 on DELETE)`);
+    this.name = 'ZernioReplyAlreadyDeletedError';
+  }
+}
+
 export class ZernioRouteError extends Error {
   constructor(public readonly statusCode: number, public readonly code: string) {
     super(`Zernio route error: ${statusCode} ${code}`);

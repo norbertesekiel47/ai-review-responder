@@ -10,5 +10,13 @@ export function createReplyClient(transport: ZernioTransport) {
         timeoutMs: 15_000,
         body: { comment: input.comment },
       }),
+
+    deleteReply: (_accountId: string, reviewId: string) =>
+      transport.request<void>({
+        method: 'DELETE',
+        path: `/v1/inbox/reviews/${encodeURIComponent(reviewId)}/reply`,
+        endpointKind: 'delete_reply',
+        timeoutMs: 15_000,
+      }),
   };
 }

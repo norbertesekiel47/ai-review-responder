@@ -128,6 +128,7 @@ async function mockResponse<T>(opts: RequestOptions): Promise<T> {
       } as unknown as T;
     case 'delete_account':
     case 'delete_profile':
+    case 'delete_reply':
       return undefined as unknown as T;
     default:
       throw new Error(`Unknown endpointKind: ${String(opts.endpointKind)}`);

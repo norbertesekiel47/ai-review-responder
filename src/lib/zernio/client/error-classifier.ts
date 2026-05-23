@@ -13,7 +13,7 @@ import type { EndpointKind } from '../types';
 // get caught by request()'s outer catch and wrapped as
 // ZernioTransientError('network_error'), erroneously triggering retry +
 // graceful-degradation disconnect on a successful no-content response.
-const NO_BODY_ENDPOINTS = new Set<EndpointKind>(['delete_profile', 'delete_account']);
+const NO_BODY_ENDPOINTS = new Set<EndpointKind>(['delete_profile', 'delete_account', 'delete_reply']);
 
 // Strict allowlist of documented pre-mutation reject codes for select_location.
 // Maintenance rule (spec §4.7): any addition requires either (a) explicit

@@ -1,6 +1,7 @@
 export type EndpointKind =
   | 'select_location'
   | 'publish_reply'
+  | 'delete_reply'
   | 'list_reviews'
   | 'list_locations'
   | 'create_profile'
