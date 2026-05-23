@@ -2,7 +2,7 @@
 //
 // Shared transaction helpers for WhatsApp channel enrollment. Mirrors
 // the Telegram helpers in src/lib/channels/telegram-enrollment.ts.
-// Caller must hold the `mobile_enroll:${businessId}` advisory lock
+// Caller must hold the `mobile_enroll:${accountId}` advisory lock
 // inside sql.begin — these helpers do not lock.
 
 import { v7 as uuidv7 } from 'uuid';
@@ -21,15 +21,16 @@ export type StartWhatsAppResult = { kind: 'ok' } | { kind: 'already_verified' };
  * Insert/update a WhatsApp enrollment row to `pending_verification` with a
  * fresh hash + expiry. Caller MUST:
  *   - Open `sql.begin(async (tx) => {...})` and pass `tx` here.
- *   - Acquire the `mobile_enroll:${businessId}` advisory lock inside the same
+ *   - Acquire the `mobile_enroll:${accountId}` advisory lock inside the same
  *     tx BEFORE calling this.
  *   - Generate `rawToken` outside the tx and pass `tokenHash = sha256(rawToken)`
  *     and `expiresAt = new Date(Date.now() + TOKEN_TTL_MS)`.
  *   - Generate the QR data URL AFTER the tx commits.
  *
  * The SELECT uses FOR UPDATE so that a concurrent WhatsApp inbound webhook
- * (which also runs inside sql.begin) cannot flip the row to `verified` between
- * our SELECT and our UPDATE — the row lock serializes both transactions.
+ * (which also runs inside sql.begin) cannot flip the org-default row for the
+ * account to `verified` between our SELECT and our UPDATE — the row lock
+ * serializes both transactions.
  *
  * Mirrors startTelegramEnrollment.
  */
@@ -42,7 +43,8 @@ export async function startWhatsAppEnrollment(
 ): Promise<StartWhatsAppResult> {
   const existing = (await tx`
     SELECT id, status FROM channel_enrollments
-    WHERE business_id = ${businessId} AND channel = 'whatsapp' AND archived_at IS NULL
+    WHERE account_id = ${accountId} AND channel = 'whatsapp'
+      AND location_id IS NULL AND archived_at IS NULL
     FOR UPDATE
   `) as Array<{ id: string; status: string }>;
   const existingRow = existing[0];
@@ -81,37 +83,13 @@ export async function startWhatsAppEnrollment(
 }
 
 /**
- * Owner/admin disconnect. Flips verified → disabled, clears handle.
- * No sql.begin, no advisory lock. Returns not_found if no verified row matched.
- * Mirrors disableTelegramEnrollment.
- */
-export async function disableWhatsAppEnrollment(
-  sql: TxLike,
-  businessId: string,
-): Promise<{ kind: 'ok' | 'not_found' }> {
-  const updated = (await sql`
-    UPDATE channel_enrollments
-    SET status = 'disabled',
-        handle = NULL,
-        disabled_at = NOW(),
-        updated_at = NOW()
-    WHERE business_id = ${businessId}
-      AND channel = 'whatsapp'
-      AND status = 'verified'
-      AND archived_at IS NULL
-    RETURNING id
-  `) as Array<{ id: string }>;
-  return updated.length > 0 ? { kind: 'ok' } : { kind: 'not_found' };
-}
-
-/**
  * Cancel a pending WhatsApp verification. Flips status pending → disabled
  * so the row exits migration 027's mobile-channel predicate. Idempotent.
  * Caller MUST hold the mobile_enroll lock inside sql.begin.
  */
 export async function cancelWhatsAppEnrollment(
   tx: TxLike,
-  businessId: string,
+  accountId: string,
 ): Promise<{ kind: 'ok' | 'not_found' }> {
   const updated = (await tx`
     UPDATE channel_enrollments
@@ -120,9 +98,35 @@ export async function cancelWhatsAppEnrollment(
         verification_token_hash = NULL,
         verification_token_expires_at = NULL,
         updated_at = NOW()
-    WHERE business_id = ${businessId}
+    WHERE account_id = ${accountId}
       AND channel = 'whatsapp'
       AND status = 'pending_verification'
+      AND location_id IS NULL
+      AND archived_at IS NULL
+    RETURNING id
+  `) as Array<{ id: string }>;
+  return updated.length > 0 ? { kind: 'ok' } : { kind: 'not_found' };
+}
+
+/**
+ * Owner/admin disconnect. Flips verified → disabled, clears handle.
+ * No sql.begin, no advisory lock. Returns not_found if no verified row matched.
+ * Mirrors disableTelegramEnrollment.
+ */
+export async function disableWhatsAppEnrollment(
+  sql: TxLike,
+  accountId: string,
+): Promise<{ kind: 'ok' | 'not_found' }> {
+  const updated = (await sql`
+    UPDATE channel_enrollments
+    SET status = 'disabled',
+        handle = NULL,
+        disabled_at = NOW(),
+        updated_at = NOW()
+    WHERE account_id = ${accountId}
+      AND channel = 'whatsapp'
+      AND status = 'verified'
+      AND location_id IS NULL
       AND archived_at IS NULL
     RETURNING id
   `) as Array<{ id: string }>;
