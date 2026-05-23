@@ -169,14 +169,12 @@ d('owner WhatsApp enrollment round-trip (route start → inbound verify)', () =>
   it('start route mints deepLink; inbound start-<token> flips the row to verified', async () => {
     // ── Step 1: owner POST /start ──────────────────────────────────────────
     // Route SQL order: (1) accounts JOIN businesses subscription lookup,
-    // (2) getActiveLocationCount (single-location guard), (3) advisory lock
-    // inside sql.begin, (4) SELECT FOR UPDATE existing enrollment (none),
-    // (5) INSERT enrollment.
+    // (2) advisory lock inside sql.begin, (3) SELECT FOR UPDATE existing
+    // enrollment (none), (4) INSERT enrollment.
     sqlReturnQueue.push([{ id: 'acct-1', subscription_status: 'active' }]); // 1
-    sqlReturnQueue.push([{ count: 1 }]);                                     // 2 getActiveLocationCount
-    sqlReturnQueue.push([]);                                                 // 3 advisory lock
-    sqlReturnQueue.push([]);                                                 // 4 SELECT FOR UPDATE (none)
-    sqlReturnQueue.push([]);                                                 // 5 INSERT
+    sqlReturnQueue.push([]);                                                 // 2 advisory lock
+    sqlReturnQueue.push([]);                                                 // 3 SELECT FOR UPDATE (none)
+    sqlReturnQueue.push([]);                                                 // 4 INSERT
 
     const startRes = await startPOST(ownerStartReq() as AnyReq);
     expect(startRes.status).toBe(200);
@@ -233,7 +231,6 @@ d('owner WhatsApp enrollment round-trip (route start → inbound verify)', () =>
 
   it('start route returns 409 already_verified when a verified row exists', async () => {
     sqlReturnQueue.push([{ id: 'acct-1', subscription_status: 'active' }]); // subscription lookup
-    sqlReturnQueue.push([{ count: 1 }]);                                     // getActiveLocationCount (single-location guard)
     sqlReturnQueue.push([]);                                                 // advisory lock
     sqlReturnQueue.push([{ id: 'enroll-1', status: 'verified' }]);           // SELECT FOR UPDATE → verified
 

@@ -39,17 +39,16 @@ describe('POST /api/dashboard/channels/whatsapp/disable', () => {
 
   it('404 when no verified row to disable', async () => {
     process.env.CHANNELS_WHATSAPP_ENABLED = 'true';
-    sqlQueue.push([{ subscription_status: 'active' }]); // accounts lookup
-    sqlQueue.push([]);                                  // disable UPDATE → no rows
+    sqlQueue.push([{ id: 'acct-1', subscription_status: 'active' }]); // accounts lookup
+    sqlQueue.push([]);                                                 // disable UPDATE → no rows
     const res = await POST(mkReq() as any);
     expect(res.status).toBe(404);
   });
 
   it('200 ok when a verified row is disabled', async () => {
     process.env.CHANNELS_WHATSAPP_ENABLED = 'true';
-    sqlQueue.push([{ subscription_status: 'active' }]); // accounts lookup
-    sqlQueue.push([{ id: 'e1' }]);                      // disable UPDATE RETURNING
-    sqlQueue.push([{ account_id: 'acct-1' }]);          // account_id for cache invalidation
+    sqlQueue.push([{ id: 'acct-1', subscription_status: 'active' }]); // accounts lookup
+    sqlQueue.push([{ id: 'e1' }]);                                     // disable UPDATE RETURNING
     const res = await POST(mkReq() as any);
     expect(res.status).toBe(200);
     expect((await res.json()).ok).toBe(true);

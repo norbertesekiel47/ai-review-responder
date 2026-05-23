@@ -27,8 +27,8 @@ async function handler(req: NextRequest): Promise<NextResponse> {
 
   if (!user.locationId) return NextResponse.json({ error: 'no_business' }, { status: 403 });
 
-  const [accountRow] = await sql<{ subscription_status: string }[]>`
-    SELECT a.subscription_status
+  const [accountRow] = await sql<{ id: string; subscription_status: string }[]>`
+    SELECT a.id, a.subscription_status
     FROM accounts a
     JOIN businesses b ON b.account_id = a.id
     WHERE b.id = ${user.locationId}
@@ -36,8 +36,9 @@ async function handler(req: NextRequest): Promise<NextResponse> {
   if (accountRow?.subscription_status !== SubscriptionStatus.ACTIVE) {
     return NextResponse.json({ error: 'subscription_not_active' }, { status: 403 });
   }
+  const accountId = accountRow.id;
 
-  const result = await disableWhatsAppEnrollment(sql, user.locationId);
+  const result = await disableWhatsAppEnrollment(sql, accountId);
 
   const noStore = { 'Cache-Control': 'no-store, private' };
   if (result.kind === 'not_found') {
@@ -46,12 +47,7 @@ async function handler(req: NextRequest): Promise<NextResponse> {
 
   // Invalidate channel cache — the disabled channel must be removed from
   // the dispatch resolution immediately.
-  const [acctRow] = await sql<{ account_id: string }[]>`
-    SELECT account_id FROM businesses WHERE id = ${user.locationId}
-  `;
-  if (acctRow?.account_id) {
-    await safeInvalidateChannelCache(asAccountId(acctRow.account_id), 'dashboard.whatsapp.disable');
-  }
+  await safeInvalidateChannelCache(asAccountId(accountId), 'dashboard.whatsapp.disable');
 
   return NextResponse.json({ ok: true }, { headers: noStore });
 }

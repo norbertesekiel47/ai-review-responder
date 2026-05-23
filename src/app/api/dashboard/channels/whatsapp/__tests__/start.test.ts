@@ -23,12 +23,6 @@ vi.mock('@/lib/auth/route-helpers', () => ({ withSameOrigin: () => (h: unknown) 
 vi.mock('@/lib/notifications/resolve-channels', () => ({ safeInvalidateChannelCache: vi.fn(async () => {}) }));
 vi.mock('qrcode', () => ({ default: { toDataURL: vi.fn(async () => 'data:image/png;base64,TEST') } }));
 
-// Locations repo mock — default: single-location account (count=1).
-const getActiveLocationCountMock = vi.fn(async () => 1);
-vi.mock('@/lib/locations/repo', () => ({
-  getActiveLocationCount: (...a: unknown[]) => getActiveLocationCountMock(...(a as [])),
-}));
-
 // WhatsApp enrollment mock — used only by the MultipleMobileChannelsError test.
 const startWhatsAppEnrollmentMock = vi.fn<() => Promise<{ kind: string }>>();
 vi.mock('@/lib/channels/whatsapp-enrollment', async (importOriginal) => {
@@ -52,7 +46,6 @@ function mkReq() {
 beforeEach(() => {
   sqlQueue.length = 0;
   requireRoleMock.mockResolvedValue({ userId: 'owner-1', role: 'owner', locationId: 'biz-1' });
-  getActiveLocationCountMock.mockResolvedValue(1);
   startWhatsAppEnrollmentMock.mockResolvedValue({ kind: 'ok' });
   process.env.NEXT_PUBLIC_APP_URL = APP_URL;
   process.env.MOCK_EXTERNAL_APIS = 'true';
@@ -104,22 +97,9 @@ describe('POST /api/dashboard/channels/whatsapp/start', () => {
     expect((await res.json()).error).toBe('subscription_not_active');
   });
 
-  it('returns 403 multi_location_unsupported when account has >1 location', async () => {
-    process.env.CHANNELS_WHATSAPP_ENABLED = 'true';
-    sqlQueue.push([{ id: 'acct-1', subscription_status: 'active' }]); // accounts lookup
-    getActiveLocationCountMock.mockResolvedValue(2);
-    const res = await POST(mkReq() as any);
-    expect(res.status).toBe(403);
-    const body = await res.json();
-    expect(body.error).toBe('multi_location_unsupported');
-    // Enrollment helper must not have been invoked.
-    expect(startWhatsAppEnrollmentMock).not.toHaveBeenCalled();
-  });
-
   it('returns 409 multiple_mobile_channels when startWhatsAppEnrollment throws MultipleMobileChannelsError', async () => {
     process.env.CHANNELS_WHATSAPP_ENABLED = 'true';
     sqlQueue.push([{ id: 'acct-1', subscription_status: 'active' }]); // accounts lookup
-    getActiveLocationCountMock.mockResolvedValue(1);
     startWhatsAppEnrollmentMock.mockRejectedValue(new MultipleMobileChannelsError());
     const res = await POST(mkReq() as any);
     expect(res.status).toBe(409);
