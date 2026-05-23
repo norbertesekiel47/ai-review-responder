@@ -33,24 +33,26 @@ async function cancelWhatsApp(req: NextRequest): Promise<NextResponse> {
   const businessId = body?.businessId;
   if (!businessId) return NextResponse.json({ error: 'businessId required' }, { status: 400 });
 
+  const [acctRow] = await sql<{ account_id: string }[]>`
+    SELECT account_id FROM businesses WHERE id = ${businessId}
+  `;
+  if (!acctRow) return NextResponse.json({ error: 'not_found' }, { status: 404 });
+
   // Flip to 'disabled' so the migration 027 partial-unique-index slot is
   // released immediately, allowing a fresh mobile channel enrollment.
   // Advisory lock is held across the UPDATE so a concurrent start cannot
   // observe the pending row, fall through to its UPDATE branch (no status
   // guard), and overwrite this cancel's 'disabled' transition back to
-  // 'pending_verification'. Uses the shared mobile_enroll key matching
-  // SMS withMobileEnrollmentLock and Telegram start/cancel routes.
+  // 'pending_verification'. Uses the shared mobile_enroll key (per account)
+  // matching SMS withMobileEnrollmentLock and Telegram start/cancel routes.
   await sql.begin(async (tx) => {
-    await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`mobile_enroll:${businessId}`}, 0))`;
-    return cancelWhatsAppEnrollment(tx, businessId);
+    await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`mobile_enroll:${acctRow.account_id}`}, 0))`;
+    return cancelWhatsAppEnrollment(tx, acctRow.account_id);
   });
 
   // Invalidate channel cache — the cancelled verification changes which
   // channels are available for dispatch.
-  const [acctRow] = await sql<{ account_id: string }[]>`
-    SELECT account_id FROM businesses WHERE id = ${businessId}
-  `;
-  if (acctRow?.account_id) {
+  if (acctRow.account_id) {
     await safeInvalidateChannelCache(asAccountId(acctRow.account_id), 'admin.whatsapp.cancel');
   }
 

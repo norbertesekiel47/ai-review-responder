@@ -67,7 +67,7 @@ async function startWhatsApp(req: NextRequest): Promise<NextResponse> {
   // releases at tx end; a bare call outside sql.begin would release immediately
   // and leave the state machine unprotected against concurrent starts.
   // Uses the shared mobile_enroll key so SMS verify + WhatsApp start are
-  // mutually exclusive per business (same lock as SMS withMobileEnrollmentLock
+  // mutually exclusive per account (same lock as SMS withMobileEnrollmentLock
   // and Telegram start routes).
   const rawToken = randomUUID();
   const tokenHash = createHash('sha256').update(rawToken).digest('hex');
@@ -76,7 +76,7 @@ async function startWhatsApp(req: NextRequest): Promise<NextResponse> {
   let result: { kind: 'ok' } | { kind: 'already_verified' } | undefined;
   try {
     result = await sql.begin(async (tx) => {
-      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`mobile_enroll:${businessId}`}, 0))`;
+      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`mobile_enroll:${accountId}`}, 0))`;
       return startWhatsAppEnrollment(tx, businessId, accountId, tokenHash, expiresAt);
     });
   } catch (err) {

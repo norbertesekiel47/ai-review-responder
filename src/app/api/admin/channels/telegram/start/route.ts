@@ -66,7 +66,7 @@ async function startTelegram(req: NextRequest): Promise<NextResponse> {
   let result: Awaited<ReturnType<typeof startTelegramEnrollment>>;
   try {
     result = await sql.begin(async (tx) => {
-      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`mobile_enroll:${businessId}`}, 0))`;
+      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`mobile_enroll:${accountId}`}, 0))`;
       return startTelegramEnrollment(tx, businessId, accountId, tokenHash, expiresAt);
     });
   } catch (err) {

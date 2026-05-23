@@ -83,7 +83,7 @@ describe('POST /api/admin/channels/telegram/start', () => {
   it('happy path: inserts pending enrollment and returns deepLink + qrDataUrl + expiresAt', async () => {
     process.env.CHANNELS_TELEGRAM_ENABLED = 'true';
     process.env.TELEGRAM_BOT_USERNAME = 'RepWorthBot';
-    sqlQueue.push([{ subscription_status: 'active' }]); // subscription check
+    sqlQueue.push([{ id: 'acct-1', subscription_status: 'active' }]); // subscription check
     sqlQueue.push([]); // advisory lock
     sqlQueue.push([]); // SELECT existing enrollment (none)
     sqlQueue.push([]); // INSERT enrollment
@@ -98,7 +98,7 @@ describe('POST /api/admin/channels/telegram/start', () => {
   it('returns 409 when enrollment is already verified', async () => {
     process.env.CHANNELS_TELEGRAM_ENABLED = 'true';
     process.env.TELEGRAM_BOT_USERNAME = 'RepWorthBot';
-    sqlQueue.push([{ subscription_status: 'active' }]);
+    sqlQueue.push([{ id: 'acct-1', subscription_status: 'active' }]);
     sqlQueue.push([]);
     sqlQueue.push([{ id: 'enrl-1', status: 'verified' }]); // existing verified row
     const res = await POST(mkReq({ businessId: 'biz-1' }) as any);
