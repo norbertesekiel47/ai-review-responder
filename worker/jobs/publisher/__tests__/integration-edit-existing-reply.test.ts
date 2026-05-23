@@ -37,7 +37,14 @@ import type { Job } from 'bullmq';
 // `??`, so we override it here in a hoisted block (runs before the static
 // imports below resolve). We also flip EDIT_REPLIES_ENABLED on — the failed
 // hook's orphan conversion + both recovery routes are flag-gated.
-const { testDbUrl } = vi.hoisted(() => {
+const { testDbUrl, originalEnv } = vi.hoisted(() => {
+  // Capture originals BEFORE any overwrite so afterAll can restore them.
+  const originalEnv = {
+    DATABASE_POOL_URL: process.env.DATABASE_POOL_URL,
+    ALLOW_E2E_DB_WRITES: process.env.ALLOW_E2E_DB_WRITES,
+    EDIT_REPLIES_ENABLED: process.env.EDIT_REPLIES_ENABLED,
+  };
+
   // vitest.setup.ts does NOT load .env.local, so read TEST_DATABASE_POOL_URL
   // ourselves (minimal KEY=VALUE parse — no dotenv dep, no require). Done in a
   // hoisted block so the env override below lands BEFORE `@/lib/db/server`
@@ -63,7 +70,7 @@ const { testDbUrl } = vi.hoisted(() => {
     process.env.ALLOW_E2E_DB_WRITES = 'true';
     process.env.EDIT_REPLIES_ENABLED = 'true';
   }
-  return { testDbUrl };
+  return { testDbUrl, originalEnv };
 });
 
 // ── Mock ONLY the external Zernio HTTP client (the sole network seam) ────────
@@ -278,6 +285,25 @@ afterAll(async () => {
   });
   // Safe: Vitest isolates each test file in its own worker thread, so ending this worker's sql pool doesn't affect other suites.
   await sql.end();
+
+  // Restore the three env vars that vi.hoisted() overwrote. Vitest isolates
+  // test files in separate worker threads, so this is low-impact, but it is
+  // correct hygiene: leave the environment in the state we found it.
+  if (originalEnv.DATABASE_POOL_URL === undefined) {
+    delete process.env.DATABASE_POOL_URL;
+  } else {
+    process.env.DATABASE_POOL_URL = originalEnv.DATABASE_POOL_URL;
+  }
+  if (originalEnv.ALLOW_E2E_DB_WRITES === undefined) {
+    delete process.env.ALLOW_E2E_DB_WRITES;
+  } else {
+    process.env.ALLOW_E2E_DB_WRITES = originalEnv.ALLOW_E2E_DB_WRITES;
+  }
+  if (originalEnv.EDIT_REPLIES_ENABLED === undefined) {
+    delete process.env.EDIT_REPLIES_ENABLED;
+  } else {
+    process.env.EDIT_REPLIES_ENABLED = originalEnv.EDIT_REPLIES_ENABLED;
+  }
 });
 
 d('HARD-GATE: edit-publisher + recovery against real Postgres', () => {

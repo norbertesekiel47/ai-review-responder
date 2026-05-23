@@ -481,10 +481,14 @@ describe('ZernioReplyAlreadyDeletedError', () => {
 });
 
 describe('mock mode — delete_reply', () => {
+  let originalFetch: typeof global.fetch;
+
   beforeEach(() => {
+    originalFetch = global.fetch;
     process.env.MOCK_EXTERNAL_APIS = 'true';
   });
   afterEach(() => {
+    global.fetch = originalFetch;
     delete process.env.MOCK_EXTERNAL_APIS;
   });
 
