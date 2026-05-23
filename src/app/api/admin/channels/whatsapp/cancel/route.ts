@@ -43,8 +43,10 @@ async function cancelWhatsApp(req: NextRequest): Promise<NextResponse> {
   // Advisory lock is held across the UPDATE so a concurrent start cannot
   // observe the pending row, fall through to its UPDATE branch (no status
   // guard), and overwrite this cancel's 'disabled' transition back to
-  // 'pending_verification'. Uses the shared mobile_enroll key (per account)
-  // matching SMS withMobileEnrollmentLock and Telegram start/cancel routes.
+  // 'pending_verification'. Locks by the account-scoped mobile_enroll key,
+  // matching the Telegram start/cancel + owner routes. NOTE: admin SMS
+  // (withMobileEnrollmentLock) still locks per business — SMS and the chat
+  // channels do NOT currently mutually exclude on the lock. See docs/known-issues.md.
   await sql.begin(async (tx) => {
     await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`mobile_enroll:${acctRow.account_id}`}, 0))`;
     return cancelWhatsAppEnrollment(tx, acctRow.account_id);

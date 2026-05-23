@@ -45,6 +45,42 @@ SMS owner self-service does not exist yet. When built, it **must** use the same
 account-scoped pattern (`account_id` + `location_id IS NULL`) AND bring the SMS admin
 lock (`withMobileEnrollmentLock`) to account scope (currently keyed by `business_id`).
 
+### ACTIVE: Admin SMS lock + cross-channel precheck still business-scoped
+
+- **Status:** Open — deferred with the SMS owner self-service work.
+- **Affects:** `worker/ingress/twilio/` and `src/app/api/admin/channels/sms/`
+
+`sms/_shared.ts::withMobileEnrollmentLock` acquires the advisory lock under the key
+`mobile_enroll:${businessId}` (per-location), while the Telegram and WhatsApp admin
+routes lock under `mobile_enroll:${accountId}` (per-account). Similarly,
+`sms/verify/route.ts` prechecks for an existing "other mobile channel" by `business_id`
+rather than `account_id`.
+
+Consequence on multi-location accounts: verifying SMS for location L2 can miss an
+existing account-scoped Telegram/WhatsApp org-default row that was created under L1.
+This means a Twilio Verify SMS may be dispatched, then the INSERT trips the
+`one_mobile_per_scope` unique index and returns a late 409. The advisory lock also no
+longer serializes SMS-verify against Telegram/WhatsApp start (the unique index still
+prevents data corruption, but the lock window is mismatched).
+
+Fix = account-scope `withMobileEnrollmentLock` and its five callers, plus the
+`verify/route.ts` precheck query.
+
+### ACTIVE: Admin per-business channel status read
+
+- **Status:** Open — admin UX limitation, no data impact.
+- **Affects:** `src/app/api/admin/businesses/[id]/channels/route.ts`
+
+The admin business-detail page lists channel enrollments by `business_id` (one
+location's view), but admin start/disable routes act on the account-scoped org-default
+row (`account_id` + `location_id IS NULL`). On a multi-location account where the
+org-default row was created under location L1, the business-detail page for L2 will
+show the channel as "idle" while admin start returns `already_verified` (the existing
+org-default row is not shown).
+
+Fix = surface account-scoped org-default rows on that page, keying by `account_id`
+and filtering `location_id IS NULL`.
+
 ---
 
 ## Dispatcher failure-handling enrollment writes still key by business_id
