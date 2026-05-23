@@ -410,6 +410,74 @@ describe('handlePublisherFailed', () => {
       expect(mockApplyTransientExhaustionFallback).toHaveBeenCalledTimes(1);
       expect(mockMarkOutboxFailed).toHaveBeenCalledWith('outbox-1', 'zernio_transient_max_attempts', 1);
     });
+
+    function makeIndeterminate() {
+      return new ZernioReplyVerificationIndeterminateError({
+        response_id: 'resp-1',
+        business_id: 'biz-1',
+        review_id: 'rev-1',
+        account_id: 'acct-1',
+        location_id: 'loc-1',
+        zernio_review_id: 'zrv-1',
+        reason: 'verifier_unknown_error',
+        underlying_error: 'connection refused',
+      });
+    }
+
+    it('FLAG ON + orphan marker + ZernioReplyVerificationIndeterminateError at exhaustion → converted to failed w/ retry_exhausted (recoverable), NOT zernio_reply_verification_indeterminate', async () => {
+      process.env.EDIT_REPLIES_ENABLED = 'true';
+      // Orphan conversion runs FIRST (before the indeterminate branch).
+      // Step 1: SELECT review_id → found.
+      txReturnQueue.push([{ review_id: 'rev-1' }]);
+      // Step 2: SELECT reviews FOR UPDATE → found.
+      txReturnQueue.push([{ id: 'rev-1' }]);
+      // Step 3: SELECT responses FOR UPDATE → orphan marker, publishable.
+      txReturnQueue.push([{ status: 'approved', posting_error: 'pending_after_delete_succeeded' }]);
+      // Step 5: UPDATE responses RETURNING 1 → 1 row affected.
+      txReturnQueue.push(Object.assign([{ '?column?': 1 }], { count: 1 }));
+
+      await handlePublisherFailed(makeJob(), makeIndeterminate());
+
+      // Converted via the recoverable orphan path — NOT the indeterminate path.
+      expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+        'outbox-1',
+        'post_after_delete_failed_retry_exhausted',
+        1,
+      );
+      expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
+
+      // No UPDATE wrote the indeterminate posting_error (the marker is preserved
+      // for /retry by overwriting with the recoverable retry_exhausted marker only).
+      const indeterminateUpdate = mockTx.mock.calls.find((c: any[]) => {
+        const text = (c[0] as TemplateStringsArray).join('?');
+        return /posting_error = 'zernio_reply_verification_indeterminate'/.test(text);
+      });
+      expect(indeterminateUpdate).toBeUndefined();
+    });
+
+    it('FLAG ON + NON-orphan + ZernioReplyVerificationIndeterminateError → falls through to handleVerificationIndeterminate (today behavior)', async () => {
+      process.env.EDIT_REPLIES_ENABLED = 'true';
+      // attemptOrphanConversion: row is publishable but has NO orphan marker →
+      // returns false → falls through to the indeterminate branch.
+      txReturnQueue.push([{ review_id: 'rev-1' }]);
+      txReturnQueue.push([{ id: 'rev-1' }]);
+      txReturnQueue.push([{ status: 'approved', posting_error: null }]);
+      // handleVerificationIndeterminate: UPDATE responses RETURNING 1 → 1 row,
+      // then INSERT review_exceptions RETURNING id, then INSERT job_outbox.
+      txReturnQueue.push(Object.assign([{ '?column?': 1 }], { count: 1 }));
+      txReturnQueue.push(Object.assign([{ id: 'exc-1' }], { count: 1 }));
+      txReturnQueue.push(Object.assign([], { count: 1 }));
+
+      await handlePublisherFailed(makeJob(), makeIndeterminate());
+
+      // The indeterminate terminal sequence ran and completed the outbox.
+      expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
+      const indeterminateUpdate = mockTx.mock.calls.find((c: any[]) => {
+        const text = (c[0] as TemplateStringsArray).join('?');
+        return /posting_error = 'zernio_reply_verification_indeterminate'/.test(text);
+      });
+      expect(indeterminateUpdate).toBeDefined();
+    });
   });
 
   describe('last-resort handler-crash', () => {

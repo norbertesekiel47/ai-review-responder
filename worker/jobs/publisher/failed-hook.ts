@@ -44,25 +44,32 @@ export async function handlePublisherFailed(
     outboxId = handle.outboxId;
     outboxAttempt = handle.attempt;
 
-    if (err instanceof ZernioReplyVerificationIndeterminateError) {
-      await handleVerificationIndeterminate(err, outboxId, outboxAttempt);
-      return;
-    }
-
     // Orphan-marker retry-exhaustion conversion (spec §4.5) runs BEFORE the
-    // generic transient fallback. When the edit-publisher's DELETE committed
-    // but the POST never succeeded, the row carries a `_after_delete_succeeded`
-    // orphan marker. On retry exhaustion we must convert it to a
-    // recovery-visible `failed` row (so `/retry` + `/restore-original` can act)
-    // instead of letting the transient fallback park it at
-    // `awaiting_owner_connect` and clear the marker. Flag-gated so Phase A
-    // (flag off) behaves byte-for-byte as today — the block is skipped entirely
-    // and the existing fallback below runs directly.
+    // indeterminate-verification branch AND the generic transient fallback.
+    // When the edit-publisher's DELETE committed but the POST never succeeded,
+    // the row carries a `_after_delete_succeeded` orphan marker. On retry
+    // exhaustion we must convert it to a recovery-visible `failed` row (so
+    // `/retry` + `/restore-original` can act) instead of letting either the
+    // indeterminate branch overwrite the marker with
+    // `zernio_reply_verification_indeterminate` (which would strand the
+    // recoverable orphan) or the transient fallback park it at
+    // `awaiting_owner_connect` and clear the marker.
+    //
+    // `attemptOrphanConversion` only takes ownership when the locked row's
+    // posting_error is an orphan marker (`isOrphanMarker`), so a NON-orphan
+    // indeterminate error returns `false` here and falls through to
+    // `handleVerificationIndeterminate` exactly as before. Flag-gated so Phase A
+    // (flag off) behaves byte-for-byte as today — the block is skipped entirely.
     if (process.env.EDIT_REPLIES_ENABLED === 'true') {
       const handled = await attemptOrphanConversion(job.data, outboxId, outboxAttempt);
       if (handled) return;
       // Not an orphan (or row moved on benignly with a non-terminal disposition
       // that already closed the outbox): fall through to today's behavior.
+    }
+
+    if (err instanceof ZernioReplyVerificationIndeterminateError) {
+      await handleVerificationIndeterminate(err, outboxId, outboxAttempt);
+      return;
     }
 
     if (err instanceof ZernioTransientError) {
