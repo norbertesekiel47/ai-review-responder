@@ -120,8 +120,23 @@ Server-authoritative via `telegramEnabled` field in business-detail API.
 
 ### `CHANNELS_WHATSAPP_ENABLED`
 
-Gates WhatsApp factory, dispatcher, admin API routes, `WhatsAppEnrollmentWidget`.
-Worker startup assertion verifies 7 env vars + format checks.
+Gates WhatsApp factory, dispatcher, admin API routes (`WhatsAppEnrollmentWidget`),
+AND owner self-service routes (`/api/dashboard/channels/whatsapp/{start,cancel,disable}`
++ `OwnerWhatsAppWidget` on `/settings/channels`). Worker startup assertion verifies
+7 env vars + format checks.
+
+**Set on BOTH platforms.** Next.js routes + the `/settings/channels` UI run on
+**Vercel**; the worker runs on **Railway**. The flag + all WhatsApp env vars must
+be set on both, or the owner UI stays hidden/404/503 while the worker is otherwise
+ready. The single shared `whatsappEnvReady()` predicate (`src/app/api/admin/channels/whatsapp/_shared.ts`)
+backs both the route guard and the UI `whatsappAvailable()` checks, so they can't
+disagree on which env vars count (all 5, incl. `WHATSAPP_APPROVAL_URL_BASE`).
+
+**Owner self-service is single-location-only (interim guard).** The owner start
+route returns 403 `multi_location_unsupported` and the widget shows "coming soon"
+when an account has >1 active location — a guardrail around a pre-existing
+cross-channel desync (owner enrollment keys by `business_id`, page hydrates by
+`account_id`). See `docs/known-issues.md`. Admin-side enrollment is NOT gated.
 
 **Required when on:**
 - `TWILIO_ACCOUNT_SID` + `TWILIO_AUTH_TOKEN` (shared with SMS if both enabled)
@@ -144,6 +159,21 @@ Gates the entire multi-location surface — add-location wizard,
 dashboard scope, per-location voice / channel override settings,
 admin CSV bulk import. When OFF, all multi-location routes return
 404 and the UI behaves as the legacy single-location flow.
+
+**Three distinct gates (since PR #51 — do not collapse into one boolean):**
+the flag is consumed through three helpers in
+`src/lib/locations/multi-location-mode.ts`:
+- `shouldShowLocationsSettings(flag)` — visibility. The Locations tab +
+  `/settings/locations` now appear whenever the flag is ON, **even for
+  one-location accounts** (so a freshly-paid Standard/Premium owner can add
+  their second location).
+- `shouldUseMultiLocationSettings(flag, count)` — true multi-location MODE
+  (`count > 1`). Drives the switcher, aggregate scope, and the
+  Voice/Notifications multi-loc content. `/settings/voice` stays gated on
+  this; single-location Brand Voice links to `/settings#brand-voice`.
+- `canAddLocationForAccount(flag, tier, status)` — eligibility (flag +
+  `status === active` + `multiLocAllowed`). Basic resolves to a locked
+  upgrade panel on `/settings/locations` (no add-location link, no API call).
 
 Server-authoritative. Schema (migrations 034–041) ships on regardless
 of the flag — flipping the flag only exposes the user surface. The
