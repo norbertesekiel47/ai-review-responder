@@ -73,13 +73,17 @@ export function subscriptionNotActive(): NextResponse {
 
 /**
  * Runs `fn` inside a transaction with a per-business mobile-enrollment advisory
- * lock. Serializes concurrent calls across all mobile channels (SMS, Telegram,
- * WhatsApp) so only one INSERT/UPDATE wins the migration 027 partial-unique race.
+ * lock, keyed per business (`mobile_enroll:${businessId}`). Serializes concurrent
+ * SMS admin calls with each other.
  *
- * Used by SMS verify/confirm/cancel/disable/delete routes; Telegram and WhatsApp
- * start routes acquire the same lock key inline so a concurrent SMS verify +
- * Telegram start cannot race past the SMS pre-check, send a Twilio Verify SMS,
- * and then fail with 23505.
+ * Used by SMS verify/confirm/cancel/disable/delete routes. NOTE: this lock is
+ * still business-scoped while the Telegram + WhatsApp routes were moved to
+ * account scope (`mobile_enroll:${accountId}`). So SMS verify does NOT currently
+ * serialize against a concurrent Telegram/WhatsApp start, and the SMS verify
+ * "other mobile channel" pre-check is also still business-scoped — both deferred
+ * with the SMS owner-self-service work (see docs/known-issues.md). The
+ * account-scoped `one_mobile_per_scope` index remains authoritative and prevents
+ * duplicate mobile channels regardless.
  *
  * Matches the createApprovalLink per-(response_id, channel) lock pattern
  * shipped in commit d01d729.

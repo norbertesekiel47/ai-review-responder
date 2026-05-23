@@ -43,6 +43,7 @@ describe('POST /api/admin/channels/telegram/disable', () => {
 
   it('flips verified → disabled and returns 200', async () => {
     process.env.CHANNELS_TELEGRAM_ENABLED = 'true';
+    sqlQueue.push([{ account_id: 'acct-1' }]); // businesses → account_id lookup
     sqlQueue.push([{ id: 'enrl-1' }]); // UPDATE RETURNING
     const res = await POST(mkReq({ businessId: 'biz-1' }) as any);
     expect(res.status).toBe(200);
@@ -52,7 +53,15 @@ describe('POST /api/admin/channels/telegram/disable', () => {
 
   it('returns 404 when no verified row matches', async () => {
     process.env.CHANNELS_TELEGRAM_ENABLED = 'true';
+    sqlQueue.push([{ account_id: 'acct-1' }]); // businesses → account_id lookup
     sqlQueue.push([]); // UPDATE matches nothing
+    const res = await POST(mkReq({ businessId: 'biz-1' }) as any);
+    expect(res.status).toBe(404);
+  });
+
+  it('returns 404 when the business does not exist', async () => {
+    process.env.CHANNELS_TELEGRAM_ENABLED = 'true';
+    sqlQueue.push([]); // businesses → account_id lookup returns nothing
     const res = await POST(mkReq({ businessId: 'biz-1' }) as any);
     expect(res.status).toBe(404);
   });

@@ -94,7 +94,7 @@ describe('POST /api/admin/channels/whatsapp/start', () => {
 
   it('returns 403 when subscription is not active', async () => {
     process.env.CHANNELS_WHATSAPP_ENABLED = 'true';
-    sqlQueue.push([{ subscription_status: 'past_due' }]);
+    sqlQueue.push([{ id: 'acct-1', subscription_status: 'past_due' }]);
     const res = await POST(mkReq({ businessId: 'biz-1' }) as any);
     expect(res.status).toBe(403);
     const json = await res.json();
@@ -104,7 +104,7 @@ describe('POST /api/admin/channels/whatsapp/start', () => {
   it('happy path: inserts pending enrollment and returns deepLink + qrDataUrl + expiresAt', async () => {
     process.env.CHANNELS_WHATSAPP_ENABLED = 'true';
     process.env.TWILIO_WHATSAPP_NUMBER = 'whatsapp:+14155238886';
-    sqlQueue.push([{ subscription_status: 'active' }]); // subscription check
+    sqlQueue.push([{ id: 'acct-1', subscription_status: 'active' }]); // subscription check
     sqlQueue.push([]); // advisory lock
     sqlQueue.push([]); // SELECT existing enrollment (none)
     sqlQueue.push([]); // INSERT enrollment
@@ -119,7 +119,7 @@ describe('POST /api/admin/channels/whatsapp/start', () => {
   it('deep link uses digits only (no + or whatsapp: prefix)', async () => {
     process.env.CHANNELS_WHATSAPP_ENABLED = 'true';
     process.env.TWILIO_WHATSAPP_NUMBER = 'whatsapp:+14155238886';
-    sqlQueue.push([{ subscription_status: 'active' }]);
+    sqlQueue.push([{ id: 'acct-1', subscription_status: 'active' }]);
     sqlQueue.push([]);
     sqlQueue.push([]);
     sqlQueue.push([]);
@@ -135,7 +135,7 @@ describe('POST /api/admin/channels/whatsapp/start', () => {
   it('returns Cache-Control: no-store, private on success', async () => {
     process.env.CHANNELS_WHATSAPP_ENABLED = 'true';
     process.env.TWILIO_WHATSAPP_NUMBER = 'whatsapp:+14155238886';
-    sqlQueue.push([{ subscription_status: 'active' }]);
+    sqlQueue.push([{ id: 'acct-1', subscription_status: 'active' }]);
     sqlQueue.push([]);
     sqlQueue.push([]);
     sqlQueue.push([]);
@@ -146,7 +146,7 @@ describe('POST /api/admin/channels/whatsapp/start', () => {
   it('returns 409 when enrollment is already verified', async () => {
     process.env.CHANNELS_WHATSAPP_ENABLED = 'true';
     process.env.TWILIO_WHATSAPP_NUMBER = 'whatsapp:+14155238886';
-    sqlQueue.push([{ subscription_status: 'active' }]);
+    sqlQueue.push([{ id: 'acct-1', subscription_status: 'active' }]);
     sqlQueue.push([]); // advisory lock
     sqlQueue.push([{ id: 'enrl-1', status: 'verified' }]); // existing verified row
     const res = await POST(mkReq({ businessId: 'biz-1' }) as any);

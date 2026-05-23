@@ -27,17 +27,21 @@ async function cancelTelegram(req: NextRequest): Promise<NextResponse> {
   const businessId = body?.businessId;
   if (!businessId) return NextResponse.json({ error: 'businessId required' }, { status: 400 });
 
+  const [acctRow] = await sql<{ account_id: string }[]>`
+    SELECT account_id FROM businesses WHERE id = ${businessId}
+  `;
+  if (!acctRow) return NextResponse.json({ error: 'not_found' }, { status: 404 });
+
+  // Advisory lock uses account_id so an admin cancel and an owner start on the
+  // same account+channel mutually exclude (shared mobile_enroll key).
   await sql.begin(async (tx) => {
-    await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`mobile_enroll:${businessId}`}, 0))`;
-    return cancelTelegramEnrollment(tx, businessId);
+    await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`mobile_enroll:${acctRow.account_id}`}, 0))`;
+    return cancelTelegramEnrollment(tx, acctRow.account_id);
   });
 
   // Invalidate channel cache — the cancelled verification changes which
   // channels are available for dispatch.
-  const [acctRow] = await sql<{ account_id: string }[]>`
-    SELECT account_id FROM businesses WHERE id = ${businessId}
-  `;
-  if (acctRow?.account_id) {
+  if (acctRow.account_id) {
     await safeInvalidateChannelCache(asAccountId(acctRow.account_id), 'admin.telegram.cancel');
   }
 

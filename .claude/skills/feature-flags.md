@@ -132,12 +132,6 @@ ready. The single shared `whatsappEnvReady()` predicate (`src/app/api/admin/chan
 backs both the route guard and the UI `whatsappAvailable()` checks, so they can't
 disagree on which env vars count (all 5, incl. `WHATSAPP_APPROVAL_URL_BASE`).
 
-**Owner self-service is single-location-only (interim guard).** The owner start
-route returns 403 `multi_location_unsupported` and the widget shows "coming soon"
-when an account has >1 active location — a guardrail around a pre-existing
-cross-channel desync (owner enrollment keys by `business_id`, page hydrates by
-`account_id`). See `docs/known-issues.md`. Admin-side enrollment is NOT gated.
-
 **Required when on:**
 - `TWILIO_ACCOUNT_SID` + `TWILIO_AUTH_TOKEN` (shared with SMS if both enabled)
 - `TWILIO_WHATSAPP_NUMBER` — format: `whatsapp:+<digits>` (assertion enforces format)

@@ -66,9 +66,11 @@ async function startWhatsApp(req: NextRequest): Promise<NextResponse> {
   // the lock is held across the SELECT + UPDATE/INSERT. pg_advisory_xact_lock
   // releases at tx end; a bare call outside sql.begin would release immediately
   // and leave the state machine unprotected against concurrent starts.
-  // Uses the shared mobile_enroll key so SMS verify + WhatsApp start are
-  // mutually exclusive per business (same lock as SMS withMobileEnrollmentLock
-  // and Telegram start routes).
+  // Locks by the account-scoped mobile_enroll key, matching the Telegram start
+  // route + the owner routes. NOTE: admin SMS (withMobileEnrollmentLock) still
+  // locks per business, so SMS verify and WhatsApp start do NOT currently
+  // mutually exclude on the lock — deferred (see docs/known-issues.md). The
+  // one_mobile_per_scope index still prevents duplicate mobile channels.
   const rawToken = randomUUID();
   const tokenHash = createHash('sha256').update(rawToken).digest('hex');
   const expiresAt = new Date(Date.now() + TOKEN_TTL_MS);
@@ -76,7 +78,7 @@ async function startWhatsApp(req: NextRequest): Promise<NextResponse> {
   let result: { kind: 'ok' } | { kind: 'already_verified' } | undefined;
   try {
     result = await sql.begin(async (tx) => {
-      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`mobile_enroll:${businessId}`}, 0))`;
+      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`mobile_enroll:${accountId}`}, 0))`;
       return startWhatsAppEnrollment(tx, businessId, accountId, tokenHash, expiresAt);
     });
   } catch (err) {

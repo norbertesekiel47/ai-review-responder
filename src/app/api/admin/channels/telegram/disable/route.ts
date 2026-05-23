@@ -27,21 +27,25 @@ async function disableTelegram(req: NextRequest): Promise<NextResponse> {
   const businessId = body?.businessId;
   if (!businessId) return NextResponse.json({ error: 'businessId required' }, { status: 400 });
 
-  const result = await disableTelegramEnrollment(sql, businessId);
-
   const noStore = { 'Cache-Control': 'no-store, private' };
+
+  // Resolve account_id first — disableTelegramEnrollment is account-scoped
+  // (org-default row, location_id IS NULL), so it must be keyed by account.
+  const [acctRow] = await sql<{ account_id: string }[]>`
+    SELECT account_id FROM businesses WHERE id = ${businessId}
+  `;
+  if (!acctRow) {
+    return NextResponse.json({ error: 'not_found' }, { status: 404, headers: noStore });
+  }
+
+  const result = await disableTelegramEnrollment(sql, acctRow.account_id);
   if (result.kind === 'not_found') {
     return NextResponse.json({ error: 'not_found' }, { status: 404, headers: noStore });
   }
 
   // Invalidate channel cache — the disabled channel must be removed from
   // the dispatch resolution immediately.
-  const [acctRow] = await sql<{ account_id: string }[]>`
-    SELECT account_id FROM businesses WHERE id = ${businessId}
-  `;
-  if (acctRow?.account_id) {
-    await safeInvalidateChannelCache(asAccountId(acctRow.account_id), 'admin.telegram.disable');
-  }
+  await safeInvalidateChannelCache(asAccountId(acctRow.account_id), 'admin.telegram.disable');
 
   return NextResponse.json({ ok: true }, { headers: noStore });
 }

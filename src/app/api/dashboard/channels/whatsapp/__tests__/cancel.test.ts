@@ -39,10 +39,9 @@ describe('POST /api/dashboard/channels/whatsapp/cancel', () => {
 
   it('200 ok on cancel of active subscription', async () => {
     process.env.CHANNELS_WHATSAPP_ENABLED = 'true';
-    sqlQueue.push([{ subscription_status: 'active' }]); // accounts lookup
-    sqlQueue.push([]);                                  // advisory lock
-    sqlQueue.push([{ id: 'e1' }]);                      // cancel UPDATE RETURNING
-    sqlQueue.push([{ account_id: 'acct-1' }]);          // account_id for cache invalidation
+    sqlQueue.push([{ id: 'acct-1', subscription_status: 'active' }]); // accounts lookup
+    sqlQueue.push([]);                                                 // advisory lock
+    sqlQueue.push([{ id: 'e1' }]);                                     // cancel UPDATE RETURNING
     const res = await POST(mkReq() as any);
     expect(res.status).toBe(200);
     expect((await res.json()).ok).toBe(true);

@@ -182,12 +182,8 @@ export default async function ChannelsPage() {
         initialAvailability={{
           telegram: telegramAvailable(),
           sms: smsAvailable(),
-          // Interim safeguard: WhatsApp self-service is restricted to single-location accounts
-          // until the cross-channel account-scope fix lands. See
-          // docs/superpowers/specs/2026-05-22-owner-channel-account-scope-design.md
-          whatsapp: whatsappAvailable() && activeLocationCount <= 1,
+          whatsapp: whatsappAvailable(),
         }}
-        whatsappMultiLocationBlocked={whatsappAvailable() && activeLocationCount > 1}
         ownerEmailFallback={ownerEmail}
         multiLocationEnabled={multiLocationEnabled}
         locationsSettingsEnabled={locationsSettingsEnabled}

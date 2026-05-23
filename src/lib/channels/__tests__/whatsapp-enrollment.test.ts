@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { startWhatsAppEnrollment, disableWhatsAppEnrollment } from '../whatsapp-enrollment';
+import { startWhatsAppEnrollment, cancelWhatsAppEnrollment, disableWhatsAppEnrollment } from '../whatsapp-enrollment';
 import { MultipleMobileChannelsError, EnrollmentDatabaseError } from '../unique-violation';
 
 /** Tagged-template mock: returns queued result arrays in call order, records SQL text. */
@@ -36,6 +36,10 @@ describe('startWhatsAppEnrollment', () => {
     const r = await startWhatsAppEnrollment(tx, 'biz-1', 'acct-1', 'hash', TS);
     expect(r).toEqual({ kind: 'ok' });
     expect(calls.some((c) => c.includes('INSERT INTO channel_enrollments'))).toBe(true);
+    // INSERT must write both business_id and account_id
+    const insertCall = calls.find((c) => c.includes('INSERT INTO channel_enrollments'))!;
+    expect(insertCall).toContain('business_id');
+    expect(insertCall).toContain('account_id');
   });
 
   it('returns already_verified when a verified row exists', async () => {
@@ -49,6 +53,14 @@ describe('startWhatsAppEnrollment', () => {
     const r = await startWhatsAppEnrollment(tx, 'biz-1', 'acct-1', 'hash', TS);
     expect(r).toEqual({ kind: 'ok' });
     expect(calls.some((c) => c.includes('UPDATE channel_enrollments'))).toBe(true);
+  });
+
+  it('SELECT uses account_id + location_id IS NULL predicate', async () => {
+    const { tx, calls } = makeTx([[], []]);
+    await startWhatsAppEnrollment(tx, 'biz-1', 'acct-1', 'hash', TS);
+    const selectCall = calls[0];
+    expect(selectCall).toContain('account_id');
+    expect(selectCall).toContain('location_id IS NULL');
   });
 });
 
@@ -82,13 +94,36 @@ describe('startWhatsAppEnrollment — 23505 unique-violation classification', ()
   });
 });
 
-describe('disableWhatsAppEnrollment', () => {
-  it('returns ok when a verified row is flipped', async () => {
-    const { tx } = makeTx([[{ id: 'e1' }]]);
-    expect(await disableWhatsAppEnrollment(tx, 'biz-1')).toEqual({ kind: 'ok' });
+describe('cancelWhatsAppEnrollment', () => {
+  it('returns ok when a pending row is flipped', async () => {
+    const { tx, calls } = makeTx([[{ id: 'e1' }]]);
+    expect(await cancelWhatsAppEnrollment(tx, 'acct-1')).toEqual({ kind: 'ok' });
+    const sql = calls[0];
+    expect(sql).toContain('account_id');
+    expect(sql).toContain('location_id IS NULL');
+    expect(sql).toContain('channel');
+    expect(sql).toContain('pending_verification');
+    expect(sql).toContain('archived_at IS NULL');
   });
   it('returns not_found when nothing matched', async () => {
     const { tx } = makeTx([[]]);
-    expect(await disableWhatsAppEnrollment(tx, 'biz-1')).toEqual({ kind: 'not_found' });
+    expect(await cancelWhatsAppEnrollment(tx, 'acct-1')).toEqual({ kind: 'not_found' });
+  });
+});
+
+describe('disableWhatsAppEnrollment', () => {
+  it('returns ok when a verified row is flipped', async () => {
+    const { tx, calls } = makeTx([[{ id: 'e1' }]]);
+    expect(await disableWhatsAppEnrollment(tx, 'acct-1')).toEqual({ kind: 'ok' });
+    const sql = calls[0];
+    expect(sql).toContain('account_id');
+    expect(sql).toContain('location_id IS NULL');
+    expect(sql).toContain('channel');
+    expect(sql).toContain('verified');
+    expect(sql).toContain('archived_at IS NULL');
+  });
+  it('returns not_found when nothing matched', async () => {
+    const { tx } = makeTx([[]]);
+    expect(await disableWhatsAppEnrollment(tx, 'acct-1')).toEqual({ kind: 'not_found' });
   });
 });

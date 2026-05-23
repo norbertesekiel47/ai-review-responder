@@ -19,15 +19,13 @@ export interface ChannelsClientProps {
   initialEnrollments: InitialEnrollment[];
   initialAvailability: { telegram: boolean; sms: boolean; whatsapp: boolean };
   ownerEmailFallback: string;
-  /** True when WhatsApp env is ready but the account has >1 active location. */
-  whatsappMultiLocationBlocked?: boolean;
 }
 
 function findChannel(enrollments: InitialEnrollment[], channel: InitialEnrollment['channel']): InitialEnrollment | null {
   return enrollments.find((e) => e.channel === channel) ?? null;
 }
 
-export function ChannelsClient({ initialEnrollments, initialAvailability, ownerEmailFallback, whatsappMultiLocationBlocked }: ChannelsClientProps) {
+export function ChannelsClient({ initialEnrollments, initialAvailability, ownerEmailFallback }: ChannelsClientProps) {
   const emailRow = findChannel(initialEnrollments, 'email');
   const emailHandle = emailRow?.handle ?? ownerEmailFallback;
   const emailReconciling = !emailRow;
@@ -85,11 +83,7 @@ export function ChannelsClient({ initialEnrollments, initialAvailability, ownerE
           <ComingSoonChannelRow
             icon="🟢"
             name="WhatsApp"
-            reason={
-              whatsappMultiLocationBlocked
-                ? 'WhatsApp self-service is coming soon for multi-location accounts — connect it from the admin console for now.'
-                : 'Available once Meta business verification clears'
-            }
+            reason="Available once Meta business verification clears"
           />
         )}
       </div>

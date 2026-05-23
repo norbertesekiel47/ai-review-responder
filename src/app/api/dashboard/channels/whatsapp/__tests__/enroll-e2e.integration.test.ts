@@ -89,6 +89,8 @@ vi.mock('qrcode', () => ({ default: { toDataURL: vi.fn(async () => 'data:image/p
 // Imports AFTER mocks are registered.
 import { POST as startPOST } from '../start/route';
 import { handleTwilioWhatsAppInbound } from '../../../../../../../worker/ingress/twilio/twilio-whatsapp-inbound';
+// disable route is imported dynamically inside the regression test (avoid ESM
+// cycle from hoisted mocks resolving before the mock registry is ready).
 
 type AnyReq = any;
 type AnyReply = any;
@@ -99,6 +101,14 @@ const TWILIO_AUTH_TOKEN = 'test_auth_token_for_ingress_fixtures';
 
 function ownerStartReq(): NextRequest {
   return new NextRequest('http://localhost/api/dashboard/channels/whatsapp/start', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: APP_URL },
+    body: JSON.stringify({}),
+  });
+}
+
+function ownerDisableReq(): NextRequest {
+  return new NextRequest('http://localhost/api/dashboard/channels/whatsapp/disable', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Origin: APP_URL },
     body: JSON.stringify({}),
@@ -169,14 +179,12 @@ d('owner WhatsApp enrollment round-trip (route start → inbound verify)', () =>
   it('start route mints deepLink; inbound start-<token> flips the row to verified', async () => {
     // ── Step 1: owner POST /start ──────────────────────────────────────────
     // Route SQL order: (1) accounts JOIN businesses subscription lookup,
-    // (2) getActiveLocationCount (single-location guard), (3) advisory lock
-    // inside sql.begin, (4) SELECT FOR UPDATE existing enrollment (none),
-    // (5) INSERT enrollment.
+    // (2) advisory lock inside sql.begin, (3) SELECT FOR UPDATE existing
+    // enrollment (none), (4) INSERT enrollment.
     sqlReturnQueue.push([{ id: 'acct-1', subscription_status: 'active' }]); // 1
-    sqlReturnQueue.push([{ count: 1 }]);                                     // 2 getActiveLocationCount
-    sqlReturnQueue.push([]);                                                 // 3 advisory lock
-    sqlReturnQueue.push([]);                                                 // 4 SELECT FOR UPDATE (none)
-    sqlReturnQueue.push([]);                                                 // 5 INSERT
+    sqlReturnQueue.push([]);                                                 // 2 advisory lock
+    sqlReturnQueue.push([]);                                                 // 3 SELECT FOR UPDATE (none)
+    sqlReturnQueue.push([]);                                                 // 4 INSERT
 
     const startRes = await startPOST(ownerStartReq() as AnyReq);
     expect(startRes.status).toBe(200);
@@ -233,7 +241,6 @@ d('owner WhatsApp enrollment round-trip (route start → inbound verify)', () =>
 
   it('start route returns 409 already_verified when a verified row exists', async () => {
     sqlReturnQueue.push([{ id: 'acct-1', subscription_status: 'active' }]); // subscription lookup
-    sqlReturnQueue.push([{ count: 1 }]);                                     // getActiveLocationCount (single-location guard)
     sqlReturnQueue.push([]);                                                 // advisory lock
     sqlReturnQueue.push([{ id: 'enroll-1', status: 'verified' }]);           // SELECT FOR UPDATE → verified
 
@@ -259,5 +266,47 @@ d('owner WhatsApp enrollment round-trip (route start → inbound verify)', () =>
     const inboundSql = sqlCallsLog.map((c) => c.raw).join('\n');
     // No verification UPDATE ran — the SELECT FOR UPDATE returned no row.
     expect(inboundSql).not.toMatch(/status = 'verified'/);
+  });
+
+  // Regression: multi-location owner desync (fix/owner-channel-account-scope).
+  // Pre-fix the disable route keyed the UPDATE by business_id (the requester's
+  // locationId), so a requester at L2 couldn't disconnect a verified org-default
+  // row created at L1 → 404. Post-fix it keys by account_id (account-scoped), so
+  // the row is found regardless of which location the requester is logged into → 200.
+  //
+  // Note: same-channel concurrency (two concurrent disconnects, one row) is
+  // serialized by the account advisory lock + SELECT-then-UPDATE inside a tx; that
+  // property is not unit-testable here. The cross-channel start 409 is covered by
+  // start.test.ts.
+  it('disconnects the org-default row by account even when business_id differs from the requester location', async () => {
+    // Requester is at location L2; the existing verified org-default row was created at L1.
+    // Pre-fix: disable keyed by business_id = L2 → no match → 404.
+    // Post-fix: disable keys by account_id + location_id IS NULL → finds L1-created row → 200.
+    mockRequireRole.mockResolvedValue({ userId: 'owner-2', role: 'owner', locationId: 'L2', accountId: 'acct-1' });
+
+    // SQL call 1: SELECT a.id, a.subscription_status FROM accounts a JOIN businesses b WHERE b.id = L2
+    sqlReturnQueue.push([{ id: 'acct-1', subscription_status: 'active' }]);
+    // SQL call 2: disableWhatsAppEnrollment — UPDATE … WHERE account_id = acct-1 … RETURNING id
+    // Matched by account_id (account-scoped), not by the requester's locationId.
+    sqlReturnQueue.push([{ id: 'e_orgdefault' }]);
+
+    const { POST: disablePOST } = await import('../disable/route');
+    const res = await disablePOST(ownerDisableReq() as AnyReq);
+    expect(res.status).toBe(200); // NOT 404 — the exact pre-fix bug
+
+    // True guard (not just the 200 contract): the disable UPDATE must key by
+    // account_id with the resolved accountId ('acct-1'), scoped to the
+    // org-default row (location_id IS NULL) — and must NOT key by the
+    // requester's locationId ('L2'). Reverting to `business_id = ${locationId}`
+    // would flip these and fail here.
+    const disableUpdate = sqlCallsLog.find(
+      (c) => c.raw.includes('UPDATE channel_enrollments') && c.raw.includes("status = 'verified'"),
+    );
+    expect(disableUpdate).toBeDefined();
+    expect(disableUpdate!.raw).toMatch(/account_id = /);
+    expect(disableUpdate!.raw).toMatch(/location_id IS NULL/);
+    expect(disableUpdate!.raw).not.toMatch(/business_id = /);
+    expect(disableUpdate!.values).toContain('acct-1');
+    expect(disableUpdate!.values).not.toContain('L2');
   });
 });

@@ -29,14 +29,19 @@ export type StartTelegramResult = { kind: 'ok' } | { kind: 'already_verified' };
  * Insert/update a Telegram enrollment row to `pending_verification` with a
  * fresh hash + expiry. Caller MUST:
  *   - Open `sql.begin(async (tx) => {...})` and pass `tx` here.
- *   - Acquire the advisory lock inside the same tx BEFORE calling this.
+ *   - Acquire the `mobile_enroll:${accountId}` advisory lock inside the same tx BEFORE calling this.
  *   - Generate `rawToken` outside the tx and pass `tokenHash = sha256(rawToken)`
  *     and `expiresAt = new Date(Date.now() + TOKEN_TTL_MS)`.
  *   - Generate the QR data URL AFTER the tx commits.
  *
- * The SELECT uses FOR UPDATE so that a concurrent Telegram inbound webhook
- * (which also runs inside sql.begin) cannot flip the row to `verified` between
- * our SELECT and our UPDATE — the row lock serializes both transactions.
+ * The SELECT uses FOR UPDATE to lock the org-default row for the account
+ * (account_id = accountId, location_id IS NULL) so that a concurrent Telegram
+ * inbound webhook (which also runs inside sql.begin) cannot flip the row to
+ * `verified` between our SELECT and our UPDATE — the row lock serializes both
+ * transactions.
+ *
+ * The INSERT still writes `business_id` as a NOT-NULL legacy FK; it is never
+ * used for lookup.
  */
 export async function startTelegramEnrollment(
   tx: TxLike,
@@ -47,7 +52,8 @@ export async function startTelegramEnrollment(
 ): Promise<StartTelegramResult> {
   const existing = (await tx`
     SELECT id, status FROM channel_enrollments
-    WHERE business_id = ${businessId} AND channel = 'telegram' AND archived_at IS NULL
+    WHERE account_id = ${accountId} AND channel = 'telegram'
+      AND location_id IS NULL AND archived_at IS NULL
     FOR UPDATE
   `) as Array<{ id: string; status: string }>;
   const existingRow = existing[0];
@@ -88,24 +94,25 @@ export async function startTelegramEnrollment(
 /**
  * Cancels a pending Telegram enrollment by flipping it to `disabled` (with
  * `disabled_at = NOW()`) and clearing the token fields. This releases the
- * migration 027 partial-unique-index slot for the business so a fresh
- * SMS / WhatsApp / Telegram enrollment can proceed immediately.
+ * partial-unique-index slot for the account so a fresh enrollment can proceed
+ * immediately.
  *
  * Idempotent — single UPDATE; concurrent cancel + cancel produces the same
  * end state. Does NOT open sql.begin, does NOT take an advisory lock.
  *
- * Caller MUST hold the `mobile_enroll:${businessId}` advisory lock inside
+ * Caller MUST hold the `mobile_enroll:${accountId}` advisory lock inside
  * `sql.begin` — the helper does not lock. This prevents a concurrent start
  * from observing the pending row, falling through to its UPDATE branch (which
  * has no status WHERE guard), and overwriting cancel's disabled transition back
  * to pending_verification.
  *
- * NOTE: only non-archived `pending_verification` rows are matched. Archived
- * and verified rows are never mutated by this helper.
+ * NOTE: only non-archived `pending_verification` org-default rows
+ * (location_id IS NULL) are matched. Archived and verified rows are never
+ * mutated by this helper.
  */
 export async function cancelTelegramEnrollment(
   sql: TxLike,
-  businessId: string,
+  accountId: string,
 ): Promise<{ kind: 'ok' | 'not_found' }> {
   const updated = (await sql`
     UPDATE channel_enrollments
@@ -114,9 +121,10 @@ export async function cancelTelegramEnrollment(
         verification_token_hash = NULL,
         verification_token_expires_at = NULL,
         updated_at = NOW()
-    WHERE business_id = ${businessId}
+    WHERE account_id = ${accountId}
       AND channel = 'telegram'
       AND status = 'pending_verification'
+      AND location_id IS NULL
       AND archived_at IS NULL
     RETURNING id
   `) as Array<{ id: string }>;
@@ -125,13 +133,14 @@ export async function cancelTelegramEnrollment(
 
 /**
  * Owner-initiated disconnect. Flips verified → disabled, clears handle.
+ * Targets the org-default row (location_id IS NULL) for the account.
  * Does NOT open sql.begin, does NOT take an advisory lock. Returns
  * `not_found` if no verified row matched (UI prevents this case via the
  * Disconnect-button-only-in-verified rule from spec §3).
  */
 export async function disableTelegramEnrollment(
   sql: TxLike,
-  businessId: string,
+  accountId: string,
 ): Promise<{ kind: 'ok' | 'not_found' }> {
   const updated = (await sql`
     UPDATE channel_enrollments
@@ -139,9 +148,10 @@ export async function disableTelegramEnrollment(
         handle = NULL,
         disabled_at = NOW(),
         updated_at = NOW()
-    WHERE business_id = ${businessId}
+    WHERE account_id = ${accountId}
       AND channel = 'telegram'
       AND status = 'verified'
+      AND location_id IS NULL
       AND archived_at IS NULL
     RETURNING id
   `) as Array<{ id: string }>;

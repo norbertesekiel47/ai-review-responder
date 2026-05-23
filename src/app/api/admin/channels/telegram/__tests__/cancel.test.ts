@@ -45,6 +45,7 @@ describe('POST /api/admin/channels/telegram/cancel', () => {
 
   it('clears verification hash + expiry on pending row and returns 200', async () => {
     process.env.CHANNELS_TELEGRAM_ENABLED = 'true';
+    sqlQueue.push([{ account_id: 'acct-1' }]); // SELECT account_id FROM businesses
     // sql.begin callback fires: advisory lock SELECT + UPDATE
     sqlQueue.push([]); // pg_advisory_xact_lock
     sqlQueue.push([]); // UPDATE ... WHERE status='pending_verification'
