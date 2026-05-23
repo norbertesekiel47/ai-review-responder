@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PastRepliesClient } from '../PastRepliesClient';
 
 // EditReplyDrawer uses useRouter — mock next/navigation for all tests.
@@ -382,5 +382,107 @@ describe('PastRepliesClient', () => {
     // Header must show "2 of 2", not "2 of 1".
     expect(screen.getByText('2 of 2')).toBeInTheDocument();
     expect(screen.queryByText('2 of 1')).not.toBeInTheDocument();
+  });
+
+  // ── Regenerate preview: accept-as-is vs edit-further publish paths ────────
+  //
+  // The regenerate flow: Regenerate with AI → POST /draft (returns outbox_id)
+  // → poll /draft-status (returns response_id) → preview. From preview:
+  //   - "Update on Google" (accept-as-is) → /publish ONLY, no PATCH
+  //     (worker draft keeps edited_text NULL → 'regenerate_as_is').
+  //   - "Edit further" → editing → submit → PATCH then /publish
+  //     (forces edited_text → 'regenerate_edited').
+  describe('regenerate preview publish paths', () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    const DRAFT_ID = 'draft-resp-1';
+    const OUTBOX_ID = 'outbox-1';
+
+    function urlOf(input: RequestInfo | URL): string {
+      return typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url;
+    }
+
+    function jsonResponse(body: unknown): Response {
+      return { ok: true, status: 200, json: async () => body } as Response;
+    }
+
+    /** Mock fetch covering /draft (POST), /draft-status (GET), /publish, /draft/:id PATCH. */
+    function installFetchMock() {
+      const calls: { url: string; method: string }[] = [];
+      const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = urlOf(input);
+        const method = (init?.method ?? 'GET').toUpperCase();
+        calls.push({ url, method });
+        if (url.includes('/draft-status')) {
+          return jsonResponse({ response_id: DRAFT_ID, status: 'pending_approval', response_text: 'AI generated reply' });
+        }
+        if (url.endsWith('/past-replies/draft') && method === 'POST') {
+          return jsonResponse({ outbox_id: OUTBOX_ID });
+        }
+        if (url.includes('/past-replies/publish')) {
+          return jsonResponse({ outbox_id: 'pub-outbox-1' });
+        }
+        if (url.includes(`/past-replies/draft/${DRAFT_ID}`)) {
+          // PATCH returns 204.
+          return { ok: true, status: 204, json: async () => ({}) } as Response;
+        }
+        return jsonResponse({});
+      });
+      vi.stubGlobal('fetch', fetchMock);
+      return { calls };
+    }
+
+    async function openPreview(user: ReturnType<typeof userEvent.setup>) {
+      await user.click(screen.getByRole('button', { name: /edit reply/i }));
+      await user.click(screen.getByRole('button', { name: /regenerate with ai/i }));
+      // Poll fires on a 1500ms timer; advance to the preview state.
+      await waitFor(
+        () => expect(screen.getByRole('button', { name: /edit further/i })).toBeInTheDocument(),
+        { timeout: 3000 },
+      );
+    }
+
+    it('accept-as-is issues a /publish call and NO PATCH', async () => {
+      const user = userEvent.setup();
+      const { calls } = installFetchMock();
+      render(
+        <PastRepliesClient {...baseProps} gapRows={[row({ canEdit: true })]} editRepliesEnabled={true} />,
+      );
+
+      await openPreview(user);
+      // "Update on Google" in the preview = accept-as-is.
+      await user.click(screen.getByRole('button', { name: /update on google/i }));
+
+      await waitFor(() =>
+        expect(calls.some((c) => c.url.includes('/past-replies/publish'))).toBe(true),
+      );
+      // No PATCH to /draft/:id was issued.
+      expect(calls.some((c) => c.method === 'PATCH')).toBe(false);
+    });
+
+    it('edit-further issues a PATCH then a /publish', async () => {
+      const user = userEvent.setup();
+      const { calls } = installFetchMock();
+      render(
+        <PastRepliesClient {...baseProps} gapRows={[row({ canEdit: true })]} editRepliesEnabled={true} />,
+      );
+
+      await openPreview(user);
+      await user.click(screen.getByRole('button', { name: /edit further/i }));
+      // Now in the editing state — submit publishes via PATCH + /publish.
+      await user.click(screen.getByRole('button', { name: /update on google/i }));
+
+      await waitFor(() =>
+        expect(calls.some((c) => c.url.includes('/past-replies/publish'))).toBe(true),
+      );
+      const patchCall = calls.find((c) => c.method === 'PATCH');
+      const publishCall = calls.find((c) => c.url.includes('/past-replies/publish'));
+      expect(patchCall).toBeDefined();
+      expect(patchCall!.url).toContain(`/past-replies/draft/${DRAFT_ID}`);
+      // PATCH precedes publish.
+      expect(calls.indexOf(patchCall!)).toBeLessThan(calls.indexOf(publishCall!));
+    });
   });
 });

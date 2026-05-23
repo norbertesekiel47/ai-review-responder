@@ -380,6 +380,45 @@ export function EditReplyDrawer({
     [row.review_id, handleHttpError, router],
   );
 
+  // Publish an EXISTING draft as-is, WITHOUT a PATCH. Used by the
+  // regenerate-preview "accept as-is" path: the worker-inserted draft has
+  // llm_provider set and edited_text NULL, so /publish records it as
+  // 'regenerate_as_is'. PATCHing first (as submitManual does) would force
+  // edited_text and mis-record it as 'regenerate_edited'. The posted row
+  // still exists at this point, so /publish's validateOptimisticConcurrency
+  // passes.
+  const publishExisting = useCallback(
+    async (draftResponseId: string) => {
+      setState({ kind: 'publishing' });
+      try {
+        const pubRes = await fetch('/api/dashboard/past-replies/publish', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            response_id: draftResponseId,
+            snapshot: snapshotRef.current,
+          }),
+        });
+        if (!pubRes.ok) {
+          await handleHttpError(pubRes, `Publish failed (${pubRes.status})`);
+          return;
+        }
+        setState({
+          kind: 'success',
+          message: 'Update queued for Google. The new reply will appear shortly.',
+        });
+        router.refresh();
+      } catch (err) {
+        setState({
+          kind: 'error',
+          message: err instanceof Error ? err.message : 'Publish failed.',
+        });
+      }
+    },
+    [handleHttpError, router],
+  );
+
   const cancelDraft = useCallback(
     async (draftResponseId: string | null) => {
       // If we have a server-side draft, DELETE it (idempotent — safe even if
@@ -675,7 +714,11 @@ export function EditReplyDrawer({
           {state.kind === 'preview' && (
             <PreviewPanel
               text={state.text}
-              onPublish={() => submitManual(state.text, state.draftResponseId)}
+              // Accept-as-is publishes the worker draft WITHOUT a PATCH so it
+              // records as 'regenerate_as_is'. "Edit further" routes to the
+              // editing state, whose submit PATCHes then publishes →
+              // 'regenerate_edited'.
+              onPublish={() => publishExisting(state.draftResponseId)}
               onEditFurther={() =>
                 setState({
                   kind: 'editing',
