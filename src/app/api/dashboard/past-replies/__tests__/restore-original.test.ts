@@ -332,7 +332,7 @@ describe('POST /api/dashboard/past-replies/:responseId/restore-original', () => 
     expect(await res.json()).toEqual({ error: 'no_original_to_restore' });
   });
 
-  it('happy path: orphan + superseded sibling → INSERTs new pending_approval row at MAX(version)+1 with original text in all 3 text columns; OLD failed row STAYS failed; audit row written; NO outbox row inserted', async () => {
+  it('happy path: orphan + superseded sibling → INSERTs new APPROVED row at MAX(version)+1 with original text in all 3 text columns; OLD failed row STAYS failed; audit row written; publish_response outbox enqueued; NO validateOptimisticConcurrency', async () => {
     seedTopLevel([{ review_id: REVIEW_ID }]);
     // tx queue:
     //   1. lock-review
@@ -340,13 +340,15 @@ describe('POST /api/dashboard/past-replies/:responseId/restore-original', () => 
     //   3. live-posted check (none — orphan state real)
     //   4. non-terminal-sibling check (none)
     //   5. superseded-FOR-UPDATE select (FOUND)
-    //   6. INSERT new pending_approval row (no rows returned)
+    //   6. INSERT new approved row (no rows returned)
+    //   7. INSERT publish_response outbox (no rows returned)
     seedTxRows(
       [{ id: REVIEW_ID }],
       [orphanFailedRow()],
       [],
       [],
       [supersededRow()],
+      [],
       [],
     );
     const POST = await importPOST();
@@ -355,13 +357,15 @@ describe('POST /api/dashboard/past-replies/:responseId/restore-original', () => 
     const body = await res.json();
     expect(typeof body.response_id).toBe('string');
     expect(body.response_id).toMatch(/^[0-9a-f-]{36}$/);
-    // Route returns the restored text alongside the id so the drawer's preview
-    // pane can populate (row.approved_text is null on failed-only orphan rows).
-    expect(body.response_text).toBe('Original posted reply text');
+    // Restore is terminal: route returns the new response id + the outbox id
+    // it enqueued to republish the original directly. No response_text — the
+    // drawer no longer routes through the preview/publish path.
+    expect(typeof body.outbox_id).toBe('string');
+    expect(body.outbox_id).toMatch(/^[0-9a-f-]{36}$/);
 
     // INSERT call (6th tx call). Verify it's an INSERT INTO responses with
-    // the correct shape: pending_approval status, all 3 text columns set,
-    // edited_text NULL, version = MAX+1 inline expression, llm fields NULL.
+    // the correct shape: approved status, all 3 text columns set, edited_text
+    // NULL, approved_at set, version = MAX+1 inline expression, llm fields NULL.
     const insertCall = txMock.mock.calls[5] as unknown as unknown[];
     const insertSql = (insertCall[0] as unknown as TemplateStringsArray).join('|');
     expect(insertSql).toContain('INSERT INTO responses');
@@ -369,7 +373,9 @@ describe('POST /api/dashboard/past-replies/:responseId/restore-original', () => 
     expect(insertSql).toContain('approved_text');
     expect(insertSql).toContain('original_draft_text');
     expect(insertSql).toContain('edited_text');
-    expect(insertSql).toContain("'pending_approval'");
+    expect(insertSql).toContain("'approved'");
+    expect(insertSql).toContain('approved_at');
+    expect(insertSql).toContain('NOW()');
     // The version expression is inline SQL; verify the COALESCE/MAX expression is present.
     expect(insertSql).toContain('COALESCE');
     expect(insertSql).toContain('MAX(version)');
@@ -408,12 +414,28 @@ describe('POST /api/dashboard/past-replies/:responseId/restore-original', () => 
     });
     expect(updateCalls).toHaveLength(0);
 
-    // No outbox INSERT — /publish is the second hop.
+    // Recovery skips validateOptimisticConcurrency (no live posted row to
+    // validate against). Verify no SELECT touched review_content_hash.
+    const optimisticChecks = [...allTxCalls, ...(topLevelMock.mock.calls as unknown as unknown[][])].filter((call) => {
+      const sqlText = (call[0] as unknown as TemplateStringsArray).join('|');
+      return sqlText.includes('review_content_hash');
+    });
+    expect(optimisticChecks).toHaveLength(0);
+
+    // A publish_response outbox row IS enqueued — restore republishes directly.
     const outboxInserts = allTxCalls.filter((call) => {
       const sqlText = (call[0] as unknown as TemplateStringsArray).join('|');
-      return sqlText.includes('INSERT INTO job_outbox');
+      return sqlText.includes('INSERT INTO job_outbox') && sqlText.includes("'publish_response'");
     });
-    expect(outboxInserts).toHaveLength(0);
+    expect(outboxInserts).toHaveLength(1);
+    const outboxCall = outboxInserts[0]!;
+    // payload param is jsonb()-wrapped; the mock unwraps jsonb to identity.
+    const outboxArgs = outboxCall.slice(1);
+    expect(outboxArgs[0]).toBe(body.outbox_id); // outbox id
+    expect(outboxArgs[1]).toBe(body.response_id); // aggregate_id = new response id
+    const outboxPayload = outboxArgs[2] as { response_id: string; business_id: string };
+    expect(outboxPayload.response_id).toBe(body.response_id);
+    expect(outboxPayload.business_id).toBe(LOCATION_ID);
 
     // Audit log written with the restore_original action + cross-references.
     // actor_user_id MUST be users.id, NOT accountId.
@@ -442,6 +464,7 @@ describe('POST /api/dashboard/past-replies/:responseId/restore-original', () => 
       [],
       [],
       [supersededRow()],
+      [],
       [],
     );
     const POST = await importPOST();

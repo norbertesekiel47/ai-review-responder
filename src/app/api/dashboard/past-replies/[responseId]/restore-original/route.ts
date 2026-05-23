@@ -3,21 +3,28 @@
 // POST /api/dashboard/past-replies/:responseId/restore-original
 //
 // Recovery route #2 — for `post_after_delete_failed_*` orphan rows ONLY
-// (DELETE succeeded, Google's reply slot empty). Inserts a NEW
-// pending_approval row pre-filled with the previously-posted reply text
-// so the owner can review it and click "Update on Google" via /publish to
-// republish what was on Google before the failed edit.
+// (DELETE succeeded, Google's reply slot empty). Republishes the previously-
+// posted reply text DIRECTLY (like /retry), without routing the owner through
+// the drawer's validating /publish path.
+//
+// Restore is a TERMINAL recovery action: the orphan state has no live `posted`
+// row, so the drawer's preview→submitManual path (PATCH + /publish, both
+// running validateOptimisticConcurrency, which REQUIRES a live `posted` row)
+// would 409. Instead, this route INSERTs the restored row directly at
+// status='approved' (approved_text = the superseded original text), sets
+// approved_at = NOW(), writes the session audit row, AND enqueues a
+// publish_response outbox — all in ONE tx. The publisher then POSTs the
+// original into the empty Google slot via the normal post-reply path (the
+// restored row has no posted sibling and no orphan marker, so the edit-publish
+// dispatch predicate does NOT match it).
 //
 // Crucially, the OLD failed row is INTENTIONALLY LEFT in place (not retired
-// to 'superseded'). Earlier drafts retired it, but that strands the review
-// on cancel: if the owner abandons the restore draft (DELETE /draft → status
-// 'superseded'), the failed row would already be retired with no recovery
-// path. Layered defenses (step 1c non-terminal sibling check, /retry's
-// step 2a branch-shape validation) block dangerous re-recovery — see
-// spec §4.7 long comment block on /restore-original.
-//
-// NO outbox row is enqueued here. /publish is the second hop: owner reviews
-// the new pending_approval draft + clicks "Update on Google".
+// to 'superseded'). Abandoning it is no longer necessary, but keeping it is
+// harmless: the delete_failed-only sidecar (prior fix) means it won't
+// false-badge the new posted card, and /retry's step 2a branch-shape check
+// rejects it once a posted row exists. Layered defenses (step 1c non-terminal
+// sibling check, /retry's step 2a branch-shape validation) block dangerous
+// re-recovery — see spec §4.7 long comment block on /restore-original.
 //
 // Lock order: review FOR UPDATE → response FOR UPDATE → superseded sibling
 // FOR UPDATE. Same-origin enforced inline for symmetry; withSameOrigin would
@@ -27,13 +34,14 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { v7 as uuidv7 } from 'uuid';
-import { sql } from '@/lib/db/server';
+import { sql, jsonb } from '@/lib/db/server';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { resolveOwnerScope, ScopeError } from '@/lib/auth/resolve-owner-scope';
 import { assertCanEditReply } from '@/lib/responses/edit-existing';
 import { mapEditReplyError } from '../../_shared/edit-reply-errors';
 import { insertAuditLogSession } from '@/lib/approval/audit';
 import type { SessionAuditContext } from '@/lib/approval/audit';
+import type { PublishResponsePayload } from '@/lib/shared/worker-types';
 import { POST_AFTER_DELETE_FAILED_PREFIX } from '../../../../../../../worker/jobs/publisher/orphan-markers';
 
 export const dynamic = 'force-dynamic';
@@ -201,12 +209,13 @@ export async function POST(
         );
       }
 
-      // 3. INSERT a new pending_approval row pre-filled with the restored
-      //    text. version = MAX(version) + 1 to avoid colliding with the
-      //    still-extant 'failed' row. All three text columns get the same
-      //    COALESCE'd value (response_text + original_draft_text are NOT NULL
-      //    per migration 001:194,215). edited_text=NULL means /publish picks
-      //    'approved' (not 'edited') for the audit mode.
+      // 3. INSERT the restored row directly at status='approved' (not
+      //    pending_approval) so the publisher can republish it without a
+      //    second owner hop. version = MAX(version) + 1 to avoid colliding
+      //    with the still-extant 'failed' row. All three text columns get the
+      //    same COALESCE'd value (response_text + original_draft_text are NOT
+      //    NULL per migration 001:194,215). edited_text=NULL + llm fields NULL
+      //    so the published reply records as a plain restore, not an edit.
       const restoredText =
         superseded.approved_text ??
         superseded.response_text ??
@@ -227,7 +236,7 @@ export async function POST(
         INSERT INTO responses (
           id, review_id, business_id,
           response_text, approved_text, original_draft_text, edited_text,
-          response_language, version, status,
+          response_language, version, status, approved_at,
           llm_provider, llm_model, prompt_tokens, completion_tokens
         )
         VALUES (
@@ -235,7 +244,7 @@ export async function POST(
           ${restoredText}, ${restoredText}, ${restoredText}, ${null},
           ${superseded.response_language},
           (COALESCE((SELECT MAX(version) FROM responses WHERE review_id = ${reviewId}), 0) + 1),
-          'pending_approval',
+          'approved', NOW(),
           ${null}, ${null}, ${null}, ${null}
         )
       `;
@@ -259,17 +268,28 @@ export async function POST(
         },
       );
 
-      // NO outbox row enqueued. Owner reviews via the standard preview UI,
-      // then clicks "Update on Google" → /publish runs the normal
-      // pending_approval → approved transition + outbox enqueue.
-      //
-      // Return the restored text alongside the response_id. The drawer needs
-      // it to populate the preview pane — for failed-only orphan rows,
-      // row.approved_text on the client is null (no posted sibling), so
-      // without this the preview would be empty and the publish click would
-      // hit the empty-text guard.
+      // 5. Enqueue publish_response outbox in the SAME tx (spec §4.2 atomicity).
+      //    The restored row is status='approved' with no posted sibling and no
+      //    orphan marker, so the publisher's edit-publish dispatch predicate
+      //    does NOT match it → it routes to the normal post-reply path, which
+      //    POSTs the original into the now-empty Google slot → 'posted'.
+      const outboxId = uuidv7();
+      const payload: PublishResponsePayload = {
+        response_id: newId,
+        business_id: failed.business_id,
+      };
+      await tx`
+        INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+        VALUES (
+          ${outboxId}, 'publish_response', 'response',
+          ${newId}, ${jsonb(payload)}, 'pending'
+        )
+      `;
+
+      // Restore is terminal — the drawer transitions to a success/closing
+      // state on the returned ids and does NOT enter the preview/publish path.
       return NextResponse.json(
-        { response_id: newId, response_text: restoredText },
+        { response_id: newId, outbox_id: outboxId },
         { status: 200 },
       );
     });

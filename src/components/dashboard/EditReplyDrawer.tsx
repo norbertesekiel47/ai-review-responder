@@ -24,7 +24,8 @@
 //          → { status: 'generating' } | { status: 'failed', error } |
 //            { response_id, status, response_text }
 //   POST   /api/dashboard/past-replies/:id/retry              → { outbox_id }
-//   POST   /api/dashboard/past-replies/:id/restore-original   → { response_id }
+//   POST   /api/dashboard/past-replies/:id/restore-original   → { response_id, outbox_id }
+//          (terminal: republishes the original directly; drawer shows success)
 
 'use client';
 
@@ -495,29 +496,30 @@ export function EditReplyDrawer({
         await handleHttpError(res, `Restore failed (${res.status})`);
         return;
       }
-      const body = (await res.json()) as { response_id?: string; response_text?: string | null };
+      const body = (await res.json()) as { response_id?: string; outbox_id?: string };
       if (!body.response_id) {
-        setState({ kind: 'error', message: 'Restore returned no draft id.' });
+        setState({ kind: 'error', message: 'Restore returned no response id.' });
         return;
       }
-      // Restore created a NEW pending_approval row pre-filled with the
-      // original text — show it in preview so the owner can publish it.
-      // Use the route's returned response_text rather than currentReplyText:
-      // for failed-only orphan rows row.approved_text is null (no posted
-      // sibling), so currentReplyText would be empty and the publish click
-      // would hit the empty-text guard. See Code Review fix Round-2 M1.
+      // Restore is TERMINAL recovery: the route already approved the restored
+      // row and enqueued a publish_response outbox, so the original is being
+      // republished directly (like /retry). The drawer does NOT route through
+      // the preview→submitManual path — that path PATCHes + /publishes and
+      // both run validateOptimisticConcurrency, which requires a live `posted`
+      // row that an orphan state does not have (it would 409). Transition to a
+      // success/closing state instead.
       setState({
-        kind: 'preview',
-        draftResponseId: body.response_id,
-        text: body.response_text ?? currentReplyText,
+        kind: 'success',
+        message: 'Original reply is being republished. It will reappear on Google shortly.',
       });
+      router.refresh();
     } catch (err) {
       setState({
         kind: 'error',
         message: err instanceof Error ? err.message : 'Restore failed.',
       });
     }
-  }, [handleHttpError, currentReplyText]);
+  }, [handleHttpError, router]);
 
   if (!open) return null;
 

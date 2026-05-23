@@ -441,7 +441,7 @@ d('HARD-GATE: edit-publisher + recovery against real Postgres', () => {
   });
 
   // ── Scenario 4: /restore-original for the orphan case ──────────────────────
-  it('4. /restore-original orphan → INSERTs fresh pending_approval at MAX+1, old failed row left in place, NO outbox', async () => {
+  it('4. /restore-original orphan → INSERTs fresh APPROVED row at MAX+1 + publish_response outbox, old failed row left in place', async () => {
     const { seed, postedResponseId } = await seedReviewWithExistingReply();
     // Orphan state: superseded sibling with posted_at set, no posted row.
     await sql`UPDATE responses SET status = 'superseded' WHERE id = ${postedResponseId}`;
@@ -457,17 +457,17 @@ d('HARD-GATE: edit-publisher + recovery against real Postgres', () => {
       userId: seed.userId,
     });
 
-    const before = await sql`SELECT id FROM job_outbox WHERE aggregate_id = ${failedId}`;
+    const beforeOld = await sql`SELECT id FROM job_outbox WHERE aggregate_id = ${failedId}`;
 
     const res = await restorePOST(makeReq(), { params: Promise.resolve({ responseId: failedId }) });
-    const body = (await res.json()) as { response_id?: string; response_text?: string; error?: string };
+    const body = (await res.json()) as { response_id?: string; outbox_id?: string; error?: string };
     expect(res.status).toBe(200);
     expect(body.response_id).toBeTruthy();
-    expect(body.response_text).toBe('Original posted reply text');
+    expect(body.outbox_id).toBeTruthy();
 
-    // New row: fresh pending_approval at version MAX+1 (= 3 here).
+    // New row: fresh APPROVED row at version MAX+1 (= 3 here), republished directly.
     const fresh = await getResponse(body.response_id!);
-    expect(fresh?.status).toBe('pending_approval');
+    expect(fresh?.status).toBe('approved');
     expect(fresh?.version).toBe(3);
     expect(fresh?.approved_text).toBe('Original posted reply text');
 
@@ -476,11 +476,29 @@ d('HARD-GATE: edit-publisher + recovery against real Postgres', () => {
     expect(oldFailed?.status).toBe('failed');
     expect(oldFailed?.posting_error?.startsWith(POST_AFTER_DELETE_FAILED_PREFIX)).toBe(true);
 
-    // NO outbox enqueued — /publish is the second hop.
+    // A publish_response outbox row IS enqueued for the NEW row (restore
+    // republishes directly — no second owner hop). The old failed row gets none.
+    const [newOutbox] = await sql<{ topic: string; status: string }[]>`
+      SELECT topic, status FROM job_outbox WHERE id = ${body.outbox_id!}
+    `;
+    expect(newOutbox?.topic).toBe('publish_response');
+    expect(newOutbox?.status).toBe('pending');
     const afterNew = await sql`SELECT id FROM job_outbox WHERE aggregate_id = ${body.response_id!}`;
     const afterOld = await sql`SELECT id FROM job_outbox WHERE aggregate_id = ${failedId}`;
-    expect(afterNew.length).toBe(0);
-    expect(afterOld.length).toBe(before.length);
+    expect(afterNew.length).toBe(1);
+    expect(afterOld.length).toBe(beforeOld.length);
+
+    // The restored row carries NO orphan marker and has NO live posted sibling,
+    // so the publisher's edit-publish dispatch predicate (sibling-posted OR
+    // orphan-marker) does NOT match it — it will route to the normal post-reply
+    // path and POST the original into the empty Google slot. (Driving the full
+    // publisher requires seeding the Zernio connection + review-lookup path,
+    // which other suites cover; here we assert the dispatch-relevant state.)
+    expect(fresh?.posting_error).toBeNull();
+    const livePosted = await sql`
+      SELECT id FROM responses WHERE review_id = ${seed.reviewId} AND status = 'posted'
+    `;
+    expect(livePosted.length).toBe(0);
   });
 
   // ── Scenario 5: Past Replies page posted-rows sidecar attachment policy ─────
