@@ -82,16 +82,21 @@ primary).
   so concurrent enrollment by different owners on the same account actually
   serializes (today it wouldn't — different `locationId`s → different locks).
 
-**4. Admin lock-key consistency — admin enrollment routes (INCLUDED per decision)**
+**4. Admin lock-key consistency — Telegram + WhatsApp admin `start` (INCLUDED, scoped)**
 - Admin enrollment also creates org-default rows (`location_id NULL`) but locks by
   `mobile_enroll:${businessId}`. Change the admin advisory-lock key to
-  `mobile_enroll:${accountId}` everywhere the `mobile_enroll` lock is taken on the
-  admin side — Telegram `start`, WhatsApp `start`, and SMS `verify` (via
-  `withMobileEnrollmentLock`) — so an admin and an owner acting on the same
+  `mobile_enroll:${accountId}` in the **Telegram `start`** and **WhatsApp `start`**
+  routes (inline lock, ~1 line each) so an admin and an owner acting on the same
   account+channel mutually exclude. Without this, the account-scope unique index
-  still prevents corruption but one side gets a raw 500 instead of a clean 409. The
-  admin route already resolves the account; ~1 line each. (SMS has no admin `start` —
-  its mobile-channel lock lives in the `verify` path.)
+  still prevents corruption but one side gets a raw 500 instead of a clean 409. These
+  routes already resolve the account.
+- **SMS admin lock deferred (scope refinement found during planning):** SMS locks via
+  the shared `withMobileEnrollmentLock(businessId, …)` helper (`sms/_shared.ts`) used
+  by 5+ SMS routes — changing it to account-scoped would touch all of them. And there
+  is **no owner-SMS path today**, so there is no admin+owner SMS race to protect
+  against. Defer the SMS lock-key change to whenever SMS owner self-service is built
+  (same future effort that builds the SMS owner widget). No current benefit, real cost
+  → out of scope here.
 
 **5. Remove the WhatsApp interim guard**
 - Delete the `getActiveLocationCount > 1 → 403 multi_location_unsupported` guard in
@@ -150,7 +155,7 @@ together resolve concurrent creates to one winner + a clean 409 for the loser
 - `src/lib/channels/whatsapp-enrollment.ts` (3 helpers → account scope)
 - `src/app/api/dashboard/channels/telegram/{start,cancel,disable}/route.ts` (pass accountId, lock by accountId)
 - `src/app/api/dashboard/channels/whatsapp/{start,cancel,disable}/route.ts` (pass accountId, lock by accountId, **remove guard**)
-- Admin advisory-lock key → accountId where the `mobile_enroll` lock is taken: `src/app/api/admin/channels/telegram/start/route.ts`, `…/whatsapp/start/route.ts`, and the SMS `verify` path (`withMobileEnrollmentLock`)
+- Admin advisory-lock key → accountId in `src/app/api/admin/channels/telegram/start/route.ts` and `…/whatsapp/start/route.ts` only (SMS `withMobileEnrollmentLock` deferred — no owner-SMS path yet)
 - `src/app/(authenticated)/settings/channels/page.tsx` + `ChannelsClient.tsx` (remove `whatsappMultiLocationBlocked` gating)
 - Tests for all of the above + `docs/known-issues.md` (mark resolved)
 
