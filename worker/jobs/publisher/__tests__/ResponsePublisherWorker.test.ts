@@ -23,6 +23,7 @@ const {
   mockGetCachedZernioReviewPage,
   mockPostReply,
   mockListAllReviews,
+  mockRunEditPublishIfApplicable,
 } = vi.hoisted(() => {
   const sqlReturnQueue: unknown[] = [];
 
@@ -43,6 +44,9 @@ const {
     mockGetCachedZernioReviewPage: vi.fn().mockResolvedValue(null),
     mockPostReply: vi.fn(),
     mockListAllReviews: vi.fn(),
+    // Defaults to continue_to_fresh so existing tests stay on the POST-only path
+    // even when the edit dispatch predicate happens to open the module.
+    mockRunEditPublishIfApplicable: vi.fn().mockResolvedValue({ outcome: 'continue_to_fresh' }),
   };
 });
 
@@ -64,6 +68,9 @@ vi.mock('../../../../src/lib/zernio/client', () => ({
   zernioClient: { postReply: mockPostReply, listAllReviews: mockListAllReviews },
 }));
 vi.mock('uuid', () => ({ v7: vi.fn(() => 'test-uuid') }));
+vi.mock('../edit-publish', () => ({
+  runEditPublishIfApplicable: mockRunEditPublishIfApplicable,
+}));
 
 import { handlePublishResponse } from '../ResponsePublisherWorker';
 
@@ -80,6 +87,7 @@ function mockResponseRow(overrides: Record<string, unknown> = {}) {
   return {
     id: 'resp-1', review_id: 'rev-1', business_id: 'biz-1',
     approved_text: 'Thank you for your kind review!', status: 'approved',
+    posting_error: null,
     ...overrides,
   };
 }
@@ -146,6 +154,9 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     sqlReturnQueue.length = 0;
+    delete process.env.EDIT_REPLIES_ENABLED;
+    // clearAllMocks wipes the queued/persistent return; re-establish the safe default.
+    mockRunEditPublishIfApplicable.mockResolvedValue({ outcome: 'continue_to_fresh' });
   });
 
   // ── Steps 1–3 unchanged behavior ────────────────────────────────────
@@ -586,5 +597,173 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     );
     expect(callTexts.some((t: string) => /SET status = 'posted'/.test(t))).toBe(true);
     expect(callTexts.some((t: string) => /superseded/.test(t))).toBe(false);
+  });
+});
+
+// ── Task 6: edit-publish dispatch (posted-sibling / orphan-marker) ─────────
+//
+// SQL order on the dispatch decision (flag on): after the response / business /
+// zernio_connections SELECTs (lookupZernioReviewId is mocked, no SQL), the
+// worker runs the business-scoped sibling probe, then either enters
+// runEditPublishIfApplicable (mocked) or falls through to the POST-only path.
+describe('ResponsePublisherWorker — edit-publish dispatch (Task 6)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sqlReturnQueue.length = 0;
+    delete process.env.EDIT_REPLIES_ENABLED;
+    mockRunEditPublishIfApplicable.mockResolvedValue({ outcome: 'continue_to_fresh' });
+  });
+
+  function pushDispatchBaseSequence(responseOverrides: Record<string, unknown> = {}) {
+    sqlReturnQueue.push([mockResponseRow(responseOverrides)]); // 1: response
+    sqlReturnQueue.push([mockBusinessRow()]);                   // 2: business
+    sqlReturnQueue.push([mockZernioConnectionRow()]);           // 3: zernio_connections
+  }
+
+  it('dispatches to runEditPublishIfApplicable when flag on AND a posted sibling exists', async () => {
+    process.env.EDIT_REPLIES_ENABLED = 'true';
+    pushDispatchBaseSequence();
+    sqlReturnQueue.push([{ id: 'resp-posted-sibling' }]); // 4: sibling probe → sibling found
+    mockLookupZernioReviewId.mockResolvedValueOnce('zernio-rev-id-1');
+    mockRunEditPublishIfApplicable.mockResolvedValueOnce({ outcome: 'completed' });
+
+    await handlePublishResponse(makeJob());
+
+    expect(mockRunEditPublishIfApplicable).toHaveBeenCalledTimes(1);
+    const ctx = mockRunEditPublishIfApplicable.mock.calls[0]![0];
+    expect(ctx).toMatchObject({
+      responseId: 'resp-1',
+      businessId: 'biz-1',
+      reviewId: 'rev-1',
+      approvedText: 'Thank you for your kind review!',
+      responsePostingError: null,
+      zernioAccountId: 'acct-1',
+      zernioLocationId: 'loc-1',
+      zernioReviewId: 'zernio-rev-id-1',
+    });
+    // The sibling probe must be business-scoped.
+    const probeCall = (mockSql as any).mock.calls.find((c: any[]) =>
+      /status = 'posted'/.test((c[0] as TemplateStringsArray).join('?')),
+    );
+    expect(probeCall).toBeDefined();
+    expect((probeCall![0] as TemplateStringsArray).join('?')).toMatch(/business_id =/);
+    // 'completed' → outbox completed, POST-only path NOT taken.
+    expect(mockPostReply).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+  });
+
+  it('dispatches when flag on AND posting_error is an orphan marker even with NO posted sibling', async () => {
+    process.env.EDIT_REPLIES_ENABLED = 'true';
+    pushDispatchBaseSequence({ posting_error: 'pending_after_delete_succeeded' });
+    sqlReturnQueue.push([]); // 4: sibling probe → none
+    mockLookupZernioReviewId.mockResolvedValueOnce('zernio-rev-id-1');
+    mockRunEditPublishIfApplicable.mockResolvedValueOnce({ outcome: 'completed' });
+
+    await handlePublishResponse(makeJob());
+
+    expect(mockRunEditPublishIfApplicable).toHaveBeenCalledTimes(1);
+    expect(mockRunEditPublishIfApplicable.mock.calls[0]![0]).toMatchObject({
+      responsePostingError: 'pending_after_delete_succeeded',
+    });
+    expect(mockPostReply).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+  });
+
+  it('does NOT dispatch (uses POST-only path) when flag OFF even if a posted sibling exists', async () => {
+    // Flag off → predicate never evaluated, sibling probe never runs.
+    pushZernioSuccessSequence();
+    mockLookupZernioReviewId.mockResolvedValueOnce('zernio-rev-id-1');
+    mockPostReply.mockResolvedValueOnce({
+      comment: 'Thank you for your kind review!',
+      updateTime: '2026-04-27T00:00:00Z',
+    });
+
+    await handlePublishResponse(makeJob());
+
+    expect(mockRunEditPublishIfApplicable).not.toHaveBeenCalled();
+    expect(mockPostReply).toHaveBeenCalledTimes(1);
+    // No sibling-probe SQL was issued.
+    const callTexts = (mockSql as any).mock.calls.map(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?'),
+    );
+    expect(callTexts.some((t: string) => /status = 'posted'[\s\S]*id <>/m.test(t))).toBe(false);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+  });
+
+  it('does NOT dispatch for a normal first publish (flag on, no sibling, no orphan marker)', async () => {
+    process.env.EDIT_REPLIES_ENABLED = 'true';
+    pushDispatchBaseSequence(); // posting_error defaults to undefined → not orphan
+    sqlReturnQueue.push([]);    // 4: sibling probe → none
+    sqlReturnQueue.push(Object.assign([], { count: 1 })); // 5: UPDATE posted (POST-only path)
+    mockLookupZernioReviewId.mockResolvedValueOnce('zernio-rev-id-1');
+    mockPostReply.mockResolvedValueOnce({
+      comment: 'Thank you for your kind review!',
+      updateTime: '2026-04-27T00:00:00Z',
+    });
+
+    await handlePublishResponse(makeJob());
+
+    expect(mockRunEditPublishIfApplicable).not.toHaveBeenCalled();
+    expect(mockPostReply).toHaveBeenCalledTimes(1);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+  });
+
+  it("'throw' outcome propagates so BullMQ retries", async () => {
+    process.env.EDIT_REPLIES_ENABLED = 'true';
+    pushDispatchBaseSequence();
+    sqlReturnQueue.push([{ id: 'resp-posted-sibling' }]); // sibling found
+    mockLookupZernioReviewId.mockResolvedValueOnce('zernio-rev-id-1');
+    const retryErr = new PublisherTransientWithContext(
+      new ZernioTransientError('http_503', { status: 503, body: 'down' }),
+      { response_id: 'resp-1', business_id: 'biz-1', account_id: 'acct-1', location_id: 'loc-1' },
+    );
+    mockRunEditPublishIfApplicable.mockResolvedValueOnce({ outcome: 'throw', error: retryErr });
+
+    await expect(handlePublishResponse(makeJob())).rejects.toBe(retryErr);
+
+    expect(mockPostReply).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+  });
+
+  it("'failed' outcome marks outbox failed", async () => {
+    process.env.EDIT_REPLIES_ENABLED = 'true';
+    pushDispatchBaseSequence();
+    sqlReturnQueue.push([{ id: 'resp-posted-sibling' }]); // sibling found
+    mockLookupZernioReviewId.mockResolvedValueOnce('zernio-rev-id-1');
+    mockRunEditPublishIfApplicable.mockResolvedValueOnce({
+      outcome: 'failed',
+      reason: 'zernio_permanent_after_edit_publish',
+    });
+
+    await handlePublishResponse(makeJob());
+
+    expect(mockPostReply).not.toHaveBeenCalled();
+    expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+      'outbox-pub-1',
+      'zernio_permanent_after_edit_publish',
+      undefined,
+    );
+    expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
+  });
+
+  it("'continue_to_fresh' outcome falls through to the POST-only path", async () => {
+    process.env.EDIT_REPLIES_ENABLED = 'true';
+    pushDispatchBaseSequence();
+    sqlReturnQueue.push([{ id: 'resp-posted-sibling' }]); // sibling found → dispatch opens
+    sqlReturnQueue.push(Object.assign([], { count: 1 }));  // UPDATE posted (POST-only fall-through)
+    mockLookupZernioReviewId.mockResolvedValueOnce('zernio-rev-id-1');
+    mockRunEditPublishIfApplicable.mockResolvedValueOnce({ outcome: 'continue_to_fresh' });
+    mockPostReply.mockResolvedValueOnce({
+      comment: 'Thank you for your kind review!',
+      updateTime: '2026-04-27T00:00:00Z',
+    });
+
+    await handlePublishResponse(makeJob());
+
+    expect(mockRunEditPublishIfApplicable).toHaveBeenCalledTimes(1);
+    expect(mockPostReply).toHaveBeenCalledTimes(1);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
   });
 });

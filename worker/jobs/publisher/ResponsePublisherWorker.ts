@@ -1,7 +1,7 @@
 import type { Job } from 'bullmq';
 import { sql } from '../../../src/lib/db/server';
 import { checkSubscription } from '../../../src/lib/shared/subscription-guard';
-import { markOutboxCompleted, extractOutboxHandle } from '../../../src/lib/shared/outbox';
+import { markOutboxCompleted, markOutboxFailed, extractOutboxHandle } from '../../../src/lib/shared/outbox';
 import type { PublishResponsePayload } from '../../../src/lib/shared/worker-types';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import { asLocationId } from '../../../src/lib/shared/ids';
@@ -10,6 +10,8 @@ import { loadPublishResponseContext } from './load-context';
 import { parkResponseForOwnerReconnect } from './no-connection';
 import { postReplyAndHandleTerminalOutcomes } from './post-reply';
 import { resolvePublishableZernioReviewId } from './review-lookup';
+import { runEditPublishIfApplicable } from './edit-publish';
+import { isOrphanMarker } from './orphan-markers';
 import type { ZernioConnectionRow } from './types';
 
 export async function handlePublishResponse(
@@ -107,6 +109,59 @@ export async function handlePublishResponse(
     logger,
   });
   if (zernioReviewId === 'completed') return;
+
+  // ── Step 6: Edit-publish dispatch (DELETE-before-POST) ──────────────
+  //
+  // When an owner edits an already-`posted` Google reply, the replacement
+  // must DELETE the old reply before POSTing the new one. We enter that path
+  // only when EDIT_REPLIES_ENABLED is on AND this is genuinely an edit: either
+  // a sibling `posted` row exists for the same review (business-scoped), or
+  // the candidate carries an orphan marker (a prior attempt already emptied
+  // Google's slot). When the flag is off, this block is fully inert — the
+  // predicate is never evaluated and the sibling probe never runs, so behavior
+  // is byte-for-byte today's POST-only path. The module owns all DB mutations
+  // + the locked DELETE+POST tx; the worker translates its outcome into the
+  // existing outbox lifecycle.
+  if (process.env.EDIT_REPLIES_ENABLED === 'true') {
+    const [postedSibling] = await sql<{ id: string }[]>`
+      SELECT id FROM responses
+      WHERE review_id = ${response.review_id}
+        AND status = 'posted'
+        AND id <> ${response_id}
+        AND business_id = ${businessId}
+      LIMIT 1
+    `;
+    const hasPostedSibling = postedSibling !== undefined;
+    const isOrphanRetry = isOrphanMarker(response.posting_error);
+
+    if (hasPostedSibling || isOrphanRetry) {
+      const result = await runEditPublishIfApplicable({
+        responseId: response_id,
+        businessId,
+        reviewId: response.review_id,
+        approvedText,
+        responsePostingError: response.posting_error,
+        zernioAccountId: zernioConnection.zernio_account_id,
+        zernioLocationId: zernioConnection.zernio_location_id,
+        zernioReviewId,
+        correlationId: job.data.correlation_id,
+        logger,
+      });
+
+      switch (result.outcome) {
+        case 'completed':
+          await markOutboxCompleted(outboxId, outboxAttempt);
+          return;
+        case 'failed':
+          await markOutboxFailed(outboxId, result.reason, outboxAttempt);
+          return;
+        case 'throw':
+          throw result.error;
+        case 'continue_to_fresh':
+          break;
+      }
+    }
+  }
 
   const postOutcome = await postReplyAndHandleTerminalOutcomes({
     responseId: response_id,
