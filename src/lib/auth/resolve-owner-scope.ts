@@ -35,11 +35,18 @@ export class ScopeError extends Error {
  * delegates to getRequestScope, which falls back to the primary location when
  * the cookie is absent or invalid.
  *
+ * Returns:
+ * - accountId: the users.account_id (billing parent scope)
+ * - locationId: the selected business_id (Google Business Profile location scope),
+ *   resolved from rw_location_scope cookie or falls back to primary location
+ * - userId: the users.id database primary key (the FK target for
+ *   approval_audit_log.actor_user_id); NOT the Supabase Auth UID
+ *
  * Throws ScopeError on auth failure (statusCode 401 or 403).
  */
 export async function resolveOwnerScope(
   request: NextRequest,
-): Promise<{ accountId: AccountId; locationId: LocationId }> {
+): Promise<{ accountId: AccountId; locationId: LocationId; userId: string }> {
   let user;
   try {
     user = await requireRole(request, 'owner');
@@ -59,5 +66,5 @@ export async function resolveOwnerScope(
   const cookieLocationId = rawCookie && isValidUuid(rawCookie) ? asLocationId(rawCookie) : null;
   const { currentLocationId } = await getRequestScope(accountId, cookieLocationId);
 
-  return { accountId, locationId: currentLocationId };
+  return { accountId, locationId: currentLocationId, userId: user.id };
 }

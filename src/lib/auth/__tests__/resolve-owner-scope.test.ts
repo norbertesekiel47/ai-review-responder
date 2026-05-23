@@ -37,6 +37,7 @@ vi.mock('@/lib/auth/get-request-scope', () => ({
 const ACCOUNT_ID = '01234567-0000-7000-8000-000000000000';
 const LOCATION_ID = '01234567-0000-7000-8000-000000000001';
 const ALT_LOCATION_ID = '01234567-0000-7000-8000-000000000002';
+const USER_ID = 'user-1';
 const APP_URL = 'http://localhost:3000';
 
 function ownerUser(overrides?: Partial<{ accountId: string | null }>) {
@@ -71,18 +72,18 @@ beforeEach(() => {
 // ── Tests ───────────────────────────────────────────────────────────
 
 describe('resolveOwnerScope', () => {
-  it('happy path: no cookie → calls getRequestScope with null → returns primary location', async () => {
+  it('happy path: no cookie → calls getRequestScope with null → returns primary location + userId', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
     const { resolveOwnerScope } = await importResolveOwnerScope();
 
     const result = await resolveOwnerScope(makeRequest());
 
-    expect(result).toEqual({ accountId: ACCOUNT_ID, locationId: LOCATION_ID });
+    expect(result).toEqual({ accountId: ACCOUNT_ID, locationId: LOCATION_ID, userId: USER_ID });
     // null cookie → cookieLocationId is null → getRequestScope called with null
     expect(mockGetRequestScope).toHaveBeenCalledWith(ACCOUNT_ID, null);
   });
 
-  it('cookie with valid UUID → passes that UUID to getRequestScope → returns cookie location', async () => {
+  it('cookie with valid UUID → passes that UUID to getRequestScope → returns cookie location + userId', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
     mockGetRequestScope.mockResolvedValue({
       accountId: ACCOUNT_ID,
@@ -92,7 +93,7 @@ describe('resolveOwnerScope', () => {
 
     const result = await resolveOwnerScope(makeRequest({ locationScopeCookie: ALT_LOCATION_ID }));
 
-    expect(result).toEqual({ accountId: ACCOUNT_ID, locationId: ALT_LOCATION_ID });
+    expect(result).toEqual({ accountId: ACCOUNT_ID, locationId: ALT_LOCATION_ID, userId: USER_ID });
     expect(mockGetRequestScope).toHaveBeenCalledWith(ACCOUNT_ID, ALT_LOCATION_ID);
   });
 
@@ -102,7 +103,7 @@ describe('resolveOwnerScope', () => {
 
     const result = await resolveOwnerScope(makeRequest({ locationScopeCookie: 'not-a-uuid' }));
 
-    expect(result).toEqual({ accountId: ACCOUNT_ID, locationId: LOCATION_ID });
+    expect(result).toEqual({ accountId: ACCOUNT_ID, locationId: LOCATION_ID, userId: USER_ID });
     expect(mockGetRequestScope).toHaveBeenCalledWith(ACCOUNT_ID, null);
   });
 
