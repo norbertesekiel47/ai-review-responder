@@ -157,6 +157,7 @@ export async function runEditPublishIfApplicable(
   const [existingPostedProbe] = await sql<{ id: string }[]>`
     SELECT id FROM responses
     WHERE review_id = ${reviewId}
+      AND business_id = ${businessId}
       AND status = 'posted'
       AND id != ${responseId}
     LIMIT 1
