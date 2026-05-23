@@ -2,7 +2,47 @@
 
 This file explains what is actually built in the repository today, how it maps to the implementation plan, and what is left to build.
 
-Last updated: 2026-05-22 (WhatsApp owner self-service, `feat/whatsapp-go-live`)
+Last updated: 2026-05-22 (Owner channel enrollment account-scope fix, `fix/owner-channel-account-scope`)
+
+## Quick summary — what shipped 2026-05-22 (Owner channel enrollment account-scope fix)
+
+In simple words:
+
+### What we changed
+
+We fixed a bug that hit businesses with **more than one location**. When an owner connects a messaging channel (Telegram or WhatsApp) to get review alerts, that connection belongs to the **whole account**, not one shop. But the code was looking it up by the owner's *home shop* instead of by the account. So on a multi-shop business with two managers based at different shops, the Settings page and the app would disagree about whether a channel was connected — one manager could see "connected" while Disconnect gave an error and Connect crashed. We changed every place that reads or writes these connections to look them up **by account**, so everyone on the account now sees the same, correct state.
+
+We also removed the temporary "WhatsApp is only for single-location accounts" guard we'd put up earlier (PR #53) — multi-location owners can connect WhatsApp again, because the underlying bug is now actually fixed.
+
+### Why we did it
+
+PR #53 (WhatsApp go-live) put a band-aid on this for WhatsApp only and flagged the real fix as a follow-up. This is that follow-up — it fixes the root cause for both Telegram and WhatsApp and takes the band-aid off.
+
+### The new shape — what changed (all small edits, no new database changes)
+
+- **The connection lookups** now use the account (`account_id` + the channel + "no specific location") instead of the shop id. This touched: the status check the widget polls (`/api/dashboard/channels`), the connect/disconnect helper functions, and both the owner-facing and admin-facing Telegram/WhatsApp routes.
+- **The "only one mobile channel at a time" lock** is now per-account for Telegram/WhatsApp (so two people on the same account can't both connect at the same instant).
+- The old shop id (`business_id`) is still stored on each row for history, but it's no longer used to *find* the connection.
+
+### The new house rule
+
+Owner channel enrollment is an **account-level** thing. Look it up by `account_id` (+ channel, + "no specific location"), never by the owner's `business_id`/location. The `.claude/CLAUDE.md` gotcha and `.claude/skills/migrations.md` (risk #5) both spell this out.
+
+### What didn't change
+
+No database migration — this was purely a change to *how we query*. Email, SMS, and the actual review/response flow are untouched. Single-location businesses were never affected by the bug and behave exactly as before.
+
+### What's still left (deferred, written up in `docs/known-issues.md`)
+
+Three spots still use the old shop-id lookup and are the **same bug class**, but lower-impact, so they're tracked for later: admin **SMS** enrollment (can waste a Twilio verification text on multi-location accounts), the notification **dispatcher**'s "owner blocked us" handling, and the admin **business-detail page**'s channel status display.
+
+### Where to read more
+
+- `docs/superpowers/specs/2026-05-22-owner-channel-account-scope-design.md` — the design.
+- `docs/known-issues.md` — the three deferred items.
+- `docs/progresstracking.md` — the full PR #54 log.
+
+---
 
 ## Quick summary — what shipped 2026-05-22 (WhatsApp owner self-service)
 

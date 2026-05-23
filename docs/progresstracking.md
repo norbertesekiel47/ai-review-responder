@@ -4393,3 +4393,34 @@ Documented in `docs/runbooks/multi-location.md` §6 — minor known issues that 
 **Known residual debt:** The cross-channel owner-enrollment account-scope desync is **unresolved for SMS + Telegram** (only WhatsApp is guarded). Tracked in `docs/known-issues.md` + `docs/superpowers/specs/2026-05-22-owner-channel-account-scope-design.md`. Interim-guard edge case: an account that enrolls WhatsApp while single-location then adds locations sees the widget flip to "coming soon" while still enrolled (manageable via admin console).
 
 ---
+
+
+## Owner Channel Enrollment — Account-Scope Fix (2026-05-22, `fix/owner-channel-account-scope` → PR #54)
+
+**Status:** COMPLETE — merged to `main` (squash `2974603`). `pnpm test` 3,465 passed / 1 skipped, `typecheck` + `lint` + `build` all green. **No migration** — query-only (reused migration 034's `account_id`/`location_id` columns + scope indexes). This is the follow-up the WhatsApp go-live (PR #53) flagged.
+
+**Why:** Owner channel enrollment had a multi-location desync. The org-default enrollment is account-scoped (one row per account+channel, `location_id IS NULL`, enforced by migration 034's unique index), but the read/write paths keyed it by `business_id = user.locationId`. On a multi-location account with ≥2 owners on different primary locations, a second owner saw the channel "connected" on `/settings/channels` (page hydrates by `account_id`) while the runtime API didn't (keyed by `business_id`) → Disconnect 404'd, Connect 500'd. Pre-existing; reachable on **Telegram** (live) and **WhatsApp** (had an interim single-location guard from PR #53). The PR #53 interim guard removed that exposure for WhatsApp only; this PR fixes the root cause and removes the guard.
+
+**What was done (query-only, no migration):** key every org-default read/write by `account_id AND channel AND location_id IS NULL`:
+
+1. **Shared status GET** (`/api/dashboard/channels`) — the linchpin read the widget polls.
+2. **Enrollment helpers** (`telegram-enrollment.ts`, `whatsapp-enrollment.ts`) — start SELECT + cancel/disable predicates; `cancel`/`disable` signatures `(sql, businessId)` → `(sql, accountId)`.
+3. **Owner routes** — Telegram + WhatsApp `start/cancel/disable`: resolve `accountId`, pass to helpers, account-scope the `mobile_enroll` advisory lock, simplify cache invalidation (dropped a redundant businesses lookup).
+4. **Admin routes** — Telegram + WhatsApp `start` + `cancel` lock keys → `mobile_enroll:${accountId}`, and the admin cancel/disable helper call-sites pass `accountId`.
+5. **Removed the WhatsApp single-location interim guard** (server 403 + UI gating) — multi-location owners can self-serve again.
+
+`business_id` stays a NOT-NULL legacy FK written on INSERT, no longer read for org-default lookup.
+
+**Review-driven follow-ups (this session, multiple review rounds):**
+- **Two real runtime bugs the mocked tests + `tsc` could not catch** — the "shared helper signature changed to `accountId` but a caller still passed `businessId`" class (both `string`; the queue-based `sql` mock ignores the WHERE predicate). Caught 3 admin call-sites mid-build, and the **inlined admin WhatsApp disable** on the final whole-branch review (it didn't call the helper, so the caller grep missed it).
+- Strengthened the regression test from a 200/404 contract test into a **true predicate guard** (asserts the UPDATE keys by `account_id`/`location_id IS NULL`, not `business_id`). Added a direct **status-GET** regression + a **Telegram owner disable** route regression.
+- Corrected two comments that falsely claimed admin SMS shares the account-scoped lock.
+
+**Known residual debt (deferred, tracked in `docs/known-issues.md` — all the same root pattern):**
+- Admin **SMS** lock + cross-channel precheck still business-scoped (can waste a Twilio Verify SMS + late-409 on multi-location; no serialization vs TG/WA). Defer with SMS owner self-service.
+- **Dispatcher** failure-handling enrollment writes (`dispatch.ts`) key by `business_id` — can miss the org-default row on multi-location.
+- Admin per-business **status read** (`admin/businesses/[id]/channels`) lists by `business_id` — display-only mismatch.
+
+**Lesson captured** (`.claude/skills/lab-notes.md`): when a shared helper's parameter semantics change while the type stays the same, grep ALL callers and fix every one; a branded type (e.g. `AccountId`) would let the compiler catch the mismatch.
+
+---

@@ -379,24 +379,32 @@ other quota columns are written (`create-business.ts`, `select-plan/route.ts`,
 `subscription-updated.ts`), and read it in `currentBillingSnapshot`.
 See the TODO in `src/lib/accounts/quota.ts` and `docs/runbooks/multi-location.md` §6.
 
-### 5. Owner channel enrollment keys by `business_id`, but 034's scope indexes key by `(account_id, location_id)`
-[2026-05-22, WhatsApp go-live PR #53 — no migration] Migration 034 made
-`channel_enrollments` account-scoped: it added `account_id` + nullable
-`location_id` (NULL = org-level default) and replaced the per-business uniqueness
-with `channel_enrollments_account_channel_scope_uniq` and
-`channel_enrollments_one_mobile_per_scope`, both keyed on
-`(account_id, channel, COALESCE(location_id, sentinel))`. But the owner
-self-service runtime paths (the `/api/dashboard/channels` status GET and the
-start/cancel/disable routes for SMS/Telegram/WhatsApp) still SELECT/UPDATE org-default
-rows by `business_id = user.locationId`, while `/settings/channels` hydrates them
-by `account_id`. On a multi-location account with ≥2 owners on different primary
-locations these disagree → display says connected, runtime 404s on disconnect, and
-re-connect trips `account_channel_scope_uniq` → 500 (classified as
-`EnrollmentDatabaseError`, since that constraint name is not in the mobile-channel
-set). Single-location accounts are immune.
+### 5. `channel_enrollments` org-default scoping — `business_id` vs 034's `(account_id, location_id)` indexes (MOSTLY RESOLVED)
+[2026-05-22] Migration 034 made `channel_enrollments` account-scoped: `account_id`
++ nullable `location_id` (NULL = org-level default), with uniqueness on
+`channel_enrollments_account_channel_scope_uniq` and
+`channel_enrollments_one_mobile_per_scope`, both keyed
+`(account_id, channel, COALESCE(location_id, sentinel))`. The owner self-service
+runtime paths originally still keyed org-default rows by `business_id`, causing a
+multi-location desync (display connected, runtime 404 on disconnect, 500 on
+re-connect).
 
-**Mitigation:** WhatsApp owner self-service is gated to single-location accounts
-(interim). **Deferred fix (no migration needed — query change only):** key the
-org-default read/write paths by `(account_id, channel, location_id IS NULL)`,
-keeping `business_id` as the legacy FK on INSERT. See `docs/known-issues.md` and
-`docs/superpowers/specs/2026-05-22-owner-channel-account-scope-design.md`.
+**RESOLVED (PR #54, `fix/owner-channel-account-scope` — no migration, query-only):**
+the shared `/api/dashboard/channels` status GET, the Telegram + WhatsApp enrollment
+helpers (start SELECT + cancel/disable, signatures `(sql, accountId)`), the owner
+Telegram + WhatsApp routes, AND the admin Telegram + WhatsApp routes now key
+org-default rows by `(account_id, channel, location_id IS NULL)`; the
+`mobile_enroll` advisory lock is account-scoped for those channels. `business_id`
+stays the legacy FK on INSERT only.
+
+**STILL OPEN (deferred, tracked in `docs/known-issues.md`):**
+- Admin **SMS** still locks per business (`withMobileEnrollmentLock`) and prechecks
+  cross-channel by `business_id` — can waste a Twilio Verify SMS + late-409 and
+  does not serialize vs TG/WA start. (`one_mobile_per_scope` still prevents dupes.)
+- **Dispatcher** failure-handling writes (`worker/jobs/notification/dispatch.ts`)
+  flip enrollment status by `business_id = ctx.businessId` — can miss the org-default
+  row on multi-location.
+- Admin per-business **status read** (`admin/businesses/[id]/channels`) lists by
+  `business_id` — display-only mismatch.
+
+Design: `docs/superpowers/specs/2026-05-22-owner-channel-account-scope-design.md`.
