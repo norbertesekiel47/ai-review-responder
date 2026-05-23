@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Job } from 'bullmq';
 import type { PublishResponsePayload } from '../../../../src/lib/shared/worker-types';
 
@@ -77,6 +77,9 @@ beforeEach(() => {
   txReturnQueue.length = 0;
   // Re-wire sql.begin since vi.resetAllMocks clears its implementation
   mockSql.begin.mockImplementation(async (cb: (tx: any) => Promise<any>) => cb(mockTx));
+  // Default: flag OFF, so the orphan-conversion block is skipped entirely and
+  // these legacy tests exercise today's byte-for-byte behavior.
+  delete process.env.EDIT_REPLIES_ENABLED;
 });
 
 describe('handlePublisherFailed', () => {
@@ -258,6 +261,154 @@ describe('handlePublisherFailed', () => {
     it('returns silently when job is undefined', async () => {
       await handlePublisherFailed(undefined, new Error('whatever'));
       expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('orphan-marker retry-exhaustion conversion (spec §4.5)', () => {
+    afterEach(() => {
+      delete process.env.EDIT_REPLIES_ENABLED;
+    });
+
+    function makeWrappedTransient() {
+      const inner = new ZernioTransientError('timeout', { httpStatus: 504 });
+      return new PublisherTransientWithContext(inner, {
+        response_id: 'resp-1',
+        business_id: 'biz-1',
+        account_id: 'acct-X',
+        location_id: 'loc-Y',
+      });
+    }
+
+    it('FLAG ON + orphan marker + row publishable → converts to failed + markOutboxFailed, no fallback', async () => {
+      process.env.EDIT_REPLIES_ENABLED = 'true';
+      // Step 1: SELECT review_id → found.
+      txReturnQueue.push([{ review_id: 'rev-1' }]);
+      // Step 2: SELECT reviews FOR UPDATE → found.
+      txReturnQueue.push([{ id: 'rev-1' }]);
+      // Step 3: SELECT responses FOR UPDATE → orphan marker, publishable.
+      txReturnQueue.push([{ status: 'approved', posting_error: 'pending_after_delete_succeeded' }]);
+      // Step 5: UPDATE responses RETURNING 1 → 1 row affected.
+      txReturnQueue.push(Object.assign([{ '?column?': 1 }], { count: 1 }));
+
+      await handlePublisherFailed(makeJob(), makeWrappedTransient());
+
+      expect(mockApplyTransientExhaustionFallback).not.toHaveBeenCalled();
+      expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
+      expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+        'outbox-1',
+        'post_after_delete_failed_retry_exhausted',
+        1,
+      );
+
+      const updateCall = mockTx.mock.calls.find((c: any[]) => {
+        const text = (c[0] as TemplateStringsArray).join('?');
+        return /UPDATE responses/.test(text) && /status = 'failed'/.test(text);
+      });
+      expect(updateCall).toBeDefined();
+      // The terminal marker is bound as a SQL parameter, not template text.
+      expect(updateCall!.slice(1)).toContain('post_after_delete_failed_retry_exhausted');
+    });
+
+    it('FLAG ON + orphan marker + status=awaiting_owner_connect → converts to failed', async () => {
+      process.env.EDIT_REPLIES_ENABLED = 'true';
+      txReturnQueue.push([{ review_id: 'rev-1' }]);
+      txReturnQueue.push([{ id: 'rev-1' }]);
+      txReturnQueue.push([
+        { status: 'awaiting_owner_connect', posting_error: 'zernio_auth_error_after_delete_succeeded' },
+      ]);
+      txReturnQueue.push(Object.assign([{ '?column?': 1 }], { count: 1 }));
+
+      await handlePublisherFailed(makeJob(), makeWrappedTransient());
+
+      expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+        'outbox-1',
+        'post_after_delete_failed_retry_exhausted',
+        1,
+      );
+      expect(mockApplyTransientExhaustionFallback).not.toHaveBeenCalled();
+    });
+
+    it('FLAG ON + status no longer publishable (processReview won the race) → markOutboxCompleted, no fallback', async () => {
+      process.env.EDIT_REPLIES_ENABLED = 'true';
+      txReturnQueue.push([{ review_id: 'rev-1' }]);
+      txReturnQueue.push([{ id: 'rev-1' }]);
+      txReturnQueue.push([{ status: 'superseded', posting_error: 'pending_after_delete_succeeded' }]);
+
+      await handlePublisherFailed(makeJob(), makeWrappedTransient());
+
+      expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
+      expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+      expect(mockApplyTransientExhaustionFallback).not.toHaveBeenCalled();
+    });
+
+    it('FLAG ON + no orphan marker + transient → falls through to the existing transient fallback', async () => {
+      process.env.EDIT_REPLIES_ENABLED = 'true';
+      txReturnQueue.push([{ review_id: 'rev-1' }]);
+      txReturnQueue.push([{ id: 'rev-1' }]);
+      txReturnQueue.push([{ status: 'approved', posting_error: null }]);
+
+      await handlePublisherFailed(makeJob(), makeWrappedTransient());
+
+      expect(mockApplyTransientExhaustionFallback).toHaveBeenCalledTimes(1);
+      expect(mockApplyTransientExhaustionFallback).toHaveBeenCalledWith({
+        response_id: 'resp-1',
+        business_id: 'biz-1',
+        correlation_id: 'corr-1',
+        account_id: 'acct-X',
+        location_id: 'loc-Y',
+      });
+      expect(mockMarkOutboxFailed).toHaveBeenCalledWith('outbox-1', 'zernio_transient_max_attempts', 1);
+    });
+
+    it('FLAG ON + response row not visible to business (tenant mismatch) → markOutboxCompleted, no fallback', async () => {
+      process.env.EDIT_REPLIES_ENABLED = 'true';
+      txReturnQueue.push([]); // step 1: no row.
+
+      await handlePublisherFailed(makeJob(), makeWrappedTransient());
+
+      expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
+      expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+      expect(mockApplyTransientExhaustionFallback).not.toHaveBeenCalled();
+    });
+
+    it('FLAG ON + review row missing under lock → markOutboxCompleted + Sentry warning', async () => {
+      process.env.EDIT_REPLIES_ENABLED = 'true';
+      const Sentry = await import('@sentry/node');
+      txReturnQueue.push([{ review_id: 'rev-1' }]);
+      txReturnQueue.push([]); // review not found under FOR UPDATE.
+
+      await handlePublisherFailed(makeJob(), makeWrappedTransient());
+
+      expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
+      expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+      expect(mockApplyTransientExhaustionFallback).not.toHaveBeenCalled();
+      expect(Sentry.captureMessage).toHaveBeenCalledWith(
+        'orphan_response_review',
+        expect.objectContaining({ extra: { response_id: 'resp-1', business_id: 'biz-1' } }),
+      );
+    });
+
+    it('FLAG ON + response deleted between read and lock → markOutboxCompleted', async () => {
+      process.env.EDIT_REPLIES_ENABLED = 'true';
+      txReturnQueue.push([{ review_id: 'rev-1' }]);
+      txReturnQueue.push([{ id: 'rev-1' }]);
+      txReturnQueue.push([]); // race: response gone under FOR UPDATE.
+
+      await handlePublisherFailed(makeJob(), makeWrappedTransient());
+
+      expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
+      expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+      expect(mockApplyTransientExhaustionFallback).not.toHaveBeenCalled();
+    });
+
+    it('FLAG OFF + orphan marker would match → block skipped entirely, straight to transient fallback', async () => {
+      // Flag is unset by the outer beforeEach.
+      await handlePublisherFailed(makeJob(), makeWrappedTransient());
+
+      // The orphan-conversion tx never ran.
+      expect(mockSql.begin).not.toHaveBeenCalled();
+      expect(mockApplyTransientExhaustionFallback).toHaveBeenCalledTimes(1);
+      expect(mockMarkOutboxFailed).toHaveBeenCalledWith('outbox-1', 'zernio_transient_max_attempts', 1);
     });
   });
 

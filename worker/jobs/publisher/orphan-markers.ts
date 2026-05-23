@@ -31,6 +31,17 @@ export const deleteFailedMarker = (kind: string) => `delete_failed_${kind}`;
 /** Permanent POST failure marker AFTER a committed DELETE (orphan forming). */
 export const postAfterDeleteFailedMarker = (kind: string) => `post_after_delete_failed_${kind}`;
 
+/**
+ * Terminal marker the failed-hook (Task 7) stamps when BullMQ exhausts retries
+ * while the row is still in an orphan state (DELETE committed, POST never
+ * succeeded). This is the recovery-visible `status='failed'` state the owner
+ * `/retry` + `/restore-original` routes (Task 11) key off. Distinct from the
+ * `postAfterDeleteFailedMarker(kind)` family (those are PERMANENT-error orphans
+ * written by edit-publish itself); this one means "transient/indeterminate
+ * orphan that ran out of automatic retries".
+ */
+export const POST_AFTER_DELETE_FAILED_RETRY_EXHAUSTED = 'post_after_delete_failed_retry_exhausted';
+
 /** True when a `posting_error` denotes an orphan (DELETE committed, POST did not). */
 export const isOrphanMarker = (postingError: string | null | undefined): boolean =>
   !!postingError && postingError.endsWith(ORPHAN_SUCCEEDED_SUFFIX);
