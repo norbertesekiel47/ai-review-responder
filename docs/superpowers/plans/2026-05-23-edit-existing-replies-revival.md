@@ -6,7 +6,7 @@
 
 **Architecture:** Hybrid revival. **Port** the battle-tested leaf modules verbatim from tag `wip/edit-existing-replies-zernio-v1` (helper, 7 API routes + tests, drawer, card recovery branch) and apply a fixed set of adaptations; **rebuild** the worker integration seams that the post-tag reorg broke (Zernio `deleteReply` now in `client/replies.ts`, `verify409InTx`, a new `publisher/edit-publish.ts` module, the orphan conversion in `publisher/failed-hook.ts`, `load-context` `posting_error`, `process-review` stale-marking). Everything is flag-gated; the worker's edit branch is selected by `(sibling 'posted' exists OR posting_error LIKE '%_after_delete_succeeded')`.
 
-**Tech Stack:** TypeScript 5 strict + Next.js 14 App Router + Postgres.js v3 (`@/lib/db/server`) + BullMQ + Vitest + Supabase migrations + Zernio HTTP client (`src/lib/zernio/client/*`).
+**Tech Stack:** TypeScript 5 strict + Next.js ^15.5.18 App Router + Postgres.js v3 (`@/lib/db/server`) + BullMQ + Vitest + Supabase migrations + Zernio HTTP client (`src/lib/zernio/client/*`).
 
 **Spec reference:** `docs/superpowers/specs/2026-05-23-edit-existing-replies-revival-design.md` (revival delta) + `docs/superpowers/specs/2026-05-01-edit-existing-replies-design.md` (behavior source of truth). Where they disagree, the 2026-05-01 spec wins on behavior; the 2026-05-23 spec wins on flag naming/layering and file locations.
 
