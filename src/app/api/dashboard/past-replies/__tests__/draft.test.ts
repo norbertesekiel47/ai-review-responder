@@ -250,15 +250,24 @@ describe('POST /api/dashboard/past-replies/draft', () => {
     expect(body.error).toBe('response_changed');
   });
 
-  it('returns 409 draft_already_exists when a non-terminal response exists', async () => {
+  it('returns 409 draft_already_exists with the existing draft so the client can resume', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
-    // tx queue: lock-row, existing-check returns a row → 409 short-circuit
-    seedTxRows([{ id: REVIEW_ID }], [{ exists: 1 }]);
+    // tx queue: lock-row, existing-check returns the in-progress draft → 409.
+    seedTxRows(
+      [{ id: REVIEW_ID }],
+      [{ response_id: 'existing-draft-1', text: 'Half-written reply', is_edited: true }],
+    );
     const POST = await importPOST();
     const res = await POST(makeRequest({ body: validBody() }));
     expect(res.status).toBe(409);
     const body = await res.json();
     expect(body.error).toBe('draft_already_exists');
+    // The conflict payload carries the existing draft for the resume/discard UI.
+    expect(body.existing).toEqual({
+      response_id: 'existing-draft-1',
+      text: 'Half-written reply',
+      is_edited: true,
+    });
   });
 
   it('returns 409 regenerate_in_progress when a generate_response outbox row is pending', async () => {

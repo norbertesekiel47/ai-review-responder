@@ -107,15 +107,39 @@ async function handler(request: NextRequest): Promise<Response> {
         return NextResponse.json({ error: 'review_not_found' }, { status: 404 });
       }
 
-      // 2a. Reject if any non-terminal response already exists.
-      const existing = await tx<{ exists: number }[]>`
-        SELECT 1 AS exists FROM responses
+      // 2a. If a non-terminal response already exists (reload / crash /
+      //     failed-publish left a draft), return it so the client can RESUME
+      //     it instead of dead-ending. The posted row is still visible, so
+      //     re-opening Edit can publish the existing draft or discard it
+      //     (DELETE /draft/:id is idempotent). Scoped by locationId already
+      //     via the review lock above.
+      const existing = await tx<{
+        response_id: string;
+        text: string | null;
+        is_edited: boolean;
+      }[]>`
+        SELECT id AS response_id,
+               COALESCE(edited_text, approved_text, response_text) AS text,
+               (edited_text IS NOT NULL) AS is_edited
+        FROM responses
         WHERE review_id = ${parsed.data.review_id}
           AND status IN ('pending_approval', 'approved', 'edited', 'awaiting_owner_connect')
+        ORDER BY version DESC
         LIMIT 1
       `;
-      if (existing.length > 0) {
-        return NextResponse.json({ error: 'draft_already_exists' }, { status: 409 });
+      const existingDraft = existing[0];
+      if (existingDraft) {
+        return NextResponse.json(
+          {
+            error: 'draft_already_exists',
+            existing: {
+              response_id: existingDraft.response_id,
+              text: existingDraft.text,
+              is_edited: existingDraft.is_edited,
+            },
+          },
+          { status: 409 },
+        );
       }
 
       // 2b. Reject if a regenerate is in flight (worker hasn't INSERTed yet,

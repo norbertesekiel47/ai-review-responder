@@ -86,6 +86,10 @@ type DrawerState =
   // on the failure mode (Round-2 M2).
   | { kind: 'recovery'; failedResponseId: string; failedPostingError: string | null }
   | { kind: 'review_changed'; currentText: string | null }
+  // A prior draft (reload / crash / failed-publish) already exists for this
+  // review. Rather than dead-ending on 409 'draft_already_exists', offer to
+  // Resume it (publish/edit the existing draft) or Discard it and start over.
+  | { kind: 'draft_conflict'; existing: { responseId: string; text: string; isEdited: boolean } }
   | { kind: 'error'; message: string }
   | { kind: 'success'; message: string };
 
@@ -93,6 +97,11 @@ interface ApiErrorPayload {
   error?: string;
   current_review_text?: string | null;
   current_review_hash?: string | null;
+  existing?: {
+    response_id: string;
+    text: string | null;
+    is_edited: boolean;
+  };
 }
 
 async function readJsonSafe(res: Response): Promise<ApiErrorPayload | null> {
@@ -247,6 +256,19 @@ export function EditReplyDrawer({
         setState({
           kind: 'review_changed',
           currentText: body.current_review_text ?? null,
+        });
+        return;
+      }
+      // A prior in-progress draft exists. Offer Resume / Discard instead of
+      // dead-ending — the owner can publish or abandon the stranded draft.
+      if (res.status === 409 && body?.error === 'draft_already_exists' && body.existing) {
+        setState({
+          kind: 'draft_conflict',
+          existing: {
+            responseId: body.existing.response_id,
+            text: body.existing.text ?? '',
+            isEdited: body.existing.is_edited,
+          },
         });
         return;
       }
@@ -520,6 +542,34 @@ export function EditReplyDrawer({
     }
   }, [handleHttpError, router]);
 
+  // Resume a stranded draft: drop into the preview state so the owner can
+  // publish it as-is (publishExisting — no PATCH) or "Edit further". Reuses
+  // the regenerate-preview machinery; the draft already exists server-side.
+  const resumeExistingDraft = useCallback(
+    (existing: { responseId: string; text: string }) => {
+      setState({
+        kind: 'preview',
+        draftResponseId: existing.responseId,
+        text: existing.text,
+      });
+    },
+    [],
+  );
+
+  // Discard a stranded draft (idempotent DELETE), then return to the initial
+  // CTAs so the owner can start a fresh edit.
+  const discardExistingDraft = useCallback(async (responseId: string) => {
+    try {
+      await fetch(
+        `/api/dashboard/past-replies/draft/${encodeURIComponent(responseId)}`,
+        { method: 'DELETE', credentials: 'same-origin' },
+      );
+    } catch {
+      // Best-effort; DELETE is idempotent. Fall through to the initial state.
+    }
+    setState({ kind: 'initial' });
+  }, []);
+
   const restoreOriginal = useCallback(async (failedResponseId: string) => {
     setState({ kind: 'publishing' });
     try {
@@ -763,6 +813,15 @@ export function EditReplyDrawer({
             />
           )}
 
+          {state.kind === 'draft_conflict' && (
+            <DraftConflictPanel
+              draftText={state.existing.text}
+              isEdited={state.existing.isEdited}
+              onResume={() => resumeExistingDraft(state.existing)}
+              onDiscard={() => discardExistingDraft(state.existing.responseId)}
+            />
+          )}
+
           {state.kind === 'error' && (
             <div className="rounded-lg border border-red-200 bg-red-50 p-4">
               <p className="text-sm text-red-800">{state.message}</p>
@@ -958,6 +1017,51 @@ function RecoveryPanel({
             Restore original
           </button>
         )}
+      </div>
+    </div>
+  );
+}
+
+function DraftConflictPanel({
+  draftText,
+  isEdited,
+  onResume,
+  onDiscard,
+}: {
+  draftText: string;
+  isEdited: boolean;
+  onResume: () => void;
+  onDiscard: () => void;
+}) {
+  return (
+    <div className="space-y-3 rounded-lg border border-amber-200 bg-amber-50 p-4">
+      <p className="text-sm text-amber-900">
+        You have an unsaved edit in progress for this review. Resume it to
+        review and publish, or discard it to start over.
+      </p>
+      <div>
+        <div className="mb-1 text-xs uppercase tracking-wider text-amber-900/70">
+          {isEdited ? 'Your edited draft' : 'Draft reply'}
+        </div>
+        <p className="rounded-md bg-white p-3 text-sm text-[#2a2a2a]">
+          {draftText || <em className="text-[#6a6a6a]">(empty)</em>}
+        </p>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={onResume}
+          className="rounded-full bg-[#97B3AE] px-5 py-2 text-sm font-medium text-white shadow-sm hover:bg-[#7c9994]"
+        >
+          Resume
+        </button>
+        <button
+          type="button"
+          onClick={onDiscard}
+          className="rounded-md border border-gray-200 px-4 py-2 text-sm font-medium text-[#2a2a2a] hover:bg-gray-50"
+        >
+          Discard
+        </button>
       </div>
     </div>
   );

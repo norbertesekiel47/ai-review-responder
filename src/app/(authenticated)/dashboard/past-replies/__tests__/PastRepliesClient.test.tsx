@@ -485,4 +485,96 @@ describe('PastRepliesClient', () => {
       expect(calls.indexOf(patchCall!)).toBeLessThan(calls.indexOf(publishCall!));
     });
   });
+
+  // ── Draft conflict: resume or discard a stranded in-progress draft ────────
+  //
+  // A reload/crash/failed-publish can leave a non-terminal draft. /draft now
+  // returns 409 'draft_already_exists' WITH the existing draft. The drawer must
+  // offer Resume / Discard rather than dead-ending on an error.
+  describe('draft_already_exists resume/discard', () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    const EXISTING_ID = 'existing-draft-99';
+
+    function installConflictFetchMock() {
+      const calls: { url: string; method: string }[] = [];
+      const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url;
+        const method = (init?.method ?? 'GET').toUpperCase();
+        calls.push({ url, method });
+        if (url.endsWith('/past-replies/draft') && method === 'POST') {
+          return {
+            ok: false,
+            status: 409,
+            json: async () => ({
+              error: 'draft_already_exists',
+              existing: { response_id: EXISTING_ID, text: 'A stranded draft', is_edited: true },
+            }),
+          } as Response;
+        }
+        // DELETE /draft/:id (discard) → 204.
+        return { ok: true, status: 204, json: async () => ({}) } as Response;
+      });
+      vi.stubGlobal('fetch', fetchMock);
+      return { calls };
+    }
+
+    async function triggerConflict(user: ReturnType<typeof userEvent.setup>) {
+      await user.click(screen.getByRole('button', { name: /edit reply/i }));
+      await user.click(screen.getByRole('button', { name: /edit manually/i }));
+      // Submit the manual editor → POST /draft → 409 conflict.
+      await user.click(screen.getByRole('button', { name: /update on google/i }));
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: /^resume$/i })).toBeInTheDocument(),
+      );
+    }
+
+    it('surfaces Resume/Discard on 409 draft_already_exists instead of an error', async () => {
+      const user = userEvent.setup();
+      installConflictFetchMock();
+      render(
+        <PastRepliesClient {...baseProps} gapRows={[row({ canEdit: true })]} editRepliesEnabled={true} />,
+      );
+
+      await triggerConflict(user);
+
+      expect(screen.getByRole('button', { name: /^resume$/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /^discard$/i })).toBeInTheDocument();
+      expect(screen.getByText(/unsaved edit in progress/i)).toBeInTheDocument();
+    });
+
+    it('Discard issues a DELETE for the existing draft', async () => {
+      const user = userEvent.setup();
+      const { calls } = installConflictFetchMock();
+      render(
+        <PastRepliesClient {...baseProps} gapRows={[row({ canEdit: true })]} editRepliesEnabled={true} />,
+      );
+
+      await triggerConflict(user);
+      await user.click(screen.getByRole('button', { name: /^discard$/i }));
+
+      await waitFor(() =>
+        expect(
+          calls.some((c) => c.method === 'DELETE' && c.url.includes(`/past-replies/draft/${EXISTING_ID}`)),
+        ).toBe(true),
+      );
+    });
+
+    it('Resume drops into the preview state (publish/edit-further available)', async () => {
+      const user = userEvent.setup();
+      installConflictFetchMock();
+      render(
+        <PastRepliesClient {...baseProps} gapRows={[row({ canEdit: true })]} editRepliesEnabled={true} />,
+      );
+
+      await triggerConflict(user);
+      await user.click(screen.getByRole('button', { name: /^resume$/i }));
+
+      // Preview state shows the stranded draft text + Edit further affordance.
+      expect(screen.getByText('A stranded draft')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /edit further/i })).toBeInTheDocument();
+    });
+  });
 });
