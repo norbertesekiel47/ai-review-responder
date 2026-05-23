@@ -15,6 +15,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:integration": "node -e \"if(!process.env.TEST_DATABASE_POOL_URL){console.error('TEST_DATABASE_POOL_URL required for integration hard gate — set it to the test DB connection string');process.exit(1)}\" && vitest run worker/jobs/publisher/__tests__/integration-edit-existing-reply.test.ts",
     "test:e2e": "playwright test",
     "worker": "tsx worker/index.ts",
     "redis": "tsx scripts/redis.ts"
