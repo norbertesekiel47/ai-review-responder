@@ -8,6 +8,7 @@ export interface PublishResponseContext {
     business_id: string;
     approved_text: string | null;
     status: string;
+    posting_error: string | null;
   };
   business: {
     id: string;
@@ -28,7 +29,7 @@ export async function loadPublishResponseContext(input: {
   const { responseId, businessId, outboxId, outboxAttempt, logger } = input;
 
   const [response] = await sql<PublishResponseContext['response'][]>`
-    SELECT id, review_id, business_id, approved_text, status
+    SELECT id, review_id, business_id, approved_text, status, posting_error
     FROM responses
     WHERE id = ${responseId}
   `;
