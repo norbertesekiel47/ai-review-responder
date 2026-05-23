@@ -25,11 +25,38 @@ export const ZERNIO_AUTH_ERROR = 'zernio_auth_error';
 /** Auth failure AFTER a committed DELETE (orphan: Google's slot is empty). */
 export const ZERNIO_AUTH_ERROR_AFTER_DELETE = 'zernio_auth_error_after_delete_succeeded';
 
+/** Prefix for permanent DELETE failure markers (no DELETE committed; sibling unchanged). */
+export const DELETE_FAILED_PREFIX = 'delete_failed_';
+
+/** Prefix for permanent POST failure markers AFTER a committed DELETE (orphan forming). */
+export const POST_AFTER_DELETE_FAILED_PREFIX = 'post_after_delete_failed_';
+
 /** Permanent DELETE failure marker (no DELETE committed; sibling unchanged). */
-export const deleteFailedMarker = (kind: string) => `delete_failed_${kind}`;
+export const deleteFailedMarker = (kind: string) => `${DELETE_FAILED_PREFIX}${kind}`;
 
 /** Permanent POST failure marker AFTER a committed DELETE (orphan forming). */
-export const postAfterDeleteFailedMarker = (kind: string) => `post_after_delete_failed_${kind}`;
+export const postAfterDeleteFailedMarker = (kind: string) => `${POST_AFTER_DELETE_FAILED_PREFIX}${kind}`;
+
+/**
+ * Marker stamped by processReview when a customer edits a review AFTER a
+ * recoverable edit-publisher failure. This invalidates the previously-recoverable
+ * failed row — /retry must refuse to recover it (the draft was for old review text).
+ */
+export const STALE_AFTER_REVIEW_CHANGED = 'stale_after_review_changed';
+
+/**
+ * Returns true when a `posting_error` value belongs to the allowlist of
+ * recoverable failed edit-publisher rows that /retry is permitted to act on.
+ * Only `delete_failed_*` and `post_after_delete_failed_*` prefixes are
+ * recoverable. `stale_after_review_changed` and all other values are NOT.
+ * This intentionally includes `POST_AFTER_DELETE_FAILED_RETRY_EXHAUSTED` — it
+ * shares the `post_after_delete_failed_` prefix and is recoverable via an
+ * owner-driven /retry; callers must not add a separate branch for it.
+ */
+export const isRecoverableFailedPostingError = (postingError: string | null | undefined): boolean =>
+  !!postingError &&
+  (postingError.startsWith(DELETE_FAILED_PREFIX) ||
+    postingError.startsWith(POST_AFTER_DELETE_FAILED_PREFIX));
 
 /**
  * Terminal marker the failed-hook (Task 7) stamps when BullMQ exhausts retries

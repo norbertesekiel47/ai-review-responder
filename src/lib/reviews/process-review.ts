@@ -6,6 +6,11 @@ import type {
   GenerateResponsePayload,
   NotifyAdminExceptionPayload,
 } from '@/lib/shared/worker-types';
+import {
+  STALE_AFTER_REVIEW_CHANGED,
+  DELETE_FAILED_PREFIX,
+  POST_AFTER_DELETE_FAILED_PREFIX,
+} from '../../../worker/jobs/publisher/orphan-markers';
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -149,6 +154,31 @@ async function processExistingReview(
       return 'updated' as const;
     }
     return 'unchanged' as const;
+  }
+
+  // ── STALE-MARK recoverable failed rows (spec §4.5) ─────────────────
+  // Runs unconditionally at the TOP of the content-change block, before any
+  // branch. If a customer edits their review AFTER an edit-publisher failure
+  // left a recoverable 'failed' row (posting_error starting with delete_failed_*
+  // or post_after_delete_failed_*), recovering that row would re-post a reply
+  // against old review text. Mark it stale so /retry refuses to recover it.
+  //
+  // The 'reviews FOR UPDATE' lock acquired above serializes us against /retry
+  // — the retry route acquires the same lock order and waits for our COMMIT
+  // before reading the failed row's posting_error. Zero-row UPDATE is fine
+  // (no recoverable orphan exists — no-op).
+  //
+  // Gated behind EDIT_REPLIES_ENABLED so Phase A is fully inert when the flag
+  // is off — no new behavior until the flag is on.
+  if (process.env.EDIT_REPLIES_ENABLED === 'true') {
+    await tx`
+      UPDATE responses
+      SET posting_error = ${STALE_AFTER_REVIEW_CHANGED}, updated_at = NOW()
+      WHERE review_id = ${existing.id}
+        AND status = 'failed'
+        AND (posting_error LIKE ${`${DELETE_FAILED_PREFIX}%`}
+             OR posting_error LIKE ${`${POST_AFTER_DELETE_FAILED_PREFIX}%`})
+    `;
   }
 
   // ── CONTENT CHANGED — update the review row ───────────────────
