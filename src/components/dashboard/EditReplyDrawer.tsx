@@ -154,14 +154,70 @@ export function EditReplyDrawer({
   // Esc to close. Only handled when the drawer is mounted. Uses a ref to the
   // current tryClose so the keydown binding doesn't re-attach on every state
   // transition; tryClose itself is defined below and references state.
+  // Refs for focus management.
+  // panelRef: the aside panel element used to scope focus-trap queries.
+  // openerRef: the element that had focus when the drawer opened — restored on close.
+  const panelRef = useRef<HTMLElement | null>(null);
+  const openerRef = useRef<HTMLElement | null>(null);
+
   const tryCloseRef = useRef<() => void>(onClose);
+
+  // Focus management: capture opener, move focus in, trap Tab, restore on close.
   useEffect(() => {
     if (!open) return;
+
+    // Capture the element that triggered the open BEFORE moving focus.
+    openerRef.current = document.activeElement as HTMLElement | null;
+
+    // Move focus into the panel.
+    const panel = panelRef.current;
+    if (panel) {
+      const tabbableSelector =
+        'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+      const firstTabbable = panel.querySelector<HTMLElement>(tabbableSelector);
+      if (firstTabbable) {
+        firstTabbable.focus();
+      } else {
+        panel.focus();
+      }
+    }
+
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') tryCloseRef.current();
+      if (e.key === 'Escape') {
+        tryCloseRef.current();
+        return;
+      }
+
+      if (e.key === 'Tab' && panel) {
+        const tabbableSelector =
+          'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+        const tabbable = Array.from(panel.querySelectorAll<HTMLElement>(tabbableSelector));
+        if (tabbable.length === 0) {
+          e.preventDefault();
+          return;
+        }
+        const first = tabbable[0]!;
+        const last = tabbable[tabbable.length - 1]!;
+        if (e.shiftKey) {
+          if (document.activeElement === first) {
+            e.preventDefault();
+            last.focus();
+          }
+        } else {
+          if (document.activeElement === last) {
+            e.preventDefault();
+            first.focus();
+          }
+        }
+      }
     };
+
     window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
+    return () => {
+      window.removeEventListener('keydown', handler);
+      // Restore focus to the element that opened the drawer.
+      openerRef.current?.focus();
+    };
   }, [open]);
 
   // Polling effect for the regenerating state.
@@ -638,7 +694,7 @@ export function EditReplyDrawer({
       />
 
       {/* Panel */}
-      <aside className="flex h-full w-full max-w-xl flex-col overflow-y-auto bg-white shadow-2xl">
+      <aside ref={panelRef} tabIndex={-1} className="flex h-full w-full max-w-xl flex-col overflow-y-auto bg-white shadow-2xl">
         <header className="sticky top-0 z-10 flex items-center justify-between border-b border-gray-100 bg-white px-6 py-4">
           <h2
             id="edit-reply-drawer-title"
