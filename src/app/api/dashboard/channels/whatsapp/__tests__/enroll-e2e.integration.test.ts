@@ -25,7 +25,7 @@
 // runs every Vitest invocation. Real-Postgres coverage is reserved for the
 // Playwright e2e gated on TEST_DATABASE_POOL_URL.
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
 import { createHash, createHmac } from 'node:crypto';
 
@@ -134,6 +134,10 @@ function buildWhatsAppInbound(params: Record<string, string>): { req: AnyReq; re
   return { req, reply };
 }
 
+// Snapshot the pristine env once (before any beforeEach mutation) so afterEach
+// can fully restore it and avoid cross-test contamination.
+const ORIGINAL_ENV = { ...process.env };
+
 beforeEach(() => {
   sqlCallsLog.length = 0;
   sqlReturnQueue.length = 0;
@@ -150,6 +154,15 @@ beforeEach(() => {
   process.env.TWILIO_WHATSAPP_NUMBER = 'whatsapp:+15551230000';
   process.env.WORKER_PUBLIC_URL = WORKER_URL;
   process.env.NEXT_PUBLIC_APP_URL = APP_URL;
+});
+
+afterEach(() => {
+  // Delete keys this test added, then restore originals — leaves process.env
+  // exactly as it was before this file ran.
+  for (const key of Object.keys(process.env)) {
+    if (!(key in ORIGINAL_ENV)) delete process.env[key];
+  }
+  Object.assign(process.env, ORIGINAL_ENV);
 });
 
 d('owner WhatsApp enrollment round-trip (route start → inbound verify)', () => {

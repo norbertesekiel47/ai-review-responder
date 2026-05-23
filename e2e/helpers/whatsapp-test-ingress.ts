@@ -47,12 +47,20 @@ export async function simulateWhatsAppStart(opts: SimulateOptions): Promise<Resp
     Body: `start-${opts.rawToken}`,
   });
 
-  return fetch(`${workerBase.replace(/\/$/, '')}/ingress/twilio/whatsapp-inbound`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'X-Twilio-Signature': opts.signature ?? 'e2e-placeholder-signature',
-    },
-    body: params.toString(),
-  });
+  // Bound the request so a hung/unreachable worker can't stall the test run.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10_000);
+  try {
+    return await fetch(`${workerBase.replace(/\/$/, '')}/ingress/twilio/whatsapp-inbound`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'X-Twilio-Signature': opts.signature ?? 'e2e-placeholder-signature',
+      },
+      body: params.toString(),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
 }

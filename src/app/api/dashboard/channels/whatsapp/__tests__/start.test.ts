@@ -91,7 +91,7 @@ describe('POST /api/dashboard/channels/whatsapp/start', () => {
   it('returns 401 when requireRole throws AuthError', async () => {
     process.env.CHANNELS_WHATSAPP_ENABLED = 'true';
     const { AuthError } = await import('@/lib/db/auth');
-    requireRoleMock.mockRejectedValue(Object.assign(new AuthError('unauthorized'), { statusCode: 401 }));
+    requireRoleMock.mockRejectedValue(new AuthError('unauthorized', 401));
     const res = await POST(mkReq() as any);
     expect(res.status).toBe(401);
   });

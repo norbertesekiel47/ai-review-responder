@@ -32,7 +32,7 @@ async function handler(req: NextRequest): Promise<NextResponse> {
     if (err instanceof AuthError) {
       return NextResponse.json({ error: err.message }, { status: err.statusCode });
     }
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+    throw err; // surface unexpected (non-auth) failures as 5xx, not a misleading 401
   }
 
   const locationId = user.locationId;
