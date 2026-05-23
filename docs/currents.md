@@ -2,7 +2,43 @@
 
 This file explains what is actually built in the repository today, how it maps to the implementation plan, and what is left to build.
 
-Last updated: 2026-05-09 (Multi-location support, `feature/multi-location`)
+Last updated: 2026-05-22 (WhatsApp owner self-service, `feat/whatsapp-go-live`)
+
+## Quick summary — what shipped 2026-05-22 (WhatsApp owner self-service)
+
+In simple words:
+
+### What we changed
+
+Business owners can now connect WhatsApp to RepWorth themselves, from the **Settings → Channels** page — the same way they already connect Telegram. Before this, only an admin could turn WhatsApp on for a business; the owner's page just showed a greyed-out "coming soon" box. The whole feature is still switched off in production (behind the `CHANNELS_WHATSAPP_ENABLED` flag) until the real WhatsApp number and message template are approved by Meta.
+
+### Why we did it
+
+The WhatsApp code was built months ago but parked, waiting for the WhatsApp Business Account to be approved. That approval came through, so we finished the last missing piece (the owner-facing "Connect" button) and wrote the step-by-step guide for actually turning it on.
+
+### The new shape — what got added
+
+- **`src/components/dashboard/OwnerWhatsAppWidget.tsx`** — the "Connect WhatsApp" box the owner sees. Shows a QR code / link to scan, then flips to "Connected" once they message the number. Copied from the Telegram widget.
+- **`src/app/api/dashboard/channels/whatsapp/start|cancel|disable/`** — three small API endpoints behind that button (begin connecting, cancel a half-finished connect, disconnect). They only ever act on the logged-in owner's own location.
+- **`src/lib/channels/whatsapp-enrollment.ts`** — got two new shared functions (`startWhatsAppEnrollment`, `disableWhatsAppEnrollment`) so the "begin" and "disconnect" database logic lives in one place instead of being copy-pasted into the routes. The older admin route was switched over to use them too.
+- **`docs/runbooks/whatsapp-templates.md`** — the "how to actually launch it" checklist: which message template to submit to Meta, what to set in Vercel and Railway, and the 8 things to test before flipping the switch.
+- **`docs/known-issues.md`** (new) — records a multi-location bug we found (see below).
+
+### The new house rule
+
+WhatsApp owner self-service is **single-location-only for now.** If an account has more than one location, the owner sees "coming soon" instead of the Connect button, and the connect endpoint refuses with a clear error. This is a deliberate guardrail around a pre-existing bug (the owner connect/disconnect logic looks up the row by location, but the page reads it by account, so on accounts with multiple owners they can disagree). The same bug quietly affects SMS and Telegram too — it's written up in `docs/known-issues.md` with a proper fix planned separately.
+
+### What didn't change
+
+Email, SMS, and Telegram all work exactly as before. The admin-side WhatsApp enrollment (on the business detail page) is unchanged except that it now calls the shared helper functions. Nothing about review ingestion, response generation, or posting changed. And because the flag is still off, customers see no difference until launch.
+
+### Where to read more
+
+- `docs/runbooks/whatsapp-templates.md` — the launch checklist + how to submit the Meta template.
+- `docs/known-issues.md` + `docs/superpowers/specs/2026-05-22-owner-channel-account-scope-design.md` — the multi-location desync and its planned cross-channel fix.
+- `docs/progresstracking.md` — the full sprint log for this work (PR #53).
+
+---
 
 ## Quick summary — what shipped 2026-05-09 (Multi-location support)
 
@@ -2890,3 +2926,48 @@ Keep sensitive words as preventive measures.
 "Trusted by local businesses across the US" to "Trusted by local businesses globally"
 
 REFUND HOSTINGER INQUIRY
+
+## What shipped 2026-05-22 (Billing tiers + Locations UX) — `feat/billing-locations-ux`
+
+In simple words:
+
+### What we changed
+
+Two things. First, the **pay/onboarding page** now shows all four real plans — Founding Member, Basic, Standard, Premium — and the prices come straight from one config file instead of being typed in by hand (so they can't drift from what Stripe actually charges). Second, the **Locations settings page** now shows up as soon as the multi-location feature flag is on, even if you only have one location — so a freshly-paid Standard/Premium owner can immediately see how to add a second location. Basic owners see that same page but with a friendly "upgrade to add locations" message instead of an Add button.
+
+### Why it was confusing before
+
+The old code used one yes/no check — "do you already have more than one location?" — to decide everything: whether to show the Locations tab, whether to switch the dashboard into multi-location mode, and whether you could add a location. So a brand-new multi-location customer with exactly one location got locked out of the very feature they paid for.
+
+### The new shape — what got added, what changed
+
+```
+src/
+├── app/
+│   └── onboarding/pay/
+│       └── plan-options.ts                 ← NEW: the single source for plan names + prices
+│                                              (price read from TIER_CONFIG, not hardcoded)
+│       └── PlanPickerClient.tsx            ← now renders all 4 tiers (was 3)
+│
+├── lib/
+│   └── locations/
+│       └── multi-location-mode.ts          ← now has THREE helpers instead of one:
+│            • shouldUseMultiLocationSettings → "are you in multi-location MODE?" (count > 1)
+│            • shouldShowLocationsSettings    → "should the Locations TAB show?" (flag only)
+│            • canAddLocationForAccount       → "are you ALLOWED to add one?" (flag + active + tier)
+│   └── accounts/
+│       └── quota.ts                         ← billing math now reads STORED quota
+│                                              (locations_included + locations_overage_price_cents)
+│                                              from the account, not the live tier config
+│
+└── app/(authenticated)/settings/
+    ├── locations/page.tsx                   ← shows on the flag alone; computes the
+    │                                           Basic "locked" vs eligible "Add Location" state
+    └── (page/voice/channels)                ← pass the new "locations visible" flag through;
+                                                single-location Voice now links to /settings#brand-voice
+```
+
+### One thing to remember
+
+Money math (how many locations are included, and the per-extra overage price) is read from **stored columns on the account**, frozen at the time you signed up — not from the live price table. The one exception is the **base monthly price**, which still comes from the live table because there's no stored column for it yet. That matters most for Founding Members ("rate locked for life") — see the TODO in `quota.ts` and the runbook's Known Issues.
+

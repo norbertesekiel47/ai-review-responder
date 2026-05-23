@@ -58,6 +58,18 @@ approval before posting.
   lives on `accounts`. Naming kept for blast-radius reasons; do not
   re-introduce subscription columns on `businesses`. See
   `docs/runbooks/multi-location.md`.
+  - **Billing snapshot reads STORED quota, not `TIER_CONFIG`.** Since PR #51,
+    `currentBillingSnapshot` / overage math read `accounts.locations_included`
+    and `accounts.locations_overage_price_cents` (point-in-time, grandfathered)
+    — not the live `TIER_CONFIG` values. Base price is the lone exception
+    (still `TIER_CONFIG.baseCents`; no stored column yet), so the `founders`
+    base is NOT grandfathered. See `quota.ts` TODO + multi-location runbook §6.
+  - **Settings gating uses three separate checks, never one boolean.**
+    `shouldUseMultiLocationSettings` (mode: `count > 1`),
+    `shouldShowLocationsSettings` (visibility: flag only), and
+    `canAddLocationForAccount` (eligibility: flag + active + `multiLocAllowed`)
+    are distinct. The Locations tab now shows on the flag alone, even for
+    one-location accounts; do not collapse these back into a count check.
 - **Use Node.js native crypto.** `import { createHash, randomUUID } from
 'node:crypto'`. Never `crypto-js`.
 - **Subscription guard in all customer-facing workers.** Check status early:
@@ -130,6 +142,13 @@ approval before posting.
   use `displayName` (Pro tier) — use `id + formattedAddress + location` only.
 - Google Maps URLs use hex CIDs (`0x...:0x...`), not canonical Place IDs.
   Resolve via PlaceAutocomplete or SerpAPI, never `data_id`.
+- WhatsApp owner self-service (`/api/dashboard/channels/whatsapp/*`,
+  `OwnerWhatsAppWidget`) is **single-location-only** (interim server guard +
+  "coming soon" UI for multi-location). Reason: owner channel-enrollment
+  read/write paths key by `business_id = user.locationId`, but `/settings/channels`
+  hydrates org-default rows by `account_id` — they desync on multi-location
+  accounts with >1 owner. Pre-existing; affects SMS/Telegram too. See
+  `docs/known-issues.md` + `docs/superpowers/specs/2026-05-22-owner-channel-account-scope-design.md`.
 
 ## Codebase intelligence
 

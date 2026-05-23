@@ -552,3 +552,83 @@ Pattern: when bifurcating a route by a flag and the legacy semantic
 "X means already done" inverts to "X means ready to proceed", the guard
 needs an explicit branch on the flag. Don't let the legacy interpretation
 leak into the new path.
+
+---
+
+## 2026-05-22
+
+### Billing snapshot: read STORED quota, not `TIER_CONFIG` — but base price has no stored column
+[2026-05-22] PR #51 moved location-quota math off the live `TIER_CONFIG` and onto
+the account's stored columns. `currentBillingSnapshot`, `assertCanAddLocation`,
+`createCheckoutSession`, `UpdateStripeOverageWorker`, and
+`StripeLocationsReconcilePoller` all read `accounts.locations_included` now; PR #52
+(review follow-up) extended `currentBillingSnapshot` to also read
+`accounts.locations_overage_price_cents`.
+
+Why stored, not config: Stripe grandfathers the original Price IDs on existing
+subscriptions, so a future `TIER_CONFIG` price/quota edit must NOT retroactively
+change what an existing account is told it pays. Stored = point-in-time snapshot
+written at signup / select-plan / tier change.
+
+The trap that bit us in review: the first cut grandfathered `included` (stored)
+but still read overage PRICE from `config.overageCents`. Asymmetric — a config
+overage-price change would have drifted the displayed/preview overage while the
+included count stayed pinned. Fix: read both from the stored columns.
+
+Remaining gap (deliberate, documented): **base price is still
+`TIER_CONFIG[tier].baseCents`** — there is no `accounts.base_price_cents` column.
+So the base is NOT grandfathered. Most consequential for the `founders` tier,
+whose copy promises "Rate locked for life." If you ever change a base price,
+existing accounts' displayed base will drift from their actual Stripe charge.
+True base grandfathering needs a schema migration (add `accounts.base_price_cents`,
+snapshot it at signup/select-plan/tier-change, read it in `currentBillingSnapshot`).
+See the TODO in `src/lib/accounts/quota.ts` and runbook §6.
+
+### Don't gate three different questions with one location-count boolean
+[2026-05-22] The pre-PR-#51 code used `shouldUseMultiLocationSettings(flag, count)`
+(`flag && count > 1`) to answer three unrelated questions at once: "show the
+Locations tab?", "switch the dashboard into multi-location mode?", and "can this
+account add a location?". Result: a multi-location-eligible account with exactly
+one location was locked out of adding its second — the feature it paid for.
+
+Split into three helpers in `src/lib/locations/multi-location-mode.ts`:
+`shouldShowLocationsSettings` (flag only — visibility),
+`shouldUseMultiLocationSettings` (`count > 1` — content mode),
+`canAddLocationForAccount` (flag + active + `multiLocAllowed` — eligibility).
+Pattern: when one boolean is doing visibility + mode + permission at once, that's
+a smell — they have different inputs and diverge the moment a new account exists.
+
+### Owner channel enrollment: display reads by `account_id`, runtime keys by `business_id` → multi-location desync
+[2026-05-22] (WhatsApp go-live PR #53) The `/settings/channels` page hydrates
+org-default enrollments by `account_id` (with `location_id IS NULL`), but every
+runtime path — the `/api/dashboard/channels` status GET and the owner
+start/cancel/disable routes for SMS/Telegram/WhatsApp — keys by
+`business_id = user.locationId` (`user.primary_location_id`). An org-default
+`channel_enrollments` row carries the `business_id` of whoever created it. On a
+multi-location account with ≥2 owners on different primary locations, owner B sees
+the channel "connected" on the page (matched by `account_id`) but the status API
+returns nothing → Disconnect 404s, Connect trips
+`channel_enrollments_account_channel_scope_uniq` (migration 034 keys uniqueness on
+`(account_id, channel, COALESCE(location_id, sentinel))`, NOT `business_id`) →
+classified as `EnrollmentDatabaseError` → 500.
+
+Root cause: org-level owner enrollment is an **account-scoped** resource
+(`location_id IS NULL`), but the read/write paths address it by the legacy
+per-location FK. Single-location accounts are immune (`business_id` always ==
+`primary_location_id`). Pre-existing; affects SMS + Telegram identically — the
+WhatsApp work just mirrored the pattern and surfaced it. Interim guard:
+WhatsApp owner self-service gated to single-location accounts. Correct fix
+(separate task): key the org-default paths by `(account_id, channel, location_id
+IS NULL)`. See `docs/known-issues.md` +
+`docs/superpowers/specs/2026-05-22-owner-channel-account-scope-design.md`.
+
+### Catching only AuthError but returning 401 for everything masks server errors
+[2026-05-22] The owner WhatsApp routes wrapped `requireRole(req, 'owner')` in a
+try/catch that returned `AuthError` → its `statusCode`, else a blanket
+`401 unauthorized`. But `requireRole` can throw non-`AuthError` (e.g. a DB/Supabase
+failure during the auth lookup) — those were being reported to the client as 401,
+hiding real 5xx incidents behind a "not authenticated" response. Fix: in the
+fallback, `throw err` so unexpected failures surface as a 5xx. Pattern: a catch
+that maps a specific typed error should re-throw everything else, not collapse all
+errors into the typed error's status. (Same anti-pattern still lives in the
+Telegram/SMS owner routes — pre-existing, tracked for a follow-up.)

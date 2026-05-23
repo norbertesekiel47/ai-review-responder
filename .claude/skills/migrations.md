@@ -362,3 +362,41 @@ A customer activating Stripe in January but connecting Zernio in July gets all
 **Workaround:** Explain in onboarding that gap = "since you started paying."
 **Deferred fix:** use `zernio_connections.connected_at` as gap boundary.
 Requires snapshotting `connected_at` into `zernio_backfill_runs`.
+
+### 4. No `accounts.base_price_cents` — base price is not grandfathered
+[2026-05-22, PR #51/#52] `accounts` snapshots `locations_included` and
+`locations_overage_price_cents` at signup / select-plan / tier change, and
+`currentBillingSnapshot` reads both (point-in-time, grandfathered). But there is
+**no stored column for the base monthly price** — `basePriceCents` still comes
+from live `TIER_CONFIG[tier].baseCents`. So if a tier's base price ever changes,
+existing accounts' displayed/preview base will drift from their actual Stripe
+charge (Stripe keeps the original base Price ID on existing subscriptions).
+Most consequential for the `founders` tier ("Rate locked for life").
+
+This PR added **no migration** — it reused existing columns. The deferred fix is
+a future migration: add `accounts.base_price_cents`, snapshot it everywhere the
+other quota columns are written (`create-business.ts`, `select-plan/route.ts`,
+`subscription-updated.ts`), and read it in `currentBillingSnapshot`.
+See the TODO in `src/lib/accounts/quota.ts` and `docs/runbooks/multi-location.md` §6.
+
+### 5. Owner channel enrollment keys by `business_id`, but 034's scope indexes key by `(account_id, location_id)`
+[2026-05-22, WhatsApp go-live PR #53 — no migration] Migration 034 made
+`channel_enrollments` account-scoped: it added `account_id` + nullable
+`location_id` (NULL = org-level default) and replaced the per-business uniqueness
+with `channel_enrollments_account_channel_scope_uniq` and
+`channel_enrollments_one_mobile_per_scope`, both keyed on
+`(account_id, channel, COALESCE(location_id, sentinel))`. But the owner
+self-service runtime paths (the `/api/dashboard/channels` status GET and the
+start/cancel/disable routes for SMS/Telegram/WhatsApp) still SELECT/UPDATE org-default
+rows by `business_id = user.locationId`, while `/settings/channels` hydrates them
+by `account_id`. On a multi-location account with ≥2 owners on different primary
+locations these disagree → display says connected, runtime 404s on disconnect, and
+re-connect trips `account_channel_scope_uniq` → 500 (classified as
+`EnrollmentDatabaseError`, since that constraint name is not in the mobile-channel
+set). Single-location accounts are immune.
+
+**Mitigation:** WhatsApp owner self-service is gated to single-location accounts
+(interim). **Deferred fix (no migration needed — query change only):** key the
+org-default read/write paths by `(account_id, channel, location_id IS NULL)`,
+keeping `business_id` as the legacy FK on INSERT. See `docs/known-issues.md` and
+`docs/superpowers/specs/2026-05-22-owner-channel-account-scope-design.md`.

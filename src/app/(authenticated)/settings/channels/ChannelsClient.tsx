@@ -1,6 +1,7 @@
 'use client';
 
 import { OwnerTelegramWidget } from '@/components/dashboard/OwnerTelegramWidget';
+import { OwnerWhatsAppWidget } from '@/components/dashboard/OwnerWhatsAppWidget';
 import { ComingSoonChannelRow } from '@/components/dashboard/ComingSoonChannelRow';
 
 export interface InitialEnrollment {
@@ -18,13 +19,15 @@ export interface ChannelsClientProps {
   initialEnrollments: InitialEnrollment[];
   initialAvailability: { telegram: boolean; sms: boolean; whatsapp: boolean };
   ownerEmailFallback: string;
+  /** True when WhatsApp env is ready but the account has >1 active location. */
+  whatsappMultiLocationBlocked?: boolean;
 }
 
 function findChannel(enrollments: InitialEnrollment[], channel: InitialEnrollment['channel']): InitialEnrollment | null {
   return enrollments.find((e) => e.channel === channel) ?? null;
 }
 
-export function ChannelsClient({ initialEnrollments, initialAvailability, ownerEmailFallback }: ChannelsClientProps) {
+export function ChannelsClient({ initialEnrollments, initialAvailability, ownerEmailFallback, whatsappMultiLocationBlocked }: ChannelsClientProps) {
   const emailRow = findChannel(initialEnrollments, 'email');
   const emailHandle = emailRow?.handle ?? ownerEmailFallback;
   const emailReconciling = !emailRow;
@@ -75,12 +78,20 @@ export function ChannelsClient({ initialEnrollments, initialAvailability, ownerE
           reason={initialAvailability.sms ? 'SMS owner widget ships in a follow-up phase' : 'Available once 10DLC verification clears'}
         />
 
-        {/* WhatsApp — always coming-soon in Phase 4 */}
-        <ComingSoonChannelRow
-          icon="🟢"
-          name="WhatsApp"
-          reason={initialAvailability.whatsapp ? 'WhatsApp owner widget ships in a follow-up phase' : 'Available once Meta business verification clears'}
-        />
+        {/* WhatsApp — interactive if available, coming-soon otherwise */}
+        {initialAvailability.whatsapp ? (
+          <OwnerWhatsAppWidget initialEnrollment={findChannel(initialEnrollments, 'whatsapp')} />
+        ) : (
+          <ComingSoonChannelRow
+            icon="🟢"
+            name="WhatsApp"
+            reason={
+              whatsappMultiLocationBlocked
+                ? 'WhatsApp self-service is coming soon for multi-location accounts — connect it from the admin console for now.'
+                : 'Available once Meta business verification clears'
+            }
+          />
+        )}
       </div>
     </div>
   );

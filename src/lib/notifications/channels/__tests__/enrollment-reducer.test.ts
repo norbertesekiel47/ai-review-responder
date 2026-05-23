@@ -320,3 +320,22 @@ describe('enrollmentReducer — pure-function invariant', () => {
     expect(a).toEqual(b);
   });
 });
+
+describe('enrollmentReducer — mobile-channel conflict copy (launch contract)', () => {
+  it('maps a 409 multiple_mobile_channels to the generic disconnect message', () => {
+    const next = enrollmentReducer(
+      { ...initialEnrollment, state: 'generating' },
+      { type: 'CONNECT_FAILED', status: 409, message: 'multiple_mobile_channels' },
+    );
+    expect(next.state).toBe('error');
+    expect(next.errorMessage).toBe('Disconnect your current channel before connecting another.');
+  });
+
+  it('maps a 409 already_verified to the already-connected message', () => {
+    const next = enrollmentReducer(
+      { ...initialEnrollment, state: 'generating' },
+      { type: 'CONNECT_FAILED', status: 409, message: 'already_verified' },
+    );
+    expect(next.errorMessage).toBe('Already connected.');
+  });
+});

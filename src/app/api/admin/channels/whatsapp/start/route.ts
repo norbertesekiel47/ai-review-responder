@@ -3,7 +3,7 @@
 // POST /api/admin/channels/whatsapp/start — admin generates a one-time WhatsApp
 // verification deep link + QR for owner scan via wa.me click-to-chat.
 //
-// Handler order: same-origin wrapper → flag → env → auth → businessId → subscription → advisory lock → state-machine upsert.
+// Handler order: same-origin wrapper → flag → env → auth → businessId → subscription → advisory lock → startWhatsAppEnrollment helper.
 //
 // State machine (§2.4 of Phase 3 design spec):
 //   no row                → INSERT pending_verification, fresh hash + 1h expiry
@@ -18,18 +18,17 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createHash, randomUUID } from 'node:crypto';
-import { v7 as uuidv7 } from 'uuid';
 import QRCode from 'qrcode';
 import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { isWhatsAppEnabled, flagOff, assertWhatsAppEnvReady } from '../_shared';
-import { classifyEnrollmentError, MultipleMobileChannelsError, EnrollmentDatabaseError } from '@/lib/channels/unique-violation';
+import { MultipleMobileChannelsError, EnrollmentDatabaseError } from '@/lib/channels/unique-violation';
 import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
 import { asAccountId } from '@/lib/shared/ids';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
-
-const TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
+import { startWhatsAppEnrollment } from '@/lib/channels/whatsapp-enrollment';
+import { TOKEN_TTL_MS } from '@/lib/notifications/channels/constants';
 
 async function startWhatsApp(req: NextRequest): Promise<NextResponse> {
   if (!isWhatsAppEnabled()) return flagOff();
@@ -78,45 +77,7 @@ async function startWhatsApp(req: NextRequest): Promise<NextResponse> {
   try {
     result = await sql.begin(async (tx) => {
       await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`mobile_enroll:${businessId}`}, 0))`;
-
-      const existing = await tx<{ id: string; status: string }[]>`
-        SELECT id, status FROM channel_enrollments
-        WHERE business_id = ${businessId} AND channel = 'whatsapp' AND archived_at IS NULL
-        FOR UPDATE
-      `;
-      const existingRow = existing[0];
-
-      if (existingRow?.status === 'verified') {
-        return { kind: 'already_verified' as const };
-      }
-
-      try {
-        if (existingRow) {
-          await tx`
-            UPDATE channel_enrollments
-            SET status                        = 'pending_verification',
-                handle                        = NULL,
-                verification_token_hash       = ${tokenHash},
-                verification_token_expires_at = ${expiresAt},
-                disabled_at                   = NULL,
-                unsubscribed_at               = NULL,
-                unsubscribed_reason           = NULL,
-                updated_at                    = NOW()
-            WHERE id = ${existingRow.id}
-          `;
-        } else {
-          await tx`
-            INSERT INTO channel_enrollments
-              (id, account_id, business_id, channel, status, verification_token_hash, verification_token_expires_at)
-            VALUES
-              (${uuidv7()}, ${accountId}, ${businessId}, 'whatsapp', 'pending_verification', ${tokenHash}, ${expiresAt})
-          `;
-        }
-      } catch (err) {
-        classifyEnrollmentError(err); // always throws
-      }
-
-      return { kind: 'ok' as const };
+      return startWhatsAppEnrollment(tx, businessId, accountId, tokenHash, expiresAt);
     });
   } catch (err) {
     if (err instanceof MultipleMobileChannelsError) {

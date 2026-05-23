@@ -11,6 +11,7 @@ import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { isTelegramEnabled, assertTelegramEnvReady } from '@/app/api/admin/channels/telegram/_shared';
+import { whatsappEnvReady } from '@/app/api/admin/channels/whatsapp/_shared';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,9 +39,7 @@ function smsAvailable(): boolean {
 
 function whatsappAvailable(): boolean {
   if (process.env.CHANNELS_WHATSAPP_ENABLED !== 'true') return false;
-  if (process.env.MOCK_EXTERNAL_APIS === 'true') return true;
-  const required = ['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_WHATSAPP_NUMBER', 'WHATSAPP_APPROVAL_TEMPLATE_SID'];
-  return required.every((k) => process.env[k] && process.env[k]!.trim().length > 0);
+  return whatsappEnvReady();
 }
 
 function telegramAvailable(): boolean {

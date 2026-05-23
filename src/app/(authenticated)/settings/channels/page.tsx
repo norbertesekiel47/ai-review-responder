@@ -20,6 +20,7 @@ import { TopBar } from '@/components/dashboard/TopBar';
 import { type InitialEnrollment } from './ChannelsClient';
 import { ChannelsTabClient } from './ChannelsTabClient';
 import { isTelegramEnabled, assertTelegramEnvReady } from '@/app/api/admin/channels/telegram/_shared';
+import { whatsappEnvReady } from '@/app/api/admin/channels/whatsapp/_shared';
 import { getLocationsForAccount, getActiveLocationCount } from '@/lib/locations/repo';
 import { getDisplayLabel, type HasDisplayLabel } from '@/lib/locations/display-label';
 import {
@@ -38,9 +39,7 @@ function smsAvailable(): boolean {
 
 function whatsappAvailable(): boolean {
   if (process.env.CHANNELS_WHATSAPP_ENABLED !== 'true') return false;
-  if (process.env.MOCK_EXTERNAL_APIS === 'true') return true;
-  const required = ['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_WHATSAPP_NUMBER', 'WHATSAPP_APPROVAL_TEMPLATE_SID'];
-  return required.every((k) => process.env[k] && process.env[k]!.trim().length > 0);
+  return whatsappEnvReady();
 }
 
 function telegramAvailable(): boolean {
@@ -183,8 +182,12 @@ export default async function ChannelsPage() {
         initialAvailability={{
           telegram: telegramAvailable(),
           sms: smsAvailable(),
-          whatsapp: whatsappAvailable(),
+          // Interim safeguard: WhatsApp self-service is restricted to single-location accounts
+          // until the cross-channel account-scope fix lands. See
+          // docs/superpowers/specs/2026-05-22-owner-channel-account-scope-design.md
+          whatsapp: whatsappAvailable() && activeLocationCount <= 1,
         }}
+        whatsappMultiLocationBlocked={whatsappAvailable() && activeLocationCount > 1}
         ownerEmailFallback={ownerEmail}
         multiLocationEnabled={multiLocationEnabled}
         locationsSettingsEnabled={locationsSettingsEnabled}

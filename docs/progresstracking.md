@@ -4341,3 +4341,55 @@ Documented in `docs/runbooks/multi-location.md` §6 — minor known issues that 
 
 ---
 
+
+## Billing Tiers + Locations UX (2026-05-22, `feat/billing-locations-ux` → PR #51, #52)
+
+**Status:** COMPLETE — merged to `main` (`pnpm test` 3423 passed / 1 skipped, `pnpm build`, `pnpm typecheck` all green). No new migration required; reused existing `accounts` columns.
+
+**Why:** Onboarding advertised only 3 tiers with stale hardcoded prices ($99/$149/$199), and the Locations management surface was hidden until an account already had >1 location — so a freshly-paid Standard/Premium owner looked unable to add a second location. The fix makes tier display canonical and makes Settings the place to discover/manage location capability.
+
+**What was done:**
+
+1. **Onboarding shows all four canonical tiers** — Founding Member, Basic, Standard, Premium. Prices now derive from `TIER_CONFIG[tier].baseCents` (`$19/$29/$79/$199`) via the new `src/app/onboarding/pay/plan-options.ts`, instead of hardcoded strings. The Stripe Price IDs were verified (2026-05-22) to match `TIER_CONFIG`, so display == charge.
+2. **Basic accepted by Select Plan** — `SelectPlanSchema` enum widened to `['founders','basic','standard','premium']`; `PlanPickerClient` tier union widened in all three spots (interface, state, handler); route doc comment updated.
+3. **Settings gating split into three concepts** (new helpers in `src/lib/locations/multi-location-mode.ts`):
+   - `shouldUseMultiLocationSettings` (mode — `count > 1`) → drives Voice/Notifications multi-loc content + switcher.
+   - `shouldShowLocationsSettings` (visibility — flag only) → Locations tab now appears even with one location.
+   - `canAddLocationForAccount` (eligibility — flag + active status + `multiLocAllowed`).
+   `/settings/voice` stays gated by true multi-location mode; single-location Brand Voice routes to the `/settings#brand-voice` anchor (no accidental exposure).
+4. **Basic sees a locked upgrade state** on `/settings/locations` — renders a static panel (NOT the add-location `<Link>`, no add API call) with a "View plan options" CTA to `/settings#subscription-billing`.
+5. **Stored quota is the billing source of truth** — `accounts.locations_included` (and, after PR #52 review, `accounts.locations_overage_price_cents`) now drive overage math across all five surfaces: add-location preview, checkout line items, `assertCanAddLocation`, `UpdateStripeOverageWorker`, `StripeLocationsReconcilePoller`, and the `customer.subscription.updated` webhook (which resets `locations_included` to the new tier's config only on actual tier change).
+
+**Review-driven follow-ups (this session):**
+- Spec review caught a price source-of-truth gap (display was about to align to `TIER_CONFIG` without confirming Stripe matched) → resolved by verifying Stripe prices == `TIER_CONFIG` and documenting Stripe Price IDs as the charge source of truth.
+- Code review caught asymmetric grandfathering (included was stored but overage price was config) → PR #52 made `currentBillingSnapshot` read the stored `locations_overage_price_cents`, with a regression test using a stored value (3000) that deliberately differs from `TIER_CONFIG`.
+
+**Known residual debt:** Base price is NOT grandfathered (no `accounts.base_price_cents` column) — most relevant for the `founders` "Rate locked for life" promise. Documented as a TODO in `src/lib/accounts/quota.ts` and in `docs/runbooks/multi-location.md` §6 (Known Issues & Tech Debt). Fix needs a schema change.
+
+---
+
+
+## WhatsApp Channel Go-Live (2026-05-22, `feat/whatsapp-go-live` → PR #53)
+
+**Status:** Code COMPLETE, behind `CHANNELS_WHATSAPP_ENABLED` (still off). `pnpm test` 3,459 passed / 1 skipped, `pnpm lint` + `pnpm typecheck` green. **No new migration** — reused migration 034's `channel_enrollments` `account_id`/`location_id` columns + scope indexes. Real go-live is a separate ops step (Twilio sender + Meta template approval + ship gate).
+
+**Why:** The WhatsApp channel shipped code-complete-but-flag-gated back in Phase 3 (`edc3b11`), deferred until the WhatsApp Business Account cleared Meta verification. That cleared, so this effort makes it actually shippable: it builds the missing **owner self-service** enrollment (Phase 3/4 had only admin-side enrollment), reconciles the months-old code against multi-location + billing changes, and produces the go-live runbook.
+
+**What was done:**
+
+1. **Owner self-service enrollment** — new `OwnerWhatsAppWidget` (`src/components/dashboard/`) + owner-scoped routes `POST /api/dashboard/channels/whatsapp/{start,cancel,disable}`, wired into `/settings/channels` (replaced the hardcoded "coming soon" stub). Mirrors the existing owner Telegram pattern: `locationId` from session, `withSameOrigin` CSRF, subscription read from `accounts`, click-to-chat QR (`wa.me/<number>?text=start-<token>`), 3s status poll → verified.
+2. **Helper extraction (entry-point invariant)** — moved the enrollment state machine into `startWhatsAppEnrollment` / `disableWhatsAppEnrollment` in `src/lib/channels/whatsapp-enrollment.ts`; refactored the admin start route to orchestrate via the helper instead of inlining the SELECT-FOR-UPDATE/INSERT.
+3. **Env-readiness unified** — one `whatsappEnvReady()` predicate in the admin `_shared.ts` now backs the route guard AND both `whatsappAvailable()` UI checks. Fixed a latent bug: the UI checked 4 vars (omitting `WHATSAPP_APPROVAL_URL_BASE`) while the route checked 5 — so the UI could show a Connect button the route then 503'd.
+4. **Drift audit (no material drift)** — verified the Phase 3 code against multi-location (mig 034) + billing tiers: subscription reads from `accounts`, enrollment scoped by `business_id`, IDs thread through `approval_links`/`notification_deliveries`. No fixes needed.
+5. **Tests** — owner route tests (flag-off 404, env 503, auth 401, subscription 403, `multiple_mobile_channels` 409, single-location-guard 403); helper 23505 classification; a reducer copy-lock test (generic conflict string); an enrollment round-trip integration test (start route → simulated inbound webhook → verified) that runs in CI; Playwright E2E (fixme-gated, mirrors Telegram).
+6. **Go-live runbook** (`docs/runbooks/whatsapp-templates.md`) — corrected the template type `twilio/card` → `whatsapp/card` (verified against Twilio docs; `twilio/card` forces WhatsApp text into `title`), 9-variable validation gate against `formatApprovalWhatsApp`, Vercel+Railway env matrix, canary-before-gate, the eight-point §5.1 ship gate.
+
+**Review-driven follow-ups (this session, two review rounds):**
+- Confirmed the multi-location desync (High) is **pre-existing and cross-channel** (SMS/Telegram share the `business_id`-keyed paths). Shipped an **interim single-location guard** for WhatsApp (server 403 `multi_location_unsupported` + UI "coming soon"), and filed the proper cross-channel fix as a tracked design doc.
+- Owner route catches now **rethrow non-`AuthError`** instead of masking server failures as 401.
+- Test hardening: `process.env` snapshot/restore in the integration test, `AbortController` timeout in the E2E ingress helper, fixed an `AuthError` constructor-arity error that broke `tsc` (not vitest).
+- Lows: runbook STOP wording (`unsubscribed`, not `disabled`); stale E2E selector (`rounded-lg` → `channel-row`).
+
+**Known residual debt:** The cross-channel owner-enrollment account-scope desync is **unresolved for SMS + Telegram** (only WhatsApp is guarded). Tracked in `docs/known-issues.md` + `docs/superpowers/specs/2026-05-22-owner-channel-account-scope-design.md`. Interim-guard edge case: an account that enrolls WhatsApp while single-location then adds locations sees the widget flip to "coming soon" while still enrolled (manageable via admin console).
+
+---
