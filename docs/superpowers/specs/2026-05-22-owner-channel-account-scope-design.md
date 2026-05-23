@@ -85,11 +85,14 @@ primary).
 **4. Admin lock-key consistency — Telegram + WhatsApp admin `start` (INCLUDED, scoped)**
 - Admin enrollment also creates org-default rows (`location_id NULL`) but locks by
   `mobile_enroll:${businessId}`. Change the admin advisory-lock key to
-  `mobile_enroll:${accountId}` in the **Telegram `start`** and **WhatsApp `start`**
-  routes (inline lock, ~1 line each) so an admin and an owner acting on the same
-  account+channel mutually exclude. Without this, the account-scope unique index
-  still prevents corruption but one side gets a raw 500 instead of a clean 409. These
-  routes already resolve the account.
+  `mobile_enroll:${accountId}` everywhere these channels take the lock on the admin
+  side: **Telegram `start` + `cancel`** and **WhatsApp `start` + `cancel`** (inline
+  lock, ~1 line each — 4 routes total; admin `disable` is a lock-free single UPDATE).
+  All four must change together so admin start and admin cancel for the same channel
+  use the same key. This lets an admin and an owner acting on the same account+channel
+  mutually exclude. Without it, the account-scope unique index still prevents
+  corruption but one side gets a raw 500 instead of a clean 409. These routes already
+  resolve the account (or select `a.id`).
 - **SMS admin lock deferred (scope refinement found during planning):** SMS locks via
   the shared `withMobileEnrollmentLock(businessId, …)` helper (`sms/_shared.ts`) used
   by 5+ SMS routes — changing it to account-scoped would touch all of them. And there
@@ -109,10 +112,30 @@ primary).
 
 Write `business_id = user.locationId` (the enrolling owner's primary location) — the
 current behavior. **Refinement from brainstorming:** we floated "set it to the
-account's primary location," but since `business_id` is never read for the org-default
-scope after this fix, the value is cosmetic; writing `user.locationId` is correct,
-needs no extra `is_primary` lookup, and avoids coupling to a mutable primary flag.
-(The NOT-NULL FK is satisfied either way.)
+account's primary location," but since the **owner enrollment lookup paths** (status
+GET + the start/cancel/disable helpers) no longer read `business_id` after this fix,
+the value is cosmetic *for those paths*; writing `user.locationId` is correct, needs
+no extra `is_primary` lookup, and avoids coupling to a mutable primary flag. (The
+NOT-NULL FK is satisfied either way.)
+
+**`business_id` is NOT globally unused — scope the claim.** It remains the correct
+key in per-business contexts this fix does **not** touch:
+- **Admin per-business status reads** (`src/app/api/admin/businesses/[id]/channels/route.ts`,
+  `src/app/api/admin/channels/sms/status/route.ts`) — admin views one business's
+  enrollments by design; correct as-is, no change.
+- **⚠️ Dispatcher failure-handling writes** (`worker/jobs/notification/dispatch.ts` —
+  the `telegram_blocked` / `telegram_chat_not_found` / `whatsapp_blocked` / etc.
+  branches) flip enrollment status by `WHERE business_id = ctx.businessId`. On a
+  multi-location account, the org-default row's `business_id` (enroller's location)
+  can differ from the review's `ctx.businessId`, so these status flips may **miss the
+  org-default row** — the same root cause as this bug, in the send path. This fix does
+  **NOT** address it: doing so correctly requires distinguishing org-default vs
+  per-location-override sends (`resolve-channels` prefers overrides), which is its own
+  design question. `ctx` already carries `accountId`, so it's fixable later. **Tracked
+  as a related follow-up** (added to `docs/known-issues.md`). Severity: a blocked
+  recipient may not get marked unsubscribed → repeated failed sends; not data
+  corruption. Trigger is narrow (multi-location + owner-enrolled chat channel + a
+  block/STOP), and WhatsApp ships flag-off.
 
 ## Data flow (shape unchanged, account-keyed)
 
@@ -124,10 +147,24 @@ account-scoped advisory lock → `startXEnrollment` SELECTs the org-default row 
 
 ## Error handling
 
-Unchanged: `MultipleMobileChannelsError` → 409, `EnrollmentDatabaseError` → 500,
-`already_verified` → 409. The account-scoped advisory lock + the 034 unique index
-together resolve concurrent creates to one winner + a clean 409 for the loser
-(no more raw 500 from a lost race).
+Unchanged status mapping: `MultipleMobileChannelsError` → 409, `EnrollmentDatabaseError`
+→ 500, `already_verified` → 409.
+
+How the fix changes outcomes (corrected — the helper state machine matters here):
+- **The desync 500 is eliminated by the SELECT-then-UPDATE path, not by the lock.**
+  After the fix, owner B's start SELECTs the existing org-default row by
+  `(account_id, channel, location_id IS NULL)`, **finds it**, and UPDATEs it — so
+  there is no INSERT and no `account_channel_scope_uniq` violation. (The pre-fix bug
+  INSERTed because the `business_id = L2` SELECT found nothing.)
+- **Same-channel concurrent starts do NOT produce a 409.** The account-scoped advisory
+  lock serializes them: the first INSERTs the pending row, the second then SELECTs it
+  and UPDATEs (re-issuing a fresh token) — **both return `ok` (200), exactly one row,
+  later token wins.** The lock's job is to prevent two concurrent INSERTs from both
+  seeing "no row" and racing into a `account_channel_scope_uniq` 500.
+- **The 409 `multiple_mobile_channels` is a CROSS-channel outcome** — it fires when a
+  *different* mobile channel (e.g. Telegram) is already pending/verified for the
+  account and the owner starts WhatsApp/SMS, tripping `one_mobile_per_scope`. Unchanged
+  by this fix.
 
 ## Testing
 
@@ -135,17 +172,23 @@ together resolve concurrent creates to one winner + a clean 409 for the loser
   org-default row with `account_id` matching but `business_id ≠ user.locationId`;
   assert the status GET shows it connected, Disconnect succeeds (not 404), and a
   fresh Connect does not 500.
-- **Concurrency:** two owners (different `locationId`, same account) connect
-  concurrently → one wins, the other gets 409, exactly one row exists.
+- **Same-channel concurrency:** two owners (different `locationId`, same account)
+  start the *same* channel → both return `ok` (serialized by the account lock; later
+  token wins), exactly one row. (NOT a 409 — see Error handling.)
+- **Cross-channel exclusivity:** with a verified Telegram org-default row, starting
+  WhatsApp → 409 `multiple_mobile_channels`.
 - **WhatsApp guard removed:** delete the single-location 403 test; add a test that
   multi-location accounts now receive the interactive widget (UI availability true).
-- **Admin lock key:** assert admin start routes lock by `mobile_enroll:${accountId}`.
+- **Admin lock key:** assert admin Telegram + WhatsApp **start AND cancel** routes
+  lock by `mobile_enroll:${accountId}`.
 - **Update** `enroll-e2e.integration.test.ts` queue ordering (no `getActiveLocationCount`
   call; account-keyed SELECT/UPDATE).
 - **unique-violation classifier:** keep the existing distinction between
   `account_channel_scope_uniq` (→ `EnrollmentDatabaseError`) and
   `one_mobile_per_scope` (→ `MultipleMobileChannelsError`).
-- Full `pnpm test` + `pnpm typecheck` + `pnpm lint` green.
+- Full `pnpm test` + `pnpm typecheck` + `pnpm lint` + **`pnpm build`** green
+  (build required before claiming complete per repo instructions, since this changes
+  app behavior).
 
 ## File map
 
@@ -155,7 +198,7 @@ together resolve concurrent creates to one winner + a clean 409 for the loser
 - `src/lib/channels/whatsapp-enrollment.ts` (3 helpers → account scope)
 - `src/app/api/dashboard/channels/telegram/{start,cancel,disable}/route.ts` (pass accountId, lock by accountId)
 - `src/app/api/dashboard/channels/whatsapp/{start,cancel,disable}/route.ts` (pass accountId, lock by accountId, **remove guard**)
-- Admin advisory-lock key → accountId in `src/app/api/admin/channels/telegram/start/route.ts` and `…/whatsapp/start/route.ts` only (SMS `withMobileEnrollmentLock` deferred — no owner-SMS path yet)
+- Admin advisory-lock key → accountId in `src/app/api/admin/channels/telegram/{start,cancel}/route.ts` and `…/whatsapp/{start,cancel}/route.ts` (SMS `withMobileEnrollmentLock` deferred — no owner-SMS path yet)
 - `src/app/(authenticated)/settings/channels/page.tsx` + `ChannelsClient.tsx` (remove `whatsappMultiLocationBlocked` gating)
 - Tests for all of the above + `docs/known-issues.md` (mark resolved)
 

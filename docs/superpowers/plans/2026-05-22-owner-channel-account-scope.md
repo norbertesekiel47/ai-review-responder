@@ -21,7 +21,7 @@ Single, coherent correctness fix. SMS owner self-service does not exist and is *
 ## File Structure
 
 - **Helpers** own the account-scoped predicates: `src/lib/channels/telegram-enrollment.ts`, `whatsapp-enrollment.ts`.
-- **Routes** orchestrate: resolve `accountId`, take the account-scoped lock, call helpers. Owner Telegram + WhatsApp `start/cancel/disable`; the shared status GET; Telegram + WhatsApp admin `start` (lock key only).
+- **Routes** orchestrate: resolve `accountId`, take the account-scoped lock, call helpers. Owner Telegram + WhatsApp `start/cancel/disable`; the shared status GET; Telegram + WhatsApp admin `start` + `cancel` (lock key only). SMS admin (`withMobileEnrollmentLock`) deferred.
 - **UI**: revert the WhatsApp multi-location gating in `page.tsx` + `ChannelsClient.tsx`.
 - **Tests** live beside each unit; the regression scenario goes in the WhatsApp + (new) Telegram owner integration tests.
 
@@ -347,15 +347,21 @@ git commit -m "fix(channels): account-scope owner WhatsApp routes + remove singl
 
 ---
 
-## Task 6: Admin Telegram + WhatsApp `start` — account-scoped lock
+## Task 6: Admin Telegram + WhatsApp lock → account-scoped (start AND cancel)
+
+The `mobile_enroll` lock is taken in **four** admin routes for these channels:
+`telegram/start`, `telegram/cancel`, `whatsapp/start`, `whatsapp/cancel` (admin
+`disable` is a lock-free single UPDATE). All four must move to the account key
+together so admin start and admin cancel for the same channel mutually exclude. SMS
+(`withMobileEnrollmentLock`) is **deferred** (no owner-SMS path; spans 5+ routes).
 
 **Files:**
-- Modify: `src/app/api/admin/channels/telegram/start/route.ts`, `src/app/api/admin/channels/whatsapp/start/route.ts`
-- Test (regression): the existing `admin/channels/{telegram,whatsapp}/__tests__/start.test.ts`
+- Modify: `src/app/api/admin/channels/telegram/{start,cancel}/route.ts`, `src/app/api/admin/channels/whatsapp/{start,cancel}/route.ts`
+- Tests: the existing `admin/channels/{telegram,whatsapp}/__tests__/{start,cancel}.test.ts`
 
-- [ ] **Step 1: Change the lock key in both admin start routes.**
+- [ ] **Step 1: `start` routes (telegram + whatsapp).**
 
-Both files resolve `accountId` (from their accounts lookup) before the `sql.begin`. Change:
+Both already resolve `accountId` before `sql.begin`. Change the lock line:
 ```ts
       await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`mobile_enroll:${businessId}`}, 0))`;
 ```
@@ -363,17 +369,30 @@ Both files resolve `accountId` (from their accounts lookup) before the `sql.begi
 ```ts
       await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`mobile_enroll:${accountId}`}, 0))`;
 ```
-Confirm `accountId` is in scope at that point in each file (the subscription lookup selects it). If a file only selected `subscription_status`, add `a.id` to that SELECT and capture `accountId`. Update the WhatsApp admin start comment that says "mutually exclusive per business" → "per account". Leave SMS (`withMobileEnrollmentLock`) unchanged — deferred per spec.
+If a file only selected `a.subscription_status`, add `a.id` to that SELECT and capture `accountId`. Update the WhatsApp admin start comment "mutually exclusive per business" → "per account".
 
-- [ ] **Step 2: Verify the admin start tests still pass.**
+- [ ] **Step 2: `cancel` routes (telegram + whatsapp).**
+
+These currently lock by `mobile_enroll:${businessId}` and may NOT resolve `accountId` yet. Resolve it from the business, then lock by account:
+```ts
+  const [acct] = await sql<{ account_id: string }[]>`
+    SELECT account_id FROM businesses WHERE id = ${businessId}
+  `;
+  if (!acct) return NextResponse.json({ error: 'not_found' }, { status: 404 });
+  // ...inside sql.begin:
+      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`mobile_enroll:${acct.account_id}`}, 0))`;
+```
+Read each admin cancel route first; place the lookup before `sql.begin` and keep the rest of the handler unchanged (the cancel still acts on its existing per-business enrollment row — only the lock key changes). Update the comment referencing the shared `mobile_enroll` key.
+
+- [ ] **Step 3: Verify the admin tests pass.**
 
 Run: `pnpm test src/app/api/admin/channels/telegram src/app/api/admin/channels/whatsapp`
-Expected: PASS. The lock is one tx call regardless of key, so the mocked `sqlQueue` ordering is unchanged. If any test asserts the literal `mobile_enroll:<businessId>` string, update it to `mobile_enroll:<accountId>`.
+Expected: PASS. The lock is one tx call regardless of key, so the mocked `sqlQueue` ordering is unchanged for `start`. The `cancel` routes now make ONE extra `sql` call (the `account_id` lookup) before the tx — update each cancel test's `sqlQueue` to push an `[{ account_id: '…' }]` row at that position. If any test asserts the literal `mobile_enroll:<businessId>` string, update it.
 
-- [ ] **Step 3: Commit.**
+- [ ] **Step 4: Commit.**
 ```bash
-git add src/app/api/admin/channels/telegram/start/route.ts src/app/api/admin/channels/whatsapp/start/route.ts
-git commit -m "fix(channels): account-scope admin Telegram/WhatsApp enrollment lock"
+git add src/app/api/admin/channels/telegram src/app/api/admin/channels/whatsapp
+git commit -m "fix(channels): account-scope admin Telegram/WhatsApp enrollment lock (start + cancel)"
 ```
 
 ---
@@ -452,6 +471,8 @@ it('reads/writes the org-default row by account even when business_id differs fr
 ```
 Adapt the request helper / import to the file's existing patterns. The assertion that matters: **200, not 404** — that is exactly what the pre-fix `business_id = L2` lookup got wrong.
 
+**Concurrency expectations (do NOT write a same-channel "loser gets 409" test — it's wrong):** per the spec's Error handling, two same-channel concurrent starts are serialized by the account advisory lock and **both return `ok`** (the second finds the pending row and re-issues the token), leaving exactly one row — there is no 409 for that case. The 409 `multiple_mobile_channels` is a **cross-channel** outcome (a different mobile channel already pending/verified) and is already covered by the existing `whatsapp/__tests__/start.test.ts` `multiple_mobile_channels` case — no new test needed. Same-channel concurrency is enforced by the lock + helper SELECT-then-UPDATE design (not unit-testable without real concurrency); a comment in the test file is sufficient.
+
 - [ ] **Step 2: Confirm it would fail pre-fix (sanity, optional).**
 
 Optional: `git stash` the production changes, run the new test, confirm it FAILS (404), `git stash pop`. This proves the test guards the bug.
@@ -474,6 +495,8 @@ git commit -m "test(channels): regression for multi-location owner enrollment de
 
 Update the "Owner channel enrollment desyncs…" entry: change **Status** to `Resolved (PR <this PR#>)` for Telegram + WhatsApp; note the org-default paths are now account-scoped and the WhatsApp single-location guard was removed. Keep a short note that SMS owner self-service, when built, must use the same account-scoped pattern (and bring the SMS admin lock to account scope then).
 
+Also **add a new open entry** for the related (NOT-fixed) issue: the dispatcher's failure-handling enrollment-status writes (`worker/jobs/notification/dispatch.ts` — `telegram_blocked` / `telegram_chat_not_found` / `whatsapp_blocked` branches) flip status by `WHERE business_id = ctx.businessId`, which can miss the org-default row on multi-location accounts. Severity: a blocked recipient may not get marked unsubscribed → repeated failed sends (not data corruption). Fix is deferred because it needs org-default-vs-per-location-override awareness; `ctx.accountId` is available for the eventual fix. Reference the design doc's "business_id is NOT globally unused" section.
+
 - [ ] **Step 2: `.claude/skills/feature-flags.md`.**
 
 In the `CHANNELS_WHATSAPP_ENABLED` section, remove the "single-location-only (interim guard)" paragraph (the guard is gone). Keep the "set on BOTH platforms" + shared `whatsappEnvReady()` notes.
@@ -494,10 +517,10 @@ git commit -m "docs: mark owner-enrollment account-scope desync resolved (Telegr
 
 **Files:** none.
 
-- [ ] **Step 1: Run the full suite + typecheck + lint.**
+- [ ] **Step 1: Run the full suite + typecheck + lint + build.**
 
-Run: `pnpm test && pnpm typecheck && pnpm lint`
-Expected: all green. Pay attention to: admin SMS/Telegram/WhatsApp suites (lock change), notification dispatch (resolve-channels reads enrollments — confirm unaffected: dispatch reads via `resolve-channels.ts` which already groups by account; this fix only touches the owner self-service read/write paths), and the channels page/widget suites.
+Run: `pnpm test && pnpm typecheck && pnpm lint && pnpm build`
+Expected: all green. `pnpm build` is **required** before claiming complete (repo instructions — this changes app behavior). Pay attention to: admin SMS/Telegram/WhatsApp suites (lock change), notification dispatch (resolve-channels reads enrollments — confirm unaffected: dispatch reads via `resolve-channels.ts` which already groups by account; this fix only touches the owner self-service read/write paths), and the channels page/widget suites.
 
 - [ ] **Step 2: Commit only if a fix was needed.**
 
