@@ -10,11 +10,14 @@ Reliability is invisible until it isn't. Customers don't reward great uptime; th
 
 ## 2. Current state (RepWorth)
 
-- Strong runbook coverage already: `docs/runbooks/operational-runbook.md`, `multi-location.md`, `zernio-ingestion-test-runbook.md`, `email-deliverability.md`, `signup-test-runbook.md`, `smoke-test-checklist.md`, etc.
-- No public status page.
-- No documented uptime SLO.
-- No DR drill performed against Supabase PITR.
-- No `docs/postmortems/` directory yet.
+_Verified 2026-05-23 against the live tree (migration head 042)._
+
+- Runbook coverage is real but partly archived: `operational-runbook.md`, `multi-location.md`, `smoke-test-checklist.md` live in `docs/runbooks/`; `zernio-ingestion-test-runbook.md`, `email-deliverability.md`, `signup-test-runbook.md` have moved to `docs/runbooks/completed_runbooks/`.
+- No public status page; no documented uptime SLO; no `docs/sre/` directory.
+- **Supabase PITR is on but has never been restored end-to-end** — the single most important untested assumption in this spec.
+- No `docs/postmortems/` directory; no `/trust` page; no `/changelog/incidents`.
+- ⚠️ **No CI and no infra-as-code:** there is no `.github/workflows/`, no `vercel.json`, no `railway.{json,toml}`, no `Dockerfile` (Vercel/Railway are dashboard-configured). The "no direct push to main / change-management" controls can't be enforced until branch protection + CI exist (see [Spec 24](./24-devops-deployment.md)).
+- **Health checks:** worker has `/api/health` (Fastify :3001); Next.js has none — synthetic checks need a Next.js health route first ([Spec 07](./07-observability.md)).
 
 ## 3. Target state
 
@@ -86,8 +89,8 @@ Current runbook list is solid. Maintain pattern; add a runbook every time a new 
 3. Define SLO targets in `docs/sre/slos.md`. Tie to alert thresholds in Sentry / BetterStack.
 4. Define severity ladder in `docs/sre/severity-ladder.md`. Cross-link from every runbook.
 5. Create `docs/postmortems/_template.md` and `docs/postmortems/README.md` (the index).
-6. Schedule first DR drill for next quarter (calendar entry, runbook `docs/runbooks/dr-drill.md`).
-7. Set up weekly S3 backup export — GitHub Action or Railway cron that calls Supabase `pg_dump` and uploads to B2/R2.
+6. **Do the first PITR restore now** — don't wait for a quarterly cadence to discover it's broken. Restore prod to staging, run the smoke test, record elapsed time in `docs/runbooks/dr-drill.md`. Then schedule it quarterly.
+7. Set up weekly S3 backup export. With no CI today, prefer a **Railway cron** that calls Supabase `pg_dump` → B2/R2; move to a GitHub Action once CI exists ([Spec 24](./24-devops-deployment.md)).
 8. Audit current runbooks; ensure each has the five required sections.
 9. Update Sentry alert rules to tag with severity (`severity:p0`, `severity:p1`, etc.) — drives routing in [Spec 07](./07-observability.md).
 10. Add a "What broke" public page at `/changelog/incidents` summarizing last 12 months' incidents (auto-generated from postmortems).
@@ -127,4 +130,15 @@ Current runbook list is solid. Maintain pattern; add a runbook every time a new 
 - [Spec 24 — DevOps & Deployment](./24-devops-deployment.md) (rollback playbook, migration patterns)
 - [Spec 27 — Team & Knowledge Management](./27-team-knowledge.md) (bus factor, emergency access)
 - [Spec 29 — RepWorth Gaps](./29-repworth-specific-gaps.md) (`/trust` page)
-- Code anchors: `docs/runbooks/operational-runbook.md`, `docs/runbooks/smoke-test-checklist.md`
+- Code anchors: `docs/runbooks/operational-runbook.md`, `docs/runbooks/smoke-test-checklist.md`, `docs/runbooks/completed_runbooks/`, `worker/index.ts` (Fastify `/api/health`)
+
+## 9. Implementation in the current repo
+
+- **The cheapest win with the biggest risk reduction is the first PITR restore.** Everything else (SLO publishing, status page) is downstream of trusting the backup.
+- **Status page + synthetic checks** depend on a Next.js `/api/health` route (only the worker has one). Build that route, then point BetterStack at both health endpoints.
+- **Change-management controls** ("no direct push to main", staging dry-run, smoke test in PR) require GitHub branch protection + CI — neither exists yet. Treat "stand up CI" ([Spec 24](./24-devops-deployment.md)) as the prerequisite, not an afterthought.
+- **Backups** run as a Railway cron alongside the existing `worker/background/` loops until CI is available for a GitHub Action.
+- **Runbook audit** is doc-only: ensure each surviving runbook (and the archived ones if reactivated) carries the five required sections.
+
+---
+_Verified 2026-05-23 against migration head 042. Corrected runbook locations (3 archived to completed_runbooks/), flagged the never-tested PITR restore, the no-CI/no-IaC reality blocking change-management, and the missing Next.js health route._
