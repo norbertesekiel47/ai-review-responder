@@ -137,8 +137,8 @@ Current runbook list is solid. Maintain pattern; add a runbook every time a new 
 - **The cheapest win with the biggest risk reduction is the first PITR restore.** Everything else (SLO publishing, status page) is downstream of trusting the backup.
 - **Status page + synthetic checks** depend on a Next.js `/api/health` route (only the worker has one). Build that route, then point BetterStack at both health endpoints.
 - **Change-management controls** ("no direct push to main", staging dry-run, smoke test in PR) still require GitHub branch protection and reliability-specific CI gates. The secret-free base CI exists, but branch protection and smoke/deploy controls remain follow-up work in [Spec 24](./24-devops-deployment.md).
-- **Backups** run as a Railway cron alongside the existing `worker/background/` loops until CI is available for a GitHub Action.
+- **Backups** run as a Railway cron alongside the existing `worker/background/` loops until a secret-bearing scheduled GitHub Action is designed on top of the base CI.
 - **Runbook audit** is doc-only: ensure each surviving runbook (and the archived ones if reactivated) carries the five required sections.
 
 ---
-_Verified 2026-05-23 against migration head 042. Corrected runbook locations (3 archived to completed_runbooks/), flagged the never-tested PITR restore, the no-CI/no-IaC reality blocking change-management, and the missing Next.js health route._
+_Verified 2026-05-23 against migration head 042. Corrected runbook locations (3 archived to completed_runbooks/), flagged the never-tested PITR restore, the still-missing branch-protection/smoke-deploy controls, the no-IaC reality, and the missing Next.js health route._
