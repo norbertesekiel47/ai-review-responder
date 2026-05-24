@@ -53,7 +53,77 @@ Each spec is independent enough to be implemented as a single planning epic but 
 
 ---
 
+## Execution strategy (do **not** run these 1 → 29)
+
+> Added 2026-05-23 after the full verification pass (all specs checked against the live tree, head 042). Spec numbers are an **index, not an execution order.** Three facts make sequencing matter:
+> 1. **Keystones unblock clusters** — standing up CI (Spec 24) alone unblocks ~8 specs.
+> 2. **Cross-cutting decisions sit upstream** of whole groups — resolve once, not per-spec.
+> 3. **~40% is already partly built** — much "implementation" is verify-and-polish, not greenfield.
+
+### The different ways to run them
+
+| Model | What it is | Best when | Main cost |
+|---|---|---|---|
+| Sequential (1→29) | Top-to-bottom by number | Never — index order ≠ dependency order | Rework; rebuilds already-shipped work |
+| Risk-tiered | Launch → activation → growth → scale blockers (§ below) | You want a pure priority lens | Doesn't encode dependencies |
+| Dependency waves | Decisions → keystones → dependents | You want zero rework | Slower to first visible win |
+| Parallel tracks | Independent clusters run concurrently | You have ≥ 2 builders | Needs capacity + coordination |
+| **★ Risk-ordered critical path** | Waves, ordered by launch-risk *within* dependency constraints, one spec at a time | **Solo founder optimizing for low launch risk (RepWorth today)** | — |
+
+**Recommended for RepWorth now: the Risk-ordered critical path below.** (Parallel tracks become the right model once you make your first hire — see [Spec 27](./27-team-knowledge.md).)
+
+### Step 0 — Resolve the cross-cutting decisions first (≈ a day, no code)
+
+These `⚠️` choices recur across many specs. Deciding them once prevents building the same thing twice:
+
+| Decision | Options | Blocks |
+|---|---|---|
+| Analytics tooling ([Spec 01](./01-product-market-fit.md) §2a) | PostHog Cloud vs. Postgres-native + Metabase | 01, 06, 07, 11, 14, 16, 26 |
+| Feature-flag tool ([Spec 24](./24-devops-deployment.md)) | Keep env-var flags (kill-switch only) vs. PostHog/GrowthBook (%-rollout) | 22, 24, any gradual rollout |
+| Lifecycle ESP ([Spec 14](./14-customer-success-retention.md)/16/28) | Extend Resend + schedulers vs. Loops/Customer.io | 14, 16, 28 |
+| Legal routing ([Spec 17](./17-legal-compliance-docs.md)) | Keep `/privacy`+`/terms` vs. move all to `/legal/*` | 17, 19 (VPAT), 29 (Trust Center) |
+| Audit/cost-metadata home ([Spec 10](./10-trust-safety.md)/22) | Extend `api_costs` vs. new `llm_calls` | 10, 22, 26, 29 Gap 4 |
+| CSV row cap ([Spec 06](./06-onboarding-activation.md)/29) | 100 (current) vs. 500 | 06, 29 Gap 7 |
+
+_Already settled this pass: live 4-tier model (not Starter/Growth/Scale); no repository layer (inline scoping + CI guard)._
+
+### Step 1 — Lay the keystones (each unblocks a cluster)
+
+| Keystone | Spec | Unblocks |
+|---|---|---|
+| **Stand up GitHub Actions CI** | [24](./24-devops-deployment.md) (task 0) | every "fail-the-build" gate: 07, 08, 09, 12, 19, 22, 23, 25 |
+| `accounts.past_due_at` column | [05](./05-billing-subscription.md) | countdown UX (05, 29 Gap 5), grant-extension (29 Gap 6) |
+| Analytics event capture on the worker publish path | after Step-0 analytics decision | 01, 06, 11, 14, 16, 26 |
+| Generalized audit helper + extended `account_audit_log` | [04](./04-auth-identity.md) | impersonation audit (13), approval snapshot (29 Gap 1) |
+
+**Do CI first** — highest-leverage move in the whole set: it converts the existing ~302 tests + 13 e2e into merge gates and is the prerequisite for ~8 specs.
+
+### Step 2 — Risk-ordered waves (solo, one spec at a time)
+
+Within each wave, clear the **verify-and-polish** specs before the greenfield ones to bank quick wins.
+
+- **Wave 1 — Foundation / launch-risk** (data, billing, legal, trust): `03` tenant-isolation test + scope-audit · `05` billing recon + `past_due_at` · `09` security (security.txt, CSP nonces, secrets rotation, PHI scanner) · `17` legal (lawyered docs + sub-processor reconcile) · `29` Gap 1 (approval snapshot) + Gap 2 (invoice recon).
+- **Wave 2 — Activation** (don't lose a paying customer): `06` onboarding measurement + CSV polish · `05`/`29` Gap 5 past_due UX + Gap 6 grant-extension · `04` MFA + audit · `13` support (KB + impersonation).
+- **Wave 3 — Visibility & AI safety**: `07` observability (JSON logs, Next.js `/api/health`, Bull Board) · `22` AI ops (**pin the OpenAI model — 1 line**, eval set, moderation) + `10` trust/safety · `11` KPIs + sentiment · `26` finance rollup.
+- **Wave 4 — Growth**: `01` PMF instrumentation · `16` marketing (SEO, referral, UTM) · `15` sales (CRM, demo) · `14` CS (health score, lifecycle) · `20` API · `28` comms polish.
+- **Wave 5 — Scale & maturity**: `12` perf/load · `08` reliability/DR drill · `18` i18n · `19` a11y · `21` mobile/PWA · `23` testing depth · `25` docs (ADRs, CONTEXT.md) · `27` team.
+
+### Quick wins — do today (cheap, high signal)
+
+- **Pin the OpenAI model** ([Spec 22](./22-ai-llm-ops.md)) — the unversioned `gpt-4o-mini` is a silent-regression risk; ~1 line.
+- Write `docs/icp.md` ([01](./01-product-market-fit.md)) and `CONTEXT.md` ([25](./25-documentation.md)) — hours, not days.
+- **Reconcile the sub-processor list** ([17](./17-legal-compliance-docs.md)) — it currently overstates reality (lists not-yet-live vendors + a wrong Zernio token claim); that's a live compliance-accuracy risk.
+- Resolve the Step-0 decisions.
+
+### Verify, don't rebuild (already partly shipped — confirm before writing code)
+
+Annual UI + per-location overage ([02](./02-pricing-packaging.md)) · webhook idempotency, reconcile pollers, `PastDueBanner` ([05](./05-billing-subscription.md)) · both KPI dashboards ([11](./11-data-analytics-bi.md)) · lifecycle schedulers ([14](./14-customer-success-retention.md)) · `ReviewSource` + a 2nd impl ([29](./29-repworth-specific-gaps.md) Gap 3) · `api_costs` ([26](./26-financial-operations.md)) · Zod in routes ([20](./20-api-integrations.md)) · `reviews.detected_language` ([18](./18-i18n-localization.md)) · `docs/adr/` + ADR 0001 ([25](./25-documentation.md)).
+
+---
+
 ## Prioritization framework
+
+> This is the **risk lens** that orders the waves in the Execution strategy above — read it as "which tier a spec belongs to," then run it via the Risk-ordered critical path.
 
 Sequence work by the **smallest blocker that blocks the most growth**:
 
@@ -94,6 +164,8 @@ Sequence work by the **smallest blocker that blocks the most growth**:
 ---
 
 ## The "good readiness review" hot-loop
+
+> Alternate **calendar view** for a solo founder pacing over a year. The Execution-strategy waves above are the recommended order; this table is the same work mapped to quarters. (Both assume Step-0 decisions + the CI keystone land first.)
 
 If you have a quarter and want to maximize readiness:
 
