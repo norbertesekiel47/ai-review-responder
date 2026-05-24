@@ -17,7 +17,7 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 - No referral program / `referrals` table.
 - **No structured UTM capture** — `owner_leads` (migration 033) has a single freetext `source`, no `utm_*` columns.
 - Lead intake is built (`book-a-demo` → `LeadIntakeForm` → `owner_leads`).
-- ⚠️ **No CI** — any UTM/attribution audit or CI gate is blocked on standing up GitHub Actions ([Spec 24](./24-devops-deployment.md)).
+- ✅ **Base CI now exists** — the first secret-free GitHub Actions gate runs `lint`, `typecheck`, `test`, and `build`. UTM/attribution audit gates remain pending follow-ups on top of that base ([Spec 24](./24-devops-deployment.md)).
 
 ## 3. Target state
 

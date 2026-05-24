@@ -17,7 +17,7 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 - No public docs site (`docs.repworth.com`); no Mintlify/lychee/cspell.
 - No `CONTEXT.md` at repo root (`docs/agents/domain.md` expects it but degrades gracefully).
 - No `docs/changelog/`.
-- ⚠️ **No CI** — docs CI (lychee/cspell/snippet exec) is blocked on standing up GitHub Actions ([Spec 24](./24-devops-deployment.md)).
+- ✅ **Base CI now exists** — the first secret-free GitHub Actions gate runs `lint`, `typecheck`, `test`, and `build`. Docs CI (lychee/cspell/snippet exec and docs previews) remains a pending specialized workflow ([Spec 24](./24-devops-deployment.md)).
 
 ## 3. Target state
 
@@ -99,7 +99,7 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 2. Author the 12 bootstrap ADRs (numbered **0002–0013** per §3, since 0001 is taken). ~30–60 min each; short (context, decision, consequences in 200–400 words).
 3. Author `CONTEXT.md` at repo root. Sections: Product, Architecture, Setup, Key Files, Key Patterns, Key Gotchas, Who to Ask. Cross-link CLAUDE.md gotchas (don't duplicate — link).
 4. Subscribe Mintlify. Set up `docs.repworth.com`. Initial 5 articles.
-5. Wire `lychee` or `markdown-link-check` in CI. Initial pass; fix broken links. **Requires CI to exist first** ([Spec 24](./24-devops-deployment.md)).
+5. Wire `lychee` or `markdown-link-check` into a docs-specific CI job. Initial pass; fix broken links. **Requires extending the base CI with docs CI** ([Spec 24](./24-devops-deployment.md)).
 6. Add `cspell` to CI. Build project dictionary in `cspell.json`. (Also CI-gated.)
 7. Build `/changelog` page rendered from `docs/changelog/*.md`. RSS.
 8. Code-snippet CI: pick **mdsh** or simple hand-rolled extractor. Cover top 5 KB articles.
@@ -148,8 +148,8 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 - **ADRs are partly underway** — the directory + `0001` exist; the work is the 12 bootstrap ADRs at **0002–0013** (use `manage_adr`). Capture decisions already made and verified across this spec set (outbox, token hashing, two-client split, tenant model, etc.).
 - **`CONTEXT.md`** is the cheapest high-value doc — `docs/agents/domain.md` already looks for it. Make it a thin human-readable wrapper that *links* CLAUDE.md invariants/gotchas (don't duplicate).
 - **`/changelog`** is shared with [Spec 01](./01-product-market-fit.md)/[Spec 16](./16-marketing-growth.md) — build once.
-- **Docs CI** (lychee/cspell/snippet) is gated on CI ([Spec 24](./24-devops-deployment.md)); Mintlify is third-party signup shared with [Spec 13](./13-customer-support.md)/[Spec 20](./20-api-integrations.md).
+- **Docs CI** (lychee/cspell/snippet) is a specialized follow-up on top of the secret-free base CI ([Spec 24](./24-devops-deployment.md)); Mintlify is third-party signup shared with [Spec 13](./13-customer-support.md)/[Spec 20](./20-api-integrations.md).
 - **`docs/currents.md` is very large** — consider whether CONTEXT.md should summarize/point into it rather than readers loading it whole.
 
 ---
-_Verified 2026-05-23 against migration head 042. Corrected the already-existing `docs/adr/` + `0001` collision (bootstrap ADRs renumbered 0002–0013), confirmed CONTEXT.md/changelog absent, and flagged docs-CI's dependency on standing up CI._
+_Verified 2026-05-23 against migration head 042. Corrected the already-existing `docs/adr/` + `0001` collision (bootstrap ADRs renumbered 0002–0013), confirmed CONTEXT.md/changelog absent, and flagged docs CI as a pending specialized workflow beyond the secret-free base CI._

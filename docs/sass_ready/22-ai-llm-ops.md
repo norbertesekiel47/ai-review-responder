@@ -108,10 +108,10 @@ Retain ≥ 90 days (cost analysis + quality regression hunt). The existing `api_
 
 1. Extend `api_costs` per §3 (next free migration number; head 042 — coordinate): add `system_prompt_hash`, `prompt_version`, `latency_ms`, `moderation_score`, `flagged`, `output_excerpt`. Step-0 decision — no separate `llm_calls`, no double-recording. Ensure an index on `(account_id, created_at)` exists.
 2. Wrap the LLM client (`src/lib/responses/generator.ts`, **not** `src/lib/llm/client.ts`) to write the audit row on every call.
-3. **Pin the OpenAI model** in `src/lib/responses/generator.ts` (currently `'gpt-4o-mini'` → `'gpt-4o-mini-2024-07-18'`); add a lint rule disallowing un-versioned aliases (enforcement needs CI — [Spec 24](./24-devops-deployment.md)).
+3. **Pin the OpenAI model** in `src/lib/responses/generator.ts` (currently `'gpt-4o-mini'` → `'gpt-4o-mini-2024-07-18'`); add a lint rule disallowing un-versioned aliases (enforcement needs a specialized rule added to the existing base CI — [Spec 24](./24-devops-deployment.md)).
 4. Author 50-review eval set in `tests/llm-eval/eval-set.jsonl`.
 5. Build eval runner `tests/llm-eval/run.ts`: iterates set, calls primary + fallback, scores per rubric, writes report.
-6. Weekly CI job (`.github/workflows/llm-eval.yml`) runs eval set; fails on > 5% regression. **Requires GitHub Actions CI to exist first** ([Spec 24](./24-devops-deployment.md)).
+6. Weekly CI job (`.github/workflows/llm-eval.yml`) runs eval set; fails on > 5% regression. **Requires adding a specialized scheduled LLM-eval workflow on top of the base GitHub Actions CI** ([Spec 24](./24-devops-deployment.md)).
 7. Build OpenAI Moderation + regex output classifier (`src/lib/moderation/output-filter.ts`) — shared with [Spec 10](./10-trust-safety.md).
 8. Implement per-customer monthly cost rollup → margin alert (the per-call `api_costs` data already exists; the rollup is the gap). Daily worker writes `account_llm_cost` (next free migration number; coordinate with [Spec 29 Gap 4](./29-repworth-specific-gaps.md)).
 9. Implement cross-tenant injection test as `src/__tests__/llm-cross-tenant.test.ts` (Vitest collocated convention, per [Spec 03](./03-multitenancy-isolation.md)).

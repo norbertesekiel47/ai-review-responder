@@ -15,7 +15,7 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 - **~302 collocated `*.test.ts(x)` files** (Vitest) + **13 Playwright e2e** — existing coverage is substantial. Tests live in `src/**/__tests__/` and `e2e/`, **not** a centralized `tests/` dir.
 - `pnpm test:integration` currently runs **one** file (the edit-replies integration test), gated by `TEST_DATABASE_POOL_URL`; e2e skips gracefully without it.
 - `MOCK_EXTERNAL_APIS=true` for local dev; `startup-assert.ts` blocks it in production.
-- ⚠️ **No CI exists** (`.github/` absent entirely). **Every merge-gate in §3 — and branch protection itself — is blocked on first standing up GitHub Actions** ([Spec 24](./24-devops-deployment.md)). This is the spec's true prerequisite.
+- ✅ **Base CI now exists** — the first secret-free GitHub Actions gate runs `lint`, `typecheck`, `test`, and `build`. The rest of the merge-gate matrix in §3 remains pending: DB-backed integration/e2e via `TEST_DATABASE_POOL_URL`, Playwright as a required gate, accessibility, OpenAPI drift, LLM eval, Trivy, post-deploy smoke, visual regression, and branch protection ([Spec 24](./24-devops-deployment.md)).
 - No post-deploy smoke automation, no Chromatic/Percy, no `tests/{load,llm-eval,fixtures}` dirs.
 
 ## 3. Target state
@@ -104,7 +104,7 @@ Target: 70%+ line coverage on critical modules; UI can be lower.
 
 ## 4. Implementation tasks
 
-1. **Stand up GitHub Actions CI first** ([Spec 24](./24-devops-deployment.md)) — none exists. Then set merge-gate rules in branch protection. (Every gate in §3 depends on this.)
+1. Extend the existing secret-free GitHub Actions base CI ([Spec 24](./24-devops-deployment.md)) with the remaining §3 gates, then set merge-gate rules in branch protection.
 2. Author critical-path tests for each module per §3 requirements. Many already exist — audit and fill gaps.
 3. Wire post-deploy smoke check as `.github/workflows/post-deploy-smoke.yml`.
 4. Subscribe Chromatic or Percy. Set up visual regression on 5 critical pages.
@@ -154,10 +154,10 @@ Target: 70%+ line coverage on critical modules; UI can be lower.
 
 ## 9. Implementation in the current repo
 
-- **The test *suite* is healthy (~302 unit/integration + 13 e2e); the gap is the test *harness*** — there is no CI to run any of it as a gate. Standing up CI ([Spec 24](./24-devops-deployment.md)) converts existing tests into merge gates with little new test code.
+- **The test *suite* is healthy (~302 unit/integration + 13 e2e); the gap is the full test *harness*** — base CI now runs the secret-free `lint`, `typecheck`, `test`, and `build` gate, but DB integration/e2e gates, Playwright requirements, branch protection, and specialized security/a11y/docs gates still need follow-up work ([Spec 24](./24-devops-deployment.md)).
 - **Critical-path audit**: many required tests likely already exist under `__tests__/`; inventory against §3 counts before writing new ones. `test:integration` currently points at a single file — broaden it into an integration suite gated by `TEST_DATABASE_POOL_URL`.
-- **Tenant-isolation, LLM-eval, OpenAPI-drift, axe/Pa11y, Trivy** gates are all owned by their home specs (03/22/20/19/09) and converge here once CI exists.
+- **Tenant-isolation, LLM-eval, OpenAPI-drift, axe/Pa11y, Trivy** gates are all owned by their home specs (03/22/20/19/09) and converge here as specialized jobs on top of the base CI.
 - **Post-deploy smoke + visual regression + chaos** are net-new and CI/scheduler-dependent.
 
 ---
-_Verified 2026-05-23 against migration head 042. Corrected the substantial existing coverage (~302 + 13 e2e), the single-file `test:integration`, the tenant-isolation test path, and flagged CI as the true prerequisite for every merge gate._
+_Verified 2026-05-23 against migration head 042. Corrected the substantial existing coverage (~302 + 13 e2e), the single-file `test:integration`, the tenant-isolation test path, and flagged the remaining specialized/secret-backed CI gates plus branch protection as pending._

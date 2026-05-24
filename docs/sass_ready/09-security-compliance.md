@@ -21,7 +21,7 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 - ⚠️ **OAuth-token reality (corrects the spec):** `google_connections` (migration 001) **already has `access_token_encrypted` + `refresh_token_encrypted`** with a DEK/KEK envelope design — but the table is **empty** because direct GBP API is a future (Phase 5) state. Today GBP access is **Zernio-mediated**; RepWorth stores **no Google refresh tokens**, only a server-side `ZERNIO_API_KEY` env var. So "OAuth tokens stored without envelope encryption" is **false**.
 - No `/security.txt` or `/security` page; no pentest; no SOC 2 controls runbook.
 - `docs/Legal/repworth-privacy-policy.md` + `repworth-terms-of-service.md` exist (+ public `/privacy`, `/terms` pages). No `/legal/sub-processors` or `/legal/dpa`.
-- ⚠️ **No CI:** no `.github/workflows/`, no `.github/dependabot.yml`. ZAP/Trivy/Snyk/Dependabot tasks are **blocked on standing up CI** ([Spec 24](./24-devops-deployment.md)).
+- ✅ **Base CI now exists:** the first secret-free GitHub Actions gate runs `lint`, `typecheck`, `test`, and `build`. Security-specific gates remain pending: ZAP, Trivy, Snyk, and Dependabot still need dedicated follow-up workflows/config ([Spec 24](./24-devops-deployment.md)).
 
 ## 3. Target state
 
@@ -108,7 +108,7 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 
 1. Add `/security.txt` (`public/.well-known/security.txt`) per [securitytxt.org](https://securitytxt.org) format.
 2. Build `/security` page summarizing posture (cross-link to `/trust` from Spec 29).
-3. **Stand up GitHub Actions CI first** ([Spec 24](./24-devops-deployment.md)) — none exists. Then wire OWASP ZAP baseline scan (`.github/workflows/security-scan.yml`).
+3. Extend the existing secret-free GitHub Actions base CI with OWASP ZAP baseline scan (`.github/workflows/security-scan.yml`) and the required staging target/secrets ([Spec 24](./24-devops-deployment.md)).
 4. Wire Trivy container scan once a `Dockerfile` exists (there is none today; the worker runs via `tsx`). Until containerized, scan dependencies instead.
 5. Add `.github/dependabot.yml` + Snyk; configure auto-merge for patch/minor. (Requires CI.)
 6. **OAuth envelope encryption already exists** in schema (`google_connections.{access,refresh}_token_encrypted`, DEK/KEK). ⚠️ **No migration 045 needed.** Real work: (a) secure + rotate `ZERNIO_API_KEY` (the live secret) per the rotation cadence; (b) when GBP Phase 5 populates `google_connections`, verify the encrypt/decrypt round-trip before going live. Document key rotation in `docs/runbooks/oauth-key-rotation.md`.
@@ -126,7 +126,7 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 - [ ] securityheaders.com scan returns A+.
 - [ ] `/security.txt` and `/security` live.
 - [ ] `ZERNIO_API_KEY` rotation logged; when `google_connections` is populated (Phase 5), a raw DB row shows opaque ciphertext (envelope columns already exist).
-- [ ] GitHub Actions CI exists; Trivy (once a Dockerfile exists) + ZAP run on every PR; build fails on CRITICAL.
+- [ ] Base GitHub Actions CI exists; Trivy (once a Dockerfile exists) + ZAP run on every PR; build fails on CRITICAL.
 - [ ] Dependabot configured (`.github/dependabot.yml`); first 10 PR auto-merges visible in history.
 - [ ] `/legal/sub-processors` and `/legal/dpa` live, lawyered, downloadable.
 - [ ] PHI scanner test: synthetic review with "MRN 12345" pattern triggers block + alert.
@@ -163,9 +163,9 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 
 - **More is already done than the spec assumed:** CSRF (`withSameOrigin`), security headers, the Sentry scrubber, SHA-256 approval tokens, and the *encrypted* `google_connections` columns all exist. The real gaps are CI-gated scanning, `/security.txt` + `/security`, the legal pages, the PHI scanner, and SOC 2 process.
 - **OAuth encryption is not net-new schema work.** The DEK/KEK columns exist and sit unused; the live secret to protect today is `ZERNIO_API_KEY` (env var, server-side). Fold its rotation into the secrets-rotation runbooks.
-- **Everything CI-gated is blocked on [Spec 24](./24-devops-deployment.md).** ZAP/Trivy/Dependabot/Snyk cannot run until GitHub Actions exists; Trivy additionally needs a `Dockerfile` (worker currently runs via `tsx`).
+- **Security scanning is a specialized follow-up on [Spec 24](./24-devops-deployment.md).** The base GitHub Actions gate exists, but ZAP/Trivy/Dependabot/Snyk still need dedicated workflows/config; Trivy additionally needs a `Dockerfile` (worker currently runs via `tsx`).
 - **CSP** is in `next.config.mjs` already — harden in place (nonces, drop `'unsafe-inline'`), don't rewrite from scratch.
 - **PHI scanner** belongs on the Zernio ingest path (`worker/ingress/zernio/*`, `worker/jobs/zernio/*`) — block + alert on positive match before persistence.
 
 ---
-_Verified 2026-05-23 against migration head 042. Corrected the OAuth-token claim (encrypted columns already exist, table empty, Zernio-mediated), the "no headers/CSRF" implication (both exist), and the Upstash-vs-Redis-Lua rate-limit reality; flagged all CI-gated scanning as blocked on standing up CI._
+_Verified 2026-05-23 against migration head 042. Corrected the OAuth-token claim (encrypted columns already exist, table empty, Zernio-mediated), the "no headers/CSRF" implication (both exist), and the Upstash-vs-Redis-Lua rate-limit reality; flagged security scanning as a pending specialized follow-up beyond the secret-free base CI._

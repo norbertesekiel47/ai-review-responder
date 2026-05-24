@@ -138,7 +138,7 @@ Auto-responder confirms receipt with ticket ID, expected SLA. Published on `/hel
 - **Everything except impersonation is third-party signup + config** (Help Scout, Crisp/Plain, Mintlify) — no code prerequisites.
 - **Impersonation** is the one in-repo build: a new `impersonation_sessions` table + an `src/app/admin/impersonate` page (the admin shell already exists), reusing `account_audit_log` for the audit trail and the existing `src/middleware.ts` for the destructive-action block + banner gating.
 - **Self-serve admin actions** (export/delete/API tokens) attach to the existing `SettingsShell` tab strip; export/delete cross-ref [Spec 09](./09-security-compliance.md), API tokens cross-ref [Spec 20](./20-api-integrations.md).
-- **KB CI** (dead-link checker / snippet executor) is blocked on standing up CI ([Spec 24](./24-devops-deployment.md)).
+- **KB CI** (dead-link checker / snippet executor) needs a specialized docs/support workflow added to the existing base CI ([Spec 24](./24-devops-deployment.md)).
 
 ---
 _Verified 2026-05-23 against migration head 042. Aligned SLA tiers to live names (basic/standard/premium); pointed impersonation audit at the existing `account_audit_log`; fixed dashboard path + migration numbering; noted the admin shell + settings tabs that already exist._

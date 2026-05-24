@@ -15,7 +15,7 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 - Dashboard + auth UI redesigned; design tokens live in `src/app/globals.css` (`--rw-*`), governed by the `repworth-brand-design` skill. No audit run.
 - **No Radix/react-aria** — focus management is hand-rolled (e.g. `EditReplyDrawer`'s custom focus trap). ⚠️ Decide: adopt Radix primitives for new modals/dialogs (recommended — they handle focus/ESC/ARIA) vs. standardize the custom approach.
 - **No axe-core / Pa11y / a11y tests**; `aria-label` coverage is sparse (~42 sites, selective).
-- No VPAT. ⚠️ **No CI** — axe/Pa11y gates are blocked on standing up GitHub Actions ([Spec 24](./24-devops-deployment.md)).
+- No VPAT. ✅ **Base CI now exists** — the first secret-free GitHub Actions gate runs `lint`, `typecheck`, `test`, and `build`; axe/Pa11y gates remain pending follow-up jobs ([Spec 24](./24-devops-deployment.md)).
 
 ## 3. Target state
 
@@ -119,7 +119,7 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 
 ## 9. Implementation in the current repo
 
-- **axe + Pa11y are gated on CI** ([Spec 24](./24-devops-deployment.md)) — there's no `.github/workflows/` to fail PRs against. The `@axe-core/playwright` hook can run locally via `pnpm test:e2e` in the interim.
+- **axe + Pa11y need specialized CI jobs** ([Spec 24](./24-devops-deployment.md)) — the base secret-free workflow exists, but it does not yet run accessibility gates. The `@axe-core/playwright` hook can run locally via `pnpm test:e2e` in the interim.
 - **Radix is net-new.** The hand-rolled focus trap in `EditReplyDrawer` proves the patterns work but won't scale; introduce `@radix-ui/react-dialog` for new dialogs and migrate `EditReplyDrawer` first.
 - **Contrast** is governed by the `--rw-*` tokens in `globals.css` + the `repworth-brand-design` skill — audit those token pairs once; fixes propagate.
 - **VPAT route** lives at `/legal/vpat` per the resolved [Spec 17](./17-legal-compliance-docs.md) `/legal/*` routing decision (Step 0).

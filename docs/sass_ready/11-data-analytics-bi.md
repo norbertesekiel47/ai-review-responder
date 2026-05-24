@@ -84,7 +84,7 @@ CI rule: any new `posthog.capture(...)` call without a corresponding entry in `e
 ## 4. Implementation tasks
 
 1. Write `docs/analytics/events.md` with the launch event set ([Spec 07](./07-observability.md)).
-2. Add CI script `scripts/ci/analytics-events-audit.ts` that diffs analytics `capture(...)` calls vs. doc entries. **Requires GitHub Actions CI to exist first** ([Spec 24](./24-devops-deployment.md)).
+2. Add CI script `scripts/ci/analytics-events-audit.ts` that diffs analytics `capture(...)` calls vs. doc entries. **Requires adding a specialized analytics audit job on top of the base GitHub Actions CI** ([Spec 24](./24-devops-deployment.md)).
 3. **First, audit the existing `KpiCards.tsx`** against the 5 KPIs — extend it, don't rebuild. SQL lives in an account-scoped query module (e.g. `src/lib/kpi/*`); there is **no** `src/lib/repositories/` layer ([Spec 03](./03-multitenancy-isolation.md) decision), so scope inline by `account_id`.
 4. Build per-location filter + roll-up toggle on dashboard.
 5. Add `reviews.sentiment_score` + `sentiment_label` (claims the next free migration number; head 042 — coordinate per README). Backfill from existing reviews via a one-time worker job.
@@ -130,7 +130,7 @@ CI rule: any new `posthog.capture(...)` call without a corresponding entry in `e
 - **Two KPI surfaces already exist** — customer-facing `KpiCards.tsx` and internal `admin/overview`. This spec's work is to (a) confirm the 5 customer KPIs against `KpiCards`, (b) add per-location filter/roll-up, (c) add CSV/PDF export, (d) add sentiment. It is **not** a from-scratch dashboard build.
 - **KPI queries** go in an account-scoped `src/lib/kpi/*` module (inline `WHERE account_id`), consistent with the no-repository-layer decision; the existing `/api/admin/overview/route.ts` is the pattern to mirror.
 - **Sentiment** is a worker job on the ingest path (gpt-4o-mini batch via the existing `src/lib/responses/generator.ts` LLM client + cost guard); write to the new `reviews.sentiment_*` columns inside ingest.
-- **Event taxonomy + its CI audit** — analytics tool is decided (PostHog, §2a); the CI audit still waits on CI existing ([Spec 24](./24-devops-deployment.md)).
+- **Event taxonomy + its CI audit** — analytics tool is decided (PostHog, §2a); the audit still needs a specialized job added to the existing base CI ([Spec 24](./24-devops-deployment.md)).
 - **Export** (CSV stream / PDF) for >100-location accounts runs async as a worker job → emailed link, not in a Next.js route.
 
 ---

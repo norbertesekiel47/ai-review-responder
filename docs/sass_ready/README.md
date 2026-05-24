@@ -56,7 +56,7 @@ Each spec is independent enough to be implemented as a single planning epic but 
 ## Execution strategy (do **not** run these 1 → 29)
 
 > Added 2026-05-23 after the full verification pass (all specs checked against the live tree, head 042). Spec numbers are an **index, not an execution order.** Three facts make sequencing matter:
-> 1. **Keystones unblock clusters** — standing up CI (Spec 24) alone unblocks ~8 specs.
+> 1. **Keystones unblock clusters** — the first secret-free base CI gate (Spec 24) is in place; adding specialized gates still unblocks ~8 specs.
 > 2. **Cross-cutting decisions sit upstream** of whole groups — resolve once, not per-spec.
 > 3. **~40% is already partly built** — much "implementation" is verify-and-polish, not greenfield.
 
