@@ -121,7 +121,7 @@ Calendar reminders on the day-of for each.
 - [x] GitHub Actions CI exists (`.github/workflows/ci.yml`) running `lint`, `typecheck`, `test`, and `build` as the first secret-free gate.
 - [ ] GitHub Actions CI runs database-backed integration tests with `TEST_DATABASE_POOL_URL`.
 - [ ] Vercel + Railway PR preview URLs auto-post on every PR.
-- [ ] Branch protection enforced; direct pushes to `main` blocked (requires CI status checks above).
+- [x] Branch protection enforced; direct pushes to `main` blocked (requires CI status checks above). Implemented as a **repository ruleset** ("main protection") — not classic branch protection — since the repo is a private repo under the RepWorth org (Team plan). Requires the four checks (`lint`/`typecheck`/`test`/`build`) and blocks force-push + deletion, enforced for all actors.
 - [ ] Feature flag tool live; at least one feature gated behind a flag.
 - [ ] `docs/runbooks/rollback.md` exists and was tested in a quarterly drill.
 - [ ] Slack `#deploys` posts deployments in real-time.
