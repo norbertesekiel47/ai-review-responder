@@ -10,10 +10,12 @@ Accessibility is the right thing to do and a procurement requirement for any gov
 
 ## 2. Current state (RepWorth)
 
-- Dashboard redesigned (PR #27) and auth island redesigned (PR #25) — modern stacks usually meet AA by default but no audit run.
-- No CI a11y check.
-- No VPAT.
-- `repworth-brand-design` skill encoded — design system standardization helps a11y by default.
+_Verified 2026-05-23 against the live tree (migration head 042)._
+
+- Dashboard + auth UI redesigned; design tokens live in `src/app/globals.css` (`--rw-*`), governed by the `repworth-brand-design` skill. No audit run.
+- **No Radix/react-aria** — focus management is hand-rolled (e.g. `EditReplyDrawer`'s custom focus trap). ⚠️ Decide: adopt Radix primitives for new modals/dialogs (recommended — they handle focus/ESC/ARIA) vs. standardize the custom approach.
+- **No axe-core / Pa11y / a11y tests**; `aria-label` coverage is sparse (~42 sites, selective).
+- No VPAT. ⚠️ **No CI** — axe/Pa11y gates are blocked on standing up GitHub Actions ([Spec 24](./24-devops-deployment.md)).
 
 ## 3. Target state
 
@@ -73,12 +75,12 @@ Accessibility is the right thing to do and a procurement requirement for any gov
 3. Configure CI to fail on **new** violations only (use baseline file `tests/a11y/baseline.json`).
 4. Audit current top-5 pages with axe DevTools; log violations in `docs/a11y/findings-YYYY-MM.md`.
 5. Fix critical + serious findings in a "Accessibility cleanup" PR.
-6. Adopt `@radix-ui/*` primitives for any new modal/dropdown/dialog — they handle focus trap, ESC, ARIA correctly.
+6. Adopt `@radix-ui/*` primitives for any new modal/dropdown/dialog — they handle focus trap, ESC, ARIA correctly. ⚠️ Net-new dependency (none today); the existing custom focus trap in `EditReplyDrawer` is the migration template / first candidate.
 7. Add skip-to-main-content link to root layout.
 8. Add `repworth/a11y-icon-button-label` ESLint rule that flags `<button>` containing only an icon without `aria-label`.
 9. Document a11y checklist in `docs/design-system/a11y-checklist.md`. Include in PR template for UI changes.
 10. Calendar entry: annual specialist audit (book once stable customer-facing surface exists).
-11. VPAT placeholder route `src/app/legal/vpat/page.tsx` (renders "VPAT available on request" until generated).
+11. VPAT placeholder route (renders "VPAT available on request" until generated). ⚠️ No `/legal/*` routes exist yet (legal pages are `(public)/privacy` etc.) — place it per the routing decision in [Spec 17](./17-legal-compliance-docs.md) §3.
 
 ## 5. Acceptance criteria
 
@@ -113,4 +115,15 @@ Accessibility is the right thing to do and a procurement requirement for any gov
 - [Spec 23 — Testing & QA](./23-testing-qa.md) (CI integration)
 - [Spec 18 — i18n](./18-i18n-localization.md) (RTL future support)
 - Skill: `repworth-brand-design`
-- Code anchors: PR #25 auth island redesign, PR #27 dashboard redesign
+- Code anchors: `src/app/globals.css` (`--rw-*` tokens), `src/components/dashboard/EditReplyDrawer.tsx` (custom focus trap), `package.json` (no Radix/axe today)
+
+## 9. Implementation in the current repo
+
+- **axe + Pa11y are gated on CI** ([Spec 24](./24-devops-deployment.md)) — there's no `.github/workflows/` to fail PRs against. The `@axe-core/playwright` hook can run locally via `pnpm test:e2e` in the interim.
+- **Radix is net-new.** The hand-rolled focus trap in `EditReplyDrawer` proves the patterns work but won't scale; introduce `@radix-ui/react-dialog` for new dialogs and migrate `EditReplyDrawer` first.
+- **Contrast** is governed by the `--rw-*` tokens in `globals.css` + the `repworth-brand-design` skill — audit those token pairs once; fixes propagate.
+- **VPAT route** placement waits on the [Spec 17](./17-legal-compliance-docs.md) `/legal/*`-vs-`(public)` routing decision.
+- **The aria-label gap** (icon buttons) is the cheapest high-impact fix — sweep the ~42 existing usages and fill the icon-only buttons.
+
+---
+_Verified 2026-05-23 against migration head 042. Noted no Radix/react-aria (custom focus management), no axe/Pa11y, sparse aria-labels, design tokens in globals.css, and the CI + `/legal/*`-routing dependencies._

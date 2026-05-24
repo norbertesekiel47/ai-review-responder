@@ -10,10 +10,13 @@ API + Zapier = free distribution to the long tail of SMB integrations RepWorth c
 
 ## 2. Current state (RepWorth)
 
-- No public API documented.
-- No customer-facing webhooks.
-- No Zapier app.
-- Internal route handlers exist throughout `src/app/api/*`.
+_Verified 2026-05-23 against the live tree (migration head 042)._
+
+- No public API, no `api_tokens` table, no bearer-token auth — internal routes use **session + `withSameOrigin` CSRF + `resolveOwnerScope`** (`src/lib/auth/route-helpers.ts`).
+- ✅ **Zod is already used** in route handlers (schemas in `src/lib/shared/schemas`) — so `zod-to-openapi` is viable without retrofitting validation.
+- **No customer-facing webhooks / Svix.** RepWorth only *receives* webhooks (`worker/ingress/*`, dedup via `inbound_events`). Sending is net-new.
+- No Zapier/Slack/Make. Approval-required verified: draft → `/approve` → publish via outbox; **no auto-publish path** (invariant holds).
+- "API on Scale tier" maps to the live **Premium** tier ([Spec 02](./02-pricing-packaging.md)) — there is no "Scale" tier.
 
 ## 3. Target state
 
@@ -91,7 +94,7 @@ Don't build until **5+ customers ask for the same integration**.
 
 ## 4. Implementation tasks
 
-1. Migration **055**: `api_tokens(id, account_id, name, token_hash, scope, last_used_at, created_at, revoked_at)`.
+1. Migration (next free number; head 042 — coordinate per README): `api_tokens(id, account_id, name, token_hash, scope, last_used_at, created_at, revoked_at)`. Hash with SHA-256, mirroring the approval-token pattern.
 2. Build API token middleware: extract bearer, look up hash, set `req.account_id` + `req.token_scope`.
 3. Build `/api/v1/*` routes per §3 endpoint set.
 4. Wire `zod-to-openapi` or `tsoa` to generate `openapi.json` at build time.
@@ -100,7 +103,7 @@ Don't build until **5+ customers ask for the same integration**.
    - Generate token UI (one-time-show with copy button).
    - Token list with scope, last-used, revoke.
    - Webhook endpoint UI: add endpoint, choose events, see delivery log (Svix-rendered iframe).
-7. Apply Upstash Ratelimit (already in stack) per-`account_id` at 100/min default.
+7. Apply per-`account_id` rate limiting at 100/min default using the existing **Redis-Lua `src/lib/shared/rate-limit.ts`** (not `@upstash/ratelimit` — see [Spec 04](./04-auth-identity.md)).
 8. Build Mintlify API reference site at `docs.repworth.com/api`.
 9. **Month 9**: build Zapier app per Zapier Platform docs. Submit for certification.
 10. Native Slack integration: OAuth install, channel selector, post review-received messages.
@@ -139,5 +142,17 @@ Don't build until **5+ customers ask for the same integration**.
 - [Spec 09 — Security & Compliance](./09-security-compliance.md) (token rotation, hashed storage)
 - [Spec 17 — Legal](./17-legal-compliance-docs.md) (API ToS — customer obligations)
 - [Spec 25 — Documentation](./25-documentation.md) (Mintlify API site)
-- Code anchors: `src/app/api/*`, worker enqueue patterns
+- Code anchors: `src/app/api/*` (15 route groups), `src/lib/auth/route-helpers.ts` (`withSameOrigin`/`resolveOwnerScope`), `src/lib/shared/schemas` (Zod), `src/lib/shared/rate-limit.ts`, `worker/ingress/*` (inbound webhooks), approval-token hashing pattern
 - Invariant: "No auto-posting" — preserved by approval-required endpoint design
+
+## 9. Implementation in the current repo
+
+- **Zod is already pervasive** in routes — `zod-to-openapi` can generate the spec from existing schemas in `src/lib/shared/schemas` with minimal retrofit. This is the spec's strongest "already-aligned" point.
+- **Token auth is net-new** but mirrors what exists: SHA-256 hashed storage (approval-token pattern), and `resolveOwnerScope` is the model for setting `req.account_id`/scope from a bearer token instead of a session.
+- **Outbound webhooks (Svix) are net-new** — RepWorth's `inbound_events` ingress is the *receiving* side; sending is a separate Svix integration, enqueued from the worker notification path.
+- **Rate limiting reuses `rate-limit.ts`** (Redis-Lua), not a new Upstash SDK.
+- **Approval invariant is safe by design**: the v1 API exposes `POST /responses` (draft) + `POST /responses/:id/approve` (audited) — no auto-publish endpoint.
+- **Mintlify API docs** depend on the docs site stood up in [Spec 13](./13-customer-support.md)/[Spec 25](./25-documentation.md); OpenAPI drift-check is CI-gated ([Spec 24](./24-devops-deployment.md)).
+
+---
+_Verified 2026-05-23 against migration head 042. Confirmed Zod is already used (OpenAPI viable); corrected "Scale"→Premium tier, the Upstash→Redis-Lua rate-limit, inbound-vs-outbound webhook distinction, and migration numbering._

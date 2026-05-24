@@ -10,10 +10,14 @@ i18n migrations are 10× harder after launch. Architecting for extraction costs 
 
 ## 2. Current state (RepWorth)
 
-- UI strings hard-coded in JSX (no extraction layer).
-- LLM prompts in English.
-- Billing in USD.
-- No documented language eval set.
+_Verified 2026-05-23 against the live tree (migration head 042)._
+
+- UI strings hard-coded in JSX; `next-intl` not installed; no `messages/en.json`.
+- LLM prompts in English, built inline in `src/lib/responses/prompt-builder.ts` (there is **no** `src/lib/prompts/` dir).
+- ✅ **`reviews.detected_language` already exists** (migration 001) — but the ingest path (`worker/jobs/zernio/zernio-ingest-shared.ts`) writes it as **NULL**. The gap is *populating* it, not adding the column.
+- Brand voice stored on `businesses` (`tone`, `sample_responses TEXT[]`) — **no `brand_voices` table, no per-language support**.
+- `Intl.DateTimeFormat`/`Intl.NumberFormat` partially used (~35 sites); no centralized layer.
+- Billing in USD. No documented language eval set.
 
 ## 3. Target state
 
@@ -71,10 +75,10 @@ i18n migrations are 10× harder after launch. Architecting for extraction costs 
 
 1. Add `next-intl` to project. Wrap root layout in `<NextIntlClientProvider>`.
 2. Extract all hard-coded user-facing strings into `messages/en.json`. Start with top-traffic pages (landing, login, signup, dashboard home, settings).
-3. Add ESLint rule banning user-facing string literals in JSX (custom rule or `eslint-plugin-i18n-text`).
-4. Add language-detection in review-ingestion (`worker/jobs/zernio/*`): store `reviews.detected_language ISO-639-1`. Migration **053**.
-5. Update prompt templates in `src/lib/prompts/` to accept `language` variable and instruct response in that language.
-6. Add `brand_voices.language` column + UI to manage per-language brand voice on Settings → Brand Voice. Migration **054**.
+3. Add ESLint rule banning user-facing string literals in JSX (custom rule or `eslint-plugin-i18n-text`) — enforcement needs CI ([Spec 24](./24-devops-deployment.md)).
+4. **Populate the existing `reviews.detected_language` column** (no migration needed — it exists but `zernio-ingest-shared.ts` writes NULL). Add cheap language detection in the ingest path and write ISO-639-1.
+5. Update the inline prompt builder `src/lib/responses/prompt-builder.ts` (not `src/lib/prompts/`) to accept a `language` variable and instruct the response in that language.
+6. Add per-language brand voice. Current voice lives on `businesses` (`tone`, `sample_responses`); either add a `brand_voices(account_id, language, examples)` table or language-keyed columns (next free migration number; head 042 — coordinate). Plus Settings → Brand Voice UI.
 7. Author 20-review eval set in `tests/llm-eval/sets/{es,fr,pt,de,it}.jsonl`. Run weekly in CI behind feature flag.
 8. Confirm Stripe presents local-currency checkout. Test in 3 EU countries.
 9. Adopt `Intl.DateTimeFormat` + `Intl.NumberFormat` across all date/number rendering.
@@ -84,7 +88,7 @@ i18n migrations are 10× harder after launch. Architecting for extraction costs 
 
 - [ ] `next-intl` integrated; all hard-coded strings on top-5 pages extracted.
 - [ ] ESLint blocks new string literals in JSX.
-- [ ] Language-detection running on every ingested review.
+- [ ] `reviews.detected_language` populated on every ingested review (column exists; ingest currently writes NULL).
 - [ ] Brand-voice settings support per-language examples.
 - [ ] Eval set files exist for 5 languages; CI runs them when feature flag on.
 - [ ] Stripe checkout shows local currency for EU test cards.
@@ -110,4 +114,14 @@ i18n migrations are 10× harder after launch. Architecting for extraction costs 
 - [Spec 05 — Billing](./05-billing-subscription.md) (Stripe Tax, currency)
 - [Spec 19 — Accessibility](./19-accessibility.md) (RTL future)
 - [Spec 22 — AI/LLM Operations](./22-ai-llm-ops.md) (per-language eval)
-- Code anchors: `src/lib/prompts/`, prompt builder per architecture invariant `ReviewSource → NormalizedReview`
+- Code anchors: `src/lib/responses/prompt-builder.ts` (inline prompt), `worker/jobs/zernio/zernio-ingest-shared.ts` (writes `detected_language` NULL), `reviews` schema (migration 001), `businesses.{tone,sample_responses}`
+
+## 9. Implementation in the current repo
+
+- **The detected-language column already exists** — the only ingest change is to detect + write it (the `NormalizedReview` DTO flows through `zernio-ingest-shared.ts`). No migration.
+- **Multi-language generation** is the high-value lever and rides the existing pipeline: pass `detected_language` into `prompt-builder.ts`; the LLM client (`generator.ts`, gpt-4o-mini/claude-haiku) already handles these languages.
+- **Per-language brand voice** is the one schema change — extend `businesses` or add `brand_voices`; keep the `ReviewSource → NormalizedReview` contract intact (no source-specific fields in the prompt builder).
+- **`next-intl` + the ESLint string-literal rule** are net-new; the rule's enforcement is CI-gated ([Spec 24](./24-devops-deployment.md)).
+
+---
+_Verified 2026-05-23 against migration head 042. Corrected the already-existing `detected_language` column (populate, don't add), the inline prompt path (`prompt-builder.ts`, not `src/lib/prompts/`), brand-voice storage reality, and migration numbering._

@@ -10,13 +10,12 @@ Legal exposure is asymmetric: drafts get you to MVP, but the first real dispute 
 
 ## 2. Current state (RepWorth)
 
-- `docs/Legal/repworth-privacy-policy.md` and `repworth-terms-of-service.md` exist as drafts.
-- No AUP (Acceptable Use Policy).
-- No DPA (Data Processing Addendum).
-- No Cookie Policy.
-- No `/legal/sub-processors` page.
-- No AI usage disclosure visible in product.
-- No insurance documented.
+_Verified 2026-05-23 against the live tree (migration head 042)._
+
+- `docs/Legal/repworth-privacy-policy.md` + `repworth-terms-of-service.md` exist; rendered at public **`/privacy`** and **`/terms`** (route-group `(public)`, **not** `/legal/*`).
+- No AUP, DPA, Cookie Policy, or sub-processors page.
+- ⚠️ **AI disclosure gap:** the Privacy Policy mentions AI-generated drafts, but the **approval UI shows none** — `EditReplyDrawer` (`src/components/dashboard/EditReplyDrawer.tsx`) and the public `/approve/[token]` page have no "AI-generated draft" banner at the approval moment.
+- No `legal_acceptances` table / re-accept flow. No cookie-consent banner. No insurance documented.
 
 ## 3. Target state
 
@@ -31,6 +30,8 @@ Legal exposure is asymmetric: drafts get you to MVP, but the first real dispute 
 | Sub-processor list | Public at `/legal/sub-processors`, auto-rendered from source | `docs/Legal/sub-processors.md` |
 | Security policy | Public at `/security` | (See [Spec 09](./09-security-compliance.md)) |
 | VPAT (accessibility) | Generated at first enterprise ask | (See [Spec 19](./19-accessibility.md)) |
+
+> ⚠️ Today's legal pages live at `/privacy` and `/terms` (not `/legal/*`). Decide: relocate to `/legal/*` (canonical) or keep these and add `/legal/*` for the new docs. Pick one routing convention before publishing the rest.
 
 ### Lawyer
 - First-pass draft via **Termly** or **iubenda** (~$200/yr).
@@ -64,6 +65,7 @@ Legal exposure is asymmetric: drafts get you to MVP, but the first real dispute 
 ### Sub-processor list (current, public, maintained)
 - Public at `/legal/sub-processors`.
 - Notify customers 30 days before adding new (email + in-app banner).
+- ⚠️ **The list below mixes live and planned vendors** — reconcile against reality before publishing: PostHog, Help Scout, Loops/Customer.io are **not yet integrated**; Cloudflare is "if used." And **Zernio's data class is wrong** — Zernio holds the GBP OAuth tokens; **RepWorth stores no Google tokens** (it calls Zernio with a server-side API key — see [Spec 09](./09-security-compliance.md)). Only list sub-processors actually in the data path.
 - Current list:
 
 | Sub-processor | Purpose | Data classes |
@@ -109,9 +111,9 @@ Legal exposure is asymmetric: drafts get you to MVP, but the first real dispute 
 1. Pre-lawyer pass: use **Termly** or **iubenda** to draft AUP + DPA + Cookie Policy. Author ToS + PP refinements per latest business model.
 2. Engage SaaS-specialist lawyer (Cooley GO or Stripe Atlas recommended). Brief: multi-location SMB SaaS, AI generation, Stripe billing, OpenAI/Anthropic sub-processors, US + EU/UK + AU + CA targets. Get markup back within 4 weeks.
 3. Publish all docs at `/legal/*` routes. Render from `docs/Legal/*.md` via MDX.
-4. Add legal-acceptance flow: migration 052 `legal_acceptances` table; modal at first-login-after-version-change.
+4. Add legal-acceptance flow: `legal_acceptances` table (next free migration number; head 042 — coordinate per README); modal at first-login-after-version-change.
 5. Add `/legal/sub-processors` rendered table from `docs/Legal/sub-processors.md`. Setup mailing-list trigger for 30-day notification.
-6. Add AI-disclosure banner at point-of-approval (`src/components/responses/ApprovalDrawer.tsx` or equivalent).
+6. Add AI-disclosure banner at point-of-approval — in `src/components/dashboard/EditReplyDrawer.tsx` (the in-app preview/approve drawer) **and** the public `/approve/[token]` page (there is no `ApprovalDrawer.tsx`).
 7. Author `docs/legal/gbp-compliance.md` and calendar annual review.
 8. Bind insurance: $1M E&O + $1M Cyber via Vouch or Embroker. Record in `docs/legal/insurance.md`.
 9. Add cookie-consent banner if EU traffic non-trivial. Use **Cookiebot** (low-cost) or hand-rolled.
@@ -150,4 +152,14 @@ Legal exposure is asymmetric: drafts get you to MVP, but the first real dispute 
 - [Spec 09 — Security & Compliance](./09-security-compliance.md) (DPA, sub-processors)
 - [Spec 22 — AI/LLM Operations](./22-ai-llm-ops.md) (AI disclosure)
 - [Spec 28 — Customer Comms & Brand](./28-customer-comms-brand.md) (breach notification template)
-- Code anchors: `docs/Legal/repworth-privacy-policy.md`, `docs/Legal/repworth-terms-of-service.md`
+- Code anchors: `docs/Legal/repworth-privacy-policy.md`, `docs/Legal/repworth-terms-of-service.md`, `src/app/(public)/{privacy,terms}/page.tsx`, `src/components/dashboard/EditReplyDrawer.tsx`, `src/app/(public)/approve/[token]/*`
+
+## 9. Implementation in the current repo
+
+- **Most of this is documents + lawyering**, no code. The in-repo pieces are: the AI-disclosure banner (two surfaces above), the `legal_acceptances` table + re-accept modal, and the `/legal/*` rendered routes.
+- **Routing decision first** (see note in §3): existing legal pages are `/privacy` + `/terms`; pick whether to relocate under `/legal/*` or add `/legal/*` alongside before authoring the rest.
+- **Sub-processor list must be reconciled to reality** — drop not-yet-integrated vendors and fix the Zernio token claim, or it's a false compliance statement.
+- **Acceptance logging** writes via Postgres.js; if it must accompany a state change, keep it in the same transaction (outbox invariant).
+
+---
+_Verified 2026-05-23 against migration head 042. Corrected legal routes (`/privacy` `/terms`, not `/legal/*`), the missing in-product AI disclosure (with the real component path), the inaccurate sub-processor list (planned vendors + Zernio token claim), and migration numbering._

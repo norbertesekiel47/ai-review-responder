@@ -10,12 +10,14 @@ Marketing channel mix decides whether RepWorth is bootstrapped-profitable or run
 
 ## 2. Current state (RepWorth)
 
-- Landing page redesigned (PR #25 auth island + PR #18 landing).
-- No `/changelog`, no `/compare`, no programmatic SEO.
-- Resend used for transactional only.
-- No referral program.
-- No UTM convention documented.
-- Owner lead intake exists.
+_Verified 2026-05-23 against the live tree (migration head 042)._
+
+- Landing + auth UI redesigned. No `/changelog`, no `/compare`, no programmatic SEO, no `/blog` (no MDX), no `src/app/lp/[slug]`.
+- Resend is transactional-only (auth + contact). No Loops/Customer.io. **No PostHog** (attribution depends on it — [Spec 01 §2a](./01-product-market-fit.md)).
+- No referral program / `referrals` table.
+- **No structured UTM capture** — `owner_leads` (migration 033) has a single freetext `source`, no `utm_*` columns.
+- Lead intake is built (`book-a-demo` → `LeadIntakeForm` → `owner_leads`).
+- ⚠️ **No CI** — any UTM/attribution audit or CI gate is blocked on standing up GitHub Actions ([Spec 24](./24-devops-deployment.md)).
 
 ## 3. Target state
 
@@ -46,7 +48,7 @@ Target: 200–500 pages within 12 months. **One organic signup/month per page wi
 - RSS feed.
 
 ### Referral program (month 6)
-- **Mechanic**: give-1-month, get-1-month. Each side gets 1 month free on Growth tier when referee converts to paid.
+- **Mechanic**: give-1-month, get-1-month. Each side gets 1 month free on their current tier when the referee converts to paid (tiers per [Spec 02](./02-pricing-packaging.md): basic/standard/premium/founders).
 - In-product share link in dashboard footer + Settings → Refer.
 - Attribution via signed referral tokens in URL (`?ref={hash}`).
 - Token verified at signup; both accounts credited via Stripe Coupon (one-time discount).
@@ -92,13 +94,13 @@ Target: 200–500 pages within 12 months. **One organic signup/month per page wi
 4. Build `/changelog` rendered from `docs/changelog/*.md`. RSS feed.
 5. Build "What's new" bell + popover in dashboard.
 6. Build referral program:
-   - Migration **051**: `referrals(id, referrer_account_id, referee_account_id, token_hash, created_at, converted_at, credited_at)`.
+   - Migration (next free number; head 042 — coordinate per README): `referrals(id, referrer_account_id, referee_account_id, token_hash, created_at, converted_at, credited_at)`.
    - In-product Settings → Refer with shareable link.
    - URL-token capture on signup.
    - Stripe Coupon application on both sides at conversion.
-7. UTM capture middleware: log to `signups.utm_*` columns.
-8. Subscribe Loops or Customer.io. Migrate transactional → keep on Resend; lifecycle → Loops.
-9. Set up Google Ads + Meta accounts with conversion tracking back to PostHog.
+7. UTM capture: add `utm_*` columns to `owner_leads` (today it has only a freetext `source`) and capture them at lead/signup.
+8. ⚠️ ESP decision shared with [Spec 14](./14-customer-success-retention.md): the existing schedulers + Resend already send some lifecycle email. Either extend that or adopt Loops/Customer.io — decide once, in one place.
+9. Set up Google Ads + Meta with conversion tracking back to the analytics tool chosen in [Spec 01 §2a](./01-product-market-fit.md) (PostHog not yet installed).
 10. Build LP template `src/app/lp/[slug]/page.tsx` for paid campaigns.
 11. Write `docs/marketing/utm-convention.md` and pin it.
 
@@ -136,4 +138,14 @@ Target: 200–500 pages within 12 months. **One organic signup/month per page wi
 - [Spec 11 — Data, Analytics & BI](./11-data-analytics-bi.md) (UTM events, attribution)
 - [Spec 14 — Customer Success & Retention](./14-customer-success-retention.md) (lifecycle emails)
 - [Spec 15 — Sales & GTM](./15-sales-gtm.md) (landing pages, demo environment)
-- Code anchors: PR #18 landing page redesign; PR #25 auth island
+- Code anchors: `src/app/(public)/*` (landing/marketing routes), `owner_leads` (migration 033), `src/lib/notifications/email/*` (Resend)
+
+## 9. Implementation in the current repo
+
+- **Programmatic SEO + blog + changelog + LP** are all net-new Next.js routes under `(public)/` — the `/changelog` and `/compare` builds are shared with [Spec 01](./01-product-market-fit.md). Use MDX in `content/` (no CMS).
+- **Referral** is a `referrals` table + URL-token capture (reuse the SHA-256 hashed-token pattern from approval links) + Stripe Coupons (the billing path already creates Stripe objects — [Spec 02](./02-pricing-packaging.md)).
+- **UTM** extends `owner_leads` (structured columns) rather than a new table; capture at the existing lead-intake/signup routes.
+- **Attribution + lifecycle ESP** are the two cross-spec decisions (analytics → §2a; ESP → Spec 14) — don't resolve them locally here.
+
+---
+_Verified 2026-05-23 against migration head 042. Confirmed all marketing surfaces greenfield; corrected the Growth-tier referral mechanic, structured-UTM-vs-freetext-source, and routed attribution/ESP through the shared §2a / Spec 14 decisions._
