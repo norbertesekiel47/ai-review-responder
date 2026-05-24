@@ -10,11 +10,14 @@ Acquiring is expensive; retaining compounds. SMB SaaS lives or dies on monthly l
 
 ## 2. Current state (RepWorth)
 
-- Owner dashboard redesigned (PR #27) — engagement surface.
-- No documented health-score logic.
-- No NPS / CSAT cadence.
-- No lifecycle email sequences (only transactional via Resend).
-- Cancellation flow not yet built (see [Spec 05](./05-billing-subscription.md)).
+_Verified 2026-05-23 against the live tree (migration head 042)._
+
+- Owner dashboard redesigned (`docs/superpowers/plans/2026-05-07-owner-dashboard-redesign.md`).
+- **Schedulers already exist** (`worker/background/schedulers/`): `MonthlyImpactScheduler`, `OnboardingDripScheduler`, `RankingTrackingScheduler`, `WeeklySummaryScheduler` — so **some lifecycle email already runs via Resend + schedulers** (onboarding drip, weekly/monthly value reports), not a separate ESP. There is **no** health-score scheduler.
+- A churn-risk score is already computed in admin overview (`computeChurnRiskScore`) — reconcile with the proposed composite health score rather than duplicating.
+- No `account_health` / `nps_responses` tables. No Canny (only a `(public)/feedback/thanks` page). No Loops/Customer.io.
+- Cancellation: `cancelled_at` + `CancellationGracePoller` (30-day grace) exist; **no cancel UI / survey** ([Spec 05](./05-billing-subscription.md)).
+- ⚠️ Health-score inputs reference PostHog ("logins in last 14 days"), but login events aren't captured today — gated on the [Spec 01 §2a](./01-product-market-fit.md) analytics decision.
 
 ## 3. Target state
 
@@ -33,7 +36,7 @@ Score < 40 = at-risk → flagged for intervention (founder ping, save call offer
 Score 40–70 = neutral → keep nurturing.
 Score > 70 = champion → ask for referral, case study, expansion.
 
-Implementation: nightly worker `worker/background/schedulers/health-score-scheduler.ts` writes to `account_health(account_id, score, computed_at, components JSONB)`.
+Implementation: nightly scheduler in `worker/background/schedulers/` (mirror the existing `WeeklySummaryScheduler` registration) writes to `account_health(account_id, score, computed_at, components JSONB)`. ⚠️ Fold in the existing `computeChurnRiskScore` logic rather than inventing a parallel score.
 
 ### NPS / CSAT
 - **NPS quarterly** via in-product modal (Delighted if budget allows; otherwise hand-rolled).
@@ -84,13 +87,13 @@ Each sequence has its own copy doc in `docs/lifecycle/sequences/*.md`. Open/clic
 
 ## 4. Implementation tasks
 
-1. Migration **049**: `account_health(account_id, score INT, components JSONB, computed_at)`. Indexed on `score`.
-2. Build `HealthScoreScheduler` in `worker/background/schedulers/`. Runs nightly at 03:00 UTC. Computes per-account.
-3. Build Settings → Admin → Health dashboard (founder-only) listing at-risk accounts sorted by score ascending.
-4. Subscribe Loops or Customer.io. Wire 5 lifecycle sequences. Author copy.
-5. Build NPS modal: triggers quarterly per user, dismissable, response stored in `nps_responses` table. Migration **050**.
+1. Migration (next free number; head 042 — coordinate per README): `account_health(account_id, score INT, components JSONB, computed_at)`. Indexed on `score`.
+2. Build `HealthScoreScheduler` in `worker/background/schedulers/` (mirror existing schedulers). Nightly 03:00 UTC, per-account. Reuse `computeChurnRiskScore`.
+3. Build a founder-only health dashboard listing at-risk accounts ascending — extend the existing `admin/overview` rather than a new Settings page.
+4. ⚠️ Decide ESP: the existing scheduler + Resend already power onboarding-drip / weekly / monthly emails. Either (a) add the remaining lifecycle sequences on that infra, or (b) adopt Loops/Customer.io. Don't assume a new ESP without weighing the working one.
+5. Build NPS modal: quarterly per user, dismissable, stored in `nps_responses` (claims the next free migration number — coordinate).
 6. Wire Help Scout CSAT survey.
-7. Subscribe Canny. Embed widget at `src/app/dashboard/feedback/page.tsx`.
+7. Subscribe Canny. Embed widget at `src/app/(authenticated)/dashboard/feedback/page.tsx` (a `(public)/feedback/thanks` page already exists — reuse the route group).
 8. Build QBR template + scheduling Calendly workflow for > $500 MRR accounts.
 9. Author `docs/lifecycle/sequences/*.md` for each sequence.
 10. Author `docs/cs/qbr-template.md`.
@@ -130,4 +133,15 @@ Each sequence has its own copy doc in `docs/lifecycle/sequences/*.md`. Open/clic
 - [Spec 11 — Data, Analytics & BI](./11-data-analytics-bi.md) (event taxonomy, NPS tracking)
 - [Spec 13 — Customer Support](./13-customer-support.md) (CSAT, ticket sentiment)
 - [Spec 16 — Marketing & Growth](./16-marketing-growth.md) (referral program from champions)
-- Code anchors: PR #27 dashboard redesign; `worker/background/schedulers/`
+- Code anchors: `worker/background/schedulers/*` (4 existing schedulers), `src/lib/notifications/email/*` (Resend + templates), `/api/admin/overview/route.ts` (`computeChurnRiskScore`), `cancelled_at` + `CancellationGracePoller`
+
+## 9. Implementation in the current repo
+
+- **Health score** reuses the existing scheduler harness and the existing `computeChurnRiskScore` — don't build a second scoring path. New: the `account_health` table + nightly write + at-risk view (extend `admin/overview`).
+- **Lifecycle email is partly built** — `OnboardingDripScheduler` + `MonthlyImpactScheduler` + `WeeklySummaryScheduler` already send via Resend with templates in `src/lib/notifications/email/templates/`. The ESP decision (task 4) is whether to keep extending this or adopt Loops/Customer.io; the welcome/at-risk/win-back sequences can ride the existing infra.
+- **NPS + Canny** are net-new (table + modal; widget). Embed under the authenticated dashboard route group.
+- **Cancellation save flow** depends on [Spec 05](./05-billing-subscription.md) (no cancel UI/survey yet); the `cancellation_surveys` table lands there.
+- PostHog-sourced inputs (logins) are gated on [Spec 01 §2a](./01-product-market-fit.md).
+
+---
+_Verified 2026-05-23 against migration head 042. Noted the 4 existing schedulers + Resend lifecycle email, the existing churn score to reuse, and corrected migration numbering, dashboard path, and the PostHog dependency._

@@ -6,25 +6,26 @@
 
 ## 1. Why this matters
 
-The GTM motion must match ACV. RepWorth's ICP is multi-location SMBs at $89–$149/location/month — that's $300–$3000/mo per customer, sitting in the sales-assisted zone. Pure self-serve loses revenue on enterprise; pure sales-led burns founder hours on $49 deals.
+The GTM motion must match ACV. RepWorth's ICP is multi-location SMBs on Standard ($79) / Premium ($199, includes 5 locations) + per-location overage — landing many customers in the hundreds-to-low-thousands $/mo sales-assisted zone. Pure self-serve loses revenue on enterprise; pure sales-led burns founder hours on entry-tier deals. _(Tiers per the live model in [Spec 02](./02-pricing-packaging.md) — not the earlier Starter/Growth/Scale.)_
 
 ## 2. Current state (RepWorth)
 
-- Marketing site + signup live.
-- Multi-location billing shipped.
-- No CRM visible.
-- No demo environment.
-- No partner / agency program.
-- Owner lead intake exists (`docs/plans/2026-05-06-owner-lead-intake-design.md`).
+_Verified 2026-05-23 against the live tree (migration head 042)._
+
+- Marketing site + signup live. Multi-location billing shipped.
+- **No CRM** (no HubSpot/Attio/Zapier), no Calendly, no sales `demo.repworth.com`.
+- ⚠️ A **demo already exists** — but it's the *onboarding* demo (`onboarding_demos`, `/onboarding/demo`, `/(public)/demo/[slug]`, `ONBOARDING_DEMO_ENABLED`), not a persistent seeded sales demo. Decide whether the sales demo reuses this pipeline or is a separate seeded environment.
+- **Lead intake is built**: `src/app/(public)/book-a-demo` → `LeadIntakeForm` → `/api/lead-intake` → `owner_leads` table (migration 033). ⚠️ The design-doc anchor `docs/plans/2026-05-06-owner-lead-intake-design.md` does **not** exist (only the implementation).
+- No partner / agency program; no `/compare` page (consistent with [Spec 01](./01-product-market-fit.md)).
 
 ## 3. Target state
 
 ### Motion segmentation (by ACV)
 | ACV (monthly) | Motion | Funnel |
 |---|---|---|
-| < $100 (1 location, Starter) | Pure PLG | self-serve trial → paid |
-| $100–$500 (Growth, 2–10 locations) | Sales-assisted | demo + onboarding call optional |
-| $500–$2000 (Scale, 10–25 locations) | Sales-led | demo + custom call + onboarding + CSM |
+| < $100 (1 location, Basic/Founders) | Pure PLG | self-serve trial → paid |
+| $100–$500 (Standard, 2–10 locations) | Sales-assisted | demo + onboarding call optional |
+| $500–$2000 (Premium, 10–25 locations) | Sales-led | demo + custom call + onboarding + CSM |
 | $2000+ (enterprise, 25+ locations) | Custom deal | deal desk, custom contract |
 
 ### CRM
@@ -81,15 +82,15 @@ Stored in Notion or a `sales-enablement/` folder in repo + linked from `docs/sal
 
 1. Subscribe HubSpot Starter or Attio. Configure pipeline stages + properties.
 2. Wire Stripe → HubSpot via Zapier; sync lifecycle stage + MRR + plan.
-3. Build `demo.repworth.com` with nightly reset:
-   - New subdomain in Vercel.
-   - Seeded fixture in `scripts/seed/demo-environment.ts`.
-   - Cron in Railway scheduler resets at 03:00 UTC.
+3. Build the sales demo with nightly reset. ⚠️ First decide vs. the existing onboarding demo (`onboarding_demos` + SerpAPI/curated pipeline): either extend it for persistent seeded sales businesses, or build a separate `demo.repworth.com`:
+   - New subdomain in Vercel (if separate).
+   - Seeded fixture in `scripts/seed/demo-environment.ts` (no `scripts/seed/` dir exists yet).
+   - Railway scheduler cron resets at 03:00 UTC (mirror existing schedulers).
 4. Build "Book a demo" Calendly integration. Capture UTM + email.
 5. Author one-pager, demo deck, ROI calc, first 3 case studies (anonymous).
-6. Build comparison page (`src/app/compare/page.tsx`) — overlaps with [Spec 01](./01-product-market-fit.md) wedge framing.
+6. Build comparison page (`src/app/(public)/compare/page.tsx`, route-group convention) — **owned by [Spec 01](./01-product-market-fit.md)**; don't build twice.
 7. Write `docs/sales/deal-desk.md` for first 5 enterprise deals.
-8. Wire owner-lead intake design (already designed) into HubSpot pipeline.
+8. Wire the **already-built** owner-lead intake (`/api/lead-intake` → `owner_leads`, migration 033) into the CRM pipeline — sync new `owner_leads` rows to HubSpot/Attio.
 9. Set lifecycle-stage automation: trial-day-3 / trial-day-12 / day-1-paid triggers founder nudge in HubSpot.
 
 ## 5. Acceptance criteria
@@ -124,4 +125,15 @@ Stored in Notion or a `sales-enablement/` folder in repo + linked from `docs/sal
 - [Spec 06 — Onboarding](./06-onboarding-activation.md) (demo environment)
 - [Spec 14 — Customer Success](./14-customer-success-retention.md) (QBRs)
 - [Spec 16 — Marketing & Growth](./16-marketing-growth.md) (paid acquisition, attribution)
-- Code anchors: `docs/plans/2026-05-06-owner-lead-intake-design.md`
+- Code anchors: `src/app/(public)/book-a-demo/*`, `LeadIntakeForm`, `/api/lead-intake`, `owner_leads` (migration 033), `onboarding_demos` (migration 032)
+
+## 9. Implementation in the current repo
+
+- **Lead capture is already wired** (`book-a-demo` → `LeadIntakeForm` → `owner_leads`). The net-new GTM work is CRM (HubSpot/Attio) + the Stripe→CRM sync + the sales demo.
+- **The sales demo should likely reuse the onboarding-demo pipeline** (`onboarding_demos`, SerpAPI/curated generation) rather than a parallel seeded environment — resolve task 3's fork before building a subdomain.
+- **CRM sync** is a webhook/Zapier integration: emit on `owner_leads` insert + Stripe lifecycle (the Stripe ingress already exists in `worker/ingress/stripe.ts`) → CRM lifecycle stages.
+- **Comparison page** is Spec 01's deliverable at `(public)/compare` — Spec 15 only consumes it.
+- Tier names throughout follow the live model (basic/standard/premium/founders), per [Spec 02](./02-pricing-packaging.md).
+
+---
+_Verified 2026-05-23 against migration head 042. Aligned ACV/tier names to the live model; corrected the comparison-page path + ownership; noted lead intake is already built (design-doc anchor missing); flagged the sales-demo-vs-onboarding-demo overlap._

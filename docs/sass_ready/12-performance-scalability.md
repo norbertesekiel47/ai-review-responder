@@ -10,12 +10,16 @@ Performance regressions are silent until a customer hits the cliff. RepWorth's w
 
 ## 2. Current state (RepWorth)
 
+_Verified 2026-05-23 against the live tree (migration head 042)._
+
 - BullMQ + Upstash queue separate from cache (architecture).
-- Postgres.js with `statement_timeout: 30_000` per CLAUDE.md gotcha.
-- PgBouncer + Supabase transaction-pooled mode (port 6543).
-- No documented load test run.
-- No latency budgets published.
-- Multi-location ships supports hundreds-of-locations per account but not stress-tested.
+- Postgres.js verified (`src/lib/db/server.ts`): `statement_timeout: 30_000`, `prepare: false`, PgBouncer pooled `DATABASE_POOL_URL`.
+- `@tanstack/react-query` installed; **no `web-vitals` / Vercel Speed Insights / Vercel Analytics** yet.
+- **No load tests** (`tests/load/` absent), **no seed scripts** (`scripts/seed/` absent), no latency budgets published.
+- Pagination partially exists (admin `PAGE_SIZE = 20`, server-paginated past-replies) but not enforced by a lint rule.
+- ⚠️ Cache keys are **businessId / flow-state based** (`connect_pending:${businessId}`, `rch:channels:${accountId}:${locationId}`), **not** the spec's `acct:{account_id}:kpi` — align with the [Spec 03](./03-multitenancy-isolation.md) cache-key decision.
+- ⚠️ **No CI** — Lighthouse-CI / perf gates are blocked on standing up GitHub Actions ([Spec 24](./24-devops-deployment.md)).
+- Multi-location supports hundreds-of-locations per account but is not stress-tested.
 
 ## 3. Target state
 
@@ -49,7 +53,7 @@ Performance regressions are silent until a customer hits the cliff. RepWorth's w
 ### Latency budgets
 | Endpoint / op | p50 | p95 | p99 |
 |---|---|---|---|
-| Login (POST /api/auth/login) | 200ms | 500ms | 1.0s |
+| Auth (signup/verify-otp — ⚠️ there is no `/api/auth/login`; login is Supabase-client-side) | 200ms | 500ms | 1.0s |
 | Dashboard home (GET /dashboard) | 600ms | 1.5s | 3.0s |
 | Response generation (LLM call) | 4s | 8s | 15s |
 | Webhook ingestion (POST /webhooks/*) | 80ms | 200ms | 500ms |
@@ -83,8 +87,8 @@ Use Vercel Speed Insights + Lighthouse-CI in GitHub Actions on PR previews.
 2. Wire load tests to a Railway-or-staging environment toggle (never against prod).
 3. Build seed script `scripts/seed/big-account.ts` that creates a 500-location / 10k-review test account.
 4. Walk the UI on the big account; document N+1 hits and unbounded queries in `docs/runbooks/big-account-walkthrough-YYYY-MM.md`.
-5. Add pagination to any unbounded location/review list (assert via lint rule that any `.findAll`-style repo call must take `limit` arg).
-6. Add Lighthouse-CI to GitHub Actions on every PR preview.
+5. Add pagination to any unbounded location/review list (admin already uses `PAGE_SIZE = 20`; extend the pattern). A lint rule is optional and low-value given there's no repository layer to target.
+6. Add Lighthouse-CI to GitHub Actions on every PR preview — **requires CI to exist first** ([Spec 24](./24-devops-deployment.md)).
 7. Add Vercel Speed Insights / web-vitals reporting.
 8. Document latency budgets in `docs/perf/budgets.md`; alert in BetterStack on 2× budget.
 9. Add `pg_stat_activity` watcher synthetic check (every 5 min) — alert at 80% of pool ceiling.
@@ -121,4 +125,15 @@ Use Vercel Speed Insights + Lighthouse-CI in GitHub Actions on PR previews.
 - [Spec 03 — Multi-tenancy](./03-multitenancy-isolation.md) (per-account scoping under load)
 - [Spec 07 — Observability](./07-observability.md) (latency dashboards)
 - [Spec 23 — Testing & QA](./23-testing-qa.md) (CI integration of perf checks)
-- Code anchors: `worker/queues.ts`, Postgres.js client config (`statement_timeout: 30_000`), BullMQ workers in `worker/jobs/*`
+- Code anchors: `worker/queues.ts`, `src/lib/db/server.ts` (Postgres.js pooled config), `src/app/admin/overview` (existing pagination), BullMQ workers in `worker/jobs/*`
+
+## 9. Implementation in the current repo
+
+- **The DB tuning the spec depends on already exists** (`server.ts`: 30s timeout, `prepare:false`, pooled URL). Net-new work is load tests, the big-account seed, web-vitals, and Lighthouse-CI.
+- **Seed + load** go in new `scripts/seed/big-account.ts` and `tests/load/*` (neither dir exists). Run only against staging/dedicated Supabase + Upstash dev, capped RPS.
+- **The real risk is the 500-location UI**, not throughput — walk it against the seed, fix N+1s and unbounded lists by extending the existing `PAGE_SIZE` pagination (admin/overview, past-replies).
+- **web-vitals + Lighthouse-CI** both need adding (`web-vitals` not installed; no CI). Lighthouse-CI is gated on [Spec 24](./24-devops-deployment.md).
+- **KPI cache** should adopt whatever key convention [Spec 03](./03-multitenancy-isolation.md) settles (currently businessId/flow-state keyed, not `acct:`).
+
+---
+_Verified 2026-05-23 against migration head 042. Confirmed Postgres.js tuning; corrected the non-existent `/api/auth/login`, the missing web-vitals/Lighthouse-CI (+ no-CI dependency), the cache-key mismatch, and that load/seed infra is absent._

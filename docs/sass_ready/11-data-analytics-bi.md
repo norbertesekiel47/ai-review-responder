@@ -10,11 +10,13 @@ Multi-location customers buy on reporting polish. Internal BI is how the founder
 
 ## 2. Current state (RepWorth)
 
-- Owner dashboard redesigned (PR #27) — front-end ready to host new KPIs.
+_Verified 2026-05-23 against the live tree (migration head 042)._
+
+- Owner dashboard redesigned (`docs/superpowers/plans/2026-05-07-owner-dashboard-redesign.md`) — **already renders customer-facing KPI cards** (`KpiCards.tsx`, plus Velocity/Ranking/IntelligenceBrief cards). Some of this spec's "5 KPIs" likely already exist; reconcile before rebuilding.
+- An **internal KPI dashboard already exists** at `src/app/admin/overview` (`/api/admin/overview/route.ts`) computing metrics **directly from Postgres** (pending outbox, failed jobs, cost/day, email health, response rate, churn-risk via `computeChurnRiskScore`). This is the de-facto internal BI today — there is no PostHog.
 - Multi-location schema (migration 034) supports per-location roll-up.
-- No documented `docs/analytics/events.md`.
-- PostHog adoption unclear (referenced in CLAUDE.md MCPs only as "in use").
-- No data warehouse.
+- **No PostHog** (not installed — see [Spec 01](./01-product-market-fit.md) §2a). The "PostHog as the BI spine" framing depends on the §2a tooling decision. No `docs/analytics/events.md`, no data warehouse.
+- **No sentiment classifier.** `reviews` has `star_rating` but **no sentiment column**; `mock-generator.ts`'s `classifySentiment()` only maps stars → template pools (not a real classifier).
 
 ## 3. Target state
 
@@ -32,7 +34,8 @@ Multi-location customers buy on reporting polish. Internal BI is how the founder
 - Export to CSV + PDF for marketing managers reporting upward.
 - Build with `@tanstack/react-query` + server components; cache 5 min.
 
-### Internal BI — PostHog as the spine
+### Internal BI — PostHog as the spine (contingent on [Spec 01 §2a](./01-product-market-fit.md))
+> Today, internal BI is the Postgres-direct `admin/overview` dashboard. If §2a picks Postgres-native over PostHog, the "spine" below becomes Metabase-on-replica, not PostHog.
 - Cohorts (signup week, vertical, ICP-fit score).
 - Retention curves split by activation.
 - Funnels: signup → activation, trial → paid, paid → expansion.
@@ -81,10 +84,10 @@ CI rule: any new `posthog.capture(...)` call without a corresponding entry in `e
 ## 4. Implementation tasks
 
 1. Write `docs/analytics/events.md` with the launch event set ([Spec 07](./07-observability.md)).
-2. Add CI script `scripts/ci/posthog-events-audit.ts` that diffs `posthog.capture(...)` calls in code vs. doc entries.
-3. Build `<DashboardKpiGrid />` component with 5 KPIs. SQL queries in `src/lib/repositories/kpi-repo.ts` (scoped by `account_id` — see [Spec 03](./03-multitenancy-isolation.md)).
+2. Add CI script `scripts/ci/analytics-events-audit.ts` that diffs analytics `capture(...)` calls vs. doc entries. **Requires GitHub Actions CI to exist first** ([Spec 24](./24-devops-deployment.md)).
+3. **First, audit the existing `KpiCards.tsx`** against the 5 KPIs — extend it, don't rebuild. SQL lives in an account-scoped query module (e.g. `src/lib/kpi/*`); there is **no** `src/lib/repositories/` layer ([Spec 03](./03-multitenancy-isolation.md) decision), so scope inline by `account_id`.
 4. Build per-location filter + roll-up toggle on dashboard.
-5. Add `reviews.sentiment_score` + `sentiment_label` (migration 047). Backfill from existing reviews via one-time worker job.
+5. Add `reviews.sentiment_score` + `sentiment_label` (claims the next free migration number; head 042 — coordinate per README). Backfill from existing reviews via a one-time worker job.
 6. Build CSV + PDF export. Async export for > 100 locations.
 7. Add PostHog dashboards: signup funnel, activation rate, trial → paid, NPS, expansion MRR.
 8. Add server-rendered analytics page `src/app/dashboard/analytics/page.tsx` (8-week sentiment trend, top performing locations, lowest-rating-review-needing-attention list).
@@ -120,4 +123,15 @@ CI rule: any new `posthog.capture(...)` call without a corresponding entry in `e
 - [Spec 03 — Multi-tenancy](./03-multitenancy-isolation.md) (KPI queries scoped)
 - [Spec 07 — Observability](./07-observability.md) (event taxonomy alignment)
 - [Spec 22 — AI/LLM Operations](./22-ai-llm-ops.md) (sentiment classifier cost)
-- Code anchors: PR #27 owner dashboard redesign; `src/app/dashboard/*`
+- Code anchors: `src/app/(authenticated)/dashboard/*` (`KpiCards.tsx`), `src/app/admin/overview/*` + `/api/admin/overview/route.ts` (`computeChurnRiskScore`), `reviews` schema (migration 001)
+
+## 9. Implementation in the current repo
+
+- **Two KPI surfaces already exist** — customer-facing `KpiCards.tsx` and internal `admin/overview`. This spec's work is to (a) confirm the 5 customer KPIs against `KpiCards`, (b) add per-location filter/roll-up, (c) add CSV/PDF export, (d) add sentiment. It is **not** a from-scratch dashboard build.
+- **KPI queries** go in an account-scoped `src/lib/kpi/*` module (inline `WHERE account_id`), consistent with the no-repository-layer decision; the existing `/api/admin/overview/route.ts` is the pattern to mirror.
+- **Sentiment** is a worker job on the ingest path (gpt-4o-mini batch via the existing `src/lib/responses/generator.ts` LLM client + cost guard); write to the new `reviews.sentiment_*` columns inside ingest.
+- **Event taxonomy + its CI audit** are blocked on the §2a analytics decision and on CI existing ([Spec 24](./24-devops-deployment.md)).
+- **Export** (CSV stream / PDF) for >100-location accounts runs async as a worker job → emailed link, not in a Next.js route.
+
+---
+_Verified 2026-05-23 against migration head 042. Noted both KPI dashboards already exist; corrected the no-repository-layer path, the no-sentiment-column reality, PostHog-not-installed, and the CI dependency for the events audit._

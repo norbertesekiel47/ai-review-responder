@@ -10,10 +10,13 @@ Support quality is a retention lever and a hiring signal. The right tools at the
 
 ## 2. Current state (RepWorth)
 
-- No documented support tooling.
-- No `/help` knowledge base.
-- No admin impersonation flow documented.
-- `report@repworth.com` and `support@repworth.com` not confirmed.
+_Verified 2026-05-23 against the live tree (migration head 042)._
+
+- No support tooling (no Help Scout/Crisp/Plain/Intercom/Zendesk), no `/help` KB, no Mintlify/Docusaurus — all greenfield.
+- **No admin impersonation** and no `impersonation_sessions` table. An admin area exists (`src/app/admin/*`: overview, businesses, costs, demos, jobs, notifications, runbook) to host it.
+- Settings has tabs General/Account/BrandVoice/Channels/Locations (+ per-location overrides) but **no Export-my-data / Delete-account / API-token UI** yet (greenfield; data-export/delete cross-refs [Spec 09](./09-security-compliance.md)).
+- Impersonation audit should reuse the existing **`account_audit_log`** (migration 034), consistent with [Spec 04](./04-auth-identity.md) — not a fresh audit table.
+- `report@`/`support@` mailboxes not confirmed in repo.
 
 ## 3. Target state
 
@@ -26,11 +29,11 @@ Support quality is a retention lever and a hiring signal. The right tools at the
 | Community forum | Skip until 500+ paying customers | — |
 
 ### Response SLAs (per tier)
-| Tier | First-response SLA | Resolution target |
+| Tier (live names) | First-response SLA | Resolution target |
 |---|---|---|
-| Starter | 24 business hours | 3 business days |
-| Growth | 8 business hours | 1 business day |
-| Scale | 2 business hours + dedicated CSM | 4 business hours |
+| Basic / Founders | 24 business hours | 3 business days |
+| Standard | 8 business hours | 1 business day |
+| Premium | 2 business hours + dedicated CSM | 4 business hours |
 
 Auto-responder confirms receipt with ticket ID, expected SLA. Published on `/help/contact`.
 
@@ -82,12 +85,12 @@ Auto-responder confirms receipt with ticket ID, expected SLA. Published on `/hel
 ## 4. Implementation tasks
 
 1. Subscribe Help Scout. Configure inboxes + tags + workflows.
-2. Subscribe Plain or Crisp. Wire chat widget into `src/app/dashboard/*` layout. Hide outside business hours.
+2. Subscribe Plain or Crisp. Wire chat widget into the `src/app/(authenticated)/dashboard/*` layout. Hide outside business hours.
 3. Stand up Mintlify docs at `docs.repworth.com`. Seed with top 5 articles + GBP setup guide.
 4. Build admin impersonation flow:
-   - Migration **048**: `impersonation_sessions(id, actor_user_id, impersonated_user_id, ticket_id, reason, started_at, expires_at, ended_at)`.
-   - Admin UI page `src/app/admin/impersonate/page.tsx`.
-   - Audit middleware tags all session traffic with `impersonating: true`.
+   - Migration (next free number; head 042 — coordinate per README): `impersonation_sessions(id, actor_user_id, impersonated_user_id, ticket_id, reason, started_at, expires_at, ended_at)`.
+   - Admin UI page `src/app/admin/impersonate/page.tsx` (sibling to existing admin pages).
+   - Write an `account_audit_log` row per session start/end (reuse the existing table); tag session traffic `impersonating: true`.
    - 1-hour TTL; banner UI; destructive actions blocked.
 5. Author top 20 macros. Track usage monthly.
 6. Add auto-responder template referencing tier + SLA + ticket ID.
@@ -128,3 +131,14 @@ Auto-responder confirms receipt with ticket ID, expected SLA. Published on `/hel
 - [Spec 09 — Security & Compliance](./09-security-compliance.md) (data export, account delete)
 - [Spec 14 — Customer Success & Retention](./14-customer-success-retention.md) (CSM motion)
 - [Spec 25 — Documentation](./25-documentation.md) (Mintlify infra)
+- Code anchors: `src/app/admin/*`, `src/app/(authenticated)/settings/*`, `account_audit_log` (migration 034)
+
+## 9. Implementation in the current repo
+
+- **Everything except impersonation is third-party signup + config** (Help Scout, Crisp/Plain, Mintlify) — no code prerequisites.
+- **Impersonation** is the one in-repo build: a new `impersonation_sessions` table + an `src/app/admin/impersonate` page (the admin shell already exists), reusing `account_audit_log` for the audit trail and the existing `src/middleware.ts` for the destructive-action block + banner gating.
+- **Self-serve admin actions** (export/delete/API tokens) attach to the existing `SettingsShell` tab strip; export/delete cross-ref [Spec 09](./09-security-compliance.md), API tokens cross-ref [Spec 20](./20-api-integrations.md).
+- **KB CI** (dead-link checker / snippet executor) is blocked on standing up CI ([Spec 24](./24-devops-deployment.md)).
+
+---
+_Verified 2026-05-23 against migration head 042. Aligned SLA tiers to live names (basic/standard/premium); pointed impersonation audit at the existing `account_audit_log`; fixed dashboard path + migration numbering; noted the admin shell + settings tabs that already exist._
