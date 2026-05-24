@@ -51,7 +51,7 @@
     "serpapi": "^2.2.1",
     "stripe": "^22.0.0",
     "twilio": "^6.0.0",
-    "uuid": "^13.0.2",
+    "uuid": "^14.0.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
