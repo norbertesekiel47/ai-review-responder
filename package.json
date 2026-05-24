@@ -40,7 +40,7 @@
     "libphonenumber-js": "^1.13.3",
     "motion": "^12.40.0",
     "nanoid": "^5.1.11",
-    "next": "^15.5.18",
+    "next": "^16.2.6",
     "openai": "^6.39.0",
     "postgres": "^3.4.9",
     "qrcode": "^1.5.4",
