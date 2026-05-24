@@ -6,10 +6,25 @@ updates:
       interval: weekly
     open-pull-requests-limit: 10
     groups:
+      # Interdependent packages that MUST upgrade together — list these first so
+      # they take precedence over the minor/patch groups below. No update-types
+      # filter, so even their MAJOR bumps stay grouped (a split react/react-dom
+      # bump leaves a 19/18 mismatch that fails the build; next + its eslint
+      # config track the same major line).
+      react:
+        patterns:
+          - "react"
+          - "react-dom"
+          - "@types/react"
+          - "@types/react-dom"
+      next:
+        patterns:
+          - "next"
+          - "eslint-config-next"
       # Group only minor + patch so routine bumps stay green and reviewable
-      # in one PR. Majors are intentionally excluded, so Dependabot opens an
-      # individual PR per major — breaking upgrades (e.g. Next 16, a
-      # TypeScript major) land isolated instead of bundled into a red group PR.
+      # in one PR. Other majors are intentionally excluded, so Dependabot opens
+      # an individual PR per major — breaking upgrades (e.g. a TypeScript major)
+      # land isolated instead of bundled into a red group PR.
       production-minor-patch:
         dependency-type: production
         update-types:
