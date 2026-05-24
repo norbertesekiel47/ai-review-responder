@@ -108,7 +108,7 @@ Calendar reminders on the day-of for each.
 1. Document rollback playbook at `docs/runbooks/rollback.md`. Include Vercel + Railway commands + migration down + flag kill switch + comms template.
 2. Set up Railway PR environments (GitHub integration in Railway dashboard).
 3. Feature-flag decision resolved (Step 0): env-var flags stay as kill-switches; add PostHog feature flags (per §2a) for %-rollout. Wire `posthog-node` flag evaluation only on the first rollout that needs %-gating — no upfront migration of existing env-var flags.
-4. Set GitHub branch protection rules per §3 (**after task 0** — there are no status checks to require until CI exists).
+4. Set GitHub branch protection rules per §3 (**the shipped stable checks can be required now**; add DB integration and Playwright checks later when available).
 5. Add Slack `#deploys` channel + Vercel/Railway webhook integrations.
 6. Author secrets-rotation runbooks per §3. Calendar reminders.
 7. Audit CI pipeline runtime. Parallelize where possible. Target < 10 min.
@@ -157,7 +157,7 @@ Calendar reminders on the day-of for each.
 
 ## 9. Implementation in the current repo
 
-- **This spec is the keystone.** Task 0 (create `.github/` + CI) unblocks the "fail the build" tasks in Specs 07/08/09/12/19/22/23/25. Sequence it first; the rest of those specs' CI tasks are cheap once the runner exists.
+- **This spec is the keystone.** The shipped `.github/` + secret-free CI gate now unblocks the "fail the build" tasks in Specs 07/08/09/12/19/22/23/25. Sequence the remaining CI gates next: DB-backed integration, e2e, then security/a11y/eval checks.
 - **CI is no longer greenfield** — the first secret-free GitHub Actions gate now runs `pnpm lint`, `pnpm typecheck`, `pnpm test`, and `pnpm build`. Next CI steps are integration with `TEST_DATABASE_POOL_URL`, e2e on `main`/scheduled/staging runs, then security/a11y/eval gates.
 - **Flags**: the env-var pattern + `startup-assert.ts` already work as kill-switches and powered the edit-replies dark-ship (PR #56). Only adopt a flag *tool* if/when %-rollout is needed — and pin that to the §2a analytics decision.
 - **Migrations stay owner-run** via Supabase SQL editor until a hire; formalize the zero-downtime patterns (already in CLAUDE.md gotchas) into `docs/runbooks/migrations.md`.
