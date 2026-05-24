@@ -16,7 +16,7 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 - No public status page; no documented uptime SLO; no `docs/sre/` directory.
 - **Supabase PITR is on but has never been restored end-to-end** — the single most important untested assumption in this spec.
 - No `docs/postmortems/` directory; no `/trust` page; no `/changelog/incidents`.
-- ✅ **Base CI now exists; infra-as-code is still absent:** the first secret-free GitHub Actions gate runs `lint`, `typecheck`, `test`, and `build`, but there is still no `vercel.json`, no `railway.{json,toml}`, and no `Dockerfile` (Vercel/Railway are dashboard-configured). The "no direct push to main / change-management" controls still need branch protection and reliability-specific follow-up gates (see [Spec 24](./24-devops-deployment.md)).
+- ✅ **Base CI + branch protection now exist; infra-as-code is still absent:** the secret-free GitHub Actions gate runs `lint`, `typecheck`, `test`, and `build`, and **direct pushes to `main` are now blocked** (RepWorth-org "main protection" ruleset requires the four checks). There is still no `vercel.json`, no `railway.{json,toml}`, and no `Dockerfile` (Vercel/Railway are dashboard-configured), and the reliability-specific change-management gates (staging dry-run, smoke test in PR) remain follow-up work (see [Spec 24](./24-devops-deployment.md)).
 - **Health checks:** worker has `/api/health` (Fastify :3001); Next.js has none — synthetic checks need a Next.js health route first ([Spec 07](./07-observability.md)).
 
 ## 3. Target state
@@ -136,9 +136,9 @@ Current runbook list is solid. Maintain pattern; add a runbook every time a new 
 
 - **The cheapest win with the biggest risk reduction is the first PITR restore.** Everything else (SLO publishing, status page) is downstream of trusting the backup.
 - **Status page + synthetic checks** depend on a Next.js `/api/health` route (only the worker has one). Build that route, then point BetterStack at both health endpoints.
-- **Change-management controls** ("no direct push to main", staging dry-run, smoke test in PR) still require GitHub branch protection and reliability-specific CI gates. The secret-free base CI exists, but branch protection and smoke/deploy controls remain follow-up work in [Spec 24](./24-devops-deployment.md).
+- **Change-management controls:** "no direct push to `main`" is **done** (RepWorth-org branch-protection ruleset requires the four CI checks). The remaining controls — staging dry-run and smoke test in PR — still need reliability-specific CI gates and remain follow-up work in [Spec 24](./24-devops-deployment.md).
 - **Backups** run as a Railway cron alongside the existing `worker/background/` loops until a secret-bearing scheduled GitHub Action is designed on top of the base CI.
 - **Runbook audit** is doc-only: ensure each surviving runbook (and the archived ones if reactivated) carries the five required sections.
 
 ---
-_Verified 2026-05-23 against migration head 042. Corrected runbook locations (3 archived to completed_runbooks/), flagged the never-tested PITR restore, the still-missing branch-protection/smoke-deploy controls, the no-IaC reality, and the missing Next.js health route._
+_Verified 2026-05-23 against migration head 042; updated 2026-05-24 (base CI + branch protection now live). Corrected runbook locations (3 archived to completed_runbooks/), flagged the never-tested PITR restore, the still-missing smoke/deploy controls, the no-IaC reality, and the missing Next.js health route._

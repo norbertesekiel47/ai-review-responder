@@ -98,7 +98,7 @@ _Also settled earlier this pass: live 4-tier model (not Starter/Growth/Scale); n
 | Analytics event capture on the worker publish path (PostHog — Step-0 decision) | [01 §2a](./01-product-market-fit.md) | 01, 06, 11, 14, 16, 26 |
 | Generalized audit helper + extended `account_audit_log` | [04](./04-auth-identity.md) | impersonation audit (13), approval snapshot (29 Gap 1) |
 
-**CI first slice is shipped** — the secret-free base gate now runs `lint`, `typecheck`, `test`, and `build`. Next, add DB-backed integration, Playwright/e2e, branch protection, and the specialized gates required by ~8 specs.
+**CI first slice is shipped + enforced** (2026-05-24, PR #57) — the secret-free base gate runs `lint`, `typecheck`, `test`, and `build` on every PR + `push:main`, and **branch protection is live**: the `main` repo lives in the RepWorth org (Team plan) with a "main protection" **ruleset** requiring all four checks + blocking force-push/deletion. Actions are SHA-pinned; Dependabot groups minor/patch and surfaces majors individually. Still **next**: DB-backed integration + Playwright/e2e in CI (need `TEST_DATABASE_POOL_URL`), then the specialized "fail-the-build" gates required by ~8 specs.
 
 ### Step 2 — Risk-ordered waves (solo, one spec at a time)
 

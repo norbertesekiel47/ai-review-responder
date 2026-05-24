@@ -4424,3 +4424,26 @@ Documented in `docs/runbooks/multi-location.md` §6 — minor known issues that 
 **Lesson captured** (`.claude/skills/lab-notes.md`): when a shared helper's parameter semantics change while the type stays the same, grep ALL callers and fix every one; a branded type (e.g. `AccountId`) would let the compiler catch the mismatch.
 
 ---
+
+## CI Keystone + Repo Hardening (2026-05-24, branch `ci-keystone` → PR #57, follow-ups #61–#63)
+
+**Why:** SaaS-readiness Step 1's first keystone (Spec 24, task 0) — stand up GitHub Actions CI from zero. There was no `.github/` directory at all; every "fail-the-build" gate in Specs 07/08/09/12/19/22/23/25 was blocked on a runner + required checks existing. Anything merged shipped (Vercel/Railway auto-deploy on push) with no lint/type/test barrier.
+
+**What was done:**
+
+1. **CI workflow** (`.github/workflows/ci.yml`) — four parallel jobs (`lint`, `typecheck`, `test`, `build`) on `pull_request` + `push:main`. Secret-free: a dummy env block (localhost URLs, `MOCK_EXTERNAL_APIS=false`, valid-length dummy `ENCRYPTION_KEY`) so `next build` and the unit suite run without production secrets. Hardened: least-privilege `permissions: contents: read`, `concurrency` with `cancel-in-progress`, pnpm-store caching.
+2. **Composite action** (`.github/actions/setup`) — extracted the duplicated checkout/Node/corepack/pnpm/cache/install steps; `ci.yml` went 182 → 78 lines.
+3. **Supply-chain hardening** (review-driven) — all third-party actions pinned to immutable commit SHAs with version comments (`checkout@…#v4.3.1`, `setup-node@…#v4.4.0`, `cache@…#v4.3.0`); `persist-credentials: false` on every checkout (gate never pushes). Rule documented in the design spec.
+4. **Repo hygiene** — `.github/dependabot.yml` (npm + github-actions, weekly), `.github/pull_request_template.md`, `.github/CODEOWNERS` (`@norbertesekiel47`).
+5. **Two real latent bugs the green-on-laptop suite hid, surfaced by the secret-free CI env:**
+   - `MOCK_EXTERNAL_APIS=true` short-circuited the Zernio transport to a mock, so 16 real-path tests (injected `fetch`, error classification) never ran → fixed CI env to `MOCK_EXTERNAL_APIS=false` (matches `.env.local`).
+   - `src/app/api/account/settings/__tests__/route.test.ts` built `new Request()` (a Web Request — no `.cookies`) and cast to `any`; the Supabase SSR cookie adapter (`src/lib/db/auth.ts:37`) threw inside GoTrueClient's async `_emitInitialSession` → unhandled rejections failed the run. Fixed by switching to `NextRequest` (carries a real cookies store).
+6. **Branch protection** — repo transferred to the **RepWorth org** (Team plan) because private-repo branch protection requires a paid plan; then a repository **ruleset** ("main protection") was applied: requires the four checks + blocks force-push/deletion, enforced for all actors. (Classic branch protection and rulesets both 403 on a private Free-plan repo — hence the org move.)
+7. **Verification** — CI proven green across PRs #57/#61/#62/#63; Vercel production auto-deploy verified end-to-end on the merge commit after the org transfer.
+8. **Dependabot grouping fix** (PR #62) — the original prod/dev groups bundled breaking majors with safe patch/minor bumps, so the first grouped PRs (#59/#60) went red (Next 16 removed `next lint`; a TypeScript major broke CSS side-effect imports with `TS2882`). Reconfigured to group **only minor+patch**; majors now arrive as individual, reviewable PRs (#66–#73), with two safe green group PRs (#64/#65).
+
+**Deliberately deferred (follow-ups, not gaps):** DB-backed integration tests in CI (need `TEST_DATABASE_POOL_URL` secret) and the 13 Playwright e2e — the integration subset self-skips today, so the gate is unit-only. The Railway worker deployment is parked pending a Redis choice (Upstash is a poor fit for BullMQ's polling; leaning Railway-managed Redis / Dragonfly).
+
+**Lessons captured** (`.claude/skills/lab-notes.md`, 2026-05-24): CI is only trustworthy if its env mirrors prod intent (the `MOCK_EXTERNAL_APIS` trap); never validate CI from a git worktree nested inside the parent repo (module/eslintrc resolution leaks up and poisons lint+test); private-repo branch protection needs a paid plan (use a ruleset under an org); Dependabot groups must split majors from minor/patch.
+
+---
