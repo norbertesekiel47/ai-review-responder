@@ -16,6 +16,8 @@ The chosen approach is the minimal hard-gate CI:
 
 This gives RepWorth immediate merge protection without blocking on staging database credentials, preview infrastructure, or browser test runtime tuning.
 
+This first green badge must be read precisely: it gates the secret-free unit test suite and build checks. Database-backed integration tests currently self-skip when `TEST_DATABASE_POOL_URL` is unset, and Playwright is intentionally deferred, so integration/e2e coverage is not part of this first PR gate.
+
 ## Goals
 
 - Create the first `.github/` structure for RepWorth.
@@ -38,7 +40,7 @@ This gives RepWorth immediate merge protection without blocking on staging datab
 - `package.json` already has the commands needed for the first gate.
 - `.nvmrc` pins Node `v24.15.0`.
 - `package.json` pins `pnpm@11.0.9`.
-- `test:integration` requires `TEST_DATABASE_POOL_URL`; that makes it unsuitable for the first secret-free PR gate.
+- `pnpm test` includes some integration-shaped test files, but the database-backed cases self-skip when `TEST_DATABASE_POOL_URL` is unset. `test:integration` hard-requires `TEST_DATABASE_POOL_URL`; that makes it unsuitable for the first secret-free PR gate.
 - `test:e2e` is configured for Playwright and should be added later for `main`, scheduled, or staging-backed runs.
 - Spec 24 says CI is the keystone that unblocks later fail-the-build work in Specs 07, 08, 09, 12, 19, 22, 23, and 25.
 
@@ -48,6 +50,15 @@ Create `.github/workflows/ci.yml` with one workflow triggered on:
 
 - `pull_request`
 - `push` to `main`
+
+Add least-privilege workflow permissions:
+
+- `contents: read`
+
+Add workflow concurrency so rapid pushes do not burn duplicate runner minutes:
+
+- `group: ci-${{ github.ref }}`
+- `cancel-in-progress: true`
 
 Use Ubuntu runners and the repo's pinned runtime:
 
@@ -65,7 +76,11 @@ Use separate jobs for granular branch protection checks:
 - `test`
 - `build`
 
+These job names are part of the contract. Branch protection will key off the check names, so do not rename them casually after protection is enabled.
+
 Each job can duplicate setup at first. If runtime becomes too slow, consolidate or add a shared setup pattern later. The first target is correctness and clear failure reporting, not maximum YAML cleverness.
+
+If a shared setup action or cache optimization is added later, key the pnpm store cache on both the Node version and `pnpm-lock.yaml`, not the lockfile alone.
 
 ## Environment Design
 
@@ -96,6 +111,7 @@ Add `.github/pull_request_template.md`:
 - Verification.
 - Risk / rollout notes.
 - SaaS-readiness spec reference when applicable.
+- A CI coverage note reminding authors that the default `test` check may skip database-backed integration tests until the staging DB secret is wired.
 
 Add `.github/CODEOWNERS`:
 
@@ -121,9 +137,15 @@ Before claiming implementation complete:
   - `pnpm typecheck`
   - `pnpm test`
   - `pnpm build`
+- Confirm `pnpm typecheck` covers worker code and tests, not only `src/`.
+- Confirm the `test` check output makes skipped database-backed integration tests visible enough to avoid mistaking the first green badge for full integration coverage.
 - Inspect workflow YAML for invalid indentation and unsupported action inputs.
 - Confirm `.github/` files are tracked.
 - Confirm no secrets were committed.
+
+## Known Tooling Notes
+
+- `next lint` is deprecated in newer Next.js versions. It is acceptable for this CI slice because it is the repo's current `pnpm lint` command, but revisit the lint command during the eventual Next/ESLint upgrade.
 
 ## Risks
 
