@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { NextRequest } from 'next/server';
 
 // ── /api/account/settings route tests ──────────────────────────────────────
 
@@ -13,7 +14,7 @@ describe('GET /api/account/settings', () => {
 
   it('returns 401 when no session cookie', async () => {
     const { GET } = await import('@/app/api/account/settings/route');
-    const req = new Request('http://localhost:3000/api/account/settings');
+    const req = new NextRequest('http://localhost:3000/api/account/settings');
     const res = await GET(req as any);
     expect(res.status).toBe(401);
   });
@@ -35,7 +36,7 @@ describe('PUT /api/locations/display-label', () => {
 
   it('returns 401 when no session cookie', async () => {
     const { PUT } = await import('@/app/api/locations/display-label/route');
-    const req = new Request('http://localhost:3000/api/locations/display-label', {
+    const req = new NextRequest('http://localhost:3000/api/locations/display-label', {
       method: 'PUT',
       body: JSON.stringify({ locationId: 'a'.repeat(8) + '-' + 'b'.repeat(4) + '-' + 'c'.repeat(4) + '-' + 'd'.repeat(4) + '-' + 'e'.repeat(12), accountId: 'f'.repeat(8) + '-' + '0'.repeat(4) + '-' + '0'.repeat(4) + '-' + '0'.repeat(4) + '-' + '0'.repeat(12), displayLabel: 'Test' }),
       headers: { 'Content-Type': 'application/json', Origin: APP_URL },
@@ -46,7 +47,7 @@ describe('PUT /api/locations/display-label', () => {
 
   it('returns 400 for invalid request body', async () => {
     const { PUT } = await import('@/app/api/locations/display-label/route');
-    const req = new Request('http://localhost:3000/api/locations/display-label', {
+    const req = new NextRequest('http://localhost:3000/api/locations/display-label', {
       method: 'PUT',
       body: JSON.stringify({ locationId: 'not-a-uuid', accountId: 'also-not-uuid', displayLabel: 'Test' }),
       headers: { 'Content-Type': 'application/json', Origin: APP_URL },
