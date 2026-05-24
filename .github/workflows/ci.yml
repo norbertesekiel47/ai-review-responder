@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI: 'true'
+  # Mirror .env.local: the suite expects this OFF and flips it to 'true'
+  # per-test where it exercises the mock path (see zernio client.test.ts +
+  # transport.ts). Setting it globally true breaks real-path Zernio tests.
+  MOCK_EXTERNAL_APIS: 'false'
+  NEXT_PUBLIC_APP_URL: http://localhost:3000
+  WORKER_SERVICE_URL: http://localhost:3001
+  NEXT_PUBLIC_SUPABASE_URL: http://localhost:54321
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: dummy-anon-key-for-ci
+  SUPABASE_URL: http://localhost:54321
+  SUPABASE_SERVICE_KEY: dummy-service-key-for-ci
+  DATABASE_URL: postgres://test:test@localhost:5432/test
+  DATABASE_POOL_URL: postgres://test:test@localhost:5432/test
+  REDIS_CACHE_URL: redis://localhost:6379/0
+  REDIS_QUEUE_URL: redis://localhost:6379/1
+  SESSION_COOKIE_SECRET: test-session-cookie-secret-32chars
+  CSRF_SECRET: test-csrf-secret-32chars-minimum
+  ENCRYPTION_KEY: 0000000000000000000000000000000000000000000000000000000000000000
+  ENCRYPTION_KEY_VERSION: '1'
+  ADMIN_API_KEY: ci-admin-api-key
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - name: Setup Node + pnpm
+        uses: ./.github/actions/setup
+      - name: Run lint
+        run: pnpm lint
+
+  typecheck:
+    name: typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - name: Setup Node + pnpm
+        uses: ./.github/actions/setup
+      - name: Run typecheck
+        run: pnpm typecheck
+
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - name: Setup Node + pnpm
+        uses: ./.github/actions/setup
+      - name: Run unit tests
+        run: pnpm test
+
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - name: Setup Node + pnpm
+        uses: ./.github/actions/setup
+      - name: Build app
+        run: pnpm build

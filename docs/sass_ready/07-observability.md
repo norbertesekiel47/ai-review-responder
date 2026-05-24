@@ -19,7 +19,7 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 - **No PostHog yet** (decided Step 0, install pending — see [Spec 01](./01-product-market-fit.md) §2a). No event taxonomy file.
 - **Health checks:** the **worker** exposes `/api/health` via Fastify (port 3001); **Next.js has no `/api/health`** — a gap for synthetic monitoring.
 - No log drain (Better Stack/Axiom/Datadog), no `docs/observability/alert-runbook.md`, no status page, no synthetic checks.
-- ⚠️ **No CI at all** — there is no `.github/workflows/` directory. Every "fail the build" / "CI check" task here is **blocked on first standing up GitHub Actions CI** (see [Spec 24](./24-devops-deployment.md)).
+- ✅ **Base CI now exists** — the first secret-free GitHub Actions gate runs `lint`, `typecheck`, `test`, and `build`. Observability-specific checks still need follow-up jobs: analytics event audit, structured-log assertions, and synthetic/health gates (see [Spec 24](./24-devops-deployment.md)).
 
 ## 3. Target state
 
@@ -93,11 +93,11 @@ Document trigger conditions in `docs/runbooks/oncall-3am.md` so future-you doesn
 
 ## 4. Implementation tasks
 
-0. **Prerequisite:** convert `src/lib/shared/logger.ts` to JSON output and stand up GitHub Actions CI ([Spec 24](./24-devops-deployment.md)) — tasks 2/4 depend on both.
+0. **Prerequisite:** convert `src/lib/shared/logger.ts` to JSON output and extend the existing secret-free GitHub Actions base CI with observability-specific checks ([Spec 24](./24-devops-deployment.md)) — tasks 2/4 depend on both.
 1. Add Better Stack drain to worker + Next.js. Pipe Sentry breadcrumbs + structured (JSON) logs.
-2. AsyncLocalStorage middleware in both runtimes (net-new — none exists today). Verify every log line in staging has `account_id`.
+2. AsyncLocalStorage middleware in both runtimes (net-new — not present today). Verify every log line in staging has `account_id`.
 3. Define alert routes in Sentry: P0 → PagerDuty, P1 → Slack `#oncall-p1`, P2 → daily digest email.
-4. Build `docs/analytics/events.md` event taxonomy. Wire 10 launch events in PostHog (the [Spec 01 §2a](./01-product-market-fit.md) decision). Add a CI check that a new analytics `capture(...)` without a doc entry fails the build (`scripts/ci/analytics-events-audit.ts`) — **requires CI (task 0)**.
+4. Build `docs/analytics/events.md` event taxonomy. Wire 10 launch events in PostHog (the [Spec 01 §2a](./01-product-market-fit.md) decision). Add a CI check that a new analytics `capture(...)` without a doc entry fails the build (`scripts/ci/analytics-events-audit.ts`) — **requires a specialized analytics audit job on top of the base CI (task 0)**.
 5. Install `@bull-board` and mount at `/admin/queues` (Next.js route or worker-Fastify mount with admin auth). Behind 2FA + audit log. (Not currently installed.)
 6. **Build a Next.js `/api/health` route first** (only the worker has one), then configure 5 synthetic checks in BetterStack. Test the failure path manually.
 7. Build the four-panel ops dashboard. Bookmark.
@@ -142,11 +142,11 @@ Document trigger conditions in `docs/runbooks/oncall-3am.md` so future-you doesn
 
 ## 9. Implementation in the current repo
 
-- **The two cheap, high-leverage moves** are (a) make `logger.ts` emit JSON and (b) stand up GitHub Actions CI. Almost everything else (account_id-on-every-line, the analytics audit) builds on those two.
+- **The two cheap, high-leverage moves** are (a) make `logger.ts` emit JSON and (b) extend the existing secret-free GitHub Actions base CI with observability gates. Almost everything else (account_id-on-every-line, the analytics audit) builds on those two.
 - **AsyncLocalStorage** is net-new in both runtimes. On the worker, wrap each BullMQ handler in `worker/index.ts` so `job.id` → `account_id` is bound; in Next.js, bind in `middleware.ts`. Then the logger reads from the store.
 - **Bull Board** can mount directly on the worker's existing Fastify instance (it already serves `/api/health` on 3001) — simpler than a Next.js reverse proxy — behind admin auth + the IP allowlist.
 - **Sentry** is already wired with a scrubber; the remaining work is severity tagging + alert routing, not init.
 - **Health/synthetics:** add a trivial Next.js `/api/health` route group; point BetterStack at both it and the worker's `:3001/api/health`.
 
 ---
-_Verified 2026-05-23 against migration head 042. Corrected logging (plain-text, not structured; no account_id), no AsyncLocalStorage, no Bull Board, no PostHog, no Next.js health route, and — critically — no CI to "fail the build" against. Fixed queue-name anchors._
+_Verified 2026-05-23 against migration head 042. Corrected logging (plain-text, not structured; no account_id), no AsyncLocalStorage, no Bull Board, no PostHog, no Next.js health route, and the need for observability-specific CI gates beyond the secret-free base CI. Fixed queue-name anchors._

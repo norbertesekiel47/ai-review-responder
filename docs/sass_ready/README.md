@@ -56,7 +56,7 @@ Each spec is independent enough to be implemented as a single planning epic but 
 ## Execution strategy (do **not** run these 1 → 29)
 
 > Added 2026-05-23 after the full verification pass (all specs checked against the live tree, head 042). Spec numbers are an **index, not an execution order.** Three facts make sequencing matter:
-> 1. **Keystones unblock clusters** — standing up CI (Spec 24) alone unblocks ~8 specs.
+> 1. **Keystones unblock clusters** — the first secret-free base CI gate (Spec 24) is in place; adding specialized gates still unblocks ~8 specs.
 > 2. **Cross-cutting decisions sit upstream** of whole groups — resolve once, not per-spec.
 > 3. **~40% is already partly built** — much "implementation" is verify-and-polish, not greenfield.
 
@@ -87,18 +87,18 @@ These `⚠️` choices recur across many specs; deciding them once prevents buil
 
 _Also settled earlier this pass: live 4-tier model (not Starter/Growth/Scale); no repository layer (inline scoping + CI guard)._
 
-> **Next:** Step 0 is decisions only — the actual PostHog install, `api_costs` migration, `/legal/*` move, etc. land in their respective specs/waves. Proceed to **Step 1 (CI keystone)**.
+> **Next:** Step 0 is decisions only — the actual PostHog install, `api_costs` migration, `/legal/*` move, etc. land in their respective specs/waves. Proceed through the remaining **Step 1 keystones** now that the CI keystone's first secret-free slice has shipped.
 
 ### Step 1 — Lay the keystones (each unblocks a cluster)
 
 | Keystone | Spec | Unblocks |
 |---|---|---|
-| **Stand up GitHub Actions CI** | [24](./24-devops-deployment.md) (task 0) | every "fail-the-build" gate: 07, 08, 09, 12, 19, 22, 23, 25 |
+| **Extend GitHub Actions CI beyond the shipped secret-free base gate** | [24](./24-devops-deployment.md) (task 0 follow-ups) | every specialized "fail-the-build" gate: 07, 08, 09, 12, 19, 22, 23, 25 |
 | `accounts.past_due_at` column | [05](./05-billing-subscription.md) | countdown UX (05, 29 Gap 5), grant-extension (29 Gap 6) |
 | Analytics event capture on the worker publish path (PostHog — Step-0 decision) | [01 §2a](./01-product-market-fit.md) | 01, 06, 11, 14, 16, 26 |
 | Generalized audit helper + extended `account_audit_log` | [04](./04-auth-identity.md) | impersonation audit (13), approval snapshot (29 Gap 1) |
 
-**Do CI first** — highest-leverage move in the whole set: it converts the existing ~302 tests + 13 e2e into merge gates and is the prerequisite for ~8 specs.
+**CI first slice is shipped** — the secret-free base gate now runs `lint`, `typecheck`, `test`, and `build`. Next, add DB-backed integration, Playwright/e2e, branch protection, and the specialized gates required by ~8 specs.
 
 ### Step 2 — Risk-ordered waves (solo, one spec at a time)
 

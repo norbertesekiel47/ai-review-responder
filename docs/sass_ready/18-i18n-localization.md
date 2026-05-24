@@ -75,7 +75,7 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 
 1. Add `next-intl` to project. Wrap root layout in `<NextIntlClientProvider>`.
 2. Extract all hard-coded user-facing strings into `messages/en.json`. Start with top-traffic pages (landing, login, signup, dashboard home, settings).
-3. Add ESLint rule banning user-facing string literals in JSX (custom rule or `eslint-plugin-i18n-text`) — enforcement needs CI ([Spec 24](./24-devops-deployment.md)).
+3. Add ESLint rule banning user-facing string literals in JSX (custom rule or `eslint-plugin-i18n-text`) — enforcement needs a specialized rule added to the existing base CI ([Spec 24](./24-devops-deployment.md)).
 4. **Populate the existing `reviews.detected_language` column** (no migration needed — it exists but `zernio-ingest-shared.ts` writes NULL). Add cheap language detection in the ingest path and write ISO-639-1.
 5. Update the inline prompt builder `src/lib/responses/prompt-builder.ts` (not `src/lib/prompts/`) to accept a `language` variable and instruct the response in that language.
 6. Add per-language brand voice. Current voice lives on `businesses` (`tone`, `sample_responses`); either add a `brand_voices(account_id, language, examples)` table or language-keyed columns (next free migration number; head 042 — coordinate). Plus Settings → Brand Voice UI.

@@ -18,7 +18,7 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 - **No load tests** (`tests/load/` absent), **no seed scripts** (`scripts/seed/` absent), no latency budgets published.
 - Pagination partially exists (admin `PAGE_SIZE = 20`, server-paginated past-replies) but not enforced by a lint rule.
 - ⚠️ Cache keys are **businessId / flow-state based** (`connect_pending:${businessId}`, `rch:channels:${accountId}:${locationId}`), **not** the spec's `acct:{account_id}:kpi` — align with the [Spec 03](./03-multitenancy-isolation.md) cache-key decision.
-- ⚠️ **No CI** — Lighthouse-CI / perf gates are blocked on standing up GitHub Actions ([Spec 24](./24-devops-deployment.md)).
+- ✅ **Base CI now exists** — the first secret-free GitHub Actions gate runs `lint`, `typecheck`, `test`, and `build`. Lighthouse-CI / perf gates still need a specialized follow-up workflow ([Spec 24](./24-devops-deployment.md)).
 - Multi-location supports hundreds-of-locations per account but is not stress-tested.
 
 ## 3. Target state
@@ -88,7 +88,7 @@ Use Vercel Speed Insights + Lighthouse-CI in GitHub Actions on PR previews.
 3. Build seed script `scripts/seed/big-account.ts` that creates a 500-location / 10k-review test account.
 4. Walk the UI on the big account; document N+1 hits and unbounded queries in `docs/runbooks/big-account-walkthrough-YYYY-MM.md`.
 5. Add pagination to any unbounded location/review list (admin already uses `PAGE_SIZE = 20`; extend the pattern). A lint rule is optional and low-value given there's no repository layer to target.
-6. Add Lighthouse-CI to GitHub Actions on every PR preview — **requires CI to exist first** ([Spec 24](./24-devops-deployment.md)).
+6. Add Lighthouse-CI to GitHub Actions on every PR preview — **requires a specialized Lighthouse-CI job on top of the base CI** ([Spec 24](./24-devops-deployment.md)).
 7. Add Vercel Speed Insights / web-vitals reporting.
 8. Document latency budgets in `docs/perf/budgets.md`; alert in BetterStack on 2× budget.
 9. Add `pg_stat_activity` watcher synthetic check (every 5 min) — alert at 80% of pool ceiling.
@@ -132,8 +132,8 @@ Use Vercel Speed Insights + Lighthouse-CI in GitHub Actions on PR previews.
 - **The DB tuning the spec depends on already exists** (`server.ts`: 30s timeout, `prepare:false`, pooled URL). Net-new work is load tests, the big-account seed, web-vitals, and Lighthouse-CI.
 - **Seed + load** go in new `scripts/seed/big-account.ts` and `tests/load/*` (neither dir exists). Run only against staging/dedicated Supabase + Upstash dev, capped RPS.
 - **The real risk is the 500-location UI**, not throughput — walk it against the seed, fix N+1s and unbounded lists by extending the existing `PAGE_SIZE` pagination (admin/overview, past-replies).
-- **web-vitals + Lighthouse-CI** both need adding (`web-vitals` not installed; no CI). Lighthouse-CI is gated on [Spec 24](./24-devops-deployment.md).
+- **web-vitals + Lighthouse-CI** both need adding (`web-vitals` not installed; base CI exists, but the specialized Lighthouse-CI gate is still pending). Lighthouse-CI is gated on [Spec 24](./24-devops-deployment.md).
 - **KPI cache** should adopt whatever key convention [Spec 03](./03-multitenancy-isolation.md) settles (currently businessId/flow-state keyed, not `acct:`).
 
 ---
-_Verified 2026-05-23 against migration head 042. Confirmed Postgres.js tuning; corrected the non-existent `/api/auth/login`, the missing web-vitals/Lighthouse-CI (+ no-CI dependency), the cache-key mismatch, and that load/seed infra is absent._
+_Verified 2026-05-23 against migration head 042. Confirmed Postgres.js tuning; corrected the non-existent `/api/auth/login`, the missing web-vitals/Lighthouse-CI (+ pending specialized CI gate), the cache-key mismatch, and that load/seed infra is absent._
