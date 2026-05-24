@@ -44,6 +44,8 @@ const { testDbUrl, originalEnv } = vi.hoisted(() => {
     ALLOW_E2E_DB_WRITES: process.env.ALLOW_E2E_DB_WRITES,
     EDIT_REPLIES_ENABLED: process.env.EDIT_REPLIES_ENABLED,
     PAST_REPLIES_VIEW_ENABLED: process.env.PAST_REPLIES_VIEW_ENABLED,
+    // The .env.local loop below sets this when it isn't already exported (e.g. `pnpm test`).
+    TEST_DATABASE_POOL_URL: process.env.TEST_DATABASE_POOL_URL,
   };
 
   // vitest.setup.ts does NOT load .env.local, so read TEST_DATABASE_POOL_URL
@@ -313,6 +315,11 @@ afterAll(async () => {
     delete process.env.PAST_REPLIES_VIEW_ENABLED;
   } else {
     process.env.PAST_REPLIES_VIEW_ENABLED = originalEnv.PAST_REPLIES_VIEW_ENABLED;
+  }
+  if (originalEnv.TEST_DATABASE_POOL_URL === undefined) {
+    delete process.env.TEST_DATABASE_POOL_URL;
+  } else {
+    process.env.TEST_DATABASE_POOL_URL = originalEnv.TEST_DATABASE_POOL_URL;
   }
 });
 
