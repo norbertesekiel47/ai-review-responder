@@ -62,12 +62,22 @@ Add workflow concurrency so rapid pushes do not burn duplicate runner minutes:
 
 Use Ubuntu runners and the repo's pinned runtime:
 
-- `actions/checkout`
+- `actions/checkout` with `persist-credentials: false` (the gate never pushes)
 - `actions/setup-node` with `node-version-file: .nvmrc`
 - Corepack enabled
 - pnpm prepared at version `11.0.9`
 - pnpm store cache keyed by `pnpm-lock.yaml`
 - `pnpm install --frozen-lockfile`
+
+**Pin third-party actions to immutable commit SHAs, not tags.** Every
+`uses:` referencing an external action (`actions/checkout`,
+`actions/setup-node`, `actions/cache`) must reference a full commit SHA with
+the human-readable version in a trailing comment (e.g.
+`actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1`). Tags
+like `@v4` and floating refs are mutable — a compromised or retagged release
+would silently run new code in CI. Dependabot's `github-actions` ecosystem
+bumps these SHAs in reviewable PRs. This rule applies wherever actions are
+referenced, including the `.github/actions/setup` composite.
 
 Use separate jobs for granular branch protection checks:
 
