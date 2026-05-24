@@ -651,3 +651,68 @@ type, grep ALL callers (`grep -rn 'helperName('`) before considering the change
 complete, and fix every one. Consider using a branded type (e.g. `type AccountId =
 string & { __brand: 'AccountId' }`) so the compiler catches mismatches at the next
 type change.
+
+---
+
+## 2026-05-24
+
+Discovered while standing up GitHub Actions CI (Spec 24 task 0, branch `ci-keystone`).
+
+### `MOCK_EXTERNAL_APIS=true` in CI breaks the Zernio real-path tests
+The first CI run failed 16 tests in `src/lib/zernio/__tests__/client.test.ts`,
+`worker/jobs/zernio/__tests__/ZernioReviewIngestWorker.test.ts`, and the zernio
+e2e/correlation tests — all green locally. Cause: the CI env block set
+`MOCK_EXTERNAL_APIS=true`, and `src/lib/zernio/client/transport.ts` returns a
+**mock transport** when that var is `'true'`. So tests that inject their own
+`fetch` and assert real timeout/error-classification never ran the real path
+(symptoms: `vi.fn() called 0 times`, `promise resolved {reviews:[]} instead of
+rejecting`). The suite is designed to run with the flag **off** — individual
+tests flip it to `'true'` themselves only where they exercise the mock path
+(`client.test.ts:406,488`). `.env.local` has `MOCK_EXTERNAL_APIS=false`, which
+is why it was green locally.
+**Correct approach:** CI must set `MOCK_EXTERNAL_APIS=false` (mirror `.env.local`).
+Tests never hit the network anyway (injected mocks / `vi.mock`), so `false` is safe.
+
+### `new Request()` has no `.cookies` — use `NextRequest` in route tests
+After fixing the above, CI still failed with unhandled rejections from
+`src/app/api/account/settings/__tests__/route.test.ts`:
+`TypeError: Cannot read properties of undefined (reading 'getAll')` at
+`src/lib/db/auth.ts:37` (`request.cookies.getAll()`), thrown from inside
+GoTrueClient's async `_emitInitialSession`. The test built `new Request(url)` (a
+Web `Request`, which has **no `.cookies`**) and cast it to `any`; the Supabase
+SSR cookie adapter then blew up in a background promise, so assertions passed but
+vitest failed the run on the unhandled error. Latent locally because real
+`.env.local` Supabase creds took a different `getUser()` path.
+**Correct approach:** route tests must use `NextRequest` (from `next/server`),
+which carries a real cookies store (`getAll()` → `[]`), matching how routes are
+actually invoked.
+
+### Never validate CI from a git worktree nested inside the parent repo
+Running `pnpm lint`/`pnpm test` inside `.worktrees/<x>/` (a worktree physically
+nested under the main repo) gives false failures: ESLint walks up and finds the
+parent's `.eslintrc.json` (plugin conflict), and Node/vitest resolve up into the
+parent's `node_modules`, creating duplicate module instances
+(`useLocationScope must be used within a LocationProvider`, mocks not
+intercepting). These do NOT reproduce on a standalone CI checkout.
+**Correct approach:** validate CI by pushing and reading the GitHub run, or clone
+to a clean dir outside the repo. Don't trust local lint/test from a nested worktree.
+
+### Branch protection on a private repo needs a paid plan → use a ruleset under an org
+Both classic branch protection (`PUT .../branches/main/protection`) and
+repository rulesets (`POST .../rulesets`) return `403: Upgrade to GitHub Pro or
+make this repository public` on a **private repo on the Free plan**. An org
+"Pro" purchase on a *different* account doesn't help — the plan must be on the
+**repo owner**.
+**Correct approach:** transfer the repo to an org on a paid plan (Team), then
+apply a **repository ruleset** (not classic protection) with
+`required_status_checks` + `deletion` + `non_fast_forward`. After transfer,
+re-point Vercel/Railway GitHub App access to the new org and update the git
+remote (GitHub redirects the old URL, but update it anyway).
+
+### Dependabot groups must split majors from minor/patch
+Grouping by `dependency-type` alone (all prod together, all dev together) bundles
+breaking majors with safe patch/minor bumps, so the grouped PR is permanently red
+whenever any dep ships a major (here: Next 16 removed `next lint`; a TypeScript
+major broke CSS side-effect imports with `TS2882`).
+**Correct approach:** add `update-types: [minor, patch]` to each group so majors
+are excluded and arrive as individual, reviewable PRs.

@@ -17,6 +17,15 @@ intentional — a misconfigured worker is worse than a crashed one.
 `MOCK_EXTERNAL_APIS=true` bypasses most startup assertions for local dev.
 Assertion source: `worker/config/startup-assert.ts`.
 
+> **CI env block (since 2026-05-24):** `.github/workflows/ci.yml` runs the
+> `lint`/`typecheck`/`test`/`build` gate with a **secret-free** env block —
+> localhost service URLs + valid-length dummy secrets, no production
+> credentials. **`MOCK_EXTERNAL_APIS` is `false` in CI** (NOT `true`): the test
+> suite expects it off and flips it to `'true'` per-test only where it exercises
+> the mock path (e.g. `src/lib/zernio/client/transport.ts`). Setting it globally
+> `true` breaks the Zernio real-path tests — see `lab-notes.md` (2026-05-24). DB
+> integration + Playwright e2e are not gated yet (need `TEST_DATABASE_POOL_URL`).
+
 > **Worker file paths (as of 2026-05-05):** Worker class names below
 > are stable; file paths changed during the worker reorg, and per PR
 > #18 the BullMQ `'failed'` exhaustion handlers now live in dedicated

@@ -17,6 +17,21 @@ approval before posting.
 - `pnpm lint` — ESLint
 - Set `MOCK_EXTERNAL_APIS=true` in `.env.local` to bypass all external APIs locally
 
+## CI & repo (since 2026-05-24)
+
+- Repo lives at **`RepWorth/ai-review-responder`** (org, Team plan). `main` is
+  protected by the **"main protection" ruleset**: requires the 4 CI checks +
+  blocks force-push/deletion. **Land changes via PR** — direct pushes to `main`
+  are rejected.
+- **CI** (`.github/workflows/ci.yml`) runs `lint`, `typecheck`, `test`, `build`
+  on every PR + `push:main`. Secret-free env block; **`MOCK_EXTERNAL_APIS=false`
+  in CI** (NOT true — `true` short-circuits the Zernio transport to a mock and
+  breaks real-path tests). Integration + Playwright e2e are NOT yet gated (need
+  `TEST_DATABASE_POOL_URL`). Third-party actions are pinned to commit SHAs.
+- Never validate CI from a git worktree nested inside the repo — resolution
+  leaks into the parent's `node_modules`/eslintrc and poisons lint+test. Push
+  and read the runner, or clone clean.
+
 ## Codex Review Bridge
 
 - Scripts: `~/dev/codex-bridge/`

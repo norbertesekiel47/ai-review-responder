@@ -13,7 +13,7 @@ Deployment speed is iteration speed. The right CI/CD setup makes ship-3x-a-day c
 _Verified 2026-05-23 against the live tree (migration head 042)._
 
 - Vercel (Next.js) + Railway (worker). **No `vercel.json` / `railway.{json,toml}` / `Dockerfile`** — both dashboard-configured; the worker runs via `tsx`.
-- ✅ **CI foundation shipped (Step 1 first slice)** — `.github/workflows/ci.yml` runs the secret-free PR gate (`lint`, `typecheck`, `test`, `build`) with stable check names, least-privilege permissions, and concurrency cancellation. `.github/dependabot.yml`, `.github/pull_request_template.md`, and `.github/CODEOWNERS` are present. ⚠️ Database-backed integration tests still self-skip without `TEST_DATABASE_POOL_URL`, Playwright is not in the PR gate yet, and branch protection still needs to be enabled after the first green GitHub run.
+- ✅ **CI foundation shipped + enforced (Step 1 first slice, 2026-05-24, PR #57)** — `.github/workflows/ci.yml` runs the secret-free PR gate (`lint`, `typecheck`, `test`, `build`) with stable check names, least-privilege permissions, concurrency cancellation, and SHA-pinned actions. `.github/actions/setup` (composite), `.github/dependabot.yml` (minor/patch grouped, majors individual), `.github/pull_request_template.md`, and `.github/CODEOWNERS` are present. **Branch protection is live**: repo moved to the RepWorth org (Team plan) with a "main protection" **ruleset** requiring the four checks + blocking force-push/deletion. ⚠️ Database-backed integration tests still self-skip without `TEST_DATABASE_POOL_URL`, and Playwright is not in the PR gate yet.
 - **Feature flags today are boolean env vars** (`SELF_SERVE_SIGNUP_ENABLED`, `ONBOARDING_DEMO_ENABLED`, `CHANNELS_*_ENABLED`, `ZERNIO_PUBLISHING_ENABLED`), asserted in `worker/config/startup-assert.ts`. These are **kill-switches, not per-user %-rollout**. ✅ Step-0 decision: keep them as kill-switches and add PostHog feature flags (per the [Spec 01 §2a](./01-product-market-fit.md) PostHog decision) when %-rollout is needed — see §Feature flags below.
 - Migrations owner-run via Supabase SQL editor; head **042**, next **043**; patterns in `.claude/skills/migrations.md`.
 - `.env.example` + `startup-assert.ts` present. **No** `docs/runbooks/rollback.md`.
@@ -104,11 +104,11 @@ Calendar reminders on the day-of for each.
 
 ## 4. Implementation tasks
 
-0. ✅ **Stand up GitHub Actions CI — first secret-free slice shipped.** `.github/workflows/ci.yml` runs `lint`, `typecheck`, `test`, and `build` on PRs and `main` pushes; `.github/` now includes Dependabot, PR template, and CODEOWNERS. Follow-up: add `test:integration` once `TEST_DATABASE_POOL_URL` is available as a GitHub secret, add Playwright on `main`/scheduled/staging runs, then enable branch protection using the stable check names.
+0. ✅ **Stand up GitHub Actions CI — first secret-free slice shipped + enforced.** `.github/workflows/ci.yml` runs `lint`, `typecheck`, `test`, and `build` on PRs and `main` pushes; `.github/` includes the composite setup action, Dependabot, PR template, and CODEOWNERS; branch protection is live (RepWorth-org "main protection" ruleset requiring the four checks). Follow-up: add `test:integration` once `TEST_DATABASE_POOL_URL` is available as a GitHub secret, and add Playwright on `main`/scheduled/staging runs.
 1. Document rollback playbook at `docs/runbooks/rollback.md`. Include Vercel + Railway commands + migration down + flag kill switch + comms template.
 2. Set up Railway PR environments (GitHub integration in Railway dashboard).
 3. Feature-flag decision resolved (Step 0): env-var flags stay as kill-switches; add PostHog feature flags (per §2a) for %-rollout. Wire `posthog-node` flag evaluation only on the first rollout that needs %-gating — no upfront migration of existing env-var flags.
-4. Set GitHub branch protection rules per §3 (**the shipped stable checks can be required now**; add DB integration and Playwright checks later when available).
+4. ✅ **Branch protection set** — RepWorth-org "main protection" ruleset requires the four checks (`lint`/`typecheck`/`test`/`build`) and blocks force-push + deletion. Add DB-integration and Playwright checks to the required set later when those gates exist.
 5. Add Slack `#deploys` channel + Vercel/Railway webhook integrations.
 6. Author secrets-rotation runbooks per §3. Calendar reminders.
 7. Audit CI pipeline runtime. Parallelize where possible. Target < 10 min.
@@ -164,4 +164,4 @@ Calendar reminders on the day-of for each.
 - **No IaC files** (`vercel.json`/`railway`/`Dockerfile`) — dashboard config is fine at this scale; document it rather than introduce IaC prematurely.
 
 ---
-_Verified 2026-05-23 against migration head 042; updated 2026-05-24 after the first secret-free CI slice shipped. CI remains the task-0 keystone for follow-up integration, e2e, and branch-protection work; corrected the feature-flag reality (env-var booleans, not PostHog), the absent IaC files, and the missing rollback runbook._
+_Verified 2026-05-23 against migration head 042; updated 2026-05-24 after the first secret-free CI slice shipped **and branch protection was enabled** (RepWorth-org ruleset). CI remains the task-0 keystone for follow-up integration + e2e gates; corrected the feature-flag reality (env-var booleans, not PostHog), the absent IaC files, and the missing rollback runbook._

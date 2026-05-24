@@ -2,7 +2,37 @@
 
 This file explains what is actually built in the repository today, how it maps to the implementation plan, and what is left to build.
 
-Last updated: 2026-05-22 (Owner channel enrollment account-scope fix, `fix/owner-channel-account-scope`)
+Last updated: 2026-05-24 (CI keystone + repo moved to the RepWorth org, branch `ci-keystone` → PR #57)
+
+## Quick summary — what shipped 2026-05-24 (Continuous Integration "keystone")
+
+In simple words:
+
+### What we changed
+
+We gave the project an automatic safety check that runs every time code is proposed. Before this, anyone could merge a change and it would ship straight to the live site (Vercel) and the background worker (Railway) with **nothing checking it first**. Now, every pull request automatically runs four checks — **lint** (style), **typecheck** (TypeScript types), **test** (the ~300 unit tests), and **build** (does the app compile) — and the change **cannot be merged into `main` until all four pass**. Think of it as a spell-checker and test-runner standing guard at the door.
+
+We created a brand-new `.github/` folder, which is where GitHub looks for this kind of automation:
+
+- **`.github/workflows/ci.yml`** — the actual checks (the four jobs above), run on every pull request and every push to `main`.
+- **`.github/actions/setup/`** — a small shared "setup" step (install Node + pnpm, restore the cache) that all four jobs reuse, so we don't repeat the same lines four times.
+- **`.github/dependabot.yml`** — a robot that opens pull requests weekly to keep dependencies up to date. We tuned it so routine small updates come bundled and green, while big "major version" updates each arrive as their own separate PR to review carefully.
+- **`.github/pull_request_template.md`** — a checklist that pre-fills every new pull request.
+- **`.github/CODEOWNERS`** — says who owns the code (you).
+
+### Why we did it
+
+It's the highest-leverage first step in the production-readiness plan: a lot of later safety work (security scans, accessibility checks, performance budgets, AI-output checks) all needs this "fail the build" gate to exist first. Standing it up unblocks roughly eight other planned areas. It also immediately caught **two real bugs** that had been hiding because they only surfaced when tests ran in a clean environment.
+
+### One thing that moved (not a code change, but important)
+
+The repository **moved from a personal GitHub account to the `RepWorth` organization**. We had to: GitHub only lets you protect the `main` branch on a *private* repo if it's on a paid plan, and the paid plan lives on the org. After the move, the live-site (Vercel) and worker (Railway) GitHub connections were re-pointed to the new location. If you clone the repo, the address is now `github.com/RepWorth/ai-review-responder`.
+
+### What this does NOT yet cover
+
+The gate runs the **unit tests only**. The database-backed integration tests and the 13 browser (Playwright) end-to-end tests are **not** in the gate yet — they need a test-database secret and the worker's staging setup, which are still to come. So a green check means "compiles, types are sound, unit tests pass," not "every test ran."
+
+---
 
 ## Quick summary — what shipped 2026-05-22 (Owner channel enrollment account-scope fix)
 
