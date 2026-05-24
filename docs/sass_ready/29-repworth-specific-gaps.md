@@ -143,7 +143,7 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 - Publish CSV template + README at `public/csv-templates/locations.csv` and `public/csv-templates/README.md`.
 - Implement client-side Zod validation in CSV upload form.
 - Add a partial-success detail view listing each row's outcome. ✅ `CsvImportReport` (in `src/lib/admin/csv-import.ts`) **already returns per-row failures** — the gap is surfacing it in the UI, not computing it. (CSV import is admin-side: route `/api/admin/locations/csv-import`.)
-- ⚠️ Reconcile the row cap: code is `MAX_ROWS = 100`, this spec/Spec 06 mention 500 — pick one.
+- ✅ Row cap decided (Step 0): keep `MAX_ROWS = 100` (no code change); the template README states the 100-row limit.
 - Update import audit-log to include per-row outcome.
 
 ---
@@ -162,7 +162,7 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
   - **Privacy**: privacy policy link, AI usage disclosure.
 
 **Tasks**:
-- Build `src/app/(public)/trust/page.tsx` (route-group convention; reconcile with the `/legal/*` vs `(public)` routing decision in [Spec 17](./17-legal-compliance-docs.md) §3). Static-rendered. Linked from footer.
+- Build the Trust Center at `/legal/trust` (per the Step-0 `/legal/*` routing decision, [Spec 17](./17-legal-compliance-docs.md) §3 — keep `/trust` as a 301 redirect for memorability). Static-rendered. Linked from footer.
 - ⚠️ Several data sources don't exist yet — start with static copy and wire live data as it lands: status (BetterStack — [Spec 08](./08-reliability-sre.md)), incidents (`docs/postmortems/` — not yet created), sub-processors (`docs/Legal/sub-processors.md` — not yet created, [Spec 17](./17-legal-compliance-docs.md)).
 - Author static copy where needed.
 - Link from `/login`, `/signup`, pricing page footer, dashboard footer.
@@ -212,7 +212,7 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 ## 8. Implementation in the current repo
 
 - **Most gaps build on something that already exists**, which is the headline of this whole spec set: approved text on `responses.approved_text` (Gap 1), the proven `ReviewSource` abstraction + a 2nd impl (Gap 3), per-call `api_costs` (Gap 4), the `PastDueBanner` + `StripeLocationsReconcilePoller` (Gaps 2/5), and per-row `CsvImportReport` failures (Gap 7). Net-new from zero: the Trust Center (Gap 8), the grant-extension admin action + macro (Gap 6).
-- **Cross-spec keystones**: `past_due_at` (Gaps 5/6 ← [Spec 05](./05-billing-subscription.md)); `account_llm_cost` rollup (Gap 4 ↔ [Spec 22](./22-ai-llm-ops.md)); analytics tool (admin cost dashboards ← [Spec 01 §2a](./01-product-market-fit.md)); flag pattern is env-var ([Spec 24](./24-devops-deployment.md)).
+- **Cross-spec keystones**: `past_due_at` (Gaps 5/6 ← [Spec 05](./05-billing-subscription.md)); `account_llm_cost` rollup (Gap 4 ↔ [Spec 22](./22-ai-llm-ops.md)) sources the extended `api_costs` (Step-0 audit-home decision); analytics tool is **PostHog** (admin cost dashboards ← [Spec 01 §2a](./01-product-market-fit.md), Step-0 decision); flag pattern stays env-var kill-switches + PostHog flags for %-rollout ([Spec 24](./24-devops-deployment.md), Step-0 decision).
 - **Migration numbering**: the original 057/058/059 are dropped in favor of "next free number, coordinate" (head 042); Gap 2's pilot flag can avoid a migration entirely via `accounts.flags`.
 
 ---

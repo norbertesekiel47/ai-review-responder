@@ -14,7 +14,7 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 
 - Vercel (Next.js) + Railway (worker). **No `vercel.json` / `railway.{json,toml}` / `Dockerfile`** — both dashboard-configured; the worker runs via `tsx`.
 - ⚠️ **No CI/CD at all** — there is **no `.github/` directory** (no Actions, no Dependabot, no PR template, no CODEOWNERS). This spec is effectively "stand up CI/CD from zero," and it's the prerequisite **~8 other specs (07/08/09/12/19/22/23/25) wait on**.
-- **Feature flags today are boolean env vars** (`SELF_SERVE_SIGNUP_ENABLED`, `ONBOARDING_DEMO_ENABLED`, `CHANNELS_*_ENABLED`, `ZERNIO_PUBLISHING_ENABLED`), asserted in `worker/config/startup-assert.ts`. ⚠️ These are **kill-switches, not per-user %-rollout** — the spec's "PostHog flags, 10%→50%→100%" needs a real flag tool (tied to the [Spec 01 §2a](./01-product-market-fit.md) PostHog decision) or GrowthBook.
+- **Feature flags today are boolean env vars** (`SELF_SERVE_SIGNUP_ENABLED`, `ONBOARDING_DEMO_ENABLED`, `CHANNELS_*_ENABLED`, `ZERNIO_PUBLISHING_ENABLED`), asserted in `worker/config/startup-assert.ts`. These are **kill-switches, not per-user %-rollout**. ✅ Step-0 decision: keep them as kill-switches and add PostHog feature flags (per the [Spec 01 §2a](./01-product-market-fit.md) PostHog decision) when %-rollout is needed — see §Feature flags below.
 - Migrations owner-run via Supabase SQL editor; head **042**, next **043**; patterns in `.claude/skills/migrations.md`.
 - `.env.example` + `startup-assert.ts` present. **No** `docs/runbooks/rollback.md`.
 - Documented patterns for entry-point modularization, outbox, subscription guard.
@@ -40,9 +40,8 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 - **CI-applied migrations on staging** at first hire — until then, owner-run.
 
 ### Feature flags
-- ⚠️ **Today flags are boolean env vars** (`SELF_SERVE_SIGNUP_ENABLED`, etc.) — good kill-switches, **no per-user %-rollout**. The "PostHog flags" framing assumes PostHog, which **isn't installed** (see [Spec 01 §2a](./01-product-market-fit.md)).
-- Decide the flag tool: **(a)** keep env-var flags (simple, deploy-to-flip, no gradual rollout) for kill-switches; **(b)** PostHog feature flags (if §2a picks PostHog) for %-rollout; **(c)** GrowthBook (open-source / self-hosted). The dark-ship pattern (PR #56 edit-replies) already uses env-var flags successfully.
-- Gradual rollout (10% → 50% → 100%) requires (b) or (c).
+- ✅ **Decided (Step 0, 2026-05-23): hybrid — keep env-var flags as kill-switches + PostHog feature flags for %-rollout.** Since [Spec 01 §2a](./01-product-market-fit.md) chose PostHog Cloud, %-rollout/A-B comes from PostHog flags; GrowthBook is rejected (no second vendor). The existing boolean env vars (`SELF_SERVE_SIGNUP_ENABLED`, `ONBOARDING_DEMO_ENABLED`, `CHANNELS_*_ENABLED`, `ZERNIO_PUBLISHING_ENABLED`, asserted in `worker/config/startup-assert.ts`) **stay as-is** as deploy-to-flip kill-switches.
+- Use a PostHog flag only when a rollout actually needs per-user %-gating (10% → 50% → 100%) or A/B. The dark-ship pattern (PR #56 edit-replies) already uses env-var flags successfully — no need to migrate working kill-switches.
 
 ### Deploy strategy
 - **Vercel rolling deploys** built-in; sufficient at current scale.
@@ -108,7 +107,7 @@ Calendar reminders on the day-of for each.
 0. **Stand up GitHub Actions CI** — the `.github/workflows/ci.yml` that runs lint/type/unit/integration. This is the keystone task: ~8 other specs (07/08/09/12/19/22/23/25) are blocked on it. Create `.github/` (workflows + dependabot + PR template + CODEOWNERS) from zero.
 1. Document rollback playbook at `docs/runbooks/rollback.md`. Include Vercel + Railway commands + migration down + flag kill switch + comms template.
 2. Set up Railway PR environments (GitHub integration in Railway dashboard).
-3. Resolve the feature-flag decision (§3): env-var flags suffice for kill-switches; %-rollout needs PostHog (per §2a) or GrowthBook. Don't assume PostHog.
+3. Feature-flag decision resolved (Step 0): env-var flags stay as kill-switches; add PostHog feature flags (per §2a) for %-rollout. Wire `posthog-node` flag evaluation only on the first rollout that needs %-gating — no upfront migration of existing env-var flags.
 4. Set GitHub branch protection rules per §3 (**after task 0** — there are no status checks to require until CI exists).
 5. Add Slack `#deploys` channel + Vercel/Railway webhook integrations.
 6. Author secrets-rotation runbooks per §3. Calendar reminders.

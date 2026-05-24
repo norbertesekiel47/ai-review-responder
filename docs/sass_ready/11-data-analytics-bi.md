@@ -15,7 +15,7 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 - Owner dashboard redesigned (`docs/superpowers/plans/2026-05-07-owner-dashboard-redesign.md`) — **already renders customer-facing KPI cards** (`KpiCards.tsx`, plus Velocity/Ranking/IntelligenceBrief cards). Some of this spec's "5 KPIs" likely already exist; reconcile before rebuilding.
 - An **internal KPI dashboard already exists** at `src/app/admin/overview` (`/api/admin/overview/route.ts`) computing metrics **directly from Postgres** (pending outbox, failed jobs, cost/day, email health, response rate, churn-risk via `computeChurnRiskScore`). This is the de-facto internal BI today — there is no PostHog.
 - Multi-location schema (migration 034) supports per-location roll-up.
-- **No PostHog** (not installed — see [Spec 01](./01-product-market-fit.md) §2a). The "PostHog as the BI spine" framing depends on the §2a tooling decision. No `docs/analytics/events.md`, no data warehouse.
+- **No PostHog yet** (decided Step 0, install pending — see [Spec 01](./01-product-market-fit.md) §2a). PostHog is the BI spine; Metabase-on-replica is the later scale option (see §Future). No `docs/analytics/events.md`, no data warehouse.
 - **No sentiment classifier.** `reviews` has `star_rating` but **no sentiment column**; `mock-generator.ts`'s `classifySentiment()` only maps stars → template pools (not a real classifier).
 
 ## 3. Target state
@@ -34,8 +34,8 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 - Export to CSV + PDF for marketing managers reporting upward.
 - Build with `@tanstack/react-query` + server components; cache 5 min.
 
-### Internal BI — PostHog as the spine (contingent on [Spec 01 §2a](./01-product-market-fit.md))
-> Today, internal BI is the Postgres-direct `admin/overview` dashboard. If §2a picks Postgres-native over PostHog, the "spine" below becomes Metabase-on-replica, not PostHog.
+### Internal BI — PostHog as the spine (decided Step 0, [Spec 01 §2a](./01-product-market-fit.md))
+> Today, internal BI is the Postgres-direct `admin/overview` dashboard. PostHog becomes the spine below; Metabase-on-replica is the later scale option once custom-SQL needs exceed PostHog (see §Future), not a replacement.
 - Cohorts (signup week, vertical, ICP-fit score).
 - Retention curves split by activation.
 - Funnels: signup → activation, trial → paid, paid → expansion.
@@ -130,7 +130,7 @@ CI rule: any new `posthog.capture(...)` call without a corresponding entry in `e
 - **Two KPI surfaces already exist** — customer-facing `KpiCards.tsx` and internal `admin/overview`. This spec's work is to (a) confirm the 5 customer KPIs against `KpiCards`, (b) add per-location filter/roll-up, (c) add CSV/PDF export, (d) add sentiment. It is **not** a from-scratch dashboard build.
 - **KPI queries** go in an account-scoped `src/lib/kpi/*` module (inline `WHERE account_id`), consistent with the no-repository-layer decision; the existing `/api/admin/overview/route.ts` is the pattern to mirror.
 - **Sentiment** is a worker job on the ingest path (gpt-4o-mini batch via the existing `src/lib/responses/generator.ts` LLM client + cost guard); write to the new `reviews.sentiment_*` columns inside ingest.
-- **Event taxonomy + its CI audit** are blocked on the §2a analytics decision and on CI existing ([Spec 24](./24-devops-deployment.md)).
+- **Event taxonomy + its CI audit** — analytics tool is decided (PostHog, §2a); the CI audit still waits on CI existing ([Spec 24](./24-devops-deployment.md)).
 - **Export** (CSV stream / PDF) for >100-location accounts runs async as a worker job → emailed link, not in a Next.js route.
 
 ---

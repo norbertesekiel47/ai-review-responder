@@ -46,7 +46,7 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 
 ### Lifecycle vs. transactional separation
 - **Today:** one Resend account separates them by `category` tag (transactional/marketing) + `List-Unsubscribe` on marketing only. This is a reasonable v1.
-- **Target (when lifecycle volume grows):** move lifecycle to a separate tool (Loops/Customer.io — the ESP decision shared with [Spec 14](./14-customer-success-retention.md)/[Spec 16](./16-marketing-growth.md)) **and** a separate sending domain (`team@repworth.com` vs `noreply@mail.repworth.com`) so a marketing spam complaint can't tank transactional reputation.
+- **Decided (Step 0): lifecycle stays on Resend + schedulers** (ESP decision shared with [Spec 14](./14-customer-success-retention.md)/[Spec 16](./16-marketing-growth.md) — no Loops/Customer.io). Still split lifecycle vs. transactional onto a **separate sending domain/subdomain** (`team@repworth.com` vs `noreply@mail.repworth.com`) so a marketing spam complaint can't tank transactional reputation — that's a domain/DKIM split inside Resend, not a second vendor.
 
 ### In-app announcements / changelog widget
 - **Bell icon** in dashboard top-right.
@@ -100,7 +100,7 @@ On every public + transactional email:
 1. Verify + enforce DKIM/SPF/DMARC. Tighten DMARC to `p=reject` after 2-week monitor.
 2. Wire Google Postmaster + Microsoft SNDS.
 3. ⚠️ Decide before migrating: current templates are **HTML-string functions** in `src/lib/notifications/email/templates/*.ts` (not `src/lib/email/templates/*.tsx`) and they work. React Email is a quality/maintainability upgrade, not a fix — migrate in place at the real path if pursued.
-4. ESP decision shared with [Spec 14](./14-customer-success-retention.md)/[Spec 16](./16-marketing-growth.md): the category-tag split on Resend is the current v1; only stand up Loops/Customer.io + a separate domain when lifecycle volume justifies it.
+4. ESP decided (Step 0, shared with [Spec 14](./14-customer-success-retention.md)/[Spec 16](./16-marketing-growth.md)): stay on Resend + schedulers. Keep the category-tag split as v1; add a separate lifecycle sending domain/subdomain when volume justifies it. No Loops/Customer.io.
 5. Build in-app changelog widget. Subscribe Headway or hand-roll MDX renderer.
 6. Author `docs/runbooks/maintenance-comms-template.md`.
 7. Author `docs/runbooks/breach-notification.md` with all sections per §3.

@@ -31,7 +31,7 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 | Security policy | Public at `/security` | (See [Spec 09](./09-security-compliance.md)) |
 | VPAT (accessibility) | Generated at first enterprise ask | (See [Spec 19](./19-accessibility.md)) |
 
-> ⚠️ Today's legal pages live at `/privacy` and `/terms` (not `/legal/*`). Decide: relocate to `/legal/*` (canonical) or keep these and add `/legal/*` for the new docs. Pick one routing convention before publishing the rest.
+> ✅ **Decided (Step 0, 2026-05-23): migrate everything to `/legal/*`.** Today's legal pages live at `/privacy` and `/terms` (route-group `(public)`). Relocate `src/app/(public)/privacy` → `/legal/privacy` and `terms` → `/legal/terms`, add **301 redirects** from the old paths (`next.config.js` `redirects()` or middleware), and publish all new docs (AUP, DPA, cookies, sub-processors) under `/legal/*`. This is the canonical convention referenced by VPAT ([Spec 19](./19-accessibility.md)) and the Trust Center ([Spec 29 Gap 8](./29-repworth-specific-gaps.md)). Do the move before authoring the rest, while only two pages exist.
 
 ### Lawyer
 - First-pass draft via **Termly** or **iubenda** (~$200/yr).
@@ -42,7 +42,7 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 - Version-controlled in repo.
 - Each version has `effective_date`.
 - Material changes → prompt for re-accept in product (modal at login, log acceptance).
-- Acceptance recorded in `legal_acceptances(user_id, doc_slug, version, accepted_at, ip, user_agent)`. Migration **052**.
+- Acceptance recorded in `legal_acceptances(user_id, doc_slug, version, accepted_at, ip, user_agent)`. Migration: **next free number — coordinate in the PR** (head is 042; don't hard-code — README convention).
 
 ### AI usage disclosure (regulatory triple-jurisdiction)
 - **In ToS:** "Responses are AI-generated drafts requiring owner approval before publication. By using the Service, you understand and agree to this generation process."
@@ -65,7 +65,7 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 ### Sub-processor list (current, public, maintained)
 - Public at `/legal/sub-processors`.
 - Notify customers 30 days before adding new (email + in-app banner).
-- ⚠️ **The list below mixes live and planned vendors** — reconcile against reality before publishing: PostHog, Help Scout, Loops/Customer.io are **not yet integrated**; Cloudflare is "if used." And **Zernio's data class is wrong** — Zernio holds the GBP OAuth tokens; **RepWorth stores no Google tokens** (it calls Zernio with a server-side API key — see [Spec 09](./09-security-compliance.md)). Only list sub-processors actually in the data path.
+- ⚠️ **The list below mixes live and planned vendors** — reconcile against reality before publishing: PostHog (decided Step 0, not yet installed) and Help Scout are **not yet integrated**; Loops/Customer.io is **rejected** (lifecycle stays on Resend — Step-0 ESP decision); Cloudflare is "if used." And **Zernio's data class is wrong** — Zernio holds the GBP OAuth tokens; **RepWorth stores no Google tokens** (it calls Zernio with a server-side API key — see [Spec 09](./09-security-compliance.md)). Only list sub-processors actually in the data path.
 - Current list:
 
 | Sub-processor | Purpose | Data classes |
@@ -75,7 +75,7 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 | Vercel | Hosting (Next.js) | Request logs, metadata |
 | Railway | Worker hosting | Request logs, metadata |
 | Upstash | Redis (cache + queue) | Cache keys, job payloads |
-| Resend | Transactional email | Email addresses, message bodies |
+| Resend | Transactional + lifecycle email (Step-0 ESP decision: no separate ESP) | Email addresses, message bodies |
 | Twilio | SMS | Phone numbers, message bodies |
 | Telegram | Bot platform | Telegram IDs, message bodies |
 | OpenAI | LLM (primary) | Review text, generated responses |
@@ -84,7 +84,6 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 | Sentry | Error tracking | Error stacks, scrubbed metadata |
 | PostHog | Analytics | Event properties (no PII) |
 | Help Scout | Customer support | Support emails, chat transcripts |
-| Loops/Customer.io | Lifecycle email | Email addresses, lifecycle events |
 | Cloudflare (if used) | WAF / CDN | Request metadata, geo |
 
 ### Insurance
@@ -157,7 +156,7 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 ## 9. Implementation in the current repo
 
 - **Most of this is documents + lawyering**, no code. The in-repo pieces are: the AI-disclosure banner (two surfaces above), the `legal_acceptances` table + re-accept modal, and the `/legal/*` rendered routes.
-- **Routing decision first** (see note in §3): existing legal pages are `/privacy` + `/terms`; pick whether to relocate under `/legal/*` or add `/legal/*` alongside before authoring the rest.
+- **Routing decision resolved** (Step 0, see §3): relocate `/privacy` + `/terms` under `/legal/*` with 301 redirects, then author the rest under `/legal/*`.
 - **Sub-processor list must be reconciled to reality** — drop not-yet-integrated vendors and fix the Zernio token claim, or it's a false compliance statement.
 - **Acceptance logging** writes via Postgres.js; if it must accompany a state change, keep it in the same transaction (outbox invariant).
 

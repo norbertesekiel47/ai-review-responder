@@ -58,7 +58,7 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 | Response generation (LLM call) | 4s | 8s | 15s |
 | Webhook ingestion (POST /webhooks/*) | 80ms | 200ms | 500ms |
 | Approval link click → published | 1s | 3s | 5s |
-| CSV import (500 rows) | 8s | 20s | 30s |
+| CSV import (100 rows — `MAX_ROWS` cap, Step-0 decision) | 2s | 5s | 10s |
 
 Tracked in PostHog or Vercel Analytics. Alert on 2× budget sustained 5 min.
 

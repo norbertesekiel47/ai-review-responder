@@ -17,7 +17,7 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 - **GBP connect is Zernio-mediated, not direct Google OAuth.** The "OAuth drop-off / pre-OAuth screen / bulk-OAuth one-consent" framing is wrong — consent + location-select happen in **Zernio's** flow (`/api/zernio/connect/start`, `/dashboard/connect/select-location`). The funnel step is `gbp_connected` via Zernio.
 - ⚠️ **The dashboard checklist was deliberately removed** (2026-05-04, PR #2 follow-up): "the checklist's four items collapsed once the post-pay wizard learned to connect Zernio directly." Per decision, this spec **drops** the checklist + `account_onboarding_state`; the "invite a teammate" step is also impossible (single-owner model, teams deferred — [Spec 04](./04-auth-identity.md)).
 - CSV import shipped (`src/lib/admin/csv-import.ts`): required cols `name`+`placeId`, **`MAX_ROWS = 100`** (not 500), 5 MB cap, audit via `job_outbox`. **No public CSV template file** yet.
-- **No analytics** (PostHog not installed — see [Spec 01](./01-product-market-fit.md) §2a). `time_to_first_draft` not instrumented; Zernio-connect funnel not published.
+- **No analytics yet** (PostHog decided Step 0, install pending — see [Spec 01](./01-product-market-fit.md) §2a). `time_to_first_draft` not instrumented; Zernio-connect funnel not published.
 - Empty state already optimistic: dashboard shows "All caught up! 🎉 … We'll email when a new draft is ready" (`src/components/dashboard/ReviewsCard.tsx`) — not "No reviews yet".
 - Docs: `docs/onboarding-wizard-research-2026-05-03.md` exists. The "pre-paywall demo design" is `docs/runbooks/onboarding-demo-launch-runbook.md` (the `2026-05-03-…journey-reorder-design.md` filename does **not** exist).
 
@@ -66,7 +66,7 @@ Removed per decision. The dashboard checklist was deleted on 2026-05-04 (PR #2 f
 - CSV import path already exists; harden + polish.
 - Publish CSV template at `/help/csv-template.csv` with field docs.
 - Row-by-row validation (Zod) before upload; show errors inline.
-- Cap CSV at 500 rows per import.
+- Cap CSV at 100 rows per import (✅ Step-0 decision: keep the shipped `MAX_ROWS = 100`; raise only on real customer demand).
 - Bulk OAuth: one Google consent screen lists all locations from the manager's GBP account.
 - Audit log every CSV import (already in place per recent fix).
 
@@ -79,13 +79,13 @@ Not "No reviews yet" — instead:
 
 ## 4. Implementation tasks
 
-1. Instrument the signup → activation funnel in the tool chosen in [Spec 01 §2a](./01-product-market-fit.md) (PostHog not yet installed). Source of truth `docs/analytics/events.md` (see [Spec 11](./11-data-analytics-bi.md)). Capture from the **worker** publish path, not Next.js routes.
+1. Instrument the signup → activation funnel in PostHog (the [Spec 01 §2a](./01-product-market-fit.md) decision; install pending). Source of truth `docs/analytics/events.md` (see [Spec 11](./11-data-analytics-bi.md)). Capture from the **worker** publish path, not Next.js routes.
 2. Build the TTFV dashboard (median + p95 per cohort week) once analytics lands.
 3. Add a help link / screenshot guide on the existing `/dashboard/connect` pre-connect screen (Zernio flow). **No new `gbp-check` page** — the connect view already exists.
 4. Add a Zernio-redirect popup/timeout fallback with a manual retry link in `/dashboard/connect`.
 5. ~~Build the 5-step checklist + `account_onboarding_state`~~ — **dropped** (checklist removed 2026-05-04; wizard replaced it).
 6. ~~Build sample-data demo~~ — **already built** (`/onboarding/demo`, `onboarding_demos` table, behind `ONBOARDING_DEMO_ENABLED`). Remaining: a logged-out entry point + the `sample_demo_to_signup` conversion event; verify 60-min expiry semantics.
-7. Add CSV template `public/csv-templates/locations.csv` (cols `name`,`placeId` + optionals) + a column README. ⚠️ Code has `MAX_ROWS = 100` — reconcile the spec's "500" (raise the cap or lower the spec).
+7. Add CSV template `public/csv-templates/locations.csv` (cols `name`,`placeId` + optionals) + a column README. ✅ Step-0 decision: keep `MAX_ROWS = 100` (no code change); the template README states the 100-row limit.
 8. Add row-by-row error UI on CSV import (row #, column, reason) + "X of Y imported" partial-success toast.
 9. Publish white-glove onboarding runbook + Calendly into the Growth-tier flow.
 10. Empty state is already optimistic ("All caught up!"); optionally extend it with proactive actions (train voice / set notifications) — exclude "invite teammates" (single-owner).
@@ -126,9 +126,9 @@ Not "No reviews yet" — instead:
 
 ## 9. Implementation in the current repo
 
-- **The activation path already exists** — pre-paywall demo + 3-step wizard + Zernio connect. This spec's net-new work is **measurement** (the funnel, gated on the [Spec 01 §2a](./01-product-market-fit.md) analytics decision) and **polish** (CSV template, connect help link, demo's logged-out entry).
+- **The activation path already exists** — pre-paywall demo + 3-step wizard + Zernio connect. This spec's net-new work is **measurement** (the funnel, now unblocked by the [Spec 01 §2a](./01-product-market-fit.md) PostHog decision) and **polish** (CSV template, connect help link, demo's logged-out entry).
 - **Funnel capture** lives on the worker where state changes occur (publish, draft) — not Next.js routes (Vercel = UI only). The Zernio connect state machine in `/dashboard/connect` already exposes the `gbp_connected` transition to instrument.
-- **CSV**: validation + audit already exist in `src/lib/admin/csv-import.ts`; remaining work is the public template + the inline row-error UI on the import page. Resolve the `MAX_ROWS` 100-vs-500 mismatch before publishing the template.
+- **CSV**: validation + audit already exist in `src/lib/admin/csv-import.ts`; remaining work is the public template + the inline row-error UI on the import page. The `MAX_ROWS` mismatch is resolved (Step 0): keep 100 — no code change, and the spec text above now says 100.
 - **Demo**: reuse `onboarding_demos` + the existing SerpAPI/curated pipeline; add a logged-out CTA and the conversion event.
 - **No checklist / no `account_onboarding_state`** — both dropped.
 

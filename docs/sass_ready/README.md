@@ -72,20 +72,22 @@ Each spec is independent enough to be implemented as a single planning epic but 
 
 **Recommended for RepWorth now: the Risk-ordered critical path below.** (Parallel tracks become the right model once you make your first hire — see [Spec 27](./27-team-knowledge.md).)
 
-### Step 0 — Resolve the cross-cutting decisions first (≈ a day, no code)
+### Step 0 — Resolve the cross-cutting decisions first ✅ RESOLVED 2026-05-23
 
-These `⚠️` choices recur across many specs. Deciding them once prevents building the same thing twice:
+These `⚠️` choices recur across many specs; deciding them once prevents building the same thing twice. **All six are now resolved** (brainstormed 2026-05-23) and stamped into the affected specs as `✅ Decided (Step 0)`:
 
-| Decision | Options | Blocks |
-|---|---|---|
-| Analytics tooling ([Spec 01](./01-product-market-fit.md) §2a) | PostHog Cloud vs. Postgres-native + Metabase | 01, 06, 07, 11, 14, 16, 26 |
-| Feature-flag tool ([Spec 24](./24-devops-deployment.md)) | Keep env-var flags (kill-switch only) vs. PostHog/GrowthBook (%-rollout) | 22, 24, any gradual rollout |
-| Lifecycle ESP ([Spec 14](./14-customer-success-retention.md)/16/28) | Extend Resend + schedulers vs. Loops/Customer.io | 14, 16, 28 |
-| Legal routing ([Spec 17](./17-legal-compliance-docs.md)) | Keep `/privacy`+`/terms` vs. move all to `/legal/*` | 17, 19 (VPAT), 29 (Trust Center) |
-| Audit/cost-metadata home ([Spec 10](./10-trust-safety.md)/22) | Extend `api_costs` vs. new `llm_calls` | 10, 22, 26, 29 Gap 4 |
-| CSV row cap ([Spec 06](./06-onboarding-activation.md)/29) | 100 (current) vs. 500 | 06, 29 Gap 7 |
+| Decision | ✅ Resolved choice | Rationale | Blocks (now unblocked) |
+|---|---|---|---|
+| Analytics tooling ([Spec 01](./01-product-market-fit.md) §2a) | **PostHog Cloud** | Fastest event capture + cohorts, minimal infra; bundles the feature-flag tool. Rejected Postgres+Metabase (build cohort math yourself); Metabase stays as the later scale option. | 01, 06, 07, 11, 14, 16, 26 |
+| Feature-flag tool ([Spec 24](./24-devops-deployment.md)) | **Hybrid: env-var kill-switches + PostHog flags** | Keep working boolean kill-switches; use PostHog flags (free from the analytics choice) for %-rollout/A-B. GrowthBook rejected — no second vendor. | 22, 24, any gradual rollout |
+| Lifecycle ESP ([Spec 14](./14-customer-success-retention.md)/16/28) | **Extend Resend + schedulers** | 4 schedulers already live; new sequences ride that infra. Loops/Customer.io rejected — net-new vendor + parallel infra for no current gain. | 14, 16, 28 |
+| Legal routing ([Spec 17](./17-legal-compliance-docs.md)) | **Migrate all to `/legal/*`** (301-redirect old paths) | Only 2 pages exist today — cheapest to canonicalize now before publishing AUP/DPA/cookies/sub-processors. | 17, 19 (VPAT), 29 (Trust Center) |
+| Audit/cost-metadata home ([Spec 10](./10-trust-safety.md)/22) | **Extend `api_costs`** | Add `system_prompt_hash`/`latency_ms`/`moderation_score` columns. A separate `llm_calls` would double-record cost data. | 10, 22, 26, 29 Gap 4 |
+| CSV row cap ([Spec 06](./06-onboarding-activation.md)/29) | **Keep 100** | Tested + shipped (`MAX_ROWS = 100`). Spec text reconciled to 100. Raise only on real customer demand. | 06, 29 Gap 7 |
 
-_Already settled this pass: live 4-tier model (not Starter/Growth/Scale); no repository layer (inline scoping + CI guard)._
+_Also settled earlier this pass: live 4-tier model (not Starter/Growth/Scale); no repository layer (inline scoping + CI guard)._
+
+> **Next:** Step 0 is decisions only — the actual PostHog install, `api_costs` migration, `/legal/*` move, etc. land in their respective specs/waves. Proceed to **Step 1 (CI keystone)**.
 
 ### Step 1 — Lay the keystones (each unblocks a cluster)
 
@@ -93,7 +95,7 @@ _Already settled this pass: live 4-tier model (not Starter/Growth/Scale); no rep
 |---|---|---|
 | **Stand up GitHub Actions CI** | [24](./24-devops-deployment.md) (task 0) | every "fail-the-build" gate: 07, 08, 09, 12, 19, 22, 23, 25 |
 | `accounts.past_due_at` column | [05](./05-billing-subscription.md) | countdown UX (05, 29 Gap 5), grant-extension (29 Gap 6) |
-| Analytics event capture on the worker publish path | after Step-0 analytics decision | 01, 06, 11, 14, 16, 26 |
+| Analytics event capture on the worker publish path (PostHog — Step-0 decision) | [01 §2a](./01-product-market-fit.md) | 01, 06, 11, 14, 16, 26 |
 | Generalized audit helper + extended `account_audit_log` | [04](./04-auth-identity.md) | impersonation audit (13), approval snapshot (29 Gap 1) |
 
 **Do CI first** — highest-leverage move in the whole set: it converts the existing ~302 tests + 13 e2e into merge gates and is the prerequisite for ~8 specs.
@@ -113,7 +115,7 @@ Within each wave, clear the **verify-and-polish** specs before the greenfield on
 - **Pin the OpenAI model** ([Spec 22](./22-ai-llm-ops.md)) — the unversioned `gpt-4o-mini` is a silent-regression risk; ~1 line.
 - Write `docs/icp.md` ([01](./01-product-market-fit.md)) and `CONTEXT.md` ([25](./25-documentation.md)) — hours, not days.
 - **Reconcile the sub-processor list** ([17](./17-legal-compliance-docs.md)) — it currently overstates reality (lists not-yet-live vendors + a wrong Zernio token claim); that's a live compliance-accuracy risk.
-- Resolve the Step-0 decisions.
+- ~~Resolve the Step-0 decisions.~~ ✅ Done 2026-05-23 (see Step 0 above).
 
 ### Verify, don't rebuild (already partly shipped — confirm before writing code)
 
@@ -165,18 +167,18 @@ Sequence work by the **smallest blocker that blocks the most growth**:
 
 ## The "good readiness review" hot-loop
 
-> Alternate **calendar view** for a solo founder pacing over a year. The Execution-strategy waves above are the recommended order; this table is the same work mapped to quarters. (Both assume Step-0 decisions + the CI keystone land first.)
+> Alternate **calendar view** for a solo founder pacing over a year. The Step-2 waves above are the canonical order; this table groups those same waves into quarters (Step-0 decisions + the CI keystone land first, in Q1). Where the two views differ, **the waves win** — this is a pacing aid, not a second plan.
 
 If you have a quarter and want to maximize readiness:
 
-| Quarter | Theme | Specs to ship |
+| Quarter | Theme | Specs to ship (≈ waves) |
 |---|---|---|
-| **Q1** | Foundation | 03, 05, 07, 09, 17, 29 (gaps 1, 2, 5) |
-| **Q2** | Activation + Growth seeds | 06, 13, 14, 16 |
-| **Q3** | Scale + API + Mobile | 12, 20, 21, 22 |
-| **Q4** | Maturity + Polish | 08, 11, 18, 19, 23, 24, 25, 26, 27, 28 |
+| **Q1** | Keystones + Foundation | **Step 1**: CI (`24` task 0) · `04` audit helper · `05` `past_due_at` · `01` analytics capture — then **Wave 1**: `03`, `09`, `17`, `29` (gaps 1, 2) |
+| **Q2** | Activation (Wave 2) | `06`, `13`, `04` MFA, `05`/`29` gaps 5–6 |
+| **Q3** | Visibility & AI safety + Growth seeds (Waves 3 + early 4) | `07`, `22`, `10`, `11`, `26` · then `16` |
+| **Q4** | Growth + Scale & maturity (Waves 4 + 5) | `15`, `14`, `20`, `28` · `12`, `08`, `18`, `19`, `21`, `23`, `25`, `27` |
 
-Specs 01 (PMF) and 02 (Pricing) thread continuously — review monthly, not "shipped once."
+Specs 01 (PMF) and 02 (Pricing) thread continuously — review monthly, not "shipped once." Spec 24 beyond task-0 CI (rollback playbook, secrets rotation) trails through the year as ops matures.
 
 ---
 

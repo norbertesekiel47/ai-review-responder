@@ -16,7 +16,7 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 - ⚠️ **Logging is NOT structured.** `src/lib/shared/logger.ts` emits plain text (`[Worker] [corr-id] message`) via `console.*` — **no JSON, no `account_id`**. ~166 raw `console.*` calls in `src/`. The "account_id on every line" goal is greenfield.
 - ⚠️ **No AsyncLocalStorage** anywhere — there is no request/job context propagation to build on.
 - **No Bull Board** (`@bull-board` not installed). 18 BullMQ queues defined in `src/lib/shared/queue-names.ts`.
-- **No PostHog** (not installed — see [Spec 01](./01-product-market-fit.md) §2a). No event taxonomy file.
+- **No PostHog yet** (decided Step 0, install pending — see [Spec 01](./01-product-market-fit.md) §2a). No event taxonomy file.
 - **Health checks:** the **worker** exposes `/api/health` via Fastify (port 3001); **Next.js has no `/api/health`** — a gap for synthetic monitoring.
 - No log drain (Better Stack/Axiom/Datadog), no `docs/observability/alert-runbook.md`, no status page, no synthetic checks.
 - ⚠️ **No CI at all** — there is no `.github/workflows/` directory. Every "fail the build" / "CI check" task here is **blocked on first standing up GitHub Actions CI** (see [Spec 24](./24-devops-deployment.md)).
@@ -97,7 +97,7 @@ Document trigger conditions in `docs/runbooks/oncall-3am.md` so future-you doesn
 1. Add Better Stack drain to worker + Next.js. Pipe Sentry breadcrumbs + structured (JSON) logs.
 2. AsyncLocalStorage middleware in both runtimes (net-new — none exists today). Verify every log line in staging has `account_id`.
 3. Define alert routes in Sentry: P0 → PagerDuty, P1 → Slack `#oncall-p1`, P2 → daily digest email.
-4. Build `docs/analytics/events.md` event taxonomy. Wire 10 launch events in the tool from [Spec 01 §2a](./01-product-market-fit.md). Add a CI check that a new analytics `capture(...)` without a doc entry fails the build (`scripts/ci/analytics-events-audit.ts`) — **requires CI (task 0)**.
+4. Build `docs/analytics/events.md` event taxonomy. Wire 10 launch events in PostHog (the [Spec 01 §2a](./01-product-market-fit.md) decision). Add a CI check that a new analytics `capture(...)` without a doc entry fails the build (`scripts/ci/analytics-events-audit.ts`) — **requires CI (task 0)**.
 5. Install `@bull-board` and mount at `/admin/queues` (Next.js route or worker-Fastify mount with admin auth). Behind 2FA + audit log. (Not currently installed.)
 6. **Build a Next.js `/api/health` route first** (only the worker has one), then configure 5 synthetic checks in BetterStack. Test the failure path manually.
 7. Build the four-panel ops dashboard. Bookmark.

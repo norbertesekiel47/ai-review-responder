@@ -19,14 +19,11 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 - Multi-location billing shipped (migration **034**; per-location overage via Stripe `quantity` in `worker/jobs/billing/UpdateStripeOverageWorker.ts`) — proves the multi-location wedge is real today.
 - A prior PMF brainstorm exists at `docs/superpowers/specs/2026-05-19-pmf-positioning-design.md`. This spec is its operational successor — reconcile, don't duplicate.
 
-## 2a. Open decision — analytics tooling (blocks tasks 4–5)
+## 2a. Resolved decision — analytics tooling (was: blocked tasks 4–5)
 
-Four metrics in §6 are sourced from PostHog, but **no product-analytics tool is chosen or installed**. Resolve in [Spec 11 — Data, Analytics & BI](./11-data-analytics-bi.md) before instrumenting:
+✅ **Decided (Step 0, 2026-05-23): PostHog Cloud.** Fastest path to event capture + cohorts with minimal infra; also bundles the feature-flag tool ([Spec 24](./24-devops-deployment.md)) so %-rollout comes free. The rejected alternative was a Postgres-native `analytics_events` table + Metabase (no new vendor, but you build cohort math yourself). Metabase-on-replica is still the **future** scale option once custom-SQL needs exceed PostHog — see [Spec 11 §Future](./11-data-analytics-bi.md).
 
-- **Option A (recommended):** adopt PostHog Cloud — fastest path to event capture + cohorts, minimal infra.
-- **Option B:** Postgres-native `analytics_events` table + Metabase — no new vendor, data stays in-house, but you build cohort math yourself.
-
-Until resolved, the `activation_completed` instrumentation tasks are **blocked**, not buildable.
+Add `posthog-node` (server) + `posthog-js` (client); capture events on the **worker** publish path (not Vercel routes). The four §6 metrics below now read from PostHog. This unblocks `activation_completed` instrumentation (tasks 4–5) and the dependent specs (06, 07, 11, 14, 16, 26).
 
 ## 3. Target state
 
@@ -73,7 +70,7 @@ Until resolved, the `activation_completed` instrumentation tasks are **blocked**
 | `activation_completed` rate (signups within 7 days) | ≥ 50% | PostHog |
 | Customer interviews/week | ≥ 5 | CRM custom property |
 
-> The "PostHog" sources above are contingent on §2a. If Option B (Postgres-native) is chosen, swap source to `analytics_events` + Metabase.
+> The "PostHog" sources above are confirmed by the §2a decision (PostHog Cloud).
 
 ## 7. Risks & mitigations
 

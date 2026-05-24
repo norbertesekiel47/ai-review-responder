@@ -14,9 +14,9 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 
 - LLM client is `src/lib/responses/generator.ts` (`callLLMWithFallback`: OpenAI → Anthropic) — **not** `src/lib/llm/client.ts`/`models.ts` (those don't exist).
 - ⚠️ **OpenAI model is UNVERSIONED** (`OPENAI_MODEL = 'gpt-4o-mini'`); Anthropic is pinned (`claude-haiku-4-5-20251001`). The spec's "pin model IDs" concern is **real and currently unmet** for OpenAI.
-- **Cost tracking exists** but as `api_costs` (`src/lib/costs/audit.ts` `recordApiCost`: provider/endpoint/input+output tokens/cost_usd/response_id/business_id) — **not** a full `llm_calls` audit (no prompt hash, latency, or moderation score). Build on `api_costs`.
+- **Cost tracking exists** as `api_costs` (`src/lib/costs/audit.ts` `recordApiCost`: provider/endpoint/input+output tokens/cost_usd/response_id/business_id) — no prompt hash, latency, or moderation score yet. ✅ **Decided (Step 0, 2026-05-23): extend `api_costs`** with `system_prompt_hash` / `latency_ms` / `moderation_score` rather than add a separate `llm_calls` table — avoids double-recording cost data. Shared home with [Spec 10](./10-trust-safety.md) moderation metadata.
 - Cost-guard skill + designs exist (`.claude/skills/cost-guard.md`, `docs/plans/2026-05-0{3,9}-*`).
-- **No `llm_calls` table, no eval set, no output moderation, no `brand_voices`, no cross-tenant injection test** — all greenfield. Tenant-scoping invariant holds.
+- **No eval set, no output moderation, no `brand_voices`, no cross-tenant injection test** — all greenfield. (`llm_calls` is intentionally not created — per-call audit metadata lives on `api_costs`, Step-0 decision.) Tenant-scoping invariant holds.
 
 ## 3. Target state
 
@@ -50,8 +50,8 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 
 ### Prompt versioning
 - ⚠️ Prompts are currently **inline** in `src/lib/responses/prompt-builder.ts` (no `src/lib/prompts/` dir). Extracting to version-controlled files (`system-base.md`, `per-vertical/*.md`) is net-new (shared with [Spec 10](./10-trust-safety.md) / [Spec 18](./18-i18n-localization.md)).
-- Hash recorded per generation (in `api_costs` or the new `llm_calls` — same home decision as moderation metadata, [Spec 10](./10-trust-safety.md)).
-- A/B testing via PostHog feature flags or **GrowthBook**.
+- Hash recorded per generation in `api_costs.system_prompt_hash` (Step-0 decision; same home as moderation metadata, [Spec 10](./10-trust-safety.md)).
+- A/B testing via **PostHog feature flags** (Step-0 decision; GrowthBook rejected).
 - Rollback = `git revert` + redeploy.
 
 ### Cost per response
@@ -81,29 +81,18 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 - Optional RAG over customer's website / menu / services list for accuracy (year-2 feature).
 
 ### Audit log of every LLM call
-**Table `llm_calls`** (migration **056**):
+✅ **Decided (Step 0): extend `api_costs`, not a new `llm_calls` table.** `api_costs` already carries `id`, `account_id`, `business_id`, `response_id`, `provider`/`endpoint`, `input_tokens`/`output_tokens`, `cost_usd`, `created_at`. Add the audit/safety columns (next free migration after 042):
 ```sql
-llm_calls(
-  id uuidv7 PK,
-  account_id uuid NOT NULL,
-  business_id uuid,
-  review_id uuid,
-  response_id uuid,
-  model varchar NOT NULL,
-  system_prompt_hash varchar NOT NULL,
-  prompt_version varchar,
-  prompt_tokens int,
-  completion_tokens int,
-  cost_usd_calculated numeric(10,5),
-  latency_ms int,
-  moderation_score numeric,
-  flagged boolean DEFAULT false,
-  output_excerpt text, -- first 200 chars only, full output reconstructable from response
-  request_id varchar,
-  created_at timestamptz DEFAULT now()
-);
+ALTER TABLE api_costs
+  ADD COLUMN system_prompt_hash varchar,
+  ADD COLUMN prompt_version     varchar,
+  ADD COLUMN latency_ms         int,
+  ADD COLUMN moderation_score   numeric,
+  ADD COLUMN flagged            boolean DEFAULT false,
+  ADD COLUMN output_excerpt     text;     -- first 200 chars only; full output reconstructable from `responses`
+-- review_id / request_id already reachable via response_id → responses join
 ```
-Retain 90 days minimum (cost analysis + quality regression hunt).
+Retain ≥ 90 days (cost analysis + quality regression hunt). The existing `api_costs_daily_rollups` continues to aggregate cost; the new columns feed moderation ([Spec 10](./10-trust-safety.md)) and the gross-margin guard ([Spec 29 Gap 4](./29-repworth-specific-gaps.md)).
 
 ### Fallback model behavior
 - **Eval set runs on both models weekly.**
@@ -117,7 +106,7 @@ Retain 90 days minimum (cost analysis + quality regression hunt).
 
 ## 4. Implementation tasks
 
-1. `llm_calls` table per §3 (next free migration number; head 042 — coordinate). ⚠️ Reconcile with `api_costs`, which already records per-call provider/tokens/cost — decide whether to extend `api_costs` (add prompt hash/latency/moderation) or add a separate `llm_calls`; don't double-record. Index `(account_id, created_at)`.
+1. Extend `api_costs` per §3 (next free migration number; head 042 — coordinate): add `system_prompt_hash`, `prompt_version`, `latency_ms`, `moderation_score`, `flagged`, `output_excerpt`. Step-0 decision — no separate `llm_calls`, no double-recording. Ensure an index on `(account_id, created_at)` exists.
 2. Wrap the LLM client (`src/lib/responses/generator.ts`, **not** `src/lib/llm/client.ts`) to write the audit row on every call.
 3. **Pin the OpenAI model** in `src/lib/responses/generator.ts` (currently `'gpt-4o-mini'` → `'gpt-4o-mini-2024-07-18'`); add a lint rule disallowing un-versioned aliases (enforcement needs CI — [Spec 24](./24-devops-deployment.md)).
 4. Author 50-review eval set in `tests/llm-eval/eval-set.jsonl`.
@@ -131,7 +120,7 @@ Retain 90 days minimum (cost analysis + quality regression hunt).
 
 ## 5. Acceptance criteria
 
-- [ ] Every LLM call writes a full audit row (extended `api_costs` or new `llm_calls`) with all required fields (`api_costs` already captures tokens/cost/model per call).
+- [ ] Every LLM call writes a full audit row on the extended `api_costs` (Step-0 decision) with all required fields (`api_costs` already captures tokens/cost/model per call).
 - [ ] 50-review eval set runs weekly in CI; current pass rate ≥ 4.0/5 aggregate.
 - [ ] Model IDs pinned; lint blocks un-versioned aliases.
 - [ ] Cross-tenant injection test passes.
@@ -172,9 +161,9 @@ Retain 90 days minimum (cost analysis + quality regression hunt).
 
 ## 9. Implementation in the current repo
 
-- **The generator + fallback + cost capture already exist** (`generator.ts`, `api_costs`). The net-new AI-ops layer is: pin the OpenAI model, the eval set + runner, the full per-call audit (extend `api_costs` or add `llm_calls`), output moderation, and the cross-tenant test.
+- **The generator + fallback + cost capture already exist** (`generator.ts`, `api_costs`). The net-new AI-ops layer is: pin the OpenAI model, the eval set + runner, the full per-call audit (extend `api_costs` — Step-0 decision), output moderation, and the cross-tenant test.
 - **Pinning the OpenAI model is a one-line, high-value fix** — it directly addresses the silent-regression risk the spec is built around.
-- **Audit/moderation metadata has one home decision** shared across Specs 10/22 — resolve once (extend `api_costs` vs. new `llm_calls`) so prompt hash + moderation score + cost live together.
+- **Audit/moderation metadata home decided (Step 0): `api_costs`** (shared across Specs 10/22) — prompt hash + moderation score + cost live together on one table.
 - **Eval runner + its weekly CI** are the bulk of the work and gated on CI ([Spec 24](./24-devops-deployment.md)); the runner reuses the existing `generator.ts` client against both providers.
 - **Brand-voice + per-language** ride the `brand_voices` decision in [Spec 18](./18-i18n-localization.md); keep examples strictly `account_id`-scoped.
 

@@ -72,8 +72,8 @@ Target: 200–500 pages within 12 months. **One organic signup/month per page wi
 - Upgrade to **Dreamdata** or **HockeyStack** when paid spend > $10k/mo.
 
 ### Email marketing platform
-- **Loops** or **Customer.io** for lifecycle + product emails — separate from Resend transactional.
-- Marketing list lives in Loops.
+- ✅ **Decided (Step 0, 2026-05-23): extend Resend + the existing schedulers** for lifecycle + product emails (no Loops/Customer.io) — shared decision with [Spec 14](./14-customer-success-retention.md)/[Spec 28](./28-customer-comms-brand.md).
+- Marketing/segment list lives in Postgres (query the existing `accounts`/`businesses` + analytics events), driving Resend sends from a scheduler.
 - Segment by: lifecycle stage, vertical, tier, last_active.
 
 ### Landing page playbook
@@ -99,8 +99,8 @@ Target: 200–500 pages within 12 months. **One organic signup/month per page wi
    - URL-token capture on signup.
    - Stripe Coupon application on both sides at conversion.
 7. UTM capture: add `utm_*` columns to `owner_leads` (today it has only a freetext `source`) and capture them at lead/signup.
-8. ⚠️ ESP decision shared with [Spec 14](./14-customer-success-retention.md): the existing schedulers + Resend already send some lifecycle email. Either extend that or adopt Loops/Customer.io — decide once, in one place.
-9. Set up Google Ads + Meta with conversion tracking back to the analytics tool chosen in [Spec 01 §2a](./01-product-market-fit.md) (PostHog not yet installed).
+8. ✅ ESP decided (Step 0, shared with [Spec 14](./14-customer-success-retention.md)): extend the existing schedulers + Resend; no Loops/Customer.io.
+9. Set up Google Ads + Meta with conversion tracking back to PostHog (the [Spec 01 §2a](./01-product-market-fit.md) decision; install pending).
 10. Build LP template `src/app/lp/[slug]/page.tsx` for paid campaigns.
 11. Write `docs/marketing/utm-convention.md` and pin it.
 
@@ -111,7 +111,7 @@ Target: 200–500 pages within 12 months. **One organic signup/month per page wi
 - [ ] `/changelog` live with RSS feed.
 - [ ] Referral program live; first 5 referrals tracked end-to-end.
 - [ ] UTM capture on every signup; PostHog acquisition channel report functional.
-- [ ] Loops or Customer.io live with lifecycle sequences ([Spec 14](./14-customer-success-retention.md)).
+- [ ] Lifecycle sequences live on Resend + schedulers ([Spec 14](./14-customer-success-retention.md)).
 - [ ] First Google Ads campaign live with conversion tracking.
 
 ## 6. Metrics
@@ -145,7 +145,7 @@ Target: 200–500 pages within 12 months. **One organic signup/month per page wi
 - **Programmatic SEO + blog + changelog + LP** are all net-new Next.js routes under `(public)/` — the `/changelog` and `/compare` builds are shared with [Spec 01](./01-product-market-fit.md). Use MDX in `content/` (no CMS).
 - **Referral** is a `referrals` table + URL-token capture (reuse the SHA-256 hashed-token pattern from approval links) + Stripe Coupons (the billing path already creates Stripe objects — [Spec 02](./02-pricing-packaging.md)).
 - **UTM** extends `owner_leads` (structured columns) rather than a new table; capture at the existing lead-intake/signup routes.
-- **Attribution + lifecycle ESP** are the two cross-spec decisions (analytics → §2a; ESP → Spec 14) — don't resolve them locally here.
+- **Attribution + lifecycle ESP** are both resolved at Step 0: attribution via PostHog (§2a), lifecycle via Resend + schedulers (Spec 14) — no local re-decision.
 
 ---
 _Verified 2026-05-23 against migration head 042. Confirmed all marketing surfaces greenfield; corrected the Growth-tier referral mechanic, structured-UTM-vs-freetext-source, and routed attribution/ESP through the shared §2a / Spec 14 decisions._

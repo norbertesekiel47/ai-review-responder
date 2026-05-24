@@ -52,7 +52,7 @@ Track monthly in `docs/finance/cogs-YYYY-MM.md`:
 - Stripe fees (2.9% + $0.30 per transaction)
 - Resend
 - Twilio (SMS)
-- Sentry, PostHog (if paid), Help Scout, Loops _(⚠️ PostHog/Help Scout/Loops are not yet provisioned — only count COGS for live vendors: Supabase, Railway, Vercel, Upstash, OpenAI, Anthropic, Stripe, Resend, Twilio, Sentry)_
+- Sentry, PostHog (decided Step 0 — adds COGS once on a paid tier), Help Scout (planned support tool — [Spec 13](./13-customer-support.md); not yet provisioned) _(Loops is rejected — lifecycle stays on Resend. Until PostHog/Help Scout are provisioned, count COGS for live vendors only: Supabase, Railway, Vercel, Upstash, OpenAI, Anthropic, Stripe, Resend, Twilio, Sentry)_
 
 ### Gross margin target
 - **≥ 75%.**
@@ -60,7 +60,7 @@ Track monthly in `docs/finance/cogs-YYYY-MM.md`:
 
 ### Cohort analysis
 - Cohort by signup month + acquisition channel (organic, paid Google, paid Meta, referral, partner).
-- Retention curves per cohort + per channel in **PostHog** or **ProfitWell**.
+- Retention curves per cohort + per channel in **PostHog** (Step-0 analytics decision).
 - Critical for double-down decisions on marketing spend.
 
 ### Revenue recognition
@@ -100,7 +100,7 @@ Track monthly in `docs/finance/cogs-YYYY-MM.md`:
 3. Build monthly metrics dashboard in ProfitWell + Stripe Sigma. Bookmark.
 4. Author `docs/finance/cogs-template.md` and start tracking monthly.
 5. Compute gross margin monthly. Alert if < 70% (warning) or < 60% (action).
-6. Build cohort analysis in ProfitWell or the analytics tool from [Spec 01 §2a](./01-product-market-fit.md) (PostHog not yet installed). Per-channel retention curves. The per-customer LLM-cost rollup that feeds gross margin is owned by [Spec 29 Gap 4](./29-repworth-specific-gaps.md) / [Spec 22](./22-ai-llm-ops.md) and sources from the existing `api_costs`.
+6. Build cohort analysis in PostHog (the [Spec 01 §2a](./01-product-market-fit.md) decision; install pending). Per-channel retention curves. The per-customer LLM-cost rollup that feeds gross margin is owned by [Spec 29 Gap 4](./29-repworth-specific-gaps.md) / [Spec 22](./22-ai-llm-ops.md) and sources from the existing `api_costs` (now extended with audit columns — Step-0 decision).
 7. Enable Stripe Revenue Recognition (in Stripe dashboard, after lawyer reviews accounting impact).
 8. Build 3-scenario financial model in Causal or spreadsheet. Update monthly.
 9. Set up QuickBooks or Xero. Connect bank + Stripe. Monthly close cadence.

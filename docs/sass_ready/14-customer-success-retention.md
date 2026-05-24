@@ -17,7 +17,7 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 - A churn-risk score is already computed in admin overview (`computeChurnRiskScore`) — reconcile with the proposed composite health score rather than duplicating.
 - No `account_health` / `nps_responses` tables. No Canny (only a `(public)/feedback/thanks` page). No Loops/Customer.io.
 - Cancellation: `cancelled_at` + `CancellationGracePoller` (30-day grace) exist; **no cancel UI / survey** ([Spec 05](./05-billing-subscription.md)).
-- ⚠️ Health-score inputs reference PostHog ("logins in last 14 days"), but login events aren't captured today — gated on the [Spec 01 §2a](./01-product-market-fit.md) analytics decision.
+- Health-score inputs reference PostHog ("logins in last 14 days"); login events aren't captured today but the analytics tool is now decided (PostHog Cloud — [Spec 01 §2a](./01-product-market-fit.md)), so this input is unblocked once login capture lands.
 
 ## 3. Target state
 
@@ -46,7 +46,7 @@ Implementation: nightly scheduler in `worker/background/schedulers/` (mirror the
 - Target ≥ 90%.
 
 ### Lifecycle email sequences
-Implement in **Loops** or **Customer.io** (separate from Resend transactional).
+✅ **Decided (Step 0, 2026-05-23): extend Resend + the existing schedulers** (not Loops/Customer.io). Each sequence below is a new scheduler under `worker/background/schedulers/` (mirroring `OnboardingDripScheduler` / `WeeklySummaryScheduler`), sending via the existing Resend client with delivery/bounce handling already wired in `worker/ingress/resend.ts`. No new ESP vendor; revisit only when lifecycle volume + branching complexity outgrows hand-built sequences.
 
 | Sequence | Trigger | Cadence |
 |---|---|---|
@@ -56,7 +56,7 @@ Implement in **Loops** or **Customer.io** (separate from Resend transactional).
 | Win-back | subscription_canceled | 30-day, 60-day, 90-day touches |
 | Milestone | response count = 100, 500, 1000; tenure = 6mo, 1yr, 2yr | One-off celebrations |
 
-Each sequence has its own copy doc in `docs/lifecycle/sequences/*.md`. Open/click/reply rates tracked in Loops + back into PostHog via webhook.
+Each sequence has its own copy doc in `docs/lifecycle/sequences/*.md`. Open/click/delivery rates come from Resend webhook events (`worker/ingress/resend.ts`) and feed PostHog.
 
 ### Quarterly Business Reviews (QBRs)
 - For accounts > $500/mo MRR.
@@ -90,7 +90,7 @@ Each sequence has its own copy doc in `docs/lifecycle/sequences/*.md`. Open/clic
 1. Migration (next free number; head 042 — coordinate per README): `account_health(account_id, score INT, components JSONB, computed_at)`. Indexed on `score`.
 2. Build `HealthScoreScheduler` in `worker/background/schedulers/` (mirror existing schedulers). Nightly 03:00 UTC, per-account. Reuse `computeChurnRiskScore`.
 3. Build a founder-only health dashboard listing at-risk accounts ascending — extend the existing `admin/overview` rather than a new Settings page.
-4. ⚠️ Decide ESP: the existing scheduler + Resend already power onboarding-drip / weekly / monthly emails. Either (a) add the remaining lifecycle sequences on that infra, or (b) adopt Loops/Customer.io. Don't assume a new ESP without weighing the working one.
+4. ✅ ESP decided (Step 0): add the remaining lifecycle sequences on the existing scheduler + Resend infra that already powers onboarding-drip / weekly / monthly emails. No Loops/Customer.io.
 5. Build NPS modal: quarterly per user, dismissable, stored in `nps_responses` (claims the next free migration number — coordinate).
 6. Wire Help Scout CSAT survey.
 7. Subscribe Canny. Embed widget at `src/app/(authenticated)/dashboard/feedback/page.tsx` (a `(public)/feedback/thanks` page already exists — reuse the route group).
@@ -138,10 +138,10 @@ Each sequence has its own copy doc in `docs/lifecycle/sequences/*.md`. Open/clic
 ## 9. Implementation in the current repo
 
 - **Health score** reuses the existing scheduler harness and the existing `computeChurnRiskScore` — don't build a second scoring path. New: the `account_health` table + nightly write + at-risk view (extend `admin/overview`).
-- **Lifecycle email is partly built** — `OnboardingDripScheduler` + `MonthlyImpactScheduler` + `WeeklySummaryScheduler` already send via Resend with templates in `src/lib/notifications/email/templates/`. The ESP decision (task 4) is whether to keep extending this or adopt Loops/Customer.io; the welcome/at-risk/win-back sequences can ride the existing infra.
+- **Lifecycle email is partly built** — `OnboardingDripScheduler` + `MonthlyImpactScheduler` + `WeeklySummaryScheduler` already send via Resend with templates in `src/lib/notifications/email/templates/`. ESP decided (Step 0, task 4): keep extending this infra; the welcome/at-risk/win-back sequences ride it as new schedulers.
 - **NPS + Canny** are net-new (table + modal; widget). Embed under the authenticated dashboard route group.
 - **Cancellation save flow** depends on [Spec 05](./05-billing-subscription.md) (no cancel UI/survey yet); the `cancellation_surveys` table lands there.
-- PostHog-sourced inputs (logins) are gated on [Spec 01 §2a](./01-product-market-fit.md).
+- PostHog-sourced inputs (logins) are unblocked by the [Spec 01 §2a](./01-product-market-fit.md) decision (PostHog Cloud); they land once login-event capture ships.
 
 ---
 _Verified 2026-05-23 against migration head 042. Noted the 4 existing schedulers + Resend lifecycle email, the existing churn score to reuse, and corrected migration numbering, dashboard path, and the PostHog dependency._

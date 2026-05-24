@@ -80,7 +80,7 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 8. Add `repworth/a11y-icon-button-label` ESLint rule that flags `<button>` containing only an icon without `aria-label`.
 9. Document a11y checklist in `docs/design-system/a11y-checklist.md`. Include in PR template for UI changes.
 10. Calendar entry: annual specialist audit (book once stable customer-facing surface exists).
-11. VPAT placeholder route (renders "VPAT available on request" until generated). ⚠️ No `/legal/*` routes exist yet (legal pages are `(public)/privacy` etc.) — place it per the routing decision in [Spec 17](./17-legal-compliance-docs.md) §3.
+11. VPAT placeholder route at `/legal/vpat` (renders "VPAT available on request" until generated). Per the Step-0 routing decision ([Spec 17](./17-legal-compliance-docs.md) §3), legal docs are canonical under `/legal/*`.
 
 ## 5. Acceptance criteria
 
@@ -122,7 +122,7 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 - **axe + Pa11y are gated on CI** ([Spec 24](./24-devops-deployment.md)) — there's no `.github/workflows/` to fail PRs against. The `@axe-core/playwright` hook can run locally via `pnpm test:e2e` in the interim.
 - **Radix is net-new.** The hand-rolled focus trap in `EditReplyDrawer` proves the patterns work but won't scale; introduce `@radix-ui/react-dialog` for new dialogs and migrate `EditReplyDrawer` first.
 - **Contrast** is governed by the `--rw-*` tokens in `globals.css` + the `repworth-brand-design` skill — audit those token pairs once; fixes propagate.
-- **VPAT route** placement waits on the [Spec 17](./17-legal-compliance-docs.md) `/legal/*`-vs-`(public)` routing decision.
+- **VPAT route** lives at `/legal/vpat` per the resolved [Spec 17](./17-legal-compliance-docs.md) `/legal/*` routing decision (Step 0).
 - **The aria-label gap** (icon buttons) is the cheapest high-impact fix — sweep the ~42 existing usages and fill the icon-only buttons.
 
 ---
