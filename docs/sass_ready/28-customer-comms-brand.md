@@ -10,11 +10,13 @@ Email deliverability is invisible until your domain reputation collapses. Custom
 
 ## 2. Current state (RepWorth)
 
-- Resend used for transactional email.
-- `docs/runbooks/email-deliverability.md` exists.
-- No documented breach notification template.
-- No in-app changelog widget yet.
-- No documented maintenance comms policy.
+_Verified 2026-05-23 against the live tree (migration head 042)._
+
+- Email via **Resend** (`src/lib/notifications/email/client.ts`). Templates are **HTML-string TS functions** (`build*Html`) in `src/lib/notifications/email/templates/` (10 files) — **not** React Email `.tsx`.
+- Lifecycle vs transactional today = **one Resend account with `category` tags** (transactional/marketing) + RFC-8058 `List-Unsubscribe` headers (`src/lib/notifications/email/headers.ts`) — **not** a separate tool/domain. The 4 schedulers send lifecycle via Resend.
+- `email-deliverability.md` is in `docs/runbooks/completed_runbooks/`. DKIM/SPF/DMARC are external (DNS + Resend dashboard).
+- **No** changelog widget, breach-notification runbook, maintenance-comms template, or `docs/brand/voice.md`.
+- Footer: `List-Unsubscribe` header on `marketing` category only; address/privacy not yet in template bodies.
 
 ## 3. Target state
 
@@ -43,9 +45,8 @@ Email deliverability is invisible until your domain reputation collapses. Custom
   - Lifecycle: welcome series, milestone, win-back ([Spec 14](./14-customer-success-retention.md)).
 
 ### Lifecycle vs. transactional separation
-- **Transactional**: Resend.
-- **Lifecycle / marketing**: Loops or Customer.io.
-- Different sending domains: `noreply@mail.repworth.com` vs `team@repworth.com` (so a marketing spam complaint doesn't tank transactional reputation).
+- **Today:** one Resend account separates them by `category` tag (transactional/marketing) + `List-Unsubscribe` on marketing only. This is a reasonable v1.
+- **Target (when lifecycle volume grows):** move lifecycle to a separate tool (Loops/Customer.io — the ESP decision shared with [Spec 14](./14-customer-success-retention.md)/[Spec 16](./16-marketing-growth.md)) **and** a separate sending domain (`team@repworth.com` vs `noreply@mail.repworth.com`) so a marketing spam complaint can't tank transactional reputation.
 
 ### In-app announcements / changelog widget
 - **Bell icon** in dashboard top-right.
@@ -98,8 +99,8 @@ On every public + transactional email:
 
 1. Verify + enforce DKIM/SPF/DMARC. Tighten DMARC to `p=reject` after 2-week monitor.
 2. Wire Google Postmaster + Microsoft SNDS.
-3. Migrate all transactional emails to React Email templates. Source: `src/lib/email/templates/*.tsx`.
-4. Stand up Loops or Customer.io. Move marketing/lifecycle off Resend.
+3. ⚠️ Decide before migrating: current templates are **HTML-string functions** in `src/lib/notifications/email/templates/*.ts` (not `src/lib/email/templates/*.tsx`) and they work. React Email is a quality/maintainability upgrade, not a fix — migrate in place at the real path if pursued.
+4. ESP decision shared with [Spec 14](./14-customer-success-retention.md)/[Spec 16](./16-marketing-growth.md): the category-tag split on Resend is the current v1; only stand up Loops/Customer.io + a separate domain when lifecycle volume justifies it.
 5. Build in-app changelog widget. Subscribe Headway or hand-roll MDX renderer.
 6. Author `docs/runbooks/maintenance-comms-template.md`.
 7. Author `docs/runbooks/breach-notification.md` with all sections per §3.
@@ -144,4 +145,16 @@ On every public + transactional email:
 - [Spec 14 — Customer Success](./14-customer-success-retention.md) (lifecycle emails)
 - [Spec 17 — Legal & Compliance Docs](./17-legal-compliance-docs.md) (insurance, sub-processors)
 - Code anchors: `docs/runbooks/email-deliverability.md`, Resend integration in worker
-- Gotcha: confirmation email uses `{{ .Token }}` (6-digit OTP), reset links need `&amp;` not `&` in href (CLAUDE.md)
+- Gotcha: confirmation email uses `{{ .Token }}` (6-digit OTP), reset links need `&amp;` not `&` in href (CLAUDE.md) — note that template is **Supabase-managed**, not in `src/lib/notifications/email/templates/`
+- Code anchors: `src/lib/notifications/email/{client,headers}.ts`, `src/lib/notifications/email/templates/*.ts`, `docs/runbooks/completed_runbooks/email-deliverability.md`
+
+## 9. Implementation in the current repo
+
+- **Email plumbing exists** (Resend client, 10 HTML templates, category tags, List-Unsubscribe headers, deliverability runbook). The net-new work is mostly **documents** (breach-notification, maintenance-comms, brand voice) + **brand polish** of templates + the **changelog widget**.
+- **Changelog widget** reads the same `docs/changelog/*.md` built once for [Spec 01](./01-product-market-fit.md)/[Spec 16](./16-marketing-growth.md); the bell lives in the dashboard `TopBar`.
+- **React Email migration is optional** — current HTML-string templates render fine; treat it as a maintainability upgrade at the real path, not a prerequisite.
+- **Breach-notification + maintenance-comms** are write-now-use-later runbooks; pair the breach doc with the Cyber insurance binding ([Spec 17](./17-legal-compliance-docs.md)).
+- **Footer compliance** (CAN-SPAM address, privacy link) should move into the shared template wrapper (`templates/shared.ts`), not per-template.
+
+---
+_Verified 2026-05-23 against migration head 042. Corrected the email-template format (HTML strings, not React Email) + path, the single-Resend category-tag lifecycle split, the runbook location, and confirmed changelog/breach/maintenance/voice docs absent._

@@ -10,10 +10,12 @@ Bootstrapped SaaS lives on cash. Without monthly financial discipline, the found
 
 ## 2. Current state (RepWorth)
 
-- Stripe-first billing with hardened reconciliation contract.
-- Multi-location billing shipped.
-- No documented MRR / ARR / NRR dashboard.
-- No documented gross-margin tracking (AI cost vs. revenue).
+_Verified 2026-05-23 against the live tree (migration head 042)._
+
+- Stripe-first billing; multi-location shipped.
+- ✅ **Per-call cost capture exists** — `api_costs` table (migration 001) via `src/lib/costs/audit.ts` (`recordApiCost`: provider/tokens/cost_usd/response_id/business_id). But **no gross-margin or per-customer rollup**, and no `docs/finance/`.
+- `admin/overview` computes some ops metrics (cost/day, churn-risk) but **no MRR/NRR/GRR**.
+- No ProfitWell / Stripe Sigma / QuickBooks / Xero. **No PostHog** (cohort analysis depends on it — [Spec 01 §2a](./01-product-market-fit.md)).
 - No financial model.
 
 ## 3. Target state
@@ -50,7 +52,7 @@ Track monthly in `docs/finance/cogs-YYYY-MM.md`:
 - Stripe fees (2.9% + $0.30 per transaction)
 - Resend
 - Twilio (SMS)
-- Sentry, PostHog (if paid), Help Scout, Loops
+- Sentry, PostHog (if paid), Help Scout, Loops _(⚠️ PostHog/Help Scout/Loops are not yet provisioned — only count COGS for live vendors: Supabase, Railway, Vercel, Upstash, OpenAI, Anthropic, Stripe, Resend, Twilio, Sentry)_
 
 ### Gross margin target
 - **≥ 75%.**
@@ -98,7 +100,7 @@ Track monthly in `docs/finance/cogs-YYYY-MM.md`:
 3. Build monthly metrics dashboard in ProfitWell + Stripe Sigma. Bookmark.
 4. Author `docs/finance/cogs-template.md` and start tracking monthly.
 5. Compute gross margin monthly. Alert if < 70% (warning) or < 60% (action).
-6. Build cohort analysis in PostHog or ProfitWell. Per-channel retention curves.
+6. Build cohort analysis in ProfitWell or the analytics tool from [Spec 01 §2a](./01-product-market-fit.md) (PostHog not yet installed). Per-channel retention curves. The per-customer LLM-cost rollup that feeds gross margin is owned by [Spec 29 Gap 4](./29-repworth-specific-gaps.md) / [Spec 22](./22-ai-llm-ops.md) and sources from the existing `api_costs`.
 7. Enable Stripe Revenue Recognition (in Stripe dashboard, after lawyer reviews accounting impact).
 8. Build 3-scenario financial model in Causal or spreadsheet. Update monthly.
 9. Set up QuickBooks or Xero. Connect bank + Stripe. Monthly close cadence.
@@ -140,4 +142,13 @@ Track monthly in `docs/finance/cogs-YYYY-MM.md`:
 - [Spec 14 — Customer Success](./14-customer-success-retention.md) (NRR drivers)
 - [Spec 16 — Marketing & Growth](./16-marketing-growth.md) (CAC by channel)
 - [Spec 22 — AI/LLM Operations](./22-ai-llm-ops.md) (cost per response → gross margin)
-- Code anchors: Stripe-first contract per `worker/ingress/stripe.ts`, outbox pattern
+- Code anchors: `worker/ingress/stripe.ts` (Stripe-first), `src/lib/costs/audit.ts` + `api_costs` (COGS source), `src/app/admin/overview` (existing ops metrics)
+
+## 9. Implementation in the current repo
+
+- **The COGS data spine already exists** — `api_costs` records the LLM/SerpAPI/Resend spend per call. Gross-margin tracking is a **rollup + report** over it (shared with [Spec 29 Gap 4](./29-repworth-specific-gaps.md)), not new instrumentation.
+- **MRR/NRR/GRR** come from Stripe (ProfitWell auto-derives) — no in-app build needed; the gap is subscribing + bookmarking. Cohort-by-channel needs the UTM capture from [Spec 16](./16-marketing-growth.md) + the §2a analytics tool.
+- **Most of this spec is external tooling + monthly discipline** (ProfitWell, QuickBooks, the 3-scenario model) — minimal code. Keep COGS in `docs/finance/` (new dir).
+
+---
+_Verified 2026-05-23 against migration head 042. Confirmed `api_costs` is the existing COGS source; corrected the not-yet-live COGS vendors, the absent MRR/NRR/GRR + financial model, and routed cohort analytics through §2a._

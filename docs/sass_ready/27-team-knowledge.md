@@ -10,10 +10,11 @@ Solo founders break under one of two pressures: customer support volume or conte
 
 ## 2. Current state (RepWorth)
 
+_Verified 2026-05-23 against the live tree._
+
 - Solo founder (Norbert).
-- No emergency-access plan documented.
-- No onboarding doc.
-- No `docs/onboarding/new-hire.md`.
+- Confirmed absent: `docs/onboarding/new-hire.md`, `docs/runbooks/emergency-access.md`, `docs/security/access-checklist.md`, `docs/runbooks/oncall.md`, `docs/hiring/*`.
+- ⚠️ The onboarding/access-checklist below lists tools that **aren't provisioned yet** (Help Scout, BetterStack, PostHog). Scope the checklist to actually-live services: GitHub, Vercel, Railway, Supabase, Stripe, Upstash, Resend, Twilio, Telegram, Sentry, 1Password.
 
 ## 3. Target state
 
@@ -129,3 +130,14 @@ Total time: 2 weeks from JD to offer. Document in `docs/hiring/process.md` when 
 - [Spec 13 — Customer Support](./13-customer-support.md) (CS-hire role definition)
 - [Spec 25 — Documentation](./25-documentation.md) (CONTEXT.md cross-link)
 - [Spec 26 — Financial Operations](./26-financial-operations.md) (MRR triggers)
+- Code anchors: `CLAUDE.md` (invariants), `docs/runbooks/*`, `.env.example` (env-setup for onboarding doc)
+
+## 9. Implementation in the current repo
+
+- **Pure documentation + process** — no code. The highest-value, do-it-today artifacts are `docs/onboarding/new-hire.md` (also the founder's own "lost laptop" recovery doc) and the 1Password Emergency Access setup.
+- **`new-hire.md` setup section** can lift straight from `.env.example` + `pnpm dev`/`pnpm worker` + `MOCK_EXTERNAL_APIS=true` (already documented in CLAUDE.md) — link, don't duplicate.
+- **`access-checklist.md`** is shared with [Spec 09](./09-security-compliance.md) (vendor risk) — keep one list, scoped to live vendors.
+- Architecture orientation points at `CLAUDE.md` now and `CONTEXT.md` once [Spec 25](./25-documentation.md) writes it.
+
+---
+_Verified 2026-05-23. All team/knowledge docs confirmed absent (greenfield); flagged the access-checklist's not-yet-live vendors._

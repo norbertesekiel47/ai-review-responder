@@ -10,16 +10,18 @@ Sections 1–28 cover generic SaaS readiness. This section is the **RepWorth-spe
 
 ## 2. Current state (RepWorth) — at a glance
 
-| Gap | Status |
+_Verified 2026-05-23 against the live tree (migration head 042)._
+
+| Gap | Status (verified) |
 |---|---|
-| Approval audit captures content snapshot | Partially — audit captures event, content snapshot to verify |
-| Multi-location invoice reconciliation | Multi-location billing shipped; per-account hourly recon not yet (see [Spec 05](./05-billing-subscription.md)) |
-| Single Zernio dependency | Single point of failure for ingestion |
-| LLM cost monitoring per-customer | No per-account rollup |
-| Past_due banner + countdown | Backend ready; UX missing |
-| "Help me pay past_due" support macro | Not yet authored |
-| CSV import template + validation | Implemented; template & client-side validation gap |
-| Public Trust Center | Doesn't exist |
+| 1. Approval audit content snapshot | `approval_audit_log` stores **action/event only** (no `response_text_at_approval`); the approved text lives separately on `responses.approved_text`. Gap = bind immutable text to the audit row. |
+| 2. Multi-location invoice recon | `StripeLocationsReconcilePoller` detects **quantity** drift; **no upcoming-invoice comparator**, no `is_pilot` (could ride `accounts.flags`). |
+| 3. Single Zernio dependency | `ReviewSource → NormalizedReview` interface **exists** (`src/lib/reviews/types.ts`) with a 2nd impl already (`serpapi-source.ts`, test/demo); Zernio is the **sole production** source. GBP-direct is greenfield. |
+| 4. LLM cost per customer | `api_costs` captures **per-call** (business_id); **no `account_llm_cost` monthly rollup**. |
+| 5. Past_due banner + countdown | `PastDueBanner` exists with a **hardcoded "7-day"** message; **no `past_due_at`**, no dynamic countdown. |
+| 6. "Help me pay past_due" macro + grant-extension | Neither exists; no `docs/support/macros/`. |
+| 7. CSV import template + validation | `csv-import.ts` (MAX_ROWS=**100**); `CsvImportReport` **already returns per-row failures**; **no public template, no client-side validation**. |
+| 8. Public Trust Center | No `/trust`, no `/security`. |
 
 ## 3. Target state — seven discrete gaps
 
@@ -33,9 +35,9 @@ Sections 1–28 cover generic SaaS readiness. This section is the **RepWorth-spe
 - 13-month minimum retention.
 
 **Tasks**:
-- Migration **057**: extend `approval_links` or add `approval_audit` table.
-- Capture `response_text` from the response row at approval time, write to audit.
-- Verify in `tests/integration/approval-audit.spec.ts` that audit row matches text shown to owner.
+- Migration (next free number; head 042 — coordinate): extend `approval_audit_log` with `response_text_at_approval` (the approved text already exists on `responses.approved_text` — snapshot it onto the immutable audit row at approval time so the proof isn't separable from the event).
+- Capture `response_text` from the response row at approval time, write to the audit row.
+- Verify in `src/__tests__/approval-audit.test.ts` (Vitest collocated convention) that the audit row matches text shown to the owner.
 
 ---
 
@@ -51,8 +53,8 @@ Sections 1–28 cover generic SaaS readiness. This section is the **RepWorth-spe
 - Manually inspect their first 3 invoices end-to-end before automating away.
 
 **Tasks**:
-- Migration **058**: `accounts.is_pilot boolean DEFAULT false`. Tag first 10 multi-location accounts.
-- Build the Stripe upcoming-invoice comparator in the reconciliation worker.
+- Pilot flag: prefer a key in the existing `accounts.flags` JSONB (e.g. `flags.is_pilot`) over a new column — no migration needed. Tag the first 10 multi-location accounts.
+- Build the Stripe upcoming-invoice comparator and add it to the existing `StripeLocationsReconcilePoller` (which today only checks overage **quantity**, not the full upcoming invoice).
 - Founder reviews pilot invoices monthly; documented in `docs/finance/pilot-invoice-review-YYYY-MM.md`.
 
 ---
@@ -68,9 +70,9 @@ Sections 1–28 cover generic SaaS readiness. This section is the **RepWorth-spe
 - Treat single-source-dependency commercially as existential — track quarterly in `docs/business/concentration-risk-YYYY-Q.md`.
 
 **Tasks**:
-- Build `worker/jobs/ingestion-sources/google-business-profile-direct.ts` — read-only POC.
-- Conform to existing `ReviewSource` interface.
-- Feature flag: `ingestion.source = 'zernio' | 'gbp-direct'`. Per-account override possible.
+- ✅ The `ReviewSource` interface already exists (`src/lib/reviews/types.ts`) and already has a second impl (`serpapi-source.ts`, used for the onboarding demo) — the abstraction is proven, not theoretical.
+- Build a `GoogleBusinessProfileDirectSource` implementing `ReviewSource` (alongside the existing sources in `src/lib/reviews/`) — read-only POC. Note: `google_connections` already has encrypted token columns ([Spec 09](./09-security-compliance.md)) for the direct-GBP path.
+- Feature flag (env-var pattern, per [Spec 24](./24-devops-deployment.md)): `INGESTION_SOURCE = 'zernio' | 'gbp-direct'`. Per-account override possible.
 - Document fallback runbook `docs/runbooks/zernio-outage-fallback.md`: switch flag → backfill missed window → resume normal.
 
 ---
@@ -87,8 +89,8 @@ Sections 1–28 cover generic SaaS readiness. This section is the **RepWorth-spe
 - If account gross margin drops below **60%** → raise prices on next renewal or shrink prompt.
 
 **Tasks**:
-- Build `account_llm_cost(account_id, month, cost_usd_calculated, response_count, avg_cost_per_response)` rollup. Migration **059**.
-- Nightly worker writes rollups.
+- Build `account_llm_cost(account_id, month, cost_usd_calculated, response_count, avg_cost_per_response)` rollup (next free migration number; head 042 — coordinate). ✅ Source is the existing **`api_costs`** (per-call); this is an aggregation, not new instrumentation. Note `api_costs` is keyed by `business_id` — roll up to `account_id` via the businesses→accounts join.
+- Nightly worker writes rollups (mirror the existing scheduler pattern).
 - Admin dashboard panel: "Top 10 customers by LLM-cost ratio". Alert on > 25%.
 - Author founder runbook: "Heavy-usage customer triage".
 
@@ -106,7 +108,8 @@ Sections 1–28 cover generic SaaS readiness. This section is the **RepWorth-spe
 - Verify the banner UI exists and shows the countdown.
 
 **Tasks**:
-- Build `<PastDueBanner />` component with day-aware variants ([Spec 05](./05-billing-subscription.md), already detailed there).
+- ✅ `PastDueBanner` already exists (`SubscriptionStatusBanner.tsx`) with a hardcoded "7-day" message — **enhance it to day-aware variants**, don't create it.
+- **Prerequisite: add `accounts.past_due_at`** ([Spec 05](./05-billing-subscription.md) owns this) — there's no countdown data source today (`subscription_status='past_due'` only).
 - Verify in production with a controlled past_due test account at days 1, 3, 5, 7.
 
 ---
@@ -119,8 +122,8 @@ Sections 1–28 cover generic SaaS readiness. This section is the **RepWorth-spe
 > "Sorry to hear about the card issue. Update your payment method here: [Stripe Customer Portal link]. Once updated, your account auto-recovers and we'll retry the failed payment within 24 hours. **If you need a 7-day extension while you wait for a new card, reply YES and I'll grant it.**"
 
 **Tasks**:
-- Author the macro in Help Scout + mirror in `docs/support/macros/past-due-extension.md`.
-- Build admin "Grant extension" action: founder UI to add N days of grace to a past_due account. Audit-logged.
+- Author the macro in Help Scout + mirror in `docs/support/macros/past-due-extension.md` (`docs/support/macros/` is greenfield).
+- Build admin "Grant extension" action (net-new — no such action exists): founder UI to add N days of grace to a past_due account. Audit-logged via the existing `account_audit_log`. Same action referenced in [Spec 05](./05-billing-subscription.md) task 10 — build once. Depends on `past_due_at` (Gap 5).
 - Document in `docs/runbooks/support-extension.md` — when to grant, how to revoke if abused.
 
 ---
@@ -139,7 +142,8 @@ Sections 1–28 cover generic SaaS readiness. This section is the **RepWorth-spe
 **Tasks**:
 - Publish CSV template + README at `public/csv-templates/locations.csv` and `public/csv-templates/README.md`.
 - Implement client-side Zod validation in CSV upload form.
-- Add partial-success detail page `src/app/onboarding/csv-import/[importId]/page.tsx` listing each row's outcome.
+- Add a partial-success detail view listing each row's outcome. ✅ `CsvImportReport` (in `src/lib/admin/csv-import.ts`) **already returns per-row failures** — the gap is surfacing it in the UI, not computing it. (CSV import is admin-side: route `/api/admin/locations/csv-import`.)
+- ⚠️ Reconcile the row cap: code is `MAX_ROWS = 100`, this spec/Spec 06 mention 500 — pick one.
 - Update import audit-log to include per-row outcome.
 
 ---
@@ -158,8 +162,8 @@ Sections 1–28 cover generic SaaS readiness. This section is the **RepWorth-spe
   - **Privacy**: privacy policy link, AI usage disclosure.
 
 **Tasks**:
-- Build `src/app/trust/page.tsx`. Static-rendered. Linked from footer.
-- Pull live data where possible: status from BetterStack, incidents from `docs/postmortems/`, sub-processors from `docs/Legal/sub-processors.md`.
+- Build `src/app/(public)/trust/page.tsx` (route-group convention; reconcile with the `/legal/*` vs `(public)` routing decision in [Spec 17](./17-legal-compliance-docs.md) §3). Static-rendered. Linked from footer.
+- ⚠️ Several data sources don't exist yet — start with static copy and wire live data as it lands: status (BetterStack — [Spec 08](./08-reliability-sre.md)), incidents (`docs/postmortems/` — not yet created), sub-processors (`docs/Legal/sub-processors.md` — not yet created, [Spec 17](./17-legal-compliance-docs.md)).
 - Author static copy where needed.
 - Link from `/login`, `/signup`, pricing page footer, dashboard footer.
 
@@ -203,4 +207,13 @@ Sections 1–28 cover generic SaaS readiness. This section is the **RepWorth-spe
 - [Spec 13 — Customer Support](./13-customer-support.md) (extension macro)
 - [Spec 22 — AI/LLM Operations](./22-ai-llm-ops.md) (per-customer cost rollup)
 - Architecture invariants: approval flow (no auto-post, hashed tokens), `ReviewSource` contract, subscription guard
-- Code anchors: `worker/ingress/zernio/*`, `worker/jobs/publisher/*`, `src/app/api/billing/*`, `worker/background/pollers/`
+- Code anchors: `approval_audit_log` + `responses.approved_text`, `src/lib/reviews/types.ts` (`ReviewSource`) + `serpapi-source.ts`, `api_costs` + `src/lib/costs/audit.ts`, `SubscriptionStatusBanner.tsx`, `src/lib/admin/csv-import.ts` (`CsvImportReport`), `worker/background/pollers/StripeLocationsReconcilePoller.ts`
+
+## 8. Implementation in the current repo
+
+- **Most gaps build on something that already exists**, which is the headline of this whole spec set: approved text on `responses.approved_text` (Gap 1), the proven `ReviewSource` abstraction + a 2nd impl (Gap 3), per-call `api_costs` (Gap 4), the `PastDueBanner` + `StripeLocationsReconcilePoller` (Gaps 2/5), and per-row `CsvImportReport` failures (Gap 7). Net-new from zero: the Trust Center (Gap 8), the grant-extension admin action + macro (Gap 6).
+- **Cross-spec keystones**: `past_due_at` (Gaps 5/6 ← [Spec 05](./05-billing-subscription.md)); `account_llm_cost` rollup (Gap 4 ↔ [Spec 22](./22-ai-llm-ops.md)); analytics tool (admin cost dashboards ← [Spec 01 §2a](./01-product-market-fit.md)); flag pattern is env-var ([Spec 24](./24-devops-deployment.md)).
+- **Migration numbering**: the original 057/058/059 are dropped in favor of "next free number, coordinate" (head 042); Gap 2's pilot flag can avoid a migration entirely via `accounts.flags`.
+
+---
+_Verified 2026-05-23 against migration head 042. Each gap's status corrected to the live tree: approval text lives on `responses.approved_text` (not the audit row); `ReviewSource` + a 2nd impl already exist; `api_costs` is the per-call source for the missing rollup; `PastDueBanner`/reconcile-poller/`CsvImportReport` partially exist. Migration numbers de-hardcoded; test/route paths aligned to real conventions._
