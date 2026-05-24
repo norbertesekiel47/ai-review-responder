@@ -10,12 +10,14 @@ The SMB owner approving a response is doing it on her phone between customer app
 
 ## 2. Current state (RepWorth)
 
-- Dashboard redesigned (PR #27); responsive but not phone-first-tested.
-- SMS approval implemented (Phase 1 design `docs/plans/2026-04-21-phase1-sms-design.md`).
-- Telegram approval implemented (Phase 2 `docs/plans/2026-04-22-telegram-phase-2-design.md`).
-- WhatsApp Phase 3 planned.
-- No PWA manifest visible.
-- No native iOS/Android apps.
+_Verified 2026-05-23 against the live tree (migration head 042)._
+
+- Dashboard redesigned; responsive with a `MobileTabBar` (bottom nav) — but no swipe gestures / sticky-approve, and not phone-first-tested.
+- **SMS approval implemented** (`worker/ingress/twilio/`, `src/lib/notifications/sms-body.ts`): signed approval-token URL + `STOP`/`START` opt-out (`sms_sender_opt_outs` table). ⚠️ The spec's free-text `Reply YES/EDIT/NO` parsing is **not** how it works — SMS uses the link; **Telegram** (`telegram-callback.ts`) and **WhatsApp** (`twilio-whatsapp-inbound.ts`) use **interactive buttons** (callback payloads via `src/lib/approval/service`), not free-text.
+- WhatsApp + Telegram approval implemented (button-based).
+- Notification settings (`settings/channels`) show enrollment **status** per channel (SMS "coming soon"); no explicit per-channel disable toggles yet.
+- **No PWA** (no `public/manifest.json`, no service worker, no web-push). No native apps.
+- Approval tokens: SHA-256 hash only (verified).
 
 ## 3. Target state
 
@@ -50,7 +52,8 @@ The SMB owner approving a response is doing it on her phone between customer app
 
 ### SMS approval flow (real-owner tested)
 - **Test with 5 actual SMB owners, not your friends.**
-- Mechanics:
+- ⚠️ **Current mechanic = signed link, not free-text replies.** Today SMS sends the approval-token URL (tap → approve page) + `STOP`/`START`. Telegram/WhatsApp already do **button-based** approval. The free-text `YES/EDIT/NO` parser below is **net-new** — decide whether it's worth building vs. leaning on the link + buttons.
+- Mechanics (proposed, if free-text parsing is pursued):
   - SMS contains: review excerpt, draft response, signed approval token URL, `Reply YES to approve`, `Reply EDIT for the link`, `Reply NO to reject`.
   - Reply parsing: case-insensitive, tolerant of typos (`Y`, `yes!`, `approve`).
   - Multi-review batching: if multiple drafts pending, send list with numbered options.
@@ -114,5 +117,16 @@ The SMB owner approving a response is doing it on her phone between customer app
 - [Spec 06 — Onboarding](./06-onboarding-activation.md) (notification setup in checklist)
 - [Spec 10 — Trust & Safety](./10-trust-safety.md) (Twilio compliance, STOP)
 - [Spec 22 — AI/LLM Operations](./22-ai-llm-ops.md) (draft generation feeding the notification)
-- Code anchors: `docs/plans/2026-04-21-phase1-sms-design.md`, `docs/plans/2026-04-22-telegram-phase-2-design.md`, `docs/plans/2026-04-23-whatsapp-phase-3-design.md`
+- Code anchors: `worker/ingress/twilio/*`, `worker/ingress/telegram/telegram-callback.ts`, `src/lib/notifications/sms-body.ts`, `src/lib/approval/service`, `src/components/dashboard/MobileTabBar.tsx`
 - Architecture invariant: "Approval tokens never stored raw" (CLAUDE.md)
+
+## 9. Implementation in the current repo
+
+- **The notification → approval rails already exist** (SMS link + Telegram/WhatsApp buttons, all on the SHA-256 approval-token model). The net-new mobile work is **PWA + web-push** and **mobile-UX polish** (sticky approve, swipe, 44px targets) on the existing `MobileTabBar` shell.
+- **Web push** wires into the existing `worker/jobs/notification/*` dispatch — add a push channel alongside email/SMS/Telegram/WhatsApp; respect the existing channel-enrollment model (account-scoped, per CLAUDE.md).
+- **PWA** is additive: `public/manifest.json` + a service worker; offline approve-queue must carry the draft hash and reject on server-side drift.
+- **Notification settings** already render per-channel status — add explicit enable/disable toggles there rather than a new page.
+- The **free-text SMS YES/NO parser** is a genuine build decision (link + buttons may suffice) — don't assume it.
+
+---
+_Verified 2026-05-23 against migration head 042. Corrected the SMS mechanic (link + button-based, not free-text), the existing `MobileTabBar`, the channel-settings reality, and confirmed PWA/web-push are greenfield._

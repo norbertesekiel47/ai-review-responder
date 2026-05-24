@@ -10,11 +10,14 @@ Documentation is leverage. Strong internal docs cut onboarding from weeks to day
 
 ## 2. Current state (RepWorth)
 
-- Strong runbook coverage (`docs/runbooks/*`).
-- Architecture docs: `CLAUDE.md` (project), `docs/currents.md`, `docs/directory.md`.
-- No `docs/adr/` directory.
-- No public docs site at `docs.repworth.com`.
-- No `CONTEXT.md` at repo root (referenced in `docs/agents/domain.md` as expected — currently absent, agents proceed silently).
+_Verified 2026-05-23 against the live tree (migration head 042)._
+
+- Strong runbook coverage (`docs/runbooks/*`); architecture docs `CLAUDE.md`, `docs/currents.md` (large), `docs/directory.md`.
+- ✅ **`docs/adr/` already exists — with one ADR**: `0001-nextjs-oauth-handshake-carveout.md` (referenced in CLAUDE.md). The spec's "no docs/adr/" is wrong, and its proposed **ADR 0001 = outbox collides** — the bootstrap ADRs must start at **0002** (§3).
+- No public docs site (`docs.repworth.com`); no Mintlify/lychee/cspell.
+- No `CONTEXT.md` at repo root (`docs/agents/domain.md` expects it but degrades gracefully).
+- No `docs/changelog/`.
+- ⚠️ **No CI** — docs CI (lychee/cspell/snippet exec) is blocked on standing up GitHub Actions ([Spec 24](./24-devops-deployment.md)).
 
 ## 3. Target state
 
@@ -26,19 +29,19 @@ Documentation is leverage. Strong internal docs cut onboarding from weeks to day
 - **ADRs are immutable**: deprecate via new ADR, don't edit old.
 - Numbered sequentially. Pin filename even if title changes.
 
-**Bootstrap ADRs (load-bearing decisions to capture now):**
-- 0001 — Transactional outbox pattern for state + downstream work.
-- 0002 — Approval token hashing (SHA-256, raw only in memory + email).
-- 0003 — Stripe-first tier change pattern; base-item fallback removed.
-- 0004 — Multi-location: businesses (location) vs. accounts (billing parent) split.
-- 0005 — Two Postgres clients (Postgres.js for writes, Supabase JS for reads/auth).
-- 0006 — Two Redis instances (Upstash cache + Upstash BullMQ queue).
-- 0007 — LLM model strategy: GPT-4o-mini primary + Claude Haiku fallback (pinned IDs).
-- 0008 — UUIDv7 for all primary keys.
-- 0009 — JSONB via Postgres.js `jsonb()` helper (avoids double-encoding gotcha).
-- 0010 — ReviewSource → NormalizedReview DTO contract.
-- 0011 — Tenant isolation: app-enforced + RLS defense in depth.
-- 0012 — Entry-points orchestrate; modules own failure behavior.
+**Bootstrap ADRs (load-bearing decisions to capture now).** ⚠️ **`0001` is already taken** (`0001-nextjs-oauth-handshake-carveout.md`) — number these **0002 onward**:
+- 0002 — Transactional outbox pattern for state + downstream work.
+- 0003 — Approval token hashing (SHA-256, raw only in memory + email).
+- 0004 — Stripe-first tier change pattern; base-item fallback removed.
+- 0005 — Multi-location: businesses (location) vs. accounts (billing parent) split.
+- 0006 — Two Postgres clients (Postgres.js for writes, Supabase JS for reads/auth).
+- 0007 — Two Redis instances (Upstash cache + Upstash BullMQ queue).
+- 0008 — LLM model strategy: GPT-4o-mini primary + Claude Haiku fallback (⚠️ pin the OpenAI ID — currently unversioned, see [Spec 22](./22-ai-llm-ops.md)).
+- 0009 — UUIDv7 for all primary keys.
+- 0010 — JSONB via Postgres.js `jsonb()` helper (avoids double-encoding gotcha).
+- 0011 — ReviewSource → NormalizedReview DTO contract.
+- 0012 — Tenant isolation: app-enforced + RLS defense in depth (service-role writes bypass RLS — [Spec 03](./03-multitenancy-isolation.md)).
+- 0013 — Entry-points orchestrate; modules own failure behavior.
 
 **Runbooks** (already strong — maintain pattern):
 - `docs/runbooks/*` for every operational scenario.
@@ -92,12 +95,12 @@ Documentation is leverage. Strong internal docs cut onboarding from weeks to day
 
 ## 4. Implementation tasks
 
-1. Create `docs/adr/` directory + template `docs/adr/_template.md`.
-2. Author the 12 bootstrap ADRs listed in §3. Allocate 30–60 min per ADR; each is short (context, decision, consequences in 200–400 words).
+1. `docs/adr/` already exists (with `0001-nextjs-oauth-handshake-carveout.md`). Add a `docs/adr/_template.md`; the `manage_adr` MCP tool is available.
+2. Author the 12 bootstrap ADRs (numbered **0002–0013** per §3, since 0001 is taken). ~30–60 min each; short (context, decision, consequences in 200–400 words).
 3. Author `CONTEXT.md` at repo root. Sections: Product, Architecture, Setup, Key Files, Key Patterns, Key Gotchas, Who to Ask. Cross-link CLAUDE.md gotchas (don't duplicate — link).
 4. Subscribe Mintlify. Set up `docs.repworth.com`. Initial 5 articles.
-5. Wire `lychee` or `markdown-link-check` in CI. Initial pass; fix broken links.
-6. Add `cspell` to CI. Build project dictionary in `cspell.json`.
+5. Wire `lychee` or `markdown-link-check` in CI. Initial pass; fix broken links. **Requires CI to exist first** ([Spec 24](./24-devops-deployment.md)).
+6. Add `cspell` to CI. Build project dictionary in `cspell.json`. (Also CI-gated.)
 7. Build `/changelog` page rendered from `docs/changelog/*.md`. RSS.
 8. Code-snippet CI: pick **mdsh** or simple hand-rolled extractor. Cover top 5 KB articles.
 9. Add docs-only preview rendering for Mintlify on PR.
@@ -105,7 +108,7 @@ Documentation is leverage. Strong internal docs cut onboarding from weeks to day
 
 ## 5. Acceptance criteria
 
-- [ ] `docs/adr/` populated with 12 bootstrap ADRs.
+- [ ] `docs/adr/` populated with the 12 bootstrap ADRs (numbered 0002–0013; 0001 already exists).
 - [ ] `CONTEXT.md` exists at repo root.
 - [ ] `docs.repworth.com` live with first 5 KB articles.
 - [ ] `lychee` + `cspell` in CI; first pass green.
@@ -138,3 +141,15 @@ Documentation is leverage. Strong internal docs cut onboarding from weeks to day
 - [Spec 29 — RepWorth Gaps](./29-repworth-specific-gaps.md) (Trust center)
 - Code anchors: `docs/runbooks/`, `docs/currents.md`, `docs/directory.md`
 - Existing skill: `docs/agents/domain.md` (already supports CONTEXT.md when present)
+- Code anchors: `docs/adr/0001-nextjs-oauth-handshake-carveout.md` (existing), `docs/{currents,directory}.md`, `.claude/skills/migrations.md`, `manage_adr` MCP tool
+
+## 9. Implementation in the current repo
+
+- **ADRs are partly underway** — the directory + `0001` exist; the work is the 12 bootstrap ADRs at **0002–0013** (use `manage_adr`). Capture decisions already made and verified across this spec set (outbox, token hashing, two-client split, tenant model, etc.).
+- **`CONTEXT.md`** is the cheapest high-value doc — `docs/agents/domain.md` already looks for it. Make it a thin human-readable wrapper that *links* CLAUDE.md invariants/gotchas (don't duplicate).
+- **`/changelog`** is shared with [Spec 01](./01-product-market-fit.md)/[Spec 16](./16-marketing-growth.md) — build once.
+- **Docs CI** (lychee/cspell/snippet) is gated on CI ([Spec 24](./24-devops-deployment.md)); Mintlify is third-party signup shared with [Spec 13](./13-customer-support.md)/[Spec 20](./20-api-integrations.md).
+- **`docs/currents.md` is very large** — consider whether CONTEXT.md should summarize/point into it rather than readers loading it whole.
+
+---
+_Verified 2026-05-23 against migration head 042. Corrected the already-existing `docs/adr/` + `0001` collision (bootstrap ADRs renumbered 0002–0013), confirmed CONTEXT.md/changelog absent, and flagged docs-CI's dependency on standing up CI._

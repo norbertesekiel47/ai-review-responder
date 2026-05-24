@@ -10,13 +10,13 @@ LLMs are non-deterministic dependencies on third-party APIs. Without eval, regre
 
 ## 2. Current state (RepWorth)
 
-- GPT-4o-mini primary; `claude-haiku-4-5-20251001` fallback (CLAUDE.md invariant — exact ID required).
-- Cost guard skill: `.claude/skills/cost-guard.md`.
-- Cost-guard LLM classifier design exists (`docs/plans/2026-05-03-cost-guard-llm-classifier-design.md`).
-- Review generation engine design exists (`docs/plans/2026-05-09-review-generation-engine-design.md`).
-- Architecture invariant: tenant scoping prevents cross-account context leaks.
-- No documented eval set in repo.
-- No `llm_calls` audit table mentioned.
+_Verified 2026-05-23 against the live tree (migration head 042)._
+
+- LLM client is `src/lib/responses/generator.ts` (`callLLMWithFallback`: OpenAI → Anthropic) — **not** `src/lib/llm/client.ts`/`models.ts` (those don't exist).
+- ⚠️ **OpenAI model is UNVERSIONED** (`OPENAI_MODEL = 'gpt-4o-mini'`); Anthropic is pinned (`claude-haiku-4-5-20251001`). The spec's "pin model IDs" concern is **real and currently unmet** for OpenAI.
+- **Cost tracking exists** but as `api_costs` (`src/lib/costs/audit.ts` `recordApiCost`: provider/endpoint/input+output tokens/cost_usd/response_id/business_id) — **not** a full `llm_calls` audit (no prompt hash, latency, or moderation score). Build on `api_costs`.
+- Cost-guard skill + designs exist (`.claude/skills/cost-guard.md`, `docs/plans/2026-05-0{3,9}-*`).
+- **No `llm_calls` table, no eval set, no output moderation, no `brand_voices`, no cross-tenant injection test** — all greenfield. Tenant-scoping invariant holds.
 
 ## 3. Target state
 
@@ -49,8 +49,8 @@ LLMs are non-deterministic dependencies on third-party APIs. Without eval, regre
 **Aggregate ≥ 4.0/5 to pass.** Block model upgrade if any single dimension drops > 5% vs. prior baseline.
 
 ### Prompt versioning
-- Prompts in version-controlled files: `src/lib/prompts/system-base.md`, `src/lib/prompts/per-vertical/*.md`.
-- Hash recorded per generation in `llm_calls.system_prompt_hash`.
+- ⚠️ Prompts are currently **inline** in `src/lib/responses/prompt-builder.ts` (no `src/lib/prompts/` dir). Extracting to version-controlled files (`system-base.md`, `per-vertical/*.md`) is net-new (shared with [Spec 10](./10-trust-safety.md) / [Spec 18](./18-i18n-localization.md)).
+- Hash recorded per generation (in `api_costs` or the new `llm_calls` — same home decision as moderation metadata, [Spec 10](./10-trust-safety.md)).
 - A/B testing via PostHog feature flags or **GrowthBook**.
 - Rollback = `git revert` + redeploy.
 
@@ -117,21 +117,21 @@ Retain 90 days minimum (cost analysis + quality regression hunt).
 
 ## 4. Implementation tasks
 
-1. Migration **056**: `llm_calls` table per §3. Index `(account_id, created_at)`.
-2. Wrap LLM client (`src/lib/llm/client.ts`) to write to `llm_calls` on every call. Use outbox if the response would be the durable side-effect.
-3. Pin model IDs in `src/lib/llm/models.ts` constants. Lint rule disallowing un-versioned aliases.
+1. `llm_calls` table per §3 (next free migration number; head 042 — coordinate). ⚠️ Reconcile with `api_costs`, which already records per-call provider/tokens/cost — decide whether to extend `api_costs` (add prompt hash/latency/moderation) or add a separate `llm_calls`; don't double-record. Index `(account_id, created_at)`.
+2. Wrap the LLM client (`src/lib/responses/generator.ts`, **not** `src/lib/llm/client.ts`) to write the audit row on every call.
+3. **Pin the OpenAI model** in `src/lib/responses/generator.ts` (currently `'gpt-4o-mini'` → `'gpt-4o-mini-2024-07-18'`); add a lint rule disallowing un-versioned aliases (enforcement needs CI — [Spec 24](./24-devops-deployment.md)).
 4. Author 50-review eval set in `tests/llm-eval/eval-set.jsonl`.
 5. Build eval runner `tests/llm-eval/run.ts`: iterates set, calls primary + fallback, scores per rubric, writes report.
-6. Weekly CI job (`.github/workflows/llm-eval.yml`) runs eval set; fails on > 5% regression.
-7. Build OpenAI Moderation + regex output classifier (`src/lib/moderation/output-filter.ts`).
-8. Implement per-customer monthly cost rollup → margin alert. Daily worker writes to `account_llm_cost` (table + migration owned by [Spec 29 Gap 4](./29-repworth-specific-gaps.md), migration **059**).
-9. Implement cross-tenant injection test in `tests/integration/llm-cross-tenant.spec.ts`.
+6. Weekly CI job (`.github/workflows/llm-eval.yml`) runs eval set; fails on > 5% regression. **Requires GitHub Actions CI to exist first** ([Spec 24](./24-devops-deployment.md)).
+7. Build OpenAI Moderation + regex output classifier (`src/lib/moderation/output-filter.ts`) — shared with [Spec 10](./10-trust-safety.md).
+8. Implement per-customer monthly cost rollup → margin alert (the per-call `api_costs` data already exists; the rollup is the gap). Daily worker writes `account_llm_cost` (next free migration number; coordinate with [Spec 29 Gap 4](./29-repworth-specific-gaps.md)).
+9. Implement cross-tenant injection test as `src/__tests__/llm-cross-tenant.test.ts` (Vitest collocated convention, per [Spec 03](./03-multitenancy-isolation.md)).
 10. Document AI-disclosure approach for ToS / PP / in-product banner (cross-link to [Spec 17](./17-legal-compliance-docs.md)).
 11. Build admin dashboard panel: top 10 customers by LLM cost, fallback rate, weekly eval score trend.
 
 ## 5. Acceptance criteria
 
-- [ ] Every LLM call writes a row to `llm_calls` with all required fields.
+- [ ] Every LLM call writes a full audit row (extended `api_costs` or new `llm_calls`) with all required fields (`api_costs` already captures tokens/cost/model per call).
 - [ ] 50-review eval set runs weekly in CI; current pass rate ≥ 4.0/5 aggregate.
 - [ ] Model IDs pinned; lint blocks un-versioned aliases.
 - [ ] Cross-tenant injection test passes.
@@ -168,3 +168,15 @@ Retain 90 days minimum (cost analysis + quality regression hunt).
 - [Spec 18 — i18n](./18-i18n-localization.md) (per-language eval)
 - Code anchors: `.claude/skills/cost-guard.md`, `docs/plans/2026-05-09-review-generation-engine-design.md`, `docs/plans/2026-05-03-cost-guard-llm-classifier-design.md`
 - Invariant: model IDs (`gpt-4o-mini`, `claude-haiku-4-5-20251001`) per CLAUDE.md
+- Code anchors: `src/lib/responses/generator.ts` (LLM client + fallback), `src/lib/responses/prompt-builder.ts` (inline prompt), `src/lib/costs/{audit,tracker}.ts` (`api_costs`)
+
+## 9. Implementation in the current repo
+
+- **The generator + fallback + cost capture already exist** (`generator.ts`, `api_costs`). The net-new AI-ops layer is: pin the OpenAI model, the eval set + runner, the full per-call audit (extend `api_costs` or add `llm_calls`), output moderation, and the cross-tenant test.
+- **Pinning the OpenAI model is a one-line, high-value fix** — it directly addresses the silent-regression risk the spec is built around.
+- **Audit/moderation metadata has one home decision** shared across Specs 10/22 — resolve once (extend `api_costs` vs. new `llm_calls`) so prompt hash + moderation score + cost live together.
+- **Eval runner + its weekly CI** are the bulk of the work and gated on CI ([Spec 24](./24-devops-deployment.md)); the runner reuses the existing `generator.ts` client against both providers.
+- **Brand-voice + per-language** ride the `brand_voices` decision in [Spec 18](./18-i18n-localization.md); keep examples strictly `account_id`-scoped.
+
+---
+_Verified 2026-05-23 against migration head 042. Corrected the LLM-client path, the unpinned OpenAI model (real gap), the existing `api_costs` cost layer vs. the proposed `llm_calls`, the inline prompt location, migration numbering, and CI-gated eval._

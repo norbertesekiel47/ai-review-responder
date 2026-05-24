@@ -10,12 +10,14 @@ Deployment speed is iteration speed. The right CI/CD setup makes ship-3x-a-day c
 
 ## 2. Current state (RepWorth)
 
-- Vercel deploys (Next.js).
-- Railway deploys (worker).
-- Migrations owner-run via Supabase SQL editor (CLAUDE.md).
+_Verified 2026-05-23 against the live tree (migration head 042)._
+
+- Vercel (Next.js) + Railway (worker). **No `vercel.json` / `railway.{json,toml}` / `Dockerfile`** — both dashboard-configured; the worker runs via `tsx`.
+- ⚠️ **No CI/CD at all** — there is **no `.github/` directory** (no Actions, no Dependabot, no PR template, no CODEOWNERS). This spec is effectively "stand up CI/CD from zero," and it's the prerequisite **~8 other specs (07/08/09/12/19/22/23/25) wait on**.
+- **Feature flags today are boolean env vars** (`SELF_SERVE_SIGNUP_ENABLED`, `ONBOARDING_DEMO_ENABLED`, `CHANNELS_*_ENABLED`, `ZERNIO_PUBLISHING_ENABLED`), asserted in `worker/config/startup-assert.ts`. ⚠️ These are **kill-switches, not per-user %-rollout** — the spec's "PostHog flags, 10%→50%→100%" needs a real flag tool (tied to the [Spec 01 §2a](./01-product-market-fit.md) PostHog decision) or GrowthBook.
+- Migrations owner-run via Supabase SQL editor; head **042**, next **043**; patterns in `.claude/skills/migrations.md`.
+- `.env.example` + `startup-assert.ts` present. **No** `docs/runbooks/rollback.md`.
 - Documented patterns for entry-point modularization, outbox, subscription guard.
-- No documented rollback playbook.
-- No feature flag tool integrated.
 
 ## 3. Target state
 
@@ -38,10 +40,9 @@ Deployment speed is iteration speed. The right CI/CD setup makes ship-3x-a-day c
 - **CI-applied migrations on staging** at first hire — until then, owner-run.
 
 ### Feature flags
-- **PostHog feature flags** (one less tool — already using PostHog for analytics).
-- Alternative: **GrowthBook** if open-source / self-hosted preferred.
-- Default-off, 10% → 50% → 100% over a week for every new feature.
-- Kill switch in `posthog.feature_flag.<flag-name>` for instant disable.
+- ⚠️ **Today flags are boolean env vars** (`SELF_SERVE_SIGNUP_ENABLED`, etc.) — good kill-switches, **no per-user %-rollout**. The "PostHog flags" framing assumes PostHog, which **isn't installed** (see [Spec 01 §2a](./01-product-market-fit.md)).
+- Decide the flag tool: **(a)** keep env-var flags (simple, deploy-to-flip, no gradual rollout) for kill-switches; **(b)** PostHog feature flags (if §2a picks PostHog) for %-rollout; **(c)** GrowthBook (open-source / self-hosted). The dark-ship pattern (PR #56 edit-replies) already uses env-var flags successfully.
+- Gradual rollout (10% → 50% → 100%) requires (b) or (c).
 
 ### Deploy strategy
 - **Vercel rolling deploys** built-in; sufficient at current scale.
@@ -104,10 +105,11 @@ Calendar reminders on the day-of for each.
 
 ## 4. Implementation tasks
 
+0. **Stand up GitHub Actions CI** — the `.github/workflows/ci.yml` that runs lint/type/unit/integration. This is the keystone task: ~8 other specs (07/08/09/12/19/22/23/25) are blocked on it. Create `.github/` (workflows + dependabot + PR template + CODEOWNERS) from zero.
 1. Document rollback playbook at `docs/runbooks/rollback.md`. Include Vercel + Railway commands + migration down + flag kill switch + comms template.
 2. Set up Railway PR environments (GitHub integration in Railway dashboard).
-3. Adopt PostHog feature flags (or GrowthBook). Wrap first feature behind a flag.
-4. Set GitHub branch protection rules per §3.
+3. Resolve the feature-flag decision (§3): env-var flags suffice for kill-switches; %-rollout needs PostHog (per §2a) or GrowthBook. Don't assume PostHog.
+4. Set GitHub branch protection rules per §3 (**after task 0** — there are no status checks to require until CI exists).
 5. Add Slack `#deploys` channel + Vercel/Railway webhook integrations.
 6. Author secrets-rotation runbooks per §3. Calendar reminders.
 7. Audit CI pipeline runtime. Parallelize where possible. Target < 10 min.
@@ -117,8 +119,9 @@ Calendar reminders on the day-of for each.
 
 ## 5. Acceptance criteria
 
+- [ ] GitHub Actions CI exists (`.github/workflows/ci.yml`) running lint/type/unit/integration.
 - [ ] Vercel + Railway PR preview URLs auto-post on every PR.
-- [ ] Branch protection enforced; direct pushes to `main` blocked.
+- [ ] Branch protection enforced; direct pushes to `main` blocked (requires CI status checks above).
 - [ ] Feature flag tool live; at least one feature gated behind a flag.
 - [ ] `docs/runbooks/rollback.md` exists and was tested in a quarterly drill.
 - [ ] Slack `#deploys` posts deployments in real-time.
@@ -149,5 +152,16 @@ Calendar reminders on the day-of for each.
 - [Spec 09 — Security & Compliance](./09-security-compliance.md) (secrets rotation, CI security scans)
 - [Spec 22 — AI/LLM Operations](./22-ai-llm-ops.md) (LLM eval in CI)
 - [Spec 23 — Testing & QA](./23-testing-qa.md) (gates)
-- Code anchors: `supabase/migrations/`, `worker/config/startup-assert.ts`, `.claude/skills/migrations.md`
+- Code anchors: `supabase/migrations/` (head 042), `worker/config/startup-assert.ts` (env-var flags), `.env.example`, `.claude/skills/migrations.md`
 - Gotchas: partial-unique-index predicate byte-match; IMMUTABLE-only in index predicates (CLAUDE.md)
+
+## 9. Implementation in the current repo
+
+- **This spec is the keystone.** Task 0 (create `.github/` + CI) unblocks the "fail the build" tasks in Specs 07/08/09/12/19/22/23/25. Sequence it first; the rest of those specs' CI tasks are cheap once the runner exists.
+- **CI is genuinely greenfield** — no `.github/` at all. Start minimal: `ci.yml` running `pnpm lint && pnpm typecheck && pnpm test`, add integration (with `TEST_DATABASE_POOL_URL` secret) + e2e on `main`, then layer the security/a11y/eval gates.
+- **Flags**: the env-var pattern + `startup-assert.ts` already work as kill-switches and powered the edit-replies dark-ship (PR #56). Only adopt a flag *tool* if/when %-rollout is needed — and pin that to the §2a analytics decision.
+- **Migrations stay owner-run** via Supabase SQL editor until a hire; formalize the zero-downtime patterns (already in CLAUDE.md gotchas) into `docs/runbooks/migrations.md`.
+- **No IaC files** (`vercel.json`/`railway`/`Dockerfile`) — dashboard config is fine at this scale; document it rather than introduce IaC prematurely.
+
+---
+_Verified 2026-05-23 against migration head 042. Established CI as the explicit task-0 keystone (no `.github/` exists); corrected the feature-flag reality (env-var booleans, not PostHog), the absent IaC files, and the missing rollback runbook._
