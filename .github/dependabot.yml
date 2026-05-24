@@ -4,12 +4,22 @@ updates:
     directory: /
     schedule:
       interval: weekly
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 10
     groups:
-      production-dependencies:
+      # Group only minor + patch so routine bumps stay green and reviewable
+      # in one PR. Majors are intentionally excluded, so Dependabot opens an
+      # individual PR per major — breaking upgrades (e.g. Next 16, a
+      # TypeScript major) land isolated instead of bundled into a red group PR.
+      production-minor-patch:
         dependency-type: production
-      development-dependencies:
+        update-types:
+          - minor
+          - patch
+      development-minor-patch:
         dependency-type: development
+        update-types:
+          - minor
+          - patch
 
   - package-ecosystem: github-actions
     directory: /
