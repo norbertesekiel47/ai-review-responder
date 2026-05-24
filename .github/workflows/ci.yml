@@ -15,7 +15,10 @@ concurrency:
 
 env:
   CI: 'true'
-  MOCK_EXTERNAL_APIS: 'true'
+  # Mirror .env.local: the suite expects this OFF and flips it to 'true'
+  # per-test where it exercises the mock path (see zernio client.test.ts +
+  # transport.ts). Setting it globally true breaks real-path Zernio tests.
+  MOCK_EXTERNAL_APIS: 'false'
   NEXT_PUBLIC_APP_URL: http://localhost:3000
   WORKER_SERVICE_URL: http://localhost:3001
   NEXT_PUBLIC_SUPABASE_URL: http://localhost:54321
