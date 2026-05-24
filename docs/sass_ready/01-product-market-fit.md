@@ -10,10 +10,23 @@ RepWorth competes with Birdeye, Podium, NiceJob, and GoSite — all better funde
 
 ## 2. Current state (RepWorth)
 
-- Public marketing exists (landing page redesigned 2026-04-18) but no `docs/icp.md`.
-- Pricing pages and onboarding emphasize the AI feature, not the JTBD.
-- No `activation_completed` event in analytics; no retention cohort split.
-- Multi-location billing shipped (PR #28) — proves the multi-location wedge is real today.
+_Verified 2026-05-23 against the live tree (migration head 042)._
+
+- Public marketing exists but **no `docs/icp.md`** (confirmed absent).
+- Pricing and onboarding emphasize the AI feature, not the JTBD. The JTBD string does not yet appear on the landing H1, pricing page, or onboarding success screen.
+- **No analytics stack at all.** PostHog is referenced throughout these specs but is *not installed* — no dependency in `package.json`, no `src/lib/analytics`, zero code references (PostHog appears only inside `docs/`). There is no `activation_completed` event and no retention cohort split. See §2a.
+- **No `/compare` page and no `/changelog`** (both confirmed absent under `src/app/`).
+- Multi-location billing shipped (migration **034**; per-location overage via Stripe `quantity` in `worker/jobs/billing/UpdateStripeOverageWorker.ts`) — proves the multi-location wedge is real today.
+- A prior PMF brainstorm exists at `docs/superpowers/specs/2026-05-19-pmf-positioning-design.md`. This spec is its operational successor — reconcile, don't duplicate.
+
+## 2a. Open decision — analytics tooling (blocks tasks 4–5)
+
+Four metrics in §6 are sourced from PostHog, but **no product-analytics tool is chosen or installed**. Resolve in [Spec 11 — Data, Analytics & BI](./11-data-analytics-bi.md) before instrumenting:
+
+- **Option A (recommended):** adopt PostHog Cloud — fastest path to event capture + cohorts, minimal infra.
+- **Option B:** Postgres-native `analytics_events` table + Metabase — no new vendor, data stays in-house, but you build cohort math yourself.
+
+Until resolved, the `activation_completed` instrumentation tasks are **blocked**, not buildable.
 
 ## 3. Target state
 
@@ -34,10 +47,10 @@ RepWorth competes with Birdeye, Podium, NiceJob, and GoSite — all better funde
 
 1. Create `docs/icp.md` with: verticals, employee count, location count, current tooling, decision-maker title, top 3 pains, top 3 cancellation reasons (start empty, fill from interviews). Pin it.
 2. Update H1 on `src/app/page.tsx` (landing) + pricing value prop + onboarding success screen to use JTBD verbatim.
-3. Add comparison page `src/app/compare/page.tsx` with three-wedge table vs. Birdeye, Podium, NiceJob, GoSite. Cite approval audit + per-location pricing + brand voice as proof.
-4. Instrument `activation_completed` in PostHog. Emit when `responses.published_at IS NOT NULL` and `published_at - users.created_at <= INTERVAL '7 days'`. Backfill from existing data.
+3. Add comparison page `src/app/(public)/compare/page.tsx` (route-group convention, matching the existing `(public)/pricing`) with three-wedge table vs. Birdeye, Podium, NiceJob, GoSite. Cite approval audit + per-location pricing + brand voice as proof.
+4. Instrument `activation_completed` in the tool chosen in §2a. Emit when a response reaches `published_at IS NOT NULL` within 7 days of **account** creation. ⚠️ Scope by `account_id` (billing parent), not per-user: `published_at - accounts.created_at <= INTERVAL '7 days'`. Joining to `users.created_at` misfires for multi-location accounts (migration 034). Backfill from existing `responses` / `accounts` rows.
 5. Build a 4-metric retention dashboard (PostHog or Metabase): trial → paid %, monthly logo retention, 90-day logo retention, activation rate.
-6. Public changelog at `/changelog` (markdown-rendered from `docs/changelog/*.md`). Public "what's next" page with three buckets: shipping / exploring / considering (no dates).
+6. Public changelog at `src/app/(public)/changelog/page.tsx` (markdown-rendered from `docs/changelog/*.md`). Public "what's next" page with three buckets: shipping / exploring / considering (no dates).
 7. Standing weekly customer interview cadence: target 5 conversations/week. Track answers in CRM custom field `top_cancellation_risk`.
 
 ## 5. Acceptance criteria
@@ -60,6 +73,8 @@ RepWorth competes with Birdeye, Podium, NiceJob, and GoSite — all better funde
 | `activation_completed` rate (signups within 7 days) | ≥ 50% | PostHog |
 | Customer interviews/week | ≥ 5 | CRM custom property |
 
+> The "PostHog" sources above are contingent on §2a. If Option B (Postgres-native) is chosen, swap source to `analytics_events` + Metabase.
+
 ## 7. Risks & mitigations
 
 - **Risk:** ICP drift via opportunistic single-location deals. **Mitigation:** every deal logged with ICP-fit score 1–5; quarterly review on <3 churns.
@@ -72,3 +87,16 @@ RepWorth competes with Birdeye, Podium, NiceJob, and GoSite — all better funde
 - [Spec 11 — Data, Analytics & BI](./11-data-analytics-bi.md) (event taxonomy, cohort math)
 - [Spec 14 — Customer Success & Retention](./14-customer-success-retention.md) (interview cadence)
 - [Spec 16 — Marketing & Growth](./16-marketing-growth.md) (changelog, comparison page)
+- Prior design: `docs/superpowers/specs/2026-05-19-pmf-positioning-design.md`
+
+## 9. Implementation in the current repo
+
+- **ICP doc:** `docs/icp.md`; reference it from the PR template (`.github/pull_request_template.md`).
+- **JTBD string:** define once in a shared constant (e.g. `src/lib/brand/copy.ts`) and import into the landing (`src/app/page.tsx`), pricing (`src/app/(public)/pricing/PricingContent.tsx`), and onboarding success screen — the snapshot test then asserts one constant, not three hard-coded copies.
+- **Compare page:** `src/app/(public)/compare/page.tsx` — static, no worker involvement.
+- **Activation event:** capture belongs on the **worker** publish path (`worker/jobs/publisher/*`) where `published_at` is set — not in a Next.js route (Vercel = UI only). If Option B, write to `analytics_events` inside the existing publish transaction so it's outbox-safe.
+- **Retention dashboard:** read-only; if Postgres-native, point Metabase at the pooled/replica URL.
+- **Changelog:** `src/app/(public)/changelog/page.tsx` rendering `docs/changelog/*.md`.
+
+---
+_Verified 2026-05-23 against migration head 042. Confirmed absent: `docs/icp.md`, `/compare`, `/changelog`, any PostHog/analytics dependency. Activation query corrected to account-scope. Reconciled with `2026-05-19-pmf-positioning-design.md`._

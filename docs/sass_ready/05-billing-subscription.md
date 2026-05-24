@@ -1,6 +1,6 @@
 # Spec 05 — Billing & Subscription Lifecycle
 
-> **Goal:** Stripe is the source of truth, an hourly reconciliation worker catches drift, dunning runs branded over 28 days, past_due has a visible countdown UI, and every webhook is idempotent + commutative.
+> **Goal:** Stripe is the source of truth. Webhook idempotency already exists (`inbound_events`); **extend** reconciliation to catch subscription-level drift, add a `past_due` countdown timestamp + day-variant banner, branded dunning over 28 days, and a cancellation survey. Build on the existing `subscription-guard` + reconcile pollers — don't rebuild them.
 
 ---
 
@@ -10,11 +10,15 @@ Billing bugs translate directly to chargebacks, refunds, and churn. The architec
 
 ## 2. Current state (RepWorth)
 
-- Tier-change pattern is Stripe-first; base-item fallback removed; reconciliation contract documented in code comment (per recent PRs).
-- Outbox pattern (`job_outbox`) enforces transactional state changes (architecture invariant).
-- Subscription guard in customer-facing workers: `cancelled` → no-op, `past_due` → 7-day grace, `pending_payment` → skip notification + publisher (architecture invariant).
-- Checkout blocked for `past_due` (recent fix).
-- No periodic reconciliation worker visible. No customer-facing past_due banner UI. No documented dunning email cadence.
+_Verified 2026-05-23 against the live tree (migration head 042)._
+
+- **Webhook idempotency already shipped.** `worker/ingress/stripe.ts` handles `checkout.session.completed`, `invoice.payment_failed`, `invoice.paid`, `customer.subscription.{deleted,updated}` and dedups via the **`inbound_events`** table (`claimInboundEvent('stripe', event.id, …)`), shared across Stripe/Resend/Twilio/Zernio. ⚠️ There is **no** `processed_stripe_events` table and no need for one — the spec's "build it" tasks are largely **done**.
+- **Reconciliation pollers already exist:** `StripeLocationsReconcilePoller` (location-count ↔ tier) and `CancellationGracePoller` (30-day grace → archive) in `worker/background/pollers/`. A subscription-level Stripe↔DB drift walk is the gap to **add**.
+- `subscription-guard.ts` (`src/lib/shared/subscription-guard.ts`) already implements `cancelled`→skip, `past_due`→7-day grace, `pending_payment`→generator-only, used across 11+ workers.
+- **`PastDueBanner` already exists** in `src/components/dashboard/SubscriptionStatusBanner.tsx` (with `CancelledBanner`). The work is to make it **day-variant with a countdown**, not create it.
+- Checkout blocked for `past_due` (409) in `src/app/api/billing/checkout/route.ts`; Stripe Customer Portal wired at `src/app/api/billing/portal/route.ts` (portal also captures cancellation reasons).
+- **⚠️ No `past_due_at` timestamp.** State is `subscription_status = 'past_due'` + `cancelled_at` only. A day-N countdown has **no data source** today — needs a "past_due since" timestamp (migration, or derived from the Stripe invoice).
+- **Genuinely missing:** subscription-level reconciliation; day-variant countdown; branded dunning cadence; `cancellation_surveys` table + exit-survey UI; Stripe Tax; `docs/runbooks/{dunning,chargebacks,stripe-tax-enablement}.md`.
 
 ## 3. Target state
 
@@ -26,10 +30,11 @@ Billing bugs translate directly to chargebacks, refunds, and churn. The architec
   - **Unsafe (page):** price drift, quantity drift, missing subscription, duplicate subscription.
 - Max drift detection lag: 1 hour. Alert via Sentry on unsafe drift.
 
-### Webhook idempotency
-- `processed_stripe_events` table keyed by Stripe `event.id`.
-- Every handler computes desired state by reading Stripe API (`stripe.subscriptions.retrieve`), not by incrementing from current DB state — webhooks are not ordered.
-- Outbox pattern continues to wrap state-change + downstream-enqueue (architecture invariant).
+### Webhook idempotency (already implemented — keep)
+- Dedup is via the existing **`inbound_events`** table (`external_event_key` unique on `event.id`), claimed at handler entry. **No** new `processed_stripe_events` table.
+- Handlers already compute desired state by reading the Stripe API (`stripe.subscriptions.retrieve`), not by incrementing DB state — webhooks are unordered.
+- Outbox pattern wraps state-change + downstream-enqueue (architecture invariant).
+- Remaining work: when adding subscription-level reconciliation events, route them through the same `claimInboundEvent` dedup.
 
 ### Customer billing portal
 - **Stripe Customer Portal** for card, invoices, receipts, billing email, tax ID. Do not rebuild.
@@ -49,7 +54,8 @@ Billing bugs translate directly to chargebacks, refunds, and churn. The architec
 | 22–112 | Data retained 90 days, easy reactivation. | — |
 | 113+ | Account scheduled for deletion (see [Spec 03](./03-multitenancy-isolation.md)). | — |
 
-### Past_due UX (the missing piece)
+### Past_due UX (enhance the existing banner)
+- **Prerequisite:** the day-delta needs a "past_due since" timestamp. Add `accounts.past_due_at` (set when `invoice.payment_failed` first flips status to `past_due`, cleared on `invoice.paid`), or derive from the Stripe invoice's first-failure date. Without it, no countdown is possible.
 - **Day 1:** dismissable banner ("Payment failed — update card") linked to Stripe Customer Portal.
 - **Day 3:** persistent banner with countdown.
 - **Day 5:** full-screen modal on login (dismissable once / day).
@@ -78,11 +84,11 @@ Billing bugs translate directly to chargebacks, refunds, and churn. The architec
 
 ## 4. Implementation tasks
 
-1. Build `worker/background/pollers/billing-reconciliation-poller.ts`. Hourly. Walk both directions. Sentry alert on unsafe drift. Add to startup registration in `worker/index.ts`.
-2. Migration **044** — `processed_stripe_events(event_id PRIMARY KEY, processed_at)`. Index `(processed_at)` for retention sweep.
-3. Refactor every Stripe webhook handler under `worker/ingress/stripe.ts` to check `processed_stripe_events` first; insert on success inside the outbox transaction.
-4. Build `<PastDueBanner />` component (`src/components/billing/PastDueBanner.tsx`). Compute day delta from `accounts.past_due_at`. Render variant by day (1/3/5/7).
-5. Implement read-only mode at day 8: middleware (`src/middleware.ts`) sets `req.readOnly = true` if `account.past_due_at + 7 days < now()`; UI hides Approve/Publish actions.
+1. Add `worker/background/pollers/billing-reconciliation-poller.ts` for **subscription-level** Stripe↔DB drift (price/quantity/status/missing/duplicate). Hourly. Sentry alert on unsafe drift. Register in `worker/index.ts` using the existing poller registration pattern (mirror `StripeLocationsReconcilePoller`). Consider folding into that poller if scope overlaps.
+2. Migration (next free number — coordinate with Specs 02/04; head is 042) — **`accounts.past_due_at TIMESTAMPTZ NULL`** (the countdown source). ~~`processed_stripe_events`~~ removed: idempotency already exists via `inbound_events`.
+3. ~~Refactor handlers to check `processed_stripe_events`~~ — **done**: handlers already claim `inbound_events` at entry. Instead: set/clear `past_due_at` inside the `invoice.payment_failed` / `invoice.paid` handlers (within the outbox transaction).
+4. **Enhance the existing `SubscriptionStatusBanner.tsx`** (`PastDueBanner`) to be day-variant: compute the delta from `accounts.past_due_at`, render variants by day (1/3/5/7). Do **not** create a new `src/components/billing/PastDueBanner.tsx`.
+5. Read-only mode at day 8: worker actions are **already** gated by `subscription-guard.ts`. Add the **UI/route** read-only layer in `src/middleware.ts` using `past_due_at + 7 days < now()`; UI hides Approve/Publish. Keep the worker guard as the authoritative backstop.
 6. Add `docs/runbooks/dunning.md` documenting cadence + email templates.
 7. Add `docs/runbooks/chargebacks.md` with response template + evidence checklist.
 8. Add `docs/billing/proration.md` (engineering reference) + customer-facing FAQ at `/help/billing/proration` (cross-link to Spec 02).
@@ -94,8 +100,9 @@ Billing bugs translate directly to chargebacks, refunds, and churn. The architec
 
 - [ ] `BillingReconciliationPoller` runs hourly in prod and writes a heartbeat log line.
 - [ ] Drift detected within 1 hour, paged at P1 for unsafe categories.
-- [ ] `processed_stripe_events` populated; replaying same event is a no-op.
-- [ ] Past_due banner shows on day 1, 3, 5; full-screen modal on day 5; read-only mode at day 8 (verified by setting a test account's `past_due_at` to T-8 days).
+- [ ] Replaying the same Stripe event is a no-op (via existing `inbound_events` dedup — covered by a test, no new table).
+- [ ] `accounts.past_due_at` set on first `invoice.payment_failed`, cleared on `invoice.paid`.
+- [ ] Past_due banner shows day-variants on day 1, 3, 5; full-screen modal on day 5; read-only mode at day 8 (verified by setting a test account's `past_due_at` to T-8 days).
 - [ ] Dunning emails fire on days 1, 7, 14 (per Stripe + branded templates).
 - [ ] Cancellation flow records reason, NPS, win-back-permission in `cancellation_surveys` table.
 - [ ] Chargeback runbook tested in a tabletop exercise.
@@ -124,5 +131,17 @@ Billing bugs translate directly to chargebacks, refunds, and churn. The architec
 - [Spec 02 — Pricing & Packaging](./02-pricing-packaging.md) (tier matrix, overage)
 - [Spec 07 — Observability](./07-observability.md) (Sentry alert SLO)
 - [Spec 17 — Legal](./17-legal-compliance-docs.md) (refund policy lawyered)
-- Code anchors: `worker/ingress/stripe.ts`, `worker/background/pollers/`, outbox pattern (`.claude/skills/outbox-pattern.md`), subscription-guard pattern in worker jobs
+- Code anchors: `worker/ingress/stripe.ts`, `worker/background/pollers/{StripeLocationsReconcilePoller,CancellationGracePoller}.ts`, `src/lib/shared/subscription-guard.ts`, `src/components/dashboard/SubscriptionStatusBanner.tsx`, `src/app/api/billing/{checkout,portal}/route.ts`, `inbound_events` table (migration 001), outbox pattern (`.claude/skills/outbox-pattern.md`)
 - Architecture invariant: "Transactional outbox" + "Subscription guard in all customer-facing workers" in `CLAUDE.md`
+
+## 9. Implementation in the current repo
+
+- **Idempotency is solved** — `inbound_events` + `claimInboundEvent` is the dedup. Any new event handler (reconciliation, dunning) routes through it. Don't add a parallel dedup table.
+- **`past_due_at`** is the one schema gap. Set/clear it inside the existing `invoice.payment_failed` / `invoice.paid` handlers in `worker/ingress/stripe.ts`, in the same outbox transaction as the status change.
+- **Reconciliation** mirrors the registration of `StripeLocationsReconcilePoller` in `worker/index.ts` (BullMQ/poller boot). Categorize drift conservatively — unknown category ⇒ unsafe ⇒ page.
+- **Banner** is a pure client-side enhancement of `SubscriptionStatusBanner.tsx`; the day-delta comes from a server-provided `past_due_at`. Read-only mode splits in two: worker actions already blocked by `subscription-guard.ts`; the route/UI layer is the new `middleware.ts` check.
+- **Cancellation survey:** the Stripe Customer Portal already captures a coarse cancellation reason; the `cancellation_surveys` table + 4-question UI is the richer in-app path — write it on the `customer.subscription.deleted` handler or a pre-cancel form. Don't duplicate the portal's reason capture; complement it.
+- **Dunning/Stripe Tax/chargebacks** are net-new runbooks + Stripe config; no code prerequisites beyond `past_due_at`.
+
+---
+_Verified 2026-05-23 against migration head 042. Corrected three false "missing" claims (idempotency via `inbound_events`, reconcile pollers, `PastDueBanner` all already exist); removed the redundant `processed_stripe_events` migration; flagged the absent `past_due_at` as the real blocker for the countdown._
