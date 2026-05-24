@@ -39,34 +39,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version-file: .nvmrc
-
-      - name: Enable Corepack
-        run: corepack enable
-
-      - name: Prepare pnpm
-        run: corepack prepare pnpm@11.0.9 --activate
-
-      - name: Get pnpm store path
-        id: pnpm-store
-        shell: bash
-        run: echo "STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
-
-      - name: Restore pnpm store
-        uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-store.outputs.STORE_PATH }}
-          key: ${{ runner.os }}-node-${{ hashFiles('.nvmrc') }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-node-${{ hashFiles('.nvmrc') }}-pnpm-
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
+      - name: Setup Node + pnpm
+        uses: ./.github/actions/setup
       - name: Run lint
         run: pnpm lint
 
@@ -76,34 +50,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version-file: .nvmrc
-
-      - name: Enable Corepack
-        run: corepack enable
-
-      - name: Prepare pnpm
-        run: corepack prepare pnpm@11.0.9 --activate
-
-      - name: Get pnpm store path
-        id: pnpm-store
-        shell: bash
-        run: echo "STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
-
-      - name: Restore pnpm store
-        uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-store.outputs.STORE_PATH }}
-          key: ${{ runner.os }}-node-${{ hashFiles('.nvmrc') }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-node-${{ hashFiles('.nvmrc') }}-pnpm-
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
+      - name: Setup Node + pnpm
+        uses: ./.github/actions/setup
       - name: Run typecheck
         run: pnpm typecheck
 
@@ -113,34 +61,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version-file: .nvmrc
-
-      - name: Enable Corepack
-        run: corepack enable
-
-      - name: Prepare pnpm
-        run: corepack prepare pnpm@11.0.9 --activate
-
-      - name: Get pnpm store path
-        id: pnpm-store
-        shell: bash
-        run: echo "STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
-
-      - name: Restore pnpm store
-        uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-store.outputs.STORE_PATH }}
-          key: ${{ runner.os }}-node-${{ hashFiles('.nvmrc') }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-node-${{ hashFiles('.nvmrc') }}-pnpm-
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
+      - name: Setup Node + pnpm
+        uses: ./.github/actions/setup
       - name: Run unit tests
         run: pnpm test
 
@@ -150,33 +72,7 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version-file: .nvmrc
-
-      - name: Enable Corepack
-        run: corepack enable
-
-      - name: Prepare pnpm
-        run: corepack prepare pnpm@11.0.9 --activate
-
-      - name: Get pnpm store path
-        id: pnpm-store
-        shell: bash
-        run: echo "STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
-
-      - name: Restore pnpm store
-        uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-store.outputs.STORE_PATH }}
-          key: ${{ runner.os }}-node-${{ hashFiles('.nvmrc') }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-node-${{ hashFiles('.nvmrc') }}-pnpm-
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
+      - name: Setup Node + pnpm
+        uses: ./.github/actions/setup
       - name: Build app
         run: pnpm build
