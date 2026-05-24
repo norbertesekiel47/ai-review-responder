@@ -16,6 +16,7 @@
 
 import { createHash } from 'node:crypto';
 import { v7 as uuidv7 } from 'uuid';
+import type postgres from 'postgres';
 import { sql, jsonb } from '../../../src/lib/db/server';
 import {
   ZernioAuthError,
@@ -38,7 +39,7 @@ import * as Sentry from '@sentry/node';
  *  "secret=value" / "key=value" pairs in URL/query-string-style strings.
  *  A defensive sanity-check in case Zernio ever echoes a token in 401/403
  *  body (some APIs do). */
-function redactSensitiveError(body: string): string {
+export function redactSensitiveError(body: string): string {
   return body
     .replace(/Bearer\s+[A-Za-z0-9\-._~+/]+=*/gi, 'Bearer [REDACTED]')
     .replace(/Basic\s+[A-Za-z0-9+/]+=*/gi, 'Basic [REDACTED]')
@@ -484,4 +485,147 @@ export async function verify409AndDispose(args: Verify409Args): Promise<Verify40
   );
   await markOutboxCompleted(outboxId, outboxAttempt);
   return { outcome: 'superseded' };
+}
+
+// ── verify409InTx — tx-aware variant for the edit-publisher locked tx ─────────
+//
+// The existing `verify409AndDispose` opens a fresh `sql` connection and calls
+// `markOutboxCompleted` itself. The upcoming edit-publisher branch holds
+// `responses FOR UPDATE` on the candidate row inside a `sql.begin` tx;
+// invoking `verify409AndDispose` from there would self-deadlock (the verifier's
+// separate connection waits forever on the outer tx's lock).
+//
+// `verify409InTx` differs from `verify409AndDispose` by:
+//   - Taking the open `tx: postgres.TransactionSql` as its first arg so any
+//     reads share the outer tx's snapshot/locks. Currently no reads are needed
+//     beyond the Zernio listReviews HTTP call; the param is reserved for
+//     future use (e.g. fetching audit context inside the same tx).
+//   - Returning a discriminated union — caller dispatches.
+//   - NOT calling `markOutboxCompleted` (caller owns the outbox lifecycle).
+//   - NOT writing to `responses` or any sibling rows (caller owns the writes).
+//
+// All other behavior — page-cache lookup, maxPages bounding, error
+// classification, canonicalization — matches `verify409AndDispose`.
+
+/**
+ * Discriminated union returned by `verify409InTx`. The caller dispatches on
+ * `disposition`. Mismatch/match expose the canonicalized verifier text so the
+ * caller can record it (e.g. into responses.posting_error context or audit).
+ */
+export type Verify409Disposition =
+  | { disposition: 'matches_our_text'; verifierText: string }
+  | { disposition: 'mismatch'; verifierText: string }
+  | {
+      disposition: 'indeterminate';
+      reason:
+        | 'review_not_found_after_pagination'
+        | 'review_found_but_reply_null'
+        | 'verifier_unknown_error';
+      meta: {
+        pages_walked?: number;
+        reviews_seen?: number;
+        underlying_error?: string;
+      };
+    }
+  | { disposition: 'auth'; lookupErr: ZernioAuthError }
+  | { disposition: 'permanent'; lookupErr: ZernioPermanentError | ZernioValidationError }
+  | { disposition: 'transient'; lookupErr: ZernioTransientError };
+
+interface Verify409InTxArgs {
+  /** Outer tx — currently unused but reserved so future reads share its
+   *  snapshot/locks without changing the public signature. */
+  tx: postgres.TransactionSql;
+  account_id: string;
+  location_id: string;
+  zernio_review_id: string;
+  approved_text: string;
+  logger: WorkerLogger;
+}
+
+/**
+ * Tx-aware 409 verifier for the edit-publisher path.
+ *
+ * The edit-publisher holds `responses FOR UPDATE` inside an open `sql.begin`
+ * tx. Calling `verify409AndDispose` from that context would self-deadlock
+ * (separate connection waiting forever on the outer lock). This function takes
+ * the open tx handle and performs the same Zernio listReviews walk and
+ * canonicalization comparison without touching the DB or outbox — the caller
+ * owns all writes and the outbox lifecycle.
+ *
+ * Returns a `Verify409Disposition` discriminated union:
+ * - 'matches_our_text': existing Google reply canonicalizes to our approved_text
+ * - 'mismatch': reply exists but differs — real conflict
+ * - 'indeterminate': review not found / reply null / unknown error
+ * - 'auth' / 'permanent' / 'transient': Zernio lookup error classifications
+ */
+export async function verify409InTx(args: Verify409InTxArgs): Promise<Verify409Disposition> {
+  const { account_id, location_id, zernio_review_id, approved_text, logger } = args;
+
+  // Reuse the page-cache + maxPages logic from verify409AndDispose so a review
+  // found on page 0 or 1 doesn't trigger a full 4-page walk. Cache miss /
+  // cache-read failure → fall back to 4 (the conservative cap).
+  let maxPages = 4;
+  try {
+    const cachedPage = await getCachedZernioReviewPage(account_id, location_id, zernio_review_id);
+    if (cachedPage !== null) {
+      maxPages = Math.min(cachedPage + 1, 4);
+    }
+  } catch {
+    // Non-fatal — fall back to 4-page walk.
+  }
+
+  let allReviews: Awaited<ReturnType<typeof zernioClient.listAllReviews>>;
+  try {
+    allReviews = await zernioClient.listAllReviews(account_id, {
+      locationId: location_id,
+      pageSize: 50,
+      maxPages,
+    });
+  } catch (lookupErr) {
+    if (lookupErr instanceof ZernioAuthError) {
+      return { disposition: 'auth', lookupErr };
+    }
+    if (lookupErr instanceof ZernioTransientError) {
+      return { disposition: 'transient', lookupErr };
+    }
+    if (lookupErr instanceof ZernioPermanentError || lookupErr instanceof ZernioValidationError) {
+      return { disposition: 'permanent', lookupErr };
+    }
+    logger.warn(
+      `409 verifier (in-tx) hit unknown error: ${lookupErr instanceof Error ? lookupErr.message : lookupErr}`,
+    );
+    return {
+      disposition: 'indeterminate',
+      reason: 'verifier_unknown_error',
+      meta: {
+        underlying_error: lookupErr instanceof Error ? lookupErr.message : String(lookupErr),
+      },
+    };
+  }
+
+  const found = allReviews.find((r) => r.id === zernio_review_id);
+  if (!found) {
+    return {
+      disposition: 'indeterminate',
+      reason: 'review_not_found_after_pagination',
+      meta: { pages_walked: maxPages, reviews_seen: allReviews.length },
+    };
+  }
+
+  if (found.reviewReply == null) {
+    // Loose-equality catches both null and undefined (defense-in-depth;
+    // listReviews normalizes to null today but the guard is cheap).
+    return {
+      disposition: 'indeterminate',
+      reason: 'review_found_but_reply_null',
+      meta: {},
+    };
+  }
+
+  const verifierText = canonicalizeReplyText(found.reviewReply.comment);
+  const ourText = canonicalizeReplyText(approved_text);
+  if (verifierText === ourText) {
+    return { disposition: 'matches_our_text', verifierText };
+  }
+  return { disposition: 'mismatch', verifierText };
 }

@@ -13,7 +13,10 @@ import {
   PublisherTransientWithContext,
   ZernioReplyVerificationIndeterminateError,
 } from './publisher-error-handlers';
+import { isOrphanMarker, POST_AFTER_DELETE_FAILED_RETRY_EXHAUSTED } from './orphan-markers';
 import type { PublishResponsePayload } from '../../../src/lib/shared/worker-types';
+
+const PUBLISHABLE_STATUSES = ['approved', 'edited', 'awaiting_owner_connect'] as const;
 
 /**
  * Final-attempt exhaustion handler for ResponsePublisherWorker. BullMQ retries
@@ -40,6 +43,29 @@ export async function handlePublisherFailed(
     const handle = extractOutboxHandle(job.data, job.id!);
     outboxId = handle.outboxId;
     outboxAttempt = handle.attempt;
+
+    // Orphan-marker retry-exhaustion conversion (spec §4.5) runs BEFORE the
+    // indeterminate-verification branch AND the generic transient fallback.
+    // When the edit-publisher's DELETE committed but the POST never succeeded,
+    // the row carries a `_after_delete_succeeded` orphan marker. On retry
+    // exhaustion we must convert it to a recovery-visible `failed` row (so
+    // `/retry` + `/restore-original` can act) instead of letting either the
+    // indeterminate branch overwrite the marker with
+    // `zernio_reply_verification_indeterminate` (which would strand the
+    // recoverable orphan) or the transient fallback park it at
+    // `awaiting_owner_connect` and clear the marker.
+    //
+    // `attemptOrphanConversion` only takes ownership when the locked row's
+    // posting_error is an orphan marker (`isOrphanMarker`), so a NON-orphan
+    // indeterminate error returns `false` here and falls through to
+    // `handleVerificationIndeterminate` exactly as before. Flag-gated so Phase A
+    // (flag off) behaves byte-for-byte as today — the block is skipped entirely.
+    if (process.env.EDIT_REPLIES_ENABLED === 'true') {
+      const handled = await attemptOrphanConversion(job.data, outboxId, outboxAttempt);
+      if (handled) return;
+      // Not an orphan (or row moved on benignly with a non-terminal disposition
+      // that already closed the outbox): fall through to today's behavior.
+    }
 
     if (err instanceof ZernioReplyVerificationIndeterminateError) {
       await handleVerificationIndeterminate(err, outboxId, outboxAttempt);
@@ -114,6 +140,116 @@ export async function handlePublisherFailed(
       );
     }
   }
+}
+
+/**
+ * Spec §4.5 "Retry exhaustion conversion". Runs in ONE tx using the canonical
+ * review → response lock order (matches `processReview`, avoids deadlocks) and
+ * business-scopes every statement with `business_id` from the failed job's
+ * payload. Returns `true` when this hook took terminal ownership of the outbox
+ * row (converted an orphan → `failed`, or idempotently completed because the
+ * row is no longer publishable / not visible). Returns `false` when the row is
+ * NOT an orphan, so the caller falls through to the existing transient
+ * fallback (today's behavior, unchanged).
+ */
+async function attemptOrphanConversion(
+  data: PublishResponsePayload,
+  outboxId: string,
+  outboxAttempt: number | undefined,
+): Promise<boolean> {
+  const { response_id, business_id } = data;
+
+  // Single-field box so the closure mutation narrows across `await sql.begin`
+  // (a bare `let x = 'fall_through'` gets pinned to that literal by TS narrowing
+  // and the post-await comparisons would be flagged as having no overlap).
+  type Disposition = 'fall_through' | 'completed' | 'failed';
+  const dispositionRef: { value: Disposition } = { value: 'fall_through' };
+
+  await sql.begin(async (tx) => {
+    // 1. Read the response's review_id (business-scoped). No row → not visible
+    //    to this tenant (mismatch) or already deleted; both benign. Close the
+    //    outbox cleanly rather than crash.
+    const [responseRow] = await tx<{ review_id: string }[]>`
+      SELECT review_id FROM responses
+      WHERE id = ${response_id} AND business_id = ${business_id}
+    `;
+    if (!responseRow) {
+      dispositionRef.value = 'completed';
+      return;
+    }
+
+    // 2. Lock the review FIRST — canonical order with processReview.
+    const [reviewLock] = await tx<{ id: string }[]>`
+      SELECT id FROM reviews
+      WHERE id = ${responseRow.review_id} AND business_id = ${business_id}
+      FOR UPDATE
+    `;
+    if (!reviewLock) {
+      // response references a review not visible to its business — should be
+      // impossible if FKs hold. Alert + close the outbox.
+      Sentry.captureMessage('orphan_response_review', {
+        level: 'warning',
+        extra: { response_id, business_id },
+      });
+      dispositionRef.value = 'completed';
+      return;
+    }
+
+    // 3. Lock the response (business-scoped). If processReview ran concurrently
+    //    it has already committed; we read the post-processReview state here.
+    const [lockedResp] = await tx<{ status: string; posting_error: string | null }[]>`
+      SELECT status, posting_error FROM responses
+      WHERE id = ${response_id} AND business_id = ${business_id}
+      FOR UPDATE
+    `;
+    if (!lockedResp) {
+      // Race: deleted between the step-1 read and the lock acquisition.
+      dispositionRef.value = 'completed';
+      return;
+    }
+
+    // 4. Status guard. processReview's supersede branch can move the row out
+    //    from under us — never un-supersede deliberate terminal state.
+    if (!PUBLISHABLE_STATUSES.includes(lockedResp.status as (typeof PUBLISHABLE_STATUSES)[number])) {
+      dispositionRef.value = 'completed';
+      return;
+    }
+
+    // 5. Orphan-marker check (via shared helper — no literals).
+    if (!isOrphanMarker(lockedResp.posting_error)) {
+      // No marker → nothing to commit. Leave disposition 'fall_through' so the
+      // caller runs the generic fallback (no writes pending → commit ≡ rollback).
+      return;
+    }
+
+    // 6. Convert. Status-guarded, business-scoped, affected-row asserted.
+    const updated = await tx`
+      UPDATE responses
+      SET status = 'failed',
+          posting_error = ${POST_AFTER_DELETE_FAILED_RETRY_EXHAUSTED},
+          updated_at = NOW()
+      WHERE id = ${response_id}
+        AND business_id = ${business_id}
+        AND status IN ('approved', 'edited', 'awaiting_owner_connect')
+      RETURNING 1
+    `;
+    if (updated.count !== 1) {
+      throw new Error(
+        `onFailed orphan conversion expected 1 row, got ${updated.count}`,
+      );
+    }
+    dispositionRef.value = 'failed';
+  });
+
+  if (dispositionRef.value === 'completed') {
+    await markOutboxCompleted(outboxId, outboxAttempt);
+    return true;
+  }
+  if (dispositionRef.value === 'failed') {
+    await markOutboxFailed(outboxId, POST_AFTER_DELETE_FAILED_RETRY_EXHAUSTED, outboxAttempt);
+    return true;
+  }
+  return false;
 }
 
 async function handleVerificationIndeterminate(

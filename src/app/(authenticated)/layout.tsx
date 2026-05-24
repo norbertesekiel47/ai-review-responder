@@ -132,6 +132,9 @@ export default async function AuthenticatedLayout({
   const ownerName = appUser?.owner_name ?? '';
   const ownerEmail = appUser?.email ?? authUser.email ?? '';
   const pastRepliesEnabled = process.env.PAST_REPLIES_VIEW_ENABLED === 'true';
+  const editRepliesEnabled =
+    process.env.PAST_REPLIES_VIEW_ENABLED === 'true' &&
+    process.env.EDIT_REPLIES_ENABLED === 'true';
 
   return (
     <div className={`rw-console ${plusJakarta.variable} ${dmSans.variable}`}>
@@ -147,10 +150,11 @@ export default async function AuthenticatedLayout({
               ownerName={ownerName}
               ownerEmail={ownerEmail}
               pastRepliesEnabled={pastRepliesEnabled}
+              editRepliesEnabled={editRepliesEnabled}
             />
             <div className="main">{children}</div>
           </div>
-          <MobileTabBar pastRepliesEnabled={pastRepliesEnabled} />
+          <MobileTabBar pastRepliesEnabled={pastRepliesEnabled} editRepliesEnabled={editRepliesEnabled} />
         </PendingCountProvider>
       </AuthenticatedProviders>
     </div>

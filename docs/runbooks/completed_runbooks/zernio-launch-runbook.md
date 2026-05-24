@@ -733,3 +733,236 @@ Reviving it is a deliberate decision:
   spec §4.5 (out-of-scope for that branch), and ship behind the original
   single `EDIT_EXISTING_REPLIES_ENABLED` flag.
 
+---
+
+## 11. Edit Existing Replies — Phase A/B (feat/edit-existing-replies-revival)
+
+This section covers the operational lifecycle of the revived Zernio edit
+feature (branch `feat/edit-existing-replies-revival`). It supersedes the
+stub in §10.9. Spec of record:
+`docs/superpowers/specs/2026-05-01-edit-existing-replies-design.md`.
+
+---
+
+### 11.1 Feature flags
+
+Three independent server-authoritative flags. **None use the `NEXT_PUBLIC_`
+prefix** — they are server-side env vars only; browser code never sees them.
+
+| Flag | Default | Gates |
+|---|---|---|
+| `EXTERNAL_REPLY_IMPORT_ENABLED` | `false` | Ingestion writes inside `reconcileExternallyAnsweredReview` — import previously-unseen / no-active external replies as `posted` responses. Already shipped (§10). |
+| `PAST_REPLIES_VIEW_ENABLED` | `false` | `/dashboard/past-replies` page + OwnerNav link — read-only view of reply history. Already shipped (§10). |
+| `EDIT_REPLIES_ENABLED` | `false` | **NEW (this branch).** The full edit/regenerate/republish + recovery surface: worker edit-publish dispatch, failed-hook orphan conversion, process-review stale-marking, all edit API routes, and the drawer edit affordances in the UI. |
+
+**Editing requires BOTH** `PAST_REPLIES_VIEW_ENABLED=true` AND
+`EDIT_REPLIES_ENABLED=true`. The page and OwnerNav compute an
+`editEnabled` prop from the conjunction of both flags; the API routes check
+`EDIT_REPLIES_ENABLED` independently (so the routes are dark even if someone
+navigates directly to a URL while the view flag is on but edit is off).
+
+---
+
+### 11.2 Phase A — branch merged, EDIT_REPLIES_ENABLED=false (soak)
+
+Merge `feat/edit-existing-replies-revival` into main with
+`EDIT_REPLIES_ENABLED=false` on both Vercel and Railway. All edit code is
+fully inert:
+
+- **Worker dispatch** (`ResponsePublisherWorker.ts` line ~125): the
+  `if (process.env.EDIT_REPLIES_ENABLED === 'true')` guard is never entered.
+  The publisher falls through to the existing post-only branch regardless of
+  whether a posted sibling or orphan marker exists.
+- **Failed-hook orphan conversion** (`failed-hook.ts` line ~61): the orphan
+  conversion block (`if (process.env.EDIT_REPLIES_ENABLED === 'true')`) is
+  skipped — exhausted transient failures behave as before.
+- **process-review stale-marking** (`process-review.ts` line ~173): the
+  stale-draft detection block is not entered — no responses are marked stale.
+- **API routes** — all return 503 `feature_disabled`:
+  - `POST /api/dashboard/past-replies/draft` (create edit draft)
+  - `PATCH /api/dashboard/past-replies/draft/[responseId]` (update draft)
+  - `DELETE /api/dashboard/past-replies/draft/[responseId]` (discard draft)
+  - `GET /api/dashboard/past-replies/draft-status` (poll draft state)
+  - `POST /api/dashboard/past-replies/publish` (approve edit draft)
+  - `POST /api/dashboard/past-replies/[responseId]/retry` (orphan recovery retry)
+  - `POST /api/dashboard/past-replies/[responseId]/restore-original` (orphan recovery restore)
+- **UI** (`PastRepliesClient.tsx`): `editEnabled` prop is `false` (page
+  server component computes `PAST_REPLIES_VIEW_ENABLED && EDIT_REPLIES_ENABLED`).
+  All edit affordances (Edit/Regenerate buttons, recovery drawer) are hidden.
+
+**Soak period**: ≥ 1 week. Watch for any regressions in existing post-only
+publish flow, migration-related errors, or unexpected 503s on the view routes
+(which are gated by `PAST_REPLIES_VIEW_ENABLED` only and unaffected).
+
+No migration needed — migration 031 already landed (adds `responses.external_reply_id`
+partial unique index `responses_one_posted_per_review`).
+
+---
+
+### 11.3 Phase B — flip EDIT_REPLIES_ENABLED=true
+
+Set `EDIT_REPLIES_ENABLED=true` on both Vercel (Next.js) and Railway (worker).
+No migration, no deployment — env var change only.
+
+After flipping:
+
+- The worker's edit-publish branch becomes active. It dispatches
+  `runEditPublishIfApplicable` when a `publish_response` job finds a
+  posted sibling **or** an orphan marker (`posting_error` is an orphan
+  marker string), bypassing the legacy post-only path for those cases.
+- The failed-hook orphan conversion activates: transient POST-after-DELETE
+  failures convert the candidate to `PENDING_AFTER_DELETE` marker status
+  instead of plain `failed`.
+- All edit API routes become live.
+- The UI edit drawer and recovery surface become visible to owners on the
+  past-replies page.
+
+Verify with a test edit on a non-production review or admin demo account
+before announcing to customers.
+
+---
+
+### 11.4 Ordered Phase-B rollback drain — CRITICAL
+
+**Read this before turning EDIT_REPLIES_ENABLED off in production.**
+
+The publisher's edit branch is selected by **DB state** (posted sibling row /
+orphan markers in `posting_error`), not only by the flag. Turning the flag off
+while edit-publish outboxes or `%_after_delete_succeeded` orphan markers are
+in-flight causes the worker to fall back to the fresh-publish (POST-only)
+branch on rows that need DELETE-first or recovery-only-POST — leading to
+re-orphaning or double-posting.
+
+**Rollback must happen in this exact order:**
+
+1. **Disable the UI flag on Vercel** (`EDIT_REPLIES_ENABLED=false` on Vercel,
+   redeploy). No new edit publishes are enqueued from this point — the edit
+   API routes return 503 and the UI edit affordances disappear.
+
+2. **Let in-flight edit-publish outboxes drain.** Watch `job_outbox` until no
+   pending/dispatched `publish_response` rows remain that were enqueued for an
+   edit candidate:
+
+   ```sql
+   -- Identify in-flight edit-publish outboxes (candidates with a posted sibling
+   -- or orphan marker that have an active outbox row).
+   SELECT jo.id, jo.status, jo.topic, r.status AS response_status,
+          r.posting_error, r.version
+   FROM job_outbox jo
+   JOIN responses r ON r.id = jo.aggregate_id
+   WHERE jo.topic = 'publish_response'
+     AND jo.status IN ('pending', 'dispatched')
+     AND (
+       r.posting_error IS NOT NULL   -- orphan marker rows
+       OR EXISTS (                    -- has a posted sibling
+         SELECT 1 FROM responses sib
+         WHERE sib.review_id = r.review_id
+           AND sib.id != r.id
+           AND sib.status = 'posted'
+       )
+     );
+   -- Target: 0 rows before proceeding to step 3.
+   ```
+
+3. **Verify no recoverable-error rows remain.** Confirm zero `responses` rows
+   with orphan markers or recoverable delete-failed markers:
+
+   ```sql
+   SELECT id, status, posting_error FROM responses
+   WHERE posting_error LIKE 'delete_failed_%'
+      OR posting_error LIKE 'post_after_delete_failed_%'
+      OR posting_error = 'pending_after_delete';
+   -- Target: 0 rows. Any row here = unresolved orphan state that MUST be
+   -- manually resolved via /retry or /restore-original BEFORE disabling Railway.
+   ```
+
+4. **Only then disable Railway flag** (`EDIT_REPLIES_ENABLED=false` on Railway,
+   redeploy worker). The worker is now safe to fall back to post-only.
+
+If you cannot drain cleanly (e.g. a stuck orphan row), resolve it first via
+the recovery surface (`/retry` or `/restore-original` from admin tooling) or
+via the manual SQL in §11.5, then continue.
+
+---
+
+### 11.5 Monitoring
+
+#### Orphan + recoverable error rows
+
+```sql
+-- Active orphan / recoverable error rows (the recovery surface should clear these).
+SELECT r.id, r.business_id, r.review_id, r.status, r.posting_error, r.updated_at
+FROM responses r
+WHERE r.posting_error IS NOT NULL
+  AND (
+    r.posting_error LIKE 'delete_failed_%'          -- DELETE failed, sibling still live
+    OR r.posting_error LIKE 'post_after_delete_%'   -- POST failed after DELETE, sibling gone
+    OR r.posting_error = 'pending_after_delete'     -- orphan in-flight retry
+  )
+ORDER BY r.updated_at DESC;
+-- Target: 0 rows steady-state. Any row = owner recovery needed or worker retry pending.
+```
+
+#### Recovery surface usage
+
+The `/retry` and `/restore-original` routes are the owner-facing recovery
+surface for orphaned replies. Watch for 4xx/5xx on these routes in Sentry
+(tag: `edit_reply_recovery`). A spike indicates an orphan state the routes
+can't handle automatically — escalate to engineering.
+
+```sql
+-- Failed responses by edit-specific error type (last 24h).
+SELECT posting_error, COUNT(*) AS cnt
+FROM responses
+WHERE updated_at > NOW() - INTERVAL '24 hours'
+  AND posting_error IS NOT NULL
+GROUP BY posting_error
+ORDER BY cnt DESC;
+```
+
+#### Sentry signals
+
+| Signal | Threshold | Action |
+|---|---|---|
+| `edit_publish_delete_failed` errors | >0 in 1h | Review Zernio API health; check `delete_failed_*` rows |
+| `edit_publish_post_after_delete_failed` permanent errors | >0 | Owner recovery needed; check orphan rows |
+| Orphan marker rows (`PENDING_AFTER_DELETE`) uncleared >30min | >0 | BullMQ may be stuck; check worker logs |
+| `/retry` or `/restore-original` 5xx rate | >0 in 1h | Engineering escalation |
+
+---
+
+### 11.6 CI gate — integration hard gate
+
+The integration test at
+`worker/jobs/publisher/__tests__/integration-edit-existing-reply.test.ts`
+is the HARD MERGE GATE for the orphan/recovery logic. It runs against a REAL
+Postgres database and exercises the actual `FOR UPDATE` locking, per-CATCH
+COMMIT/ROLLBACK semantics, and recovery route transactions that unit tests
+cannot cover (mocked `sql` seam).
+
+The test suite **skips** when `TEST_DATABASE_POOL_URL` is absent (local dev
+without a test DB). To prevent this skip from silently bypassing the gate in
+CI, the `test:integration` script in `package.json` fails-closed:
+
+```bash
+pnpm test:integration   # requires TEST_DATABASE_POOL_URL to be set
+```
+
+**CI MUST run `pnpm test:integration`** with `TEST_DATABASE_POOL_URL` set to a
+real test database (not the production DB). If the variable is absent, the
+script exits with code 1 before Vitest even starts — the gate cannot be
+silently bypassed.
+
+If a `.github/workflows/` directory is added in the future, add a dedicated
+integration job:
+
+```yaml
+- name: Integration hard gate (edit-replies orphan/recovery)
+  env:
+    TEST_DATABASE_POOL_URL: ${{ secrets.TEST_DATABASE_POOL_URL }}
+  run: pnpm test:integration
+```
+
+This job must run on every PR targeting `main` and on every push to `main`.
+It should be a required status check — not advisory.
+

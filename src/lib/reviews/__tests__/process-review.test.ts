@@ -3,7 +3,7 @@
 // Unit tests for processReview's ON CONFLICT race-handling and
 // suppressNotification propagation. sql.begin is mocked so no DB is required.
 //
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // We capture payloads passed to jsonb() via a module-level array.
 // The array is declared here and the vi.mock factory closes over it.
@@ -180,6 +180,168 @@ describe('processReview', () => {
     const payload = capturedJsonbPayloads[0] as Record<string, unknown>;
     expect(payload['suppress_notification']).toBe(false);
   });
+
+  // ── Stale-marking (Task 8) ────────────────────────────────────────────
+  //
+  // How SQL capturing works in these tests:
+  //   tx is a vi.fn() called as a tagged template literal: tx`SQL ${param}...`
+  //   call[0]  = TemplateStringsArray  — the literal SQL parts (joined with '?')
+  //   call.slice(1) = parameter values — the interpolated values in order
+  //
+  // Values like STALE_AFTER_REVIEW_CHANGED and the LIKE patterns are bound
+  // as SQL parameters (interpolated), NOT embedded in the template strings.
+  // We identify the stale-marking UPDATE by its template structure
+  // ('UPDATE responses' + 'status = \'failed\'') and verify parameters separately.
+
+  describe('stale-marking recoverable failed rows on content change (EDIT_REPLIES_ENABLED=true)', () => {
+    beforeEach(() => {
+      process.env['EDIT_REPLIES_ENABLED'] = 'true';
+    });
+
+    afterEach(() => {
+      delete process.env['EDIT_REPLIES_ENABLED'];
+    });
+
+    // Helper: find the stale-marking UPDATE call from tx.mock.calls.
+    // Identified by its template structure: UPDATE responses + status = 'failed'.
+    function findStaleMarkingCall(calls: unknown[][]): unknown[] | undefined {
+      return calls.find((call) => {
+        const template = (call[0] as TemplateStringsArray | undefined)?.join('?') ?? '';
+        return template.includes('UPDATE responses') && template.includes("status = 'failed'");
+      });
+    }
+
+    it('marks failed rows with delete_failed_* prefix as stale_after_review_changed', async () => {
+      // Scenario: review content changed, existing failed row with posting_error='delete_failed_inbox_addon_required'.
+      // Expected: stale-marking UPDATE fires before the reviews UPDATE; the failed row is not the active response.
+      const monitored = makeMonitoredReview({ contentHash: 'new-hash' });
+
+      // tx call sequence (content change, no active response):
+      //   1. SELECT FOR UPDATE existing → found with DIFFERENT hash
+      //   2. UPDATE responses SET stale_after_review_changed (stale-marking sweep, flag on)
+      //   3. UPDATE reviews SET reviewer_name/hash
+      //   4. SELECT active response FOR UPDATE → none (failed row is excluded by NOT IN ('superseded','failed'))
+      //   5. SELECT MAX(version) for nextVersion
+      //   6. INSERT job_outbox (generate_response)
+      tx
+        .mockResolvedValueOnce(withCount([{ id: 'existing-rev', review_content_hash: 'old-hash', status: 'new' }], 1))
+        .mockResolvedValueOnce(withCount([], 0))  // stale-marking UPDATE responses
+        .mockResolvedValueOnce(withCount([], 0))  // UPDATE reviews
+        .mockResolvedValueOnce(withCount([], 0))  // SELECT active response → none
+        .mockResolvedValueOnce(withCount([{ next_version: 2 }], 1))  // SELECT MAX(version)
+        .mockResolvedValueOnce(withCount([], 0));  // INSERT job_outbox
+
+      const result = await processReview(monitored, 'biz-1', 'corr-1');
+
+      expect(result).toBe('updated');
+      expect(tx).toHaveBeenCalledTimes(6);
+
+      const staleCall = findStaleMarkingCall(tx.mock.calls as unknown[][]);
+      expect(staleCall).toBeDefined();
+
+      // Parameters must include stale_after_review_changed as the SET value
+      const params = (staleCall as unknown[]).slice(1);
+      expect(params).toContain('stale_after_review_changed');
+      // And the LIKE pattern for the delete_failed_ prefix
+      expect(params.some((p) => typeof p === 'string' && p.startsWith('delete_failed_'))).toBe(true);
+
+      // Stale-marking (call index 1) must precede the reviews UPDATE (call index 2)
+      const staleIdx = (tx.mock.calls as unknown[][]).indexOf(staleCall!);
+      const reviewsUpdateIdx = (tx.mock.calls as unknown[][]).findIndex(
+        (call) => ((call[0] as TemplateStringsArray | undefined)?.join('?') ?? '').includes('reviewer_name'),
+      );
+      expect(staleIdx).toBeGreaterThanOrEqual(0);
+      expect(reviewsUpdateIdx).toBeGreaterThan(staleIdx);
+    });
+
+    it('marks failed rows with post_after_delete_failed_* prefix as stale_after_review_changed', async () => {
+      // Scenario: review content changed, existing failed row with posting_error='post_after_delete_failed_http_400'.
+      // The active response SELECT excludes failed rows; this test verifies the sweep covers the orphan prefix too.
+      const monitored = makeMonitoredReview({ contentHash: 'new-hash' });
+
+      tx
+        .mockResolvedValueOnce(withCount([{ id: 'existing-rev', review_content_hash: 'old-hash', status: 'new' }], 1))
+        .mockResolvedValueOnce(withCount([], 0))  // stale-marking UPDATE responses
+        .mockResolvedValueOnce(withCount([], 0))  // UPDATE reviews
+        .mockResolvedValueOnce(withCount([], 0))  // SELECT active response → none
+        .mockResolvedValueOnce(withCount([{ next_version: 2 }], 1))  // SELECT MAX(version)
+        .mockResolvedValueOnce(withCount([], 0));  // INSERT job_outbox
+
+      const result = await processReview(monitored, 'biz-1', 'corr-1');
+
+      expect(result).toBe('updated');
+
+      const staleCall = findStaleMarkingCall(tx.mock.calls as unknown[][]);
+      expect(staleCall).toBeDefined();
+
+      const params = (staleCall as unknown[]).slice(1);
+      // Parameters include both the target marker and the post_after_delete_failed_ LIKE pattern
+      expect(params).toContain('stale_after_review_changed');
+      expect(params.some((p) => typeof p === 'string' && p.startsWith('post_after_delete_failed_'))).toBe(true);
+    });
+
+    it('does NOT touch failed rows with unrelated posting_error (negative case)', async () => {
+      // A 'failed' row with posting_error='zernio_permanent_4xx' is NOT in the recoverable allowlist.
+      // The UPDATE's WHERE clause limits to the two recoverable LIKE prefixes — 'zernio_permanent_4xx'
+      // will not match and gets 0 rows affected. We verify the correct WHERE parameters are used.
+      const monitored = makeMonitoredReview({ contentHash: 'new-hash' });
+
+      tx
+        .mockResolvedValueOnce(withCount([{ id: 'existing-rev', review_content_hash: 'old-hash', status: 'new' }], 1))
+        .mockResolvedValueOnce(withCount([], 0))  // stale-marking UPDATE (0 rows — unrelated error not matched)
+        .mockResolvedValueOnce(withCount([], 0))  // UPDATE reviews
+        .mockResolvedValueOnce(withCount([], 0))  // SELECT active response → none
+        .mockResolvedValueOnce(withCount([{ next_version: 2 }], 1))  // SELECT MAX(version)
+        .mockResolvedValueOnce(withCount([], 0));  // INSERT job_outbox
+
+      const result = await processReview(monitored, 'biz-1', 'corr-1');
+      expect(result).toBe('updated');
+
+      const staleCall = findStaleMarkingCall(tx.mock.calls as unknown[][]);
+      expect(staleCall).toBeDefined();
+
+      const params = (staleCall as unknown[]).slice(1);
+      // Only delete_failed_ and post_after_delete_failed_ LIKE patterns are params — not any unrelated error
+      expect(params.some((p) => typeof p === 'string' && p.startsWith('delete_failed_'))).toBe(true);
+      expect(params.some((p) => typeof p === 'string' && p.startsWith('post_after_delete_failed_'))).toBe(true);
+      // 'zernio_permanent_4xx' must NOT appear as a parameter
+      expect(params).not.toContain('zernio_permanent_4xx');
+    });
+  });
+
+  describe('stale-marking is inert when EDIT_REPLIES_ENABLED is off', () => {
+    beforeEach(() => {
+      delete process.env['EDIT_REPLIES_ENABLED'];
+    });
+
+    it('does NOT emit stale-marking UPDATE when flag is off (content change, no active response)', async () => {
+      const monitored = makeMonitoredReview({ contentHash: 'new-hash' });
+
+      // tx call sequence WITHOUT stale-marking (flag off):
+      //   1. SELECT FOR UPDATE existing → found with DIFFERENT hash
+      //   2. UPDATE reviews SET reviewer_name/hash
+      //   3. SELECT active response FOR UPDATE → none
+      //   4. SELECT MAX(version)
+      //   5. INSERT job_outbox
+      tx
+        .mockResolvedValueOnce(withCount([{ id: 'existing-rev', review_content_hash: 'old-hash', status: 'new' }], 1))
+        .mockResolvedValueOnce(withCount([], 0))  // UPDATE reviews (no stale-marking call before this)
+        .mockResolvedValueOnce(withCount([], 0))  // SELECT active response → none
+        .mockResolvedValueOnce(withCount([{ next_version: 2 }], 1))  // SELECT MAX(version)
+        .mockResolvedValueOnce(withCount([], 0));  // INSERT job_outbox
+
+      const result = await processReview(monitored, 'biz-1', 'corr-1');
+      expect(result).toBe('updated');
+
+      const allParams = (tx.mock.calls as unknown[][]).flatMap((call) => call.slice(1));
+      // stale_after_review_changed must NOT appear in any tx call's parameters
+      expect(allParams).not.toContain('stale_after_review_changed');
+      // Exactly 5 tx calls (no extra stale UPDATE)
+      expect(tx).toHaveBeenCalledTimes(5);
+    });
+  });
+
+  // ── Existing content-change tests (flag off — stale UPDATE not injected) ──
 
   it('content change on awaiting_owner_connect response: supersedes response + opens review_exception', async () => {
     const monitored = makeMonitoredReview({ contentHash: 'new-hash' });

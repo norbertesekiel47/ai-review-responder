@@ -245,6 +245,7 @@
 }
 .pr-prov-imported { background: #FEF3C7; color: #92400E; }
 .pr-prov-repworth { background: var(--rw-blue-100); color: var(--rw-blue-800); }
+.pr-prov-recovery { background: rgba(242, 195, 185, 0.15); border: 1px solid #F2C3B9; color: #7a3e2b; }
 
 /* Empty state */
 .pr-empty {
@@ -318,3 +319,66 @@
 .pr-card.flash { animation: fadeUp 360ms var(--rw-ease) both, highlightPulse 1.2s ease-out; }
 
 .pr-mark { background: #FEF08A; padding: 0 2px; border-radius: 2px; color: inherit; }
+
+/* ── Edit feature affordances ────────────────────────────────────────────── */
+/* Rendered only when editRepliesEnabled=true (flag gate in PastReplyCard). */
+
+.pr-edit-row {
+  display: flex;
+  align-items: center;
+  margin-top: 4px;
+  padding-top: 4px;
+}
+
+/* Edit CTA — teal outline pill matching brand secondary button style. */
+.pr-edit-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 11px;
+  border-radius: 9999px;
+  border: 1px solid rgba(151, 179, 174, 0.4); /* #97B3AE/40 */
+  background: #fff;
+  color: #97B3AE;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: var(--rw-font-body);
+  cursor: pointer;
+  transition: all 140ms var(--rw-ease);
+}
+.pr-edit-btn:hover { background: rgba(240, 238, 234, 0.4); border-color: #97B3AE; }
+
+/* Lock badge — muted pill shown for non-premium historical rows. */
+.pr-premium-lock {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 9999px;
+  background: #D6CBBF33;
+  border: 1px solid #D6CBBF;
+  color: #6a6a6a;
+  font-size: 10px;
+  font-weight: 600;
+  font-family: var(--rw-font-body);
+  letter-spacing: 0.02em;
+  cursor: default;
+}
+
+/* Recovery CTA — blush/warm-beige attention state, matching brand accent. */
+.pr-recovery-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 11px;
+  border-radius: 9999px;
+  border: 1px solid rgba(242, 195, 185, 0.6); /* #F2C3B9/60 */
+  background: rgba(242, 195, 185, 0.15);
+  color: #7a3e2b;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: var(--rw-font-body);
+  cursor: pointer;
+  transition: all 140ms var(--rw-ease);
+}
+.pr-recovery-btn:hover { background: rgba(242, 195, 185, 0.30); border-color: #F2C3B9; }

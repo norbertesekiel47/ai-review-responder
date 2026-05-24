@@ -7,9 +7,11 @@ import { usePendingCount } from './PendingCountContext';
 
 interface Props {
   pastRepliesEnabled: boolean;
+  /** Server-authoritative — requires pastRepliesEnabled. Read at layout level. */
+  editRepliesEnabled?: boolean;
 }
 
-export function MobileTabBar({ pastRepliesEnabled }: Props) {
+export function MobileTabBar({ pastRepliesEnabled, editRepliesEnabled = false }: Props) {
   const pathname = usePathname() ?? '';
   const isHome = pathname === '/dashboard';
   const isHistory = pathname === '/dashboard/past-replies';

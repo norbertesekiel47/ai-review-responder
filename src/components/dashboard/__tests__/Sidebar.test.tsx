@@ -47,6 +47,7 @@ describe('Sidebar', () => {
           ownerName="Maya Chen"
           ownerEmail="maya@bristolbay.co"
           pastRepliesEnabled
+          editRepliesEnabled={false}
         />,
       ),
     );
@@ -68,6 +69,7 @@ describe('Sidebar', () => {
           ownerName=""
           ownerEmail="a@b.co"
           pastRepliesEnabled={false}
+          editRepliesEnabled={false}
         />,
       ),
     );
@@ -82,6 +84,7 @@ describe('Sidebar', () => {
           ownerName=""
           ownerEmail="a@b.co"
           pastRepliesEnabled
+          editRepliesEnabled={false}
         />,
       ),
     );
@@ -98,6 +101,7 @@ describe('Sidebar', () => {
           ownerName=""
           ownerEmail="a@b.co"
           pastRepliesEnabled
+          editRepliesEnabled={false}
         />,
       ),
     );
@@ -114,6 +118,7 @@ describe('Sidebar', () => {
           ownerName="Maya"
           ownerEmail="maya@test.co"
           pastRepliesEnabled
+          editRepliesEnabled={false}
         />,
         {
           locations: [
