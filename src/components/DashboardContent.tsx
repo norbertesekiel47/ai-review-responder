@@ -50,7 +50,6 @@ export function DashboardContent() {
         }
       }, 100);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Push pending count to the layout-scoped context so MobileTabBar's "Needs
