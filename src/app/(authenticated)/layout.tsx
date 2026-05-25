@@ -49,7 +49,7 @@ export default async function AuthenticatedLayout({
           return cookieStore.getAll();
         },
         setAll() {
-          // Layout can't set cookies — handled by middleware
+          // Layout can't set cookies — handled by proxy
         },
       },
     },

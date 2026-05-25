@@ -153,7 +153,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   // "No users row" in any other flow → sign out + account_incomplete.
-  // Redirecting anywhere else causes a middleware-redirect loop. Sign
+  // Redirecting anywhere else causes a proxy-redirect loop. Sign
   // them out so they can retry cleanly with a different account.
   //
   // signOut writes cleared session cookies into the `response` jar via

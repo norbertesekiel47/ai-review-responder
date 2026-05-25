@@ -130,7 +130,7 @@ describe('POST /api/onboarding/business', () => {
     expect(json.error).toBe('account_incomplete');
   });
 
-  it('SQL boundary: lookup query filters on u.role = \'owner\' (B17 #1 — middleware does NOT gate /api/onboarding/*)', async () => {
+  it('SQL boundary: lookup query filters on u.role = \'owner\' (B17 #1 - proxy does NOT gate /api/onboarding/*)', async () => {
     mockSql.mockResolvedValueOnce([activeBizRow]);
     mockSql.mockResolvedValueOnce([]); // pg_advisory_xact_lock
     mockSql.mockResolvedValueOnce([activeBizRow]); // FOR UPDATE

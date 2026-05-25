@@ -46,7 +46,7 @@ export async function requireOwnerAccess(): Promise<OwnerAccess> {
           return cookieStore.getAll();
         },
         setAll() {
-          // Server components can't set cookies; middleware handles refresh.
+          // Server components can't set cookies; proxy handles refresh.
         },
       },
     },

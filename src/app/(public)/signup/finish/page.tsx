@@ -18,7 +18,7 @@ export default async function FinishSignupPage() {
         setAll() {
           // Read-only — page-level SSR never rewrites session cookies.
           // Any refresh the browser needs happens on the next navigation
-          // through the middleware.
+          // through the proxy.
         },
       },
     },

@@ -100,13 +100,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // 4. Look up the business owned by this auth user. Service-role sql
   //    enforces the auth_id scope in the WHERE clause (no RLS on businesses).
   //
-  //    Defense-in-depth: explicit `u.role = 'owner'` filter. Middleware gates
-  //    /onboarding/* PAGES on role, but middleware doesn't check `/api/onboarding/*`
+  //    Defense-in-depth: explicit `u.role = 'owner'` filter. Proxy gates
+  //    /onboarding/* PAGES on role, but proxy doesn't check `/api/onboarding/*`
   //    — direct API calls from a signed-in admin/sales_partner session would
   //    otherwise have access to whatever primary business their account points
   //    at (NULL for true admins, but a sales_partner row could be misconfigured).
   //    Filtering at the SQL boundary makes this an authorization invariant
-  //    that survives middleware refactors.
+  //    that survives proxy refactors.
   const [bizRow] = await sql<BusinessRow[]>`
     SELECT b.id, a.id AS account_id, a.subscription_status, b.place_id_verified, b.google_maps_url
     FROM users u

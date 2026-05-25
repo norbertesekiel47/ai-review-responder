@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
-import { middleware } from '../middleware';
+import { proxy } from '../proxy';
 
 const { getUser } = vi.hoisted(() => ({
   getUser: vi.fn(),
@@ -36,36 +36,36 @@ function request(url: string): NextRequest {
   });
 }
 
-function hasComingSoonMiddlewareHeader(response: Response): boolean {
+function hasComingSoonProxyHeader(response: Response): boolean {
   return Array.from(response.headers.entries()).some(([key, value]) => {
     return key.toLowerCase().includes('coming-soon') || value.toLowerCase().includes('x-coming-soon');
   });
 }
 
-describe('middleware public launch host behavior', () => {
+describe('proxy public launch host behavior', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getUser.mockResolvedValue({ data: { user: null } });
   });
 
   it('does not inject coming-soon headers for repworth.net public pages', async () => {
-    const response = await middleware(request('https://repworth.net/'));
+    const response = await proxy(request('https://repworth.net/'));
 
     expect(response.headers.get('location')).toBeNull();
-    expect(hasComingSoonMiddlewareHeader(response)).toBe(false);
+    expect(hasComingSoonProxyHeader(response)).toBe(false);
     expect(createServerClient).not.toHaveBeenCalled();
   });
 
   it('allows repworth.net owner login to pass through as a public route', async () => {
-    const response = await middleware(request('https://repworth.net/login'));
+    const response = await proxy(request('https://repworth.net/login'));
 
     expect(response.headers.get('location')).toBeNull();
-    expect(hasComingSoonMiddlewareHeader(response)).toBe(false);
+    expect(hasComingSoonProxyHeader(response)).toBe(false);
     expect(createServerClient).not.toHaveBeenCalled();
   });
 
   it('uses normal admin auth redirect behavior on repworth.net protected pages', async () => {
-    const response = await middleware(request('https://repworth.net/admin/overview'));
+    const response = await proxy(request('https://repworth.net/admin/overview'));
     const location = response.headers.get('location');
 
     expect(createServerClient).toHaveBeenCalledTimes(1);
@@ -77,14 +77,14 @@ describe('middleware public launch host behavior', () => {
   });
 
   it('returns 401 for unauthenticated billing API requests', async () => {
-    const response = await middleware(request('https://repworth.net/api/billing/checkout'));
+    const response = await proxy(request('https://repworth.net/api/billing/checkout'));
 
     expect(response.status).toBe(401);
     expect(createServerClient).toHaveBeenCalledTimes(1);
   });
 
   it('returns 401 for unauthenticated location API requests', async () => {
-    const response = await middleware(request('https://repworth.net/api/locations/add'));
+    const response = await proxy(request('https://repworth.net/api/locations/add'));
 
     expect(response.status).toBe(401);
     expect(createServerClient).toHaveBeenCalledTimes(1);
@@ -93,7 +93,7 @@ describe('middleware public launch host behavior', () => {
   it('redirects sales_partner away from protected admin pages', async () => {
     getUser.mockResolvedValueOnce({ data: { user: { id: 'auth-sales' } } });
 
-    const response = await middleware(request('https://repworth.net/admin/overview'));
+    const response = await proxy(request('https://repworth.net/admin/overview'));
     const location = response.headers.get('location');
 
     expect(location).not.toBeNull();
@@ -105,7 +105,7 @@ describe('middleware public launch host behavior', () => {
   it('returns 403 for sales_partner admin API requests', async () => {
     getUser.mockResolvedValueOnce({ data: { user: { id: 'auth-sales' } } });
 
-    const response = await middleware(request('https://repworth.net/api/admin/overview'));
+    const response = await proxy(request('https://repworth.net/api/admin/overview'));
 
     expect(response.status).toBe(403);
   });
@@ -113,7 +113,7 @@ describe('middleware public launch host behavior', () => {
   it('redirects sales_partner away from protected onboarding pages', async () => {
     getUser.mockResolvedValueOnce({ data: { user: { id: 'auth-sales' } } });
 
-    const response = await middleware(request('https://repworth.net/onboarding/start'));
+    const response = await proxy(request('https://repworth.net/onboarding/start'));
     const location = response.headers.get('location');
 
     expect(location).not.toBeNull();

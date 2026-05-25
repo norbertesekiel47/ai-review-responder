@@ -2,7 +2,7 @@ export function isProtectedRoute(pathname: string): boolean {
   // Normalize trailing slash before any comparison.
   //
   // Next.js's default `trailingSlash: false` setting redirects `/x/` → `/x`,
-  // but that redirect runs AFTER middleware. Middleware sees the original
+  // but that redirect runs AFTER proxy. Proxy sees the original
   // request path. Without normalization here, `/admin/login/` would fail the
   // exact-match exemption check (`'/admin/login/' === '/admin/login'` is
   // false) AND match the protected `startsWith('/admin/')` branch, locking

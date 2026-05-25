@@ -36,7 +36,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   // 3. Read session via cookie-bound anon client. setAll is a no-op — this
   //    handler never rewrites session cookies; any refresh the browser needs
-  //    happens on the next page load through the middleware/page-level SSR path.
+  //    happens on the next page load through the proxy/page-level SSR path.
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
