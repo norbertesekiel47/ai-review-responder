@@ -28,6 +28,49 @@ export function LegalPage({ doc }: { doc: LegalDoc }) {
                     {paragraph}
                   </p>
                 ))}
+                {section.bullets && (
+                  <ul className="list-disc space-y-2 pl-5 text-sm leading-relaxed">
+                    {section.bullets.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                )}
+                {section.table && (
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-collapse text-sm">
+                      <thead>
+                        <tr className="border-b border-[#97B3AE]/20">
+                          {section.table.headers.map((header) => (
+                            <th
+                              key={header}
+                              className="py-2 pr-6 text-left font-medium text-[#2a2a2a]"
+                            >
+                              {header}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#97B3AE]/10">
+                        {section.table.rows.map((row) => (
+                          <tr key={row.join('|')}>
+                            {row.map((cell, index) => (
+                              <td
+                                key={`${row[0]}-${cell}`}
+                                className={`py-2 pr-6 ${
+                                  index === 0
+                                    ? 'whitespace-nowrap font-medium text-[#2a2a2a]'
+                                    : 'text-[#4a4a4a]'
+                                }`}
+                              >
+                                {cell}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </section>
             ))}
           </div>

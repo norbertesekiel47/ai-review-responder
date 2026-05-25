@@ -972,6 +972,9 @@ function ManualEditor({
       >
         New reply
       </label>
+      <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+        {AI_DRAFT_DISCLOSURE}
+      </div>
       <textarea
         id="reply-textarea"
         value={text}
