@@ -24,6 +24,7 @@ const {
   mockPostReply,
   mockListAllReviews,
   mockRunEditPublishIfApplicable,
+  mockMaybeCaptureActivationCompleted,
 } = vi.hoisted(() => {
   const sqlReturnQueue: unknown[] = [];
 
@@ -47,6 +48,7 @@ const {
     // Defaults to continue_to_fresh so existing tests stay on the POST-only path
     // even when the edit dispatch predicate happens to open the module.
     mockRunEditPublishIfApplicable: vi.fn().mockResolvedValue({ outcome: 'continue_to_fresh' }),
+    mockMaybeCaptureActivationCompleted: vi.fn().mockResolvedValue(undefined),
   };
 });
 
@@ -70,6 +72,9 @@ vi.mock('../../../../src/lib/zernio/client', () => ({
 vi.mock('uuid', () => ({ v7: vi.fn(() => 'test-uuid') }));
 vi.mock('../edit-publish', () => ({
   runEditPublishIfApplicable: mockRunEditPublishIfApplicable,
+}));
+vi.mock('../activation', () => ({
+  maybeCaptureActivationCompleted: mockMaybeCaptureActivationCompleted,
 }));
 
 import { handlePublishResponse } from '../ResponsePublisherWorker';
@@ -157,6 +162,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     delete process.env.EDIT_REPLIES_ENABLED;
     // clearAllMocks wipes the queued/persistent return; re-establish the safe default.
     mockRunEditPublishIfApplicable.mockResolvedValue({ outcome: 'continue_to_fresh' });
+    mockMaybeCaptureActivationCompleted.mockResolvedValue(undefined);
   });
 
   // ── Steps 1–3 unchanged behavior ────────────────────────────────────
@@ -188,6 +194,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
 
     expect(mockLookupZernioReviewId).not.toHaveBeenCalled();
     expect(mockPostReply).not.toHaveBeenCalled();
+    expect(mockMaybeCaptureActivationCompleted).not.toHaveBeenCalled();
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
   });
@@ -297,6 +304,33 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     expect(mockLookupZernioReviewId).toHaveBeenCalledWith('biz-1', 'rev-1', 'acct-1', 'loc-1');
     expect(mockPostReply).toHaveBeenCalledWith('acct-1', 'zernio-rev-id-1', {
       comment: 'Thank you for your kind review!',
+    });
+    expect(mockMaybeCaptureActivationCompleted).toHaveBeenCalledWith({
+      responseId: 'resp-1',
+      businessId: 'biz-1',
+      reviewId: 'rev-1',
+      logger: expect.any(Object),
+    });
+    expect(mockMaybeCaptureActivationCompleted).toHaveBeenCalledTimes(1);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+  });
+
+  it('still completes outbox when activation capture rejects after publish success', async () => {
+    pushZernioSuccessSequence();
+    mockLookupZernioReviewId.mockResolvedValueOnce('zernio-rev-id-1');
+    mockPostReply.mockResolvedValueOnce({
+      comment: 'Thank you for your kind review!',
+      updateTime: '2026-04-27T00:00:00Z',
+    });
+    mockMaybeCaptureActivationCompleted.mockRejectedValueOnce(new Error('analytics down'));
+
+    await expect(handlePublishResponse(makeJob())).resolves.toBeUndefined();
+
+    expect(mockMaybeCaptureActivationCompleted).toHaveBeenCalledWith({
+      responseId: 'resp-1',
+      businessId: 'biz-1',
+      reviewId: 'rev-1',
+      logger: expect.any(Object),
     });
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
   });
@@ -612,6 +646,7 @@ describe('ResponsePublisherWorker — edit-publish dispatch (Task 6)', () => {
     sqlReturnQueue.length = 0;
     delete process.env.EDIT_REPLIES_ENABLED;
     mockRunEditPublishIfApplicable.mockResolvedValue({ outcome: 'continue_to_fresh' });
+    mockMaybeCaptureActivationCompleted.mockResolvedValue(undefined);
   });
 
   function pushDispatchBaseSequence(responseOverrides: Record<string, unknown> = {}) {

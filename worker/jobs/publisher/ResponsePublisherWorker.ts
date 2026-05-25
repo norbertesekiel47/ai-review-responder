@@ -12,6 +12,7 @@ import { postReplyAndHandleTerminalOutcomes } from './post-reply';
 import { resolvePublishableZernioReviewId } from './review-lookup';
 import { runEditPublishIfApplicable } from './edit-publish';
 import { isOrphanMarker } from './orphan-markers';
+import { maybeCaptureActivationCompleted } from './activation';
 import type { ZernioConnectionRow } from './types';
 
 export async function handlePublishResponse(
@@ -189,6 +190,19 @@ export async function handlePublishResponse(
   logger.log(
     `Response ${response_id} posted via Zernio for business ${businessId}`,
   );
+
+  try {
+    await maybeCaptureActivationCompleted({
+      responseId: response_id,
+      businessId,
+      reviewId: response.review_id,
+      logger,
+    });
+  } catch (err) {
+    logger.warn(
+      `activation_completed capture failed for response ${response_id}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
 
   await markOutboxCompleted(outboxId, outboxAttempt);
 }
