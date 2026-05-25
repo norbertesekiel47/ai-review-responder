@@ -89,6 +89,26 @@ function activeStripeSubscriptions(
   );
 }
 
+function parseAccountFlags(flags: Record<string, unknown> | string | null | undefined): Record<string, unknown> {
+  if (!flags) return {};
+  if (typeof flags === 'string') {
+    try {
+      const parsed = JSON.parse(flags);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+        ? parsed as Record<string, unknown>
+        : {};
+    } catch {
+      return {};
+    }
+  }
+  return flags;
+}
+
+function isPilotAccount(flags: Record<string, unknown> | string | null | undefined): boolean {
+  const parsedFlags = parseAccountFlags(flags);
+  return parsedFlags.is_pilot === true || parsedFlags.pilot === true;
+}
+
 function findOverageItem(
   subscription: Stripe.Subscription,
   overagePriceIds: Set<string>,
@@ -212,9 +232,10 @@ export async function runOnce(): Promise<ReconcileResult> {
         const expectedAccount: BillingReconciliationAccount = {
           ...account,
           active_location_count: activeLocations,
-          flags: account.flags ?? {},
+          flags: parseAccountFlags(account.flags),
         };
         const expectedInvoice = expectedInvoiceForAccount(expectedAccount);
+        const isPilot = isPilotAccount(expectedAccount.flags);
 
         if (!account.stripe_subscription_id) {
           emitDriftAlert(account.id, {
@@ -224,6 +245,7 @@ export async function runOnce(): Promise<ReconcileResult> {
             activeLocations,
             locationsIncluded: account.locations_included,
             tier,
+            isPilot,
             dbStatus: account.subscription_status,
             stripeCustomerId: account.stripe_customer_id,
             driftMessage: `Missing Stripe subscription id for paid account ${account.id}`,
@@ -251,6 +273,7 @@ export async function runOnce(): Promise<ReconcileResult> {
             activeLocations,
             locationsIncluded: account.locations_included,
             tier,
+            isPilot,
             dbStatus: account.subscription_status,
             stripeSubscriptionId: account.stripe_subscription_id,
             stripeCustomerId: account.stripe_customer_id,
@@ -278,6 +301,7 @@ export async function runOnce(): Promise<ReconcileResult> {
                 activeLocations,
                 locationsIncluded: account.locations_included,
                 tier,
+                isPilot,
                 dbStatus: account.subscription_status,
                 stripeStatus: subscription.status,
                 stripeSubscriptionId: subscription.id,
@@ -306,6 +330,7 @@ export async function runOnce(): Promise<ReconcileResult> {
             activeLocations,
             locationsIncluded: account.locations_included,
             tier,
+            isPilot,
             dbStatus: account.subscription_status,
             stripeStatus: subscription.status,
             stripeSubscriptionId: subscription.id,
@@ -333,6 +358,7 @@ export async function runOnce(): Promise<ReconcileResult> {
             activeLocations,
             locationsIncluded: account.locations_included,
             tier,
+            isPilot,
             expectedCents: expectedInvoice.baseCents,
             actualCents: baseUnitAmount,
             dbStatus: account.subscription_status,
@@ -357,6 +383,7 @@ export async function runOnce(): Promise<ReconcileResult> {
             activeLocations,
             locationsIncluded: account.locations_included,
             tier,
+            isPilot,
             expectedCents: expectedInvoice.overageUnitPriceCents,
             actualCents: overageUnitAmount,
             dbStatus: account.subscription_status,
@@ -379,6 +406,7 @@ export async function runOnce(): Promise<ReconcileResult> {
               activeLocations,
               locationsIncluded: account.locations_included,
               tier,
+              isPilot,
               dbStatus: account.subscription_status,
               stripeStatus: subscription.status,
               stripeSubscriptionId: subscription.id,
@@ -394,6 +422,7 @@ export async function runOnce(): Promise<ReconcileResult> {
             activeLocations,
             locationsIncluded: account.locations_included,
             tier,
+            isPilot,
             dbStatus: account.subscription_status,
             stripeStatus: subscription.status,
             stripeSubscriptionId: subscription.id,
@@ -427,6 +456,7 @@ export async function runOnce(): Promise<ReconcileResult> {
               activeLocations,
               locationsIncluded: account.locations_included,
               tier,
+              isPilot,
               expectedCents: drift.expectedCents,
               actualCents: drift.actualCents,
               dbStatus: account.subscription_status,
@@ -476,6 +506,7 @@ interface DriftAlertPayload {
   activeLocations: number;
   locationsIncluded: number;
   tier: string;
+  isPilot?: boolean;
   expectedCents?: number;
   actualCents?: number;
   dbStatus?: string;
@@ -506,6 +537,7 @@ function emitDriftAlert(
         feature: 'stripe_reconciliation',
         account_id: accountId,
         drift_type: payload.driftType ?? 'quantity_mismatch',
+        is_pilot: String(payload.isPilot === true),
       },
       extra: {
         accountId,
@@ -515,6 +547,7 @@ function emitDriftAlert(
         activeLocations: payload.activeLocations,
         locationsIncluded: payload.locationsIncluded,
         tier: payload.tier,
+        isPilot: payload.isPilot === true,
         expectedCents: payload.expectedCents,
         actualCents: payload.actualCents,
         dbStatus: payload.dbStatus,

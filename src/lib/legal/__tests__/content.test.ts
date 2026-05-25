@@ -26,14 +26,14 @@ describe('legal content', () => {
     expect(dataSection?.bullets).toEqual(expect.arrayContaining([
       expect.stringContaining('Account data:'),
       expect.stringContaining('Review data:'),
-      expect.stringContaining('Analytics and reliability data:'),
+      expect.stringContaining('Reliability and service metadata:'),
     ]));
     expect(vendors).toEqual(expect.arrayContaining([
       'SerpAPI',
       'Google Maps Platform',
-      'PostHog',
     ]));
     expect(vendors).not.toEqual(expect.arrayContaining([
+      'PostHog',
       'Help Scout',
       'Cloudflare',
       'Loops',

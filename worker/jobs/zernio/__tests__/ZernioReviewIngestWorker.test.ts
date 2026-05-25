@@ -386,7 +386,7 @@ describe('ZernioReviewIngestWorker', () => {
         locationId: 'loc-1',
         review,
         source: 'webhook',
-        reasons: expect.arrayContaining(['mrn', 'patient_context', 'condition_context']),
+        reasons: expect.arrayContaining(['mrn']),
       }),
       expect.anything(),
     );

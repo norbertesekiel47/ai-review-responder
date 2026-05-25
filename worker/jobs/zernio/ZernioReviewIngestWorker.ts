@@ -22,7 +22,7 @@ import { sql } from '../../../src/lib/db/server';
 import { checkSubscription } from '../../../src/lib/shared/subscription-guard';
 import { extractOutboxHandle, markOutboxCompleted } from '../../../src/lib/shared/outbox';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
-import { detectLikelyPhi } from '../../../src/lib/security/phi-scanner';
+import { detectLikelyPhi, redactPhiForLog } from '../../../src/lib/security/phi-scanner';
 import { zernioClient } from '../../../src/lib/zernio/client';
 import {
   buildZernioMonitoredReview,
@@ -209,7 +209,9 @@ export async function handleZernioReviewIngest(job: Job<IngestZernioReviewPayloa
 
   const phi = detectLikelyPhi(target.comment);
   if (phi.matched) {
-    logger.warn(`Likely PHI detected for review ${zernio_review_id}; reasons=${phi.reasons.join(',')}`);
+    logger.warn(
+      `Likely PHI detected for review ${zernio_review_id}; reasons=${phi.reasons.join(',')}; review_text=${redactPhiForLog(target.comment)}`,
+    );
     await openPhiReviewException(sql, {
       businessId: business_id,
       accountId: zernio_account_id,

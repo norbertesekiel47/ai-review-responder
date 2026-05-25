@@ -105,6 +105,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     SELECT id, business_name, category, google_place_id, google_maps_url
     FROM onboarding_demos
     WHERE user_id = ${owner.user_id}::uuid
+      AND business_id = ${owner.id}::uuid
       AND generation_status = 'completed'
     ORDER BY created_at DESC
     LIMIT 1
@@ -125,6 +126,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         UPDATE onboarding_demos
         SET generation_status = 'archived', updated_at = NOW()
         WHERE id = ${latestDemo.id}::uuid
+          AND user_id = ${owner.user_id}::uuid
+          AND business_id = ${owner.id}::uuid
       `;
 
       await tx`

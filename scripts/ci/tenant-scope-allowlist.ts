@@ -307,6 +307,12 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "Lifecycle cleanup intentionally finds owner users without accounts before deleting abandoned signups.",
   },
   {
+    file: "worker/background/pollers/CleanupAbandonedSignupsPoller.ts",
+    table: "onboarding_demos",
+    sqlSnippet: "DELETE FROM onboarding_demos WHERE generation_status = 'completed' AND completed_at < NOW() - INTERVAL '30 days'",
+    reason: "Lifecycle cleanup intentionally deletes stale completed pre-pay demo rows globally after the retention window.",
+  },
+  {
     file: "worker/background/pollers/NotificationFailoverPoller.ts",
     table: "responses",
     sqlSnippet: "SELECT jo.payload->>'correlation_id' AS correlation_id FROM responses r JOIN job_outbox jo ON jo.topic = 'generate_response' AND jo.aggregate_id = r.review_id WHERE r.id = ${responseId} ORDER BY jo.created_at DESC LIMIT 1",
@@ -853,6 +859,18 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
   },
   {
+    file: "src/app/api/onboarding/demo/status/route.ts",
+    table: "accounts",
+    sqlSnippet: "SELECT u.id AS user_id, b.id AS business_id FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${user.id} AND u.role = 'owner' LIMIT 1",
+    reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
+  },
+  {
+    file: "src/app/api/onboarding/demo/status/route.ts",
+    table: "businesses",
+    sqlSnippet: "SELECT u.id AS user_id, b.id AS business_id FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${user.id} AND u.role = 'owner' LIMIT 1",
+    reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
+  },
+  {
     file: "src/app/api/onboarding/select-plan/route.ts",
     table: "accounts",
     sqlSnippet: "SELECT b.id, b.owner_email FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${user.id} AND u.role = 'owner' LIMIT 1",
@@ -891,13 +909,13 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/app/onboarding/demo/page.tsx",
     table: "accounts",
-    sqlSnippet: "SELECT u.role, a.subscription_status, b.place_id_verified, b.google_maps_url, b.name AS business_name FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${user.id} LIMIT 1",
+    sqlSnippet: "SELECT u.id AS user_id, b.id AS business_id, u.role, a.subscription_status, b.place_id_verified, b.google_maps_url, b.name AS business_name FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${user.id} LIMIT 1",
     reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
   },
   {
     file: "src/app/onboarding/demo/page.tsx",
     table: "businesses",
-    sqlSnippet: "SELECT u.role, a.subscription_status, b.place_id_verified, b.google_maps_url, b.name AS business_name FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${user.id} LIMIT 1",
+    sqlSnippet: "SELECT u.id AS user_id, b.id AS business_id, u.role, a.subscription_status, b.place_id_verified, b.google_maps_url, b.name AS business_name FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${user.id} LIMIT 1",
     reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
   },
   {
@@ -1085,6 +1103,12 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     table: "businesses",
     sqlSnippet: "SELECT a.subscription_status FROM onboarding_demos od JOIN businesses b ON b.id = od.business_id JOIN accounts a ON a.id = b.account_id WHERE od.id = ${demoId}",
     reason: "Onboarding demo worker resolves the owning account through the demo row created by the owner-authenticated onboarding flow.",
+  },
+  {
+    file: "worker/jobs/OnboardingDemoWorker.ts",
+    table: "onboarding_demos",
+    sqlSnippet: "SELECT a.subscription_status FROM onboarding_demos od JOIN businesses b ON b.id = od.business_id JOIN accounts a ON a.id = b.account_id WHERE od.id = ${demoId}",
+    reason: "Onboarding demo worker follows a durable demo job id created by the owner-authenticated onboarding flow.",
   },
   {
     file: "worker/jobs/OnboardingDripWorker.ts",
@@ -1417,10 +1441,22 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "Review ingest transaction receives businessId from source connection resolution; provider/review ids here are locked and mutated inside that scoped ingest.",
   },
   {
+    file: "src/lib/demos/lifecycle.ts",
+    table: "onboarding_demos",
+    sqlSnippet: "UPDATE onboarding_demos SET generation_status = 'archived', updated_at = NOW() WHERE id = ${demoId}",
+    reason: "Demo lifecycle race-loser recovery follows a durable onboarding demo id created by an owner-authenticated route and only archives that row.",
+  },
+  {
     file: "worker/background/pollers/CleanupAbandonedSignupsPoller.ts",
     table: "businesses",
     sqlSnippet: "SELECT EXISTS (SELECT 1 FROM businesses WHERE onboarded_by = ${candidate.user_id}::uuid) AS has_onboarded, EXISTS (SELECT 1 FROM prospect_demos WHERE created_by = ${candidate.user_id}::uuid) AS has_prospect_demos",
     reason: "Background scheduler or poller intentionally scans tenant rows globally before enqueueing scoped work.",
+  },
+  {
+    file: "worker/background/pollers/CleanupAbandonedSignupsPoller.ts",
+    table: "onboarding_demos",
+    sqlSnippet: "DELETE FROM onboarding_demos WHERE user_id = ${candidate.user_id}::uuid",
+    reason: "Abandoned-signup cleanup deletes demo rows only after revalidating and locking the candidate owner user inside the cleanup transaction.",
   },
   {
     file: "worker/background/pollers/NotificationFailoverPoller.ts",

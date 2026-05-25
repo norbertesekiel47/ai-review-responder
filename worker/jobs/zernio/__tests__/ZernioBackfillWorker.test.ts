@@ -358,7 +358,7 @@ describe('ZernioBackfillWorker', () => {
         locationId: 'loc-1',
         review: phiReview,
         source: 'backfill',
-        reasons: expect.arrayContaining(['mrn', 'patient_context', 'condition_context']),
+        reasons: expect.arrayContaining(['mrn']),
       }),
       expect.anything(),
     );

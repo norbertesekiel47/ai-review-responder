@@ -20,6 +20,5 @@ Review status: founder verified; pending lawyer review for broader legal package
 | Sentry | Error tracking | Scrubbed error metadata |
 | SerpAPI | Demo, prefill, and fallback location data | Public business and review data |
 | Google Maps Platform | Place autocomplete and map/place metadata | Place query metadata |
-| PostHog | Worker-side activation analytics | Analytics/event metadata |
 
 Vendors without a live product data path are not listed as current sub-processors.

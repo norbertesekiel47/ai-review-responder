@@ -18,6 +18,8 @@ interface DemoRow {
 }
 
 interface OwnerRow {
+  user_id: string;
+  business_id: string;
   role: string;
   subscription_status: string;
   place_id_verified: boolean;
@@ -44,7 +46,8 @@ export default async function OnboardingDemoPage() {
   if (!user) redirect('/login');
 
   const [row] = await sql<OwnerRow[]>`
-    SELECT u.role, a.subscription_status, b.place_id_verified,
+    SELECT u.id AS user_id, b.id AS business_id,
+           u.role, a.subscription_status, b.place_id_verified,
            b.google_maps_url, b.name AS business_name
     FROM users u
     JOIN accounts a ON a.id = u.account_id
@@ -66,7 +69,8 @@ export default async function OnboardingDemoPage() {
     SELECT id, generation_status, completed_at, source,
            reviews_snapshot, generated_responses, business_name
     FROM onboarding_demos
-    WHERE user_id = (SELECT id FROM users WHERE auth_id = ${user.id} LIMIT 1)
+    WHERE user_id = ${row.user_id}::uuid
+      AND business_id = ${row.business_id}::uuid
       AND generation_status <> 'archived'
     ORDER BY created_at DESC
     LIMIT 1

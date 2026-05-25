@@ -109,7 +109,7 @@ describe('openPhiReviewException', () => {
       accountId: 'A',
       locationId: 'L',
       review,
-      reasons: ['mrn', 'patient_context'],
+      reasons: ['mrn', 'self_referenced_medical_context'],
       source: 'webhook',
     }, logger as any);
 

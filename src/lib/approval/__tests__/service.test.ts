@@ -290,6 +290,21 @@ describe('edit', () => {
     expect(allStringArgs).toContain(sanitizedText);
     expect(allStringArgs).not.toContain(editedText);
 
+    const responseUpdateCall = tx.mock.calls.find((call: unknown[]) =>
+      String((call[0] as TemplateStringsArray).join('')).includes("SET status = 'edited'"),
+    );
+    expect(responseUpdateCall).toBeDefined();
+    expect(responseUpdateCall![1]).toBe(sanitizedText);
+    expect(responseUpdateCall![2]).toBe(sanitizedText);
+
+    const auditCall = tx.mock.calls.find((call: unknown[]) =>
+      String((call[0] as TemplateStringsArray).join('')).includes('approval_audit_log'),
+    );
+    expect(auditCall).toBeDefined();
+    expect(auditCall![7]).toBe('edit');
+    expect(auditCall![10]).toBe(sanitizedText);
+    expect(auditCall![10]).not.toBe(editedText);
+
     // Verify correlation_id propagates into the publish_response outbox payload.
     const publishPayload = allObjectArgs.find((p: Record<string, unknown>) => p.response_id === link.response_id && !('satisfaction' in p),
     );
@@ -341,6 +356,21 @@ describe('editBySession', () => {
       .filter((arg: unknown): arg is string => typeof arg === 'string');
     expect(allStringArgs).toContain(sanitizedText);
     expect(allStringArgs).not.toContain(editedText);
+
+    const responseUpdateCall = tx.mock.calls.find((call: unknown[]) =>
+      String((call[0] as TemplateStringsArray).join('')).includes("SET status = 'edited'"),
+    );
+    expect(responseUpdateCall).toBeDefined();
+    expect(responseUpdateCall![1]).toBe(sanitizedText);
+    expect(responseUpdateCall![2]).toBe(sanitizedText);
+
+    const auditCall = tx.mock.calls.find((call: unknown[]) =>
+      String((call[0] as TemplateStringsArray).join('')).includes('approval_audit_log'),
+    );
+    expect(auditCall).toBeDefined();
+    expect(auditCall![7]).toBe('edit');
+    expect(auditCall![11]).toBe(sanitizedText);
+    expect(auditCall![11]).not.toBe(editedText);
 
     const allObjectArgs = tx.mock.calls
       .flat()

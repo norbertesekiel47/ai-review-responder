@@ -215,7 +215,7 @@ interface AccountRow {
   locations_overage_price_cents: number;
   active_location_count: number;
   past_due_at: Date | null;
-  flags: Record<string, unknown>;
+  flags: Record<string, unknown> | string;
 }
 
 function makeAccountRow(overrides: Partial<AccountRow> = {}): AccountRow {
@@ -904,6 +904,72 @@ describe('StripeLocationsReconcilePoller', () => {
     expect(result.driftsFound).toBe(1);
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining('Stripe overage price 3000 differs from stored account price 2500'),
+    );
+  });
+
+  it('includes the pilot invoice-review flag in Sentry drift metadata', async () => {
+    process.env.SENTRY_DSN = 'https://test@sentry.io/123';
+
+    sqlReturnQueue.push([
+      makeAccountRow({
+        id: 'acct-pilot-drift',
+        subscription_tier: 'standard',
+        locations_included: 1,
+        active_location_count: 3,
+        flags: { is_pilot: true },
+      }),
+    ]);
+    mockStripeRetrieve.mockResolvedValue(
+      makeStripeSubscription(5, 'price_overage_std'),
+    );
+
+    const result = await runOnce();
+
+    expect(result.driftsFound).toBe(1);
+    expect(mockCaptureMessage).toHaveBeenCalledWith(
+      expect.stringContaining('acct-pilot-drift'),
+      expect.objectContaining({
+        tags: expect.objectContaining({
+          account_id: 'acct-pilot-drift',
+          is_pilot: 'true',
+        }),
+        extra: expect.objectContaining({
+          isPilot: true,
+        }),
+      }),
+    );
+  });
+
+  it('parses JSONB string account flags for pilot drift metadata', async () => {
+    process.env.SENTRY_DSN = 'https://test@sentry.io/123';
+
+    sqlReturnQueue.push([
+      makeAccountRow({
+        id: 'acct-pilot-jsonb-string',
+        subscription_tier: 'standard',
+        locations_included: 1,
+        active_location_count: 3,
+        flags: JSON.stringify({ is_pilot: true }),
+      }),
+    ]);
+    mockStripeRetrieve.mockResolvedValue(
+      makeStripeSubscription(5, 'price_overage_std'),
+    );
+
+    const result = await runOnce();
+
+    expect(result.driftsFound).toBe(1);
+    expect(mockCaptureMessage).toHaveBeenCalledWith(
+      expect.stringContaining('acct-pilot-jsonb-string'),
+      expect.objectContaining({
+        tags: expect.objectContaining({
+          account_id: 'acct-pilot-jsonb-string',
+          is_pilot: 'true',
+        }),
+        extra: expect.objectContaining({
+          isPilot: true,
+        }),
+      }),
     );
   });
 

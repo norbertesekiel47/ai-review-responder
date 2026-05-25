@@ -12,7 +12,7 @@ Until a signed DPA is available, customers should not treat this page as a compl
 
 ## Processing Scope
 
-RepWorth processes customer data to provide review monitoring, AI draft generation, owner approval routing, notification delivery, approved response publishing, billing, security, support, and activation analytics.
+RepWorth processes customer data to provide review monitoring, AI draft generation, owner approval routing, notification delivery, approved response publishing, billing, security, and support.
 
 ## Sub-processors
 

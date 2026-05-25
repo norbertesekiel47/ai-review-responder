@@ -58,9 +58,9 @@ Response drafts are suggestions only. RepWorth does not warrant their accuracy, 
 
 ## 7. Data and Sub-processors
 
-RepWorth uses sub-processors to operate the Service. Current sub-processors are OpenAI, Anthropic, Stripe, Supabase, Vercel, Railway, Upstash, Resend, Twilio, Telegram when enabled, Zernio, Sentry, SerpAPI, Google Maps Platform, and PostHog.
+RepWorth uses sub-processors to operate the Service. Current sub-processors are OpenAI, Anthropic, Stripe, Supabase, Vercel, Railway, Upstash, Resend, Twilio, Telegram when enabled, Zernio, Sentry, SerpAPI, and Google Maps Platform.
 
-The current sub-processor list is mirrored in `docs/Legal/sub-processors.md` and published at `/legal/sub-processors`.
+The current sub-processor list is mirrored in `docs/legal/sub-processors.md` and published at `/legal/sub-processors`.
 
 ---
 

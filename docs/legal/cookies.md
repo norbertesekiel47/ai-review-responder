@@ -12,7 +12,7 @@ These cookies are required for the Service to function and are not used to sell 
 
 ## Analytics
 
-RepWorth uses worker-side activation analytics through PostHog. This policy will be updated before browser analytics cookies are introduced.
+RepWorth does not use browser analytics cookies. This policy and the sub-processor list will be updated before analytics cookies or a live analytics sub-processor are introduced.
 
 ## Managing Cookies
 

@@ -25,7 +25,7 @@ import type { ZernioReview } from '../../../src/lib/zernio/types';
 import { markOutboxFailed } from '../../../src/lib/shared/outbox';
 import type { WorkerLogger } from '../../../src/lib/shared/logger';
 import { fromZernioReview } from '../../../src/lib/reviews/zernio-field-match';
-import { detectLikelyPhi } from '../../../src/lib/security/phi-scanner';
+import { detectLikelyPhi, redactPhiForLog } from '../../../src/lib/security/phi-scanner';
 
 type TxClient = postgres.TransactionSql;
 type SqlExecutor = typeof sql | TxClient;
@@ -45,7 +45,7 @@ interface PhiReviewExceptionInput {
   locationId: string;
   review: ZernioReview;
   reasons: string[];
-  source: 'webhook' | 'backfill' | 'external_reply_import';
+  source: 'webhook' | 'backfill' | 'recent_poller' | 'external_reply_import';
 }
 
 /**
@@ -222,7 +222,9 @@ export async function reconcileExternallyAnsweredReview(
           reasons: targetPhi.reasons,
           source: 'external_reply_import',
         }, logger);
-        logger.warn(`Likely PHI detected for previously-unseen review ${target.id}; skipping import`);
+        logger.warn(
+          `Likely PHI detected for previously-unseen review ${target.id}; review_text=${redactPhiForLog(targetComment)}; skipping import`,
+        );
         return;
       }
       const inserted = await insertImportedResponse(tx, businessId, newReviewId, null, target.reviewReply);
@@ -271,7 +273,9 @@ export async function reconcileExternallyAnsweredReview(
           reasons: targetPhi.reasons,
           source: 'external_reply_import',
         }, logger);
-        logger.warn(`Likely PHI detected for matched review ${target.id}; skipping external reply import`);
+        logger.warn(
+          `Likely PHI detected for matched review ${target.id}; review_text=${redactPhiForLog(targetComment)}; skipping external reply import`,
+        );
         return;
       }
       const targetReviewRowId = matchedRows[0]!.id;

@@ -163,7 +163,7 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 
 **Tasks**:
 - Build the Trust Center at `/legal/trust` (per the Step-0 `/legal/*` routing decision, [Spec 17](./17-legal-compliance-docs.md) §3 — keep `/trust` as a 301 redirect for memorability). Static-rendered. Linked from footer.
-- ⚠️ Several data sources don't exist yet — start with static copy and wire live data as it lands: status (BetterStack — [Spec 08](./08-reliability-sre.md)), incidents (`docs/postmortems/` — not yet created), sub-processors (`docs/Legal/sub-processors.md` — not yet created, [Spec 17](./17-legal-compliance-docs.md)).
+- ⚠️ Several data sources don't exist yet — start with static copy and wire live data as it lands: status (BetterStack — [Spec 08](./08-reliability-sre.md)), incidents (`docs/postmortems/` — not yet created), sub-processors (`docs/legal/sub-processors.md` — not yet created, [Spec 17](./17-legal-compliance-docs.md)).
 - Author static copy where needed.
 - Link from `/login`, `/signup`, pricing page footer, dashboard footer.
 

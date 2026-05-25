@@ -10,7 +10,11 @@ import { processReview } from '../../../src/lib/reviews/process-review';
 import { zernioClient } from '../../../src/lib/zernio/client';
 import { ZernioAuthError } from '../../../src/lib/zernio/errors';
 import { applyIngestionAuthErrorFallback } from '../../../src/lib/zernio/auth-error-fallback';
-import { reconcileExternallyAnsweredReview } from '../../jobs/zernio/zernio-ingest-shared';
+import { detectLikelyPhi, redactPhiForLog } from '../../../src/lib/security/phi-scanner';
+import {
+  openPhiReviewException,
+  reconcileExternallyAnsweredReview,
+} from '../../jobs/zernio/zernio-ingest-shared';
 import type { ZernioReview } from '../../../src/lib/zernio/types';
 
 const LOG_PREFIX = '[ZernioRecentReviewPoller]';
@@ -115,6 +119,22 @@ async function processZernioReview(
       console,
     );
     return 'reconciled';
+  }
+
+  const phi = detectLikelyPhi(review.comment);
+  if (phi.matched) {
+    console.warn(
+      `${LOG_PREFIX} Likely PHI detected for review ${review.id}; reasons=${phi.reasons.join(',')}; review_text=${redactPhiForLog(review.comment)}; skipping`,
+    );
+    await openPhiReviewException(sql, {
+      businessId: connection.business_id,
+      accountId: connection.zernio_account_id,
+      locationId: connection.zernio_location_id,
+      review,
+      reasons: phi.reasons,
+      source: 'recent_poller',
+    }, console);
+    return 'skipped';
   }
 
   const monitored = buildZernioMonitoredReview(

@@ -12,6 +12,7 @@ export const TENANT_TABLES = [
   'weekly_summaries',
   'monthly_impact_emails',
   'onboarding_drip_log',
+  'onboarding_demos',
   'satisfaction_responses',
   'api_costs_daily_rollups',
   'review_exceptions',

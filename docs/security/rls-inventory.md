@@ -17,6 +17,7 @@ Run `pnpm ci:rls-audit` to verify the required tables below still have `relrowse
 | `weekly_summaries` | `business_id` | Weekly owner summaries inherit tenant scope through the target location. |
 | `monthly_impact_emails` | `business_id` | Monthly impact emails inherit tenant scope through the target location. |
 | `onboarding_drip_log` | `business_id` | Onboarding drip claims and delivery records inherit tenant scope through the target location. |
+| `onboarding_demos` | `user_id` and `business_id` | Pre-pay demo rows inherit tenant scope through the authenticated owner and generated business location. Owner reads are SELECT-only; demo creation, generation, archive, and cleanup remain service-role/app-enforced. |
 | `satisfaction_responses` | `business_id` | Owner feedback responses inherit tenant scope through the target location. |
 | `api_costs_daily_rollups` | `business_id` | Cost rollups inherit tenant scope through the target location; account-level reads join through `businesses.account_id`. |
 | `review_exceptions` | `business_id` | Exception records are location-scoped, including identity-collision and publisher failure cases. |

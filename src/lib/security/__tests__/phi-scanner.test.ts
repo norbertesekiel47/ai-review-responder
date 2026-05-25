@@ -10,17 +10,17 @@ describe('phi-scanner', () => {
   });
 
   it('detects diagnosis language', () => {
-    const result = detectLikelyPhi('They helped with my diabetes treatment');
+    const result = detectLikelyPhi('They helped with my diabetes care');
 
     expect(result.matched).toBe(true);
-    expect(result.reasons).toEqual(expect.arrayContaining(['patient_context', 'condition_context']));
+    expect(result.reasons).toContain('self_referenced_medical_context');
   });
 
   it('detects prescription and medication context', () => {
-    const result = detectLikelyPhi('The medication and prescription support was clear');
+    const result = detectLikelyPhi('My medication and prescription support was clear');
 
     expect(result.matched).toBe(true);
-    expect(result.reasons).toContain('patient_context');
+    expect(result.reasons).toContain('self_referenced_medical_context');
   });
 
   it('detects insurance identifiers', () => {
@@ -38,6 +38,16 @@ describe('phi-scanner', () => {
     const result = detectLikelyPhi('The team fixed my appointment mix-up and the front desk was friendly.');
 
     expect(result.matched).toBe(false);
+  });
+
+  it('does not flag patient when used as ordinary adjective', () => {
+    expect(detectLikelyPhi('Dr. Smith was patient and kind.').matched).toBe(false);
+  });
+
+  it('does not flag broad wellness or customer-service words without self-referenced medical context', () => {
+    expect(detectLikelyPhi('Great massage therapy and relaxing staff.').matched).toBe(false);
+    expect(detectLikelyPhi('The treatment of customers is top-notch.').matched).toBe(false);
+    expect(detectLikelyPhi('I loved the treatment and staff.').matched).toBe(false);
   });
 
   it('redacts raw text for logs', () => {

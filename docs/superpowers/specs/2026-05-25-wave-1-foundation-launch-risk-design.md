@@ -302,7 +302,7 @@ Add CSP hardening plan:
 Add PHI scanner:
 
 - Create a small shared scanner module for likely PHI patterns.
-- Integrate it in the Zernio ingest path before `insertImportedReview` persists review text.
+- Integrate it in every Zernio review-text ingest path before persistence: webhook/backfill/recent-poller unanswered reviews before `processReview`, and external-reply import before `insertImportedReview`.
 - Detection should block ingest for the affected review, alert through Sentry, and avoid logging the raw PHI text.
 - For webhook-delivered Zernio events, PHI detection is a terminal handled condition: the corresponding `inbound_events` row must be marked `processed`, the review must be quarantined or alerted for operator review, and the worker must not throw in a way that causes retry storms.
 - For backfill/poller-driven ingest without an inbound webhook row, PHI detection must still be terminal for that review item and must not repeatedly retry the same blocked content.
@@ -329,7 +329,7 @@ Source spec: `docs/sass_ready/17-legal-compliance-docs.md`.
 
 ### Current Repo Anchors
 
-- Existing docs: `docs/Legal/repworth-privacy-policy.md`, `docs/Legal/repworth-terms-of-service.md`.
+- Existing docs: `docs/legal/repworth-privacy-policy.md`, `docs/legal/repworth-terms-of-service.md`.
 - Current routes: `src/app/(public)/privacy/page.tsx`, `src/app/(public)/terms/page.tsx`.
 - Public approval UI: `src/components/approval/approval-client.tsx`, `src/app/(public)/approve/[token]/page.tsx`.
 - In-app approval/edit UI: `src/components/dashboard/EditReplyDrawer.tsx`.
@@ -350,10 +350,10 @@ Canonical legal routing:
 
 Legal content model:
 
-- Keep source documents version-controlled under `docs/Legal/`.
+- Keep source documents version-controlled under `docs/legal/`.
 - Add `effective_date` and `version` metadata to each document source.
 - Use a typed legal content module as the route source of truth for Wave 1. Current legal pages are hardcoded JSX and no MD/MDX pipeline exists; adding MDX is unnecessary for this launch-risk slice.
-- Update `docs/Legal/*.md` to mirror the published content and metadata, but do not make Markdown parsing a runtime dependency in Wave 1.
+- Update `docs/legal/*.md` to mirror the published content and metadata, but do not make Markdown parsing a runtime dependency in Wave 1.
 
 Sub-processor accuracy:
 
@@ -481,7 +481,7 @@ Gap 2 is invoice correctness and is implemented in Slice 2. Slice 5 owns the bus
 ### PHI Blocking
 
 1. Zernio review ingest receives normalized review data.
-2. PHI scanner evaluates review text before `insertImportedReview`.
+2. PHI scanner evaluates review text before `processReview` or `insertImportedReview`.
 3. Likely PHI blocks persistence for that review.
 4. Sentry/log alert records redacted context.
 5. Operator review decides customer/account action.

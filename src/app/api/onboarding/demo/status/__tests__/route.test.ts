@@ -37,13 +37,18 @@ function demoRow(overrides: Partial<{
   generation_status: string;
   completed_at: Date | null;
   source: string | null;
-  role: string;
 }> = {}) {
   return {
     generation_status: overrides.generation_status ?? 'completed',
     completed_at: overrides.completed_at ?? new Date('2026-05-21T12:00:00Z'),
     source: overrides.source ?? 'google',
-    role: overrides.role ?? 'owner',
+  };
+}
+
+function ownerRow() {
+  return {
+    user_id: 'user-1',
+    business_id: 'biz-1',
   };
 }
 
@@ -86,7 +91,9 @@ describe('GET /api/onboarding/demo/status', () => {
   });
 
   it('returns demo status for an owner demo', async () => {
-    mockSql.mockResolvedValueOnce([demoRow()]);
+    mockSql
+      .mockResolvedValueOnce([ownerRow()])
+      .mockResolvedValueOnce([demoRow()]);
 
     const res = await GET(mkReq());
 
@@ -101,7 +108,7 @@ describe('GET /api/onboarding/demo/status', () => {
   });
 
   it('returns 404 not_found when authenticated row is not owner', async () => {
-    mockSql.mockResolvedValueOnce([demoRow({ role: 'sales_partner' })]);
+    mockSql.mockResolvedValueOnce([]);
 
     const res = await GET(mkReq());
 
@@ -111,13 +118,28 @@ describe('GET /api/onboarding/demo/status', () => {
   });
 
   it('SQL boundary: demo lookup filters on users.role = owner', async () => {
-    mockSql.mockResolvedValueOnce([demoRow()]);
+    mockSql
+      .mockResolvedValueOnce([ownerRow()])
+      .mockResolvedValueOnce([demoRow()]);
 
     await GET(mkReq());
 
     const callArgs = mockSql.mock.calls[0] as unknown[];
     const query = (callArgs[0] as TemplateStringsArray).join('?');
     expect(query).toContain("u.role = 'owner'");
+  });
+
+  it('SQL boundary: demo lookup filters by resolved user and business ids', async () => {
+    mockSql
+      .mockResolvedValueOnce([ownerRow()])
+      .mockResolvedValueOnce([demoRow()]);
+
+    await GET(mkReq());
+
+    const callArgs = mockSql.mock.calls[1] as unknown[];
+    const query = (callArgs[0] as TemplateStringsArray).join('?');
+    expect(query).toContain('d.user_id = ?::uuid');
+    expect(query).toContain('d.business_id = ?::uuid');
   });
 
   it('returns 429 when rate limit is exceeded', async () => {

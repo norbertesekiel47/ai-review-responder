@@ -85,14 +85,14 @@ Implementation should use one branch but land as separate reviewable commits or 
 - Create: `src/app/(public)/legal/dpa/page.tsx`
 - Create: `src/app/(public)/legal/cookies/page.tsx`
 - Create: `src/app/(public)/legal/sub-processors/page.tsx`
-- Create: `docs/Legal/aup.md`
-- Create: `docs/Legal/dpa.md`
-- Create: `docs/Legal/cookies.md`
-- Create: `docs/Legal/sub-processors.md`
+- Create: `docs/legal/aup.md`
+- Create: `docs/legal/dpa.md`
+- Create: `docs/legal/cookies.md`
+- Create: `docs/legal/sub-processors.md`
 - Create: `docs/legal/legal-review.md`
 - Create: `docs/legal/insurance.md`
-- Modify: `docs/Legal/repworth-terms-of-service.md`
-- Modify: `docs/Legal/repworth-privacy-policy.md`
+- Modify: `docs/legal/repworth-terms-of-service.md`
+- Modify: `docs/legal/repworth-privacy-policy.md`
 - Modify: `next.config.mjs`
 - Modify: `src/app/(public)/terms/page.tsx`
 - Modify: `src/app/(public)/privacy/page.tsx`
@@ -1815,14 +1815,14 @@ Expected: PASS.
 ### Task 12: Update Legal Links And Docs Mirrors
 
 **Files:**
-- Create: `docs/Legal/aup.md`
-- Create: `docs/Legal/dpa.md`
-- Create: `docs/Legal/cookies.md`
-- Create: `docs/Legal/sub-processors.md`
+- Create: `docs/legal/aup.md`
+- Create: `docs/legal/dpa.md`
+- Create: `docs/legal/cookies.md`
+- Create: `docs/legal/sub-processors.md`
 - Create: `docs/legal/legal-review.md`
 - Create: `docs/legal/insurance.md`
-- Modify: `docs/Legal/repworth-terms-of-service.md`
-- Modify: `docs/Legal/repworth-privacy-policy.md`
+- Modify: `docs/legal/repworth-terms-of-service.md`
+- Modify: `docs/legal/repworth-privacy-policy.md`
 - Modify: `src/components/sections/landing/LandingContent.tsx`
 - Modify: `src/components/auth/auth-island/SignupForm.tsx`
 - Modify: `src/components/auth/auth-island/__tests__/SignupForm.test.tsx`
@@ -1847,7 +1847,7 @@ Apply this in landing content and signup form. Update signup tests to expect the
 
 - [ ] **Step 2: Add docs mirrors**
 
-Create `docs/Legal/sub-processors.md`:
+Create `docs/legal/sub-processors.md`:
 
 ```md
 # Sub-processors
@@ -1910,7 +1910,7 @@ Target coverage before first paid customer:
 
 - [ ] **Step 3: Add AUP, DPA, and cookie docs**
 
-Create `docs/Legal/aup.md`, `docs/Legal/dpa.md`, and `docs/Legal/cookies.md` with the same version/effective date as `src/lib/legal/content.ts` and the same section content used in the typed module.
+Create `docs/legal/aup.md`, `docs/legal/dpa.md`, and `docs/legal/cookies.md` with the same version/effective date as `src/lib/legal/content.ts` and the same section content used in the typed module.
 
 - [ ] **Step 4: Run tests and build**
 
@@ -1928,7 +1928,7 @@ Expected: PASS.
 Run:
 
 ```bash
-git add src/lib/legal src/components/legal 'src/app/(public)/legal' next.config.mjs src/components/approval/approval-client.tsx src/components/dashboard/EditReplyDrawer.tsx src/components/sections/landing/LandingContent.tsx src/components/auth/auth-island/SignupForm.tsx src/components/auth/auth-island/__tests__/SignupForm.test.tsx docs/Legal docs/legal
+git add src/lib/legal src/components/legal 'src/app/(public)/legal' next.config.mjs src/components/approval/approval-client.tsx src/components/dashboard/EditReplyDrawer.tsx src/components/sections/landing/LandingContent.tsx src/components/auth/auth-island/SignupForm.tsx src/components/auth/auth-island/__tests__/SignupForm.test.tsx docs/legal
 git commit -m "feat: publish legal routes and approval AI disclosure"
 ```
 

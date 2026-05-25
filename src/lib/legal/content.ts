@@ -36,7 +36,6 @@ const subProcessorRows: string[][] = [
   ['Sentry', 'Error tracking', 'Scrubbed error metadata'],
   ['SerpAPI', 'Demo, prefill, and fallback location data', 'Public business and review data'],
   ['Google Maps Platform', 'Place autocomplete and map/place metadata', 'Place query metadata'],
-  ['PostHog', 'Worker-side activation analytics', 'Analytics/event metadata'],
 ];
 
 const subProcessorTable: LegalTable = {
@@ -102,8 +101,8 @@ export const legalDocs: Record<LegalDoc['slug'], LegalDoc> = {
       {
         heading: 'Data and Sub-processors',
         body: [
-          'RepWorth uses sub-processors to operate the Service. Current sub-processors are OpenAI, Anthropic, Stripe, Supabase, Vercel, Railway, Upstash, Resend, Twilio, Telegram when enabled, Zernio, Sentry, SerpAPI, Google Maps Platform, and PostHog.',
-          'The current sub-processor list is mirrored in docs/Legal/sub-processors.md and published at /legal/sub-processors.',
+          'RepWorth uses sub-processors to operate the Service. Current sub-processors are OpenAI, Anthropic, Stripe, Supabase, Vercel, Railway, Upstash, Resend, Twilio, Telegram when enabled, Zernio, Sentry, SerpAPI, and Google Maps Platform.',
+          'The current sub-processor list is mirrored in docs/legal/sub-processors.md and published at /legal/sub-processors.',
         ],
       },
       {
@@ -170,7 +169,7 @@ export const legalDocs: Record<LegalDoc['slug'], LegalDoc> = {
           'Response data: AI-generated response drafts, edits, approvals, posting status, and audit metadata.',
           'Notification data: email addresses, phone numbers, Telegram identifiers when enabled, delivery metadata, and message content needed to provide service notifications.',
           'Billing data: Stripe customer, subscription, checkout, and invoice identifiers. RepWorth does not store raw card numbers.',
-          'Analytics and reliability data: activation events, worker-side event metadata, request metadata, logs, and scrubbed error metadata.',
+          'Reliability and service metadata: request metadata, logs, scrubbed error metadata, and service-operation metrics.',
         ],
       },
       {
@@ -183,7 +182,7 @@ export const legalDocs: Record<LegalDoc['slug'], LegalDoc> = {
           'To send approval, notification, onboarding, and account emails.',
           'To send SMS, WhatsApp, or Telegram service notifications when enabled.',
           'To process subscription billing through Stripe.',
-          'To secure the Service, prevent abuse, debug errors, and measure activation events.',
+          'To secure the Service, prevent abuse, debug errors, and measure service-operation outcomes.',
         ],
       },
       {
@@ -285,7 +284,7 @@ export const legalDocs: Record<LegalDoc['slug'], LegalDoc> = {
       {
         heading: 'Processing Scope',
         body: [
-          'RepWorth processes customer data to provide review monitoring, AI draft generation, owner approval routing, notification delivery, approved response publishing, billing, security, support, and activation analytics.',
+          'RepWorth processes customer data to provide review monitoring, AI draft generation, owner approval routing, notification delivery, approved response publishing, billing, security, and support.',
         ],
       },
       {
@@ -312,7 +311,7 @@ export const legalDocs: Record<LegalDoc['slug'], LegalDoc> = {
       {
         heading: 'Analytics',
         body: [
-          'RepWorth uses worker-side activation analytics through PostHog. This policy will be updated before browser analytics cookies are introduced.',
+          'RepWorth does not use browser analytics cookies. This policy and the sub-processor list will be updated before analytics cookies or a live analytics sub-processor are introduced.',
         ],
       },
       {
