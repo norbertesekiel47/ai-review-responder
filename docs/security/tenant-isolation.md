@@ -15,7 +15,7 @@ The service role bypasses RLS, so SQL templates against tenant tables need an ex
 
 `pnpm ci:tenant-scope` runs a heuristic scanner over Postgres.js `sql` templates in `src` and `worker`. It catches obvious unscoped `SELECT`, `UPDATE`, and `DELETE` templates against tenant tables. It also accepts narrow row-identity lookups used by existing trusted flows, such as account root lookups by `accounts.id`, location row lookups by `businesses.id`, response lookups by `review_id`, and provider callback lookups by external delivery IDs.
 
-Allowlist entries live in `scripts/ci/tenant-scope-allowlist.ts`. Every entry must name the exact file, table, and a non-empty reason. Do not add broad entries; prefer tightening the scanner when a finding is a repeatable false positive.
+Allowlist entries live in `scripts/ci/tenant-scope-allowlist.ts`. Every entry must name the exact file, table, SQL snippet, and a human-readable reason that explains why that statement is safe. Do not add broad entries; prefer tightening the scanner when a finding is a repeatable false positive.
 
 ## RLS
 
@@ -25,7 +25,7 @@ Do not add `pnpm ci:rls-audit` as a hard CI step until the CI environment has a 
 
 ## Cross-Tenant Tests
 
-Cross-tenant integration tests should seed two accounts and assert that account A cannot read or mutate account B data. The guarded shell in `src/__tests__/tenant-isolation.test.ts` is skipped unless `TEST_DATABASE_POOL_URL` is present; expand it with two-account read/write assertions when the test database is available.
+`src/__tests__/tenant-isolation.test.ts` is skipped unless `TEST_DATABASE_POOL_URL` is present. When the URL is present it is a hard integration proof: it seeds two accounts with multiple locations, reviews, responses, approval links, approval audit rows, account audit rows, and channel enrollments. It then asserts account A scoped reads only return account A evidence, account A scoped updates can mutate its own location, and account A scoped updates cannot mutate account B businesses, responses, or channel enrollments.
 
 ## Gates
 

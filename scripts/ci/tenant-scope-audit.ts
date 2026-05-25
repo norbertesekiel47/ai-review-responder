@@ -17,6 +17,7 @@ export interface ExtractedSqlTemplate {
 const TENANT_TABLES = [
   'accounts',
   'businesses',
+  'channel_enrollments',
   'reviews',
   'responses',
   'approval_links',
@@ -163,6 +164,51 @@ function unqualifiedIdentifier(column: string): string {
   return String.raw`(?<![\w$.])"?${column}"?`;
 }
 
+function keywordAt(sqlText: string, index: number, keyword: string): boolean {
+  if (sqlText.slice(index, index + keyword.length).toLowerCase() !== keyword) return false;
+
+  const before = sqlText[index - 1];
+  const after = sqlText[index + keyword.length];
+  return (before === undefined || !/[\w$]/.test(before))
+    && (after === undefined || !/[\w$]/.test(after));
+}
+
+function splitTopLevelAnd(sqlText: string): string[] {
+  const parts: string[] = [];
+  let start = 0;
+  let depth = 0;
+
+  for (let index = 0; index < sqlText.length; index++) {
+    const char = sqlText[index];
+
+    if (char === "'") {
+      index++;
+      while (index < sqlText.length) {
+        if (sqlText[index] === "'" && sqlText[index + 1] === "'") {
+          index += 2;
+          continue;
+        }
+        if (sqlText[index] === "'") break;
+        index++;
+      }
+      continue;
+    }
+
+    if (char === '(') depth++;
+    if (char === ')' && depth > 0) depth--;
+    if (depth !== 0) continue;
+
+    if (keywordAt(sqlText, index, 'and')) {
+      parts.push(sqlText.slice(start, index));
+      index += 'and'.length - 1;
+      start = index + 1;
+    }
+  }
+
+  parts.push(sqlText.slice(start));
+  return parts.map((part) => part.trim()).filter((part) => part.length > 0);
+}
+
 function hasBoundIdentifierPredicate(clauses: string[], identifiers: string[]): boolean {
   const boundValue = boundValuePattern();
   const patterns = identifiers.flatMap((identifier) => [
@@ -172,10 +218,12 @@ function hasBoundIdentifierPredicate(clauses: string[], identifiers: string[]): 
     new RegExp(String.raw`${boundValue}\s*=\s*${identifier}(?=\s|,|\)|;|$)`, 'i'),
   ]);
 
-  return clauses.some((clause) => {
-    if (/\bor\b/i.test(clause) || /\bnot\b/i.test(clause)) return false;
-    return patterns.some((pattern) => pattern.test(clause));
-  });
+  return clauses
+    .flatMap(splitTopLevelAnd)
+    .some((part) => {
+      if (/\bor\b/i.test(part) || /\bnot\b/i.test(part)) return false;
+      return patterns.some((pattern) => pattern.test(part));
+    });
 }
 
 function tableAliases(sqlText: string, table: string): string[] {
@@ -204,10 +252,12 @@ function hasIdentifierRelationship(
 ): boolean {
   const leftToRight = new RegExp(String.raw`${leftIdentifier}\s*=\s*${rightIdentifier}`, 'i');
   const rightToLeft = new RegExp(String.raw`${rightIdentifier}\s*=\s*${leftIdentifier}`, 'i');
-  return clauses.some((clause) => {
-    if (/\bor\b/i.test(clause) || /\bnot\b/i.test(clause)) return false;
-    return leftToRight.test(clause) || rightToLeft.test(clause);
-  });
+  return clauses
+    .flatMap(splitTopLevelAnd)
+    .some((part) => {
+      if (/\bor\b/i.test(part) || /\bnot\b/i.test(part)) return false;
+      return leftToRight.test(part) || rightToLeft.test(part);
+    });
 }
 
 function referencedTenantTables(sqlText: string): TenantTable[] {

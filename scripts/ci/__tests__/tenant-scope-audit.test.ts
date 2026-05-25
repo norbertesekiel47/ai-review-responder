@@ -55,6 +55,15 @@ describe('tenant-scope-audit', () => {
     ).toEqual(finding('src/example.ts', 'reviews'));
   });
 
+  it('passes scoped tenant predicate with unrelated OR in another AND segment', () => {
+    expect(
+      auditSqlText(
+        'src/example.ts',
+        'SELECT * FROM channel_enrollments WHERE account_id = ${accountId}::uuid AND (location_id = ${locationId}::uuid OR location_id IS NULL)',
+      ),
+    ).toEqual([]);
+  });
+
   it('fails join-only tenant relationship without bound account or business scope', () => {
     expect(
       auditSqlText('src/example.ts', 'SELECT r.* FROM reviews r JOIN businesses b ON b.id = r.business_id'),
@@ -251,6 +260,13 @@ describe('tenant-scope-audit', () => {
     expect(auditSqlText(entry.file, entry.sqlSnippet)).toEqual([]);
   });
 
+  it('keeps allowlist reasons specific enough for review', () => {
+    expect(tenantScopeAllowlist.filter((entry) => (
+      entry.reason.trim().length === 0
+      || /reviewed by the audit allowlist/i.test(entry.reason)
+    ))).toEqual([]);
+  });
+
   it('fails when a scoped statement is followed by an unscoped statement', () => {
     expect(
       auditSqlText(
@@ -263,6 +279,12 @@ describe('tenant-scope-audit', () => {
   it('fails unscoped review_exceptions query', () => {
     expect(auditSqlText('src/example.ts', 'SELECT * FROM review_exceptions')).toEqual(
       finding('src/example.ts', 'review_exceptions'),
+    );
+  });
+
+  it('fails unscoped channel_enrollments query', () => {
+    expect(auditSqlText('src/example.ts', 'SELECT * FROM channel_enrollments')).toEqual(
+      finding('src/example.ts', 'channel_enrollments'),
     );
   });
 
