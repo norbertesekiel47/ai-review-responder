@@ -8,9 +8,9 @@
 //
 // Scope conditions:
 //   - Only checks accounts with stripe_subscription_id IS NOT NULL
-//   - Only checks accounts with subscription_status = 'active'
+//   - Only checks accounts with subscription_status = 'active' or 'past_due'
 //   - Skips accounts with no overage item in Stripe (basic tier, legacy)
-//   - Uses computeOverageQuantity to determine expected overage from DB
+//   - Uses the stored billing snapshot to determine expected overage/invoice totals
 //
 // Default cadence: every 60 minutes (3_600_000 ms).
 // Override via STRIPE_LOCATIONS_RECONCILE_INTERVAL_MS.
@@ -19,10 +19,12 @@
 
 import Stripe from 'stripe';
 import { sql } from '../../../src/lib/db/server';
-import { computeOverageQuantity } from '../../../src/lib/accounts/quota';
-import { isSubscriptionTier, TIER_CONFIG, type SubscriptionTierValue } from '../../../src/lib/accounts/tier-config';
+import { isSubscriptionTier, TIER_CONFIG } from '../../../src/lib/accounts/tier-config';
 import { SubscriptionStatus } from '../../../src/lib/shared/subscription-status';
 import { Sentry } from '../../sentry';
+import { compareUpcomingInvoice, isExpectedStatusWindow } from './billing-reconciliation/drift';
+import { expectedInvoiceForAccount } from './billing-reconciliation/expected-invoice';
+import type { BillingReconciliationAccount } from './billing-reconciliation/types';
 
 const DEFAULT_INTERVAL_MS = 3_600_000; // 1 hour
 const LOG_PREFIX = '[StripeLocationsReconcilePoller]';
@@ -64,7 +66,10 @@ interface AccountWithLocations {
   subscription_status: string;
   stripe_subscription_id: string;
   locations_included: number;
+  locations_overage_price_cents: number;
   active_location_count: number;
+  past_due_at: Date | null;
+  flags: Record<string, unknown> | null;
 }
 
 /**
@@ -89,12 +94,23 @@ export async function runOnce(): Promise<ReconcileResult> {
         a.subscription_status,
         a.stripe_subscription_id,
         a.locations_included,
+        a.locations_overage_price_cents,
+        a.past_due_at,
+        a.flags,
         COUNT(b.id) AS active_location_count
       FROM accounts a
       LEFT JOIN businesses b ON b.account_id = a.id AND b.archived_at IS NULL
       WHERE a.stripe_subscription_id IS NOT NULL
-        AND a.subscription_status = ${SubscriptionStatus.ACTIVE}
-      GROUP BY a.id
+        AND a.subscription_status IN (${SubscriptionStatus.ACTIVE}, ${SubscriptionStatus.PAST_DUE})
+      GROUP BY
+        a.id,
+        a.subscription_tier,
+        a.subscription_status,
+        a.stripe_subscription_id,
+        a.locations_included,
+        a.locations_overage_price_cents,
+        a.past_due_at,
+        a.flags
     `;
 
     if (accounts.length === 0) {
@@ -119,14 +135,43 @@ export async function runOnce(): Promise<ReconcileResult> {
         }
 
         const config = TIER_CONFIG[tier];
+        const activeLocations = Number(account.active_location_count);
+        const expectedAccount: BillingReconciliationAccount = {
+          ...account,
+          active_location_count: activeLocations,
+          flags: account.flags ?? {},
+        };
+        const expectedInvoice = expectedInvoiceForAccount(expectedAccount);
+
+        // Retrieve Stripe subscription
+        const subscription = await stripe.subscriptions.retrieve(
+          account.stripe_subscription_id,
+        );
+
+        if (
+          subscription.status !== account.subscription_status
+          && !isExpectedStatusWindow(expectedAccount, subscription.status)
+        ) {
+          emitDriftAlert(account.id, {
+            dbExpectedOverage: expectedInvoice.overageUnits,
+            stripeOverageQuantity: 0,
+            activeLocations,
+            locationsIncluded: account.locations_included,
+            tier,
+            driftMessage: `Stripe status ${subscription.status} differs from DB status ${account.subscription_status}`,
+          });
+          driftsFound++;
+        }
+
+        const upcoming = await stripe.invoices.createPreview({
+          customer: subscription.customer as string,
+          subscription: account.stripe_subscription_id,
+        });
+        const actualTotalCents = upcoming.total ?? 0;
 
         // Basic tier has no overage concept
         if (!config.multiLocAllowed || config.overageCents === 0) {
           // For basic tier, check that there's no unexpected overage item
-          const subscription = await stripe.subscriptions.retrieve(
-            account.stripe_subscription_id,
-          );
-
           const overageItem = subscription.items.data.find(
             (item) => item.price?.id && overagePriceIds.has(item.price.id),
           );
@@ -134,11 +179,23 @@ export async function runOnce(): Promise<ReconcileResult> {
           if (overageItem && (overageItem.quantity ?? 0) > 0) {
             // Basic tier should never have overage items with quantity > 0
             emitDriftAlert(account.id, {
-              dbExpectedOverage: 0,
+              dbExpectedOverage: expectedInvoice.overageUnits,
               stripeOverageQuantity: overageItem.quantity ?? 0,
-              activeLocations: Number(account.active_location_count),
+              activeLocations,
               locationsIncluded: account.locations_included,
               tier,
+            });
+            driftsFound++;
+          }
+
+          for (const drift of compareUpcomingInvoice(account.id, expectedInvoice.totalCents, actualTotalCents)) {
+            emitDriftAlert(account.id, {
+              dbExpectedOverage: expectedInvoice.overageUnits,
+              stripeOverageQuantity: overageItem?.quantity ?? 0,
+              activeLocations,
+              locationsIncluded: account.locations_included,
+              tier,
+              driftMessage: drift.message,
             });
             driftsFound++;
           }
@@ -146,15 +203,6 @@ export async function runOnce(): Promise<ReconcileResult> {
           accountsChecked++;
           continue;
         }
-
-        // Compute expected overage from DB
-        const activeLocations = Number(account.active_location_count);
-        const dbExpectedOverage = computeOverageQuantity(activeLocations, account.locations_included);
-
-        // Retrieve Stripe subscription
-        const subscription = await stripe.subscriptions.retrieve(
-          account.stripe_subscription_id,
-        );
 
         // Find overage item in subscription
         const overageItem = subscription.items.data.find(
@@ -164,13 +212,25 @@ export async function runOnce(): Promise<ReconcileResult> {
         const stripeOverageQuantity = overageItem?.quantity ?? 0;
 
         // Compare
-        if (stripeOverageQuantity !== dbExpectedOverage) {
+        if (stripeOverageQuantity !== expectedInvoice.overageUnits) {
           emitDriftAlert(account.id, {
-            dbExpectedOverage,
+            dbExpectedOverage: expectedInvoice.overageUnits,
             stripeOverageQuantity,
             activeLocations,
             locationsIncluded: account.locations_included,
             tier,
+          });
+          driftsFound++;
+        }
+
+        for (const drift of compareUpcomingInvoice(account.id, expectedInvoice.totalCents, actualTotalCents)) {
+          emitDriftAlert(account.id, {
+            dbExpectedOverage: expectedInvoice.overageUnits,
+            stripeOverageQuantity,
+            activeLocations,
+            locationsIncluded: account.locations_included,
+            tier,
+            driftMessage: drift.message,
           });
           driftsFound++;
         }
@@ -207,6 +267,7 @@ interface DriftAlertPayload {
   activeLocations: number;
   locationsIncluded: number;
   tier: string;
+  driftMessage?: string;
 }
 
 /**
@@ -217,7 +278,7 @@ function emitDriftAlert(
   accountId: string,
   payload: DriftAlertPayload,
 ): void {
-  const message =
+  const message = payload.driftMessage ??
     `Stripe location drift detected for account ${accountId}: ` +
     `expected_overage=${payload.dbExpectedOverage} (from DB: ${payload.activeLocations} active - ${payload.locationsIncluded} included), ` +
     `stripe_overage=${payload.stripeOverageQuantity}, ` +
