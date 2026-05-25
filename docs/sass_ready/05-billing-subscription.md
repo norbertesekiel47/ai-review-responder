@@ -10,7 +10,7 @@ Billing bugs translate directly to chargebacks, refunds, and churn. The architec
 
 ## 2. Current state (RepWorth)
 
-_Verified 2026-05-23 against the live tree (migration head 042)._
+_Verified 2026-05-23 against the live tree; refreshed 2026-05-24 for migration head 043 (Step 1 keystones)._
 
 - **Webhook idempotency already shipped.** `worker/ingress/stripe.ts` handles `checkout.session.completed`, `invoice.payment_failed`, `invoice.paid`, `customer.subscription.{deleted,updated}` and dedups via the **`inbound_events`** table (`claimInboundEvent('stripe', event.id, …)`), shared across Stripe/Resend/Twilio/Zernio. ⚠️ There is **no** `processed_stripe_events` table and no need for one — the spec's "build it" tasks are largely **done**.
 - **Reconciliation pollers already exist:** `StripeLocationsReconcilePoller` (location-count ↔ tier) and `CancellationGracePoller` (30-day grace → archive) in `worker/background/pollers/`. A subscription-level Stripe↔DB drift walk is the gap to **add**.
@@ -144,4 +144,4 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 - **Dunning/Stripe Tax/chargebacks** are net-new runbooks + Stripe config; no code prerequisites beyond `past_due_at`.
 
 ---
-_Verified 2026-05-23 against migration head 042. Corrected three false "missing" claims (idempotency via `inbound_events`, reconcile pollers, `PastDueBanner` all already exist); removed the redundant `processed_stripe_events` migration; flagged the absent `past_due_at` as the real blocker for the countdown._
+_Verified 2026-05-23 against the live tree; refreshed 2026-05-24 for migration head 043 (`accounts.past_due_at` shipped in PR #81). Corrected three false "missing" claims (idempotency via `inbound_events`, reconcile pollers, `PastDueBanner` all already exist); removed the redundant `processed_stripe_events` migration; `past_due_at` — formerly the countdown blocker — now exists, leaving only the day-variant banner UI._

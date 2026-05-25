@@ -24,7 +24,7 @@ These are three of the four "Step 1 keystones" in the production-readiness plan 
 
 ### What got added — the new shape
 
-```
+```text
 supabase/migrations/
 └── 043_step_1_keystones.sql      ← NEW: adds accounts.past_due_at + 5 audit columns
                                      (additive only — nothing dropped or rewritten)

@@ -10,7 +10,7 @@ RepWorth competes with Birdeye, Podium, NiceJob, and GoSite — all better funde
 
 ## 2. Current state (RepWorth)
 
-_Verified 2026-05-23 against the live tree (migration head 042)._
+_Verified 2026-05-23 against the live tree; refreshed 2026-05-24 for migration head 043 (Step 1 keystones)._
 
 - Public marketing exists but **no `docs/icp.md`** (confirmed absent).
 - Pricing and onboarding emphasize the AI feature, not the JTBD. The JTBD string does not yet appear on the landing H1, pricing page, or onboarding success screen.
@@ -98,4 +98,4 @@ Add `posthog-node` (server) + `posthog-js` (client); capture events on the **wor
 - **Changelog:** `src/app/(public)/changelog/page.tsx` rendering `docs/changelog/*.md`.
 
 ---
-_Verified 2026-05-23 against migration head 042. Confirmed absent: `docs/icp.md`, `/compare`, `/changelog`, any PostHog/analytics dependency. Activation query corrected to account-scope. Reconciled with `2026-05-19-pmf-positioning-design.md`._
+_Verified 2026-05-23 against the live tree; refreshed 2026-05-24 for migration head 043. Confirmed absent: `docs/icp.md`, `/compare`, `/changelog`. PostHog (`posthog-node`) + `activation_completed` now shipped on the worker publish path (PR #81) — `posthog-js`, dashboards, and the event taxonomy remain absent. Activation query corrected to account-scope. Reconciled with `2026-05-19-pmf-positioning-design.md`._

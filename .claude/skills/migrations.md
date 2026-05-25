@@ -1,6 +1,6 @@
 ---
 name: migrations
-description: Full Supabase migration inventory (001–042) for the RepWorth project, plus known residual risks tied to schema decisions. Read this before writing any migration, querying migration state, debugging schema issues, or planning work that touches the database.
+description: Full Supabase migration inventory (001–043) for the RepWorth project, plus known residual risks tied to schema decisions. Read this before writing any migration, querying migration state, debugging schema issues, or planning work that touches the database.
 ---
 
 # RepWorth — Migration Inventory

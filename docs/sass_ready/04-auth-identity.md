@@ -10,7 +10,7 @@ Auth bugs are silent for a long time then catastrophic. Designing the role model
 
 ## 2. Current state (RepWorth)
 
-_Verified 2026-05-23 against the live tree (migration head 042)._
+_Verified 2026-05-23 against the live tree; refreshed 2026-05-24 for migration head 043 (Step 1 keystones)._
 
 - **Auth methods already wired:** email/password (`src/app/api/auth/signup/route.ts`), **Google OAuth** (`src/components/auth/hooks/useGoogleOAuth.ts`), **Magic Link** (`src/app/api/auth/callback/route.ts`, `'magiclink'` OTP type). The spec's "day 1" set is **done** — this spec hardens it.
 - Signup uses a manual **6-digit OTP** entry path (`/api/auth/verify-otp`); the `{{ .Token }}` gotcha lives in the **Supabase dashboard** templates, not this repo.
@@ -135,4 +135,4 @@ Schema: new table `account_memberships(account_id, user_id, role, business_id NU
 - **Invite tokens (Phase B)** reuse the approval-token pattern: HMAC, store only the SHA-256 hash (approval-security skill), raw token only in the email.
 
 ---
-_Verified 2026-05-23 against migration head 042. Marked email/Google/Magic-Link as already-shipped; redirected audit work to the existing `account_audit_log` (not a new `audit_events`); reused `rate-limit.ts` instead of Upstash SDK; phased teams to schema-now/UI-later per decision._
+_Verified 2026-05-23 against the live tree; refreshed 2026-05-24 for migration head 043 (audit helper + `account_audit_log` metadata columns shipped in PR #81; `account_memberships` deferred). Marked email/Google/Magic-Link as already-shipped; redirected audit work to the existing `account_audit_log` (not a new `audit_events`); reused `rate-limit.ts` instead of Upstash SDK; phased teams to schema-now/UI-later per decision._
