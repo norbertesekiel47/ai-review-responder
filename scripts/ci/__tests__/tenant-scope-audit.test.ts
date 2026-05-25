@@ -42,6 +42,18 @@ describe('tenant-scope-audit', () => {
     ).toEqual(finding('src/example.ts', 'reviews'));
   });
 
+  it('fails tenant predicate broadened by OR', () => {
+    expect(
+      auditSqlText('src/example.ts', 'SELECT * FROM reviews WHERE business_id = ${businessId} OR true'),
+    ).toEqual(finding('src/example.ts', 'reviews'));
+  });
+
+  it('fails negated tenant predicate', () => {
+    expect(
+      auditSqlText('src/example.ts', 'SELECT * FROM reviews WHERE NOT (business_id = ${businessId})'),
+    ).toEqual(finding('src/example.ts', 'reviews'));
+  });
+
   it('fails join-only tenant relationship without bound account or business scope', () => {
     expect(
       auditSqlText('src/example.ts', 'SELECT r.* FROM reviews r JOIN businesses b ON b.id = r.business_id'),
@@ -165,6 +177,28 @@ describe('tenant-scope-audit', () => {
       auditSqlText(
         'worker/background/pollers/ArchivalPoller.ts',
         'SELECT id FROM notification_deliveries WHERE failed_at IS NOT NULL',
+      ),
+    ).toEqual(finding('worker/background/pollers/ArchivalPoller.ts', 'notification_deliveries'));
+  });
+
+  it('fails an allowlisted statement with an appended unscoped statement', () => {
+    expect(
+      auditSqlText(
+        'worker/background/pollers/ArchivalPoller.ts',
+        `
+          WITH candidates AS (
+            SELECT id FROM notification_deliveries
+            WHERE created_at < NOW() - INTERVAL '90 days'
+            LIMIT 5000
+            FOR UPDATE SKIP LOCKED
+          ),
+          deleted AS (
+            DELETE FROM notification_deliveries WHERE id IN (SELECT id FROM candidates)
+            RETURNING id
+          )
+          SELECT COUNT(*)::text AS count FROM deleted;
+          DELETE FROM notification_deliveries WHERE failed_at IS NOT NULL
+        `,
       ),
     ).toEqual(finding('worker/background/pollers/ArchivalPoller.ts', 'notification_deliveries'));
   });

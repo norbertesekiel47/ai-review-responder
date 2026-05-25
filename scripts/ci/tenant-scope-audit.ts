@@ -116,7 +116,10 @@ function hasBoundIdentifierPredicate(clauses: string[], identifiers: string[]): 
     new RegExp(String.raw`${boundValue}\s*=\s*${identifier}(?=\s|,|\)|;|$)`, 'i'),
   ]);
 
-  return clauses.some((clause) => patterns.some((pattern) => pattern.test(clause)));
+  return clauses.some((clause) => {
+    if (/\bor\b/i.test(clause) || /\bnot\b/i.test(clause)) return false;
+    return patterns.some((pattern) => pattern.test(clause));
+  });
 }
 
 function tableAliases(sqlText: string, table: string): string[] {
@@ -299,14 +302,14 @@ function getAllowlistEntry(
   table: string,
   sqlText: string,
 ): TenantScopeAllowlistEntry | undefined {
-  const normalizedSql = normalizeSql(sqlText);
+  const normalizedSql = normalizeSql(stripSqlComments(sqlText));
   return tenantScopeAllowlist.find(
     (entry) => entry.file === file
       && entry.table === table
       && entry.reason.trim().length > 0
       && typeof entry.sqlSnippet === 'string'
       && normalizeSql(stripSqlComments(entry.sqlSnippet)).length > 0
-      && normalizedSql.includes(normalizeSql(stripSqlComments(entry.sqlSnippet))),
+      && normalizedSql === normalizeSql(stripSqlComments(entry.sqlSnippet)),
   );
 }
 
