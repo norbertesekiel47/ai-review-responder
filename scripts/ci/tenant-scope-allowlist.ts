@@ -1128,4 +1128,58 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "SELECT a.id AS account_id, a.created_at AS account_created_at, r.id AS response_id, r.business_id, r.review_id, r.posted_at, first_post.id AS first_response_id FROM responses r JOIN businesses b ON b.id = r.business_id JOIN accounts a ON a.id = b.account_id JOIN LATERAL ( SELECT r2.id FROM responses r2 JOIN businesses b2 ON b2.id = r2.business_id WHERE b2.account_id = a.id AND r2.status = 'posted' AND r2.posted_at IS NOT NULL ORDER BY r2.posted_at ASC, r2.id ASC LIMIT 1 ) first_post ON TRUE WHERE r.id = ${input.responseId}::uuid AND r.business_id = ${input.businessId}::uuid AND r.status = 'posted' AND r.posted_at IS NOT NULL -- Activation can only fire within 7 days of account creation, so skip -- the first-post lookup for older accounts. The 8-day window is a safe -- superset; the precise 7-day gate is enforced in code below. AND a.created_at >= NOW() - INTERVAL '8 days' LIMIT 1",
     reason: "Statement-specific tenant-scope exception reviewed by the audit allowlist.",
   },
+  {
+    file: "src/lib/admin/business-detail/queries.ts",
+    table: "responses",
+    sqlSnippet: "WITH notif AS ( SELECT COUNT(DISTINCT nd.response_id)::int AS notified_count, COUNT(DISTINCT nd.response_id) FILTER ( WHERE r.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[]) )::int AS approved_count FROM notification_deliveries nd JOIN responses r ON r.id = nd.response_id WHERE nd.business_id = ${businessId} AND nd.template = 'approval_request' AND nd.sent_at IS NOT NULL AND nd.sent_at >= CURRENT_DATE - 30 ), resp AS ( SELECT COUNT(*) FILTER (WHERE rp.status = 'pending_approval')::int AS pending_count, EXTRACT(DAY FROM CURRENT_TIMESTAMP - MAX(rp.approved_at) FILTER (WHERE rp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[])) )::int AS days_since_approval, AVG(EXTRACT(EPOCH FROM rp.approved_at - rp.created_at) / 3600.0) FILTER (WHERE rp.approved_at IS NOT NULL AND rp.created_at >= CURRENT_DATE - 7)::float AS avg_hours_current, AVG(EXTRACT(EPOCH FROM rp.approved_at - rp.created_at) / 3600.0) FILTER (WHERE rp.approved_at IS NOT NULL AND rp.created_at >= CURRENT_DATE - 35 AND rp.created_at < CURRENT_DATE - 7)::float AS avg_hours_prev FROM responses rp WHERE rp.business_id = ${businessId} ) SELECT CASE WHEN COALESCE(n.notified_count, 0) >= 3 THEN n.approved_count::float / NULLIF(n.notified_count, 0) ELSE NULL END AS approval_rate, COALESCE(n.notified_count, 0)::int AS notified_count, COALESCE(r.pending_count, 0)::int AS pending_count, r.days_since_approval, EXTRACT(DAY FROM CURRENT_TIMESTAMP - b.created_at)::int AS account_age_days, r.avg_hours_current, r.avg_hours_prev FROM businesses b CROSS JOIN notif n CROSS JOIN resp r WHERE b.id = ${businessId}",
+    reason: "Admin-only route or service intentionally performs this statement after requireRole(admin).",
+  },
+  {
+    file: "src/lib/admin/business-detail/queries.ts",
+    table: "notification_deliveries",
+    sqlSnippet: "WITH notif AS ( SELECT COUNT(DISTINCT nd.response_id)::int AS notified_count, COUNT(DISTINCT nd.response_id) FILTER ( WHERE r.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[]) )::int AS approved_count FROM notification_deliveries nd JOIN responses r ON r.id = nd.response_id WHERE nd.business_id = ${businessId} AND nd.template = 'approval_request' AND nd.sent_at IS NOT NULL AND nd.sent_at >= CURRENT_DATE - 30 ), resp AS ( SELECT COUNT(*) FILTER (WHERE rp.status = 'pending_approval')::int AS pending_count, EXTRACT(DAY FROM CURRENT_TIMESTAMP - MAX(rp.approved_at) FILTER (WHERE rp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[])) )::int AS days_since_approval, AVG(EXTRACT(EPOCH FROM rp.approved_at - rp.created_at) / 3600.0) FILTER (WHERE rp.approved_at IS NOT NULL AND rp.created_at >= CURRENT_DATE - 7)::float AS avg_hours_current, AVG(EXTRACT(EPOCH FROM rp.approved_at - rp.created_at) / 3600.0) FILTER (WHERE rp.approved_at IS NOT NULL AND rp.created_at >= CURRENT_DATE - 35 AND rp.created_at < CURRENT_DATE - 7)::float AS avg_hours_prev FROM responses rp WHERE rp.business_id = ${businessId} ) SELECT CASE WHEN COALESCE(n.notified_count, 0) >= 3 THEN n.approved_count::float / NULLIF(n.notified_count, 0) ELSE NULL END AS approval_rate, COALESCE(n.notified_count, 0)::int AS notified_count, COALESCE(r.pending_count, 0)::int AS pending_count, r.days_since_approval, EXTRACT(DAY FROM CURRENT_TIMESTAMP - b.created_at)::int AS account_age_days, r.avg_hours_current, r.avg_hours_prev FROM businesses b CROSS JOIN notif n CROSS JOIN resp r WHERE b.id = ${businessId}",
+    reason: "Admin-only route or service intentionally performs this statement after requireRole(admin).",
+  },
+  {
+    file: "src/lib/admin/cost-report-service.ts",
+    table: "businesses",
+    sqlSnippet: "WITH combined AS ( SELECT business_id FROM api_costs WHERE account_id = ${accountId}::uuid AND created_at >= CURRENT_DATE - ${days}::int * INTERVAL '1 day' AND business_id IS NOT NULL GROUP BY business_id UNION SELECT business_id FROM api_costs_daily_rollups WHERE business_id IN (SELECT id FROM businesses WHERE account_id = ${accountId}::uuid) AND rollup_date >= CURRENT_DATE - ${days}::int * INTERVAL '1 day' AND rollup_date <= CURRENT_DATE - INTERVAL '90 days' AND business_id IS NOT NULL GROUP BY business_id ) SELECT COUNT(*)::int AS total FROM combined",
+    reason: "Admin-only route or service intentionally performs this statement after requireRole(admin).",
+  },
+  {
+    file: "src/lib/admin/cost-report-service.ts",
+    table: "businesses",
+    sqlSnippet: "SELECT provider, SUM(total_cost_usd)::float AS total_usd, SUM(call_count)::float AS call_count FROM api_costs_daily_rollups WHERE business_id IN (SELECT id FROM businesses WHERE account_id = ${accountId}::uuid) AND rollup_date >= CURRENT_DATE - ${days}::int * INTERVAL '1 day' AND rollup_date <= CURRENT_DATE - INTERVAL '90 days' GROUP BY provider",
+    reason: "Admin-only route or service intentionally performs this statement after requireRole(admin).",
+  },
+  {
+    file: "src/lib/admin/cost-report-service.ts",
+    table: "businesses",
+    sqlSnippet: "SELECT rollup_date::text AS day, SUM(total_cost_usd)::float AS total_usd, SUM(call_count)::float AS call_count FROM api_costs_daily_rollups WHERE business_id IN (SELECT id FROM businesses WHERE account_id = ${accountId}::uuid) AND rollup_date >= CURRENT_DATE - ${days}::int * INTERVAL '1 day' AND rollup_date <= CURRENT_DATE - INTERVAL '90 days' GROUP BY rollup_date",
+    reason: "Admin-only route or service intentionally performs this statement after requireRole(admin).",
+  },
+  {
+    file: "src/lib/dashboard/service.ts",
+    table: "reviews",
+    sqlSnippet: "SELECT gs::date AS week_start, COALESCE(r.cnt, 0)::int AS count FROM generate_series( DATE_TRUNC('week', NOW() - INTERVAL '7 weeks'), DATE_TRUNC('week', NOW()), INTERVAL '1 week' ) gs LEFT JOIN ( SELECT DATE_TRUNC('week', detected_at)::date AS wk, COUNT(*) AS cnt FROM reviews WHERE business_id = ${businessId} AND detected_at >= NOW() - INTERVAL '8 weeks' AND status <> 'deleted' GROUP BY DATE_TRUNC('week', detected_at) ) r ON r.wk = gs::date ORDER BY week_start ASC",
+    reason: "Statement-specific tenant-scope exception reviewed by the audit allowlist.",
+  },
+  {
+    file: "worker/background/pollers/EngagementMonitorPoller.ts",
+    table: "notification_deliveries",
+    sqlSnippet: "INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status) SELECT ${uuidv7()}, 'engagement_alert', 'business', ${row.business_id}, ${jsonb(payload)}, 'pending' WHERE NOT EXISTS ( SELECT 1 FROM notification_deliveries WHERE business_id = ${row.business_id} AND template = ${rule.type} AND sent_at > NOW() - ${cooldownDays} * INTERVAL '1 day' ) AND NOT EXISTS ( SELECT 1 FROM job_outbox WHERE topic = 'engagement_alert' AND aggregate_id = ${row.business_id} AND status IN ('pending', 'dispatching', 'dispatched') AND payload->>'alert_type' = ${rule.type} )",
+    reason: "Background scheduler or poller intentionally scans tenant rows globally before enqueueing scoped work.",
+  },
+  {
+    file: "worker/jobs/DrainOwnerConnectWorker.ts",
+    table: "responses",
+    sqlSnippet: "WITH stuck AS ( SELECT id, business_id FROM responses WHERE business_id = ${businessId} AND status = 'awaiting_owner_connect' ) INSERT INTO job_outbox ( id, topic, aggregate_type, aggregate_id, payload, attempts, max_attempts ) SELECT gen_random_uuid(), 'publish_response', 'response', stuck.id, jsonb_build_object('response_id', stuck.id, 'business_id', stuck.business_id), 0, 5 FROM stuck WHERE NOT EXISTS ( SELECT 1 FROM job_outbox jo WHERE jo.topic = 'publish_response' AND jo.aggregate_id = stuck.id AND jo.status IN ('pending', 'dispatching', 'dispatched') ) ON CONFLICT (topic, aggregate_id) WHERE topic = 'publish_response' AND status IN ('pending', 'dispatching', 'dispatched') DO NOTHING",
+    reason: "Statement-specific tenant-scope exception reviewed by the audit allowlist.",
+  },
+  {
+    file: "worker/jobs/WeeklySummaryWorker.ts",
+    table: "reviews",
+    sqlSnippet: "SELECT COALESCE( (SELECT COUNT(*)::float / 4.0 FROM reviews WHERE business_id = ${businessId} AND detected_at >= (${week_start_date}::date - INTERVAL '28 days') AND detected_at < ${week_start_date}::date), 0 )::text AS avg",
+    reason: "Statement-specific tenant-scope exception reviewed by the audit allowlist.",
+  },
 ];

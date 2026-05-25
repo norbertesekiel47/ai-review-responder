@@ -69,7 +69,26 @@ describe('tenant-scope-audit', () => {
         'src/example.ts',
         'SELECT * FROM reviews WHERE EXISTS (SELECT 1 FROM businesses WHERE account_id = ${accountId})',
       ),
-    ).toEqual(finding('src/example.ts', 'reviews'));
+    ).toEqual([
+      ...finding('src/example.ts', 'businesses'),
+      ...finding('src/example.ts', 'reviews'),
+    ]);
+  });
+
+  it('does not combine unrelated scoped and relationship subqueries', () => {
+    expect(
+      auditSqlText(
+        'src/example.ts',
+        `
+          SELECT r.* FROM reviews r
+          WHERE EXISTS (SELECT 1 FROM businesses b WHERE b.account_id = \${accountId})
+            AND EXISTS (SELECT 1 FROM businesses b WHERE r.business_id = b.id)
+        `,
+      ),
+    ).toEqual([
+      ...finding('src/example.ts', 'businesses'),
+      ...finding('src/example.ts', 'reviews'),
+    ]);
   });
 
   it('passes tenant table joined through a scoped business', () => {
@@ -77,6 +96,15 @@ describe('tenant-scope-audit', () => {
       auditSqlText(
         'src/example.ts',
         'SELECT r.* FROM reviews r JOIN businesses b ON b.id = r.business_id WHERE b.account_id = ${accountId}',
+      ),
+    ).toEqual([]);
+  });
+
+  it('passes tenant table joined through a scoped account', () => {
+    expect(
+      auditSqlText(
+        'src/example.ts',
+        'SELECT aal.* FROM account_audit_log aal JOIN accounts a ON a.id = aal.account_id WHERE a.id = ${accountId}',
       ),
     ).toEqual([]);
   });

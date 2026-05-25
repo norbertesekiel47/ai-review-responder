@@ -41,6 +41,36 @@ function stripSqlComments(sqlText: string): string {
     .replace(/--.*$/gm, ' ');
 }
 
+function stripSelectSubqueries(sqlText: string): string {
+  let stripped = '';
+  for (let index = 0; index < sqlText.length; index++) {
+    const current = sqlText[index];
+    if (current !== '(') {
+      stripped += current;
+      continue;
+    }
+
+    const afterParen = sqlText.slice(index + 1);
+    const leadingWhitespace = afterParen.match(/^\s*/)?.[0] ?? '';
+    if (!afterParen.slice(leadingWhitespace.length).match(/^select\b/i)) {
+      stripped += current;
+      continue;
+    }
+
+    let depth = 1;
+    index++;
+    while (index < sqlText.length && depth > 0) {
+      const char = sqlText[index];
+      if (char === '(') depth++;
+      if (char === ')') depth--;
+      index++;
+    }
+    index--;
+    stripped += ' (subquery) ';
+  }
+  return stripped;
+}
+
 function normalizeSql(sqlText: string): string {
   return sqlText.replace(/\s+/g, ' ').trim();
 }
@@ -50,7 +80,7 @@ function hasReadOrMutationStatement(sqlText: string): boolean {
 }
 
 function predicateClauses(sqlText: string): string[] {
-  const normalizedSql = normalizeSql(sqlText);
+  const normalizedSql = normalizeSql(stripSelectSubqueries(sqlText));
   return normalizedSql.match(
     /\b(?:where|on|having)\b[\s\S]*?(?=\b(?:where|on|having|group\s+by|order\s+by|limit|offset|returning|union|except|intersect)\b|$)/gi,
   ) ?? [];
@@ -215,6 +245,16 @@ function hasTenantScopeForTable(
   }
 
   for (const alias of aliases) {
+    for (const accountAlias of tableAliases(sqlText, 'accounts')) {
+      const relatedToAccount = hasIdentifierRelationship(
+        clauses,
+        qualifiedIdentifier(alias, 'account_id'),
+        qualifiedIdentifier(accountAlias, 'id'),
+      );
+      if (!relatedToAccount) continue;
+      if (accountAliasScoped(clauses, accountAlias, false)) return true;
+    }
+
     for (const businessAlias of tableAliases(sqlText, 'businesses')) {
       const relatedToBusiness = hasIdentifierRelationship(
         clauses,
