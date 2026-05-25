@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { auditSqlText, extractSqlTemplates } from '../tenant-scope-audit';
+import { tenantScopeAllowlist } from '../tenant-scope-allowlist';
 
 describe('tenant-scope-audit', () => {
   const finding = (file: string, table: string) => [
@@ -219,6 +220,44 @@ describe('tenant-scope-audit', () => {
         `,
       ),
     ).toEqual(finding('worker/background/pollers/ArchivalPoller.ts', 'notification_deliveries'));
+  });
+
+  it('fails when a scoped union arm is followed by an unscoped arm', () => {
+    expect(
+      auditSqlText(
+        'src/example.ts',
+        'SELECT * FROM reviews WHERE business_id = ${businessId} UNION ALL SELECT * FROM reviews',
+      ),
+    ).toEqual(finding('src/example.ts', 'reviews'));
+  });
+
+  it('does not split set operator words inside string literals', () => {
+    expect(
+      auditSqlText(
+        'src/example.ts',
+        "SELECT * FROM reviews WHERE business_id = ${businessId} AND text = 'union all'",
+      ),
+    ).toEqual([]);
+  });
+
+  it('does not split set operators inside CTE bodies', () => {
+    const entry = tenantScopeAllowlist.find((allowlistEntry) => (
+      allowlistEntry.file === 'src/lib/admin/cost-report-service.ts'
+      && allowlistEntry.sqlSnippet.includes('WITH combined AS')
+      && allowlistEntry.sqlSnippet.includes('UNION ALL')
+    ));
+
+    if (!entry) throw new Error('missing cost-report UNION ALL allowlist fixture');
+    expect(auditSqlText(entry.file, entry.sqlSnippet)).toEqual([]);
+  });
+
+  it('fails when a scoped statement is followed by an unscoped statement', () => {
+    expect(
+      auditSqlText(
+        'src/example.ts',
+        'SELECT * FROM reviews WHERE business_id = ${businessId}; DELETE FROM reviews',
+      ),
+    ).toEqual(finding('src/example.ts', 'reviews'));
   });
 
   it('fails unscoped review_exceptions query', () => {

@@ -80,6 +80,62 @@ function normalizeSql(sqlText: string): string {
   return sqlText.replace(/\s+/g, ' ').trim();
 }
 
+function setOperatorMatch(sqlText: string, index: number): RegExpExecArray | null {
+  const match = /^(?:union(?:\s+all)?|except|intersect)\b/i.exec(sqlText.slice(index));
+  if (!match) return null;
+
+  const before = sqlText[index - 1];
+  if (before !== undefined && /[\w$]/.test(before)) return null;
+  return match;
+}
+
+function splitSqlUnits(sqlText: string): string[] {
+  const units: string[] = [];
+  let start = 0;
+  let depth = 0;
+
+  for (let index = 0; index < sqlText.length; index++) {
+    const char = sqlText[index];
+
+    if (char === "'") {
+      index++;
+      while (index < sqlText.length) {
+        if (sqlText[index] === "'" && sqlText[index + 1] === "'") {
+          index += 2;
+          continue;
+        }
+        if (sqlText[index] === "'") break;
+        index++;
+      }
+      continue;
+    }
+
+    if (char === '(') depth++;
+    if (char === ')' && depth > 0) depth--;
+
+    if (depth !== 0) continue;
+
+    if (char === ';') {
+      units.push(sqlText.slice(start, index));
+      start = index + 1;
+      continue;
+    }
+
+    const setMatch = setOperatorMatch(sqlText, index);
+    if (setMatch) {
+      units.push(sqlText.slice(start, index));
+      index += setMatch[0].length - 1;
+      start = index + 1;
+    }
+  }
+
+  units.push(sqlText.slice(start));
+
+  return units
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+}
+
 function hasReadOrMutationStatement(sqlText: string): boolean {
   return /\b(select|update|delete)\b/i.test(sqlText);
 }
@@ -357,22 +413,33 @@ export function auditSqlText(
   if (!hasReadOrMutationStatement(sqlForScan)) return [];
 
   const findings: TenantScopeFinding[] = [];
-  const referencedTables = referencedTenantTables(sqlForScan);
-  for (const table of referencedTables) {
-    const allowlistEntry = getAllowlistEntry(normalizedFile, table, sqlForScan);
-    if (allowlistEntry) {
-      usedAllowlistKeys?.add(allowlistKey(allowlistEntry));
-    }
-    if (hasTenantScopeForTable(sqlForScan, table, referencedTables)) continue;
-    if (allowlistEntry) {
-      continue;
-    }
+  for (const sqlUnit of splitSqlUnits(sqlForScan)) {
+    if (!hasReadOrMutationStatement(sqlUnit)) continue;
+    const referencedTables = referencedTenantTables(sqlUnit);
+    for (const table of referencedTables) {
+      const unitAllowlistEntry = getAllowlistEntry(normalizedFile, table, sqlUnit);
+      if (unitAllowlistEntry) {
+        usedAllowlistKeys?.add(allowlistKey(unitAllowlistEntry));
+      }
+      if (hasTenantScopeForTable(sqlUnit, table, referencedTables)) continue;
+      if (unitAllowlistEntry) {
+        continue;
+      }
 
-    findings.push({
-      file: normalizedFile,
-      table,
-      reason: UNSCOPED_REASON,
-    });
+      findings.push({
+        file: normalizedFile,
+        table,
+        reason: UNSCOPED_REASON,
+      });
+    }
+  }
+
+  const templateReferencedTables = referencedTenantTables(sqlForScan);
+  for (const table of templateReferencedTables) {
+    const templateAllowlistEntry = getAllowlistEntry(normalizedFile, table, sqlForScan);
+    if (templateAllowlistEntry && findings.every((finding) => finding.table !== table)) {
+      usedAllowlistKeys?.add(allowlistKey(templateAllowlistEntry));
+    }
   }
 
   return findings;
