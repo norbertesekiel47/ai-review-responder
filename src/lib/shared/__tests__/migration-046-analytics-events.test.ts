@@ -29,6 +29,21 @@ describe('migration 046 - analytics_events', () => {
     expect(sql).toMatch(/created_at TIMESTAMPTZ NOT NULL DEFAULT NOW\(\)/i);
   });
 
+  it('constrains event names and queue statuses', () => {
+    expect(sql).toMatch(/CHECK\s*\(\s*event_name IN\s*\(/i);
+    expect(sql).toMatch(/'signup_started'/i);
+    expect(sql).toMatch(/'email_verified'/i);
+    expect(sql).toMatch(/'sample_demo_started'/i);
+    expect(sql).toMatch(/'sample_demo_to_signup'/i);
+    expect(sql).toMatch(/'gbp_connect_started'/i);
+    expect(sql).toMatch(/'gbp_connect_failed'/i);
+    expect(sql).toMatch(/'gbp_connected'/i);
+    expect(sql).toMatch(/'first_review_ingested'/i);
+    expect(sql).toMatch(/'first_response_drafted'/i);
+    expect(sql).toMatch(/'activation_completed'/i);
+    expect(sql).toMatch(/CHECK\s*\(\s*status IN\s*\(\s*'pending',\s*'dispatching',\s*'completed',\s*'failed'\s*\)\s*\)/i);
+  });
+
   it('documents the queue purpose and id fallback', () => {
     expect(sql).toMatch(/COMMENT ON TABLE analytics_events IS/i);
     expect(sql).toMatch(/First-party analytics queue/i);

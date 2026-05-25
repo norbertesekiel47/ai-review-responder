@@ -43,4 +43,26 @@ describe('analytics events', () => {
       nested: { user_agent: 'ok' },
     });
   });
+
+  it('drops nested camelCase and generic sensitive properties', () => {
+    const result = sanitizeAnalyticsProperties({
+      account_id: 'acct-1',
+      responseText: 'secret response',
+      reviewText: 'secret review',
+      approvalToken: 'raw-token',
+      nested: {
+        user_agent: 'ok',
+        accessToken: 'access-token',
+        refreshToken: 'refresh-token',
+        apiKey: 'api-key',
+        databasePassword: 'password',
+        sharedSecret: 'secret',
+      },
+    });
+
+    expect(result).toEqual({
+      account_id: 'acct-1',
+      nested: { user_agent: 'ok' },
+    });
+  });
 });

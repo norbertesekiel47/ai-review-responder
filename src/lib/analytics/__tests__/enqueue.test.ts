@@ -18,6 +18,18 @@ describe('enqueueAnalyticsEvent', () => {
     mockSql.mockReset();
   });
 
+  it('rejects invalid event names before calling the database', async () => {
+    await expect(
+      enqueueAnalyticsEvent({
+        eventName: 'freeform_event' as Parameters<typeof enqueueAnalyticsEvent>[0]['eventName'],
+        eventKey: 'freeform_event:acct-1',
+        distinctId: 'acct-1',
+      }),
+    ).rejects.toThrow('Invalid analytics event name: freeform_event');
+
+    expect(mockSql).not.toHaveBeenCalled();
+  });
+
   it('inserts analytics_events with sanitized properties and idempotent duplicate handling', async () => {
     const insertedKeys = new Set<string>();
     let insertedCount = 0;

@@ -6,7 +6,20 @@
 CREATE TABLE IF NOT EXISTS analytics_events (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   event_key TEXT NOT NULL UNIQUE,
-  event_name TEXT NOT NULL,
+  event_name TEXT NOT NULL CHECK (
+    event_name IN (
+      'signup_started',
+      'email_verified',
+      'sample_demo_started',
+      'sample_demo_to_signup',
+      'gbp_connect_started',
+      'gbp_connect_failed',
+      'gbp_connected',
+      'first_review_ingested',
+      'first_response_drafted',
+      'activation_completed'
+    )
+  ),
   distinct_id TEXT NOT NULL,
   anonymous_id TEXT,
   account_id UUID REFERENCES accounts(id) ON DELETE SET NULL,
@@ -19,7 +32,7 @@ CREATE TABLE IF NOT EXISTS analytics_events (
   locked_at TIMESTAMPTZ,
   attempts INTEGER NOT NULL DEFAULT 0,
   max_attempts INTEGER NOT NULL DEFAULT 5,
-  status TEXT NOT NULL DEFAULT 'pending',
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'dispatching', 'completed', 'failed')),
   last_error TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

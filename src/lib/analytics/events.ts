@@ -20,12 +20,39 @@ const BLOCKED_PROPERTY_KEYS = new Set([
   'approval_token_hash',
   'raw_token',
   'connect_token',
+  'access_token',
+  'refresh_token',
   'response_text',
   'review_text',
   'raw_review',
   'secret',
   'api_key',
 ]);
+
+const BLOCKED_NORMALIZED_PROPERTY_KEYS = new Set([
+  'approvaltoken',
+  'approvaltokenhash',
+  'rawtoken',
+  'connecttoken',
+  'accesstoken',
+  'refreshtoken',
+  'responsetext',
+  'reviewtext',
+  'rawreview',
+  'apikey',
+]);
+
+function isBlockedPropertyKey(key: string): boolean {
+  const lowerKey = key.toLowerCase();
+  const normalizedKey = lowerKey.replace(/[^a-z0-9]/g, '');
+  return (
+    BLOCKED_PROPERTY_KEYS.has(lowerKey) ||
+    BLOCKED_NORMALIZED_PROPERTY_KEYS.has(normalizedKey) ||
+    lowerKey.includes('token') ||
+    lowerKey.includes('secret') ||
+    lowerKey.includes('password')
+  );
+}
 
 export function isAnalyticsEventName(value: string): value is AnalyticsEventName {
   return EVENT_NAME_SET.has(value);
@@ -45,7 +72,7 @@ export function makeAnalyticsEventKey(
 export function sanitizeAnalyticsProperties(input: Record<string, unknown>): Record<string, unknown> {
   const output: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(input)) {
-    if (BLOCKED_PROPERTY_KEYS.has(key.toLowerCase())) {
+    if (isBlockedPropertyKey(key)) {
       continue;
     }
     if (value && typeof value === 'object' && !Array.isArray(value)) {

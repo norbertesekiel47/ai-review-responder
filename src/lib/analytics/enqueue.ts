@@ -2,7 +2,7 @@ import type postgres from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '@/lib/db/server';
 import type { AnalyticsEventName } from './events';
-import { sanitizeAnalyticsProperties } from './events';
+import { isAnalyticsEventName, sanitizeAnalyticsProperties } from './events';
 
 type SqlExecutor = typeof sql | postgres.TransactionSql;
 
@@ -22,6 +22,10 @@ export async function enqueueAnalyticsEvent(
   input: EnqueueAnalyticsEventInput,
   db: SqlExecutor = sql,
 ): Promise<void> {
+  if (!isAnalyticsEventName(input.eventName)) {
+    throw new Error(`Invalid analytics event name: ${input.eventName}`);
+  }
+
   const properties = sanitizeAnalyticsProperties(input.properties ?? {});
   await db`
     INSERT INTO analytics_events (
