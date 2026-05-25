@@ -106,7 +106,7 @@ _Also settled earlier this pass: live 4-tier model (not Starter/Growth/Scale); n
 
 Within each wave, clear the **verify-and-polish** specs before the greenfield ones to bank quick wins.
 
-- **Wave 1 — Foundation / launch-risk** (data, billing, legal, trust): `03` tenant-isolation test + scope-audit · `05` billing recon + `past_due_at` · `09` security (security.txt, CSP nonces, secrets rotation, PHI scanner) · `17` legal (lawyered docs + sub-processor reconcile) · `29` Gap 1 (approval snapshot) + Gap 2 (invoice recon).
+- **Wave 1 — Foundation / launch-risk** (data, billing, legal, trust): `03` tenant-isolation test + scope-audit · `05` billing recon + `past_due_at` · `09` security (security.txt, CSP nonces, secrets rotation, PHI scanner) · `17` legal (lawyered docs + sub-processor reconcile) · `29` Gap 1 (approval snapshot) + Gap 2 (invoice recon). **✅ SHIPPED (2026-05-25, branch `codex/wave-1-foundation-launch-risk` → PR #85)** — migrations 044 (approval snapshot) + 045 (`onboarding_demos` RLS). Design: `docs/superpowers/specs/2026-05-25-wave-1-foundation-launch-risk-design.md`. **External gates still pending** (not code): lawyer review of legal docs, insurance binding, PostHog production confirmation before re-listing it as a sub-processor, and CSP `'unsafe-inline'` removal after a report-only soak.
 - **Wave 2 — Activation** (don't lose a paying customer): `06` onboarding measurement + CSV polish · `05`/`29` Gap 5 past_due UX + Gap 6 grant-extension · `04` MFA + audit · `13` support (KB + impersonation).
 - **Wave 3 — Visibility & AI safety**: `07` observability (JSON logs, Next.js `/api/health`, Bull Board) · `22` AI ops (**pin the OpenAI model — 1 line**, eval set, moderation) + `10` trust/safety · `11` KPIs + sentiment · `26` finance rollup.
 - **Wave 4 — Growth**: `01` PMF instrumentation · `16` marketing (SEO, referral, UTM) · `15` sales (CRM, demo) · `14` CS (health score, lifecycle) · `20` API · `28` comms polish.
@@ -187,7 +187,7 @@ Specs 01 (PMF) and 02 (Pricing) thread continuously — review monthly, not "shi
 ## Conventions used across specs
 
 - **Spec structure**: Why → Current State → Target State → Implementation Tasks → Acceptance Criteria → Metrics → Risks → Dependencies.
-- **Migration numbering**: Each spec proposing schema work claims a number; current head is **043**, next is **044**. Reserve numbers in spec body. If two specs land in parallel, the second one renumbers — coordinate via the PR description.
+- **Migration numbering**: Each spec proposing schema work claims a number; current head is **045**, next is **046**. Reserve numbers in spec body. If two specs land in parallel, the second one renumbers — coordinate via the PR description.
 - **Code anchors**: Every spec links to relevant files (`worker/`, `src/`, `supabase/migrations/`, `docs/runbooks/`) so an implementer doesn't start from a blank page.
 - **Cross-links**: Specs reference each other by relative path. Search any spec for `[Spec NN]` to find related work.
 

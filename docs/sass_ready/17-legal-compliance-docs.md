@@ -1,6 +1,8 @@
 # Spec 17 — Legal & Compliance Docs
 
 > **Goal:** ToS, Privacy Policy, AUP, DPA, Cookie Policy lawyered before charging first customer; AI-usage disclosure baked into product; GBP API ToS audit annually; insurance bound by first paid customer.
+>
+> **✅ Wave 1 SHIPPED (2026-05-25, PR #85):** canonical `/legal/{terms,privacy,aup,dpa,cookies,sub-processors}` rendered from a typed content module (no MDX), 308 permanent redirects from `/terms` + `/privacy`, a reconciled sub-processor list (correct Zernio token-custody wording; PostHog omitted pending prod confirmation; SerpAPI + Google Maps Platform included), versioned docs, and AI-disclosure at every owner-approval surface. **External gates still pending (not code):** lawyer review (`docs/legal/legal-review.md`) and insurance binding (`docs/legal/insurance.md`); `legal_acceptances` + re-accept flow deferred to a later legal-hardening slice.
 
 ---
 

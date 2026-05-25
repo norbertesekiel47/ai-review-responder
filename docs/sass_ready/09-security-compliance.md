@@ -1,6 +1,8 @@
 # Spec 09 — Security & Compliance
 
 > **Goal:** Third-party pentest before $50k MRR, OWASP top 10 in CI, secrets rotation policy, envelope-encrypted OAuth refresh tokens, SOC 2 controls running silently before audit, GDPR/CCPA self-serve, WAF + rate limits, security.txt + disclosure policy.
+>
+> **✅ Wave 1 SHIPPED (2026-05-25, PR #85):** `security.txt` + `/security` page (no overclaiming), vendor-risk + access registers, secrets-rotation runbooks, a CSP report-only/nonce rollout plan, and the **PHI scanner** (`src/lib/security/phi-scanner.ts`) blocking likely-PHI review text before persistence on every Zernio ingest path. **Deferred:** third-party pentest, OWASP/ZAP + Trivy as hard CI gates (need a stable staging target / image), envelope-encrypted OAuth tokens, SOC 2 audit, and removing CSP `'unsafe-inline'` (after a report-only soak).
 
 ---
 

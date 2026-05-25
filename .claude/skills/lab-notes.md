@@ -776,3 +776,61 @@ tsconfig flag, so passing it to `.toBeLessThan()` fails `tsc`. After asserting
 the mock was called, a non-null assertion (`...[0]!`) is correct and idiomatic
 in this repo (cf. `mock.calls[0]![0]`). `pnpm test` passing does NOT imply
 `pnpm typecheck` passing — run both.
+
+---
+
+Discovered building Wave 1 — foundation / launch-risk
+(`codex/wave-1-foundation-launch-risk`, PR #85): tenant-isolation proofs,
+billing reconciliation, security/PHI, legal accuracy, approval snapshot.
+
+### `postgres.TransactionSql` has no `.begin` in its types — make the outbox helper caller-owned
+Tried to make `openPhiReviewException` atomic by wrapping its two INSERTs in
+`db.begin(...)`, where `db: typeof sql | TransactionSql`. `tsc` failed:
+`Property 'begin' does not exist on type 'TxClient'`. Postgres.js exposes
+`.begin` on the base `Sql` but NOT on `TransactionSql` (savepoints work at
+runtime, the type omits them).
+**Correct approach:** the *caller* owns the transaction — each call site wraps
+`await sql.begin((tx) => helper(tx, ...))` and the helper takes the handle and
+uses it only as a tagged template. Matches the entry-point invariant
+(orchestration owns the tx boundary). The reconcile path already passed a `tx`,
+so only the 3 top-level-`sql` callers (webhook worker, backfill worker,
+recent-review poller) needed wrapping.
+
+### PHI scanning must gate EVERY ingest path — `processReview` is the real chokepoint, not just `insertImportedReview`
+The spec anchored "scan before `insertImportedReview`," but new (unanswered)
+reviews persist through `processReview`, and the recent-review poller's
+unanswered branch called it with no PHI gate — a live steady-state path
+(`ZERNIO_PUBLISHING_ENABLED=true`) shipped unguarded in the first cut.
+**Correct approach:** gate before persistence on all four paths (webhook,
+backfill, recent-poller, reconcile). Conversely, do NOT double-gate:
+`reconcileExternallyAnsweredReview` already runs `detectLikelyPhi` before each
+import branch, so a "move the check above reconcile" review suggestion was
+*rejected* — it would skip reconcile entirely for PHI-flagged replied reviews
+and break the supersede-stale-responses logic.
+
+### A conservative PHI regex must use co-occurrence, not bare medical keywords
+First-cut patterns matched bare `patient|treatment|therapy|surgery|medication`,
+which quarantined ~8/9 normal reviews for RepWorth's own target verticals
+(dentists, vets, spas, PTs) — "Dr. Smith was *patient*", "great massage
+*therapy*". Because PHI blocks persistence, that silently breaks ingestion for
+those customers.
+**Correct approach:** require co-occurrence — a self-reference
+(`i|me|my|we|our`) AND a medical-context term — plus the well-scoped MRN /
+insurance-identifier patterns (identifier + digits). Quarantine for operator
+review, never silent-delete.
+
+### Billing reconciliation must compute expected invoice from STORED quota, not live `TIER_CONFIG`
+A reconciler that derives "expected" overage from live `TIER_CONFIG` false-alarms
+on every grandfathered account (Stripe reflects the price the sub was created
+at).
+**Correct approach:** expected overage uses stored `accounts.locations_included`
++ `accounts.locations_overage_price_cents` (point-in-time); base is the lone
+exception (`TIER_CONFIG.baseCents`, no stored column). Prefer
+`currentBillingSnapshot()` over rebuilding the math.
+
+### `ON CONFLICT DO NOTHING` + an unconditional alert = alert spam on every re-ingest
+`openPhiReviewException` fired `Sentry.captureMessage` before checking whether
+the `INSERT ... ON CONFLICT DO NOTHING` actually created a row, so a review
+re-seen each poll cycle re-alerted forever.
+**Correct approach:** gate the alert AND the follow-up outbox enqueue behind a
+non-empty `RETURNING` — only a newly created exception notifies.

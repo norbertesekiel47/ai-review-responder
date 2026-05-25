@@ -1,6 +1,8 @@
 # Spec 03 — Multi-tenancy & Data Isolation
 
 > **Goal:** Make the existing app-layer scoping (inline `WHERE account_id = …`) **provably** correct: a CI guard that catches ungated tenant queries, an accurate two-path isolation model (service-role writes vs. RLS-protected anon reads), and a brutal cross-tenant integration test that gates merges. No repository-layer rewrite.
+>
+> **✅ Wave 1 SHIPPED (2026-05-25, branch `codex/wave-1-foundation-launch-risk` → PR #85):** RLS audit (`scripts/ci/rls-audit.ts`), tenant-scope static audit + vetted allowlist running in the blocking `lint` job, and the guarded cross-tenant integration test (`src/__tests__/tenant-isolation.test.ts`) all landed; `onboarding_demos` brought under RLS (migration 045). Docs: `docs/security/{rls-inventory,tenant-isolation}.md`. **Still deferred:** hard-gating the DB-backed test in CI (needs `TEST_DATABASE_POOL_URL` — see `docs/PENDING-db-gated-tests.md`).
 
 ---
 

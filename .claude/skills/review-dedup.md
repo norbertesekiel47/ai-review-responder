@@ -122,9 +122,24 @@ interface NormalizedReview {
 | `'identity_collision'` | Two reviews mapped to same identity key with different content on first encounter |
 | `'zernio_review_not_found'` | Entire Zernio feed walked (durable not-found) — review genuinely missing |
 | `'zernio_pagination_cap_exhausted'` | Hit `ZERNIO_INGEST_MAX_PAGES` limit with `nextPageToken` still set — indeterminate, may need cap increase |
+| `'zernio_likely_phi_review'` | Wave 1 (PR #85): review text tripped the PHI scanner (`src/lib/security/phi-scanner.ts`) — ingest of that review is **blocked before any persistence** and the row is opened for operator review. Raw review text is never stored in the payload or logs. |
 
 These are distinct types deliberately. Do NOT conflate cap-exhausted with
 durable not-found — ops decisions differ (bump cap vs accept gap).
+
+> **PHI-exception dedup (`openPhiReviewException`, `worker/jobs/zernio/zernio-ingest-shared.ts`):**
+> opened idempotently via `ON CONFLICT (business_id, type, (payload->>'provider_review_id'))
+> WHERE status = 'open' AND review_id IS NULL DO NOTHING` so a review re-seen on
+> every poll/backfill cycle does not spawn duplicate exceptions or re-fire the
+> admin alert. The exception row + its `notify_admin_review_exception` outbox row
+> are written in ONE **caller-owned** transaction (each call site wraps it in
+> `sql.begin`; `TransactionSql` has no `.begin`, so the function itself never
+> opens the tx). The Sentry alert fires only when the INSERT actually created a
+> row (skipped on the `DO NOTHING` no-op). Every Zernio ingest path is gated:
+> webhook (`ZernioReviewIngestWorker`), backfill (`ZernioBackfillWorker`),
+> recent-review poller (`ZernioRecentReviewPoller`), and the externally-answered
+> reconcile path (`reconcileExternallyAnsweredReview`, which gates before each
+> import branch — so replied reviews are NOT a bypass).
 
 ## GBP API Migration Path (Phase 5)
 

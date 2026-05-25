@@ -302,6 +302,17 @@ key presence.
 | `EMAIL_CHANNEL_RECONCILE_DISABLED` | `false` | `true` → skip reconcile poller (mock mode auto-skips) |
 | `NOTIFICATION_FAILOVER_DISABLED` | `false` | `true` → skip failover poller entirely (local dev / mock mode auto-skips; `RESEND_WEBHOOK_SECRET` no longer consulted when disabled) |
 | `NOTIFICATION_FAILOVER_INTERVAL_MS` | 7200000 (2h) | Failover poller interval |
+| `STRIPE_LOCATIONS_RECONCILE_INTERVAL_MS` | 3600000 (1h) | `StripeLocationsReconcilePoller` cadence. Wave 1 (PR #85) expanded it from location-count drift to full subscription + upcoming-invoice reconciliation (missing/duplicate/status/price/quantity/invoice drift → Sentry, never auto-corrects). |
+| `STRIPE_LOCATIONS_RECONCILE_DISABLED` | `false` | `true` → skip the billing reconcile poller (mock mode auto-skips) |
+
+> **Wave 1 launch-risk controls are unconditional — no kill-switch (since 2026-05-25, PR #85):**
+> the **PHI scanner** on Zernio ingest (`src/lib/security/phi-scanner.ts` →
+> blocks before persistence on every ingest path) and the **approval audit
+> snapshot** (`response_text_at_approval`) are always-on by design — there is no
+> env flag to disable them, because they are launch-risk guardrails (PHI leakage,
+> dispute evidence), not optional features. PostHog remains gated by
+> `POSTHOG_API_KEY` (see Product Analytics above) and is NOT yet listed as a live
+> sub-processor until that key is confirmed in prod.
 
 ---
 

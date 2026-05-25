@@ -1,6 +1,8 @@
 # Spec 05 — Billing & Subscription Lifecycle
 
 > **Goal:** Stripe is the source of truth. Webhook idempotency already exists (`inbound_events`); **extend** reconciliation to catch subscription-level drift, add a `past_due` countdown timestamp + day-variant banner, branded dunning over 28 days, and a cancellation survey. Build on the existing `subscription-guard` + reconcile pollers — don't rebuild them.
+>
+> **✅ Wave 1 SHIPPED (2026-05-25, PR #85):** subscription-level + multi-location upcoming-invoice reconciliation added to `StripeLocationsReconcilePoller` (missing/duplicate/status/price/quantity/invoice drift → Sentry, never auto-corrects; expected invoice uses *stored* grandfathered quota; `past_due` within the 7-day grace window is informational). `past_due_at` shipped earlier in Step 1 (migration 043). **Deferred to Wave 2 / later:** day-variant past-due banner, branded dunning, cancellation survey, Stripe Tax.
 
 ---
 
