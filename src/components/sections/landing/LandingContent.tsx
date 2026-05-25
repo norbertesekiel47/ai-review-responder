@@ -105,8 +105,8 @@ export function LandingContent({
           <footer className="rw-foot">
             <span>© {new Date().getFullYear()} RepWorth. All rights reserved.</span>
             <span>
-              <Link href="/privacy">Privacy</Link>
-              <Link href="/terms">Terms &amp; Conditions</Link>
+              <Link href="/legal/privacy">Privacy</Link>
+              <Link href="/legal/terms">Terms &amp; Conditions</Link>
             </span>
           </footer>
         </div>

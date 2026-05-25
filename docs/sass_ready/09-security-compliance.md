@@ -20,7 +20,7 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 - **Rate limiting is Redis-Lua** (`src/lib/shared/rate-limit.ts`), not `@upstash/ratelimit` — reuse it (consistent with [Spec 04](./04-auth-identity.md)).
 - ⚠️ **OAuth-token reality (corrects the spec):** `google_connections` (migration 001) **already has `access_token_encrypted` + `refresh_token_encrypted`** with a DEK/KEK envelope design — but the table is **empty** because direct GBP API is a future (Phase 5) state. Today GBP access is **Zernio-mediated**; RepWorth stores **no Google refresh tokens**, only a server-side `ZERNIO_API_KEY` env var. So "OAuth tokens stored without envelope encryption" is **false**.
 - No `/security.txt` or `/security` page; no pentest; no SOC 2 controls runbook.
-- `docs/Legal/repworth-privacy-policy.md` + `repworth-terms-of-service.md` exist (+ public `/privacy`, `/terms` pages). No `/legal/sub-processors` or `/legal/dpa`.
+- `docs/legal/repworth-privacy-policy.md` + `repworth-terms-of-service.md` exist (+ public `/privacy`, `/terms` pages). No `/legal/sub-processors` or `/legal/dpa`.
 - ✅ **Base CI now exists:** the first secret-free GitHub Actions gate runs `lint`, `typecheck`, `test`, and `build`. Security-specific gates remain pending: ZAP, Trivy, Snyk, and Dependabot still need dedicated follow-up workflows/config ([Spec 24](./24-devops-deployment.md)).
 
 ## 3. Target state
@@ -67,7 +67,7 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 
 ### Vulnerability disclosure
 - `/security.txt` at well-known URL.
-- `/security` page with policy: scope, safe harbor, contact (`security@repworth.com`), bounty.
+- `/security` page with policy: scope, safe harbor, contact (`security@repworth.net`), bounty.
 - Bounty: start with hall-of-fame + swag; paid bounty at $100k MRR.
 
 ### Dependency scanning
@@ -157,7 +157,7 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 - [Spec 17 — Legal & Compliance Docs](./17-legal-compliance-docs.md) (lawyered ToS/PP, DPA)
 - [Spec 28 — Customer Comms & Brand](./28-customer-comms-brand.md) (breach notification)
 - [Spec 29 — RepWorth Gaps](./29-repworth-specific-gaps.md) (`/trust` page)
-- Code anchors: `src/lib/shared/{sentry-scrub,csrf,rate-limit}.ts`, `src/lib/auth/route-helpers.ts`, `next.config.mjs` (headers), `google_connections` (migration 001, encrypted token columns), `src/app/api/approve/[token]/route.ts`, `docs/Legal/*`
+- Code anchors: `src/lib/shared/{sentry-scrub,csrf,rate-limit}.ts`, `src/lib/auth/route-helpers.ts`, `next.config.mjs` (headers), `google_connections` (migration 001, encrypted token columns), `src/app/api/approve/[token]/route.ts`, `docs/legal/*`
 
 ## 9. Implementation in the current repo
 

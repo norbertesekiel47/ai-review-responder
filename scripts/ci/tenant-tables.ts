@@ -1,0 +1,27 @@
+export const TENANT_TABLES = [
+  'accounts',
+  'businesses',
+  'channel_enrollments',
+  'reviews',
+  'responses',
+  'approval_links',
+  'approval_audit_log',
+  'account_audit_log',
+  'notification_deliveries',
+  'api_costs',
+  'weekly_summaries',
+  'monthly_impact_emails',
+  'onboarding_drip_log',
+  'onboarding_demos',
+  'satisfaction_responses',
+  'api_costs_daily_rollups',
+  'review_exceptions',
+  'ranking_snapshots',
+  'zernio_connections',
+  'zernio_finalize_incidents',
+  'zernio_backfill_runs',
+  'sms_sender_opt_outs',
+  'sms_sender_opt_out_events',
+] as const;
+
+export type TenantTable = (typeof TENANT_TABLES)[number];

@@ -1,0 +1,5 @@
+Contact: mailto:security@repworth.net
+Policy: https://repworth.net/security
+Preferred-Languages: en
+Canonical: https://repworth.net/.well-known/security.txt
+Expires: 2027-05-25T00:00:00.000Z

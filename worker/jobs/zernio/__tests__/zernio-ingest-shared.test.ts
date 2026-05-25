@@ -11,9 +11,13 @@ vi.mock('@/lib/shared/outbox', () => ({
   markOutboxCompleted: vi.fn(),
   markOutboxFailed: vi.fn(),
 }));
+vi.mock('@sentry/node', () => ({
+  captureMessage: vi.fn(),
+}));
 
 import {
   handleZernioIngestError,
+  openPhiReviewException,
   reconcileExternallyAnsweredReview,
 } from '../zernio-ingest-shared';
 import {
@@ -72,6 +76,93 @@ describe('handleZernioIngestError — dispatch matrix', () => {
         new Error('boom'), 'outbox-1', 1, ctx, mkLogger() as any,
       ),
     ).rejects.toThrow('boom');
+  });
+});
+
+describe('openPhiReviewException', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it('opens an operator exception without storing raw review text', async () => {
+    const { captureMessage } = await import('@sentry/node');
+    const calls: Array<{ sql: string; values: unknown[] }> = [];
+    // openPhiReviewException is invoked inside a caller-owned transaction; the
+    // mock stands in for that tx handle and records both inserts.
+    const db = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
+      calls.push({ sql: strings.join('?'), values });
+      return Promise.resolve(calls.length === 1 ? [{ id: 'exc-1' }] : []);
+    });
+    const logger = mkLogger();
+    const review: ZernioReview = {
+      id: 'rev-phi',
+      name: 'accounts/A/locations/L/reviews/rev-phi',
+      reviewer: { displayName: 'Jane', profilePhotoUrl: '', isAnonymous: false },
+      rating: 5,
+      starRating: 'FIVE',
+      comment: 'Patient MRN 12345 needs diabetes treatment follow up',
+      createTime: '2026-04-01T00:00:00Z',
+      updateTime: '2026-04-01T00:00:00Z',
+      reviewReply: null,
+    };
+
+    await openPhiReviewException(db as any, {
+      businessId: 'B',
+      accountId: 'A',
+      locationId: 'L',
+      review,
+      reasons: ['mrn', 'self_referenced_medical_context'],
+      source: 'webhook',
+    }, logger as any);
+
+    expect(calls[0]?.sql).toContain('INSERT INTO review_exceptions');
+    expect(calls[1]?.sql).toContain('notify_admin_review_exception');
+    expect(JSON.stringify(calls)).toContain('provider_review_id');
+    expect(JSON.stringify(calls[1])).not.toContain('MRN 12345');
+    expect(captureMessage).toHaveBeenCalledWith(
+      'zernio_likely_phi_review_blocked',
+      expect.objectContaining({
+        level: 'warning',
+        tags: expect.objectContaining({ kind: 'likely_phi', source: 'webhook' }),
+      }),
+    );
+  });
+
+  it('is a no-op when an open exception already exists (ON CONFLICT)', async () => {
+    const { captureMessage } = await import('@sentry/node');
+    const calls: Array<{ sql: string; values: unknown[] }> = [];
+    // First INSERT ... ON CONFLICT DO NOTHING returns no row — a still-open
+    // exception already exists, so neither the outbox nor the alert should fire.
+    const db = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
+      calls.push({ sql: strings.join('?'), values });
+      return Promise.resolve([]);
+    });
+    const logger = mkLogger();
+    const review: ZernioReview = {
+      id: 'rev-phi-dup',
+      name: 'accounts/A/locations/L/reviews/rev-phi-dup',
+      reviewer: { displayName: 'Jane', profilePhotoUrl: '', isAnonymous: false },
+      rating: 5,
+      starRating: 'FIVE',
+      comment: 'Patient MRN 12345 needs diabetes treatment follow up',
+      createTime: '2026-04-01T00:00:00Z',
+      updateTime: '2026-04-01T00:00:00Z',
+      reviewReply: null,
+    };
+
+    await openPhiReviewException(db as any, {
+      businessId: 'B',
+      accountId: 'A',
+      locationId: 'L',
+      review,
+      reasons: ['mrn'],
+      source: 'backfill',
+    }, logger as any);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.sql).toContain('INSERT INTO review_exceptions');
+    expect(calls.some((call) => call.sql.includes('notify_admin_review_exception'))).toBe(false);
+    expect(captureMessage).not.toHaveBeenCalled();
   });
 });
 
@@ -293,6 +384,34 @@ describe('reconcileExternallyAnsweredReview — flag-gated import branches', () 
     expect(logger.log).toHaveBeenCalledWith(expect.stringContaining('Imported external reply'));
   });
 
+  it('flag ON + no-match + likely PHI review text: skips review and response inserts', async () => {
+    process.env.EXTERNAL_REPLY_IMPORT_ENABLED = 'true';
+    const { sql } = await import('@/lib/db/server');
+    const { tx, calls } = mkRecordingTx([
+      // 1. SELECT matched rows → none.
+      () => [],
+    ]);
+    (sql as any).begin = vi.fn(async (cb: any) => cb(tx));
+    const logger = mkLogger();
+
+    await reconcileExternallyAnsweredReview(
+      mkReview({ comment: 'Patient MRN 12345 needs diabetes treatment follow up' }),
+      'B',
+      'A',
+      'L',
+      logger as any,
+    );
+
+    expect(calls).toHaveLength(2);
+    expect(calls[1]!.sql).toContain('INSERT INTO review_exceptions');
+    expect(calls.every((c) => !c.sql.includes('INSERT INTO reviews'))).toBe(true);
+    expect(calls.every((c) => !c.sql.includes('INSERT INTO responses'))).toBe(true);
+    expect(calls.every((c) => !c.sql.includes('UPDATE zernio_backfill_runs'))).toBe(true);
+    expect(JSON.stringify(calls[1])).not.toContain('MRN 12345');
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('Likely PHI detected'));
+    expect(logger.warn).toHaveBeenCalledWith(expect.not.stringContaining('MRN 12345'));
+  });
+
   it('flag ON + matched but no active responses: INSERTs response only, version > 1 if prior terminals exist', async () => {
     process.env.EXTERNAL_REPLY_IMPORT_ENABLED = 'true';
     const { sql } = await import('@/lib/db/server');
@@ -321,6 +440,35 @@ describe('reconcileExternallyAnsweredReview — flag-gated import branches', () 
     // Counter bump.
     expect(calls[3]!.sql).toContain('UPDATE zernio_backfill_runs');
     expect(logger.log).toHaveBeenCalledWith(expect.stringContaining('Imported external reply onto existing review'));
+  });
+
+  it('flag ON + matched but no active responses + likely PHI review text: skips response import', async () => {
+    process.env.EXTERNAL_REPLY_IMPORT_ENABLED = 'true';
+    const { sql } = await import('@/lib/db/server');
+    const { tx, calls } = mkRecordingTx([
+      // 1. SELECT matched rows → 1 row.
+      () => [{ id: 'rev-row-1', provider: 'zernio' }],
+      // 2. SELECT active responses → none.
+      () => [],
+    ]);
+    (sql as any).begin = vi.fn(async (cb: any) => cb(tx));
+    const logger = mkLogger();
+
+    await reconcileExternallyAnsweredReview(
+      mkReview({ comment: 'Patient MRN 12345 needs diabetes treatment follow up' }),
+      'B',
+      'A',
+      'L',
+      logger as any,
+    );
+
+    expect(calls).toHaveLength(3);
+    expect(calls[2]!.sql).toContain('INSERT INTO review_exceptions');
+    expect(calls.every((c) => !c.sql.includes('INSERT INTO responses'))).toBe(true);
+    expect(calls.every((c) => !c.sql.includes('UPDATE zernio_backfill_runs'))).toBe(true);
+    expect(JSON.stringify(calls[2])).not.toContain('MRN 12345');
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('Likely PHI detected'));
+    expect(logger.warn).toHaveBeenCalledWith(expect.not.stringContaining('MRN 12345'));
   });
 
   it('flag ON + matched WITH active response: today\'s supersede/protect logic, no new INSERTs, no counter bump', async () => {

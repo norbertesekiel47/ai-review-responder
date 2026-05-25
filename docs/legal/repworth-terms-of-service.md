@@ -1,0 +1,109 @@
+# Terms of Service
+
+Version: 2026-05-25
+Effective date: 2026-05-25
+Legal review status: pending lawyer review
+
+By creating an account or using RepWorth, you agree to these Terms. If you do not agree, do not use the Service.
+
+---
+
+## 1. The Service
+
+RepWorth monitors Google Business Profile reviews, generates AI-drafted response suggestions in your business voice, and delivers those drafts for owner approval by email, SMS, WhatsApp, Telegram, or other enabled product channels.
+
+No response is published to Google without explicit owner approval. You remain responsible for all content posted under your business accounts.
+
+---
+
+## 2. Eligibility
+
+You must be at least 18 years old and have authority to act on behalf of the business you register. You are responsible for keeping login credentials and approval links secure.
+
+---
+
+## 3. Acceptable Use
+
+You may not use RepWorth to generate misleading, defamatory, deceptive, unlawful, harassing, hateful, discriminatory, or privacy-invasive content. You may not use the Service to violate Google policies, third-party rights, or applicable law.
+
+We may suspend or terminate access, reject content, or disable publishing paths when we believe the Service is being misused.
+
+---
+
+## 4. Subscription and Billing
+
+Subscriptions are charged through Stripe. Prices are displayed at checkout and may change with advance notice. You may cancel according to the account-management workflow available in the product.
+
+Stripe handles payment card data. RepWorth stores billing identifiers and subscription state, not raw card numbers.
+
+---
+
+## 5. Notifications
+
+RepWorth may send service notifications when new reviews arrive, when drafts are ready for approval, when approval links are used, or when account action is required.
+
+If you provide a mobile phone number and opt in to SMS or WhatsApp notifications, you consent to receive recurring automated service messages from RepWorth. Consent is not a condition of purchase. Message frequency varies based on review volume. Message and data rates may apply.
+
+To opt out of SMS, reply STOP. For help, reply HELP or contact info@repworth.net. RepWorth does not share, sell, or rent mobile opt-in data or mobile numbers to third parties or affiliates for marketing or promotional purposes.
+
+---
+
+## 6. AI-Generated Content
+
+RepWorth uses automated and AI systems to generate draft responses to your reviews. Every draft is presented to you for review and requires your explicit approval before it is posted to Google; no AI-generated content is published on your behalf without that approval. Once you approve a draft, the posted response is attributed to you, and you are responsible for its content.
+
+Response drafts are suggestions only. RepWorth does not warrant their accuracy, appropriateness, tone, completeness, or fitness for any purpose. You are responsible for reviewing all drafts before approving them for posting to Google.
+
+---
+
+## 7. Data and Sub-processors
+
+RepWorth uses sub-processors to operate the Service. Current sub-processors are OpenAI, Anthropic, Stripe, Supabase, Vercel, Railway, Upstash, Resend, Twilio, Telegram when enabled, Zernio, Sentry, SerpAPI, and Google Maps Platform.
+
+The current sub-processor list is mirrored in `docs/legal/sub-processors.md` and published at `/legal/sub-processors`.
+
+---
+
+## 8. Intellectual Property
+
+You retain ownership of your review data and response content. You grant RepWorth a limited, non-exclusive license to process that data solely to operate, secure, and improve the Service.
+
+---
+
+## 9. Disclaimer of Warranties
+
+The Service is provided "as is" without warranty of any kind, express or implied, including implied warranties of merchantability, fitness for a particular purpose, and non-infringement.
+
+---
+
+## 10. Limitation of Liability
+
+To the maximum extent permitted by applicable law, RepWorth's total liability for any claim arising out of or related to the Service is limited to the fees you paid in the three months preceding the claim. We are not liable for indirect, incidental, consequential, special, or punitive damages.
+
+---
+
+## 11. Termination
+
+Either party may terminate the agreement. We may suspend or terminate your account for cause immediately, or without cause with notice. Upon termination, access ends and data is handled according to the Privacy Policy and product retention workflows.
+
+---
+
+## 12. Governing Law
+
+These Terms are governed by the laws of the State of California, without regard to conflict-of-law principles. Disputes will be resolved in the courts of Los Angeles County, California, unless applicable law requires another forum.
+
+---
+
+## 13. Changes to These Terms
+
+We will notify registered users of material changes to these Terms when required. Continued use of the Service after an updated effective date constitutes acceptance of the updated Terms.
+
+---
+
+## 14. Contact
+
+RepWorth
+
+Email: info@repworth.net
+
+Website: repworth.net

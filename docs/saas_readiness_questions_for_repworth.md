@@ -429,7 +429,7 @@ Conventions:
 
 - **Terms of Service, Privacy Policy, Acceptable Use Policy, DPA, Cookie Policy — current, lawyered, and versioned?**
   - **A:** Drafts ready, **lawyered before charging the first customer**. Use **Termly** or **iubenda** for first-pass draft, then $500–1500 for a SaaS-specialist lawyer (Cooley GO templates, ClerkyHQ, or a recommended local). Version-control in repo, link from footer, prompt for re-accept on material changes.
-  - **RepWorth today:** `docs/Legal/repworth-privacy-policy.md` and `repworth-terms-of-service.md` exist as drafts.
+  - **RepWorth today:** `docs/legal/repworth-privacy-policy.md` and `repworth-terms-of-service.md` exist as drafts.
   - **Gap → action:** Get them lawyered. Add AUP + DPA + Cookie Policy.
 
 - **AI usage disclosure: do you disclose that responses are AI-generated where required by law?**

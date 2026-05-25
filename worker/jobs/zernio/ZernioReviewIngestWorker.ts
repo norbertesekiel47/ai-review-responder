@@ -22,6 +22,7 @@ import { sql } from '../../../src/lib/db/server';
 import { checkSubscription } from '../../../src/lib/shared/subscription-guard';
 import { extractOutboxHandle, markOutboxCompleted } from '../../../src/lib/shared/outbox';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
+import { detectLikelyPhi, redactPhiForLog } from '../../../src/lib/security/phi-scanner';
 import { zernioClient } from '../../../src/lib/zernio/client';
 import {
   buildZernioMonitoredReview,
@@ -31,6 +32,7 @@ import {
 import { processReview } from '../../../src/lib/reviews/process-review';
 import {
   handleZernioIngestError,
+  openPhiReviewException,
   reconcileExternallyAnsweredReview,
 } from './zernio-ingest-shared';
 import type { IngestZernioReviewPayload } from '../../../src/lib/shared/worker-types';
@@ -201,6 +203,23 @@ export async function handleZernioReviewIngest(job: Job<IngestZernioReviewPayloa
     await reconcileExternallyAnsweredReview(
       target, business_id, zernio_account_id, zernio_location_id, logger,
     );
+    await markOutboxCompleted(outboxId, attempt);
+    return;
+  }
+
+  const phi = detectLikelyPhi(target.comment);
+  if (phi.matched) {
+    logger.warn(
+      `Likely PHI detected for review ${zernio_review_id}; reasons=${phi.reasons.join(',')}; review_text=${redactPhiForLog(target.comment)}`,
+    );
+    await sql.begin((tx) => openPhiReviewException(tx, {
+      businessId: business_id,
+      accountId: zernio_account_id,
+      locationId: zernio_location_id,
+      review: target,
+      reasons: phi.reasons,
+      source: 'webhook',
+    }, logger));
     await markOutboxCompleted(outboxId, attempt);
     return;
   }

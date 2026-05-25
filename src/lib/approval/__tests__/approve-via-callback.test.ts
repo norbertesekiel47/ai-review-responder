@@ -50,7 +50,7 @@ function liveLinkRow(overrides: Partial<Record<string, unknown>> = {}) {
 }
 
 function pendingResponseRow() {
-  return [{ status: 'pending_approval', original_draft_text: 'draft', version: 1, review_id: 'rev-1' }];
+  return [{ status: 'pending_approval', original_draft_text: 'draft', response_text: 'Callback approved draft', version: 1, review_id: 'rev-1' }];
 }
 
 describe('approveViaCallback', () => {
@@ -73,6 +73,7 @@ describe('approveViaCallback', () => {
     });
     const auditCall = txCalls.find((c) => c.sql.includes('approval_audit_log'));
     expect(auditCall).toBeDefined();
+    expect(auditCall!.params).toContain('Callback approved draft');
     const metadata = auditCall!.params.find((p) => p && typeof p === 'object' && 'chat_handle_hash' in (p as object));
     expect(metadata).toMatchObject({
       via_channel: 'telegram',

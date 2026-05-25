@@ -165,7 +165,7 @@ describe('approve', () => {
 
     const tx = createMockTx([
       // lockPendingResponse: SELECT ... FOR UPDATE
-      [{ status: 'pending_approval', original_draft_text: 'draft', version: 1, review_id: 'rev-1' }],
+      [{ status: 'pending_approval', original_draft_text: 'draft', response_text: 'Approved draft', version: 1, review_id: 'rev-1' }],
       // consumeLink: UPDATE approval_links SET consumed_at
       [],
       // UPDATE responses SET status = 'approved'
@@ -206,6 +206,28 @@ describe('approve', () => {
     expect(publishPayload).toBeDefined();
     expect(publishPayload!.correlation_id).toBe('test-correlation-xyz');
   });
+
+  it('writes approved text snapshot to approval_audit_log for approve-as-is', async () => {
+    const link = validLink({ device_cookie_hash: 'device-hash-abc' });
+    const responseText = 'Thanks for the thoughtful review.';
+    const tx = createMockTx([
+      [{ status: 'pending_approval', original_draft_text: 'draft', response_text: responseText, version: 1, review_id: 'rev-1' }],
+      [],
+      [],
+      [],
+      [],
+      [{ account_id: 'acc-1' }],
+      [],
+    ]);
+
+    await approve(tx, link, 'device-hash-abc', AUDIT, 'test-correlation-xyz');
+
+    const auditCall = tx.mock.calls.find((call: unknown[]) =>
+      String((call[0] as TemplateStringsArray).join('')).includes('approval_audit_log'),
+    );
+    expect(auditCall).toBeDefined();
+    expect(auditCall!.flat()).toContain(responseText);
+  });
 });
 
 // ── edit ──────────────────────────────────────────────────────────────────
@@ -222,7 +244,7 @@ describe('edit', () => {
 
     const tx = createMockTx([
       // lockPendingResponse: SELECT ... FOR UPDATE
-      [{ status: 'pending_approval', original_draft_text: 'Original text', version: 1, review_id: 'rev-1' }],
+      [{ status: 'pending_approval', original_draft_text: 'Original text', response_text: 'Original response', version: 1, review_id: 'rev-1' }],
       // consumeLink
       [],
       // UPDATE responses SET status = 'edited'
@@ -268,6 +290,21 @@ describe('edit', () => {
     expect(allStringArgs).toContain(sanitizedText);
     expect(allStringArgs).not.toContain(editedText);
 
+    const responseUpdateCall = tx.mock.calls.find((call: unknown[]) =>
+      String((call[0] as TemplateStringsArray).join('')).includes("SET status = 'edited'"),
+    );
+    expect(responseUpdateCall).toBeDefined();
+    expect(responseUpdateCall![1]).toBe(sanitizedText);
+    expect(responseUpdateCall![2]).toBe(sanitizedText);
+
+    const auditCall = tx.mock.calls.find((call: unknown[]) =>
+      String((call[0] as TemplateStringsArray).join('')).includes('approval_audit_log'),
+    );
+    expect(auditCall).toBeDefined();
+    expect(auditCall![7]).toBe('edit');
+    expect(auditCall![10]).toBe(sanitizedText);
+    expect(auditCall![10]).not.toBe(editedText);
+
     // Verify correlation_id propagates into the publish_response outbox payload.
     const publishPayload = allObjectArgs.find((p: Record<string, unknown>) => p.response_id === link.response_id && !('satisfaction' in p),
     );
@@ -289,7 +326,7 @@ describe('editBySession', () => {
 
     const tx = createMockTx([
       // lockPendingResponse: SELECT ... FOR UPDATE
-      [{ status: 'pending_approval', original_draft_text: 'Session draft', version: 1, review_id: 'rev-1' }],
+      [{ status: 'pending_approval', original_draft_text: 'Session draft', response_text: 'Session response', version: 1, review_id: 'rev-1' }],
       // revokeOpenLinksForResponse
       [],
       // UPDATE responses SET status = 'edited'
@@ -320,6 +357,21 @@ describe('editBySession', () => {
     expect(allStringArgs).toContain(sanitizedText);
     expect(allStringArgs).not.toContain(editedText);
 
+    const responseUpdateCall = tx.mock.calls.find((call: unknown[]) =>
+      String((call[0] as TemplateStringsArray).join('')).includes("SET status = 'edited'"),
+    );
+    expect(responseUpdateCall).toBeDefined();
+    expect(responseUpdateCall![1]).toBe(sanitizedText);
+    expect(responseUpdateCall![2]).toBe(sanitizedText);
+
+    const auditCall = tx.mock.calls.find((call: unknown[]) =>
+      String((call[0] as TemplateStringsArray).join('')).includes('approval_audit_log'),
+    );
+    expect(auditCall).toBeDefined();
+    expect(auditCall![7]).toBe('edit');
+    expect(auditCall![11]).toBe(sanitizedText);
+    expect(auditCall![11]).not.toBe(editedText);
+
     const allObjectArgs = tx.mock.calls
       .flat()
       .filter(
@@ -345,7 +397,7 @@ describe('regenerate', () => {
 
     const tx = createMockTx([
       // lockPendingResponse: SELECT ... FOR UPDATE
-      [{ status: 'pending_approval', original_draft_text: 'draft', version: 1, review_id: 'rev-1' }],
+      [{ status: 'pending_approval', original_draft_text: 'draft', response_text: 'Regenerate response', version: 1, review_id: 'rev-1' }],
       // consumeLink
       [],
       // revokeSiblings

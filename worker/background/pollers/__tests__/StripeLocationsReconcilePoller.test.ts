@@ -53,8 +53,10 @@ vi.mock('../../../../src/lib/shared/logger', () => ({
 }));
 
 // Mock Stripe SDK — returns a lazy getter the poller can use
-const { mockStripeRetrieve } = vi.hoisted(() => ({
+const { mockStripeRetrieve, mockStripeList, mockStripeCreatePreview } = vi.hoisted(() => ({
   mockStripeRetrieve: vi.fn(),
+  mockStripeList: vi.fn(),
+  mockStripeCreatePreview: vi.fn(),
 }));
 
 vi.mock('stripe', () => {
@@ -63,12 +65,22 @@ vi.mock('stripe', () => {
     default: class MockStripe {
       subscriptions = {
         retrieve: mockStripeRetrieve,
+        list: mockStripeList,
+      };
+      invoices = {
+        createPreview: mockStripeCreatePreview,
       };
     },
   };
 });
 
 // Import AFTER mocks are wired
+import { expectedInvoiceForAccount } from '../billing-reconciliation/expected-invoice';
+import {
+  compareUpcomingInvoice,
+  isExpectedStatusWindow,
+  recurringSubscriptionLineTotalCents,
+} from '../billing-reconciliation/drift';
 import {
   runOnce,
   startStripeLocationsReconcilePoller,
@@ -78,15 +90,21 @@ import {
 // ── Helpers ────────────────────────────────────────────────────────
 
 /** Build a Stripe subscription object with overage item. */
-function makeStripeSubscription(overageQuantity: number, overagePriceId = 'price_overage_std') {
+function makeStripeSubscription(
+  overageQuantity: number,
+  overagePriceId = 'price_overage_std',
+  overageUnitAmount = 2500,
+) {
   return {
     id: 'sub_test',
+    customer: 'cus_123',
+    status: 'active',
     items: {
       data: [
-        { id: 'si_base', price: { id: 'price_base' }, quantity: 1 },
+        { id: 'si_base', price: { id: 'price_base', unit_amount: 7900 }, quantity: 1 },
         {
           id: 'si_overage',
-          price: { id: overagePriceId },
+          price: { id: overagePriceId, unit_amount: overageUnitAmount },
           quantity: overageQuantity,
         },
       ],
@@ -95,14 +113,95 @@ function makeStripeSubscription(overageQuantity: number, overagePriceId = 'price
 }
 
 /** Build a Stripe subscription with NO overage item (basic tier or legacy). */
-function makeStripeSubscriptionNoOverage() {
+function makeStripeSubscriptionNoOverage(baseUnitAmount = 7900) {
   return {
     id: 'sub_test',
+    customer: 'cus_123',
+    status: 'active',
     items: {
       data: [
-        { id: 'si_base', price: { id: 'price_base' }, quantity: 1 },
+        { id: 'si_base', price: { id: 'price_base', unit_amount: baseUnitAmount }, quantity: 1 },
       ],
     },
+  };
+}
+
+interface InvoicePreviewOptions {
+  baseCents?: number;
+  overageUnits?: number;
+  overageUnitCents?: number;
+  totalCents?: number;
+  prorationCents?: number;
+  lineAmountDiscountCents?: number;
+  overagePriceId?: string;
+}
+
+function makeInvoicePreview(options: InvoicePreviewOptions = {}) {
+  const baseCents = options.baseCents ?? 7900;
+  const overageUnits = options.overageUnits ?? 2;
+  const overageUnitCents = options.overageUnitCents ?? 2500;
+  const recurringTotal = baseCents + overageUnits * overageUnitCents;
+  const totalCents = options.totalCents
+    ?? recurringTotal
+      + (options.prorationCents ?? 0)
+      - (options.lineAmountDiscountCents ?? 0);
+  const lines = [
+    {
+      id: 'il_base',
+      amount: baseCents,
+      subtotal: baseCents,
+      quantity: 1,
+      price: { id: 'price_base', unit_amount: baseCents },
+      pricing: { unit_amount_decimal: String(baseCents) },
+      parent: {
+        subscription_item_details: {
+          proration: false,
+          subscription_item: 'si_base',
+        },
+      },
+    },
+  ];
+
+  if (overageUnits > 0) {
+    lines.push({
+      id: 'il_overage',
+      amount: overageUnits * overageUnitCents - (options.lineAmountDiscountCents ?? 0),
+      subtotal: overageUnits * overageUnitCents,
+      quantity: overageUnits,
+      price: {
+        id: options.overagePriceId ?? 'price_overage_std',
+        unit_amount: overageUnitCents,
+      },
+      pricing: { unit_amount_decimal: String(overageUnitCents) },
+      parent: {
+        subscription_item_details: {
+          proration: false,
+          subscription_item: 'si_overage',
+        },
+      },
+    });
+  }
+
+  if (options.prorationCents) {
+    lines.push({
+      id: 'il_proration',
+      amount: options.prorationCents,
+      subtotal: options.prorationCents,
+      quantity: 1,
+      price: { id: 'price_overage_std', unit_amount: options.prorationCents },
+      pricing: { unit_amount_decimal: String(options.prorationCents) },
+      parent: {
+        subscription_item_details: {
+          proration: true,
+          subscription_item: 'si_overage',
+        },
+      },
+    });
+  }
+
+  return {
+    total: totalCents,
+    lines: { data: lines },
   };
 }
 
@@ -110,9 +209,13 @@ interface AccountRow {
   id: string;
   subscription_tier: string;
   subscription_status: string;
+  stripe_customer_id: string | null;
   stripe_subscription_id: string | null;
   locations_included: number;
+  locations_overage_price_cents: number;
   active_location_count: number;
+  past_due_at: Date | null;
+  flags: Record<string, unknown> | string;
 }
 
 function makeAccountRow(overrides: Partial<AccountRow> = {}): AccountRow {
@@ -120,14 +223,137 @@ function makeAccountRow(overrides: Partial<AccountRow> = {}): AccountRow {
     id: 'acct-1',
     subscription_tier: 'standard',
     subscription_status: 'active',
+    stripe_customer_id: 'cus_123',
     stripe_subscription_id: 'sub_123',
     locations_included: 1,
+    locations_overage_price_cents: 2500,
     active_location_count: 3,
+    past_due_at: null,
+    flags: {},
     ...overrides,
   };
 }
 
 // ── Tests ──────────────────────────────────────────────────────────
+
+describe('billing reconciliation helpers', () => {
+  it('uses stored overage price instead of live tier overage config', () => {
+    const invoice = expectedInvoiceForAccount({
+      id: 'acct-grandfathered',
+      subscription_tier: 'standard',
+      subscription_status: 'active',
+      stripe_subscription_id: 'sub_123',
+      locations_included: 1,
+      locations_overage_price_cents: 3000,
+      active_location_count: 3,
+      past_due_at: null,
+      flags: {},
+    });
+
+    expect(invoice.overageUnits).toBe(2);
+    expect(invoice.overageUnitPriceCents).toBe(3000);
+    expect(invoice.totalCents).toBe(7900 + 2 * 3000);
+  });
+
+  it('does not flag one-cent invoice rounding differences', () => {
+    expect(compareUpcomingInvoice('acct-1', 12900, 12901)).toEqual([]);
+  });
+
+  it('flags invoice drift above one cent', () => {
+    expect(compareUpcomingInvoice('acct-1', 12900, 12902)[0]).toMatchObject({
+      severity: 'unsafe',
+      type: 'upcoming_invoice_mismatch',
+    });
+  });
+
+  it('treats past_due inside grace as expected status window', () => {
+    const now = new Date('2026-05-25T00:00:00.000Z');
+    expect(isExpectedStatusWindow({
+      id: 'acct-past-due',
+      subscription_tier: 'standard',
+      subscription_status: 'past_due',
+      stripe_subscription_id: 'sub_123',
+      locations_included: 1,
+      locations_overage_price_cents: 2500,
+      active_location_count: 1,
+      past_due_at: new Date('2026-05-22T00:00:00.000Z'),
+      flags: {},
+    }, 'past_due', now)).toBe(true);
+  });
+
+  it('does not treat past_due outside grace as expected status window', () => {
+    const now = new Date('2026-05-25T00:00:00.000Z');
+    expect(isExpectedStatusWindow({
+      id: 'acct-past-due',
+      subscription_tier: 'standard',
+      subscription_status: 'past_due',
+      stripe_subscription_id: 'sub_123',
+      locations_included: 1,
+      locations_overage_price_cents: 2500,
+      active_location_count: 1,
+      past_due_at: new Date('2026-05-10T00:00:00.000Z'),
+      flags: {},
+    }, 'past_due', now)).toBe(false);
+  });
+
+  it('does not treat missing past_due_at as expected status window', () => {
+    expect(isExpectedStatusWindow({
+      id: 'acct-past-due',
+      subscription_tier: 'standard',
+      subscription_status: 'past_due',
+      stripe_subscription_id: 'sub_123',
+      locations_included: 1,
+      locations_overage_price_cents: 2500,
+      active_location_count: 1,
+      past_due_at: null,
+      flags: {},
+    }, 'past_due')).toBe(false);
+  });
+
+  it('does not treat unexpected Stripe status as expected status window', () => {
+    const now = new Date('2026-05-25T00:00:00.000Z');
+    expect(isExpectedStatusWindow({
+      id: 'acct-past-due',
+      subscription_tier: 'standard',
+      subscription_status: 'past_due',
+      stripe_subscription_id: 'sub_123',
+      locations_included: 1,
+      locations_overage_price_cents: 2500,
+      active_location_count: 1,
+      past_due_at: new Date('2026-05-22T00:00:00.000Z'),
+      flags: {},
+    }, 'active', now)).toBe(false);
+  });
+
+  it('normalizes preview invoices to undiscounted non-proration subscription lines', () => {
+    expect(recurringSubscriptionLineTotalCents(makeInvoicePreview({
+      totalCents: 11900,
+      lineAmountDiscountCents: 1000,
+      prorationCents: 500,
+    }))).toBe(12900);
+  });
+
+  it('normalizes Stripe 22 invoice line pricing without legacy price objects', () => {
+    expect(recurringSubscriptionLineTotalCents({
+      lines: {
+        data: [
+          {
+            amount: 6900,
+            subtotal: 7900,
+            quantity: 1,
+            pricing: { unit_amount_decimal: '7900' },
+            parent: {
+              subscription_item_details: {
+                proration: false,
+                subscription_item: 'si_base',
+              },
+            },
+          },
+        ],
+      },
+    })).toBe(7900);
+  });
+});
 
 describe('StripeLocationsReconcilePoller', () => {
   let logSpy: ReturnType<typeof vi.spyOn>;
@@ -141,6 +367,10 @@ describe('StripeLocationsReconcilePoller', () => {
     mockCaptureMessage.mockClear();
     mockConsoleWarn.mockClear();
     mockStripeRetrieve.mockClear();
+    mockStripeList.mockClear();
+    mockStripeCreatePreview.mockClear();
+    mockStripeList.mockResolvedValue({ data: [] });
+    mockStripeCreatePreview.mockResolvedValue(makeInvoicePreview());
 
     logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -160,6 +390,7 @@ describe('StripeLocationsReconcilePoller', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     stopStripeLocationsReconcilePoller();
     logSpy.mockRestore();
     errorSpy.mockRestore();
@@ -209,6 +440,9 @@ describe('StripeLocationsReconcilePoller', () => {
     mockStripeRetrieve.mockResolvedValue(
       makeStripeSubscription(0, 'price_overage_std'),
     );
+    mockStripeCreatePreview.mockResolvedValue(makeInvoicePreview({
+      overageUnits: 0,
+    }));
 
     const result = await runOnce();
 
@@ -238,6 +472,194 @@ describe('StripeLocationsReconcilePoller', () => {
     expect(result.driftsFound).toBe(0);
     expect(mockCaptureMessage).not.toHaveBeenCalled();
     expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it('uses stored overage price for upcoming invoice comparison', async () => {
+    sqlReturnQueue.push([
+      makeAccountRow({
+        id: 'acct-grandfathered',
+        subscription_tier: 'standard',
+        locations_included: 1,
+        locations_overage_price_cents: 3000,
+        active_location_count: 3,
+      }),
+    ]);
+    mockStripeRetrieve.mockResolvedValue(
+      makeStripeSubscription(2, 'price_overage_std', 3000),
+    );
+    mockStripeCreatePreview.mockResolvedValue(makeInvoicePreview({
+      overageUnitCents: 3000,
+    }));
+
+    const result = await runOnce();
+
+    expect(result.driftsFound).toBe(0);
+  });
+
+  it('recognizes retired overage price IDs by stored unit amount', async () => {
+    sqlReturnQueue.push([
+      makeAccountRow({
+        id: 'acct-legacy-price',
+        subscription_tier: 'standard',
+        locations_included: 1,
+        locations_overage_price_cents: 3000,
+        active_location_count: 3,
+      }),
+    ]);
+    mockStripeRetrieve.mockResolvedValue(
+      makeStripeSubscription(2, 'price_overage_std_legacy', 3000),
+    );
+    mockStripeCreatePreview.mockResolvedValue(makeInvoicePreview({
+      overagePriceId: 'price_overage_std_legacy',
+      overageUnitCents: 3000,
+    }));
+
+    const result = await runOnce();
+
+    expect(result.driftsFound).toBe(0);
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it('does not classify base price location wording as an overage item', async () => {
+    sqlReturnQueue.push([
+      makeAccountRow({
+        id: 'acct-base-location-wording',
+        subscription_tier: 'standard',
+        locations_included: 1,
+        locations_overage_price_cents: 3000,
+        active_location_count: 3,
+      }),
+    ]);
+    mockStripeRetrieve.mockResolvedValue({
+      id: 'sub_test',
+      customer: 'cus_123',
+      status: 'active',
+      items: {
+        data: [
+          {
+            id: 'si_base',
+            price: {
+              id: 'price_base',
+              nickname: 'Standard plan with 1 location',
+              unit_amount: 7900,
+            },
+            quantity: 1,
+          },
+          {
+            id: 'si_overage',
+            price: {
+              id: 'price_overage_std_legacy',
+              nickname: 'Legacy extra location',
+              unit_amount: 3000,
+            },
+            quantity: 2,
+          },
+        ],
+      },
+    });
+    mockStripeCreatePreview.mockResolvedValue(makeInvoicePreview({
+      overagePriceId: 'price_overage_std_legacy',
+      overageUnitCents: 3000,
+    }));
+
+    const result = await runOnce();
+
+    expect(result.driftsFound).toBe(0);
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it('does not alert when preview total is lower because of a discount', async () => {
+    sqlReturnQueue.push([
+      makeAccountRow({
+        id: 'acct-discounted',
+        subscription_tier: 'standard',
+        locations_included: 1,
+        active_location_count: 3,
+      }),
+    ]);
+    mockStripeRetrieve.mockResolvedValue(
+      makeStripeSubscription(2, 'price_overage_std'),
+    );
+    mockStripeCreatePreview.mockResolvedValue(makeInvoicePreview({
+      totalCents: 11900,
+      lineAmountDiscountCents: 1000,
+    }));
+
+    const result = await runOnce();
+
+    expect(result.driftsFound).toBe(0);
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it('does not alert when preview total includes pending proration lines', async () => {
+    sqlReturnQueue.push([
+      makeAccountRow({
+        id: 'acct-proration',
+        subscription_tier: 'standard',
+        locations_included: 1,
+        active_location_count: 3,
+      }),
+    ]);
+    mockStripeRetrieve.mockResolvedValue(
+      makeStripeSubscription(2, 'price_overage_std'),
+    );
+    mockStripeCreatePreview.mockResolvedValue(makeInvoicePreview({
+      prorationCents: 500,
+    }));
+
+    const result = await runOnce();
+
+    expect(result.driftsFound).toBe(0);
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it('alerts when upcoming invoice total differs by more than one cent', async () => {
+    sqlReturnQueue.push([
+      makeAccountRow({
+        id: 'acct-invoice-drift',
+        subscription_tier: 'standard',
+        locations_included: 1,
+        locations_overage_price_cents: 2500,
+        active_location_count: 3,
+      }),
+    ]);
+    mockStripeRetrieve.mockResolvedValue(
+      makeStripeSubscription(2, 'price_overage_std'),
+    );
+    mockStripeCreatePreview.mockResolvedValue(makeInvoicePreview({
+      overageUnitCents: 2501,
+    }));
+
+    const result = await runOnce();
+
+    expect(result.driftsFound).toBe(1);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Upcoming invoice drift'),
+    );
+  });
+
+  it('does not alert for Stripe past_due status during DB past_due grace', async () => {
+    sqlReturnQueue.push([
+      makeAccountRow({
+        id: 'acct-past-due-grace',
+        subscription_status: 'past_due',
+        locations_included: 1,
+        active_location_count: 3,
+        past_due_at: new Date('2026-05-22T00:00:00.000Z'),
+      }),
+    ]);
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-25T00:00:00.000Z'));
+    mockStripeRetrieve.mockResolvedValue({
+      ...makeStripeSubscription(2, 'price_overage_std'),
+      status: 'past_due',
+    });
+
+    const result = await runOnce();
+
+    expect(result.driftsFound).toBe(0);
+    expect(warnSpy).not.toHaveBeenCalled();
+    vi.useRealTimers();
   });
 
   // ── Drift detected ──────────────────────────────────────────────
@@ -283,6 +705,9 @@ describe('StripeLocationsReconcilePoller', () => {
     mockStripeRetrieve.mockResolvedValue(
       makeStripeSubscription(1, 'price_overage_std'),
     );
+    mockStripeCreatePreview.mockResolvedValue(makeInvoicePreview({
+      overageUnits: 4,
+    }));
 
     const result = await runOnce();
 
@@ -306,6 +731,9 @@ describe('StripeLocationsReconcilePoller', () => {
     mockStripeRetrieve.mockResolvedValue(
       makeStripeSubscription(7, 'price_overage_std'),
     );
+    mockStripeCreatePreview.mockResolvedValue(makeInvoicePreview({
+      overageUnits: 3,
+    }));
 
     await runOnce();
 
@@ -351,19 +779,198 @@ describe('StripeLocationsReconcilePoller', () => {
     );
   });
 
-  // ── Skips accounts with no Stripe subscription_id ────────────────
+  it('adds typed Sentry metadata for invoice drift alerts', async () => {
+    process.env.SENTRY_DSN = 'https://test@sentry.io/123';
 
-  it('skips accounts with no Stripe subscription_id', async () => {
-    // Simulate the SQL query returning empty results (the real query
-    // filters WHERE stripe_subscription_id IS NOT NULL, so null-sub
-    // accounts never appear in the result set)
-    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([
+      makeAccountRow({
+        id: 'acct-sentry-invoice',
+        subscription_tier: 'standard',
+        locations_included: 1,
+        active_location_count: 3,
+      }),
+    ]);
+    mockStripeRetrieve.mockResolvedValue(
+      makeStripeSubscription(2, 'price_overage_std'),
+    );
+    mockStripeCreatePreview.mockResolvedValue(makeInvoicePreview({
+      overageUnitCents: 2501,
+    }));
 
     const result = await runOnce();
 
-    expect(result.accountsChecked).toBe(0);
-    expect(result.driftsFound).toBe(0);
+    expect(result.driftsFound).toBe(1);
+    expect(mockCaptureMessage).toHaveBeenCalledWith(
+      expect.stringContaining('Upcoming invoice drift'),
+      expect.objectContaining({
+        tags: expect.objectContaining({
+          drift_type: 'upcoming_invoice_mismatch',
+          account_id: 'acct-sentry-invoice',
+        }),
+        extra: expect.objectContaining({
+          expectedCents: 12900,
+          actualCents: 12902,
+          dbStatus: 'active',
+          stripeStatus: 'active',
+          stripeSubscriptionId: 'sub_test',
+          stripeCustomerId: 'cus_123',
+        }),
+      }),
+    );
+  });
+
+  // ── Subscription-level drift ────────────────────────────────────
+
+  it('alerts when a paid DB account is missing stripe_subscription_id', async () => {
+    sqlReturnQueue.push([
+      makeAccountRow({
+        id: 'acct-no-subscription-id',
+        stripe_subscription_id: null,
+      }),
+    ]);
+
+    const result = await runOnce();
+
+    expect(result.accountsChecked).toBe(1);
+    expect(result.driftsFound).toBe(1);
     expect(mockStripeRetrieve).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Missing Stripe subscription id'),
+    );
+  });
+
+  it('alerts when Stripe no longer has the DB subscription id', async () => {
+    const missingSubscriptionError = Object.assign(
+      new Error('No such subscription: sub_missing'),
+      { code: 'resource_missing', statusCode: 404 },
+    );
+    sqlReturnQueue.push([
+      makeAccountRow({
+        id: 'acct-sub-missing-in-stripe',
+        stripe_subscription_id: 'sub_missing',
+      }),
+    ]);
+    mockStripeRetrieve.mockRejectedValueOnce(missingSubscriptionError);
+
+    const result = await runOnce();
+
+    expect(result.accountsChecked).toBe(1);
+    expect(result.errors).toBe(0);
+    expect(result.driftsFound).toBe(1);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Stripe subscription sub_missing is missing'),
+    );
+  });
+
+  it('alerts when a Stripe customer has duplicate active subscriptions', async () => {
+    sqlReturnQueue.push([
+      makeAccountRow({
+        id: 'acct-duplicate-subscriptions',
+      }),
+    ]);
+    mockStripeRetrieve.mockResolvedValue(
+      makeStripeSubscription(2, 'price_overage_std'),
+    );
+    mockStripeList.mockResolvedValue({
+      data: [
+        { id: 'sub_123', status: 'active' },
+        { id: 'sub_duplicate', status: 'active' },
+        { id: 'sub_canceled', status: 'canceled' },
+      ],
+    });
+
+    const result = await runOnce();
+
+    expect(result.driftsFound).toBe(1);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Duplicate active Stripe subscriptions'),
+    );
+  });
+
+  it('alerts when an overage item uses the wrong stored account price', async () => {
+    sqlReturnQueue.push([
+      makeAccountRow({
+        id: 'acct-overage-price-drift',
+        locations_overage_price_cents: 2500,
+        active_location_count: 3,
+      }),
+    ]);
+    mockStripeRetrieve.mockResolvedValue(
+      makeStripeSubscription(2, 'price_overage_std', 3000),
+    );
+
+    const result = await runOnce();
+
+    expect(result.driftsFound).toBe(1);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Stripe overage price 3000 differs from stored account price 2500'),
+    );
+  });
+
+  it('includes the pilot invoice-review flag in Sentry drift metadata', async () => {
+    process.env.SENTRY_DSN = 'https://test@sentry.io/123';
+
+    sqlReturnQueue.push([
+      makeAccountRow({
+        id: 'acct-pilot-drift',
+        subscription_tier: 'standard',
+        locations_included: 1,
+        active_location_count: 3,
+        flags: { is_pilot: true },
+      }),
+    ]);
+    mockStripeRetrieve.mockResolvedValue(
+      makeStripeSubscription(5, 'price_overage_std'),
+    );
+
+    const result = await runOnce();
+
+    expect(result.driftsFound).toBe(1);
+    expect(mockCaptureMessage).toHaveBeenCalledWith(
+      expect.stringContaining('acct-pilot-drift'),
+      expect.objectContaining({
+        tags: expect.objectContaining({
+          account_id: 'acct-pilot-drift',
+          is_pilot: 'true',
+        }),
+        extra: expect.objectContaining({
+          isPilot: true,
+        }),
+      }),
+    );
+  });
+
+  it('parses JSONB string account flags for pilot drift metadata', async () => {
+    process.env.SENTRY_DSN = 'https://test@sentry.io/123';
+
+    sqlReturnQueue.push([
+      makeAccountRow({
+        id: 'acct-pilot-jsonb-string',
+        subscription_tier: 'standard',
+        locations_included: 1,
+        active_location_count: 3,
+        flags: JSON.stringify({ is_pilot: true }),
+      }),
+    ]);
+    mockStripeRetrieve.mockResolvedValue(
+      makeStripeSubscription(5, 'price_overage_std'),
+    );
+
+    const result = await runOnce();
+
+    expect(result.driftsFound).toBe(1);
+    expect(mockCaptureMessage).toHaveBeenCalledWith(
+      expect.stringContaining('acct-pilot-jsonb-string'),
+      expect.objectContaining({
+        tags: expect.objectContaining({
+          account_id: 'acct-pilot-jsonb-string',
+          is_pilot: 'true',
+        }),
+        extra: expect.objectContaining({
+          isPilot: true,
+        }),
+      }),
+    );
   });
 
   // ── Skips non-active subscriptions ─────────────────────────────
@@ -393,8 +1000,12 @@ describe('StripeLocationsReconcilePoller', () => {
     ]);
 
     mockStripeRetrieve.mockResolvedValue(
-      makeStripeSubscriptionNoOverage(),
+      makeStripeSubscriptionNoOverage(2900),
     );
+    mockStripeCreatePreview.mockResolvedValue(makeInvoicePreview({
+      baseCents: 2900,
+      overageUnits: 0,
+    }));
 
     const result = await runOnce();
 
@@ -417,6 +1028,9 @@ describe('StripeLocationsReconcilePoller', () => {
     mockStripeRetrieve.mockResolvedValue(
       makeStripeSubscriptionNoOverage(),
     );
+    mockStripeCreatePreview.mockResolvedValue(makeInvoicePreview({
+      overageUnits: 3,
+    }));
 
     const result = await runOnce();
 
@@ -434,13 +1048,30 @@ describe('StripeLocationsReconcilePoller', () => {
         id: 'acct-within',
         subscription_tier: 'premium',
         locations_included: 5,
+        locations_overage_price_cents: 2000,
         active_location_count: 3,
       }),
     ]);
 
-    mockStripeRetrieve.mockResolvedValue(
-      makeStripeSubscription(0, 'price_overage_prem'),
-    );
+    mockStripeRetrieve.mockResolvedValue({
+      ...makeStripeSubscription(0, 'price_overage_prem', 2000),
+      items: {
+        data: [
+          { id: 'si_base', price: { id: 'price_base_prem', unit_amount: 19900 }, quantity: 1 },
+          {
+            id: 'si_overage',
+            price: { id: 'price_overage_prem', unit_amount: 2000 },
+            quantity: 0,
+          },
+        ],
+      },
+    });
+    mockStripeCreatePreview.mockResolvedValue(makeInvoicePreview({
+      baseCents: 19900,
+      overageUnits: 0,
+      overageUnitCents: 2000,
+      overagePriceId: 'price_overage_prem',
+    }));
 
     const result = await runOnce();
 
@@ -497,6 +1128,9 @@ describe('StripeLocationsReconcilePoller', () => {
     mockStripeRetrieve
       .mockResolvedValueOnce(makeStripeSubscription(2, 'price_overage_std'))
       .mockResolvedValueOnce(makeStripeSubscription(1, 'price_overage_std'));
+    mockStripeCreatePreview
+      .mockResolvedValueOnce(makeInvoicePreview())
+      .mockResolvedValueOnce(makeInvoicePreview({ overageUnits: 4 }));
 
     const result = await runOnce();
 
@@ -533,6 +1167,33 @@ describe('StripeLocationsReconcilePoller', () => {
     expect(result.accountsChecked).toBe(1);
     expect(result.errors).toBe(1);
     expect(result.driftsFound).toBe(0); // second account matches
+  });
+
+  it('still reports quantity drift when invoice preview fails', async () => {
+    sqlReturnQueue.push([
+      makeAccountRow({
+        id: 'acct-preview-fails',
+        subscription_tier: 'standard',
+        locations_included: 1,
+        active_location_count: 3,
+      }),
+    ]);
+    mockStripeRetrieve.mockResolvedValue(
+      makeStripeSubscription(5, 'price_overage_std'),
+    );
+    mockStripeCreatePreview.mockRejectedValue(new Error('preview timeout'));
+
+    const result = await runOnce();
+
+    expect(result.accountsChecked).toBe(1);
+    expect(result.driftsFound).toBe(1);
+    expect(result.errors).toBe(1);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('acct-preview-fails'),
+    );
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Error reconciling invoice preview for account acct-preview-fails'),
+    );
   });
 
   // ── No accounts to check ────────────────────────────────────────

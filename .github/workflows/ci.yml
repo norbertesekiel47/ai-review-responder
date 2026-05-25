@@ -48,6 +48,8 @@ jobs:
         uses: ./.github/actions/setup
       - name: Run lint
         run: pnpm lint
+      - name: Run tenant scope audit
+        run: pnpm ci:tenant-scope
 
   typecheck:
     name: typecheck

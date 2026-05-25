@@ -10,7 +10,9 @@
 
 import { createHash } from 'node:crypto';
 import type postgres from 'postgres';
-import { sql } from '../../../src/lib/db/server';
+import * as Sentry from '@sentry/node';
+import { v7 as uuidv7 } from 'uuid';
+import { sql, jsonb } from '../../../src/lib/db/server';
 import {
   ZernioAuthError,
   ZernioPermanentError,
@@ -23,8 +25,10 @@ import type { ZernioReview } from '../../../src/lib/zernio/types';
 import { markOutboxFailed } from '../../../src/lib/shared/outbox';
 import type { WorkerLogger } from '../../../src/lib/shared/logger';
 import { fromZernioReview } from '../../../src/lib/reviews/zernio-field-match';
+import { detectLikelyPhi, redactPhiForLog } from '../../../src/lib/security/phi-scanner';
 
 type TxClient = postgres.TransactionSql;
+type SqlExecutor = typeof sql | TxClient;
 
 const FLAG_ON = (): boolean =>
   process.env.EXTERNAL_REPLY_IMPORT_ENABLED === 'true';
@@ -33,6 +37,15 @@ export interface IngestErrorContext {
   business_id: string;
   zernio_account_id: string;
   zernio_location_id: string;
+}
+
+interface PhiReviewExceptionInput {
+  businessId: string;
+  accountId: string;
+  locationId: string;
+  review: ZernioReview;
+  reasons: string[];
+  source: 'webhook' | 'backfill' | 'recent_poller' | 'external_reply_import';
 }
 
 /**
@@ -78,6 +91,70 @@ export async function handleZernioIngestError(
   throw err;
 }
 
+export async function openPhiReviewException(
+  db: SqlExecutor,
+  input: PhiReviewExceptionInput,
+  logger: WorkerLogger,
+): Promise<void> {
+  // Caller owns the transaction (see call sites): the exception row and its
+  // admin-notification outbox row must commit together (transactional outbox
+  // invariant), so `db` is always a transaction handle here. When the
+  // ON CONFLICT no-ops (a still-open exception already exists), we skip both the
+  // outbox enqueue and the Sentry alert so we do not re-notify on every repeated
+  // ingest of the same review.
+  const [exception] = await db<{ id: string }[]>`
+    INSERT INTO review_exceptions (id, business_id, type, status, payload)
+    VALUES (
+      ${uuidv7()}, ${input.businessId}, 'zernio_likely_phi_review', 'open',
+      ${jsonb({
+        provider: 'zernio',
+        provider_review_id: input.review.id,
+        zernio_account_id: input.accountId,
+        zernio_location_id: input.locationId,
+        phi_reasons: input.reasons,
+        source: input.source,
+        detected_at: new Date().toISOString(),
+      })}
+    )
+    ON CONFLICT (business_id, type, (payload->>'provider_review_id'))
+      WHERE status = 'open' AND review_id IS NULL
+    DO NOTHING
+    RETURNING id
+  `;
+
+  if (!exception) {
+    logger.warn(`Likely PHI review ${input.review.id} already has an open operator exception`);
+    return;
+  }
+
+  await db`
+    INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, attempts, max_attempts)
+    VALUES (
+      ${uuidv7()}, 'notify_admin_review_exception', 'business',
+      ${input.businessId},
+      ${jsonb({ review_exception_id: exception.id, business_id: input.businessId })},
+      0, 5
+    )
+  `;
+
+  Sentry.captureMessage('zernio_likely_phi_review_blocked', {
+    level: 'warning',
+    tags: {
+      kind: 'likely_phi',
+      // `source` distinguishes webhook / backfill / recent_poller / external
+      // reply import — kept dynamic so events aren't misclassified by origin.
+      source: input.source,
+    },
+    extra: {
+      business_id: input.businessId,
+      zernio_account_id: input.accountId,
+      zernio_location_id: input.locationId,
+      zernio_review_id: input.review.id,
+      phi_reasons: input.reasons,
+    },
+  });
+}
+
 /**
  * Called from both ingest worker and backfill worker when a fetched Zernio
  * review has reviewReply !== null. Matches local rows by EITHER:
@@ -112,6 +189,7 @@ export async function reconcileExternallyAnsweredReview(
   const targetCreatedAtMs = matchFields.created_at_ms;
   const targetReviewerName = matchFields.reviewer_name;
   const targetComment = matchFields.review_text_trimmed;
+  const targetPhi = detectLikelyPhi(targetComment);
 
   await sql.begin(async (tx) => {
     const matchedRows = await tx<{ id: string; provider: string }[]>`
@@ -142,6 +220,20 @@ export async function reconcileExternallyAnsweredReview(
         return;
       }
       const newReviewId = await insertImportedReview(tx, businessId, accountId, locationId, target);
+      if (!newReviewId) {
+        await openPhiReviewException(tx, {
+          businessId,
+          accountId,
+          locationId,
+          review: target,
+          reasons: targetPhi.reasons,
+          source: 'external_reply_import',
+        }, logger);
+        logger.warn(
+          `Likely PHI detected for previously-unseen review ${target.id}; review_text=${redactPhiForLog(targetComment)}; skipping import`,
+        );
+        return;
+      }
       const inserted = await insertImportedResponse(tx, businessId, newReviewId, null, target.reviewReply);
       if (inserted) {
         await bumpExternalReplyIngestedCount(tx, businessId);
@@ -177,6 +269,20 @@ export async function reconcileExternallyAnsweredReview(
       }
       if (!target.reviewReply) {
         logger.log(`External reply branch reached but reviewReply null — no-op for review row(s) ${reviewIds.join(',')}`);
+        return;
+      }
+      if (targetPhi.matched) {
+        await openPhiReviewException(tx, {
+          businessId,
+          accountId,
+          locationId,
+          review: target,
+          reasons: targetPhi.reasons,
+          source: 'external_reply_import',
+        }, logger);
+        logger.warn(
+          `Likely PHI detected for matched review ${target.id}; review_text=${redactPhiForLog(targetComment)}; skipping external reply import`,
+        );
         return;
       }
       const targetReviewRowId = matchedRows[0]!.id;
@@ -255,8 +361,13 @@ async function insertImportedReview(
   accountId: string,
   locationId: string,
   target: ZernioReview,
-): Promise<string> {
+): Promise<string | null> {
   const matchFields = fromZernioReview(target);
+  const phi = detectLikelyPhi(matchFields.review_text_trimmed);
+  if (phi.matched) {
+    return null;
+  }
+
   const providerReviewName = `zernio://${accountId}/locations/${locationId}/reviews/${target.id}`;
   const providerLocationName = `zernio://${accountId}/locations/${locationId}`;
   const reviewContentHash = createHash('sha256')

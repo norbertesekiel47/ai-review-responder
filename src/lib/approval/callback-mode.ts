@@ -57,7 +57,9 @@ export async function approveViaCallback(input: CallbackApprovalInput): Promise<
     `;
 
     const { audit, metadata } = buildCallbackAudit(link, input, correlationId);
-    await insertAuditLog(tx, link.response_id, link.business_id, `approved_via_${input.viaChannel}`, audit, metadata);
+    await insertAuditLog(tx, link.response_id, link.business_id, `approved_via_${input.viaChannel}`, audit, metadata, {
+      responseTextAtApproval: response.response_text,
+    });
   });
 }
 

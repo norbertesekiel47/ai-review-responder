@@ -7,6 +7,11 @@ export const dynamic = 'force-dynamic';
 
 const NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
 
+interface OwnerRow {
+  user_id: string;
+  business_id: string;
+}
+
 export async function GET(req: NextRequest): Promise<NextResponse> {
   if (process.env.ONBOARDING_DEMO_ENABLED !== 'true') {
     return NextResponse.json({ error: 'not_found' }, { status: 404, headers: NO_STORE });
@@ -38,6 +43,19 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     // intentional: read endpoint, allow on Redis flake
   }
 
+  const [owner] = await sql<OwnerRow[]>`
+    SELECT u.id AS user_id, b.id AS business_id
+    FROM users u
+    JOIN accounts a ON a.id = u.account_id
+    JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE
+    WHERE u.auth_id = ${user.id}
+      AND u.role = 'owner'
+    LIMIT 1
+  `;
+  if (!owner) {
+    return NextResponse.json({ error: 'not_found' }, { status: 404, headers: NO_STORE });
+  }
+
   // Exclude 'archived' rows so a 23505 race-loser (archived in lifecycle.ts)
   // doesn't shadow the actual winning completed row when both exist for the
   // same user with overlapping created_at order.
@@ -45,19 +63,17 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     generation_status: string;
     completed_at: Date | null;
     source: string | null;
-    role: string;
   }[]>`
-    SELECT d.generation_status, d.completed_at, d.source, u.role
+    SELECT d.generation_status, d.completed_at, d.source
     FROM onboarding_demos d
-    JOIN users u ON u.id = d.user_id
-    WHERE u.auth_id = ${user.id}
-      AND u.role = 'owner'
+    WHERE d.user_id = ${owner.user_id}::uuid
+      AND d.business_id = ${owner.business_id}::uuid
       AND d.generation_status <> 'archived'
     ORDER BY d.created_at DESC
     LIMIT 1
   `;
 
-  if (!row || row.role !== 'owner') {
+  if (!row) {
     return NextResponse.json({ error: 'not_found' }, { status: 404, headers: NO_STORE });
   }
 

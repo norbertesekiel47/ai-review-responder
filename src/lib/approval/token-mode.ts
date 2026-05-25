@@ -44,7 +44,7 @@ export async function approve(
   correlationId?: string,
 ): Promise<void> {
   verifyDevice(link, deviceCookieHash);
-  await lockPendingResponse(tx, link.response_id);
+  const resp = await lockPendingResponse(tx, link.response_id);
   await consumeLink(tx, link.id);
 
   await tx`
@@ -66,7 +66,9 @@ export async function approve(
     VALUES (${uuidv7()}, 'publish_response', 'response', ${link.response_id}, ${jsonb(payload)}, 'pending')
   `;
 
-  await insertAuditLog(tx, link.response_id, link.business_id, 'approve', audit);
+  await insertAuditLog(tx, link.response_id, link.business_id, 'approve', audit, undefined, {
+    responseTextAtApproval: resp.response_text,
+  });
 }
 
 /**
@@ -113,7 +115,9 @@ export async function edit(
     VALUES (${uuidv7()}, 'publish_response', 'response', ${link.response_id}, ${jsonb(payload)}, 'pending')
   `;
 
-  await insertAuditLog(tx, link.response_id, link.business_id, 'edit', audit, { edit_distance: editDist });
+  await insertAuditLog(tx, link.response_id, link.business_id, 'edit', audit, { edit_distance: editDist }, {
+    responseTextAtApproval: sanitizedText,
+  });
 }
 
 /**

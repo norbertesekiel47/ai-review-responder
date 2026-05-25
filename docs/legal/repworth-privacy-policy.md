@@ -1,0 +1,110 @@
+# Privacy Policy
+
+Version: 2026-05-25
+Effective date: 2026-05-25
+Legal review status: pending lawyer review
+
+RepWorth ("we", "us", "our") operates the RepWorth service. This policy describes what data we process, how we use it, and your rights.
+
+---
+
+## 1. Data We Process
+
+- Account data: name, email address, phone number if provided, authentication metadata, and account preferences.
+- Business profile data: business name, location data, Google Business Profile identifiers, and connected-account metadata.
+- Review data: Google review text, reviewer display name, rating, review date, and source identifiers.
+- Response data: AI-generated response drafts, edits, approvals, posting status, and audit metadata.
+- Notification data: email addresses, phone numbers, Telegram identifiers when enabled, delivery metadata, and message content needed to provide service notifications.
+- Billing data: Stripe customer, subscription, checkout, and invoice identifiers. RepWorth does not store raw card numbers.
+- Reliability and service metadata: request metadata, logs, scrubbed error metadata, and service-operation metrics.
+
+---
+
+## 2. How We Use Data
+
+- To monitor Google reviews and normalize review data.
+- To generate AI response drafts for owner approval.
+- To display, edit, approve, and publish approved responses.
+- To send approval, notification, onboarding, and account emails.
+- To send SMS, WhatsApp, or Telegram service notifications when enabled.
+- To process subscription billing through Stripe.
+- To secure the Service, prevent abuse, debug errors, and measure service-operation outcomes.
+
+---
+
+## 3. AI Draft Generation
+
+Review text and relevant business context may be sent to OpenAI or Anthropic to generate response drafts. Response drafts are not posted to Google without explicit owner approval.
+
+---
+
+## 4. Sub-processors
+
+| Vendor | Purpose | Data classes |
+|---|---|---|
+| OpenAI | AI draft generation | Review text, business context, generated responses |
+| Anthropic | AI draft fallback | Review text, business context, generated responses |
+| Stripe | Payments | Billing identifiers, name, email, address, subscription metadata |
+| Supabase | Database and auth | App data, auth metadata |
+| Vercel | Web hosting | Request metadata |
+| Railway | Worker hosting | Request metadata, job processing metadata |
+| Upstash | Redis cache and queues | Cache keys, job payload metadata |
+| Resend | Email | Email addresses, message content, delivery metadata |
+| Twilio | SMS and WhatsApp | Phone numbers, message content, delivery metadata |
+| Telegram | Bot delivery when enabled | Telegram identifiers, message content |
+| Zernio | Google review ingestion and posting | GBP OAuth tokens, review data, posting metadata |
+| Sentry | Error tracking | Scrubbed error metadata |
+| SerpAPI | Demo, prefill, and fallback location data | Public business and review data |
+| Google Maps Platform | Place autocomplete and map/place metadata | Place query metadata |
+
+This list intentionally excludes vendors without a live product data path.
+
+---
+
+## 5. SMS and Mobile Data
+
+If you opt in to SMS or WhatsApp notifications, RepWorth uses your phone number solely to deliver service notifications and related account messages.
+
+Mobile opt-in data and mobile phone numbers are not shared, sold, rented, or disclosed to third parties or affiliates for marketing or promotional purposes.
+
+---
+
+## 6. Cookies and Sessions
+
+RepWorth uses necessary cookies for authentication, security, approval sessions, CSRF protection, and account preferences. See `docs/legal/cookies.md` and `/legal/cookies`.
+
+---
+
+## 7. Security
+
+Data is encrypted in transit. Approval tokens are stored as one-way SHA-256 hashes and never stored in plaintext. Browser code never receives service-role database credentials.
+
+No SOC 2, insurance, ZAP, Trivy, or Snyk completion claim is made by this policy.
+
+---
+
+## 8. Retention
+
+Account and review data is retained while your subscription is active and then deleted or anonymized according to product workflows and legal requirements. SMS opt-out and audit records may be retained as needed to honor compliance and security obligations.
+
+---
+
+## 9. Your Rights
+
+You may request access to, correction of, or deletion of your personal data, including mobile number and notification opt-in status, by emailing info@repworth.net.
+
+---
+
+## 10. Changes to This Policy
+
+We will notify registered users of material changes when required. Continued use of the Service after an updated effective date constitutes acceptance of the updated policy.
+
+---
+
+## 11. Contact
+
+RepWorth
+
+Email: info@repworth.net
+
+Website: repworth.net

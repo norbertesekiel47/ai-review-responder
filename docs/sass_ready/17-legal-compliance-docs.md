@@ -12,7 +12,7 @@ Legal exposure is asymmetric: drafts get you to MVP, but the first real dispute 
 
 _Verified 2026-05-23 against the live tree (migration head 042)._
 
-- `docs/Legal/repworth-privacy-policy.md` + `repworth-terms-of-service.md` exist; rendered at public **`/privacy`** and **`/terms`** (route-group `(public)`, **not** `/legal/*`).
+- `docs/legal/repworth-privacy-policy.md` + `repworth-terms-of-service.md` exist; rendered at public **`/privacy`** and **`/terms`** (route-group `(public)`, **not** `/legal/*`).
 - No AUP, DPA, Cookie Policy, or sub-processors page.
 - ⚠️ **AI disclosure gap:** the Privacy Policy mentions AI-generated drafts, but the **approval UI shows none** — `EditReplyDrawer` (`src/components/dashboard/EditReplyDrawer.tsx`) and the public `/approve/[token]` page have no "AI-generated draft" banner at the approval moment.
 - No `legal_acceptances` table / re-accept flow. No cookie-consent banner. No insurance documented.
@@ -22,12 +22,12 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 ### Legal docs (all live + lawyered + versioned)
 | Doc | Status target | Storage |
 |---|---|---|
-| Terms of Service | Lawyered, public at `/legal/terms` | `docs/Legal/terms.md` + rendered route |
-| Privacy Policy | Lawyered, public at `/legal/privacy` | `docs/Legal/privacy.md` + rendered route |
-| Acceptable Use Policy | Lawyered, public at `/legal/aup` | `docs/Legal/aup.md` |
+| Terms of Service | Lawyered, public at `/legal/terms` | `docs/legal/terms.md` + rendered route |
+| Privacy Policy | Lawyered, public at `/legal/privacy` | `docs/legal/privacy.md` + rendered route |
+| Acceptable Use Policy | Lawyered, public at `/legal/aup` | `docs/legal/aup.md` |
 | Data Processing Addendum | Lawyered, downloadable at `/legal/dpa` | PDF + signable via DocuSign/HelloSign |
-| Cookie Policy | Lawyered, public at `/legal/cookies` | `docs/Legal/cookies.md` |
-| Sub-processor list | Public at `/legal/sub-processors`, auto-rendered from source | `docs/Legal/sub-processors.md` |
+| Cookie Policy | Lawyered, public at `/legal/cookies` | `docs/legal/cookies.md` |
+| Sub-processor list | Public at `/legal/sub-processors`, auto-rendered from source | `docs/legal/sub-processors.md` |
 | Security policy | Public at `/security` | (See [Spec 09](./09-security-compliance.md)) |
 | VPAT (accessibility) | Generated at first enterprise ask | (See [Spec 19](./19-accessibility.md)) |
 
@@ -109,9 +109,9 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 
 1. Pre-lawyer pass: use **Termly** or **iubenda** to draft AUP + DPA + Cookie Policy. Author ToS + PP refinements per latest business model.
 2. Engage SaaS-specialist lawyer (Cooley GO or Stripe Atlas recommended). Brief: multi-location SMB SaaS, AI generation, Stripe billing, OpenAI/Anthropic sub-processors, US + EU/UK + AU + CA targets. Get markup back within 4 weeks.
-3. Publish all docs at `/legal/*` routes. Render from `docs/Legal/*.md` via MDX.
+3. Publish all docs at `/legal/*` routes. Render from `docs/legal/*.md` via MDX.
 4. Add legal-acceptance flow: `legal_acceptances` table (next free migration number; head 042 — coordinate per README); modal at first-login-after-version-change.
-5. Add `/legal/sub-processors` rendered table from `docs/Legal/sub-processors.md`. Setup mailing-list trigger for 30-day notification.
+5. Add `/legal/sub-processors` rendered table from `docs/legal/sub-processors.md`. Setup mailing-list trigger for 30-day notification.
 6. Add AI-disclosure banner at point-of-approval — in `src/components/dashboard/EditReplyDrawer.tsx` (the in-app preview/approve drawer) **and** the public `/approve/[token]` page (there is no `ApprovalDrawer.tsx`).
 7. Author `docs/legal/gbp-compliance.md` and calendar annual review.
 8. Bind insurance: $1M E&O + $1M Cyber via Vouch or Embroker. Record in `docs/legal/insurance.md`.
@@ -151,7 +151,7 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 - [Spec 09 — Security & Compliance](./09-security-compliance.md) (DPA, sub-processors)
 - [Spec 22 — AI/LLM Operations](./22-ai-llm-ops.md) (AI disclosure)
 - [Spec 28 — Customer Comms & Brand](./28-customer-comms-brand.md) (breach notification template)
-- Code anchors: `docs/Legal/repworth-privacy-policy.md`, `docs/Legal/repworth-terms-of-service.md`, `src/app/(public)/{privacy,terms}/page.tsx`, `src/components/dashboard/EditReplyDrawer.tsx`, `src/app/(public)/approve/[token]/*`
+- Code anchors: `docs/legal/repworth-privacy-policy.md`, `docs/legal/repworth-terms-of-service.md`, `src/app/(public)/{privacy,terms}/page.tsx`, `src/components/dashboard/EditReplyDrawer.tsx`, `src/app/(public)/approve/[token]/*`
 
 ## 9. Implementation in the current repo
 

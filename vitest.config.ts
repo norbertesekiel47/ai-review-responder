@@ -13,6 +13,7 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     include: [
+      'scripts/ci/**/__tests__/**/*.test.ts',
       'src/**/__tests__/**/*.test.{ts,tsx}',
       'worker/**/__tests__/**/*.test.{ts,tsx}',
     ],

@@ -9,6 +9,11 @@ const { sqlReturnQueue, mockSql, sqlCalls } = vi.hoisted(() => {
       return Promise.resolve(sqlReturnQueue.shift() ?? []);
     },
   );
+  // PHI quarantine runs inside sql.begin(); the mock runs the callback against
+  // the same tagged-template stub so the wrapped call is exercised.
+  (mockSql as unknown as { begin: unknown }).begin = vi.fn(
+    async (cb: (tx: typeof mockSql) => unknown) => cb(mockSql),
+  );
   return { sqlReturnQueue, mockSql, sqlCalls };
 });
 
@@ -16,11 +21,13 @@ const {
   mockListReviews,
   mockProcessReview,
   mockReconcileExternallyAnsweredReview,
+  mockOpenPhiReviewException,
   mockApplyAuthErrorFallback,
 } = vi.hoisted(() => ({
   mockListReviews: vi.fn(),
   mockProcessReview: vi.fn(),
   mockReconcileExternallyAnsweredReview: vi.fn(),
+  mockOpenPhiReviewException: vi.fn(),
   mockApplyAuthErrorFallback: vi.fn(),
 }));
 
@@ -40,6 +47,7 @@ vi.mock('../../../../src/lib/reviews/process-review', () => ({
 
 vi.mock('../../../jobs/zernio/zernio-ingest-shared', () => ({
   reconcileExternallyAnsweredReview: mockReconcileExternallyAnsweredReview,
+  openPhiReviewException: mockOpenPhiReviewException,
 }));
 
 vi.mock('../../../../src/lib/zernio/auth-error-fallback', () => ({
@@ -138,6 +146,47 @@ describe('ZernioRecentReviewPoller', () => {
     expect(result.reviewsReconciled).toBe(1);
     expect(mockProcessReview).not.toHaveBeenCalled();
     expect(mockReconcileExternallyAnsweredReview).toHaveBeenCalledTimes(1);
+  });
+
+  it('quarantines likely PHI in recent unanswered reviews before processReview', async () => {
+    sqlReturnQueue.push([
+      {
+        business_id: 'business-1',
+        zernio_account_id: 'zernio-account-1',
+        zernio_location_id: 'location-1',
+        connected_at: new Date('2026-05-10T06:28:15.000Z'),
+        subscription_status: 'active',
+        updated_at: new Date('2026-05-10T06:28:15.000Z'),
+      },
+    ]);
+    const phiReview = makeReview({
+      id: 'review-phi',
+      name: 'accounts/google-account/locations/location-1/reviews/review-phi',
+      comment: 'Patient MRN 12345 needs diabetes treatment follow up',
+    });
+    mockListReviews.mockResolvedValueOnce({ reviews: [phiReview] });
+
+    const result = await runOnce();
+
+    expect(result.reviewsSeen).toBe(1);
+    expect(result.reviewsProcessed).toBe(0);
+    expect(result.reviewsSkipped).toBe(1);
+    expect(mockProcessReview).not.toHaveBeenCalled();
+    expect(mockOpenPhiReviewException).toHaveBeenCalledWith(
+      mockSql,
+      expect.objectContaining({
+        businessId: 'business-1',
+        accountId: 'zernio-account-1',
+        locationId: 'location-1',
+        review: phiReview,
+        source: 'recent_poller',
+        reasons: expect.arrayContaining(['mrn']),
+      }),
+      expect.anything(),
+    );
+    // The quarantine must run inside the caller-owned transaction; fail if the
+    // poller bypasses sql.begin and writes the exception/outbox non-atomically.
+    expect((mockSql as unknown as { begin: unknown }).begin).toHaveBeenCalledTimes(1);
   });
 
   it('marks recent local reviews deleted when Zernio no longer returns them', async () => {

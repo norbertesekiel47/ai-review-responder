@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Icon } from '@/components/dashboard/Icon';
+import { AI_DRAFT_DISCLOSURE } from '@/lib/ui/disclosures';
 
 interface ReviewData {
   review: {
@@ -222,6 +223,9 @@ export default function ApprovalClient({ token }: { token: string }) {
 
       {/* Response */}
       <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
+        <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          {AI_DRAFT_DISCLOSURE}
+        </div>
         <p className="mb-2 text-xs font-medium uppercase tracking-wide text-blue-600">
           Draft response (v{response.version})
         </p>

@@ -68,9 +68,9 @@ export async function consumeLink(tx: TxClient, linkId: string): Promise<void> {
 export async function lockPendingResponse(
   tx: TxClient,
   responseId: string,
-): Promise<{ status: string; original_draft_text: string; version: number; review_id: string }> {
-  const rows = await tx<{ status: string; original_draft_text: string; version: number; review_id: string }[]>`
-    SELECT status, original_draft_text, version, review_id
+): Promise<{ status: string; original_draft_text: string; response_text: string; version: number; review_id: string }> {
+  const rows = await tx<{ status: string; original_draft_text: string; response_text: string; version: number; review_id: string }[]>`
+    SELECT status, original_draft_text, response_text, version, review_id
     FROM responses WHERE id = ${responseId}
     FOR UPDATE
   `;

@@ -130,8 +130,10 @@ export async function POST(
       const lockedRows = await tx<{
         status: string;
         posting_error: string | null;
+        approved_text: string | null;
+        response_text: string | null;
       }[]>`
-        SELECT status, posting_error FROM responses
+        SELECT status, posting_error, approved_text, response_text FROM responses
         WHERE id = ${responseId} AND business_id = ${locationId}
         FOR UPDATE
       `;
@@ -225,6 +227,7 @@ export async function POST(
         'retry_after_failure',
         audit,
         { previous_posting_error: row.posting_error },
+        { responseTextAtApproval: row.approved_text ?? row.response_text ?? '' },
       );
 
       // 5. Enqueue publish_response outbox in the SAME tx (spec §4.2 atomicity).

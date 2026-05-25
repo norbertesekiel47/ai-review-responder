@@ -320,7 +320,14 @@ describe('POST /api/dashboard/past-replies/:responseId/retry', () => {
     // live-posted (FOUND — sibling still alive), UPDATE, INSERT outbox.
     seedTxRows(
       [{ id: REVIEW_ID }],
-      [{ status: 'failed', posting_error: 'delete_failed_transient' }],
+      [
+        {
+          status: 'failed',
+          posting_error: 'delete_failed_transient',
+          approved_text: 'Retry approved text',
+          response_text: 'Retry fallback text',
+        },
+      ],
       [],
       [{ id: 'live-sibling' }],
       [],
@@ -343,6 +350,7 @@ describe('POST /api/dashboard/past-replies/:responseId/retry', () => {
     expect(auditCall[4]).toMatchObject({ actorUserId: USER_ID });
     expect(auditCall[4].actorUserId).not.toBe(ACCOUNT_ID);
     expect(auditCall[5]).toEqual({ previous_posting_error: 'delete_failed_transient' });
+    expect(auditCall[6]).toEqual({ responseTextAtApproval: 'Retry approved text' });
 
     // UPDATE responses tx call (5th tx call: lock-review, lock-candidate, non-term, live-posted, UPDATE)
     const updateCall = txMock.mock.calls[4] as unknown as unknown[];

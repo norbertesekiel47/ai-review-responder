@@ -450,6 +450,9 @@ describe('POST /api/dashboard/past-replies/:responseId/restore-original', () => 
       failed_response_id: RESPONSE_ID,
       restored_from_superseded_id: SUPERSEDED_ID,
     });
+    expect(auditCall[6]).toEqual({
+      responseTextAtApproval: 'Original posted reply text',
+    });
   });
 
   it('scopes to the non-primary location from the rw_location_scope cookie', async () => {

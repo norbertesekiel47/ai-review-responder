@@ -11,6 +11,8 @@ describe('LandingContent', () => {
     expect(html).toContain('Join the early access waitlist.');
     expect(html).toContain('value="landing"');
     expect(html).toContain('value="waitlist"');
+    expect(html).toContain('href="/legal/privacy"');
+    expect(html).toContain('href="/legal/terms"');
     expect(html).not.toContain('personalised demo within 24 hours');
     expect(html).not.toContain('Book a demo');
   });

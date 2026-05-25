@@ -12,6 +12,7 @@ const {
   mockListAllReviews,
   mockProcessReview,
   mockReconcileExternallyAnsweredReview,
+  mockOpenPhiReviewException,
   mockHandleZernioIngestError,
 } = vi.hoisted(() => {
   const sqlReturnQueue: unknown[] = [];
@@ -39,6 +40,7 @@ const {
     mockListAllReviews: vi.fn(),
     mockProcessReview: vi.fn(),
     mockReconcileExternallyAnsweredReview: vi.fn(),
+    mockOpenPhiReviewException: vi.fn(),
     mockHandleZernioIngestError: vi.fn(),
   };
 });
@@ -61,6 +63,7 @@ vi.mock('../../../../src/lib/reviews/process-review', () => ({
 }));
 vi.mock('../zernio-ingest-shared', () => ({
   reconcileExternallyAnsweredReview: mockReconcileExternallyAnsweredReview,
+  openPhiReviewException: mockOpenPhiReviewException,
   handleZernioIngestError: mockHandleZernioIngestError,
 }));
 vi.mock('../../../../src/lib/shared/subscription-guard', () => ({
@@ -331,6 +334,41 @@ describe('ZernioBackfillWorker', () => {
       const options = call[3];
       expect(options).toEqual(expect.objectContaining({ suppressNotification: true }));
     }
+  });
+
+  it('skips likely PHI in unanswered backfill reviews without sending to processReview', async () => {
+    pushStandardSqlSetup();
+    pushCountsUpdate();
+    pushCompletedUpdate();
+
+    const phiReview = makeReview('phi-review', ACTIVATED_MS + 60_000);
+    phiReview.comment = 'Patient MRN 12345 needs diabetes treatment follow up';
+    const ordinaryReview = makeReview('ordinary-review', ACTIVATED_MS + 120_000);
+    mockListAllReviews.mockResolvedValueOnce([phiReview, ordinaryReview]);
+
+    await handleZernioBackfill(makeJob());
+
+    expect(mockProcessReview).toHaveBeenCalledTimes(1);
+    expect(mockProcessReview.mock.calls[0]?.[0].identity.providerReviewId).toBe('ordinary-review');
+    expect(mockOpenPhiReviewException).toHaveBeenCalledWith(
+      mockSql,
+      expect.objectContaining({
+        businessId: 'biz-1',
+        accountId: 'acct-1',
+        locationId: 'loc-1',
+        review: phiReview,
+        source: 'backfill',
+        reasons: expect.arrayContaining(['mrn']),
+      }),
+      expect.anything(),
+    );
+    const countsCall = mockSql.mock.calls.find((call: any[]) => {
+      const template = call[0];
+      return Array.isArray(template) && template.some((s: string) => s.includes('gap_processed_count'));
+    });
+    expect(countsCall?.slice(1)).toContain(1);
+    expect(countsCall?.slice(1)).not.toContain(2);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-backfill-1', undefined);
   });
 
   // Test 7: Reconcile failure → counts written, completed_at NOT set, worker throws
