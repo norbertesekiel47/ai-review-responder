@@ -22,6 +22,7 @@ import { sql } from '../../../src/lib/db/server';
 import { checkSubscription } from '../../../src/lib/shared/subscription-guard';
 import { extractOutboxHandle, markOutboxCompleted } from '../../../src/lib/shared/outbox';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
+import { detectLikelyPhi } from '../../../src/lib/security/phi-scanner';
 import { zernioClient } from '../../../src/lib/zernio/client';
 import {
   buildZernioMonitoredReview,
@@ -202,6 +203,12 @@ export async function handleZernioBackfill(job: Job<ZernioInitialBackfillPayload
       !oldest || z.createTime < oldest ? z.createTime : oldest, null);
 
   for (const z of [...gap, ...historical]) {
+    const phi = detectLikelyPhi(z.comment);
+    if (phi.matched) {
+      logger.warn(`Likely PHI detected for backfill review ${z.id}; reasons=${phi.reasons.join(',')}; skipping`);
+      continue;
+    }
+
     let monitored: MonitoredReview;
     try {
       monitored = buildZernioMonitoredReview(z, zernio_account_id, zernio_location_id);

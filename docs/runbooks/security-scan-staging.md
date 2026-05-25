@@ -28,7 +28,7 @@ Wave 1 does not hard-gate ZAP in secret-free CI because the repo does not expose
 ## Command
 
 ```bash
-docker run --rm -t ghcr.io/zaproxy/zaproxy:stable zap-baseline.py -t "$STAGING_BASE_URL" -r zap-report.html
+docker run --rm -t -v "$PWD:/zap/wrk:rw" ghcr.io/zaproxy/zaproxy:stable zap-baseline.py -t "$STAGING_BASE_URL" -r zap-report.html
 ```
 
 ## Exit Policy

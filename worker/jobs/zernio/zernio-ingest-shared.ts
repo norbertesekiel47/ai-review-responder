@@ -113,6 +113,7 @@ export async function reconcileExternallyAnsweredReview(
   const targetCreatedAtMs = matchFields.created_at_ms;
   const targetReviewerName = matchFields.reviewer_name;
   const targetComment = matchFields.review_text_trimmed;
+  const targetPhi = detectLikelyPhi(targetComment);
 
   await sql.begin(async (tx) => {
     const matchedRows = await tx<{ id: string; provider: string }[]>`
@@ -182,6 +183,10 @@ export async function reconcileExternallyAnsweredReview(
       }
       if (!target.reviewReply) {
         logger.log(`External reply branch reached but reviewReply null — no-op for review row(s) ${reviewIds.join(',')}`);
+        return;
+      }
+      if (targetPhi.matched) {
+        logger.warn(`Likely PHI detected for matched review ${target.id}; skipping external reply import`);
         return;
       }
       const targetReviewRowId = matchedRows[0]!.id;

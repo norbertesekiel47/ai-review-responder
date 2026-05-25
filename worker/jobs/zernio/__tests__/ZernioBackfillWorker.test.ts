@@ -333,6 +333,23 @@ describe('ZernioBackfillWorker', () => {
     }
   });
 
+  it('skips likely PHI in unanswered backfill reviews without sending to processReview', async () => {
+    pushStandardSqlSetup();
+    pushCountsUpdate();
+    pushCompletedUpdate();
+
+    const phiReview = makeReview('phi-review', ACTIVATED_MS + 60_000);
+    phiReview.comment = 'Patient MRN 12345 needs diabetes treatment follow up';
+    const ordinaryReview = makeReview('ordinary-review', ACTIVATED_MS + 120_000);
+    mockListAllReviews.mockResolvedValueOnce([phiReview, ordinaryReview]);
+
+    await handleZernioBackfill(makeJob());
+
+    expect(mockProcessReview).toHaveBeenCalledTimes(1);
+    expect(mockProcessReview.mock.calls[0]?.[0].identity.providerReviewId).toBe('ordinary-review');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-backfill-1', undefined);
+  });
+
   // Test 7: Reconcile failure → counts written, completed_at NOT set, worker throws
   it('reconcile failure: counts written but completed_at not set, worker throws', async () => {
     pushStandardSqlSetup();
