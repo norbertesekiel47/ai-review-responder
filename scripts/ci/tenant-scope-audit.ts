@@ -148,7 +148,10 @@ function hasIdentifierRelationship(
 ): boolean {
   const leftToRight = new RegExp(String.raw`${leftIdentifier}\s*=\s*${rightIdentifier}`, 'i');
   const rightToLeft = new RegExp(String.raw`${rightIdentifier}\s*=\s*${leftIdentifier}`, 'i');
-  return clauses.some((clause) => leftToRight.test(clause) || rightToLeft.test(clause));
+  return clauses.some((clause) => {
+    if (/\bor\b/i.test(clause) || /\bnot\b/i.test(clause)) return false;
+    return leftToRight.test(clause) || rightToLeft.test(clause);
+  });
 }
 
 function referencedTenantTables(sqlText: string): TenantTable[] {

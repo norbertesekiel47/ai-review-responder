@@ -112,6 +112,24 @@ describe('tenant-scope-audit', () => {
     ).toEqual([]);
   });
 
+  it('fails tenant relationship broadened by OR', () => {
+    expect(
+      auditSqlText(
+        'src/example.ts',
+        'SELECT r.* FROM reviews r JOIN businesses b ON b.id = r.business_id OR true WHERE b.account_id = ${accountId}',
+      ),
+    ).toEqual(finding('src/example.ts', 'reviews'));
+  });
+
+  it('fails negated tenant relationship', () => {
+    expect(
+      auditSqlText(
+        'src/example.ts',
+        'SELECT r.* FROM reviews r JOIN businesses b ON NOT (b.id = r.business_id) WHERE b.account_id = ${accountId}',
+      ),
+    ).toEqual(finding('src/example.ts', 'reviews'));
+  });
+
   it('passes tenant table joined through a scoped account', () => {
     expect(
       auditSqlText(
