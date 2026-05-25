@@ -34,11 +34,12 @@ describe('migration 043 — account_audit_log metadata', () => {
     'request_id TEXT',
   ])('adds nullable %s', (column) => {
     const [name, type] = column.split(' ');
-    expect(sql).toMatch(
-      new RegExp(
-        `ALTER TABLE account_audit_log\\s+ADD COLUMN IF NOT EXISTS ${name} ${type}`,
-        'i',
-      ),
+    // `name`/`type` come from the hardcoded array above — never user input.
+    // Assert against whitespace-normalized SQL with a plain substring check so
+    // there is no dynamically-built RegExp for static scanners to flag (ReDoS).
+    const normalized = sql.replace(/\s+/g, ' ');
+    expect(normalized).toContain(
+      `ALTER TABLE account_audit_log ADD COLUMN IF NOT EXISTS ${name} ${type}`,
     );
   });
 

@@ -74,6 +74,16 @@ export async function maybeCaptureActivationCompleted(
       return;
     }
 
+    // Enforce the PostedResponseActivationInput contract: the caller's reviewId
+    // must match the posted response's review. A mismatch means a caller bug,
+    // so skip and surface it rather than capturing against a stale pairing.
+    if (row.review_id !== input.reviewId) {
+      input.logger?.warn(
+        `activation_completed skipped: reviewId mismatch for response=${input.responseId} (expected=${input.reviewId}, actual=${row.review_id})`,
+      );
+      return;
+    }
+
     if (row.first_response_id !== row.response_id) {
       return;
     }

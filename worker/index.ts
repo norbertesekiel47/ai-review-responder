@@ -308,7 +308,12 @@ async function shutdown(): Promise<void> {
   await app.close();
 
   const { shutdownAnalytics } = await import('../src/lib/analytics/posthog');
-  await shutdownAnalytics();
+  try {
+    await shutdownAnalytics();
+  } catch (err) {
+    // Best-effort flush — never let analytics block the DB teardown below.
+    console.error('shutdownAnalytics failed during worker shutdown', err);
+  }
 
   const { sql } = await import('../src/lib/db/server');
   await sql.end();

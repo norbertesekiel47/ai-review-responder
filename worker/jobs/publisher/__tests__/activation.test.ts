@@ -117,4 +117,18 @@ describe('maybeCaptureActivationCompleted', () => {
 
     expect(mockCaptureAnalyticsEvent).not.toHaveBeenCalled();
   });
+
+  it('skips and warns when the row review_id does not match the input contract', async () => {
+    const logger = { warn: vi.fn() };
+    sqlReturnQueue.push([
+      activationRow({ review_id: '00000000-0000-0000-0000-0000000000ff' }),
+    ]);
+
+    await maybeCaptureActivationCompleted({ ...INPUT, logger });
+
+    expect(mockCaptureAnalyticsEvent).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('reviewId mismatch'),
+    );
+  });
 });

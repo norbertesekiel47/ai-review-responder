@@ -313,6 +313,10 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     });
     expect(mockMaybeCaptureActivationCompleted).toHaveBeenCalledTimes(1);
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+    // Contract: activation capture runs before the outbox is marked complete.
+    expect(
+      mockMaybeCaptureActivationCompleted.mock.invocationCallOrder[0]!,
+    ).toBeLessThan(mockMarkOutboxCompleted.mock.invocationCallOrder[0]!);
   });
 
   // ── Branch B: ZernioReviewNotFoundError → terminal failed + exception
@@ -697,6 +701,10 @@ describe('ResponsePublisherWorker — edit-publish dispatch (Task 6)', () => {
     });
     expect(mockMaybeCaptureActivationCompleted).toHaveBeenCalledTimes(1);
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+    // Contract: activation capture runs before the outbox is marked complete.
+    expect(
+      mockMaybeCaptureActivationCompleted.mock.invocationCallOrder[0]!,
+    ).toBeLessThan(mockMarkOutboxCompleted.mock.invocationCallOrder[0]!);
     expect(mockPostReply).not.toHaveBeenCalled();
   });
 
