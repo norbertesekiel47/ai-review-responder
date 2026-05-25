@@ -186,7 +186,7 @@ describe('runEditPublishIfApplicable — Phase A', () => {
       deps(),
     );
 
-    expect(result).toEqual({ outcome: 'completed' });
+    expect(result).toMatchObject({ outcome: 'completed' });
     expect(mockDeleteReply).not.toHaveBeenCalled();  // no sibling → no DELETE
     expect(mockPostReply).toHaveBeenCalledTimes(1);
   });
@@ -202,7 +202,7 @@ describe('runEditPublishIfApplicable — Phase A', () => {
 
     const result = await runEditPublishIfApplicable(makeContext(), deps());
 
-    expect(result).toEqual({ outcome: 'completed' });
+    expect(result).toMatchObject({ outcome: 'completed' });
     expect(mockDeleteReply).toHaveBeenCalledWith('acct-1', 'zernio-rev-id-1');
     expect(mockPostReply).toHaveBeenCalledTimes(1);
     expect(mockDeleteReply.mock.invocationCallOrder[0]).toBeLessThan(
@@ -256,7 +256,7 @@ describe('runEditPublishIfApplicable — DELETE branch', () => {
 
     const result = await runEditPublishIfApplicable(makeContext(), deps());
 
-    expect(result).toEqual({ outcome: 'completed' });
+    expect(result).toMatchObject({ outcome: 'completed' });
     expect(mockPostReply).toHaveBeenCalledTimes(1);
   });
 
@@ -277,7 +277,7 @@ describe('runEditPublishIfApplicable — DELETE branch', () => {
 
     const result = await runEditPublishIfApplicable(makeContext(), deps());
 
-    expect(result).toEqual({ outcome: 'completed' });
+    expect(result).toMatchObject({ outcome: 'completed' });
     expect(mockPostReply).toHaveBeenCalledTimes(1);
     // It must NOT be misclassified as delete_failed_*.
     const callTexts = callTextsWithValues();
@@ -434,7 +434,15 @@ describe('runEditPublishIfApplicable — POST branch after DELETE success', () =
 
     const result = await runEditPublishIfApplicable(makeContext(), deps());
 
-    expect(result).toEqual({ outcome: 'completed' });
+    expect(result).toEqual({
+      outcome: 'completed',
+      postedResponse: {
+        responseId: 'resp-1',
+        businessId: 'biz-1',
+        reviewId: 'rev-1',
+        logger,
+      },
+    });
     const callTexts = callTextsWithValues();
     expect(callTexts.some((t) =>
       /SET\s+status = 'posted'/.test(t) && /posting_error = NULL/.test(t),
@@ -460,7 +468,15 @@ describe('runEditPublishIfApplicable — POST 409 via verify409InTx', () => {
 
     const result = await runEditPublishIfApplicable(makeContext(), deps());
 
-    expect(result).toEqual({ outcome: 'completed' });
+    expect(result).toEqual({
+      outcome: 'completed',
+      postedResponse: {
+        responseId: 'resp-1',
+        businessId: 'biz-1',
+        reviewId: 'rev-1',
+        logger,
+      },
+    });
     const callTexts = callTextsWithValues();
     expect(callTexts.some((t) =>
       /SET\s+status = 'posted'/.test(t) && /posting_error = NULL/.test(t),
@@ -486,6 +502,7 @@ describe('runEditPublishIfApplicable — POST 409 via verify409InTx', () => {
     expect(result).toEqual({ outcome: 'failed', reason: 'edit_publish_409_mismatch_after_delete' });
     const callTexts = callTextsWithValues();
     expect(callTexts.some((t) => /edit_publish_409_mismatch_after_delete/.test(t))).toBe(true);
+    expect(callTexts.some((t) => /SET\s+status = 'posted'/.test(t))).toBe(false);
   });
 
   it('409 indeterminate after DELETE success → sibling superseded + orphan marker, throw retry', async () => {
@@ -591,7 +608,15 @@ describe('runEditPublishIfApplicable — orphan retry', () => {
       deps(),
     );
 
-    expect(result).toEqual({ outcome: 'completed' });
+    expect(result).toEqual({
+      outcome: 'completed',
+      postedResponse: {
+        responseId: 'resp-1',
+        businessId: 'biz-1',
+        reviewId: 'rev-1',
+        logger,
+      },
+    });
     const callTexts = callTextsWithValues();
     expect(callTexts.some((t) =>
       /SET\s+status = 'posted'/.test(t) && /posting_error = NULL/.test(t),

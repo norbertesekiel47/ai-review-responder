@@ -24,6 +24,7 @@ const {
   mockPostReply,
   mockListAllReviews,
   mockRunEditPublishIfApplicable,
+  mockMaybeCaptureActivationCompleted,
 } = vi.hoisted(() => {
   const sqlReturnQueue: unknown[] = [];
 
@@ -47,6 +48,7 @@ const {
     // Defaults to continue_to_fresh so existing tests stay on the POST-only path
     // even when the edit dispatch predicate happens to open the module.
     mockRunEditPublishIfApplicable: vi.fn().mockResolvedValue({ outcome: 'continue_to_fresh' }),
+    mockMaybeCaptureActivationCompleted: vi.fn().mockResolvedValue(undefined),
   };
 });
 
@@ -70,6 +72,9 @@ vi.mock('../../../../src/lib/zernio/client', () => ({
 vi.mock('uuid', () => ({ v7: vi.fn(() => 'test-uuid') }));
 vi.mock('../edit-publish', () => ({
   runEditPublishIfApplicable: mockRunEditPublishIfApplicable,
+}));
+vi.mock('../activation', () => ({
+  maybeCaptureActivationCompleted: mockMaybeCaptureActivationCompleted,
 }));
 
 import { handlePublishResponse } from '../ResponsePublisherWorker';
@@ -157,6 +162,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     delete process.env.EDIT_REPLIES_ENABLED;
     // clearAllMocks wipes the queued/persistent return; re-establish the safe default.
     mockRunEditPublishIfApplicable.mockResolvedValue({ outcome: 'continue_to_fresh' });
+    mockMaybeCaptureActivationCompleted.mockResolvedValue(undefined);
   });
 
   // ── Steps 1–3 unchanged behavior ────────────────────────────────────
@@ -188,6 +194,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
 
     expect(mockLookupZernioReviewId).not.toHaveBeenCalled();
     expect(mockPostReply).not.toHaveBeenCalled();
+    expect(mockMaybeCaptureActivationCompleted).not.toHaveBeenCalled();
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
   });
@@ -298,7 +305,18 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     expect(mockPostReply).toHaveBeenCalledWith('acct-1', 'zernio-rev-id-1', {
       comment: 'Thank you for your kind review!',
     });
+    expect(mockMaybeCaptureActivationCompleted).toHaveBeenCalledWith({
+      responseId: 'resp-1',
+      businessId: 'biz-1',
+      reviewId: 'rev-1',
+      logger: expect.any(Object),
+    });
+    expect(mockMaybeCaptureActivationCompleted).toHaveBeenCalledTimes(1);
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+    // Contract: activation capture runs before the outbox is marked complete.
+    expect(
+      mockMaybeCaptureActivationCompleted.mock.invocationCallOrder[0]!,
+    ).toBeLessThan(mockMarkOutboxCompleted.mock.invocationCallOrder[0]!);
   });
 
   // ── Branch B: ZernioReviewNotFoundError → terminal failed + exception
@@ -612,6 +630,7 @@ describe('ResponsePublisherWorker — edit-publish dispatch (Task 6)', () => {
     sqlReturnQueue.length = 0;
     delete process.env.EDIT_REPLIES_ENABLED;
     mockRunEditPublishIfApplicable.mockResolvedValue({ outcome: 'continue_to_fresh' });
+    mockMaybeCaptureActivationCompleted.mockResolvedValue(undefined);
   });
 
   function pushDispatchBaseSequence(responseOverrides: Record<string, unknown> = {}) {
@@ -650,6 +669,43 @@ describe('ResponsePublisherWorker — edit-publish dispatch (Task 6)', () => {
     // 'completed' → outbox completed, POST-only path NOT taken.
     expect(mockPostReply).not.toHaveBeenCalled();
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+  });
+
+  it('captures activation before completing outbox when edit-publish posts a response', async () => {
+    process.env.EDIT_REPLIES_ENABLED = 'true';
+    pushDispatchBaseSequence();
+    sqlReturnQueue.push([{ id: 'resp-posted-sibling' }]); // 4: sibling probe → sibling found
+    mockLookupZernioReviewId.mockResolvedValueOnce('zernio-rev-id-1');
+    const activationLogger = {
+      log: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    };
+    mockRunEditPublishIfApplicable.mockResolvedValueOnce({
+      outcome: 'completed',
+      postedResponse: {
+        responseId: 'resp-1',
+        businessId: 'biz-1',
+        reviewId: 'rev-1',
+        logger: activationLogger,
+      },
+    });
+
+    await handlePublishResponse(makeJob());
+
+    expect(mockMaybeCaptureActivationCompleted).toHaveBeenCalledWith({
+      responseId: 'resp-1',
+      businessId: 'biz-1',
+      reviewId: 'rev-1',
+      logger: activationLogger,
+    });
+    expect(mockMaybeCaptureActivationCompleted).toHaveBeenCalledTimes(1);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+    // Contract: activation capture runs before the outbox is marked complete.
+    expect(
+      mockMaybeCaptureActivationCompleted.mock.invocationCallOrder[0]!,
+    ).toBeLessThan(mockMarkOutboxCompleted.mock.invocationCallOrder[0]!);
+    expect(mockPostReply).not.toHaveBeenCalled();
   });
 
   it('dispatches when flag on AND posting_error is an orphan marker even with NO posted sibling', async () => {

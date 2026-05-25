@@ -1,6 +1,6 @@
 import Stripe from 'stripe';
-import { v7 as uuidv7 } from 'uuid';
-import { sql, jsonb } from '../../../src/lib/db/server';
+import { sql } from '../../../src/lib/db/server';
+import { writeAccountAuditLog } from '../../../src/lib/audit/log';
 import { LOG_PREFIX, extractCustomerId } from './shared';
 
 export async function processInvoicePaymentFailed(invoice: Stripe.Invoice): Promise<void> {
@@ -33,20 +33,23 @@ export async function processInvoicePaymentFailed(invoice: Stripe.Invoice): Prom
     if (acctRow.subscription_status === 'active') {
       await tx`
         UPDATE accounts
-        SET subscription_status = 'past_due', updated_at = NOW()
+        SET subscription_status = 'past_due',
+            past_due_at = NOW(),
+            updated_at = NOW()
         WHERE id = ${acctRow.id}::uuid
       `;
 
       // VAL-LOC-029 / VAL-LOC-058: Audit log for subscription_status_changed
-      await tx`
-        INSERT INTO account_audit_log (id, account_id, event_type, payload)
-        VALUES (
-          ${uuidv7()}::uuid,
-          ${acctRow.id}::uuid,
-          'subscription_status_changed',
-          ${jsonb({ fromStatus: 'active', toStatus: 'past_due' })}
-        )
-      `;
+      await writeAccountAuditLog(
+        {
+          accountId: acctRow.id,
+          eventType: 'subscription_status_changed',
+          entityType: 'account',
+          entityId: acctRow.id,
+          payload: { fromStatus: 'active', toStatus: 'past_due' },
+        },
+        tx,
+      );
 
       // Also update businesses deprecated column
       await tx`

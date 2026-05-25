@@ -49,6 +49,7 @@ import {
 } from './publisher-error-handlers';
 import type { WorkerLogger } from '../../../src/lib/shared/logger';
 import type { SendOwnerEmailPayload } from '../../../src/lib/shared/worker-types';
+import type { PostedResponseActivationInput } from './activation';
 import {
   PENDING_AFTER_DELETE,
   ZERNIO_AUTH_ERROR,
@@ -92,7 +93,7 @@ export interface EditPublishDeps {
  *   today's POST-only fresh-publish path. NO external I/O happened.
  */
 export type EditPublishOutcome =
-  | { outcome: 'completed' }
+  | { outcome: 'completed'; postedResponse?: PostedResponseActivationInput }
   | { outcome: 'failed'; reason: string }
   | { outcome: 'throw'; error: unknown }
   | { outcome: 'continue_to_fresh' };
@@ -124,6 +125,20 @@ function isDeleteAlreadyGone(err: unknown): boolean {
 
 function permanentErrorKind(err: ZernioPermanentError | ZernioValidationError): string {
   return err instanceof ZernioPermanentError ? err.kind ?? 'unknown' : 'validation';
+}
+
+function postedResponseActivationInput(args: {
+  responseId: string;
+  businessId: string;
+  reviewId: string;
+  logger: WorkerLogger;
+}): PostedResponseActivationInput {
+  return {
+    responseId: args.responseId,
+    businessId: args.businessId,
+    reviewId: args.reviewId,
+    logger: args.logger,
+  };
 }
 
 export async function runEditPublishIfApplicable(
@@ -481,9 +496,13 @@ export async function runEditPublishIfApplicable(
       return { outcome: 'continue_to_fresh' };
     case 'idempotent_completed':
     case 'auth_completed':
+      return { outcome: 'completed' };
     case '409_matches':
     case 'success':
-      return { outcome: 'completed' };
+      return {
+        outcome: 'completed',
+        postedResponse: postedResponseActivationInput({ responseId, businessId, reviewId, logger }),
+      };
     case 'review_id_drift':
       return { outcome: 'failed', reason: 'publish_review_id_drift' };
     case 'orphan_response_review':

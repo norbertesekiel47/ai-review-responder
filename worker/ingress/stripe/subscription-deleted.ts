@@ -1,6 +1,6 @@
 import Stripe from 'stripe';
-import { v7 as uuidv7 } from 'uuid';
-import { sql, jsonb } from '../../../src/lib/db/server';
+import { sql } from '../../../src/lib/db/server';
+import { writeAccountAuditLog } from '../../../src/lib/audit/log';
 import { LOG_PREFIX, extractCustomerId } from './shared';
 
 export async function processSubscriptionDeleted(sub: Stripe.Subscription): Promise<void> {
@@ -35,20 +35,24 @@ export async function processSubscriptionDeleted(sub: Stripe.Subscription): Prom
 
       await tx`
         UPDATE accounts
-        SET subscription_status = 'cancelled', cancelled_at = NOW(), updated_at = NOW()
+        SET subscription_status = 'cancelled',
+            cancelled_at = NOW(),
+            past_due_at = NULL,
+            updated_at = NOW()
         WHERE id = ${acctRow.id}::uuid
       `;
 
       // VAL-LOC-029 / VAL-LOC-058: Audit log for subscription_status_changed
-      await tx`
-        INSERT INTO account_audit_log (id, account_id, event_type, payload)
-        VALUES (
-          ${uuidv7()}::uuid,
-          ${acctRow.id}::uuid,
-          'subscription_status_changed',
-          ${jsonb({ fromStatus: oldStatus, toStatus: 'cancelled' })}
-        )
-      `;
+      await writeAccountAuditLog(
+        {
+          accountId: acctRow.id,
+          eventType: 'subscription_status_changed',
+          entityType: 'account',
+          entityId: acctRow.id,
+          payload: { fromStatus: oldStatus, toStatus: 'cancelled' },
+        },
+        tx,
+      );
 
       // Also update businesses deprecated column
       await tx`

@@ -18,6 +18,9 @@ vi.mock('@/lib/zernio/client', () => ({
 vi.mock('@/lib/publishing/zernio-publisher', () => ({
   getCachedZernioReviewPage: vi.fn().mockResolvedValue(null),
 }));
+vi.mock('../activation', () => ({
+  maybeCaptureActivationCompleted: vi.fn().mockResolvedValue(undefined),
+}));
 vi.mock('@sentry/node', () => ({
   captureMessage: vi.fn(),
 }));
@@ -36,6 +39,7 @@ import {
   ZernioPermanentError,
   ZernioValidationError,
 } from '@/lib/zernio/errors';
+import { maybeCaptureActivationCompleted } from '../activation';
 
 const mkLogger = () => ({ log: vi.fn(), warn: vi.fn(), error: vi.fn() });
 
@@ -178,6 +182,7 @@ describe('handlePublisherAuthErrorTerminal', () => {
 describe('verify409AndDispose', () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    vi.mocked(maybeCaptureActivationCompleted).mockResolvedValue(undefined);
   });
 
   const baseArgs = {
@@ -224,6 +229,12 @@ describe('verify409AndDispose', () => {
     const result = await verify409AndDispose(baseArgs);
 
     expect(result.outcome).toBe('posted');
+    expect(maybeCaptureActivationCompleted).toHaveBeenCalledWith({
+      responseId: 'R',
+      businessId: 'B',
+      reviewId: 'rev',
+      logger: expect.any(Object),
+    });
     expect(markOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
   });
 
@@ -242,6 +253,7 @@ describe('verify409AndDispose', () => {
     const result = await verify409AndDispose(baseArgs);
 
     expect(result.outcome).toBe('superseded');
+    expect(maybeCaptureActivationCompleted).not.toHaveBeenCalled();
     expect(markOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
   });
 });
