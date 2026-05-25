@@ -74,11 +74,11 @@ describe('writeAccountAuditLog', () => {
 
     await writeAccountAuditLog({
       accountId: 'acct-1',
-      locationId: 'biz-1',
+      locationId: 'biz-location-1',
       actorUserId: 'user-1',
       eventType: 'csv_bulk_import',
       entityType: 'business',
-      entityId: 'biz-1',
+      entityId: 'entity-business-1',
       ip: '203.0.113.10',
       userAgent: 'Vitest',
       requestId: 'req-123',
@@ -86,9 +86,10 @@ describe('writeAccountAuditLog', () => {
     });
 
     const values = sqlCalls[0]!.values;
-    expect(values).toContain('biz-1');
+    expect(values).toContain('biz-location-1');
     expect(values).toContain('user-1');
     expect(values).toContain('business');
+    expect(values).toContain('entity-business-1');
     expect(values).toContain('203.0.113.10');
     expect(values).toContain('Vitest');
     expect(values).toContain('req-123');
