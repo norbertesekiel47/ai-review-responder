@@ -9,6 +9,7 @@ const RUN = Boolean(testDatabaseUrl);
 const d = RUN ? describe : describe.skip;
 
 let db: postgresType.Sql | undefined;
+let originalDatabasePoolUrl: string | undefined;
 const createdAccountIds: string[] = [];
 const createdUserIds: string[] = [];
 
@@ -188,6 +189,7 @@ async function readTenantEvidence(accountId: string): Promise<TenantReadRow[]> {
 
 d('tenant isolation integration', () => {
   beforeAll(async () => {
+    originalDatabasePoolUrl = process.env.DATABASE_POOL_URL;
     process.env.DATABASE_POOL_URL = testDatabaseUrl!;
     vi.resetModules();
     db = postgres(testDatabaseUrl!, { max: 1, prepare: false });
@@ -201,6 +203,11 @@ d('tenant isolation integration', () => {
       await cleanupSeededTenants();
     } finally {
       await db?.end({ timeout: 5 });
+      if (originalDatabasePoolUrl === undefined) {
+        delete process.env.DATABASE_POOL_URL;
+      } else {
+        process.env.DATABASE_POOL_URL = originalDatabasePoolUrl;
+      }
     }
   });
 

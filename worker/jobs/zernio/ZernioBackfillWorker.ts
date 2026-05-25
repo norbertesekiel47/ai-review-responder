@@ -212,14 +212,14 @@ export async function handleZernioBackfill(job: Job<ZernioInitialBackfillPayload
       logger.warn(
         `Likely PHI detected for backfill review ${z.id}; reasons=${phi.reasons.join(',')}; review_text=${redactPhiForLog(z.comment)}; skipping`,
       );
-      await openPhiReviewException(sql, {
+      await sql.begin((tx) => openPhiReviewException(tx, {
         businessId: business_id,
         accountId: zernio_account_id,
         locationId: zernio_location_id,
         review: z,
         reasons: phi.reasons,
         source: 'backfill',
-      }, logger);
+      }, logger));
       return;
     }
 

@@ -96,6 +96,12 @@ export async function openPhiReviewException(
   input: PhiReviewExceptionInput,
   logger: WorkerLogger,
 ): Promise<void> {
+  // Caller owns the transaction (see call sites): the exception row and its
+  // admin-notification outbox row must commit together (transactional outbox
+  // invariant), so `db` is always a transaction handle here. When the
+  // ON CONFLICT no-ops (a still-open exception already exists), we skip both the
+  // outbox enqueue and the Sentry alert so we do not re-notify on every repeated
+  // ingest of the same review.
   const [exception] = await db<{ id: string }[]>`
     INSERT INTO review_exceptions (id, business_id, type, status, payload)
     VALUES (
@@ -116,6 +122,21 @@ export async function openPhiReviewException(
     RETURNING id
   `;
 
+  if (!exception) {
+    logger.warn(`Likely PHI review ${input.review.id} already has an open operator exception`);
+    return;
+  }
+
+  await db`
+    INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, attempts, max_attempts)
+    VALUES (
+      ${uuidv7()}, 'notify_admin_review_exception', 'business',
+      ${input.businessId},
+      ${jsonb({ review_exception_id: exception.id, business_id: input.businessId })},
+      0, 5
+    )
+  `;
+
   Sentry.captureMessage('zernio_likely_phi_review_blocked', {
     level: 'warning',
     tags: {
@@ -131,21 +152,6 @@ export async function openPhiReviewException(
       phi_reasons: input.reasons,
     },
   });
-
-  if (!exception) {
-    logger.warn(`Likely PHI review ${input.review.id} already has an open operator exception`);
-    return;
-  }
-
-  await db`
-    INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, attempts, max_attempts)
-    VALUES (
-      ${uuidv7()}, 'notify_admin_review_exception', 'business',
-      ${input.businessId},
-      ${jsonb({ review_exception_id: exception.id, business_id: input.businessId })},
-      0, 5
-    )
-  `;
 }
 
 /**

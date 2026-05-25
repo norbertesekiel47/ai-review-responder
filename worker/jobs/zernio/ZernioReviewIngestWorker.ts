@@ -212,14 +212,14 @@ export async function handleZernioReviewIngest(job: Job<IngestZernioReviewPayloa
     logger.warn(
       `Likely PHI detected for review ${zernio_review_id}; reasons=${phi.reasons.join(',')}; review_text=${redactPhiForLog(target.comment)}`,
     );
-    await openPhiReviewException(sql, {
+    await sql.begin((tx) => openPhiReviewException(tx, {
       businessId: business_id,
       accountId: zernio_account_id,
       locationId: zernio_location_id,
       review: target,
       reasons: phi.reasons,
       source: 'webhook',
-    }, logger);
+    }, logger));
     await markOutboxCompleted(outboxId, attempt);
     return;
   }

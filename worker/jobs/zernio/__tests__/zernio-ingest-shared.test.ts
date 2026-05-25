@@ -87,6 +87,8 @@ describe('openPhiReviewException', () => {
   it('opens an operator exception without storing raw review text', async () => {
     const { captureMessage } = await import('@sentry/node');
     const calls: Array<{ sql: string; values: unknown[] }> = [];
+    // openPhiReviewException is invoked inside a caller-owned transaction; the
+    // mock stands in for that tx handle and records both inserts.
     const db = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
       calls.push({ sql: strings.join('?'), values });
       return Promise.resolve(calls.length === 1 ? [{ id: 'exc-1' }] : []);

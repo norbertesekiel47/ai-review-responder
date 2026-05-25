@@ -22,8 +22,8 @@ export default function SecurityPage() {
             <h2 className="text-xl font-medium text-[#2a2a2a]">Vulnerability disclosure</h2>
             <p className="text-sm leading-relaxed text-[#4a4a4a]">
               Report suspected vulnerabilities to{' '}
-              <a className="text-[#97B3AE] hover:underline" href="mailto:security@repworth.com">
-                security@repworth.com
+              <a className="text-[#97B3AE] hover:underline" href="mailto:security@repworth.net">
+                security@repworth.net
               </a>
               . We will acknowledge receipt, investigate in good faith, and avoid legal action
               for good-faith research that avoids data destruction, service disruption, and

@@ -126,14 +126,14 @@ async function processZernioReview(
     console.warn(
       `${LOG_PREFIX} Likely PHI detected for review ${review.id}; reasons=${phi.reasons.join(',')}; review_text=${redactPhiForLog(review.comment)}; skipping`,
     );
-    await openPhiReviewException(sql, {
+    await sql.begin((tx) => openPhiReviewException(tx, {
       businessId: connection.business_id,
       accountId: connection.zernio_account_id,
       locationId: connection.zernio_location_id,
       review,
       reasons: phi.reasons,
       source: 'recent_poller',
-    }, console);
+    }, console));
     return 'skipped';
   }
 

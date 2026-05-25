@@ -9,6 +9,11 @@ const { sqlReturnQueue, mockSql, sqlCalls } = vi.hoisted(() => {
       return Promise.resolve(sqlReturnQueue.shift() ?? []);
     },
   );
+  // PHI quarantine runs inside sql.begin(); the mock runs the callback against
+  // the same tagged-template stub so the wrapped call is exercised.
+  (mockSql as unknown as { begin: unknown }).begin = vi.fn(
+    async (cb: (tx: typeof mockSql) => unknown) => cb(mockSql),
+  );
   return { sqlReturnQueue, mockSql, sqlCalls };
 });
 

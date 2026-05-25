@@ -25,7 +25,7 @@ Do not add `pnpm ci:rls-audit` as a hard CI step until the CI environment has a 
 
 ## Cross-Tenant Tests
 
-`src/__tests__/tenant-isolation.test.ts` is skipped unless `TEST_DATABASE_POOL_URL` is present. When the URL is present it is a hard integration proof: it seeds two accounts with multiple locations, reviews, responses, approval links, approval audit rows, account audit rows, and channel enrollments. It then asserts account A scoped reads only return account A evidence, account A scoped updates can mutate its own location, and account A scoped updates cannot mutate account B businesses, responses, or channel enrollments.
+`src/__tests__/tenant-isolation.test.ts` is skipped unless `TEST_DATABASE_POOL_URL` is present. When the URL is present it is a hard integration proof: it seeds two accounts with multiple locations, reviews, responses, approval links, approval audit rows, account audit rows, and channel enrollments. It then asserts account-A-scoped reads only return account A evidence, account-A-scoped updates can mutate its own location, and account-A-scoped updates cannot mutate account B businesses, responses, or channel enrollments.
 
 ## Gates
 

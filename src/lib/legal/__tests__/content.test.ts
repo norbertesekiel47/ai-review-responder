@@ -21,6 +21,9 @@ describe('legal content', () => {
     const subProcessorSection = legalDocs.privacy.sections.find(
       (section) => section.heading === 'Sub-processors',
     );
+    expect(dataSection).toBeDefined();
+    expect(subProcessorSection).toBeDefined();
+
     const vendors = subProcessorSection?.table?.rows.map((row) => row[0]) ?? [];
 
     expect(dataSection?.bullets).toEqual(expect.arrayContaining([
@@ -32,12 +35,8 @@ describe('legal content', () => {
       'SerpAPI',
       'Google Maps Platform',
     ]));
-    expect(vendors).not.toEqual(expect.arrayContaining([
-      'PostHog',
-      'Help Scout',
-      'Cloudflare',
-      'Loops',
-      'Customer.io',
-    ]));
+    for (const excluded of ['PostHog', 'Help Scout', 'Cloudflare', 'Loops', 'Customer.io']) {
+      expect(vendors).not.toContain(excluded);
+    }
   });
 });
