@@ -514,6 +514,54 @@ describe('StripeLocationsReconcilePoller', () => {
     expect(warnSpy).not.toHaveBeenCalled();
   });
 
+  it('does not classify base price location wording as an overage item', async () => {
+    sqlReturnQueue.push([
+      makeAccountRow({
+        id: 'acct-base-location-wording',
+        subscription_tier: 'standard',
+        locations_included: 1,
+        locations_overage_price_cents: 3000,
+        active_location_count: 3,
+      }),
+    ]);
+    mockStripeRetrieve.mockResolvedValue({
+      id: 'sub_test',
+      customer: 'cus_123',
+      status: 'active',
+      items: {
+        data: [
+          {
+            id: 'si_base',
+            price: {
+              id: 'price_base',
+              nickname: 'Standard plan with 1 location',
+              unit_amount: 7900,
+            },
+            quantity: 1,
+          },
+          {
+            id: 'si_overage',
+            price: {
+              id: 'price_overage_std_legacy',
+              nickname: 'Legacy extra location',
+              unit_amount: 3000,
+            },
+            quantity: 2,
+          },
+        ],
+      },
+    });
+    mockStripeCreatePreview.mockResolvedValue(makeInvoicePreview({
+      overagePriceId: 'price_overage_std_legacy',
+      overageUnitCents: 3000,
+    }));
+
+    const result = await runOnce();
+
+    expect(result.driftsFound).toBe(0);
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
   it('does not alert when preview total is lower because of a discount', async () => {
     sqlReturnQueue.push([
       makeAccountRow({

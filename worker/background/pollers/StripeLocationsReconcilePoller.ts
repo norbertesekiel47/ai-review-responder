@@ -92,7 +92,7 @@ function isOverageItem(
     price.metadata?.billing_role,
     price.metadata?.role,
   ].filter(Boolean).join(' ').toLowerCase();
-  if (/\b(overage|additional|extra|location)\b/.test(priceDescriptor)) {
+  if (/\b(overage|additional|extra|add-on|addon)\b/.test(priceDescriptor)) {
     return true;
   }
 
