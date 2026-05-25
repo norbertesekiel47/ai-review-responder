@@ -14,6 +14,12 @@ export interface ExtractedSqlTemplate {
   sqlText: string;
 }
 
+interface NamedSqlTemplate {
+  name: string;
+  sqlText: string;
+  index: number;
+}
+
 const TENANT_TABLES = [
   'accounts',
   'businesses',
@@ -537,43 +543,161 @@ export function extractSqlTemplates(sourceText: string): ExtractedSqlTemplate[] 
     const templateStart = sourceText.indexOf('`', match.index);
     if (templateStart < 0) continue;
     const tag = match[1] ?? 'sql';
+    const parsed = parseTemplateLiteral(sourceText, templateStart);
+    if (!parsed) continue;
+    templates.push({ tag, sqlText: parsed.sqlText });
+    tagRegex.lastIndex = parsed.endIndex + 1;
+  }
 
-    let depth = 0;
-    let template = '';
-    for (let index = templateStart + 1; index < sourceText.length; index++) {
-      const current = sourceText[index];
-      const next = sourceText[index + 1];
+  templates.push(...extractUnsafeSqlTemplates(sourceText));
 
-      if (current === '\\') {
-        template += current;
-        if (next !== undefined) {
-          template += next;
-          index++;
-        }
-        continue;
-      }
+  return templates;
+}
 
-      if (current === '$' && next === '{') {
-        depth++;
-        template += '${';
-        index++;
-        continue;
-      }
+function parseTemplateLiteral(
+  sourceText: string,
+  templateStart: number,
+): { sqlText: string; endIndex: number } | null {
+  let depth = 0;
+  let template = '';
+  for (let index = templateStart + 1; index < sourceText.length; index++) {
+    const current = sourceText[index];
+    const next = sourceText[index + 1];
 
-      if (current === '}' && depth > 0) {
-        depth--;
-        template += current;
-        continue;
-      }
-
-      if (current === '`' && depth === 0) {
-        templates.push({ tag, sqlText: template });
-        tagRegex.lastIndex = index + 1;
-        break;
-      }
-
+    if (current === '\\') {
       template += current;
+      if (next !== undefined) {
+        template += next;
+        index++;
+      }
+      continue;
     }
+
+    if (current === '$' && next === '{') {
+      depth++;
+      template += '${';
+      index++;
+      continue;
+    }
+
+    if (current === '}' && depth > 0) {
+      depth--;
+      template += current;
+      continue;
+    }
+
+    if (current === '`' && depth === 0) {
+      return { sqlText: template, endIndex: index };
+    }
+
+    template += current;
+  }
+
+  return null;
+}
+
+function parseStringLiteral(
+  sourceText: string,
+  stringStart: number,
+): { sqlText: string; endIndex: number } | null {
+  const quote = sourceText[stringStart];
+  if (quote !== '"' && quote !== "'") return null;
+
+  let value = '';
+  for (let index = stringStart + 1; index < sourceText.length; index++) {
+    const current = sourceText[index];
+    const next = sourceText[index + 1];
+    if (current === '\\') {
+      value += current;
+      if (next !== undefined) {
+        value += next;
+        index++;
+      }
+      continue;
+    }
+    if (current === quote) {
+      return { sqlText: value, endIndex: index };
+    }
+    value += current;
+  }
+
+  return null;
+}
+
+function extractNamedSqlTemplates(sourceText: string): NamedSqlTemplate[] {
+  const namedTemplates: NamedSqlTemplate[] = [];
+  const declarationRegex = /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=`;]+)?=\s*`/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = declarationRegex.exec(sourceText)) !== null) {
+    const name = match[1];
+    if (!name) continue;
+    const templateStart = sourceText.indexOf('`', match.index);
+    if (templateStart < 0) continue;
+    const parsed = parseTemplateLiteral(sourceText, templateStart);
+    if (!parsed) continue;
+    namedTemplates.push({ name, sqlText: parsed.sqlText, index: match.index });
+    declarationRegex.lastIndex = parsed.endIndex + 1;
+  }
+
+  return namedTemplates;
+}
+
+function resolveNamedSqlTemplate(
+  namedTemplates: readonly NamedSqlTemplate[],
+  name: string,
+  beforeIndex: number,
+): string | null {
+  const matching = namedTemplates
+    .filter((template) => template.name === name && template.index < beforeIndex)
+    .sort((left, right) => right.index - left.index);
+
+  return matching[0]?.sqlText ?? null;
+}
+
+function skipWhitespace(sourceText: string, startIndex: number): number {
+  let index = startIndex;
+  while (index < sourceText.length && /\s/.test(sourceText[index] ?? '')) index++;
+  return index;
+}
+
+function readIdentifier(sourceText: string, startIndex: number): string | null {
+  const match = /^[A-Za-z_$][\w$]*/.exec(sourceText.slice(startIndex));
+  return match?.[0] ?? null;
+}
+
+function extractUnsafeSqlTemplates(sourceText: string): ExtractedSqlTemplate[] {
+  const templates: ExtractedSqlTemplate[] = [];
+  const namedTemplates = extractNamedSqlTemplates(sourceText);
+  const unsafeRegex = /\b(sql|tx)\s*\.\s*unsafe(?:\s*<[^>(]+(?:\([^)]*\))?[^>]*>)?\s*\(/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = unsafeRegex.exec(sourceText)) !== null) {
+    const tag = `${match[1] ?? 'sql'}.unsafe`;
+    const argStart = skipWhitespace(sourceText, unsafeRegex.lastIndex);
+    const argStartChar = sourceText[argStart];
+    if (argStartChar === '`') {
+      const parsed = parseTemplateLiteral(sourceText, argStart);
+      if (parsed) {
+        templates.push({ tag, sqlText: parsed.sqlText });
+        unsafeRegex.lastIndex = parsed.endIndex + 1;
+      }
+      continue;
+    }
+
+    if (argStartChar === '"' || argStartChar === "'") {
+      const parsed = parseStringLiteral(sourceText, argStart);
+      if (parsed) {
+        templates.push({ tag, sqlText: parsed.sqlText });
+        unsafeRegex.lastIndex = parsed.endIndex + 1;
+      }
+      continue;
+    }
+
+    const identifier = readIdentifier(sourceText, argStart);
+    if (!identifier) continue;
+    const sqlText = resolveNamedSqlTemplate(namedTemplates, identifier, match.index);
+    if (sqlText) templates.push({ tag, sqlText });
   }
 
   return templates;

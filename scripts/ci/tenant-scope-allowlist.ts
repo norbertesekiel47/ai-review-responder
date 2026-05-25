@@ -523,6 +523,24 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "Admin-only route or service intentionally performs this statement after requireRole(admin).",
   },
   {
+    file: "src/app/api/admin/notifications/route.ts",
+    table: "businesses",
+    sqlSnippet: "SELECT nd.id, b.name AS business_name, nd.channel, nd.recipient, nd.template, nd.sent_at, nd.delivered_at, nd.failed_at, nd.failure_reason, nd.created_at FROM notification_deliveries nd JOIN businesses b ON nd.business_id = b.id ${whereClause} ORDER BY nd.created_at DESC LIMIT $${limitIdx} OFFSET $${offsetIdx}",
+    reason: "Admin-only notifications route intentionally supports global and optionally filtered delivery review after requireRole(admin).",
+  },
+  {
+    file: "src/app/api/admin/notifications/route.ts",
+    table: "notification_deliveries",
+    sqlSnippet: "SELECT nd.id, b.name AS business_name, nd.channel, nd.recipient, nd.template, nd.sent_at, nd.delivered_at, nd.failed_at, nd.failure_reason, nd.created_at FROM notification_deliveries nd JOIN businesses b ON nd.business_id = b.id ${whereClause} ORDER BY nd.created_at DESC LIMIT $${limitIdx} OFFSET $${offsetIdx}",
+    reason: "Admin-only notifications route intentionally supports global and optionally filtered delivery review after requireRole(admin).",
+  },
+  {
+    file: "src/app/api/admin/notifications/route.ts",
+    table: "notification_deliveries",
+    sqlSnippet: "SELECT COUNT(*)::text AS total FROM notification_deliveries nd ${whereClause}",
+    reason: "Admin-only notifications route intentionally counts global or filtered delivery rows after requireRole(admin).",
+  },
+  {
     file: "src/app/api/admin/overview/route.ts",
     table: "accounts",
     sqlSnippet: "SELECT b.id, b.name, a.subscription_status, b.last_sync_at, COUNT(CASE WHEN resp.status = 'pending_approval' THEN 1 END)::int AS pending_approval_count, COUNT(CASE WHEN resp.status = 'awaiting_owner_connect' THEN 1 END)::int AS pending_reconnect_count, COUNT(resp.id)::int AS total_responses, COUNT(CASE WHEN resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[]) THEN 1 END)::int AS completed_responses, ROUND(EXTRACT(EPOCH FROM AVG(CASE WHEN resp.approved_at IS NOT NULL THEN resp.approved_at - resp.created_at END)) / 3600.0, 1)::float AS avg_response_time_hours, MAX(GREATEST(resp.created_at, resp.approved_at, resp.posted_at)) AS last_activity FROM businesses b JOIN accounts a ON a.id = b.account_id LEFT JOIN responses resp ON resp.business_id = b.id AND resp.status != 'superseded' GROUP BY b.id, b.name, a.subscription_status, b.last_sync_at",

@@ -321,4 +321,48 @@ describe('tenant-scope-audit', () => {
       { tag: 'tx', sqlText: "UPDATE responses SET status = 'posted' WHERE id = ${responseId}" },
     ]);
   });
+
+  it('extracts sql.unsafe and tx.unsafe templates from local query variables', () => {
+    expect(extractSqlTemplates(`
+      const query = \`UPDATE businesses SET tone = $2 WHERE id = $1\`;
+      await sql.unsafe(query, values);
+
+      const dataQuery = \`
+        SELECT nd.id
+        FROM notification_deliveries nd
+        \${whereClause}
+        LIMIT $\${limitIdx}
+      \`;
+      await sql.unsafe<NotificationRow[]>(dataQuery, queryParams);
+
+      const txQuery = \`UPDATE responses SET status = 'posted' WHERE review_id = \${reviewId}\`;
+      await tx.unsafe(txQuery, values);
+    `)).toEqual([
+      { tag: 'sql.unsafe', sqlText: 'UPDATE businesses SET tone = $2 WHERE id = $1' },
+      {
+        tag: 'sql.unsafe',
+        sqlText: `
+        SELECT nd.id
+        FROM notification_deliveries nd
+        \${whereClause}
+        LIMIT $\${limitIdx}
+      `,
+      },
+      {
+        tag: 'tx.unsafe',
+        sqlText: "UPDATE responses SET status = 'posted' WHERE review_id = ${reviewId}",
+      },
+    ]);
+  });
+
+  it('audits sql.unsafe templates resolved from local query variables', () => {
+    const templates = extractSqlTemplates(`
+      const unsafeQuery = \`SELECT * FROM sms_sender_opt_outs\`;
+      await sql.unsafe(unsafeQuery, []);
+    `);
+
+    expect(templates.flatMap((template) => auditSqlText('src/example.ts', template.sqlText))).toEqual(
+      finding('src/example.ts', 'sms_sender_opt_outs'),
+    );
+  });
 });
