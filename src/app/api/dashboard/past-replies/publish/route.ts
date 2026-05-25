@@ -161,10 +161,11 @@ async function handler(request: NextRequest): Promise<Response> {
       const lockedRows = await tx<{
         status: string;
         edited_text: string | null;
+        approved_text: string | null;
         response_text: string | null;
         llm_provider: string | null;
       }[]>`
-        SELECT status, edited_text, response_text, llm_provider
+        SELECT status, edited_text, approved_text, response_text, llm_provider
         FROM responses
         WHERE id = ${parsed.data.response_id} AND business_id = ${locationId}
         FOR UPDATE
@@ -200,6 +201,7 @@ async function handler(request: NextRequest): Promise<Response> {
         'approve_edit',
         audit,
         { mode },
+        { responseTextAtApproval: candidate.approved_text ?? candidate.response_text ?? '' },
       );
 
       // 7. Enqueue publish_response outbox in the SAME tx.

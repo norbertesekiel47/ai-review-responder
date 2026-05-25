@@ -266,6 +266,7 @@ export async function POST(
           failed_response_id: responseId,
           restored_from_superseded_id: superseded.id,
         },
+        { responseTextAtApproval: restoredText },
       );
 
       // 5. Enqueue publish_response outbox in the SAME tx (spec §4.2 atomicity).

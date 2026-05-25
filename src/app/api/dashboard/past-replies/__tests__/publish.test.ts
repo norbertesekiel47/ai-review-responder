@@ -311,6 +311,7 @@ describe('POST /api/dashboard/past-replies/publish', () => {
         {
           status: 'pending_approval',
           edited_text: 'Brand new reply',
+          approved_text: 'Brand new reply',
           response_text: 'Old reply',
           llm_provider: null,
         },
@@ -341,6 +342,7 @@ describe('POST /api/dashboard/past-replies/publish', () => {
     expect((auditCall[4] as { actorUserId: string }).actorUserId).toBe(USER_ID);
     expect((auditCall[4] as { actorUserId: string }).actorUserId).not.toBe(ACCOUNT_ID);
     expect(auditCall[5]).toEqual({ mode: 'manual' });
+    expect(auditCall[6]).toEqual({ responseTextAtApproval: 'Brand new reply' });
 
     // UPDATE responses tx call (3rd tx call: lock-review, lock-candidate, UPDATE)
     const updateCall = txMock.mock.calls[2] as unknown as unknown[];
@@ -372,6 +374,7 @@ describe('POST /api/dashboard/past-replies/publish', () => {
         {
           status: 'pending_approval',
           edited_text: null,
+          approved_text: null,
           response_text: 'Worker-generated draft',
           llm_provider: 'openai',
         },
@@ -387,6 +390,9 @@ describe('POST /api/dashboard/past-replies/publish', () => {
 
     expect(mockInsertAuditLogSession).toHaveBeenCalledTimes(1);
     expect(mockInsertAuditLogSession.mock.calls[0]![5]).toEqual({ mode: 'regenerate_as_is' });
+    expect(mockInsertAuditLogSession.mock.calls[0]![6]).toEqual({
+      responseTextAtApproval: 'Worker-generated draft',
+    });
 
     const updateCall = txMock.mock.calls[2] as unknown as unknown[];
     const updateSql = (updateCall[0] as unknown as TemplateStringsArray).join('|');
@@ -407,6 +413,7 @@ describe('POST /api/dashboard/past-replies/publish', () => {
         {
           status: 'pending_approval',
           edited_text: 'Owner-tweaked text',
+          approved_text: 'Owner-approved regenerated text',
           response_text: 'Worker-generated draft',
           llm_provider: 'openai',
         },
@@ -420,6 +427,9 @@ describe('POST /api/dashboard/past-replies/publish', () => {
 
     expect(mockInsertAuditLogSession).toHaveBeenCalledTimes(1);
     expect(mockInsertAuditLogSession.mock.calls[0]![5]).toEqual({ mode: 'regenerate_edited' });
+    expect(mockInsertAuditLogSession.mock.calls[0]![6]).toEqual({
+      responseTextAtApproval: 'Owner-approved regenerated text',
+    });
   });
 
   it('scopes response lookup and tx to ALT_LOCATION_ID when cookie is set (non-primary regression)', async () => {
