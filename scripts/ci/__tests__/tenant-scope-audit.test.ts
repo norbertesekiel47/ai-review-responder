@@ -315,14 +315,17 @@ describe('tenant-scope-audit', () => {
   it('extracts sql, transaction, and imported sql-alias tagged templates', () => {
     expect(extractSqlTemplates(`
       import { sql as defaultSql } from '@/lib/db/server';
+      import { sql as workerSql } from '../../../src/lib/db/server';
       await sql\`SELECT * FROM reviews WHERE business_id = \${businessId}\`;
       await tx\`UPDATE responses SET status = 'posted' WHERE id = \${responseId}\`;
       await defaultSql\`SELECT * FROM businesses WHERE account_id = \${accountId}\`;
+      await workerSql\`SELECT * FROM accounts WHERE id = \${accountId}\`;
       await db\`INSERT INTO account_audit_log (account_id) VALUES (\${accountId})\`;
     `)).toEqual([
       { tag: 'sql', sqlText: 'SELECT * FROM reviews WHERE business_id = ${businessId}' },
       { tag: 'tx', sqlText: "UPDATE responses SET status = 'posted' WHERE id = ${responseId}" },
       { tag: 'defaultSql', sqlText: 'SELECT * FROM businesses WHERE account_id = ${accountId}' },
+      { tag: 'workerSql', sqlText: 'SELECT * FROM accounts WHERE id = ${accountId}' },
       { tag: 'db', sqlText: 'INSERT INTO account_audit_log (account_id) VALUES (${accountId})' },
     ]);
   });

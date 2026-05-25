@@ -154,16 +154,17 @@ async function cleanupSeededTenants(): Promise<void> {
   if (!db || createdAccountIds.length === 0) return;
   const accountIds = [...createdAccountIds];
   const userIds = [...createdUserIds];
-  createdAccountIds.length = 0;
-  createdUserIds.length = 0;
 
   await db.begin(async (tx) => {
     await tx`SET CONSTRAINTS ALL DEFERRED`;
-    await tx`DELETE FROM businesses WHERE account_id = ANY(${accountIds}::uuid[])`;
     await tx`DELETE FROM account_audit_log WHERE account_id = ANY(${accountIds}::uuid[])`;
+    await tx`DELETE FROM businesses WHERE account_id = ANY(${accountIds}::uuid[])`;
     await tx`DELETE FROM accounts WHERE id = ANY(${accountIds}::uuid[])`;
     await tx`DELETE FROM users WHERE id = ANY(${userIds}::uuid[])`;
   });
+
+  createdAccountIds.length = 0;
+  createdUserIds.length = 0;
 }
 
 async function readTenantEvidence(accountId: string): Promise<TenantReadRow[]> {
@@ -196,8 +197,11 @@ d('tenant isolation integration', () => {
   });
 
   afterAll(async () => {
-    await cleanupSeededTenants();
-    await db?.end({ timeout: 5 });
+    try {
+      await cleanupSeededTenants();
+    } finally {
+      await db?.end({ timeout: 5 });
+    }
   });
 
   it('seeds two accounts and prevents cross-account read and update leakage', async () => {

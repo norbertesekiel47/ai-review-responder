@@ -1,36 +1,14 @@
 import postgres from 'postgres';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { TENANT_TABLES } from './tenant-tables';
 
 export interface RlsRow {
   relname: string;
   relrowsecurity: boolean;
 }
 
-export const REQUIRED_RLS_TABLES = [
-  'accounts',
-  'businesses',
-  'channel_enrollments',
-  'reviews',
-  'responses',
-  'approval_links',
-  'notification_deliveries',
-  'api_costs',
-  'weekly_summaries',
-  'monthly_impact_emails',
-  'onboarding_drip_log',
-  'satisfaction_responses',
-  'api_costs_daily_rollups',
-  'review_exceptions',
-  'ranking_snapshots',
-  'approval_audit_log',
-  'account_audit_log',
-  'zernio_connections',
-  'zernio_finalize_incidents',
-  'zernio_backfill_runs',
-  'sms_sender_opt_outs',
-  'sms_sender_opt_out_events',
-] as const;
+export const REQUIRED_RLS_TABLES = TENANT_TABLES;
 
 export function findRlsFailures(
   rows: RlsRow[],

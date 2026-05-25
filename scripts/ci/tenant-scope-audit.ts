@@ -2,6 +2,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { join, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { tenantScopeAllowlist, type TenantScopeAllowlistEntry } from './tenant-scope-allowlist';
+import { TENANT_TABLES, type TenantTable } from './tenant-tables';
 
 export interface TenantScopeFinding {
   file: string;
@@ -19,33 +20,6 @@ interface NamedSqlTemplate {
   sqlText: string;
   index: number;
 }
-
-const TENANT_TABLES = [
-  'accounts',
-  'businesses',
-  'channel_enrollments',
-  'reviews',
-  'responses',
-  'approval_links',
-  'approval_audit_log',
-  'account_audit_log',
-  'notification_deliveries',
-  'api_costs',
-  'weekly_summaries',
-  'monthly_impact_emails',
-  'onboarding_drip_log',
-  'satisfaction_responses',
-  'api_costs_daily_rollups',
-  'review_exceptions',
-  'ranking_snapshots',
-  'zernio_connections',
-  'zernio_finalize_incidents',
-  'zernio_backfill_runs',
-  'sms_sender_opt_outs',
-  'sms_sender_opt_out_events',
-] as const;
-
-type TenantTable = (typeof TENANT_TABLES)[number];
 
 const SCANNED_ROOTS = ['src', 'worker'] as const;
 const UNSCOPED_REASON = 'missing account_id or business_id scope';
@@ -561,10 +535,12 @@ export function extractSqlTemplates(sourceText: string): ExtractedSqlTemplate[] 
 
 function extractSqlTagNames(sourceText: string): Set<string> {
   const tagNames = new Set<string>(['sql', 'tx', 'db']);
-  const importRegex = /import\s*\{([^}]+)\}\s*from\s*['"]@\/lib\/db\/server['"]/g;
+  const importRegex = /import\s*\{([^}]+)\}\s*from\s*['"]([^'"]+)['"]/g;
   let match: RegExpExecArray | null;
 
   while ((match = importRegex.exec(sourceText)) !== null) {
+    const source = match[2] ?? '';
+    if (!isDbServerImportSource(source)) continue;
     const imports = match[1] ?? '';
     for (const specifier of imports.split(',')) {
       const parts = specifier.trim().split(/\s+as\s+/i);
@@ -574,6 +550,12 @@ function extractSqlTagNames(sourceText: string): Set<string> {
   }
 
   return tagNames;
+}
+
+function isDbServerImportSource(source: string): boolean {
+  return source === '@/lib/db/server'
+    || /(?:^|\/)(?:src\/)?lib\/db\/server$/.test(source)
+    || /(?:^|\/)db\/server$/.test(source);
 }
 
 function parseTemplateLiteral(
