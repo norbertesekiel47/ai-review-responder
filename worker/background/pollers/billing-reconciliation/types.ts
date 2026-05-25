@@ -2,7 +2,7 @@ export interface BillingReconciliationAccount {
   id: string;
   subscription_tier: string;
   subscription_status: string;
-  stripe_subscription_id: string;
+  stripe_subscription_id: string | null;
   locations_included: number;
   locations_overage_price_cents: number;
   active_location_count: number;

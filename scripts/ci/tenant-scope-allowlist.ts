@@ -699,13 +699,13 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/background/pollers/StripeLocationsReconcilePoller.ts",
     table: "accounts",
-    sqlSnippet: "SELECT a.id, a.subscription_tier, a.subscription_status, a.stripe_subscription_id, a.locations_included, a.locations_overage_price_cents, a.past_due_at, a.flags, COUNT(b.id) AS active_location_count FROM accounts a LEFT JOIN businesses b ON b.account_id = a.id AND b.archived_at IS NULL WHERE a.stripe_subscription_id IS NOT NULL AND a.subscription_status IN (${SubscriptionStatus.ACTIVE}, ${SubscriptionStatus.PAST_DUE}) GROUP BY a.id, a.subscription_tier, a.subscription_status, a.stripe_subscription_id, a.locations_included, a.locations_overage_price_cents, a.past_due_at, a.flags",
+    sqlSnippet: "SELECT a.id, a.subscription_tier, a.subscription_status, a.stripe_customer_id, a.stripe_subscription_id, a.locations_included, a.locations_overage_price_cents, a.past_due_at, a.flags, COUNT(b.id) AS active_location_count FROM accounts a LEFT JOIN businesses b ON b.account_id = a.id AND b.archived_at IS NULL WHERE a.subscription_status IN (${SubscriptionStatus.ACTIVE}, ${SubscriptionStatus.PAST_DUE}) GROUP BY a.id, a.subscription_tier, a.subscription_status, a.stripe_customer_id, a.stripe_subscription_id, a.locations_included, a.locations_overage_price_cents, a.past_due_at, a.flags",
     reason: "Background scheduler or poller intentionally scans tenant rows globally before enqueueing scoped work.",
   },
   {
     file: "worker/background/pollers/StripeLocationsReconcilePoller.ts",
     table: "businesses",
-    sqlSnippet: "SELECT a.id, a.subscription_tier, a.subscription_status, a.stripe_subscription_id, a.locations_included, a.locations_overage_price_cents, a.past_due_at, a.flags, COUNT(b.id) AS active_location_count FROM accounts a LEFT JOIN businesses b ON b.account_id = a.id AND b.archived_at IS NULL WHERE a.stripe_subscription_id IS NOT NULL AND a.subscription_status IN (${SubscriptionStatus.ACTIVE}, ${SubscriptionStatus.PAST_DUE}) GROUP BY a.id, a.subscription_tier, a.subscription_status, a.stripe_subscription_id, a.locations_included, a.locations_overage_price_cents, a.past_due_at, a.flags",
+    sqlSnippet: "SELECT a.id, a.subscription_tier, a.subscription_status, a.stripe_customer_id, a.stripe_subscription_id, a.locations_included, a.locations_overage_price_cents, a.past_due_at, a.flags, COUNT(b.id) AS active_location_count FROM accounts a LEFT JOIN businesses b ON b.account_id = a.id AND b.archived_at IS NULL WHERE a.subscription_status IN (${SubscriptionStatus.ACTIVE}, ${SubscriptionStatus.PAST_DUE}) GROUP BY a.id, a.subscription_tier, a.subscription_status, a.stripe_customer_id, a.stripe_subscription_id, a.locations_included, a.locations_overage_price_cents, a.past_due_at, a.flags",
     reason: "Background scheduler or poller intentionally scans tenant rows globally before enqueueing scoped work.",
   },
   {
@@ -1815,7 +1815,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/jobs/zernio/ZernioBackfillWorker.ts",
     table: "zernio_backfill_runs",
-    sqlSnippet: "UPDATE zernio_backfill_runs SET gap_processed_count = ${gap.length}, historical_processed_count = ${historical.length}, gap_skipped_count = ${gapSkipped}, historical_skipped_count = ${historicalSkipped}, oldest_skipped_create_time = ${oldestSkipped}, updated_at = NOW() WHERE id = ${run.id}",
+    sqlSnippet: "UPDATE zernio_backfill_runs SET gap_processed_count = ${gapProcessed}, historical_processed_count = ${historicalProcessed}, gap_skipped_count = ${gapSkipped}, historical_skipped_count = ${historicalSkipped}, oldest_skipped_create_time = ${oldestSkipped}, updated_at = NOW() WHERE id = ${run.id}",
     reason: "ZernioBackfillWorker updates the run row id loaded by correlation id for the current business-scoped backfill job.",
   },
   {

@@ -32,6 +32,7 @@ import {
 import { processReview } from '../../../src/lib/reviews/process-review';
 import {
   handleZernioIngestError,
+  openPhiReviewException,
   reconcileExternallyAnsweredReview,
 } from './zernio-ingest-shared';
 import type { IngestZernioReviewPayload } from '../../../src/lib/shared/worker-types';
@@ -209,6 +210,14 @@ export async function handleZernioReviewIngest(job: Job<IngestZernioReviewPayloa
   const phi = detectLikelyPhi(target.comment);
   if (phi.matched) {
     logger.warn(`Likely PHI detected for review ${zernio_review_id}; reasons=${phi.reasons.join(',')}`);
+    await openPhiReviewException(sql, {
+      businessId: business_id,
+      accountId: zernio_account_id,
+      locationId: zernio_location_id,
+      review: target,
+      reasons: phi.reasons,
+      source: 'webhook',
+    }, logger);
     await markOutboxCompleted(outboxId, attempt);
     return;
   }

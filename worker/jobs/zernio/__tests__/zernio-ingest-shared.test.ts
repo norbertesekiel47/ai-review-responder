@@ -11,9 +11,13 @@ vi.mock('@/lib/shared/outbox', () => ({
   markOutboxCompleted: vi.fn(),
   markOutboxFailed: vi.fn(),
 }));
+vi.mock('@sentry/node', () => ({
+  captureMessage: vi.fn(),
+}));
 
 import {
   handleZernioIngestError,
+  openPhiReviewException,
   reconcileExternallyAnsweredReview,
 } from '../zernio-ingest-shared';
 import {
@@ -72,6 +76,54 @@ describe('handleZernioIngestError — dispatch matrix', () => {
         new Error('boom'), 'outbox-1', 1, ctx, mkLogger() as any,
       ),
     ).rejects.toThrow('boom');
+  });
+});
+
+describe('openPhiReviewException', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it('opens an operator exception without storing raw review text', async () => {
+    const { captureMessage } = await import('@sentry/node');
+    const calls: Array<{ sql: string; values: unknown[] }> = [];
+    const db = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
+      calls.push({ sql: strings.join('?'), values });
+      return Promise.resolve(calls.length === 1 ? [{ id: 'exc-1' }] : []);
+    });
+    const logger = mkLogger();
+    const review: ZernioReview = {
+      id: 'rev-phi',
+      name: 'accounts/A/locations/L/reviews/rev-phi',
+      reviewer: { displayName: 'Jane', profilePhotoUrl: '', isAnonymous: false },
+      rating: 5,
+      starRating: 'FIVE',
+      comment: 'Patient MRN 12345 needs diabetes treatment follow up',
+      createTime: '2026-04-01T00:00:00Z',
+      updateTime: '2026-04-01T00:00:00Z',
+      reviewReply: null,
+    };
+
+    await openPhiReviewException(db as any, {
+      businessId: 'B',
+      accountId: 'A',
+      locationId: 'L',
+      review,
+      reasons: ['mrn', 'patient_context'],
+      source: 'webhook',
+    }, logger as any);
+
+    expect(calls[0]?.sql).toContain('INSERT INTO review_exceptions');
+    expect(calls[1]?.sql).toContain('notify_admin_review_exception');
+    expect(JSON.stringify(calls)).toContain('provider_review_id');
+    expect(JSON.stringify(calls[1])).not.toContain('MRN 12345');
+    expect(captureMessage).toHaveBeenCalledWith(
+      'zernio_likely_phi_review_blocked',
+      expect.objectContaining({
+        level: 'warning',
+        tags: expect.objectContaining({ kind: 'likely_phi', source: 'webhook' }),
+      }),
+    );
   });
 });
 
@@ -311,9 +363,12 @@ describe('reconcileExternallyAnsweredReview — flag-gated import branches', () 
       logger as any,
     );
 
-    expect(calls).toHaveLength(1);
-    expect(calls.every((c) => !c.sql.includes('INSERT INTO'))).toBe(true);
+    expect(calls).toHaveLength(2);
+    expect(calls[1]!.sql).toContain('INSERT INTO review_exceptions');
+    expect(calls.every((c) => !c.sql.includes('INSERT INTO reviews'))).toBe(true);
+    expect(calls.every((c) => !c.sql.includes('INSERT INTO responses'))).toBe(true);
     expect(calls.every((c) => !c.sql.includes('UPDATE zernio_backfill_runs'))).toBe(true);
+    expect(JSON.stringify(calls[1])).not.toContain('MRN 12345');
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('Likely PHI detected'));
     expect(logger.warn).toHaveBeenCalledWith(expect.not.stringContaining('MRN 12345'));
   });
@@ -368,9 +423,11 @@ describe('reconcileExternallyAnsweredReview — flag-gated import branches', () 
       logger as any,
     );
 
-    expect(calls).toHaveLength(2);
+    expect(calls).toHaveLength(3);
+    expect(calls[2]!.sql).toContain('INSERT INTO review_exceptions');
     expect(calls.every((c) => !c.sql.includes('INSERT INTO responses'))).toBe(true);
     expect(calls.every((c) => !c.sql.includes('UPDATE zernio_backfill_runs'))).toBe(true);
+    expect(JSON.stringify(calls[2])).not.toContain('MRN 12345');
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('Likely PHI detected'));
     expect(logger.warn).toHaveBeenCalledWith(expect.not.stringContaining('MRN 12345'));
   });

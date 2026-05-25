@@ -10,7 +10,9 @@
 
 import { createHash } from 'node:crypto';
 import type postgres from 'postgres';
-import { sql } from '../../../src/lib/db/server';
+import * as Sentry from '@sentry/node';
+import { v7 as uuidv7 } from 'uuid';
+import { sql, jsonb } from '../../../src/lib/db/server';
 import {
   ZernioAuthError,
   ZernioPermanentError,
@@ -26,6 +28,7 @@ import { fromZernioReview } from '../../../src/lib/reviews/zernio-field-match';
 import { detectLikelyPhi } from '../../../src/lib/security/phi-scanner';
 
 type TxClient = postgres.TransactionSql;
+type SqlExecutor = typeof sql | TxClient;
 
 const FLAG_ON = (): boolean =>
   process.env.EXTERNAL_REPLY_IMPORT_ENABLED === 'true';
@@ -34,6 +37,15 @@ export interface IngestErrorContext {
   business_id: string;
   zernio_account_id: string;
   zernio_location_id: string;
+}
+
+interface PhiReviewExceptionInput {
+  businessId: string;
+  accountId: string;
+  locationId: string;
+  review: ZernioReview;
+  reasons: string[];
+  source: 'webhook' | 'backfill' | 'external_reply_import';
 }
 
 /**
@@ -77,6 +89,63 @@ export async function handleZernioIngestError(
   // Unknown error class — rethrow so BullMQ retries; on exhaustion the
   // worker-specific onFailed handler decides what to do.
   throw err;
+}
+
+export async function openPhiReviewException(
+  db: SqlExecutor,
+  input: PhiReviewExceptionInput,
+  logger: WorkerLogger,
+): Promise<void> {
+  const [exception] = await db<{ id: string }[]>`
+    INSERT INTO review_exceptions (id, business_id, type, status, payload)
+    VALUES (
+      ${uuidv7()}, ${input.businessId}, 'zernio_likely_phi_review', 'open',
+      ${jsonb({
+        provider: 'zernio',
+        provider_review_id: input.review.id,
+        zernio_account_id: input.accountId,
+        zernio_location_id: input.locationId,
+        phi_reasons: input.reasons,
+        source: input.source,
+        detected_at: new Date().toISOString(),
+      })}
+    )
+    ON CONFLICT (business_id, type, (payload->>'provider_review_id'))
+      WHERE status = 'open' AND review_id IS NULL
+    DO NOTHING
+    RETURNING id
+  `;
+
+  Sentry.captureMessage('zernio_likely_phi_review_blocked', {
+    level: 'warning',
+    tags: {
+      worker: 'zernio_ingest',
+      kind: 'likely_phi',
+      source: input.source,
+    },
+    extra: {
+      business_id: input.businessId,
+      zernio_account_id: input.accountId,
+      zernio_location_id: input.locationId,
+      zernio_review_id: input.review.id,
+      phi_reasons: input.reasons,
+    },
+  });
+
+  if (!exception) {
+    logger.warn(`Likely PHI review ${input.review.id} already has an open operator exception`);
+    return;
+  }
+
+  await db`
+    INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, attempts, max_attempts)
+    VALUES (
+      ${uuidv7()}, 'notify_admin_review_exception', 'business',
+      ${input.businessId},
+      ${jsonb({ review_exception_id: exception.id, business_id: input.businessId })},
+      0, 5
+    )
+  `;
 }
 
 /**
@@ -145,6 +214,14 @@ export async function reconcileExternallyAnsweredReview(
       }
       const newReviewId = await insertImportedReview(tx, businessId, accountId, locationId, target);
       if (!newReviewId) {
+        await openPhiReviewException(tx, {
+          businessId,
+          accountId,
+          locationId,
+          review: target,
+          reasons: targetPhi.reasons,
+          source: 'external_reply_import',
+        }, logger);
         logger.warn(`Likely PHI detected for previously-unseen review ${target.id}; skipping import`);
         return;
       }
@@ -186,6 +263,14 @@ export async function reconcileExternallyAnsweredReview(
         return;
       }
       if (targetPhi.matched) {
+        await openPhiReviewException(tx, {
+          businessId,
+          accountId,
+          locationId,
+          review: target,
+          reasons: targetPhi.reasons,
+          source: 'external_reply_import',
+        }, logger);
         logger.warn(`Likely PHI detected for matched review ${target.id}; skipping external reply import`);
         return;
       }

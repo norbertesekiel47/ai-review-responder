@@ -12,6 +12,7 @@ const {
   mockListReviews,
   mockProcessReview,
   mockReconcileExternallyAnsweredReview,
+  mockOpenPhiReviewException,
   mockHandleZernioIngestError,
   mockApplyIngestionAuthErrorFallback,
 } = vi.hoisted(() => {
@@ -31,6 +32,7 @@ const {
     mockListReviews: vi.fn(),
     mockProcessReview: vi.fn(),
     mockReconcileExternallyAnsweredReview: vi.fn(),
+    mockOpenPhiReviewException: vi.fn(),
     mockHandleZernioIngestError: vi.fn(),
     mockApplyIngestionAuthErrorFallback: vi.fn(),
   };
@@ -54,6 +56,7 @@ vi.mock('../../../../src/lib/reviews/process-review', () => ({
 }));
 vi.mock('../zernio-ingest-shared', () => ({
   reconcileExternallyAnsweredReview: mockReconcileExternallyAnsweredReview,
+  openPhiReviewException: mockOpenPhiReviewException,
   handleZernioIngestError: mockHandleZernioIngestError,
 }));
 vi.mock('../../../../src/lib/zernio/auth-error-fallback', () => ({
@@ -375,6 +378,18 @@ describe('ZernioReviewIngestWorker', () => {
 
     expect(mockReconcileExternallyAnsweredReview).not.toHaveBeenCalled();
     expect(mockProcessReview).not.toHaveBeenCalled();
+    expect(mockOpenPhiReviewException).toHaveBeenCalledWith(
+      mockSql,
+      expect.objectContaining({
+        businessId: 'biz-1',
+        accountId: 'acct-1',
+        locationId: 'loc-1',
+        review,
+        source: 'webhook',
+        reasons: expect.arrayContaining(['mrn', 'patient_context', 'condition_context']),
+      }),
+      expect.anything(),
+    );
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ingest-1', undefined);
   });
 

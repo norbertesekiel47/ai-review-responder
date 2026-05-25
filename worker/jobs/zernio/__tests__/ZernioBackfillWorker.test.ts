@@ -12,6 +12,7 @@ const {
   mockListAllReviews,
   mockProcessReview,
   mockReconcileExternallyAnsweredReview,
+  mockOpenPhiReviewException,
   mockHandleZernioIngestError,
 } = vi.hoisted(() => {
   const sqlReturnQueue: unknown[] = [];
@@ -39,6 +40,7 @@ const {
     mockListAllReviews: vi.fn(),
     mockProcessReview: vi.fn(),
     mockReconcileExternallyAnsweredReview: vi.fn(),
+    mockOpenPhiReviewException: vi.fn(),
     mockHandleZernioIngestError: vi.fn(),
   };
 });
@@ -61,6 +63,7 @@ vi.mock('../../../../src/lib/reviews/process-review', () => ({
 }));
 vi.mock('../zernio-ingest-shared', () => ({
   reconcileExternallyAnsweredReview: mockReconcileExternallyAnsweredReview,
+  openPhiReviewException: mockOpenPhiReviewException,
   handleZernioIngestError: mockHandleZernioIngestError,
 }));
 vi.mock('../../../../src/lib/shared/subscription-guard', () => ({
@@ -347,6 +350,24 @@ describe('ZernioBackfillWorker', () => {
 
     expect(mockProcessReview).toHaveBeenCalledTimes(1);
     expect(mockProcessReview.mock.calls[0]?.[0].identity.providerReviewId).toBe('ordinary-review');
+    expect(mockOpenPhiReviewException).toHaveBeenCalledWith(
+      mockSql,
+      expect.objectContaining({
+        businessId: 'biz-1',
+        accountId: 'acct-1',
+        locationId: 'loc-1',
+        review: phiReview,
+        source: 'backfill',
+        reasons: expect.arrayContaining(['mrn', 'patient_context', 'condition_context']),
+      }),
+      expect.anything(),
+    );
+    const countsCall = mockSql.mock.calls.find((call: any[]) => {
+      const template = call[0];
+      return Array.isArray(template) && template.some((s: string) => s.includes('gap_processed_count'));
+    });
+    expect(countsCall?.slice(1)).toContain(1);
+    expect(countsCall?.slice(1)).not.toContain(2);
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-backfill-1', undefined);
   });
 

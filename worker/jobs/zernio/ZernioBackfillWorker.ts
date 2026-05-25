@@ -32,6 +32,7 @@ import {
 import { processReview } from '../../../src/lib/reviews/process-review';
 import {
   handleZernioIngestError,
+  openPhiReviewException,
   reconcileExternallyAnsweredReview,
 } from './zernio-ingest-shared';
 import type { ZernioInitialBackfillPayload } from '../../../src/lib/shared/worker-types';
@@ -202,11 +203,22 @@ export async function handleZernioBackfill(job: Job<ZernioInitialBackfillPayload
     .reduce((oldest: string | null, z) =>
       !oldest || z.createTime < oldest ? z.createTime : oldest, null);
 
-  for (const z of [...gap, ...historical]) {
+  let gapProcessed = 0;
+  let historicalProcessed = 0;
+
+  async function processUnansweredReview(z: ZernioReview, bucket: 'gap' | 'historical') {
     const phi = detectLikelyPhi(z.comment);
     if (phi.matched) {
       logger.warn(`Likely PHI detected for backfill review ${z.id}; reasons=${phi.reasons.join(',')}; skipping`);
-      continue;
+      await openPhiReviewException(sql, {
+        businessId: business_id,
+        accountId: zernio_account_id,
+        locationId: zernio_location_id,
+        review: z,
+        reasons: phi.reasons,
+        source: 'backfill',
+      }, logger);
+      return;
     }
 
     let monitored: MonitoredReview;
@@ -215,20 +227,32 @@ export async function handleZernioBackfill(job: Job<ZernioInitialBackfillPayload
     } catch (err) {
       if (err instanceof ZernioReviewNormalizationError) {
         logger.warn(`Skipping malformed review ${z.id}: ${err.message}`);
-        continue;
+        return;
       }
       throw err;
     }
     await processReview(monitored, business_id, job.data.correlation_id, {
       suppressNotification: true,
     });
+    if (bucket === 'gap') {
+      gapProcessed++;
+    } else {
+      historicalProcessed++;
+    }
+  }
+
+  for (const z of gap) {
+    await processUnansweredReview(z, 'gap');
+  }
+  for (const z of historical) {
+    await processUnansweredReview(z, 'historical');
   }
 
   // Always update partial counts so ops can audit even on retry.
   await sql`
     UPDATE zernio_backfill_runs
-    SET gap_processed_count = ${gap.length},
-        historical_processed_count = ${historical.length},
+    SET gap_processed_count = ${gapProcessed},
+        historical_processed_count = ${historicalProcessed},
         gap_skipped_count = ${gapSkipped},
         historical_skipped_count = ${historicalSkipped},
         oldest_skipped_create_time = ${oldestSkipped},
