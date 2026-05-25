@@ -18,6 +18,9 @@ vi.mock('@/lib/zernio/client', () => ({
 vi.mock('@/lib/publishing/zernio-publisher', () => ({
   getCachedZernioReviewPage: vi.fn().mockResolvedValue(null),
 }));
+vi.mock('../activation', () => ({
+  maybeCaptureActivationCompleted: vi.fn().mockResolvedValue(undefined),
+}));
 vi.mock('@sentry/node', () => ({
   captureMessage: vi.fn(),
 }));
@@ -36,6 +39,7 @@ import {
   ZernioPermanentError,
   ZernioValidationError,
 } from '@/lib/zernio/errors';
+import { maybeCaptureActivationCompleted } from '../activation';
 
 const mkLogger = () => ({ log: vi.fn(), warn: vi.fn(), error: vi.fn() });
 
@@ -178,6 +182,7 @@ describe('handlePublisherAuthErrorTerminal', () => {
 describe('verify409AndDispose', () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    vi.mocked(maybeCaptureActivationCompleted).mockResolvedValue(undefined);
   });
 
   const baseArgs = {
@@ -224,6 +229,31 @@ describe('verify409AndDispose', () => {
     const result = await verify409AndDispose(baseArgs);
 
     expect(result.outcome).toBe('posted');
+    expect(maybeCaptureActivationCompleted).toHaveBeenCalledWith({
+      responseId: 'R',
+      businessId: 'B',
+      reviewId: 'rev',
+      logger: expect.any(Object),
+    });
+    expect(markOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
+  });
+
+  it('best effort activation: capture failure still completes outbox and returns posted', async () => {
+    const { zernioClient } = await import('@/lib/zernio/client');
+    const { getCachedZernioReviewPage } = await import('@/lib/publishing/zernio-publisher');
+    const { markOutboxCompleted } = await import('@/lib/shared/outbox');
+    const { sql } = await import('@/lib/db/server');
+
+    vi.mocked(maybeCaptureActivationCompleted).mockRejectedValueOnce(new Error('analytics down'));
+    (getCachedZernioReviewPage as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    (zernioClient as any).listAllReviews = vi.fn().mockResolvedValue([
+      makeZernioReviewWith('Thank you!'),
+    ]);
+    (sql as any).mockResolvedValue(Object.assign([], { count: 1 }));
+
+    const result = await verify409AndDispose(baseArgs);
+
+    expect(result).toEqual({ outcome: 'posted' });
     expect(markOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
   });
 
@@ -242,6 +272,7 @@ describe('verify409AndDispose', () => {
     const result = await verify409AndDispose(baseArgs);
 
     expect(result.outcome).toBe('superseded');
+    expect(maybeCaptureActivationCompleted).not.toHaveBeenCalled();
     expect(markOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
   });
 });

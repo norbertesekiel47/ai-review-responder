@@ -31,6 +31,7 @@ import { markOutboxCompleted } from '../../../src/lib/shared/outbox';
 import type { WorkerLogger } from '../../../src/lib/shared/logger';
 import type { SendOwnerEmailPayload } from '../../../src/lib/shared/worker-types';
 import * as Sentry from '@sentry/node';
+import { maybeCaptureActivationCompleted } from './activation';
 
 /** Strip credential-bearing patterns from an error body before persisting
  *  in audit fields (zernio_connections.last_error, responses.posting_error).
@@ -463,6 +464,19 @@ export async function verify409AndDispose(args: Verify409Args): Promise<Verify40
         AND status IN ('approved', 'edited', 'awaiting_owner_connect')
     `;
     logger.log(`Response ${response_id} already posted on Zernio (409, text match), marked posted`);
+    try {
+      await maybeCaptureActivationCompleted({
+        responseId: response_id,
+        businessId: business_id,
+        reviewId: review_id,
+        logger,
+      });
+    } catch (activationErr) {
+      logger.warn(
+        `activation_completed capture failed for response ${response_id}: ` +
+        `${activationErr instanceof Error ? activationErr.message : String(activationErr)}`,
+      );
+    }
     await markOutboxCompleted(outboxId, outboxAttempt);
     return { outcome: 'posted' };
   }
