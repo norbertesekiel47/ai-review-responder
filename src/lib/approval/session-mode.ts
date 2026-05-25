@@ -73,7 +73,7 @@ export async function approveBySession(
   audit: SessionAuditContext,
   correlationId?: string,
 ): Promise<void> {
-  await lockPendingResponse(tx, responseId);
+  const resp = await lockPendingResponse(tx, responseId);
   await revokeOpenLinksForResponse(tx, responseId);
 
   await tx`
@@ -93,7 +93,9 @@ export async function approveBySession(
     VALUES (${uuidv7()}, 'publish_response', 'response', ${responseId}, ${jsonb(payload)}, 'pending')
   `;
 
-  await insertAuditLogSession(tx, responseId, businessId, 'approve', audit);
+  await insertAuditLogSession(tx, responseId, businessId, 'approve', audit, undefined, {
+    responseTextAtApproval: resp.response_text,
+  });
 }
 
 /**
@@ -137,7 +139,9 @@ export async function editBySession(
     VALUES (${uuidv7()}, 'publish_response', 'response', ${responseId}, ${jsonb(payload)}, 'pending')
   `;
 
-  await insertAuditLogSession(tx, responseId, businessId, 'edit', audit, { edit_distance: editDist });
+  await insertAuditLogSession(tx, responseId, businessId, 'edit', audit, { edit_distance: editDist }, {
+    responseTextAtApproval: sanitizedText,
+  });
 }
 
 /**

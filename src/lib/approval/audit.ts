@@ -23,6 +23,10 @@ import type {
 
 type TxClient = postgres.TransactionSql;
 
+export interface ApprovalContentSnapshot {
+  responseTextAtApproval: string;
+}
+
 // Re-export the type shapes so existing `import { AuditContext, ... } from '@/lib/approval/audit'`
 // (and the service.ts barrel that does the same) keep resolving.
 export type {
@@ -55,10 +59,11 @@ export async function insertAuditLog(
   action: string,
   audit: AuditContext,
   metadata?: Record<string, unknown>,
+  snapshot?: ApprovalContentSnapshot,
 ): Promise<void> {
   const accountId = await resolveAccountIdFromBusiness(tx, businessId);
   await tx`
-    INSERT INTO approval_audit_log (id, response_id, business_id, account_id, token_hash, device_cookie_hash, action, ip_address, metadata)
+    INSERT INTO approval_audit_log (id, response_id, business_id, account_id, token_hash, device_cookie_hash, action, ip_address, metadata, response_text_at_approval)
     VALUES (
       ${uuidv7()},
       ${responseId},
@@ -68,7 +73,8 @@ export async function insertAuditLog(
       ${audit.deviceCookieHash},
       ${action},
       ${audit.ipAddress},
-      ${jsonb(metadata ?? {})}
+      ${jsonb(metadata ?? {})},
+      ${snapshot?.responseTextAtApproval ?? null}
     )
   `;
 }
@@ -80,14 +86,15 @@ export async function insertAuditLogSession(
   action: string,
   audit: SessionAuditContext,
   metadata?: Record<string, unknown>,
+  snapshot?: ApprovalContentSnapshot,
 ): Promise<void> {
   const accountId = await resolveAccountIdFromBusiness(tx, businessId);
   await tx`
-    INSERT INTO approval_audit_log (id, response_id, business_id, account_id, token_hash, device_cookie_hash, action, ip_address, metadata, actor_user_id, auth_method)
+    INSERT INTO approval_audit_log (id, response_id, business_id, account_id, token_hash, device_cookie_hash, action, ip_address, metadata, actor_user_id, auth_method, response_text_at_approval)
     VALUES (
       ${uuidv7()}, ${responseId}, ${businessId}, ${accountId}, ${null}, ${null},
       ${action}, ${audit.ipAddress}, ${jsonb(metadata ?? {})},
-      ${audit.actorUserId}, 'owner_session'
+      ${audit.actorUserId}, 'owner_session', ${snapshot?.responseTextAtApproval ?? null}
     )
   `;
 }

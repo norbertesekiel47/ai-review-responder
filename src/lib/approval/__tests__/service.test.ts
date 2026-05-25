@@ -165,7 +165,7 @@ describe('approve', () => {
 
     const tx = createMockTx([
       // lockPendingResponse: SELECT ... FOR UPDATE
-      [{ status: 'pending_approval', original_draft_text: 'draft', version: 1, review_id: 'rev-1' }],
+      [{ status: 'pending_approval', original_draft_text: 'draft', response_text: 'Approved draft', version: 1, review_id: 'rev-1' }],
       // consumeLink: UPDATE approval_links SET consumed_at
       [],
       // UPDATE responses SET status = 'approved'
@@ -206,6 +206,28 @@ describe('approve', () => {
     expect(publishPayload).toBeDefined();
     expect(publishPayload!.correlation_id).toBe('test-correlation-xyz');
   });
+
+  it('writes approved text snapshot to approval_audit_log for approve-as-is', async () => {
+    const link = validLink({ device_cookie_hash: 'device-hash-abc' });
+    const responseText = 'Thanks for the thoughtful review.';
+    const tx = createMockTx([
+      [{ status: 'pending_approval', original_draft_text: 'draft', response_text: responseText, version: 1, review_id: 'rev-1' }],
+      [],
+      [],
+      [],
+      [],
+      [{ account_id: 'acc-1' }],
+      [],
+    ]);
+
+    await approve(tx, link, 'device-hash-abc', AUDIT, 'test-correlation-xyz');
+
+    const auditCall = tx.mock.calls.find((call: unknown[]) =>
+      String((call[0] as TemplateStringsArray).join('')).includes('approval_audit_log'),
+    );
+    expect(auditCall).toBeDefined();
+    expect(auditCall!.flat()).toContain(responseText);
+  });
 });
 
 // ── edit ──────────────────────────────────────────────────────────────────
@@ -222,7 +244,7 @@ describe('edit', () => {
 
     const tx = createMockTx([
       // lockPendingResponse: SELECT ... FOR UPDATE
-      [{ status: 'pending_approval', original_draft_text: 'Original text', version: 1, review_id: 'rev-1' }],
+      [{ status: 'pending_approval', original_draft_text: 'Original text', response_text: 'Original response', version: 1, review_id: 'rev-1' }],
       // consumeLink
       [],
       // UPDATE responses SET status = 'edited'
@@ -289,7 +311,7 @@ describe('editBySession', () => {
 
     const tx = createMockTx([
       // lockPendingResponse: SELECT ... FOR UPDATE
-      [{ status: 'pending_approval', original_draft_text: 'Session draft', version: 1, review_id: 'rev-1' }],
+      [{ status: 'pending_approval', original_draft_text: 'Session draft', response_text: 'Session response', version: 1, review_id: 'rev-1' }],
       // revokeOpenLinksForResponse
       [],
       // UPDATE responses SET status = 'edited'
@@ -345,7 +367,7 @@ describe('regenerate', () => {
 
     const tx = createMockTx([
       // lockPendingResponse: SELECT ... FOR UPDATE
-      [{ status: 'pending_approval', original_draft_text: 'draft', version: 1, review_id: 'rev-1' }],
+      [{ status: 'pending_approval', original_draft_text: 'draft', response_text: 'Regenerate response', version: 1, review_id: 'rev-1' }],
       // consumeLink
       [],
       // revokeSiblings
