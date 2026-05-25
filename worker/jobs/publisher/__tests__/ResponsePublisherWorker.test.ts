@@ -687,6 +687,39 @@ describe('ResponsePublisherWorker — edit-publish dispatch (Task 6)', () => {
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
   });
 
+  it('captures activation before completing outbox when edit-publish posts a response', async () => {
+    process.env.EDIT_REPLIES_ENABLED = 'true';
+    pushDispatchBaseSequence();
+    sqlReturnQueue.push([{ id: 'resp-posted-sibling' }]); // 4: sibling probe → sibling found
+    mockLookupZernioReviewId.mockResolvedValueOnce('zernio-rev-id-1');
+    const activationLogger = {
+      log: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    };
+    mockRunEditPublishIfApplicable.mockResolvedValueOnce({
+      outcome: 'completed',
+      postedResponse: {
+        responseId: 'resp-1',
+        businessId: 'biz-1',
+        reviewId: 'rev-1',
+        logger: activationLogger,
+      },
+    });
+
+    await handlePublishResponse(makeJob());
+
+    expect(mockMaybeCaptureActivationCompleted).toHaveBeenCalledWith({
+      responseId: 'resp-1',
+      businessId: 'biz-1',
+      reviewId: 'rev-1',
+      logger: activationLogger,
+    });
+    expect(mockMaybeCaptureActivationCompleted).toHaveBeenCalledTimes(1);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+    expect(mockPostReply).not.toHaveBeenCalled();
+  });
+
   it('dispatches when flag on AND posting_error is an orphan marker even with NO posted sibling', async () => {
     process.env.EDIT_REPLIES_ENABLED = 'true';
     pushDispatchBaseSequence({ posting_error: 'pending_after_delete_succeeded' });

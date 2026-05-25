@@ -151,6 +151,15 @@ export async function handlePublishResponse(
 
       switch (result.outcome) {
         case 'completed':
+          if (result.postedResponse) {
+            try {
+              await maybeCaptureActivationCompleted(result.postedResponse);
+            } catch (err) {
+              logger.warn(
+                `activation_completed capture failed for response ${result.postedResponse.responseId}: ${err instanceof Error ? err.message : String(err)}`,
+              );
+            }
+          }
           await markOutboxCompleted(outboxId, outboxAttempt);
           return;
         case 'failed':
