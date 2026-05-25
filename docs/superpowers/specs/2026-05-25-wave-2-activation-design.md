@@ -42,13 +42,13 @@ Rejected approaches:
 In scope:
 
 - `docs/analytics/events.md` as the Wave 2 activation event taxonomy source of truth.
-- PostHog activation funnel instrumentation for signup, Zernio connect, first review, first draft, sample demo, and demo-to-signup conversion.
+- Worker-dispatched PostHog activation funnel instrumentation for signup, Zernio connect, first review, first draft, sample demo, and demo-to-signup conversion.
 - TTFV measurement from email verification to first AI draft.
 - Zernio connect help link, redirect timeout fallback, and funnel events on the existing `/dashboard/connect` flow.
 - Logged-out sample-demo entry point that reuses the existing onboarding demo infrastructure rather than building a parallel demo system.
 - CSV template, CSV README, client-side validation, and UI surfacing of existing row-level import failures.
 - Day-aware past-due banner, day-5 modal, day-8 read-only UI layer, and account recovery copy.
-- Admin/founder grant-extension action for past-due accounts, audit-logged.
+- Admin/founder grant-extension action for past-due accounts, AAL2-gated and audit-logged.
 - Support macro and runbook for "past_due and cannot pay".
 - Settings -> Security page for Supabase TOTP MFA enrollment, challenge, verification, factor listing, and unenrollment.
 - AAL2 enforcement for billing owner sensitive flows, Scale/Premium policy, admin grant-extension, and impersonation.
@@ -61,6 +61,7 @@ Out of scope:
 
 - Dashboard onboarding checklist and `account_onboarding_state`; these were deliberately removed and must not be reintroduced.
 - Direct Google OAuth. GBP connect remains Zernio-mediated.
+- `posthog-js` or any browser/Next.js direct call to PostHog.
 - Full PostHog BI dashboards owned by Spec 11 beyond lightweight dashboard definitions in docs.
 - Full branded dunning automation, cancellation survey, Stripe Tax, chargeback tabletop, and Stripe Tax runbook.
 - Full Settings -> Team invite UI.
@@ -81,9 +82,9 @@ Wave 2 is one umbrella design with four deep sub-specs:
 The implementation should be sequenced in the same order:
 
 1. Activation measurement and onboarding polish. This creates the data needed to see whether the wave is improving activation.
-2. Past-due recovery UX and grant extension. `accounts.past_due_at` already exists, so this closes a visible customer recovery gap with limited schema work.
+2. Past-due recovery UX and the shared recovery helper. `accounts.past_due_at` already exists, so this closes the visible customer recovery gap with limited schema work. The grant-extension action itself lands after AAL2 exists.
 3. MFA/security/audit hardening. Support powers and billing extensions should not exist without stronger admin and owner auth.
-4. Support tooling and impersonation. This depends on audit and MFA foundations.
+4. Grant extension, support tooling, and impersonation. These depend on audit and MFA foundations.
 
 Implementation PR granularity:
 
@@ -98,10 +99,14 @@ RepWorth's architecture invariant still applies: Vercel is UI only. Next.js rout
 
 Wave 2 analytics should use this boundary:
 
-- Browser/client intent events may use a client-side PostHog SDK once installed, for events such as signup started, demo CTA clicked, or connect button clicked.
-- Worker-owned state changes may call `captureAnalyticsEvent` directly after the durable state change commits.
-- Next.js route-owned durable state changes should either be represented by client follow-up events or written to a small outbox/job path that a worker dispatches to PostHog.
+- No `posthog-js` and no direct PostHog calls from browser code or Next.js routes.
+- Worker-owned state changes may call `captureAnalyticsEvent` directly after the durable state change commits, as the Step 1 `activation_completed` path already does.
+- Browser/client intent events submit to a first-party same-origin analytics enqueue route that writes to Postgres only. The route does not call PostHog.
+- Next.js route-owned durable state changes insert into the same first-party analytics queue in the route's existing transaction when one exists, or enqueue a best-effort analytics row after the durable write when transactional coupling is not required.
+- A Railway worker dispatches queued analytics rows to PostHog.
 - No customer workflow should wait on PostHog.
+
+Design the first-party analytics queue explicitly in Sub-Spec 06. Do not leave "analytics outbox" as an undefined escape hatch.
 
 ## Sub-Spec 06: Onboarding And Activation
 
@@ -132,13 +137,13 @@ Wave 2 standard events:
 
 | Event | Owner | Trigger | Required properties |
 |---|---|---|---|
-| `signup_started` | Browser/client or analytics outbox | User starts self-serve signup | `signup_source`, `email_domain`, `plan_intent` when known |
-| `email_verified` | Auth success client callback or analytics outbox | Email verification succeeds | `account_id`, `user_id`, `signup_source` |
-| `sample_demo_started` | Browser/client or analytics outbox | Prospect starts sample/demo flow | `signup_source`, `business_query` if non-sensitive |
-| `sample_demo_to_signup` | Browser/client or analytics outbox | Demo user starts real signup | `demo_id` if present, `business_id` only for authenticated demo |
-| `gbp_connect_started` | `/dashboard/connect` client | Owner requests Zernio connect | `account_id`, `business_id`, `location_scope` |
+| `signup_started` | First-party analytics enqueue route | User starts self-serve signup | `signup_source`, `email_domain`, `plan_intent` when known |
+| `email_verified` | Verify OTP route enqueues analytics row after success | Email verification succeeds | `account_id`, `user_id`, `signup_source` |
+| `sample_demo_started` | First-party analytics enqueue route or demo-start route | Prospect starts sample/demo flow | `signup_source`, `business_query` if non-sensitive |
+| `sample_demo_to_signup` | First-party analytics enqueue route or signup route | Demo user starts real signup | `demo_id` if present, `business_id` only for authenticated demo |
+| `gbp_connect_started` | `/dashboard/connect` client posts to first-party enqueue route | Owner requests Zernio connect | `account_id`, `business_id`, `location_scope` |
 | `gbp_connect_failed` | Connect UI/API | Zernio start/redirect/select fails | `account_id`, `business_id`, `error_code`, `stage` |
-| `gbp_connected` | Worker-dispatched analytics outbox or post-finalize client callback | Connection becomes active | `account_id`, `business_id`, `location_count` |
+| `gbp_connected` | Finalize/select-location transaction enqueues analytics row | Connection becomes active | `account_id`, `business_id`, `location_count` |
 | `first_review_ingested` | Worker ingest path | First review for account is persisted | `account_id`, `business_id`, `review_id`, `source` |
 | `first_response_drafted` | Response generator worker | First AI response draft for account is committed | `account_id`, `business_id`, `response_id`, `review_id`, `minutes_to_first_draft` |
 | `activation_completed` | Publisher worker | First posted response within 7 days | Already shipped; keep properties stable |
@@ -146,10 +151,51 @@ Wave 2 standard events:
 Event ownership rules:
 
 - Durable state-change events belong where the state changes, usually workers or route handlers after the database transaction commits.
-- Client events are allowed for intent and UI failure states, such as `gbp_connect_started` or redirect timeout.
-- If a durable state change happens in a Next.js route, do not call PostHog directly from the route. Use a browser follow-up event or worker-dispatched analytics outbox.
+- Client events are allowed for intent and UI failure states, such as `gbp_connect_started` or redirect timeout, but the client only posts to RepWorth's first-party enqueue route.
+- If a durable state change happens in a Next.js route, do not call PostHog directly from the route. Enqueue an analytics row for worker dispatch.
 - Do not emit first-review, first-draft, or publish events purely from dashboard render state.
 - Event properties must not include review text, response text, raw tokens, owner PII beyond stable internal IDs, or provider secrets.
+
+#### First-Party Analytics Queue
+
+Add a minimal analytics dispatch table instead of using `posthog-js` or calling PostHog from Vercel routes.
+
+Schema concept:
+
+```sql
+CREATE TABLE analytics_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), -- application should pass UUIDv7
+  event_key TEXT NOT NULL UNIQUE,
+  event_name TEXT NOT NULL,
+  distinct_id TEXT NOT NULL,
+  anonymous_id TEXT,
+  account_id UUID,
+  user_id UUID,
+  business_id UUID,
+  properties JSONB NOT NULL DEFAULT '{}'::jsonb,
+  occurred_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  available_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  dispatched_at TIMESTAMPTZ,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  max_attempts INTEGER NOT NULL DEFAULT 5,
+  status TEXT NOT NULL DEFAULT 'pending',
+  last_error TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+Implementation rules:
+
+- Use UUIDv7 for `id`, matching repo convention; the database default is only a fallback.
+- `event_key` is the idempotency key. Examples: `signup_started:<anonymous_id>:<client_event_id>`, `email_verified:<user_id>`, `first_response_drafted:<account_id>`, `gbp_connected:<business_id>`.
+- The first-party enqueue route accepts only same-origin requests, validates an allowlist of event names, rate-limits by IP and anonymous ID, and writes to `analytics_events`. It is a short first-party database append only: no external API calls, no LLM calls, and no long-running work in Vercel.
+- Pre-account events use an anonymous first-party cookie ID for `distinct_id` until an account/user exists.
+- Account events use `account_id` as `distinct_id` unless the event is explicitly user-scoped.
+- A Railway worker or poller claims pending rows and calls `captureAnalyticsEvent`.
+- PostHog receives `event_key` as `$insert_id` to provide provider-side deduplication in addition to the database unique key.
+- Analytics dispatch failures retry asynchronously and never block signup, connect, or publishing.
+
+This is net-new infrastructure, but it is intentionally small and local: a Postgres queue plus a Railway dispatcher. It preserves the "Vercel = UI only" invariant because Vercel/client code records first-party facts only and never contacts PostHog.
 
 #### TTFV Measurement
 
@@ -159,9 +205,16 @@ Define:
 time_to_first_draft = first_response_drafted_at - email_verified_at
 ```
 
-`email_verified_at` can come from the event timestamp, a durable auth/user timestamp if one already exists, or a small local analytics event record. Do not add a broad onboarding-state table for this.
+`email_verified_at` can come from the `analytics_events.occurred_at` timestamp for the account's `email_verified` event, or from a durable auth/user timestamp if one already exists. Do not add a broad onboarding-state table for this.
 
-The `first_response_drafted` capture should happen in the response-generation worker after the response row is committed. It should determine whether the response is the account's first committed draft by joining `responses -> businesses -> accounts` and checking for an earlier response draft on the same account.
+The `first_response_drafted` capture should happen in the response-generation worker after the response row is committed. It should determine whether the response is the account's first committed draft by joining `responses -> businesses -> accounts` and checking for an earlier response draft on the same account while explicitly excluding the current `response_id`.
+
+The event must be idempotent across BullMQ retries after commit:
+
+- Use `event_key = first_response_drafted:<account_id>`.
+- Insert into `analytics_events` with `ON CONFLICT (event_key) DO NOTHING`.
+- Include `$insert_id = event_key` when dispatching to PostHog.
+- If the worker retries after the response commit, the second analytics insert is a no-op.
 
 Properties:
 
@@ -222,7 +275,7 @@ Demo safety:
 - Demo mode must remain read-only.
 - Demo UI must clearly distinguish sample/demo data from connected customer data.
 - No demo path can publish or enqueue real customer responses.
-- Demo expiry semantics should be verified; if the current implementation uses a 24-hour stale marker rather than 60-minute session expiry, the readiness spec should be updated or Wave 2 should implement the intended expiry.
+- Demo expiry semantics should be clarified against the live implementation. The current shared demo lifecycle has `STALE_THRESHOLD_MS = 5 * 60 * 1000` in `src/lib/demos/lifecycle.ts`, which is stale-running worker recovery, not a user-facing demo-session expiry. Wave 2 should decide whether a 60-minute user-facing demo session expiry is still desired; if not, update Spec 06 to match the actual product behavior.
 
 #### CSV Template And Partial-Success UI
 
@@ -269,7 +322,7 @@ First draft:
 2. Owner connects Zernio; `gbp_connect_started` and `gbp_connected` are captured around the existing flow.
 3. Worker ingests first review and captures `first_review_ingested`.
 4. Response generator commits first AI draft.
-5. After commit, it checks account-level first-draft status and captures `first_response_drafted` with `minutes_to_first_draft`.
+5. After commit, it checks account-level first-draft status excluding the current response and inserts `first_response_drafted` into `analytics_events` with `minutes_to_first_draft`.
 6. Publisher capture for `activation_completed` remains unchanged.
 
 CSV import:
@@ -283,7 +336,7 @@ CSV import:
 
 ### Error Handling
 
-- Analytics capture is best-effort and must not block state changes.
+- Analytics enqueue/dispatch is best-effort and must not block state changes.
 - Zernio connect redirect fallback should favor clear retry over hidden failure.
 - CSV client-side validation prevents obvious bad uploads, but server remains authoritative.
 - CSV billing enqueue failure can return `500` with the import report; UI must show the report and clearly explain that support/admin attention is needed.
@@ -291,7 +344,8 @@ CSV import:
 ### Testing Plan
 
 - Event taxonomy structure test or lint check for duplicate event names in `docs/analytics/events.md`.
-- PostHog wrapper tests for no-op without key and property shape for new events.
+- Analytics queue tests for event allowlist, same-origin validation, anonymous ID handling, event-key uniqueness, and retryable dispatch.
+- PostHog wrapper tests for no-op without key and property shape at dispatch time.
 - Response generator worker tests:
   - captures first draft for first account-level response,
   - skips if a prior draft exists,
@@ -313,7 +367,8 @@ CSV import:
 
 - `docs/analytics/events.md` exists and defines the Wave 2 activation event taxonomy.
 - `time_to_first_draft` is measurable for new signups.
-- `first_response_drafted` is emitted only after the response row is committed.
+- `first_response_drafted` is enqueued only after the response row is committed.
+- `first_response_drafted` uses a deterministic event key so retry-after-commit cannot double-count it.
 - Zernio-connect started, failed, and connected states are measurable.
 - Zernio-connect UI includes help and manual retry/redirect fallback.
 - Logged-out users have a sample/demo entry point that reuses existing demo infrastructure.
@@ -325,7 +380,7 @@ CSV import:
 
 ### Risks
 
-- Client-side analytics events can overcount intent. Mitigation: only durable state events are used for activation metrics.
+- Client-originated enqueue events can overcount intent. Mitigation: use them for funnel starts only; durable state events drive activation metrics.
 - Demo flow can become confusing if public and authenticated demo paths diverge. Mitigation: reuse the existing demo system and keep demo labels explicit.
 - CSV validation can drift from server rules. Mitigation: share validation schema where practical, or test the client rules against documented server rules.
 
@@ -345,8 +400,15 @@ Source specs:
 - Dashboard API route/helpers: `src/app/api/dashboard/route.ts` and related dashboard data modules.
 - Billing portal route: `src/app/api/billing/portal/route.ts`.
 - Subscription guard: `src/lib/shared/subscription-guard.ts`.
-- Middleware: `src/middleware.ts`.
+- Edge proxy: `src/proxy.ts` plus `src/lib/shared/protected-routes.ts`. The repo does not have `src/middleware.ts`; Next's edge entry exports `proxy()` and a matcher from `src/proxy.ts`.
 - Audit helper: `src/lib/audit/log.ts`.
+
+Proxy constraints:
+
+- `src/proxy.ts` deliberately uses the cookie-bound Supabase anon client and `users_self_select` RLS. Do not introduce `SUPABASE_SERVICE_KEY` into the edge proxy.
+- AAL checks can use the cookie-bound Supabase client.
+- Any read-only or impersonation enforcement placed in the edge proxy must rely only on data safely available through RLS or on signed first-party cookies.
+- The implementation plan should confirm how Next registers `src/proxy.ts` in this repo before assuming standard `middleware.ts` behavior.
 
 ### Design
 
@@ -396,9 +458,9 @@ The modal must include:
 - "Need a few more days?" support-extension link or contact path.
 - Dismiss for today.
 
-#### Read-Only UI Layer
+#### Shared Recovery State And Read-Only Layer
 
-The worker subscription guard remains the authoritative backstop. Wave 2 adds a UI/route layer to reduce confusion and prevent owner actions from appearing available after grace expires.
+The worker subscription guard remains the authoritative backstop, but it must not keep its own fixed grace formula. Wave 2 should introduce one shared recovery-state helper and adopt it in both UI/route code and `src/lib/shared/subscription-guard.ts`.
 
 Define:
 
@@ -407,6 +469,16 @@ read_only_starts_at = past_due_at + 7 days + active_extension_days
 ```
 
 Read-only begins when `now >= read_only_starts_at`.
+
+Helper boundary:
+
+- Add `computePastDueRecoveryState(account)` or similar under `src/lib/shared/`.
+- Inputs include `subscription_status`, `past_due_at`, and the parsed active extension from `accounts.flags.past_due_extension`.
+- Returns `ageDays`, `deadline`, `daysRemaining`, `isReadOnly`, `extension`, and worker-guard allowance semantics.
+- Dashboard data, UI components, route handlers, and `checkSubscription` consume this helper.
+- The worker guard should stop using `businesses.updated_at` as its past-due clock and instead use `accounts.past_due_at` plus any active extension.
+
+This avoids a two-source-of-truth failure where the UI grants an extension but workers still block sends at day 7.
 
 Block or hide:
 
@@ -429,12 +501,6 @@ Allow:
 - Settings -> Security and MFA,
 - logout,
 - non-destructive account reads.
-
-Implement as a shared helper:
-
-- `computePastDueRecoveryState(account)` or similar.
-- Returns `ageDays`, `deadline`, `daysRemaining`, `isReadOnly`, `extension`.
-- Used by dashboard data, UI components, route handlers, and middleware-adjacent checks.
 
 Do not duplicate date math across components.
 
@@ -462,10 +528,10 @@ Use a dedicated table only if implementation planning identifies reporting, mult
 Rules:
 
 - Admin role required.
-- AAL2 required once the MFA slice lands.
+- AAL2 required from day one. Do not ship grant extension before the MFA/AAL2 helper exists.
 - Ticket ID or support reason required.
 - Maximum extension defaults to 7 days unless an explicit admin override is added later.
-- Extension must not mutate `past_due_at`; it only changes the read-only cutoff.
+- Extension must not mutate `past_due_at`; it changes the shared recovery cutoff used by both UI and worker subscription guards.
 - Every grant and revoke/expiry action writes `account_audit_log` through `writeAccountAuditLog`.
 
 Support docs:
@@ -496,7 +562,7 @@ Grant extension:
 3. Route verifies admin role and AAL2.
 4. Route updates `accounts.flags.past_due_extension`.
 5. Route writes `account_audit_log`.
-6. Read-only helper includes the extension in deadline math.
+6. Shared recovery helper includes the extension in deadline math for UI and worker guards.
 
 ### Error Handling
 
@@ -519,6 +585,7 @@ Grant extension:
 - Banner/component tests for day variants.
 - Dashboard API tests that `past_due_at` is included for `past_due` accounts.
 - Route/helper tests that blocked write actions are denied in read-only mode while billing/support/security routes remain reachable.
+- Subscription guard tests that `checkSubscription` uses `past_due_at` plus active extension instead of `businesses.updated_at`.
 - Admin extension tests:
   - admin role required,
   - AAL2 required,
@@ -534,7 +601,7 @@ Grant extension:
 - A test account with `past_due_at = now - 5 days` shows day-5 modal eligibility.
 - A test account with `past_due_at = now - 8 days` is read-only in owner UI and write routes.
 - Billing, support, and security remain reachable in read-only mode.
-- Grant extension changes the read-only cutoff and is audit-logged.
+- Grant extension changes the read-only cutoff used by both UI and worker guards, and is audit-logged.
 - Support macro and runbook exist.
 - No new Stripe dedup table or parallel dunning engine is introduced.
 
@@ -558,7 +625,7 @@ Source spec: `docs/sass_ready/04-auth-identity.md`.
 - Existing settings tabs: `src/components/dashboard/SettingsTabs.tsx`.
 - Current settings pages: `src/app/(authenticated)/settings/*`.
 - Existing rate limiter: `src/lib/shared/rate-limit.ts`.
-- Middleware: `src/middleware.ts`.
+- Edge proxy: `src/proxy.ts` plus `src/lib/shared/protected-routes.ts`.
 - Audit helper: `src/lib/audit/log.ts`.
 
 ### External API Boundary
@@ -797,7 +864,7 @@ Source spec: `docs/sass_ready/13-customer-support.md`.
 - Existing settings shell: `src/components/dashboard/settings/SettingsShell.tsx`.
 - Existing account audit table: `account_audit_log`, migrations `034` and `043`.
 - Existing audit helper: `src/lib/audit/log.ts`.
-- Middleware: `src/middleware.ts`.
+- Edge proxy: `src/proxy.ts` plus `src/lib/shared/protected-routes.ts`.
 
 ### Design
 
@@ -896,7 +963,7 @@ Add a dedicated session table:
 
 ```sql
 CREATE TABLE impersonation_sessions (
-  id UUID PRIMARY KEY,
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), -- application should pass UUIDv7
   actor_user_id UUID NOT NULL REFERENCES users(id),
   impersonated_user_id UUID NOT NULL REFERENCES users(id),
   account_id UUID NOT NULL REFERENCES accounts(id),
@@ -919,7 +986,25 @@ Indexes:
 RLS:
 
 - Service/admin-only writes.
+- Add an authenticated select policy only if `src/proxy.ts` needs to validate active sessions at the edge; the policy must be limited to `actor_user_id = current user` and platform `admin`.
 - Owner users should not read this table directly unless a later audit-log export flow exposes a sanitized view.
+
+Mechanism:
+
+- Do not swap the Supabase Auth session and do not make the browser "become" the owner.
+- The admin remains authenticated as the admin user.
+- Start impersonation sets a signed, httpOnly first-party cookie containing an opaque impersonation session token or session ID.
+- Customer view lives under an admin-owned route namespace, such as `/admin/impersonate/[sessionId]/view`, wrapped in a visible impersonation shell.
+- Server-side impersonation loaders validate: admin session, AAL2, active impersonation session, TTL, ticket/reason presence, and account scope.
+- Data access for the view uses server-only service-role helpers scoped by `account_id`; the service key never reaches the browser or `src/proxy.ts`.
+- Owner RLS routes under `/dashboard` and `/settings` are not reused by pretending the admin is an owner. Shared UI components may be reused only behind server loaders that supply scoped data.
+- Impersonated writes go through admin-prefixed impersonation APIs with an explicit allowlist and full audit metadata.
+
+Edge proxy constraints:
+
+- `src/proxy.ts` can verify the admin Supabase session and AAL using the cookie-bound anon client.
+- It must not read arbitrary customer data and must not use `SUPABASE_SERVICE_KEY`.
+- If proxy-level impersonation validation is needed, use only a signed cookie and/or a narrowly RLS-readable active-session row for the actor admin.
 
 Start workflow:
 
@@ -930,22 +1015,22 @@ Start workflow:
 5. Route requires AAL2.
 6. Route creates `impersonation_sessions` with max one-hour `expires_at`.
 7. Route writes `account_audit_log` event `impersonation_started`.
-8. App establishes an impersonation marker/session.
-9. UI redirects into customer context with a visible banner.
+8. Route sets the signed httpOnly impersonation cookie.
+9. UI redirects to the admin-owned impersonation view with a visible banner.
 
 End workflow:
 
 1. Admin clicks end impersonation, or TTL expires.
 2. Session is marked `ended_at`.
 3. Route writes `impersonation_ended`.
-4. App clears marker/session.
+4. App clears the signed impersonation cookie.
 
 Session rules:
 
 - Maximum TTL: 1 hour.
 - No extension; start a new audited session with a new reason if needed.
 - Only one active impersonation session per actor by default.
-- Impersonation must be visually obvious on every page.
+- Impersonation must be visually obvious on every page inside the admin-owned impersonation view.
 - Every allowed write during impersonation should include `impersonating: true` in audit payload where practical.
 
 #### Destructive-Action Block
@@ -995,16 +1080,17 @@ Support request:
 
 Impersonated request:
 
-1. Request contains impersonation marker.
-2. Middleware/helper loads active session and checks TTL.
-3. UI shows impersonation banner.
-4. Write action hits impersonation guard.
-5. Guard blocks destructive/unknown writes by default.
-6. Allowed write actions include impersonation metadata in audit payload.
+1. Admin requests an admin-owned impersonation route.
+2. Server loader validates admin auth, AAL2, signed impersonation cookie, active session, TTL, and account scope.
+3. Server loader reads customer data through server-only service helpers scoped to the impersonated `account_id`.
+4. UI shows impersonation banner inside the impersonation shell.
+5. Write action calls an admin-prefixed impersonation API.
+6. API guard blocks destructive/unknown writes by default.
+7. Allowed write actions include impersonation metadata in audit payload.
 
 ### Error Handling
 
-- Expired impersonation session should end cleanly and redirect admin to admin context.
+- Expired impersonation session should end cleanly, clear the signed cookie, and redirect admin to admin context.
 - Missing/invalid ticket ID should block session creation.
 - AAL1 admin should be sent to MFA challenge before impersonation.
 - Failed audit write on start/end should fail the impersonation state change; do not create an unaudited impersonation session.
@@ -1024,7 +1110,12 @@ Impersonated request:
 - Impersonation helper tests:
   - active session recognized,
   - expired session ignored/ended,
+  - signed cookie required,
+  - server-only scoped loader refuses mismatched account IDs,
   - one active session per actor behavior.
+- Edge proxy tests:
+  - admin-owned impersonation routes stay admin-authenticated,
+  - no service-role data is required at the edge.
 - Destructive-action guard tests:
   - blocked actions denied,
   - allowed read routes pass,
@@ -1041,10 +1132,11 @@ Impersonated request:
 - `docs/support/macros/` contains at least the six initial macros.
 - Admin impersonation can start only with admin role, AAL2, ticket ID, and reason.
 - Impersonation expires after one hour and cannot be extended.
-- Impersonation banner is visible across the app.
+- Impersonation banner is visible across the admin-owned impersonation view.
 - Destructive actions are blocked during impersonation.
 - Start/end are written to `account_audit_log`.
 - Impersonation session state is stored in `impersonation_sessions`.
+- Admin impersonation does not swap the Supabase Auth session and does not reuse owner RLS routes by pretending the admin is the customer.
 
 ### Risks
 
@@ -1060,8 +1152,10 @@ activation events
   -> support KB priorities and activation fixes
 
 past_due_at
+  -> shared recovery helper
   -> day-aware banner
   -> read-only cutoff
+  -> worker subscription guard
   -> grant-extension cutoff
 
 MFA/AAL2
@@ -1078,7 +1172,7 @@ account_audit_log + writeAccountAuditLog
 
 Implementation order should respect these dependencies:
 
-1. Event taxonomy and activation helper updates.
+1. Event taxonomy, first-party analytics queue, and activation helper updates.
 2. Past-due recovery helper and dashboard data changes.
 3. Settings -> Security and AAL2 helper.
 4. Grant-extension admin route once AAL2 helper exists.
@@ -1087,7 +1181,7 @@ Implementation order should respect these dependencies:
 
 ## Error Handling Summary
 
-- Analytics failures are best-effort and must not block customer workflows.
+- Analytics enqueue/dispatch failures are best-effort and must not block customer workflows.
 - Billing recovery state and grant-extension audit are strict; state change and audit must be atomic.
 - MFA route errors should be clear but not leak sensitive details.
 - Rate-limit failures on sensitive support/admin actions should fail closed.
@@ -1132,13 +1226,13 @@ Verification commands after implementation should include the narrowest changed 
 - CSV template, client validation, and partial-success UI are shipped.
 - Past-due banner is day-aware and uses `accounts.past_due_at`.
 - Day-5 modal and day-8 read-only UI behavior work for controlled test accounts.
-- Admin grant extension exists, changes read-only cutoff, and is audit-logged.
+- Admin grant extension exists, changes the shared UI/worker recovery cutoff, and is audit-logged.
 - Settings -> Security supports Supabase TOTP MFA enrollment and verification.
 - AAL2 is required for billing-owner sensitive actions, grant extension, and impersonation.
 - Password reset, login failure, and MFA challenge rate limits exist.
 - Sensitive Wave 2 actor actions write `account_audit_log`.
 - `/help/contact`, activation KB docs, and support macros exist.
-- Admin impersonation is time-boxed, AAL2-gated, ticket/reason-gated, audited, and visibly bannered.
+- Admin impersonation is time-boxed, AAL2-gated, ticket/reason-gated, audited, and visibly bannered inside the admin-owned view-as shell.
 - Destructive actions are blocked during impersonation.
 - No removed checklist, direct Google OAuth, custom recovery-code system, full teams UI, or later-wave billing/legal/AI features are introduced.
 
