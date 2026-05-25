@@ -67,7 +67,7 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 
 ### Vulnerability disclosure
 - `/security.txt` at well-known URL.
-- `/security` page with policy: scope, safe harbor, contact (`security@repworth.com`), bounty.
+- `/security` page with policy: scope, safe harbor, contact (`security@repworth.net`), bounty.
 - Bounty: start with hall-of-fame + swag; paid bounty at $100k MRR.
 
 ### Dependency scanning
