@@ -140,8 +140,9 @@ export async function openPhiReviewException(
   Sentry.captureMessage('zernio_likely_phi_review_blocked', {
     level: 'warning',
     tags: {
-      worker: 'zernio_ingest',
       kind: 'likely_phi',
+      // `source` distinguishes webhook / backfill / recent_poller / external
+      // reply import — kept dynamic so events aren't misclassified by origin.
       source: input.source,
     },
     extra: {

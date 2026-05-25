@@ -127,6 +127,43 @@ describe('openPhiReviewException', () => {
       }),
     );
   });
+
+  it('is a no-op when an open exception already exists (ON CONFLICT)', async () => {
+    const { captureMessage } = await import('@sentry/node');
+    const calls: Array<{ sql: string; values: unknown[] }> = [];
+    // First INSERT ... ON CONFLICT DO NOTHING returns no row — a still-open
+    // exception already exists, so neither the outbox nor the alert should fire.
+    const db = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
+      calls.push({ sql: strings.join('?'), values });
+      return Promise.resolve([]);
+    });
+    const logger = mkLogger();
+    const review: ZernioReview = {
+      id: 'rev-phi-dup',
+      name: 'accounts/A/locations/L/reviews/rev-phi-dup',
+      reviewer: { displayName: 'Jane', profilePhotoUrl: '', isAnonymous: false },
+      rating: 5,
+      starRating: 'FIVE',
+      comment: 'Patient MRN 12345 needs diabetes treatment follow up',
+      createTime: '2026-04-01T00:00:00Z',
+      updateTime: '2026-04-01T00:00:00Z',
+      reviewReply: null,
+    };
+
+    await openPhiReviewException(db as any, {
+      businessId: 'B',
+      accountId: 'A',
+      locationId: 'L',
+      review,
+      reasons: ['mrn'],
+      source: 'backfill',
+    }, logger as any);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.sql).toContain('INSERT INTO review_exceptions');
+    expect(calls.some((call) => call.sql.includes('notify_admin_review_exception'))).toBe(false);
+    expect(captureMessage).not.toHaveBeenCalled();
+  });
 });
 
 describe('reconcileExternallyAnsweredReview', () => {

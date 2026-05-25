@@ -184,6 +184,9 @@ describe('ZernioRecentReviewPoller', () => {
       }),
       expect.anything(),
     );
+    // The quarantine must run inside the caller-owned transaction; fail if the
+    // poller bypasses sql.begin and writes the exception/outbox non-atomically.
+    expect((mockSql as unknown as { begin: unknown }).begin).toHaveBeenCalledTimes(1);
   });
 
   it('marks recent local reviews deleted when Zernio no longer returns them', async () => {
