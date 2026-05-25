@@ -312,13 +312,18 @@ describe('tenant-scope-audit', () => {
     expect(auditSqlText('src/example.ts', 'SELECT * FROM inbound_events')).toEqual([]);
   });
 
-  it('extracts sql and transaction tagged templates', () => {
+  it('extracts sql, transaction, and imported sql-alias tagged templates', () => {
     expect(extractSqlTemplates(`
+      import { sql as defaultSql } from '@/lib/db/server';
       await sql\`SELECT * FROM reviews WHERE business_id = \${businessId}\`;
       await tx\`UPDATE responses SET status = 'posted' WHERE id = \${responseId}\`;
+      await defaultSql\`SELECT * FROM businesses WHERE account_id = \${accountId}\`;
+      await db\`INSERT INTO account_audit_log (account_id) VALUES (\${accountId})\`;
     `)).toEqual([
       { tag: 'sql', sqlText: 'SELECT * FROM reviews WHERE business_id = ${businessId}' },
       { tag: 'tx', sqlText: "UPDATE responses SET status = 'posted' WHERE id = ${responseId}" },
+      { tag: 'defaultSql', sqlText: 'SELECT * FROM businesses WHERE account_id = ${accountId}' },
+      { tag: 'db', sqlText: 'INSERT INTO account_audit_log (account_id) VALUES (${accountId})' },
     ]);
   });
 
@@ -337,6 +342,9 @@ describe('tenant-scope-audit', () => {
 
       const txQuery = \`UPDATE responses SET status = 'posted' WHERE review_id = \${reviewId}\`;
       await tx.unsafe(txQuery, values);
+
+      const staticStringQuery = 'SELECT * FROM sms_sender_opt_outs';
+      await sql.unsafe(staticStringQuery, values);
     `)).toEqual([
       { tag: 'sql.unsafe', sqlText: 'UPDATE businesses SET tone = $2 WHERE id = $1' },
       {
@@ -352,6 +360,7 @@ describe('tenant-scope-audit', () => {
         tag: 'tx.unsafe',
         sqlText: "UPDATE responses SET status = 'posted' WHERE review_id = ${reviewId}",
       },
+      { tag: 'sql.unsafe', sqlText: 'SELECT * FROM sms_sender_opt_outs' },
     ]);
   });
 

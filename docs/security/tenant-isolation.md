@@ -13,7 +13,7 @@ The service role bypasses RLS, so SQL templates against tenant tables need an ex
 - `business_id = ${businessId}` for location-level data.
 - A validated location lookup where the `business_id` was already proven to belong to the active `account_id`.
 
-`pnpm ci:tenant-scope` runs a heuristic scanner over Postgres.js `sql` templates in `src` and `worker`. It catches obvious unscoped `SELECT`, `UPDATE`, and `DELETE` templates against tenant tables. It also accepts narrow row-identity lookups used by existing trusted flows, such as account root lookups by `accounts.id`, location row lookups by `businesses.id`, response lookups by `review_id`, and provider callback lookups by external delivery IDs.
+`pnpm ci:tenant-scope` runs a heuristic scanner over Postgres.js `sql` templates in `src` and `worker`, including local aliases and static `unsafe` query variables. It catches obvious unscoped `SELECT`, `UPDATE`, and `DELETE` templates against tenant tables. It accepts account root lookups by `accounts.id`, location row lookups by `businesses.id`, and explicit exact-match allowlist entries for trusted flows that cannot be proven heuristically.
 
 Allowlist entries live in `scripts/ci/tenant-scope-allowlist.ts`. Every entry must name the exact file, table, SQL snippet, and a human-readable reason that explains why that statement is safe. Do not add broad entries; prefer tightening the scanner when a finding is a repeatable false positive.
 

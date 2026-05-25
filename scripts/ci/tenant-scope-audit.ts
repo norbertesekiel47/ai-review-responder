@@ -536,7 +536,12 @@ async function collectSourceFiles(root: string): Promise<string[]> {
 
 export function extractSqlTemplates(sourceText: string): ExtractedSqlTemplate[] {
   const templates: ExtractedSqlTemplate[] = [];
-  const tagRegex = /\b(sql|tx)(?:\s*<[^`]+>)?\s*`/g;
+  const sqlTagNames = extractSqlTagNames(sourceText);
+  const tagPattern = Array.from(sqlTagNames).map(escapeRegExp).join('|');
+  const tagRegex = new RegExp(
+    `(?<![\\w$])(${tagPattern})(?:\\s*<[^\`]+>)?\\s*\``,
+    'g',
+  );
   let match: RegExpExecArray | null;
 
   while ((match = tagRegex.exec(sourceText)) !== null) {
@@ -549,9 +554,26 @@ export function extractSqlTemplates(sourceText: string): ExtractedSqlTemplate[] 
     tagRegex.lastIndex = parsed.endIndex + 1;
   }
 
-  templates.push(...extractUnsafeSqlTemplates(sourceText));
+  templates.push(...extractUnsafeSqlTemplates(sourceText, sqlTagNames));
 
   return templates;
+}
+
+function extractSqlTagNames(sourceText: string): Set<string> {
+  const tagNames = new Set<string>(['sql', 'tx', 'db']);
+  const importRegex = /import\s*\{([^}]+)\}\s*from\s*['"]@\/lib\/db\/server['"]/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = importRegex.exec(sourceText)) !== null) {
+    const imports = match[1] ?? '';
+    for (const specifier of imports.split(',')) {
+      const parts = specifier.trim().split(/\s+as\s+/i);
+      if (parts[0]?.trim() !== 'sql') continue;
+      tagNames.add(parts[1]?.trim() || 'sql');
+    }
+  }
+
+  return tagNames;
 }
 
 function parseTemplateLiteral(
@@ -626,15 +648,17 @@ function parseStringLiteral(
 
 function extractNamedSqlTemplates(sourceText: string): NamedSqlTemplate[] {
   const namedTemplates: NamedSqlTemplate[] = [];
-  const declarationRegex = /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=`;]+)?=\s*`/g;
+  const declarationRegex = /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=;]+)?=\s*([`"'])/g;
   let match: RegExpExecArray | null;
 
   while ((match = declarationRegex.exec(sourceText)) !== null) {
     const name = match[1];
     if (!name) continue;
-    const templateStart = sourceText.indexOf('`', match.index);
-    if (templateStart < 0) continue;
-    const parsed = parseTemplateLiteral(sourceText, templateStart);
+    const literalStart = skipWhitespace(sourceText, declarationRegex.lastIndex - 1);
+    const literalStartChar = sourceText[literalStart];
+    const parsed = literalStartChar === '`'
+      ? parseTemplateLiteral(sourceText, literalStart)
+      : parseStringLiteral(sourceText, literalStart);
     if (!parsed) continue;
     namedTemplates.push({ name, sqlText: parsed.sqlText, index: match.index });
     declarationRegex.lastIndex = parsed.endIndex + 1;
@@ -666,10 +690,16 @@ function readIdentifier(sourceText: string, startIndex: number): string | null {
   return match?.[0] ?? null;
 }
 
-function extractUnsafeSqlTemplates(sourceText: string): ExtractedSqlTemplate[] {
+function extractUnsafeSqlTemplates(
+  sourceText: string,
+  sqlTagNames: ReadonlySet<string>,
+): ExtractedSqlTemplate[] {
   const templates: ExtractedSqlTemplate[] = [];
   const namedTemplates = extractNamedSqlTemplates(sourceText);
-  const unsafeRegex = /\b(sql|tx)\s*\.\s*unsafe(?:\s*<[^>(]+(?:\([^)]*\))?[^>]*>)?\s*\(/g;
+  const unsafeRegex = new RegExp(
+    String.raw`(?<![\w$])(${Array.from(sqlTagNames).map(escapeRegExp).join('|')})\s*\.\s*unsafe(?:\s*<[^>(]+(?:\([^)]*\))?[^>]*>)?\s*\(`,
+    'g',
+  );
   let match: RegExpExecArray | null;
 
   while ((match = unsafeRegex.exec(sourceText)) !== null) {
