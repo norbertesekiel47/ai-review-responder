@@ -10,14 +10,14 @@ Billing bugs translate directly to chargebacks, refunds, and churn. The architec
 
 ## 2. Current state (RepWorth)
 
-_Verified 2026-05-23 against the live tree (migration head 042)._
+_Verified 2026-05-23 against the live tree; refreshed 2026-05-24 for migration head 043 (Step 1 keystones)._
 
 - **Webhook idempotency already shipped.** `worker/ingress/stripe.ts` handles `checkout.session.completed`, `invoice.payment_failed`, `invoice.paid`, `customer.subscription.{deleted,updated}` and dedups via the **`inbound_events`** table (`claimInboundEvent('stripe', event.id, …)`), shared across Stripe/Resend/Twilio/Zernio. ⚠️ There is **no** `processed_stripe_events` table and no need for one — the spec's "build it" tasks are largely **done**.
 - **Reconciliation pollers already exist:** `StripeLocationsReconcilePoller` (location-count ↔ tier) and `CancellationGracePoller` (30-day grace → archive) in `worker/background/pollers/`. A subscription-level Stripe↔DB drift walk is the gap to **add**.
 - `subscription-guard.ts` (`src/lib/shared/subscription-guard.ts`) already implements `cancelled`→skip, `past_due`→7-day grace, `pending_payment`→generator-only, used across 11+ workers.
 - **`PastDueBanner` already exists** in `src/components/dashboard/SubscriptionStatusBanner.tsx` (with `CancelledBanner`). The work is to make it **day-variant with a countdown**, not create it.
 - Checkout blocked for `past_due` (409) in `src/app/api/billing/checkout/route.ts`; Stripe Customer Portal wired at `src/app/api/billing/portal/route.ts` (portal also captures cancellation reasons).
-- **⚠️ No `past_due_at` timestamp.** State is `subscription_status = 'past_due'` + `cancelled_at` only. A day-N countdown has **no data source** today — needs a "past_due since" timestamp (migration, or derived from the Stripe invoice).
+- ✅ **`accounts.past_due_at` shipped** (migration **043**, PR #81, 2026-05-24). Set on the first `active → past_due` transition (`invoice.payment_failed`), preserved across repeated failures while still `past_due`, cleared on recovery (`invoice.paid`) **and** on cancellation (`customer.subscription.deleted`) — all inside the existing handler transactions, with a `subscription_status_changed` audit row written through `src/lib/audit/log.ts`. The countdown now has its data source; remaining work is the **day-variant banner UI** only.
 - **Genuinely missing:** subscription-level reconciliation; day-variant countdown; branded dunning cadence; `cancellation_surveys` table + exit-survey UI; Stripe Tax; `docs/runbooks/{dunning,chargebacks,stripe-tax-enablement}.md`.
 
 ## 3. Target state
@@ -85,8 +85,8 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 ## 4. Implementation tasks
 
 1. Add `worker/background/pollers/billing-reconciliation-poller.ts` for **subscription-level** Stripe↔DB drift (price/quantity/status/missing/duplicate). Hourly. Sentry alert on unsafe drift. Register in `worker/index.ts` using the existing poller registration pattern (mirror `StripeLocationsReconcilePoller`). Consider folding into that poller if scope overlaps.
-2. Migration (next free number — coordinate with Specs 02/04; head is 042) — **`accounts.past_due_at TIMESTAMPTZ NULL`** (the countdown source). ~~`processed_stripe_events`~~ removed: idempotency already exists via `inbound_events`.
-3. ~~Refactor handlers to check `processed_stripe_events`~~ — **done**: handlers already claim `inbound_events` at entry. Instead: set/clear `past_due_at` inside the `invoice.payment_failed` / `invoice.paid` handlers (within the outbox transaction).
+2. ~~Migration — `accounts.past_due_at TIMESTAMPTZ NULL`~~ — ✅ **done (migration 043, PR #81).** Idempotency already exists via `inbound_events` (no `processed_stripe_events` table).
+3. ~~Set/clear `past_due_at` in the `invoice.payment_failed` / `invoice.paid` handlers~~ — ✅ **done (PR #81).** Set on first `payment_failed`, cleared on `paid` and on `subscription.deleted`, each in the existing handler transaction alongside a `subscription_status_changed` audit row via `src/lib/audit/log.ts`.
 4. **Enhance the existing `SubscriptionStatusBanner.tsx`** (`PastDueBanner`) to be day-variant: compute the delta from `accounts.past_due_at`, render variants by day (1/3/5/7). Do **not** create a new `src/components/billing/PastDueBanner.tsx`.
 5. Read-only mode at day 8: worker actions are **already** gated by `subscription-guard.ts`. Add the **UI/route** read-only layer in `src/middleware.ts` using `past_due_at + 7 days < now()`; UI hides Approve/Publish. Keep the worker guard as the authoritative backstop.
 6. Add `docs/runbooks/dunning.md` documenting cadence + email templates.
@@ -101,7 +101,7 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 - [ ] `BillingReconciliationPoller` runs hourly in prod and writes a heartbeat log line.
 - [ ] Drift detected within 1 hour, paged at P1 for unsafe categories.
 - [ ] Replaying the same Stripe event is a no-op (via existing `inbound_events` dedup — covered by a test, no new table).
-- [ ] `accounts.past_due_at` set on first `invoice.payment_failed`, cleared on `invoice.paid`.
+- [x] `accounts.past_due_at` set on first `invoice.payment_failed`, cleared on `invoice.paid` (and on cancellation). ✅ PR #81.
 - [ ] Past_due banner shows day-variants on day 1, 3, 5; full-screen modal on day 5; read-only mode at day 8 (verified by setting a test account's `past_due_at` to T-8 days).
 - [ ] Dunning emails fire on days 1, 7, 14 (per Stripe + branded templates).
 - [ ] Cancellation flow records reason, NPS, win-back-permission in `cancellation_surveys` table.
@@ -144,4 +144,4 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 - **Dunning/Stripe Tax/chargebacks** are net-new runbooks + Stripe config; no code prerequisites beyond `past_due_at`.
 
 ---
-_Verified 2026-05-23 against migration head 042. Corrected three false "missing" claims (idempotency via `inbound_events`, reconcile pollers, `PastDueBanner` all already exist); removed the redundant `processed_stripe_events` migration; flagged the absent `past_due_at` as the real blocker for the countdown._
+_Verified 2026-05-23 against the live tree; refreshed 2026-05-24 for migration head 043 (`accounts.past_due_at` shipped in PR #81). Corrected three false "missing" claims (idempotency via `inbound_events`, reconcile pollers, `PastDueBanner` all already exist); removed the redundant `processed_stripe_events` migration; `past_due_at` — formerly the countdown blocker — now exists, leaving only the day-variant banner UI._

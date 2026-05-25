@@ -4447,3 +4447,28 @@ Documented in `docs/runbooks/multi-location.md` §6 — minor known issues that 
 **Lessons captured** (`.claude/skills/lab-notes.md`, 2026-05-24): CI is only trustworthy if its env mirrors prod intent (the `MOCK_EXTERNAL_APIS` trap); never validate CI from a git worktree nested inside the parent repo (module/eslintrc resolution leaks up and poisons lint+test); private-repo branch protection needs a paid plan (use a ruleset under an org); Dependabot groups must split majors from minor/patch.
 
 ---
+
+## Step 1 Keystones — `past_due_at` + Audit Helper + Activation Capture (2026-05-24, branch `codex/step-1-keystones` → PR #81)
+
+**Status:** COMPLETE — open as PR #81 (awaiting CI + merge). `pnpm typecheck`, `pnpm lint`, `pnpm build` green; focused Vitest suites pass (audit helper, posthog client, migration-043 structure, activation, publisher workers, Stripe webhooks, shutdown ordering). Migration **043** is additive/idempotent. Design: `docs/superpowers/specs/2026-05-25-step-1-keystones-design.md`.
+
+**Why:** The SaaS-readiness plan (`docs/sass_ready/README.md`) has four Step 1 keystones; the CI keystone shipped in PR #57. This slice lands the remaining three together because they share migration numbering, worker paths, and verification: the `past_due_at` countdown source (Spec 05), the generalized account audit helper (Spec 04), and worker-side PostHog activation capture (Spec 01). Bundling them completes Step 1 and unblocks the dependent waves without pulling in the downstream UX (dunning banners, MFA/team UI, retention dashboards).
+
+**What was done:**
+
+1. **Migration 043** (`supabase/migrations/043_step_1_keystones.sql`) — `ADD COLUMN IF NOT EXISTS` only, no drops/data mutation. Adds `accounts.past_due_at TIMESTAMPTZ NULL` and five generic `account_audit_log` metadata columns (`entity_type`, `entity_id`, `ip`, `user_agent`, `request_id`). No new indexes (existing ones cover current queries). A structure test (`src/lib/shared/__tests__/migration-043-structure.test.ts`) guards the shape and asserts `account_memberships` is NOT created.
+2. **Audit helper** (`src/lib/audit/log.ts`, `writeAccountAuditLog`) — typed Postgres.js helper that accepts the default `sql` client OR a transaction client, so audit rows are written atomically with the state change. Generates the UUIDv7, serializes JSONB via the existing `jsonb()` helper.
+3. **`past_due_at` lifecycle** — wired into the three Stripe handlers (`worker/ingress/stripe/{invoice-payment-failed,invoice-paid,subscription-deleted}.ts`): set on the first `active→past_due`, preserved across repeat failures, cleared on recovery and on cancellation. All three now write their `subscription_status_changed` audit row through the helper instead of a raw INSERT.
+4. **Worker analytics** (`src/lib/analytics/posthog.ts`) — lazy `posthog-node` client, no-op when `POSTHOG_API_KEY` is unset (so local/CI/build need no secret), with `shutdownAnalytics()` for lifecycle flush. Wired into `worker/index.ts` graceful shutdown (after workers close, before `sql.end()`, in a guarded try/catch).
+5. **Activation chokepoint** (`worker/jobs/publisher/activation.ts`, `maybeCaptureActivationCompleted`) — emits `activation_completed` for the first account-level posted response within 7 days of `accounts.created_at`, scoped by `account_id`. Funnels ALL four posted-transition paths (main publish, edit-publish success, edit-publish `409_matches`, idempotent 409 reconciliation); captured AFTER the tx commits; best-effort (never blocks publish/outbox).
+
+**Review-driven follow-ups (this branch, three rounds):**
+- First review caught that the activation hook must cover all four `status = 'posted'` sites, not just the main path, and that `account_memberships` was scope creep for a Step 1 *audit* keystone (removed). Both fixed before implementation.
+- Post-implementation review found `shutdownAnalytics()` was defined but never wired into the worker shutdown — a Railway redeploy would drop unflushed activation events. Wired in + guarded.
+- Final cleanup: documented the helper's never-throws contract and removed the now-redundant outer try/catch at the three call sites; enforced the `reviewId` contract in the activation query (skip + warn on mismatch); replaced a dynamic `new RegExp` in the migration test with a whitespace-normalized substring check (external ReDoS-scanner false positive); added `invocationCallOrder` assertions so the "activation before outbox completion" contract is explicit.
+
+**Deliberately deferred (not gaps):** `account_memberships` schema/backfill (later Spec 04 auth slice); the day-variant past-due banner + read-only route layer (Spec 05/29 Gap 5); `posthog-js` client SDK + retention dashboards + event taxonomy (Spec 01/11); wiring the CSV-import path through the audit helper. `checkSubscription`'s grace math still reads `businesses.updated_at` — `past_due_at` is now the available anchor to fix Known Residual Risk #2 but wasn't rewired here.
+
+**Lessons captured** (`.claude/skills/lab-notes.md`, 2026-05-25): a "posted" response has four transition sites — hook all of them; fire best-effort telemetry after tx commit (return a candidate); flush + guard analytics on worker shutdown; let a best-effort helper own its never-throws contract instead of double-wrapping callers; remove dynamic-RegExp ReDoS false positives at the root rather than suppressing; `pnpm test` green doesn't imply `pnpm typecheck` green under `noUncheckedIndexedAccess`.
+
+---

@@ -2,7 +2,51 @@
 
 This file explains what is actually built in the repository today, how it maps to the implementation plan, and what is left to build.
 
-Last updated: 2026-05-24 (CI keystone + repo moved to the RepWorth org, branch `ci-keystone` → PR #57)
+Last updated: 2026-05-24 (Step 1 keystones — past-due timestamp, audit helper, activation tracking, branch `codex/step-1-keystones` → PR #81)
+
+## Quick summary — what shipped 2026-05-24 (Step 1 keystones: past-due timer, audit helper, activation tracking)
+
+In simple words:
+
+### What we changed
+
+Three small foundations that bigger features need later. None of them changes anything a customer sees yet — they're plumbing.
+
+1. **A "past-due since" timestamp.** When a customer's card fails, we already flipped their account to "past due." Now we also stamp the *moment* it happened (`past_due_at`). That stamp is what a future "your account is past due — 5 days left" countdown will count from. We clear the stamp when they pay again, and also when they cancel (it marks the *current* past-due stretch, not history). Repeated failed charges don't reset it, so the countdown always measures from the first failure.
+
+2. **One tidy place to write the account "audit log."** The account-history table (who did what, when) gained a few standard columns (what kind of thing was touched, an IP, a browser string, a request ID). And instead of every piece of code writing to that table by hand, there's now one small helper (`writeAccountAuditLog`) that does it correctly and can write the history row *in the same database transaction* as the change it's recording — so they can never get out of sync. The three billing webhooks (charge failed / charge paid / subscription cancelled) now use it.
+
+3. **An "activation" signal for our product analytics.** We want to know when a new customer gets real value for the first time. We define that as their **first published review reply within 7 days of signing up**. The app now quietly sends an `activation_completed` event to PostHog (our analytics tool) the moment that happens. It's wired into **every** path a reply can get published through — not just the common one — so the count is honest. If the analytics service is down or its key isn't set, nothing breaks; the event is just skipped.
+
+### Why we did it
+
+These are three of the four "Step 1 keystones" in the production-readiness plan (the fourth, the CI safety-check, shipped earlier). Each unblocks a cluster of later work: the timestamp unblocks the past-due countdown screens; the audit helper unblocks security/impersonation history and the approval-snapshot feature; the activation event unblocks the whole analytics/retention story. Doing them in one batch finishes Step 1.
+
+### What got added — the new shape
+
+```text
+supabase/migrations/
+└── 043_step_1_keystones.sql      ← NEW: adds accounts.past_due_at + 5 audit columns
+                                     (additive only — nothing dropped or rewritten)
+src/lib/
+├── audit/log.ts                  ← NEW: writeAccountAuditLog() — the one audit write path
+└── analytics/posthog.ts          ← NEW: worker-only PostHog client; no-op without a key
+worker/
+├── index.ts                      ← now flushes analytics on shutdown (so events aren't lost on redeploy)
+├── ingress/stripe/
+│   ├── invoice-payment-failed.ts ← sets past_due_at + writes audit via the helper
+│   ├── invoice-paid.ts           ← clears past_due_at + audit
+│   └── subscription-deleted.ts   ← clears past_due_at on cancel + audit
+└── jobs/publisher/
+    └── activation.ts             ← NEW: the single "first reply published?" check, used by
+                                     all four publish paths; sends activation_completed
+```
+
+### What this does NOT do yet (on purpose)
+
+No past-due countdown banner or read-only mode yet (just the timestamp behind it). No team/member accounts — we intentionally left the `account_memberships` table out of this batch; it belongs to a later login/security slice. No analytics on the website itself (only the worker), no retention dashboards yet, and the CSV-import path still writes its history the old way. The grace-period clock the worker uses still reads a different (older) field — `past_due_at` is now available to fix that later but wasn't switched over here.
+
+---
 
 ## Quick summary — what shipped 2026-05-24 (Continuous Integration "keystone")
 

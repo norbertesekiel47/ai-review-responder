@@ -1,12 +1,12 @@
 ---
 name: migrations
-description: Full Supabase migration inventory (001–042) for the RepWorth project, plus known residual risks tied to schema decisions. Read this before writing any migration, querying migration state, debugging schema issues, or planning work that touches the database.
+description: Full Supabase migration inventory (001–043) for the RepWorth project, plus known residual risks tied to schema decisions. Read this before writing any migration, querying migration state, debugging schema issues, or planning work that touches the database.
 ---
 
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **042** — next migration is **043**
+Current head: **043** — next migration is **044**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **Worker file paths (as of 2026-05-05):** Class names below are
@@ -262,6 +262,24 @@ All tables use UUIDv7 (time-ordered primary keys).
   - `zernio_backfill_runs_business_reason_started_idx` on
     `(business_id, run_reason, started_at DESC)` for latest-run lookups.
 
+- **043** — Step 1 SaaS-readiness keystones (`codex/step-1-keystones`, PR #81).
+  Additive + idempotent (`ADD COLUMN IF NOT EXISTS` only); no drops, no data
+  mutation, no authorization-behavior change.
+  - Adds `accounts.past_due_at TIMESTAMPTZ NULL` — the past-due **countdown
+    source** for Spec 05 / 29 Gap 5. Set when an account first flips
+    `active → past_due` (`invoice.payment_failed`), preserved across repeated
+    failures while still `past_due`, cleared on recovery (`invoice.paid`) AND
+    on cancellation (`customer.subscription.deleted`). Represents the *current*
+    past-due interval, not billing history.
+  - Adds five generic metadata columns to `account_audit_log` for the Spec 04
+    audit helper: `entity_type`, `entity_id` (both TEXT so internal UUIDs and
+    provider IDs coexist), `ip`, `user_agent`, `request_id` — all nullable.
+  - **No new indexes** (existing `idx_account_audit` / `idx_account_audit_event`
+    cover current queries) and **deliberately NO `account_memberships`** — the
+    Step 1 keystone is the audit foundation only; the membership/role schema
+    moves to a later Spec 04 auth-hardening slice. See
+    `docs/superpowers/specs/2026-05-25-step-1-keystones-design.md`.
+
 ## Key Tables Reference
 
 | Table | Purpose |
@@ -289,7 +307,7 @@ All tables use UUIDv7 (time-ordered primary keys).
 | `zernio_finalize_incidents` | Zernio publish finalization errors |
 | `zernio_backfill_runs` | First-connect backfill state per business |
 | `accounts` | Billing parent / org. Owns subscription state, Stripe IDs, location quota. One per owner. |
-| `account_audit_log` | Lifecycle events on accounts: location create / archive / promote / tier-change / CSV import. |
+| `account_audit_log` | Append-only account events: location create / archive / promote / tier-change / CSV import / `subscription_status_changed`. Generic metadata cols (`entity_type`, `entity_id`, `ip`, `user_agent`, `request_id`) added in 043. Write via `src/lib/audit/log.ts` (`writeAccountAuditLog`), never raw INSERT. |
 | `owner_leads` | Marketing capture from contact + demo-request endpoints (independent of authenticated paths). |
 
 ## Response Status Values
@@ -352,6 +370,13 @@ grace indefinitely.
 **Planned fix (next billing sprint):** add `subscription_status_changed_at`
 column, written only in the Stripe webhook on real status transitions. Update
 all `checkSubscription` callers to use it instead of `updated_at`.
+
+> **Update (043):** `accounts.past_due_at` now exists — set only on the real
+> `active → past_due` transition and cleared on recovery/cancellation, so it is
+> exactly the immutable anchor this risk wants. It was added for the countdown
+> UX (Spec 05) and is NOT yet wired into `checkSubscription`'s grace math —
+> doing so (or adding the broader `subscription_status_changed_at`) closes this
+> risk. Until then `checkSubscription` still reads `updated_at`.
 
 ### 3. Zernio backfill gap-window uses `subscription_activated_at`, not `connected_at`
 `ZernioBackfillWorker` classifies "gap" as `createTime ≥ subscription_activated_at`.
