@@ -699,13 +699,13 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/background/pollers/StripeLocationsReconcilePoller.ts",
     table: "accounts",
-    sqlSnippet: "SELECT a.id, a.subscription_tier, a.subscription_status, a.stripe_subscription_id, a.locations_included, COUNT(b.id) AS active_location_count FROM accounts a LEFT JOIN businesses b ON b.account_id = a.id AND b.archived_at IS NULL WHERE a.stripe_subscription_id IS NOT NULL AND a.subscription_status = ${SubscriptionStatus.ACTIVE} GROUP BY a.id",
+    sqlSnippet: "SELECT a.id, a.subscription_tier, a.subscription_status, a.stripe_subscription_id, a.locations_included, a.locations_overage_price_cents, a.past_due_at, a.flags, COUNT(b.id) AS active_location_count FROM accounts a LEFT JOIN businesses b ON b.account_id = a.id AND b.archived_at IS NULL WHERE a.stripe_subscription_id IS NOT NULL AND a.subscription_status IN (${SubscriptionStatus.ACTIVE}, ${SubscriptionStatus.PAST_DUE}) GROUP BY a.id, a.subscription_tier, a.subscription_status, a.stripe_subscription_id, a.locations_included, a.locations_overage_price_cents, a.past_due_at, a.flags",
     reason: "Background scheduler or poller intentionally scans tenant rows globally before enqueueing scoped work.",
   },
   {
     file: "worker/background/pollers/StripeLocationsReconcilePoller.ts",
     table: "businesses",
-    sqlSnippet: "SELECT a.id, a.subscription_tier, a.subscription_status, a.stripe_subscription_id, a.locations_included, COUNT(b.id) AS active_location_count FROM accounts a LEFT JOIN businesses b ON b.account_id = a.id AND b.archived_at IS NULL WHERE a.stripe_subscription_id IS NOT NULL AND a.subscription_status = ${SubscriptionStatus.ACTIVE} GROUP BY a.id",
+    sqlSnippet: "SELECT a.id, a.subscription_tier, a.subscription_status, a.stripe_subscription_id, a.locations_included, a.locations_overage_price_cents, a.past_due_at, a.flags, COUNT(b.id) AS active_location_count FROM accounts a LEFT JOIN businesses b ON b.account_id = a.id AND b.archived_at IS NULL WHERE a.stripe_subscription_id IS NOT NULL AND a.subscription_status IN (${SubscriptionStatus.ACTIVE}, ${SubscriptionStatus.PAST_DUE}) GROUP BY a.id, a.subscription_tier, a.subscription_status, a.stripe_subscription_id, a.locations_included, a.locations_overage_price_cents, a.past_due_at, a.flags",
     reason: "Background scheduler or poller intentionally scans tenant rows globally before enqueueing scoped work.",
   },
   {
