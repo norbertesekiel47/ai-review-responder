@@ -35,6 +35,7 @@ const {
   sqlCalls,
   mockClaimInboundEvent,
   mockConstructEvent,
+  mockWriteAccountAuditLog,
 } = vi.hoisted(() => {
   const sqlReturnQueue: unknown[] = [];
   const sqlCalls: { text: string; values: unknown[] }[] = [];
@@ -52,12 +53,23 @@ const {
     return callback(mockSql);
   });
 
-  return { mockSql, sqlReturnQueue, sqlCalls, mockClaimInboundEvent: vi.fn(), mockConstructEvent: vi.fn() };
+  return {
+    mockSql,
+    sqlReturnQueue,
+    sqlCalls,
+    mockClaimInboundEvent: vi.fn(),
+    mockConstructEvent: vi.fn(),
+    mockWriteAccountAuditLog: vi.fn().mockResolvedValue(undefined),
+  };
 });
 
 vi.mock('../../../src/lib/db/server', () => ({
   sql: mockSql,
   jsonb: (v: unknown) => v,
+}));
+
+vi.mock('../../../src/lib/audit/log', () => ({
+  writeAccountAuditLog: mockWriteAccountAuditLog,
 }));
 
 vi.mock('../shared', () => ({
@@ -131,6 +143,8 @@ beforeEach(() => {
   mockClaimInboundEvent.mockClear();
   mockClaimInboundEvent.mockResolvedValue('claimed');
   mockConstructEvent.mockReset();
+  mockWriteAccountAuditLog.mockClear();
+  mockWriteAccountAuditLog.mockResolvedValue(undefined);
 
   // Re-apply price env vars in case a test modified them
   for (const [key, value] of Object.entries(PRICE_ENV_VARS)) {
@@ -168,19 +182,11 @@ function queueInvoicePaymentFailed(opts: {
   updateAccount?: boolean;
 } = {}) {
   const status = opts.status ?? 'active';
-  // Inside sql.begin → tx calls:
-  // 1. SELECT id, subscription_status FROM accounts WHERE stripe_customer_id FOR UPDATE
   sqlReturnQueue.push([{ id: TEST_ACCOUNT_ID, subscription_status: status }]);
-  // 2. pg_advisory_xact_lock
   sqlReturnQueue.push([]);
   if (status === 'active') {
-    // 3. UPDATE accounts SET subscription_status = 'past_due'
     const r1: any = []; r1.count = 1;
     sqlReturnQueue.push(r1);
-    // 4. INSERT account_audit_log (subscription_status_changed)
-    const auditR: any = []; auditR.count = 1;
-    sqlReturnQueue.push(auditR);
-    // 5. UPDATE businesses SET subscription_status = 'past_due'
     const r2: any = []; r2.count = 1;
     sqlReturnQueue.push(r2);
   }
@@ -191,22 +197,13 @@ function queueInvoicePaid(opts: {
   status?: string;
 } = {}) {
   const status = opts.status ?? 'past_due';
-  // Inside sql.begin → tx calls:
-  // 1. SELECT id, subscription_status FROM accounts WHERE stripe_customer_id FOR UPDATE
   sqlReturnQueue.push([{ id: TEST_ACCOUNT_ID, subscription_status: status }]);
   if (status === 'past_due') {
-    // 2. pg_advisory_xact_lock
     sqlReturnQueue.push([]);
-    // 3. UPDATE accounts SET subscription_status = 'active'
     const r1: any = []; r1.count = 1;
     sqlReturnQueue.push(r1);
-    // 4. INSERT account_audit_log (subscription_status_changed)
-    const auditR: any = []; auditR.count = 1;
-    sqlReturnQueue.push(auditR);
-    // 5. UPDATE businesses SET subscription_status = 'active'
     const r2: any = []; r2.count = 1;
     sqlReturnQueue.push(r2);
-    // After tx: backfill resume queries
     sqlReturnQueue.push([{ id: '019dc366-29ce-7000-a000-000000000099' }]); // primary business lookup
     sqlReturnQueue.push([]); // zernio predicate (no match by default)
   }
@@ -217,19 +214,11 @@ function queueSubscriptionDeleted(opts: {
   status?: string;
 } = {}) {
   const status = opts.status ?? 'active';
-  // Inside sql.begin → tx calls:
-  // 1. SELECT id, subscription_status FROM accounts WHERE stripe_customer_id FOR UPDATE
   sqlReturnQueue.push([{ id: TEST_ACCOUNT_ID, subscription_status: status }]);
-  // 2. pg_advisory_xact_lock
   sqlReturnQueue.push([]);
   if (status !== 'cancelled') {
-    // 3. UPDATE accounts SET subscription_status = 'cancelled'
     const r1: any = []; r1.count = 1;
     sqlReturnQueue.push(r1);
-    // 4. INSERT account_audit_log (subscription_status_changed)
-    const auditR: any = []; auditR.count = 1;
-    sqlReturnQueue.push(auditR);
-    // 5. UPDATE businesses SET subscription_status = 'cancelled'
     const r2: any = []; r2.count = 1;
     sqlReturnQueue.push(r2);
   }
@@ -596,6 +585,17 @@ describe('invoice.payment_failed — sets account to past_due', () => {
       (c) => /\bUPDATE\s+accounts\b/.test(c.text) && c.text.includes('past_due'),
     );
     expect(updateAcct).toBeDefined();
+    expect(updateAcct!.text).toMatch(/past_due_at\s*=\s*NOW\(\)/i);
+    expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: TEST_ACCOUNT_ID,
+        eventType: 'subscription_status_changed',
+        entityType: 'account',
+        entityId: TEST_ACCOUNT_ID,
+        payload: { fromStatus: 'active', toStatus: 'past_due' },
+      }),
+      mockSql,
+    );
   });
 
   it('already past_due → no-op (idempotent)', async () => {
@@ -618,6 +618,7 @@ describe('invoice.payment_failed — sets account to past_due', () => {
       (c) => /\bUPDATE\s+accounts\b/.test(c.text) && c.text.includes('past_due') && !c.text.includes('inbound_events'),
     );
     expect(updateAcct).toEqual([]);
+    expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
     // Log should indicate already past_due
     const logText = consoleSpy.mock.calls.flat().join(' ');
     expect(logText).toMatch(/already/);
@@ -691,6 +692,17 @@ describe('invoice.paid — active recovery from past_due', () => {
       (c) => /\bUPDATE\s+accounts\b/.test(c.text) && c.text.includes("'active'"),
     );
     expect(updateAcct).toBeDefined();
+    expect(updateAcct!.text).toMatch(/past_due_at\s*=\s*NULL/i);
+    expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: TEST_ACCOUNT_ID,
+        eventType: 'subscription_status_changed',
+        entityType: 'account',
+        entityId: TEST_ACCOUNT_ID,
+        payload: { fromStatus: 'past_due', toStatus: 'active' },
+      }),
+      mockSql,
+    );
   });
 
   it('VAL-BILLING-014: already active → no-op', async () => {
@@ -779,6 +791,18 @@ describe('customer.subscription.deleted — sets account to cancelled', () => {
       (c) => /\bUPDATE\s+accounts\b/.test(c.text) && c.text.includes("'cancelled'"),
     );
     expect(updateAcct).toBeDefined();
+    expect(updateAcct!.text).toMatch(/cancelled_at\s*=\s*NOW\(\)/i);
+    expect(updateAcct!.text).toMatch(/past_due_at\s*=\s*NULL/i);
+    expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: TEST_ACCOUNT_ID,
+        eventType: 'subscription_status_changed',
+        entityType: 'account',
+        entityId: TEST_ACCOUNT_ID,
+        payload: { fromStatus: 'active', toStatus: 'cancelled' },
+      }),
+      mockSql,
+    );
   });
 
   it('cancelled → cancelled is idempotent (no UPDATE fires)', async () => {
@@ -1195,18 +1219,16 @@ describe('subscription_status_changed audit logging', () => {
 
     expect(status).toHaveBeenCalledWith(200);
 
-    const auditInsert = sqlCalls.find(
-      (c) => /\bINSERT INTO account_audit_log\b/.test(c.text),
+    expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: TEST_ACCOUNT_ID,
+        eventType: 'subscription_status_changed',
+        entityType: 'account',
+        entityId: TEST_ACCOUNT_ID,
+        payload: { fromStatus: 'active', toStatus: 'cancelled' },
+      }),
+      mockSql,
     );
-    expect(auditInsert).toBeDefined();
-    expect(auditInsert!.text).toMatch(/subscription_status_changed/);
-    const payloadIdx = auditInsert!.values.findIndex((v: unknown) =>
-      typeof v === 'object' && v !== null && 'fromStatus' in (v as Record<string, unknown>),
-    );
-    expect(payloadIdx).toBeGreaterThanOrEqual(0);
-    const payload = auditInsert!.values[payloadIdx] as Record<string, unknown>;
-    expect(payload.fromStatus).toBe('active');
-    expect(payload.toStatus).toBe('cancelled');
   });
 
   it('logs subscription_status_changed on past_due recovery', async () => {
@@ -1223,18 +1245,16 @@ describe('subscription_status_changed audit logging', () => {
 
     expect(status).toHaveBeenCalledWith(200);
 
-    const auditInsert = sqlCalls.find(
-      (c) => /\bINSERT INTO account_audit_log\b/.test(c.text),
+    expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: TEST_ACCOUNT_ID,
+        eventType: 'subscription_status_changed',
+        entityType: 'account',
+        entityId: TEST_ACCOUNT_ID,
+        payload: { fromStatus: 'past_due', toStatus: 'active' },
+      }),
+      mockSql,
     );
-    expect(auditInsert).toBeDefined();
-    expect(auditInsert!.text).toMatch(/subscription_status_changed/);
-    const payloadIdx = auditInsert!.values.findIndex((v: unknown) =>
-      typeof v === 'object' && v !== null && 'fromStatus' in (v as Record<string, unknown>),
-    );
-    expect(payloadIdx).toBeGreaterThanOrEqual(0);
-    const payload = auditInsert!.values[payloadIdx] as Record<string, unknown>;
-    expect(payload.fromStatus).toBe('past_due');
-    expect(payload.toStatus).toBe('active');
   });
 
   it('does not log audit when status unchanged (idempotent no-op)', async () => {
@@ -1256,5 +1276,6 @@ describe('subscription_status_changed audit logging', () => {
       (c) => /\bINSERT INTO account_audit_log\b/.test(c.text),
     );
     expect(auditInsert).toBeUndefined();
+    expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
   });
 });
