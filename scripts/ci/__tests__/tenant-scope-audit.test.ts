@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { auditSqlText } from '../tenant-scope-audit';
+import { auditSqlText, extractSqlTemplates } from '../tenant-scope-audit';
 
 describe('tenant-scope-audit', () => {
   const finding = (file: string, table: string) => [
@@ -183,5 +183,15 @@ describe('tenant-scope-audit', () => {
 
   it('ignores global table query', () => {
     expect(auditSqlText('src/example.ts', 'SELECT * FROM inbound_events')).toEqual([]);
+  });
+
+  it('extracts sql and transaction tagged templates', () => {
+    expect(extractSqlTemplates(`
+      await sql\`SELECT * FROM reviews WHERE business_id = \${businessId}\`;
+      await tx\`UPDATE responses SET status = 'posted' WHERE id = \${responseId}\`;
+    `)).toEqual([
+      { tag: 'sql', sqlText: 'SELECT * FROM reviews WHERE business_id = ${businessId}' },
+      { tag: 'tx', sqlText: "UPDATE responses SET status = 'posted' WHERE id = ${responseId}" },
+    ]);
   });
 });

@@ -9,6 +9,11 @@ export interface TenantScopeFinding {
   reason: string;
 }
 
+export interface ExtractedSqlTemplate {
+  tag: string;
+  sqlText: string;
+}
+
 const TENANT_TABLES = [
   'accounts',
   'businesses',
@@ -391,14 +396,15 @@ async function collectSourceFiles(root: string): Promise<string[]> {
   return files;
 }
 
-function extractSqlTemplates(sourceText: string): string[] {
-  const templates: string[] = [];
-  const tagRegex = /\bsql(?:\s*<[^`]+>)?\s*`/g;
+export function extractSqlTemplates(sourceText: string): ExtractedSqlTemplate[] {
+  const templates: ExtractedSqlTemplate[] = [];
+  const tagRegex = /\b(sql|tx)(?:\s*<[^`]+>)?\s*`/g;
   let match: RegExpExecArray | null;
 
   while ((match = tagRegex.exec(sourceText)) !== null) {
     const templateStart = sourceText.indexOf('`', match.index);
     if (templateStart < 0) continue;
+    const tag = match[1] ?? 'sql';
 
     let depth = 0;
     let template = '';
@@ -429,7 +435,7 @@ function extractSqlTemplates(sourceText: string): string[] {
       }
 
       if (current === '`' && depth === 0) {
-        templates.push(template);
+        templates.push({ tag, sqlText: template });
         tagRegex.lastIndex = index + 1;
         break;
       }
@@ -448,7 +454,7 @@ async function auditRepository(): Promise<TenantScopeFinding[]> {
 
   for (const file of allFiles.sort()) {
     const sourceText = await readFile(file, 'utf8');
-    for (const sqlText of extractSqlTemplates(sourceText)) {
+    for (const { sqlText } of extractSqlTemplates(sourceText)) {
       findings.push(...auditSqlText(
         normalizePath(relative(process.cwd(), file)),
         sqlText,
