@@ -162,11 +162,11 @@ export function SignupForm() {
             <CheckIcon />
           </span>
           I agree to the{' '}
-          <a className="rw-link" style={{ marginLeft: 4 }} href="/terms">
+          <a className="rw-link" style={{ marginLeft: 4 }} href="/legal/terms">
             Terms
           </a>
           &nbsp;&amp;&nbsp;
-          <a className="rw-link" href="/privacy">
+          <a className="rw-link" href="/legal/privacy">
             Privacy
           </a>
         </label>

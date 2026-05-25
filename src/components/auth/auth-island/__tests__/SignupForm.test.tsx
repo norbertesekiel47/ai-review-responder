@@ -22,8 +22,8 @@ describe('SignupForm', () => {
     expect(html).toContain('Phone (optional)');
     expect(html).toContain('Work email');
     expect(html).toContain('Create a password');
-    expect(html).toContain('href="/terms"');
-    expect(html).toContain('href="/privacy"');
+    expect(html).toContain('href="/legal/terms"');
+    expect(html).toContain('href="/legal/privacy"');
     expect(html).toContain('Sign up with Google');
   });
   it('disables the submit CTA on first render (Terms unchecked)', () => {
