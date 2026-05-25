@@ -24,19 +24,6 @@ const TENANT_TABLES = [
 
 const SCANNED_ROOTS = ['src', 'worker'] as const;
 const UNSCOPED_REASON = 'missing account_id or business_id scope';
-const ID_PREDICATE = String.raw`\b(?:[a-z_][a-z0-9_]*\s*\.\s*)?id\s*(?:=|IN\b|=\s*ANY\b)`;
-const TABLE_IDENTITY_SCOPE_PATTERNS: Record<(typeof TENANT_TABLES)[number], RegExp[]> = {
-  accounts: [new RegExp(ID_PREDICATE, 'i'), /\bstripe_(customer|subscription)_id\b/i],
-  businesses: [new RegExp(ID_PREDICATE, 'i'), /\bonboarded_by\b/i],
-  reviews: [new RegExp(ID_PREDICATE, 'i'), /\bprovider_review_id\b/i],
-  responses: [new RegExp(ID_PREDICATE, 'i'), /\breview_id\b/i],
-  approval_links: [new RegExp(ID_PREDICATE, 'i'), /\b(response_id|token_hash)\b/i],
-  approval_audit_log: [new RegExp(ID_PREDICATE, 'i'), /\b(response_id|approval_link_id)\b/i],
-  account_audit_log: [new RegExp(ID_PREDICATE, 'i')],
-  notification_deliveries: [new RegExp(ID_PREDICATE, 'i'), /\b(response_id|external_message_id)\b/i],
-  api_costs: [new RegExp(ID_PREDICATE, 'i')],
-  zernio_connections: [new RegExp(ID_PREDICATE, 'i'), /\b(zernio_account_id|zernio_location_id)\b/i],
-};
 
 function normalizePath(file: string): string {
   return file.split(sep).join('/');
@@ -54,10 +41,6 @@ function hasReadOrMutationStatement(sqlText: string): boolean {
 
 function hasTenantScope(sqlText: string): boolean {
   return /\b(account_id|business_id)\b/i.test(sqlText);
-}
-
-function hasTableIdentityScope(sqlText: string, table: (typeof TENANT_TABLES)[number]): boolean {
-  return TABLE_IDENTITY_SCOPE_PATTERNS[table].some((pattern) => pattern.test(sqlText));
 }
 
 function referencesTenantTable(sqlText: string, table: string): boolean {
@@ -91,7 +74,6 @@ export function auditSqlText(file: string, sqlText: string): TenantScopeFinding[
   const findings: TenantScopeFinding[] = [];
   for (const table of TENANT_TABLES) {
     if (!referencesTenantTable(sqlForScan, table)) continue;
-    if (hasTableIdentityScope(sqlForScan, table)) continue;
     if (hasAllowlistEntry(normalizedFile, table)) continue;
 
     findings.push({
