@@ -1,0 +1,4 @@
+Contact: mailto:security@repworth.com
+Policy: https://repworth.net/security
+Preferred-Languages: en
+Canonical: https://repworth.net/.well-known/security.txt

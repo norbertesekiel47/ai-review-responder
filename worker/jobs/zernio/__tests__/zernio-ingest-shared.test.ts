@@ -293,6 +293,31 @@ describe('reconcileExternallyAnsweredReview — flag-gated import branches', () 
     expect(logger.log).toHaveBeenCalledWith(expect.stringContaining('Imported external reply'));
   });
 
+  it('flag ON + no-match + likely PHI review text: skips review and response inserts', async () => {
+    process.env.EXTERNAL_REPLY_IMPORT_ENABLED = 'true';
+    const { sql } = await import('@/lib/db/server');
+    const { tx, calls } = mkRecordingTx([
+      // 1. SELECT matched rows → none.
+      () => [],
+    ]);
+    (sql as any).begin = vi.fn(async (cb: any) => cb(tx));
+    const logger = mkLogger();
+
+    await reconcileExternallyAnsweredReview(
+      mkReview({ comment: 'Patient MRN 12345 needs diabetes treatment follow up' }),
+      'B',
+      'A',
+      'L',
+      logger as any,
+    );
+
+    expect(calls).toHaveLength(1);
+    expect(calls.every((c) => !c.sql.includes('INSERT INTO'))).toBe(true);
+    expect(calls.every((c) => !c.sql.includes('UPDATE zernio_backfill_runs'))).toBe(true);
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('Likely PHI detected'));
+    expect(logger.warn).toHaveBeenCalledWith(expect.not.stringContaining('MRN 12345'));
+  });
+
   it('flag ON + matched but no active responses: INSERTs response only, version > 1 if prior terminals exist', async () => {
     process.env.EXTERNAL_REPLY_IMPORT_ENABLED = 'true';
     const { sql } = await import('@/lib/db/server');

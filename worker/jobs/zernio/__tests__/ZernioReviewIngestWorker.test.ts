@@ -344,6 +344,40 @@ describe('ZernioReviewIngestWorker', () => {
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ingest-1', undefined);
   });
 
+  it('still reconciles external replies when review text likely contains PHI', async () => {
+    pushActiveBiz();
+    pushActiveConn();
+
+    const review = makeZernioReview({
+      comment: 'Patient MRN 12345 needs diabetes treatment follow up',
+      reviewReply: { comment: 'Handled directly.', updateTime: '2026-04-01T11:00:00Z' },
+    });
+    mockListReviews.mockResolvedValueOnce({ reviews: [review], nextPageToken: undefined });
+    mockReconcileExternallyAnsweredReview.mockResolvedValueOnce(undefined);
+
+    await handleZernioReviewIngest(makeJob());
+
+    expect(mockReconcileExternallyAnsweredReview).toHaveBeenCalledTimes(1);
+    expect(mockProcessReview).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ingest-1', undefined);
+  });
+
+  it('marks outbox completed and skips processing when target review likely contains PHI', async () => {
+    pushActiveBiz();
+    pushActiveConn();
+
+    const review = makeZernioReview({
+      comment: 'Patient MRN 12345 needs diabetes treatment follow up',
+    });
+    mockListReviews.mockResolvedValueOnce({ reviews: [review], nextPageToken: undefined });
+
+    await handleZernioReviewIngest(makeJob());
+
+    expect(mockReconcileExternallyAnsweredReview).not.toHaveBeenCalled();
+    expect(mockProcessReview).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-ingest-1', undefined);
+  });
+
   // 10. ZernioAuthError on listReviews → handleZernioIngestError called
   it('delegates to handleZernioIngestError on ZernioAuthError from listReviews', async () => {
     pushActiveBiz();

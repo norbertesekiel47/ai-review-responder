@@ -22,6 +22,7 @@ import { sql } from '../../../src/lib/db/server';
 import { checkSubscription } from '../../../src/lib/shared/subscription-guard';
 import { extractOutboxHandle, markOutboxCompleted } from '../../../src/lib/shared/outbox';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
+import { detectLikelyPhi } from '../../../src/lib/security/phi-scanner';
 import { zernioClient } from '../../../src/lib/zernio/client';
 import {
   buildZernioMonitoredReview,
@@ -201,6 +202,13 @@ export async function handleZernioReviewIngest(job: Job<IngestZernioReviewPayloa
     await reconcileExternallyAnsweredReview(
       target, business_id, zernio_account_id, zernio_location_id, logger,
     );
+    await markOutboxCompleted(outboxId, attempt);
+    return;
+  }
+
+  const phi = detectLikelyPhi(target.comment);
+  if (phi.matched) {
+    logger.warn(`Likely PHI detected for review ${zernio_review_id}; reasons=${phi.reasons.join(',')}`);
     await markOutboxCompleted(outboxId, attempt);
     return;
   }

@@ -23,6 +23,7 @@ import type { ZernioReview } from '../../../src/lib/zernio/types';
 import { markOutboxFailed } from '../../../src/lib/shared/outbox';
 import type { WorkerLogger } from '../../../src/lib/shared/logger';
 import { fromZernioReview } from '../../../src/lib/reviews/zernio-field-match';
+import { detectLikelyPhi } from '../../../src/lib/security/phi-scanner';
 
 type TxClient = postgres.TransactionSql;
 
@@ -142,6 +143,10 @@ export async function reconcileExternallyAnsweredReview(
         return;
       }
       const newReviewId = await insertImportedReview(tx, businessId, accountId, locationId, target);
+      if (!newReviewId) {
+        logger.warn(`Likely PHI detected for previously-unseen review ${target.id}; skipping import`);
+        return;
+      }
       const inserted = await insertImportedResponse(tx, businessId, newReviewId, null, target.reviewReply);
       if (inserted) {
         await bumpExternalReplyIngestedCount(tx, businessId);
@@ -255,8 +260,13 @@ async function insertImportedReview(
   accountId: string,
   locationId: string,
   target: ZernioReview,
-): Promise<string> {
+): Promise<string | null> {
   const matchFields = fromZernioReview(target);
+  const phi = detectLikelyPhi(matchFields.review_text_trimmed);
+  if (phi.matched) {
+    return null;
+  }
+
   const providerReviewName = `zernio://${accountId}/locations/${locationId}/reviews/${target.id}`;
   const providerLocationName = `zernio://${accountId}/locations/${locationId}`;
   const reviewContentHash = createHash('sha256')
