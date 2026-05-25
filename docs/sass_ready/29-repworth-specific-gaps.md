@@ -1,6 +1,8 @@
 # Spec 29 — RepWorth-Specific Gaps
 
 > **Goal:** Close the seven highest-leverage RepWorth-specific gaps: approval audit content-snapshot, multi-location invoice monitoring, second review-source contingency, LLM cost gross-margin guard, past_due visible UX, support extension macro, CSV-import polish, and a public Trust Center.
+>
+> **✅ Wave 1 SHIPPED (2026-05-25, PR #85):** **Gap 1** — approval audit content snapshot (`approval_audit_log.response_text_at_approval`, migration 044): immutable, written in-tx across all publish paths (token approve/edit, callback, owner session, dashboard publish/retry/restore). **Gap 2** — multi-location upcoming-invoice reconciliation in `StripeLocationsReconcilePoller` + `accounts.flags.is_pilot` pilot-review process (`docs/finance/`). **Deferred:** Gap 3 (second review source), Gap 4 (LLM gross-margin guard), Gap 5 (past_due UX), Gap 6 (support extension macro), Gap 7 (CSV polish), and the full Trust Center.
 
 ---
 

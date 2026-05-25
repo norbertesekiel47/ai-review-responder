@@ -138,7 +138,7 @@ approval before posting.
 
 - All tables: UUIDv7 (time-ordered)
 - Base schema: `supabase/migrations/001_initial_schema.sql`
-- Current head: migration **043** (next: **044**)
+- Current head: migration **045** (next: **046**)
 - For migration details: see `.claude/skills/migrations.md`
 
 ## Non-obvious gotchas — read these before touching related code

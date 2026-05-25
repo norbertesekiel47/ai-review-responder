@@ -1,12 +1,12 @@
 ---
 name: migrations
-description: Full Supabase migration inventory (001–043) for the RepWorth project, plus known residual risks tied to schema decisions. Read this before writing any migration, querying migration state, debugging schema issues, or planning work that touches the database.
+description: Full Supabase migration inventory (001–045) for the RepWorth project, plus known residual risks tied to schema decisions. Read this before writing any migration, querying migration state, debugging schema issues, or planning work that touches the database.
 ---
 
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **043** — next migration is **044**
+Current head: **045** — next migration is **046**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **Worker file paths (as of 2026-05-05):** Class names below are
@@ -280,6 +280,26 @@ All tables use UUIDv7 (time-ordered primary keys).
     moves to a later Spec 04 auth-hardening slice. See
     `docs/superpowers/specs/2026-05-25-step-1-keystones-design.md`.
 
+- **044** — Wave 1 approval audit snapshot (`codex/wave-1-foundation-launch-risk`,
+  PR #85). Additive (`ADD COLUMN IF NOT EXISTS`), no drops/data mutation, no
+  index.
+  - Adds `approval_audit_log.response_text_at_approval TEXT NULL` — an
+    **immutable snapshot of the exact text the owner approved**, written in the
+    SAME transaction as the response-status mutation + outbox enqueue, across
+    all content-publishing paths (token approve/edit, callback, owner session,
+    dashboard publish/retry/restore). Plain `TEXT` (not JSONB). Dispute-evidence
+    column for Spec 29 Gap 1; later mutation of `responses.approved_text` does
+    NOT change it. No HTML snapshot column (text is the canonical artifact).
+
+- **045** — Wave 1 RLS coverage for `onboarding_demos`
+  (`codex/wave-1-foundation-launch-risk`, PR #85). Enables RLS on the
+  tenant-scoped `onboarding_demos` table (added in 032 without RLS) and adds an
+  `onboarding_demos_owner_select` policy keyed to `owner_account_id()` so
+  authenticated reads are constrained to the owning account's locations. Mutations
+  still go through owner-authenticated routes / service-role workers. Brought the
+  table into `scripts/ci/tenant-tables.ts` so the RLS audit + tenant-scope audit
+  now cover it.
+
 ## Key Tables Reference
 
 | Table | Purpose |
@@ -290,7 +310,7 @@ All tables use UUIDv7 (time-ordered primary keys).
 | `reviews` | Ingested reviews from all sources |
 | `responses` | AI-drafted responses — see status values below |
 | `approval_links` | SHA-256 hashed tokens only — raw tokens never stored |
-| `approval_audit_log` | Every approval action logged |
+| `approval_audit_log` | Every approval action logged. `response_text_at_approval` (migration 044) is an immutable snapshot of the exact owner-approved text, written in-tx via `insertAuditLog`/`insertAuditLogSession` across all publish paths — dispute evidence (Spec 29 Gap 1) |
 | `review_exceptions` | Dedup collisions, pagination cap exhaustions, not-found signals |
 | `job_outbox` | Transactional outbox — all async work dispatched through here |
 | `inbound_events` | Webhook dedup — always write here first before business logic |
