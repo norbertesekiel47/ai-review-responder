@@ -716,3 +716,63 @@ whenever any dep ships a major (here: Next 16 removed `next lint`; a TypeScript
 major broke CSS side-effect imports with `TS2882`).
 **Correct approach:** add `update-types: [minor, patch]` to each group so majors
 are excluded and arrive as individual, reviewable PRs.
+
+---
+
+## 2026-05-25
+
+Discovered building the Step 1 keystones (`codex/step-1-keystones`, PR #81):
+`accounts.past_due_at`, the generalized account audit helper, and worker-side
+PostHog activation capture.
+
+### A "posted" response has FOUR transition sites — an activation hook on one misses the rest
+`responses.status = 'posted'` is set in four places, not one: the main publish
+success path (`ResponsePublisherWorker.ts`), the edit-then-publish success path
+AND the `409_matches` path (`edit-publish.ts`), and the idempotent 409
+reconciliation path (`publisher-error-handlers.ts`). An "emit on first posted
+response" event attached only to the main path silently under-counts activation
+for accounts whose first post lands via edit-publish or reconciliation.
+**Correct approach:** funnel every posted transition through ONE shared
+chokepoint (`worker/jobs/publisher/activation.ts`,
+`maybeCaptureActivationCompleted`) and test that all four paths reach it. Before
+adding any "on publish" side effect, grep for every `status = 'posted'` UPDATE.
+
+### Best-effort telemetry runs AFTER tx commit — return a candidate, don't capture inside the tx
+The publish status flip happens inside a transaction; the PostHog call is
+network I/O that must not run before/inside the commit. The edit-publish path
+returns an *activation candidate* from the tx outcome (`{ outcome: 'completed',
+postedResponse }`) and the caller captures it only after the tx commits. Pattern:
+decide-inside-tx, fire-after-commit for any external side effect gated on a
+just-committed row.
+
+### `shutdownAnalytics()` must be flushed on worker shutdown — and guarded so it can't skip DB teardown
+`posthog-node` batches events and flushes on a timer; events captured shortly
+before a Railway redeploy are lost unless flushed on SIGTERM. Wire
+`shutdownAnalytics()` into `worker/index.ts`'s `shutdown()` after the workers
+close (so no new events enqueue mid-flush) and **wrap it in try/catch** — a flush
+network failure must never skip the `sql.end()` that follows. Generalizes the
+existing "post-completion best-effort blocks need their own try/catch" note to
+the process-lifecycle teardown.
+
+### A best-effort helper should own its never-throws contract; callers shouldn't double-wrap
+`maybeCaptureActivationCompleted` swallows + logs all errors internally and
+never throws. Once that contract is documented on the function, the outer
+try/catch at each call site is dead code — remove it and let the one internal
+catch enforce "analytics never blocks outbox completion." Tests that mock the
+helper to *throw* then contradict the contract; cover the never-throws guarantee
+once where it lives, not at every caller.
+
+### A dynamically-built `new RegExp(...)` trips external ReDoS scanners even with hardcoded inputs
+A migration-structure test built `new RegExp(\`...${name} ${type}\`)` from a
+hardcoded `it.each` array. No project analyzer flags it (eslint is just
+`next/core-web-vitals`), but external security scanners flag any interpolated
+`new RegExp` as ReDoS. Don't add a disable directive for a rule the project
+doesn't run — **remove the root cause**: assert with a whitespace-normalized
+`.toContain(...)` substring check instead of a dynamic regex.
+
+### `noUncheckedIndexedAccess` makes array-index reads `T | undefined`
+`mockFn.mock.invocationCallOrder[0]` is typed `number | undefined` under this
+tsconfig flag, so passing it to `.toBeLessThan()` fails `tsc`. After asserting
+the mock was called, a non-null assertion (`...[0]!`) is correct and idiomatic
+in this repo (cf. `mock.calls[0]![0]`). `pnpm test` passing does NOT imply
+`pnpm typecheck` passing — run both.

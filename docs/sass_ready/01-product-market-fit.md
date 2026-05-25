@@ -14,7 +14,7 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 
 - Public marketing exists but **no `docs/icp.md`** (confirmed absent).
 - Pricing and onboarding emphasize the AI feature, not the JTBD. The JTBD string does not yet appear on the landing H1, pricing page, or onboarding success screen.
-- **No analytics stack at all.** PostHog is referenced throughout these specs but is *not installed* — no dependency in `package.json`, no `src/lib/analytics`, zero code references (PostHog appears only inside `docs/`). There is no `activation_completed` event and no retention cohort split. See §2a.
+- ✅ **Worker-side analytics shipped** (PR #81, 2026-05-24). `posthog-node` is installed and `src/lib/analytics/posthog.ts` captures `activation_completed` on the publisher path (`worker/jobs/publisher/activation.ts`) — first posted response within 7 days of `accounts.created_at`, scoped by `account_id`. No-op without `POSTHOG_API_KEY`, flushed on worker shutdown. **Still missing:** `posthog-js` (client SDK), retention cohort dashboards, and the broader event taxonomy. See §2a.
 - **No `/compare` page and no `/changelog`** (both confirmed absent under `src/app/`).
 - Multi-location billing shipped (migration **034**; per-location overage via Stripe `quantity` in `worker/jobs/billing/UpdateStripeOverageWorker.ts`) — proves the multi-location wedge is real today.
 - A prior PMF brainstorm exists at `docs/superpowers/specs/2026-05-19-pmf-positioning-design.md`. This spec is its operational successor — reconcile, don't duplicate.
@@ -24,6 +24,8 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 ✅ **Decided (Step 0, 2026-05-23): PostHog Cloud.** Fastest path to event capture + cohorts with minimal infra; also bundles the feature-flag tool ([Spec 24](./24-devops-deployment.md)) so %-rollout comes free. The rejected alternative was a Postgres-native `analytics_events` table + Metabase (no new vendor, but you build cohort math yourself). Metabase-on-replica is still the **future** scale option once custom-SQL needs exceed PostHog — see [Spec 11 §Future](./11-data-analytics-bi.md).
 
 Add `posthog-node` (server) + `posthog-js` (client); capture events on the **worker** publish path (not Vercel routes). The four §6 metrics below now read from PostHog. This unblocks `activation_completed` instrumentation (tasks 4–5) and the dependent specs (06, 07, 11, 14, 16, 26).
+
+> ✅ **Shipped (Step 1, PR #81):** `posthog-node` + `src/lib/analytics/posthog.ts` + the `activation_completed` capture on the worker publish path (task 4). `posthog-js`, the retention dashboard (task 5), and the event taxonomy remain open.
 
 ## 3. Target state
 
@@ -45,7 +47,7 @@ Add `posthog-node` (server) + `posthog-js` (client); capture events on the **wor
 1. Create `docs/icp.md` with: verticals, employee count, location count, current tooling, decision-maker title, top 3 pains, top 3 cancellation reasons (start empty, fill from interviews). Pin it.
 2. Update H1 on `src/app/page.tsx` (landing) + pricing value prop + onboarding success screen to use JTBD verbatim.
 3. Add comparison page `src/app/(public)/compare/page.tsx` (route-group convention, matching the existing `(public)/pricing`) with three-wedge table vs. Birdeye, Podium, NiceJob, GoSite. Cite approval audit + per-location pricing + brand voice as proof.
-4. Instrument `activation_completed` in the tool chosen in §2a. Emit when a response reaches `published_at IS NOT NULL` within 7 days of **account** creation. ⚠️ Scope by `account_id` (billing parent), not per-user: `published_at - accounts.created_at <= INTERVAL '7 days'`. Joining to `users.created_at` misfires for multi-location accounts (migration 034). Backfill from existing `responses` / `accounts` rows.
+4. ✅ **Done (PR #81).** `activation_completed` is emitted from the worker publisher chokepoint (`worker/jobs/publisher/activation.ts`) on the first account-level posted response within 7 days of `accounts.created_at`, scoped by `account_id` (covers all four posted-transition paths). _Remaining:_ backfill of historical activations from existing `responses` / `accounts` rows (the live path only emits going forward).
 5. Build a 4-metric retention dashboard (PostHog or Metabase): trial → paid %, monthly logo retention, 90-day logo retention, activation rate.
 6. Public changelog at `src/app/(public)/changelog/page.tsx` (markdown-rendered from `docs/changelog/*.md`). Public "what's next" page with three buckets: shipping / exploring / considering (no dates).
 7. Standing weekly customer interview cadence: target 5 conversations/week. Track answers in CRM custom field `top_cancellation_risk`.

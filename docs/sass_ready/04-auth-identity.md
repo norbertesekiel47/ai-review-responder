@@ -16,7 +16,7 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 - Signup uses a manual **6-digit OTP** entry path (`/api/auth/verify-otp`); the `{{ .Token }}` gotcha lives in the **Supabase dashboard** templates, not this repo.
 - Self-serve signup behind `SELF_SERVE_SIGNUP_ENABLED` (checked in signup/verify-otp routes + `CleanupAbandonedSignupsPoller`).
 - **Roles:** `users.role` already exists with `'owner' | 'sales_partner' | 'admin'` (migration 001). No `roles` table, no `account_memberships`. Model is **single owner per account** (`accounts.owner_user_id` 1:1 `users.id`); no teams/invites.
-- **Two audit tables already exist:** `approval_audit_log` (migration 001 — approval actions) and `account_audit_log` (migration 034 — `account_id, location_id, event_type, actor_user_id, payload JSONB, created_at`). **Generalize `account_audit_log`** — do not invent a third `audit_events` table. (CSV-import audit writes are not yet wired to it.)
+- **Two audit tables already exist:** `approval_audit_log` (migration 001 — approval actions) and `account_audit_log` (migration 034 — `account_id, location_id, event_type, actor_user_id, payload JSONB, created_at`). ✅ **Generalized (Step 1, PR #81):** migration **043** added `entity_type, entity_id, ip, user_agent, request_id`, and `src/lib/audit/log.ts` (`writeAccountAuditLog`) is the typed write path — already used by the three Stripe subscription-status handlers. Do not invent a third `audit_events` table. _Still unwired:_ the CSV-import path and other actor actions.
 - **No MFA/TOTP** anywhere (greenfield).
 - **Rate limiting exists** but is **Redis-Lua based** (`src/lib/shared/rate-limit.ts`), not `@upstash/ratelimit` — signup (5/hr) and verify-otp (per-email + per-IP) limits already enforced. Reuse it; don't add a new lib.
 - `src/middleware.ts` enforces role + `account_id` per route (post-migration-034). No Settings → Team and no Settings → Security tab (Settings has Account/Voice/Channels/Locations).
@@ -79,13 +79,13 @@ Schema: new table `account_memberships(account_id, user_id, role, business_id NU
 
 ## 4. Implementation tasks
 
-1. New migration (claims the next free number — coordinate with Specs 02/05; head is 042) — `account_memberships` table + **extend `account_audit_log`** with `entity_type, entity_id, ip, user_agent, request_id`. Foreign keys, RLS, index on `(account_id, created_at)`. Backfill `account_memberships` with one `(owner_user_id, 'owner')` row per account.
+1. ✅ **Partly done (migration 043, PR #81):** `account_audit_log` extended with `entity_type, entity_id, ip, user_agent, request_id`. ⏳ **Deferred:** the `account_memberships` table + owner backfill (+ FKs, RLS, index) was deliberately **pulled out** of the Step 1 keystone slice — the keystone is the audit foundation only. It moves to a later Spec 04 auth-hardening slice (claims a fresh migration number then). See `docs/superpowers/specs/2026-05-25-step-1-keystones-design.md`.
 2. **Phase A:** keep `src/middleware.ts` reading `users.role`; add an `account_memberships` read **behind the team flag** so Owner behavior is unchanged when the flag is off. Do not rip out `users.role` — platform roles (`admin`/`sales_partner`) still live there.
 3. Enable Supabase MFA. Add Settings → Security UI with TOTP enrollment + recovery codes.
 4. Enforce MFA on billing-owner login (block flow if not enrolled). Banner prompt on Scale-tier user logins without MFA.
 5. Build Settings → Team UI: invite, role assignment, deactivate, re-activate. Audit every action.
 6. Implement Settings → Security: device list, revoke session, "sign out everywhere" — backed by Supabase Auth session API.
-7. Generalize the audit helper into `src/lib/audit/log.ts` with a typed `action` enum, writing to the extended **`account_audit_log`**. Wire the CSV-import path and other actor actions through it (currently unwired).
+7. ✅ **Done (PR #81):** `src/lib/audit/log.ts` (`writeAccountAuditLog`) writes to the extended `account_audit_log`, accepts a tx client for atomic state+audit writes, and is live in the three Stripe subscription-status handlers. ⏳ **Remaining:** wire the CSV-import path + other actor actions through it; the `event_type`/`entity_type` strings are caller-chosen today rather than a typed enum.
 8. **Extend the existing `src/lib/shared/rate-limit.ts`** (Redis-Lua) — add per-email password-reset and exponential backoff on login to the signup/verify-otp limits already there. ⚠️ Do **not** add `@upstash/ratelimit` or a `src/lib/ratelimit/*` dir; that would duplicate working infrastructure.
 9. Add admin impersonation path (see [Spec 13](./13-customer-support.md)) — separate from regular login, behind admin flag + MFA + audit.
 10. Cloudflare / Vercel WAF rules for IP-level abuse — gate at edge before Supabase.
@@ -95,7 +95,7 @@ Schema: new table `account_memberships(account_id, user_id, role, business_id NU
 - [ ] Login with email/pw, Google SSO, Magic Link continue to work (already live — covered by a regression E2E so this spec's changes don't break them).
 - [ ] TOTP enrollment works for any user; recovery codes downloadable once.
 - [ ] Billing-owner role cannot disable MFA without re-auth + audit entry.
-- [ ] `account_memberships` schema present + backfilled (flag-off); extended `account_audit_log` writing on role-change/deactivate/MFA-enroll/MFA-disable/login-fail/session-revoke. (Invite/accept events land in Phase B.)
+- [ ] `account_memberships` schema present + backfilled (flag-off) — **deferred from Step 1** to a later auth slice. ✅ Extended `account_audit_log` columns + `writeAccountAuditLog` helper shipped (PR #81) and writing on `subscription_status_changed`; the role-change/MFA/login-fail/session-revoke events land with their respective features.
 - [ ] Settings → Security page live (MFA, device list, session revoke). _Settings → Team is **Phase B** — not gated by this spec._
 - [ ] Rate limits return 429 with `Retry-After`; load test confirms.
 - [ ] Audit log export downloads CSV+JSON, scoped by `account_id`, signed URL expiring in 24h.

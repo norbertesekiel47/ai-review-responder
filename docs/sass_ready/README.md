@@ -94,9 +94,11 @@ _Also settled earlier this pass: live 4-tier model (not Starter/Growth/Scale); n
 | Keystone | Spec | Unblocks |
 |---|---|---|
 | **Extend GitHub Actions CI beyond the shipped secret-free base gate** | [24](./24-devops-deployment.md) (task 0 follow-ups) | every specialized "fail-the-build" gate: 07, 08, 09, 12, 19, 22, 23, 25 |
-| `accounts.past_due_at` column | [05](./05-billing-subscription.md) | countdown UX (05, 29 Gap 5), grant-extension (29 Gap 6) |
-| Analytics event capture on the worker publish path (PostHog — Step-0 decision) | [01 §2a](./01-product-market-fit.md) | 01, 06, 11, 14, 16, 26 |
-| Generalized audit helper + extended `account_audit_log` | [04](./04-auth-identity.md) | impersonation audit (13), approval snapshot (29 Gap 1) |
+| ✅ `accounts.past_due_at` column | [05](./05-billing-subscription.md) | countdown UX (05, 29 Gap 5), grant-extension (29 Gap 6) |
+| ✅ Analytics event capture on the worker publish path (PostHog — Step-0 decision) | [01 §2a](./01-product-market-fit.md) | 01, 06, 11, 14, 16, 26 |
+| ✅ Generalized audit helper + extended `account_audit_log` | [04](./04-auth-identity.md) | impersonation audit (13), approval snapshot (29 Gap 1) |
+
+**Three keystones shipped** (2026-05-24, branch `codex/step-1-keystones` → PR #81): migration **043** adds `accounts.past_due_at` (set on `active→past_due`, cleared on recovery + cancellation) and five `account_audit_log` metadata columns; `src/lib/audit/log.ts` (`writeAccountAuditLog`) is the typed audit write path, now used by all three Stripe subscription-status handlers; and `activation_completed` is captured worker-side (`posthog-node`, no-op without `POSTHOG_API_KEY`) across all four publisher posted-transition paths. **Deliberately deferred from this slice:** `account_memberships` (the role/membership schema moves to a later Spec 04 auth-hardening slice — the keystone is the audit foundation only). Design: `docs/superpowers/specs/2026-05-25-step-1-keystones-design.md`. **Step 1 keystones are now complete** (CI + these three). Next: the specialized "fail-the-build" CI gates and the Wave-1 specs.
 
 **CI first slice is shipped + enforced** (2026-05-24, PR #57) — the secret-free base gate runs `lint`, `typecheck`, `test`, and `build` on every PR + `push:main`, and **branch protection is live**: the `main` repo lives in the RepWorth org (Team plan) with a "main protection" **ruleset** requiring all four checks + blocking force-push/deletion. Actions are SHA-pinned; Dependabot groups minor/patch and surfaces majors individually. Still **next**: DB-backed integration + Playwright/e2e in CI (need `TEST_DATABASE_POOL_URL`), then the specialized "fail-the-build" gates required by ~8 specs.
 

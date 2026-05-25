@@ -256,6 +256,23 @@ in business-detail API. No `NEXT_PUBLIC_*` companion.
 
 ---
 
+## Product Analytics (PostHog) — since 2026-05-24
+
+| Var | Default | Notes |
+|---|---|---|
+| `POSTHOG_API_KEY` | — (unset) | PostHog Cloud project key. **Optional** — when unset, `src/lib/analytics/posthog.ts` is a no-op, so local dev / tests / `next build` need no analytics secret. Worker/server-only (`posthog-node`); never expose a `NEXT_PUBLIC_*` companion. |
+| `POSTHOG_HOST` | `https://us.i.posthog.com` | PostHog ingestion host. Override for the EU region. |
+
+Analytics is **best-effort**: a capture/flush failure must never block
+publishing, owner approvals, or outbox completion. The worker flushes pending
+events on graceful shutdown (`shutdownAnalytics()` in `worker/index.ts`,
+guarded so a flush failure can't skip DB teardown). First event wired:
+`activation_completed` on the publisher posted-transition paths
+(`worker/jobs/publisher/activation.ts`). Not a feature flag — gated purely by
+key presence.
+
+---
+
 ## Google Maps
 
 | Var | Notes |

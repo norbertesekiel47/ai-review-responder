@@ -113,6 +113,14 @@ approval before posting.
 - JSONB via Postgres.js: use `jsonb()` helper (`sql.json(value)`, OID 3802).
   `${JSON.stringify(x)}::jsonb` double-encodes in Postgres.js v3.
 - Package manager: pnpm
+- Analytics: PostHog (`posthog-node`), worker/server-only via
+  `src/lib/analytics/posthog.ts`. No-op when `POSTHOG_API_KEY` is unset;
+  flushed on worker shutdown. Never `posthog-js` / Next.js routes (Vercel =
+  UI only). Activation (`activation_completed`) is captured on the publisher
+  path — see `worker/jobs/publisher/activation.ts`.
+- Account-status audit writes go through `src/lib/audit/log.ts`
+  (`writeAccountAuditLog`) in the SAME transaction as the state change — never
+  raw `INSERT INTO account_audit_log`.
 
 ## Worker layout
 
@@ -130,7 +138,7 @@ approval before posting.
 
 - All tables: UUIDv7 (time-ordered)
 - Base schema: `supabase/migrations/001_initial_schema.sql`
-- Current head: migration **042** (next: **043**)
+- Current head: migration **043** (next: **044**)
 - For migration details: see `.claude/skills/migrations.md`
 
 ## Non-obvious gotchas — read these before touching related code
