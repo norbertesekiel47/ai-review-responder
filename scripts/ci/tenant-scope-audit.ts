@@ -25,9 +25,18 @@ const TENANT_TABLES = [
   'account_audit_log',
   'notification_deliveries',
   'api_costs',
+  'weekly_summaries',
+  'monthly_impact_emails',
+  'onboarding_drip_log',
+  'satisfaction_responses',
+  'api_costs_daily_rollups',
   'review_exceptions',
   'ranking_snapshots',
   'zernio_connections',
+  'zernio_finalize_incidents',
+  'zernio_backfill_runs',
+  'sms_sender_opt_outs',
+  'sms_sender_opt_out_events',
 ] as const;
 
 type TenantTable = (typeof TENANT_TABLES)[number];

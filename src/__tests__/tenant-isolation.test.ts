@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import postgres from 'postgres';
 import type postgresType from 'postgres';
 import { randomUUID } from 'node:crypto';
@@ -11,6 +11,15 @@ const d = RUN ? describe : describe.skip;
 let db: postgresType.Sql | undefined;
 const createdAccountIds: string[] = [];
 const createdUserIds: string[] = [];
+
+type GetLocationsForAccount = typeof import('@/lib/locations/repo')['getLocationsForAccount'];
+type GetLocationContextForAccount =
+  typeof import('@/lib/db/account-guard')['getLocationContextForAccount'];
+type UpdateDisplayLabel = typeof import('@/lib/locations/update-display-label')['updateDisplayLabel'];
+
+let getLocationsForAccount: GetLocationsForAccount | undefined;
+let getLocationContextForAccount: GetLocationContextForAccount | undefined;
+let updateDisplayLabel: UpdateDisplayLabel | undefined;
 
 interface SeededTenant {
   accountId: string;
@@ -35,6 +44,22 @@ interface TenantReadRow {
 function sql(): postgresType.Sql {
   if (!db) throw new Error('tenant isolation test database was not initialized');
   return db;
+}
+
+function productionHelpers(): {
+  getLocationsForAccount: GetLocationsForAccount;
+  getLocationContextForAccount: GetLocationContextForAccount;
+  updateDisplayLabel: UpdateDisplayLabel;
+} {
+  if (!getLocationsForAccount || !getLocationContextForAccount || !updateDisplayLabel) {
+    throw new Error('tenant isolation production helpers were not initialized');
+  }
+
+  return {
+    getLocationsForAccount,
+    getLocationContextForAccount,
+    updateDisplayLabel,
+  };
 }
 
 function requiredId(id: string | undefined, label: string): string {
@@ -161,8 +186,13 @@ async function readTenantEvidence(accountId: string): Promise<TenantReadRow[]> {
 }
 
 d('tenant isolation integration', () => {
-  beforeAll(() => {
+  beforeAll(async () => {
+    process.env.DATABASE_POOL_URL = testDatabaseUrl!;
+    vi.resetModules();
     db = postgres(testDatabaseUrl!, { max: 1, prepare: false });
+    ({ getLocationsForAccount } = await import('@/lib/locations/repo'));
+    ({ getLocationContextForAccount } = await import('@/lib/db/account-guard'));
+    ({ updateDisplayLabel } = await import('@/lib/locations/update-display-label'));
   });
 
   afterAll(async () => {
@@ -176,6 +206,7 @@ d('tenant isolation integration', () => {
     const tenantAPrimaryBusinessId = requiredId(tenantA.businessIds[0], 'tenant A primary business id');
     const tenantBPrimaryBusinessId = requiredId(tenantB.businessIds[0], 'tenant B primary business id');
     const tenantBFirstResponseId = requiredId(tenantB.responseIds[0], 'tenant B first response id');
+    const helpers = productionHelpers();
 
     const tenantARows = await readTenantEvidence(tenantA.accountId);
     expect(tenantARows).toHaveLength(2);
@@ -211,27 +242,51 @@ d('tenant isolation integration', () => {
       { id: tenantA.channelEnrollmentId, account_id: tenantA.accountId },
     ]);
 
-    const ownBusinessUpdate = await sql()<{
-      id: string;
-    }[]>`
-      UPDATE businesses
-      SET display_label = 'Tenant A verified update', updated_at = NOW()
-      WHERE id = ${tenantAPrimaryBusinessId}::uuid
-        AND account_id = ${tenantA.accountId}::uuid
-      RETURNING id
-    `;
-    expect(ownBusinessUpdate).toEqual([{ id: tenantAPrimaryBusinessId }]);
+    const tenantALocations = await helpers.getLocationsForAccount(tenantA.accountId);
+    expect(tenantALocations).toHaveLength(2);
+    expect(tenantALocations.map((location) => location.account_id)).toEqual([
+      tenantA.accountId,
+      tenantA.accountId,
+    ]);
+    expect(tenantALocations.map((location) => location.id).sort()).toEqual(
+      [...tenantA.businessIds].sort(),
+    );
+    expect(
+      tenantALocations.some((location) => tenantB.businessIds.includes(location.id)),
+    ).toBe(false);
 
-    const crossBusinessUpdate = await sql()<{
-      id: string;
-    }[]>`
-      UPDATE businesses
-      SET display_label = 'cross-account leak', updated_at = NOW()
-      WHERE id = ${tenantBPrimaryBusinessId}::uuid
-        AND account_id = ${tenantA.accountId}::uuid
-      RETURNING id
-    `;
-    expect(crossBusinessUpdate).toEqual([]);
+    const crossAccountLocationContext = await helpers.getLocationContextForAccount(
+      tenantBPrimaryBusinessId,
+      tenantA.accountId,
+    );
+    expect(crossAccountLocationContext).toEqual({
+      kind: 'account_mismatch',
+      owningAccountId: tenantB.accountId,
+    });
+
+    await expect(
+      helpers.updateDisplayLabel(
+        tenantAPrimaryBusinessId,
+        tenantA.accountId,
+        'Tenant A verified update',
+        tenantA.userId,
+      ),
+    ).resolves.toEqual({
+      updated: true,
+      displayLabel: 'Tenant A verified update',
+    });
+
+    await expect(
+      helpers.updateDisplayLabel(
+        tenantBPrimaryBusinessId,
+        tenantA.accountId,
+        'cross-account leak',
+        tenantA.userId,
+      ),
+    ).resolves.toEqual({
+      updated: false,
+      displayLabel: 'cross-account leak',
+    });
 
     const crossResponseUpdate = await sql()<{
       id: string;

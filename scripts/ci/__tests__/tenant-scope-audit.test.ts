@@ -264,6 +264,8 @@ describe('tenant-scope-audit', () => {
     expect(tenantScopeAllowlist.filter((entry) => (
       entry.reason.trim().length === 0
       || /reviewed by the audit allowlist/i.test(entry.reason)
+      || /heuristic scanner cannot fully prove/i.test(entry.reason)
+      || /row identifier, business identifier, or auth-owned account path/i.test(entry.reason)
     ))).toEqual([]);
   });
 
@@ -285,6 +287,18 @@ describe('tenant-scope-audit', () => {
   it('fails unscoped channel_enrollments query', () => {
     expect(auditSqlText('src/example.ts', 'SELECT * FROM channel_enrollments')).toEqual(
       finding('src/example.ts', 'channel_enrollments'),
+    );
+  });
+
+  it('fails unscoped tenant tables from the RLS inventory', () => {
+    expect(auditSqlText('src/example.ts', 'SELECT * FROM weekly_summaries')).toEqual(
+      finding('src/example.ts', 'weekly_summaries'),
+    );
+    expect(auditSqlText('src/example.ts', 'SELECT * FROM zernio_backfill_runs')).toEqual(
+      finding('src/example.ts', 'zernio_backfill_runs'),
+    );
+    expect(auditSqlText('src/example.ts', 'SELECT * FROM sms_sender_opt_outs')).toEqual(
+      finding('src/example.ts', 'sms_sender_opt_outs'),
     );
   });
 
