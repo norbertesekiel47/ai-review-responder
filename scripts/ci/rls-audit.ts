@@ -8,6 +8,7 @@ export interface RlsRow {
 }
 
 export const REQUIRED_RLS_TABLES = [
+  'accounts',
   'businesses',
   'reviews',
   'responses',

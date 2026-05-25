@@ -24,6 +24,8 @@ const TENANT_TABLES = [
   'zernio_connections',
 ] as const;
 
+type TenantTable = (typeof TENANT_TABLES)[number];
+
 const SCANNED_ROOTS = ['src', 'worker'] as const;
 const UNSCOPED_REASON = 'missing account_id or business_id scope';
 const DUPLICATE_ALLOWLIST_REASON = 'duplicate tenant scope allowlist entry';
@@ -58,21 +60,28 @@ function boundValuePattern(): string {
   return String.raw`(?:\$\{[^}]+\}|\$\d+)(?:\s*::\s*[a-z_][\w]*(?:\[\])?)?`;
 }
 
-function hasBoundIdentifierPredicate(clauses: string[], identifier: string): boolean {
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function qualifiedIdentifier(alias: string, column: string): string {
+  return String.raw`(?<![\w$])"?${escapeRegExp(alias)}"?\s*\.\s*"?${column}"?`;
+}
+
+function unqualifiedIdentifier(column: string): string {
+  return String.raw`(?<![\w$.])"?${column}"?`;
+}
+
+function hasBoundIdentifierPredicate(clauses: string[], identifiers: string[]): boolean {
   const boundValue = boundValuePattern();
-  const leftHandScope = [
+  const patterns = identifiers.flatMap((identifier) => [
     new RegExp(String.raw`${identifier}\s*=\s*${boundValue}(?=\s|,|\)|;|$)`, 'i'),
     new RegExp(String.raw`${identifier}\s+\bin\b\s*\(\s*${boundValue}`, 'i'),
     new RegExp(String.raw`${identifier}\s*=\s*\b(?:any|some)\s*\(\s*${boundValue}`, 'i'),
-  ];
-  const rightHandScope = new RegExp(
-    String.raw`${boundValue}\s*=\s*${identifier}(?=\s|,|\)|;|$)`,
-    'i',
-  );
+    new RegExp(String.raw`${boundValue}\s*=\s*${identifier}(?=\s|,|\)|;|$)`, 'i'),
+  ]);
 
-  return clauses.some((clause) =>
-    leftHandScope.some((pattern) => pattern.test(clause)) || rightHandScope.test(clause),
-  );
+  return clauses.some((clause) => patterns.some((pattern) => pattern.test(clause)));
 }
 
 function tableAliases(sqlText: string, table: string): string[] {
@@ -94,22 +103,126 @@ function tableAliases(sqlText: string, table: string): string[] {
   return Array.from(aliases);
 }
 
-function hasTenantScope(sqlText: string): boolean {
-  const clauses = predicateClauses(sqlText);
-  const tenantColumnIdentifier = String.raw`(?:"?[a-z_][\w$]*"?\s*\.\s*)?"?(?:account_id|business_id)"?`;
-  if (hasBoundIdentifierPredicate(clauses, tenantColumnIdentifier)) return true;
+function hasIdentifierRelationship(
+  clauses: string[],
+  leftIdentifier: string,
+  rightIdentifier: string,
+): boolean {
+  const leftToRight = new RegExp(String.raw`${leftIdentifier}\s*=\s*${rightIdentifier}`, 'i');
+  const rightToLeft = new RegExp(String.raw`${rightIdentifier}\s*=\s*${leftIdentifier}`, 'i');
+  return clauses.some((clause) => leftToRight.test(clause) || rightToLeft.test(clause));
+}
 
-  if (referencesTenantTable(sqlText, 'accounts')) {
-    for (const alias of tableAliases(sqlText, 'accounts')) {
-      const identifier = String.raw`(?:(?:"?${alias}"?\s*\.\s*)?)"?id"?`;
-      if (hasBoundIdentifierPredicate(clauses, identifier)) return true;
+function referencedTenantTables(sqlText: string): TenantTable[] {
+  return TENANT_TABLES.filter((table) => referencesTenantTable(sqlText, table));
+}
+
+function accountAliasScoped(clauses: string[], alias: string, allowUnqualified: boolean): boolean {
+  const identifiers = [qualifiedIdentifier(alias, 'id')];
+  if (allowUnqualified) identifiers.push(unqualifiedIdentifier('id'));
+  return hasBoundIdentifierPredicate(clauses, identifiers);
+}
+
+function businessAliasDirectlyScoped(
+  clauses: string[],
+  alias: string,
+  allowUnqualified: boolean,
+): boolean {
+  const identifiers = [
+    qualifiedIdentifier(alias, 'id'),
+    qualifiedIdentifier(alias, 'account_id'),
+  ];
+  if (allowUnqualified) {
+    identifiers.push(unqualifiedIdentifier('id'), unqualifiedIdentifier('account_id'));
+  }
+  return hasBoundIdentifierPredicate(clauses, identifiers);
+}
+
+function businessAliasScoped(
+  sqlText: string,
+  clauses: string[],
+  businessAlias: string,
+  allowUnqualified: boolean,
+): boolean {
+  if (businessAliasDirectlyScoped(clauses, businessAlias, allowUnqualified)) return true;
+
+  for (const accountAlias of tableAliases(sqlText, 'accounts')) {
+    const accountScoped = accountAliasScoped(
+      clauses,
+      accountAlias,
+      tableAliases(sqlText, 'accounts').length === 1,
+    );
+    if (!accountScoped) continue;
+    if (hasIdentifierRelationship(
+      clauses,
+      qualifiedIdentifier(businessAlias, 'account_id'),
+      qualifiedIdentifier(accountAlias, 'id'),
+    )) {
+      return true;
     }
   }
 
-  if (referencesTenantTable(sqlText, 'businesses')) {
-    for (const alias of tableAliases(sqlText, 'businesses')) {
-      const identifier = String.raw`(?:(?:"?${alias}"?\s*\.\s*)?)"?id"?`;
-      if (hasBoundIdentifierPredicate(clauses, identifier)) return true;
+  return false;
+}
+
+function tenantAliasDirectlyScoped(
+  clauses: string[],
+  alias: string,
+  allowUnqualified: boolean,
+): boolean {
+  const identifiers = [
+    qualifiedIdentifier(alias, 'account_id'),
+    qualifiedIdentifier(alias, 'business_id'),
+  ];
+  if (allowUnqualified) {
+    identifiers.push(unqualifiedIdentifier('account_id'), unqualifiedIdentifier('business_id'));
+  }
+  return hasBoundIdentifierPredicate(clauses, identifiers);
+}
+
+function hasTenantScopeForTable(
+  sqlText: string,
+  table: TenantTable,
+  referencedTables: readonly TenantTable[],
+): boolean {
+  const clauses = predicateClauses(sqlText);
+  const aliases = tableAliases(sqlText, table);
+  const allowUnqualified = aliases.length === 1 && referencedTables.length === 1;
+
+  if (table === 'accounts') {
+    if (aliases.some((alias) => accountAliasScoped(clauses, alias, aliases.length === 1))) {
+      return true;
+    }
+    for (const businessAlias of tableAliases(sqlText, 'businesses')) {
+      if (!businessAliasDirectlyScoped(clauses, businessAlias, false)) continue;
+      if (aliases.some((accountAlias) => hasIdentifierRelationship(
+        clauses,
+        qualifiedIdentifier(businessAlias, 'account_id'),
+        qualifiedIdentifier(accountAlias, 'id'),
+      ))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  if (table === 'businesses') {
+    return aliases.some((alias) => businessAliasScoped(sqlText, clauses, alias, aliases.length === 1));
+  }
+
+  if (aliases.some((alias) => tenantAliasDirectlyScoped(clauses, alias, allowUnqualified))) {
+    return true;
+  }
+
+  for (const alias of aliases) {
+    for (const businessAlias of tableAliases(sqlText, 'businesses')) {
+      const relatedToBusiness = hasIdentifierRelationship(
+        clauses,
+        qualifiedIdentifier(alias, 'business_id'),
+        qualifiedIdentifier(businessAlias, 'id'),
+      );
+      if (!relatedToBusiness) continue;
+      if (businessAliasScoped(sqlText, clauses, businessAlias, false)) return true;
     }
   }
 
@@ -193,14 +306,13 @@ export function auditSqlText(
   if (!hasReadOrMutationStatement(sqlForScan)) return [];
 
   const findings: TenantScopeFinding[] = [];
-  const scoped = hasTenantScope(sqlForScan);
-  for (const table of TENANT_TABLES) {
-    if (!referencesTenantTable(sqlForScan, table)) continue;
+  const referencedTables = referencedTenantTables(sqlForScan);
+  for (const table of referencedTables) {
     const allowlistEntry = getAllowlistEntry(normalizedFile, table, sqlForScan);
     if (allowlistEntry) {
       usedAllowlistKeys?.add(allowlistKey(allowlistEntry));
     }
-    if (scoped) continue;
+    if (hasTenantScopeForTable(sqlForScan, table, referencedTables)) continue;
     if (allowlistEntry) {
       continue;
     }

@@ -51,6 +51,36 @@ describe('tenant-scope-audit', () => {
     ]);
   });
 
+  it('fails row-id predicate joined to businesses without bound account or business scope', () => {
+    expect(
+      auditSqlText(
+        'src/example.ts',
+        'SELECT r.* FROM reviews r JOIN businesses b ON b.id = r.business_id WHERE r.id = ${reviewId}',
+      ),
+    ).toEqual([
+      ...finding('src/example.ts', 'businesses'),
+      ...finding('src/example.ts', 'reviews'),
+    ]);
+  });
+
+  it('does not let an unrelated scoped subquery scope an outer tenant table', () => {
+    expect(
+      auditSqlText(
+        'src/example.ts',
+        'SELECT * FROM reviews WHERE EXISTS (SELECT 1 FROM businesses WHERE account_id = ${accountId})',
+      ),
+    ).toEqual(finding('src/example.ts', 'reviews'));
+  });
+
+  it('passes tenant table joined through a scoped business', () => {
+    expect(
+      auditSqlText(
+        'src/example.ts',
+        'SELECT r.* FROM reviews r JOIN businesses b ON b.id = r.business_id WHERE b.account_id = ${accountId}',
+      ),
+    ).toEqual([]);
+  });
+
   it('fails unscoped tenant table query', () => {
     expect(auditSqlText('src/example.ts', 'SELECT * FROM reviews')).toEqual(finding('src/example.ts', 'reviews'));
   });
