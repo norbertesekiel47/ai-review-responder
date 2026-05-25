@@ -307,6 +307,9 @@ async function shutdown(): Promise<void> {
   await Promise.all(Object.values(queues).map((q) => q.close()));
   await app.close();
 
+  const { shutdownAnalytics } = await import('../src/lib/analytics/posthog');
+  await shutdownAnalytics();
+
   const { sql } = await import('../src/lib/db/server');
   await sql.end();
 
