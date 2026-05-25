@@ -43,19 +43,27 @@ describe('migration 043 — account_audit_log metadata', () => {
   });
 
   it('does not create account_memberships in this slice', () => {
-    expect(sql).not.toMatch(/CREATE TABLE IF NOT EXISTS account_memberships/i);
+    expect(sql).not.toMatch(/CREATE\s+TABLE\b[^;]*\baccount_memberships\b[^;]*;/i);
   });
 
   it('does not create new audit indexes without a matching query', () => {
-    expect(sql).not.toMatch(/CREATE INDEX IF NOT EXISTS .*account_audit.*entity/i);
-    expect(sql).not.toMatch(/CREATE INDEX IF NOT EXISTS .*account_audit.*request/i);
+    expect(sql).not.toMatch(
+      /CREATE\s+INDEX\b[^;]*\baccount_audit\b[^;]*\bentity\b[^;]*;/i,
+    );
+    expect(sql).not.toMatch(
+      /CREATE\s+INDEX\b[^;]*\baccount_audit\b[^;]*\brequest\b[^;]*;/i,
+    );
   });
 });
 
 describe('migration 043 — additive and idempotent', () => {
   it('uses IF NOT EXISTS for every added column', () => {
-    const additions = sql.match(/ADD COLUMN IF NOT EXISTS/gi) ?? [];
+    const additions = sql.match(/ADD\s+COLUMN\b/gi) ?? [];
+    const idempotentAdditions =
+      sql.match(/ADD\s+COLUMN\s+IF\s+NOT\s+EXISTS\b/gi) ?? [];
+
     expect(additions.length).toBeGreaterThanOrEqual(6);
+    expect(idempotentAdditions).toHaveLength(additions.length);
   });
 
   it('does not drop tables, columns, or mutate data', () => {
