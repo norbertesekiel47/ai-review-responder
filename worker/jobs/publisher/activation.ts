@@ -26,6 +26,13 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/**
+ * Best-effort activation capture for a just-posted response.
+ *
+ * Never throws: all failures (query or analytics) are swallowed and logged via
+ * `input.logger`. Callers may invoke it without their own try/catch and rely on
+ * this contract to keep analytics from blocking outbox completion.
+ */
 export async function maybeCaptureActivationCompleted(
   input: PostedResponseActivationInput,
 ): Promise<void> {
@@ -56,6 +63,10 @@ export async function maybeCaptureActivationCompleted(
         AND r.business_id = ${input.businessId}::uuid
         AND r.status = 'posted'
         AND r.posted_at IS NOT NULL
+        -- Activation can only fire within 7 days of account creation, so skip
+        -- the first-post lookup for older accounts. The 8-day window is a safe
+        -- superset; the precise 7-day gate is enforced in code below.
+        AND a.created_at >= NOW() - INTERVAL '8 days'
       LIMIT 1
     `;
 

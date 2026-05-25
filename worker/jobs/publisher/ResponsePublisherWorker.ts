@@ -152,13 +152,7 @@ export async function handlePublishResponse(
       switch (result.outcome) {
         case 'completed':
           if (result.postedResponse) {
-            try {
-              await maybeCaptureActivationCompleted(result.postedResponse);
-            } catch (err) {
-              logger.warn(
-                `activation_completed capture failed for response ${result.postedResponse.responseId}: ${err instanceof Error ? err.message : String(err)}`,
-              );
-            }
+            await maybeCaptureActivationCompleted(result.postedResponse);
           }
           await markOutboxCompleted(outboxId, outboxAttempt);
           return;
@@ -200,18 +194,12 @@ export async function handlePublishResponse(
     `Response ${response_id} posted via Zernio for business ${businessId}`,
   );
 
-  try {
-    await maybeCaptureActivationCompleted({
-      responseId: response_id,
-      businessId,
-      reviewId: response.review_id,
-      logger,
-    });
-  } catch (err) {
-    logger.warn(
-      `activation_completed capture failed for response ${response_id}: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
+  await maybeCaptureActivationCompleted({
+    responseId: response_id,
+    businessId,
+    reviewId: response.review_id,
+    logger,
+  });
 
   await markOutboxCompleted(outboxId, outboxAttempt);
 }

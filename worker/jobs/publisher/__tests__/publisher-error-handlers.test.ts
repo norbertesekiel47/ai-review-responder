@@ -238,25 +238,6 @@ describe('verify409AndDispose', () => {
     expect(markOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
   });
 
-  it('best effort activation: capture failure still completes outbox and returns posted', async () => {
-    const { zernioClient } = await import('@/lib/zernio/client');
-    const { getCachedZernioReviewPage } = await import('@/lib/publishing/zernio-publisher');
-    const { markOutboxCompleted } = await import('@/lib/shared/outbox');
-    const { sql } = await import('@/lib/db/server');
-
-    vi.mocked(maybeCaptureActivationCompleted).mockRejectedValueOnce(new Error('analytics down'));
-    (getCachedZernioReviewPage as ReturnType<typeof vi.fn>).mockResolvedValue(null);
-    (zernioClient as any).listAllReviews = vi.fn().mockResolvedValue([
-      makeZernioReviewWith('Thank you!'),
-    ]);
-    (sql as any).mockResolvedValue(Object.assign([], { count: 1 }));
-
-    const result = await verify409AndDispose(baseArgs);
-
-    expect(result).toEqual({ outcome: 'posted' });
-    expect(markOutboxCompleted).toHaveBeenCalledWith('outbox-1', 1);
-  });
-
   it('superseded: text mismatch → UPDATE superseded + markOutboxCompleted, returns { outcome: superseded }', async () => {
     const { zernioClient } = await import('@/lib/zernio/client');
     const { getCachedZernioReviewPage } = await import('@/lib/publishing/zernio-publisher');

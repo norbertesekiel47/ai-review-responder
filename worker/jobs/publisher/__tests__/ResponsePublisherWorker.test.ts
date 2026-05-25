@@ -315,26 +315,6 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
   });
 
-  it('still completes outbox when activation capture rejects after publish success', async () => {
-    pushZernioSuccessSequence();
-    mockLookupZernioReviewId.mockResolvedValueOnce('zernio-rev-id-1');
-    mockPostReply.mockResolvedValueOnce({
-      comment: 'Thank you for your kind review!',
-      updateTime: '2026-04-27T00:00:00Z',
-    });
-    mockMaybeCaptureActivationCompleted.mockRejectedValueOnce(new Error('analytics down'));
-
-    await expect(handlePublishResponse(makeJob())).resolves.toBeUndefined();
-
-    expect(mockMaybeCaptureActivationCompleted).toHaveBeenCalledWith({
-      responseId: 'resp-1',
-      businessId: 'biz-1',
-      reviewId: 'rev-1',
-      logger: expect.any(Object),
-    });
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
-  });
-
   // ── Branch B: ZernioReviewNotFoundError → terminal failed + exception
 
   it('opens review_exception and marks response failed on review-not-found', async () => {
