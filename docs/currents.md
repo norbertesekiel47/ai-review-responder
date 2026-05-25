@@ -208,7 +208,7 @@ The approval flow, response generation, Zernio ingestion, and review dedup logic
 
 ### What got better as a side effect
 
-- Auth is now triple-gated for owner mutations: middleware role + account_id check, then in-route `requireRole('owner')`, then per-resource ownership lookup against the session's account. Closes IDOR risks that were possible in the original single-location code if URLs leaked.
+- Auth is now triple-gated for owner mutations: proxy role + account_id check, then in-route `requireRole('owner')`, then per-resource ownership lookup against the session's account. Closes IDOR risks that were possible in the original single-location code if URLs leaked.
 - Channel cache invalidation now logs Redis hiccups via `safeInvalidateChannelCache` instead of `.catch(() => {})`. TCPA-relevant cache staleness is no longer silently masked.
 - Migration 040+041 tightened RLS on `businesses` and `channel_enrollments` — owners can only directly UPDATE the safe columns (tone, products_services, etc.); subscription / Stripe / `is_primary` / `archived_at` columns require service-role + the dedicated transaction paths.
 - Eight new lab notes captured in `.claude/skills/lab-notes.md` — including the "column-level REVOKE doesn't override a table-level GRANT" gotcha and the "FOR UPDATE outside `sql.begin()` is a no-op under PgBouncer" gotcha.
@@ -587,7 +587,7 @@ We built the full admin interface, payment integration, and security hardening �
 **Authentication (Prompt 14a):**
 
 - Supabase Auth with `@supabase/ssr` — cookie-based sessions, email/password login
-- Middleware rewrote: session refresh + role-based route protection (admin/sales_partner for admin pages, owner for dashboard)
+- Proxy rewrote: session refresh + role-based route protection (admin/sales_partner for admin pages, owner for dashboard)
 - `requireRole()` defense-in-depth on every admin API route
 - Old API key auth completely removed
 - RLS policy: users can only read their own row
@@ -699,7 +699,7 @@ We built everything needed to prove ROI to business owners and detect churn risk
 - Dashboard page with 5 sections: Value Summary Banner (blue gradient, reviews handled + time saved + response rate with baseline comparison), Review Velocity bar chart (recharts, last 8 weeks with zero-week fill), conditional Google Maps Ranking line chart (Y-axis inverted, one line per keyword, limited to 12 months), Recent Reviews list (last 10 with color-coded status badges, expandable approved response text, "check your email" for pending), Latest Intelligence Brief (most recent by `sent_at`, monthly preferred over weekly)
 - OwnerNav component with business name + sign-out button (error handling on sign-out failure)
 - Authenticated layout shell reads Supabase session, queries business name, renders OwnerNav
-- Middleware protects `/api/dashboard` for owner role with no-store headers on 401/403
+- Proxy protects `/api/dashboard` for owner role with no-store headers on 401/403
 
 **Engagement Detection & Re-engagement (Prompt 19d):**
 
@@ -731,11 +731,11 @@ We built everything needed to prove ROI to business owners and detect churn risk
 | ------------------------- | ---------------------------------------------------------------------------------------------- |
 | `package.json`            | Dependencies and scripts: `pnpm dev`, `pnpm worker`, `pnpm test`, `pnpm build`                 |
 | `tsconfig.json`           | TypeScript strict mode, path aliases (`@/` → `./src/`)                                         |
-| `next.config.mjs`         | Next.js 14 config, wrapped with Sentry, security headers (HSTS, CSP, X-Frame-Options, nosniff) |
+| `next.config.mjs`         | Next.js 16 config, wrapped with Sentry, security headers (HSTS, CSP, X-Frame-Options, nosniff) |
 | `sentry.client.config.ts` | Sentry browser-side init with sensitive data scrubbing                                         |
 | `sentry.server.config.ts` | Sentry server-side init with sensitive data scrubbing                                          |
-| `sentry.edge.config.ts`   | Sentry Edge Runtime init (for middleware)                                                      |
-| `tailwind.config.ts`      | Tailwind CSS setup                                                                             |
+| `sentry.edge.config.ts`   | Sentry Edge Runtime init (for proxy)                                                           |
+| `tailwind.config.mjs`     | Tailwind CSS setup                                                                             |
 | `postcss.config.mjs`      | PostCSS + Tailwind + Autoprefixer                                                              |
 | `vitest.config.ts`        | Test runner config: includes `src/**/__tests__/**` and `worker/**/__tests__/**`                |
 | `playwright.config.ts`    | E2E test config (tests scaffolded, not yet implemented)                                        |
@@ -957,7 +957,7 @@ Runs on Railway. Handles all background jobs — review syncing, AI generation, 
 | `src/components/DashboardContent.tsx`  | Owner dashboard client component — value summary banner, velocity BarChart, ranking LineChart (recharts), recent reviews with status badges + expandable responses, intelligence brief                                |
 | `src/components/AdminNav.tsx`          | Admin navigation bar with responsive mobile menu                                                                                                                                                                      |
 | `src/components/PlaceAutocomplete.tsx` | Google Maps Place Autocomplete input for business onboarding                                                                                                                                                          |
-| `src/middleware.ts`                    | Supabase Auth session refresh + role-based route protection. Admin/sales*partner for /admin/*, owner for /dashboard/\_ and /api/dashboard (with no-store headers). Uses HTTP-based Supabase client (Edge-compatible). |
+| `src/proxy.ts`                         | Supabase Auth session refresh + role-based route protection. Admin/sales*partner for /admin/*, owner for /dashboard/\_ and /api/dashboard (with no-store headers). Uses HTTP-based Supabase client (Edge-compatible). |
 
 ### Tests (`src/lib/*/__tests__/`)
 
@@ -1273,7 +1273,7 @@ reachable from there, annotated with auth requirements and redirects.
 │      → else → /dashboard
 │
 └─[sign-in succeeds, role unknown / missing]→ /admin/overview
-       (middleware will bounce if role doesn't fit)
+       (proxy will bounce if role doesn't fit)
 
 
 ───── Admin branch (role = admin | sales_partner) ────────────────────
@@ -1452,9 +1452,9 @@ email send, so they don't appear in any page-level navigation graph.
 | Admin exception alert (internal)                                  | _(read-only)_                               | _(admin reads alert)_                                          |
 | Notification failover re-send (transactional)                     | "Review & Approve"                          | `/approve/[token]` (replacement link)                          |
 
-### Middleware Redirect Behavior
+### Proxy Redirect Behavior
 
-`src/middleware.ts` guards every page and API route. The behavior
+`src/proxy.ts` guards every page and API route. The behavior
 matters for knowing where unauthenticated requests end up:
 
 | Route pattern                               | Unauthenticated / wrong role     | Authenticated with correct role                             |
@@ -1654,7 +1654,7 @@ _(Additions and changes from Sprint 5B are marked with 🆕 for new files and �
 
 | File                   | What changed                                                              |
 | ---------------------- | ------------------------------------------------------------------------- |
-| 📝 `src/middleware.ts` | Added `/api/settings` to owner route protection                           |
+| 📝 `src/proxy.ts`      | Added `/api/settings` to owner route protection                           |
 | 📝 `.env.example`      | Added `RANKING_TRACKING_ENABLED=false` and `RANKING_TRACKING_INTERVAL_MS` |
 
 ---
@@ -2334,7 +2334,7 @@ src/
 │   │   └── schemas.ts                    ← +SignupSchema +FinishSignupSchema +VerifyEmailOtpSchema +SelectPlanSchema +ResendConfirmationSchema +ResetPasswordSchema +ForgotPasswordSchema (MOD)
 │   ├── payments/payment-link.ts          ← buildPaymentLinkUrl (NEW)
 │   └── onboarding/create-business.ts     ← extracted createBusinessTx admin/self_serve modes (NEW)
-└── middleware.ts                         ← +/onboarding gating, +flow-aware redirects (MOD)
+└── proxy.ts                              ← +/onboarding gating, +flow-aware redirects (MOD)
 
 worker/
 ├── jobs/
@@ -2399,7 +2399,7 @@ The headline issue was a **"could-have-deleted-a-paid-customer" bug** in the cle
 
 4. **Admin-onboarding route is now atomic.** APP_URL is validated BEFORE any DB writes; the `auth_id` link UPDATE uses `RETURNING id` and hard-fails (not soft-warns) if 0 rows match; rollback wraps job_outbox + users + businesses deletes in a single tx with FK-aware ordering. The previous soft-success path silently shipped admin-created businesses with broken auth.
 
-5. **Auth-callback signOut now actually clears cookies.** The two `account_incomplete` branches were calling `signOut()` but the redirect they returned didn't copy the cleared cookies — browser kept the bad session and middleware-redirect-looped. Both branches now copy `response.cookies.getAll()` onto the redirect (matches the success path).
+5. **Auth-callback signOut now actually clears cookies.** The two `account_incomplete` branches were calling `signOut()` but the redirect they returned didn't copy the cleared cookies — browser kept the bad session and proxy-redirect-looped. Both branches now copy `response.cookies.getAll()` onto the redirect (matches the success path).
 
 6. **Google Maps URL validation matches the worker's actual contract.** Before: any non-empty string passed; we'd write `google_maps_url` and the wizard guard treats the business as onboarded → owner sat on /dashboard with no Place ID because the worker silently failed validation. Now: schema validates host shape (Google Maps domains only) AND calls `parseGoogleMapsUrl()` to confirm the URL yields either a valid Place ID OR (businessName + coordinates) — the exact input contract the PlaceIdValidationWorker requires.
 
@@ -2407,7 +2407,7 @@ The headline issue was a **"could-have-deleted-a-paid-customer" bug** in the cle
 
 8. **Pay page redirect matches the documented flow.** Active+not-onboarded owners now go to `/onboarding/business` (the wizard) instead of `/dashboard` — same as `PaymentSuccessClient` already does.
 
-9. **`/api/onboarding/*` enforces owner role at SQL.** Middleware doesn't gate `/api/*` routes — was relying on auth_id → business_id alone. An admin/sales_partner with a misconfigured users.business_id could submit owner-only endpoints. SQL filters now have `AND u.role = 'owner'`.
+9. **`/api/onboarding/*` enforces owner role at SQL.** Proxy doesn't gate `/api/*` routes — was relying on auth_id → business_id alone. An admin/sales_partner with a misconfigured users.business_id could submit owner-only endpoints. SQL filters now have `AND u.role = 'owner'`.
 
 10. **Schema XOR alignment.** Both onboarding schemas (admin + owner) now require exactly one of `googlePlaceId` or `googleMapsUrl`, not both — was diverging silently downstream.
 
@@ -2417,7 +2417,7 @@ The headline issue was a **"could-have-deleted-a-paid-customer" bug** in the cle
 
 13. **Rate-limit error responses now have human-readable `message` fields.** Was leaking machine codes (`rate_limited`, `rate_limit_unavailable`) directly into the form's error display. Server provides messages, client also has a fallback `KNOWN_MESSAGES` map for defense-in-depth.
 
-14. **Middleware sends admins on `/onboarding/*` to `/admin/overview` instead of `/login`.** Was forcing them to re-authenticate when they were already correctly logged in.
+14. **Proxy sends admins on `/onboarding/*` to `/admin/overview` instead of `/login`.** Was forcing them to re-authenticate when they were already correctly logged in.
 
 ### Files added/changed in B15–B20
 
@@ -2442,7 +2442,7 @@ MODIFIED:
   src/app/onboarding/pay/page.tsx                               ← active+not-onboarded → /onboarding/business
 
   src/lib/shared/schemas.ts                                      ← googleMapsUrlSchema + isPlaceId alignment + admin XOR
-  src/middleware.ts                                              ← admin role → /admin/overview not /login
+  src/proxy.ts                                                   ← admin role → /admin/overview not /login
 
   src/lib/shared/__tests__/signup-schemas.test.ts               ← 11 new schema tests (URL + XOR)
   src/app/api/onboarding/__tests__/select-plan.test.ts          ← race_lost test + role-filter pin
@@ -3040,4 +3040,3 @@ src/
 ### One thing to remember
 
 Money math (how many locations are included, and the per-extra overage price) is read from **stored columns on the account**, frozen at the time you signed up — not from the live price table. The one exception is the **base monthly price**, which still comes from the live table because there's no stored column for it yet. That matters most for Founding Members ("rate locked for life") — see the TODO in `quota.ts` and the runbook's Known Issues.
-

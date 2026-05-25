@@ -4,7 +4,7 @@ import { isProtectedRoute } from '@/lib/shared/protected-routes';
 
 // Role lookups use the cookie-bound anon client below, relying on the
 // users_self_select RLS policy (migration 006) that lets any authenticated
-// user read their own row. Removes SUPABASE_SERVICE_KEY from Edge middleware
+// user read their own row. Removes SUPABASE_SERVICE_KEY from Edge proxy
 // so a service-role secret isn't required — and doesn't get used — on every
 // protected request.
 //
@@ -12,7 +12,7 @@ import { isProtectedRoute } from '@/lib/shared/protected-routes';
 // users.account_id. The readSelf() function now selects account_id instead
 // of business_id. Validation contract: VAL-AUTH-029.
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   // ── Public paths: skip Supabase work ──────────────────────────────
   const { pathname } = request.nextUrl;
   if (!isProtectedRoute(pathname)) {

@@ -1,6 +1,6 @@
 'use client';
 
-// Auth: Supabase session checked by src/middleware.ts (admin role required)
+// Auth: Supabase session checked by src/proxy.ts (admin role required)
 
 import { useParams } from 'next/navigation';
 import Link from 'next/link';

@@ -60,7 +60,7 @@
 
 6. **Created configuration files:**
    - `next.config.mjs` — React strict mode, postgres in serverComponentsExternalPackages
-   - `tailwind.config.ts` — Content paths for `src/app/` and `src/components/`
+   - `tailwind.config.mjs` — Content paths for `src/app/` and `src/components/`
    - `postcss.config.mjs` — Tailwind + Autoprefixer
    - `.eslintrc.json` — extends `next/core-web-vitals`
    - `.gitignore` — node_modules, .next, .env.local, etc.

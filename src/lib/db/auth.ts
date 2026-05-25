@@ -38,7 +38,7 @@ export async function getCurrentUser(
         },
         setAll() {
           // Route handlers can't set cookies on a request object.
-          // Session refresh is handled by middleware.
+          // Session refresh is handled by proxy.
         },
       },
     },

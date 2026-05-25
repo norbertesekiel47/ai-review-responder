@@ -26,7 +26,7 @@ const PUBLIC: string[] = [
   '/api/auth/verify-otp',
   '/api/auth/callback',
   // API-side onboarding routes follow the same pattern as /api/auth/*:
-  // middleware classifies them as public (so it doesn't set up a Supabase
+  // proxy classifies them as public (so it doesn't set up a Supabase
   // client per request) and the route handlers do their own session
   // reads + role checks internally. NOT under /onboarding/* — that prefix
   // gates only the SSR pages.
@@ -67,7 +67,7 @@ describe('isProtectedRoute', () => {
   });
 
   // Trailing-slash normalization. Next.js's default trailingSlash: false
-  // redirects /x/ → /x, but that runs AFTER middleware sees the path —
+  // redirects /x/ → /x, but that runs AFTER proxy sees the path —
   // without normalization the exemption checks miss and public routes
   // wrongly fall through to the protected prefix branches.
   describe('trailing slash normalization', () => {

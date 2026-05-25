@@ -5,7 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { DemoListItem } from '@/lib/demos/types';
 import { PlaceAutocomplete, type PlaceSelection } from '@/components/PlaceAutocomplete';
 
-// Auth: Supabase session checked by src/middleware.ts (admin role required)
+// Auth: Supabase session checked by src/proxy.ts (admin role required)
 
 export default function AdminDemosPage() {
   return (

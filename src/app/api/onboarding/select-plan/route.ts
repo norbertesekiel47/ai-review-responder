@@ -147,12 +147,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // We need the business_id to take the per-business lock, but we don't
   // know it yet — a single round to find it doesn't need locking because
   // we re-validate everything once we own the lock.
-  // Owner-only filter at the SQL boundary. Middleware does NOT gate
+  // Owner-only filter at the SQL boundary. Proxy does NOT gate
   // `/api/onboarding/*` on role, so an admin/sales_partner session
   // calling this directly would otherwise hit whichever business their
   // account points at via the primary location. Returning
   // 404 on non-owner sessions keeps this an authorization invariant
-  // independent of middleware.
+  // independent of proxy.
   const lookup = await sql<{ id: string; owner_email: string }[]>`
     SELECT b.id, b.owner_email
     FROM users u

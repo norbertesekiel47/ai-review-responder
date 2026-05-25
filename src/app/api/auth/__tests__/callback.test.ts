@@ -105,7 +105,7 @@ describe('GET /api/auth/callback', () => {
   });
 
   it('redirects to /admin/login when code+token_hash missing AND no flow (loginUrlForFlow default — spec §3.5)', async () => {
-    // Legacy callers (middleware redirects, manual URLs without ?flow=) land
+    // Legacy callers (proxy redirects, manual URLs without ?flow=) land
     // on /admin/login. Owner flows always pass flow=owner explicitly.
     const res = await GET(mkReq(buildUrl({})));
     expect(res.headers.get('Location')).toBe(
