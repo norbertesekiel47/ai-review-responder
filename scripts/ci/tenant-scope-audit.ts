@@ -1,7 +1,7 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { tenantScopeAllowlist } from './tenant-scope-allowlist';
+import { tenantScopeAllowlist, type TenantScopeAllowlistEntry } from './tenant-scope-allowlist';
 
 export interface TenantScopeFinding {
   file: string;
@@ -19,11 +19,15 @@ const TENANT_TABLES = [
   'account_audit_log',
   'notification_deliveries',
   'api_costs',
+  'review_exceptions',
+  'ranking_snapshots',
   'zernio_connections',
 ] as const;
 
 const SCANNED_ROOTS = ['src', 'worker'] as const;
 const UNSCOPED_REASON = 'missing account_id or business_id scope';
+const DUPLICATE_ALLOWLIST_REASON = 'duplicate tenant scope allowlist entry';
+const UNUSED_ALLOWLIST_REASON = 'unused tenant scope allowlist entry';
 
 function normalizePath(file: string): string {
   return file.split(sep).join('/');
@@ -35,12 +39,31 @@ function stripSqlComments(sqlText: string): string {
     .replace(/--.*$/gm, ' ');
 }
 
+function normalizeSql(sqlText: string): string {
+  return sqlText.replace(/\s+/g, ' ').trim();
+}
+
 function hasReadOrMutationStatement(sqlText: string): boolean {
   return /\b(select|update|delete)\b/i.test(sqlText);
 }
 
 function hasTenantScope(sqlText: string): boolean {
-  return /\b(account_id|business_id)\b/i.test(sqlText);
+  const normalizedSql = normalizeSql(sqlText);
+  const predicateClauses = normalizedSql.match(
+    /\b(?:where|on|having)\b[\s\S]*?(?=\b(?:where|on|having|group\s+by|order\s+by|limit|offset|returning|union|except|intersect)\b|$)/gi,
+  ) ?? [];
+
+  const identifier = String.raw`(?:"?[a-z_][\w$]*"?\s*\.\s*)?"?(?:account_id|business_id)"?`;
+  const leftHandScope = new RegExp(
+    String.raw`${identifier}\s*(?:=|<>|!=|<=|>=|<|>|\b(?:not\s+)?in\b|=\s*\b(?:any|some|all)\s*\()`,
+    'i',
+  );
+  const rightHandScope = new RegExp(
+    String.raw`(?:=|<>|!=|<=|>=|<|>)\s*${identifier}(?=\s|,|\)|;|$)`,
+    'i',
+  );
+
+  return predicateClauses.some((clause) => leftHandScope.test(clause) || rightHandScope.test(clause));
 }
 
 function referencesTenantTable(sqlText: string, table: string): boolean {
@@ -59,13 +82,62 @@ function referencesTenantTable(sqlText: string, table: string): boolean {
   return patterns.some((pattern) => new RegExp(pattern, 'i').test(sqlText));
 }
 
-function hasAllowlistEntry(file: string, table: string): boolean {
-  return tenantScopeAllowlist.some(
-    (entry) => entry.file === file && entry.table === table && entry.reason.trim().length > 0,
+function allowlistKey(entry: TenantScopeAllowlistEntry): string {
+  return `${entry.file}\0${entry.table}\0${normalizeSql(entry.sqlSnippet)}`;
+}
+
+function getAllowlistEntry(
+  file: string,
+  table: string,
+  sqlText: string,
+): TenantScopeAllowlistEntry | undefined {
+  const normalizedSql = normalizeSql(sqlText);
+  return tenantScopeAllowlist.find(
+    (entry) => entry.file === file
+      && entry.table === table
+      && entry.reason.trim().length > 0
+      && typeof entry.sqlSnippet === 'string'
+      && normalizeSql(entry.sqlSnippet).length > 0
+      && normalizedSql.includes(normalizeSql(entry.sqlSnippet)),
   );
 }
 
-export function auditSqlText(file: string, sqlText: string): TenantScopeFinding[] {
+function findDuplicateAllowlistEntries(): TenantScopeFinding[] {
+  const seen = new Set<string>();
+  const duplicates: TenantScopeFinding[] = [];
+
+  for (const entry of tenantScopeAllowlist) {
+    const key = allowlistKey(entry);
+    if (!seen.has(key)) {
+      seen.add(key);
+      continue;
+    }
+
+    duplicates.push({
+      file: entry.file,
+      table: entry.table,
+      reason: DUPLICATE_ALLOWLIST_REASON,
+    });
+  }
+
+  return duplicates;
+}
+
+function findUnusedAllowlistEntries(usedAllowlistKeys: Set<string>): TenantScopeFinding[] {
+  return tenantScopeAllowlist
+    .filter((entry) => !usedAllowlistKeys.has(allowlistKey(entry)))
+    .map((entry) => ({
+      file: entry.file,
+      table: entry.table,
+      reason: UNUSED_ALLOWLIST_REASON,
+    }));
+}
+
+export function auditSqlText(
+  file: string,
+  sqlText: string,
+  usedAllowlistKeys?: Set<string>,
+): TenantScopeFinding[] {
   const normalizedFile = normalizePath(file);
   const sqlForScan = stripSqlComments(sqlText);
   if (!hasReadOrMutationStatement(sqlForScan)) return [];
@@ -74,7 +146,11 @@ export function auditSqlText(file: string, sqlText: string): TenantScopeFinding[
   const findings: TenantScopeFinding[] = [];
   for (const table of TENANT_TABLES) {
     if (!referencesTenantTable(sqlForScan, table)) continue;
-    if (hasAllowlistEntry(normalizedFile, table)) continue;
+    const allowlistEntry = getAllowlistEntry(normalizedFile, table, sqlForScan);
+    if (allowlistEntry) {
+      usedAllowlistKeys?.add(allowlistKey(allowlistEntry));
+      continue;
+    }
 
     findings.push({
       file: normalizedFile,
@@ -163,15 +239,24 @@ function extractSqlTemplates(sourceText: string): string[] {
 async function auditRepository(): Promise<TenantScopeFinding[]> {
   const allFiles = (await Promise.all(SCANNED_ROOTS.map((root) => collectSourceFiles(root)))).flat();
   const findings: TenantScopeFinding[] = [];
+  const usedAllowlistKeys = new Set<string>();
 
   for (const file of allFiles.sort()) {
     const sourceText = await readFile(file, 'utf8');
     for (const sqlText of extractSqlTemplates(sourceText)) {
-      findings.push(...auditSqlText(normalizePath(relative(process.cwd(), file)), sqlText));
+      findings.push(...auditSqlText(
+        normalizePath(relative(process.cwd(), file)),
+        sqlText,
+        usedAllowlistKeys,
+      ));
     }
   }
 
-  return findings;
+  return [
+    ...findDuplicateAllowlistEntries(),
+    ...findUnusedAllowlistEntries(usedAllowlistKeys),
+    ...findings,
+  ];
 }
 
 async function main(): Promise<void> {

@@ -2,6 +2,14 @@ import { describe, expect, it } from 'vitest';
 import { auditSqlText } from '../tenant-scope-audit';
 
 describe('tenant-scope-audit', () => {
+  const finding = (file: string, table: string) => [
+    {
+      file,
+      table,
+      reason: 'missing account_id or business_id scope',
+    },
+  ];
+
   it('passes scoped account query', () => {
     expect(auditSqlText('src/example.ts', 'SELECT * FROM reviews WHERE account_id = ${accountId}')).toEqual([]);
   });
@@ -10,34 +18,68 @@ describe('tenant-scope-audit', () => {
     expect(auditSqlText('src/example.ts', 'SELECT * FROM responses WHERE business_id = ${businessId}')).toEqual([]);
   });
 
+  it('passes scoped qualified business predicate', () => {
+    expect(
+      auditSqlText('src/example.ts', 'SELECT resp.id FROM responses resp WHERE resp.business_id = ${businessId}'),
+    ).toEqual([]);
+  });
+
   it('fails unscoped tenant table query', () => {
-    expect(auditSqlText('src/example.ts', 'SELECT * FROM reviews')).toEqual([
-      {
-        file: 'src/example.ts',
-        table: 'reviews',
-        reason: 'missing account_id or business_id scope',
-      },
-    ]);
+    expect(auditSqlText('src/example.ts', 'SELECT * FROM reviews')).toEqual(finding('src/example.ts', 'reviews'));
+  });
+
+  it('fails when tenant column only appears in the select list', () => {
+    expect(
+      auditSqlText('src/example.ts', 'SELECT business_id FROM responses WHERE id = ${responseId}'),
+    ).toEqual(finding('src/example.ts', 'responses'));
   });
 
   it('fails primary-key lookup without account or business scope', () => {
-    expect(auditSqlText('src/example.ts', 'SELECT * FROM businesses WHERE id = ${businessId}')).toEqual([
-      {
-        file: 'src/example.ts',
-        table: 'businesses',
-        reason: 'missing account_id or business_id scope',
-      },
-    ]);
+    expect(auditSqlText('src/example.ts', 'SELECT * FROM businesses WHERE id = ${businessId}')).toEqual(
+      finding('src/example.ts', 'businesses'),
+    );
   });
 
   it('fails foreign-key lookup without account or business scope', () => {
-    expect(auditSqlText('src/example.ts', 'SELECT * FROM responses WHERE review_id = ${reviewId}')).toEqual([
-      {
-        file: 'src/example.ts',
-        table: 'responses',
-        reason: 'missing account_id or business_id scope',
-      },
-    ]);
+    expect(auditSqlText('src/example.ts', 'SELECT * FROM responses WHERE review_id = ${reviewId}')).toEqual(
+      finding('src/example.ts', 'responses'),
+    );
+  });
+
+  it('passes an allowlisted statement when the exact snippet matches', () => {
+    expect(
+      auditSqlText(
+        'worker/background/pollers/ArchivalPoller.ts',
+        `
+          WITH candidates AS (
+            SELECT id FROM notification_deliveries
+            WHERE created_at < NOW() - INTERVAL '90 days'
+            LIMIT 5000
+            FOR UPDATE SKIP LOCKED
+          ),
+          deleted AS (
+            DELETE FROM notification_deliveries WHERE id IN (SELECT id FROM candidates)
+            RETURNING id
+          )
+          SELECT COUNT(*)::text AS count FROM deleted
+        `,
+      ),
+    ).toEqual([]);
+  });
+
+  it('fails a different unscoped statement in the same allowlisted file and table', () => {
+    expect(
+      auditSqlText(
+        'worker/background/pollers/ArchivalPoller.ts',
+        'SELECT id FROM notification_deliveries WHERE failed_at IS NOT NULL',
+      ),
+    ).toEqual(finding('worker/background/pollers/ArchivalPoller.ts', 'notification_deliveries'));
+  });
+
+  it('fails unscoped review_exceptions query', () => {
+    expect(auditSqlText('src/example.ts', 'SELECT * FROM review_exceptions')).toEqual(
+      finding('src/example.ts', 'review_exceptions'),
+    );
   });
 
   it('ignores global table query', () => {

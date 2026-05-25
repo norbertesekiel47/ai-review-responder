@@ -42,7 +42,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  const sql = postgres(databaseUrl, { max: 1 });
+  const sql = postgres(databaseUrl, { max: 1, prepare: false });
   try {
     const rows = await sql<RlsRow[]>`
       SELECT c.relname, c.relrowsecurity
