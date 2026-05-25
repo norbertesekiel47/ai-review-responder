@@ -47,23 +47,73 @@ function hasReadOrMutationStatement(sqlText: string): boolean {
   return /\b(select|update|delete)\b/i.test(sqlText);
 }
 
-function hasTenantScope(sqlText: string): boolean {
+function predicateClauses(sqlText: string): string[] {
   const normalizedSql = normalizeSql(sqlText);
-  const predicateClauses = normalizedSql.match(
+  return normalizedSql.match(
     /\b(?:where|on|having)\b[\s\S]*?(?=\b(?:where|on|having|group\s+by|order\s+by|limit|offset|returning|union|except|intersect)\b|$)/gi,
   ) ?? [];
+}
 
-  const identifier = String.raw`(?:"?[a-z_][\w$]*"?\s*\.\s*)?"?(?:account_id|business_id)"?`;
-  const leftHandScope = new RegExp(
-    String.raw`${identifier}\s*(?:=|<>|!=|<=|>=|<|>|\b(?:not\s+)?in\b|=\s*\b(?:any|some|all)\s*\()`,
-    'i',
-  );
+function boundValuePattern(): string {
+  return String.raw`(?:\$\{[^}]+\}|\$\d+)(?:\s*::\s*[a-z_][\w]*(?:\[\])?)?`;
+}
+
+function hasBoundIdentifierPredicate(clauses: string[], identifier: string): boolean {
+  const boundValue = boundValuePattern();
+  const leftHandScope = [
+    new RegExp(String.raw`${identifier}\s*=\s*${boundValue}(?=\s|,|\)|;|$)`, 'i'),
+    new RegExp(String.raw`${identifier}\s+\bin\b\s*\(\s*${boundValue}`, 'i'),
+    new RegExp(String.raw`${identifier}\s*=\s*\b(?:any|some)\s*\(\s*${boundValue}`, 'i'),
+  ];
   const rightHandScope = new RegExp(
-    String.raw`(?:=|<>|!=|<=|>=|<|>)\s*${identifier}(?=\s|,|\)|;|$)`,
+    String.raw`${boundValue}\s*=\s*${identifier}(?=\s|,|\)|;|$)`,
     'i',
   );
 
-  return predicateClauses.some((clause) => leftHandScope.test(clause) || rightHandScope.test(clause));
+  return clauses.some((clause) =>
+    leftHandScope.some((pattern) => pattern.test(clause)) || rightHandScope.test(clause),
+  );
+}
+
+function tableAliases(sqlText: string, table: string): string[] {
+  const escapedTable = table.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const tableName = `(?:"${escapedTable}"|${escapedTable})`;
+  const schemaPrefix = `(?:(?:"public"|public)\\s*\\.\\s*)?`;
+  const tableRef = String.raw`\b(?:from|join|update|delete\s+from|using)\s+(?:only\s+)?${schemaPrefix}${tableName}(?:\s+(?:as\s+)?("?[\w$]+"?))?`;
+  const aliases = new Set<string>([table]);
+
+  for (const match of sqlText.matchAll(new RegExp(tableRef, 'gi'))) {
+    const alias = match[1]?.replace(/^"|"$/g, '');
+    if (!alias) continue;
+    if (/^(where|on|join|left|right|inner|outer|full|cross|using|set|returning|for|order|group|limit|offset)$/i.test(alias)) {
+      continue;
+    }
+    aliases.add(alias);
+  }
+
+  return Array.from(aliases);
+}
+
+function hasTenantScope(sqlText: string): boolean {
+  const clauses = predicateClauses(sqlText);
+  const tenantColumnIdentifier = String.raw`(?:"?[a-z_][\w$]*"?\s*\.\s*)?"?(?:account_id|business_id)"?`;
+  if (hasBoundIdentifierPredicate(clauses, tenantColumnIdentifier)) return true;
+
+  if (referencesTenantTable(sqlText, 'accounts')) {
+    for (const alias of tableAliases(sqlText, 'accounts')) {
+      const identifier = String.raw`(?:(?:"?${alias}"?\s*\.\s*)?)"?id"?`;
+      if (hasBoundIdentifierPredicate(clauses, identifier)) return true;
+    }
+  }
+
+  if (referencesTenantTable(sqlText, 'businesses')) {
+    for (const alias of tableAliases(sqlText, 'businesses')) {
+      const identifier = String.raw`(?:(?:"?${alias}"?\s*\.\s*)?)"?id"?`;
+      if (hasBoundIdentifierPredicate(clauses, identifier)) return true;
+    }
+  }
+
+  return false;
 }
 
 function referencesTenantTable(sqlText: string, table: string): boolean {
@@ -83,7 +133,7 @@ function referencesTenantTable(sqlText: string, table: string): boolean {
 }
 
 function allowlistKey(entry: TenantScopeAllowlistEntry): string {
-  return `${entry.file}\0${entry.table}\0${normalizeSql(entry.sqlSnippet)}`;
+  return `${entry.file}\0${entry.table}\0${normalizeSql(stripSqlComments(entry.sqlSnippet))}`;
 }
 
 function getAllowlistEntry(
@@ -97,8 +147,8 @@ function getAllowlistEntry(
       && entry.table === table
       && entry.reason.trim().length > 0
       && typeof entry.sqlSnippet === 'string'
-      && normalizeSql(entry.sqlSnippet).length > 0
-      && normalizedSql.includes(normalizeSql(entry.sqlSnippet)),
+      && normalizeSql(stripSqlComments(entry.sqlSnippet)).length > 0
+      && normalizedSql.includes(normalizeSql(stripSqlComments(entry.sqlSnippet))),
   );
 }
 
@@ -141,14 +191,17 @@ export function auditSqlText(
   const normalizedFile = normalizePath(file);
   const sqlForScan = stripSqlComments(sqlText);
   if (!hasReadOrMutationStatement(sqlForScan)) return [];
-  if (hasTenantScope(sqlForScan)) return [];
 
   const findings: TenantScopeFinding[] = [];
+  const scoped = hasTenantScope(sqlForScan);
   for (const table of TENANT_TABLES) {
     if (!referencesTenantTable(sqlForScan, table)) continue;
     const allowlistEntry = getAllowlistEntry(normalizedFile, table, sqlForScan);
     if (allowlistEntry) {
       usedAllowlistKeys?.add(allowlistKey(allowlistEntry));
+    }
+    if (scoped) continue;
+    if (allowlistEntry) {
       continue;
     }
 

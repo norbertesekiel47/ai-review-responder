@@ -24,6 +24,33 @@ describe('tenant-scope-audit', () => {
     ).toEqual([]);
   });
 
+  it('fails tenant predicate with non-scoping inequality', () => {
+    expect(
+      auditSqlText('src/example.ts', 'SELECT * FROM reviews WHERE business_id != ${businessId}'),
+    ).toEqual(finding('src/example.ts', 'reviews'));
+  });
+
+  it('fails tenant predicate with non-scoping ordering comparison', () => {
+    expect(
+      auditSqlText('src/example.ts', 'SELECT * FROM reviews WHERE business_id > ${businessId}'),
+    ).toEqual(finding('src/example.ts', 'reviews'));
+  });
+
+  it('fails tenant predicate with non-scoping NOT IN comparison', () => {
+    expect(
+      auditSqlText('src/example.ts', 'SELECT * FROM reviews WHERE business_id NOT IN (${businessId})'),
+    ).toEqual(finding('src/example.ts', 'reviews'));
+  });
+
+  it('fails join-only tenant relationship without bound account or business scope', () => {
+    expect(
+      auditSqlText('src/example.ts', 'SELECT r.* FROM reviews r JOIN businesses b ON b.id = r.business_id'),
+    ).toEqual([
+      ...finding('src/example.ts', 'businesses'),
+      ...finding('src/example.ts', 'reviews'),
+    ]);
+  });
+
   it('fails unscoped tenant table query', () => {
     expect(auditSqlText('src/example.ts', 'SELECT * FROM reviews')).toEqual(finding('src/example.ts', 'reviews'));
   });
@@ -34,9 +61,17 @@ describe('tenant-scope-audit', () => {
     ).toEqual(finding('src/example.ts', 'responses'));
   });
 
-  it('fails primary-key lookup without account or business scope', () => {
-    expect(auditSqlText('src/example.ts', 'SELECT * FROM businesses WHERE id = ${businessId}')).toEqual(
-      finding('src/example.ts', 'businesses'),
+  it('passes account root lookup by id', () => {
+    expect(auditSqlText('src/example.ts', 'SELECT * FROM accounts WHERE id = ${accountId}')).toEqual([]);
+  });
+
+  it('passes business root lookup by id', () => {
+    expect(auditSqlText('src/example.ts', 'SELECT * FROM businesses WHERE id = ${businessId}')).toEqual([]);
+  });
+
+  it('fails non-root tenant row primary-key lookup without account or business scope', () => {
+    expect(auditSqlText('src/example.ts', 'SELECT * FROM responses WHERE id = ${responseId}')).toEqual(
+      finding('src/example.ts', 'responses'),
     );
   });
 
@@ -79,6 +114,12 @@ describe('tenant-scope-audit', () => {
   it('fails unscoped review_exceptions query', () => {
     expect(auditSqlText('src/example.ts', 'SELECT * FROM review_exceptions')).toEqual(
       finding('src/example.ts', 'review_exceptions'),
+    );
+  });
+
+  it('fails unscoped ranking_snapshots query', () => {
+    expect(auditSqlText('src/example.ts', 'SELECT * FROM ranking_snapshots')).toEqual(
+      finding('src/example.ts', 'ranking_snapshots'),
     );
   });
 
