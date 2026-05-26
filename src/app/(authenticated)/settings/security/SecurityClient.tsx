@@ -187,6 +187,13 @@ export function SecurityClient() {
       <p style={{ fontSize: 13, color: '#4B5563', marginTop: 4 }}>
         Add a second factor as a backup.
       </p>
+      <p style={{ fontSize: 13, color: '#6B7280', marginTop: 6 }}>
+        Lost access to your authenticator?{' '}
+        <a href="/help/contact" style={{ color: '#2563EB', textDecoration: 'underline' }}>
+          Contact support
+        </a>
+        .
+      </p>
 
       {error ? (
         <p style={{ fontSize: 13, color: '#DC2626', marginTop: 12 }}>{error}</p>

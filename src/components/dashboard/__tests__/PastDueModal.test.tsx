@@ -21,6 +21,10 @@ describe('PastDueModal', () => {
 
     expect(screen.getByRole('dialog')).toBeDefined();
     expect(screen.getByText(/Payment update needed by May 27, 2026/)).toBeDefined();
+    expect(screen.getByRole('link', { name: /contact support/i })).toHaveAttribute(
+      'href',
+      '/help/contact',
+    );
 
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss payment reminder' }));
 

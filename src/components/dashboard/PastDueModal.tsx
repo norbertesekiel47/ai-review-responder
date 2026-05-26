@@ -76,6 +76,13 @@ export function PastDueModal({
         <p style={{ margin: '10px 0 18px', fontSize: 14, lineHeight: 1.5, color: '#78350F' }}>
           Update your payment method to keep approvals, edits, and publishing available.
         </p>
+        <a
+          href="/help/contact"
+          style={{ display: 'inline-block', marginBottom: 16, fontSize: 14, color: '#1D4ED8' }}
+        >
+          Contact support
+        </a>
+        <br />
         <button
           type="button"
           aria-label="Dismiss payment reminder"

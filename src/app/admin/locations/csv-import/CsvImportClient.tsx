@@ -214,13 +214,21 @@ export function CsvImportClient() {
               {report.created} of {report.created + report.failedCount} imported
             </p>
             {report.failed.length > 0 ? (
-              <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-gray-700">
-                {report.failed.map((failure) => (
-                  <li key={`${failure.row}:${failure.reason}`}>
-                    Row {failure.row}: {failure.reason}
-                  </li>
-                ))}
-              </ul>
+              <>
+                <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-gray-700">
+                  {report.failed.map((failure) => (
+                    <li key={`${failure.row}:${failure.reason}`}>
+                      Row {failure.row}: {failure.reason}
+                    </li>
+                  ))}
+                </ul>
+                <a
+                  href="/help/contact"
+                  className="mt-4 inline-block text-sm font-medium text-blue-600 hover:underline"
+                >
+                  Contact support
+                </a>
+              </>
             ) : null}
           </div>
         ) : null}

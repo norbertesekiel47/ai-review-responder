@@ -58,6 +58,10 @@ describe('CsvImportClient', () => {
     expect(await screen.findByText('1 of 2 imported')).toBeInTheDocument();
     expect(screen.getByText('Line 3: Missing placeId.')).toBeInTheDocument();
     expect(screen.getByText('Row 2: Missing placeId.')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /contact support/i })).toHaveAttribute(
+      'href',
+      '/help/contact',
+    );
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/admin/locations/csv-import',
       expect.objectContaining({
