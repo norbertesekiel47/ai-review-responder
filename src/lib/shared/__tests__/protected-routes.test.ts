@@ -51,6 +51,7 @@ const PROTECTED: string[] = [
   '/dashboard',
   '/dashboard/settings',
   '/settings',
+  '/mfa/challenge',
   '/api/dashboard',
   '/api/settings',
   '/onboarding',

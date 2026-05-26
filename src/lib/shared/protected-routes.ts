@@ -31,6 +31,7 @@ export function isProtectedRoute(pathname: string): boolean {
     normalized === '/api/settings' || normalized.startsWith('/api/settings/') ||
     normalized === '/dashboard' || normalized.startsWith('/dashboard/') ||
     normalized === '/settings' || normalized.startsWith('/settings/') ||
+    normalized === '/mfa' || normalized.startsWith('/mfa/') ||
     normalized === '/onboarding' || normalized.startsWith('/onboarding/')
   );
 }

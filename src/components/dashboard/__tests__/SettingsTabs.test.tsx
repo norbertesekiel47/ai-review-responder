@@ -49,4 +49,17 @@ describe('SettingsTabs', () => {
     expect(screen.getByRole('tab', { name: /^voice$/i })).toHaveAttribute('href', '/settings/voice');
     expect(screen.getByRole('tab', { name: /notifications/i })).toHaveAttribute('href', '/settings/channels');
   });
+
+  it('shows the Security tab for account settings layouts', () => {
+    render(
+      <SettingsTabs
+        activeTab="security"
+        locationsSettingsEnabled
+        multiLocationEnabled
+      />,
+    );
+
+    expect(screen.getByRole('tab', { name: /security/i })).toHaveAttribute('href', '/settings/security');
+    expect(screen.getByRole('tab', { name: /security/i })).toHaveAttribute('aria-selected', 'true');
+  });
 });

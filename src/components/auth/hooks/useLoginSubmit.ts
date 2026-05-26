@@ -14,6 +14,7 @@ import {
   resolvePostLoginDestination,
   type SignupStatusPayload,
 } from '@/components/auth/shared/loginDestination';
+import { mfaChallengePath, requireAal2FromSupabase } from '@/lib/auth/mfa';
 
 export interface UseLoginSubmitInput {
   portal: AuthFlow;
@@ -115,6 +116,17 @@ export function useLoginSubmit({
       const destination =
         destinationOverride ??
         resolvePostLoginDestination(portal, from, defaultRoute);
+
+      const aal = await requireAal2FromSupabase(supabase);
+      if (!aal.ok && aal.reason === 'mfa_required') {
+        router.push(mfaChallengePath(destination));
+        return;
+      }
+      if (!aal.ok && aal.reason === 'mfa_check_failed') {
+        setError('Could not verify your authentication level. Please try again.');
+        return;
+      }
+
       router.push(destination);
       router.refresh();
     } catch {
