@@ -163,18 +163,6 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "Authenticated flow uses account id as the tenant-root lookup key for this statement.",
   },
   {
-    file: "src/app/api/dashboard/route.ts",
-    table: "accounts",
-    sqlSnippet: "SELECT stripe_customer_id FROM accounts WHERE id = ${accountId}::uuid",
-    reason: "Authenticated flow uses account id as the tenant-root lookup key for this statement.",
-  },
-  {
-    file: "src/app/api/dashboard/route.ts",
-    table: "accounts",
-    sqlSnippet: "SELECT subscription_status FROM accounts WHERE id = ${accountId}::uuid",
-    reason: "Authenticated flow uses account id as the tenant-root lookup key for this statement.",
-  },
-  {
     file: "src/app/api/onboarding/select-plan/route.ts",
     table: "businesses",
     sqlSnippet: "SELECT account_id FROM businesses WHERE id = ${businessId}::uuid",
@@ -251,12 +239,6 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     table: "api_costs",
     sqlSnippet: "SELECT COALESCE(SUM(cost_usd), 0)::float AS total FROM api_costs WHERE created_at >= CURRENT_DATE",
     reason: "Admin-only route or service intentionally performs this statement after requireRole(admin).",
-  },
-  {
-    file: "src/lib/auth/resolve-owner-scope.ts",
-    table: "accounts",
-    sqlSnippet: "SELECT subscription_status FROM accounts WHERE id = ${accountId} LIMIT 1",
-    reason: "Authenticated flow uses account id as the tenant-root lookup key for this statement.",
   },
   {
     file: "src/lib/dashboard/aggregate-service.ts",
@@ -457,10 +439,40 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "Worker follows a durable job payload or scheduler-selected id; caller establishes tenant context before this statement.",
   },
   {
+    file: "src/lib/admin/impersonation/session.ts",
+    table: "accounts",
+    sqlSnippet: "SELECT s.id, s.actor_user_id, s.impersonated_user_id, s.account_id, s.ticket_id, s.reason, s.started_at, s.expires_at, u.email AS impersonated_email, a.display_name AS account_display_name FROM impersonation_sessions s JOIN users u ON u.id = s.impersonated_user_id JOIN accounts a ON a.id = s.account_id WHERE s.id = ${input.sessionId}::uuid AND s.actor_user_id = ${input.actorUserId}::uuid AND s.ended_at IS NULL AND s.expires_at > ${input.now ?? new Date()} LIMIT 1",
+    reason: "Admin-only impersonation: account row is read for a validated active session (scoped by session id + actor_user_id), after platform-admin role + AAL2 checks.",
+  },
+  {
+    file: "src/lib/reviews/process-review.ts",
+    table: "reviews",
+    sqlSnippet: "SELECT b.account_id, EXISTS ( SELECT 1 FROM reviews r2 JOIN businesses b2 ON b2.id = r2.business_id WHERE b2.account_id = b.account_id AND r2.id <> ${input.reviewId}::uuid AND r2.detected_at IS NOT NULL LIMIT 1 ) AS earlier_exists FROM businesses b WHERE b.id = ${input.accountIdForBusinessId}::uuid LIMIT 1",
+    reason: "first_review_ingested activation check is account-scoped (b2.account_id = b.account_id) inside an EXISTS subquery the static scanner cannot see; the business is resolved by id for a durable ingest job.",
+  },
+  {
     file: "worker/jobs/ResponseGeneratorWorker.ts",
     table: "responses",
-    sqlSnippet: "SELECT id FROM responses WHERE review_id = ${review_id} AND version = ${version}",
+    sqlSnippet: "SELECT r.id, r.business_id, b.account_id FROM responses r JOIN businesses b ON b.id = r.business_id WHERE r.review_id = ${review_id} AND r.version = ${version}",
     reason: "Worker follows a durable job payload or scheduler-selected id; caller establishes tenant context before this statement.",
+  },
+  {
+    file: "worker/jobs/ResponseGeneratorWorker.ts",
+    table: "businesses",
+    sqlSnippet: "SELECT r.id, r.business_id, b.account_id FROM responses r JOIN businesses b ON b.id = r.business_id WHERE r.review_id = ${review_id} AND r.version = ${version}",
+    reason: "Worker follows a durable job payload or scheduler-selected id; caller establishes tenant context before this statement.",
+  },
+  {
+    file: "worker/jobs/ResponseGeneratorWorker.ts",
+    table: "responses",
+    sqlSnippet: "SELECT EXISTS ( SELECT 1 FROM responses r2 JOIN businesses b2 ON b2.id = r2.business_id WHERE b2.account_id = ${input.accountId}::uuid AND r2.id <> ${input.responseId}::uuid AND r2.created_at IS NOT NULL LIMIT 1 ) AS earlier_exists, ( SELECT occurred_at FROM analytics_events WHERE event_name = 'email_verified' AND account_id = ${input.accountId}::uuid ORDER BY occurred_at ASC LIMIT 1 ) AS email_verified_at",
+    reason: "first_response_drafted activation check is account-scoped (b2.account_id = input.accountId) inside an EXISTS subquery the static scanner cannot see; runs in the response-generation worker for a durable job.",
+  },
+  {
+    file: "worker/jobs/ResponseGeneratorWorker.ts",
+    table: "businesses",
+    sqlSnippet: "SELECT EXISTS ( SELECT 1 FROM responses r2 JOIN businesses b2 ON b2.id = r2.business_id WHERE b2.account_id = ${input.accountId}::uuid AND r2.id <> ${input.responseId}::uuid AND r2.created_at IS NOT NULL LIMIT 1 ) AS earlier_exists, ( SELECT occurred_at FROM analytics_events WHERE event_name = 'email_verified' AND account_id = ${input.accountId}::uuid ORDER BY occurred_at ASC LIMIT 1 ) AS email_verified_at",
+    reason: "first_response_drafted activation check is account-scoped (b2.account_id = input.accountId) inside an EXISTS subquery the static scanner cannot see; runs in the response-generation worker for a durable job.",
   },
   {
     file: "worker/jobs/billing/UpdateStripeOverageWorker.ts",
@@ -717,19 +729,19 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/background/pollers/ZernioRecentReviewPoller.ts",
     table: "accounts",
-    sqlSnippet: "SELECT zc.business_id, zc.zernio_account_id, zc.zernio_location_id, zc.connected_at, a.subscription_status, a.updated_at FROM zernio_connections zc JOIN businesses b ON b.id = zc.business_id JOIN accounts a ON a.id = b.account_id WHERE zc.status = 'active' AND b.archived_at IS NULL ORDER BY zc.connected_at DESC NULLS LAST, zc.business_id ASC LIMIT ${limit} OFFSET ${offset}",
+    sqlSnippet: "SELECT zc.business_id, zc.zernio_account_id, zc.zernio_location_id, zc.connected_at, a.subscription_status, a.past_due_at, a.flags AS account_flags FROM zernio_connections zc JOIN businesses b ON b.id = zc.business_id JOIN accounts a ON a.id = b.account_id WHERE zc.status = 'active' AND b.archived_at IS NULL ORDER BY zc.connected_at DESC NULLS LAST, zc.business_id ASC LIMIT ${limit} OFFSET ${offset}",
     reason: "Background scheduler or poller intentionally scans tenant rows globally before enqueueing scoped work.",
   },
   {
     file: "worker/background/pollers/ZernioRecentReviewPoller.ts",
     table: "businesses",
-    sqlSnippet: "SELECT zc.business_id, zc.zernio_account_id, zc.zernio_location_id, zc.connected_at, a.subscription_status, a.updated_at FROM zernio_connections zc JOIN businesses b ON b.id = zc.business_id JOIN accounts a ON a.id = b.account_id WHERE zc.status = 'active' AND b.archived_at IS NULL ORDER BY zc.connected_at DESC NULLS LAST, zc.business_id ASC LIMIT ${limit} OFFSET ${offset}",
+    sqlSnippet: "SELECT zc.business_id, zc.zernio_account_id, zc.zernio_location_id, zc.connected_at, a.subscription_status, a.past_due_at, a.flags AS account_flags FROM zernio_connections zc JOIN businesses b ON b.id = zc.business_id JOIN accounts a ON a.id = b.account_id WHERE zc.status = 'active' AND b.archived_at IS NULL ORDER BY zc.connected_at DESC NULLS LAST, zc.business_id ASC LIMIT ${limit} OFFSET ${offset}",
     reason: "Background scheduler or poller intentionally scans tenant rows globally before enqueueing scoped work.",
   },
   {
     file: "worker/background/pollers/ZernioRecentReviewPoller.ts",
     table: "zernio_connections",
-    sqlSnippet: "SELECT zc.business_id, zc.zernio_account_id, zc.zernio_location_id, zc.connected_at, a.subscription_status, a.updated_at FROM zernio_connections zc JOIN businesses b ON b.id = zc.business_id JOIN accounts a ON a.id = b.account_id WHERE zc.status = 'active' AND b.archived_at IS NULL ORDER BY zc.connected_at DESC NULLS LAST, zc.business_id ASC LIMIT ${limit} OFFSET ${offset}",
+    sqlSnippet: "SELECT zc.business_id, zc.zernio_account_id, zc.zernio_location_id, zc.connected_at, a.subscription_status, a.past_due_at, a.flags AS account_flags FROM zernio_connections zc JOIN businesses b ON b.id = zc.business_id JOIN accounts a ON a.id = b.account_id WHERE zc.status = 'active' AND b.archived_at IS NULL ORDER BY zc.connected_at DESC NULLS LAST, zc.business_id ASC LIMIT ${limit} OFFSET ${offset}",
     reason: "Background scheduler or poller intentionally scans tenant rows globally before enqueueing scoped work.",
   },
   {
@@ -831,7 +843,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/app/api/auth/verify-otp/route.ts",
     table: "businesses",
-    sqlSnippet: "SELECT u.role, u.account_id, b.id AS business_id FROM users u JOIN businesses b ON b.account_id = u.account_id AND b.is_primary = TRUE WHERE u.auth_id = ${data.user.id} LIMIT 1",
+    sqlSnippet: "SELECT u.id AS user_id, u.role, u.account_id, b.id AS business_id FROM users u JOIN businesses b ON b.account_id = u.account_id AND b.is_primary = TRUE WHERE u.auth_id = ${data.user.id} LIMIT 1",
     reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
   },
   {
