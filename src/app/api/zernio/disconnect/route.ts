@@ -4,6 +4,7 @@ import { sql } from '@/lib/db/server';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { ZernioRouteError } from '@/lib/zernio/errors';
+import { assertWritableSubscriptionForBusiness } from '@/lib/shared/writable-subscription';
 import { zernioClient } from '@/lib/zernio/client';
 
 export const dynamic = 'force-dynamic';
@@ -108,6 +109,20 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
     businessId = candidate;
+  }
+
+  if (user.role === 'owner') {
+    try {
+      const writable = await assertWritableSubscriptionForBusiness(businessId);
+      if (!writable.ok) {
+        return NextResponse.json(
+          { error: writable.error },
+          { status: writable.status, headers: NO_STORE },
+        );
+      }
+    } catch (err) {
+      return errorToResponse(err);
+    }
   }
 
   // 4. Resolve the active Zernio account so the best-effort delete-account
