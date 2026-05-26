@@ -9,6 +9,7 @@ import {
 } from '../writable-subscription';
 
 const NOW = new Date('2026-05-25T12:00:00.000Z');
+const GRACE_MS = 7 * 86_400_000;
 
 describe('computePastDueRecoveryState', () => {
   it('uses past_due_at as the grace clock', () => {
@@ -58,15 +59,30 @@ describe('computePastDueRecoveryState', () => {
     expect(state.daysRemaining).toBe(0);
   });
 
-  it('marks past_due read-only when past_due_at is in the future', () => {
+  it('grants full grace when past_due_at is slightly in the future (clock skew)', () => {
+    // A few seconds of skew between Stripe/Postgres and the reader must not
+    // flip a brand-new past-due account straight to read-only. Clamp to now.
     const state = computePastDueRecoveryState({
       subscriptionStatus: 'past_due',
-      pastDueAt: '2026-05-26T12:00:00.000Z',
+      pastDueAt: new Date(NOW.getTime() + 30_000).toISOString(),
       accountFlags: {},
       now: NOW,
     });
 
-    expect(state.isReadOnly).toBe(true);
+    expect(state.isReadOnly).toBe(false);
+    expect(state.daysRemaining).toBe(7);
+  });
+
+  it('rounds remaining days down so the banner never overstates grace', () => {
+    // ~1 hour left in the 7-day window must read as 0 days, not a full day.
+    const state = computePastDueRecoveryState({
+      subscriptionStatus: 'past_due',
+      pastDueAt: new Date(NOW.getTime() - (GRACE_MS - 3_600_000)),
+      accountFlags: {},
+      now: NOW,
+    });
+
+    expect(state.isReadOnly).toBe(false);
     expect(state.daysRemaining).toBe(0);
   });
 

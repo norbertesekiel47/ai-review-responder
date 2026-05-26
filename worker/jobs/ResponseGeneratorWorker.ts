@@ -384,6 +384,12 @@ async function persistResponseAndNotify(
   return responseId;
 }
 
+// Best-effort, intentionally outside the response-creation transaction: this
+// runs AFTER the response commits so it can detect "first draft for the account"
+// against committed rows. Idempotency across BullMQ retries-after-commit is
+// guaranteed by the account-scoped event_key + ON CONFLICT (event_key) DO
+// NOTHING in enqueueAnalyticsEvent, so a re-run cannot double-count. Analytics
+// must never fail response generation, hence the swallowed catch.
 async function maybeEnqueueFirstResponseDrafted(input: {
   accountId: string;
   businessId: string;

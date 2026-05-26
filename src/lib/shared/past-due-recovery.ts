@@ -90,7 +90,7 @@ export function computePastDueRecoveryState(
     };
   }
 
-  if (!pastDueAt || !Number.isFinite(pastDueAt.getTime()) || pastDueAt.getTime() > now.getTime()) {
+  if (!pastDueAt || !Number.isFinite(pastDueAt.getTime())) {
     return {
       isPastDue: true,
       pastDueAt: null,
@@ -101,8 +101,13 @@ export function computePastDueRecoveryState(
     };
   }
 
+  // Clamp a future-dated past_due_at to now. A few seconds of clock skew
+  // between Stripe/Postgres and the reader must not deny the grace window,
+  // and a garbage far-future value must not grant unbounded grace.
+  const effectivePastDueAt = pastDueAt.getTime() > now.getTime() ? now : pastDueAt;
+
   const extension = parseExtension(input.accountFlags, now);
-  const graceDeadline = new Date(pastDueAt.getTime() + GRACE_MS);
+  const graceDeadline = new Date(effectivePastDueAt.getTime() + GRACE_MS);
   const extensionDeadline = extension ? new Date(extension.expires_at) : null;
   const deadline =
     extensionDeadline && extensionDeadline.getTime() > graceDeadline.getTime()
@@ -113,8 +118,9 @@ export function computePastDueRecoveryState(
   return {
     isPastDue: true,
     pastDueAt,
+    // Round down so the banner never promises more time than actually remains.
+    daysRemaining: Math.max(0, Math.floor(remainingMs / DAY_MS)),
     deadline,
-    daysRemaining: Math.max(0, Math.ceil(remainingMs / DAY_MS)),
     isReadOnly: remainingMs <= 0,
     extension,
   };

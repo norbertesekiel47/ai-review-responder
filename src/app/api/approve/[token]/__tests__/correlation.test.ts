@@ -133,9 +133,11 @@ function setupHappyPath() {
   mockVerifyDeviceCookie.mockReturnValue(true);
   mockGetDeviceCookieHash.mockReturnValue('device-hash-abc');
   mockLockValidLink.mockResolvedValue(validLink());
-  // SQL query inside tx: SELECT review_id FROM responses WHERE id = link.response_id
   mockSqlResults.length = 0;
   sqlCallCounter.value = 0;
+  // 1st in-tx query: read-only subscription guard (assertWritableSubscriptionForBusiness)
+  mockSqlResults.push([{ subscription_status: 'active', past_due_at: null, flags: {} }]);
+  // 2nd in-tx query: recoverLinkCorrelationId SELECT review_id FROM responses
   mockSqlResults.push([{ review_id: REVIEW_ID }]);
   mockRecoverCorrelationId.mockResolvedValue(UPSTREAM_CORRELATION_ID);
 }
@@ -177,6 +179,7 @@ describe('POST /api/approve/[token]/approve — correlation recovery', () => {
     // lockValidLink and this query (shouldn't happen but defensive)
     mockSqlResults.length = 0;
     sqlCallCounter.value = 0;
+    mockSqlResults.push([{ subscription_status: 'active', past_due_at: null, flags: {} }]); // read-only guard
     mockSqlResults.push([]); // no review_id row
     mockApprove.mockResolvedValue(undefined);
 

@@ -111,7 +111,9 @@ describe('checkSubscription', () => {
       expect(result).toEqual({ allowed: false, reason: 'past_due_expired' });
     });
 
-    it('denies when past_due_at is in the future', () => {
+    it('grants full grace when past_due_at is in the future (clock skew)', () => {
+      // Skew must not deny a brand-new past-due account; the helper clamps a
+      // future past_due_at to now, yielding a fresh 7-day grace window.
       const result = checkSubscription({
         status: 'past_due',
         pastDueAt: new Date(NOW.getTime() + 86_400_000),
@@ -120,7 +122,7 @@ describe('checkSubscription', () => {
         now: NOW,
       });
 
-      expect(result).toEqual({ allowed: false, reason: 'past_due_expired' });
+      expect(result).toEqual({ allowed: true });
     });
 
     it('honors JSONB string account flags', () => {

@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { ANALYTICS_EVENT_NAMES } from '../../analytics/events';
 
 const sql = readFileSync(
   join(process.cwd(), 'supabase/migrations/046_analytics_events.sql'),
@@ -62,5 +63,15 @@ describe('migration 046 - analytics_events', () => {
 
   it('does not add posthog-js or a browser SDK artifact', () => {
     expect(sql).not.toMatch(/posthog-js/i);
+  });
+
+  it('keeps the event_name CHECK list in sync with ANALYTICS_EVENT_NAMES', () => {
+    // The allowlist lives in two places: the migration CHECK constraint (DB
+    // enforcement) and events.ts (app enforcement). Adding an event to one
+    // without the other makes inserts fail at runtime — this guard catches it.
+    const checkMatch = sql.match(/event_name IN\s*\(([^)]*)\)/i);
+    expect(checkMatch).not.toBeNull();
+    const namesInCheck = [...checkMatch![1]!.matchAll(/'([^']+)'/g)].map((m) => m[1]).sort();
+    expect(namesInCheck).toEqual([...ANALYTICS_EVENT_NAMES].sort());
   });
 });

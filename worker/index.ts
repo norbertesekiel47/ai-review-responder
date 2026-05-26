@@ -305,7 +305,9 @@ async function shutdown(): Promise<void> {
   stopCancellationGracePoller();
   stopStripeLocationsReconcilePoller();
   stopZernioRecentReviewPoller();
-  stopAnalyticsDispatchPoller();
+  // Await the analytics drain so we never mark rows completed (or call PostHog)
+  // after the client is shut down and the DB pool is closed below.
+  await stopAnalyticsDispatchPoller();
   await Promise.all(workers.map((w) => w.close()));
   await Promise.all(Object.values(queues).map((q) => q.close()));
   await app.close();

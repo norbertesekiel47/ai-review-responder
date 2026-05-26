@@ -100,7 +100,9 @@ export function PastDueBanner({
     : null;
   const daysCopy = daysRemaining === null
     ? null
-    : `${daysRemaining} ${daysRemaining === 1 ? 'day remains' : 'days remain'}`;
+    : daysRemaining === 0
+      ? 'Less than a day remains'
+      : `${daysRemaining} ${daysRemaining === 1 ? 'day remains' : 'days remain'}`;
   const title = isReadOnly
     ? 'Payment overdue — account is read-only'
     : daysRemaining !== null && daysRemaining <= 2

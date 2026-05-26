@@ -6,6 +6,8 @@
 CREATE TABLE IF NOT EXISTS analytics_events (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   event_key TEXT NOT NULL UNIQUE,
+  -- Keep this allowlist in sync with ANALYTICS_EVENT_NAMES in
+  -- src/lib/analytics/events.ts (a drift-guard test fails the build otherwise).
   event_name TEXT NOT NULL CHECK (
     event_name IN (
       'signup_started',

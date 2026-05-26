@@ -29,6 +29,10 @@ function getPostHogClient(): PostHogClient | null {
   return client;
 }
 
+export function isAnalyticsConfigured(): boolean {
+  return Boolean(process.env.POSTHOG_API_KEY);
+}
+
 export function captureAnalyticsEvent(input: CaptureAnalyticsEventInput): boolean {
   const posthog = getPostHogClient();
   if (!posthog) {
@@ -41,6 +45,13 @@ export function captureAnalyticsEvent(input: CaptureAnalyticsEventInput): boolea
     properties: input.properties,
   });
   return true;
+}
+
+export async function flushAnalytics(): Promise<void> {
+  const posthog = getPostHogClient();
+  if (posthog) {
+    await posthog.flush();
+  }
 }
 
 export async function shutdownAnalytics(): Promise<void> {

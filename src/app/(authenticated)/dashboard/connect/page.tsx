@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useDashboardData } from '@/hooks/useDashboardData';
@@ -44,7 +44,25 @@ export default function ConnectPage() {
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [redirectUrl, setRedirectUrl] = useState<string | null>(null);
+  const redirectTimerRef = useRef<number | null>(null);
   const urlError = searchParams.get('error');
+
+  // The redirect-timeout fallback timer must not outlive the page. If the
+  // browser navigates to Zernio (or restores this page from bfcache), clear it
+  // so it can't fire a spurious gbp_connect_failed for a connect that succeeded.
+  useEffect(() => {
+    function clearRedirectTimer() {
+      if (redirectTimerRef.current !== null) {
+        window.clearTimeout(redirectTimerRef.current);
+        redirectTimerRef.current = null;
+      }
+    }
+    window.addEventListener('pagehide', clearRedirectTimer);
+    return () => {
+      window.removeEventListener('pagehide', clearRedirectTimer);
+      clearRedirectTimer();
+    };
+  }, []);
 
   useEffect(() => {
     if (requestedScope && currentScope !== requestedScope) {
@@ -116,10 +134,13 @@ export default function ConnectPage() {
     setBusy(true);
     setActionError(null);
     setRedirectUrl(null);
+    // One correlation id for the whole attempt so its events share a stable
+    // client event key and a retried POST of the same event dedups server-side.
+    const attemptId = makeClientEventId();
     void enqueueConnectAnalytics('gbp_connect_started', {
       source: 'dashboard_connect',
       locationScope: effectiveScope === 'all' ? 'all' : 'location',
-    });
+    }, attemptId);
     try {
       const res = await fetch('/api/zernio/connect/start', {
         method: 'POST',
@@ -136,18 +157,19 @@ export default function ConnectPage() {
           source: 'dashboard_connect',
           reason,
           status: res.status,
-        });
+        }, attemptId);
         setBusy(false);
         return;
       }
       setRedirectUrl(body.authUrl);
-      window.setTimeout(() => {
+      redirectTimerRef.current = window.setTimeout(() => {
+        redirectTimerRef.current = null;
         setActionError('If the connection window did not open, use the manual link below.');
         setBusy(false);
         void enqueueConnectAnalytics('gbp_connect_failed', {
           source: 'dashboard_connect',
           reason: 'redirect_timeout',
-        });
+        }, attemptId);
       }, 2500);
       window.location.href = body.authUrl;
     } catch {
@@ -155,7 +177,7 @@ export default function ConnectPage() {
       void enqueueConnectAnalytics('gbp_connect_failed', {
         source: 'dashboard_connect',
         reason: 'network_error',
-      });
+      }, attemptId);
       setBusy(false);
     }
   }
@@ -284,6 +306,7 @@ type ConnectAnalyticsEventName = 'gbp_connect_started' | 'gbp_connect_failed';
 function enqueueConnectAnalytics(
   eventName: ConnectAnalyticsEventName,
   properties: Record<string, unknown>,
+  clientEventId: string,
 ): Promise<void> {
   return fetch('/api/analytics/enqueue', {
     method: 'POST',
@@ -291,7 +314,7 @@ function enqueueConnectAnalytics(
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       eventName,
-      clientEventId: makeClientEventId(),
+      clientEventId,
       properties,
     }),
   }).then(

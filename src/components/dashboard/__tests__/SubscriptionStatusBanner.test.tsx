@@ -180,6 +180,20 @@ describe('PastDueBanner (VAL-CROSS-012)', () => {
     expect(screen.getByText(/2 days remain/)).toBeDefined();
   });
 
+  it('renders "less than a day" when under 24h of grace remains', () => {
+    render(
+      <PastDueBanner
+        billingPortalUrl="/api/billing/portal"
+        pastDueAt="2026-05-20T12:00:00.000Z"
+        deadline="2026-05-27T12:00:00.000Z"
+        daysRemaining={0}
+        isReadOnly={false}
+      />,
+    );
+
+    expect(screen.getByText(/Less than a day remains/)).toBeDefined();
+  });
+
   it('renders read-only copy after the recovery window closes', () => {
     render(
       <PastDueBanner
