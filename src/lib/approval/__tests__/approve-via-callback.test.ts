@@ -32,6 +32,7 @@ import {
   ExpiredLinkError,
   ChannelMismatchError,
 } from '../errors';
+import { SubscriptionReadOnlyError } from '@/lib/shared/writable-subscription';
 
 function liveLinkRow(overrides: Partial<Record<string, unknown>> = {}) {
   return [{
@@ -53,11 +54,20 @@ function pendingResponseRow() {
   return [{ status: 'pending_approval', original_draft_text: 'draft', response_text: 'Callback approved draft', version: 1, review_id: 'rev-1' }];
 }
 
+function activeAccountRow() {
+  return [{ subscription_status: 'active', past_due_at: null, flags: {} }];
+}
+
+function readOnlyAccountRow() {
+  return [{ subscription_status: 'past_due', past_due_at: '2020-01-01T00:00:00.000Z', flags: {} }];
+}
+
 describe('approveViaCallback', () => {
   beforeEach(() => { txQueue.length = 0; txCalls.length = 0; });
 
   it('happy path: consumes link, revokes siblings, approves response, inserts publish_response + audit', async () => {
     txQueue.push(liveLinkRow());             // SELECT approval_links FOR UPDATE
+    txQueue.push(activeAccountRow());        // assertWritableSubscriptionForBusiness
     txQueue.push(pendingResponseRow());      // lockPendingResponse
     txQueue.push([]);                        // consumeLink UPDATE
     txQueue.push([]);                        // UPDATE responses status=approved
@@ -84,6 +94,23 @@ describe('approveViaCallback', () => {
     expect((metadata as { chat_handle_hash: string }).chat_handle_hash).toMatch(/^[a-f0-9]{64}$/);
     // "Never both" invariant: Telegram rows must not carry a WhatsApp message_sid.
     expect(metadata).not.toHaveProperty('message_sid');
+  });
+
+  it('blocks read-only accounts before consuming links or enqueueing publish work', async () => {
+    txQueue.push(liveLinkRow());
+    txQueue.push(readOnlyAccountRow());
+
+    await expect(approveViaCallback({
+      approvalLinkId: 'link-1',
+      chatHandle: '123456789',
+      viaChannel: 'telegram',
+      audit: { providerEventId: '999', ipAddress: '1.2.3.4', telegramUpdateId: 999 },
+    })).rejects.toBeInstanceOf(SubscriptionReadOnlyError);
+
+    expect(txCalls.some((call) => call.sql.includes('UPDATE approval_links SET consumed_at'))).toBe(false);
+    expect(txCalls.some((call) => call.sql.includes('UPDATE responses'))).toBe(false);
+    expect(txCalls.some((call) => call.sql.includes('job_outbox'))).toBe(false);
+    expect(txCalls.some((call) => call.sql.includes('approval_audit_log'))).toBe(false);
   });
 
   it('throws ConsumedLinkError when consumed_at is set', async () => {
@@ -124,6 +151,7 @@ describe('regenerateViaCallback', () => {
 
   it('marks response superseded and enqueues generate_response outbox', async () => {
     txQueue.push(liveLinkRow());
+    txQueue.push(activeAccountRow());
     txQueue.push(pendingResponseRow());
     txQueue.push([]); // consumeLink
     txQueue.push([]); // revokeSiblings
@@ -139,5 +167,22 @@ describe('regenerateViaCallback', () => {
     });
     const outboxCall = txCalls.find((c) => c.sql.includes('job_outbox') && c.sql.includes('generate_response'));
     expect(outboxCall).toBeDefined();
+  });
+
+  it('blocks read-only accounts before consuming links or enqueueing regeneration work', async () => {
+    txQueue.push(liveLinkRow());
+    txQueue.push(readOnlyAccountRow());
+
+    await expect(regenerateViaCallback({
+      approvalLinkId: 'link-1',
+      chatHandle: '123',
+      viaChannel: 'telegram',
+      audit: { providerEventId: '7', ipAddress: null, telegramUpdateId: 7 },
+    })).rejects.toBeInstanceOf(SubscriptionReadOnlyError);
+
+    expect(txCalls.some((call) => call.sql.includes('UPDATE approval_links SET consumed_at'))).toBe(false);
+    expect(txCalls.some((call) => call.sql.includes('UPDATE responses'))).toBe(false);
+    expect(txCalls.some((call) => call.sql.includes('job_outbox'))).toBe(false);
+    expect(txCalls.some((call) => call.sql.includes('approval_audit_log'))).toBe(false);
   });
 });

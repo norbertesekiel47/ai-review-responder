@@ -9,7 +9,8 @@
 //
 // Error classification:
 //   - Permanent link-state errors (ConsumedLinkError, RevokedLinkError,
-//     ExpiredLinkError, ChannelMismatchError, ResponseNotPendingError)
+//     ExpiredLinkError, ChannelMismatchError, ResponseNotPendingError,
+//     SubscriptionReadOnlyError)
 //     → markInboundEventProcessed, edit message in place, 200 OK. Reclaim
 //       must NOT retry these — they would throw the same error forever.
 //   - Unexpected errors → markInboundEventFailed, 503, 2-min reclaim retry.
@@ -31,6 +32,7 @@ import {
   ResponseNotPendingError,
 } from '../../../src/lib/approval/errors';
 import { TelegramClient } from '../../../src/lib/notifications/channels/telegram-client';
+import { SubscriptionReadOnlyError } from '../../../src/lib/shared/writable-subscription';
 import { type TelegramUpdate, parseCallbackData, messageForLinkError } from './telegram-shared';
 
 export async function handleCallback(
@@ -156,7 +158,8 @@ export async function handleCallback(
       || e instanceof RevokedLinkError
       || e instanceof ExpiredLinkError
       || e instanceof ChannelMismatchError
-      || e instanceof ResponseNotPendingError;
+      || e instanceof ResponseNotPendingError
+      || e instanceof SubscriptionReadOnlyError;
 
     if (isPermanent) {
       await markInboundEventProcessed(dedupKey);

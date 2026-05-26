@@ -104,6 +104,7 @@ import {
   ChannelMismatchError,
   ResponseNotPendingError,
 } from '../../../../src/lib/approval/errors';
+import { SubscriptionReadOnlyError } from '../../../../src/lib/shared/writable-subscription';
 
 function buildRequest(body: Record<string, string>, url = '/ingress/twilio/whatsapp-inbound'): FastifyRequest {
   const raw = new URLSearchParams(body).toString();
@@ -346,6 +347,24 @@ describe('handleTwilioWhatsAppInbound — button tap path', () => {
     });
     const reply = buildReply();
     await handleTwilioWhatsAppInbound(req, reply);
+    expect(reply.status).toHaveBeenCalledWith(200);
+  });
+
+  it('classifies SubscriptionReadOnlyError as permanent', async () => {
+    sqlQueue.push([{ id: '019db8c1-c3f4-7668-b353-2b8b718ec603', business_id: 'biz-1' }]);
+    sqlQueue.push([{ handle: '+15551234567' }]);
+    mockApproveViaCallback.mockRejectedValueOnce(new SubscriptionReadOnlyError());
+    sqlQueue.push([]); // markProcessed
+
+    const req = buildRequest({
+      MessageSid: 'SM_ro', From: 'whatsapp:+15551234567', ButtonPayload: 'a:019db8c1-c3f4-7668-b353-2b8b718ec603',
+    });
+    const reply = buildReply();
+    await handleTwilioWhatsAppInbound(req, reply);
+
+    expect(mockSendFreeform).toHaveBeenCalledWith(expect.objectContaining({
+      body: expect.stringMatching(/Billing recovery has ended/),
+    }));
     expect(reply.status).toHaveBeenCalledWith(200);
   });
 

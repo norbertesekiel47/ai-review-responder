@@ -120,6 +120,7 @@ import {
   ExpiredLinkError,
   RevokedLinkError,
 } from '../../../../src/lib/approval/errors';
+import { SubscriptionReadOnlyError } from '../../../../src/lib/shared/writable-subscription';
 
 function mkRequest(body: unknown, secretHeader = 'good-secret') {
   return {
@@ -239,6 +240,7 @@ describe('telegram ingress — permanent link-state failures after ack', () => {
     ['revoked', new RevokedLinkError()],
     ['expired', new ExpiredLinkError()],
     ['channel-mismatch', new ChannelMismatchError('telegram', 'sms')],
+    ['read-only', new SubscriptionReadOnlyError()],
   ])('%s → ack then editMessageText replaces stale draft (no buttons remain), processed', async (_label, err) => {
     mockVerify.mockReturnValueOnce(true);
     mockClaim.mockResolvedValueOnce('claimed');

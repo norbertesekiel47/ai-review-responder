@@ -11,6 +11,7 @@ import {
   ExpiredLinkError,
   ResponseNotPendingError,
 } from '../../../src/lib/approval/errors';
+import { SubscriptionReadOnlyError } from '../../../src/lib/shared/writable-subscription';
 
 // Narrow shape of the Telegram update payload. We intentionally declare ONLY
 // the fields we read — Telegram includes additional fields (from.username,
@@ -105,6 +106,9 @@ export function messageForLinkError(err: Error): string {
     // approved (or superseded/posted) via another path — typically a parallel
     // email/dashboard approval landed in the ~15s window before the tap.
     return 'This review has already been handled — no further action needed.';
+  }
+  if (err instanceof SubscriptionReadOnlyError) {
+    return 'Billing recovery has ended. Update billing in RepWorth before approving replies.';
   }
   return 'This approval is no longer valid.';
 }

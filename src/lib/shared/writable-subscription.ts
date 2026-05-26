@@ -56,6 +56,33 @@ export async function assertWritableSubscriptionForAccount(
   }));
 }
 
+export async function assertWritableSubscriptionForBusiness(
+  businessId: string,
+  db: SubscriptionSql = sql,
+): Promise<WritableSubscriptionResult> {
+  const [account] = await db<{
+    subscription_status: string;
+    past_due_at: Date | string | null;
+    flags: AccountFlagsInput;
+  }[]>`
+    SELECT a.subscription_status, a.past_due_at, a.flags
+    FROM businesses b
+    JOIN accounts a ON a.id = b.account_id
+    WHERE b.id = ${businessId}::uuid
+    LIMIT 1
+  `;
+
+  if (!account) {
+    return { ok: true };
+  }
+
+  return assertWritableSubscription(computePastDueRecoveryState({
+    subscriptionStatus: account.subscription_status,
+    pastDueAt: account.past_due_at,
+    accountFlags: account.flags,
+  }));
+}
+
 export function throwIfReadOnly(result: WritableSubscriptionResult): void {
   if (!result.ok) {
     throw new SubscriptionReadOnlyError(result.error);

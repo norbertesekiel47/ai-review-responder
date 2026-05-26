@@ -8,12 +8,17 @@ import { recoverCorrelationId } from '@/lib/approval/correlation';
 import { getDeviceCookieHash, validateCsrf, verifyDeviceCookie } from '@/lib/approval/cookies';
 import { EmptyEditedResponseError, ResponseNotPendingError } from '@/lib/approval/errors';
 import { handleApprovalError } from '@/lib/approval/http-errors';
+import { verifyDevice } from '@/lib/approval/locks';
 import { lockValidLink } from '@/lib/approval/service';
 import type { ApprovalLink, AuditContext, SessionAuditContext } from '@/lib/approval/types';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { getRequestIp } from '@/lib/shared/request-ip';
-import { assertWritableSubscriptionForAccount } from '@/lib/shared/writable-subscription';
+import {
+  assertWritableSubscriptionForAccount,
+  assertWritableSubscriptionForBusiness,
+  throwIfReadOnly,
+} from '@/lib/shared/writable-subscription';
 
 type TxClient = postgres.TransactionSql;
 
@@ -71,6 +76,11 @@ export async function runTokenApprovalAction<TPrepared = undefined>(
   try {
     await sql.begin(async (tx) => {
       const link = await lockValidLink(tx, rawToken);
+      if (options.requireVerifiedDeviceCookie !== false) {
+        verifyDevice(link, deviceCookieHash);
+      }
+      throwIfReadOnly(await assertWritableSubscriptionForBusiness(link.business_id, tx));
+
       const audit: AuditContext = { tokenHash: link.token_hash, deviceCookieHash, ipAddress: ip };
       const correlationId = options.recoverResponseCorrelation === false
         ? link.response_id
