@@ -212,7 +212,13 @@ export function DashboardContent() {
           <KpiCards valueSummary={valueSummary} pendingCount={pending} onScrollToReviews={scrollToReviews} />
         </div>
         <div className="section-enter section-enter-3">
-          <ReviewsCard recentReviews={recentReviews} onActionSuccess={() => { void refresh(); }} ref={reviewsRef} initialTab={initialTab} />
+          <ReviewsCard
+            recentReviews={recentReviews}
+            onActionSuccess={() => { void refresh(); }}
+            ref={reviewsRef}
+            initialTab={initialTab}
+            readOnly={pastDueData?.isReadOnly ?? false}
+          />
         </div>
         <div className="section-enter section-enter-4">
           <VelocityCard reviewVelocity={reviewVelocity} />

@@ -34,12 +34,13 @@ function formatRelative(dateIso: string): string {
 interface Props {
   recentReviews: AggregateDashboardData['recentReviews'];
   onActionSuccess: () => void;
+  readOnly?: boolean;
 }
 
 /** VAL-DASH-013: Global pending-approval feed combines all locations.
  *  VAL-DASH-014: Location chips in approval feed use display_label. */
 export const AggregateReviewsCard = forwardRef<HTMLDivElement, Props>(function AggregateReviewsCard(
-  { recentReviews, onActionSuccess },
+  { recentReviews, onActionSuccess, readOnly = false },
   scrollRef,
 ) {
   const [tab, setTab] = useState<'needs' | 'all'>('needs');
@@ -87,7 +88,7 @@ export const AggregateReviewsCard = forwardRef<HTMLDivElement, Props>(function A
       ) : (
         <div className="review-list">
           {list.map((r) => (
-            <AggregateReviewRow key={r.id} r={r} onSuccess={onActionSuccess} />
+            <AggregateReviewRow key={r.id} r={r} onSuccess={onActionSuccess} readOnly={readOnly} />
           ))}
         </div>
       )}
@@ -98,9 +99,11 @@ export const AggregateReviewsCard = forwardRef<HTMLDivElement, Props>(function A
 function AggregateReviewRow({
   r,
   onSuccess,
+  readOnly,
 }: {
   r: AggregateReviewItem;
   onSuccess: () => void;
+  readOnly: boolean;
 }) {
   const displayStatus = r.responseStatus ?? r.status;
   const isPending = displayStatus === 'pending_approval';
@@ -133,7 +136,13 @@ function AggregateReviewRow({
             AI draft · sounds like you
           </div>
           <div className="draft-text">{r.responseText}</div>
-          <ReviewActions reviewId={r.id} responseText={r.responseText} onSuccess={onSuccess} />
+          {readOnly ? (
+            <p className="text-xs text-gray-600 mt-2">
+              Update billing to approve, edit, or regenerate this reply.
+            </p>
+          ) : (
+            <ReviewActions reviewId={r.id} responseText={r.responseText} onSuccess={onSuccess} />
+          )}
         </div>
       )}
 

@@ -125,6 +125,7 @@ export function AggregateDashboardContent({ data, refresh }: Props) {
                 recentReviews={data.recentReviews}
                 onActionSuccess={() => { void refresh(); }}
                 ref={reviewsRef}
+                readOnly={data.isReadOnly ?? false}
               />
             </div>
             <div className="section-enter section-enter-4">

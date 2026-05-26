@@ -48,4 +48,13 @@ describe('ReviewsCard', () => {
     render(<ReviewsCard recentReviews={REVIEWS} onActionSuccess={() => {}} initialTab="all" />);
     expect(screen.getByText('Sarah')).toBeInTheDocument();
   });
+
+  it('hides pending review action buttons in read-only mode', () => {
+    render(<ReviewsCard recentReviews={REVIEWS} onActionSuccess={() => {}} readOnly />);
+
+    expect(screen.queryByRole('button', { name: /^approve$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^edit$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^regenerate$/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/update billing to approve/i)).toBeInTheDocument();
+  });
 });
