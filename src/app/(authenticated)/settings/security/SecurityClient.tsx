@@ -123,19 +123,35 @@ export function SecurityClient() {
     setError(null);
     setNotice(null);
     try {
-      const { data: challenge, error: challengeError } = await supabase.auth.mfa.challenge({
-        factorId: enrollment.factorId,
+      const challengeRes = await fetch('/api/auth/mfa/challenge', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'challenge', factorId: enrollment.factorId }),
       });
-      if (challengeError || !challenge?.id) {
+      if (challengeRes.status === 429) {
+        setError('Too many MFA attempts. Try again in a few minutes.');
+        return;
+      }
+      const challenge = await challengeRes.json().catch(() => ({}));
+      if (!challengeRes.ok || typeof challenge.challengeId !== 'string') {
         setError('Could not create MFA challenge.');
         return;
       }
-      const { error: verifyError } = await supabase.auth.mfa.verify({
-        factorId: enrollment.factorId,
-        challengeId: challenge.id,
-        code,
+      const verifyRes = await fetch('/api/auth/mfa/challenge', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          action: 'verify',
+          factorId: enrollment.factorId,
+          challengeId: challenge.challengeId,
+          code,
+        }),
       });
-      if (verifyError) {
+      if (verifyRes.status === 429) {
+        setError('Too many MFA attempts. Try again in a few minutes.');
+        return;
+      }
+      if (!verifyRes.ok) {
         setError('The verification code was not accepted.');
         return;
       }

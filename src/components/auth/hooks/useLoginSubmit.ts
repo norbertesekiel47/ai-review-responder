@@ -44,6 +44,20 @@ export function useLoginSubmit({
     setError('');
     setLoading(true);
     try {
+      const attemptLimit = await fetch('/api/auth/login-attempt', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      if (attemptLimit.status === 429) {
+        setError('Too many sign-in attempts. Try again in a few minutes.');
+        return;
+      }
+      if (!attemptLimit.ok) {
+        setError('Sign-in is temporarily unavailable. Please try again.');
+        return;
+      }
+
       const supabase = createBrowserSupabaseClient();
       const { error: authError, data } = await supabase.auth.signInWithPassword({
         email,

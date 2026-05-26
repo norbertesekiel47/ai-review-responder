@@ -77,6 +77,10 @@ describe('LoginFormClient (admin)', () => {
       data: { currentLevel: 'aal1', nextLevel: 'aal1' },
       error: null,
     });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(null, { status: 204 })),
+    );
   });
 
   it('does not render the Google button when showGoogleButton is false', () => {

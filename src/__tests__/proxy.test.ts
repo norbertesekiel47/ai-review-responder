@@ -121,4 +121,15 @@ describe('proxy public launch host behavior', () => {
     expect(redirect.pathname).toBe('/login');
     expect(redirect.searchParams.get('from')).toBe('/onboarding/start');
   });
+
+  it('redirects unauthenticated MFA challenge requests to owner login', async () => {
+    const response = await proxy(request('https://repworth.net/mfa/challenge'));
+    const location = response.headers.get('location');
+
+    expect(createServerClient).toHaveBeenCalledTimes(1);
+    expect(location).not.toBeNull();
+    const redirect = new URL(location!);
+    expect(redirect.pathname).toBe('/login');
+    expect(redirect.searchParams.get('from')).toBe('/mfa/challenge');
+  });
 });

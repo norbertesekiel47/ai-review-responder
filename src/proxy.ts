@@ -119,6 +119,21 @@ export async function proxy(request: NextRequest) {
     }
   }
 
+  // 6b. MFA challenge pages require a first-factor session. Owners and admins
+  // both use this surface after password login when Supabase reports
+  // currentLevel=aal1 and nextLevel=aal2.
+  if (pathname === '/mfa' || pathname.startsWith('/mfa/')) {
+    const next = request.nextUrl.searchParams.get('next') ?? '';
+    const flow = next.startsWith('/admin') ? 'admin' : 'owner';
+    if (!authUser) {
+      return redirectToLogin(request, flow);
+    }
+    const self = await readSelf();
+    if (!self || (self.role !== 'owner' && self.role !== 'admin')) {
+      return redirectToLogin(request, flow);
+    }
+  }
+
   // 7. Onboarding paths require authenticated owner with a users row.
   // Does NOT require subscription_status='active' — the pages work pre-payment.
   //

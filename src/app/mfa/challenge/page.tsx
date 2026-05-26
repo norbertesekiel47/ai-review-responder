@@ -90,13 +90,22 @@ export default function MfaChallengePage() {
 
   async function ensureChallenge(factorId: string): Promise<string | null> {
     if (challengeId) return challengeId;
-    const { data, error: challengeError } = await supabase.auth.mfa.challenge({ factorId });
-    if (challengeError || !data?.id) {
+    const res = await fetch('/api/auth/mfa/challenge', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ action: 'challenge', factorId }),
+    });
+    if (res.status === 429) {
+      setError('Too many MFA attempts. Try again in a few minutes.');
+      return null;
+    }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || typeof data.challengeId !== 'string') {
       setError('Could not start MFA challenge.');
       return null;
     }
-    setChallengeId(data.id);
-    return data.id;
+    setChallengeId(data.challengeId);
+    return data.challengeId;
   }
 
   async function verify(event: FormEvent<HTMLFormElement>) {
@@ -107,12 +116,22 @@ export default function MfaChallengePage() {
     try {
       const nextChallengeId = await ensureChallenge(selectedFactorId);
       if (!nextChallengeId) return;
-      const { error: verifyError } = await supabase.auth.mfa.verify({
-        factorId: selectedFactorId,
-        challengeId: nextChallengeId,
-        code,
+      const res = await fetch('/api/auth/mfa/challenge', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          action: 'verify',
+          factorId: selectedFactorId,
+          challengeId: nextChallengeId,
+          code,
+        }),
       });
-      if (verifyError) {
+      if (res.status === 429) {
+        setError('Too many MFA attempts. Try again in a few minutes.');
+        setChallengeId(null);
+        return;
+      }
+      if (!res.ok) {
         setError('The verification code was not accepted.');
         setChallengeId(null);
         return;
