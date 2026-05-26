@@ -172,7 +172,18 @@ describe('requireOwnerAccess', () => {
     expect(redirect).toHaveBeenCalledWith('/login');
   });
 
-  it('redirects when subscription_status is not active', async () => {
+  it('allows past_due owners to view read-only pages', async () => {
+    mockSql.mockImplementation(() =>
+      Promise.resolve([{ role: 'owner', account_id: ACCOUNT_ID, subscription_status: 'past_due', email: EMAIL }]),
+    );
+
+    const result = await requireOwnerAccess();
+
+    expect(result.accountId).toBe(ACCOUNT_ID);
+    expect(mockGetRequestScope).toHaveBeenCalledWith(ACCOUNT_ID, null);
+  });
+
+  it('redirects when subscription_status is neither active nor past_due', async () => {
     mockSql.mockImplementation(() =>
       Promise.resolve([{ role: 'owner', account_id: ACCOUNT_ID, subscription_status: 'pending_payment', email: EMAIL }]),
     );
