@@ -19,7 +19,8 @@ export interface EligibilityInput {
   accountId: string;
   locationId: string;
   subscriptionStatus: string;
-  businessUpdatedAt: Date;
+  pastDueAt?: Date | string | null;
+  accountFlags?: Record<string, unknown> | null;
 }
 
 export interface EligibilityLogger {
@@ -56,11 +57,12 @@ export async function getEligibleChannels(
   input: EligibilityInput,
   logger: EligibilityLogger,
 ): Promise<EligibilityResult> {
-  const subCheck = checkSubscription(
-    input.subscriptionStatus,
-    input.businessUpdatedAt,
-    'notification',
-  );
+  const subCheck = checkSubscription({
+    status: input.subscriptionStatus,
+    pastDueAt: input.pastDueAt,
+    accountFlags: input.accountFlags ?? {},
+    workerType: 'notification',
+  });
   if (!subCheck.allowed) {
     return { ok: false, reason: subCheck.reason };
   }

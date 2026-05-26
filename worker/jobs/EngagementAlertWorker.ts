@@ -32,10 +32,12 @@ export async function handleEngagementAlert(job: Job<EngagementAlertPayload>): P
     owner_email_bounced: boolean;
     owner_phone: string | null;
     subscription_status: string;
-    account_updated_at: Date;
+    account_past_due_at: Date | null;
+    account_flags: Record<string, unknown> | null;
   }[]>`
     SELECT b.name, b.owner_email, b.owner_email_bounced, b.owner_phone,
-           a.id AS account_id, a.subscription_status, a.updated_at AS account_updated_at
+           a.id AS account_id, a.subscription_status,
+           a.past_due_at AS account_past_due_at, a.flags AS account_flags
     FROM businesses b
     JOIN accounts a ON a.id = b.account_id
     WHERE b.id = ${businessId}
@@ -48,11 +50,12 @@ export async function handleEngagementAlert(job: Job<EngagementAlertPayload>): P
   }
 
   // ── Step 2: Subscription guard ────────────────────────────────────
-  const subCheck = checkSubscription(
-    business.subscription_status,
-    new Date(business.account_updated_at),
-    'notification',
-  );
+  const subCheck = checkSubscription({
+    status: business.subscription_status,
+    pastDueAt: business.account_past_due_at,
+    accountFlags: business.account_flags ?? {},
+    workerType: 'notification',
+  });
 
   if (!subCheck.allowed) {
     logger.log(`Business ${businessId} skipped: ${subCheck.reason}`);

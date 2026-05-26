@@ -145,17 +145,26 @@ describe('Device hijack — DeviceConflictError', () => {
 // ── 7. Subscription bypass: cancelled + notification → denied ─────────
 describe('Subscription bypass', () => {
   it('denies notification worker for cancelled subscription', () => {
-    const result = checkSubscription('cancelled', new Date(), 'notification');
+    const result = checkSubscription({
+      status: 'cancelled',
+      workerType: 'notification',
+    });
     expect(result).toEqual({ allowed: false, reason: 'cancelled' });
   });
 
   it('denies publisher worker for pending_payment subscription', () => {
-    const result = checkSubscription('pending_payment', new Date(), 'publisher');
+    const result = checkSubscription({
+      status: 'pending_payment',
+      workerType: 'publisher',
+    });
     expect(result).toEqual({ allowed: false, reason: 'pending_payment' });
   });
 
   it('allows generator worker for pending_payment (admin demo drafts)', () => {
-    const result = checkSubscription('pending_payment', new Date(), 'generator');
+    const result = checkSubscription({
+      status: 'pending_payment',
+      workerType: 'generator',
+    });
     expect(result).toEqual({ allowed: true });
   });
 });

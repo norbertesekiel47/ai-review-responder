@@ -48,7 +48,8 @@ interface BusinessRow {
   owner_email: string;
   owner_email_bounced: boolean;
   subscription_status: string;
-  account_updated_at: Date;
+  account_past_due_at: Date | null;
+  account_flags: Record<string, unknown> | null;
 }
 
 export async function handleOwnerEmail(
@@ -61,7 +62,8 @@ export async function handleOwnerEmail(
 
   const [business] = await sql<BusinessRow[]>`
     SELECT b.id, b.name, b.owner_email, b.owner_email_bounced,
-           a.id AS account_id, a.subscription_status, a.updated_at AS account_updated_at
+           a.id AS account_id, a.subscription_status,
+           a.past_due_at AS account_past_due_at, a.flags AS account_flags
     FROM businesses b
     JOIN accounts a ON a.id = b.account_id
     WHERE b.id = ${businessId}
@@ -73,11 +75,12 @@ export async function handleOwnerEmail(
     return;
   }
 
-  const subCheck = checkSubscription(
-    business.subscription_status,
-    new Date(business.account_updated_at),
-    'owner_email',
-  );
+  const subCheck = checkSubscription({
+    status: business.subscription_status,
+    pastDueAt: business.account_past_due_at,
+    accountFlags: business.account_flags ?? {},
+    workerType: 'owner_email',
+  });
 
   if (!subCheck.allowed) {
     logger.warn(

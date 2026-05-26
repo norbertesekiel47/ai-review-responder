@@ -11,6 +11,8 @@ export interface SummaryReportBusiness {
   owner_email_bounced: boolean;
   subscription_status: string;
   account_updated_at: Date;
+  account_past_due_at: Date | null;
+  account_flags: Record<string, unknown> | null;
   initial_review_count: number | null;
   initial_responded_count: number | null;
   baseline_captured_at: Date | null;
@@ -40,6 +42,7 @@ export async function loadSummaryReportBusiness(
   const [business] = await sql<SummaryReportBusiness[]>`
     SELECT b.id, b.name, b.owner_email, b.owner_email_bounced,
            a.id AS account_id, a.subscription_status, a.updated_at AS account_updated_at,
+           a.past_due_at AS account_past_due_at, a.flags AS account_flags,
            b.initial_review_count, b.initial_responded_count, b.baseline_captured_at,
            a.subscription_tier
     FROM businesses b
@@ -63,11 +66,12 @@ export async function completeOrFailSkippedSummaryReport(input: {
     return true;
   }
 
-  const subCheck = checkSubscription(
-    business.subscription_status,
-    new Date(business.account_updated_at),
-    'summary',
-  );
+  const subCheck = checkSubscription({
+    status: business.subscription_status,
+    pastDueAt: business.account_past_due_at,
+    accountFlags: business.account_flags ?? {},
+    workerType: 'summary',
+  });
 
   if (!subCheck.allowed) {
     logger.log(`Business ${businessId} skipped: ${subCheck.reason}`);

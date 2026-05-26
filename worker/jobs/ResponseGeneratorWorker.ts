@@ -67,11 +67,13 @@ export async function handleResponseGeneration(
     sample_responses: string[] | null;
     subscription_status: string;
     subscription_tier: string;
-    account_updated_at: Date;
+    account_past_due_at: Date | null;
+    account_flags: Record<string, unknown> | null;
   }[]>`
     SELECT b.id, b.account_id, b.name, b.category, b.tone, b.products_services, b.staff_names,
            b.highlight_facts, b.avoid_facts, b.sample_responses,
-           a.subscription_status, a.subscription_tier, a.updated_at AS account_updated_at
+           a.subscription_status, a.subscription_tier,
+           a.past_due_at AS account_past_due_at, a.flags AS account_flags
     FROM businesses b
     JOIN accounts a ON a.id = b.account_id
     WHERE b.id = ${businessId}
@@ -84,11 +86,12 @@ export async function handleResponseGeneration(
   }
 
   // ── Step 2: Subscription guard ───────────────────────────────────────
-  const subCheck = checkSubscription(
-    business.subscription_status,
-    new Date(business.account_updated_at),
-    'generator',
-  );
+  const subCheck = checkSubscription({
+    status: business.subscription_status,
+    pastDueAt: business.account_past_due_at,
+    accountFlags: business.account_flags ?? {},
+    workerType: 'generator',
+  });
 
   if (!subCheck.allowed) {
     logger.log(`Business ${businessId} skipped: ${subCheck.reason}`);

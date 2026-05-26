@@ -29,7 +29,8 @@ interface ConnectionRow {
   zernio_location_id: string;
   connected_at: Date | null;
   subscription_status: string;
-  updated_at: Date;
+  past_due_at: Date | null;
+  account_flags: Record<string, unknown> | null;
 }
 
 export interface ZernioRecentReviewPollResult {
@@ -76,7 +77,8 @@ async function loadActiveConnections(limit: number, offset: number): Promise<Con
       zc.zernio_location_id,
       zc.connected_at,
       a.subscription_status,
-      a.updated_at
+      a.past_due_at,
+      a.flags AS account_flags
     FROM zernio_connections zc
     JOIN businesses b ON b.id = zc.business_id
     JOIN accounts a ON a.id = b.account_id
@@ -211,11 +213,12 @@ export async function runOnce(): Promise<ZernioRecentReviewPollResult> {
 
   for (const connection of connections) {
     result.connectionsChecked += 1;
-    const sub = checkSubscription(
-      connection.subscription_status,
-      connection.updated_at,
-      'generator',
-    );
+    const sub = checkSubscription({
+      status: connection.subscription_status,
+      pastDueAt: connection.past_due_at,
+      accountFlags: connection.account_flags ?? {},
+      workerType: 'generator',
+    });
     if (!sub.allowed) {
       continue;
     }
