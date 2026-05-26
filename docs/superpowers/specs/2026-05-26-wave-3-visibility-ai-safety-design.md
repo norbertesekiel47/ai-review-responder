@@ -51,6 +51,9 @@ Verified 2026-05-26 against the live tree after Wave 2:
   the current `recordApiCost()` insert path does not populate it. Wave 3 must
   fix account association for business-scoped calls before margin rollups can be
   trusted.
+- Migration `017` already created `api_costs_daily_rollups` with RLS. Finance
+  rollups must reconcile with that table before adding any parallel monthly
+  account rollup.
 - OpenAI is still unpinned in `src/lib/responses/generator.ts`:
   `gpt-4o-mini`. Anthropic is already pinned.
 - Prompt text is assembled inline in `src/lib/responses/prompt-builder.ts`.
@@ -59,9 +62,10 @@ Verified 2026-05-26 against the live tree after Wave 2:
 - There is no output moderation module, no `flagged_responses` table, no admin
   flagged queue, no trust-safety docs directory, no eval set, no sentiment
   columns, and no finance rollup.
-- Customer dashboard KPI UI already exists; `KpiCards` currently shows reviews
-  handled, time saved, response rate, and pending approvals. Wave 3 should
-  extend and reconcile this surface, not rebuild it.
+- Customer dashboard KPI UI already exists. `KpiCards` is the wrapper, but the
+  four visible cards render in `ValueKpiGrid.tsx`: reviews handled, time saved,
+  response rate, and pending approvals. Wave 3 should extend and reconcile this
+  surface, not rebuild it.
 - Internal admin overview and admin costs pages already exist, but they do not
   show MRR/NRR/GRR, account margin risk, fallback rate, or AI safety metrics.
 - `@bull-board/*` is not installed. Existing admin jobs/costs pages provide a
@@ -434,6 +438,11 @@ Rules:
 
 - Preserve existing response-linking behavior: cost row can be created before a
   response exists and linked after response persistence.
+- Moderation and flagged metadata are known only after generation and filtering.
+  Write those fields at the existing response-link update point
+  (`UPDATE api_costs SET response_id = ... WHERE id = ...`) inside the
+  response persistence transaction, rather than assuming they are available for
+  the original `recordApiCost()` insert.
 - Populate `account_id` for every business-scoped production call. The preferred
   implementation is to pass `accountId` through generation options from
   `ResponseGeneratorWorker`; a DB lookup inside `recordApiCost()` is acceptable
@@ -606,6 +615,9 @@ Worker behavior:
 2. Apply avoid-facts guardrail as today.
 3. Run output filter / moderation.
 4. Persist response, `api_costs` link, and flagged state in one transaction.
+   Concretely, extend the current `api_costs` link update in
+   `persistResponseAndNotify()` so it writes `response_id`, moderation fields,
+   flagged fields, and any retry cost-row metadata together.
 5. If high-confidence flagged, pass `suppressNotification = true`, create the
    `flagged_responses` row, and do not enqueue the normal owner notification.
 6. If not flagged, continue normal notification outbox behavior.
@@ -703,8 +715,8 @@ Source spec: `docs/sass_ready/11-data-analytics-bi.md`.
 
 - Dashboard page: `src/app/(authenticated)/dashboard/page.tsx`.
 - Dashboard shell: `src/components/DashboardContent.tsx`.
-- KPI cards: `src/components/dashboard/KpiCards.tsx`,
-  `src/components/dashboard/ValueKpiGrid.tsx`.
+- KPI wrapper: `src/components/dashboard/KpiCards.tsx`.
+- KPI card renderer: `src/components/dashboard/ValueKpiGrid.tsx`.
 - Dashboard data service: `src/lib/dashboard/service.ts`.
 - Aggregate dashboard service: `src/lib/dashboard/aggregate-service.ts`.
 - Dashboard types: `src/lib/dashboard/types.ts`.
@@ -853,6 +865,8 @@ Source spec: `docs/sass_ready/26-financial-operations.md`.
 - Billing/account state: `accounts`, `businesses`, and Stripe subscription
   fields from earlier migrations.
 - Existing docs directory: `docs/finance/`.
+- Existing daily API cost rollup: `api_costs_daily_rollups` from migration
+  `017`, used by archival/cost-report paths for older cost data.
 
 ### Design
 
@@ -860,8 +874,17 @@ Source spec: `docs/sass_ready/26-financial-operations.md`.
 
 Use `api_costs` as the COGS detail source for AI/API usage.
 
-Add an account/month rollup if implementation planning confirms admin queries
-would otherwise become expensive. Suggested table:
+Before adding a new table, the implementation plan must decide whether to:
+
+1. aggregate directly from `api_costs` plus the existing
+   `api_costs_daily_rollups`;
+2. extend the existing daily rollup shape/query path to support account-month
+   margin reporting; or
+3. add a separate monthly account rollup only if the first two options are too
+   expensive or awkward.
+
+If implementation planning confirms a new monthly table is justified, suggested
+shape:
 
 - `account_api_cost_monthly_rollups`
 - `id uuid primary key`
@@ -879,9 +902,8 @@ would otherwise become expensive. Suggested table:
 - `created_at timestamptz`
 - `updated_at timestamptz`
 
-Alternative: compute directly from `api_costs` for launch and add rollup only
-when query cost justifies it. The implementation plan should choose based on
-query complexity after `api_costs` metadata is added.
+The default launch preference is to aggregate from existing detail/daily-rollup
+data and add a monthly table only when query cost justifies it.
 
 #### Gross-Margin Inputs
 
