@@ -203,6 +203,7 @@ export function SignupForm() {
 async function captureSignupStarted(method: 'email' | 'google') {
   await fetch('/api/analytics/enqueue', {
     method: 'POST',
+    keepalive: true,
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       eventName: 'signup_started',

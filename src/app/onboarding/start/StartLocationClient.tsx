@@ -177,6 +177,7 @@ export function StartLocationClient() {
 async function captureSampleDemoStarted(inputMode: 'autocomplete' | 'url') {
   await fetch('/api/analytics/enqueue', {
     method: 'POST',
+    keepalive: true,
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       eventName: 'sample_demo_started',

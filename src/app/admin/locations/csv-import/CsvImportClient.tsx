@@ -45,41 +45,43 @@ export function CsvImportClient() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (submitting) return;
+
+    setSubmitting(true);
     setFormError(null);
     setValidationErrors([]);
     setReport(null);
 
-    if (!accountId.trim()) {
-      setFormError('Enter an account ID.');
-      return;
-    }
-    if (!file) {
-      setFormError('Choose a CSV file.');
-      return;
-    }
-    if (file.size > MAX_CLIENT_FILE_SIZE) {
-      setValidationErrors([{ row: 0, reason: 'CSV file is larger than 5 MB.' }]);
-      return;
-    }
-
-    const parsed = parseCsvRows(await file.text());
-    if ('error' in parsed) {
-      setFormError(parsed.error);
-      return;
-    }
-
-    const failures = validateLocationsCsvClient(parsed.rows);
-    if (failures.length > 0) {
-      setValidationErrors(failures);
-      return;
-    }
-
-    const formData = new FormData();
-    formData.append('accountId', accountId.trim());
-    formData.append('file', file);
-
-    setSubmitting(true);
     try {
+      if (!accountId.trim()) {
+        setFormError('Enter an account ID.');
+        return;
+      }
+      if (!file) {
+        setFormError('Choose a CSV file.');
+        return;
+      }
+      if (file.size > MAX_CLIENT_FILE_SIZE) {
+        setValidationErrors([{ row: 0, reason: 'CSV file is larger than 5 MB.' }]);
+        return;
+      }
+
+      const parsed = parseCsvRows(await file.text());
+      if ('error' in parsed) {
+        setFormError(parsed.error);
+        return;
+      }
+
+      const failures = validateLocationsCsvClient(parsed.rows);
+      setValidationErrors(failures);
+      if (failures.some((failure) => failure.row === 0)) {
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append('accountId', accountId.trim());
+      formData.append('file', file);
+
       const res = await fetch('/api/admin/locations/csv-import', {
         method: 'POST',
         body: formData,
@@ -177,14 +179,16 @@ export function CsvImportClient() {
             {validationErrors.length > 0 ? (
               <div className="rounded-md border border-yellow-200 bg-yellow-50 p-3">
                 <h2 className="text-sm font-semibold text-yellow-900">
-                  Fix these CSV issues before importing
+                  {validationErrors.some((failure) => failure.row === 0)
+                    ? 'Fix these CSV issues before importing'
+                    : 'These CSV rows may fail during import'}
                 </h2>
                 <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-yellow-800">
                   {validationErrors.map((failure) => (
                     <li key={`${failure.row}:${failure.reason}`}>
                       {failure.row === 0
                         ? failure.reason
-                        : `Row ${failure.row}: ${failure.reason}`}
+                        : `Line ${failure.row}: ${failure.reason}`}
                     </li>
                   ))}
                 </ul>
@@ -236,21 +240,20 @@ function parseCsvRows(csvText: string): { rows: Array<Record<string, string>> } 
     return { error: 'CSV file is empty.' };
   }
 
-  const headers = records[0]!.map((header) => header.trim());
-  if (!headers.includes('name')) {
+  const headers = records[0]!.map((header) => header.toLowerCase().trim());
+  const nameIndex = headers.indexOf('name');
+  const placeIdIndex = headers.indexOf('placeid');
+  if (nameIndex === -1) {
     return { error: "CSV header is missing required column 'name'." };
   }
-  if (!headers.includes('placeId')) {
+  if (placeIdIndex === -1) {
     return { error: "CSV header is missing required column 'placeId'." };
   }
 
-  const rows = records.slice(1).map((fields) => {
-    const row: Record<string, string> = {};
-    headers.forEach((header, index) => {
-      row[header] = fields[index] ?? '';
-    });
-    return row;
-  });
+  const rows = records.slice(1).map((fields) => ({
+    name: fields[nameIndex] ?? '',
+    placeId: fields[placeIdIndex] ?? '',
+  }));
 
   return { rows };
 }

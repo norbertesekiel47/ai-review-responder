@@ -241,6 +241,7 @@ function enqueueConnectAnalytics(
 ): Promise<void> {
   return fetch('/api/analytics/enqueue', {
     method: 'POST',
+    keepalive: true,
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       eventName,

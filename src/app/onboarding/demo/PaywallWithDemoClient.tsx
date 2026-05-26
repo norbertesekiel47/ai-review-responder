@@ -207,6 +207,7 @@ export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoC
 async function captureDemoToSignup() {
   await fetch('/api/analytics/enqueue', {
     method: 'POST',
+    keepalive: true,
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       eventName: 'sample_demo_to_signup',
