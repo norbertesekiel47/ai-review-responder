@@ -1,0 +1,161 @@
+import { v7 as uuidv7 } from 'uuid';
+import { writeAccountAuditLog } from '@/lib/audit/log';
+import { sql } from '@/lib/db/server';
+
+const SESSION_TTL_MS = 60 * 60 * 1000;
+
+export interface StartImpersonationSessionInput {
+  actorUserId: string;
+  impersonatedUserId: string;
+  accountId: string;
+  ticketId: string;
+  reason: string;
+}
+
+export interface ActiveImpersonationSession {
+  id: string;
+  actorUserId: string;
+  impersonatedUserId: string;
+  accountId: string;
+  ticketId: string;
+  reason: string;
+  startedAt: Date;
+  expiresAt: Date;
+  impersonatedEmail: string | null;
+  accountDisplayName: string | null;
+}
+
+export async function startImpersonationSession(
+  input: StartImpersonationSessionInput,
+): Promise<{ sessionId: string; expiresAt: Date }> {
+  const sessionId = uuidv7();
+  const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
+
+  await sql.begin(async (tx) => {
+    await tx`
+      INSERT INTO impersonation_sessions (
+        id,
+        actor_user_id,
+        impersonated_user_id,
+        account_id,
+        ticket_id,
+        reason,
+        expires_at
+      ) VALUES (
+        ${sessionId}::uuid,
+        ${input.actorUserId}::uuid,
+        ${input.impersonatedUserId}::uuid,
+        ${input.accountId}::uuid,
+        ${input.ticketId},
+        ${input.reason},
+        ${expiresAt}
+      )
+    `;
+
+    await writeAccountAuditLog(
+      {
+        accountId: input.accountId,
+        actorUserId: input.actorUserId,
+        eventType: 'impersonation_started',
+        entityType: 'user',
+        entityId: input.impersonatedUserId,
+        payload: {
+          ticket_id: input.ticketId,
+          reason: input.reason,
+          expires_at: expiresAt.toISOString(),
+        },
+      },
+      tx,
+    );
+  });
+
+  return { sessionId, expiresAt };
+}
+
+export async function endImpersonationSession(input: {
+  sessionId: string;
+  actorUserId: string;
+}): Promise<{ ended: boolean }> {
+  const ended = await sql.begin(async (tx) => {
+    const rows = await tx<{ account_id: string; impersonated_user_id: string }[]>`
+      UPDATE impersonation_sessions
+      SET ended_at = NOW()
+      WHERE id = ${input.sessionId}::uuid
+        AND actor_user_id = ${input.actorUserId}::uuid
+        AND ended_at IS NULL
+      RETURNING account_id, impersonated_user_id
+    `;
+    const row = rows[0];
+    if (!row) return false;
+
+    await writeAccountAuditLog(
+      {
+        accountId: row.account_id,
+        actorUserId: input.actorUserId,
+        eventType: 'impersonation_ended',
+        entityType: 'user',
+        entityId: row.impersonated_user_id,
+        payload: { session_id: input.sessionId },
+      },
+      tx,
+    );
+    return true;
+  });
+
+  return { ended };
+}
+
+export async function loadActiveImpersonationSession(input: {
+  sessionId: string;
+  actorUserId: string;
+  now?: Date;
+}): Promise<ActiveImpersonationSession | null> {
+  const rows = await sql<{
+    id: string;
+    actor_user_id: string;
+    impersonated_user_id: string;
+    account_id: string;
+    ticket_id: string;
+    reason: string;
+    started_at: Date;
+    expires_at: Date;
+    impersonated_email: string | null;
+    account_display_name: string | null;
+  }[]>`
+    SELECT
+      s.id,
+      s.actor_user_id,
+      s.impersonated_user_id,
+      s.account_id,
+      s.ticket_id,
+      s.reason,
+      s.started_at,
+      s.expires_at,
+      u.email AS impersonated_email,
+      a.display_name AS account_display_name
+    FROM impersonation_sessions s
+    JOIN users u ON u.id = s.impersonated_user_id
+    JOIN accounts a ON a.id = s.account_id
+    WHERE s.id = ${input.sessionId}::uuid
+      AND s.actor_user_id = ${input.actorUserId}::uuid
+      AND s.ended_at IS NULL
+      AND s.expires_at > ${input.now ?? new Date()}
+    LIMIT 1
+  `;
+
+  const row = rows[0];
+  if (!row) return null;
+
+  return {
+    id: row.id,
+    actorUserId: row.actor_user_id,
+    impersonatedUserId: row.impersonated_user_id,
+    accountId: row.account_id,
+    ticketId: row.ticket_id,
+    reason: row.reason,
+    startedAt: new Date(row.started_at),
+    expiresAt: new Date(row.expires_at),
+    impersonatedEmail: row.impersonated_email,
+    accountDisplayName: row.account_display_name,
+  };
+}
