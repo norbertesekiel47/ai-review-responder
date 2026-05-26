@@ -102,8 +102,12 @@ export function computePastDueRecoveryState(
   }
 
   const extension = parseExtension(input.accountFlags, now);
-  const extensionMs = extension ? extension.days * DAY_MS : 0;
-  const deadline = new Date(pastDueAt.getTime() + GRACE_MS + extensionMs);
+  const graceDeadline = new Date(pastDueAt.getTime() + GRACE_MS);
+  const extensionDeadline = extension ? new Date(extension.expires_at) : null;
+  const deadline =
+    extensionDeadline && extensionDeadline.getTime() > graceDeadline.getTime()
+      ? extensionDeadline
+      : graceDeadline;
   const remainingMs = deadline.getTime() - now.getTime();
 
   return {

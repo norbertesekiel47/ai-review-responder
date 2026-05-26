@@ -26,6 +26,19 @@ export async function requireAal2FromSupabase(
   return { ok: true };
 }
 
+export async function requireCurrentAal2FromSupabase(
+  supabase: SupabaseMfaAalClient,
+): Promise<Aal2Result> {
+  const { data, error } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+  if (error || !data) {
+    return { ok: false, reason: 'mfa_check_failed' };
+  }
+  if (data.currentLevel !== 'aal2') {
+    return { ok: false, reason: 'mfa_required' };
+  }
+  return { ok: true };
+}
+
 export function mfaChallengePath(next: string): string {
   return `/mfa/challenge?next=${encodeURIComponent(next)}`;
 }

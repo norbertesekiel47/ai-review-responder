@@ -3,7 +3,7 @@ import { NextRequest } from 'next/server';
 
 const {
   mockRequireRole,
-  mockRequireAal2FromSupabase,
+  mockRequireCurrentAal2FromSupabase,
   mockWriteAccountAuditLog,
   mockSql,
   mockTx,
@@ -26,7 +26,7 @@ const {
 
   return {
     mockRequireRole: vi.fn(),
-    mockRequireAal2FromSupabase: vi.fn(),
+    mockRequireCurrentAal2FromSupabase: vi.fn(),
     mockWriteAccountAuditLog: vi.fn(),
     mockSql,
     mockTx,
@@ -49,7 +49,7 @@ vi.mock('@/lib/db/auth', () => ({
 }));
 
 vi.mock('@/lib/auth/mfa', () => ({
-  requireAal2FromSupabase: mockRequireAal2FromSupabase,
+  requireCurrentAal2FromSupabase: mockRequireCurrentAal2FromSupabase,
 }));
 
 vi.mock('@/lib/audit/log', () => ({
@@ -93,7 +93,7 @@ describe('POST /api/admin/billing/grant-extension', () => {
       accountId: null,
       locationId: null,
     });
-    mockRequireAal2FromSupabase.mockResolvedValue({ ok: true });
+    mockRequireCurrentAal2FromSupabase.mockResolvedValue({ ok: true });
     mockWriteAccountAuditLog.mockResolvedValue(undefined);
   });
 
@@ -118,7 +118,7 @@ describe('POST /api/admin/billing/grant-extension', () => {
       accountId: null,
       locationId: null,
     });
-    mockRequireAal2FromSupabase.mockResolvedValueOnce({ ok: false, reason: 'mfa_required' });
+    mockRequireCurrentAal2FromSupabase.mockResolvedValueOnce({ ok: false, reason: 'mfa_required' });
     const aalRes = await POST(req({
       accountId: ACCOUNT_ID,
       days: 3,
@@ -128,7 +128,7 @@ describe('POST /api/admin/billing/grant-extension', () => {
     expect(aalRes.status).toBe(403);
     expect(await aalRes.json()).toEqual({ error: 'mfa_required' });
 
-    mockRequireAal2FromSupabase.mockResolvedValue({ ok: true });
+    mockRequireCurrentAal2FromSupabase.mockResolvedValue({ ok: true });
     const missingTicketRes = await POST(req({
       accountId: ACCOUNT_ID,
       days: 3,

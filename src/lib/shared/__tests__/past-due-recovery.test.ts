@@ -87,6 +87,23 @@ describe('computePastDueRecoveryState', () => {
     expect(state.extension?.days).toBe(7);
   });
 
+  it('uses extension expires_at as the deadline for already read-only accounts', () => {
+    const state = computePastDueRecoveryState({
+      subscriptionStatus: 'past_due',
+      pastDueAt: new Date('2026-05-16T12:00:00.000Z'),
+      accountFlags: {
+        past_due_extension: {
+          days: 3,
+          expires_at: '2026-05-28T12:00:00.000Z',
+        },
+      },
+      now: NOW,
+    });
+
+    expect(state.isReadOnly).toBe(false);
+    expect(state.deadline?.toISOString()).toBe('2026-05-28T12:00:00.000Z');
+  });
+
   it('parses account flags returned as a JSONB string', () => {
     const state = computePastDueRecoveryState({
       subscriptionStatus: 'past_due',
