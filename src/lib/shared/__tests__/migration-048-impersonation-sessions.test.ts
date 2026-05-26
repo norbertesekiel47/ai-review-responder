@@ -19,9 +19,9 @@ describe('migration 048 - impersonation_sessions', () => {
     expect(sql).toMatch(/expires_at TIMESTAMPTZ NOT NULL/i);
   });
 
-  it('indexes active actor sessions and account history', () => {
-    expect(sql).toMatch(/CREATE INDEX IF NOT EXISTS idx_impersonation_active_actor/i);
-    expect(sql).toMatch(/WHERE ended_at IS NULL/i);
+  it('enforces one active session per actor via a partial UNIQUE index', () => {
+    expect(sql).toMatch(/CREATE UNIQUE INDEX IF NOT EXISTS idx_impersonation_active_actor/i);
+    expect(sql).toMatch(/ON impersonation_sessions \(actor_user_id\)\s*\n?\s*WHERE ended_at IS NULL/i);
     expect(sql).toMatch(/CREATE INDEX IF NOT EXISTS idx_impersonation_account_started/i);
   });
 

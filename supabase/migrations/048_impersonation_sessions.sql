@@ -30,6 +30,8 @@ CREATE INDEX IF NOT EXISTS idx_impersonation_impersonated_started
 CREATE INDEX IF NOT EXISTS idx_impersonation_account_started
   ON impersonation_sessions (account_id, started_at DESC);
 
-CREATE INDEX IF NOT EXISTS idx_impersonation_active_actor
-  ON impersonation_sessions (actor_user_id, expires_at)
+-- Enforces "one active impersonation session per actor": a partial UNIQUE index
+-- so a second concurrent open session for the same actor is rejected at the DB.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_impersonation_active_actor
+  ON impersonation_sessions (actor_user_id)
   WHERE ended_at IS NULL;

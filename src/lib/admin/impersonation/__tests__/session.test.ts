@@ -60,7 +60,11 @@ describe('impersonation session helpers', () => {
     expect(result.sessionId).toBe('018f0000-0000-7000-8000-000000000048');
     expect(result.expiresAt.toISOString()).toBe('2026-05-26T13:00:00.000Z');
     expect(mockSql.begin).toHaveBeenCalledTimes(1);
-    expect(txCalls[0]!.text).toMatch(/INSERT INTO impersonation_sessions/i);
+    // First checks for an existing active session for the actor, then inserts.
+    expect(txCalls[0]!.text).toMatch(/SELECT id\s+FROM impersonation_sessions/i);
+    expect(txCalls[0]!.text).toMatch(/ended_at IS NULL/i);
+    expect(txCalls[0]!.text).toMatch(/FOR UPDATE/i);
+    expect(txCalls[1]!.text).toMatch(/INSERT INTO impersonation_sessions/i);
     expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
       expect.objectContaining({
         accountId: 'account-id',
@@ -71,6 +75,24 @@ describe('impersonation session helpers', () => {
       }),
       mockTx,
     );
+  });
+
+  it('rejects starting a second active session for the same actor', async () => {
+    // Pre-check SELECT returns an existing active session.
+    txResults.push([{ id: 'existing-session-id' }]);
+    const { startImpersonationSession, ImpersonationStartError } = await import('../session');
+
+    await expect(startImpersonationSession({
+      actorUserId: 'admin-user-id',
+      impersonatedUserId: 'owner-user-id',
+      accountId: 'account-id',
+      ticketId: 'SUP-123',
+      reason: 'Diagnose support ticket.',
+    })).rejects.toBeInstanceOf(ImpersonationStartError);
+
+    // No INSERT, no audit row when an active session already exists.
+    expect(txCalls.some((c) => /INSERT INTO impersonation_sessions/i.test(c.text))).toBe(false);
+    expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
   });
 
   it('ends an active session and writes an audit row', async () => {

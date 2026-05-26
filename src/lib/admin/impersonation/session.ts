@@ -4,6 +4,13 @@ import { sql } from '@/lib/db/server';
 
 const SESSION_TTL_MS = 60 * 60 * 1000;
 
+export class ImpersonationStartError extends Error {
+  constructor(readonly code: string = 'active_session_exists') {
+    super(code);
+    this.name = 'ImpersonationStartError';
+  }
+}
+
 export interface StartImpersonationSessionInput {
   actorUserId: string;
   impersonatedUserId: string;
@@ -32,6 +39,21 @@ export async function startImpersonationSession(
   const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
 
   await sql.begin(async (tx) => {
+    // One active session per actor. The partial UNIQUE index (migration 048) is
+    // the hard backstop; this FOR UPDATE pre-check returns a clean typed error
+    // instead of a raw constraint violation.
+    const existing = await tx<{ id: string }[]>`
+      SELECT id
+      FROM impersonation_sessions
+      WHERE actor_user_id = ${input.actorUserId}::uuid
+        AND ended_at IS NULL
+      LIMIT 1
+      FOR UPDATE
+    `;
+    if (existing.length > 0) {
+      throw new ImpersonationStartError('active_session_exists');
+    }
+
     await tx`
       INSERT INTO impersonation_sessions (
         id,

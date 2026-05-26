@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { Suspense, useEffect, useMemo, useState, type FormEvent } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/db/browser';
@@ -52,7 +52,7 @@ function safeNext(raw: string | null): string {
   return raw;
 }
 
-export default function MfaChallengePage() {
+function MfaChallengeForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const next = safeNext(searchParams.get('next'));
@@ -212,5 +212,20 @@ export default function MfaChallengePage() {
         </form>
       </div>
     </main>
+  );
+}
+
+// useSearchParams requires a Suspense boundary during prerender/CSR bailout.
+export default function MfaChallengePage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
+          <p className="text-sm text-gray-600">Loading…</p>
+        </main>
+      }
+    >
+      <MfaChallengeForm />
+    </Suspense>
   );
 }

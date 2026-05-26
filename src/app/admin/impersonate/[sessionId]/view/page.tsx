@@ -1,6 +1,7 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { notFound, redirect } from 'next/navigation';
+import { requireCurrentAal2FromSupabase, mfaChallengePath, type SupabaseMfaAalClient } from '@/lib/auth/mfa';
 import { IMPERSONATION_COOKIE_NAME } from '@/lib/admin/impersonation/cookie';
 import {
   loadImpersonationAccountLocations,
@@ -33,14 +34,19 @@ export default async function AdminImpersonationViewPage({ params }: PageProps) 
   );
 
   const { data: { user } } = await supabase.auth.getUser();
+  const aal = await requireCurrentAal2FromSupabase(supabase as unknown as SupabaseMfaAalClient);
   const resolution = await resolveImpersonationViewSession({
     routeSessionId: sessionId,
     signedCookieValue: cookieStore.get(IMPERSONATION_COOKIE_NAME)?.value ?? null,
     authUserId: user?.id ?? null,
+    isAal2: aal.ok,
   });
 
   if (resolution.status === 'unauthenticated' || resolution.status === 'forbidden') {
     redirect('/admin/login');
+  }
+  if (resolution.status === 'mfa_required') {
+    redirect(mfaChallengePath(`/admin/impersonate/${sessionId}/view`));
   }
   if (resolution.status === 'not_found') {
     notFound();

@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
+import { writeAccountAuditLog } from '@/lib/audit/log';
+import { requireCurrentAal2FromSupabase, type SupabaseMfaAalClient } from '@/lib/auth/mfa';
+import { sql } from '@/lib/db/server';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 
@@ -8,9 +11,15 @@ export const dynamic = 'force-dynamic';
 const NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
 const RETRY_AFTER_SECONDS = 15 * 60;
 
+// Per-action rate-limit budgets keyed separately so a challenge+verify pair
+// (one per attempt) does not drain a single shared counter and lock the user
+// out after ~2 mistyped codes.
+const RATE_LIMITS = { challenge: 15, verify: 8, unenroll: 5 } as const;
+
 type MfaChallengeBody =
   | { action: 'challenge'; factorId: string }
-  | { action: 'verify'; factorId: string; challengeId: string; code: string };
+  | { action: 'verify'; factorId: string; challengeId: string; code: string }
+  | { action: 'unenroll'; factorId: string };
 
 function parseBody(body: unknown): MfaChallengeBody | null {
   if (!body || typeof body !== 'object') return null;
@@ -22,6 +31,10 @@ function parseBody(body: unknown): MfaChallengeBody | null {
     return { action: 'challenge', factorId };
   }
 
+  if (record.action === 'unenroll') {
+    return { action: 'unenroll', factorId };
+  }
+
   if (record.action === 'verify') {
     const challengeId =
       typeof record.challengeId === 'string' ? record.challengeId.trim() : '';
@@ -31,6 +44,30 @@ function parseBody(body: unknown): MfaChallengeBody | null {
   }
 
   return null;
+}
+
+// Best-effort MFA audit: never block the auth action on an audit-write failure,
+// but record actor actions (factor removal, verify outcomes) for the trail.
+async function auditMfaEvent(
+  authUserId: string,
+  eventType: string,
+  payload: Record<string, unknown>,
+): Promise<void> {
+  try {
+    const [actor] = await sql<{ id: string; account_id: string | null }[]>`
+      SELECT id, account_id FROM users WHERE auth_id = ${authUserId} LIMIT 1
+    `;
+    if (actor?.account_id) {
+      await writeAccountAuditLog({
+        accountId: actor.account_id,
+        actorUserId: actor.id,
+        eventType,
+        payload,
+      });
+    }
+  } catch (err) {
+    console.error('[mfa-challenge] audit write failed:', err);
+  }
 }
 
 function jsonWithCookies(
@@ -107,8 +144,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   try {
     const limit = await checkRateLimit(
-      `mfa_challenge:${user.id}:${body.factorId}`,
-      5,
+      `mfa:${body.action}:${user.id}:${body.factorId}`,
+      RATE_LIMITS[body.action],
       RETRY_AFTER_SECONDS,
       { strict: true },
     );
@@ -146,12 +183,39 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
+  if (body.action === 'unenroll') {
+    // Removing a factor is account-takeover-sensitive: require a currently
+    // stepped-up (AAL2) session, not merely an enrolled factor. A lost factor
+    // is handled by the documented support path, not an AAL1 self-serve removal.
+    const aal = await requireCurrentAal2FromSupabase(
+      supabase as unknown as SupabaseMfaAalClient,
+    );
+    if (!aal.ok) {
+      return jsonWithCookies(
+        cookieJar,
+        { error: 'mfa_required' },
+        { status: 403, headers: NO_STORE },
+      );
+    }
+    const { error } = await supabase.auth.mfa.unenroll({ factorId: body.factorId });
+    if (error) {
+      return jsonWithCookies(
+        cookieJar,
+        { error: 'unenroll_failed' },
+        { status: 400, headers: NO_STORE },
+      );
+    }
+    await auditMfaEvent(user.id, 'mfa_factor_unenrolled', { factor_id: body.factorId });
+    return jsonWithCookies(cookieJar, { ok: true }, { status: 200, headers: NO_STORE });
+  }
+
   const { error } = await supabase.auth.mfa.verify({
     factorId: body.factorId,
     challengeId: body.challengeId,
     code: body.code,
   });
   if (error) {
+    await auditMfaEvent(user.id, 'mfa_challenge_failed', { factor_id: body.factorId });
     return jsonWithCookies(
       cookieJar,
       { error: 'verify_failed' },
@@ -159,6 +223,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
+  await auditMfaEvent(user.id, 'mfa_challenge_succeeded', { factor_id: body.factorId });
   return jsonWithCookies(
     cookieJar,
     { ok: true },

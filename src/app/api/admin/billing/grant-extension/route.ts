@@ -12,6 +12,8 @@ export const dynamic = 'force-dynamic';
 const NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
 const MAX_EXTENSION_DAYS = 7;
 const DAY_MS = 86_400_000;
+// Must match GRACE_MS in src/lib/shared/past-due-recovery.ts (the read-only clock).
+const GRACE_MS = 7 * DAY_MS;
 
 const GrantExtensionSchema = z.object({
   accountId: z.string().uuid(),
@@ -90,18 +92,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   const { accountId, days, reason, ticketId } = parsed.data;
   const grantedAt = new Date();
-  const expiresAt = new Date(grantedAt.getTime() + days * DAY_MS);
-  const extension = {
-    granted_at: grantedAt.toISOString(),
-    granted_by_user_id: admin.id,
-    days,
-    reason,
-    ticket_id: ticketId,
-    expires_at: expiresAt.toISOString(),
-  };
 
+  let extensionExpiresAt: string;
   try {
-    await sql.begin(async (tx) => {
+    extensionExpiresAt = await sql.begin(async (tx) => {
       const accountRows = await tx<{ past_due_at: Date | string | null }[]>`
         SELECT past_due_at
         FROM accounts
@@ -117,6 +111,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       if (!pastDueAt || !Number.isFinite(pastDueAt.getTime())) {
         throw new GrantExtensionError(409, 'past_due_at_missing');
       }
+
+      // Derive expires_at from the extended read-only cutoff (past_due_at + grace
+      // + days), NOT now + days — otherwise the extension self-expires before it
+      // takes effect and grants the customer zero additional time.
+      const expiresAt = new Date(pastDueAt.getTime() + GRACE_MS + days * DAY_MS);
+      const extension = {
+        granted_at: grantedAt.toISOString(),
+        granted_by_user_id: admin.id,
+        days,
+        reason,
+        ticket_id: ticketId,
+        expires_at: expiresAt.toISOString(),
+      };
 
       const result = await tx`
         UPDATE accounts
@@ -150,6 +157,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         },
         tx,
       );
+
+      return extension.expires_at;
     });
   } catch (err) {
     if (err instanceof GrantExtensionError) {
@@ -159,7 +168,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   return NextResponse.json(
-    { ok: true, extension: { days, expires_at: extension.expires_at } },
+    { ok: true, extension: { days, expires_at: extensionExpiresAt } },
     { headers: NO_STORE },
   );
 }

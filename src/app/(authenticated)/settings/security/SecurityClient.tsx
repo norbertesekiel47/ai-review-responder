@@ -169,8 +169,22 @@ export function SecurityClient() {
     setError(null);
     setNotice(null);
     try {
-      const { error: unenrollError } = await supabase.auth.mfa.unenroll({ factorId });
-      if (unenrollError) {
+      // Routed through the server so removal requires a current AAL2 session and
+      // is audit-logged — never a direct AAL1 client-side unenroll.
+      const res = await fetch('/api/auth/mfa/challenge', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'unenroll', factorId }),
+      });
+      if (res.status === 403) {
+        setError('Sign in again with your authenticator before removing this factor.');
+        return;
+      }
+      if (res.status === 429) {
+        setError('Too many attempts. Try again in a few minutes.');
+        return;
+      }
+      if (!res.ok) {
         setError('Could not remove MFA factor. Verify your current session and try again.');
         return;
       }

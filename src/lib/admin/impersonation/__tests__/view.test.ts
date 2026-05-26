@@ -77,6 +77,7 @@ describe('resolveImpersonationViewSession', () => {
       routeSessionId: SESSION_ID,
       signedCookieValue: null,
       authUserId: 'auth-admin-id',
+      isAal2: true,
     })).resolves.toEqual({ status: 'not_found' });
 
     mockVerifyImpersonationSession.mockReturnValueOnce('different-session');
@@ -84,6 +85,7 @@ describe('resolveImpersonationViewSession', () => {
       routeSessionId: SESSION_ID,
       signedCookieValue: 'signed-cookie',
       authUserId: 'auth-admin-id',
+      isAal2: true,
     })).resolves.toEqual({ status: 'not_found' });
   });
 
@@ -94,6 +96,7 @@ describe('resolveImpersonationViewSession', () => {
       routeSessionId: SESSION_ID,
       signedCookieValue: 'signed-cookie',
       authUserId: null,
+      isAal2: true,
     })).resolves.toEqual({ status: 'unauthenticated' });
 
     mockSql.mockResolvedValueOnce([{ id: ADMIN_ID, email: 'owner@example.com', role: 'owner' }]);
@@ -101,7 +104,36 @@ describe('resolveImpersonationViewSession', () => {
       routeSessionId: SESSION_ID,
       signedCookieValue: 'signed-cookie',
       authUserId: 'auth-owner-id',
+      isAal2: true,
     })).resolves.toEqual({ status: 'forbidden' });
+  });
+
+  it('requires the current session to be AAL2 before exposing customer data', async () => {
+    const { resolveImpersonationViewSession } = await import('../view');
+
+    await expect(resolveImpersonationViewSession({
+      routeSessionId: SESSION_ID,
+      signedCookieValue: 'signed-cookie',
+      authUserId: 'auth-admin-id',
+      isAal2: false,
+    })).resolves.toEqual({ status: 'mfa_required' });
+
+    // No customer session is loaded when the admin is not stepped up.
+    expect(mockLoadActiveImpersonationSession).not.toHaveBeenCalled();
+  });
+
+  it('blocks any non-allowlisted impersonation action by default', async () => {
+    const { resolveImpersonationViewSession } = await import('../view');
+
+    await expect(resolveImpersonationViewSession({
+      routeSessionId: SESSION_ID,
+      signedCookieValue: 'signed-cookie',
+      authUserId: 'auth-admin-id',
+      isAal2: true,
+      action: 'delete_account',
+    })).resolves.toEqual({ status: 'forbidden' });
+
+    expect(mockLoadActiveImpersonationSession).not.toHaveBeenCalled();
   });
 
   it('loads only the active session for the admin actor', async () => {
@@ -111,6 +143,7 @@ describe('resolveImpersonationViewSession', () => {
       routeSessionId: SESSION_ID,
       signedCookieValue: 'signed-cookie',
       authUserId: 'auth-admin-id',
+      isAal2: true,
       now: new Date('2026-05-26T12:30:00.000Z'),
     });
 

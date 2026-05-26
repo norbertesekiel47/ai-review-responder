@@ -1,4 +1,5 @@
 import { verifyImpersonationSession } from '@/lib/admin/impersonation/cookie';
+import { assertImpersonatedActionAllowed } from '@/lib/admin/impersonation/guard';
 import {
   loadActiveImpersonationSession,
   type ActiveImpersonationSession,
@@ -13,6 +14,7 @@ export type ImpersonationViewResolution =
     }
   | { status: 'unauthenticated' }
   | { status: 'forbidden' }
+  | { status: 'mfa_required' }
   | { status: 'not_found' };
 
 export interface ImpersonationAccountLocation {
@@ -27,6 +29,8 @@ export async function resolveImpersonationViewSession(input: {
   routeSessionId: string;
   signedCookieValue: string | null;
   authUserId: string | null;
+  isAal2: boolean;
+  action?: string;
   now?: Date;
 }): Promise<ImpersonationViewResolution> {
   if (!input.authUserId) {
@@ -52,6 +56,17 @@ export async function resolveImpersonationViewSession(input: {
     return { status: 'unauthenticated' };
   }
   if (admin.role !== 'admin') {
+    return { status: 'forbidden' };
+  }
+  // AAL2 must be re-checked here, not just at session start: the page that
+  // actually renders customer PII must not be reachable at AAL1 mid-session.
+  if (!input.isAal2) {
+    return { status: 'mfa_required' };
+  }
+  // Single choke point for impersonation surfaces: only allowlisted (read-only)
+  // actions proceed. Any future write surface must add itself to the guard's
+  // allowlist, so unknown/destructive actions are blocked by default.
+  if (!assertImpersonatedActionAllowed(input.action ?? 'view_dashboard').ok) {
     return { status: 'forbidden' };
   }
 

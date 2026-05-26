@@ -166,11 +166,14 @@ describe('POST /api/admin/billing/grant-extension', () => {
     }));
 
     expect(res.status).toBe(200);
+    // expires_at is the actual extended read-only cutoff: past_due_at + 7d grace
+    // + 3 extension days = 2026-05-20 + 10d = 2026-05-30. (NOT now + days, which
+    // would expire the extension before it ever took effect.)
     expect(await res.json()).toEqual({
       ok: true,
       extension: {
         days: 3,
-        expires_at: '2026-05-29T12:00:00.000Z',
+        expires_at: '2026-05-30T12:00:00.000Z',
       },
     });
     expect(mockSql.begin).toHaveBeenCalledTimes(1);
@@ -189,7 +192,7 @@ describe('POST /api/admin/billing/grant-extension', () => {
         days: 3,
         reason: 'Owner needs time to update card.',
         ticket_id: 'SUP-123',
-        expires_at: '2026-05-29T12:00:00.000Z',
+        expires_at: '2026-05-30T12:00:00.000Z',
       },
     });
     expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
@@ -203,7 +206,7 @@ describe('POST /api/admin/billing/grant-extension', () => {
           days: 3,
           reason: 'Owner needs time to update card.',
           ticket_id: 'SUP-123',
-          expires_at: '2026-05-29T12:00:00.000Z',
+          expires_at: '2026-05-30T12:00:00.000Z',
         },
       },
       mockTx,

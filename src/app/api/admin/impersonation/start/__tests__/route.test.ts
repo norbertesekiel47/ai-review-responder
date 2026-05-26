@@ -215,7 +215,7 @@ describe('POST /api/admin/impersonation/start', () => {
     const setCookie = res.headers.get('set-cookie') ?? '';
     expect(setCookie).toContain('rw_impersonation=signed-session-cookie');
     expect(setCookie).toContain('HttpOnly');
-    expect(setCookie.toLowerCase()).toContain('samesite=lax');
+    expect(setCookie.toLowerCase()).toContain('samesite=strict');
     expect(setCookie).toMatch(/;\s*Path=\/(?:;|$)/);
   });
 });

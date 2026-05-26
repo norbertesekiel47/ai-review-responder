@@ -8,7 +8,7 @@ import {
 
 describe('impersonation cookie', () => {
   it('signs and verifies an impersonation session id', () => {
-    process.env.IMPERSONATION_COOKIE_SECRET = 'test-secret';
+    process.env.IMPERSONATION_COOKIE_SECRET = 'test-secret-at-least-32-characters-long';
 
     const signed = signImpersonationSession('018f0000-0000-7000-8000-000000000048');
 
@@ -17,7 +17,7 @@ describe('impersonation cookie', () => {
   });
 
   it('rejects tampered signatures', () => {
-    process.env.IMPERSONATION_COOKIE_SECRET = 'test-secret';
+    process.env.IMPERSONATION_COOKIE_SECRET = 'test-secret-at-least-32-characters-long';
     const signed = signImpersonationSession('018f0000-0000-7000-8000-000000000048');
 
     expect(verifyImpersonationSession(`${signed}tampered`)).toBeNull();
@@ -30,5 +30,11 @@ describe('impersonation cookie', () => {
     expect(() => assertImpersonationCookieConfigured()).toThrow(
       'IMPERSONATION_COOKIE_SECRET not configured',
     );
+  });
+
+  it('rejects a too-short cookie secret', () => {
+    process.env.IMPERSONATION_COOKIE_SECRET = 'short';
+
+    expect(() => assertImpersonationCookieConfigured()).toThrow(/too short/i);
   });
 });

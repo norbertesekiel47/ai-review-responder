@@ -6,7 +6,7 @@ import {
   signImpersonationSession,
   IMPERSONATION_COOKIE_NAME,
 } from '@/lib/admin/impersonation/cookie';
-import { startImpersonationSession } from '@/lib/admin/impersonation/session';
+import { ImpersonationStartError, startImpersonationSession } from '@/lib/admin/impersonation/session';
 import { requireCurrentAal2FromSupabase, type SupabaseMfaAalClient } from '@/lib/auth/mfa';
 import { AuthError, requireRole } from '@/lib/db/auth';
 import { sql } from '@/lib/db/server';
@@ -125,13 +125,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
     response.cookies.set(IMPERSONATION_COOKIE_NAME, signImpersonationSession(sessionId), {
       httpOnly: true,
-      sameSite: 'lax',
+      // strict: this privileged support cookie has no legitimate cross-site flow.
+      sameSite: 'strict',
       secure: process.env.NODE_ENV === 'production',
       path: '/',
       expires: expiresAt,
     });
     return response;
   } catch (err) {
+    if (err instanceof ImpersonationStartError) {
+      return NextResponse.json({ error: err.code }, { status: 409, headers: NO_STORE });
+    }
     return errorToResponse(err);
   }
 }

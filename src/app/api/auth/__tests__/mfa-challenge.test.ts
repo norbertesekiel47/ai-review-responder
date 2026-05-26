@@ -6,17 +6,33 @@ const {
   mockGetUser,
   mockChallenge,
   mockVerify,
+  mockUnenroll,
+  mockGetAal,
+  mockSql,
+  mockWriteAudit,
   mockSetSupabaseCookies,
 } = vi.hoisted(() => ({
   mockCheckRateLimit: vi.fn(),
   mockGetUser: vi.fn(),
   mockChallenge: vi.fn(),
   mockVerify: vi.fn(),
+  mockUnenroll: vi.fn(),
+  mockGetAal: vi.fn(),
+  mockSql: vi.fn(),
+  mockWriteAudit: vi.fn(),
   mockSetSupabaseCookies: { value: false },
 }));
 
 vi.mock('@/lib/shared/rate-limit', () => ({
   checkRateLimit: mockCheckRateLimit,
+}));
+
+vi.mock('@/lib/db/server', () => ({
+  sql: (...args: unknown[]) => mockSql(...args),
+}));
+
+vi.mock('@/lib/audit/log', () => ({
+  writeAccountAuditLog: mockWriteAudit,
 }));
 
 vi.mock('@supabase/ssr', () => ({
@@ -36,6 +52,8 @@ vi.mock('@supabase/ssr', () => ({
         mfa: {
           challenge: mockChallenge,
           verify: mockVerify,
+          unenroll: mockUnenroll,
+          getAuthenticatorAssuranceLevel: mockGetAal,
         },
       },
     };
@@ -66,21 +84,41 @@ describe('POST /api/auth/mfa/challenge', () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'auth-user-1' } } });
     mockChallenge.mockResolvedValue({ data: { id: 'challenge-1' }, error: null });
     mockVerify.mockResolvedValue({ data: {}, error: null });
+    mockUnenroll.mockResolvedValue({ data: {}, error: null });
+    mockGetAal.mockResolvedValue({ data: { currentLevel: 'aal2', nextLevel: 'aal2' }, error: null });
+    mockSql.mockResolvedValue([{ id: 'user-1', account_id: 'acct-1' }]);
+    mockWriteAudit.mockResolvedValue(undefined);
     mockSetSupabaseCookies.value = false;
   });
 
-  it('rate-limits and creates an MFA challenge for the current session', async () => {
+  it('rate-limits challenge under a challenge-specific key', async () => {
     const res = await POST(req({ action: 'challenge', factorId: 'factor-1' }));
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ challengeId: 'challenge-1' });
     expect(mockCheckRateLimit).toHaveBeenCalledWith(
-      'mfa_challenge:auth-user-1:factor-1',
-      5,
+      'mfa:challenge:auth-user-1:factor-1',
+      expect.any(Number),
       15 * 60,
       { strict: true },
     );
     expect(mockChallenge).toHaveBeenCalledWith({ factorId: 'factor-1' });
+  });
+
+  it('rate-limits verify under a SEPARATE key so challenge does not consume verify budget', async () => {
+    await POST(req({
+      action: 'verify',
+      factorId: 'factor-1',
+      challengeId: 'challenge-1',
+      code: '123456',
+    }));
+
+    expect(mockCheckRateLimit).toHaveBeenCalledWith(
+      'mfa:verify:auth-user-1:factor-1',
+      expect.any(Number),
+      15 * 60,
+      { strict: true },
+    );
   });
 
   it('copies refreshed Supabase cookies on challenge success', async () => {
@@ -122,5 +160,50 @@ describe('POST /api/auth/mfa/challenge', () => {
       challengeId: 'challenge-1',
       code: '123456',
     });
+  });
+
+  it('audits a failed verify as mfa_challenge_failed', async () => {
+    mockVerify.mockResolvedValueOnce({ data: null, error: { message: 'bad code' } });
+
+    const res = await POST(req({
+      action: 'verify',
+      factorId: 'factor-1',
+      challengeId: 'challenge-1',
+      code: '000000',
+    }));
+
+    expect(res.status).toBe(400);
+    expect(mockWriteAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: 'acct-1',
+        actorUserId: 'user-1',
+        eventType: 'mfa_challenge_failed',
+      }),
+    );
+  });
+
+  it('blocks unenroll when the current session is not AAL2', async () => {
+    mockGetAal.mockResolvedValue({ data: { currentLevel: 'aal1', nextLevel: 'aal2' }, error: null });
+
+    const res = await POST(req({ action: 'unenroll', factorId: 'factor-1' }));
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'mfa_required' });
+    expect(mockUnenroll).not.toHaveBeenCalled();
+  });
+
+  it('unenrolls at AAL2 and writes an mfa_factor_unenrolled audit row', async () => {
+    const res = await POST(req({ action: 'unenroll', factorId: 'factor-1' }));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+    expect(mockUnenroll).toHaveBeenCalledWith({ factorId: 'factor-1' });
+    expect(mockWriteAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: 'acct-1',
+        actorUserId: 'user-1',
+        eventType: 'mfa_factor_unenrolled',
+      }),
+    );
   });
 });
