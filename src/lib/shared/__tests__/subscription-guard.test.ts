@@ -99,6 +99,18 @@ describe('checkSubscription', () => {
       })).toEqual({ allowed: true });
     });
 
+    it('denies when past_due_at is missing', () => {
+      const result = checkSubscription({
+        status: 'past_due',
+        pastDueAt: null,
+        accountFlags: {},
+        workerType: 'publisher',
+        now: NOW,
+      });
+
+      expect(result).toEqual({ allowed: false, reason: 'past_due_expired' });
+    });
+
     it('does not use unrelated business updated_at as the past-due clock', () => {
       const result = checkSubscription({
         status: 'past_due',

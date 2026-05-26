@@ -26,6 +26,31 @@ describe('computePastDueRecoveryState', () => {
     expect(state.isReadOnly).toBe(true);
   });
 
+  it('marks past_due read-only when past_due_at is missing', () => {
+    const state = computePastDueRecoveryState({
+      subscriptionStatus: 'past_due',
+      pastDueAt: null,
+      accountFlags: {},
+      now: NOW,
+    });
+
+    expect(state.isPastDue).toBe(true);
+    expect(state.isReadOnly).toBe(true);
+    expect(state.daysRemaining).toBe(0);
+  });
+
+  it('marks past_due read-only when past_due_at is invalid', () => {
+    const state = computePastDueRecoveryState({
+      subscriptionStatus: 'past_due',
+      pastDueAt: 'not-a-date',
+      accountFlags: {},
+      now: NOW,
+    });
+
+    expect(state.isReadOnly).toBe(true);
+    expect(state.daysRemaining).toBe(0);
+  });
+
   it('extends the cutoff with active past_due_extension flag', () => {
     const state = computePastDueRecoveryState({
       subscriptionStatus: 'past_due',

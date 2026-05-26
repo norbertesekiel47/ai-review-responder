@@ -77,13 +77,24 @@ export function computePastDueRecoveryState(
   const isPastDue = input.subscriptionStatus === SubscriptionStatus.PAST_DUE;
   const pastDueAt = input.pastDueAt ? new Date(input.pastDueAt) : null;
 
-  if (!isPastDue || !pastDueAt || !Number.isFinite(pastDueAt.getTime())) {
+  if (!isPastDue) {
     return {
-      isPastDue,
+      isPastDue: false,
       pastDueAt: null,
       deadline: null,
       daysRemaining: null,
       isReadOnly: false,
+      extension: null,
+    };
+  }
+
+  if (!pastDueAt || !Number.isFinite(pastDueAt.getTime())) {
+    return {
+      isPastDue: true,
+      pastDueAt: null,
+      deadline: null,
+      daysRemaining: 0,
+      isReadOnly: true,
       extension: null,
     };
   }
