@@ -7,15 +7,17 @@ const {
   mockWriteAccountAuditLog,
   mockSql,
   mockTx,
+  txResults,
   sqlCalls,
   txCalls,
 } = vi.hoisted(() => {
   const sqlCalls: { text: string; values: unknown[] }[] = [];
   const txCalls: { text: string; values: unknown[] }[] = [];
+  const txResults: unknown[] = [];
 
   const mockTx = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
     txCalls.push({ text: strings.join('?'), values });
-    return Promise.resolve(Object.assign([], { count: 1 }));
+    return Promise.resolve(txResults.shift() ?? Object.assign([], { count: 1 }));
   });
 
   const mockSql: any = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
@@ -30,6 +32,7 @@ const {
     mockWriteAccountAuditLog: vi.fn(),
     mockSql,
     mockTx,
+    txResults,
     sqlCalls,
     txCalls,
   };
@@ -85,6 +88,11 @@ describe('POST /api/admin/billing/grant-extension', () => {
     vi.clearAllMocks();
     sqlCalls.length = 0;
     txCalls.length = 0;
+    txResults.length = 0;
+    txResults.push(
+      [{ past_due_at: '2026-05-20T12:00:00.000Z' }],
+      Object.assign([], { count: 1 }),
+    );
     mockRequireRole.mockResolvedValue({
       id: ADMIN_ID,
       role: 'admin',
@@ -166,13 +174,15 @@ describe('POST /api/admin/billing/grant-extension', () => {
       },
     });
     expect(mockSql.begin).toHaveBeenCalledTimes(1);
-    expect(txCalls).toHaveLength(1);
-    expect(txCalls[0]!.text).toMatch(/UPDATE accounts/i);
-    expect(txCalls[0]!.text).toMatch(/jsonb_set/i);
-    expect(txCalls[0]!.text).toMatch(/past_due_extension/i);
-    expect(txCalls[0]!.text).toMatch(/subscription_status = 'past_due'/i);
-    expect(txCalls[0]!.values).toContain(ACCOUNT_ID);
-    expect(txCalls[0]!.values).toContainEqual({
+    expect(txCalls).toHaveLength(2);
+    expect(txCalls[0]!.text).toMatch(/SELECT past_due_at/i);
+    expect(txCalls[0]!.text).toMatch(/FOR UPDATE/i);
+    expect(txCalls[1]!.text).toMatch(/UPDATE accounts/i);
+    expect(txCalls[1]!.text).toMatch(/jsonb_set/i);
+    expect(txCalls[1]!.text).toMatch(/past_due_extension/i);
+    expect(txCalls[1]!.text).toMatch(/subscription_status = 'past_due'/i);
+    expect(txCalls[1]!.values).toContain(ACCOUNT_ID);
+    expect(txCalls[1]!.values).toContainEqual({
       __jsonb: {
         granted_at: '2026-05-26T12:00:00.000Z',
         granted_by_user_id: ADMIN_ID,
@@ -200,6 +210,23 @@ describe('POST /api/admin/billing/grant-extension', () => {
     );
     expect(sqlCalls).toHaveLength(0);
     vi.useRealTimers();
+  });
+
+  it('rejects accounts missing past_due_at because the extension would not be honored', async () => {
+    const { POST } = await import('../route');
+    txResults.length = 0;
+    txResults.push([{ past_due_at: null }]);
+
+    const res = await POST(req({
+      accountId: ACCOUNT_ID,
+      days: 3,
+      ticketId: 'SUP-123',
+      reason: 'Owner needs time to update card.',
+    }));
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: 'past_due_at_missing' });
+    expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
   });
 
   it('rejects extension over 7 days by default', async () => {

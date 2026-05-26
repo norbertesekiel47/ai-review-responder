@@ -102,6 +102,22 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   try {
     await sql.begin(async (tx) => {
+      const accountRows = await tx<{ past_due_at: Date | string | null }[]>`
+        SELECT past_due_at
+        FROM accounts
+        WHERE id = ${accountId}::uuid
+          AND subscription_status = 'past_due'
+        FOR UPDATE
+      `;
+      const account = accountRows[0];
+      if (!account) {
+        throw new GrantExtensionError(409, 'account_not_past_due');
+      }
+      const pastDueAt = account.past_due_at ? new Date(account.past_due_at) : null;
+      if (!pastDueAt || !Number.isFinite(pastDueAt.getTime())) {
+        throw new GrantExtensionError(409, 'past_due_at_missing');
+      }
+
       const result = await tx`
         UPDATE accounts
         SET flags = jsonb_set(
