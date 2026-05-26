@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
-import { isProtectedRoute } from '@/lib/shared/protected-routes';
+import { isProtectedOwnerApiRoute, isProtectedRoute } from '@/lib/shared/protected-routes';
 
 // Role lookups use the cookie-bound anon client below, relying on the
 // users_self_select RLS policy (migration 006) that lets any authenticated
@@ -80,7 +80,14 @@ export async function proxy(request: NextRequest) {
   function redirectToMfaChallenge(): NextResponse {
     const mfaUrl = new URL('/mfa/challenge', request.url);
     mfaUrl.searchParams.set('next', `${request.nextUrl.pathname}${request.nextUrl.search}`);
-    return NextResponse.redirect(mfaUrl);
+    return withSupabaseCookies(NextResponse.redirect(mfaUrl));
+  }
+
+  function withSupabaseCookies(target: NextResponse): NextResponse {
+    for (const cookie of response.cookies.getAll()) {
+      target.cookies.set(cookie);
+    }
+    return target;
   }
 
   // 3. Admin pages (except /admin/login, /admin/forgot-password, /admin/reset-password)
@@ -114,17 +121,12 @@ export async function proxy(request: NextRequest) {
     }
     const aal = await getAalGate();
     if (aal !== 'ok') {
-      return NextResponse.json({ error: aal }, { status: 403 });
+      return withSupabaseCookies(NextResponse.json({ error: aal }, { status: 403 }));
     }
   }
 
   // 5. Owner API routes
-  if (
-    pathname.startsWith('/api/dashboard') ||
-    pathname.startsWith('/api/settings') ||
-    pathname.startsWith('/api/billing') ||
-    pathname.startsWith('/api/locations')
-  ) {
+  if (isProtectedOwnerApiRoute(pathname)) {
     const noStoreHeaders = { 'Cache-Control': 'no-store, private' };
     if (!authUser) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: noStoreHeaders });
@@ -135,7 +137,9 @@ export async function proxy(request: NextRequest) {
     }
     const aal = await getAalGate();
     if (aal !== 'ok') {
-      return NextResponse.json({ error: aal }, { status: 403, headers: noStoreHeaders });
+      return withSupabaseCookies(
+        NextResponse.json({ error: aal }, { status: 403, headers: noStoreHeaders }),
+      );
     }
   }
 

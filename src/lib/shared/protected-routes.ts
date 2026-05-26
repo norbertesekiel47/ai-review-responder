@@ -1,4 +1,11 @@
-export function isProtectedRoute(pathname: string): boolean {
+const PROTECTED_ZERNIO_API_PATHS = new Set([
+  '/api/zernio/connect/start',
+  '/api/zernio/connect/cancel',
+  '/api/zernio/connect/select-location',
+  '/api/zernio/disconnect',
+]);
+
+function normalizePath(pathname: string): string {
   // Normalize trailing slash before any comparison.
   //
   // Next.js's default `trailingSlash: false` setting redirects `/x/` → `/x`,
@@ -10,10 +17,25 @@ export function isProtectedRoute(pathname: string): boolean {
   //
   // Preserve `/` (the root) — it's both the public landing page and the
   // only path where the trailing slash IS the path.
-  const normalized =
-    pathname.length > 1 && pathname.endsWith('/')
-      ? pathname.replace(/\/+$/, '')
-      : pathname;
+  return pathname.length > 1 && pathname.endsWith('/')
+    ? pathname.replace(/\/+$/, '')
+    : pathname;
+}
+
+export function isProtectedOwnerApiRoute(pathname: string): boolean {
+  const normalized = normalizePath(pathname);
+  return (
+    normalized === '/api/dashboard' || normalized.startsWith('/api/dashboard/') ||
+    normalized === '/api/settings' || normalized.startsWith('/api/settings/') ||
+    normalized === '/api/account' || normalized.startsWith('/api/account/') ||
+    normalized === '/api/billing' || normalized.startsWith('/api/billing/') ||
+    normalized === '/api/locations' || normalized.startsWith('/api/locations/') ||
+    PROTECTED_ZERNIO_API_PATHS.has(normalized)
+  );
+}
+
+export function isProtectedRoute(pathname: string): boolean {
+  const normalized = normalizePath(pathname);
 
   if (
     normalized === '/admin/login' ||
@@ -25,10 +47,7 @@ export function isProtectedRoute(pathname: string): boolean {
   return (
     normalized === '/admin' || normalized.startsWith('/admin/') ||
     normalized === '/api/admin' || normalized.startsWith('/api/admin/') ||
-    normalized === '/api/billing' || normalized.startsWith('/api/billing/') ||
-    normalized === '/api/locations' || normalized.startsWith('/api/locations/') ||
-    normalized === '/api/dashboard' || normalized.startsWith('/api/dashboard/') ||
-    normalized === '/api/settings' || normalized.startsWith('/api/settings/') ||
+    isProtectedOwnerApiRoute(normalized) ||
     normalized === '/dashboard' || normalized.startsWith('/dashboard/') ||
     normalized === '/settings' || normalized.startsWith('/settings/') ||
     normalized === '/mfa' || normalized.startsWith('/mfa/') ||
