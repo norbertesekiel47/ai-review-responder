@@ -139,6 +139,14 @@ function mockBusinessRow(overrides = {}) {
   };
 }
 
+function mockExistingResponseRow(overrides = {}) {
+  return { id: 'resp-existing-1', business_id: 'biz-1', account_id: 'acct-1', ...overrides };
+}
+
+function mockFirstDraftLookup(overrides = {}) {
+  return { earlier_exists: false, email_verified_at: null, ...overrides };
+}
+
 const MOCK_RESULT: GenerationResult = {
   responseText: 'Thank you, Jane!', language: 'en', provider: 'openai' as const,
   model: 'gpt-4o-mini', usage: { promptTokens: 100, completionTokens: 50 },
@@ -176,7 +184,7 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
     sqlReturnQueue.push([mockReviewRow()]);
     sqlReturnQueue.push([mockBusinessRow()]);
     sqlReturnQueue.push([]);
-    sqlReturnQueue.push([{ earlier_exists: false, email_verified_at: null }]);
+    sqlReturnQueue.push([mockFirstDraftLookup()]);
     mockGenerateResponse.mockResolvedValueOnce(MOCK_RESULT);
 
     await handleResponseGeneration(makeJob());
@@ -188,6 +196,57 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
       accountId: 'acct-1',
       businessId: 'biz-1',
     }));
+  });
+
+  it('enqueues first_response_drafted on existing-response retry before completing outbox', async () => {
+    sqlReturnQueue.push([mockReviewRow()]);
+    sqlReturnQueue.push([mockBusinessRow()]);
+    sqlReturnQueue.push([mockExistingResponseRow()]);
+    sqlReturnQueue.push([mockFirstDraftLookup()]);
+
+    await handleResponseGeneration(makeJob());
+
+    expect(mockGenerateResponse).not.toHaveBeenCalled();
+    expect(mockEnqueueAnalyticsEvent).toHaveBeenCalledWith(expect.objectContaining({
+      eventName: 'first_response_drafted',
+      eventKey: 'first_response_drafted:acct-1',
+      distinctId: 'acct-1',
+      accountId: 'acct-1',
+      businessId: 'biz-1',
+    }));
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-gen-1', undefined);
+    const analyticsCallOrder = mockEnqueueAnalyticsEvent.mock.invocationCallOrder[0];
+    const completedCallOrder = mockMarkOutboxCompleted.mock.invocationCallOrder[0];
+    expect(analyticsCallOrder).toBeDefined();
+    expect(completedCallOrder).toBeDefined();
+    expect(analyticsCallOrder!).toBeLessThan(completedCallOrder!);
+  });
+
+  it('does not enqueue first_response_drafted when an earlier account response exists', async () => {
+    sqlReturnQueue.push([mockReviewRow()]);
+    sqlReturnQueue.push([mockBusinessRow()]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([mockFirstDraftLookup({ earlier_exists: true })]);
+    mockGenerateResponse.mockResolvedValueOnce(MOCK_RESULT);
+
+    await handleResponseGeneration(makeJob());
+
+    expect(mockEnqueueAnalyticsEvent).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-gen-1', undefined);
+  });
+
+  it('completes outbox when first_response_drafted enqueue fails after normal response commit', async () => {
+    sqlReturnQueue.push([mockReviewRow()]);
+    sqlReturnQueue.push([mockBusinessRow()]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([mockFirstDraftLookup()]);
+    mockGenerateResponse.mockResolvedValueOnce(MOCK_RESULT);
+    mockEnqueueAnalyticsEvent.mockRejectedValueOnce(new Error('analytics down'));
+
+    await handleResponseGeneration(makeJob());
+
+    expect(mockEnqueueAnalyticsEvent).toHaveBeenCalledOnce();
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-gen-1', undefined);
   });
 
   // 1b. Correlation propagation into send_notification payload

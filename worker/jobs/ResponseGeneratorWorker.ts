@@ -124,12 +124,23 @@ export async function handleResponseGeneration(
   // committed the response + notification outbox but crashed before
   // markOutboxCompleted, detect this BEFORE spending on LLM calls or
   // reserving cost. The generator's Redis cache may have expired.
-  const [existingResponse] = await sql<{ id: string }[]>`
-    SELECT id FROM responses WHERE review_id = ${review_id} AND version = ${version}
+  const [existingResponse] = await sql<{ id: string; business_id: string; account_id: string }[]>`
+    SELECT r.id, r.business_id, b.account_id
+    FROM responses r
+    JOIN businesses b ON b.id = r.business_id
+    WHERE r.review_id = ${review_id}
+      AND r.version = ${version}
   `;
 
   if (existingResponse) {
     logger.log(`Response already exists for review ${review_id} v${version}, completing outbox`);
+    await maybeEnqueueFirstResponseDrafted({
+      accountId: existingResponse.account_id,
+      businessId: existingResponse.business_id,
+      responseId: existingResponse.id,
+      reviewId: review_id,
+      logger,
+    });
     await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }
