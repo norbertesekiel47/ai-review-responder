@@ -70,15 +70,26 @@ function emit(level: LogLevel, prefix: string, correlationId: string | undefined
     } else if (arg instanceof Error) {
       Object.assign(record, serializeError(arg));
     } else if (arg && typeof arg === 'object') {
-      const sanitized = sanitizeAnalyticsProperties(arg as Record<string, unknown>);
-      data = { ...(data ?? {}), ...sanitized };
+      try {
+        const sanitized = sanitizeAnalyticsProperties(arg as Record<string, unknown>);
+        data = { ...(data ?? {}), ...sanitized };
+      } catch {
+        // Fail open: a cyclic/unserializable arg must never crash the logger.
+        data = { ...(data ?? {}), unserializable: true };
+      }
     }
   }
 
   record.message = messageParts.join(' ');
   if (data && Object.keys(data).length > 0) record.data = data;
 
-  const line = JSON.stringify(record);
+  let line: string;
+  try {
+    line = JSON.stringify(record);
+  } catch {
+    // Fail open: a record we can't serialize must not throw from a log call.
+    line = JSON.stringify({ message: record.message, unserializable: true });
+  }
   if (level === 'error') console.error(line);
   else if (level === 'warn') console.warn(line);
   else console.log(line);

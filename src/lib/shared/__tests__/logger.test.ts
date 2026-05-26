@@ -79,4 +79,14 @@ describe('createWorkerLogger (JSON)', () => {
     createWorkerLogger('[W]').log('review', 'abc-123');
     expect(lastLine(spy).message).toBe('review abc-123');
   });
+
+  it('fails open on a circular object arg instead of throwing', () => {
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const circular: Record<string, unknown> = { a: 1 };
+    circular.self = circular;
+    expect(() => createWorkerLogger('[W]').log('ctx', circular)).not.toThrow();
+    const rec = lastLine(spy);
+    expect(rec.message).toBe('ctx');
+    expect((rec.data as Record<string, unknown>).unserializable).toBe(true);
+  });
 });

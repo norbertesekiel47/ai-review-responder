@@ -10,5 +10,6 @@ describe('GET /api/health', () => {
     expect(body.service).toBe('web');
     expect(typeof body.timestamp).toBe('string');
     expect(() => new Date(body.timestamp as string).toISOString()).not.toThrow();
+    expect(typeof body.commit === 'string' || body.commit === null).toBe(true);
   });
 });

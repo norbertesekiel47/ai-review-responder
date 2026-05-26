@@ -4,7 +4,7 @@ import { NextResponse } from 'next/server';
 // Used by external synthetic checks; must stay fast and side-effect free.
 export const dynamic = 'force-dynamic';
 
-export async function GET(): Promise<NextResponse> {
+export function GET(): NextResponse {
   return NextResponse.json({
     status: 'ok',
     service: 'web',
