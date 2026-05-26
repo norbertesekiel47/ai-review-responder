@@ -60,11 +60,15 @@ describe('impersonation session helpers', () => {
     expect(result.sessionId).toBe('018f0000-0000-7000-8000-000000000048');
     expect(result.expiresAt.toISOString()).toBe('2026-05-26T13:00:00.000Z');
     expect(mockSql.begin).toHaveBeenCalledTimes(1);
-    // First checks for an existing active session for the actor, then inserts.
-    expect(txCalls[0]!.text).toMatch(/SELECT id\s+FROM impersonation_sessions/i);
+    // First reaps expired-but-unended sessions, then checks for an active one, then inserts.
+    expect(txCalls[0]!.text).toMatch(/UPDATE impersonation_sessions/i);
+    expect(txCalls[0]!.text).toMatch(/SET ended_at/i);
+    expect(txCalls[0]!.text).toMatch(/expires_at <= NOW\(\)/i);
     expect(txCalls[0]!.text).toMatch(/ended_at IS NULL/i);
-    expect(txCalls[0]!.text).toMatch(/FOR UPDATE/i);
-    expect(txCalls[1]!.text).toMatch(/INSERT INTO impersonation_sessions/i);
+    expect(txCalls[1]!.text).toMatch(/SELECT id\s+FROM impersonation_sessions/i);
+    expect(txCalls[1]!.text).toMatch(/ended_at IS NULL/i);
+    expect(txCalls[1]!.text).toMatch(/FOR UPDATE/i);
+    expect(txCalls[2]!.text).toMatch(/INSERT INTO impersonation_sessions/i);
     expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
       expect.objectContaining({
         accountId: 'account-id',
@@ -78,7 +82,9 @@ describe('impersonation session helpers', () => {
   });
 
   it('rejects starting a second active session for the same actor', async () => {
-    // Pre-check SELECT returns an existing active session.
+    // First tx call is the expired-session reap; second is the active pre-check
+    // SELECT, which here finds a still-active (non-expired) session.
+    txResults.push(Object.assign([], { count: 0 }));
     txResults.push([{ id: 'existing-session-id' }]);
     const { startImpersonationSession, ImpersonationStartError } = await import('../session');
 

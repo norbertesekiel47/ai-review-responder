@@ -112,10 +112,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         throw new GrantExtensionError(409, 'past_due_at_missing');
       }
 
-      // Derive expires_at from the extended read-only cutoff (past_due_at + grace
-      // + days), NOT now + days — otherwise the extension self-expires before it
-      // takes effect and grants the customer zero additional time.
-      const expiresAt = new Date(pastDueAt.getTime() + GRACE_MS + days * DAY_MS);
+      // Anchor to the LATER of the grace deadline and now, then add the days.
+      // - In-window account: grace deadline > now, so this extends past it
+      //   (avoids the "now + days collapses inside the window" no-op).
+      // - Already-locked-out account (> grace): now > grace deadline, so this
+      //   yields now + days — strictly in the future, so parseExtension honors
+      //   it instead of discarding a past expires_at and leaving them read-only.
+      const graceDeadlineMs = pastDueAt.getTime() + GRACE_MS;
+      const expiresAt = new Date(Math.max(graceDeadlineMs, grantedAt.getTime()) + days * DAY_MS);
       const extension = {
         granted_at: grantedAt.toISOString(),
         granted_by_user_id: admin.id,

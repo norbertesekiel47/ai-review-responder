@@ -15,6 +15,7 @@ const {
   mockStartConnect,
   mockDeleteProfile,
   mockAccountRows,
+  mockEnqueueAnalyticsEvent,
 } = vi.hoisted(() => {
   const sqlCalls: Array<{ raw: string; values: unknown[] }> = [];
   const mockAccountRows: {
@@ -52,8 +53,13 @@ const {
     })),
     mockDeleteProfile: vi.fn(async (_profileId: unknown) => undefined),
     mockAccountRows,
+    mockEnqueueAnalyticsEvent: vi.fn(async () => undefined),
   };
 });
+
+vi.mock('@/lib/analytics/enqueue', () => ({
+  enqueueAnalyticsEvent: mockEnqueueAnalyticsEvent,
+}));
 
 vi.mock('@/lib/shared/csrf', () => ({
   assertSameOrigin: vi.fn(),
@@ -169,6 +175,24 @@ describe('POST /api/zernio/connect/start location targeting', () => {
       userId: USER_ID,
       profileId: 'profile-secondary',
     });
+  });
+
+  it('captures gbp_connect_started server-side with account scope so the funnel joins gbp_connected', async () => {
+    const res = await POST(makeRequest({ locationId: SECONDARY_LOCATION_ID }));
+
+    expect(res.status).toBe(200);
+    expect(mockEnqueueAnalyticsEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: 'gbp_connect_started',
+        distinctId: ACCOUNT_ID,
+        accountId: ACCOUNT_ID,
+        businessId: SECONDARY_LOCATION_ID,
+        properties: expect.objectContaining({
+          account_id: ACCOUNT_ID,
+          business_id: SECONDARY_LOCATION_ID,
+        }),
+      }),
+    );
   });
 
   it('rejects a requested location that is not active in the owner account', async () => {

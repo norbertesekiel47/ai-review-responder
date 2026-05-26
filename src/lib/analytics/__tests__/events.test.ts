@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ANALYTICS_EVENT_NAMES,
   isAnalyticsEventName,
+  isClientEnqueueableEventName,
   makeAnalyticsEventKey,
   sanitizeAnalyticsProperties,
 } from '../events';
@@ -25,6 +26,29 @@ describe('analytics events', () => {
   it('rejects unknown event names', () => {
     expect(isAnalyticsEventName('signup_started')).toBe(true);
     expect(isAnalyticsEventName('freeform_event')).toBe(false);
+  });
+
+  it('only allows client-intent events to be enqueued from the browser', () => {
+    // Intent events the client may post.
+    for (const name of [
+      'signup_started',
+      'sample_demo_started',
+      'sample_demo_to_signup',
+      'gbp_connect_started',
+      'gbp_connect_failed',
+    ]) {
+      expect(isClientEnqueueableEventName(name)).toBe(true);
+    }
+    // Durable, server/worker-owned facts must NOT be client-postable.
+    for (const name of [
+      'email_verified',
+      'gbp_connected',
+      'first_review_ingested',
+      'first_response_drafted',
+      'activation_completed',
+    ]) {
+      expect(isClientEnqueueableEventName(name)).toBe(false);
+    }
   });
 
   it('creates deterministic idempotency keys', () => {

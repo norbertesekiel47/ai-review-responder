@@ -39,6 +39,18 @@ export async function startImpersonationSession(
   const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
 
   await sql.begin(async (tx) => {
+    // Reap expired-but-unended sessions for this actor first. Nothing else ends a
+    // session on TTL expiry (the /end route needs the now-evicted cookie), so
+    // without this a lapsed session would permanently block new starts via the
+    // ended_at-only pre-check and partial UNIQUE index.
+    await tx`
+      UPDATE impersonation_sessions
+      SET ended_at = expires_at
+      WHERE actor_user_id = ${input.actorUserId}::uuid
+        AND ended_at IS NULL
+        AND expires_at <= NOW()
+    `;
+
     // One active session per actor. The partial UNIQUE index (migration 048) is
     // the hard backstop; this FOR UPDATE pre-check returns a clean typed error
     // instead of a raw constraint violation.

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { v7 as uuidv7 } from 'uuid';
 import { enqueueAnalyticsEvent } from '@/lib/analytics/enqueue';
-import { isAnalyticsEventName, makeAnalyticsEventKey } from '@/lib/analytics/events';
+import { isClientEnqueueableEventName, makeAnalyticsEventKey } from '@/lib/analytics/events';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 
@@ -35,7 +35,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'invalid_body' }, { status: 400, headers: NO_STORE });
   }
 
-  if (typeof body.eventName !== 'string' || !isAnalyticsEventName(body.eventName)) {
+  if (typeof body.eventName !== 'string' || !isClientEnqueueableEventName(body.eventName)) {
     return NextResponse.json({ error: 'invalid_event' }, { status: 400, headers: NO_STORE });
   }
 

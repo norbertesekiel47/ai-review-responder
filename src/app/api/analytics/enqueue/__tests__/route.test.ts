@@ -54,6 +54,15 @@ describe('POST /api/analytics/enqueue', () => {
     expect(res.status).toBe(400);
   });
 
+  it('rejects server-owned durable events posted by a client', async () => {
+    const { POST } = await import('../route');
+    for (const eventName of ['activation_completed', 'first_response_drafted', 'gbp_connected', 'email_verified']) {
+      const res = await POST(req({ eventName, clientEventId: 'c1' }));
+      expect(res.status).toBe(400);
+    }
+    expect(mockEnqueueAnalyticsEvent).not.toHaveBeenCalled();
+  });
+
   it('enqueues allowed pre-account event with anonymous id', async () => {
     const { POST } = await import('../route');
     const res = await POST(req({

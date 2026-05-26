@@ -215,6 +215,35 @@ describe('POST /api/admin/billing/grant-extension', () => {
     vi.useRealTimers();
   });
 
+  it('grants real added time for an already-locked-out account (>7 days past due)', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-26T12:00:00.000Z'));
+    // past_due 11 days ago: grace deadline (T+7) is already in the past.
+    txResults.length = 0;
+    txResults.push(
+      [{ past_due_at: '2026-05-15T12:00:00.000Z' }],
+      Object.assign([], { count: 1 }),
+    );
+    const { POST } = await import('../route');
+
+    const res = await POST(req({
+      accountId: ACCOUNT_ID,
+      days: 3,
+      ticketId: 'SUP-123',
+      reason: 'Locked out, replacing card.',
+    }));
+
+    expect(res.status).toBe(200);
+    // Must extend from now (not the stale grace deadline): now + 3 days = 2026-05-29.
+    // The old past_due_at-anchored formula yielded 2026-05-25 (in the past), which
+    // parseExtension discards — leaving the customer read-only despite "granted".
+    expect(await res.json()).toEqual({
+      ok: true,
+      extension: { days: 3, expires_at: '2026-05-29T12:00:00.000Z' },
+    });
+    vi.useRealTimers();
+  });
+
   it('rejects accounts missing past_due_at because the extension would not be honored', async () => {
     const { POST } = await import('../route');
     txResults.length = 0;

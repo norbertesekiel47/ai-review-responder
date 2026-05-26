@@ -137,10 +137,13 @@ export default function ConnectPage() {
     // One correlation id for the whole attempt so its events share a stable
     // client event key and a retried POST of the same event dedups server-side.
     const attemptId = makeClientEventId();
-    void enqueueConnectAnalytics('gbp_connect_started', {
-      source: 'dashboard_connect',
-      locationScope: effectiveScope === 'all' ? 'all' : 'location',
-    }, attemptId);
+    // gbp_connect_started is captured server-side (account-scoped) in
+    // /api/zernio/connect/start so the funnel joins gbp_connected; the client
+    // only reports failures. business_id lets a property-based funnel attribute
+    // failures to the same location as the server-side started/connected events.
+    const scopeProps = effectiveScope === 'all'
+      ? { source: 'dashboard_connect', location_scope: 'all' as const }
+      : { source: 'dashboard_connect', location_scope: 'location' as const, business_id: effectiveScope };
     try {
       const res = await fetch('/api/zernio/connect/start', {
         method: 'POST',
@@ -154,7 +157,7 @@ export default function ConnectPage() {
         const reason = body.error ?? `connect_failed_${res.status}`;
         setActionError(friendlyErrorMessage(reason));
         void enqueueConnectAnalytics('gbp_connect_failed', {
-          source: 'dashboard_connect',
+          ...scopeProps,
           reason,
           status: res.status,
         }, attemptId);
@@ -167,7 +170,7 @@ export default function ConnectPage() {
         setActionError('If the connection window did not open, use the manual link below.');
         setBusy(false);
         void enqueueConnectAnalytics('gbp_connect_failed', {
-          source: 'dashboard_connect',
+          ...scopeProps,
           reason: 'redirect_timeout',
         }, attemptId);
       }, 2500);
@@ -175,7 +178,7 @@ export default function ConnectPage() {
     } catch {
       setActionError('Network error — please try again.');
       void enqueueConnectAnalytics('gbp_connect_failed', {
-        source: 'dashboard_connect',
+        ...scopeProps,
         reason: 'network_error',
       }, attemptId);
       setBusy(false);

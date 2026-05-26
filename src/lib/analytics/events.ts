@@ -61,6 +61,25 @@ export function isAnalyticsEventName(value: string): value is AnalyticsEventName
   return EVENT_NAME_SET.has(value);
 }
 
+// Intent events the browser may post to /api/analytics/enqueue. Durable
+// state-change facts (email_verified, gbp_connected, first_review_ingested,
+// first_response_drafted, activation_completed) are owned by workers/route
+// handlers after a DB commit and must NOT be client-postable, or anyone could
+// forge the activation funnel / TTFV / activation-rate metrics.
+export const CLIENT_ENQUEUEABLE_EVENT_NAMES = [
+  'signup_started',
+  'sample_demo_started',
+  'sample_demo_to_signup',
+  'gbp_connect_started',
+  'gbp_connect_failed',
+] as const satisfies readonly AnalyticsEventName[];
+
+const CLIENT_EVENT_SET = new Set<string>(CLIENT_ENQUEUEABLE_EVENT_NAMES);
+
+export function isClientEnqueueableEventName(value: string): value is AnalyticsEventName {
+  return CLIENT_EVENT_SET.has(value);
+}
+
 export function makeAnalyticsEventKey(
   eventName: AnalyticsEventName,
   parts: Array<string | number | null | undefined>,

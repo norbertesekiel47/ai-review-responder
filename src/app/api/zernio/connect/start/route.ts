@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
+import { enqueueAnalyticsEvent } from '@/lib/analytics/enqueue';
+import { makeAnalyticsEventKey } from '@/lib/analytics/events';
 import { getCacheRedis } from '@/lib/db/redis-cache';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { requireRole, AuthError } from '@/lib/db/auth';
@@ -271,6 +273,27 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       if (!updateResult) {
         // Marker overwritten/deleted by a newer flow — our flow is superseded.
         throw new ZernioRouteError(409, 'flow_superseded_during_start');
+      }
+
+      // Capture gbp_connect_started server-side (account-scoped, like gbp_connected)
+      // so the per-account connect funnel joins. The client cannot — it has no
+      // account_id and would attribute the event to an anonymous cookie. Keyed on
+      // flowId so legitimate retries are not deduped. Best-effort: never block connect.
+      try {
+        await enqueueAnalyticsEvent({
+          eventName: 'gbp_connect_started',
+          eventKey: makeAnalyticsEventKey('gbp_connect_started', [locationId, flowId]),
+          distinctId: user.accountId,
+          accountId: user.accountId,
+          businessId: locationId,
+          properties: {
+            account_id: user.accountId,
+            business_id: locationId,
+            location_scope: requestedLocationId ? 'location' : 'all',
+          },
+        });
+      } catch (analyticsErr) {
+        console.error('[api/zernio/connect/start] gbp_connect_started enqueue failed:', analyticsErr);
       }
 
       return NextResponse.json({ authUrl }, { status: 200, headers: NO_STORE });

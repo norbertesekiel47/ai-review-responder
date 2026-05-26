@@ -1,5 +1,3 @@
-import Link from 'next/link';
-
 export default function HelpContactPage() {
   return (
     <main className="mx-auto max-w-3xl px-4 py-10">
@@ -17,23 +15,14 @@ export default function HelpContactPage() {
         </ul>
       </section>
       <section className="mt-8">
-        <h2 className="text-xl font-semibold text-gray-900">Common help</h2>
-        <ul className="mt-3 space-y-2">
-          <li>
-            <Link className="text-blue-600 hover:underline" href="/help/contact">
-              Connect Google Business Profile
-            </Link>
-          </li>
-          <li>
-            <Link className="text-blue-600 hover:underline" href="/help/contact">
-              Billing and past-due recovery
-            </Link>
-          </li>
-          <li>
-            <Link className="text-blue-600 hover:underline" href="/help/contact">
-              CSV import
-            </Link>
-          </li>
+        <h2 className="text-xl font-semibold text-gray-900">Common help topics</h2>
+        <p className="mt-3 text-gray-700">
+          Email support@repworth.net for step-by-step help with any of these:
+        </p>
+        <ul className="mt-3 list-disc pl-5 text-gray-700">
+          <li>Connecting your Google Business Profile</li>
+          <li>Billing and past-due recovery</li>
+          <li>Importing locations by CSV</li>
         </ul>
       </section>
     </main>
