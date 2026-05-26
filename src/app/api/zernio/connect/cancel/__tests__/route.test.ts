@@ -9,9 +9,25 @@ const {
   mockRequireRole,
   mockRedis,
   mockDeleteProfile,
+  mockAccountRows,
   sqlCalls,
 } = vi.hoisted(() => {
   const sqlCalls: Array<{ raw: string; values: unknown[] }> = [];
+  const mockAccountRows: {
+    value: Array<{
+      subscription_status: string;
+      past_due_at: string | null;
+      flags: Record<string, unknown>;
+    }>;
+  } = {
+    value: [
+      {
+        subscription_status: 'active',
+        past_due_at: null,
+        flags: {},
+      },
+    ],
+  };
   const mockRedis = {
     get: vi.fn(async (key: string) => {
       if (key === `connect_pending:${SECONDARY_LOCATION_ID}`) {
@@ -33,6 +49,7 @@ const {
     mockRequireRole: vi.fn(),
     mockRedis,
     mockDeleteProfile: vi.fn(async (_profileId: unknown) => undefined),
+    mockAccountRows,
     sqlCalls,
   };
 });
@@ -67,6 +84,9 @@ vi.mock('@/lib/db/server', () => ({
   sql: vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
     const raw = strings.join('?');
     sqlCalls.push({ raw, values });
+    if (/JOIN accounts/.test(raw)) {
+      return Promise.resolve(mockAccountRows.value);
+    }
     if (/FROM businesses/.test(raw) && /account_id/.test(raw)) {
       return Promise.resolve([{ exists: 1 }]);
     }
@@ -105,6 +125,13 @@ describe('POST /api/zernio/connect/cancel location targeting', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     sqlCalls.length = 0;
+    mockAccountRows.value = [
+      {
+        subscription_status: 'active',
+        past_due_at: null,
+        flags: {},
+      },
+    ];
     mockRequireRole.mockResolvedValue({
       id: 'user-1',
       role: 'owner',
@@ -125,5 +152,24 @@ describe('POST /api/zernio/connect/cancel location targeting', () => {
     expect(sqlCalls[0]?.values).toContain(SECONDARY_LOCATION_ID);
     expect(sqlCalls[0]?.values).toContain(ACCOUNT_ID);
     expect(mockDeleteProfile).toHaveBeenCalledWith('profile-secondary');
+  });
+
+  it('rejects read-only past-due owners before mutating pending connect state', async () => {
+    mockAccountRows.value = [
+      {
+        subscription_status: 'past_due',
+        past_due_at: '2024-01-01T00:00:00.000Z',
+        flags: {},
+      },
+    ];
+
+    const res = await POST(makeRequest());
+
+    expect(res.status).toBe(402);
+    expect(await res.json()).toEqual({ error: 'past_due_read_only' });
+    expect(mockRedis.get).not.toHaveBeenCalled();
+    expect(mockRedis.eval).not.toHaveBeenCalled();
+    expect(mockRedis.del).not.toHaveBeenCalled();
+    expect(mockDeleteProfile).not.toHaveBeenCalled();
   });
 });

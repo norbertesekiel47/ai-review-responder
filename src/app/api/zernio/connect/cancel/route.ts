@@ -6,6 +6,7 @@ import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { ZernioRouteError } from '@/lib/zernio/errors';
 import { isValidUuid } from '@/lib/shared/ids';
+import { assertWritableSubscriptionForBusiness } from '@/lib/shared/writable-subscription';
 import { zernioClient } from '@/lib/zernio/client';
 import {
   pendingKey,
@@ -121,6 +122,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json(
         { error: 'invalid_location_scope' },
         { status: 403, headers: NO_STORE },
+      );
+    }
+  } catch (err) {
+    return errorToResponse(err);
+  }
+
+  try {
+    const writable = await assertWritableSubscriptionForBusiness(locationId);
+    if (!writable.ok) {
+      return NextResponse.json(
+        { error: writable.error },
+        { status: writable.status, headers: NO_STORE },
       );
     }
   } catch (err) {
