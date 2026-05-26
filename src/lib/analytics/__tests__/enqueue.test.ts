@@ -61,7 +61,7 @@ describe('enqueueAnalyticsEvent', () => {
         accountId: 'acct-1',
         properties: { account_id: 'acct-1', response_text: 'drop me' },
       },
-      tx as Parameters<typeof enqueueAnalyticsEvent>[1],
+      tx as unknown as Parameters<typeof enqueueAnalyticsEvent>[1],
     );
     await enqueueAnalyticsEvent(
       {
@@ -71,7 +71,7 @@ describe('enqueueAnalyticsEvent', () => {
         accountId: 'acct-1',
         properties: { account_id: 'acct-1', response_text: 'drop me again' },
       },
-      tx as Parameters<typeof enqueueAnalyticsEvent>[1],
+      tx as unknown as Parameters<typeof enqueueAnalyticsEvent>[1],
     );
 
     expect(mockSql).not.toHaveBeenCalled();
