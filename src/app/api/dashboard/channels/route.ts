@@ -63,6 +63,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   // Subscription guard — defense-in-depth (page server component already redirects).
+  // This status endpoint is read-only, so past_due accounts can still inspect
+  // channel state while write routes enforce the recovery/read-only guard.
   // After migration 034, subscription_status source of truth is accounts.
   const [accountRow] = await sql<{ id: string; subscription_status: string }[]>`
     SELECT a.id, a.subscription_status
@@ -71,7 +73,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     WHERE b.id = ${user.locationId}
   `;
   if (!accountRow) return NextResponse.json({ error: 'not_found' }, { status: 404 });
-  if (accountRow.subscription_status !== SubscriptionStatus.ACTIVE) {
+  if (
+    accountRow.subscription_status !== SubscriptionStatus.ACTIVE
+    && accountRow.subscription_status !== SubscriptionStatus.PAST_DUE
+  ) {
     return NextResponse.json({ error: 'subscription_not_active' }, { status: 403 });
   }
   const accountId = accountRow.id;

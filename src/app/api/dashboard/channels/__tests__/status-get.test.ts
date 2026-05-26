@@ -40,4 +40,27 @@ describe('GET /api/dashboard/channels — account-scoped read', () => {
     expect(enrollQuery!.values).toContain('acct-1');
     expect(enrollQuery!.values).not.toContain('L2');
   });
+
+  it('allows past_due accounts to read channel status', async () => {
+    sqlQueue.push([{ id: 'acct-1', subscription_status: 'past_due' }]);
+    sqlQueue.push([]);
+
+    const res = await GET(new Request('http://localhost/api/dashboard/channels') as any);
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ enrollments: [] });
+    const enrollQuery = sqlCalls.find((c) => c.raw.includes('FROM channel_enrollments'));
+    expect(enrollQuery).toBeDefined();
+  });
+
+  it('still rejects non-active non-past_due accounts', async () => {
+    sqlQueue.push([{ id: 'acct-1', subscription_status: 'pending_payment' }]);
+
+    const res = await GET(new Request('http://localhost/api/dashboard/channels') as any);
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'subscription_not_active' });
+    const enrollQuery = sqlCalls.find((c) => c.raw.includes('FROM channel_enrollments'));
+    expect(enrollQuery).toBeUndefined();
+  });
 });
