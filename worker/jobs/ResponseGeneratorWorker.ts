@@ -1,7 +1,10 @@
 import type { Job } from 'bullmq';
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '../../src/lib/db/server';
-import { checkSubscription } from '../../src/lib/shared/subscription-guard';
+import {
+  checkSubscription,
+  type AccountFlagsInput,
+} from '../../src/lib/shared/subscription-guard';
 import { markOutboxCompleted, markOutboxFailed, extractOutboxHandle } from '../../src/lib/shared/outbox';
 import { isMockMode } from '../../src/lib/shared/mock-mode';
 import { sanitizeText } from '../../src/lib/shared/sanitize';
@@ -68,7 +71,7 @@ export async function handleResponseGeneration(
     subscription_status: string;
     subscription_tier: string;
     account_past_due_at: Date | null;
-    account_flags: Record<string, unknown> | null;
+    account_flags: AccountFlagsInput;
   }[]>`
     SELECT b.id, b.account_id, b.name, b.category, b.tone, b.products_services, b.staff_names,
            b.highlight_facts, b.avoid_facts, b.sample_responses,

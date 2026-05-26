@@ -51,6 +51,18 @@ describe('computePastDueRecoveryState', () => {
     expect(state.daysRemaining).toBe(0);
   });
 
+  it('marks past_due read-only when past_due_at is in the future', () => {
+    const state = computePastDueRecoveryState({
+      subscriptionStatus: 'past_due',
+      pastDueAt: '2026-05-26T12:00:00.000Z',
+      accountFlags: {},
+      now: NOW,
+    });
+
+    expect(state.isReadOnly).toBe(true);
+    expect(state.daysRemaining).toBe(0);
+  });
+
   it('extends the cutoff with active past_due_extension flag', () => {
     const state = computePastDueRecoveryState({
       subscriptionStatus: 'past_due',

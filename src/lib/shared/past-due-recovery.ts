@@ -11,10 +11,12 @@ export interface PastDueExtension {
   granted_by_user_id?: string;
 }
 
+export type AccountFlagsInput = Record<string, unknown> | string | null;
+
 export interface ComputePastDueRecoveryInput {
   subscriptionStatus: string;
   pastDueAt: Date | string | null | undefined;
-  accountFlags?: Record<string, unknown> | string | null;
+  accountFlags?: AccountFlagsInput;
   now?: Date;
 }
 
@@ -28,7 +30,7 @@ export interface PastDueRecoveryState {
 }
 
 function parseExtension(
-  flags: Record<string, unknown> | string | null | undefined,
+  flags: AccountFlagsInput | undefined,
   now: Date,
 ): PastDueExtension | null {
   const normalizedFlags = parseAccountFlags(flags);
@@ -55,7 +57,7 @@ function parseExtension(
 }
 
 function parseAccountFlags(
-  flags: Record<string, unknown> | string | null | undefined,
+  flags: AccountFlagsInput | undefined,
 ): Record<string, unknown> | null {
   if (!flags) return null;
   if (typeof flags === 'object' && !Array.isArray(flags)) return flags;
@@ -88,7 +90,7 @@ export function computePastDueRecoveryState(
     };
   }
 
-  if (!pastDueAt || !Number.isFinite(pastDueAt.getTime())) {
+  if (!pastDueAt || !Number.isFinite(pastDueAt.getTime()) || pastDueAt.getTime() > now.getTime()) {
     return {
       isPastDue: true,
       pastDueAt: null,

@@ -111,6 +111,33 @@ describe('checkSubscription', () => {
       expect(result).toEqual({ allowed: false, reason: 'past_due_expired' });
     });
 
+    it('denies when past_due_at is in the future', () => {
+      const result = checkSubscription({
+        status: 'past_due',
+        pastDueAt: new Date(NOW.getTime() + 86_400_000),
+        accountFlags: {},
+        workerType: 'publisher',
+        now: NOW,
+      });
+
+      expect(result).toEqual({ allowed: false, reason: 'past_due_expired' });
+    });
+
+    it('honors JSONB string account flags', () => {
+      const eightDaysAgo = new Date(NOW.getTime() - 8 * 86_400_000);
+      const result = checkSubscription({
+        status: 'past_due',
+        pastDueAt: eightDaysAgo,
+        accountFlags: JSON.stringify({
+          past_due_extension: { days: 7, expires_at: '2026-06-01T00:00:00.000Z' },
+        }),
+        workerType: 'publisher',
+        now: NOW,
+      });
+
+      expect(result).toEqual({ allowed: true });
+    });
+
     it('does not use unrelated business updated_at as the past-due clock', () => {
       const result = checkSubscription({
         status: 'past_due',

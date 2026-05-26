@@ -9,7 +9,10 @@
 //
 // VAL-NOTIF-010: Uses resolveChannels instead of getVerifiedEnrollments.
 
-import { checkSubscription } from '../../../src/lib/shared/subscription-guard';
+import {
+  checkSubscription,
+  type AccountFlagsInput,
+} from '../../../src/lib/shared/subscription-guard';
 import { resolveChannels, type ResolvedChannel } from '../../../src/lib/notifications/resolve-channels';
 import type { ChannelId } from '../../../src/lib/notifications/channels/types';
 import type { AccountId, LocationId } from '../../../src/lib/shared/ids';
@@ -20,7 +23,7 @@ export interface EligibilityInput {
   locationId: string;
   subscriptionStatus: string;
   pastDueAt?: Date | string | null;
-  accountFlags?: Record<string, unknown> | null;
+  accountFlags?: AccountFlagsInput;
 }
 
 export interface EligibilityLogger {

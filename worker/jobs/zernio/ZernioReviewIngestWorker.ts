@@ -19,7 +19,10 @@
 
 import type { Job } from 'bullmq';
 import { sql } from '../../../src/lib/db/server';
-import { checkSubscription } from '../../../src/lib/shared/subscription-guard';
+import {
+  checkSubscription,
+  type AccountFlagsInput,
+} from '../../../src/lib/shared/subscription-guard';
 import { extractOutboxHandle, markOutboxCompleted } from '../../../src/lib/shared/outbox';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import { detectLikelyPhi, redactPhiForLog } from '../../../src/lib/security/phi-scanner';
@@ -95,7 +98,7 @@ export async function handleZernioReviewIngest(job: Job<IngestZernioReviewPayloa
   const [acct] = await sql<{
     subscription_status: string;
     past_due_at: Date | null;
-    account_flags: Record<string, unknown> | null;
+    account_flags: AccountFlagsInput;
   }[]>`
     SELECT a.subscription_status, a.past_due_at, a.flags AS account_flags
     FROM businesses b

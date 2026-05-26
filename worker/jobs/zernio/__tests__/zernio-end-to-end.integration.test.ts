@@ -89,6 +89,10 @@ function mkReview(id: string, locationId: string, replyComment: string | null = 
   };
 }
 
+function activeAccountRow() {
+  return { subscription_status: 'active', past_due_at: null, account_flags: {} };
+}
+
 describe('Zernio end-to-end: webhook → ingest → processReview', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -97,7 +101,7 @@ describe('Zernio end-to-end: webhook → ingest → processReview', () => {
 
   it('ingest worker: subscription guard + connection lookup + listReviews + processReview', async () => {
     // SELECT business
-    sqlReturnQueue.push([{ subscription_status: 'active', updated_at: new Date() }]);
+    sqlReturnQueue.push([activeAccountRow()]);
     // SELECT zernio_connections
     sqlReturnQueue.push([{ id: 'conn-1' }]);
 
@@ -128,7 +132,7 @@ describe('Zernio end-to-end: webhook → ingest → processReview', () => {
   });
 
   it('multi-location fan-out: review at different location → no-op (sibling business)', async () => {
-    sqlReturnQueue.push([{ subscription_status: 'active', updated_at: new Date() }]);
+    sqlReturnQueue.push([activeAccountRow()]);
     sqlReturnQueue.push([{ id: 'conn-1' }]);
 
     // Review's name has location 'loc-2' but our connection is at 'loc-1'.
@@ -146,7 +150,7 @@ describe('Zernio end-to-end: webhook → ingest → processReview', () => {
   });
 
   it('subscription cancelled → no Zernio API call, no processReview', async () => {
-    sqlReturnQueue.push([{ subscription_status: 'cancelled', updated_at: new Date() }]);
+    sqlReturnQueue.push([{ subscription_status: 'cancelled', past_due_at: null, account_flags: {} }]);
 
     await handleZernioReviewIngest(makeJob());
 
@@ -155,7 +159,7 @@ describe('Zernio end-to-end: webhook → ingest → processReview', () => {
   });
 
   it('connection no longer active (e.g. account.disconnected fired between webhook and ingest) → no-op', async () => {
-    sqlReturnQueue.push([{ subscription_status: 'active', updated_at: new Date() }]);
+    sqlReturnQueue.push([activeAccountRow()]);
     sqlReturnQueue.push([]);  // no active connection
 
     await handleZernioReviewIngest(makeJob());
@@ -165,7 +169,7 @@ describe('Zernio end-to-end: webhook → ingest → processReview', () => {
   });
 
   it('correlation_id propagates from ingest payload through to processReview', async () => {
-    sqlReturnQueue.push([{ subscription_status: 'active', updated_at: new Date() }]);
+    sqlReturnQueue.push([activeAccountRow()]);
     sqlReturnQueue.push([{ id: 'conn-1' }]);
 
     mockListReviews.mockResolvedValueOnce({
@@ -183,7 +187,7 @@ describe('Zernio end-to-end: webhook → ingest → processReview', () => {
   });
 
   it('externally answered review (reviewReply !== null) → reconcile path, NOT processReview', async () => {
-    sqlReturnQueue.push([{ subscription_status: 'active', updated_at: new Date() }]);
+    sqlReturnQueue.push([activeAccountRow()]);
     sqlReturnQueue.push([{ id: 'conn-1' }]);
 
     // Review with non-null reviewReply — customer replied externally.

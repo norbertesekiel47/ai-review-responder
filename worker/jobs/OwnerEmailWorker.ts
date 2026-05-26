@@ -25,7 +25,10 @@
 import type { Job } from 'bullmq';
 import { v7 as uuidv7 } from 'uuid';
 import { sql } from '../../src/lib/db/server';
-import { checkSubscription } from '../../src/lib/shared/subscription-guard';
+import {
+  checkSubscription,
+  type AccountFlagsInput,
+} from '../../src/lib/shared/subscription-guard';
 import {
   markOutboxCompleted,
   markOutboxFailed,
@@ -49,7 +52,7 @@ interface BusinessRow {
   owner_email_bounced: boolean;
   subscription_status: string;
   account_past_due_at: Date | null;
-  account_flags: Record<string, unknown> | null;
+  account_flags: AccountFlagsInput;
 }
 
 export async function handleOwnerEmail(

@@ -1,5 +1,8 @@
 import { sql } from '../../../src/lib/db/server';
-import { checkSubscription } from '../../../src/lib/shared/subscription-guard';
+import {
+  checkSubscription,
+  type AccountFlagsInput,
+} from '../../../src/lib/shared/subscription-guard';
 import { NON_TERMINAL_STATUSES } from '../../../src/lib/shared/response-status';
 import {
   buildZernioMonitoredReview,
@@ -30,7 +33,7 @@ interface ConnectionRow {
   connected_at: Date | null;
   subscription_status: string;
   past_due_at: Date | null;
-  account_flags: Record<string, unknown> | null;
+  account_flags: AccountFlagsInput;
 }
 
 export interface ZernioRecentReviewPollResult {

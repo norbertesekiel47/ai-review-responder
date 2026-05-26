@@ -1,5 +1,10 @@
 import { SubscriptionStatus } from './subscription-status';
-import { computePastDueRecoveryState } from './past-due-recovery';
+import {
+  computePastDueRecoveryState,
+  type AccountFlagsInput,
+} from './past-due-recovery';
+
+export type { AccountFlagsInput } from './past-due-recovery';
 
 export type WorkerType = 'generator' | 'notification' | 'publisher' | 'summary' | 'owner_email' | 'drain';
 
@@ -11,7 +16,7 @@ export interface SubscriptionGuardInput {
   status: string;
   workerType: WorkerType;
   pastDueAt?: Date | string | null;
-  accountFlags?: Record<string, unknown> | null;
+  accountFlags?: AccountFlagsInput;
   now?: Date;
   /** @deprecated Only accepted to prove business clocks are ignored. */
   businessUpdatedAt?: Date;

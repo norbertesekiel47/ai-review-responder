@@ -1,6 +1,9 @@
 import type { Job } from 'bullmq';
 import { sql } from '../../src/lib/db/server';
-import { checkSubscription } from '../../src/lib/shared/subscription-guard';
+import {
+  checkSubscription,
+  type AccountFlagsInput,
+} from '../../src/lib/shared/subscription-guard';
 import { markOutboxCompleted, markOutboxFailed, extractOutboxHandle } from '../../src/lib/shared/outbox';
 import {
   sendInternalEmail,
@@ -33,7 +36,7 @@ export async function handleEngagementAlert(job: Job<EngagementAlertPayload>): P
     owner_phone: string | null;
     subscription_status: string;
     account_past_due_at: Date | null;
-    account_flags: Record<string, unknown> | null;
+    account_flags: AccountFlagsInput;
   }[]>`
     SELECT b.name, b.owner_email, b.owner_email_bounced, b.owner_phone,
            a.id AS account_id, a.subscription_status,

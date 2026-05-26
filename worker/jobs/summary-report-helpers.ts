@@ -1,5 +1,8 @@
 import { sql } from '../../src/lib/db/server';
-import { checkSubscription } from '../../src/lib/shared/subscription-guard';
+import {
+  checkSubscription,
+  type AccountFlagsInput,
+} from '../../src/lib/shared/subscription-guard';
 import { markOutboxCompleted, markOutboxFailed } from '../../src/lib/shared/outbox';
 import type { LocationId } from '../../src/lib/shared/ids';
 
@@ -12,7 +15,7 @@ export interface SummaryReportBusiness {
   subscription_status: string;
   account_updated_at: Date;
   account_past_due_at: Date | null;
-  account_flags: Record<string, unknown> | null;
+  account_flags: AccountFlagsInput;
   initial_review_count: number | null;
   initial_responded_count: number | null;
   baseline_captured_at: Date | null;

@@ -20,6 +20,7 @@
 // 'fail' carries the reason string for markOutboxFailed.
 
 import { sql } from '../../../src/lib/db/server';
+import type { AccountFlagsInput } from '../../../src/lib/shared/subscription-guard';
 
 export interface NotificationContextInput {
   responseId: string;
@@ -51,7 +52,7 @@ export interface BusinessRow {
   subscription_status: string;
   account_updated_at: Date;
   account_past_due_at: Date | null;
-  account_flags: Record<string, unknown> | null;
+  account_flags: AccountFlagsInput;
   archived_at: Date | null;
 }
 
