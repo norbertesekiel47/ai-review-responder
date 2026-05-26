@@ -27,8 +27,10 @@ export { TransientLLMError } from './llm-error-classifier';
 
 // ── Constants ────────────────────────────────────────────────────────
 
-const OPENAI_MODEL = 'gpt-4o-mini' as const;
-const ANTHROPIC_MODEL = 'claude-haiku-4-5-20251001' as const;
+// Pinned snapshots — never use a bare alias like 'gpt-4o-mini' for production
+// generation (silent-regression risk). Guarded by model-pinning.test.ts.
+export const OPENAI_MODEL = 'gpt-4o-mini-2024-07-18' as const;
+export const ANTHROPIC_MODEL = 'claude-haiku-4-5-20251001' as const;
 const LLM_TEMPERATURE = 0.7;
 const LLM_MAX_TOKENS = 300;
 

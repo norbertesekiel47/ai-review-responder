@@ -9,6 +9,9 @@ interface ModelPricing {
 }
 
 const MODEL_PRICING: Record<string, ModelPricing> = {
+  // Pinned snapshot used for production generation (see generator.ts OPENAI_MODEL).
+  'gpt-4o-mini-2024-07-18': { inputPer1M: 0.15, outputPer1M: 0.60 },
+  // Bare alias retained only so calculateCostUsd still resolves historical rows.
   'gpt-4o-mini': { inputPer1M: 0.15, outputPer1M: 0.60 },
   'claude-haiku-4-5-20251001': { inputPer1M: 0.80, outputPer1M: 4.00 },
 };

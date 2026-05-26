@@ -129,7 +129,7 @@ describe('generateResponse', () => {
     const result = await generateResponse(review, businessContext, [], demoOptions);
 
     expect(result.provider).toBe('openai');
-    expect(result.model).toBe('gpt-4o-mini');
+    expect(result.model).toBe('gpt-4o-mini-2024-07-18');
     expect(result.responseText).toBe('Thank you, Jane!');
     expect(openaiCreate).toHaveBeenCalledOnce();
   });
