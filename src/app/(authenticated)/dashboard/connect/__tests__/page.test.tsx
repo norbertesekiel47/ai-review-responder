@@ -141,4 +141,93 @@ describe('/dashboard/connect target location', () => {
     });
     expect(manualLink).toHaveAttribute('href', 'https://zernio.example/connect');
   });
+
+  it('hides direct connect actions when the account is read-only', () => {
+    mockUseDashboardData.mockReturnValue({
+      data: {
+        subscriptionStatus: 'past_due',
+        isReadOnly: true,
+        zernioConnection: {
+          status: 'none',
+          queuedReconnectCount: 0,
+          hasUnresolvedIncident: false,
+        },
+      },
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    render(<ConnectPage />);
+
+    expect(screen.queryByRole('button', { name: /connect google business/i })).not.toBeInTheDocument();
+    expect(screen.getAllByText(/update billing/i).length).toBeGreaterThan(0);
+  });
+
+  it('hides direct reconnect actions when the account is read-only', () => {
+    mockUseDashboardData.mockReturnValue({
+      data: {
+        subscriptionStatus: 'past_due',
+        isReadOnly: true,
+        zernioConnection: {
+          status: 'disconnected',
+          queuedReconnectCount: 1,
+          hasUnresolvedIncident: false,
+        },
+      },
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    render(<ConnectPage />);
+
+    expect(screen.queryByRole('button', { name: /reconnect google business/i })).not.toBeInTheDocument();
+    expect(screen.getAllByText(/update billing/i).length).toBeGreaterThan(0);
+  });
+
+  it('hides direct pending-flow controls when the account is read-only', () => {
+    mockUseDashboardData.mockReturnValue({
+      data: {
+        subscriptionStatus: 'past_due',
+        isReadOnly: true,
+        zernioConnection: {
+          status: 'pending',
+          pendingFlow: { status: 'oauth_in_progress' },
+          queuedReconnectCount: 0,
+          hasUnresolvedIncident: false,
+        },
+      },
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    render(<ConnectPage />);
+
+    expect(screen.queryByRole('button', { name: /cancel/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/update billing/i)).toBeInTheDocument();
+  });
+
+  it('hides direct stale pending-flow controls when the account is read-only', () => {
+    mockSearchParams.value = new URLSearchParams(
+      `locationId=${SECONDARY_LOCATION_ID}&error=state_expired`,
+    );
+    mockUseDashboardData.mockReturnValue({
+      data: {
+        subscriptionStatus: 'past_due',
+        isReadOnly: true,
+        zernioConnection: {
+          status: 'pending',
+          pendingFlow: { status: 'oauth_in_progress' },
+          queuedReconnectCount: 0,
+          hasUnresolvedIncident: false,
+        },
+      },
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    render(<ConnectPage />);
+
+    expect(screen.queryByRole('button', { name: /clear attempt/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/update billing/i)).toBeInTheDocument();
+  });
 });

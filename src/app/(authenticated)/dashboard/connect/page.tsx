@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useDashboardData } from '@/hooks/useDashboardData';
 import { useLocationScope } from '@/contexts/LocationContext';
+import type { DashboardDataActive } from '@/lib/dashboard/types';
 import type { LocationId } from '@/lib/shared/ids';
 
 /**
@@ -105,6 +106,8 @@ export default function ConnectPage() {
   }
 
   const zernio = data.zernioConnection;
+  const isReadOnly =
+    data.subscriptionStatus === 'past_due' && 'isReadOnly' in data && data.isReadOnly === true;
 
   // Active: redirect already issued in effect; render nothing to avoid flash.
   if (zernio.status === 'active') return null;
@@ -191,6 +194,8 @@ export default function ConnectPage() {
 
       {zernio.status === 'finalize_unknown' || zernio.hasUnresolvedIncident ? (
         <FinalizeUnknownView />
+      ) : isReadOnly ? (
+        <ReadOnlyConnectView zernio={zernio} />
       ) : urlError && zernio.status === 'pending' ? (
         <InterruptedPendingView onCancel={handleCancel} busy={busy} />
       ) : zernio.status === 'pending' ? (
@@ -211,7 +216,7 @@ export default function ConnectPage() {
         <ConnectView onConnect={handleConnect} busy={busy} />
       )}
 
-      {redirectUrl ? (
+      {!isReadOnly && redirectUrl ? (
         <div className="mt-4">
           <a className="text-sm text-blue-600 hover:underline" href={redirectUrl}>
             Open connection manually
@@ -229,6 +234,47 @@ export default function ConnectPage() {
           Get help connecting Google Business
         </Link>
       </div>
+    </div>
+  );
+}
+
+function ReadOnlyConnectView({
+  zernio,
+}: {
+  zernio: DashboardDataActive['zernioConnection'];
+}) {
+  const heading =
+    zernio.status === 'disconnected'
+      ? 'Reconnect Google Business'
+      : zernio.status === 'pending'
+        ? 'Google Business connection pending'
+        : 'Connect Google Business';
+  const detail =
+    zernio.status === 'disconnected'
+      ? 'Google Business is disconnected. Update billing before reconnecting this location.'
+      : zernio.status === 'pending'
+        ? 'A Google Business connection is in progress, but account changes are paused until billing is updated.'
+        : 'Google Business is not connected. Update billing before connecting this location.';
+
+  return (
+    <div className="rounded-lg border border-amber-200 bg-amber-50 p-6">
+      <h1 className="text-2xl font-semibold text-amber-950">{heading}</h1>
+      <p className="mt-2 text-sm text-amber-900">{detail}</p>
+      <p className="mt-3 text-sm font-medium text-amber-950">
+        Update billing to connect or change Google Business.
+      </p>
+      {zernio.queuedReconnectCount > 0 ? (
+        <p className="mt-2 text-sm text-amber-900">
+          {zernio.queuedReconnectCount} approved{' '}
+          {zernio.queuedReconnectCount === 1 ? 'response is' : 'responses are'} waiting
+          to publish after reconnect.
+        </p>
+      ) : null}
+      {zernio.lastDisconnectReason ? (
+        <p className="mt-2 text-xs text-amber-800">
+          Last disconnect reason: {zernio.lastDisconnectReason}
+        </p>
+      ) : null}
     </div>
   );
 }
