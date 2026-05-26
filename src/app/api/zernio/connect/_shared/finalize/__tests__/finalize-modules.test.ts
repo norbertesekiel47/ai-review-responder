@@ -24,6 +24,8 @@ const {
   const txScenario = {
     needsBackfill: false,
     accountSubscriptionStatus: 'active',
+    accountPastDueAt: null as string | null,
+    accountFlags: {} as Record<string, unknown>,
     accountSubscriptionActivatedAt: new Date(
       '2026-05-01T00:00:00.000Z',
     ) as Date | null,
@@ -49,6 +51,8 @@ const {
             ? [
                 {
                   subscription_status: txScenario.accountSubscriptionStatus,
+                  past_due_at: txScenario.accountPastDueAt,
+                  flags: txScenario.accountFlags,
                   subscription_tier: 'standard',
                   subscription_activated_at:
                     txScenario.accountSubscriptionActivatedAt,
@@ -83,7 +87,15 @@ const {
       }
       if (/FROM businesses/.test(raw) && /account_id/.test(raw)) {
         return Promise.resolve(
-          sqlScenario.businessExists ? [{ exists: 1 }] : [],
+          sqlScenario.businessExists
+            ? [
+                {
+                  subscription_status: 'active',
+                  past_due_at: null,
+                  flags: {},
+                },
+              ]
+            : [],
         );
       }
       return Promise.resolve([]);
@@ -259,6 +271,8 @@ beforeEach(() => {
   txCalls.length = 0;
   txScenario.needsBackfill = false;
   txScenario.accountSubscriptionStatus = 'active';
+  txScenario.accountPastDueAt = null;
+  txScenario.accountFlags = {};
   txScenario.accountSubscriptionActivatedAt = new Date(
     '2026-05-01T00:00:00.000Z',
   );
@@ -679,8 +693,8 @@ describe('finalizeConnectionTx', () => {
     );
   });
 
-  it('throws 403 subscription_required when the account is not active', async () => {
-    txScenario.accountSubscriptionStatus = 'past_due';
+  it('throws 403 subscription_inactive when the account is inactive', async () => {
+    txScenario.accountSubscriptionStatus = 'cancelled';
     await expectRouteError(
       finalizeConnectionTx({
         user: USER,
@@ -689,7 +703,7 @@ describe('finalizeConnectionTx', () => {
         accountId: 'zernio-account-1',
       }),
       403,
-      'subscription_required',
+      'subscription_inactive',
     );
   });
 });

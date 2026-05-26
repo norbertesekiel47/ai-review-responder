@@ -142,6 +142,26 @@ describe('/dashboard/connect target location', () => {
     expect(manualLink).toHaveAttribute('href', 'https://zernio.example/connect');
   });
 
+  it('shows billing copy when connect/start is blocked by read-only billing state', async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response(JSON.stringify({ error: 'past_due_read_only' }), {
+          status: 402,
+          headers: { 'content-type': 'application/json' },
+        }),
+      ),
+    );
+
+    render(<ConnectPage />);
+
+    await user.click(screen.getByRole('button', { name: /connect google business/i }));
+
+    expect(await screen.findByText(/update billing before connecting google business/i))
+      .toBeInTheDocument();
+  });
+
   it('hides direct connect actions when the account is read-only', () => {
     mockUseDashboardData.mockReturnValue({
       data: {

@@ -1,9 +1,10 @@
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '@/lib/db/server';
 import { ZernioRouteError } from '@/lib/zernio/errors';
-import { SubscriptionStatus } from '@/lib/shared/subscription-status';
+import { assertWritableSubscriptionStatus } from '@/lib/shared/writable-subscription';
 import type { AppUser } from '@/lib/db/auth';
 import type { ConnectLocationsBlob } from '@/lib/zernio/types';
+import type { AccountFlagsInput } from '@/lib/shared/past-due-recovery';
 import { enqueueAnalyticsEvent } from '@/lib/analytics/enqueue';
 import { makeAnalyticsEventKey } from '@/lib/analytics/events';
 
@@ -38,12 +39,16 @@ export async function finalizeConnectionTx({
     const [accountLocation] = await tx<
       {
         subscription_status: string;
+        past_due_at: Date | string | null;
+        flags: AccountFlagsInput;
         subscription_tier: string;
         subscription_activated_at: Date | null;
       }[]
     >`
       SELECT
         a.subscription_status,
+        a.past_due_at,
+        a.flags,
         a.subscription_tier,
         a.subscription_activated_at
       FROM businesses b
@@ -57,8 +62,13 @@ export async function finalizeConnectionTx({
     if (!accountLocation) {
       throw new ZernioRouteError(403, 'business_mismatch');
     }
-    if (accountLocation.subscription_status !== SubscriptionStatus.ACTIVE) {
-      throw new ZernioRouteError(403, 'subscription_required');
+    const writable = assertWritableSubscriptionStatus({
+      subscriptionStatus: accountLocation.subscription_status,
+      pastDueAt: accountLocation.past_due_at,
+      accountFlags: accountLocation.flags,
+    });
+    if (!writable.ok) {
+      throw new ZernioRouteError(writable.status, writable.error);
     }
 
     const [existingConnection] = await tx<{ id: string }[]>`
@@ -174,8 +184,8 @@ export async function finalizeConnectionTx({
           )
         `;
       } else {
-        // Pre-payment connect — connect flow is gated on active
-        // subscription upstream, so this branch is unreachable.
+        // Connect flow is gated on writable subscription state upstream, so
+        // this branch is unreachable for activated accounts.
         console.warn(
           `[zernio-connect] Connect succeeded but subscription_activated_at NULL for ${stored.businessId}`,
         );

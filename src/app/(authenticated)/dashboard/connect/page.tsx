@@ -484,6 +484,10 @@ function friendlyErrorMessage(code: string): string {
     case 'forbidden':
     case 'unauthorized':
       return 'You don’t have permission to do that.';
+    case 'past_due_read_only':
+    case 'subscription_inactive':
+    case 'subscription_required':
+      return 'Update billing before connecting Google Business.';
     case 'unscoped_owner':
       return 'Your account isn’t linked to a business yet — please contact support.';
     case 'connect_in_progress':

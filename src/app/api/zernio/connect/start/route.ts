@@ -4,7 +4,7 @@ import { getCacheRedis } from '@/lib/db/redis-cache';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { ZernioRouteError } from '@/lib/zernio/errors';
-import { SubscriptionStatus } from '@/lib/shared/subscription-status';
+import { assertWritableSubscriptionStatus } from '@/lib/shared/writable-subscription';
 import { zernioClient } from '@/lib/zernio/client';
 import { isFreshPendingMarker, parseConnectPendingMarker } from '../_shared/pending-flow';
 import { parseRequestedLocationId, preflightErrorResponse } from '../_shared/preflight';
@@ -21,6 +21,7 @@ import {
   luaCASDel,
 } from '@/lib/zernio/connect-state';
 import type { ConnectPendingMarker, ConnectStateBlob } from '@/lib/zernio/types';
+import type { AccountFlagsInput } from '@/lib/shared/past-due-recovery';
 
 export const dynamic = 'force-dynamic';
 
@@ -85,11 +86,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const locationId = requestedLocationId ?? user.locationId!;
   const userId = user.id;
 
-  // 3. Subscription guard — spec §3.2 step 1: skip if subscription_status != 'active'.
-  // After migration 034, subscription_status source of truth is accounts.
+  // 3. Subscription guard. After migration 034, subscription_status source of
+  // truth is accounts. Past-due accounts remain writable until recovery closes.
   try {
-    const [accountRow] = await sql<{ subscription_status: string }[]>`
-      SELECT a.subscription_status
+    const [accountRow] = await sql<{
+      subscription_status: string;
+      past_due_at: Date | string | null;
+      flags: AccountFlagsInput;
+    }[]>`
+      SELECT a.subscription_status, a.past_due_at, a.flags
       FROM businesses b
       JOIN accounts a ON a.id = b.account_id
       WHERE b.id = ${locationId}
@@ -103,10 +108,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         { status: 403, headers: NO_STORE },
       );
     }
-    if (accountRow.subscription_status !== SubscriptionStatus.ACTIVE) {
+    const writable = assertWritableSubscriptionStatus({
+      subscriptionStatus: accountRow.subscription_status,
+      pastDueAt: accountRow.past_due_at,
+      accountFlags: accountRow.flags,
+    });
+    if (!writable.ok) {
       return NextResponse.json(
-        { error: 'subscription_required' },
-        { status: 403, headers: NO_STORE },
+        { error: writable.error },
+        { status: writable.status, headers: NO_STORE },
       );
     }
   } catch (err) {
