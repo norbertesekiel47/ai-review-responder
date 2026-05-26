@@ -10,7 +10,7 @@
 // Note: this helper does NOT perform a same-origin (CSRF) check — callers must
 // handle that themselves (assertSameOrigin or withSameOrigin wrapper).
 //
-// Used by: POST /draft, PATCH /draft/:id, DELETE /draft/:id
+// Used by: owner past-replies routes that need current location scope.
 // (Tasks 10 & 11 should import this for any owner route that reads rw_location_scope.)
 
 import type { NextRequest } from 'next/server';
@@ -32,6 +32,10 @@ export class ScopeError extends Error {
   }
 }
 
+interface ResolveOwnerScopeOptions {
+  allowReadOnly?: boolean;
+}
+
 /**
  * Resolves the authenticated owner's account + current location from a
  * NextRequest. Reads the `rw_location_scope` cookie (UUID-validated) and
@@ -49,6 +53,7 @@ export class ScopeError extends Error {
  */
 export async function resolveOwnerScope(
   request: NextRequest,
+  options: ResolveOwnerScopeOptions = {},
 ): Promise<{ accountId: AccountId; locationId: LocationId; userId: string }> {
   let user;
   try {
@@ -89,7 +94,7 @@ export async function resolveOwnerScope(
       pastDueAt: account.past_due_at,
       accountFlags: account.flags,
     });
-    if (recovery.isReadOnly) {
+    if (recovery.isReadOnly && !options.allowReadOnly) {
       throw new ScopeError('past_due_read_only', 402);
     }
   } else if (account.subscription_status !== SubscriptionStatus.ACTIVE) {

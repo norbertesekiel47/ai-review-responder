@@ -197,6 +197,23 @@ describe('resolveOwnerScope', () => {
     expect(mockGetRequestScope).not.toHaveBeenCalled();
   });
 
+  it('past_due subscription after recovery window resolves when read-only access is allowed', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+    mockSql.mockResolvedValueOnce([{
+      subscription_status: 'past_due',
+      past_due_at: new Date(Date.now() - 8 * 86_400_000),
+      flags: {},
+    }]);
+    const { resolveOwnerScope } = await importResolveOwnerScope();
+
+    await expect(resolveOwnerScope(makeRequest(), { allowReadOnly: true })).resolves.toEqual({
+      accountId: ACCOUNT_ID,
+      locationId: LOCATION_ID,
+      userId: USER_ID,
+    });
+    expect(mockGetRequestScope).toHaveBeenCalledWith(ACCOUNT_ID, null);
+  });
+
   it('account row missing → throws ScopeError 403 no_business, getRequestScope NOT called', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
     mockSql.mockResolvedValueOnce([]);
