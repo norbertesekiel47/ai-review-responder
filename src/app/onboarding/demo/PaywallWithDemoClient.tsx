@@ -154,6 +154,9 @@ export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoC
               </p>
               <a
                 href="/onboarding/pay"
+                onClick={() => {
+                  void captureDemoToSignup();
+                }}
                 className="inline-block bg-blue-600 text-white font-medium px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors"
               >
                 Choose a plan →
@@ -177,6 +180,9 @@ export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoC
               </p>
               <a
                 href="/onboarding/pay"
+                onClick={() => {
+                  void captureDemoToSignup();
+                }}
                 className="inline-block bg-blue-600 text-white font-medium px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors"
               >
                 Choose a plan →
@@ -196,6 +202,25 @@ export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoC
       </div>
     </div>
   );
+}
+
+async function captureDemoToSignup() {
+  await fetch('/api/analytics/enqueue', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      eventName: 'sample_demo_to_signup',
+      clientEventId: makeClientEventId(),
+      properties: { source: 'onboarding_demo' },
+    }),
+  }).catch(() => undefined);
+}
+
+function makeClientEventId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 function Stars({ rating }: { rating: number }) {

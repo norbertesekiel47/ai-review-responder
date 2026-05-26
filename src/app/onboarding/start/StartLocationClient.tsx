@@ -76,7 +76,11 @@ export function StartLocationClient() {
         return;
       }
 
-      router.push(body.redirectTo ?? '/onboarding/demo');
+      const redirectTo = body.redirectTo ?? '/onboarding/demo';
+      if (redirectTo === '/onboarding/demo') {
+        void captureSampleDemoStarted(inputMode);
+      }
+      router.push(redirectTo);
     } catch {
       setError('Connection failed');
     } finally {
@@ -168,4 +172,23 @@ export function StartLocationClient() {
       </div>
     </div>
   );
+}
+
+async function captureSampleDemoStarted(inputMode: 'autocomplete' | 'url') {
+  await fetch('/api/analytics/enqueue', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      eventName: 'sample_demo_started',
+      clientEventId: makeClientEventId(),
+      properties: { source: 'onboarding_start', inputMode },
+    }),
+  }).catch(() => undefined);
+}
+
+function makeClientEventId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }

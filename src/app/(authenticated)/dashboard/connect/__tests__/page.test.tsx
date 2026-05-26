@@ -119,4 +119,26 @@ describe('/dashboard/connect target location', () => {
       }),
     );
   });
+
+  it('shows manual connection link when redirect is started', async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response(JSON.stringify({ authUrl: 'https://zernio.example/connect' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      ),
+    );
+
+    render(<ConnectPage />);
+
+    await user.click(screen.getByRole('button', { name: /connect google business/i }));
+
+    const manualLink = await screen.findByRole('link', {
+      name: /open connection manually/i,
+    });
+    expect(manualLink).toHaveAttribute('href', 'https://zernio.example/connect');
+  });
 });

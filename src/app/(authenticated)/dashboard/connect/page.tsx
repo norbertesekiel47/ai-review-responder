@@ -42,6 +42,7 @@ export default function ConnectPage() {
   });
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [redirectUrl, setRedirectUrl] = useState<string | null>(null);
   const urlError = searchParams.get('error');
 
   useEffect(() => {
@@ -111,6 +112,11 @@ export default function ConnectPage() {
   async function handleConnect() {
     setBusy(true);
     setActionError(null);
+    setRedirectUrl(null);
+    void enqueueConnectAnalytics('gbp_connect_started', {
+      source: 'dashboard_connect',
+      locationScope: effectiveScope === 'all' ? 'all' : 'location',
+    });
     try {
       const res = await fetch('/api/zernio/connect/start', {
         method: 'POST',
@@ -121,13 +127,32 @@ export default function ConnectPage() {
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok || !body.authUrl) {
-        setActionError(friendlyErrorMessage(body.error ?? `connect_failed_${res.status}`));
+        const reason = body.error ?? `connect_failed_${res.status}`;
+        setActionError(friendlyErrorMessage(reason));
+        void enqueueConnectAnalytics('gbp_connect_failed', {
+          source: 'dashboard_connect',
+          reason,
+          status: res.status,
+        });
         setBusy(false);
         return;
       }
+      setRedirectUrl(body.authUrl);
+      window.setTimeout(() => {
+        setActionError('If the connection window did not open, use the manual link below.');
+        setBusy(false);
+        void enqueueConnectAnalytics('gbp_connect_failed', {
+          source: 'dashboard_connect',
+          reason: 'redirect_timeout',
+        });
+      }, 2500);
       window.location.href = body.authUrl;
     } catch {
       setActionError('Network error — please try again.');
+      void enqueueConnectAnalytics('gbp_connect_failed', {
+        source: 'dashboard_connect',
+        reason: 'network_error',
+      });
       setBusy(false);
     }
   }
@@ -186,13 +211,53 @@ export default function ConnectPage() {
         <ConnectView onConnect={handleConnect} busy={busy} />
       )}
 
+      {redirectUrl ? (
+        <div className="mt-4">
+          <a className="text-sm text-blue-600 hover:underline" href={redirectUrl}>
+            Open connection manually
+          </a>
+        </div>
+      ) : null}
+
       <div className="mt-6">
         <Link href="/dashboard" className="text-sm text-blue-600 hover:underline">
           ← Back to dashboard
         </Link>
       </div>
+      <div className="mt-2">
+        <Link href="/help/contact" className="text-sm text-blue-600 hover:underline">
+          Get help connecting Google Business
+        </Link>
+      </div>
     </div>
   );
+}
+
+type ConnectAnalyticsEventName = 'gbp_connect_started' | 'gbp_connect_failed';
+
+function enqueueConnectAnalytics(
+  eventName: ConnectAnalyticsEventName,
+  properties: Record<string, unknown>,
+): Promise<void> {
+  return fetch('/api/analytics/enqueue', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      eventName,
+      clientEventId: makeClientEventId(),
+      properties,
+    }),
+  }).then(
+    () => undefined,
+    () => undefined,
+  );
+}
+
+function makeClientEventId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 function ConnectView({
