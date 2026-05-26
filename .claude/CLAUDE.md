@@ -109,7 +109,7 @@ approval before posting.
 - Two Postgres clients: `postgres` (Postgres.js) for transactional writes,
   `@supabase/supabase-js` for auth/storage/reads
 - Two Redis instances: Upstash cache (separate from) Upstash BullMQ queue
-- LLM: GPT-4o-mini primary, `claude-haiku-4-5-20251001` fallback
+- LLM: GPT-4o-mini primary (pinned `gpt-4o-mini-2024-07-18`), `claude-haiku-4-5-20251001` fallback. Production model constants live in `src/lib/responses/generator.ts` (exported, guarded by `model-pinning.test.ts`); never use a bare `gpt-4o-mini` alias for generation. The versioned prompt safety base is `src/lib/responses/prompt-policy.ts` (`PROMPT_VERSION` + `systemPromptHash()`), recorded on every `api_costs` row.
 - JSONB via Postgres.js: use `jsonb()` helper (`sql.json(value)`, OID 3802).
   `${JSON.stringify(x)}::jsonb` double-encodes in Postgres.js v3.
 - Package manager: pnpm
@@ -146,7 +146,7 @@ approval before posting.
 
 - All tables: UUIDv7 (time-ordered)
 - Base schema: `supabase/migrations/001_initial_schema.sql`
-- Current head: migration **049** (next: **050**)
+- Current head: migration **050** (next: **051**)
 - For migration details: see `.claude/skills/migrations.md`
 
 ## Non-obvious gotchas — read these before touching related code
