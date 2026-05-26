@@ -13,6 +13,7 @@ import { requireRole, AuthError } from '@/lib/db/auth';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 import { updateDisplayLabel } from '@/lib/locations/update-display-label';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
+import { assertWritableSubscriptionForAccount } from '@/lib/shared/writable-subscription';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,6 +42,11 @@ async function updateLocationDisplayLabel(request: NextRequest): Promise<NextRes
 
   if (!user.accountId) {
     return jsonResponse({ error: 'No account associated with this user' }, 403);
+  }
+
+  const writable = await assertWritableSubscriptionForAccount(user.accountId);
+  if (!writable.ok) {
+    return jsonResponse({ error: writable.error }, writable.status);
   }
 
   let body: unknown;
