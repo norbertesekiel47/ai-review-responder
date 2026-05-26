@@ -6,11 +6,13 @@ const {
   mockGetUser,
   mockChallenge,
   mockVerify,
+  mockSetSupabaseCookies,
 } = vi.hoisted(() => ({
   mockCheckRateLimit: vi.fn(),
   mockGetUser: vi.fn(),
   mockChallenge: vi.fn(),
   mockVerify: vi.fn(),
+  mockSetSupabaseCookies: { value: false },
 }));
 
 vi.mock('@/lib/shared/rate-limit', () => ({
@@ -18,15 +20,26 @@ vi.mock('@/lib/shared/rate-limit', () => ({
 }));
 
 vi.mock('@supabase/ssr', () => ({
-  createServerClient: vi.fn(() => ({
-    auth: {
-      getUser: mockGetUser,
-      mfa: {
-        challenge: mockChallenge,
-        verify: mockVerify,
+  createServerClient: vi.fn((_url: string, _key: string, options: {
+    cookies?: {
+      setAll?: (cookies: Array<{ name: string; value: string; options?: Record<string, unknown> }>) => void;
+    };
+  }) => {
+    if (mockSetSupabaseCookies.value) {
+      options.cookies?.setAll?.([
+        { name: 'sb-refresh-token', value: 'updated', options: { path: '/' } },
+      ]);
+    }
+    return {
+      auth: {
+        getUser: mockGetUser,
+        mfa: {
+          challenge: mockChallenge,
+          verify: mockVerify,
+        },
       },
-    },
-  })),
+    };
+  }),
 }));
 
 process.env.NEXT_PUBLIC_APP_URL = 'https://app.example.com';
@@ -53,6 +66,7 @@ describe('POST /api/auth/mfa/challenge', () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'auth-user-1' } } });
     mockChallenge.mockResolvedValue({ data: { id: 'challenge-1' }, error: null });
     mockVerify.mockResolvedValue({ data: {}, error: null });
+    mockSetSupabaseCookies.value = false;
   });
 
   it('rate-limits and creates an MFA challenge for the current session', async () => {
@@ -67,6 +81,15 @@ describe('POST /api/auth/mfa/challenge', () => {
       { strict: true },
     );
     expect(mockChallenge).toHaveBeenCalledWith({ factorId: 'factor-1' });
+  });
+
+  it('copies refreshed Supabase cookies on challenge success', async () => {
+    mockSetSupabaseCookies.value = true;
+
+    const res = await POST(req({ action: 'challenge', factorId: 'factor-1' }));
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('set-cookie')).toContain('sb-refresh-token=updated');
   });
 
   it('rate-limits verify attempts before calling Supabase verify', async () => {

@@ -33,6 +33,18 @@ function parseBody(body: unknown): MfaChallengeBody | null {
   return null;
 }
 
+function jsonWithCookies(
+  cookieJar: NextResponse,
+  body: Record<string, unknown>,
+  init: { status: number; headers?: HeadersInit },
+): NextResponse {
+  const response = NextResponse.json(body, init);
+  for (const cookie of cookieJar.cookies.getAll()) {
+    response.cookies.set(cookie);
+  }
+  return response;
+}
+
 export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
     assertSameOrigin(req);
@@ -86,7 +98,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) {
-    return NextResponse.json(
+    return jsonWithCookies(
+      cookieJar,
       { error: 'unauthorized' },
       { status: 401, headers: NO_STORE },
     );
@@ -100,14 +113,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       { strict: true },
     );
     if (!limit.allowed) {
-      return NextResponse.json(
+      return jsonWithCookies(
+        cookieJar,
         { error: 'rate_limited' },
         { status: 429, headers: { ...NO_STORE, 'Retry-After': String(RETRY_AFTER_SECONDS) } },
       );
     }
   } catch (err) {
     console.error('[mfa-challenge] rate-limit strict failure:', err);
-    return NextResponse.json(
+    return jsonWithCookies(
+      cookieJar,
       { error: 'rate_limit_unavailable' },
       { status: 503, headers: NO_STORE },
     );
@@ -118,12 +133,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       factorId: body.factorId,
     });
     if (error || !data?.id) {
-      return NextResponse.json(
+      return jsonWithCookies(
+        cookieJar,
         { error: 'challenge_failed' },
         { status: 400, headers: NO_STORE },
       );
     }
-    return NextResponse.json(
+    return jsonWithCookies(
+      cookieJar,
       { challengeId: data.id },
       { status: 200, headers: NO_STORE },
     );
@@ -135,18 +152,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     code: body.code,
   });
   if (error) {
-    return NextResponse.json(
+    return jsonWithCookies(
+      cookieJar,
       { error: 'verify_failed' },
       { status: 400, headers: NO_STORE },
     );
   }
 
-  const response = NextResponse.json(
+  return jsonWithCookies(
+    cookieJar,
     { ok: true },
     { status: 200, headers: NO_STORE },
   );
-  for (const cookie of cookieJar.cookies.getAll()) {
-    response.cookies.set(cookie);
-  }
-  return response;
 }

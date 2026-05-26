@@ -3,21 +3,28 @@ import { NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { proxy } from '../proxy';
 
-const { getUser } = vi.hoisted(() => ({
+const { getUser, getAuthenticatorAssuranceLevel, selfRow } = vi.hoisted(() => ({
   getUser: vi.fn(),
+  getAuthenticatorAssuranceLevel: vi.fn(),
+  selfRow: {
+    value: { role: 'sales_partner', account_id: null } as { role: string; account_id: string | null } | null,
+  },
 }));
 
 vi.mock('@supabase/ssr', () => ({
   createServerClient: vi.fn(() => ({
     auth: {
       getUser,
+      mfa: {
+        getAuthenticatorAssuranceLevel,
+      },
     },
     from: () => ({
       select: () => ({
         eq: () => ({
           limit: () => ({
             single: () => Promise.resolve({
-              data: { role: 'sales_partner', account_id: null },
+              data: selfRow.value,
               error: null,
             }),
           }),
@@ -46,6 +53,12 @@ describe('proxy public launch host behavior', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getUser.mockResolvedValue({ data: { user: null } });
+    getAuthenticatorAssuranceLevel.mockResolvedValue({
+      data: { currentLevel: 'aal1', nextLevel: 'aal1' },
+      error: null,
+    });
+    selfRow.value = { role: 'sales_partner', account_id: null };
+    process.env.MFA_ENFORCEMENT_ENABLED = 'false';
   });
 
   it('does not inject coming-soon headers for repworth.net public pages', async () => {
@@ -131,5 +144,23 @@ describe('proxy public launch host behavior', () => {
     const redirect = new URL(location!);
     expect(redirect.pathname).toBe('/login');
     expect(redirect.searchParams.get('from')).toBe('/mfa/challenge');
+  });
+
+  it('redirects enrolled admin AAL1 sessions to MFA challenge when enforcement is enabled', async () => {
+    process.env.MFA_ENFORCEMENT_ENABLED = 'true';
+    getUser.mockResolvedValueOnce({ data: { user: { id: 'auth-admin' } } });
+    selfRow.value = { role: 'admin', account_id: null };
+    getAuthenticatorAssuranceLevel.mockResolvedValueOnce({
+      data: { currentLevel: 'aal1', nextLevel: 'aal2' },
+      error: null,
+    });
+
+    const response = await proxy(request('https://repworth.net/admin/overview'));
+    const location = response.headers.get('location');
+
+    expect(location).not.toBeNull();
+    const redirect = new URL(location!);
+    expect(redirect.pathname).toBe('/mfa/challenge');
+    expect(redirect.searchParams.get('next')).toBe('/admin/overview');
   });
 });

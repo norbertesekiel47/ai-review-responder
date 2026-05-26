@@ -64,6 +64,25 @@ export async function proxy(request: NextRequest) {
     return (data as { role: string; account_id: string | null } | null) ?? null;
   }
 
+  async function getAalGate(): Promise<'ok' | 'mfa_required' | 'mfa_check_failed'> {
+    if (process.env.MFA_ENFORCEMENT_ENABLED !== 'true') {
+      return 'ok';
+    }
+    const { data, error } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+    if (error || !data) {
+      return 'mfa_check_failed';
+    }
+    return data.nextLevel === 'aal2' && data.currentLevel !== 'aal2'
+      ? 'mfa_required'
+      : 'ok';
+  }
+
+  function redirectToMfaChallenge(): NextResponse {
+    const mfaUrl = new URL('/mfa/challenge', request.url);
+    mfaUrl.searchParams.set('next', `${request.nextUrl.pathname}${request.nextUrl.search}`);
+    return NextResponse.redirect(mfaUrl);
+  }
+
   // 3. Admin pages (except /admin/login, /admin/forgot-password, /admin/reset-password)
   if (
     pathname.startsWith('/admin') &&
@@ -78,6 +97,10 @@ export async function proxy(request: NextRequest) {
     if (!self || self.role !== 'admin') {
       return redirectToLogin(request);
     }
+    const aal = await getAalGate();
+    if (aal !== 'ok') {
+      return redirectToMfaChallenge();
+    }
   }
 
   // 4. Admin API routes
@@ -88,6 +111,10 @@ export async function proxy(request: NextRequest) {
     const self = await readSelf();
     if (!self || self.role !== 'admin') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+    const aal = await getAalGate();
+    if (aal !== 'ok') {
+      return NextResponse.json({ error: aal }, { status: 403 });
     }
   }
 
@@ -106,6 +133,10 @@ export async function proxy(request: NextRequest) {
     if (!self || self.role !== 'owner' || !self.account_id) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403, headers: noStoreHeaders });
     }
+    const aal = await getAalGate();
+    if (aal !== 'ok') {
+      return NextResponse.json({ error: aal }, { status: 403, headers: noStoreHeaders });
+    }
   }
 
   // 6. Owner pages
@@ -116,6 +147,10 @@ export async function proxy(request: NextRequest) {
     const self = await readSelf();
     if (!self || self.role !== 'owner' || !self.account_id) {
       return redirectToLogin(request, 'owner');
+    }
+    const aal = await getAalGate();
+    if (aal !== 'ok') {
+      return redirectToMfaChallenge();
     }
   }
 
@@ -163,6 +198,10 @@ export async function proxy(request: NextRequest) {
     }
     if (self.role !== 'owner' || !self.account_id) {
       return redirectToLogin(request, 'owner');
+    }
+    const aal = await getAalGate();
+    if (aal !== 'ok') {
+      return redirectToMfaChallenge();
     }
   }
 
