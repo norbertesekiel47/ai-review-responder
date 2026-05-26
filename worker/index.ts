@@ -239,10 +239,13 @@ async function main(): Promise<void> {
     reply.header('X-Content-Type-Options', 'nosniff');
   });
 
-  // Health check
+  // Health check — dependency-light (no DB / queue / external calls).
+  // Used by external synthetic checks; do not add blocking dependency probes here.
   app.get('/api/health', async () => ({
     status: 'ok',
+    service: 'worker',
     timestamp: new Date().toISOString(),
+    uptime_seconds: Math.round(process.uptime()),
   }));
 
   // Stripe webhook ingress — real handler
