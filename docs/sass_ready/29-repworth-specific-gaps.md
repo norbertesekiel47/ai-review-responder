@@ -1,8 +1,10 @@
 # Spec 29 — RepWorth-Specific Gaps
 
-> **Goal:** Close the seven highest-leverage RepWorth-specific gaps: approval audit content-snapshot, multi-location invoice monitoring, second review-source contingency, LLM cost gross-margin guard, past_due visible UX, support extension macro, CSV-import polish, and a public Trust Center.
+> **Goal:** Close the eight highest-leverage RepWorth-specific gaps: approval audit content-snapshot, multi-location invoice monitoring, second review-source contingency, LLM cost gross-margin guard, past_due visible UX, support extension macro, CSV-import polish, and a public Trust Center.
 >
 > **✅ Wave 1 SHIPPED (2026-05-25, PR #85):** **Gap 1** — approval audit content snapshot (`approval_audit_log.response_text_at_approval`, migration 044): immutable, written in-tx across all publish paths (token approve/edit, callback, owner session, dashboard publish/retry/restore). **Gap 2** — multi-location upcoming-invoice reconciliation in `StripeLocationsReconcilePoller` + `accounts.flags.is_pilot` pilot-review process (`docs/finance/`). **Deferred:** Gap 3 (second review source), Gap 4 (LLM gross-margin guard), Gap 5 (past_due UX), Gap 6 (support extension macro), Gap 7 (CSV polish), and the full Trust Center.
+>
+> **✅ Wave 2 Activation SHIPPED (2026-05-26):** **Gap 5** — shared past_due countdown/read-only UX and worker guard; **Gap 6** — versioned support macro + AAL2-gated grant-extension admin action; **Gap 7 partial** — CSV template, client-side validation, and partial-success UI. **Still deferred:** Gap 3, Gap 4, full Trust Center, and external Help Scout setup.
 
 ---
 
@@ -12,20 +14,20 @@ Sections 1–28 cover generic SaaS readiness. This section is the **RepWorth-spe
 
 ## 2. Current state (RepWorth) — at a glance
 
-_Verified 2026-05-23 against the live tree (migration head 042)._
+_Verified 2026-05-23 against the live tree (migration head 042); refreshed 2026-05-26 after Wave 2 Activation (migration head 048)._
 
 | Gap | Status (verified) |
 |---|---|
-| 1. Approval audit content snapshot | `approval_audit_log` stores **action/event only** (no `response_text_at_approval`); the approved text lives separately on `responses.approved_text`. Gap = bind immutable text to the audit row. |
-| 2. Multi-location invoice recon | `StripeLocationsReconcilePoller` detects **quantity** drift; **no upcoming-invoice comparator**, no `is_pilot` (could ride `accounts.flags`). |
+| 1. Approval audit content snapshot | ✅ Wave 1 shipped: `approval_audit_log.response_text_at_approval` added in migration 044 and written in the approval audit path. |
+| 2. Multi-location invoice recon | ✅ Wave 1 shipped: `StripeLocationsReconcilePoller` detects missing/duplicate/status/price/quantity/upcoming-invoice drift and tags pilot state through `accounts.flags.is_pilot`. |
 | 3. Single Zernio dependency | `ReviewSource → NormalizedReview` interface **exists** (`src/lib/reviews/types.ts`) with a 2nd impl already (`serpapi-source.ts`, test/demo); Zernio is the **sole production** source. GBP-direct is greenfield. |
 | 4. LLM cost per customer | `api_costs` captures **per-call** (business_id); **no `account_llm_cost` monthly rollup**. |
-| 5. Past_due banner + countdown | `PastDueBanner` exists with a **hardcoded "7-day"** message; **no `past_due_at`**, no dynamic countdown. |
-| 6. "Help me pay past_due" macro + grant-extension | Neither exists; no `docs/support/macros/`. |
-| 7. CSV import template + validation | `csv-import.ts` (MAX_ROWS=**100**); `CsvImportReport` **already returns per-row failures**; **no public template, no client-side validation**. |
-| 8. Public Trust Center | No `/trust`, no `/security`. |
+| 5. Past_due banner + countdown | ✅ Wave 2 shipped: day-aware banner/modal/read-only state from `computePastDueRecoveryState`, with worker guard sharing the same `past_due_at`/extension clock. |
+| 6. "Help me pay past_due" macro + grant-extension | ✅ Wave 2 shipped: `docs/support/macros/past-due-extension.md`, `docs/runbooks/support-extension.md`, and `/api/admin/billing/grant-extension`. |
+| 7. CSV import template + validation | ✅ Wave 2 partial: `public/csv-templates/*`, client-side validation, and partial-success UI. Aggregate audit exists; per-row audit remains future work if needed. |
+| 8. Public Trust Center | Public `/security` page exists from Wave 1; full `/legal/trust` Trust Center and `/trust` redirect remain deferred. |
 
-## 3. Target state — seven discrete gaps
+## 3. Target state — eight discrete gaps
 
 ### Gap 1 — Approval audit captures *content* snapshot
 
@@ -37,9 +39,9 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 - 13-month minimum retention.
 
 **Tasks**:
-- Migration (next free number; head 042 — coordinate): extend `approval_audit_log` with `response_text_at_approval` (the approved text already exists on `responses.approved_text` — snapshot it onto the immutable audit row at approval time so the proof isn't separable from the event).
-- Capture `response_text` from the response row at approval time, write to the audit row.
-- Verify in `src/__tests__/approval-audit.test.ts` (Vitest collocated convention) that the audit row matches text shown to the owner.
+- ✅ Migration **044** extends `approval_audit_log` with `response_text_at_approval` (the approved text already exists on `responses.approved_text` — snapshot it onto the immutable audit row at approval time so the proof isn't separable from the event).
+- ✅ Capture `response_text` from the response row at approval time, write to the audit row.
+- ✅ Verify the audit row matches text shown to the owner via approval-audit snapshot tests.
 
 ---
 
@@ -55,9 +57,9 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 - Manually inspect their first 3 invoices end-to-end before automating away.
 
 **Tasks**:
-- Pilot flag: prefer a key in the existing `accounts.flags` JSONB (e.g. `flags.is_pilot`) over a new column — no migration needed. Tag the first 10 multi-location accounts.
-- Build the Stripe upcoming-invoice comparator and add it to the existing `StripeLocationsReconcilePoller` (which today only checks overage **quantity**, not the full upcoming invoice).
-- Founder reviews pilot invoices monthly; documented in `docs/finance/pilot-invoice-review-YYYY-MM.md`.
+- ✅ Pilot flag uses the existing `accounts.flags` JSONB (`flags.is_pilot`) rather than a new column.
+- ✅ Stripe upcoming-invoice comparator is part of `StripeLocationsReconcilePoller`.
+- ✅ Founder pilot-invoice review template lives at `docs/finance/pilot-invoice-review-YYYY-MM.md`.
 
 ---
 
@@ -91,7 +93,7 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 - If account gross margin drops below **60%** → raise prices on next renewal or shrink prompt.
 
 **Tasks**:
-- Build `account_llm_cost(account_id, month, cost_usd_calculated, response_count, avg_cost_per_response)` rollup (next free migration number; head 042 — coordinate). ✅ Source is the existing **`api_costs`** (per-call); this is an aggregation, not new instrumentation. Note `api_costs` is keyed by `business_id` — roll up to `account_id` via the businesses→accounts join.
+- Build `account_llm_cost(account_id, month, cost_usd_calculated, response_count, avg_cost_per_response)` rollup (claim the next free migration number when the Gap 4 slice starts). ✅ Source is the existing **`api_costs`** (per-call); this is an aggregation, not new instrumentation. Note `api_costs` is keyed by `business_id` — roll up to `account_id` via the businesses→accounts join.
 - Nightly worker writes rollups (mirror the existing scheduler pattern).
 - Admin dashboard panel: "Top 10 customers by LLM-cost ratio". Alert on > 25%.
 - Author founder runbook: "Heavy-usage customer triage".
@@ -110,9 +112,9 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 - Verify the banner UI exists and shows the countdown.
 
 **Tasks**:
-- ✅ `PastDueBanner` already exists (`SubscriptionStatusBanner.tsx`) with a hardcoded "7-day" message — **enhance it to day-aware variants**, don't create it.
-- **Prerequisite: add `accounts.past_due_at`** ([Spec 05](./05-billing-subscription.md) owns this) — there's no countdown data source today (`subscription_status='past_due'` only).
-- Verify in production with a controlled past_due test account at days 1, 3, 5, 7.
+- ✅ `PastDueBanner` exists and is now day-aware (`SubscriptionStatusBanner.tsx`), backed by `accounts.past_due_at`, migration 047 backfill, `PastDueModal`, read-only write guards, and `subscription-guard.ts`.
+- ✅ Admin/support extensions are honored by the same recovery helper via `accounts.flags.past_due_extension`.
+- Production verification with a controlled past_due test account at days 1, 3, 5, 7 remains an ops checklist item.
 
 ---
 
@@ -124,9 +126,9 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 > "Sorry to hear about the card issue. Update your payment method here: [Stripe Customer Portal link]. Once updated, your account auto-recovers and we'll retry the failed payment within 24 hours. **If you need a 7-day extension while you wait for a new card, reply YES and I'll grant it.**"
 
 **Tasks**:
-- Author the macro in Help Scout + mirror in `docs/support/macros/past-due-extension.md` (`docs/support/macros/` is greenfield).
-- Build admin "Grant extension" action (net-new — no such action exists): founder UI to add N days of grace to a past_due account. Audit-logged via the existing `account_audit_log`. Same action referenced in [Spec 05](./05-billing-subscription.md) task 10 — build once. Depends on `past_due_at` (Gap 5).
-- Document in `docs/runbooks/support-extension.md` — when to grant, how to revoke if abused.
+- ✅ Mirror the macro in `docs/support/macros/past-due-extension.md`. Help Scout saved-reply setup is external and still pending.
+- ✅ Build admin "Grant extension" action: founder/admin UI adds up to 7 days of grace to a past_due account, requires current AAL2, stores `accounts.flags.past_due_extension`, and writes `account_audit_log`.
+- ✅ Document in `docs/runbooks/support-extension.md` — when to grant and how to review usage.
 
 ---
 
@@ -142,9 +144,9 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 - **Audit log persists** even when downstream billing fails (already implemented per recent fix — confirm).
 
 **Tasks**:
-- Publish CSV template + README at `public/csv-templates/locations.csv` and `public/csv-templates/README.md`.
-- Implement client-side Zod validation in CSV upload form.
-- Add a partial-success detail view listing each row's outcome. ✅ `CsvImportReport` (in `src/lib/admin/csv-import.ts`) **already returns per-row failures** — the gap is surfacing it in the UI, not computing it. (CSV import is admin-side: route `/api/admin/locations/csv-import`.)
+- ✅ Publish CSV template + README at `public/csv-templates/locations.csv` and `public/csv-templates/README.md`.
+- ✅ Implement client-side validation in CSV upload form.
+- ✅ Surface partial-success detail listing failed rows. `CsvImportReport` (in `src/lib/admin/csv-import.ts`) returns per-row failures; admin UI now shows "X of Y imported" plus failure reasons.
 - ✅ Row cap decided (Step 0): keep `MAX_ROWS = 100` (no code change); the template README states the 100-row limit.
 - Update import audit-log to include per-row outcome.
 
@@ -173,13 +175,13 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 
 ## 4. Acceptance criteria (consolidated)
 
-- [ ] Approval audit captures `response_text_at_approval` per response.
-- [ ] Multi-location invoice reconciliation alerts on > $0.01 drift; first 10 multi-location accounts tagged `pilot=true`.
+- [x] Approval audit captures `response_text_at_approval` per response.
+- [x] Multi-location invoice reconciliation alerts on > $0.01 drift; pilot accounts are represented by `accounts.flags.is_pilot`.
 - [ ] GBP-direct ingestion POC exists; fallback runbook documented.
 - [ ] Per-customer LLM cost rollup running; admin dashboard surfaces > 25% ratio accounts.
-- [ ] Past_due banner + countdown + read-only mode functional end-to-end.
-- [ ] "Grant extension" admin action exists, audit-logged.
-- [ ] CSV template public; client-side validation; partial-success UI; per-row audit.
+- [x] Past_due banner + countdown + read-only mode functional end-to-end in code/tests.
+- [x] "Grant extension" admin action exists, requires AAL2, and is audit-logged.
+- [ ] CSV template public; client-side validation; partial-success UI; per-row audit. ✅ Template/validation/partial-success shipped; per-row audit remains pending (aggregate audit exists).
 - [ ] `/trust` Trust Center page live and linked from footer.
 
 ## 5. Metrics
@@ -213,9 +215,9 @@ _Verified 2026-05-23 against the live tree (migration head 042)._
 
 ## 8. Implementation in the current repo
 
-- **Most gaps build on something that already exists**, which is the headline of this whole spec set: approved text on `responses.approved_text` (Gap 1), the proven `ReviewSource` abstraction + a 2nd impl (Gap 3), per-call `api_costs` (Gap 4), the `PastDueBanner` + `StripeLocationsReconcilePoller` (Gaps 2/5), and per-row `CsvImportReport` failures (Gap 7). Net-new from zero: the Trust Center (Gap 8), the grant-extension admin action + macro (Gap 6).
-- **Cross-spec keystones**: `past_due_at` (Gaps 5/6 ← [Spec 05](./05-billing-subscription.md)); `account_llm_cost` rollup (Gap 4 ↔ [Spec 22](./22-ai-llm-ops.md)) sources the extended `api_costs` (Step-0 audit-home decision); analytics tool is **PostHog** (admin cost dashboards ← [Spec 01 §2a](./01-product-market-fit.md), Step-0 decision); flag pattern stays env-var kill-switches + PostHog flags for %-rollout ([Spec 24](./24-devops-deployment.md), Step-0 decision).
-- **Migration numbering**: the original 057/058/059 are dropped in favor of "next free number, coordinate" (head 042); Gap 2's pilot flag can avoid a migration entirely via `accounts.flags`.
+- **Most gaps build on something that already exists**, which is the headline of this whole spec set: approved text on `responses.approved_text` (Gap 1), the proven `ReviewSource` abstraction + a 2nd impl (Gap 3), per-call `api_costs` (Gap 4), the `PastDueBanner` + `StripeLocationsReconcilePoller` (Gaps 2/5), and per-row `CsvImportReport` failures (Gap 7). Wave 2 closed Gap 5 and the in-repo parts of Gap 6; the Trust Center remains net-new.
+- **Cross-spec keystones**: `past_due_at` (Gaps 5/6 ← [Spec 05](./05-billing-subscription.md)); `account_llm_cost` rollup (Gap 4 ↔ [Spec 22](./22-ai-llm-ops.md)) sources the extended `api_costs` (Step-0 audit-home decision); analytics tool is **PostHog via first-party queue** (admin cost dashboards ← [Spec 01 §2a](./01-product-market-fit.md), Step-0 decision); flag pattern stays env-var kill-switches + PostHog flags for %-rollout ([Spec 24](./24-devops-deployment.md), Step-0 decision).
+- **Migration numbering**: the original 057/058/059 are dropped in favor of "next free number, coordinate"; Wave 1 used migration 044 for Gap 1 and Wave 2 reached head 048. Gap 2's pilot flag avoided a migration by using `accounts.flags`.
 
 ---
-_Verified 2026-05-23 against migration head 042. Each gap's status corrected to the live tree: approval text lives on `responses.approved_text` (not the audit row); `ReviewSource` + a 2nd impl already exist; `api_costs` is the per-call source for the missing rollup; `PastDueBanner`/reconcile-poller/`CsvImportReport` partially exist. Migration numbers de-hardcoded; test/route paths aligned to real conventions._
+_Verified 2026-05-23 against migration head 042; refreshed 2026-05-26 after Wave 2 Activation (migration head 048). Each gap's status corrected to the live tree: approval text lives on `responses.approved_text` (not the audit row); `ReviewSource` + a 2nd impl already exist; `api_costs` is the per-call source for the missing rollup; Wave 2 shipped the past_due UX/support-extension path and CSV polish. Migration numbers de-hardcoded; test/route paths aligned to real conventions._

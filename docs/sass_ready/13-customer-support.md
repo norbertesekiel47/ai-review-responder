@@ -1,6 +1,8 @@
 # Spec 13 — Customer Support
 
 > **Goal:** Email + in-app chat + searchable KB day 1, tiered response SLA, Help Scout as the spine, admin impersonation behind 2FA + audit, top-20 macros maintained.
+>
+> **✅ Wave 2 Activation SHIPPED (2026-05-26):** `/help/contact`, five help articles, six version-controlled support macros, support-extension runbook, and admin-owned impersonation sessions (migration 048, admin + current AAL2, signed httpOnly cookie, audit start/end, read-only admin shell). **Still external/pending:** Help Scout inbox setup, chat widget, Mintlify docs site, auto-responder, SLA reporting.
 
 ---
 
@@ -10,10 +12,10 @@ Support quality is a retention lever and a hiring signal. The right tools at the
 
 ## 2. Current state (RepWorth)
 
-_Verified 2026-05-23 against the live tree (migration head 042)._
+_Verified 2026-05-23 against the live tree (migration head 042); refreshed 2026-05-26 after Wave 2 Activation (migration head 048)._
 
-- No support tooling (no Help Scout/Crisp/Plain/Intercom/Zendesk), no `/help` KB, no Mintlify/Docusaurus — all greenfield.
-- **No admin impersonation** and no `impersonation_sessions` table. An admin area exists (`src/app/admin/*`: overview, businesses, costs, demos, jobs, notifications, runbook) to host it.
+- No external support tooling configured in-repo (no Help Scout/Crisp/Plain/Intercom/Zendesk), and no Mintlify/Docusaurus docs site yet. Wave 2 added an in-app `/help/contact` page plus repo-backed help docs/macros.
+- ✅ **Admin impersonation shipped**: `impersonation_sessions` (migration 048, RLS enabled), `/admin/impersonate`, `/api/admin/impersonation/{start,end}`, and a read-only admin-owned view shell.
 - Settings has tabs General/Account/BrandVoice/Channels/Locations (+ per-location overrides) but **no Export-my-data / Delete-account / API-token UI** yet (greenfield; data-export/delete cross-refs [Spec 09](./09-security-compliance.md)).
 - Impersonation audit should reuse the existing **`account_audit_log`** (migration 034), consistent with [Spec 04](./04-auth-identity.md) — not a fresh audit table.
 - `report@`/`support@` mailboxes not confirmed in repo.
@@ -63,7 +65,7 @@ Auto-responder confirms receipt with ticket ID, expected SLA. Published on `/hel
 - CI: dead-link checker + code-snippet executor (snippets break the build if out of date).
 
 ### Admin impersonation
-- **Feature-flagged + 2FA + audit log every action.**
+- **Admin role + current AAL2 + audit log every session.**
 - Workflow:
   1. Admin opens "Login as customer X" UI from admin tool.
   2. Required field: support ticket ID + reason text.
@@ -87,14 +89,14 @@ Auto-responder confirms receipt with ticket ID, expected SLA. Published on `/hel
 1. Subscribe Help Scout. Configure inboxes + tags + workflows.
 2. Subscribe Plain or Crisp. Wire chat widget into the `src/app/(authenticated)/dashboard/*` layout. Hide outside business hours.
 3. Stand up Mintlify docs at `docs.repworth.com`. Seed with top 5 articles + GBP setup guide.
-4. Build admin impersonation flow:
-   - Migration (next free number; head 042 — coordinate per README): `impersonation_sessions(id, actor_user_id, impersonated_user_id, ticket_id, reason, started_at, expires_at, ended_at)`.
+4. ✅ **Wave 2 shipped:** build admin impersonation flow:
+   - Migration **048**: `impersonation_sessions(id, actor_user_id, impersonated_user_id, account_id, ticket_id, reason, started_at, expires_at, ended_at)`.
    - Admin UI page `src/app/admin/impersonate/page.tsx` (sibling to existing admin pages).
-   - Write an `account_audit_log` row per session start/end (reuse the existing table); tag session traffic `impersonating: true`.
-   - 1-hour TTL; banner UI; destructive actions blocked.
-5. Author top 20 macros. Track usage monthly.
+   - Write an `account_audit_log` row per session start/end (reuse the existing table).
+   - 1-hour TTL; visible banner UI; destructive actions blocked by using an admin-owned read-only shell rather than owner routes.
+5. ⚠️ **Partially shipped:** six macros are version-controlled in `docs/support/macros/*.md`. Help Scout saved replies and full top-20 macro catalog remain pending.
 6. Add auto-responder template referencing tier + SLA + ticket ID.
-7. Build `/help/contact` page surfacing channels + SLAs.
+7. ✅ **Wave 2 shipped:** build `/help/contact` page surfacing channels + SLAs.
 8. Wire customer self-serve admin actions per §3.
 9. Document support runbook `docs/runbooks/support-rotation.md` (until first hire: founder is on call, business hours US ET).
 
@@ -103,10 +105,10 @@ Auto-responder confirms receipt with ticket ID, expected SLA. Published on `/hel
 - [ ] Help Scout receiving emails on all four inboxes with workflows routing to correct queues.
 - [ ] In-app chat visible in dashboard during business hours.
 - [ ] Mintlify docs live with the top-5 articles published.
-- [ ] Admin impersonation flow tested end-to-end; audit row written; destructive actions confirmed blocked.
+- [x] Admin impersonation flow tested in code; audit row written; destructive actions blocked by the admin-owned read-only surface.
 - [ ] Auto-responder fires within 60s on incoming email.
 - [ ] First-response SLA tracked weekly; hit-rate ≥ 95% per tier.
-- [ ] Top-20 macros published and version-controlled.
+- [ ] Top-20 macros published and version-controlled. ✅ Six Wave 2 macros are version-controlled; Help Scout/top-20 completion pending.
 
 ## 6. Metrics
 
@@ -131,14 +133,14 @@ Auto-responder confirms receipt with ticket ID, expected SLA. Published on `/hel
 - [Spec 09 — Security & Compliance](./09-security-compliance.md) (data export, account delete)
 - [Spec 14 — Customer Success & Retention](./14-customer-success-retention.md) (CSM motion)
 - [Spec 25 — Documentation](./25-documentation.md) (Mintlify infra)
-- Code anchors: `src/app/admin/*`, `src/app/(authenticated)/settings/*`, `account_audit_log` (migration 034)
+- Code anchors: `src/app/admin/*`, `src/app/admin/impersonate/*`, `src/app/api/admin/impersonation/*`, `src/app/(authenticated)/settings/*`, `account_audit_log` (migration 034), `impersonation_sessions` (migration 048)
 
 ## 9. Implementation in the current repo
 
-- **Everything except impersonation is third-party signup + config** (Help Scout, Crisp/Plain, Mintlify) — no code prerequisites.
-- **Impersonation** is the one in-repo build: a new `impersonation_sessions` table + an `src/app/admin/impersonate` page (the admin shell already exists), reusing `account_audit_log` for the audit trail and the existing `src/middleware.ts` for the destructive-action block + banner gating.
+- **External support tooling remains third-party signup + config** (Help Scout, Crisp/Plain, Mintlify) — no code prerequisites.
+- **Impersonation** is the in-repo build: `impersonation_sessions` + `src/app/admin/impersonate` + admin-prefixed APIs, reusing `account_audit_log` for the audit trail. It does not swap Supabase Auth or mount owner `/dashboard`/`settings`; it uses an admin-owned read-only shell.
 - **Self-serve admin actions** (export/delete/API tokens) attach to the existing `SettingsShell` tab strip; export/delete cross-ref [Spec 09](./09-security-compliance.md), API tokens cross-ref [Spec 20](./20-api-integrations.md).
 - **KB CI** (dead-link checker / snippet executor) needs a specialized docs/support workflow added to the existing base CI ([Spec 24](./24-devops-deployment.md)).
 
 ---
-_Verified 2026-05-23 against migration head 042. Aligned SLA tiers to live names (basic/standard/premium); pointed impersonation audit at the existing `account_audit_log`; fixed dashboard path + migration numbering; noted the admin shell + settings tabs that already exist._
+_Verified 2026-05-23 against migration head 042; refreshed 2026-05-26 after Wave 2 Activation (migration head 048). Aligned SLA tiers to live names (basic/standard/premium); pointed impersonation audit at the existing `account_audit_log`; fixed dashboard path + migration numbering; noted the admin shell + settings tabs that already exist._
