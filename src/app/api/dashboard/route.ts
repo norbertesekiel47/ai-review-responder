@@ -159,7 +159,9 @@ async function fetchPerLocationData(
       pastDueAt: subRow.past_due_at,
       accountFlags: subRow.flags,
     });
+    const data = await getActiveDashboardData(locationId);
     return jsonResponse({
+      ...data,
       subscriptionStatus: 'past_due',
       accountId,
       businessName: subRow.name,
@@ -283,7 +285,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           pastDueAt: accountRow.past_due_at,
           accountFlags: accountRow.flags,
         });
+        const data = await getAggregateDashboardData(accountId);
         return jsonResponse({
+          ...data,
           subscriptionStatus: 'past_due',
           businessName: 'Account',
           accountId,

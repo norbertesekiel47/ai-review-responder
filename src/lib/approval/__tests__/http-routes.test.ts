@@ -102,6 +102,11 @@ const READ_ONLY_ACCOUNT_ROW = {
   past_due_at: '2020-01-01T00:00:00.000Z',
   flags: {},
 };
+const INACTIVE_ACCOUNT_ROW = {
+  subscription_status: 'pending_payment',
+  past_due_at: null,
+  flags: {},
+};
 const LINK = {
   id: 'link-1',
   response_id: 'resp-1',
@@ -154,9 +159,10 @@ beforeEach(() => {
   mockRecoverCorrelationId.mockResolvedValue('corr-1');
   mockHandleApprovalError.mockImplementation((err: unknown) => {
     if (err instanceof Error && err.name === 'SubscriptionReadOnlyError') {
+      const status = 'status' in err && typeof err.status === 'number' ? err.status : 402;
       return NextResponse.json(
         { error: err.message },
-        { status: 402, headers: { 'Cache-Control': 'no-store, private' } },
+        { status, headers: { 'Cache-Control': 'no-store, private' } },
       );
     }
     throw err;
@@ -302,6 +308,24 @@ describe('runTokenApprovalAction', () => {
     expect(res.status).toBe(402);
     expect(await res.json()).toEqual({ error: 'past_due_read_only' });
     expect(mockLockValidLink).toHaveBeenCalledWith(mockSql, RAW_TOKEN);
+    expect(mockRecoverCorrelationId).not.toHaveBeenCalled();
+    expect(action).not.toHaveBeenCalled();
+  });
+
+  it('returns 403 before token approval work when the link account is not active', async () => {
+    sqlResults.push([INACTIVE_ACCOUNT_ROW]);
+    const action = vi.fn();
+
+    const res = await runTokenApprovalAction(
+      request(),
+      RAW_TOKEN,
+      'approve',
+      { success: true },
+      action,
+    );
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'subscription_inactive' });
     expect(mockRecoverCorrelationId).not.toHaveBeenCalled();
     expect(action).not.toHaveBeenCalled();
   });

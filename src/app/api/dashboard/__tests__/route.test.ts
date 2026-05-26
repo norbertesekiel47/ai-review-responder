@@ -845,7 +845,7 @@ describe('GET /api/dashboard', () => {
       created_at: new Date(),
     });
 
-    mockSqlResults.push([
+    setDbResults({ subRow: [
       {
         name: 'Past Due Biz',
         subscription_status: 'past_due',
@@ -859,7 +859,7 @@ describe('GET /api/dashboard', () => {
         flags: {},
         stripe_customer_id: 'cus_123',
       },
-    ]);
+    ] });
 
     const res = await GET(makeRequest());
     expect(res.status).toBe(200);
@@ -873,6 +873,7 @@ describe('GET /api/dashboard', () => {
       daysRemaining: 2,
       isReadOnly: false,
       billingPortalUrl: '/api/billing/portal',
+      business: { name: 'Test Biz' },
     });
     vi.useRealTimers();
   });
@@ -894,6 +895,7 @@ describe('GET /api/dashboard', () => {
         stripe_customer_id: 'cus_123',
       },
     ]);
+    mockSqlResults.push([{ locations_included: 1, locations_paid: 0 }]);
 
     const res = await GET(makeRequest('/api/dashboard?scope=all'));
     expect(res.status).toBe(200);
@@ -908,6 +910,8 @@ describe('GET /api/dashboard', () => {
       daysRemaining: 2,
       isReadOnly: false,
       billingPortalUrl: '/api/billing/portal',
+      scope: 'aggregate',
+      activeLocationCount: 0,
     });
     process.env.MULTI_LOCATION_ENABLED = previousMultiLocation;
     vi.useRealTimers();

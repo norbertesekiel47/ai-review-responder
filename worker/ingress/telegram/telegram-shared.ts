@@ -108,7 +108,9 @@ export function messageForLinkError(err: Error): string {
     return 'This review has already been handled — no further action needed.';
   }
   if (err instanceof SubscriptionReadOnlyError) {
-    return 'Billing recovery has ended. Update billing in RepWorth before approving replies.';
+    return err.error === 'past_due_read_only'
+      ? 'Billing recovery has ended. Update billing in RepWorth before approving replies.'
+      : 'Billing is not active. Update billing in RepWorth before approving replies.';
   }
   return 'This approval is no longer valid.';
 }

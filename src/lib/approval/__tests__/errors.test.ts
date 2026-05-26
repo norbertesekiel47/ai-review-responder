@@ -48,4 +48,14 @@ describe('handleApprovalError', () => {
     expect(res.headers.get('Cache-Control')).toBe('no-store, private');
     expect(await res.json()).toEqual({ error: 'past_due_read_only' });
   });
+
+  it('maps inactive subscription errors to their status', async () => {
+    const res = handleApprovalError(
+      new SubscriptionReadOnlyError('subscription_inactive', 403),
+      'approve',
+    );
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'subscription_inactive' });
+  });
 });

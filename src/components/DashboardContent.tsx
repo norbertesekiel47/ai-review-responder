@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import type { DashboardDataActive, AggregateDashboardData } from '@/lib/dashboard/types';
+import type { DashboardDataActive, DashboardDataPastDue, AggregateDashboardData } from '@/lib/dashboard/types';
 import type { DashboardOrAggregate } from '@/hooks/useDashboardData';
 import {
   ActivePendingBusinessScreen,
@@ -163,34 +163,10 @@ export function DashboardContent() {
     );
   }
 
-  // VAL-CROSS-012: Past-due account — payment warning banner, features continue
-  if (data.subscriptionStatus === 'past_due') {
-    const pastDueData = data as import('@/lib/dashboard/types').DashboardDataPastDue;
-    return (
-      <>
-        <TopBar title="Dashboard" subtitle="Payment overdue — please update your payment method" />
-        <div className="content">
-          <PastDueBanner
-            billingPortalUrl={pastDueData.billingPortalUrl}
-            pastDueAt={pastDueData.pastDueAt}
-            deadline={pastDueData.pastDueDeadline}
-            daysRemaining={pastDueData.daysRemaining}
-            isReadOnly={pastDueData.isReadOnly}
-          />
-          <PastDueModal
-            accountId={pastDueData.accountId}
-            daysRemaining={pastDueData.daysRemaining}
-            isReadOnly={pastDueData.isReadOnly}
-            deadline={pastDueData.pastDueDeadline}
-          />
-          {/* During past_due grace period, dashboard features still work */}
-        </div>
-      </>
-    );
-  }
-
   // Active per-location view (same as before redesign)
-  const activeData: DashboardDataActive = data;
+  const pastDueData: DashboardDataPastDue | null =
+    data.subscriptionStatus === 'past_due' ? data : null;
+  const activeData: DashboardDataActive = data as DashboardDataActive;
   const { valueSummary, reviewVelocity, ranking, recentReviews, latestBrief, zernioConnection, business } = activeData;
   const pending = recentReviews.filter((r) => (r.responseStatus ?? r.status) === 'pending_approval').length;
 
@@ -201,14 +177,34 @@ export function DashboardContent() {
     }
   }
 
-  const subtitle = business.name
+  const activeSubtitle = business.name
     ? `Welcome back — here's what's new for ${business.name}.`
     : "Welcome back — here's what's new.";
+  const subtitle = pastDueData
+    ? 'Payment overdue — please update your payment method'
+    : activeSubtitle;
 
   return (
     <>
       <TopBar title="Dashboard" subtitle={subtitle} showLive refresh={refresh} />
       <div className="content">
+        {pastDueData && (
+          <div className="section-enter section-enter-1">
+            <PastDueBanner
+              billingPortalUrl={pastDueData.billingPortalUrl}
+              pastDueAt={pastDueData.pastDueAt}
+              deadline={pastDueData.pastDueDeadline}
+              daysRemaining={pastDueData.daysRemaining}
+              isReadOnly={pastDueData.isReadOnly}
+            />
+            <PastDueModal
+              accountId={pastDueData.accountId}
+              daysRemaining={pastDueData.daysRemaining}
+              isReadOnly={pastDueData.isReadOnly}
+              deadline={pastDueData.pastDueDeadline}
+            />
+          </div>
+        )}
         <div className="section-enter section-enter-1">
           <ConnectGoogleBanner zernio={zernioConnection} />
         </div>
@@ -247,7 +243,7 @@ function computePendingCount(data: DashboardOrAggregate | null): number {
       (r) => (r.responseStatus ?? r.status) === 'pending_approval',
     ).length;
   }
-  if (data.subscriptionStatus === undefined) {
+  if (data.subscriptionStatus === undefined || data.subscriptionStatus === 'past_due') {
     return data.recentReviews.filter(
       (r) => (r.responseStatus ?? r.status) === 'pending_approval',
     ).length;

@@ -165,7 +165,9 @@ export async function handleTwilioWhatsAppInbound(
       if (isPermanent) {
         let body = 'This reply was just handled on another channel.';
         if (e instanceof SubscriptionReadOnlyError) {
-          body = 'Billing recovery has ended. Update billing in RepWorth before approving replies.';
+          body = e.error === 'past_due_read_only'
+            ? 'Billing recovery has ended. Update billing in RepWorth before approving replies.'
+            : 'Billing is not active. Update billing in RepWorth before approving replies.';
         } else if (e instanceof ExpiredLinkError) {
           body = 'This approval link has expired — a new draft will arrive on the next review.';
         }

@@ -11,9 +11,9 @@
 import type postgres from 'postgres';
 import { sql as defaultSql } from '@/lib/db/server';
 import { SubscriptionTier } from '@/lib/accounts/tier-config';
-import { computePastDueRecoveryState, type AccountFlagsInput } from '@/lib/shared/past-due-recovery';
+import type { AccountFlagsInput } from '@/lib/shared/past-due-recovery';
 import {
-  assertWritableSubscription,
+  assertWritableSubscriptionStatus,
   SubscriptionReadOnlyError,
 } from '@/lib/shared/writable-subscription';
 
@@ -118,13 +118,13 @@ export async function assertCanEditReply(
   // and must match the specific location the caller is scoped to.
   if (row.review_business_id !== ctx.locationId) throw new ForbiddenError();
 
-  const writable = assertWritableSubscription(computePastDueRecoveryState({
+  const writable = assertWritableSubscriptionStatus({
     subscriptionStatus: row.subscription_status,
     pastDueAt: row.past_due_at,
     accountFlags: row.flags,
-  }));
+  });
   if (!writable.ok) {
-    throw new SubscriptionReadOnlyError(writable.error);
+    throw new SubscriptionReadOnlyError(writable.error, writable.status);
   }
 
   const isHistorical =

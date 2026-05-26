@@ -88,7 +88,7 @@ export interface DashboardDataCancelled {
   readAccess: boolean;
 }
 
-export interface DashboardDataPastDue {
+export interface DashboardPastDueFields {
   subscriptionStatus: 'past_due';
   accountId: string;
   businessName: string;
@@ -103,6 +103,8 @@ export interface DashboardDataPastDue {
   /** True once owner write actions must be blocked. */
   isReadOnly: boolean;
 }
+
+export type DashboardDataPastDue = Omit<DashboardDataActive, 'subscriptionStatus'> & DashboardPastDueFields;
 
 export type DashboardData =
   | DashboardDataActive
@@ -204,6 +206,15 @@ export interface AggregateDashboardData {
   activeLocationCount: number;
   /** Locations whose per-location dashboard query failed while building aggregate data. */
   partialFailures?: Array<{ locationId: string; displayName: string }>;
+  /** Present when the account is past_due but aggregate read access remains available. */
+  subscriptionStatus?: 'past_due';
+  accountId?: string;
+  businessName?: string;
+  billingPortalUrl?: string | null;
+  pastDueAt?: string | null;
+  pastDueDeadline?: string | null;
+  daysRemaining?: number | null;
+  isReadOnly?: boolean;
   /** VAL-DASH-029: When the requested scope location is archived, the API
    *  falls back to primary and returns this indicator so the client can
    *  update the switcher. Only set when a fallback occurred. */
