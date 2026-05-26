@@ -1,7 +1,10 @@
-const PROTECTED_ZERNIO_API_PATHS = new Set([
+const PROTECTED_OWNER_ZERNIO_API_PATHS = new Set([
   '/api/zernio/connect/start',
   '/api/zernio/connect/cancel',
   '/api/zernio/connect/select-location',
+]);
+
+const PROTECTED_MIXED_ROLE_API_PATHS = new Set([
   '/api/zernio/disconnect',
 ]);
 
@@ -30,7 +33,19 @@ export function isProtectedOwnerApiRoute(pathname: string): boolean {
     normalized === '/api/account' || normalized.startsWith('/api/account/') ||
     normalized === '/api/billing' || normalized.startsWith('/api/billing/') ||
     normalized === '/api/locations' || normalized.startsWith('/api/locations/') ||
-    PROTECTED_ZERNIO_API_PATHS.has(normalized)
+    PROTECTED_OWNER_ZERNIO_API_PATHS.has(normalized)
+  );
+}
+
+export function isProtectedMixedRoleApiRoute(pathname: string): boolean {
+  const normalized = normalizePath(pathname);
+  return PROTECTED_MIXED_ROLE_API_PATHS.has(normalized);
+}
+
+function isProtectedAppApiRoute(pathname: string): boolean {
+  return (
+    isProtectedOwnerApiRoute(pathname) ||
+    isProtectedMixedRoleApiRoute(pathname)
   );
 }
 
@@ -47,7 +62,7 @@ export function isProtectedRoute(pathname: string): boolean {
   return (
     normalized === '/admin' || normalized.startsWith('/admin/') ||
     normalized === '/api/admin' || normalized.startsWith('/api/admin/') ||
-    isProtectedOwnerApiRoute(normalized) ||
+    isProtectedAppApiRoute(normalized) ||
     normalized === '/dashboard' || normalized.startsWith('/dashboard/') ||
     normalized === '/settings' || normalized.startsWith('/settings/') ||
     normalized === '/mfa' || normalized.startsWith('/mfa/') ||

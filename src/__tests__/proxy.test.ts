@@ -212,4 +212,29 @@ describe('proxy public launch host behavior', () => {
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({ error: 'mfa_required' });
   });
+
+  it('allows admins through the mixed-role Zernio disconnect API', async () => {
+    getUser.mockResolvedValueOnce({ data: { user: { id: 'auth-admin' } } });
+    selfRow.value = { role: 'admin', account_id: null };
+
+    const response = await proxy(request('https://repworth.net/api/zernio/disconnect'));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('location')).toBeNull();
+  });
+
+  it('requires MFA for admins on the mixed-role Zernio disconnect API', async () => {
+    process.env.MFA_ENFORCEMENT_ENABLED = 'true';
+    getUser.mockResolvedValueOnce({ data: { user: { id: 'auth-admin' } } });
+    selfRow.value = { role: 'admin', account_id: null };
+    getAuthenticatorAssuranceLevel.mockResolvedValueOnce({
+      data: { currentLevel: 'aal1', nextLevel: 'aal2' },
+      error: null,
+    });
+
+    const response = await proxy(request('https://repworth.net/api/zernio/disconnect'));
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: 'mfa_required' });
+  });
 });

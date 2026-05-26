@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
-import { isProtectedOwnerApiRoute, isProtectedRoute } from '@/lib/shared/protected-routes';
+import {
+  isProtectedMixedRoleApiRoute,
+  isProtectedOwnerApiRoute,
+  isProtectedRoute,
+} from '@/lib/shared/protected-routes';
 
 // Role lookups use the cookie-bound anon client below, relying on the
 // users_self_select RLS policy (migration 006) that lets any authenticated
@@ -125,7 +129,29 @@ export async function proxy(request: NextRequest) {
     }
   }
 
-  // 5. Owner API routes
+  // 5. Mixed-role owner/admin API routes
+  if (isProtectedMixedRoleApiRoute(pathname)) {
+    const noStoreHeaders = { 'Cache-Control': 'no-store, private' };
+    if (!authUser) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: noStoreHeaders });
+    }
+    const self = await readSelf();
+    if (
+      !self ||
+      (self.role !== 'owner' && self.role !== 'admin') ||
+      (self.role === 'owner' && !self.account_id)
+    ) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403, headers: noStoreHeaders });
+    }
+    const aal = await getAalGate();
+    if (aal !== 'ok') {
+      return withSupabaseCookies(
+        NextResponse.json({ error: aal }, { status: 403, headers: noStoreHeaders }),
+      );
+    }
+  }
+
+  // 6. Owner API routes
   if (isProtectedOwnerApiRoute(pathname)) {
     const noStoreHeaders = { 'Cache-Control': 'no-store, private' };
     if (!authUser) {
@@ -143,7 +169,7 @@ export async function proxy(request: NextRequest) {
     }
   }
 
-  // 6. Owner pages
+  // 7. Owner pages
   if (pathname.startsWith('/dashboard') || pathname.startsWith('/settings')) {
     if (!authUser) {
       return redirectToLogin(request, 'owner');
@@ -158,7 +184,7 @@ export async function proxy(request: NextRequest) {
     }
   }
 
-  // 6b. MFA challenge pages require a first-factor session. Owners and admins
+  // 7b. MFA challenge pages require a first-factor session. Owners and admins
   // both use this surface after password login when Supabase reports
   // currentLevel=aal1 and nextLevel=aal2.
   if (pathname === '/mfa' || pathname.startsWith('/mfa/')) {
@@ -173,7 +199,7 @@ export async function proxy(request: NextRequest) {
     }
   }
 
-  // 7. Onboarding paths require authenticated owner with a users row.
+  // 8. Onboarding paths require authenticated owner with a users row.
   // Does NOT require subscription_status='active' — the pages work pre-payment.
   //
   // Three sub-cases (split intentionally — collapsing them sends admins to

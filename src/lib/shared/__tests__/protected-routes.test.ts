@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { isProtectedRoute } from '../protected-routes';
+import {
+  isProtectedMixedRoleApiRoute,
+  isProtectedOwnerApiRoute,
+  isProtectedRoute,
+} from '../protected-routes';
 
 const PUBLIC: string[] = [
   '/admin/login',
@@ -107,5 +111,17 @@ describe('isProtectedRoute', () => {
       // /\/+$/ regex strips ALL trailing slashes so the match still works.
       expect(isProtectedRoute('/admin/login//')).toBe(false);
     });
+  });
+});
+
+describe('protected API route roles', () => {
+  it('keeps Zernio connect APIs owner-only', () => {
+    expect(isProtectedOwnerApiRoute('/api/zernio/connect/start')).toBe(true);
+    expect(isProtectedMixedRoleApiRoute('/api/zernio/connect/start')).toBe(false);
+  });
+
+  it('keeps Zernio disconnect mixed-role for owner and admin callers', () => {
+    expect(isProtectedOwnerApiRoute('/api/zernio/disconnect')).toBe(false);
+    expect(isProtectedMixedRoleApiRoute('/api/zernio/disconnect')).toBe(true);
   });
 });
