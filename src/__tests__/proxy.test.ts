@@ -3,28 +3,52 @@ import { NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { proxy } from '../proxy';
 
-const { getUser } = vi.hoisted(() => ({
+const {
+  getUser,
+  getAuthenticatorAssuranceLevel,
+  selfRow,
+  setSupabaseCookies,
+} = vi.hoisted(() => ({
   getUser: vi.fn(),
+  getAuthenticatorAssuranceLevel: vi.fn(),
+  selfRow: {
+    value: { role: 'sales_partner', account_id: null } as { role: string; account_id: string | null } | null,
+  },
+  setSupabaseCookies: { value: false },
 }));
 
 vi.mock('@supabase/ssr', () => ({
-  createServerClient: vi.fn(() => ({
-    auth: {
-      getUser,
-    },
-    from: () => ({
-      select: () => ({
-        eq: () => ({
-          limit: () => ({
-            single: () => Promise.resolve({
-              data: { role: 'sales_partner', account_id: null },
-              error: null,
+  createServerClient: vi.fn((_url: string, _key: string, options: {
+    cookies?: {
+      setAll?: (cookies: Array<{ name: string; value: string; options?: Record<string, unknown> }>) => void;
+    };
+  }) => {
+    if (setSupabaseCookies.value) {
+      options.cookies?.setAll?.([
+        { name: 'sb-refresh-token', value: 'updated', options: { path: '/' } },
+      ]);
+    }
+    return {
+      auth: {
+        getUser,
+        mfa: {
+          getAuthenticatorAssuranceLevel,
+        },
+      },
+      from: () => ({
+        select: () => ({
+          eq: () => ({
+            limit: () => ({
+              single: () => Promise.resolve({
+                data: selfRow.value,
+                error: null,
+              }),
             }),
           }),
         }),
       }),
-    }),
-  })),
+    };
+  }),
 }));
 
 function request(url: string): NextRequest {
@@ -46,6 +70,13 @@ describe('proxy public launch host behavior', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getUser.mockResolvedValue({ data: { user: null } });
+    getAuthenticatorAssuranceLevel.mockResolvedValue({
+      data: { currentLevel: 'aal1', nextLevel: 'aal1' },
+      error: null,
+    });
+    selfRow.value = { role: 'sales_partner', account_id: null };
+    setSupabaseCookies.value = false;
+    process.env.MFA_ENFORCEMENT_ENABLED = 'false';
   });
 
   it('does not inject coming-soon headers for repworth.net public pages', async () => {
@@ -120,5 +151,90 @@ describe('proxy public launch host behavior', () => {
     const redirect = new URL(location!);
     expect(redirect.pathname).toBe('/login');
     expect(redirect.searchParams.get('from')).toBe('/onboarding/start');
+  });
+
+  it('redirects unauthenticated MFA challenge requests to owner login', async () => {
+    const response = await proxy(request('https://repworth.net/mfa/challenge'));
+    const location = response.headers.get('location');
+
+    expect(createServerClient).toHaveBeenCalledTimes(1);
+    expect(location).not.toBeNull();
+    const redirect = new URL(location!);
+    expect(redirect.pathname).toBe('/login');
+    expect(redirect.searchParams.get('from')).toBe('/mfa/challenge');
+  });
+
+  it('redirects enrolled admin AAL1 sessions to MFA challenge when enforcement is enabled', async () => {
+    process.env.MFA_ENFORCEMENT_ENABLED = 'true';
+    getUser.mockResolvedValueOnce({ data: { user: { id: 'auth-admin' } } });
+    selfRow.value = { role: 'admin', account_id: null };
+    getAuthenticatorAssuranceLevel.mockResolvedValueOnce({
+      data: { currentLevel: 'aal1', nextLevel: 'aal2' },
+      error: null,
+    });
+
+    const response = await proxy(request('https://repworth.net/admin/overview'));
+    const location = response.headers.get('location');
+
+    expect(location).not.toBeNull();
+    const redirect = new URL(location!);
+    expect(redirect.pathname).toBe('/mfa/challenge');
+    expect(redirect.searchParams.get('next')).toBe('/admin/overview');
+  });
+
+  it('preserves refreshed Supabase cookies on MFA redirects', async () => {
+    process.env.MFA_ENFORCEMENT_ENABLED = 'true';
+    getUser.mockResolvedValueOnce({ data: { user: { id: 'auth-admin' } } });
+    selfRow.value = { role: 'admin', account_id: null };
+    getAuthenticatorAssuranceLevel.mockResolvedValueOnce({
+      data: { currentLevel: 'aal1', nextLevel: 'aal2' },
+      error: null,
+    });
+    setSupabaseCookies.value = true;
+
+    const response = await proxy(request('https://repworth.net/admin/overview'));
+
+    expect(response.headers.get('location')).toContain('/mfa/challenge');
+    expect(response.headers.get('set-cookie')).toContain('sb-refresh-token=updated');
+  });
+
+  it('returns mfa_required for enrolled owner AAL1 sessions on protected Zernio APIs', async () => {
+    process.env.MFA_ENFORCEMENT_ENABLED = 'true';
+    getUser.mockResolvedValueOnce({ data: { user: { id: 'auth-owner' } } });
+    selfRow.value = { role: 'owner', account_id: 'acct-1' };
+    getAuthenticatorAssuranceLevel.mockResolvedValueOnce({
+      data: { currentLevel: 'aal1', nextLevel: 'aal2' },
+      error: null,
+    });
+
+    const response = await proxy(request('https://repworth.net/api/zernio/connect/start'));
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: 'mfa_required' });
+  });
+
+  it('allows admins through the mixed-role Zernio disconnect API', async () => {
+    getUser.mockResolvedValueOnce({ data: { user: { id: 'auth-admin' } } });
+    selfRow.value = { role: 'admin', account_id: null };
+
+    const response = await proxy(request('https://repworth.net/api/zernio/disconnect'));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('location')).toBeNull();
+  });
+
+  it('requires MFA for admins on the mixed-role Zernio disconnect API', async () => {
+    process.env.MFA_ENFORCEMENT_ENABLED = 'true';
+    getUser.mockResolvedValueOnce({ data: { user: { id: 'auth-admin' } } });
+    selfRow.value = { role: 'admin', account_id: null };
+    getAuthenticatorAssuranceLevel.mockResolvedValueOnce({
+      data: { currentLevel: 'aal1', nextLevel: 'aal2' },
+      error: null,
+    });
+
+    const response = await proxy(request('https://repworth.net/api/zernio/disconnect'));
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: 'mfa_required' });
   });
 });

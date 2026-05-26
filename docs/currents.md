@@ -2,7 +2,7 @@
 
 This file explains what is actually built in the repository today, how it maps to the implementation plan, and what is left to build.
 
-Last updated: 2026-05-24 (Step 1 keystones — past-due timestamp, audit helper, activation tracking, branch `codex/step-1-keystones` → PR #81)
+Last updated: 2026-05-26 (Wave 2 — Activation: analytics queue, past-due recovery UX, MFA, support + admin impersonation, branch `codex-wave-2-activation` → PR #87)
 
 ## Quick summary — what shipped 2026-05-24 (Step 1 keystones: past-due timer, audit helper, activation tracking)
 
@@ -3135,3 +3135,67 @@ supabase/migrations/
 ### One thing to remember
 
 The PHI filter and the approval snapshot have **no off-switch** on purpose — they're launch-risk guardrails, not optional features. And the billing watchdog only *alerts*; it never changes anyone's subscription or invoice automatically. Two integration tests (the cross-tenant leak test and the approval-snapshot immutability test) need a real database, so they don't run in our secret-free CI yet — see `docs/PENDING-db-gated-tests.md` for how to run them before launch.
+
+---
+
+## Quick summary — what shipped 2026-05-26 (Wave 2 — Activation: don't lose a paying customer)
+
+In simple words:
+
+### What we changed
+
+Wave 1 was about not sinking the boat (data, billing, legal guardrails). Wave 2 is about not losing a customer in their first days — the stretch where someone pays, then has to connect Google, get a first reply, and not get surprise-locked-out if their card fails. Five plain-English pieces:
+
+1. **We can finally measure activation.** We now record the key steps a new customer takes — signed up, verified email, connected Google, first review came in, first AI reply drafted — and how long "paid → first draft" takes. Crucially, the browser never talks to our analytics tool directly: the app just writes these facts to our own database table, and a background worker forwards them. So if the analytics key isn't set, nothing breaks and nothing is lost — it just waits.
+
+2. **Connecting Google is less confusing.** The connect screen now has a help link and a "if the window didn't open, click here" fallback, and we record where people drop off — measured per account, so we can see the real connect success rate.
+
+3. **Past-due customers get a fair, clear runway instead of a silent lockout.** When a card fails, the customer sees a day-aware banner (gentle → countdown → "last day"), a reminder modal, and then — only after a 7-day grace — a read-only mode that still lets them pay, get help, and manage security. One shared piece of code decides "how many days left / are we read-only," and both the UI and the background workers obey the *same* clock. Support can grant a few extra days, and that extension actually moves the deadline for everyone (it used to silently do nothing for already-locked-out customers — fixed).
+
+4. **Two-factor authentication (MFA).** Owners can turn on an authenticator app under Settings → Security. Sensitive admin/billing actions require it, and removing your second factor requires proving you still have it (so a stolen password alone can't strip your MFA). Every MFA action is recorded.
+
+5. **Support tooling + safe "view-as".** Help articles, a `/help/contact` page, and support macros. Admins can *view a customer's account to diagnose problems* — but it's read-only, time-boxed to one hour, requires MFA, is fully logged, and never lets the admin take destructive actions or "become" the customer. It reads the customer's data on the server only; the browser never gets god-mode keys.
+
+### Why it mattered
+
+These are the things that quietly cost you paying customers: you can't tell whether onboarding works, people give up connecting Google, a failed card locks someone out with no warning, accounts get taken over, or support can't help without risky access. None of this changes the core product — it's the scaffolding that keeps a new paying customer from churning in week one.
+
+### The new shape — what got added
+
+```
+supabase/migrations/
+├── 046_analytics_events.sql        ← NEW: our own "analytics outbox" table
+├── 047_backfill_past_due_at.sql    ← NEW: gives already-past-due accounts a fair grace clock
+├── 048_impersonation_sessions.sql  ← NEW: audited admin "view-as" sessions (1h, one-at-a-time)
+└── 049_analytics_events_rls.sql    ← NEW: locks the analytics table to server-only access
+
+src/lib/analytics/
+├── events.ts                       ← NEW: the list of event names (+ which ones the browser may send)
+├── enqueue.ts                      ← NEW: writes an event row to the queue
+└── posthog.ts                      ← now: isConfigured / flush helpers (no-op without a key)
+src/app/api/analytics/enqueue/route.ts  ← NEW: same-origin route the browser posts intent events to
+worker/background/pollers/AnalyticsDispatchPoller.ts  ← NEW: forwards queued events to PostHog
+docs/analytics/events.md            ← NEW: the event taxonomy + dashboard definitions
+
+src/lib/shared/
+├── past-due-recovery.ts            ← NEW: the single "days left / read-only?" brain
+├── writable-subscription.ts        ← NEW: the read-only write guard used everywhere
+└── subscription-guard.ts           ← now reads the SAME clock (past_due_at, not businesses.updated_at)
+src/components/dashboard/{SubscriptionStatusBanner,PastDueModal}.tsx  ← day-aware banner + modal
+src/app/api/admin/billing/grant-extension/route.ts  ← NEW: support grants extra grace days (MFA-gated)
+
+src/lib/auth/mfa.ts                 ← NEW: "is this session two-factor verified?" helpers
+src/app/(authenticated)/settings/security/        ← NEW: turn on/off authenticator app
+src/app/api/auth/mfa/challenge/route.ts            ← NEW: challenge / verify / unenroll (MFA-gated)
+src/app/mfa/challenge/page.tsx                     ← NEW: the "enter your code" step-up screen
+
+src/lib/admin/impersonation/{cookie,session,view,guard}.ts  ← NEW: the safe view-as machinery
+src/app/admin/impersonate/                          ← NEW: start a view-as + the read-only customer view
+src/app/api/admin/impersonation/{start,end}/route.ts  ← NEW
+src/app/(public)/help/contact/page.tsx              ← NEW: public contact/help page
+docs/help/*.md, docs/support/macros/*.md, docs/runbooks/support-extension.md  ← NEW: KB + support playbooks
+```
+
+### One thing to remember
+
+The analytics queue is **fail-safe**: if PostHog isn't configured (or has a hiccup), events just wait in the table — they're never dropped, and customer actions never wait on analytics. The "view-as" feature is deliberately locked down — read-only, one hour, MFA-required, fully audited, no destructive actions, no session-swap. And before this goes live in prod you must set two env values: `POSTHOG_API_KEY` (or the funnel stays queued) and `IMPERSONATION_COOKIE_SECRET` (≥32 chars, or impersonation refuses to start). The four migrations (046–049) are safe to run in order.

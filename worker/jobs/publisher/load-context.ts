@@ -1,5 +1,6 @@
 import { sql } from '../../../src/lib/db/server';
 import { markOutboxCompleted, markOutboxFailed } from '../../../src/lib/shared/outbox';
+import type { AccountFlagsInput } from '../../../src/lib/shared/subscription-guard';
 
 export interface PublishResponseContext {
   response: {
@@ -15,6 +16,8 @@ export interface PublishResponseContext {
     name: string;
     subscription_status: string;
     account_updated_at: Date;
+    account_past_due_at: Date | null;
+    account_flags: AccountFlagsInput;
     archived_at: Date | null;
   };
 }
@@ -47,7 +50,8 @@ export async function loadPublishResponseContext(input: {
   }
 
   const [business] = await sql<PublishResponseContext['business'][]>`
-    SELECT b.id, b.name, b.archived_at, a.subscription_status, a.updated_at AS account_updated_at
+    SELECT b.id, b.name, b.archived_at, a.subscription_status, a.updated_at AS account_updated_at,
+           a.past_due_at AS account_past_due_at, a.flags AS account_flags
     FROM businesses b
     JOIN accounts a ON a.id = b.account_id
     WHERE b.id = ${businessId}

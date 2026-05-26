@@ -91,8 +91,8 @@ import { AuthError } from '@/lib/db/auth';
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-function makeRequest(): NextRequest {
-  return new NextRequest('http://localhost:3000/api/dashboard');
+function makeRequest(path = '/api/dashboard'): NextRequest {
+  return new NextRequest(`http://localhost:3000${path}`);
 }
 
 const BUSINESS_ID = '01234567-0000-0000-0000-000000000001';
@@ -823,6 +823,98 @@ describe('GET /api/dashboard', () => {
     const graceEnd = new Date(body.gracePeriodEndDate);
     const expectedEnd = new Date(activatedAt.getTime() + 30 * 86_400_000);
     expect(graceEnd.getTime()).toBe(expectedEnd.getTime());
+  });
+
+  it('returns past-due recovery fields for a per-location dashboard response', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-25T12:00:00.000Z'));
+    mockRequireRole.mockResolvedValue(ownerUser());
+
+    mockSqlResults.length = 0;
+    sqlCallCounter.value = 0;
+
+    mockGetLocationById.mockResolvedValue({
+      id: BUSINESS_ID,
+      account_id: ACCOUNT_ID,
+      name: 'Past Due Biz',
+      display_label: null,
+      is_primary: true,
+      archived_at: null,
+      google_place_id: 'gp1',
+      google_place_address: null,
+      created_at: new Date(),
+    });
+
+    setDbResults({ subRow: [
+      {
+        name: 'Past Due Biz',
+        subscription_status: 'past_due',
+        subscription_tier: 'standard',
+        owner_email: 'owner@pastdue.com',
+        onboarded_by: null,
+        place_id_verified: true,
+        google_maps_url: 'https://maps.example.com',
+        archived_at: null,
+        past_due_at: new Date('2026-05-20T12:00:00.000Z'),
+        flags: {},
+        stripe_customer_id: 'cus_123',
+      },
+    ] });
+
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(200);
+
+    const data = await res.json();
+    expect(data).toMatchObject({
+      subscriptionStatus: 'past_due',
+      accountId: ACCOUNT_ID,
+      pastDueAt: '2026-05-20T12:00:00.000Z',
+      pastDueDeadline: '2026-05-27T12:00:00.000Z',
+      daysRemaining: 2,
+      isReadOnly: false,
+      billingPortalUrl: '/api/billing/portal',
+      business: { name: 'Test Biz' },
+    });
+    vi.useRealTimers();
+  });
+
+  it('returns past-due recovery fields for aggregate dashboard response', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-25T12:00:00.000Z'));
+    const previousMultiLocation = process.env.MULTI_LOCATION_ENABLED;
+    process.env.MULTI_LOCATION_ENABLED = 'true';
+    mockRequireRole.mockResolvedValue(ownerUser());
+
+    mockSqlResults.length = 0;
+    sqlCallCounter.value = 0;
+    mockSqlResults.push([
+      {
+        subscription_status: 'past_due',
+        past_due_at: new Date('2026-05-20T12:00:00.000Z'),
+        flags: JSON.stringify({}),
+        stripe_customer_id: 'cus_123',
+      },
+    ]);
+    mockSqlResults.push([{ locations_included: 1, locations_paid: 0 }]);
+
+    const res = await GET(makeRequest('/api/dashboard?scope=all'));
+    expect(res.status).toBe(200);
+
+    const data = await res.json();
+    expect(data).toMatchObject({
+      subscriptionStatus: 'past_due',
+      businessName: 'Account',
+      accountId: ACCOUNT_ID,
+      pastDueAt: '2026-05-20T12:00:00.000Z',
+      pastDueDeadline: '2026-05-27T12:00:00.000Z',
+      daysRemaining: 2,
+      isReadOnly: false,
+      billingPortalUrl: '/api/billing/portal',
+      scope: 'aggregate',
+      activeLocationCount: 0,
+    });
+    process.env.MULTI_LOCATION_ENABLED = previousMultiLocation;
+    vi.useRealTimers();
   });
 
   it('cancelled account with no cancelled_at and no activated_at defaults to read access', async () => {

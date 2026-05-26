@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
+import { enqueueAnalyticsEvent } from '@/lib/analytics/enqueue';
+import { makeAnalyticsEventKey } from '@/lib/analytics/events';
 import { getCacheRedis } from '@/lib/db/redis-cache';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { ZernioRouteError } from '@/lib/zernio/errors';
-import { SubscriptionStatus } from '@/lib/shared/subscription-status';
+import { assertWritableSubscriptionStatus } from '@/lib/shared/writable-subscription';
 import { zernioClient } from '@/lib/zernio/client';
 import { isFreshPendingMarker, parseConnectPendingMarker } from '../_shared/pending-flow';
 import { parseRequestedLocationId, preflightErrorResponse } from '../_shared/preflight';
@@ -21,6 +23,7 @@ import {
   luaCASDel,
 } from '@/lib/zernio/connect-state';
 import type { ConnectPendingMarker, ConnectStateBlob } from '@/lib/zernio/types';
+import type { AccountFlagsInput } from '@/lib/shared/past-due-recovery';
 
 export const dynamic = 'force-dynamic';
 
@@ -85,11 +88,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const locationId = requestedLocationId ?? user.locationId!;
   const userId = user.id;
 
-  // 3. Subscription guard — spec §3.2 step 1: skip if subscription_status != 'active'.
-  // After migration 034, subscription_status source of truth is accounts.
+  // 3. Subscription guard. After migration 034, subscription_status source of
+  // truth is accounts. Past-due accounts remain writable until recovery closes.
   try {
-    const [accountRow] = await sql<{ subscription_status: string }[]>`
-      SELECT a.subscription_status
+    const [accountRow] = await sql<{
+      subscription_status: string;
+      past_due_at: Date | string | null;
+      flags: AccountFlagsInput;
+    }[]>`
+      SELECT a.subscription_status, a.past_due_at, a.flags
       FROM businesses b
       JOIN accounts a ON a.id = b.account_id
       WHERE b.id = ${locationId}
@@ -103,10 +110,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         { status: 403, headers: NO_STORE },
       );
     }
-    if (accountRow.subscription_status !== SubscriptionStatus.ACTIVE) {
+    const writable = assertWritableSubscriptionStatus({
+      subscriptionStatus: accountRow.subscription_status,
+      pastDueAt: accountRow.past_due_at,
+      accountFlags: accountRow.flags,
+    });
+    if (!writable.ok) {
       return NextResponse.json(
-        { error: 'subscription_required' },
-        { status: 403, headers: NO_STORE },
+        { error: writable.error },
+        { status: writable.status, headers: NO_STORE },
       );
     }
   } catch (err) {
@@ -261,6 +273,27 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       if (!updateResult) {
         // Marker overwritten/deleted by a newer flow — our flow is superseded.
         throw new ZernioRouteError(409, 'flow_superseded_during_start');
+      }
+
+      // Capture gbp_connect_started server-side (account-scoped, like gbp_connected)
+      // so the per-account connect funnel joins. The client cannot — it has no
+      // account_id and would attribute the event to an anonymous cookie. Keyed on
+      // flowId so legitimate retries are not deduped. Best-effort: never block connect.
+      try {
+        await enqueueAnalyticsEvent({
+          eventName: 'gbp_connect_started',
+          eventKey: makeAnalyticsEventKey('gbp_connect_started', [locationId, flowId]),
+          distinctId: user.accountId,
+          accountId: user.accountId,
+          businessId: locationId,
+          properties: {
+            account_id: user.accountId,
+            business_id: locationId,
+            location_scope: requestedLocationId ? 'location' : 'all',
+          },
+        });
+      } catch (analyticsErr) {
+        console.error('[api/zernio/connect/start] gbp_connect_started enqueue failed:', analyticsErr);
       }
 
       return NextResponse.json({ authUrl }, { status: 200, headers: NO_STORE });

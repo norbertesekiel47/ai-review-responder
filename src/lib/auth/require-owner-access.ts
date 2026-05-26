@@ -8,7 +8,7 @@
 //   - no users row matching auth_id → /admin/login
 //   - role === 'admin'              → /admin/overview
 //   - unsupported legacy role       → /login
-//   - subscription_status !== 'active' → /onboarding/pay
+//   - subscription_status not active/past_due → /onboarding/pay
 //
 // Returns { accountId, currentLocationId, role } when all checks pass.
 // The currentLocationId is resolved by getRequestScope() which reads the
@@ -73,7 +73,12 @@ export async function requireOwnerAccess(): Promise<OwnerAccess> {
   if (!row) redirect('/admin/login');
   if (row.role === 'admin') redirect('/admin/overview');
   if (row.role !== 'owner') redirect('/login');
-  if (row.subscription_status !== SubscriptionStatus.ACTIVE) redirect('/onboarding/pay');
+  if (
+    row.subscription_status !== SubscriptionStatus.ACTIVE
+    && row.subscription_status !== SubscriptionStatus.PAST_DUE
+  ) {
+    redirect('/onboarding/pay');
+  }
 
   const accountId = asAccountId(row.account_id);
 

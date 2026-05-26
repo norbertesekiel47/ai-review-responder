@@ -92,6 +92,21 @@ import {
 
 const RAW_TOKEN = 'raw-token-123';
 const TOKEN_HASH = createHash('sha256').update(RAW_TOKEN).digest('hex');
+const ACTIVE_ACCOUNT_ROW = {
+  subscription_status: 'active',
+  past_due_at: null,
+  flags: {},
+};
+const READ_ONLY_ACCOUNT_ROW = {
+  subscription_status: 'past_due',
+  past_due_at: '2020-01-01T00:00:00.000Z',
+  flags: {},
+};
+const INACTIVE_ACCOUNT_ROW = {
+  subscription_status: 'pending_payment',
+  past_due_at: null,
+  flags: {},
+};
 const LINK = {
   id: 'link-1',
   response_id: 'resp-1',
@@ -143,6 +158,13 @@ beforeEach(() => {
   mockLockValidLink.mockResolvedValue(LINK);
   mockRecoverCorrelationId.mockResolvedValue('corr-1');
   mockHandleApprovalError.mockImplementation((err: unknown) => {
+    if (err instanceof Error && err.name === 'SubscriptionReadOnlyError') {
+      const status = 'status' in err && typeof err.status === 'number' ? err.status : 402;
+      return NextResponse.json(
+        { error: err.message },
+        { status, headers: { 'Cache-Control': 'no-store, private' } },
+      );
+    }
     throw err;
   });
 });
@@ -194,6 +216,7 @@ describe('runTokenApprovalAction', () => {
   });
 
   it('recovers token-action correlation and passes audit context to the action', async () => {
+    sqlResults.push([ACTIVE_ACCOUNT_ROW]);
     sqlResults.push([{ review_id: 'rev-1' }]);
     const action = vi.fn();
 
@@ -225,6 +248,7 @@ describe('runTokenApprovalAction', () => {
   });
 
   it('preserves legacy request.ip fallback for token-action audit context', async () => {
+    sqlResults.push([ACTIVE_ACCOUNT_ROW]);
     sqlResults.push([{ review_id: 'rev-1' }]);
     const action = vi.fn();
 
@@ -245,6 +269,7 @@ describe('runTokenApprovalAction', () => {
   });
 
   it('can establish a token session without requiring a pre-existing verified device cookie', async () => {
+    sqlResults.push([ACTIVE_ACCOUNT_ROW]);
     const action = vi.fn();
 
     const res = await runTokenApprovalAction(
@@ -266,6 +291,43 @@ describe('runTokenApprovalAction', () => {
         deviceCookieHash: 'device-hash',
       }),
     }));
+  });
+
+  it('returns 402 before token approval work when the link account is read-only', async () => {
+    sqlResults.push([READ_ONLY_ACCOUNT_ROW]);
+    const action = vi.fn();
+
+    const res = await runTokenApprovalAction(
+      request(),
+      RAW_TOKEN,
+      'approve',
+      { success: true },
+      action,
+    );
+
+    expect(res.status).toBe(402);
+    expect(await res.json()).toEqual({ error: 'past_due_read_only' });
+    expect(mockLockValidLink).toHaveBeenCalledWith(mockSql, RAW_TOKEN);
+    expect(mockRecoverCorrelationId).not.toHaveBeenCalled();
+    expect(action).not.toHaveBeenCalled();
+  });
+
+  it('returns 403 before token approval work when the link account is not active', async () => {
+    sqlResults.push([INACTIVE_ACCOUNT_ROW]);
+    const action = vi.fn();
+
+    const res = await runTokenApprovalAction(
+      request(),
+      RAW_TOKEN,
+      'approve',
+      { success: true },
+      action,
+    );
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'subscription_inactive' });
+    expect(mockRecoverCorrelationId).not.toHaveBeenCalled();
+    expect(action).not.toHaveBeenCalled();
   });
 });
 
@@ -291,6 +353,7 @@ describe('requireDashboardReviewOwner', () => {
 
 describe('runDashboardReviewAction', () => {
   it('scopes the response lookup by owner account and passes the review location to the action', async () => {
+    sqlResults.push([ACTIVE_ACCOUNT_ROW]);
     sqlResults.push([{ id: 'resp-1', business_id: 'biz-secondary', status: 'pending_approval' }]);
     const action = vi.fn();
 
@@ -304,7 +367,8 @@ describe('runDashboardReviewAction', () => {
     );
 
     expect(res.status).toBe(200);
-    expect(sqlCalls[0]?.values).toEqual(['rev-1', 'acct-1']);
+    const responseLookup = sqlCalls.find((call) => call.raw.includes('FROM responses r'));
+    expect(responseLookup?.values).toEqual(['rev-1', 'acct-1']);
     expect(mockRecoverCorrelationId).toHaveBeenCalledWith(mockSql, {
       reviewId: 'rev-1',
       responseId: 'resp-1',
@@ -319,6 +383,7 @@ describe('runDashboardReviewAction', () => {
   });
 
   it('returns no-store 404 when no actionable response is visible to the owner', async () => {
+    sqlResults.push([ACTIVE_ACCOUNT_ROW]);
     sqlResults.push([]);
     const action = vi.fn();
 
@@ -338,6 +403,7 @@ describe('runDashboardReviewAction', () => {
   });
 
   it('maps stale response and unexpected action errors without leaking internals', async () => {
+    sqlResults.push([ACTIVE_ACCOUNT_ROW]);
     sqlResults.push([{ id: 'resp-1', business_id: 'biz-1', status: 'pending_approval' }]);
     const staleRes = await runDashboardReviewAction(
       request(),
@@ -351,6 +417,7 @@ describe('runDashboardReviewAction', () => {
     );
     expect(staleRes.status).toBe(409);
 
+    sqlResults.push([ACTIVE_ACCOUNT_ROW]);
     sqlResults.push([{ id: 'resp-1', business_id: 'biz-1', status: 'pending_approval' }]);
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const unexpectedRes = await runDashboardReviewAction(

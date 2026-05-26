@@ -11,6 +11,13 @@
 import type postgres from 'postgres';
 import { sql as defaultSql } from '@/lib/db/server';
 import { SubscriptionTier } from '@/lib/accounts/tier-config';
+import type { AccountFlagsInput } from '@/lib/shared/past-due-recovery';
+import {
+  assertWritableSubscriptionStatus,
+  SubscriptionReadOnlyError,
+} from '@/lib/shared/writable-subscription';
+
+export { SubscriptionReadOnlyError };
 
 type TxClient = postgres.TransactionSql;
 
@@ -86,11 +93,17 @@ export async function assertCanEditReply(
     review_date: Date;
     activated_at: Date | null;
     tier: string;
+    subscription_status: string;
+    past_due_at: Date | string | null;
+    flags: AccountFlagsInput;
   }[]>`
     SELECT r.business_id AS review_business_id,
            r.review_date,
            a.subscription_activated_at AS activated_at,
-           a.subscription_tier         AS tier
+           a.subscription_tier         AS tier,
+           a.subscription_status       AS subscription_status,
+           a.past_due_at               AS past_due_at,
+           a.flags                     AS flags
     FROM reviews r
     JOIN businesses b ON b.id = r.business_id
     JOIN accounts  a ON a.id = b.account_id
@@ -104,6 +117,15 @@ export async function assertCanEditReply(
   // Ownership: the review's location must belong to the caller's account,
   // and must match the specific location the caller is scoped to.
   if (row.review_business_id !== ctx.locationId) throw new ForbiddenError();
+
+  const writable = assertWritableSubscriptionStatus({
+    subscriptionStatus: row.subscription_status,
+    pastDueAt: row.past_due_at,
+    accountFlags: row.flags,
+  });
+  if (!writable.ok) {
+    throw new SubscriptionReadOnlyError(writable.error, writable.status);
+  }
 
   const isHistorical =
     row.activated_at === null ||

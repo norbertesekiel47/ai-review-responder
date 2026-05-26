@@ -25,6 +25,7 @@ import {
 } from '../../../src/lib/approval/errors';
 import { WhatsAppClient } from '../../../src/lib/notifications/channels/whatsapp-client';
 import { stripWaPrefix, toWaRecipient } from '../../../src/lib/notifications/channels/whatsapp-body';
+import { SubscriptionReadOnlyError } from '../../../src/lib/shared/writable-subscription';
 import { classifyIntent } from './twilio-intent';
 import { safeInvalidateChannelCache } from '../../../src/lib/notifications/resolve-channels';
 import { asAccountId } from '../../../src/lib/shared/ids';
@@ -158,12 +159,18 @@ export async function handleTwilioWhatsAppInbound(
         || e instanceof RevokedLinkError
         || e instanceof ExpiredLinkError
         || e instanceof ChannelMismatchError
-        || e instanceof ResponseNotPendingError;
+        || e instanceof ResponseNotPendingError
+        || e instanceof SubscriptionReadOnlyError;
 
       if (isPermanent) {
-        const body = e instanceof ExpiredLinkError
-          ? 'This approval link has expired — a new draft will arrive on the next review.'
-          : 'This reply was just handled on another channel.';
+        let body = 'This reply was just handled on another channel.';
+        if (e instanceof SubscriptionReadOnlyError) {
+          body = e.error === 'past_due_read_only'
+            ? 'Billing recovery has ended. Update billing in RepWorth before approving replies.'
+            : 'Billing is not active. Update billing in RepWorth before approving replies.';
+        } else if (e instanceof ExpiredLinkError) {
+          body = 'This approval link has expired — a new draft will arrive on the next review.';
+        }
         await client.sendFreeform({ to: toWaRecipient(senderHandle), body }).catch(() => {});
         await markInboundEventProcessed(dedupKey);
         reply.status(200).send({ received: true });

@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
-import { isProtectedRoute } from '@/lib/shared/protected-routes';
+import {
+  isProtectedMixedRoleApiRoute,
+  isProtectedOwnerApiRoute,
+  isProtectedRoute,
+} from '@/lib/shared/protected-routes';
 
 // Role lookups use the cookie-bound anon client below, relying on the
 // users_self_select RLS policy (migration 006) that lets any authenticated
@@ -64,6 +68,32 @@ export async function proxy(request: NextRequest) {
     return (data as { role: string; account_id: string | null } | null) ?? null;
   }
 
+  async function getAalGate(): Promise<'ok' | 'mfa_required' | 'mfa_check_failed'> {
+    if (process.env.MFA_ENFORCEMENT_ENABLED !== 'true') {
+      return 'ok';
+    }
+    const { data, error } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+    if (error || !data) {
+      return 'mfa_check_failed';
+    }
+    return data.nextLevel === 'aal2' && data.currentLevel !== 'aal2'
+      ? 'mfa_required'
+      : 'ok';
+  }
+
+  function redirectToMfaChallenge(): NextResponse {
+    const mfaUrl = new URL('/mfa/challenge', request.url);
+    mfaUrl.searchParams.set('next', `${request.nextUrl.pathname}${request.nextUrl.search}`);
+    return withSupabaseCookies(NextResponse.redirect(mfaUrl));
+  }
+
+  function withSupabaseCookies(target: NextResponse): NextResponse {
+    for (const cookie of response.cookies.getAll()) {
+      target.cookies.set(cookie);
+    }
+    return target;
+  }
+
   // 3. Admin pages (except /admin/login, /admin/forgot-password, /admin/reset-password)
   if (
     pathname.startsWith('/admin') &&
@@ -78,6 +108,10 @@ export async function proxy(request: NextRequest) {
     if (!self || self.role !== 'admin') {
       return redirectToLogin(request);
     }
+    const aal = await getAalGate();
+    if (aal !== 'ok') {
+      return redirectToMfaChallenge();
+    }
   }
 
   // 4. Admin API routes
@@ -89,15 +123,36 @@ export async function proxy(request: NextRequest) {
     if (!self || self.role !== 'admin') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
+    const aal = await getAalGate();
+    if (aal !== 'ok') {
+      return withSupabaseCookies(NextResponse.json({ error: aal }, { status: 403 }));
+    }
   }
 
-  // 5. Owner API routes
-  if (
-    pathname.startsWith('/api/dashboard') ||
-    pathname.startsWith('/api/settings') ||
-    pathname.startsWith('/api/billing') ||
-    pathname.startsWith('/api/locations')
-  ) {
+  // 5. Mixed-role owner/admin API routes
+  if (isProtectedMixedRoleApiRoute(pathname)) {
+    const noStoreHeaders = { 'Cache-Control': 'no-store, private' };
+    if (!authUser) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: noStoreHeaders });
+    }
+    const self = await readSelf();
+    if (
+      !self ||
+      (self.role !== 'owner' && self.role !== 'admin') ||
+      (self.role === 'owner' && !self.account_id)
+    ) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403, headers: noStoreHeaders });
+    }
+    const aal = await getAalGate();
+    if (aal !== 'ok') {
+      return withSupabaseCookies(
+        NextResponse.json({ error: aal }, { status: 403, headers: noStoreHeaders }),
+      );
+    }
+  }
+
+  // 6. Owner API routes
+  if (isProtectedOwnerApiRoute(pathname)) {
     const noStoreHeaders = { 'Cache-Control': 'no-store, private' };
     if (!authUser) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: noStoreHeaders });
@@ -106,9 +161,15 @@ export async function proxy(request: NextRequest) {
     if (!self || self.role !== 'owner' || !self.account_id) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403, headers: noStoreHeaders });
     }
+    const aal = await getAalGate();
+    if (aal !== 'ok') {
+      return withSupabaseCookies(
+        NextResponse.json({ error: aal }, { status: 403, headers: noStoreHeaders }),
+      );
+    }
   }
 
-  // 6. Owner pages
+  // 7. Owner pages
   if (pathname.startsWith('/dashboard') || pathname.startsWith('/settings')) {
     if (!authUser) {
       return redirectToLogin(request, 'owner');
@@ -117,9 +178,28 @@ export async function proxy(request: NextRequest) {
     if (!self || self.role !== 'owner' || !self.account_id) {
       return redirectToLogin(request, 'owner');
     }
+    const aal = await getAalGate();
+    if (aal !== 'ok') {
+      return redirectToMfaChallenge();
+    }
   }
 
-  // 7. Onboarding paths require authenticated owner with a users row.
+  // 7b. MFA challenge pages require a first-factor session. Owners and admins
+  // both use this surface after password login when Supabase reports
+  // currentLevel=aal1 and nextLevel=aal2.
+  if (pathname === '/mfa' || pathname.startsWith('/mfa/')) {
+    const next = request.nextUrl.searchParams.get('next') ?? '';
+    const flow = next.startsWith('/admin') ? 'admin' : 'owner';
+    if (!authUser) {
+      return redirectToLogin(request, flow);
+    }
+    const self = await readSelf();
+    if (!self || (self.role !== 'owner' && self.role !== 'admin')) {
+      return redirectToLogin(request, flow);
+    }
+  }
+
+  // 8. Onboarding paths require authenticated owner with a users row.
   // Does NOT require subscription_status='active' — the pages work pre-payment.
   //
   // Three sub-cases (split intentionally — collapsing them sends admins to
@@ -148,6 +228,10 @@ export async function proxy(request: NextRequest) {
     }
     if (self.role !== 'owner' || !self.account_id) {
       return redirectToLogin(request, 'owner');
+    }
+    const aal = await getAalGate();
+    if (aal !== 'ok') {
+      return redirectToMfaChallenge();
     }
   }
 

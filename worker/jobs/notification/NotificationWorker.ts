@@ -45,7 +45,8 @@ export async function handleSendNotification(
       accountId: ctx.business.account_id,
       locationId: businessId,
       subscriptionStatus: ctx.business.subscription_status,
-      businessUpdatedAt: new Date(ctx.business.account_updated_at),
+      pastDueAt: ctx.business.account_past_due_at,
+      accountFlags: ctx.business.account_flags ?? {},
     },
     logger,
   );

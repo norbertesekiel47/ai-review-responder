@@ -4,6 +4,7 @@ import type { AppUser } from '@/lib/db/auth';
 import type { AccountId } from '@/lib/shared/ids';
 import type { z } from 'zod';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
+import { assertWritableSubscriptionForAccount } from '@/lib/shared/writable-subscription';
 
 export const LOCATION_ROUTE_NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -74,6 +75,17 @@ export async function readOwnerForMultiLocationRoute(
       response: NextResponse.json(
         { error: 'No account associated with this user' },
         { status: 403, headers: LOCATION_ROUTE_NO_STORE },
+      ),
+    };
+  }
+
+  const writable = await assertWritableSubscriptionForAccount(user.accountId);
+  if (!writable.ok) {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { error: writable.error },
+        { status: writable.status, headers: LOCATION_ROUTE_NO_STORE },
       ),
     };
   }

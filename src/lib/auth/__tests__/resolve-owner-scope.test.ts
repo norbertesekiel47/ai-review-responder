@@ -74,8 +74,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   process.env.NEXT_PUBLIC_APP_URL = APP_URL;
   mockGetRequestScope.mockResolvedValue({ accountId: ACCOUNT_ID, currentLocationId: LOCATION_ID });
-  // Default: accounts.subscription_status lookup returns ACTIVE.
-  mockSql.mockResolvedValue([{ subscription_status: 'active' }]);
+  // Default: accounts subscription lookup returns ACTIVE.
+  mockSql.mockResolvedValue([{ subscription_status: 'active', past_due_at: null, flags: {} }]);
 });
 
 // ── Tests ───────────────────────────────────────────────────────────
@@ -164,16 +164,54 @@ describe('resolveOwnerScope', () => {
     expect(mockGetRequestScope).not.toHaveBeenCalled();
   });
 
-  it('non-ACTIVE subscription error carries message subscription_inactive + statusCode 403', async () => {
+  it('past_due subscription inside recovery window resolves scope', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
-    mockSql.mockResolvedValueOnce([{ subscription_status: 'past_due' }]);
+    mockSql.mockResolvedValueOnce([{
+      subscription_status: 'past_due',
+      past_due_at: new Date(Date.now() - 2 * 86_400_000),
+      flags: {},
+    }]);
+    const { resolveOwnerScope } = await importResolveOwnerScope();
+
+    await expect(resolveOwnerScope(makeRequest())).resolves.toEqual({
+      accountId: ACCOUNT_ID,
+      locationId: LOCATION_ID,
+      userId: USER_ID,
+    });
+    expect(mockGetRequestScope).toHaveBeenCalledWith(ACCOUNT_ID, null);
+  });
+
+  it('past_due subscription after recovery window throws 402 past_due_read_only', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+    mockSql.mockResolvedValueOnce([{
+      subscription_status: 'past_due',
+      past_due_at: new Date(Date.now() - 8 * 86_400_000),
+      flags: {},
+    }]);
     const { resolveOwnerScope } = await importResolveOwnerScope();
 
     await expect(resolveOwnerScope(makeRequest())).rejects.toMatchObject({
-      message: 'subscription_inactive',
-      statusCode: 403,
+      message: 'past_due_read_only',
+      statusCode: 402,
     });
     expect(mockGetRequestScope).not.toHaveBeenCalled();
+  });
+
+  it('past_due subscription after recovery window resolves when read-only access is allowed', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+    mockSql.mockResolvedValueOnce([{
+      subscription_status: 'past_due',
+      past_due_at: new Date(Date.now() - 8 * 86_400_000),
+      flags: {},
+    }]);
+    const { resolveOwnerScope } = await importResolveOwnerScope();
+
+    await expect(resolveOwnerScope(makeRequest(), { allowReadOnly: true })).resolves.toEqual({
+      accountId: ACCOUNT_ID,
+      locationId: LOCATION_ID,
+      userId: USER_ID,
+    });
+    expect(mockGetRequestScope).toHaveBeenCalledWith(ACCOUNT_ID, null);
   });
 
   it('account row missing → throws ScopeError 403 no_business, getRequestScope NOT called', async () => {

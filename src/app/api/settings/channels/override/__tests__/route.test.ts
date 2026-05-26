@@ -3,11 +3,18 @@ import { NextRequest } from 'next/server';
 
 // ── Hoisted shared state ────────────────────────────────────────────
 
-const { mockRequireRole, mockSql, mockSqlUnsafe, mockJsonb } = vi.hoisted(() => ({
+const {
+  mockRequireRole,
+  mockSql,
+  mockSqlUnsafe,
+  mockJsonb,
+  mockAssertWritableSubscriptionForAccount,
+} = vi.hoisted(() => ({
   mockRequireRole: vi.fn(),
   mockSql: vi.fn(),
   mockSqlUnsafe: vi.fn(),
   mockJsonb: vi.fn((val: unknown) => JSON.stringify(val)),
+  mockAssertWritableSubscriptionForAccount: vi.fn(),
 }));
 
 // ── Mock Auth ───────────────────────────────────────────────────────
@@ -36,6 +43,10 @@ vi.mock('@/lib/db/server', () => {
   });
   return { sql: sqlProxy, jsonb: mockJsonb };
 });
+
+vi.mock('@/lib/shared/writable-subscription', () => ({
+  assertWritableSubscriptionForAccount: (...args: unknown[]) => mockAssertWritableSubscriptionForAccount(...args),
+}));
 
 // ── Mock uuid ───────────────────────────────────────────────────────
 
@@ -99,6 +110,7 @@ describe('POST /api/settings/channels/override', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockRequireRole.mockResolvedValue(ownerUser());
+    mockAssertWritableSubscriptionForAccount.mockResolvedValue({ ok: true });
     process.env.NEXT_PUBLIC_APP_URL = APP_URL;
   });
 
@@ -213,6 +225,24 @@ describe('POST /api/settings/channels/override', () => {
     expect(res.status).toBe(403);
   });
 
+  it('returns 402 without creating an override when the account is past-due read-only', async () => {
+    mockAssertWritableSubscriptionForAccount.mockResolvedValueOnce({
+      ok: false,
+      status: 402,
+      error: 'past_due_read_only',
+    });
+
+    const res = await POST(makePostRequest({
+      locationId: LOCATION_ID_1,
+      channel: 'telegram',
+    }));
+
+    expect(res.status).toBe(402);
+    expect(await res.json()).toEqual({ error: 'past_due_read_only' });
+    expect(mockAssertWritableSubscriptionForAccount).toHaveBeenCalledWith(ACCOUNT_ID);
+    expect(mockSql).not.toHaveBeenCalled();
+  });
+
   it('handles unique constraint violation gracefully', async () => {
     // Mock: location validation
     mockSql.mockResolvedValueOnce([{
@@ -244,6 +274,7 @@ describe('DELETE /api/settings/channels/override', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockRequireRole.mockResolvedValue(ownerUser());
+    mockAssertWritableSubscriptionForAccount.mockResolvedValue({ ok: true });
     process.env.NEXT_PUBLIC_APP_URL = APP_URL;
   });
 
@@ -289,6 +320,24 @@ describe('DELETE /api/settings/channels/override', () => {
     }));
     expect(res.status).toBe(400);
   });
+
+  it('returns 402 without deleting an override when the account is past-due read-only', async () => {
+    mockAssertWritableSubscriptionForAccount.mockResolvedValueOnce({
+      ok: false,
+      status: 402,
+      error: 'past_due_read_only',
+    });
+
+    const res = await DELETE(makeDeleteRequest({
+      locationId: LOCATION_ID_1,
+      channel: 'telegram',
+    }));
+
+    expect(res.status).toBe(402);
+    expect(await res.json()).toEqual({ error: 'past_due_read_only' });
+    expect(mockAssertWritableSubscriptionForAccount).toHaveBeenCalledWith(ACCOUNT_ID);
+    expect(mockSql).not.toHaveBeenCalled();
+  });
 });
 
 // ── Audit trail for channel override changes ─────────────────────────
@@ -297,6 +346,7 @@ describe('Audit trail for channel override changes', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockRequireRole.mockResolvedValue(ownerUser());
+    mockAssertWritableSubscriptionForAccount.mockResolvedValue({ ok: true });
     process.env.NEXT_PUBLIC_APP_URL = APP_URL;
   });
 

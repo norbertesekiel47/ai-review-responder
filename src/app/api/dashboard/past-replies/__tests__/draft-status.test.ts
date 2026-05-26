@@ -6,6 +6,7 @@ import { NextRequest } from 'next/server';
 const {
   mockRequireRole,
   mockGetRequestScope,
+  accountQueue,
   topLevelQueue,
   topLevelMock,
   sqlProxy,
@@ -13,10 +14,13 @@ const {
   const mockRequireRole = vi.fn();
   const mockGetRequestScope = vi.fn();
 
+  const accountQueue: unknown[][] = [];
   const topLevelQueue: unknown[][] = [];
   const topLevelMock = vi.fn(async (strings?: TemplateStringsArray) => {
     const text = Array.isArray(strings) ? strings.join('') : String(strings ?? '');
     if (text.includes('subscription_status')) {
+      const nextAccount = accountQueue.shift();
+      if (nextAccount) return nextAccount;
       return [{ subscription_status: 'active' }];
     }
     return topLevelQueue.shift() ?? [];
@@ -29,6 +33,7 @@ const {
   return {
     mockRequireRole,
     mockGetRequestScope,
+    accountQueue,
     topLevelQueue,
     topLevelMock,
     sqlProxy,
@@ -102,8 +107,13 @@ function seedTopLevel(...rowsets: unknown[][]) {
   topLevelQueue.push(...rowsets);
 }
 
+function seedAccountRows(rows: unknown[]) {
+  accountQueue.push(rows);
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
+  accountQueue.length = 0;
   topLevelQueue.length = 0;
   process.env.PAST_REPLIES_VIEW_ENABLED = 'true';
   process.env.EDIT_REPLIES_ENABLED = 'true';
@@ -192,6 +202,28 @@ describe('GET /api/dashboard/past-replies/draft-status', () => {
     ]);
     const GET = await importGET();
     const res = await GET(makeRequest({ outboxId: OUTBOX_ID }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ status: 'generating' });
+  });
+
+  it('allows read-only past_due accounts to poll existing draft status', async () => {
+    seedAccountRows([{
+      subscription_status: 'past_due',
+      past_due_at: new Date(Date.now() - 8 * 86_400_000),
+      flags: {},
+    }]);
+    seedTopLevel([
+      {
+        status: 'pending',
+        payload: { business_id: LOCATION_ID, review_id: REVIEW_ID, version: 1 },
+        last_error: null,
+        aggregate_id: REVIEW_ID,
+      },
+    ]);
+
+    const GET = await importGET();
+    const res = await GET(makeRequest({ outboxId: OUTBOX_ID }));
+
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ status: 'generating' });
   });

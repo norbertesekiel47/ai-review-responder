@@ -89,12 +89,25 @@ describe('POST /api/dashboard/channels/whatsapp/start', () => {
     expect(res.status).toBe(401);
   });
 
-  it('returns 403 when subscription is not active', async () => {
+  it('returns 403 when subscription is cancelled', async () => {
     process.env.CHANNELS_WHATSAPP_ENABLED = 'true';
-    sqlQueue.push([{ id: 'acct-1', subscription_status: 'past_due' }]); // accounts lookup
+    sqlQueue.push([{ id: 'acct-1', subscription_status: 'cancelled' }]); // accounts lookup
     const res = await POST(mkReq() as any);
     expect(res.status).toBe(403);
     expect((await res.json()).error).toBe('subscription_not_active');
+  });
+
+  it('returns 402 when past-due recovery is read-only', async () => {
+    process.env.CHANNELS_WHATSAPP_ENABLED = 'true';
+    sqlQueue.push([{
+      id: 'acct-1',
+      subscription_status: 'past_due',
+      past_due_at: new Date('2026-05-01T00:00:00.000Z'),
+      flags: {},
+    }]);
+    const res = await POST(mkReq() as any);
+    expect(res.status).toBe(402);
+    expect((await res.json()).error).toBe('past_due_read_only');
   });
 
   it('returns 409 multiple_mobile_channels when startWhatsAppEnrollment throws MultipleMobileChannelsError', async () => {

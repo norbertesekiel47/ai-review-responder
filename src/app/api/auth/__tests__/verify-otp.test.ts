@@ -9,6 +9,7 @@ const {
   mockSignOut,
   mockCreateServerClient,
   mockSql,
+  mockEnqueueAnalyticsEvent,
 } = vi.hoisted(() => {
   const sqlFn = vi.fn();
   return {
@@ -17,6 +18,7 @@ const {
     mockSignOut: vi.fn(),
     mockCreateServerClient: vi.fn(),
     mockSql: sqlFn,
+    mockEnqueueAnalyticsEvent: vi.fn(),
   };
 });
 
@@ -31,6 +33,10 @@ vi.mock('@/lib/db/server', () => ({
 
 vi.mock('@supabase/ssr', () => ({
   createServerClient: mockCreateServerClient,
+}));
+
+vi.mock('@/lib/analytics/enqueue', () => ({
+  enqueueAnalyticsEvent: mockEnqueueAnalyticsEvent,
 }));
 
 process.env.SELF_SERVE_SIGNUP_ENABLED = 'true';
@@ -78,7 +84,7 @@ beforeEach(() => {
   // Default: SELECT users → owner role + account_id; subsequent calls
   // (the channel_enrollments INSERT) also resolve to []. Tests that need
   // a different first response use `mockResolvedValueOnce`.
-  mockSql.mockResolvedValue([{ role: 'owner', account_id: 'acct-1', business_id: 'biz-1' }]);
+  mockSql.mockResolvedValue([{ role: 'owner', account_id: 'acct-1', business_id: 'biz-1', user_id: 'user-1' }]);
 
   mockCreateServerClient.mockReset();
   mockCreateServerClient.mockImplementation(() => ({
@@ -87,6 +93,7 @@ beforeEach(() => {
       signOut: mockSignOut,
     },
   }));
+  mockEnqueueAnalyticsEvent.mockReset();
 
   process.env.SELF_SERVE_SIGNUP_ENABLED = 'true';
 });
@@ -204,6 +211,24 @@ describe('POST /api/auth/verify-otp', () => {
     expect(mockSignOut).not.toHaveBeenCalled();
   });
 
+  it('enqueues email_verified after successful OTP verification', async () => {
+    const res = await POST(mkReq(validBody));
+    expect(res.status).toBe(200);
+
+    expect(mockEnqueueAnalyticsEvent).toHaveBeenCalledWith({
+      eventName: 'email_verified',
+      eventKey: 'email_verified:user-1',
+      distinctId: 'acct-1',
+      accountId: 'acct-1',
+      userId: 'user-1',
+      properties: {
+        account_id: 'acct-1',
+        user_id: 'user-1',
+        signup_source: 'self_serve',
+      },
+    });
+  });
+
   it('lowercases the email passed to verifyOtp (normalizedEmailSchema)', async () => {
     const res = await POST(
       mkReq({ email: 'OWNER@Example.COM', token: '654321' }),
@@ -235,7 +260,7 @@ describe('POST /api/auth/verify-otp', () => {
 
   it('does NOT insert channel_enrollments when role is not owner', async () => {
     mockSql.mockReset();
-    mockSql.mockResolvedValue([{ role: 'admin', account_id: 'acct-1', business_id: 'biz-1' }]);
+    mockSql.mockResolvedValue([{ role: 'admin', account_id: 'acct-1', business_id: 'biz-1', user_id: 'user-1' }]);
     const res = await POST(mkReq(validBody));
     expect(res.status).toBe(500);
     const enrollCall = mockSql.mock.calls.find((c: unknown[]) =>

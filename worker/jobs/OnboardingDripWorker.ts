@@ -1,7 +1,10 @@
 import type { Job } from 'bullmq';
 import { v7 as uuidv7 } from 'uuid';
 import { sql } from '../../src/lib/db/server';
-import { checkSubscription } from '../../src/lib/shared/subscription-guard';
+import {
+  checkSubscription,
+  type AccountFlagsInput,
+} from '../../src/lib/shared/subscription-guard';
 import { markOutboxCompleted, markOutboxFailed, extractOutboxHandle } from '../../src/lib/shared/outbox';
 import {
   sendInternalEmail,
@@ -33,13 +36,15 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
     owner_email: string;
     owner_email_bounced: boolean;
     subscription_status: string;
-    account_updated_at: Date;
+    account_past_due_at: Date | null;
+    account_flags: AccountFlagsInput;
     initial_review_count: number | null;
     initial_responded_count: number | null;
     subscription_activated_at: Date | null;
   }[]>`
     SELECT b.id, b.name, b.owner_name, b.owner_email, b.owner_email_bounced,
-           a.id AS account_id, a.subscription_status, a.updated_at AS account_updated_at,
+           a.id AS account_id, a.subscription_status,
+           a.past_due_at AS account_past_due_at, a.flags AS account_flags,
            b.initial_review_count, b.initial_responded_count, b.subscription_activated_at
     FROM businesses b
     JOIN accounts a ON a.id = b.account_id
@@ -59,12 +64,12 @@ export async function handleOnboardingDrip(job: Job<OnboardingDripPayload>): Pro
     return;
   }
 
-  // Re-check with account-level updated_at for past_due grace etc.
-  const subCheck = checkSubscription(
-    business.subscription_status,
-    new Date(business.account_updated_at),
-    'notification',
-  );
+  const subCheck = checkSubscription({
+    status: business.subscription_status,
+    pastDueAt: business.account_past_due_at,
+    accountFlags: business.account_flags ?? {},
+    workerType: 'notification',
+  });
   if (!subCheck.allowed) {
     logger.log(`Business ${businessId} skipped: ${subCheck.reason}`);
     await markOutboxCompleted(outboxId, outboxAttempt);

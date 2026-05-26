@@ -9,7 +9,10 @@
 //
 // VAL-NOTIF-010: Uses resolveChannels instead of getVerifiedEnrollments.
 
-import { checkSubscription } from '../../../src/lib/shared/subscription-guard';
+import {
+  checkSubscription,
+  type AccountFlagsInput,
+} from '../../../src/lib/shared/subscription-guard';
 import { resolveChannels, type ResolvedChannel } from '../../../src/lib/notifications/resolve-channels';
 import type { ChannelId } from '../../../src/lib/notifications/channels/types';
 import type { AccountId, LocationId } from '../../../src/lib/shared/ids';
@@ -19,7 +22,8 @@ export interface EligibilityInput {
   accountId: string;
   locationId: string;
   subscriptionStatus: string;
-  businessUpdatedAt: Date;
+  pastDueAt?: Date | string | null;
+  accountFlags?: AccountFlagsInput;
 }
 
 export interface EligibilityLogger {
@@ -56,11 +60,12 @@ export async function getEligibleChannels(
   input: EligibilityInput,
   logger: EligibilityLogger,
 ): Promise<EligibilityResult> {
-  const subCheck = checkSubscription(
-    input.subscriptionStatus,
-    input.businessUpdatedAt,
-    'notification',
-  );
+  const subCheck = checkSubscription({
+    status: input.subscriptionStatus,
+    pastDueAt: input.pastDueAt,
+    accountFlags: input.accountFlags ?? {},
+    workerType: 'notification',
+  });
   if (!subCheck.allowed) {
     return { ok: false, reason: subCheck.reason };
   }

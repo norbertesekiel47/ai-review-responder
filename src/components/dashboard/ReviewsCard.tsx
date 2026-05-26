@@ -35,10 +35,11 @@ interface Props {
   recentReviews: DashboardDataActive['recentReviews'];
   onActionSuccess: () => void;
   initialTab?: 'needs' | 'all';
+  readOnly?: boolean;
 }
 
 export const ReviewsCard = forwardRef<HTMLDivElement, Props>(function ReviewsCard(
-  { recentReviews, onActionSuccess, initialTab = 'needs' },
+  { recentReviews, onActionSuccess, initialTab = 'needs', readOnly = false },
   scrollRef,
 ) {
   const [tab, setTab] = useState<'needs' | 'all'>(initialTab);
@@ -86,7 +87,7 @@ export const ReviewsCard = forwardRef<HTMLDivElement, Props>(function ReviewsCar
       ) : (
         <div className="review-list">
           {list.map((r) => (
-            <ReviewRow key={r.id} r={r} onSuccess={onActionSuccess} />
+            <ReviewRow key={r.id} r={r} onSuccess={onActionSuccess} readOnly={readOnly} />
           ))}
         </div>
       )}
@@ -97,9 +98,11 @@ export const ReviewsCard = forwardRef<HTMLDivElement, Props>(function ReviewsCar
 function ReviewRow({
   r,
   onSuccess,
+  readOnly,
 }: {
   r: DashboardDataActive['recentReviews'][number];
   onSuccess: () => void;
+  readOnly: boolean;
 }) {
   const displayStatus = r.responseStatus ?? r.status;
   const isPending = displayStatus === 'pending_approval';
@@ -127,7 +130,13 @@ function ReviewRow({
             AI draft · sounds like you
           </div>
           <div className="draft-text">{r.responseText}</div>
-          <ReviewActions reviewId={r.id} responseText={r.responseText} onSuccess={onSuccess} />
+          {readOnly ? (
+            <p className="text-xs text-gray-600 mt-2">
+              Update billing to approve, edit, or regenerate this reply.
+            </p>
+          ) : (
+            <ReviewActions reviewId={r.id} responseText={r.responseText} onSuccess={onSuccess} />
+          )}
         </div>
       )}
 

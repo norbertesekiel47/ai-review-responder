@@ -20,7 +20,8 @@ export type IconName =
   | 'regenerate'
   | 'chevron-down'
   | 'plus'
-  | 'location';
+  | 'location'
+  | 'shield';
 
 interface Props extends Omit<SVGProps<SVGSVGElement>, 'name'> {
   name: IconName;
@@ -184,6 +185,13 @@ export function Icon({ name, size = 18, ...rest }: Props) {
         <svg {...props}>
           <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" />
           <circle cx="12" cy="9" r="2.5" fill="currentColor" stroke="none" />
+        </svg>
+      );
+    case 'shield':
+      return (
+        <svg {...props}>
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+          <path d="M9 12l2 2 4-5" />
         </svg>
       );
   }

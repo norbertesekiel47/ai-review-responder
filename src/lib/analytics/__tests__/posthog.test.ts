@@ -5,6 +5,7 @@ const posthogMock = vi.hoisted(() => {
     apiKey: string;
     options: { host: string };
     capture: ReturnType<typeof vi.fn>;
+    flush: ReturnType<typeof vi.fn>;
     shutdown: ReturnType<typeof vi.fn>;
   };
 
@@ -18,6 +19,7 @@ const posthogMock = vi.hoisted(() => {
     this.apiKey = apiKey;
     this.options = options;
     this.capture = vi.fn();
+    this.flush = vi.fn(async () => {});
     this.shutdown = vi.fn(async () => {});
     instances.push(this);
   });
@@ -29,7 +31,12 @@ vi.mock('posthog-node', () => ({
   PostHog: posthogMock.PostHog,
 }));
 
-import { captureAnalyticsEvent, shutdownAnalytics } from '../posthog';
+import {
+  captureAnalyticsEvent,
+  flushAnalytics,
+  isAnalyticsConfigured,
+  shutdownAnalytics,
+} from '../posthog';
 
 describe('PostHog analytics wrapper', () => {
   beforeEach(async () => {
@@ -77,6 +84,32 @@ describe('PostHog analytics wrapper', () => {
       distinctId: 'business_123',
       properties: { accountId: 'account_456' },
     });
+  });
+
+  it('reports configuration state from POSTHOG_API_KEY presence', () => {
+    vi.stubEnv('POSTHOG_API_KEY', '');
+    expect(isAnalyticsConfigured()).toBe(false);
+
+    vi.stubEnv('POSTHOG_API_KEY', 'ph_test_key');
+    expect(isAnalyticsConfigured()).toBe(true);
+  });
+
+  it('flushAnalytics forwards to the client flush when configured', async () => {
+    vi.stubEnv('POSTHOG_API_KEY', 'ph_test_key');
+
+    captureAnalyticsEvent({ event: 'first_response_drafted', distinctId: 'acct_1' });
+    await flushAnalytics();
+
+    expect(posthogMock.instances[0]?.flush).toHaveBeenCalledTimes(1);
+  });
+
+  it('flushAnalytics is a no-op and creates no client when unconfigured', async () => {
+    vi.stubEnv('POSTHOG_API_KEY', '');
+
+    await flushAnalytics();
+
+    expect(posthogMock.PostHog).not.toHaveBeenCalled();
+    expect(posthogMock.instances).toHaveLength(0);
   });
 
   it('awaits shutdown and resets lazy state for the next capture', async () => {

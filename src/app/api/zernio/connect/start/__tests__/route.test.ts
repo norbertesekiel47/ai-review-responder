@@ -14,8 +14,25 @@ const {
   mockCreateProfile,
   mockStartConnect,
   mockDeleteProfile,
+  mockAccountRows,
+  mockEnqueueAnalyticsEvent,
 } = vi.hoisted(() => {
   const sqlCalls: Array<{ raw: string; values: unknown[] }> = [];
+  const mockAccountRows: {
+    value: Array<{
+      subscription_status: string;
+      past_due_at: string | null;
+      flags: Record<string, unknown>;
+    }>;
+  } = {
+    value: [
+      {
+        subscription_status: 'active',
+        past_due_at: null,
+        flags: {},
+      },
+    ],
+  };
 
   const mockRedis = {
     get: vi.fn(async () => null),
@@ -35,8 +52,14 @@ const {
       state: 'returned-state',
     })),
     mockDeleteProfile: vi.fn(async (_profileId: unknown) => undefined),
+    mockAccountRows,
+    mockEnqueueAnalyticsEvent: vi.fn(async () => undefined),
   };
 });
+
+vi.mock('@/lib/analytics/enqueue', () => ({
+  enqueueAnalyticsEvent: mockEnqueueAnalyticsEvent,
+}));
 
 vi.mock('@/lib/shared/csrf', () => ({
   assertSameOrigin: vi.fn(),
@@ -80,7 +103,7 @@ vi.mock('@/lib/db/server', () => ({
       return Promise.resolve(
         values.includes(OTHER_ACCOUNT_LOCATION_ID)
           ? []
-          : [{ subscription_status: 'active' }],
+          : mockAccountRows.value,
       );
     }
 
@@ -125,6 +148,13 @@ describe('POST /api/zernio/connect/start location targeting', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     sqlCalls.length = 0;
+    mockAccountRows.value = [
+      {
+        subscription_status: 'active',
+        past_due_at: null,
+        flags: {},
+      },
+    ];
     mockRequireRole.mockResolvedValue(ownerUser());
   });
 
@@ -147,11 +177,64 @@ describe('POST /api/zernio/connect/start location targeting', () => {
     });
   });
 
+  it('captures gbp_connect_started server-side with account scope so the funnel joins gbp_connected', async () => {
+    const res = await POST(makeRequest({ locationId: SECONDARY_LOCATION_ID }));
+
+    expect(res.status).toBe(200);
+    expect(mockEnqueueAnalyticsEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: 'gbp_connect_started',
+        distinctId: ACCOUNT_ID,
+        accountId: ACCOUNT_ID,
+        businessId: SECONDARY_LOCATION_ID,
+        properties: expect.objectContaining({
+          account_id: ACCOUNT_ID,
+          business_id: SECONDARY_LOCATION_ID,
+        }),
+      }),
+    );
+  });
+
   it('rejects a requested location that is not active in the owner account', async () => {
     const res = await POST(makeRequest({ locationId: OTHER_ACCOUNT_LOCATION_ID }));
 
     expect(res.status).toBe(403);
     expect(await res.json()).toEqual({ error: 'invalid_location_scope' });
     expect(mockCreateProfile).not.toHaveBeenCalled();
+  });
+
+  it('allows a connect flow while a past-due account is still in grace', async () => {
+    mockAccountRows.value = [
+      {
+        subscription_status: 'past_due',
+        past_due_at: new Date().toISOString(),
+        flags: {},
+      },
+    ];
+
+    const res = await POST(makeRequest({ locationId: SECONDARY_LOCATION_ID }));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ authUrl: 'https://zernio.test/connect' });
+    expect(mockCreateProfile).toHaveBeenCalledWith({
+      name: `test-profile-${SECONDARY_LOCATION_ID}`,
+    });
+  });
+
+  it('rejects read-only past-due connect before creating a Zernio profile', async () => {
+    mockAccountRows.value = [
+      {
+        subscription_status: 'past_due',
+        past_due_at: '2024-01-01T00:00:00.000Z',
+        flags: {},
+      },
+    ];
+
+    const res = await POST(makeRequest({ locationId: SECONDARY_LOCATION_ID }));
+
+    expect(res.status).toBe(402);
+    expect(await res.json()).toEqual({ error: 'past_due_read_only' });
+    expect(mockCreateProfile).not.toHaveBeenCalled();
+    expect(mockStartConnect).not.toHaveBeenCalled();
   });
 });

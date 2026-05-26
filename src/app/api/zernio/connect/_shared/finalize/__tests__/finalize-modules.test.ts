@@ -11,6 +11,8 @@ const {
   mockSelectLocation,
   mockDeleteAccount,
   mockSql,
+  mockTx,
+  mockEnqueueAnalyticsEvent,
   mockReadConnectSessionCookie,
   sqlCalls,
   txCalls,
@@ -22,6 +24,8 @@ const {
   const txScenario = {
     needsBackfill: false,
     accountSubscriptionStatus: 'active',
+    accountPastDueAt: null as string | null,
+    accountFlags: {} as Record<string, unknown>,
     accountSubscriptionActivatedAt: new Date(
       '2026-05-01T00:00:00.000Z',
     ) as Date | null,
@@ -47,6 +51,8 @@ const {
             ? [
                 {
                   subscription_status: txScenario.accountSubscriptionStatus,
+                  past_due_at: txScenario.accountPastDueAt,
+                  flags: txScenario.accountFlags,
                   subscription_tier: 'standard',
                   subscription_activated_at:
                     txScenario.accountSubscriptionActivatedAt,
@@ -81,7 +87,15 @@ const {
       }
       if (/FROM businesses/.test(raw) && /account_id/.test(raw)) {
         return Promise.resolve(
-          sqlScenario.businessExists ? [{ exists: 1 }] : [],
+          sqlScenario.businessExists
+            ? [
+                {
+                  subscription_status: 'active',
+                  past_due_at: null,
+                  flags: {},
+                },
+              ]
+            : [],
         );
       }
       return Promise.resolve([]);
@@ -127,6 +141,8 @@ const {
     })),
     mockDeleteAccount: vi.fn(async (_accountId: unknown) => undefined),
     mockSql,
+    mockTx,
+    mockEnqueueAnalyticsEvent: vi.fn(),
     mockReadConnectSessionCookie: vi.fn(() => 'session-1' as string | null),
     sqlCalls,
     txCalls,
@@ -181,6 +197,10 @@ vi.mock('@/lib/zernio/client', () => ({
     selectLocation: (input: unknown) => mockSelectLocation(input),
     deleteAccount: (accountId: unknown) => mockDeleteAccount(accountId),
   },
+}));
+
+vi.mock('@/lib/analytics/enqueue', () => ({
+  enqueueAnalyticsEvent: mockEnqueueAnalyticsEvent,
 }));
 
 import * as Sentry from '@sentry/nextjs';
@@ -251,6 +271,8 @@ beforeEach(() => {
   txCalls.length = 0;
   txScenario.needsBackfill = false;
   txScenario.accountSubscriptionStatus = 'active';
+  txScenario.accountPastDueAt = null;
+  txScenario.accountFlags = {};
   txScenario.accountSubscriptionActivatedAt = new Date(
     '2026-05-01T00:00:00.000Z',
   );
@@ -590,6 +612,31 @@ describe('finalizeConnectionTx', () => {
     );
   });
 
+  it('enqueues gbp_connected inside the finalize transaction', async () => {
+    await finalizeConnectionTx({
+      user: USER,
+      stored: STORED,
+      locationId: 'google-location-1',
+      accountId: 'zernio-account-1',
+    });
+
+    expect(mockEnqueueAnalyticsEvent).toHaveBeenCalledWith(
+      {
+        eventName: 'gbp_connected',
+        eventKey: `gbp_connected:${SECONDARY_LOCATION_ID}`,
+        distinctId: ACCOUNT_ID,
+        accountId: ACCOUNT_ID,
+        businessId: SECONDARY_LOCATION_ID,
+        properties: {
+          account_id: ACCOUNT_ID,
+          business_id: SECONDARY_LOCATION_ID,
+          location_count: 1,
+        },
+      },
+      mockTx,
+    );
+  });
+
   it('does NOT enqueue initial backfill when needs_backfill is false', async () => {
     txScenario.needsBackfill = false;
     await finalizeConnectionTx({
@@ -646,8 +693,8 @@ describe('finalizeConnectionTx', () => {
     );
   });
 
-  it('throws 403 subscription_required when the account is not active', async () => {
-    txScenario.accountSubscriptionStatus = 'past_due';
+  it('throws 403 subscription_inactive when the account is inactive', async () => {
+    txScenario.accountSubscriptionStatus = 'cancelled';
     await expectRouteError(
       finalizeConnectionTx({
         user: USER,
@@ -656,7 +703,7 @@ describe('finalizeConnectionTx', () => {
         accountId: 'zernio-account-1',
       }),
       403,
-      'subscription_required',
+      'subscription_inactive',
     );
   });
 });

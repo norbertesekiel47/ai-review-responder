@@ -10,7 +10,7 @@
 // Note: this helper does NOT perform a same-origin (CSRF) check — callers must
 // handle that themselves (assertSameOrigin or withSameOrigin wrapper).
 //
-// Used by: POST /draft, PATCH /draft/:id, DELETE /draft/:id
+// Used by: owner past-replies routes that need current location scope.
 // (Tasks 10 & 11 should import this for any owner route that reads rw_location_scope.)
 
 import type { NextRequest } from 'next/server';
@@ -20,6 +20,7 @@ import { sql } from '@/lib/db/server';
 import { asAccountId, asLocationId, isValidUuid } from '@/lib/shared/ids';
 import type { AccountId, LocationId } from '@/lib/shared/ids';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
+import { computePastDueRecoveryState, type AccountFlagsInput } from '@/lib/shared/past-due-recovery';
 
 export class ScopeError extends Error {
   constructor(
@@ -29,6 +30,10 @@ export class ScopeError extends Error {
     super(message);
     this.name = 'ScopeError';
   }
+}
+
+interface ResolveOwnerScopeOptions {
+  allowReadOnly?: boolean;
 }
 
 /**
@@ -48,6 +53,7 @@ export class ScopeError extends Error {
  */
 export async function resolveOwnerScope(
   request: NextRequest,
+  options: ResolveOwnerScopeOptions = {},
 ): Promise<{ accountId: AccountId; locationId: LocationId; userId: string }> {
   let user;
   try {
@@ -65,18 +71,33 @@ export async function resolveOwnerScope(
 
   const accountId = asAccountId(user.accountId);
 
-  // Subscription enforcement — mirror the SSR page guard (requireOwnerAccess
-  // redirects non-ACTIVE accounts to /onboarding/pay). requireRole only checks
-  // the auth identity, so without this gate blocked accounts (cancelled /
-  // past_due / pending_payment) could still drive edit mutation routes.
-  const accountRows = await sql<{ subscription_status: string }[]>`
-    SELECT subscription_status FROM accounts WHERE id = ${accountId} LIMIT 1
+  // Subscription enforcement for owner mutation routes. Past-due accounts
+  // remain writable while the recovery window is open; all other non-active
+  // statuses stay blocked here.
+  const accountRows = await sql<{
+    subscription_status: string;
+    past_due_at: Date | string | null;
+    flags: AccountFlagsInput;
+  }[]>`
+    SELECT subscription_status, past_due_at, flags
+    FROM accounts
+    WHERE id = ${accountId}
+    LIMIT 1
   `;
   const account = accountRows[0];
   if (!account) {
     throw new ScopeError('no_business', 403);
   }
-  if (account.subscription_status !== SubscriptionStatus.ACTIVE) {
+  if (account.subscription_status === SubscriptionStatus.PAST_DUE) {
+    const recovery = computePastDueRecoveryState({
+      subscriptionStatus: account.subscription_status,
+      pastDueAt: account.past_due_at,
+      accountFlags: account.flags,
+    });
+    if (recovery.isReadOnly && !options.allowReadOnly) {
+      throw new ScopeError('past_due_read_only', 402);
+    }
+  } else if (account.subscription_status !== SubscriptionStatus.ACTIVE) {
     throw new ScopeError('subscription_inactive', 403);
   }
 

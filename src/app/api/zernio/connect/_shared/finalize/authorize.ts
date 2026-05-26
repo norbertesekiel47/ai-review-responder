@@ -6,8 +6,10 @@ import { requireRole, AuthError } from '@/lib/db/auth';
 import { ZernioRouteError } from '@/lib/zernio/errors';
 import { locationsKey } from '@/lib/zernio/connect-state';
 import { readConnectSessionCookie } from '@/lib/zernio/connect-session-cookie';
+import { assertWritableSubscriptionStatus } from '@/lib/shared/writable-subscription';
 import type { AppUser } from '@/lib/db/auth';
 import type { ConnectLocationsBlob } from '@/lib/zernio/types';
+import type { AccountFlagsInput } from '@/lib/shared/past-due-recovery';
 
 interface SelectLocationBody {
   locationId?: unknown;
@@ -108,16 +110,29 @@ export async function authorizeSelectLocation(
   if (stored.userId !== user.id) {
     throw new ZernioRouteError(403, 'user_mismatch');
   }
-  const [business] = await sql<{ exists: number }[]>`
-    SELECT 1 AS exists
-    FROM businesses
-    WHERE id = ${stored.businessId}
-      AND account_id = ${user.accountId}
-      AND archived_at IS NULL
+  const [business] = await sql<{
+    subscription_status: string;
+    past_due_at: Date | string | null;
+    flags: AccountFlagsInput;
+  }[]>`
+    SELECT a.subscription_status, a.past_due_at, a.flags
+    FROM businesses b
+    JOIN accounts a ON a.id = b.account_id
+    WHERE b.id = ${stored.businessId}
+      AND b.account_id = ${user.accountId}
+      AND b.archived_at IS NULL
     LIMIT 1
   `;
   if (!business) {
     throw new ZernioRouteError(403, 'business_mismatch');
+  }
+  const writable = assertWritableSubscriptionStatus({
+    subscriptionStatus: business.subscription_status,
+    pastDueAt: business.past_due_at,
+    accountFlags: business.flags,
+  });
+  if (!writable.ok) {
+    throw new ZernioRouteError(writable.status, writable.error);
   }
   const locationKnown = stored.locations.some((loc) => loc.id === locationId);
   if (!locationKnown) {

@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { isProtectedRoute } from '../protected-routes';
+import {
+  isProtectedMixedRoleApiRoute,
+  isProtectedOwnerApiRoute,
+  isProtectedRoute,
+} from '../protected-routes';
 
 const PUBLIC: string[] = [
   '/admin/login',
@@ -25,6 +29,7 @@ const PUBLIC: string[] = [
   '/api/auth/resend-confirmation',
   '/api/auth/verify-otp',
   '/api/auth/callback',
+  '/api/zernio/connect/callback',
   // API-side onboarding routes follow the same pattern as /api/auth/*:
   // proxy classifies them as public (so it doesn't set up a Supabase
   // client per request) and the route handlers do their own session
@@ -51,8 +56,14 @@ const PROTECTED: string[] = [
   '/dashboard',
   '/dashboard/settings',
   '/settings',
+  '/mfa/challenge',
   '/api/dashboard',
   '/api/settings',
+  '/api/account/settings',
+  '/api/zernio/connect/start',
+  '/api/zernio/connect/cancel',
+  '/api/zernio/connect/select-location',
+  '/api/zernio/disconnect',
   '/onboarding',
   '/onboarding/pay',
   '/onboarding/payment-success',
@@ -100,5 +111,17 @@ describe('isProtectedRoute', () => {
       // /\/+$/ regex strips ALL trailing slashes so the match still works.
       expect(isProtectedRoute('/admin/login//')).toBe(false);
     });
+  });
+});
+
+describe('protected API route roles', () => {
+  it('keeps Zernio connect APIs owner-only', () => {
+    expect(isProtectedOwnerApiRoute('/api/zernio/connect/start')).toBe(true);
+    expect(isProtectedMixedRoleApiRoute('/api/zernio/connect/start')).toBe(false);
+  });
+
+  it('keeps Zernio disconnect mixed-role for owner and admin callers', () => {
+    expect(isProtectedOwnerApiRoute('/api/zernio/disconnect')).toBe(false);
+    expect(isProtectedMixedRoleApiRoute('/api/zernio/disconnect')).toBe(true);
   });
 });

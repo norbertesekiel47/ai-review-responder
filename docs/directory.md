@@ -18,7 +18,7 @@ src/app/                            worker/
 src/lib/      ← shared logic
 src/components/
 src/hooks/
-src/middleware.ts
+src/proxy.ts
                    ↑ both sides share ↓
               src/lib/shared/   (types, queue names, outbox helpers)
               src/lib/db/       (Postgres.js client, Redis)
@@ -29,12 +29,12 @@ src/middleware.ts
 
 ---
 
-## `src/middleware.ts`
+## `src/proxy.ts`
 
-Edge middleware that runs before every request. Does two things:
+Next edge proxy that runs before protected requests. Does two things:
 
-1. **Domain routing** — rewrites requests from `repworth.net` to the correct path.
-2. **Auth protection** — creates a Supabase SSR client, reads the session cookie, and redirects unauthenticated visitors away from protected routes (owner dashboard, admin).
+1. **Auth protection** — creates a cookie-bound Supabase SSR client, reads the session cookie, and redirects/blocks unauthenticated visitors away from protected routes (owner dashboard, admin, protected APIs).
+2. **Role + AAL gating** — reads the caller's `users` row through RLS (no service key at edge), gates owner/admin paths, and redirects to `/mfa/challenge` when current AAL2 is required.
 
 Imports `protected-routes.ts` to know which paths need a session.
 
@@ -80,6 +80,7 @@ Next.js App Router pages, grouped by access level.
 | `legal/{terms,privacy,aup,dpa,cookies,sub-processors}/page.tsx` | **(Wave 1)** Canonical legal pages. Each renders `<LegalPage doc={legalDocs[...]} />` from the typed content module `src/lib/legal/content.ts` (no MDX). Sub-processors page lists only live vendors. |
 | `security/page.tsx` | **(Wave 1)** Public security / vulnerability-disclosure page. States current posture honestly (e.g. "SOC 2 not yet complete"); contact `security@repworth.net` (mirrors `public/.well-known/security.txt`). |
 | `feedback/thanks/page.tsx` | Confirmation after feedback form submission. |
+| `help/contact/page.tsx` | **(Wave 2)** Public support contact page with channels and SLA expectations. External Help Scout wiring remains out-of-repo. |
 
 **Shared components under `(public)/components/`:**
 
@@ -94,7 +95,7 @@ Next.js App Router pages, grouped by access level.
 
 ### `(authenticated)/` — Owner login required
 
-Middleware redirects to `/login` if no session.
+`src/proxy.ts` redirects to `/login` if no session.
 
 | Path | What it does |
 |------|--------------|
@@ -146,6 +147,10 @@ Middleware redirects to `/login` if no session.
 | `notifications/page.tsx` | Notification delivery logs. |
 | `runbook/page.tsx` | Internal runbook (links to `NEXT_PUBLIC_DOCS_BASE_URL`). |
 | `payment-success/page.tsx` | Post-Stripe confirmation page. |
+| `impersonate/page.tsx` | **(Wave 2)** Admin support entry for starting an audited read-only view-as session. |
+| `impersonate/ImpersonationStartClient.tsx` | **(Wave 2)** Client form that posts account/user/ticket/reason to `/api/admin/impersonation/start` and follows the returned view URL. |
+| `impersonate/[sessionId]/view/page.tsx` | **(Wave 2)** Admin-owned read-only impersonation shell. Validates the signed cookie + active DB session; does not mount owner routes. |
+| `impersonate/[sessionId]/view/EndImpersonationButton.tsx` | **(Wave 2)** Ends the current impersonation session via `/api/admin/impersonation/end`. |
 
 ---
 
@@ -180,6 +185,7 @@ Middleware redirects to `/login` if no session.
 | `verify-otp/route.ts` | Verifies the 6-digit OTP from the confirmation email; transitions user to the onboarding flow. |
 | `forgot-password/route.ts` | Requests password reset email via Supabase. |
 | `reset-password/route.ts` | Consumes reset token and updates password. Signs out immediately after. |
+| `mfa/challenge/route.ts` | **(Wave 2)** Same-origin, session-bound Supabase MFA challenge/verify endpoint with strict rate limiting. |
 | `resend-confirmation/route.ts` | Resends verification email. Owner-only. |
 | `signup-status/route.ts` | Polls whether the email confirmation has been clicked. |
 
@@ -257,6 +263,10 @@ POST: disconnects an active Zernio connection; marks `zernio_connections` status
 | `jobs/route.ts` | GET queue health. |
 | `notifications/route.ts` | GET delivery logs. |
 | `payment-success/route.ts` | POST Stripe payment confirmation (writes to `job_outbox`). |
+| `billing/grant-extension/route.ts` | **(Wave 2)** Admin + current-AAL2 action that grants a short past_due extension in `accounts.flags` and writes `account_audit_log`. |
+| `impersonation/start/route.ts` | **(Wave 2)** Starts an audited one-hour admin impersonation session. Same-origin, admin, current AAL2, validates owner/account, sets a signed httpOnly cookie. |
+| `impersonation/end/route.ts` | **(Wave 2)** Ends the current signed impersonation session and clears the cookie. |
+| `locations/csv-import/route.ts` | Admin CSV bulk-location import. Returns partial-success row failures and writes aggregate audit + billing outbox. |
 | `channels/sms/_shared.ts` | Feature-flag helpers and env-var assertions shared by all SMS admin routes. |
 | `channels/sms/verify/route.ts` | POST: initiate SMS verification (Twilio Verify). |
 | `channels/sms/confirm/route.ts` | POST: confirm OTP. |
@@ -348,6 +358,16 @@ Dashboard query layer.
 | `service.ts` | `buildDashboardData(businessId)` — queries reviews, responses, weekly metrics, and Zernio connection state. Returns `DashboardDataActive`. Used by `GET /api/dashboard`. |
 | `types.ts` | `DashboardData` discriminated union (`DashboardDataActive | DashboardDataPendingPayment | ...`), `ZernioConnectionState`. |
 
+### `analytics/` *(Wave 2)*
+
+First-party analytics queue and PostHog dispatch helpers.
+
+| File | What it does |
+|------|--------------|
+| `events.ts` | Canonical analytics event allowlist, event-key helper, and property sanitizer. Kept in sync with migration 046 by a drift-guard test. |
+| `enqueue.ts` | `enqueueAnalyticsEvent()` — inserts UUIDv7 rows into `analytics_events` with `ON CONFLICT (event_key) DO NOTHING` idempotency. |
+| `posthog.ts` | Lazy PostHog server client wrapper used by Railway dispatch. Exposes configured/capture/flush/shutdown helpers. No browser SDK. |
+
 ### `shared/`
 
 Cross-cutting utilities imported by both Next.js and worker.
@@ -358,8 +378,10 @@ Cross-cutting utilities imported by both Next.js and worker.
 | `worker-types.ts` | TypeScript types for every BullMQ job payload (`SyncReviewsPayload`, `GenerateResponsePayload`, etc.). |
 | `outbox.ts` | `markOutboxCompleted()`, `markOutboxFailed()`, `extractOutboxHandle()` — called at the end of every job handler. |
 | `subscription-guard.ts` | `checkSubscription(business)` — returns the subscription status and whether the worker should proceed. Checks `cancelled` / `past_due` grace window / `pending_payment`. |
+| `past-due-recovery.ts` | **(Wave 2)** Shared past_due deadline calculator. Uses `accounts.past_due_at` + `accounts.flags.past_due_extension`; consumed by UI/write guards and worker subscription guard. |
+| `writable-subscription.ts` | **(Wave 2)** Helpers that convert shared past_due recovery state into `402 past_due_read_only` write guards. |
 | `response-status.ts` | `ALL_RESPONSE_STATUSES`, `HANDLED_STATUSES`, `RECENT_REVIEW_DISPLAY_STATUSES` — centralized status groups used across dashboard metrics, admin counts, and weekly/monthly summaries. Single source of truth so `awaiting_owner_connect` is counted alongside `awaiting_manual_post` everywhere. |
-| `protected-routes.ts` | List of route prefixes that require auth (used by `middleware.ts`). |
+| `protected-routes.ts` | List of route prefixes that require auth (used by `src/proxy.ts`). |
 | `schemas.ts` | Zod validation schemas for API request bodies (admin onboarding, mark-posted, etc.). |
 | `signup-schemas.ts` | Zod schemas specific to the owner signup / onboarding wizard flow. |
 | `rate-limit.ts` | Redis-backed rate limiter (gracefully skips if Redis is unavailable). |
@@ -380,7 +402,8 @@ Cross-cutting utilities imported by both Next.js and worker.
 
 | File | What it does |
 |------|--------------|
-| `route-helpers.ts` | `requireOwnerSession()` — reads Supabase session from cookies and returns `{ authUser, businessId }` or throws. Used in every authenticated API route. |
+| `route-helpers.ts` | Route wrappers for rate limiting, same-origin checks, and Supabase session reads. |
+| `mfa.ts` | **(Wave 2)** Supabase AAL helper functions used by proxy and sensitive routes. |
 | `require-owner-access.ts` | Server-component guard for owner-only pages. Resolves auth user → `users` row → validates role + subscription_status; redirects on failure. Returns `{ authId, businessId, email }` when all checks pass. |
 
 ### `approval/`
@@ -485,6 +508,17 @@ LLM cost tracking and enforcement.
 | File | What it does |
 |------|--------------|
 | `payment-link.ts` | `getPaymentLink(businessId)` — returns the correct Stripe Payment Link URL (`STRIPE_PAYMENT_LINK_*` env vars). |
+
+### `admin/` *(Wave 2 additions)*
+
+Admin-side domain helpers.
+
+| File | What it does |
+|------|--------------|
+| `impersonation/cookie.ts` | HMAC signs/verifies the `rw_impersonation` session cookie. |
+| `impersonation/session.ts` | Starts, ends, and loads active impersonation sessions with account audit logging. |
+| `impersonation/view.ts` | Resolves an admin-owned impersonation view session and loads account-scoped location data. |
+| `impersonation/guard.ts` | Non-destructive action allowlist for impersonation surfaces. |
 
 ### `onboarding/`
 
@@ -652,6 +686,7 @@ These are not BullMQ job handlers — they run as standalone loops inside the wo
 | `EmailChannelReconcilePoller.ts` | Detects `active`-subscription owner businesses with no `channel_enrollments` email row and inserts one. Recovers from `verify-otp` / `finish-signup` inline INSERT failures. |
 | `StripeLocationsReconcilePoller.ts` | Hourly billing drift detection. **Wave 1 (PR #85)** expanded it from location-count drift to full reconciliation: missing / duplicate / status / price / quantity / upcoming-invoice drift between Stripe and the DB → Sentry alert; **never auto-corrects**. Expected-invoice math lives in the `billing-reconciliation/` subfolder and uses *stored* grandfathered quota; `past_due` within the 7-day grace window is informational. Single-flight + per-account error isolation. |
 | `ZernioRecentReviewPoller.ts` | Polls connected accounts for recent reviews. Unanswered → `processReview`; externally-answered → `reconcileExternallyAnsweredReview`. **Wave 1:** the unanswered branch now PHI-gates (`detectLikelyPhi`) before persistence, quarantining via `openPhiReviewException` inside a `sql.begin`. |
+| `AnalyticsDispatchPoller.ts` | **(Wave 2)** Dispatches pending `analytics_events` rows to PostHog from Railway. Leaves rows pending when PostHog is unconfigured, flushes before marking completed, and backs off failed event rows. |
 
 **`worker/background/pollers/billing-reconciliation/` *(Wave 1)*:** focused modules for `StripeLocationsReconcilePoller` — `expected-invoice.ts` (DB-expected base + overage from stored quota), `drift.ts` (drift classification, grace-window check, upcoming-invoice comparison), `types.ts` (shared shapes). The poller stays the single registered entry point.
 

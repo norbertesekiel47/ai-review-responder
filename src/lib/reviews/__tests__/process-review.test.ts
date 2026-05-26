@@ -21,9 +21,14 @@ vi.mock('@/lib/db/server', () => {
   return { sql: sqlObj, jsonb: jsonbFn };
 });
 
+vi.mock('@/lib/analytics/enqueue', () => ({
+  enqueueAnalyticsEvent: vi.fn(),
+}));
+
 // Imports after mocks are wired
 import { processReview } from '../process-review';
 import { sql } from '@/lib/db/server';
+import { enqueueAnalyticsEvent } from '@/lib/analytics/enqueue';
 
 // ── Fixtures ─────────────────────────────────────────────────────────
 
@@ -87,16 +92,41 @@ describe('processReview', () => {
     tx
       .mockResolvedValueOnce(withCount([], 0))
       .mockResolvedValueOnce(withCount([{ id: 'new-id' }], 1))
-      .mockResolvedValueOnce(withCount([], 0));
+      .mockResolvedValueOnce(withCount([], 0))
+      .mockResolvedValueOnce(withCount([{ account_id: 'acct-1', earlier_exists: false }], 1));
 
     const result = await processReview(monitored, 'biz-1', 'corr-1');
 
     expect(result).toBe('new');
-    expect(tx).toHaveBeenCalledTimes(3);
+    expect(tx).toHaveBeenCalledTimes(4);
 
     // 3rd tx call is the job_outbox INSERT — verify topic string is present
     const outboxSql = (tx.mock.calls[2]?.[0] as TemplateStringsArray | undefined)?.join('?') ?? '';
     expect(outboxSql).toContain('generate_response');
+  });
+
+  it('enqueues first_review_ingested for the first account-level review', async () => {
+    const monitored = makeMonitoredReview();
+
+    tx
+      .mockResolvedValueOnce(withCount([], 0))
+      .mockResolvedValueOnce(withCount([{ id: 'new-id' }], 1))
+      .mockResolvedValueOnce(withCount([], 0))
+      .mockResolvedValueOnce(withCount([{ account_id: 'acct-1', earlier_exists: false }], 1));
+
+    const result = await processReview(monitored, 'biz-1', 'corr-1');
+
+    expect(result).toBe('new');
+    expect(enqueueAnalyticsEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: 'first_review_ingested',
+        eventKey: 'first_review_ingested:acct-1',
+        distinctId: 'acct-1',
+        accountId: 'acct-1',
+        businessId: 'biz-1',
+      }),
+      tx,
+    );
   });
 
   it('race-loss (INSERT count=0) falls through to existing-row branch → unchanged', async () => {
@@ -152,7 +182,8 @@ describe('processReview', () => {
     tx
       .mockResolvedValueOnce(withCount([], 0))
       .mockResolvedValueOnce(withCount([{ id: 'new-id' }], 1))
-      .mockResolvedValueOnce(withCount([], 0));
+      .mockResolvedValueOnce(withCount([], 0))
+      .mockResolvedValueOnce(withCount([{ account_id: 'acct-1', earlier_exists: false }], 1));
 
     const result = await processReview(monitored, 'biz-1', 'corr-1', { suppressNotification: true });
 
@@ -170,7 +201,8 @@ describe('processReview', () => {
     tx
       .mockResolvedValueOnce(withCount([], 0))
       .mockResolvedValueOnce(withCount([{ id: 'new-id' }], 1))
-      .mockResolvedValueOnce(withCount([], 0));
+      .mockResolvedValueOnce(withCount([], 0))
+      .mockResolvedValueOnce(withCount([{ account_id: 'acct-1', earlier_exists: false }], 1));
 
     // No options argument — default is false
     const result = await processReview(monitored, 'biz-1');

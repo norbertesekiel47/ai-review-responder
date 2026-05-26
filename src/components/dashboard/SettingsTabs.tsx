@@ -6,7 +6,7 @@ import { Icon, type IconName } from './Icon';
 
 // ── Tab types ──────────────────────────────────────────────────────────
 
-export type SettingsTab = 'account' | 'locations' | 'voice' | 'channels' | 'general';
+export type SettingsTab = 'account' | 'locations' | 'voice' | 'channels' | 'general' | 'security';
 
 interface Tab {
   id: SettingsTab;
@@ -23,6 +23,7 @@ const TABS_MULTI: Tab[] = [
   { id: 'locations', label: 'Locations', icon: 'location', href: '/settings/locations' },
   { id: 'voice', label: 'Voice', icon: 'sparkle', href: '/settings/voice' },
   { id: 'channels', label: 'Notifications', icon: 'inbox', href: '/settings/channels' },
+  { id: 'security', label: 'Security', icon: 'shield', href: '/settings/security' },
 ];
 
 /** Single-location (flag off): 3 tabs — General, Brand Voice, Notifications */
@@ -30,6 +31,7 @@ const TABS_SINGLE: Tab[] = [
   { id: 'general', label: 'General', icon: 'cog', href: '/settings' },
   { id: 'voice', label: 'Brand Voice', icon: 'sparkle', href: '/settings#brand-voice' },
   { id: 'channels', label: 'Notifications', icon: 'inbox', href: '/settings/channels' },
+  { id: 'security', label: 'Security', icon: 'shield', href: '/settings/security' },
 ];
 
 /** Single-location with locations settings: 4 tabs — Account, Locations, Brand Voice, Notifications */
@@ -38,6 +40,7 @@ const TABS_SINGLE_WITH_LOCATIONS: Tab[] = [
   { id: 'locations', label: 'Locations', icon: 'location', href: '/settings/locations' },
   { id: 'voice', label: 'Brand Voice', icon: 'sparkle', href: '/settings#brand-voice' },
   { id: 'channels', label: 'Notifications', icon: 'inbox', href: '/settings/channels' },
+  { id: 'security', label: 'Security', icon: 'shield', href: '/settings/security' },
 ];
 
 // ── Component ───────────────────────────────────────────────────────────

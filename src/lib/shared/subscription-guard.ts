@@ -1,5 +1,10 @@
 import { SubscriptionStatus } from './subscription-status';
-import type { SubscriptionStatusValue } from './subscription-status';
+import {
+  computePastDueRecoveryState,
+  type AccountFlagsInput,
+} from './past-due-recovery';
+
+export type { AccountFlagsInput } from './past-due-recovery';
 
 export type WorkerType = 'generator' | 'notification' | 'publisher' | 'summary' | 'owner_email' | 'drain';
 
@@ -7,7 +12,15 @@ type Allowed = { allowed: true };
 type Denied = { allowed: false; reason: string };
 export type SubscriptionCheckResult = Allowed | Denied;
 
-const GRACE_PERIOD_MS = 7 * 86_400_000; // 7 days
+export interface SubscriptionGuardInput {
+  status: string;
+  workerType: WorkerType;
+  pastDueAt?: Date | string | null;
+  accountFlags?: AccountFlagsInput;
+  now?: Date;
+  /** @deprecated Only accepted to prove business clocks are ignored. */
+  businessUpdatedAt?: Date;
+}
 
 /**
  * Checks whether a worker should process work for an account based on
@@ -18,12 +31,8 @@ const GRACE_PERIOD_MS = 7 * 86_400_000; // 7 days
  * - pending_payment → only generator allowed (admin-visible demo drafts)
  * - active → allowed
  */
-export function checkSubscription(
-  status: string,
-  businessUpdatedAt: Date,
-  workerType: WorkerType,
-): SubscriptionCheckResult {
-  switch (status) {
+export function checkSubscription(input: SubscriptionGuardInput): SubscriptionCheckResult {
+  switch (input.status) {
     case SubscriptionStatus.ACTIVE:
       return { allowed: true };
 
@@ -31,20 +40,24 @@ export function checkSubscription(
       return { allowed: false, reason: 'cancelled' };
 
     case SubscriptionStatus.PAST_DUE: {
-      const elapsed = Date.now() - businessUpdatedAt.getTime();
-      if (elapsed > GRACE_PERIOD_MS) {
-        return { allowed: false, reason: 'past_due_expired' };
-      }
-      return { allowed: true };
+      const recovery = computePastDueRecoveryState({
+        subscriptionStatus: input.status,
+        pastDueAt: input.pastDueAt,
+        accountFlags: input.accountFlags,
+        now: input.now,
+      });
+      return recovery.isReadOnly
+        ? { allowed: false, reason: 'past_due_expired' }
+        : { allowed: true };
     }
 
     case SubscriptionStatus.PENDING_PAYMENT:
-      if (workerType === 'generator') {
+      if (input.workerType === 'generator') {
         return { allowed: true };
       }
       return { allowed: false, reason: 'pending_payment' };
 
     default:
-      return { allowed: false, reason: `unknown_status:${status}` };
+      return { allowed: false, reason: `unknown_status:${input.status}` };
   }
 }

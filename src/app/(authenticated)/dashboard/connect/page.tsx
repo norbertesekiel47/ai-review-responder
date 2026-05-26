@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useDashboardData } from '@/hooks/useDashboardData';
 import { useLocationScope } from '@/contexts/LocationContext';
+import type { DashboardDataActive } from '@/lib/dashboard/types';
 import type { LocationId } from '@/lib/shared/ids';
 
 /**
@@ -42,7 +43,26 @@ export default function ConnectPage() {
   });
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [redirectUrl, setRedirectUrl] = useState<string | null>(null);
+  const redirectTimerRef = useRef<number | null>(null);
   const urlError = searchParams.get('error');
+
+  // The redirect-timeout fallback timer must not outlive the page. If the
+  // browser navigates to Zernio (or restores this page from bfcache), clear it
+  // so it can't fire a spurious gbp_connect_failed for a connect that succeeded.
+  useEffect(() => {
+    function clearRedirectTimer() {
+      if (redirectTimerRef.current !== null) {
+        window.clearTimeout(redirectTimerRef.current);
+        redirectTimerRef.current = null;
+      }
+    }
+    window.addEventListener('pagehide', clearRedirectTimer);
+    return () => {
+      window.removeEventListener('pagehide', clearRedirectTimer);
+      clearRedirectTimer();
+    };
+  }, []);
 
   useEffect(() => {
     if (requestedScope && currentScope !== requestedScope) {
@@ -104,6 +124,8 @@ export default function ConnectPage() {
   }
 
   const zernio = data.zernioConnection;
+  const isReadOnly =
+    data.subscriptionStatus === 'past_due' && 'isReadOnly' in data && data.isReadOnly === true;
 
   // Active: redirect already issued in effect; render nothing to avoid flash.
   if (zernio.status === 'active') return null;
@@ -111,6 +133,17 @@ export default function ConnectPage() {
   async function handleConnect() {
     setBusy(true);
     setActionError(null);
+    setRedirectUrl(null);
+    // One correlation id for the whole attempt so its events share a stable
+    // client event key and a retried POST of the same event dedups server-side.
+    const attemptId = makeClientEventId();
+    // gbp_connect_started is captured server-side (account-scoped) in
+    // /api/zernio/connect/start so the funnel joins gbp_connected; the client
+    // only reports failures. business_id lets a property-based funnel attribute
+    // failures to the same location as the server-side started/connected events.
+    const scopeProps = effectiveScope === 'all'
+      ? { source: 'dashboard_connect', location_scope: 'all' as const }
+      : { source: 'dashboard_connect', location_scope: 'location' as const, business_id: effectiveScope };
     try {
       const res = await fetch('/api/zernio/connect/start', {
         method: 'POST',
@@ -121,13 +154,33 @@ export default function ConnectPage() {
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok || !body.authUrl) {
-        setActionError(friendlyErrorMessage(body.error ?? `connect_failed_${res.status}`));
+        const reason = body.error ?? `connect_failed_${res.status}`;
+        setActionError(friendlyErrorMessage(reason));
+        void enqueueConnectAnalytics('gbp_connect_failed', {
+          ...scopeProps,
+          reason,
+          status: res.status,
+        }, attemptId);
         setBusy(false);
         return;
       }
+      setRedirectUrl(body.authUrl);
+      redirectTimerRef.current = window.setTimeout(() => {
+        redirectTimerRef.current = null;
+        setActionError('If the connection window did not open, use the manual link below.');
+        setBusy(false);
+        void enqueueConnectAnalytics('gbp_connect_failed', {
+          ...scopeProps,
+          reason: 'redirect_timeout',
+        }, attemptId);
+      }, 2500);
       window.location.href = body.authUrl;
     } catch {
       setActionError('Network error — please try again.');
+      void enqueueConnectAnalytics('gbp_connect_failed', {
+        ...scopeProps,
+        reason: 'network_error',
+      }, attemptId);
       setBusy(false);
     }
   }
@@ -166,6 +219,8 @@ export default function ConnectPage() {
 
       {zernio.status === 'finalize_unknown' || zernio.hasUnresolvedIncident ? (
         <FinalizeUnknownView />
+      ) : isReadOnly ? (
+        <ReadOnlyConnectView zernio={zernio} />
       ) : urlError && zernio.status === 'pending' ? (
         <InterruptedPendingView onCancel={handleCancel} busy={busy} />
       ) : zernio.status === 'pending' ? (
@@ -186,13 +241,96 @@ export default function ConnectPage() {
         <ConnectView onConnect={handleConnect} busy={busy} />
       )}
 
+      {!isReadOnly && redirectUrl ? (
+        <div className="mt-4">
+          <a className="text-sm text-blue-600 hover:underline" href={redirectUrl}>
+            Open connection manually
+          </a>
+        </div>
+      ) : null}
+
       <div className="mt-6">
         <Link href="/dashboard" className="text-sm text-blue-600 hover:underline">
           ← Back to dashboard
         </Link>
       </div>
+      <div className="mt-2">
+        <Link href="/help/contact" className="text-sm text-blue-600 hover:underline">
+          Get help connecting Google Business
+        </Link>
+      </div>
     </div>
   );
+}
+
+function ReadOnlyConnectView({
+  zernio,
+}: {
+  zernio: DashboardDataActive['zernioConnection'];
+}) {
+  const heading =
+    zernio.status === 'disconnected'
+      ? 'Reconnect Google Business'
+      : zernio.status === 'pending'
+        ? 'Google Business connection pending'
+        : 'Connect Google Business';
+  const detail =
+    zernio.status === 'disconnected'
+      ? 'Google Business is disconnected. Update billing before reconnecting this location.'
+      : zernio.status === 'pending'
+        ? 'A Google Business connection is in progress, but account changes are paused until billing is updated.'
+        : 'Google Business is not connected. Update billing before connecting this location.';
+
+  return (
+    <div className="rounded-lg border border-amber-200 bg-amber-50 p-6">
+      <h1 className="text-2xl font-semibold text-amber-950">{heading}</h1>
+      <p className="mt-2 text-sm text-amber-900">{detail}</p>
+      <p className="mt-3 text-sm font-medium text-amber-950">
+        Update billing to connect or change Google Business.
+      </p>
+      {zernio.queuedReconnectCount > 0 ? (
+        <p className="mt-2 text-sm text-amber-900">
+          {zernio.queuedReconnectCount} approved{' '}
+          {zernio.queuedReconnectCount === 1 ? 'response is' : 'responses are'} waiting
+          to publish after reconnect.
+        </p>
+      ) : null}
+      {zernio.lastDisconnectReason ? (
+        <p className="mt-2 text-xs text-amber-800">
+          Last disconnect reason: {zernio.lastDisconnectReason}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+type ConnectAnalyticsEventName = 'gbp_connect_started' | 'gbp_connect_failed';
+
+function enqueueConnectAnalytics(
+  eventName: ConnectAnalyticsEventName,
+  properties: Record<string, unknown>,
+  clientEventId: string,
+): Promise<void> {
+  return fetch('/api/analytics/enqueue', {
+    method: 'POST',
+    keepalive: true,
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      eventName,
+      clientEventId,
+      properties,
+    }),
+  }).then(
+    () => undefined,
+    () => undefined,
+  );
+}
+
+function makeClientEventId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 function ConnectView({
@@ -372,6 +510,10 @@ function friendlyErrorMessage(code: string): string {
     case 'forbidden':
     case 'unauthorized':
       return 'You don’t have permission to do that.';
+    case 'past_due_read_only':
+    case 'subscription_inactive':
+    case 'subscription_required':
+      return 'Update billing before connecting Google Business.';
     case 'unscoped_owner':
       return 'Your account isn’t linked to a business yet — please contact support.';
     case 'connect_in_progress':

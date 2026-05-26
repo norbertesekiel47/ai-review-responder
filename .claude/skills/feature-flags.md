@@ -271,6 +271,18 @@ guarded so a flush failure can't skip DB teardown). First event wired:
 (`worker/jobs/publisher/activation.ts`). Not a feature flag — gated purely by
 key presence.
 
+**Wave 2 first-party analytics queue (PR #87, migration 046).** Browser/Next.js
+code never calls PostHog. Client intent events POST to `/api/analytics/enqueue`
+(same-origin, anon-rate-limited, gated to `CLIENT_ENQUEUEABLE_EVENT_NAMES`);
+durable server events insert into `analytics_events` directly; the
+`AnalyticsDispatchPoller` (Railway) claims rows and ships them to PostHog. Key
+behavior: **unconfigured PostHog (`POSTHOG_API_KEY` unset) is a clean no-op** —
+the poller early-returns and never claims rows, so nothing is dropped and the
+queue is fully recoverable once a key is added (config/transient failures defer
+without consuming the retry budget; only real per-event errors exhaust
+`max_attempts`). `flush`-before-`completed`, so a row marked done was actually
+sent. Tuning: `ANALYTICS_DISPATCH_*` under Poller Tuning below.
+
 ---
 
 ## Google Maps
@@ -304,6 +316,8 @@ key presence.
 | `NOTIFICATION_FAILOVER_INTERVAL_MS` | 7200000 (2h) | Failover poller interval |
 | `STRIPE_LOCATIONS_RECONCILE_INTERVAL_MS` | 3600000 (1h) | `StripeLocationsReconcilePoller` cadence. Wave 1 (PR #85) expanded it from location-count drift to full subscription + upcoming-invoice reconciliation (missing/duplicate/status/price/quantity/invoice drift → Sentry, never auto-corrects). |
 | `STRIPE_LOCATIONS_RECONCILE_DISABLED` | `false` | `true` → skip the billing reconcile poller (mock mode auto-skips) |
+| `ANALYTICS_DISPATCH_POLL_INTERVAL_MS` | 30000 (30s) | `AnalyticsDispatchPoller` cadence (Wave 2). Rejects non-numeric/unit-suffixed values (`'30s'` → falls back to default). |
+| `ANALYTICS_DISPATCH_BATCH_SIZE` | 50 | Rows claimed per dispatch pass (clamped 1–250). |
 
 > **Wave 1 launch-risk controls are unconditional — no kill-switch (since 2026-05-25, PR #85):**
 > the **PHI scanner** on Zernio ingest (`src/lib/security/phi-scanner.ts` →
@@ -322,6 +336,7 @@ key presence.
 |---|---|---|
 | `RANKING_TRACKING_ENABLED` | Off | Enable when ranking worker is ready |
 | `SELF_SERVE_SIGNUP_ENABLED` | Off | Custom SMTP + Stripe payment links configured |
+| `MFA_ENFORCEMENT_ENABLED` | Off (Wave 2, PR #87) | Master kill-switch for blocking MFA enforcement. **Off** = enrollment UI is live and AAL2 is still hard-required at the sensitive API routes (grant-extension, impersonation start/end/view), but the proxy does NOT redirect normal page navigation to `/mfa/challenge`. Flip **on** only after owner/admin regression tests pass. NB: MFA *unenroll* always requires a current AAL2 session regardless of this flag (server-enforced via `/api/auth/mfa/challenge` action `unenroll`). |
 | `CHANNELS_SMS_ENABLED` | Off | 10DLC registration |
 | `CHANNELS_TELEGRAM_ENABLED` | Off | Bot registered + setWebhook called |
 | `CHANNELS_WHATSAPP_ENABLED` | Off | Meta verification + WABA + template approval |
@@ -332,6 +347,14 @@ key presence.
 | `ONBOARDING_DEMO_ENABLED` | Off (PR #2 default) | Master flag for the pre-pay demo lane on `feat/pre-paywall-demo-pr2`. When ON: `/onboarding/start` (location capture) and `/onboarding/demo` (demo + paywall) become reachable, `/api/onboarding/business` switches to `BusinessOnboardingPostPaySchema` (rejects location fields), and the wizard becomes 2-step (Profile + Voice). When OFF: those routes 404 and the legacy 3-step wizard runs. Migration 032 must be applied either way. |
 | `ONBOARDING_DEMO_DAILY_CENTS` | `1000` ($10/day) | Global daily cost ceiling for the onboarding demo lane. Override at runtime via Redis key `cost:onboarding-demo:override:cents`. Each demo reserves 20¢ pessimistically; the worker reconciles to actual spend (~3¢). |
 | `ONBOARDING_DEMO_STAFF_EMAILS_CSV` | unset | Phase 3 staff allowlist for soft-launch. Comma-separated owner emails permitted to reach `/onboarding/start` while the flag is on for the rest of the world. Removed at Phase 4 (full GA). |
+
+---
+
+## Wave 2 secrets (PR #87)
+
+| Var | Default | Notes |
+|---|---|---|
+| `IMPERSONATION_COOKIE_SECRET` | — (unset) | HMAC-SHA256 signing secret for the admin view-as session cookie (`rw_impersonation`). **Required for admin impersonation** and validated at use: must be **≥ 32 chars** or `assertImpersonationCookieConfigured()` throws (the start route fails closed). Generate with `openssl rand -hex 32`. Not a `NEXT_PUBLIC_*` var. |
 
 ---
 

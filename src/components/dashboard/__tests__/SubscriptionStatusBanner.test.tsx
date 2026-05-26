@@ -57,10 +57,14 @@ describe('PastDueBanner (VAL-CROSS-012)', () => {
     render(
       <PastDueBanner
         billingPortalUrl="/api/billing/portal"
+        pastDueAt="2026-05-20T12:00:00.000Z"
+        deadline="2026-05-27T12:00:00.000Z"
+        daysRemaining={6}
+        isReadOnly={false}
       />,
     );
 
-    expect(screen.getByText(/please update your payment method/)).toBeDefined();
+    expect(screen.getByText(/Payment needs attention/)).toBeDefined();
     expect(screen.getByRole('button', { name: 'Update payment method' })).toBeDefined();
   });
 
@@ -93,6 +97,10 @@ describe('PastDueBanner (VAL-CROSS-012)', () => {
     render(
       <PastDueBanner
         billingPortalUrl="/api/billing/portal"
+        pastDueAt="2026-05-20T12:00:00.000Z"
+        deadline="2026-05-27T12:00:00.000Z"
+        daysRemaining={6}
+        isReadOnly={false}
         navigate={() => {}}
       />,
     );
@@ -113,20 +121,91 @@ describe('PastDueBanner (VAL-CROSS-012)', () => {
     render(
       <PastDueBanner
         billingPortalUrl={null}
+        pastDueAt="2026-05-20T12:00:00.000Z"
+        deadline="2026-05-27T12:00:00.000Z"
+        daysRemaining={6}
+        isReadOnly={false}
       />,
     );
 
-    expect(screen.getByText(/please update your payment method/)).toBeDefined();
-    expect(screen.getByText(/Contact support to update your payment method/)).toBeDefined();
+    expect(screen.getByText(/Payment needs attention/)).toBeDefined();
+    expect(screen.getByRole('link', { name: /Contact support/i })).toHaveAttribute(
+      'href',
+      '/help/contact',
+    );
   });
 
-  it('mentions 7-day grace period in the body', () => {
+  it('renders day-1 past-due copy with the absolute deadline', () => {
     render(
       <PastDueBanner
         billingPortalUrl="/api/billing/portal"
+        pastDueAt="2026-05-20T12:00:00.000Z"
+        deadline="2026-05-27T12:00:00.000Z"
+        daysRemaining={6}
+        isReadOnly={false}
       />,
     );
 
-    expect(screen.getByText(/7-day grace period/)).toBeDefined();
+    expect(screen.getByText(/Payment needs attention/)).toBeDefined();
+    expect(screen.getByText(/May 27, 2026/)).toBeDefined();
+  });
+
+  it('renders day-3 escalation copy', () => {
+    render(
+      <PastDueBanner
+        billingPortalUrl="/api/billing/portal"
+        pastDueAt="2026-05-20T12:00:00.000Z"
+        deadline="2026-05-27T12:00:00.000Z"
+        daysRemaining={4}
+        isReadOnly={false}
+      />,
+    );
+
+    expect(screen.getByText(/Payment still overdue/)).toBeDefined();
+    expect(screen.getByText(/4 days remain/)).toBeDefined();
+  });
+
+  it('renders day-5 final reminder copy', () => {
+    render(
+      <PastDueBanner
+        billingPortalUrl="/api/billing/portal"
+        pastDueAt="2026-05-20T12:00:00.000Z"
+        deadline="2026-05-27T12:00:00.000Z"
+        daysRemaining={2}
+        isReadOnly={false}
+      />,
+    );
+
+    expect(screen.getByText(/Final payment reminder/)).toBeDefined();
+    expect(screen.getByText(/2 days remain/)).toBeDefined();
+  });
+
+  it('renders "less than a day" when under 24h of grace remains', () => {
+    render(
+      <PastDueBanner
+        billingPortalUrl="/api/billing/portal"
+        pastDueAt="2026-05-20T12:00:00.000Z"
+        deadline="2026-05-27T12:00:00.000Z"
+        daysRemaining={0}
+        isReadOnly={false}
+      />,
+    );
+
+    expect(screen.getByText(/Less than a day remains/)).toBeDefined();
+  });
+
+  it('renders read-only copy after the recovery window closes', () => {
+    render(
+      <PastDueBanner
+        billingPortalUrl="/api/billing/portal"
+        pastDueAt="2026-05-20T12:00:00.000Z"
+        deadline="2026-05-27T12:00:00.000Z"
+        daysRemaining={0}
+        isReadOnly={true}
+      />,
+    );
+
+    expect(screen.getByText(/Payment overdue — account is read-only/)).toBeDefined();
+    expect(screen.getByText(/Actions are paused until payment is updated/)).toBeDefined();
   });
 });

@@ -1,7 +1,10 @@
 import type { Job } from 'bullmq';
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '../../src/lib/db/server';
-import { checkSubscription } from '../../src/lib/shared/subscription-guard';
+import {
+  checkSubscription,
+  type AccountFlagsInput,
+} from '../../src/lib/shared/subscription-guard';
 import { markOutboxCompleted, markOutboxFailed, extractOutboxHandle } from '../../src/lib/shared/outbox';
 import { isMockMode } from '../../src/lib/shared/mock-mode';
 import { sanitizeText } from '../../src/lib/shared/sanitize';
@@ -23,6 +26,8 @@ import { createWorkerLogger, type WorkerLogger } from '../../src/lib/shared/logg
 import { parseDbArray } from '../../src/lib/shared/db-array';
 import { asLocationId } from '../../src/lib/shared/ids';
 import type { LocationId } from '../../src/lib/shared/ids';
+import { enqueueAnalyticsEvent } from '../../src/lib/analytics/enqueue';
+import { makeAnalyticsEventKey } from '../../src/lib/analytics/events';
 
 export async function handleResponseGeneration(
   job: Job<GenerateResponsePayload>,
@@ -54,6 +59,7 @@ export async function handleResponseGeneration(
 
   const [business] = await sql<{
     id: string;
+    account_id: string;
     name: string;
     category: string | null;
     tone: string;
@@ -64,11 +70,13 @@ export async function handleResponseGeneration(
     sample_responses: string[] | null;
     subscription_status: string;
     subscription_tier: string;
-    account_updated_at: Date;
+    account_past_due_at: Date | null;
+    account_flags: AccountFlagsInput;
   }[]>`
-    SELECT b.id, b.name, b.category, b.tone, b.products_services, b.staff_names,
+    SELECT b.id, b.account_id, b.name, b.category, b.tone, b.products_services, b.staff_names,
            b.highlight_facts, b.avoid_facts, b.sample_responses,
-           a.subscription_status, a.subscription_tier, a.updated_at AS account_updated_at
+           a.subscription_status, a.subscription_tier,
+           a.past_due_at AS account_past_due_at, a.flags AS account_flags
     FROM businesses b
     JOIN accounts a ON a.id = b.account_id
     WHERE b.id = ${businessId}
@@ -81,11 +89,12 @@ export async function handleResponseGeneration(
   }
 
   // ── Step 2: Subscription guard ───────────────────────────────────────
-  const subCheck = checkSubscription(
-    business.subscription_status,
-    new Date(business.account_updated_at),
-    'generator',
-  );
+  const subCheck = checkSubscription({
+    status: business.subscription_status,
+    pastDueAt: business.account_past_due_at,
+    accountFlags: business.account_flags ?? {},
+    workerType: 'generator',
+  });
 
   if (!subCheck.allowed) {
     logger.log(`Business ${businessId} skipped: ${subCheck.reason}`);
@@ -121,12 +130,23 @@ export async function handleResponseGeneration(
   // committed the response + notification outbox but crashed before
   // markOutboxCompleted, detect this BEFORE spending on LLM calls or
   // reserving cost. The generator's Redis cache may have expired.
-  const [existingResponse] = await sql<{ id: string }[]>`
-    SELECT id FROM responses WHERE review_id = ${review_id} AND version = ${version}
+  const [existingResponse] = await sql<{ id: string; business_id: string; account_id: string }[]>`
+    SELECT r.id, r.business_id, b.account_id
+    FROM responses r
+    JOIN businesses b ON b.id = r.business_id
+    WHERE r.review_id = ${review_id}
+      AND r.version = ${version}
   `;
 
   if (existingResponse) {
     logger.log(`Response already exists for review ${review_id} v${version}, completing outbox`);
+    await maybeEnqueueFirstResponseDrafted({
+      accountId: existingResponse.account_id,
+      businessId: existingResponse.business_id,
+      responseId: existingResponse.id,
+      reviewId: review_id,
+      logger,
+    });
     await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }
@@ -215,6 +235,14 @@ export async function handleResponseGeneration(
     job.data.suppress_notification === true,
   );
   // DB transaction failure throws for BullMQ retry (transient)
+
+  await maybeEnqueueFirstResponseDrafted({
+    accountId: business.account_id,
+    businessId,
+    responseId,
+    reviewId: review_id,
+    logger,
+  });
 
   // ── Step 10: Complete outbox ─────────────────────────────────────────
   await markOutboxCompleted(outboxId, outboxAttempt);
@@ -354,6 +382,65 @@ async function persistResponseAndNotify(
   });
 
   return responseId;
+}
+
+// Best-effort, intentionally outside the response-creation transaction: this
+// runs AFTER the response commits so it can detect "first draft for the account"
+// against committed rows. Idempotency across BullMQ retries-after-commit is
+// guaranteed by the account-scoped event_key + ON CONFLICT (event_key) DO
+// NOTHING in enqueueAnalyticsEvent, so a re-run cannot double-count. Analytics
+// must never fail response generation, hence the swallowed catch.
+async function maybeEnqueueFirstResponseDrafted(input: {
+  accountId: string;
+  businessId: string;
+  responseId: string;
+  reviewId: string;
+  logger?: Pick<Console, 'warn'>;
+}): Promise<void> {
+  try {
+    const [row] = await sql<{ earlier_exists: boolean; email_verified_at: Date | null }[]>`
+      SELECT
+        EXISTS (
+          SELECT 1
+          FROM responses r2
+          JOIN businesses b2 ON b2.id = r2.business_id
+          WHERE b2.account_id = ${input.accountId}::uuid
+            AND r2.id <> ${input.responseId}::uuid
+            AND r2.created_at IS NOT NULL
+          LIMIT 1
+        ) AS earlier_exists,
+        (
+          SELECT occurred_at
+          FROM analytics_events
+          WHERE event_name = 'email_verified'
+            AND account_id = ${input.accountId}::uuid
+          ORDER BY occurred_at ASC
+          LIMIT 1
+        ) AS email_verified_at
+    `;
+    if (row?.earlier_exists) return;
+
+    const minutesToFirstDraft = row?.email_verified_at
+      ? Math.max(0, (Date.now() - new Date(row.email_verified_at).getTime()) / 60_000)
+      : null;
+
+    await enqueueAnalyticsEvent({
+      eventName: 'first_response_drafted',
+      eventKey: makeAnalyticsEventKey('first_response_drafted', [input.accountId]),
+      distinctId: input.accountId,
+      accountId: input.accountId,
+      businessId: input.businessId,
+      properties: {
+        account_id: input.accountId,
+        business_id: input.businessId,
+        response_id: input.responseId,
+        review_id: input.reviewId,
+        minutes_to_first_draft: minutesToFirstDraft === null ? null : Number(minutesToFirstDraft.toFixed(2)),
+      },
+    });
+  } catch (err) {
+    input.logger?.warn(`first_response_drafted enqueue failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────

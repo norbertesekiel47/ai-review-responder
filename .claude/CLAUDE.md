@@ -118,6 +118,14 @@ approval before posting.
   flushed on worker shutdown. Never `posthog-js` / Next.js routes (Vercel =
   UI only). Activation (`activation_completed`) is captured on the publisher
   path — see `worker/jobs/publisher/activation.ts`.
+  - **First-party analytics queue (Wave 2, migration 046).** Browser/Next.js
+    code never calls PostHog directly: client intent events POST to
+    `/api/analytics/enqueue` (gated to `CLIENT_ENQUEUEABLE_EVENT_NAMES` — durable
+    facts like `first_response_drafted`/`activation_completed` are NOT
+    client-postable), durable events insert into `analytics_events` server-side
+    (in-tx where one exists), and `AnalyticsDispatchPoller` ships rows to PostHog
+    (`flush`-before-`completed`; unconfigured/transient failures defer without
+    burning the retry budget). Idempotency via `event_key` + `ON CONFLICT`.
 - Account-status audit writes go through `src/lib/audit/log.ts`
   (`writeAccountAuditLog`) in the SAME transaction as the state change — never
   raw `INSERT INTO account_audit_log`.
@@ -138,7 +146,7 @@ approval before posting.
 
 - All tables: UUIDv7 (time-ordered)
 - Base schema: `supabase/migrations/001_initial_schema.sql`
-- Current head: migration **045** (next: **046**)
+- Current head: migration **049** (next: **050**)
 - For migration details: see `.claude/skills/migrations.md`
 
 ## Non-obvious gotchas — read these before touching related code

@@ -17,6 +17,7 @@ const {
   mockGetApprovedResponsePairs,
   mockCheckRegenBudget,
   mockSetCachedGeneration,
+  mockEnqueueAnalyticsEvent,
 } = vi.hoisted(() => {
   const sqlReturnQueue: unknown[] = [];
 
@@ -46,6 +47,7 @@ const {
     mockGetApprovedResponsePairs: vi.fn(async () => []),
     mockCheckRegenBudget: vi.fn(),
     mockSetCachedGeneration: vi.fn(),
+    mockEnqueueAnalyticsEvent: vi.fn(),
   };
 });
 
@@ -100,6 +102,10 @@ vi.mock('../../../src/lib/costs/tracker', () => ({
   },
 }));
 
+vi.mock('../../../src/lib/analytics/enqueue', () => ({
+  enqueueAnalyticsEvent: mockEnqueueAnalyticsEvent,
+}));
+
 vi.mock('uuid', () => ({
   v7: vi.fn(() => 'deterministic-uuid-v7'),
 }));
@@ -129,8 +135,16 @@ function mockBusinessRow(overrides = {}) {
     id: 'biz-1', name: 'Test Biz', category: 'restaurant', tone: 'warm',
     products_services: null, staff_names: [], highlight_facts: [], avoid_facts: [],
     sample_responses: [], subscription_status: 'active', subscription_tier: 'standard',
-    account_updated_at: new Date(), ...overrides,
+    account_id: 'acct-1', account_updated_at: new Date(), ...overrides,
   };
+}
+
+function mockExistingResponseRow(overrides = {}) {
+  return { id: 'resp-existing-1', business_id: 'biz-1', account_id: 'acct-1', ...overrides };
+}
+
+function mockFirstDraftLookup(overrides = {}) {
+  return { earlier_exists: false, email_verified_at: null, ...overrides };
 }
 
 const MOCK_RESULT: GenerationResult = {
@@ -163,6 +177,75 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
     // with the cost ID from MOCK_RESULT.apiCostId ('cost-1')
     const txCallArgs = mockTx.mock.calls.map((c) => c.slice(1)).flat();
     expect(txCallArgs).toContain('cost-1');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-gen-1', undefined);
+  });
+
+  it('enqueues first_response_drafted once with deterministic event key', async () => {
+    sqlReturnQueue.push([mockReviewRow()]);
+    sqlReturnQueue.push([mockBusinessRow()]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([mockFirstDraftLookup()]);
+    mockGenerateResponse.mockResolvedValueOnce(MOCK_RESULT);
+
+    await handleResponseGeneration(makeJob());
+
+    expect(mockEnqueueAnalyticsEvent).toHaveBeenCalledWith(expect.objectContaining({
+      eventName: 'first_response_drafted',
+      eventKey: 'first_response_drafted:acct-1',
+      distinctId: 'acct-1',
+      accountId: 'acct-1',
+      businessId: 'biz-1',
+    }));
+  });
+
+  it('enqueues first_response_drafted on existing-response retry before completing outbox', async () => {
+    sqlReturnQueue.push([mockReviewRow()]);
+    sqlReturnQueue.push([mockBusinessRow()]);
+    sqlReturnQueue.push([mockExistingResponseRow()]);
+    sqlReturnQueue.push([mockFirstDraftLookup()]);
+
+    await handleResponseGeneration(makeJob());
+
+    expect(mockGenerateResponse).not.toHaveBeenCalled();
+    expect(mockEnqueueAnalyticsEvent).toHaveBeenCalledWith(expect.objectContaining({
+      eventName: 'first_response_drafted',
+      eventKey: 'first_response_drafted:acct-1',
+      distinctId: 'acct-1',
+      accountId: 'acct-1',
+      businessId: 'biz-1',
+    }));
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-gen-1', undefined);
+    const analyticsCallOrder = mockEnqueueAnalyticsEvent.mock.invocationCallOrder[0];
+    const completedCallOrder = mockMarkOutboxCompleted.mock.invocationCallOrder[0];
+    expect(analyticsCallOrder).toBeDefined();
+    expect(completedCallOrder).toBeDefined();
+    expect(analyticsCallOrder!).toBeLessThan(completedCallOrder!);
+  });
+
+  it('does not enqueue first_response_drafted when an earlier account response exists', async () => {
+    sqlReturnQueue.push([mockReviewRow()]);
+    sqlReturnQueue.push([mockBusinessRow()]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([mockFirstDraftLookup({ earlier_exists: true })]);
+    mockGenerateResponse.mockResolvedValueOnce(MOCK_RESULT);
+
+    await handleResponseGeneration(makeJob());
+
+    expect(mockEnqueueAnalyticsEvent).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-gen-1', undefined);
+  });
+
+  it('completes outbox when first_response_drafted enqueue fails after normal response commit', async () => {
+    sqlReturnQueue.push([mockReviewRow()]);
+    sqlReturnQueue.push([mockBusinessRow()]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([mockFirstDraftLookup()]);
+    mockGenerateResponse.mockResolvedValueOnce(MOCK_RESULT);
+    mockEnqueueAnalyticsEvent.mockRejectedValueOnce(new Error('analytics down'));
+
+    await handleResponseGeneration(makeJob());
+
+    expect(mockEnqueueAnalyticsEvent).toHaveBeenCalledOnce();
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-gen-1', undefined);
   });
 

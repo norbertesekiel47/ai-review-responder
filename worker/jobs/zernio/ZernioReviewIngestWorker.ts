@@ -19,7 +19,10 @@
 
 import type { Job } from 'bullmq';
 import { sql } from '../../../src/lib/db/server';
-import { checkSubscription } from '../../../src/lib/shared/subscription-guard';
+import {
+  checkSubscription,
+  type AccountFlagsInput,
+} from '../../../src/lib/shared/subscription-guard';
 import { extractOutboxHandle, markOutboxCompleted } from '../../../src/lib/shared/outbox';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import { detectLikelyPhi, redactPhiForLog } from '../../../src/lib/security/phi-scanner';
@@ -92,13 +95,22 @@ export async function handleZernioReviewIngest(job: Job<IngestZernioReviewPayloa
   const { outboxId, attempt } = extractOutboxHandle(job.data, job.id!);
 
   // 1. Subscription guard (reads from accounts, not deprecated businesses.subscription_status)
-  const [acct] = await sql<{ subscription_status: string; updated_at: Date }[]>`
-    SELECT a.subscription_status, a.updated_at
+  const [acct] = await sql<{
+    subscription_status: string;
+    past_due_at: Date | null;
+    account_flags: AccountFlagsInput;
+  }[]>`
+    SELECT a.subscription_status, a.past_due_at, a.flags AS account_flags
     FROM businesses b
     JOIN accounts a ON a.id = b.account_id
     WHERE b.id = ${business_id}
   `;
-  if (!acct || !checkSubscription(acct.subscription_status, acct.updated_at, 'generator').allowed) {
+  if (!acct || !checkSubscription({
+    status: acct.subscription_status,
+    pastDueAt: acct.past_due_at,
+    accountFlags: acct.account_flags ?? {},
+    workerType: 'generator',
+  }).allowed) {
     await markOutboxCompleted(outboxId, attempt);
     return;
   }

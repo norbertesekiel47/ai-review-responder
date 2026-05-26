@@ -67,9 +67,9 @@ vi.mock('../zernio-ingest-shared', () => ({
   handleZernioIngestError: mockHandleZernioIngestError,
 }));
 vi.mock('../../../../src/lib/shared/subscription-guard', () => ({
-  checkSubscription: (_status: string, _updatedAt: Date, _workerType: string) => {
-    if (_status === 'active') return { allowed: true };
-    return { allowed: false, reason: _status };
+  checkSubscription: (input: { status: string }) => {
+    if (input.status === 'active') return { allowed: true };
+    return { allowed: false, reason: input.status };
   },
 }));
 
@@ -120,7 +120,11 @@ function pushStandardSqlSetup(runId = 'run-1') {
   // 2. SELECT run row (not yet completed)
   sqlReturnQueue.push(mkTaggedResult([{ id: runId, completed_at: null }]));
   // 3. SELECT business (active)
-  sqlReturnQueue.push(mkTaggedResult([{ subscription_status: 'active', updated_at: new Date() }]));
+  sqlReturnQueue.push(mkTaggedResult([{
+    subscription_status: 'active',
+    past_due_at: null,
+    account_flags: {},
+  }]));
 }
 
 function pushCountsUpdate() {
@@ -174,7 +178,11 @@ describe('ZernioBackfillWorker', () => {
   it('reactivation backfill does not skip when an initial backfill completed earlier', async () => {
     sqlReturnQueue.push(mkTaggedResult([]));
     sqlReturnQueue.push(mkTaggedResult([{ id: 'run-1', completed_at: null }]));
-    sqlReturnQueue.push(mkTaggedResult([{ subscription_status: 'active', updated_at: new Date() }]));
+    sqlReturnQueue.push(mkTaggedResult([{
+      subscription_status: 'active',
+      past_due_at: null,
+      account_flags: {},
+    }]));
     pushCountsUpdate();
     pushCompletedUpdate();
     mockListAllReviews.mockResolvedValueOnce([

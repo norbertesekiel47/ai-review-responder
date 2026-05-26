@@ -21,6 +21,10 @@ import { insertAuditLog, buildCallbackAudit } from './audit';
 import { recoverCorrelationId } from './correlation';
 import type { CallbackApprovalInput } from './types';
 import type { PublishResponsePayload, GenerateResponsePayload } from '@/lib/shared/worker-types';
+import {
+  assertWritableSubscriptionForBusiness,
+  throwIfReadOnly,
+} from '@/lib/shared/writable-subscription';
 
 export type { CallbackApprovalInput };
 
@@ -32,6 +36,8 @@ export type { CallbackApprovalInput };
 export async function approveViaCallback(input: CallbackApprovalInput): Promise<void> {
   await sql.begin(async (tx) => {
     const link = await lockLinkByIdForCallback(tx, input.approvalLinkId, input.viaChannel);
+    throwIfReadOnly(await assertWritableSubscriptionForBusiness(link.business_id, tx));
+
     const response = await lockPendingResponse(tx, link.response_id);
     await consumeLink(tx, link.id);
     await tx`
@@ -70,6 +76,8 @@ export async function approveViaCallback(input: CallbackApprovalInput): Promise<
 export async function regenerateViaCallback(input: CallbackApprovalInput): Promise<void> {
   await sql.begin(async (tx) => {
     const link = await lockLinkByIdForCallback(tx, input.approvalLinkId, input.viaChannel);
+    throwIfReadOnly(await assertWritableSubscriptionForBusiness(link.business_id, tx));
+
     const response = await lockPendingResponse(tx, link.response_id);
     await consumeLink(tx, link.id);
     await revokeSiblings(tx, link.response_id, link.id);

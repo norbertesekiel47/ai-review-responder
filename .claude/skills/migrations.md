@@ -1,12 +1,12 @@
 ---
 name: migrations
-description: Full Supabase migration inventory (001–045) for the RepWorth project, plus known residual risks tied to schema decisions. Read this before writing any migration, querying migration state, debugging schema issues, or planning work that touches the database.
+description: Full Supabase migration inventory (001–049) for the RepWorth project, plus known residual risks tied to schema decisions. Read this before writing any migration, querying migration state, debugging schema issues, or planning work that touches the database.
 ---
 
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **045** — next migration is **046**
+Current head: **049** — next migration is **050**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **Worker file paths (as of 2026-05-05):** Class names below are
@@ -299,6 +299,42 @@ All tables use UUIDv7 (time-ordered primary keys).
   still go through owner-authenticated routes / service-role workers. Brought the
   table into `scripts/ci/tenant-tables.ts` so the RLS audit + tenant-scope audit
   now cover it.
+
+- **046–049** — Wave 2 Activation (`codex-wave-2-activation`, PR #87). All four
+  are additive / idempotent (`CREATE TABLE IF NOT EXISTS`, `ENABLE RLS`, a guarded
+  backfill `UPDATE`); no drops, no type changes, no table rewrites, safe to run in
+  order against prod. Design: `docs/superpowers/specs/2026-05-25-wave-2-activation-design.md`.
+  - **046** — `analytics_events`: the first-party analytics dispatch queue. Vercel/
+    client code records first-party event rows here; the Railway
+    `AnalyticsDispatchPoller` ships them to PostHog (preserving "Vercel = UI only").
+    `event_key TEXT NOT NULL UNIQUE` is the idempotency key (`ON CONFLICT DO
+    NOTHING`); `event_name` is CHECK-constrained to the Wave 2 taxonomy (keep in
+    sync with `ANALYTICS_EVENT_NAMES` in `src/lib/analytics/events.ts` — a
+    drift-guard test enforces it); `status`/`attempts`/`available_at`/`locked_at`
+    drive the claim + retry loop (partial index `WHERE status = 'pending'`). FKs to
+    accounts/users/businesses are `ON DELETE SET NULL` (events survive entity
+    deletion). **RLS added in 049, not here** (see below).
+  - **047** — backfill `accounts.past_due_at = updated_at WHERE subscription_status
+    = 'past_due' AND past_due_at IS NULL`. A one-time data migration so accounts
+    already `past_due` before 043 (which added the column nullable) keep a grace
+    window instead of flipping straight to read-only once the Wave 2 recovery
+    helper ships. Idempotent (the `IS NULL` guard), narrow row lock only. Caveat:
+    `updated_at` is a proxy — a legacy past-due account may get a one-time,
+    ≤7-day-generous (never shorter, never unbounded) grace window.
+  - **048** — `impersonation_sessions`: admin-owned, time-boxed view-as session
+    state (actor/impersonated user, account, ticket_id, reason, expires_at,
+    ended_at). RLS enabled with **no policy** (deny-all; server reaches it only via
+    the RLS-bypassing `postgres` role — same lockdown as `account_audit_log`).
+    `idx_impersonation_active_actor` is a **partial UNIQUE index on
+    `(actor_user_id) WHERE ended_at IS NULL`** — the hard backstop for "one active
+    session per actor." NB: nothing sets `ended_at` on TTL expiry, so
+    `startImpersonationSession` reaps expired-but-unended rows
+    (`SET ended_at = expires_at WHERE expires_at <= NOW()`) before the active-session
+    pre-check; without that reap a lapsed session would permanently block new starts.
+  - **049** — enable RLS on `analytics_events` (deny-all, no policy). Closes the gap
+    where 046 created the table without RLS — the only table-creating migration that
+    had skipped it, leaving the table anon-readable via PostREST. Server access is
+    unaffected (Postgres.js `postgres` role bypasses RLS).
 
 ## Key Tables Reference
 

@@ -5,6 +5,8 @@ import {
   ExpiredLinkError,
   ChannelMismatchError,
 } from '../errors';
+import { handleApprovalError } from '../http-errors';
+import { SubscriptionReadOnlyError } from '@/lib/shared/writable-subscription';
 
 describe('link-state typed errors', () => {
   it('ConsumedLinkError has correct name and message', () => {
@@ -35,5 +37,25 @@ describe('link-state typed errors', () => {
     expect(err.actualChannel).toBe('sms');
     expect(err.message).toContain('telegram');
     expect(err.message).toContain('sms');
+  });
+});
+
+describe('handleApprovalError', () => {
+  it('maps read-only subscription errors to 402 no-store responses', async () => {
+    const res = handleApprovalError(new SubscriptionReadOnlyError(), 'approve');
+
+    expect(res.status).toBe(402);
+    expect(res.headers.get('Cache-Control')).toBe('no-store, private');
+    expect(await res.json()).toEqual({ error: 'past_due_read_only' });
+  });
+
+  it('maps inactive subscription errors to their status', async () => {
+    const res = handleApprovalError(
+      new SubscriptionReadOnlyError('subscription_inactive', 403),
+      'approve',
+    );
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'subscription_inactive' });
   });
 });

@@ -56,11 +56,12 @@ export async function handlePublishResponse(
   }
 
   // ── Step 3: Subscription guard ─────────────────────────────────────
-  const subCheck = checkSubscription(
-    business.subscription_status,
-    new Date(business.account_updated_at),
-    'publisher',
-  );
+  const subCheck = checkSubscription({
+    status: business.subscription_status,
+    pastDueAt: business.account_past_due_at,
+    accountFlags: business.account_flags ?? {},
+    workerType: 'publisher',
+  });
 
   if (!subCheck.allowed) {
     logger.warn(

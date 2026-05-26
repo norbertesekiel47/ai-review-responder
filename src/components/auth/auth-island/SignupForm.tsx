@@ -36,6 +36,7 @@ export function SignupForm() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!agree || loading) return;
+    void captureSignupStarted('email');
     const result = await submit({
       ownerEmail: email,
       ownerName: name,
@@ -57,7 +58,10 @@ export function SignupForm() {
       <button
         type="button"
         className="rw-google-btn"
-        onClick={() => void oauth.start()}
+        onClick={() => {
+          void captureSignupStarted('google');
+          void oauth.start();
+        }}
         disabled={oauth.loading || loading}
       >
         <GoogleIcon /> {oauth.loading ? 'Redirecting to Google…' : 'Sign up with Google'}
@@ -194,4 +198,24 @@ export function SignupForm() {
       </button>
     </form>
   );
+}
+
+async function captureSignupStarted(method: 'email' | 'google') {
+  await fetch('/api/analytics/enqueue', {
+    method: 'POST',
+    keepalive: true,
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      eventName: 'signup_started',
+      clientEventId: makeClientEventId(),
+      properties: { source: 'signup_form', method },
+    }),
+  }).catch(() => undefined);
+}
+
+function makeClientEventId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }

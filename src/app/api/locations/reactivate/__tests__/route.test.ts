@@ -7,6 +7,10 @@ const { mockRequireRole } = vi.hoisted(() => ({
   mockRequireRole: vi.fn(),
 }));
 
+const { mockAssertWritableSubscriptionForAccount } = vi.hoisted(() => ({
+  mockAssertWritableSubscriptionForAccount: vi.fn(),
+}));
+
 vi.mock('@/lib/db/auth', () => {
   class AuthError extends Error {
     constructor(
@@ -22,6 +26,10 @@ vi.mock('@/lib/db/auth', () => {
     AuthError,
   };
 });
+
+vi.mock('@/lib/shared/writable-subscription', () => ({
+  assertWritableSubscriptionForAccount: (...args: unknown[]) => mockAssertWritableSubscriptionForAccount(...args),
+}));
 
 const {
   mockAssertCanAddLocation,
@@ -93,12 +101,14 @@ function ownerUser(overrides: Record<string, unknown> = {}) {
 beforeEach(() => {
   vi.clearAllMocks();
   mockRequireRole.mockReset();
+  mockAssertWritableSubscriptionForAccount.mockReset();
   mockAssertCanAddLocation.mockReset();
   mockReactivateLocationTransaction.mockReset();
   mockGetAccountOwnerUserId.mockReset();
   mockGetLocationById.mockReset();
   mockSql.mockReset();
   process.env.NEXT_PUBLIC_APP_URL = APP_URL;
+  mockAssertWritableSubscriptionForAccount.mockResolvedValue({ ok: true });
 
   // Default happy-path mocks (individual tests override as needed)
   mockRequireRole.mockResolvedValue(ownerUser());
@@ -144,6 +154,22 @@ describe('POST /api/locations/reactivate', () => {
     expect(res.status).toBe(403);
     const body = await res.json();
     expect(body.error).toBe('No account associated with this user');
+  });
+
+  it('returns 402 before location lookup when the account is past-due read-only', async () => {
+    mockAssertWritableSubscriptionForAccount.mockResolvedValueOnce({
+      ok: false,
+      status: 402,
+      error: 'past_due_read_only',
+    });
+
+    const req = mkRequest({ locationId: LOCATION_ID, accountId: ACCOUNT_ID });
+    const res = await POST(req);
+
+    expect(res.status).toBe(402);
+    expect(await res.json()).toEqual({ error: 'past_due_read_only' });
+    expect(mockGetLocationById).not.toHaveBeenCalled();
+    expect(mockReactivateLocationTransaction).not.toHaveBeenCalled();
   });
 
   it('returns 403 when body.accountId does not match authenticated user', async () => {

@@ -119,4 +119,135 @@ describe('/dashboard/connect target location', () => {
       }),
     );
   });
+
+  it('shows manual connection link when redirect is started', async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response(JSON.stringify({ authUrl: 'https://zernio.example/connect' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      ),
+    );
+
+    render(<ConnectPage />);
+
+    await user.click(screen.getByRole('button', { name: /connect google business/i }));
+
+    const manualLink = await screen.findByRole('link', {
+      name: /open connection manually/i,
+    });
+    expect(manualLink).toHaveAttribute('href', 'https://zernio.example/connect');
+  });
+
+  it('shows billing copy when connect/start is blocked by read-only billing state', async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response(JSON.stringify({ error: 'past_due_read_only' }), {
+          status: 402,
+          headers: { 'content-type': 'application/json' },
+        }),
+      ),
+    );
+
+    render(<ConnectPage />);
+
+    await user.click(screen.getByRole('button', { name: /connect google business/i }));
+
+    expect(await screen.findByText(/update billing before connecting google business/i))
+      .toBeInTheDocument();
+  });
+
+  it('hides direct connect actions when the account is read-only', () => {
+    mockUseDashboardData.mockReturnValue({
+      data: {
+        subscriptionStatus: 'past_due',
+        isReadOnly: true,
+        zernioConnection: {
+          status: 'none',
+          queuedReconnectCount: 0,
+          hasUnresolvedIncident: false,
+        },
+      },
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    render(<ConnectPage />);
+
+    expect(screen.queryByRole('button', { name: /connect google business/i })).not.toBeInTheDocument();
+    expect(screen.getAllByText(/update billing/i).length).toBeGreaterThan(0);
+  });
+
+  it('hides direct reconnect actions when the account is read-only', () => {
+    mockUseDashboardData.mockReturnValue({
+      data: {
+        subscriptionStatus: 'past_due',
+        isReadOnly: true,
+        zernioConnection: {
+          status: 'disconnected',
+          queuedReconnectCount: 1,
+          hasUnresolvedIncident: false,
+        },
+      },
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    render(<ConnectPage />);
+
+    expect(screen.queryByRole('button', { name: /reconnect google business/i })).not.toBeInTheDocument();
+    expect(screen.getAllByText(/update billing/i).length).toBeGreaterThan(0);
+  });
+
+  it('hides direct pending-flow controls when the account is read-only', () => {
+    mockUseDashboardData.mockReturnValue({
+      data: {
+        subscriptionStatus: 'past_due',
+        isReadOnly: true,
+        zernioConnection: {
+          status: 'pending',
+          pendingFlow: { status: 'oauth_in_progress' },
+          queuedReconnectCount: 0,
+          hasUnresolvedIncident: false,
+        },
+      },
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    render(<ConnectPage />);
+
+    expect(screen.queryByRole('button', { name: /cancel/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/update billing/i)).toBeInTheDocument();
+  });
+
+  it('hides direct stale pending-flow controls when the account is read-only', () => {
+    mockSearchParams.value = new URLSearchParams(
+      `locationId=${SECONDARY_LOCATION_ID}&error=state_expired`,
+    );
+    mockUseDashboardData.mockReturnValue({
+      data: {
+        subscriptionStatus: 'past_due',
+        isReadOnly: true,
+        zernioConnection: {
+          status: 'pending',
+          pendingFlow: { status: 'oauth_in_progress' },
+          queuedReconnectCount: 0,
+          hasUnresolvedIncident: false,
+        },
+      },
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    render(<ConnectPage />);
+
+    expect(screen.queryByRole('button', { name: /clear attempt/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/update billing/i)).toBeInTheDocument();
+  });
 });

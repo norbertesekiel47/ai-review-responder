@@ -783,7 +783,10 @@ describe('VAL-CROSS-011: Cancelled account — read-only banner and disabled wri
 
   it('checkSubscription denies all workers for cancelled status', async () => {
     const { checkSubscription } = await import('@/lib/shared/subscription-guard');
-    const result = checkSubscription('cancelled', new Date(), 'publisher');
+    const result = checkSubscription({
+      status: 'cancelled',
+      workerType: 'publisher',
+    });
     expect(result.allowed).toBe(false);
   });
 
@@ -817,15 +820,29 @@ describe('VAL-CROSS-012: past_due account payment warning banner', () => {
 
   it('checkSubscription allows workers within 7-day past_due grace', async () => {
     const { checkSubscription } = await import('@/lib/shared/subscription-guard');
-    const oneDayAgo = new Date(Date.now() - 86_400_000);
-    const result = checkSubscription('past_due', oneDayAgo, 'notification');
+    const now = new Date('2026-05-25T12:00:00.000Z');
+    const oneDayAgo = new Date(now.getTime() - 86_400_000);
+    const result = checkSubscription({
+      status: 'past_due',
+      pastDueAt: oneDayAgo,
+      accountFlags: {},
+      workerType: 'notification',
+      now,
+    });
     expect(result.allowed).toBe(true);
   });
 
   it('checkSubscription denies workers after 7-day past_due grace', async () => {
     const { checkSubscription } = await import('@/lib/shared/subscription-guard');
-    const eightDaysAgo = new Date(Date.now() - 8 * 86_400_000);
-    const result = checkSubscription('past_due', eightDaysAgo, 'notification');
+    const now = new Date('2026-05-25T12:00:00.000Z');
+    const eightDaysAgo = new Date(now.getTime() - 8 * 86_400_000);
+    const result = checkSubscription({
+      status: 'past_due',
+      pastDueAt: eightDaysAgo,
+      accountFlags: {},
+      workerType: 'notification',
+      now,
+    });
     expect(result.allowed).toBe(false);
   });
 

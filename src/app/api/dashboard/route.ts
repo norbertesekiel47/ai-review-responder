@@ -9,6 +9,11 @@ import {
 } from '@/lib/dashboard/service';
 import { getAggregateDashboardData } from '@/lib/dashboard/aggregate-service';
 import { getLocationById } from '@/lib/locations/repo';
+import {
+  computePastDueRecoveryState,
+  type AccountFlagsInput,
+  type PastDueRecoveryState,
+} from '@/lib/shared/past-due-recovery';
 import { resolveDashboardScopePolicy } from './policy';
 
 export const dynamic = 'force-dynamic';
@@ -21,6 +26,15 @@ export type {
 /** All dashboard responses use no-store headers — owner-specific data. */
 function jsonResponse(body: unknown, status = 200): NextResponse {
   return NextResponse.json(body, { status, headers: NO_STORE_HEADERS });
+}
+
+function serializePastDueRecovery(recovery: PastDueRecoveryState) {
+  return {
+    pastDueAt: recovery.pastDueAt?.toISOString() ?? null,
+    pastDueDeadline: recovery.deadline?.toISOString() ?? null,
+    daysRemaining: recovery.daysRemaining,
+    isReadOnly: recovery.isReadOnly,
+  };
 }
 
 /** Returns the primary (or first active) location ID for an account. */
@@ -58,11 +72,15 @@ async function fetchPerLocationData(
     place_id_verified: boolean;
     google_maps_url: string | null;
     archived_at: Date | null;
+    past_due_at: Date | string | null;
+    flags: AccountFlagsInput;
+    stripe_customer_id: string | null;
   }[]>`
     SELECT b.name, a.subscription_status, a.subscription_tier,
            b.owner_email, b.onboarded_by,
            b.place_id_verified, b.google_maps_url,
-           b.archived_at
+           b.archived_at,
+           a.past_due_at, a.flags, a.stripe_customer_id
     FROM businesses b
     JOIN accounts a ON a.id = b.account_id
     WHERE b.id = ${locationId}
@@ -133,19 +151,22 @@ async function fetchPerLocationData(
 
   // VAL-CROSS-012: Past-due account — payment warning, features continue during grace
   if (subRow.subscription_status === SubscriptionStatus.PAST_DUE) {
-    // Generate a billing portal URL if the account has a Stripe customer ID
-    const [stripeRow] = await sql<{
-      stripe_customer_id: string | null;
-    }[]>`
-      SELECT stripe_customer_id FROM accounts WHERE id = ${accountId}::uuid
-    `;
-    const billingPortalUrl = stripeRow?.stripe_customer_id
+    const billingPortalUrl = subRow.stripe_customer_id
       ? `/api/billing/portal`
       : null;
+    const recovery = computePastDueRecoveryState({
+      subscriptionStatus: subRow.subscription_status,
+      pastDueAt: subRow.past_due_at,
+      accountFlags: subRow.flags,
+    });
+    const data = await getActiveDashboardData(locationId);
     return jsonResponse({
+      ...data,
       subscriptionStatus: 'past_due',
+      accountId,
       businessName: subRow.name,
       billingPortalUrl,
+      ...serializePastDueRecovery(recovery),
     });
   }
 
@@ -211,8 +232,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       // Verify account subscription status before returning aggregate data
       const [accountRow] = await sql<{
         subscription_status: string;
+        past_due_at: Date | string | null;
+        flags: AccountFlagsInput;
+        stripe_customer_id: string | null;
       }[]>`
-        SELECT subscription_status FROM accounts WHERE id = ${accountId}::uuid
+        SELECT subscription_status, past_due_at, flags, stripe_customer_id
+        FROM accounts
+        WHERE id = ${accountId}::uuid
       `;
       if (!accountRow) {
         return jsonResponse({ error: 'Account not found' }, 404);
@@ -251,18 +277,22 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
       // VAL-CROSS-012: Past-due account in aggregate mode
       if (accountRow.subscription_status === SubscriptionStatus.PAST_DUE) {
-        const [stripeRow] = await sql<{
-          stripe_customer_id: string | null;
-        }[]>`
-          SELECT stripe_customer_id FROM accounts WHERE id = ${accountId}::uuid
-        `;
-        const billingPortalUrl = stripeRow?.stripe_customer_id
+        const billingPortalUrl = accountRow.stripe_customer_id
           ? `/api/billing/portal`
           : null;
+        const recovery = computePastDueRecoveryState({
+          subscriptionStatus: accountRow.subscription_status,
+          pastDueAt: accountRow.past_due_at,
+          accountFlags: accountRow.flags,
+        });
+        const data = await getAggregateDashboardData(accountId);
         return jsonResponse({
+          ...data,
           subscriptionStatus: 'past_due',
           businessName: 'Account',
+          accountId,
           billingPortalUrl,
+          ...serializePastDueRecovery(recovery),
         });
       }
 

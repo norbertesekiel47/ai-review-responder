@@ -12,6 +12,7 @@ const {
   mockRedis,
   mockSelectLocation,
   mockDeleteAccount,
+  authScopeAccountRows,
   sqlCalls,
   txCalls,
   txScenario,
@@ -19,6 +20,21 @@ const {
 } = vi.hoisted(() => {
   const sqlCalls: Array<{ raw: string; values: unknown[] }> = [];
   const txCalls: Array<{ raw: string; values: unknown[] }> = [];
+  const authScopeAccountRows: {
+    value: Array<{
+      subscription_status: string;
+      past_due_at: string | null;
+      flags: Record<string, unknown>;
+    }>;
+  } = {
+    value: [
+      {
+        subscription_status: 'active',
+        past_due_at: null,
+        flags: {},
+      },
+    ],
+  };
   const txScenario = {
     needsBackfill: false,
     accountSubscriptionActivatedAt: new Date('2026-05-01T00:00:00.000Z'),
@@ -52,7 +68,7 @@ const {
     const raw = strings.join('?');
     sqlCalls.push({ raw, values });
     if (/FROM businesses/.test(raw) && /account_id/.test(raw)) {
-      return Promise.resolve([{ exists: 1 }]);
+      return Promise.resolve(authScopeAccountRows.value);
     }
     return Promise.resolve([]);
   });
@@ -90,6 +106,7 @@ const {
     mockRedis,
     mockSelectLocation: vi.fn(async (_input: unknown) => ({ accountId: 'zernio-account-1' })),
     mockDeleteAccount: vi.fn(async (_accountId: unknown) => undefined),
+    authScopeAccountRows,
     sqlCalls,
     txCalls,
     txScenario,
@@ -162,6 +179,13 @@ describe('POST /api/zernio/connect/select-location account scoping', () => {
     vi.clearAllMocks();
     sqlCalls.length = 0;
     txCalls.length = 0;
+    authScopeAccountRows.value = [
+      {
+        subscription_status: 'active',
+        past_due_at: null,
+        flags: {},
+      },
+    ];
     txScenario.needsBackfill = false;
     txScenario.accountSubscriptionActivatedAt = new Date('2026-05-01T00:00:00.000Z');
     txScenario.existingConnectionId = null;
@@ -270,5 +294,24 @@ describe('POST /api/zernio/connect/select-location account scoping', () => {
       mockRedis.eval.mock.calls.some((call) => call[0] === luaCASRevertToOauth),
     ).toBe(true);
     expect(mockSql.begin).not.toHaveBeenCalled();
+  });
+
+  it('rejects read-only past-due owners before finalizing or calling Zernio', async () => {
+    authScopeAccountRows.value = [
+      {
+        subscription_status: 'past_due',
+        past_due_at: '2024-01-01T00:00:00.000Z',
+        flags: {},
+      },
+    ];
+
+    const res = await POST(makeRequest());
+
+    expect(res.status).toBe(402);
+    expect(await res.json()).toEqual({ error: 'past_due_read_only' });
+    expect(mockRedis.eval).not.toHaveBeenCalled();
+    expect(mockSelectLocation).not.toHaveBeenCalled();
+    expect(mockSql.begin).not.toHaveBeenCalled();
+    expect(mockDeleteAccount).not.toHaveBeenCalled();
   });
 });

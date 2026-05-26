@@ -9,12 +9,14 @@ const {
   mockMaybeSingle,
   mockSignInWithPassword,
   mockSignOut,
+  mockGetAuthenticatorAssuranceLevel,
   routerPush,
   routerRefresh,
 } = vi.hoisted(() => ({
   mockMaybeSingle: vi.fn(),
   mockSignInWithPassword: vi.fn(),
   mockSignOut: vi.fn(),
+  mockGetAuthenticatorAssuranceLevel: vi.fn(),
   routerPush: vi.fn(),
   routerRefresh: vi.fn(),
 }));
@@ -40,6 +42,9 @@ vi.mock('@/lib/db/browser', () => ({
     auth: {
       signInWithPassword: mockSignInWithPassword,
       signOut: mockSignOut,
+      mfa: {
+        getAuthenticatorAssuranceLevel: mockGetAuthenticatorAssuranceLevel,
+      },
     },
     from: () => ({
       select: () => ({
@@ -68,6 +73,14 @@ describe('LoginFormClient (admin)', () => {
       error: null,
     });
     mockSignOut.mockResolvedValue({ error: null });
+    mockGetAuthenticatorAssuranceLevel.mockResolvedValue({
+      data: { currentLevel: 'aal1', nextLevel: 'aal1' },
+      error: null,
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(null, { status: 204 })),
+    );
   });
 
   it('does not render the Google button when showGoogleButton is false', () => {
@@ -117,5 +130,39 @@ describe('LoginFormClient (admin)', () => {
       }),
     );
     expect(html).toContain('Continue with Google');
+  });
+
+  it('redirects enrolled MFA sessions to the challenge screen after password login', async () => {
+    mockSignInWithPassword.mockResolvedValue({
+      data: { user: { id: 'auth-admin' } },
+      error: null,
+    });
+    mockMaybeSingle.mockResolvedValue({
+      data: { role: 'admin' },
+      error: null,
+    });
+    mockGetAuthenticatorAssuranceLevel.mockResolvedValue({
+      data: { currentLevel: 'aal1', nextLevel: 'aal2' },
+      error: null,
+    });
+
+    render(
+      createElement(LoginFormInner, {
+        portal: 'admin',
+        brandName: 'RepWorth Admin',
+        showGoogleButton: false,
+        defaultRoute: '/admin/overview',
+        allowedRoles: ['admin'] as const,
+      }),
+    );
+
+    await userEvent.type(screen.getByLabelText('Email'), 'admin@example.com');
+    await userEvent.type(screen.getByLabelText('Password'), 'password123');
+    await userEvent.click(screen.getByRole('button', { name: 'Sign In' }));
+
+    await waitFor(() => {
+      expect(routerPush).toHaveBeenCalledWith('/mfa/challenge?next=%2Fadmin%2Foverview');
+    });
+    expect(routerRefresh).not.toHaveBeenCalled();
   });
 });

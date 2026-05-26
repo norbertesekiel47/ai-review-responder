@@ -1,6 +1,8 @@
 # Spec 04 — Authentication, Authorization & Identity
 
 > **Goal:** Email/Google/Magic-Link auth is **already live** — harden it. Add TOTP MFA (mandatory for billing owners), land the `account_memberships` schema + backfill **behind a flag (UI deferred)**, and generalize the **existing** `account_audit_log` into an append-only audit trail. Rate-limit hardening on the current single-owner model.
+>
+> **✅ Wave 2 Activation SHIPPED (2026-05-26):** Settings → Security TOTP enrollment via Supabase MFA, MFA challenge route with strict rate limit, proxy/API current-AAL2 gates for protected admin/owner surfaces, and admin impersonation behind admin + current AAL2 + audit. **Still deferred:** recovery codes, device/session management, `account_memberships`, team UI, audit export, and full billing-owner/Scale-tier enrollment policy.
 
 ---
 
@@ -10,16 +12,16 @@ Auth bugs are silent for a long time then catastrophic. Designing the role model
 
 ## 2. Current state (RepWorth)
 
-_Verified 2026-05-23 against the live tree; refreshed 2026-05-24 for migration head 043 (Step 1 keystones)._
+_Verified 2026-05-23 against the live tree; refreshed 2026-05-26 for migration head 048._
 
 - **Auth methods already wired:** email/password (`src/app/api/auth/signup/route.ts`), **Google OAuth** (`src/components/auth/hooks/useGoogleOAuth.ts`), **Magic Link** (`src/app/api/auth/callback/route.ts`, `'magiclink'` OTP type). The spec's "day 1" set is **done** — this spec hardens it.
 - Signup uses a manual **6-digit OTP** entry path (`/api/auth/verify-otp`); the `{{ .Token }}` gotcha lives in the **Supabase dashboard** templates, not this repo.
 - Self-serve signup behind `SELF_SERVE_SIGNUP_ENABLED` (checked in signup/verify-otp routes + `CleanupAbandonedSignupsPoller`).
 - **Roles:** `users.role` already exists with `'owner' | 'sales_partner' | 'admin'` (migration 001). No `roles` table, no `account_memberships`. Model is **single owner per account** (`accounts.owner_user_id` 1:1 `users.id`); no teams/invites.
 - **Two audit tables already exist:** `approval_audit_log` (migration 001 — approval actions) and `account_audit_log` (migration 034 — `account_id, location_id, event_type, actor_user_id, payload JSONB, created_at`). ✅ **Generalized (Step 1, PR #81):** migration **043** added `entity_type, entity_id, ip, user_agent, request_id`, and `src/lib/audit/log.ts` (`writeAccountAuditLog`) is the typed write path — already used by the three Stripe subscription-status handlers. Do not invent a third `audit_events` table. _Still unwired:_ the CSV-import path and other actor actions.
-- **No MFA/TOTP** anywhere (greenfield).
+- ✅ **MFA/TOTP enrollment shipped** in Settings → Security using Supabase Auth MFA (`src/app/(authenticated)/settings/security/*`, `src/app/api/auth/mfa/challenge/route.ts`). Recovery codes and device/session management are still deferred.
 - **Rate limiting exists** but is **Redis-Lua based** (`src/lib/shared/rate-limit.ts`), not `@upstash/ratelimit` — signup (5/hr) and verify-otp (per-email + per-IP) limits already enforced. Reuse it; don't add a new lib.
-- `src/middleware.ts` enforces role + `account_id` per route (post-migration-034). No Settings → Team and no Settings → Security tab (Settings has Account/Voice/Channels/Locations).
+- `src/proxy.ts` is the real Next edge entrypoint. It enforces role + `account_id` per route using the cookie-bound anon Supabase client (no service key at edge) and gates protected routes with current AAL2 when MFA enforcement is enabled. Settings → Team is still absent; Settings → Security now exists for MFA.
 - `CleanupAbandonedSignupsPoller` exists (`deleteUser()` irreversible — advisory-lock + FOR-UPDATE revalidation already in place).
 
 ## 3. Target state
@@ -52,7 +54,7 @@ per-location roles (Scale tier):
   location_editor  -- editor scoped to a business_id
 ```
 
-Schema: new table `account_memberships(account_id, user_id, role, business_id NULL, created_at, deactivated_at)`. **Phase A (this spec):** land the schema + backfill `(owner_user_id, 'owner')` per account behind a flag — **no team UI**. **Phase B (later spec):** invite flow + Settings → Team. ⚠️ Reconcile with the existing `users.role`: `owner`/`sales_partner`/`admin` are **platform** roles; `account_memberships.role` is **per-account** membership. Document the mapping so the two don't collide (e.g. middleware checks platform `admin` first, then membership role).
+Schema: new table `account_memberships(account_id, user_id, role, business_id NULL, created_at, deactivated_at)`. **Phase A (this spec):** land the schema + backfill `(owner_user_id, 'owner')` per account behind a flag — **no team UI**. **Phase B (later spec):** invite flow + Settings → Team. ⚠️ Reconcile with the existing `users.role`: `owner`/`sales_partner`/`admin` are **platform** roles; `account_memberships.role` is **per-account** membership. Document the mapping so the two don't collide (e.g. `src/proxy.ts` and route guards check platform `admin` first, then membership role).
 
 ### Sessions
 - 30-day rolling session.
@@ -80,23 +82,23 @@ Schema: new table `account_memberships(account_id, user_id, role, business_id NU
 ## 4. Implementation tasks
 
 1. ✅ **Partly done (migration 043, PR #81):** `account_audit_log` extended with `entity_type, entity_id, ip, user_agent, request_id`. ⏳ **Deferred:** the `account_memberships` table + owner backfill (+ FKs, RLS, index) was deliberately **pulled out** of the Step 1 keystone slice — the keystone is the audit foundation only. It moves to a later Spec 04 auth-hardening slice (claims a fresh migration number then). See `docs/superpowers/specs/2026-05-25-step-1-keystones-design.md`.
-2. **Phase A:** keep `src/middleware.ts` reading `users.role`; add an `account_memberships` read **behind the team flag** so Owner behavior is unchanged when the flag is off. Do not rip out `users.role` — platform roles (`admin`/`sales_partner`) still live there.
-3. Enable Supabase MFA. Add Settings → Security UI with TOTP enrollment + recovery codes.
-4. Enforce MFA on billing-owner login (block flow if not enrolled). Banner prompt on Scale-tier user logins without MFA.
+2. **Phase A:** keep `src/proxy.ts` reading `users.role`; add an `account_memberships` read **behind the team flag** so Owner behavior is unchanged when the flag is off. Do not rip out `users.role` — platform roles (`admin`/`sales_partner`) still live there.
+3. ✅ **Wave 2 partial shipped:** enable Supabase MFA and add Settings → Security UI with TOTP enrollment. Recovery codes remain deferred.
+4. ✅ **Wave 2 partial shipped:** enforce current AAL2 on protected owner/admin routes and sensitive admin APIs. Enrollment-mandatory policy for billing owners/Scale users remains deferred.
 5. Build Settings → Team UI: invite, role assignment, deactivate, re-activate. Audit every action.
 6. Implement Settings → Security: device list, revoke session, "sign out everywhere" — backed by Supabase Auth session API.
 7. ✅ **Done (PR #81):** `src/lib/audit/log.ts` (`writeAccountAuditLog`) writes to the extended `account_audit_log`, accepts a tx client for atomic state+audit writes, and is live in the three Stripe subscription-status handlers. ⏳ **Remaining:** wire the CSV-import path + other actor actions through it; the `event_type`/`entity_type` strings are caller-chosen today rather than a typed enum.
 8. **Extend the existing `src/lib/shared/rate-limit.ts`** (Redis-Lua) — add per-email password-reset and exponential backoff on login to the signup/verify-otp limits already there. ⚠️ Do **not** add `@upstash/ratelimit` or a `src/lib/ratelimit/*` dir; that would duplicate working infrastructure.
-9. Add admin impersonation path (see [Spec 13](./13-customer-support.md)) — separate from regular login, behind admin flag + MFA + audit.
+9. ✅ **Wave 2 shipped:** add admin impersonation path (see [Spec 13](./13-customer-support.md)) — separate from regular login, behind admin role + current AAL2 + audit.
 10. Cloudflare / Vercel WAF rules for IP-level abuse — gate at edge before Supabase.
 
 ## 5. Acceptance criteria
 
 - [ ] Login with email/pw, Google SSO, Magic Link continue to work (already live — covered by a regression E2E so this spec's changes don't break them).
-- [ ] TOTP enrollment works for any user; recovery codes downloadable once.
+- [ ] TOTP enrollment works for any user; recovery codes downloadable once. ✅ Enrollment shipped; recovery codes pending.
 - [ ] Billing-owner role cannot disable MFA without re-auth + audit entry.
 - [ ] `account_memberships` schema present + backfilled (flag-off) — **deferred from Step 1** to a later auth slice. ✅ Extended `account_audit_log` columns + `writeAccountAuditLog` helper shipped (PR #81) and writing on `subscription_status_changed`; the role-change/MFA/login-fail/session-revoke events land with their respective features.
-- [ ] Settings → Security page live (MFA, device list, session revoke). _Settings → Team is **Phase B** — not gated by this spec._
+- [ ] Settings → Security page live (MFA, device list, session revoke). ✅ MFA page shipped; device list/session revoke pending. _Settings → Team is **Phase B** — not gated by this spec._
 - [ ] Rate limits return 429 with `Retry-After`; load test confirms.
 - [ ] Audit log export downloads CSV+JSON, scoped by `account_id`, signed URL expiring in 24h.
 
@@ -122,17 +124,17 @@ Schema: new table `account_memberships(account_id, user_id, role, business_id NU
 - [Spec 03 — Multi-tenancy & Data Isolation](./03-multitenancy-isolation.md)
 - [Spec 09 — Security & Compliance](./09-security-compliance.md)
 - [Spec 13 — Customer Support](./13-customer-support.md) (admin impersonation)
-- Code anchors: `src/middleware.ts`, `src/app/api/auth/*`, `worker/jobs/notification/*` (invite emails)
+- Code anchors: `src/proxy.ts`, `src/lib/shared/protected-routes.ts`, `src/app/api/auth/*`, `worker/jobs/notification/*` (invite emails)
 - Gotchas: `{{ .Token }}` vs `{{ .ConfirmationURL }}` confirmation template (Supabase dashboard, per CLAUDE.md)
 - Code anchors (current state): `src/components/auth/hooks/useGoogleOAuth.ts`, `src/app/api/auth/{signup,verify-otp,callback}/route.ts`, `src/lib/shared/rate-limit.ts`, migrations 001 (`approval_audit_log`) + 034 (`account_audit_log`)
 
 ## 9. Implementation in the current repo
 
-- **MFA** rides Supabase Auth's MFA API (factors enroll/challenge/verify) — surface in a new Settings → Security tab (sibling to the existing Settings tabs). No custom TOTP crypto; let Supabase own the secret.
+- **MFA** rides Supabase Auth's MFA API (factors enroll/challenge/verify) — surfaced in Settings → Security (sibling to the existing Settings tabs). No custom TOTP crypto; Supabase owns the secret. The current slice enforces current AAL2; mandatory enrollment policy + recovery codes are separate follow-ups.
 - **`account_memberships`** is schema + backfill only this round. The flag (e.g. `flags.teams_enabled` on `accounts`, which already carries a `flags JSONB`) keeps Phase A inert — Owner-only behavior is preserved with the flag off, mirroring the edit-replies dark-ship pattern (PR #56).
 - **Audit helper** (`src/lib/audit/log.ts`) writes via the Postgres.js client. Where an audit row must accompany a state change, put both in the **same transaction / outbox** (transactional-outbox invariant) — never write state then separately log.
 - **Rate-limit** extensions are additional callers of the existing `rate-limit.ts` Lua primitive; reuse `strict` mode for auth-failure paths (fail-closed).
 - **Invite tokens (Phase B)** reuse the approval-token pattern: HMAC, store only the SHA-256 hash (approval-security skill), raw token only in the email.
 
 ---
-_Verified 2026-05-23 against the live tree; refreshed 2026-05-24 for migration head 043 (audit helper + `account_audit_log` metadata columns shipped in PR #81; `account_memberships` deferred). Marked email/Google/Magic-Link as already-shipped; redirected audit work to the existing `account_audit_log` (not a new `audit_events`); reused `rate-limit.ts` instead of Upstash SDK; phased teams to schema-now/UI-later per decision._
+_Verified 2026-05-23 against the live tree; refreshed 2026-05-26 for migration head 048 (audit helper + `account_audit_log` metadata columns shipped in PR #81; MFA/AAL2 and admin impersonation shipped in Wave 2; `account_memberships` deferred). Marked email/Google/Magic-Link as already-shipped; redirected audit work to the existing `account_audit_log` (not a new `audit_events`); reused `rate-limit.ts` instead of Upstash SDK; phased teams to schema-now/UI-later per decision._

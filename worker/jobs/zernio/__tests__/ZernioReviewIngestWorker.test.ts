@@ -101,7 +101,11 @@ function makeZernioReview(overrides: Partial<ZernioReview> = {}): ZernioReview {
 }
 
 function pushActiveBiz() {
-  sqlReturnQueue.push([{ subscription_status: 'active', updated_at: new Date() }]);
+  sqlReturnQueue.push([{
+    subscription_status: 'active',
+    past_due_at: null,
+    account_flags: {},
+  }]);
 }
 
 function pushActiveConn() {
@@ -285,7 +289,11 @@ describe('ZernioReviewIngestWorker', () => {
 
   // 6. Subscription cancelled → markOutboxCompleted, NO listReviews call
   it('marks outbox completed and skips listReviews when subscription is cancelled', async () => {
-    sqlReturnQueue.push([{ subscription_status: 'cancelled', updated_at: new Date() }]);
+    sqlReturnQueue.push([{
+      subscription_status: 'cancelled',
+      past_due_at: null,
+      account_flags: {},
+    }]);
 
     await handleZernioReviewIngest(makeJob());
 

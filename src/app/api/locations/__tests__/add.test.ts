@@ -13,6 +13,10 @@ const { mockRequireRole } = vi.hoisted(() => ({
   mockRequireRole: vi.fn(),
 }));
 
+const { mockAssertWritableSubscriptionForAccount } = vi.hoisted(() => ({
+  mockAssertWritableSubscriptionForAccount: vi.fn(),
+}));
+
 vi.mock('@/lib/db/auth', () => {
   class AuthError extends Error {
     constructor(
@@ -28,6 +32,10 @@ vi.mock('@/lib/db/auth', () => {
     AuthError,
   };
 });
+
+vi.mock('@/lib/shared/writable-subscription', () => ({
+  assertWritableSubscriptionForAccount: (...args: unknown[]) => mockAssertWritableSubscriptionForAccount(...args),
+}));
 
 const { mockSql } = vi.hoisted(() => {
   const sqlFn: any = vi.fn();
@@ -149,11 +157,13 @@ beforeEach(() => {
   // Reset mock internal state (including Once queues) to prevent
   // cross-test leakage from unconsumed mockResolvedValueOnce entries.
   mockRequireRole.mockReset();
+  mockAssertWritableSubscriptionForAccount.mockReset();
   mockAssertCanAddLocation.mockReset();
   mockGetAccountById.mockReset();
   mockGetAccountOwnerUserId.mockReset();
   mockGetActiveLocationCount.mockReset();
   mockAddLocationTransaction.mockReset();
+  mockAssertWritableSubscriptionForAccount.mockResolvedValue({ ok: true });
   process.env.NEXT_PUBLIC_APP_URL = APP_URL;
 });
 
@@ -195,6 +205,26 @@ describe('POST /api/locations/add', () => {
     expect(res.status).toBe(403);
     const body = await res.json();
     expect(body.error).toBe('No account associated with this user');
+  });
+
+  it('returns 402 before quota checks when the account is past-due read-only', async () => {
+    mockRequireRole.mockResolvedValueOnce(ownerUser());
+    mockAssertWritableSubscriptionForAccount.mockResolvedValueOnce({
+      ok: false,
+      status: 402,
+      error: 'past_due_read_only',
+    });
+
+    const req = mkRequest({
+      accountId: ACCOUNT_ID,
+      displayLabel: 'Downtown Cafe',
+    });
+    const res = await POST(req);
+
+    expect(res.status).toBe(402);
+    expect(await res.json()).toEqual({ error: 'past_due_read_only' });
+    expect(mockAssertCanAddLocation).not.toHaveBeenCalled();
+    expect(mockAddLocationTransaction).not.toHaveBeenCalled();
   });
 
   it('returns 403 when body.accountId does not match authenticated user', async () => {

@@ -6,6 +6,10 @@ const { mockRequireRole } = vi.hoisted(() => ({
   mockRequireRole: vi.fn(),
 }));
 
+const { mockAssertWritableSubscriptionForAccount } = vi.hoisted(() => ({
+  mockAssertWritableSubscriptionForAccount: vi.fn(),
+}));
+
 vi.mock('@/lib/db/auth', () => {
   class AuthError extends Error {
     constructor(
@@ -21,6 +25,10 @@ vi.mock('@/lib/db/auth', () => {
     AuthError,
   };
 });
+
+vi.mock('@/lib/shared/writable-subscription', () => ({
+  assertWritableSubscriptionForAccount: (...args: unknown[]) => mockAssertWritableSubscriptionForAccount(...args),
+}));
 
 import {
   invalidBodyResponse,
@@ -57,6 +65,8 @@ describe('location owner route helpers', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockRequireRole.mockReset();
+    mockAssertWritableSubscriptionForAccount.mockReset();
+    mockAssertWritableSubscriptionForAccount.mockResolvedValue({ ok: true });
     process.env.MULTI_LOCATION_ENABLED = 'true';
     process.env.NEXT_PUBLIC_APP_URL = APP_URL;
   });
@@ -106,6 +116,24 @@ describe('location owner route helpers', () => {
 
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.user.accountId).toBe(ACCOUNT_ID);
+    expect(mockAssertWritableSubscriptionForAccount).toHaveBeenCalledWith(ACCOUNT_ID);
+  });
+
+  it('returns 402 when the account is past-due read-only', async () => {
+    mockRequireRole.mockResolvedValueOnce({ id: 'user-1', accountId: ACCOUNT_ID, role: 'owner' });
+    mockAssertWritableSubscriptionForAccount.mockResolvedValueOnce({
+      ok: false,
+      status: 402,
+      error: 'past_due_read_only',
+    });
+
+    const result = await readOwnerForMultiLocationRoute(req());
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.response.status).toBe(402);
+      expect(await result.response.json()).toEqual({ error: 'past_due_read_only' });
+    }
   });
 
   it('returns 403 when the authenticated user has no account', async () => {

@@ -1,0 +1,136 @@
+'use client';
+
+import { FormEvent, useState } from 'react';
+
+interface PastDueExtensionPanelProps {
+  accountId: string;
+  subscriptionStatus: string;
+  onGranted: () => void;
+}
+
+export function PastDueExtensionPanel({
+  accountId,
+  subscriptionStatus,
+  onGranted,
+}: PastDueExtensionPanelProps) {
+  const [days, setDays] = useState('3');
+  const [ticketId, setTicketId] = useState('');
+  const [reason, setReason] = useState('');
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  if (subscriptionStatus !== 'past_due') {
+    return null;
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setMessage(null);
+    setError(null);
+
+    const parsedDays = Number(days);
+    if (!Number.isInteger(parsedDays) || parsedDays < 1 || parsedDays > 7) {
+      setError('Use 1 to 7 days.');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const res = await fetch('/api/admin/billing/grant-extension', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          accountId,
+          days: parsedDays,
+          ticketId: ticketId.trim(),
+          reason: reason.trim(),
+        }),
+      });
+      const json = await res.json().catch(() => ({})) as {
+        extension?: { expires_at?: string };
+        error?: string;
+      };
+
+      if (!res.ok) {
+        setError(json.error ?? `HTTP ${res.status}`);
+        return;
+      }
+
+      const expiresAt = json.extension?.expires_at;
+      const formatted = expiresAt
+        ? new Intl.DateTimeFormat('en-US', {
+          month: 'long',
+          day: 'numeric',
+          year: 'numeric',
+        }).format(new Date(expiresAt))
+        : 'the updated deadline';
+      setMessage(`Extension granted until ${formatted}.`);
+      setTicketId('');
+      setReason('');
+      onGranted();
+    } catch (err) {
+      console.error('[PastDueExtensionPanel] grant extension failed:', err);
+      setError('Failed to grant extension.');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <section className="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-4">
+      <div>
+        <div>
+          <h2 className="text-sm font-semibold text-amber-950">Grant past-due extension</h2>
+          <p className="mt-1 text-sm text-amber-800">
+            Requires AAL2 and writes an account audit log entry.
+          </p>
+        </div>
+      </div>
+
+      <form onSubmit={handleSubmit} className="mt-4 grid gap-3 sm:grid-cols-[100px_140px_1fr_auto] sm:items-end">
+        <label className="grid gap-1 text-sm font-medium text-amber-950">
+          Days
+          <input
+            type="number"
+            min={1}
+            max={7}
+            value={days}
+            onChange={(event) => setDays(event.target.value)}
+            className="rounded-md border border-amber-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-200"
+          />
+        </label>
+        <label className="grid gap-1 text-sm font-medium text-amber-950">
+          Ticket ID
+          <input
+            type="text"
+            value={ticketId}
+            onChange={(event) => setTicketId(event.target.value)}
+            className="rounded-md border border-amber-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-200"
+            required
+          />
+        </label>
+        <label className="grid gap-1 text-sm font-medium text-amber-950">
+          Reason
+          <input
+            type="text"
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+            className="rounded-md border border-amber-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-200"
+            required
+          />
+        </label>
+        <button
+          type="submit"
+          disabled={submitting}
+          className="rounded-md bg-amber-700 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-amber-800 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {submitting ? 'Granting...' : 'Grant extension'}
+        </button>
+      </form>
+
+      {message && <p className="mt-3 text-sm font-medium text-emerald-700">{message}</p>}
+      {error && <p className="mt-3 text-sm font-medium text-red-700">{error}</p>}
+    </section>
+  );
+}

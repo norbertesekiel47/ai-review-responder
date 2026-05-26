@@ -9,6 +9,8 @@ import { AggregateVelocityCard } from '@/components/dashboard/aggregate/Aggregat
 import { AggregateRankingCard } from '@/components/dashboard/aggregate/AggregateRankingCard';
 import { AggregateIntelligenceBriefCard } from '@/components/dashboard/aggregate/AggregateIntelligenceBriefCard';
 import { LocationKpiStrip } from '@/components/dashboard/aggregate/LocationKpiStrip';
+import { PastDueBanner } from '@/components/dashboard/SubscriptionStatusBanner';
+import { PastDueModal } from '@/components/dashboard/PastDueModal';
 import { useSetPendingCount } from '@/components/dashboard/PendingCountContext';
 
 interface Props {
@@ -69,12 +71,33 @@ export function AggregateDashboardContent({ data, refresh }: Props) {
     data.recentReviews.length === 0 &&
     data.ranking === null;
 
-  const subtitle = `Welcome back — here's what's new across your ${data.activeLocationCount} location${data.activeLocationCount !== 1 ? 's' : ''}.`;
+  const subtitle = data.subscriptionStatus === 'past_due'
+    ? 'Payment overdue — please update your payment method'
+    : `Welcome back — here's what's new across your ${data.activeLocationCount} location${data.activeLocationCount !== 1 ? 's' : ''}.`;
 
   return (
     <>
       <TopBar title="Dashboard" subtitle={subtitle} showLive refresh={refresh} />
       <div className="content">
+        {data.subscriptionStatus === 'past_due' && (
+          <div className="section-enter section-enter-1">
+            <PastDueBanner
+              billingPortalUrl={data.billingPortalUrl ?? null}
+              pastDueAt={data.pastDueAt ?? null}
+              deadline={data.pastDueDeadline ?? null}
+              daysRemaining={data.daysRemaining ?? null}
+              isReadOnly={data.isReadOnly ?? false}
+            />
+            {data.accountId && (
+              <PastDueModal
+                accountId={data.accountId}
+                daysRemaining={data.daysRemaining ?? null}
+                isReadOnly={data.isReadOnly ?? false}
+                deadline={data.pastDueDeadline ?? null}
+              />
+            )}
+          </div>
+        )}
         {hasNoData ? (
           <div className="aggregate-empty">
             <div className="aggregate-empty-emoji">📊</div>
@@ -102,6 +125,7 @@ export function AggregateDashboardContent({ data, refresh }: Props) {
                 recentReviews={data.recentReviews}
                 onActionSuccess={() => { void refresh(); }}
                 ref={reviewsRef}
+                readOnly={data.isReadOnly ?? false}
               />
             </div>
             <div className="section-enter section-enter-4">

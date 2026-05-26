@@ -16,6 +16,7 @@ import {
   assertCanEditReply,
   validateOptimisticConcurrency,
   PremiumRequiredError,
+  SubscriptionReadOnlyError,
   ReviewChangedError,
   ResponseChangedError,
   ForbiddenError,
@@ -51,6 +52,11 @@ describe('assertCanEditReply', () => {
   const ownerLocationId = 'biz-1';
   const ownerAccountId = 'acc-1';
   const ctx = { accountId: ownerAccountId, locationId: ownerLocationId };
+  const activeSubscription = {
+    subscription_status: 'active',
+    past_due_at: null,
+    flags: {},
+  };
 
   it('premium owner + historical → passes', async () => {
     sqlReturnQueue.push([
@@ -59,6 +65,7 @@ describe('assertCanEditReply', () => {
         review_date: new Date('2025-01-01T00:00:00Z'),
         activated_at: new Date('2025-06-01T00:00:00Z'),
         tier: 'premium',
+        ...activeSubscription,
       },
     ]);
     await expect(assertCanEditReply('rev-1', ctx)).resolves.toBeUndefined();
@@ -71,6 +78,7 @@ describe('assertCanEditReply', () => {
         review_date: new Date('2025-07-01T00:00:00Z'),
         activated_at: new Date('2025-06-01T00:00:00Z'),
         tier: 'standard',
+        ...activeSubscription,
       },
     ]);
     await expect(assertCanEditReply('rev-1', ctx)).resolves.toBeUndefined();
@@ -83,6 +91,7 @@ describe('assertCanEditReply', () => {
         review_date: new Date('2025-01-01T00:00:00Z'),
         activated_at: new Date('2025-06-01T00:00:00Z'),
         tier: 'standard',
+        ...activeSubscription,
       },
     ]);
     await expect(assertCanEditReply('rev-1', ctx)).rejects.toBeInstanceOf(PremiumRequiredError);
@@ -95,6 +104,7 @@ describe('assertCanEditReply', () => {
         review_date: new Date('2025-01-01T00:00:00Z'),
         activated_at: new Date('2025-06-01T00:00:00Z'),
         tier: 'basic',
+        ...activeSubscription,
       },
     ]);
     await expect(assertCanEditReply('rev-1', ctx)).rejects.toBeInstanceOf(PremiumRequiredError);
@@ -107,6 +117,7 @@ describe('assertCanEditReply', () => {
         review_date: new Date('2025-01-01T00:00:00Z'),
         activated_at: new Date('2025-06-01T00:00:00Z'),
         tier: 'founders',
+        ...activeSubscription,
       },
     ]);
     await expect(assertCanEditReply('rev-1', ctx)).rejects.toBeInstanceOf(PremiumRequiredError);
@@ -119,6 +130,7 @@ describe('assertCanEditReply', () => {
         review_date: new Date('2025-01-01T00:00:00Z'),
         activated_at: null,
         tier: 'standard',
+        ...activeSubscription,
       },
     ]);
     await expect(assertCanEditReply('rev-1', ctx)).rejects.toBeInstanceOf(PremiumRequiredError);
@@ -131,6 +143,7 @@ describe('assertCanEditReply', () => {
         review_date: new Date('2025-01-01T00:00:00Z'),
         activated_at: null,
         tier: 'basic',
+        ...activeSubscription,
       },
     ]);
     await expect(assertCanEditReply('rev-1', ctx)).rejects.toBeInstanceOf(PremiumRequiredError);
@@ -143,6 +156,7 @@ describe('assertCanEditReply', () => {
         review_date: new Date('2025-01-01T00:00:00Z'),
         activated_at: null,
         tier: 'founders',
+        ...activeSubscription,
       },
     ]);
     await expect(assertCanEditReply('rev-1', ctx)).rejects.toBeInstanceOf(PremiumRequiredError);
@@ -155,6 +169,7 @@ describe('assertCanEditReply', () => {
         review_date: new Date('2025-01-01T00:00:00Z'),
         activated_at: null,
         tier: 'premium',
+        ...activeSubscription,
       },
     ]);
     await expect(assertCanEditReply('rev-1', ctx)).resolves.toBeUndefined();
@@ -167,6 +182,7 @@ describe('assertCanEditReply', () => {
         review_date: new Date('2025-07-01T00:00:00Z'),
         activated_at: new Date('2025-06-01T00:00:00Z'),
         tier: 'standard',
+        ...activeSubscription,
       },
     ]);
     await expect(assertCanEditReply('rev-1', ctx)).rejects.toBeInstanceOf(ForbiddenError);
@@ -196,9 +212,46 @@ describe('assertCanEditReply', () => {
         review_date: ts,
         activated_at: ts,
         tier: 'standard',
+        ...activeSubscription,
       },
     ]);
     await expect(assertCanEditReply('rev-1', ctx)).resolves.toBeUndefined();
+  });
+
+  it('throws SubscriptionReadOnlyError when the account is past-due read-only', async () => {
+    sqlReturnQueue.push([
+      {
+        review_business_id: ownerLocationId,
+        review_date: new Date('2026-05-21T00:00:00Z'),
+        activated_at: new Date('2026-05-01T00:00:00Z'),
+        tier: 'standard',
+        subscription_status: 'past_due',
+        past_due_at: new Date('2026-05-10T00:00:00Z'),
+        flags: {},
+      },
+    ]);
+
+    await expect(assertCanEditReply('rev-1', ctx)).rejects.toBeInstanceOf(SubscriptionReadOnlyError);
+  });
+
+  it('throws SubscriptionReadOnlyError when the account subscription is inactive', async () => {
+    sqlReturnQueue.push([
+      {
+        review_business_id: ownerLocationId,
+        review_date: new Date('2026-05-21T00:00:00Z'),
+        activated_at: new Date('2026-05-01T00:00:00Z'),
+        tier: 'standard',
+        subscription_status: 'pending_payment',
+        past_due_at: null,
+        flags: {},
+      },
+    ]);
+
+    await expect(assertCanEditReply('rev-1', ctx)).rejects.toMatchObject({
+      name: 'SubscriptionReadOnlyError',
+      message: 'subscription_inactive',
+      status: 403,
+    });
   });
 });
 

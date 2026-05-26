@@ -295,3 +295,27 @@ review meets the `positive-with-moderate-tail` anchor (no review with
 `src/lib/demos/__fixtures__/fallback-source-reviews.ts` into the demo
 snapshot. The fixture is not real review data, so no dedup or content-
 hash logic applies.
+
+## Activation-event idempotency (Wave 2, PR #87)
+
+The same "dedup by a stable key, not by re-deriving from content" philosophy
+governs the Wave 2 activation funnel. The first-review and first-draft signals
+fire from the ingest / response-generation workers, which BullMQ may retry, so
+they must be exactly-once per account:
+
+- **`first_review_ingested`** — enqueued from `processReview` with
+  `event_key = first_review_ingested:<account_id>`. The "is this the account's
+  first review?" check is an account-scoped `EXISTS` subquery, but correctness
+  does **not** depend on that read winning a race: the account-scoped key plus
+  `analytics_events.event_key UNIQUE` + `ON CONFLICT DO NOTHING` is the real
+  dedup, so concurrent first reviews collapse to one row.
+- **`first_response_drafted`** — same pattern, `event_key =
+  first_response_drafted:<account_id>`, enqueued after the response row commits.
+  A retry-after-commit re-runs the check, sees the committed sibling, and the
+  key+conflict dedups regardless.
+
+Rule of thumb mirrors review dedup: **derive a deterministic key and let the DB
+unique constraint enforce once-only** — never rely on a read-then-write check
+being atomic. (Per-attempt client intent events like `gbp_connect_started` use a
+non-deterministic key by design — they are NOT durable facts; see
+`docs/analytics/events.md`.)

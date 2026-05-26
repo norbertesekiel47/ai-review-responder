@@ -10,6 +10,7 @@ import { ManualRankingSection } from './components/ManualRankingSection';
 import { ReviewsList } from './components/ReviewsList';
 import { ChannelsPanel } from './components/ChannelsPanel';
 import { ZernioConnectionPanel } from './components/ZernioConnectionPanel';
+import { PastDueExtensionPanel } from './components/PastDueExtensionPanel';
 import { useBusinessDetail } from './hooks/useBusinessDetail';
 
 function HealthBadge({ level, score }: { level: string; score: number }) {
@@ -160,6 +161,12 @@ export default function BusinessDetailPage() {
             </div>
           </div>
         )}
+
+        <PastDueExtensionPanel
+          accountId={account.id}
+          subscriptionStatus={account.subscriptionStatus}
+          onGranted={invalidate}
+        />
 
         {/* Profile editor */}
         <ProfileEditor
