@@ -206,7 +206,10 @@ export function DashboardContent() {
           </div>
         )}
         <div className="section-enter section-enter-1">
-          <ConnectGoogleBanner zernio={zernioConnection} />
+          <ConnectGoogleBanner
+            zernio={zernioConnection}
+            readOnly={pastDueData?.isReadOnly ?? false}
+          />
         </div>
         <div className="section-enter section-enter-2">
           <KpiCards valueSummary={valueSummary} pendingCount={pending} onScrollToReviews={scrollToReviews} />

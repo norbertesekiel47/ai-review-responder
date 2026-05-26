@@ -6,9 +6,18 @@ import { Icon } from './Icon';
 
 interface Props {
   zernio: DashboardDataActive['zernioConnection'];
+  readOnly?: boolean;
 }
 
-export function ConnectGoogleBanner({ zernio }: Props) {
+function ReadOnlyNotice() {
+  return (
+    <p className="text-xs text-gray-600 mt-1">
+      Update billing to connect or reconnect Google Business.
+    </p>
+  );
+}
+
+export function ConnectGoogleBanner({ zernio, readOnly = false }: Props) {
   if (zernio.status === 'active') return null;
 
   if (zernio.status === 'finalize_unknown') {
@@ -37,9 +46,13 @@ export function ConnectGoogleBanner({ zernio }: Props) {
           <div className="b-title">Connect Google Business</div>
           <div className="b-sub">Start auto-posting your approved responses to Google.</div>
         </div>
-        <Link href="/dashboard/connect" className="banner-cta">
-          Connect
-        </Link>
+        {readOnly ? (
+          <ReadOnlyNotice />
+        ) : (
+          <Link href="/dashboard/connect" className="banner-cta">
+            Connect
+          </Link>
+        )}
       </div>
     );
   }
@@ -54,9 +67,13 @@ export function ConnectGoogleBanner({ zernio }: Props) {
           <div className="b-title">Connecting your Google Business…</div>
           <div className="b-sub">We&apos;ll let you know as soon as it&apos;s live.</div>
         </div>
-        <Link href="/dashboard/connect" className="banner-cta">
-          View progress
-        </Link>
+        {readOnly ? (
+          <ReadOnlyNotice />
+        ) : (
+          <Link href="/dashboard/connect" className="banner-cta">
+            View progress
+          </Link>
+        )}
       </div>
     );
   }
@@ -81,9 +98,13 @@ export function ConnectGoogleBanner({ zernio }: Props) {
           Reviews integration may be temporarily unavailable; we&apos;ll resume automatically once it&apos;s restored.
         </div>
       </div>
-      <Link href="/dashboard/connect" className="banner-cta">
-        Reconnect
-      </Link>
+      {readOnly ? (
+        <ReadOnlyNotice />
+      ) : (
+        <Link href="/dashboard/connect" className="banner-cta">
+          Reconnect
+        </Link>
+      )}
     </div>
   );
 }
