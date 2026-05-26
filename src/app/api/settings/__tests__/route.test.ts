@@ -3,9 +3,10 @@ import { NextRequest } from 'next/server';
 
 // ── Hoisted shared state ────────────────────────────────────────────
 
-const { mockRequireRole, mockSqlUnsafe } = vi.hoisted(() => ({
+const { mockRequireRole, mockSqlUnsafe, mockAssertWritableSubscriptionForAccount } = vi.hoisted(() => ({
   mockRequireRole: vi.fn(),
   mockSqlUnsafe: vi.fn(),
+  mockAssertWritableSubscriptionForAccount: vi.fn(),
 }));
 
 // ── Mock Auth ───────────────────────────────────────────────────────
@@ -34,6 +35,10 @@ vi.mock('@/lib/db/server', () => {
   });
   return { sql: sqlProxy , jsonb: (v: unknown) => v };
 });
+
+vi.mock('@/lib/shared/writable-subscription', () => ({
+  assertWritableSubscriptionForAccount: (...args: unknown[]) => mockAssertWritableSubscriptionForAccount(...args),
+}));
 
 // Import AFTER mocks
 import { PUT } from '../route';
@@ -78,6 +83,7 @@ describe('PUT /api/settings', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSqlUnsafe.mockResolvedValue({ count: 1 });
+    mockAssertWritableSubscriptionForAccount.mockResolvedValue({ ok: true });
     process.env.NEXT_PUBLIC_APP_URL = APP_URL;
   });
 
@@ -105,6 +111,21 @@ describe('PUT /api/settings', () => {
 
     const body = await res.json();
     expect(body.error).toBe('No business associated with this account');
+  });
+
+  it('returns 402 when the account is past-due read-only', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+    mockAssertWritableSubscriptionForAccount.mockResolvedValueOnce({
+      ok: false,
+      status: 402,
+      error: 'past_due_read_only',
+    });
+
+    const res = await PUT(makeRequest({ tone: 'friendly' }));
+    expect(res.status).toBe(402);
+    expect(await res.json()).toEqual({ error: 'past_due_read_only' });
+    expect(mockAssertWritableSubscriptionForAccount).toHaveBeenCalledWith('a0000000-0000-0000-0000-000000000001');
+    expect(mockSqlUnsafe).not.toHaveBeenCalled();
   });
 
   it('returns 400 for empty body {}', async () => {

@@ -3,11 +3,18 @@ import { NextRequest } from 'next/server';
 
 // ── Hoisted shared state ────────────────────────────────────────────
 
-const { mockRequireRole, mockSql, mockSqlUnsafe, mockGetLocationsForAccount } = vi.hoisted(() => ({
+const {
+  mockRequireRole,
+  mockSql,
+  mockSqlUnsafe,
+  mockGetLocationsForAccount,
+  mockAssertWritableSubscriptionForAccount,
+} = vi.hoisted(() => ({
   mockRequireRole: vi.fn(),
   mockSql: vi.fn(),
   mockSqlUnsafe: vi.fn(),
   mockGetLocationsForAccount: vi.fn(),
+  mockAssertWritableSubscriptionForAccount: vi.fn(),
 }));
 
 // ── Mock Auth ───────────────────────────────────────────────────────
@@ -42,6 +49,10 @@ vi.mock('@/lib/db/server', () => {
 vi.mock('@/lib/locations/repo', () => ({
   getLocationsForAccount: (...args: unknown[]) => mockGetLocationsForAccount(...args),
   getActiveLocationCount: vi.fn().mockResolvedValue(2),
+}));
+
+vi.mock('@/lib/shared/writable-subscription', () => ({
+  assertWritableSubscriptionForAccount: (...args: unknown[]) => mockAssertWritableSubscriptionForAccount(...args),
 }));
 
 // Import AFTER mocks
@@ -90,6 +101,7 @@ describe('GET /api/settings/voice', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockRequireRole.mockResolvedValue(ownerUser());
+    mockAssertWritableSubscriptionForAccount.mockResolvedValue({ ok: true });
     process.env.NEXT_PUBLIC_APP_URL = APP_URL;
   });
 
@@ -239,6 +251,24 @@ describe('PUT /api/settings/voice', () => {
       tone: 'warm',
     }));
     expect(res.status).toBe(403);
+  });
+
+  it('returns 402 without updating when the account is past-due read-only', async () => {
+    mockAssertWritableSubscriptionForAccount.mockResolvedValueOnce({
+      ok: false,
+      status: 402,
+      error: 'past_due_read_only',
+    });
+
+    const res = await PUT(makePutRequest({
+      locationId: LOCATION_ID_1,
+      tone: 'warm',
+    }));
+
+    expect(res.status).toBe(402);
+    expect(await res.json()).toEqual({ error: 'past_due_read_only' });
+    expect(mockAssertWritableSubscriptionForAccount).toHaveBeenCalledWith(ACCOUNT_ID);
+    expect(mockSqlUnsafe).not.toHaveBeenCalled();
   });
 
   it('validates avoidFacts max length (500 chars)', async () => {
