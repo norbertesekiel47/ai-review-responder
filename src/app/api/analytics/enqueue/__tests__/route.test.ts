@@ -68,4 +68,19 @@ describe('POST /api/analytics/enqueue', () => {
       properties: { signup_source: 'homepage' },
     }));
   });
+
+  it('rotates invalid anonymous id cookies before enqueue', async () => {
+    mockCookieGet.mockReturnValue({ value: 'bad:cookie' });
+    const { POST } = await import('../route');
+    const res = await POST(req({
+      eventName: 'signup_started',
+      clientEventId: 'client-1',
+    }));
+
+    expect(res.status).toBe(202);
+    expect(mockEnqueueAnalyticsEvent).toHaveBeenCalledWith(expect.objectContaining({
+      distinctId: expect.not.stringContaining('bad:cookie'),
+      eventKey: expect.not.stringContaining('bad:cookie'),
+    }));
+  });
 });

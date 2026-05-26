@@ -10,6 +10,7 @@ export const dynamic = 'force-dynamic';
 
 const NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
 const ANON_COOKIE = 'rw_analytics_id';
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 interface Body {
   eventName?: unknown;
@@ -40,7 +41,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   const cookieStore = await cookies();
   let anonymousId = cookieStore.get(ANON_COOKIE)?.value;
-  if (!anonymousId) {
+  if (!anonymousId || !UUID_PATTERN.test(anonymousId)) {
     anonymousId = uuidv7();
   }
 
