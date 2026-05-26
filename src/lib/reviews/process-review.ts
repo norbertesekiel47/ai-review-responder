@@ -6,6 +6,8 @@ import type {
   GenerateResponsePayload,
   NotifyAdminExceptionPayload,
 } from '@/lib/shared/worker-types';
+import { enqueueAnalyticsEvent } from '@/lib/analytics/enqueue';
+import { makeAnalyticsEventKey } from '@/lib/analytics/events';
 import {
   STALE_AFTER_REVIEW_CHANGED,
   DELETE_FAILED_PREFIX,
@@ -84,6 +86,12 @@ export async function processReview(
           )
         `;
 
+        await maybeEnqueueFirstReviewIngested(tx, {
+          accountIdForBusinessId: businessId,
+          businessId,
+          reviewId,
+        });
+
         return 'new' as const;
       }
 
@@ -126,6 +134,47 @@ export async function processReview(
       suppressNotification,
     );
   });
+}
+
+async function maybeEnqueueFirstReviewIngested(
+  tx: TxClient,
+  input: {
+    accountIdForBusinessId: string;
+    businessId: string;
+    reviewId: string;
+  },
+): Promise<void> {
+  const [row] = await tx<{ account_id: string; earlier_exists: boolean }[]>`
+    SELECT
+      b.account_id,
+      EXISTS (
+        SELECT 1
+        FROM reviews r2
+        JOIN businesses b2 ON b2.id = r2.business_id
+        WHERE b2.account_id = b.account_id
+          AND r2.id <> ${input.reviewId}::uuid
+          AND r2.detected_at IS NOT NULL
+        LIMIT 1
+      ) AS earlier_exists
+    FROM businesses b
+    WHERE b.id = ${input.accountIdForBusinessId}::uuid
+    LIMIT 1
+  `;
+
+  if (!row || row.earlier_exists) return;
+
+  await enqueueAnalyticsEvent({
+    eventName: 'first_review_ingested',
+    eventKey: makeAnalyticsEventKey('first_review_ingested', [row.account_id]),
+    distinctId: row.account_id,
+    accountId: row.account_id,
+    businessId: input.businessId,
+    properties: {
+      account_id: row.account_id,
+      business_id: input.businessId,
+      review_id: input.reviewId,
+    },
+  }, tx);
 }
 
 // ── Existing-row state machine ────────────────────────────────────────

@@ -6,6 +6,8 @@ import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { VerifyEmailOtpSchema } from '@/lib/shared/schemas';
 import { getIpKey } from '@/lib/shared/request-ip';
+import { enqueueAnalyticsEvent } from '@/lib/analytics/enqueue';
+import { makeAnalyticsEventKey } from '@/lib/analytics/events';
 
 export const dynamic = 'force-dynamic';
 
@@ -147,8 +149,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   //    the caller into an unexpected redirect. After migration 034, users
   //    no longer have business_id; we read account_id and resolve the
   //    primary business for the channel enrollment INSERT in step 7.
-  const [row] = await sql<{ role: string; account_id: string; business_id: string }[]>`
-    SELECT u.role, u.account_id, b.id AS business_id
+  const [row] = await sql<{ role: string; account_id: string; business_id: string; user_id: string }[]>`
+    SELECT u.id AS user_id, u.role, u.account_id, b.id AS business_id
     FROM users u
     JOIN businesses b ON b.account_id = u.account_id AND b.is_primary = TRUE
     WHERE u.auth_id = ${data.user.id}
@@ -189,6 +191,26 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   } catch (err) {
     console.error(
       `[verify-otp] channel_enrollments INSERT failed for business ${row.business_id}:`,
+      err instanceof Error ? err.message : err,
+    );
+  }
+
+  try {
+    await enqueueAnalyticsEvent({
+      eventName: 'email_verified',
+      eventKey: makeAnalyticsEventKey('email_verified', [row.user_id]),
+      distinctId: row.account_id,
+      accountId: row.account_id,
+      userId: row.user_id,
+      properties: {
+        account_id: row.account_id,
+        user_id: row.user_id,
+        signup_source: 'self_serve',
+      },
+    });
+  } catch (err) {
+    console.error(
+      `[verify-otp] email_verified analytics enqueue failed for user ${row.user_id}:`,
       err instanceof Error ? err.message : err,
     );
   }

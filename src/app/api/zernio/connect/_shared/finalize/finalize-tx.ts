@@ -4,6 +4,8 @@ import { ZernioRouteError } from '@/lib/zernio/errors';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import type { AppUser } from '@/lib/db/auth';
 import type { ConnectLocationsBlob } from '@/lib/zernio/types';
+import { enqueueAnalyticsEvent } from '@/lib/analytics/enqueue';
+import { makeAnalyticsEventKey } from '@/lib/analytics/events';
 
 interface FinalizeConnectionTxArgs {
   user: AppUser;
@@ -27,6 +29,11 @@ export async function finalizeConnectionTx({
   accountId,
 }: FinalizeConnectionTxArgs): Promise<void> {
   const newConnectionId = uuidv7();
+  const ownerAccountId = user.accountId;
+  if (!ownerAccountId) {
+    throw new ZernioRouteError(403, 'business_mismatch');
+  }
+
   await sql.begin(async (tx) => {
     const [accountLocation] = await tx<
       {
@@ -42,7 +49,7 @@ export async function finalizeConnectionTx({
       FROM businesses b
       JOIN accounts a ON a.id = b.account_id
       WHERE b.id = ${stored.businessId}
-        AND b.account_id = ${user.accountId}
+        AND b.account_id = ${ownerAccountId}
         AND b.archived_at IS NULL
       FOR UPDATE OF b, a
     `;
@@ -108,6 +115,19 @@ export async function finalizeConnectionTx({
         5
       )
     `;
+
+    await enqueueAnalyticsEvent({
+      eventName: 'gbp_connected',
+      eventKey: makeAnalyticsEventKey('gbp_connected', [stored.businessId]),
+      distinctId: ownerAccountId,
+      accountId: ownerAccountId,
+      businessId: stored.businessId,
+      properties: {
+        account_id: ownerAccountId,
+        business_id: stored.businessId,
+        location_count: stored.locations.length,
+      },
+    }, tx);
 
     // Backfill-needed predicate (spec §6.8 round-final M2). Fires when
     // EITHER (a) no prior connect existed for this business OR

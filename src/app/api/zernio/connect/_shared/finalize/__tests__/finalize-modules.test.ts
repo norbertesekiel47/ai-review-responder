@@ -11,6 +11,8 @@ const {
   mockSelectLocation,
   mockDeleteAccount,
   mockSql,
+  mockTx,
+  mockEnqueueAnalyticsEvent,
   mockReadConnectSessionCookie,
   sqlCalls,
   txCalls,
@@ -127,6 +129,8 @@ const {
     })),
     mockDeleteAccount: vi.fn(async (_accountId: unknown) => undefined),
     mockSql,
+    mockTx,
+    mockEnqueueAnalyticsEvent: vi.fn(),
     mockReadConnectSessionCookie: vi.fn(() => 'session-1' as string | null),
     sqlCalls,
     txCalls,
@@ -181,6 +185,10 @@ vi.mock('@/lib/zernio/client', () => ({
     selectLocation: (input: unknown) => mockSelectLocation(input),
     deleteAccount: (accountId: unknown) => mockDeleteAccount(accountId),
   },
+}));
+
+vi.mock('@/lib/analytics/enqueue', () => ({
+  enqueueAnalyticsEvent: mockEnqueueAnalyticsEvent,
 }));
 
 import * as Sentry from '@sentry/nextjs';
@@ -587,6 +595,31 @@ describe('finalizeConnectionTx', () => {
     ).toBe(true);
     expect(txCalls.some((c) => /drain_pending_owner_connect/.test(c.raw))).toBe(
       true,
+    );
+  });
+
+  it('enqueues gbp_connected inside the finalize transaction', async () => {
+    await finalizeConnectionTx({
+      user: USER,
+      stored: STORED,
+      locationId: 'google-location-1',
+      accountId: 'zernio-account-1',
+    });
+
+    expect(mockEnqueueAnalyticsEvent).toHaveBeenCalledWith(
+      {
+        eventName: 'gbp_connected',
+        eventKey: `gbp_connected:${SECONDARY_LOCATION_ID}`,
+        distinctId: ACCOUNT_ID,
+        accountId: ACCOUNT_ID,
+        businessId: SECONDARY_LOCATION_ID,
+        properties: {
+          account_id: ACCOUNT_ID,
+          business_id: SECONDARY_LOCATION_ID,
+          location_count: 1,
+        },
+      },
+      mockTx,
     );
   });
 
