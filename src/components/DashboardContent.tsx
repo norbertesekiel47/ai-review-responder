@@ -9,6 +9,7 @@ import {
   PendingPaymentScreen,
 } from '@/components/dashboard/AccountStateScreens';
 import { CancelledBanner, PastDueBanner } from '@/components/dashboard/SubscriptionStatusBanner';
+import { PastDueModal } from '@/components/dashboard/PastDueModal';
 import { ConnectGoogleBanner } from '@/components/dashboard/ConnectGoogleBanner';
 import { TopBar } from '@/components/dashboard/TopBar';
 import { KpiCards } from '@/components/dashboard/KpiCards';
@@ -171,6 +172,16 @@ export function DashboardContent() {
         <div className="content">
           <PastDueBanner
             billingPortalUrl={pastDueData.billingPortalUrl}
+            pastDueAt={pastDueData.pastDueAt}
+            deadline={pastDueData.pastDueDeadline}
+            daysRemaining={pastDueData.daysRemaining}
+            isReadOnly={pastDueData.isReadOnly}
+          />
+          <PastDueModal
+            accountId={pastDueData.accountId}
+            daysRemaining={pastDueData.daysRemaining}
+            isReadOnly={pastDueData.isReadOnly}
+            deadline={pastDueData.pastDueDeadline}
           />
           {/* During past_due grace period, dashboard features still work */}
         </div>

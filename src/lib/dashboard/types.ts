@@ -90,9 +90,18 @@ export interface DashboardDataCancelled {
 
 export interface DashboardDataPastDue {
   subscriptionStatus: 'past_due';
+  accountId: string;
   businessName: string;
   /** URL to the Stripe billing portal for updating payment method. */
   billingPortalUrl: string | null;
+  /** Timestamp when Stripe first marked the account past-due. */
+  pastDueAt: string | null;
+  /** Timestamp when the past-due recovery window closes. */
+  pastDueDeadline: string | null;
+  /** Whole days remaining before read-only mode, or null when unavailable. */
+  daysRemaining: number | null;
+  /** True once owner write actions must be blocked. */
+  isReadOnly: boolean;
 }
 
 export type DashboardData =

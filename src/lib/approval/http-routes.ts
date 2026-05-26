@@ -13,6 +13,7 @@ import type { ApprovalLink, AuditContext, SessionAuditContext } from '@/lib/appr
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { getRequestIp } from '@/lib/shared/request-ip';
+import { assertWritableSubscriptionForAccount } from '@/lib/shared/writable-subscription';
 
 type TxClient = postgres.TransactionSql;
 
@@ -144,6 +145,14 @@ export async function runDashboardReviewAction(
   successMessage: string,
   action: (ctx: DashboardReviewActionContext) => Promise<void>,
 ): Promise<NextResponse> {
+  const writable = await assertWritableSubscriptionForAccount(owner.accountId);
+  if (!writable.ok) {
+    return NextResponse.json(
+      { error: writable.error },
+      { status: writable.status, headers: NO_STORE_HEADERS },
+    );
+  }
+
   const rows = await sql`
     SELECT r.id, r.business_id, r.status
     FROM responses r

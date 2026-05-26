@@ -16,6 +16,7 @@ import {
   assertCanEditReply,
   validateOptimisticConcurrency,
   PremiumRequiredError,
+  SubscriptionReadOnlyError,
   ReviewChangedError,
   ResponseChangedError,
   ForbiddenError,
@@ -199,6 +200,22 @@ describe('assertCanEditReply', () => {
       },
     ]);
     await expect(assertCanEditReply('rev-1', ctx)).resolves.toBeUndefined();
+  });
+
+  it('throws SubscriptionReadOnlyError when the account is past-due read-only', async () => {
+    sqlReturnQueue.push([
+      {
+        review_business_id: ownerLocationId,
+        review_date: new Date('2026-05-21T00:00:00Z'),
+        activated_at: new Date('2026-05-01T00:00:00Z'),
+        tier: 'standard',
+        subscription_status: 'past_due',
+        past_due_at: new Date('2026-05-10T00:00:00Z'),
+        flags: {},
+      },
+    ]);
+
+    await expect(assertCanEditReply('rev-1', ctx)).rejects.toBeInstanceOf(SubscriptionReadOnlyError);
   });
 });
 

@@ -13,6 +13,7 @@
 import { NextResponse } from 'next/server';
 import {
   PremiumRequiredError,
+  SubscriptionReadOnlyError,
   ForbiddenError,
   NotFoundError,
 } from '@/lib/responses/edit-existing';
@@ -20,6 +21,9 @@ import {
 export function mapEditReplyError(err: unknown): NextResponse | null {
   if (err instanceof PremiumRequiredError) {
     return NextResponse.json({ error: 'premium_required' }, { status: 403 });
+  }
+  if (err instanceof SubscriptionReadOnlyError) {
+    return NextResponse.json({ error: err.error }, { status: err.status });
   }
   if (err instanceof ForbiddenError) {
     return NextResponse.json({ error: 'forbidden' }, { status: 403 });

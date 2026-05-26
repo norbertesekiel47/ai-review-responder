@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { computePastDueRecoveryState } from '../past-due-recovery';
+import { assertWritableSubscription } from '../writable-subscription';
 
 const NOW = new Date('2026-05-25T12:00:00.000Z');
 
@@ -95,5 +96,29 @@ describe('computePastDueRecoveryState', () => {
 
     expect(state.isReadOnly).toBe(false);
     expect(state.extension?.days).toBe(7);
+  });
+});
+
+describe('assertWritableSubscription', () => {
+  it('returns a 402 read-only error when the recovery state is read-only', () => {
+    expect(assertWritableSubscription({
+      isPastDue: true,
+      pastDueAt: new Date('2026-05-17T12:00:00.000Z'),
+      deadline: new Date('2026-05-24T12:00:00.000Z'),
+      daysRemaining: 0,
+      isReadOnly: true,
+      extension: null,
+    })).toEqual({ ok: false, status: 402, error: 'past_due_read_only' });
+  });
+
+  it('allows writes while the past-due recovery window is still open', () => {
+    expect(assertWritableSubscription({
+      isPastDue: true,
+      pastDueAt: new Date('2026-05-20T12:00:00.000Z'),
+      deadline: new Date('2026-05-27T12:00:00.000Z'),
+      daysRemaining: 2,
+      isReadOnly: false,
+      extension: null,
+    })).toEqual({ ok: true });
   });
 });

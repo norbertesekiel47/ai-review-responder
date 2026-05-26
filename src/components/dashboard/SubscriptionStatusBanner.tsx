@@ -16,6 +16,10 @@ interface CancelledBannerProps {
 
 interface PastDueBannerProps {
   billingPortalUrl: string | null;
+  pastDueAt: string | null;
+  deadline: string | null;
+  daysRemaining: number | null;
+  isReadOnly: boolean;
   navigate?: (url: string) => void;
 }
 
@@ -82,9 +86,28 @@ export function CancelledBanner({ gracePeriodEndDate, readAccess }: CancelledBan
   );
 }
 
-export function PastDueBanner({ billingPortalUrl, navigate }: PastDueBannerProps) {
+export function PastDueBanner({
+  billingPortalUrl,
+  deadline,
+  daysRemaining,
+  isReadOnly,
+  navigate,
+}: PastDueBannerProps) {
   const [isOpeningPortal, setIsOpeningPortal] = useState(false);
   const [portalError, setPortalError] = useState(false);
+  const deadlineCopy = deadline
+    ? new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(deadline))
+    : null;
+  const daysCopy = daysRemaining === null
+    ? null
+    : `${daysRemaining} ${daysRemaining === 1 ? 'day remains' : 'days remain'}`;
+  const title = isReadOnly
+    ? 'Payment overdue — account is read-only'
+    : daysRemaining !== null && daysRemaining <= 2
+      ? 'Final payment reminder'
+      : daysRemaining !== null && daysRemaining <= 4
+        ? 'Payment still overdue'
+        : 'Payment needs attention';
 
   async function handleOpenPortal() {
     if (!billingPortalUrl) {
@@ -108,11 +131,21 @@ export function PastDueBanner({ billingPortalUrl, navigate }: PastDueBannerProps
       </div>
       <div className="sub-status-banner__content">
         <div className="sub-status-banner__title">
-          Payment overdue — please update your payment method
+          {title}
         </div>
         <div className="sub-status-banner__body">
-          Your subscription features continue to work during the 7-day grace
-          period, but your payment method needs updating.{' '}
+          {isReadOnly ? (
+            <>
+              Actions are paused until payment is updated.
+              {deadlineCopy ? <> The recovery deadline was <strong>{deadlineCopy}</strong>.</> : null}{' '}
+            </>
+          ) : (
+            <>
+              Your subscription features continue to work during the recovery
+              period. {daysCopy ? <strong>{daysCopy}</strong> : null}
+              {deadlineCopy ? <> before read-only mode starts on <strong>{deadlineCopy}</strong>.</> : null}{' '}
+            </>
+          )}
           {billingPortalUrl ? (
             <button
               type="button"

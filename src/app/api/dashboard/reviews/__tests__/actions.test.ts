@@ -128,9 +128,17 @@ function makeParams(reviewId: string): { params: Promise<{ reviewId: string }> }
   return { params: Promise.resolve({ reviewId }) };
 }
 
-function setResponseLookup(rows: unknown[]) {
+function setResponseLookup(
+  rows: unknown[],
+  accountRow: unknown = {
+    subscription_status: 'active',
+    past_due_at: null,
+    flags: {},
+  },
+) {
   mockSqlResults.length = 0;
   sqlCallCounter.value = 0;
+  mockSqlResults.push([accountRow]);
   mockSqlResults.push(rows);
 }
 
@@ -193,6 +201,29 @@ describe('POST /api/dashboard/reviews/[reviewId]/approve', () => {
     // Signature: approveBySession(tx, responseId, businessId, audit, correlationId)
     const callArgs = mockApproveBySession.mock.calls[0];
     expect(callArgs?.[4]).toBe('upstream-corr-abc');
+  });
+
+  it('returns 402 when the account is past-due read-only', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+    setResponseLookup(
+      [{ id: RESPONSE_ID, business_id: BUSINESS_ID, status: 'pending_approval' }],
+      {
+        subscription_status: 'past_due',
+        past_due_at: new Date('2026-05-01T00:00:00.000Z'),
+        flags: {},
+      },
+    );
+
+    const { POST } = await import('../[reviewId]/approve/route');
+    const res = await POST(
+      makeRequest(`/api/dashboard/reviews/${REVIEW_ID}/approve`),
+      makeParams(REVIEW_ID),
+    );
+
+    expect(res.status).toBe(402);
+    expect(await res.json()).toEqual({ error: 'past_due_read_only' });
+    expect(mockApproveBySession).not.toHaveBeenCalled();
+    expect(sqlCallCounter.value).toBe(1);
   });
 
   it('returns 404 when no response found for review', async () => {
