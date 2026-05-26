@@ -176,14 +176,14 @@ export async function handleResponseGeneration(
         normalizedReview,
         businessContext,
         voiceExamples,
-        { mode: 'production', reviewId: review_id, version, businessId: businessId, subscriptionTier: businessContext.subscriptionTier },
+        { mode: 'production', reviewId: review_id, version, businessId: businessId, subscriptionTier: businessContext.subscriptionTier, accountId: business.account_id },
       );
     } else {
       result = await generateResponse(
         normalizedReview,
         businessContext,
         voiceExamples,
-        { mode: 'production', reviewId: review_id, version, businessId: businessId, subscriptionTier: businessContext.subscriptionTier },
+        { mode: 'production', reviewId: review_id, version, businessId: businessId, subscriptionTier: businessContext.subscriptionTier, accountId: business.account_id },
       );
     }
   } catch (err) {
@@ -219,7 +219,7 @@ export async function handleResponseGeneration(
   try {
     result = await applyAvoidFactsGuardrail(
       result, businessContext, normalizedReview, voiceExamples,
-      { reviewId: review_id, version, businessId: businessId },
+      { reviewId: review_id, version, businessId: businessId, accountId: business.account_id },
       logger,
     );
   } catch (err) {
@@ -256,7 +256,7 @@ async function applyAvoidFactsGuardrail(
   businessContext: BusinessContext,
   normalizedReview: NormalizedReview,
   voiceExamples: VoiceExample[],
-  ids: { reviewId: string; version: number; businessId: string },
+  ids: { reviewId: string; version: number; businessId: string; accountId: string },
   logger: WorkerLogger,
 ): Promise<GenerationResult> {
   const { avoidFacts } = businessContext;
@@ -274,6 +274,7 @@ async function applyAvoidFactsGuardrail(
       version: ids.version,
       businessId: ids.businessId,
       subscriptionTier: businessContext.subscriptionTier,
+      accountId: ids.accountId,
       skipCache: true,
     };
     const retryResult = isMockMode()

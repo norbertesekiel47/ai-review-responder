@@ -22,6 +22,7 @@ import {
   redactProviderError,
 } from './llm-error-classifier';
 import { recordApiCost, calculateCostUsd } from '@/lib/costs/audit';
+import { PROMPT_VERSION, systemPromptHash } from './prompt-policy';
 
 export { TransientLLMError } from './llm-error-classifier';
 
@@ -155,11 +156,13 @@ async function runProductionMode(
   // only one row lands, but both LLM calls are billed. Keeping the slot
   // held for the cache write (~1 Redis RTT) closes the race; the audit
   // write stays outside because it's pure observability with no race risk.
-  const { llmResult, responseLanguage, costUsd } = await withCostGuard(
+  const { llmResult, responseLanguage, costUsd, latencyMs } = await withCostGuard(
     { businessId, subscriptionTier, withConcurrency: true },
     async () => {
       const prompt = buildProductionPrompt(review, business, voiceExamples);
+      const startedAt = Date.now();
       const llm = await callLLMWithFallback(prompt.systemPrompt, prompt.userPrompt);
+      const ms = Date.now() - startedAt;
       const usd = calculateCostUsd(
         llm.model,
         llm.usage.promptTokens,
@@ -172,7 +175,7 @@ async function runProductionMode(
       }
 
       return {
-        value: { llmResult: llm, responseLanguage: lang, costUsd: usd },
+        value: { llmResult: llm, responseLanguage: lang, costUsd: usd, latencyMs: ms },
         actualCostCents: Math.ceil(usd * 100),
       };
     },
@@ -188,7 +191,13 @@ async function runProductionMode(
     apiCostId: null,
   };
 
-  result.apiCostId = await tryRecordApiCost(businessId, llmResult, costUsd);
+  result.apiCostId = await tryRecordApiCost(
+    businessId,
+    options.accountId ?? null,
+    llmResult,
+    costUsd,
+    latencyMs,
+  );
 
   return result;
 }
@@ -234,18 +243,24 @@ async function tryWriteCache(
 
 async function tryRecordApiCost(
   businessId: string,
+  accountId: string | null,
   llmResult: { provider: 'openai' | 'anthropic'; usage: { promptTokens: number; completionTokens: number } },
   costUsd: number,
+  latencyMs: number,
 ): Promise<string | null> {
   try {
     return await recordApiCost({
       businessId,
+      accountId,
       provider: llmResult.provider,
       endpoint: llmResult.provider === 'openai' ? 'chat.completions' : 'messages',
       inputTokens: llmResult.usage.promptTokens,
       outputTokens: llmResult.usage.completionTokens,
       costUsd,
       responseId: null,
+      systemPromptHash: systemPromptHash(),
+      promptVersion: PROMPT_VERSION,
+      latencyMs,
     });
   } catch (auditError) {
     console.error('[generator] Failed to record api_costs audit row:', auditError);

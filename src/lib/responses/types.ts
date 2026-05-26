@@ -38,6 +38,8 @@ export interface GenerationOptions {
   version?: number;
   /** Required in production mode for cost reservation */
   businessId?: string;
+  /** Billing account ID — recorded on api_costs for business-scoped production calls. */
+  accountId?: string;
   /** Required in production mode for tier-aware limits */
   subscriptionTier?: 'founders' | 'standard' | 'premium';
   /** Skip idempotent cache read AND write. Used by avoid-facts retry so a

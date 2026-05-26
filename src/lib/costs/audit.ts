@@ -35,28 +35,44 @@ export function calculateCostUsd(
 
 /**
  * Inserts an api_costs audit row and returns the row's UUID.
+ *
+ * `accountId` should be set for business-scoped production calls (margin
+ * rollups depend on it); platform-level calls leave it null. Prompt metadata
+ * and latency are recorded for production LLM generations.
  */
 export async function recordApiCost(params: {
   businessId: string | null;
+  accountId?: string | null;
   provider: string;
   endpoint: string;
   inputTokens: number;
   outputTokens: number;
   costUsd: number;
   responseId: string | null;
+  systemPromptHash?: string | null;
+  promptVersion?: string | null;
+  latencyMs?: number | null;
 }): Promise<string> {
   const id = uuidv7();
   await sql`
-    INSERT INTO api_costs (id, business_id, provider, endpoint, input_tokens, output_tokens, cost_usd, response_id)
+    INSERT INTO api_costs (
+      id, business_id, account_id, provider, endpoint,
+      input_tokens, output_tokens, cost_usd, response_id,
+      system_prompt_hash, prompt_version, latency_ms
+    )
     VALUES (
       ${id},
       ${params.businessId},
+      ${params.accountId ?? null},
       ${params.provider},
       ${params.endpoint},
       ${params.inputTokens},
       ${params.outputTokens},
       ${params.costUsd},
-      ${params.responseId}
+      ${params.responseId},
+      ${params.systemPromptHash ?? null},
+      ${params.promptVersion ?? null},
+      ${params.latencyMs ?? null}
     )
   `;
   return id;
