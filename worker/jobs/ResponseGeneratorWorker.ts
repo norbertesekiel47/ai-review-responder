@@ -23,6 +23,7 @@ import type { GenerateResponsePayload, SendNotificationPayload } from '../../src
 import type { NormalizedReview } from '../../src/lib/reviews/types';
 import type { BusinessContext, GenerationResult, VoiceExample } from '../../src/lib/responses/types';
 import { createWorkerLogger, type WorkerLogger } from '../../src/lib/shared/logger';
+import { mergeLogContext } from '../../src/lib/shared/log-context';
 import { parseDbArray } from '../../src/lib/shared/db-array';
 import { asLocationId } from '../../src/lib/shared/ids';
 import type { LocationId } from '../../src/lib/shared/ids';
@@ -37,6 +38,7 @@ export async function handleResponseGeneration(
   // Cast job data IDs to branded types at entry point
   const businessId: LocationId = asLocationId(job.data.business_id);
   const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
+  mergeLogContext({ outbox_id: outboxId });
 
   // ── Step 1: Read review and business ─────────────────────────────────
   const [review] = await sql<{
@@ -87,6 +89,8 @@ export async function handleResponseGeneration(
     await markOutboxFailed(outboxId, 'business_not_found', outboxAttempt);
     return;
   }
+
+  mergeLogContext({ account_id: business.account_id });
 
   // ── Step 2: Subscription guard ───────────────────────────────────────
   const subCheck = checkSubscription({

@@ -6,6 +6,7 @@ import Fastify from 'fastify';
 import rawBody from 'fastify-raw-body';
 import { Worker } from 'bullmq';
 import { getRedisOptions, QUEUE_NAMES, queues } from './queues';
+import { withJobLogContext } from './job-log-context';
 import { startOutboxPoller, stopOutboxPoller } from './background/pollers/OutboxPoller';
 import { handleDemoGeneration } from './jobs/DemoGenerationWorker';
 import { handleResponseGeneration } from './jobs/ResponseGeneratorWorker';
@@ -104,7 +105,7 @@ const demoWorker = new Worker(QUEUE_NAMES.GENERATE_DEMO, handleDemoGeneration, w
 // connection at the firing Zernio account, fanned out by worker/ingress/zernio/zernio.ts.
 const ingestZernioReviewWorker = new Worker<IngestZernioReviewPayload>(
   QUEUE_NAMES.INGEST_ZERNIO_REVIEW,
-  handleZernioReviewIngest,
+  withJobLogContext(handleZernioReviewIngest),
   workerOpts,
 );
 
@@ -118,11 +119,11 @@ const zernioBackfillWorker = new Worker<ZernioInitialBackfillPayload>(
 
 ingestZernioReviewWorker.on('failed', handleIngestFailed);
 
-const responseGenWorker = new Worker(QUEUE_NAMES.GENERATE_RESPONSE, handleResponseGeneration, workerOpts);
+const responseGenWorker = new Worker(QUEUE_NAMES.GENERATE_RESPONSE, withJobLogContext(handleResponseGeneration), workerOpts);
 
-const notificationWorker = new Worker(QUEUE_NAMES.SEND_NOTIFICATION, handleSendNotification, workerOpts);
+const notificationWorker = new Worker(QUEUE_NAMES.SEND_NOTIFICATION, withJobLogContext(handleSendNotification), workerOpts);
 
-const publisherWorker = new Worker(QUEUE_NAMES.PUBLISH_RESPONSE, handlePublishResponse, workerOpts);
+const publisherWorker = new Worker(QUEUE_NAMES.PUBLISH_RESPONSE, withJobLogContext(handlePublishResponse), workerOpts);
 
 publisherWorker.on('failed', handlePublisherFailed);
 
