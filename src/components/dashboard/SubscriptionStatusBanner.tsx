@@ -157,7 +157,9 @@ export function PastDueBanner({
               Update payment method →
             </button>
           ) : (
-            <span>Contact support to update your payment method.</span>
+            <a className="sub-status-banner__link" href="/help/contact">
+              Contact support
+            </a>
           )}
           {portalError ? (
             <span className="sub-status-banner__error">

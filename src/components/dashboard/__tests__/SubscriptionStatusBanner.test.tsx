@@ -129,7 +129,10 @@ describe('PastDueBanner (VAL-CROSS-012)', () => {
     );
 
     expect(screen.getByText(/Payment needs attention/)).toBeDefined();
-    expect(screen.getByText(/Contact support to update your payment method/)).toBeDefined();
+    expect(screen.getByRole('link', { name: /Contact support/i })).toHaveAttribute(
+      'href',
+      '/help/contact',
+    );
   });
 
   it('renders day-1 past-due copy with the absolute deadline', () => {
