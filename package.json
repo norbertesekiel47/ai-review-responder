@@ -19,6 +19,7 @@
     "test:e2e": "playwright test",
     "ci:tenant-scope": "tsx scripts/ci/tenant-scope-audit.ts",
     "ci:rls-audit": "tsx scripts/ci/rls-audit.ts",
+    "ci:analytics-events": "tsx scripts/ci/analytics-events-audit.ts",
     "worker": "tsx worker/index.ts",
     "redis": "tsx scripts/redis.ts"
   },
