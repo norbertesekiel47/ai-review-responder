@@ -4,6 +4,8 @@
 >
 > **✅ Wave 1 SHIPPED (2026-05-25, PR #85):** subscription-level + multi-location upcoming-invoice reconciliation added to `StripeLocationsReconcilePoller` (missing/duplicate/status/price/quantity/invoice drift → Sentry, never auto-corrects; expected invoice uses *stored* grandfathered quota; `past_due` within the 7-day grace window is informational). `past_due_at` shipped earlier in Step 1 (migration 043). **Deferred to Wave 2 / later:** day-variant past-due banner, branded dunning, cancellation survey, Stripe Tax.
 >
+> **✅ Wave 2 Activation SHIPPED (2026-05-26, PR #87):** day-aware past-due UX — dismissible→countdown→read-only banner, day-5 modal, and a day-8 read-only layer — all driven by one shared `computePastDueRecoveryState` now consumed by BOTH the UI and the worker `subscription-guard` (anchored on `past_due_at`, not `businesses.updated_at`). Admin/founder grant-extension (`/api/admin/billing/grant-extension`, AAL2-gated, writes `accounts.flags.past_due_extension` + audit in one tx; `expires_at = max(graceDeadline, now) + days`). Migration 047 backfills `past_due_at` for pre-043 accounts. **Still deferred:** branded dunning, cancellation survey, Stripe Tax.
+>
 > **✅ Wave 2 Activation SHIPPED (2026-05-26):** shared past-due recovery helper now drives the dashboard banner, modal, route/write guards, and worker subscription guard from `accounts.past_due_at` plus `accounts.flags.past_due_extension`; migration **047** backfills existing past-due accounts; admin grant-extension action is AAL2-gated and audit-logged. **Still deferred:** branded dunning emails, cancellation survey, Stripe Tax.
 
 ---

@@ -1,6 +1,8 @@
 # Spec 06 — Onboarding & Activation
 
 > **Goal:** From signup → first AI-drafted response visible in **< 10 minutes**. Zernio-connect drop-off < 15%. Sample-data demo before commitment (already built — flag-gated). Bulk-CSV onboarding for regional managers. _(The 5-step checklist is dropped — see §2.)_
+>
+> **✅ Wave 2 Activation SHIPPED (2026-05-26, PR #87):** first-party analytics queue (`analytics_events`, migration 046; RLS in 049) + `AnalyticsDispatchPoller` → PostHog, preserving "Vercel = UI only" (no `posthog-js`). Activation funnel events + TTFV (`email_verified` → `first_response_drafted`) with a documented taxonomy (`docs/analytics/events.md`); durable facts are server-emitted, only intent events are client-postable. Zernio-connect polish (help link, redirect-timeout fallback, **server-side `gbp_connect_started`** so drop-off is measurable per account). Logged-out demo entry; CSV template + client validation + partial-success UI. **Deferred:** retention/BI dashboards beyond the documented PostHog definitions (Spec 11).
 
 ---
 

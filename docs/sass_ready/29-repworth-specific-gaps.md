@@ -4,6 +4,8 @@
 >
 > **✅ Wave 1 SHIPPED (2026-05-25, PR #85):** **Gap 1** — approval audit content snapshot (`approval_audit_log.response_text_at_approval`, migration 044): immutable, written in-tx across all publish paths (token approve/edit, callback, owner session, dashboard publish/retry/restore). **Gap 2** — multi-location upcoming-invoice reconciliation in `StripeLocationsReconcilePoller` + `accounts.flags.is_pilot` pilot-review process (`docs/finance/`). **Deferred:** Gap 3 (second review source), Gap 4 (LLM gross-margin guard), Gap 5 (past_due UX), Gap 6 (support extension macro), Gap 7 (CSV polish), and the full Trust Center.
 >
+> **✅ Wave 2 Activation SHIPPED (2026-05-26, PR #87):** **Gap 5** — day-aware past-due recovery UX (banner + day-5 modal + day-8 read-only layer) on a shared recovery clock used by UI + worker guard; **Gap 6** — admin/founder grant-extension action (AAL2-gated, audited, `accounts.flags.past_due_extension`) + `docs/support/macros/past-due-extension.md` + `docs/runbooks/support-extension.md`; **Gap 7** — CSV-import template + client validation + partial-success UI. **Still deferred:** Gap 3 (second review source), Gap 4 (LLM gross-margin guard), and the full Trust Center.
+>
 > **✅ Wave 2 Activation SHIPPED (2026-05-26):** **Gap 5** — shared past_due countdown/read-only UX and worker guard; **Gap 6** — versioned support macro + AAL2-gated grant-extension admin action; **Gap 7 partial** — CSV template, client-side validation, and partial-success UI. **Still deferred:** Gap 3, Gap 4, full Trust Center, and external Help Scout setup.
 
 ---

@@ -834,3 +834,80 @@ the `INSERT ... ON CONFLICT DO NOTHING` actually created a row, so a review
 re-seen each poll cycle re-alerted forever.
 **Correct approach:** gate the alert AND the follow-up outbox enqueue behind a
 non-empty `RETURNING` — only a newly created exception notifies.
+
+---
+
+## 2026-05-26
+
+Discovered building + reviewing Wave 2 — Activation (`codex-wave-2-activation`,
+PR #87): analytics queue, past-due recovery, MFA, support + impersonation.
+
+### Unconfigured PostHog must not burn an analytics row's retry budget
+The dispatch poller treated `captureAnalyticsEvent() === false` (the documented
+no-op when `POSTHOG_API_KEY` is unset) as a retryable failure. Each poll
+incremented `attempts`; within `max_attempts` every queued row walked to
+`status = 'failed'` — and the pending index excludes `failed`, so once a key was
+finally added the **entire activation funnel was permanently lost**. A test had
+even codified the bug.
+**Correct approach:** if analytics isn't configured the poller **early-returns
+and claims nothing** (rows stay `pending`, fully recoverable). Config/transient
+failures *defer* (revert the claim's `attempts++`); only genuine per-event errors
+exhaust the budget. `flush`-before-mark-`completed` so a `completed` row was
+actually delivered, not just buffered; drain the in-flight batch on shutdown.
+
+### One past-due recovery clock, read DOWN, and clamp future timestamps
+`checkSubscription` measured the 7-day grace from `businesses.updated_at`, so any
+unrelated write to the business row silently shifted the grace window.
+**Correct approach:** `computePastDueRecoveryState(account)` is the **single**
+source consumed by both the UI and the worker guard, anchored on
+`accounts.past_due_at`. `daysRemaining` must `Math.floor` (not `ceil`) or the
+banner over-promises by up to a day; a **future-dated** `past_due_at` (clock skew)
+must be **clamped to now** (full grace), not treated as instant read-only.
+
+### Grant-extension `expires_at` must be `max(graceDeadline, now) + days`
+`parseExtension` discards any extension with `expires_at <= now`. `now + days`
+is a no-op *inside* the window; `past_due_at + grace + days` is a no-op for an
+**already-locked-out** account (lands in the past → discarded → stays read-only
+while the route returns 200 + writes a "granted" audit row). The customer who
+contacts support is the locked-out one.
+**Correct approach:** `max(past_due_at + grace, now) + days*DAY` — future in both
+cases.
+
+### Impersonation: reap expired sessions, re-check AAL2 on the view, no session swap
+"One active session per actor" was a partial UNIQUE index on `(actor_user_id)
+WHERE ended_at IS NULL` — but nothing sets `ended_at` on TTL expiry (the `/end`
+route needs the now-evicted cookie), so a lapsed session **permanently 409'd**
+new starts. AAL2 was also only checked at start, not on the view loader that
+renders customer PII.
+**Correct approach:** `startImpersonationSession` reaps expired-but-unended rows
+before the active-session pre-check; the view loader re-checks current AAL2;
+view-as is admin-owned (no Supabase session swap — server-only service-role reads
+scoped by `account_id`, never the service key at the `src/proxy.ts` edge).
+
+### Every public table needs RLS — a new table without it is anon-readable
+Migration 046 created `analytics_events` without `ENABLE ROW LEVEL SECURITY` — the
+only table-creating migration that skipped it. In Supabase a public-schema table
+without RLS is reachable via the anon PostgREST API, exposing
+`account_id`/`user_id`/`business_id` + event properties.
+**Correct approach:** enable RLS (deny-all, no policy) on every new table; server
+reaches it via the RLS-bypassing `postgres` role. Fixed in migration 049.
+
+### Durable analytics facts are server-emitted; only intent events are client-postable
+`/api/analytics/enqueue` validated against the full allowlist, so anyone could
+POST `activation_completed`/`first_response_drafted` and forge the funnel. And a
+client-fired `gbp_connect_started` got an anonymous `distinct_id` while
+`gbp_connected` is account-keyed, so the per-account funnel couldn't join.
+**Correct approach:** gate the client route to `CLIENT_ENQUEUEABLE_EVENT_NAMES`
+(intent only); capture `gbp_connect_started` server-side in the connect start
+route (account-scoped, like `gbp_connected`); the client only reports failures.
+
+### The `lint` CI job is eslint **and** the tenant-scope audit (two steps)
+A green ESLint does not mean the `lint` job passes — `pnpm ci:tenant-scope` runs
+as a second step. Editing a tenant-table query's SQL (adding a column/JOIN)
+silently **breaks its allowlist `sqlSnippet` match**, surfacing as a paired
+"unused allowlist entry" + "missing scope" finding; the first CI run of a
+long-lived branch surfaces accumulated drift at once.
+**Correct approach:** when a tenant-table query changes, update its allowlist
+snippet to the new normalized SQL (or drop the entry if the query is now
+inline-scoped), after verifying each flagged query is genuinely safe. Run
+`pnpm ci:tenant-scope` locally, not just `pnpm lint`.
