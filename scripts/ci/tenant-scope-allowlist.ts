@@ -61,6 +61,18 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "Admin-only cross-tenant read of the open flagged-response queue (deny-all RLS table joined to its parent rows); gated by requireRole('admin') and proxy /api/admin protection.",
   },
   {
+    file: "src/app/api/admin/flagged/route.ts",
+    table: "responses",
+    sqlSnippet: "SELECT review_id, version, status FROM responses WHERE id = ${flag.response_id}::uuid FOR UPDATE",
+    reason: "Admin-only disposition (requires_regeneration) locks the held response by id, resolved from the just-locked flagged_responses row; gated by requireRole('admin') + AAL2.",
+  },
+  {
+    file: "src/app/api/admin/flagged/route.ts",
+    table: "responses",
+    sqlSnippet: "UPDATE responses SET status = 'superseded', updated_at = NOW() WHERE id = ${flag.response_id}::uuid",
+    reason: "Admin-only disposition (requires_regeneration) supersedes the held response by id, resolved from the just-locked flagged_responses row; gated by requireRole('admin') + AAL2.",
+  },
+  {
     file: "src/app/api/admin/channels/sms/cancel/route.ts",
     table: "businesses",
     sqlSnippet: "SELECT account_id FROM businesses WHERE id = ${businessId}",
@@ -1047,8 +1059,8 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/lib/dashboard/service.ts",
     table: "responses",
-    sqlSnippet: "SELECT rev.id, rev.reviewer_name, rev.star_rating, rev.review_text, rev.review_date, rev.status, resp.response_text, resp.status AS response_status FROM reviews rev LEFT JOIN LATERAL ( SELECT COALESCE(approved_text, response_text) AS response_text, status FROM responses WHERE review_id = rev.id AND status = ANY(${[...RECENT_REVIEW_DISPLAY_STATUSES] as string[]}::text[]) ORDER BY version DESC LIMIT 1 ) resp ON true WHERE rev.business_id = ${businessId} AND rev.status <> 'deleted' ORDER BY rev.detected_at DESC LIMIT 10",
-    reason: "Dashboard service receives an owner-scoped accountId or businessId and uses it as the tenant boundary for joined data.",
+    sqlSnippet: "SELECT rev.id, rev.reviewer_name, rev.star_rating, rev.review_text, rev.review_date, rev.status, resp.response_text, resp.status AS response_status FROM reviews rev LEFT JOIN LATERAL ( SELECT COALESCE(approved_text, response_text) AS response_text, status FROM responses WHERE review_id = rev.id AND status = ANY(${[...RECENT_REVIEW_DISPLAY_STATUSES] as string[]}::text[]) AND NOT EXISTS ( SELECT 1 FROM flagged_responses fr WHERE fr.response_id = responses.id AND fr.status = 'open' ) ORDER BY version DESC LIMIT 1 ) resp ON true WHERE rev.business_id = ${businessId} AND rev.status <> 'deleted' ORDER BY rev.detected_at DESC LIMIT 10",
+    reason: "Dashboard service receives an owner-scoped accountId or businessId and uses it as the tenant boundary for joined data; the NOT EXISTS clause excludes drafts held by an open moderation flag from owner view.",
   },
   {
     file: "src/lib/db/auth.ts",
@@ -1319,6 +1331,12 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     table: "responses",
     sqlSnippet: "SELECT review_id FROM responses WHERE id = ${link.response_id}",
     reason: "Approval transaction resolves token/response rows by durable approval identifiers before tenant scope is known.",
+  },
+  {
+    file: "src/lib/approval/http-routes.ts",
+    table: "responses",
+    sqlSnippet: "SELECT id FROM responses WHERE id = ${response.id as string}::uuid FOR UPDATE",
+    reason: "Dashboard review action locks the candidate response (already owner-scoped via the preceding account-scoped lookup) to serialize the held-for-review moderation-flag check against admin disposition.",
   },
   {
     file: "src/lib/approval/locks.ts",
