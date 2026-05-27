@@ -465,7 +465,7 @@ export default function CostsPage() {
                           {fmtUsd(row.mrrUsd)}
                         </td>
                         <td className="px-4 py-3 text-right text-gray-700">
-                          {fmtUsd(row.llmApiCostUsd)}
+                          {fmtUsd(row.variableApiCostUsd)}
                         </td>
                         <td className={`px-4 py-3 text-right font-medium ${
                           row.riskLevel === 'action'

@@ -99,7 +99,7 @@ describe('getMarginReport', () => {
     const acme = data.topAccountsByCost[0]!;
     expect(acme.accountId).toBe('acct-1');
     expect(acme.mrrUsd).toBe(79);
-    expect(acme.llmApiCostUsd).toBe(39.5);
+    expect(acme.variableApiCostUsd).toBe(39.5);
     expect(acme.costPctOfMrr).toBe(50);
     expect(acme.riskLevel).toBe('action');
     expect(acme.fallbackRatePct).toBe(10);

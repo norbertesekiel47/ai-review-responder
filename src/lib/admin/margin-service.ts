@@ -25,7 +25,8 @@ export interface AccountMarginRow {
   subscriptionTier: string;
   subscriptionStatus: string;
   mrrUsd: number;
-  llmApiCostUsd: number;
+  /** Total variable API COGS (all providers, trailing window), USD. */
+  variableApiCostUsd: number;
   costPctOfMrr: number | null;
   riskLevel: MarginRiskLevel;
   responseCount: number;
@@ -168,14 +169,14 @@ export async function getMarginReport(
     totalRevenueUsd += mrrUsd;
 
     const cost = costByAccount.get(acct.id);
-    const llmApiCostUsd = round(cost?.api_cost_usd ?? 0, 6);
+    const variableApiCostUsd = round(cost?.api_cost_usd ?? 0, 6);
     const responseCount = cost?.generation_count ?? 0;
     const openaiCount = cost?.openai_count ?? 0;
     const anthropicCount = cost?.anthropic_count ?? 0;
     const flaggedCount = cost?.flagged_count ?? 0;
     const generationCostUsd = cost?.generation_cost_usd ?? 0;
 
-    const costPctOfMrr = mrrUsd > 0 ? round((llmApiCostUsd / mrrUsd) * 100, 1) : null;
+    const costPctOfMrr = mrrUsd > 0 ? round((variableApiCostUsd / mrrUsd) * 100, 1) : null;
     const fallbackRatePct =
       responseCount > 0 ? round((anthropicCount / responseCount) * 100, 1) : null;
     const flaggedRatePct =
@@ -189,7 +190,7 @@ export async function getMarginReport(
       subscriptionTier: acct.subscription_tier,
       subscriptionStatus: acct.subscription_status,
       mrrUsd: round(mrrUsd, 2),
-      llmApiCostUsd,
+      variableApiCostUsd,
       costPctOfMrr,
       riskLevel: classifyAccountRisk(costPctOfMrr),
       responseCount,
@@ -204,7 +205,7 @@ export async function getMarginReport(
 
   // Fetches all active/past_due accounts then sorts in-process. Fine at launch
   // scale; push sort+limit into SQL if account count grows past ~1k.
-  rows.sort((a, b) => b.llmApiCostUsd - a.llmApiCostUsd);
+  rows.sort((a, b) => b.variableApiCostUsd - a.variableApiCostUsd);
 
   const variableApiCogsUsd = round(platformRows[0]?.total_cost_usd ?? 0, 6);
   totalRevenueUsd = round(totalRevenueUsd, 2);
