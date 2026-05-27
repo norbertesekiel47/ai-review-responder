@@ -7,6 +7,7 @@ import { requireRole, AuthError } from '@/lib/db/auth';
 import { recoverCorrelationId } from '@/lib/approval/correlation';
 import { getDeviceCookieHash, validateCsrf, verifyDeviceCookie } from '@/lib/approval/cookies';
 import { EmptyEditedResponseError, ResponseNotPendingError } from '@/lib/approval/errors';
+import { hasOpenFlag, HeldForReviewError } from '@/lib/moderation/held-draft';
 import { handleApprovalError } from '@/lib/approval/http-errors';
 import { verifyDevice } from '@/lib/approval/locks';
 import { lockValidLink } from '@/lib/approval/service';
@@ -185,6 +186,14 @@ export async function runDashboardReviewAction(
 
   try {
     await sql.begin(async (tx) => {
+      // Lock the candidate response, then refuse to release it while a
+      // high-severity moderation flag is open. The lock serializes this check
+      // against the admin disposition that closes the flag.
+      await tx`SELECT id FROM responses WHERE id = ${response.id as string}::uuid AND business_id = ${response.business_id as string}::uuid FOR UPDATE`;
+      if (await hasOpenFlag(tx, response.id as string)) {
+        throw new HeldForReviewError();
+      }
+
       const correlationId = await recoverCorrelationId(tx, {
         reviewId,
         responseId: response.id as string,
@@ -207,6 +216,9 @@ export async function runDashboardReviewAction(
       return NextResponse.json({ error: err.message }, { status: 400, headers: NO_STORE_HEADERS });
     }
     if (err instanceof ResponseNotPendingError) {
+      return NextResponse.json({ error: err.message }, { status: 409, headers: NO_STORE_HEADERS });
+    }
+    if (err instanceof HeldForReviewError) {
       return NextResponse.json({ error: err.message }, { status: 409, headers: NO_STORE_HEADERS });
     }
     console.error(`[api/dashboard/reviews/${actionName}] Unexpected error:`, err);

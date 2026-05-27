@@ -15,6 +15,7 @@ approval before posting.
 - `pnpm test:watch` — Vitest watch
 - `pnpm test:e2e` — Playwright E2E (skips gracefully without TEST_DATABASE_POOL_URL)
 - `pnpm lint` — ESLint
+- `pnpm eval:llm` — LLM safety eval harness (offline/keyless by default; `--live` needs provider keys)
 - Set `MOCK_EXTERNAL_APIS=true` in `.env.local` to bypass all external APIs locally
 
 ## CI & repo (since 2026-05-24)
@@ -120,7 +121,7 @@ approval before posting.
 - Two Postgres clients: `postgres` (Postgres.js) for transactional writes,
   `@supabase/supabase-js` for auth/storage/reads
 - Two Redis instances: Upstash cache (separate from) Upstash BullMQ queue
-- LLM: GPT-4o-mini primary (pinned `gpt-4o-mini-2024-07-18`), `claude-haiku-4-5-20251001` fallback. Production model constants live in `src/lib/responses/generator.ts` (exported, guarded by `model-pinning.test.ts`); never use a bare `gpt-4o-mini` alias for generation. The versioned prompt safety base is `src/lib/responses/prompt-policy.ts` (`PROMPT_VERSION` + `systemPromptHash()`), recorded on every `api_costs` row.
+- LLM: GPT-4o-mini primary (pinned `gpt-4o-mini-2024-07-18`), `claude-haiku-4-5-20251001` fallback. Production model constants live in `src/lib/responses/generator.ts` (exported, guarded by `model-pinning.test.ts`); never use a bare `gpt-4o-mini` alias for generation. The versioned prompt safety base is `src/lib/responses/prompt-policy.ts` (`PROMPT_VERSION` + `systemPromptHash()`), recorded on every `api_costs` row. The launch LLM safety eval harness lives at `tests/llm-eval/*` (`pnpm eval:llm`): offline/keyless by default — it scores candidate responses through `runOutputFilter`; `--live` swaps in real demo-mode generation. Trust-safety enforcement docs are at `docs/trust-safety/*`.
 - JSONB via Postgres.js: use `jsonb()` helper (`sql.json(value)`, OID 3802).
   `${JSON.stringify(x)}::jsonb` double-encodes in Postgres.js v3.
 - Package manager: pnpm
@@ -180,8 +181,9 @@ approval before posting.
   sentiment trend), distinct from the lifetime `dashboard/valueSummary`. Scoped
   per-location (`getLocationKpiSummary`) or per-account/active-locations
   (`getAccountKpiSummary`); served read-only by `GET /api/dashboard/kpis`
-  (mirrors the `/api/dashboard` auth + scope + IDOR). KPI queries whose scope
-  the tenant-scope scanner can't trace are allowlisted (verified scoped).
+  (mirrors the `/api/dashboard` auth + scope + IDOR + subscription read-entitlement
+  gate). KPI queries whose scope the tenant-scope scanner can't trace are
+  allowlisted (verified scoped).
 
 ## Non-obvious gotchas — read these before touching related code
 

@@ -14,7 +14,13 @@ ALTER TABLE reviews ADD COLUMN IF NOT EXISTS sentiment_source TEXT;
 DO $$
 BEGIN
   IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'reviews_sentiment_label_check'
+    SELECT 1
+    FROM pg_constraint c
+    JOIN pg_class t ON t.oid = c.conrelid
+    JOIN pg_namespace n ON n.oid = t.relnamespace
+    WHERE c.conname = 'reviews_sentiment_label_check'
+      AND t.relname = 'reviews'
+      AND n.nspname = 'public'
   ) THEN
     ALTER TABLE reviews
       ADD CONSTRAINT reviews_sentiment_label_check
