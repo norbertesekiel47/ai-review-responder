@@ -58,9 +58,7 @@ async function main(): Promise<void> {
   if (live) {
     // Heavy generator deps are isolated behind this dynamic import so the
     // offline path stays import-light and keyless.
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-    // @ts-expect-error live-runner does not exist until Task 4
-    const { createLiveGenerator } = await import('./live-runner') as { createLiveGenerator: () => (row: EvalRow) => Promise<string> };
+    const { createLiveGenerator } = await import('./live-runner');
     generate = createLiveGenerator();
   }
 
