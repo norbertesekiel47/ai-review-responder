@@ -42,6 +42,7 @@ import {
 import { mapEditReplyError } from '../_shared/edit-reply-errors';
 import { snapshotSchema } from '../_shared/schemas';
 import { insertAuditLogSession } from '@/lib/approval/audit';
+import { hasOpenFlag } from '@/lib/moderation/held-draft';
 import type { SessionAuditContext } from '@/lib/approval/audit';
 import type { PublishResponsePayload } from '@/lib/shared/worker-types';
 
@@ -176,6 +177,13 @@ async function handler(request: NextRequest): Promise<Response> {
       }
       if (candidate.status !== 'pending_approval') {
         return NextResponse.json({ error: 'response_changed' }, { status: 409 });
+      }
+
+      // 3b. A high-severity moderation flag holds the draft: it cannot be
+      //     published until an admin dispositions it at /admin/flagged. The
+      //     candidate row is already locked, serializing against that close.
+      if (await hasOpenFlag(tx, parsed.data.response_id)) {
+        return NextResponse.json({ error: 'held_for_review' }, { status: 409 });
       }
 
       // 4. Compute the audit mode using the (llm_provider, edited_text) tuple.
