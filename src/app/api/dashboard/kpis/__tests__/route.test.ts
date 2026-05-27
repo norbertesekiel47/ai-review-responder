@@ -3,8 +3,24 @@ import { NextRequest } from 'next/server';
 
 // ── Hoisted shared state ──────────────────────────────────────────────────
 
-const { mockRequireRole } = vi.hoisted(() => ({
+const { mockRequireRole, mockAccountRows } = vi.hoisted(() => ({
   mockRequireRole: vi.fn(),
+  // Rows returned by the route's `SELECT subscription_status FROM accounts`.
+  // Defaulted to an active account in beforeEach so existing tests pass the gate.
+  mockAccountRows: { value: [] as Array<{ subscription_status: string }> },
+}));
+
+// ── Mock db (subscription-status gate query) ───────────────────────────────
+
+vi.mock('@/lib/db/server', () => ({
+  sql: (first: unknown) => {
+    // Tagged-template call → the route's accounts query. Return the seeded rows.
+    if (first != null && typeof first === 'object' && 'raw' in (first as object)) {
+      return Promise.resolve(mockAccountRows.value);
+    }
+    return { __helper: true };
+  },
+  jsonb: (v: unknown) => v,
 }));
 
 // ── Mock Auth ─────────────────────────────────────────────────────────────
@@ -113,6 +129,8 @@ function ownedActiveLocation(overrides?: { account_id?: string; archived_at?: Da
 describe('GET /api/dashboard/kpis', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Default: active account passes the subscription gate.
+    mockAccountRows.value = [{ subscription_status: 'active' }];
   });
 
   // ── Happy path: no scope param → location mode ────────────────────────
@@ -330,5 +348,66 @@ describe('GET /api/dashboard/kpis', () => {
     } finally {
       process.env.MULTI_LOCATION_ENABLED = previous;
     }
+  });
+
+  // ── Subscription gate (P1): only active/past_due accounts get KPI data ─────
+
+  it('cancelled account → 403 subscription_inactive; no KPI service call', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+    mockGetLocationById.mockResolvedValue(ownedActiveLocation());
+    mockAccountRows.value = [{ subscription_status: 'cancelled' }];
+
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(403);
+
+    const body = await res.json();
+    expect(body.error).toBe('subscription_inactive');
+    expect(body.subscriptionStatus).toBe('cancelled');
+
+    expect(mockGetLocationKpiSummary).not.toHaveBeenCalled();
+    expect(mockGetAccountKpiSummary).not.toHaveBeenCalled();
+  });
+
+  it('pending_payment account → 403; aggregate mode also gated, no KPI service call', async () => {
+    const previous = process.env.MULTI_LOCATION_ENABLED;
+    try {
+      process.env.MULTI_LOCATION_ENABLED = 'true';
+      mockRequireRole.mockResolvedValue(ownerUser());
+      mockAccountRows.value = [{ subscription_status: 'pending_payment' }];
+
+      const res = await GET(makeRequest('/api/dashboard/kpis?scope=all'));
+      expect(res.status).toBe(403);
+
+      const body = await res.json();
+      expect(body.error).toBe('subscription_inactive');
+      expect(mockGetAccountKpiSummary).not.toHaveBeenCalled();
+      expect(mockGetLocationKpiSummary).not.toHaveBeenCalled();
+    } finally {
+      process.env.MULTI_LOCATION_ENABLED = previous;
+    }
+  });
+
+  it('past_due account → 200 (features continue during grace); KPI returned', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+    mockGetLocationById.mockResolvedValue(ownedActiveLocation());
+    mockGetLocationKpiSummary.mockResolvedValue(MOCK_LOCATION_SUMMARY);
+    mockAccountRows.value = [{ subscription_status: 'past_due' }];
+
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(200);
+    expect(mockGetLocationKpiSummary).toHaveBeenCalledWith(BUSINESS_ID);
+  });
+
+  it('account row not found → 404; no KPI service call', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+    mockAccountRows.value = [];
+
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(404);
+
+    const body = await res.json();
+    expect(body.error).toBe('Account not found');
+    expect(mockGetLocationKpiSummary).not.toHaveBeenCalled();
+    expect(mockGetAccountKpiSummary).not.toHaveBeenCalled();
   });
 });

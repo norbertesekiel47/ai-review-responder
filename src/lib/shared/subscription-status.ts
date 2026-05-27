@@ -32,3 +32,19 @@ const ALL_STATUSES: readonly string[] = Object.values(SubscriptionStatus);
 export function isSubscriptionStatus(value: string): value is SubscriptionStatusValue {
   return ALL_STATUSES.includes(value);
 }
+
+// ── Dashboard / KPI read entitlement ─────────────────────────────────────────
+
+/**
+ * Whether an account's subscription status grants read access to customer
+ * dashboard / KPI data. Mirrors the entitlement `/api/dashboard` enforces:
+ * `active` and `past_due` (features continue through the past-due grace window)
+ * return data; `pending_payment` and `cancelled` do not. Any owner read of
+ * customer KPI data must gate on this before returning data.
+ */
+export function subscriptionAllowsDashboardRead(status: string): boolean {
+  return (
+    status === SubscriptionStatus.ACTIVE ||
+    status === SubscriptionStatus.PAST_DUE
+  );
+}
