@@ -7,6 +7,10 @@ import type { EvalRow } from './types';
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const EVAL_SET_PATH = resolve(HERE, 'eval-set.jsonl');
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 /** Parse JSONL eval rows; validates non-empty id and uniqueness. */
 export function parseEvalSet(jsonl: string): EvalRow[] {
   const rows: EvalRow[] = [];
@@ -16,18 +20,40 @@ export function parseEvalSet(jsonl: string): EvalRow[] {
     const trimmed = line.trim();
     if (trimmed === '') continue;
 
-    let parsed: EvalRow;
+    let raw: unknown;
     try {
-      parsed = JSON.parse(trimmed) as EvalRow;
+      raw = JSON.parse(trimmed);
     } catch (err) {
       throw new Error(
         `eval-set line ${index + 1} is not valid JSON: ${(err as Error).message}`,
       );
     }
 
-    if (!parsed.id) {
-      throw new Error(`eval-set line ${index + 1} is missing "id"`);
+    if (!isRecord(raw)) {
+      throw new Error(`eval-set line ${index + 1} must be a JSON object`);
     }
+
+    if (typeof raw.id !== 'string' || raw.id.trim() === '') {
+      throw new Error(`eval-set line ${index + 1} id must be a non-empty string`);
+    }
+    if (typeof raw.candidate !== 'string') {
+      throw new Error(`eval-set line ${index + 1} candidate must be a string`);
+    }
+
+    const expectation = raw.expect;
+    if (!isRecord(expectation)) {
+      throw new Error(`eval-set line ${index + 1} is missing object "expect"`);
+    }
+    if (typeof expectation.maxSeverity !== 'string') {
+      throw new Error(`eval-set line ${index + 1} expect.maxSeverity must be a string`);
+    }
+    if (!Array.isArray(expectation.forbiddenCategories)) {
+      throw new Error(
+        `eval-set line ${index + 1} expect.forbiddenCategories must be an array`,
+      );
+    }
+
+    const parsed = raw as unknown as EvalRow;
     if (ids.has(parsed.id)) {
       throw new Error(`duplicate eval row id "${parsed.id}"`);
     }

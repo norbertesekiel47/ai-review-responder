@@ -32,6 +32,30 @@ describe('parseEvalSet', () => {
     expect(() => parseEvalSet('{"category":"positive"}')).toThrow(/id/);
   });
 
+  it('throws when id is not a string', () => {
+    expect(() => parseEvalSet('{"id":123,"candidate":"ok","expect":{"maxSeverity":"low","forbiddenCategories":[]}}')).toThrow(
+      /line 1.*id.*string/,
+    );
+  });
+
+  it('throws when candidate is missing or not a string', () => {
+    expect(() => parseEvalSet('{"id":"a","expect":{"maxSeverity":"low","forbiddenCategories":[]}}')).toThrow(
+      /line 1.*candidate/,
+    );
+    expect(() => parseEvalSet('{"id":"a","candidate":false,"expect":{"maxSeverity":"low","forbiddenCategories":[]}}')).toThrow(
+      /line 1.*candidate.*string/,
+    );
+  });
+
+  it('throws when expect is missing or malformed', () => {
+    expect(() => parseEvalSet('{"id":"a","candidate":"ok"}')).toThrow(
+      /line 1.*expect/,
+    );
+    expect(() => parseEvalSet('{"id":"a","candidate":"ok","expect":{"maxSeverity":"low","forbiddenCategories":"refund_discount"}}')).toThrow(
+      /line 1.*forbiddenCategories.*array/,
+    );
+  });
+
   it('throws on a duplicate id', () => {
     const line =
       '{"id":"dup","category":"positive","description":"d","input":{"reviewerName":"x","starRating":5,"reviewText":"hi","reviewDate":"2026-01-01","detectedLanguage":"en","businessName":"b","businessCategory":null},"candidate":"thanks","expect":{"maxSeverity":"low","forbiddenCategories":[]}}';
