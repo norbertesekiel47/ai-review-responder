@@ -979,3 +979,131 @@ module and `tsc` (which includes `.next/types/**`) errors on a file you didn't
 touch.
 **Correct approach:** `rm -rf .next` and re-run `typecheck`. A fresh `pnpm
 build` regenerates it for the current branch.
+
+---
+
+## 2026-05-27 — Wave 3 (PRs 4–6: eval harness, sentiment, KPIs, finance + review fixes)
+
+### `tests/llm-eval/*` must use relative imports, not the `@/` alias
+The eval harness runs under `tsx` (`pnpm eval:llm`), and **tsx does not resolve
+tsconfig `paths`** — `@/lib/...` fails at runtime. Existing CI scripts
+(`scripts/ci/*.ts`) already import relatively for the same reason.
+**Correct approach:** inside `tests/llm-eval/`, import via relative paths
+(`../../src/lib/moderation/output-filter`). Relative paths resolve under both
+`tsx` and Vitest; the `@/` alias is src-only convenience.
+
+### A `vi.mock` path is relative to the TEST file, not the module under test
+The eval live-runner test mocked the generator at `../../src/...` (copied from
+the runner's own import), but from `tests/llm-eval/__tests__/` that resolves to
+`tests/llm-eval/src/...` — wrong, so the mock didn't intercept.
+**Correct approach:** count hops from the test file. From a `__tests__/` dir one
+level deeper than the module, the mock path needs one extra `../`
+(`../../../src/...`). Verify the mock actually intercepts (assert the mocked fn
+was called) — a non-intercepting mock makes the test pass against the real impl.
+
+### A dynamic `await import('./x')` is still type-checked — it can't forward-reference a missing module
+`run.ts` referenced `./live-runner` (built in a later task) via dynamic import,
+assuming TS wouldn't resolve it. `tsc` DOES resolve dynamic-import specifiers, so
+it errored. Bridging with `@ts-expect-error` is worse: once the module exists the
+directive becomes an "unused" error, and an unrelated `as` cast left behind masks
+real type drift.
+**Correct approach:** build modules in dependency order, or accept the type error
+until the dep lands — don't paper over it. Heavy deps are still isolated behind
+the dynamic import (offline stays keyless) without any suppression.
+
+### A deterministic backfill must use the SAME formula as the runtime classifier
+Migration 052 backfills `reviews.sentiment_*` in SQL while the ingest path
+classifies in TS. If the two diverge, backfilled and newly-ingested rows
+disagree.
+**Correct approach:** keep one mapping (star→label/score). Making the v1
+classifier **star-only** (no text heuristics) let the SQL `CASE` and the TS
+`classifySentiment` be provably identical; `sentiment_source` is the seam for a
+later text/LLM classifier. The migration-structure test + a classifier unit test
+each assert the shared table.
+
+### Sentiment must be set at EVERY review-content write site, not just `processReview`
+Review content is written at three sites: the NEW insert and the content-changed
+UPDATE in `process-review.ts`, **and `insertImportedReview` in
+`zernio-ingest-shared.ts` which bypasses `processReview` entirely** (external-reply
+path). A classifier hooked only into `processReview` silently leaves imported
+reviews unclassified.
+**Correct approach:** grep every `INSERT INTO reviews` / content `UPDATE reviews`
+(there are exactly 5; 3 write content, 2 are status-only) and wire the classifier
+at all content-write sites. Same lesson as the "four `posted` transition sites"
+note — a value set at one of several write sites misses the rest.
+
+### A typed-error catch must re-throw others; service calls need their own boundary
+`/api/dashboard/kpis`'s `requireRole` catch mapped **all** non-`AuthError`
+failures to 401, masking infra faults as auth errors; and the KPI service calls
+had no try/catch, so a DB error escaped uncaught.
+**Correct approach:** in a catch that maps a specific typed error, re-throw/500
+everything else (a DB failure during auth is 5xx, not 401); wrap the
+data-fetch section in its own try/catch returning a clean logged 500. (Repeats
+the 2026-05-22 "catching only AuthError" note — it recurs on every new route.)
+
+### A new owner data endpoint must replicate the subscription read-entitlement gate
+`/api/dashboard/kpis` enforced auth + IDOR but not subscription status, so a
+cancelled/unpaid owner could still read KPIs. Auth ≠ entitlement.
+**Correct approach:** gate owner data reads on `subscriptionAllowsDashboardRead`
+(`active` or `past_due` grace) **before** computing anything, mirroring
+`/api/dashboard`. Extracted as a shared predicate in
+`src/lib/shared/subscription-status.ts` so the rule has one home.
+
+### Validate a client-supplied UUID before the `::uuid` DB cast (400, not 500)
+`?scope=not-a-uuid` flowed into a `WHERE id = ${x}::uuid` query → Postgres
+invalid-UUID error → 500. (Same latent bug still in `/api/dashboard` — tracked as
+issue #103.)
+**Correct approach:** `isValidUuid()` (`src/lib/shared/ids.ts`) the
+client-controlled id before the DB read and return a controlled 400.
+
+### A rate metric's numerator and denominator must share one population
+`flaggedRatePct = flagged_count / generation_count`, but `flagged_count` counted
+flags across **all** providers while `generation_count` was openai/anthropic-only
+— a population mismatch (equal today only because non-LLM rows are never flagged).
+**Correct approach:** scope both to the same set (`FILTER (WHERE provider IN
+('openai','anthropic') AND flagged)`). Audit every rate's two halves for the same
+WHERE.
+
+### A `pg_constraint` existence guard must be scoped to its relation
+`IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = '...')` is unsafe —
+`conname` is unique only per-table, so a same-named constraint on another table
+false-matches and skips the `ADD`.
+**Correct approach:** join `pg_class`/`pg_namespace` and filter
+`relname = 'reviews' AND nspname = 'public'`.
+
+### The queue-Proxy `sql` mock needs its call index reset on re-seed within a test
+A test that seeds rows, calls the service, then re-seeds and calls again read
+**past the cursor** (the counter wasn't reset) — the second call got empty rows,
+so assertions passed vacuously.
+**Correct approach:** reset `sqlCallCounter.value = 0` (and the results array)
+inside the `seed()` helper so every seed is a fresh queue. Watch for tests whose
+second assertion happens to equal the "empty" result — they hide this.
+
+### A new endpoint must not couple a pre-existing one's success to its own query
+`/api/admin/costs` ran `getCostReport` and the new `getMarginReport` in one
+`Promise.all` with a single 500 catch — a fault in the new finance query would
+take down the long-standing cost report.
+**Correct approach:** make the new/secondary data **best-effort** —
+`getMarginReport(...).catch(() => null)`, return `margin: null`, keep the
+required data's failure as the 500. The consumer already guards a missing margin.
+
+### tenant-scope allowlist `sqlSnippet`s break on ANY query-text change — and recur
+Every time a tenant-table query's SQL changed in PRs 5–6 (adding sentiment
+columns, the `flagged` provider filter, the TTR `status <> 'deleted'` clause) the
+allowlist `sqlSnippet` stopped matching → the paired "unused entry" + "missing
+scope" finding. Admin cross-account aggregates (margin, flagged queue) are
+**intentionally** unscoped and allowlisted with a `requireRole('admin')`
+rationale.
+**Correct approach:** after editing any allowlisted query, re-run
+`pnpm ci:tenant-scope` and sync the snippet to the new normalized SQL (verify the
+query is still genuinely scoped/admin-gated first). Expect this on nearly every
+SQL edit to a tenant table.
+
+### A branch off `main` can sweep PR4's untracked report artifacts via `git add -A`
+PR4 gitignores `tests/llm-eval/reports/`. The sentiment branch (off `main`, which
+lacks that rule) had untracked report JSONs in the shared working tree; a
+`git add -A` during an amend swept three into a commit.
+**Correct approach:** `git rm` them + add the gitignore guard on the branch; a
+file added-then-removed across a branch nets to absent in the PR diff. Prefer
+explicit `git add <paths>` over `-A` when sibling branches' artifacts may be
+loose in the tree.

@@ -71,6 +71,23 @@ review_content_hash = SHA256(starRating + "|" + reviewText)
 On every ingestion, compare `review_content_hash` to the stored value.
 If different: the review was edited — treat as an update, NOT a new review.
 
+### Sentiment is (re)classified at the same write sites (Wave 3 PR 5a)
+
+`reviews.sentiment_*` is populated by `classifySentiment(starRating)`
+(`src/lib/reviews/sentiment.ts`, deterministic star-based `deterministic_star_v1`)
+at exactly the content-write points dedup decides:
+
+- **NEW** review → the INSERT in `process-review.ts` sets sentiment.
+- **UPDATED** (content hash changed) → the content UPDATE recomputes sentiment.
+- **`insertImportedReview`** (`worker/jobs/zernio/zernio-ingest-shared.ts`, the
+  external-reply path that bypasses `processReview`) also sets it.
+- **UNCHANGED** and the status-only writes (deleted→new revival, soft-delete) do
+  **not** touch sentiment.
+
+So any change that counts as a content update for dedup also refreshes sentiment;
+adding a new review-content write path means adding the `classifySentiment` call
+there too (migration 052's SQL backfill uses the same star→label/score mapping).
+
 ## Collision Handling
 
 If two reviews produce the same identity key but have different content
