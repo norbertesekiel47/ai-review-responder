@@ -107,6 +107,16 @@ describe('getMarginReport', () => {
     expect(acme.avgCostPerResponseUsd).toBeCloseTo(0.38, 5);
   });
 
+  it('scopes flagged_count to the generation providers (same population as generation_count)', async () => {
+    seed();
+    await getMarginReport({ limit: 10 });
+    // The per-account cost-aggregate query (index 1) must count flags only over
+    // openai/anthropic rows so flaggedRatePct shares responseCount's population.
+    expect(capturedSqlTexts[1]).toContain(
+      "FILTER (WHERE provider IN ('openai', 'anthropic') AND flagged)",
+    );
+  });
+
   it('computes platform gross margin and risk', async () => {
     seed();
     const data = await getMarginReport({ limit: 10 });

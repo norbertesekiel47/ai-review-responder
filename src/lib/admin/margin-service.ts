@@ -139,7 +139,7 @@ export async function getMarginReport(
              COUNT(*) FILTER (WHERE provider = 'openai')::int AS openai_count,
              COUNT(*) FILTER (WHERE provider = 'anthropic')::int AS anthropic_count,
              COALESCE(SUM(cost_usd) FILTER (WHERE provider IN ('openai', 'anthropic')), 0)::float AS generation_cost_usd,
-             COUNT(*) FILTER (WHERE flagged)::int AS flagged_count
+             COUNT(*) FILTER (WHERE provider IN ('openai', 'anthropic') AND flagged)::int AS flagged_count
       FROM api_costs
       WHERE account_id IS NOT NULL
         AND created_at >= NOW() - INTERVAL '30 days'
