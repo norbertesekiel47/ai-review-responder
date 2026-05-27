@@ -104,5 +104,11 @@ scripts/zernio-count-reviews.ts
 # Mission runtime artifacts (evidence, scripts — not for source control)
 .factory/missions/
 
+# LLM eval run artifacts (keep the dir via .gitkeep)
+tests/llm-eval/reports/*
+!tests/llm-eval/reports/.gitkeep
+
 # Local pnpm store (store-dir target; never source-controlled)
 .pnpm-store/
+# LLM eval run artifacts (PR4 harness; reports are not committed)
+tests/llm-eval/reports/

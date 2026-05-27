@@ -4,6 +4,7 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import type { MarginData } from '@/lib/admin/margin-service';
 
 const PAGE_SIZE = 20;
 
@@ -26,11 +27,45 @@ interface CostData {
   byDay: { day: string; totalUsd: number; callCount: number }[];
   todayTotalUsd: number;
   globalDailyLimitUsd: number;
+  margin?: MarginData;
 }
 
 // 180/365 exercise the api_costs_daily_rollups path added in Prompt 20b —
 // the API merges detail rows (<90d) with rollup rows (>=90d archived).
 const DAY_OPTIONS = [7, 30, 90, 180, 365] as const;
+
+function fmtUsd(value: number): string {
+  return `$${value.toFixed(2)}`;
+}
+
+function fmtPct(value: number | null): string {
+  if (value == null) return '—';
+  return `${value}%`;
+}
+
+type RiskLevel = 'none' | 'warning' | 'action';
+
+function RiskBadge({ level }: { level: RiskLevel }) {
+  if (level === 'action') {
+    return (
+      <span className="inline-block rounded px-2 py-0.5 text-xs font-medium bg-red-100 text-red-700">
+        Action
+      </span>
+    );
+  }
+  if (level === 'warning') {
+    return (
+      <span className="inline-block rounded px-2 py-0.5 text-xs font-medium bg-[#F2C3B9]/50 text-[#6a4a44]">
+        Warning
+      </span>
+    );
+  }
+  return (
+    <span className="inline-block rounded px-2 py-0.5 text-xs font-medium bg-[#97B3AE]/20 text-[#2a6a64]">
+      OK
+    </span>
+  );
+}
 
 export default function CostsPage() {
   const [days, setDays] = useState<number>(7);
@@ -296,6 +331,173 @@ export default function CostsPage() {
             </div>
           )}
         </div>
+
+        {/* ── Margin & Gross-Margin Risk ─────────────────────────────────────── */}
+        {data.margin && (
+          <div className="mt-8">
+            <div className="flex items-center gap-3 mb-4">
+              <h2 className="text-lg font-semibold text-gray-900">
+                Margin &amp; Gross-Margin Risk
+              </h2>
+              <span className="text-xs text-[#97B3AE] font-medium tracking-wide uppercase">
+                last {data.margin.windowDays} days
+              </span>
+            </div>
+
+            {/* Platform card */}
+            <div className="rounded-lg border border-[#97B3AE]/30 bg-white p-5">
+              <div className="flex items-start justify-between mb-4">
+                <div>
+                  <p className="text-sm font-semibold text-gray-700">Platform Overview</p>
+                  <p className="text-xs text-gray-400 mt-0.5">API/LLM variable COGS vs MRR</p>
+                </div>
+                <RiskBadge level={data.margin.platform.riskLevel} />
+              </div>
+
+              <div className="grid grid-cols-3 gap-6">
+                <div>
+                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">
+                    Gross Margin
+                  </p>
+                  <p className={`text-2xl font-semibold ${
+                    data.margin.platform.riskLevel === 'action'
+                      ? 'text-red-700'
+                      : data.margin.platform.riskLevel === 'warning'
+                        ? 'text-[#6a4a44]'
+                        : 'text-gray-900'
+                  }`}>
+                    {data.margin.platform.grossMarginPct != null
+                      ? `${data.margin.platform.grossMarginPct}%`
+                      : '—'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">
+                    Total Revenue (MRR)
+                  </p>
+                  <p className="text-2xl font-semibold text-gray-900">
+                    {fmtUsd(data.margin.platform.totalRevenueUsd)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">
+                    Variable API COGS
+                  </p>
+                  <p className="text-2xl font-semibold text-gray-900">
+                    {fmtUsd(data.margin.platform.variableApiCogsUsd)}
+                  </p>
+                </div>
+              </div>
+
+              <p className="mt-4 text-xs text-[#97B3AE] italic">
+                {data.margin.platform.note}
+              </p>
+
+              {/* Threshold reference */}
+              <div className="mt-3 flex gap-4 text-xs text-gray-400">
+                <span>
+                  Warning below{' '}
+                  <span className="font-medium text-gray-600">
+                    {data.margin.thresholds.platformWarningPct}%
+                  </span>
+                </span>
+                <span>
+                  Action below{' '}
+                  <span className="font-medium text-gray-600">
+                    {data.margin.thresholds.platformActionPct}%
+                  </span>
+                </span>
+              </div>
+            </div>
+
+            {/* Top accounts table */}
+            <div className="mt-4 rounded-lg border border-[#97B3AE]/30 bg-white">
+              <div className="border-b border-gray-100 px-4 py-3 flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-gray-700">
+                  Top Accounts by API Cost
+                </h3>
+                <span className="text-xs text-gray-400">
+                  Warning ≥{data.margin.thresholds.accountWarningPct}% &nbsp;·&nbsp;
+                  Action ≥{data.margin.thresholds.accountActionPct}% of MRR
+                </span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-100 text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-4 py-3 text-left font-medium text-gray-500">Account</th>
+                      <th className="px-4 py-3 text-left font-medium text-gray-500">Tier</th>
+                      <th className="px-4 py-3 text-right font-medium text-gray-500">MRR</th>
+                      <th className="px-4 py-3 text-right font-medium text-gray-500">API Cost</th>
+                      <th className="px-4 py-3 text-right font-medium text-gray-500">Cost % MRR</th>
+                      <th className="px-4 py-3 text-center font-medium text-gray-500">Risk</th>
+                      <th className="px-4 py-3 text-right font-medium text-gray-500">$/Response</th>
+                      <th className="px-4 py-3 text-right font-medium text-gray-500">Fallback %</th>
+                      <th className="px-4 py-3 text-right font-medium text-gray-500">Flagged %</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {data.margin.topAccountsByCost.length === 0 && (
+                      <tr>
+                        <td colSpan={9} className="px-4 py-6 text-center text-gray-400">
+                          No account cost data for this window.
+                        </td>
+                      </tr>
+                    )}
+                    {data.margin.topAccountsByCost.map((row) => (
+                      <tr
+                        key={row.accountId}
+                        className={`hover:bg-gray-50 ${
+                          row.riskLevel === 'action'
+                            ? 'bg-red-50'
+                            : row.riskLevel === 'warning'
+                              ? 'bg-[#F2C3B9]/10'
+                              : ''
+                        }`}
+                      >
+                        <td className="px-4 py-3 font-medium text-gray-800">
+                          {row.displayName}
+                        </td>
+                        <td className="px-4 py-3 capitalize text-gray-600">
+                          {row.subscriptionTier}
+                        </td>
+                        <td className="px-4 py-3 text-right text-gray-700">
+                          {fmtUsd(row.mrrUsd)}
+                        </td>
+                        <td className="px-4 py-3 text-right text-gray-700">
+                          {fmtUsd(row.variableApiCostUsd)}
+                        </td>
+                        <td className={`px-4 py-3 text-right font-medium ${
+                          row.riskLevel === 'action'
+                            ? 'text-red-700'
+                            : row.riskLevel === 'warning'
+                              ? 'text-[#6a4a44]'
+                              : 'text-gray-700'
+                        }`}>
+                          {fmtPct(row.costPctOfMrr)}
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <RiskBadge level={row.riskLevel} />
+                        </td>
+                        <td className="px-4 py-3 text-right text-gray-600">
+                          {row.avgCostPerResponseUsd != null
+                            ? `$${row.avgCostPerResponseUsd.toFixed(4)}`
+                            : '—'}
+                        </td>
+                        <td className="px-4 py-3 text-right text-gray-600">
+                          {fmtPct(row.fallbackRatePct)}
+                        </td>
+                        <td className="px-4 py-3 text-right text-gray-600">
+                          {fmtPct(row.flaggedRatePct)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
