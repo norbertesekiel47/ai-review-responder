@@ -382,6 +382,27 @@ describe('runDashboardReviewAction', () => {
     }));
   });
 
+  it('returns 409 and skips the action when an open moderation flag holds the draft', async () => {
+    sqlResults.push([ACTIVE_ACCOUNT_ROW]); // assertWritableSubscriptionForAccount
+    sqlResults.push([{ id: 'resp-1', business_id: 'biz-1', status: 'pending_approval' }]); // response lookup
+    sqlResults.push([]); // SELECT ... FOR UPDATE
+    sqlResults.push([{ one: 1 }]); // hasOpenFlag → open flag present
+    const action = vi.fn();
+
+    const res = await runDashboardReviewAction(
+      request(),
+      'rev-1',
+      { id: 'owner-1', accountId: 'acct-1' },
+      'approve',
+      'Response approved.',
+      action,
+    );
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: 'held_for_review' });
+    expect(action).not.toHaveBeenCalled();
+  });
+
   it('returns no-store 404 when no actionable response is visible to the owner', async () => {
     sqlResults.push([ACTIVE_ACCOUNT_ROW]);
     sqlResults.push([]);

@@ -16,6 +16,7 @@ export default defineConfig({
       'scripts/ci/**/__tests__/**/*.test.ts',
       'src/**/__tests__/**/*.test.{ts,tsx}',
       'worker/**/__tests__/**/*.test.{ts,tsx}',
+      'tests/**/__tests__/**/*.test.ts',
     ],
     setupFiles: ['./vitest.setup.ts'],
   },

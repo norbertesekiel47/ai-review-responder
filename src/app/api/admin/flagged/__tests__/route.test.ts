@@ -64,6 +64,7 @@ describe('GET /api/admin/flagged', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockRequireRole.mockResolvedValue({ id: 'admin-1', role: 'admin' });
+    mockRequireCurrentAal2FromSupabase.mockResolvedValue({ ok: true });
   });
 
   it('returns 403 for non-admins', async () => {
@@ -71,6 +72,14 @@ describe('GET /api/admin/flagged', () => {
     mockRequireRole.mockRejectedValueOnce(new AuthError('Forbidden', 403));
     const res = await GET(getReq());
     expect(res.status).toBe(403);
+  });
+
+  it('returns 403 without a current AAL2 session', async () => {
+    mockRequireCurrentAal2FromSupabase.mockResolvedValueOnce({ ok: false, reason: 'aal2_required' });
+    const res = await GET(getReq());
+    expect(res.status).toBe(403);
+    // Must not reach the queue query when MFA step-up is unsatisfied.
+    expect(mockSql).not.toHaveBeenCalled();
   });
 
   it('lists open flags mapped to the display shape', async () => {
@@ -174,19 +183,32 @@ describe('POST /api/admin/flagged (disposition)', () => {
     expect(mockWriteAccountAuditLog).toHaveBeenCalledOnce();
   });
 
-  it('requires_regeneration: updates status, does NOT enqueue a notification', async () => {
-    txResults.push([{ id: FLAG_ID, response_id: 'resp-1', business_id: 'biz-1', account_id: 'acct-1' }]);
+  it('requires_regeneration: supersedes the held draft and enqueues generate_response, no notification', async () => {
+    txResults.push([{ id: FLAG_ID, response_id: 'resp-1', business_id: 'biz-1', account_id: 'acct-1' }]); // flag SELECT
+    txResults.push(Object.assign([], { count: 1 })); // UPDATE flagged_responses
+    txResults.push([{ review_id: 'rev-1', version: 1, status: 'pending_approval' }]); // response SELECT FOR UPDATE
+
     const res = await POST(postReq({ flaggedId: FLAG_ID, action: 'requires_regeneration' }));
     expect(res.status).toBe(200);
-    const notifyPayloads = txCalls
+
+    const jsonbPayloads = txCalls
       .flatMap((c) => c.values)
       .filter(
         (v): v is { __jsonb: Record<string, unknown> } =>
           !!v && typeof v === 'object' && '__jsonb' in (v as Record<string, unknown>),
       )
-      .map((v) => v.__jsonb)
-      .filter((p) => 'response_id' in p && 'business_id' in p);
-    expect(notifyPayloads).toHaveLength(0);
+      .map((v) => v.__jsonb);
+
+    // No owner notification for a regenerated (still-unsafe) draft.
+    expect(jsonbPayloads.filter((p) => 'response_id' in p && 'business_id' in p)).toHaveLength(0);
+
+    // A generate_response job at version+1 was enqueued.
+    const regenPayloads = jsonbPayloads.filter((p) => 'review_id' in p && 'version' in p);
+    expect(regenPayloads).toHaveLength(1);
+    expect(regenPayloads[0]).toMatchObject({ review_id: 'rev-1', business_id: 'biz-1', version: 2 });
+
+    // The held response row was superseded.
+    expect(txCalls.some((c) => /UPDATE responses/.test(c.text) && /superseded/.test(c.text))).toBe(true);
     expect(mockWriteAccountAuditLog).toHaveBeenCalledOnce();
   });
 
