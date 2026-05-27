@@ -175,6 +175,13 @@ approval before posting.
   `zernio-ingest-shared.ts`); status-only writes don't touch it. The migration's
   SQL backfill and the TS classifier use the SAME star→label/score mapping so
   backfilled and newly-ingested rows agree. LLM-ready via `sentiment_source`.
+- **Customer KPIs** come from `src/lib/kpi/*` (`DashboardKpiSummary` —
+  response rate, avg star, review-volume MoM, avg time-to-respond, 8-week
+  sentiment trend), distinct from the lifetime `dashboard/valueSummary`. Scoped
+  per-location (`getLocationKpiSummary`) or per-account/active-locations
+  (`getAccountKpiSummary`); served read-only by `GET /api/dashboard/kpis`
+  (mirrors the `/api/dashboard` auth + scope + IDOR). KPI queries whose scope
+  the tenant-scope scanner can't trace are allowlisted (verified scoped).
 
 ## Non-obvious gotchas — read these before touching related code
 
