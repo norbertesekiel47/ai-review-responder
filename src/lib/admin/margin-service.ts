@@ -10,12 +10,15 @@ import { sql } from '@/lib/db/server';
 import { computeOverageQuantity } from '@/lib/accounts/quota';
 import { TIER_CONFIG, isSubscriptionTier } from '@/lib/accounts/tier-config';
 
-export const MARGIN_WINDOW_DAYS = 30;
-export const ACCOUNT_WARNING_PCT = 25;
-export const ACCOUNT_ACTION_PCT = 40;
+// Module-local thresholds. Surfaced to callers via MarginData.thresholds (see
+// getMarginReport), so no standalone exports are needed — keeps the public
+// surface to the report API and avoids unused-export drift.
+const MARGIN_WINDOW_DAYS = 30;
+const ACCOUNT_WARNING_PCT = 25;
+const ACCOUNT_ACTION_PCT = 40;
 // Platform gross margin: LOWER is worse (inverse of the account cost thresholds).
-export const PLATFORM_ACTION_PCT = 60;
-export const PLATFORM_WARNING_PCT = 70;
+const PLATFORM_ACTION_PCT = 60;
+const PLATFORM_WARNING_PCT = 70;
 
 export type MarginRiskLevel = 'none' | 'warning' | 'action';
 
