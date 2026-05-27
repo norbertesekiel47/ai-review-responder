@@ -21,7 +21,8 @@
     "ci:rls-audit": "tsx scripts/ci/rls-audit.ts",
     "ci:analytics-events": "tsx scripts/ci/analytics-events-audit.ts",
     "worker": "tsx worker/index.ts",
-    "redis": "tsx scripts/redis.ts"
+    "redis": "tsx scripts/redis.ts",
+    "eval:llm": "tsx tests/llm-eval/run.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.98.0",

@@ -1485,8 +1485,8 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/lib/reviews/process-review.ts",
     table: "reviews",
-    sqlSnippet: "UPDATE reviews SET reviewer_name = ${review.reviewerName}, star_rating = ${review.starRating}, review_text = ${review.reviewText}, review_date = ${review.reviewDate}, detected_language = ${review.detectedLanguage}, review_content_hash = ${contentHash}, status = CASE WHEN status = 'deleted' THEN 'new' ELSE status END, detected_at = CASE WHEN status = 'deleted' THEN NOW() ELSE detected_at END WHERE id = ${existing.id}",
-    reason: "Review ingest transaction receives businessId from source connection resolution; provider/review ids here are locked and mutated inside that scoped ingest.",
+    sqlSnippet: "UPDATE reviews SET reviewer_name = ${review.reviewerName}, star_rating = ${review.starRating}, review_text = ${review.reviewText}, review_date = ${review.reviewDate}, detected_language = ${review.detectedLanguage}, review_content_hash = ${contentHash}, sentiment_score = ${sentiment.score}, sentiment_label = ${sentiment.label}, sentiment_classified_at = NOW(), sentiment_source = ${sentiment.source}, status = CASE WHEN status = 'deleted' THEN 'new' ELSE status END, detected_at = CASE WHEN status = 'deleted' THEN NOW() ELSE detected_at END WHERE id = ${existing.id}",
+    reason: "Review ingest transaction receives businessId from source connection resolution; provider/review ids here are locked and mutated inside that scoped ingest. Sentiment columns are derived non-tenant metadata (deterministic star classification).",
   },
   {
     file: "src/lib/reviews/process-review.ts",
@@ -2003,5 +2003,56 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     table: "channel_enrollments",
     sqlSnippet: "UPDATE channel_enrollments SET status = 'unsubscribed', unsubscribed_at = COALESCE(unsubscribed_at, NOW()), unsubscribed_reason = COALESCE(unsubscribed_reason, 'twilio_21610_at_send'), updated_at = NOW() WHERE handle = ${enrollment.handle} AND channel = 'sms' AND archived_at IS NULL RETURNING account_id",
     reason: "Twilio 21610 send failure is treated as a sender opt-out and intentionally updates all active SMS enrollments for that handle.",
+  },
+  // --- KPI service (src/lib/kpi/service.ts) ---
+  // Per-location queries: scoped by `r.business_id = ${businessId}` on the reviews scan.
+  // Responses are correlated via EXISTS(review_id = r.id) or JOIN ON r.id = resp.review_id —
+  // the static scanner cannot trace the correlated join/subquery back to the business scope.
+  // businessId is IDOR-checked in the calling route before this service is invoked.
+  {
+    file: "src/lib/kpi/service.ts",
+    table: "responses",
+    sqlSnippet: "SELECT COUNT(*)::int AS received, COUNT(*) FILTER ( WHERE EXISTS ( SELECT 1 FROM responses resp WHERE resp.review_id = r.id AND resp.status = ANY(${HANDLED}::text[]) ) )::int AS handled FROM reviews r WHERE r.business_id = ${businessId} AND r.status <> 'deleted' AND r.detected_at >= NOW() - INTERVAL '30 days'",
+    reason: "Per-location KPI query; responses accessed via correlated EXISTS (resp.review_id = r.id) inside the reviews scan scoped by r.business_id = ${businessId}. businessId is IDOR-checked in the route.",
+  },
+  {
+    file: "src/lib/kpi/service.ts",
+    table: "responses",
+    sqlSnippet: "SELECT AVG(EXTRACT(EPOCH FROM (resp.approved_at - r.detected_at)) / 3600.0)::float AS avg_hours FROM responses resp JOIN reviews r ON r.id = resp.review_id WHERE r.business_id = ${businessId} AND r.status <> 'deleted' AND resp.status = ANY(${HANDLED}::text[]) AND resp.approved_at IS NOT NULL AND resp.approved_at >= NOW() - INTERVAL '30 days'",
+    reason: "Per-location KPI query; responses scoped via JOIN reviews r ON r.id = resp.review_id WHERE r.business_id = ${businessId}. businessId is IDOR-checked in the route.",
+  },
+  {
+    file: "src/lib/kpi/service.ts",
+    table: "reviews",
+    sqlSnippet: "SELECT gs::date AS week_start, agg.avg_score::float AS avg_score, COALESCE(agg.cnt, 0)::int AS cnt FROM generate_series( DATE_TRUNC('week', NOW() - INTERVAL '7 weeks'), DATE_TRUNC('week', NOW()), INTERVAL '1 week' ) gs LEFT JOIN ( SELECT DATE_TRUNC('week', detected_at)::date AS wk, AVG(sentiment_score) AS avg_score, COUNT(*) AS cnt FROM reviews WHERE business_id = ${businessId} AND status <> 'deleted' AND detected_at >= NOW() - INTERVAL '8 weeks' GROUP BY DATE_TRUNC('week', detected_at) ) agg ON agg.wk = gs::date ORDER BY week_start ASC",
+    reason: "Per-location KPI query; reviews accessed inside a LEFT JOIN subquery scoped by business_id = ${businessId}. Scanner strips SELECT subqueries before predicate analysis. businessId is IDOR-checked in the route.",
+  },
+  // Account-aggregate queries: scoped via JOIN businesses b ON b.id = r.business_id
+  // WHERE b.account_id = ${accountId} AND b.archived_at IS NULL (active locations only).
+  // The static scanner cannot trace the scope through correlated subqueries / multi-join chains.
+  // accountId comes from the authenticated session.
+  {
+    file: "src/lib/kpi/service.ts",
+    table: "responses",
+    sqlSnippet: "SELECT COUNT(*)::int AS received, COUNT(*) FILTER ( WHERE EXISTS ( SELECT 1 FROM responses resp WHERE resp.review_id = r.id AND resp.status = ANY(${HANDLED}::text[]) ) )::int AS handled FROM reviews r JOIN businesses b ON b.id = r.business_id WHERE b.account_id = ${accountId} AND b.archived_at IS NULL AND r.status <> 'deleted' AND r.detected_at >= NOW() - INTERVAL '30 days'",
+    reason: "Account-aggregate KPI; responses accessed via correlated EXISTS (resp.review_id = r.id) inside reviews scoped by JOIN businesses b WHERE b.account_id = ${accountId} AND b.archived_at IS NULL (active locations only).",
+  },
+  {
+    file: "src/lib/kpi/service.ts",
+    table: "responses",
+    sqlSnippet: "SELECT AVG(EXTRACT(EPOCH FROM (resp.approved_at - r.detected_at)) / 3600.0)::float AS avg_hours FROM responses resp JOIN reviews r ON r.id = resp.review_id JOIN businesses b ON b.id = r.business_id WHERE b.account_id = ${accountId} AND b.archived_at IS NULL AND r.status <> 'deleted' AND resp.status = ANY(${HANDLED}::text[]) AND resp.approved_at IS NOT NULL AND resp.approved_at >= NOW() - INTERVAL '30 days'",
+    reason: "Account-aggregate KPI; scoped via JOIN businesses b WHERE b.account_id = ${accountId} AND b.archived_at IS NULL (active locations only).",
+  },
+  {
+    file: "src/lib/kpi/service.ts",
+    table: "businesses",
+    sqlSnippet: "SELECT gs::date AS week_start, agg.avg_score::float AS avg_score, COALESCE(agg.cnt, 0)::int AS cnt FROM generate_series( DATE_TRUNC('week', NOW() - INTERVAL '7 weeks'), DATE_TRUNC('week', NOW()), INTERVAL '1 week' ) gs LEFT JOIN ( SELECT DATE_TRUNC('week', r.detected_at)::date AS wk, AVG(r.sentiment_score) AS avg_score, COUNT(*) AS cnt FROM reviews r JOIN businesses b ON b.id = r.business_id WHERE b.account_id = ${accountId} AND b.archived_at IS NULL AND r.status <> 'deleted' AND r.detected_at >= NOW() - INTERVAL '8 weeks' GROUP BY DATE_TRUNC('week', r.detected_at) ) agg ON agg.wk = gs::date ORDER BY week_start ASC",
+    reason: "Account-aggregate KPI; businesses accessed inside a LEFT JOIN subquery scoped by b.account_id = ${accountId} AND b.archived_at IS NULL. Scanner strips SELECT subqueries before predicate analysis.",
+  },
+  {
+    file: "src/lib/kpi/service.ts",
+    table: "reviews",
+    sqlSnippet: "SELECT gs::date AS week_start, agg.avg_score::float AS avg_score, COALESCE(agg.cnt, 0)::int AS cnt FROM generate_series( DATE_TRUNC('week', NOW() - INTERVAL '7 weeks'), DATE_TRUNC('week', NOW()), INTERVAL '1 week' ) gs LEFT JOIN ( SELECT DATE_TRUNC('week', r.detected_at)::date AS wk, AVG(r.sentiment_score) AS avg_score, COUNT(*) AS cnt FROM reviews r JOIN businesses b ON b.id = r.business_id WHERE b.account_id = ${accountId} AND b.archived_at IS NULL AND r.status <> 'deleted' AND r.detected_at >= NOW() - INTERVAL '8 weeks' GROUP BY DATE_TRUNC('week', r.detected_at) ) agg ON agg.wk = gs::date ORDER BY week_start ASC",
+    reason: "Account-aggregate KPI; reviews accessed inside a LEFT JOIN subquery scoped by JOIN businesses b WHERE b.account_id = ${accountId} AND b.archived_at IS NULL. Scanner strips SELECT subqueries before predicate analysis.",
   },
 ];

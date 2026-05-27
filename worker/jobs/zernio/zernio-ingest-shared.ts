@@ -25,6 +25,7 @@ import type { ZernioReview } from '../../../src/lib/zernio/types';
 import { markOutboxFailed } from '../../../src/lib/shared/outbox';
 import type { WorkerLogger } from '../../../src/lib/shared/logger';
 import { fromZernioReview } from '../../../src/lib/reviews/zernio-field-match';
+import { classifySentiment } from '../../../src/lib/reviews/sentiment';
 import { detectLikelyPhi, redactPhiForLog } from '../../../src/lib/security/phi-scanner';
 
 type TxClient = postgres.TransactionSql;
@@ -373,13 +374,15 @@ async function insertImportedReview(
   const reviewContentHash = createHash('sha256')
     .update(`${matchFields.star_rating}|${matchFields.review_text_trimmed}`)
     .digest('hex');
+  const sentiment = classifySentiment(matchFields.star_rating);
 
   const rows = await tx<{ id: string }[]>`
     INSERT INTO reviews (
       id, business_id, provider, provider_review_id, provider_review_name,
       provider_location_name, reviewer_name, star_rating, review_text,
       review_date, detected_language, review_content_hash, detected_at,
-      status, external_reply_ingested_at
+      status, external_reply_ingested_at,
+      sentiment_score, sentiment_label, sentiment_classified_at, sentiment_source
     )
     VALUES (
       gen_random_uuid(), ${businessId}, 'zernio', ${target.id},
@@ -388,7 +391,8 @@ async function insertImportedReview(
       ${matchFields.review_text_trimmed},
       to_timestamp(${matchFields.created_at_ms} / 1000.0),
       ${null as unknown as string}, ${reviewContentHash},
-      NOW(), 'new', NOW()
+      NOW(), 'new', NOW(),
+      ${sentiment.score}, ${sentiment.label}, NOW(), ${sentiment.source}
     )
     ON CONFLICT (provider, provider_review_name) DO UPDATE
       SET id = reviews.id
