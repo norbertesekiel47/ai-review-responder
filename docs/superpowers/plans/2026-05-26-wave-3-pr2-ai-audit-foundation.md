@@ -840,13 +840,13 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 
 Find this line:
 
-```
+```text
 - Current head: migration **049** (next: **050**)
 ```
 
 Replace with:
 
-```
+```text
 - Current head: migration **050** (next: **051**)
 ```
 
@@ -854,13 +854,13 @@ Replace with:
 
 Find this line:
 
-```
+```text
 - LLM: GPT-4o-mini primary, `claude-haiku-4-5-20251001` fallback
 ```
 
 Replace with:
 
-```
+```text
 - LLM: GPT-4o-mini primary (pinned `gpt-4o-mini-2024-07-18`), `claude-haiku-4-5-20251001` fallback. Production model constants live in `src/lib/responses/generator.ts` (exported, guarded by `model-pinning.test.ts`); never use a bare `gpt-4o-mini` alias for generation. The versioned prompt safety base is `src/lib/responses/prompt-policy.ts` (`PROMPT_VERSION` + `systemPromptHash()`), recorded on every `api_costs` row.
 ```
 
@@ -929,5 +929,3 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 **2. Placeholder scan:** Every code step shows complete code; commands list expected output. The only "match the existing format" instruction is the `migrations.md` entry (Task 6 Step 3), with the exact content to add supplied.
 
 **3. Type consistency:** `recordApiCost` param object (Task 4 Step 3) matches the call site fields (Task 4 Step 5d: `accountId`, `systemPromptHash`, `promptVersion`, `latencyMs`) and the test assertion (Task 4 Step 1b). `GenerationOptions.accountId?: string` (Task 4 Step 4) matches the worker's `business.account_id` (string) and the guardrail `ids.accountId: string`. `OPENAI_MODEL`/`ANTHROPIC_MODEL` exported in Task 3 are imported by `model-pinning.test.ts` in the same task. `SYSTEM_PROMPT_BASE`/`PROMPT_VERSION`/`systemPromptHash` defined in Task 2 are imported in Tasks 4 and 5.
-</content>
-</invoke>
