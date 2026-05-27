@@ -184,6 +184,14 @@ approval before posting.
   (mirrors the `/api/dashboard` auth + scope + IDOR + subscription read-entitlement
   gate). KPI queries whose scope the tenant-scope scanner can't trace are
   allowlisted (verified scoped).
+- **Finance / margin signals** are admin-only and computed aggregate-on-read
+  from `api_costs` by `src/lib/admin/margin-service.ts` (`getMarginReport` —
+  per-account cost/MRR risk at 25%/40%, platform gross margin at 70%/60%;
+  `monthlyMrrCents` mirrors `currentBillingSnapshot`). Surfaced in `/admin/costs`
+  (returned best-effort by `GET /api/admin/costs`); the queries are intentionally
+  cross-account (no tenant filter) and allowlisted in the tenant-scope audit.
+  Finance discipline docs live in `docs/finance/`. Platform margin is API/LLM
+  COGS only — vendor bills are tracked in `docs/finance/monthly-close.md`.
 
 ## Non-obvious gotchas — read these before touching related code
 

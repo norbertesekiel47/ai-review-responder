@@ -259,6 +259,54 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "Admin-only route or service intentionally performs this statement after requireRole(admin).",
   },
   {
+    file: "src/lib/admin/margin-service.ts",
+    table: "accounts",
+    sqlSnippet: `SELECT a.id, a.display_name, a.subscription_tier, a.subscription_status,
+             a.locations_included, a.locations_overage_price_cents,
+             COUNT(b.id) FILTER (WHERE b.archived_at IS NULL)::int AS active_locations
+      FROM accounts a
+      LEFT JOIN businesses b ON b.account_id = a.id
+      WHERE a.subscription_status IN ('active', 'past_due')
+      GROUP BY a.id`,
+    reason: "Admin-only platform/account margin aggregate (Spec 26); intentionally cross-account with no tenant filter. Gated by requireRole('admin') at the /api/admin/costs route. Mirrors the admin flagged-queue allowlisting.",
+  },
+  {
+    file: "src/lib/admin/margin-service.ts",
+    table: "businesses",
+    sqlSnippet: `SELECT a.id, a.display_name, a.subscription_tier, a.subscription_status,
+             a.locations_included, a.locations_overage_price_cents,
+             COUNT(b.id) FILTER (WHERE b.archived_at IS NULL)::int AS active_locations
+      FROM accounts a
+      LEFT JOIN businesses b ON b.account_id = a.id
+      WHERE a.subscription_status IN ('active', 'past_due')
+      GROUP BY a.id`,
+    reason: "Admin-only platform/account margin aggregate (Spec 26); intentionally cross-account with no tenant filter. Gated by requireRole('admin') at the /api/admin/costs route. Mirrors the admin flagged-queue allowlisting.",
+  },
+  {
+    file: "src/lib/admin/margin-service.ts",
+    table: "api_costs",
+    sqlSnippet: `SELECT account_id,
+             SUM(cost_usd)::float AS api_cost_usd,
+             COUNT(*) FILTER (WHERE provider IN ('openai', 'anthropic'))::int AS generation_count,
+             COUNT(*) FILTER (WHERE provider = 'openai')::int AS openai_count,
+             COUNT(*) FILTER (WHERE provider = 'anthropic')::int AS anthropic_count,
+             COALESCE(SUM(cost_usd) FILTER (WHERE provider IN ('openai', 'anthropic')), 0)::float AS generation_cost_usd,
+             COUNT(*) FILTER (WHERE provider IN ('openai', 'anthropic') AND flagged)::int AS flagged_count
+      FROM api_costs
+      WHERE account_id IS NOT NULL
+        AND created_at >= NOW() - INTERVAL '30 days'
+      GROUP BY account_id`,
+    reason: "Admin-only platform/account margin aggregate (Spec 26); intentionally cross-account with no tenant filter. Gated by requireRole('admin') at the /api/admin/costs route. Mirrors the admin flagged-queue allowlisting.",
+  },
+  {
+    file: "src/lib/admin/margin-service.ts",
+    table: "api_costs",
+    sqlSnippet: `SELECT COALESCE(SUM(cost_usd), 0)::float AS total_cost_usd
+      FROM api_costs
+      WHERE created_at >= NOW() - INTERVAL '30 days'`,
+    reason: "Admin-only platform/account margin aggregate (Spec 26); intentionally cross-account with no tenant filter. Gated by requireRole('admin') at the /api/admin/costs route. Mirrors the admin flagged-queue allowlisting.",
+  },
+  {
     file: "src/lib/dashboard/aggregate-service.ts",
     table: "accounts",
     sqlSnippet: "SELECT locations_included, locations_paid FROM accounts WHERE id = ${accountId}::uuid",
