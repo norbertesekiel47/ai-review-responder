@@ -54,6 +54,15 @@ approval before posting.
 - **No auto-posting.** There is NO code path from response generation to
   Google posting without an explicit approval step. Make it architecturally
   impossible to bypass.
+- **High-confidence unsafe drafts are held, not notified.** `ResponseGeneratorWorker`
+  runs `moderateResponse` (`src/lib/moderation/*`) after generation; a
+  `high`-severity flag writes a `flagged_responses` row (migration 051,
+  admin-only deny-all RLS) and skips the `send_notification` outbox enqueue in
+  the SAME transaction as response persistence. The draft stays
+  `pending_approval` — no owner notification until an admin dispositions it
+  (PR 3b). Moderation metadata is recorded on `api_costs` (`moderation_*`,
+  `flagged`, `output_excerpt`). Local regex rules always run; the OpenAI
+  Moderation layer is gated behind `OPENAI_MODERATION_ENABLED` and fails open.
 - **Approval tokens never stored raw.** Only SHA-256 hashes in
   `approval_links`. Raw tokens exist only in memory and in the sent email.
   Never persist in Postgres, outbox payloads, or logs.
@@ -146,7 +155,7 @@ approval before posting.
 
 - All tables: UUIDv7 (time-ordered)
 - Base schema: `supabase/migrations/001_initial_schema.sql`
-- Current head: migration **050** (next: **051**)
+- Current head: migration **051** (next: **052**)
 - For migration details: see `.claude/skills/migrations.md`
 
 ## Non-obvious gotchas — read these before touching related code
