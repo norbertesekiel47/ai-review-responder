@@ -1,9 +1,11 @@
 import { NextResponse } from 'next/server';
-import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 
-export const NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
+// Internal helpers for the Zernio connect routes. The module's public surface is
+// intentionally just parseRequestedLocationId + preflightErrorResponse (imported
+// by start/route.ts); everything else is module-local.
+const NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
 
-export class ZernioPreflightError extends Error {
+class ZernioPreflightError extends Error {
   constructor(
     public readonly status: number,
     public readonly code: string,
@@ -22,7 +24,7 @@ export function preflightErrorResponse(error: unknown): NextResponse {
   throw error;
 }
 
-export function isValidUuid(value: string): boolean {
+function isValidUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
     value,
   );
@@ -48,10 +50,4 @@ export function parseRequestedLocationId(body: unknown): string | null {
   }
 
   return requestedLocationId;
-}
-
-export function assertActiveSubscription(status: string): void {
-  if (status !== SubscriptionStatus.ACTIVE) {
-    throw new ZernioPreflightError(403, 'subscription_required');
-  }
 }
