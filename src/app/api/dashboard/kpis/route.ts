@@ -3,6 +3,7 @@ import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 import { subscriptionAllowsDashboardRead } from '@/lib/shared/subscription-status';
+import { isValidUuid } from '@/lib/shared/ids';
 import { getLocationById } from '@/lib/locations/repo';
 import { getLocationKpiSummary, getAccountKpiSummary } from '@/lib/kpi/service';
 import { resolveDashboardScopePolicy } from '../policy';
@@ -71,6 +72,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     if (!locationId) {
       return jsonResponse({ error: 'No business associated with this account' }, 403);
+    }
+
+    // Validate the scope/location id BEFORE the DB read so a malformed
+    // client-supplied `?scope=` value produces a controlled 400, not a
+    // Postgres `::uuid` cast error surfaced as a 500.
+    if (!isValidUuid(locationId)) {
+      return jsonResponse({ error: 'Invalid scope: location must be a valid UUID' }, 400);
     }
 
     // IDOR protection: verify the location belongs to the authenticated user's account.

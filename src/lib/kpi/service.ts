@@ -116,6 +116,7 @@ export async function getLocationKpiSummary(
       FROM responses resp
       JOIN reviews r ON r.id = resp.review_id
       WHERE r.business_id = ${businessId}
+        AND r.status <> 'deleted'
         AND resp.status = ANY(${HANDLED}::text[])
         AND resp.approved_at IS NOT NULL
         AND resp.approved_at >= NOW() - INTERVAL '30 days'
@@ -203,6 +204,7 @@ export async function getAccountKpiSummary(
       JOIN businesses b ON b.id = r.business_id
       WHERE b.account_id = ${accountId}
         AND b.archived_at IS NULL
+        AND r.status <> 'deleted'
         AND resp.status = ANY(${HANDLED}::text[])
         AND resp.approved_at IS NOT NULL
         AND resp.approved_at >= NOW() - INTERVAL '30 days'

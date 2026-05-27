@@ -398,6 +398,20 @@ describe('GET /api/dashboard/kpis', () => {
     expect(mockGetLocationKpiSummary).toHaveBeenCalledWith(BUSINESS_ID);
   });
 
+  it('malformed scope (not a UUID) → 400 Invalid scope; no KPI service / location call', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+
+    const res = await GET(makeRequest('/api/dashboard/kpis?scope=not-a-uuid'));
+    expect(res.status).toBe(400);
+
+    const body = await res.json();
+    expect(body.error).toContain('Invalid scope');
+
+    expect(mockGetLocationById).not.toHaveBeenCalled();
+    expect(mockGetLocationKpiSummary).not.toHaveBeenCalled();
+    expect(mockGetAccountKpiSummary).not.toHaveBeenCalled();
+  });
+
   it('account row not found → 404; no KPI service call', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
     mockAccountRows.value = [];

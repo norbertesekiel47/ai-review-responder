@@ -40,6 +40,11 @@ function seed(opts: {
   current?: number; prior?: number; avgHours?: number | null;
   trend?: Array<{ week_start: string; avg_score: number | null; cnt: number }>;
 }) {
+  // Reset the queue + call index so a re-seed within a single test (two
+  // getLocationKpiSummary calls) reads the freshly seeded rows, not stale
+  // slots past the first call's cursor.
+  mockSqlResults.length = 0;
+  sqlCallCounter.value = 0;
   mockSqlResults[0] = [{ received: opts.received ?? 0, handled: opts.handled ?? 0 }];
   mockSqlResults[1] = [{ avg: opts.avgStar ?? null }];
   mockSqlResults[2] = [{ current_month: opts.current ?? 0, prior_month: opts.prior ?? 0 }];

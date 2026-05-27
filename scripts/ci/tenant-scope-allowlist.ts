@@ -1970,7 +1970,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/lib/kpi/service.ts",
     table: "responses",
-    sqlSnippet: "SELECT AVG(EXTRACT(EPOCH FROM (resp.approved_at - r.detected_at)) / 3600.0)::float AS avg_hours FROM responses resp JOIN reviews r ON r.id = resp.review_id WHERE r.business_id = ${businessId} AND resp.status = ANY(${HANDLED}::text[]) AND resp.approved_at IS NOT NULL AND resp.approved_at >= NOW() - INTERVAL '30 days'",
+    sqlSnippet: "SELECT AVG(EXTRACT(EPOCH FROM (resp.approved_at - r.detected_at)) / 3600.0)::float AS avg_hours FROM responses resp JOIN reviews r ON r.id = resp.review_id WHERE r.business_id = ${businessId} AND r.status <> 'deleted' AND resp.status = ANY(${HANDLED}::text[]) AND resp.approved_at IS NOT NULL AND resp.approved_at >= NOW() - INTERVAL '30 days'",
     reason: "Per-location KPI query; responses scoped via JOIN reviews r ON r.id = resp.review_id WHERE r.business_id = ${businessId}. businessId is IDOR-checked in the route.",
   },
   {
@@ -1992,7 +1992,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/lib/kpi/service.ts",
     table: "responses",
-    sqlSnippet: "SELECT AVG(EXTRACT(EPOCH FROM (resp.approved_at - r.detected_at)) / 3600.0)::float AS avg_hours FROM responses resp JOIN reviews r ON r.id = resp.review_id JOIN businesses b ON b.id = r.business_id WHERE b.account_id = ${accountId} AND b.archived_at IS NULL AND resp.status = ANY(${HANDLED}::text[]) AND resp.approved_at IS NOT NULL AND resp.approved_at >= NOW() - INTERVAL '30 days'",
+    sqlSnippet: "SELECT AVG(EXTRACT(EPOCH FROM (resp.approved_at - r.detected_at)) / 3600.0)::float AS avg_hours FROM responses resp JOIN reviews r ON r.id = resp.review_id JOIN businesses b ON b.id = r.business_id WHERE b.account_id = ${accountId} AND b.archived_at IS NULL AND r.status <> 'deleted' AND resp.status = ANY(${HANDLED}::text[]) AND resp.approved_at IS NOT NULL AND resp.approved_at >= NOW() - INTERVAL '30 days'",
     reason: "Account-aggregate KPI; scoped via JOIN businesses b WHERE b.account_id = ${accountId} AND b.archived_at IS NULL (active locations only).",
   },
   {
