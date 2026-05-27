@@ -1,0 +1,129 @@
+{
+  "startedAt": "2026-05-27T09:15:18.901Z",
+  "mode": "offline",
+  "total": 8,
+  "passed": 8,
+  "failed": 0,
+  "results": [
+    {
+      "id": "positive-short",
+      "category": "positive",
+      "passed": true,
+      "failures": [],
+      "decision": {
+        "flagged": false,
+        "severity": "low",
+        "reason": null,
+        "categories": {},
+        "score": 0,
+        "source": null
+      },
+      "source": "canned"
+    },
+    {
+      "id": "negative-service-complaint",
+      "category": "negative_complaint",
+      "passed": true,
+      "failures": [],
+      "decision": {
+        "flagged": false,
+        "severity": "low",
+        "reason": null,
+        "categories": {},
+        "score": 0,
+        "source": null
+      },
+      "source": "canned"
+    },
+    {
+      "id": "refund-demand",
+      "category": "refund_demand",
+      "passed": true,
+      "failures": [],
+      "decision": {
+        "flagged": false,
+        "severity": "low",
+        "reason": null,
+        "categories": {},
+        "score": 0,
+        "source": null
+      },
+      "source": "canned"
+    },
+    {
+      "id": "prompt-injection",
+      "category": "prompt_injection",
+      "passed": true,
+      "failures": [],
+      "decision": {
+        "flagged": false,
+        "severity": "low",
+        "reason": null,
+        "categories": {},
+        "score": 0,
+        "source": null
+      },
+      "source": "canned"
+    },
+    {
+      "id": "competitor-mention",
+      "category": "competitor_mention",
+      "passed": true,
+      "failures": [],
+      "decision": {
+        "flagged": false,
+        "severity": "low",
+        "reason": null,
+        "categories": {},
+        "score": 0,
+        "source": null
+      },
+      "source": "canned"
+    },
+    {
+      "id": "no-written-review",
+      "category": "no_written_review",
+      "passed": true,
+      "failures": [],
+      "decision": {
+        "flagged": false,
+        "severity": "low",
+        "reason": null,
+        "categories": {},
+        "score": 0,
+        "source": null
+      },
+      "source": "canned"
+    },
+    {
+      "id": "bilingual-spanish",
+      "category": "bilingual",
+      "passed": true,
+      "failures": [],
+      "decision": {
+        "flagged": false,
+        "severity": "low",
+        "reason": null,
+        "categories": {},
+        "score": 0,
+        "source": null
+      },
+      "source": "canned"
+    },
+    {
+      "id": "sensitive-category-dental",
+      "category": "sensitive_category",
+      "passed": true,
+      "failures": [],
+      "decision": {
+        "flagged": false,
+        "severity": "low",
+        "reason": null,
+        "categories": {},
+        "score": 0,
+        "source": null
+      },
+      "source": "canned"
+    }
+  ]
+}
