@@ -582,14 +582,17 @@ describe('GET /api/admin/costs', () => {
     expect(sqlCallCounter.value).toBe(0);
   });
 
-  it('getMarginReport rejection is caught and returns 500', async () => {
+  it('getMarginReport failure is best-effort: 200 with margin null, cost report intact', async () => {
     queueDetailOnlyResults();
     mockGetMarginReport.mockRejectedValue(new Error('DB timeout'));
     const { GET } = await import('../route');
     const res = await GET(makeRequest('/api/admin/costs?days=7'));
-    expect(res.status).toBe(500);
+    // A fault in the new margin query must NOT take down the pre-existing cost report.
+    expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body).toEqual({ error: 'Failed to fetch cost data' });
+    expect(body.margin).toBeNull();
+    // Cost-report fields are still present (getCostReport ran against the sql mock).
+    expect(body.byProvider).toBeDefined();
   });
 
   // ── Regression: api_costs_daily_rollups ──────────────────────────────

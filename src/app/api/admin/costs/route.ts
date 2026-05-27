@@ -17,7 +17,16 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const [cost, margin] = await Promise.all([
       getCostReport(parsed),
-      getMarginReport({ limit: 20 }),
+      // Margin is best-effort: a fault in the new finance query must NOT take
+      // down the pre-existing cost report. On failure, return the cost report
+      // with `margin: null` (the admin costs page guards for a missing margin).
+      getMarginReport({ limit: 20 }).catch((marginErr) => {
+        console.error(
+          '[api/admin/costs] margin computation failed (cost report still returned):',
+          marginErr,
+        );
+        return null;
+      }),
     ]);
     return NextResponse.json({ ...cost, margin });
   } catch (error) {
