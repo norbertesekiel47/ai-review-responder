@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS flagged_responses (
   account_id          UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
   business_id         UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
   review_id           UUID NOT NULL REFERENCES reviews(id) ON DELETE CASCADE,
-  api_cost_id         UUID REFERENCES api_costs(id),
+  api_cost_id         UUID REFERENCES api_costs(id) ON DELETE SET NULL,
   source              TEXT NOT NULL CHECK (source IN ('local_regex', 'openai_moderation', 'eval', 'admin')),
   reason              TEXT,
   severity            TEXT NOT NULL CHECK (severity IN ('high', 'medium', 'low')),
