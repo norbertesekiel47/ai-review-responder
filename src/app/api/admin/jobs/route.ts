@@ -112,7 +112,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         for (const name of QUEUE_NAMES) {
           const queue = new Queue(name, { connection: redisOpts });
           try {
-            const jobCounts = await queue.getJobCounts('waiting', 'active', 'delayed', 'failed');
+            const jobCounts = await queue.getJobCounts(
+              'waiting',
+              'active',
+              'delayed',
+              'failed',
+              'completed',
+              'paused',
+            );
             counts[name] = jobCounts;
           } finally {
             await queue.close();

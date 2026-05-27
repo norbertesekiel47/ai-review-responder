@@ -154,7 +154,7 @@ export default function JobsPage() {
                   <p className="mb-3 truncate text-sm font-semibold text-gray-700" title={queueName}>
                     {queueName}
                   </p>
-                  <div className="grid grid-cols-4 gap-2 text-center text-xs">
+                  <div className="grid grid-cols-6 gap-2 text-center text-xs">
                     <div>
                       <p className="font-medium text-gray-500">waiting</p>
                       <p className="mt-0.5 text-base font-bold text-gray-800">
@@ -177,6 +177,18 @@ export default function JobsPage() {
                       <p className="font-medium text-red-500">failed</p>
                       <p className="mt-0.5 text-base font-bold text-red-700">
                         {counts['failed'] ?? 0}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="font-medium text-green-500">completed</p>
+                      <p className="mt-0.5 text-base font-bold text-green-700">
+                        {counts['completed'] ?? 0}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="font-medium text-gray-400">paused</p>
+                      <p className="mt-0.5 text-base font-bold text-gray-600">
+                        {counts['paused'] ?? 0}
                       </p>
                     </div>
                   </div>
