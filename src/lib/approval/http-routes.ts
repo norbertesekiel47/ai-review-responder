@@ -189,7 +189,7 @@ export async function runDashboardReviewAction(
       // Lock the candidate response, then refuse to release it while a
       // high-severity moderation flag is open. The lock serializes this check
       // against the admin disposition that closes the flag.
-      await tx`SELECT id FROM responses WHERE id = ${response.id as string}::uuid FOR UPDATE`;
+      await tx`SELECT id FROM responses WHERE id = ${response.id as string}::uuid AND business_id = ${response.business_id as string}::uuid FOR UPDATE`;
       if (await hasOpenFlag(tx, response.id as string)) {
         throw new HeldForReviewError();
       }

@@ -61,18 +61,6 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "Admin-only cross-tenant read of the open flagged-response queue (deny-all RLS table joined to its parent rows); gated by requireRole('admin') and proxy /api/admin protection.",
   },
   {
-    file: "src/app/api/admin/flagged/route.ts",
-    table: "responses",
-    sqlSnippet: "SELECT review_id, version, status FROM responses WHERE id = ${flag.response_id}::uuid FOR UPDATE",
-    reason: "Admin-only disposition (requires_regeneration) locks the held response by id, resolved from the just-locked flagged_responses row; gated by requireRole('admin') + AAL2.",
-  },
-  {
-    file: "src/app/api/admin/flagged/route.ts",
-    table: "responses",
-    sqlSnippet: "UPDATE responses SET status = 'superseded', updated_at = NOW() WHERE id = ${flag.response_id}::uuid",
-    reason: "Admin-only disposition (requires_regeneration) supersedes the held response by id, resolved from the just-locked flagged_responses row; gated by requireRole('admin') + AAL2.",
-  },
-  {
     file: "src/app/api/admin/channels/sms/cancel/route.ts",
     table: "businesses",
     sqlSnippet: "SELECT account_id FROM businesses WHERE id = ${businessId}",
@@ -1331,12 +1319,6 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     table: "responses",
     sqlSnippet: "SELECT review_id FROM responses WHERE id = ${link.response_id}",
     reason: "Approval transaction resolves token/response rows by durable approval identifiers before tenant scope is known.",
-  },
-  {
-    file: "src/lib/approval/http-routes.ts",
-    table: "responses",
-    sqlSnippet: "SELECT id FROM responses WHERE id = ${response.id as string}::uuid FOR UPDATE",
-    reason: "Dashboard review action locks the candidate response (already owner-scoped via the preceding account-scoped lookup) to serialize the held-for-review moderation-flag check against admin disposition.",
   },
   {
     file: "src/lib/approval/locks.ts",

@@ -227,7 +227,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         const respRows = await tx<{ review_id: string; version: number; status: string }[]>`
           SELECT review_id, version, status
           FROM responses
-          WHERE id = ${flag.response_id}::uuid
+          WHERE id = ${flag.response_id}::uuid AND business_id = ${flag.business_id}::uuid
           FOR UPDATE
         `;
         const resp = respRows[0];
@@ -235,7 +235,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           await tx`
             UPDATE responses
             SET status = 'superseded', updated_at = NOW()
-            WHERE id = ${flag.response_id}::uuid
+            WHERE id = ${flag.response_id}::uuid AND business_id = ${flag.business_id}::uuid
           `;
           const regenPayload: GenerateResponsePayload = {
             review_id: resp.review_id,
