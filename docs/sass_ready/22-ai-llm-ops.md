@@ -2,6 +2,8 @@
 
 > **Goal:** 50-review eval set in CI, prompt versioning, per-customer cost tracking, hallucination guardrails enforced both at prompt and output, brand voice tuned per-customer + per-language, audit log of every LLM call.
 
+> **🟡 Implementation status (Wave 3, 2026-05-26):** PARTIALLY SHIPPED. **Done (PR #94, migration 050):** OpenAI model pinned to `gpt-4o-mini-2024-07-18` (exported + guarded by `model-pinning.test.ts`); versioned/hashed prompt safety base (`src/lib/responses/prompt-policy.ts`); per-call audit metadata on `api_costs` (`system_prompt_hash`, `prompt_version`, `latency_ms`, `account_id` + the moderation columns); prompt-injection hardening (escaped delimited `<review>` data block). **Done (PR #95):** output-side guardrails — local moderation filter + optional OpenAI Moderation, recorded on `api_costs`. **Not yet built:** the launch-critical eval harness (`tests/llm-eval/*`, runs without provider keys) — PR 4; the scheduled 50-row live eval + per-language brand-voice tuning remain external/later gates.
+
 ---
 
 ## 1. Why this matters
