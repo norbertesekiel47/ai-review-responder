@@ -110,11 +110,12 @@ async function runDemoMode(
 function validateProductionOptions(
   options: GenerationOptions,
 ): asserts options is GenerationOptions &
-  Required<Pick<GenerationOptions, 'reviewId' | 'version' | 'businessId' | 'subscriptionTier'>> {
+  Required<Pick<GenerationOptions, 'reviewId' | 'version' | 'businessId' | 'subscriptionTier' | 'accountId'>> {
   if (!options.reviewId) throw new TypeError('reviewId is required in production mode');
   if (options.version == null) throw new TypeError('version is required in production mode');
   if (!options.businessId) throw new TypeError('businessId is required in production mode');
   if (!options.subscriptionTier) throw new TypeError('subscriptionTier is required in production mode');
+  if (!options.accountId) throw new TypeError('accountId is required in production mode');
 }
 
 async function runProductionMode(

@@ -137,6 +137,15 @@ approval before posting.
     (in-tx where one exists), and `AnalyticsDispatchPoller` ships rows to PostHog
     (`flush`-before-`completed`; unconfigured/transient failures defer without
     burning the retry budget). Idempotency via `event_key` + `ON CONFLICT`.
+- **Structured logging (Wave 3, PR 1).** `createWorkerLogger(prefix,
+  correlationId)` emits one JSON object per line (`src/lib/shared/logger.ts`).
+  Per-request/job IDs propagate via `AsyncLocalStorage`
+  (`src/lib/shared/log-context.ts`); `worker/job-log-context.ts`
+  (`withJobLogContext`) binds job-data IDs at BullMQ registration in
+  `worker/index.ts`. Never log raw review/response text, tokens, secrets, or
+  MFA codes — object args pass through the analytics blocked-key sanitizer,
+  but string args are logged verbatim. Background pollers are not yet
+  context-bound (later PR).
 - Account-status audit writes go through `src/lib/audit/log.ts`
   (`writeAccountAuditLog`) in the SAME transaction as the state change — never
   raw `INSERT INTO account_audit_log`.

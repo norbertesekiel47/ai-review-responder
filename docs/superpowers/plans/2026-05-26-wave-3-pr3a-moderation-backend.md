@@ -848,11 +848,11 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 - [ ] **Step 1: Bump the migration head in `.claude/CLAUDE.md`**
 
 Find:
-```
+```text
 - Current head: migration **050** (next: **051**)
 ```
 Replace with:
-```
+```text
 - Current head: migration **051** (next: **052**)
 ```
 
