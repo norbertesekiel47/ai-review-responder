@@ -168,6 +168,14 @@ approval before posting.
 - Base schema: `supabase/migrations/001_initial_schema.sql`
 - Current head: migration **051** (next: **052**)
 - For migration details: see `.claude/skills/migrations.md`
+- **Finance / margin signals** are admin-only and computed aggregate-on-read
+  from `api_costs` by `src/lib/admin/margin-service.ts` (`getMarginReport` —
+  per-account cost/MRR risk at 25%/40%, platform gross margin at 70%/60%;
+  `monthlyMrrCents` mirrors `currentBillingSnapshot`). Surfaced in `/admin/costs`
+  (returned by `GET /api/admin/costs`); the queries are intentionally
+  cross-account (no tenant filter) and allowlisted in the tenant-scope audit.
+  Finance discipline docs live in `docs/finance/`. Platform margin is API/LLM
+  COGS only — vendor bills are tracked in `docs/finance/monthly-close.md`.
 
 ## Non-obvious gotchas — read these before touching related code
 
