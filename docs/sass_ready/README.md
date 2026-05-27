@@ -187,7 +187,7 @@ Specs 01 (PMF) and 02 (Pricing) thread continuously — review monthly, not "shi
 ## Conventions used across specs
 
 - **Spec structure**: Why → Current State → Target State → Implementation Tasks → Acceptance Criteria → Metrics → Risks → Dependencies.
-- **Migration numbering**: Each spec proposing schema work claims a number; current head is **045**, next is **046**. Reserve numbers in spec body. If two specs land in parallel, the second one renumbers — coordinate via the PR description.
+- **Migration numbering**: Each spec proposing schema work claims a number; current head is **051**, next is **052**. Reserve numbers in spec body. If two specs land in parallel, the second one renumbers — coordinate via the PR description.
 - **Code anchors**: Every spec links to relevant files (`worker/`, `src/`, `supabase/migrations/`, `docs/runbooks/`) so an implementer doesn't start from a blank page.
 - **Cross-links**: Specs reference each other by relative path. Search any spec for `[Spec NN]` to find related work.
 

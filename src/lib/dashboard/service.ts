@@ -146,6 +146,9 @@ export async function getActiveDashboardData(
         SELECT COALESCE(approved_text, response_text) AS response_text, status
         FROM responses
         WHERE review_id = rev.id
+          -- Explicit tenant scope: responses belong to the same location as the
+          -- review (defense-in-depth alongside the review_id correlation).
+          AND business_id = ${businessId}
           AND status = ANY(${[...RECENT_REVIEW_DISPLAY_STATUSES] as string[]}::text[])
           -- Held-for-review drafts (high-severity moderation flag still open)
           -- must never surface to the owner UI; the admin queue owns them.
