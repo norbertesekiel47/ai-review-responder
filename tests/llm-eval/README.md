@@ -51,6 +51,12 @@ This covers the two launch thresholds: **forbidden-pattern leakage**
 (refund/discount, legal fault, profanity, competitor, advice) and
 **prompt-injection compliance** (`injection_compliance`).
 
+Because the seeded candidates are deliberately safe, a row's
+`forbiddenCategories` only becomes load-bearing in `--live` mode (where the model
+could in principle emit a forbidden pattern); offline it documents the per-row
+contract. The scorer's forbidden-category branch itself is covered directly by
+`__tests__/scorer.test.ts`.
+
 ## Editing the set
 
 When you add or edit a row, keep candidates SAFE — avoid the trigger words listed
