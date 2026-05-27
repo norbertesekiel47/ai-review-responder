@@ -174,6 +174,22 @@ describe('POST /api/admin/flagged (disposition)', () => {
     expect(mockWriteAccountAuditLog).toHaveBeenCalledOnce();
   });
 
+  it('requires_regeneration: updates status, does NOT enqueue a notification', async () => {
+    txResults.push([{ id: FLAG_ID, response_id: 'resp-1', business_id: 'biz-1', account_id: 'acct-1' }]);
+    const res = await POST(postReq({ flaggedId: FLAG_ID, action: 'requires_regeneration' }));
+    expect(res.status).toBe(200);
+    const notifyPayloads = txCalls
+      .flatMap((c) => c.values)
+      .filter(
+        (v): v is { __jsonb: Record<string, unknown> } =>
+          !!v && typeof v === 'object' && '__jsonb' in (v as Record<string, unknown>),
+      )
+      .map((v) => v.__jsonb)
+      .filter((p) => 'response_id' in p && 'business_id' in p);
+    expect(notifyPayloads).toHaveLength(0);
+    expect(mockWriteAccountAuditLog).toHaveBeenCalledOnce();
+  });
+
   it('returns 409 when the flag is not open (already dispositioned)', async () => {
     txResults.push([]);
     const res = await POST(postReq({ flaggedId: FLAG_ID, action: 'approved_for_owner_review' }));

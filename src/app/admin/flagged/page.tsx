@@ -34,14 +34,17 @@ const ACTION_LABELS: Record<DispositionAction, string> = {
   requires_regeneration: 'Needs regeneration',
 };
 
+const PAGE_SIZE = 50;
+
 export default function FlaggedQueuePage() {
   const queryClient = useQueryClient();
   const [actionError, setActionError] = useState<string | null>(null);
+  const [offset, setOffset] = useState(0);
 
   const { data, isLoading, isError } = useQuery<{ flagged: FlaggedItem[] }>({
-    queryKey: ['admin-flagged'],
+    queryKey: ['admin-flagged', offset],
     queryFn: async () => {
-      const res = await fetch('/api/admin/flagged?limit=50&offset=0');
+      const res = await fetch(`/api/admin/flagged?limit=${PAGE_SIZE}&offset=${offset}`);
       if (!res.ok) throw new Error(`Failed to fetch flagged queue: ${res.status}`);
       return res.json() as Promise<{ flagged: FlaggedItem[] }>;
     },
@@ -140,6 +143,28 @@ export default function FlaggedQueuePage() {
             </div>
           ))}
         </div>
+
+        {data && (offset > 0 || data.flagged.length === PAGE_SIZE) && (
+          <div className="mt-6 flex items-center justify-between">
+            <button
+              onClick={() => setOffset((o) => Math.max(0, o - PAGE_SIZE))}
+              disabled={offset === 0}
+              className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Previous
+            </button>
+            <span className="text-xs text-gray-400">
+              Showing {offset + 1}–{offset + data.flagged.length}
+            </span>
+            <button
+              onClick={() => setOffset((o) => o + PAGE_SIZE)}
+              disabled={data.flagged.length < PAGE_SIZE}
+              className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Next
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
