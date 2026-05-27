@@ -50,6 +50,8 @@ jobs:
         run: pnpm lint
       - name: Run tenant scope audit
         run: pnpm ci:tenant-scope
+      - name: Run analytics events audit
+        run: pnpm ci:analytics-events
 
   typecheck:
     name: typecheck
