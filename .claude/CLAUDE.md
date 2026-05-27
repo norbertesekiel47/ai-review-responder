@@ -167,8 +167,15 @@ approval before posting.
 
 - All tables: UUIDv7 (time-ordered)
 - Base schema: `supabase/migrations/001_initial_schema.sql`
-- Current head: migration **051** (next: **052**)
+- Current head: migration **052** (next: **053**)
 - For migration details: see `.claude/skills/migrations.md`
+- **Review sentiment (migration 052).** `reviews.sentiment_*` is populated by
+  `classifySentiment` (`src/lib/reviews/sentiment.ts`, deterministic star-based
+  `deterministic_star_v1`) at all three review-content write sites (new insert +
+  content-changed update in `process-review.ts`, and `insertImportedReview` in
+  `zernio-ingest-shared.ts`); status-only writes don't touch it. The migration's
+  SQL backfill and the TS classifier use the SAME star→label/score mapping so
+  backfilled and newly-ingested rows agree. LLM-ready via `sentiment_source`.
 
 ## Non-obvious gotchas — read these before touching related code
 

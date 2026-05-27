@@ -110,3 +110,5 @@ tests/llm-eval/reports/*
 
 # Local pnpm store (store-dir target; never source-controlled)
 .pnpm-store/
+# LLM eval run artifacts (PR4 harness; reports are not committed)
+tests/llm-eval/reports/

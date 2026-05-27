@@ -584,4 +584,39 @@ describe('reconcileExternallyAnsweredReview — flag-gated import branches', () 
     expect(calls.every((c) => !c.sql.includes('INSERT INTO'))).toBe(true);
     expect(calls.every((c) => !c.sql.includes('UPDATE zernio_backfill_runs'))).toBe(true);
   });
+
+  it('insertImportedReview INSERT includes sentiment columns derived from star rating', async () => {
+    // A 5-star review (rating=5) → label='positive', source='deterministic_star_v1'.
+    // Uses the no-match path (flag ON) which invokes insertImportedReview directly.
+    process.env.EXTERNAL_REPLY_IMPORT_ENABLED = 'true';
+    const { sql } = await import('@/lib/db/server');
+    const { tx, calls } = mkRecordingTx([
+      // 1. SELECT matched rows → none.
+      () => [],
+      // 2. INSERT INTO reviews … RETURNING id.
+      () => [{ id: 'new-review-uuid' }],
+      // 3. INSERT INTO responses.
+      () => [{}],
+      // 4. counter bump.
+      () => [],
+    ]);
+    (sql as any).begin = vi.fn(async (cb: any) => cb(tx));
+    const logger = mkLogger();
+    await reconcileExternallyAnsweredReview(
+      // rating=5 maps to label='positive'
+      mkReview({ rating: 5, starRating: 'FIVE' }),
+      'B', 'A', 'L', logger as any,
+    );
+
+    const reviewInsert = calls[1]!;
+    expect(reviewInsert.sql).toContain('INSERT INTO reviews');
+    expect(reviewInsert.sql).toContain('sentiment_label');
+    expect(reviewInsert.sql).toContain('sentiment_source');
+    expect(reviewInsert.sql).toContain('sentiment_classified_at');
+    // sentiment values are bound as parameters
+    expect(reviewInsert.values).toContain('positive');
+    expect(reviewInsert.values).toContain('deterministic_star_v1');
+    // rating=5 → score = (5−3)/2 = 1
+    expect(reviewInsert.values).toContain(1);
+  });
 });
