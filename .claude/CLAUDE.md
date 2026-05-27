@@ -59,8 +59,10 @@ approval before posting.
   `high`-severity flag writes a `flagged_responses` row (migration 051,
   admin-only deny-all RLS) and skips the `send_notification` outbox enqueue in
   the SAME transaction as response persistence. The draft stays
-  `pending_approval` — no owner notification until an admin dispositions it
-  (PR 3b). Moderation metadata is recorded on `api_costs` (`moderation_*`,
+  `pending_approval` — no owner notification until an admin dispositions it at
+  `/admin/flagged` (`approved_for_owner_review` re-enqueues the owner
+  notification via the transactional outbox; dismiss/regenerate are terminal).
+  Moderation metadata is recorded on `api_costs` (`moderation_*`,
   `flagged`, `output_excerpt`). Local regex rules always run; the OpenAI
   Moderation layer is gated behind `OPENAI_MODERATION_ENABLED` and fails open.
 - **Approval tokens never stored raw.** Only SHA-256 hashes in
