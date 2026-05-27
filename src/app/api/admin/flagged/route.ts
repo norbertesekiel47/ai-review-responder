@@ -7,11 +7,34 @@ import { AuthError, requireRole } from '@/lib/db/auth';
 import { writeAccountAuditLog } from '@/lib/audit/log';
 import { requireCurrentAal2FromSupabase, type SupabaseMfaAalClient } from '@/lib/auth/mfa';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
-import type { SendNotificationPayload } from '@/lib/shared/worker-types';
+import type { SendNotificationPayload, GenerateResponsePayload } from '@/lib/shared/worker-types';
 
 export const dynamic = 'force-dynamic';
 
 const NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
+
+/**
+ * Build the cookie-backed Supabase client used for the AAL2 (MFA step-up)
+ * check. Both GET (reads cross-tenant flagged draft text) and POST (mutates
+ * dispositions) require a current AAL2 session — flagged drafts contain
+ * sensitive, potentially policy-violating customer-facing text.
+ */
+function mfaClientForRequest(request: NextRequest): SupabaseMfaAalClient {
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll();
+        },
+        setAll() {
+          // Route handlers cannot mutate request cookies; proxy handles refresh.
+        },
+      },
+    },
+  ) as SupabaseMfaAalClient;
+}
 
 interface FlaggedRow {
   id: string;
@@ -39,6 +62,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: err.message }, { status: err.statusCode, headers: NO_STORE });
     }
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: NO_STORE });
+  }
+
+  // Reading the queue exposes flagged draft text + reviewer/business identity
+  // across every tenant — same sensitivity as the POST disposition, so it gets
+  // the same MFA step-up requirement.
+  const aal = await requireCurrentAal2FromSupabase(mfaClientForRequest(request));
+  if (!aal.ok) {
+    return NextResponse.json({ error: aal.reason }, { status: 403, headers: NO_STORE });
   }
 
   const rawLimit = request.nextUrl.searchParams.get('limit');
@@ -128,22 +159,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return dispositionErrorResponse(err);
   }
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll() {
-          // Route handlers cannot mutate request cookies; proxy handles refresh.
-        },
-      },
-    },
-  ) as SupabaseMfaAalClient;
-
-  const aal = await requireCurrentAal2FromSupabase(supabase);
+  const aal = await requireCurrentAal2FromSupabase(mfaClientForRequest(request));
   if (!aal.ok) {
     return NextResponse.json({ error: aal.reason }, { status: 403, headers: NO_STORE });
   }
@@ -188,8 +204,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       `;
 
       // Only an explicit approval releases the held draft to the owner — via the
-      // transactional outbox, atomic with the status change. Dismiss / regenerate
-      // are terminal status-only dispositions (no notification).
+      // transactional outbox, atomic with the status change.
       if (action === 'approved_for_owner_review') {
         const payload: SendNotificationPayload = {
           response_id: flag.response_id,
@@ -202,6 +217,39 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             ${jsonb(payload)}, 'pending'
           )
         `;
+      }
+
+      // Regeneration supersedes the held (unsafe) draft so it can never be
+      // published, and enqueues a fresh generation at version+1 — mirroring the
+      // owner-facing regenerate path (regenerateBySession). Without this the
+      // closed flag would re-open the owner-release gate on the SAME bad text.
+      if (action === 'requires_regeneration') {
+        const respRows = await tx<{ review_id: string; version: number; status: string }[]>`
+          SELECT review_id, version, status
+          FROM responses
+          WHERE id = ${flag.response_id}::uuid
+          FOR UPDATE
+        `;
+        const resp = respRows[0];
+        if (resp && resp.status === 'pending_approval') {
+          await tx`
+            UPDATE responses
+            SET status = 'superseded', updated_at = NOW()
+            WHERE id = ${flag.response_id}::uuid
+          `;
+          const regenPayload: GenerateResponsePayload = {
+            review_id: resp.review_id,
+            business_id: flag.business_id,
+            version: resp.version + 1,
+          };
+          await tx`
+            INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+            VALUES (
+              ${uuidv7()}, 'generate_response', 'review', ${resp.review_id},
+              ${jsonb(regenPayload)}, 'pending'
+            )
+          `;
+        }
       }
 
       await writeAccountAuditLog(

@@ -147,6 +147,12 @@ export async function getActiveDashboardData(
         FROM responses
         WHERE review_id = rev.id
           AND status = ANY(${[...RECENT_REVIEW_DISPLAY_STATUSES] as string[]}::text[])
+          -- Held-for-review drafts (high-severity moderation flag still open)
+          -- must never surface to the owner UI; the admin queue owns them.
+          AND NOT EXISTS (
+            SELECT 1 FROM flagged_responses fr
+            WHERE fr.response_id = responses.id AND fr.status = 'open'
+          )
         ORDER BY version DESC
         LIMIT 1
       ) resp ON true

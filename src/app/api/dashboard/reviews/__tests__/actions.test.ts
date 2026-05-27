@@ -140,6 +140,11 @@ function setResponseLookup(
   sqlCallCounter.value = 0;
   mockSqlResults.push([accountRow]);
   mockSqlResults.push(rows);
+  // runDashboardReviewAction locks the response (SELECT ... FOR UPDATE) and
+  // checks for an open moderation flag (hasOpenFlag) before recovering the
+  // correlation id. Empty results = not held, so the action proceeds.
+  mockSqlResults.push([]); // SELECT id ... FOR UPDATE
+  mockSqlResults.push([]); // hasOpenFlag → no open flag
 }
 
 // ── Tests ───────────────────────────────────────────────────────────

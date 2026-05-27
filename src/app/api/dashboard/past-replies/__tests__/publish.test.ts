@@ -298,13 +298,9 @@ describe('POST /api/dashboard/past-replies/publish', () => {
     expect(body.error).toBe('response_changed');
   });
 
-  it('manual happy path → status="edited", audit mode="manual", outbox INSERTed', async () => {
+  it('returns 409 held_for_review when an open moderation flag holds the draft', async () => {
     seedTopLevelRows([{ review_id: REVIEW_ID }]);
-    // tx queue:
-    //   1. lock-review
-    //   2. lock-candidate (manual: llm_provider=NULL, edited_text=set)
-    //   3. UPDATE responses (empty)
-    //   4. INSERT job_outbox (empty)
+    // tx queue: lock-review, lock-candidate (pending), hasOpenFlag → non-empty.
     seedTxRows(
       [{ id: REVIEW_ID }],
       [
@@ -316,6 +312,37 @@ describe('POST /api/dashboard/past-replies/publish', () => {
           llm_provider: null,
         },
       ],
+      [{ one: 1 }],
+    );
+    const POST = await importPOST();
+    const res = await POST(makeRequest({ body: validBody() }));
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error).toBe('held_for_review');
+    // Must not publish: no audit row, no status transition past the flag check.
+    expect(mockInsertAuditLogSession).not.toHaveBeenCalled();
+  });
+
+  it('manual happy path → status="edited", audit mode="manual", outbox INSERTed', async () => {
+    seedTopLevelRows([{ review_id: REVIEW_ID }]);
+    // tx queue:
+    //   1. lock-review
+    //   2. lock-candidate (manual: llm_provider=NULL, edited_text=set)
+    //   3. hasOpenFlag (empty → not held)
+    //   4. UPDATE responses (empty)
+    //   5. INSERT job_outbox (empty)
+    seedTxRows(
+      [{ id: REVIEW_ID }],
+      [
+        {
+          status: 'pending_approval',
+          edited_text: 'Brand new reply',
+          approved_text: 'Brand new reply',
+          response_text: 'Old reply',
+          llm_provider: null,
+        },
+      ],
+      [],
       [],
       [],
     );
@@ -344,8 +371,8 @@ describe('POST /api/dashboard/past-replies/publish', () => {
     expect(auditCall[5]).toEqual({ mode: 'manual' });
     expect(auditCall[6]).toEqual({ responseTextAtApproval: 'Brand new reply' });
 
-    // UPDATE responses tx call (3rd tx call: lock-review, lock-candidate, UPDATE)
-    const updateCall = txMock.mock.calls[2] as unknown as unknown[];
+    // UPDATE responses tx call (4th tx call: lock-review, lock-candidate, hasOpenFlag, UPDATE)
+    const updateCall = txMock.mock.calls[3] as unknown as unknown[];
     const updateSql = (updateCall[0] as unknown as TemplateStringsArray).join('|');
     expect(updateSql).toContain('UPDATE responses');
     expect(updateSql).toContain("'edited'");
@@ -353,8 +380,8 @@ describe('POST /api/dashboard/past-replies/publish', () => {
     expect(updateSql).toContain('COALESCE(approved_text, response_text)');
     expect(updateCall[1]).toBe(RESPONSE_ID);
 
-    // INSERT outbox tx call (4th tx call)
-    const insertCall = txMock.mock.calls[3] as unknown as unknown[];
+    // INSERT outbox tx call (5th tx call)
+    const insertCall = txMock.mock.calls[4] as unknown as unknown[];
     const insertSql = (insertCall[0] as unknown as TemplateStringsArray).join('|');
     expect(insertSql).toContain('INSERT INTO job_outbox');
     expect(insertSql).toContain("'publish_response'");
@@ -381,6 +408,7 @@ describe('POST /api/dashboard/past-replies/publish', () => {
       ],
       [],
       [],
+      [],
     );
     const POST = await importPOST();
     const res = await POST(makeRequest({ body: validBody() }));
@@ -394,7 +422,7 @@ describe('POST /api/dashboard/past-replies/publish', () => {
       responseTextAtApproval: 'Worker-generated draft',
     });
 
-    const updateCall = txMock.mock.calls[2] as unknown as unknown[];
+    const updateCall = txMock.mock.calls[3] as unknown as unknown[];
     const updateSql = (updateCall[0] as unknown as TemplateStringsArray).join('|');
     // CASE expression flips on edited_text presence — when NULL, status='approved'.
     expect(updateSql).toContain(
@@ -418,6 +446,7 @@ describe('POST /api/dashboard/past-replies/publish', () => {
           llm_provider: 'openai',
         },
       ],
+      [],
       [],
       [],
     );
@@ -452,6 +481,7 @@ describe('POST /api/dashboard/past-replies/publish', () => {
       ],
       [],
       [],
+      [],
     );
     const POST = await importPOST();
     const res = await POST(
@@ -471,7 +501,7 @@ describe('POST /api/dashboard/past-replies/publish', () => {
     expect(auditCall[2]).toBe(ALT_LOCATION_ID);
 
     // Outbox payload references ALT_LOCATION_ID.
-    const insertCall = txMock.mock.calls[3] as unknown as unknown[];
+    const insertCall = txMock.mock.calls[4] as unknown as unknown[];
     const payload = insertCall[3] as unknown as { response_id: string; business_id: string };
     expect(payload.business_id).toBe(ALT_LOCATION_ID);
   });
