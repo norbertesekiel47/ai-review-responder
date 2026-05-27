@@ -38,6 +38,35 @@ function mapTrend(
   }));
 }
 
+type RateRow = { received: number; handled: number };
+type StarRow = { avg: number | null };
+type VolumeRow = { current_month: number; prior_month: number };
+type TtrRow = { avg_hours: number | null };
+type TrendRow = { week_start: unknown; avg_score: unknown; cnt: unknown };
+
+function assembleSummary(
+  scope: KpiScope,
+  rateRows: RateRow[],
+  starRows: StarRow[],
+  volumeRows: VolumeRow[],
+  ttrRows: TtrRow[],
+  trendRows: TrendRow[],
+): DashboardKpiSummary {
+  const received = rateRows[0]?.received ?? 0;
+  const handled = rateRows[0]?.handled ?? 0;
+  const current = volumeRows[0]?.current_month ?? 0;
+  const prior = volumeRows[0]?.prior_month ?? 0;
+  return {
+    scope,
+    windowDays: KPI_WINDOW_DAYS,
+    responseRate: { handled, received, ratePct: ratePct(handled, received) },
+    averageStarRating: round(starRows[0]?.avg ?? null, 2),
+    reviewVolume: { currentMonth: current, priorMonth: prior, deltaPct: deltaPct(current, prior) },
+    averageTimeToRespondHours: round(ttrRows[0]?.avg_hours ?? null, 1),
+    sentimentTrend: mapTrend(trendRows),
+  };
+}
+
 export async function getLocationKpiSummary(
   businessId: string,
 ): Promise<DashboardKpiSummary> {
@@ -46,7 +75,7 @@ export async function getLocationKpiSummary(
   // because Postgres.js interval parameters cannot interpolate a TS constant —
   // keep them in sync if those constants change.
   const [rateRows, starRows, volumeRows, ttrRows, trendRows] = await Promise.all([
-    sql<{ received: number; handled: number }[]>`
+    sql<RateRow[]>`
       SELECT
         COUNT(*)::int AS received,
         COUNT(*) FILTER (
@@ -61,7 +90,7 @@ export async function getLocationKpiSummary(
         AND r.status <> 'deleted'
         AND r.detected_at >= NOW() - INTERVAL '30 days'
     `,
-    sql<{ avg: number | null }[]>`
+    sql<StarRow[]>`
       SELECT AVG(star_rating)::float AS avg
       FROM reviews
       WHERE business_id = ${businessId}
@@ -69,7 +98,7 @@ export async function getLocationKpiSummary(
         AND star_rating IS NOT NULL
         AND detected_at >= NOW() - INTERVAL '30 days'
     `,
-    sql<{ current_month: number; prior_month: number }[]>`
+    sql<VolumeRow[]>`
       SELECT
         COUNT(*) FILTER (
           WHERE detected_at >= DATE_TRUNC('month', NOW())
@@ -82,7 +111,7 @@ export async function getLocationKpiSummary(
       WHERE business_id = ${businessId}
         AND status <> 'deleted'
     `,
-    sql<{ avg_hours: number | null }[]>`
+    sql<TtrRow[]>`
       SELECT AVG(EXTRACT(EPOCH FROM (resp.approved_at - r.detected_at)) / 3600.0)::float AS avg_hours
       FROM responses resp
       JOIN reviews r ON r.id = resp.review_id
@@ -91,7 +120,7 @@ export async function getLocationKpiSummary(
         AND resp.approved_at IS NOT NULL
         AND resp.approved_at >= NOW() - INTERVAL '30 days'
     `,
-    sql<{ week_start: string; avg_score: number | null; cnt: number }[]>`
+    sql<TrendRow[]>`
       SELECT gs::date AS week_start,
              agg.avg_score::float AS avg_score,
              COALESCE(agg.cnt, 0)::int AS cnt
@@ -114,19 +143,97 @@ export async function getLocationKpiSummary(
     `,
   ]);
 
-  const received = rateRows[0]?.received ?? 0;
-  const handled = rateRows[0]?.handled ?? 0;
-  const current = volumeRows[0]?.current_month ?? 0;
-  const prior = volumeRows[0]?.prior_month ?? 0;
-  const scope: KpiScope = { kind: 'location', businessId };
+  return assembleSummary(
+    { kind: 'location', businessId },
+    rateRows, starRows, volumeRows, ttrRows, trendRows,
+  );
+}
 
-  return {
-    scope,
-    windowDays: KPI_WINDOW_DAYS,
-    responseRate: { handled, received, ratePct: ratePct(handled, received) },
-    averageStarRating: round(starRows[0]?.avg ?? null, 2),
-    reviewVolume: { currentMonth: current, priorMonth: prior, deltaPct: deltaPct(current, prior) },
-    averageTimeToRespondHours: round(ttrRows[0]?.avg_hours ?? null, 1),
-    sentimentTrend: mapTrend(trendRows),
-  };
+export async function getAccountKpiSummary(
+  accountId: string,
+): Promise<DashboardKpiSummary> {
+  // Window intervals correspond to KPI_WINDOW_DAYS (30) and SENTIMENT_TREND_WEEKS (8);
+  // kept as SQL literals (Postgres.js interval literals can't interpolate a TS constant).
+  // Active locations only: b.archived_at IS NULL.
+  const [rateRows, starRows, volumeRows, ttrRows, trendRows] = await Promise.all([
+    sql<RateRow[]>`
+      SELECT
+        COUNT(*)::int AS received,
+        COUNT(*) FILTER (
+          WHERE EXISTS (
+            SELECT 1 FROM responses resp
+            WHERE resp.review_id = r.id
+              AND resp.status = ANY(${HANDLED}::text[])
+          )
+        )::int AS handled
+      FROM reviews r
+      JOIN businesses b ON b.id = r.business_id
+      WHERE b.account_id = ${accountId}
+        AND b.archived_at IS NULL
+        AND r.status <> 'deleted'
+        AND r.detected_at >= NOW() - INTERVAL '30 days'
+    `,
+    sql<StarRow[]>`
+      SELECT AVG(r.star_rating)::float AS avg
+      FROM reviews r
+      JOIN businesses b ON b.id = r.business_id
+      WHERE b.account_id = ${accountId}
+        AND b.archived_at IS NULL
+        AND r.status <> 'deleted'
+        AND r.star_rating IS NOT NULL
+        AND r.detected_at >= NOW() - INTERVAL '30 days'
+    `,
+    sql<VolumeRow[]>`
+      SELECT
+        COUNT(*) FILTER (WHERE r.detected_at >= DATE_TRUNC('month', NOW()))::int AS current_month,
+        COUNT(*) FILTER (
+          WHERE r.detected_at >= DATE_TRUNC('month', NOW()) - INTERVAL '1 month'
+            AND r.detected_at < DATE_TRUNC('month', NOW())
+        )::int AS prior_month
+      FROM reviews r
+      JOIN businesses b ON b.id = r.business_id
+      WHERE b.account_id = ${accountId}
+        AND b.archived_at IS NULL
+        AND r.status <> 'deleted'
+    `,
+    sql<TtrRow[]>`
+      SELECT AVG(EXTRACT(EPOCH FROM (resp.approved_at - r.detected_at)) / 3600.0)::float AS avg_hours
+      FROM responses resp
+      JOIN reviews r ON r.id = resp.review_id
+      JOIN businesses b ON b.id = r.business_id
+      WHERE b.account_id = ${accountId}
+        AND b.archived_at IS NULL
+        AND resp.status = ANY(${HANDLED}::text[])
+        AND resp.approved_at IS NOT NULL
+        AND resp.approved_at >= NOW() - INTERVAL '30 days'
+    `,
+    sql<TrendRow[]>`
+      SELECT gs::date AS week_start,
+             agg.avg_score::float AS avg_score,
+             COALESCE(agg.cnt, 0)::int AS cnt
+      FROM generate_series(
+        DATE_TRUNC('week', NOW() - INTERVAL '7 weeks'),
+        DATE_TRUNC('week', NOW()),
+        INTERVAL '1 week'
+      ) gs
+      LEFT JOIN (
+        SELECT DATE_TRUNC('week', r.detected_at)::date AS wk,
+               AVG(r.sentiment_score) AS avg_score,
+               COUNT(*) AS cnt
+        FROM reviews r
+        JOIN businesses b ON b.id = r.business_id
+        WHERE b.account_id = ${accountId}
+          AND b.archived_at IS NULL
+          AND r.status <> 'deleted'
+          AND r.detected_at >= NOW() - INTERVAL '8 weeks'
+        GROUP BY DATE_TRUNC('week', r.detected_at)
+      ) agg ON agg.wk = gs::date
+      ORDER BY week_start ASC
+    `,
+  ]);
+
+  return assembleSummary(
+    { kind: 'account', accountId },
+    rateRows, starRows, volumeRows, ttrRows, trendRows,
+  );
 }

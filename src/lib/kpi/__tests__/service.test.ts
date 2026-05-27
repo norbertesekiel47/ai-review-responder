@@ -20,7 +20,7 @@ vi.mock('@/lib/db/server', () => ({
   }),
 }));
 
-import { getLocationKpiSummary } from '../service';
+import { getAccountKpiSummary, getLocationKpiSummary } from '../service';
 
 beforeEach(() => {
   mockSqlResults.length = 0;
@@ -105,6 +105,28 @@ describe('getLocationKpiSummary', () => {
     expect(capturedSqlTexts).toHaveLength(5);
     for (const text of capturedSqlTexts) {
       expect(text).toContain('business_id = ?');
+    }
+  });
+});
+
+describe('getAccountKpiSummary', () => {
+  it('returns account scope and computes the same KPIs across active locations', async () => {
+    seed({ received: 20, handled: 15, avgStar: 4.2, current: 9, prior: 6, avgHours: 2.0,
+      trend: [{ week_start: '2026-04-06', avg_score: 0.25, cnt: 5 }] });
+    const summary = await getAccountKpiSummary('acct-1');
+    expect(summary.scope).toEqual({ kind: 'account', accountId: 'acct-1' });
+    expect(summary.responseRate).toEqual({ handled: 15, received: 20, ratePct: 75 });
+    expect(summary.averageStarRating).toBe(4.2);
+    expect(summary.sentimentTrend[0]).toEqual({ weekStart: '2026-04-06', averageScore: 0.25, reviewCount: 5 });
+  });
+
+  it('scopes every query by account_id and excludes archived locations', async () => {
+    seed({});
+    await getAccountKpiSummary('acct-XYZ');
+    expect(capturedSqlTexts).toHaveLength(5);
+    for (const text of capturedSqlTexts) {
+      expect(text).toContain('account_id = ?');
+      expect(text).toContain('archived_at IS NULL');
     }
   });
 });
