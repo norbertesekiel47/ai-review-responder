@@ -103,6 +103,11 @@ In scope:
 - Context binding for high-value worker paths: response generation,
   notification, publisher, Zernio ingest, analytics dispatch, and outbox
   polling.
+  - PR-slice note: PR 1 binds context only on the four BullMQ job paths
+    (response generation, notification, publisher, Zernio ingest). Poller
+    context binding (analytics dispatch, outbox polling) is deferred to a later
+    Wave 3 PR — see the PR 1 plan's scope decisions and acceptance criteria
+    (`docs/superpowers/plans/2026-05-26-wave-3-pr1-observability-spine.md`).
 - Next.js `GET /api/health`.
 - Worker health response enrichment.
 - Admin queue visibility through a guarded admin surface.

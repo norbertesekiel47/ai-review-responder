@@ -41,6 +41,8 @@ describe('migration 051 — flagged_responses', () => {
     expect(sql).toMatch(/business_id\s+UUID[^,]*REFERENCES\s+businesses\(id\)/i);
     expect(sql).toMatch(/review_id\s+UUID[^,]*REFERENCES\s+reviews\(id\)/i);
     expect(sql).toMatch(/api_cost_id\s+UUID[^,]*REFERENCES\s+api_costs\(id\)/i);
+    // api_cost_id nulls out (not RESTRICT) so the api_costs 90-day prune isn't blocked.
+    expect(sql).toMatch(/api_cost_id[^,]*ON DELETE SET NULL/i);
   });
 
   it('constrains status and severity', () => {
