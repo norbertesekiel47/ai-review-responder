@@ -8,6 +8,7 @@ import type {
 } from '@/lib/shared/worker-types';
 import { enqueueAnalyticsEvent } from '@/lib/analytics/enqueue';
 import { makeAnalyticsEventKey } from '@/lib/analytics/events';
+import { classifySentiment } from '@/lib/reviews/sentiment';
 import {
   STALE_AFTER_REVIEW_CHANGED,
   DELETE_FAILED_PREFIX,
@@ -51,18 +52,21 @@ export async function processReview(
     if (!existing) {
       // ── NEW review — insert with ON CONFLICT guard for concurrent writers ──
       const reviewId = uuidv7();
+      const sentiment = classifySentiment(review.starRating);
 
       const inserted = await tx<{ id: string }[]>`
         INSERT INTO reviews (
           id, business_id, provider, provider_review_id,
           provider_review_name, provider_location_name,
           reviewer_name, star_rating, review_text, review_date,
-          detected_language, review_content_hash, status, detected_at
+          detected_language, review_content_hash, status, detected_at,
+          sentiment_score, sentiment_label, sentiment_classified_at, sentiment_source
         ) VALUES (
           ${reviewId}, ${businessId}, ${identity.provider}, ${identity.providerReviewId},
           ${identity.providerReviewName}, ${identity.providerLocationName},
           ${review.reviewerName}, ${review.starRating}, ${review.reviewText}, ${review.reviewDate},
-          ${review.detectedLanguage}, ${contentHash}, 'new', NOW()
+          ${review.detectedLanguage}, ${contentHash}, 'new', NOW(),
+          ${sentiment.score}, ${sentiment.label}, NOW(), ${sentiment.source}
         )
         ON CONFLICT (provider, provider_review_name) DO NOTHING
         RETURNING id
@@ -231,6 +235,7 @@ async function processExistingReview(
   }
 
   // ── CONTENT CHANGED — update the review row ───────────────────
+  const sentiment = classifySentiment(review.starRating);
   await tx`
     UPDATE reviews
     SET reviewer_name = ${review.reviewerName},
@@ -239,6 +244,10 @@ async function processExistingReview(
         review_date = ${review.reviewDate},
         detected_language = ${review.detectedLanguage},
         review_content_hash = ${contentHash},
+        sentiment_score = ${sentiment.score},
+        sentiment_label = ${sentiment.label},
+        sentiment_classified_at = NOW(),
+        sentiment_source = ${sentiment.source},
         status = CASE WHEN status = 'deleted' THEN 'new' ELSE status END,
         detected_at = CASE WHEN status = 'deleted' THEN NOW() ELSE detected_at END
     WHERE id = ${existing.id}

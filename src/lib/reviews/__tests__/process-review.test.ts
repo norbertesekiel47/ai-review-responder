@@ -38,13 +38,14 @@ function makeMonitoredReview(overrides: Partial<{
   providerReviewName: string;
   providerLocationName: string;
   contentHash: string;
+  starRating: number;
 }> = {}) {
   const provider = overrides.provider ?? ('zernio' as const);
   const providerReviewName = overrides.providerReviewName ?? `${provider}://loc1/reviews/r1`;
   return {
     review: {
       reviewerName: 'Alice',
-      starRating: 5,
+      starRating: overrides.starRating ?? 5,
       reviewText: 'Great!',
       reviewDate: '2026-04-28',
       detectedLanguage: 'en',
@@ -442,5 +443,79 @@ describe('processReview', () => {
     expect(allSqls.some((s) => s.includes('review_content_changed_during_park'))).toBe(false);
     // Only 5 tx calls — no 6th UPDATE responses call
     expect(tx).toHaveBeenCalledTimes(5);
+  });
+
+  // ── Sentiment classification wiring ──────────────────────────────────
+
+  it('new-review INSERT includes sentiment columns for a 5-star review', async () => {
+    const monitored = makeMonitoredReview({ starRating: 5 });
+
+    tx
+      .mockResolvedValueOnce(withCount([], 0))
+      .mockResolvedValueOnce(withCount([{ id: 'new-id' }], 1))
+      .mockResolvedValueOnce(withCount([], 0))
+      .mockResolvedValueOnce(withCount([{ account_id: 'acct-1', earlier_exists: false }], 1));
+
+    const result = await processReview(monitored, 'biz-1', 'corr-1');
+    expect(result).toBe('new');
+
+    // The INSERT INTO reviews is the 2nd tx call (index 1).
+    const insertSql = (tx.mock.calls[1]?.[0] as TemplateStringsArray | undefined)?.join('?') ?? '';
+    expect(insertSql).toContain('sentiment_label');
+    expect(insertSql).toContain('sentiment_source');
+    expect(insertSql).toContain('sentiment_classified_at');
+
+    const params = (tx.mock.calls[1] as unknown[]).slice(1);
+    expect(params).toContain('positive');
+    expect(params).toContain('deterministic_star_v1');
+    // 5-star → score = (5−3)/2 = 1
+    expect(params).toContain(1);
+  });
+
+  it('content-changed UPDATE includes sentiment columns for a 1-star review', async () => {
+    // Existing row has old hash; incoming review is 1-star → label='negative'.
+    const monitored = makeMonitoredReview({ contentHash: 'new-hash', starRating: 1 });
+
+    tx
+      .mockResolvedValueOnce(withCount([{ id: 'existing-rev', review_content_hash: 'old-hash', status: 'new' }], 1))
+      .mockResolvedValueOnce(withCount([], 0))  // UPDATE reviews
+      .mockResolvedValueOnce(withCount([], 0))  // SELECT active response → none
+      .mockResolvedValueOnce(withCount([{ next_version: 2 }], 1))  // SELECT MAX(version)
+      .mockResolvedValueOnce(withCount([], 0));  // INSERT job_outbox
+
+    const result = await processReview(monitored, 'biz-1', 'corr-1');
+    expect(result).toBe('updated');
+
+    // The UPDATE reviews is the 2nd tx call (index 1).
+    const updateSql = (tx.mock.calls[1]?.[0] as TemplateStringsArray | undefined)?.join('?') ?? '';
+    expect(updateSql).toContain('sentiment_label');
+    expect(updateSql).toContain('sentiment_classified_at');
+
+    const params = (tx.mock.calls[1] as unknown[]).slice(1);
+    expect(params).toContain('negative');
+    expect(params).toContain('deterministic_star_v1');
+    // 1-star → score = (1−3)/2 = −1
+    expect(params).toContain(-1);
+  });
+
+  it('status-only revival UPDATE (deleted row, same hash) does NOT include sentiment_label', async () => {
+    // Same content hash → status-only path (restore to 'new') — must not touch sentiment.
+    const monitored = makeMonitoredReview({ contentHash: 'same-hash' });
+
+    tx
+      .mockResolvedValueOnce(withCount([{
+        id: 'existing-rev',
+        review_content_hash: 'same-hash',
+        status: 'deleted',
+      }], 1))
+      .mockResolvedValueOnce(withCount([], 0));  // UPDATE reviews SET status='new'
+
+    const result = await processReview(monitored, 'biz-1', 'corr-1');
+    expect(result).toBe('updated');
+
+    // The UPDATE is the 2nd tx call (index 1).
+    const updateSql = (tx.mock.calls[1]?.[0] as TemplateStringsArray | undefined)?.join('?') ?? '';
+    expect(updateSql).toContain("status = 'new'");
+    expect(updateSql).not.toContain('sentiment_label');
   });
 });
