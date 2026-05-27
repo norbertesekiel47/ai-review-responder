@@ -43,6 +43,24 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "Admin-only route or service intentionally performs this statement after requireRole(admin).",
   },
   {
+    file: "src/app/api/admin/flagged/route.ts",
+    table: "responses",
+    sqlSnippet: "SELECT fr.id, fr.response_id, fr.business_id, fr.account_id, fr.review_id, fr.source, fr.reason, fr.severity, fr.status, fr.created_at, r.response_text, r.version, rev.reviewer_name, rev.star_rating, b.name AS business_name FROM flagged_responses fr JOIN responses r ON r.id = fr.response_id JOIN reviews rev ON rev.id = fr.review_id JOIN businesses b ON b.id = fr.business_id WHERE fr.status = 'open' ORDER BY fr.created_at DESC LIMIT ${limit} OFFSET ${offset}",
+    reason: "Admin-only cross-tenant read of the open flagged-response queue (deny-all RLS table joined to its parent rows); gated by requireRole('admin') and proxy /api/admin protection.",
+  },
+  {
+    file: "src/app/api/admin/flagged/route.ts",
+    table: "reviews",
+    sqlSnippet: "SELECT fr.id, fr.response_id, fr.business_id, fr.account_id, fr.review_id, fr.source, fr.reason, fr.severity, fr.status, fr.created_at, r.response_text, r.version, rev.reviewer_name, rev.star_rating, b.name AS business_name FROM flagged_responses fr JOIN responses r ON r.id = fr.response_id JOIN reviews rev ON rev.id = fr.review_id JOIN businesses b ON b.id = fr.business_id WHERE fr.status = 'open' ORDER BY fr.created_at DESC LIMIT ${limit} OFFSET ${offset}",
+    reason: "Admin-only cross-tenant read of the open flagged-response queue (deny-all RLS table joined to its parent rows); gated by requireRole('admin') and proxy /api/admin protection.",
+  },
+  {
+    file: "src/app/api/admin/flagged/route.ts",
+    table: "businesses",
+    sqlSnippet: "SELECT fr.id, fr.response_id, fr.business_id, fr.account_id, fr.review_id, fr.source, fr.reason, fr.severity, fr.status, fr.created_at, r.response_text, r.version, rev.reviewer_name, rev.star_rating, b.name AS business_name FROM flagged_responses fr JOIN responses r ON r.id = fr.response_id JOIN reviews rev ON rev.id = fr.review_id JOIN businesses b ON b.id = fr.business_id WHERE fr.status = 'open' ORDER BY fr.created_at DESC LIMIT ${limit} OFFSET ${offset}",
+    reason: "Admin-only cross-tenant read of the open flagged-response queue (deny-all RLS table joined to its parent rows); gated by requireRole('admin') and proxy /api/admin protection.",
+  },
+  {
     file: "src/app/api/admin/channels/sms/cancel/route.ts",
     table: "businesses",
     sqlSnippet: "SELECT account_id FROM businesses WHERE id = ${businessId}",

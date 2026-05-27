@@ -2,6 +2,8 @@
 
 > **Goal:** Three-layer content moderation (prompt / output / policy), prompt-injection defenses, abuse detection on signup, ToS enforcement workflow, customer-reported abuse path with SLAs.
 
+> **🟡 Implementation status (Wave 3, 2026-05-26):** PARTIALLY SHIPPED. **Done:** prompt-layer injection defense (PR #94 — escaped delimited `<review>` data block + versioned safety base); output-layer moderation (PR #95 — `src/lib/moderation/*`, local regex rules + optional OpenAI Moderation, **fail-open**); high-confidence unsafe drafts held in `flagged_responses` (migration 051, admin-only deny-all RLS) with the owner notification suppressed and the no-auto-posting invariant preserved; admin disposition queue at `/admin/flagged` (PR #96 — approve releases via the transactional outbox; dismiss / regenerate are terminal). **Not yet built (PR 4):** trust-safety enforcement-workflow docs (`docs/trust-safety/*`) + case template. **Deferred / external gates:** signup abuse detection / disposable-email + CAPTCHA, customer-reported abuse path + SLAs, owner-facing override/appeal, public transparency report, and turning OpenAI Moderation on in prod.
+
 ---
 
 ## 1. Why this matters

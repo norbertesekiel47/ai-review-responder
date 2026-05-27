@@ -358,6 +358,19 @@ sent. Tuning: `ANALYTICS_DISPATCH_*` under Poller Tuning below.
 
 ---
 
+## Wave 3 flags & config (PRs 1–3b)
+
+| Var | Default | Notes |
+|---|---|---|
+| `OPENAI_MODERATION_ENABLED` | **Off** | Gates the OpenAI Moderation **provider** layer in `src/lib/moderation/moderate.ts`. When unset/not `'true'`, only the local regex rules (`output-filter.ts`) run. When `'true'`, `moderateResponse` also calls `client.moderations.create({ model: 'omni-moderation-latest' })` and merges (provider flag → `high`). **Fail-open by design:** a provider error falls back to the local decision and is recorded as `openai_moderation: 'error'` — it never throws and never silently approves. Worker-only (never called from Vercel). Turning it on in prod is an external gate; tune thresholds against real samples first. |
+| `LOG_SERVICE` | `worker` | Optional. Sets the `service` field on the JSON structured log lines (`src/lib/shared/logger.ts`). Leave unset for the worker; set to `web` (or a more specific name) where another process emits logs. Cosmetic — affects log labelling only. |
+
+Not a flag, but related: structured logging (`createWorkerLogger`) and the
+`AsyncLocalStorage` log context are always on (no flag) — see
+`src/lib/shared/{logger,log-context}.ts`. The `flagged_responses` hold + admin
+disposition (`/admin/flagged`) are also unconditional, not flag-gated. The only
+Wave 3 behavior behind a flag is the optional OpenAI moderation layer above.
+
 ## Docs
 
 - `NEXT_PUBLIC_DOCS_BASE_URL` — optional. Makes `/admin/runbook` doc names
