@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { sql } from '@/lib/db/server';
+import { createServerClient } from '@supabase/ssr';
+import { z } from 'zod';
+import { v7 as uuidv7 } from 'uuid';
+import { sql, jsonb } from '@/lib/db/server';
 import { AuthError, requireRole } from '@/lib/db/auth';
+import { writeAccountAuditLog } from '@/lib/audit/log';
+import { requireCurrentAal2FromSupabase, type SupabaseMfaAalClient } from '@/lib/auth/mfa';
+import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
+import type { SendNotificationPayload } from '@/lib/shared/worker-types';
 
 export const dynamic = 'force-dynamic';
 
@@ -76,4 +83,150 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }));
 
   return NextResponse.json({ flagged, limit, offset }, { headers: NO_STORE });
+}
+
+const DispositionSchema = z.object({
+  flaggedId: z.string().uuid(),
+  action: z.enum([
+    'approved_for_owner_review',
+    'dismissed_false_positive',
+    'requires_regeneration',
+  ]),
+});
+
+class DispositionError extends Error {
+  constructor(public readonly status: number, public readonly code: string) {
+    super(code);
+    this.name = 'DispositionError';
+  }
+}
+
+interface OpenFlagRow {
+  id: string;
+  response_id: string;
+  business_id: string;
+  account_id: string;
+}
+
+export async function POST(request: NextRequest): Promise<NextResponse> {
+  try {
+    assertSameOrigin(request);
+  } catch (err) {
+    if (err instanceof SameOriginError) {
+      return NextResponse.json({ error: 'forbidden' }, { status: 403, headers: NO_STORE });
+    }
+    return dispositionErrorResponse(err);
+  }
+
+  let admin;
+  try {
+    admin = await requireRole(request, 'admin');
+  } catch (err) {
+    if (err instanceof AuthError) {
+      return NextResponse.json({ error: err.message }, { status: err.statusCode, headers: NO_STORE });
+    }
+    return dispositionErrorResponse(err);
+  }
+
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll();
+        },
+        setAll() {
+          // Route handlers cannot mutate request cookies; proxy handles refresh.
+        },
+      },
+    },
+  ) as SupabaseMfaAalClient;
+
+  const aal = await requireCurrentAal2FromSupabase(supabase);
+  if (!aal.ok) {
+    return NextResponse.json({ error: aal.reason }, { status: 403, headers: NO_STORE });
+  }
+
+  let rawBody: unknown;
+  try {
+    rawBody = await request.json();
+  } catch {
+    return NextResponse.json({ error: 'invalid_body' }, { status: 400, headers: NO_STORE });
+  }
+
+  const parsed = DispositionSchema.safeParse(rawBody);
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: parsed.error.issues[0]?.message ?? 'invalid_request' },
+      { status: 400, headers: NO_STORE },
+    );
+  }
+
+  const { flaggedId, action } = parsed.data;
+
+  try {
+    await sql.begin(async (tx) => {
+      const rows = await tx<OpenFlagRow[]>`
+        SELECT id, response_id, business_id, account_id
+        FROM flagged_responses
+        WHERE id = ${flaggedId}::uuid AND status = 'open'
+        FOR UPDATE
+      `;
+      const flag = rows[0];
+      if (!flag) {
+        throw new DispositionError(409, 'not_open');
+      }
+
+      await tx`
+        UPDATE flagged_responses
+        SET status = ${action},
+            reviewed_by_user_id = ${admin.id}::uuid,
+            reviewed_at = NOW(),
+            updated_at = NOW()
+        WHERE id = ${flaggedId}::uuid AND status = 'open'
+      `;
+
+      // Only an explicit approval releases the held draft to the owner — via the
+      // transactional outbox, atomic with the status change. Dismiss / regenerate
+      // are terminal status-only dispositions (no notification).
+      if (action === 'approved_for_owner_review') {
+        const payload: SendNotificationPayload = {
+          response_id: flag.response_id,
+          business_id: flag.business_id,
+        };
+        await tx`
+          INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+          VALUES (
+            ${uuidv7()}, 'send_notification', 'response', ${flag.response_id},
+            ${jsonb(payload)}, 'pending'
+          )
+        `;
+      }
+
+      await writeAccountAuditLog(
+        {
+          accountId: flag.account_id,
+          actorUserId: admin.id,
+          eventType: 'flagged_response_dispositioned',
+          entityType: 'flagged_response',
+          entityId: flaggedId,
+          payload: { action, response_id: flag.response_id },
+        },
+        tx,
+      );
+    });
+  } catch (err) {
+    if (err instanceof DispositionError) {
+      return NextResponse.json({ error: err.code }, { status: err.status, headers: NO_STORE });
+    }
+    return dispositionErrorResponse(err);
+  }
+
+  return NextResponse.json({ ok: true, action }, { headers: NO_STORE });
+}
+
+function dispositionErrorResponse(error: unknown): NextResponse {
+  console.error('[api/admin/flagged] disposition failed:', error);
+  return NextResponse.json({ error: 'internal_error' }, { status: 500, headers: NO_STORE });
 }
