@@ -2,6 +2,8 @@
 
 > **Goal:** Structured logs with `account_id` on every line, Sentry SLO with P0/P1/P2 cadence, PostHog product analytics with documented event taxonomy, Bull Board for queue visibility, synthetic checks on critical paths, real-time ops dashboard.
 
+> **🟡 Implementation status (Wave 3 PR 1, 2026-05-26 — open as PR #93):** SHIPPED — JSON structured worker logs with request/job context via `AsyncLocalStorage` (`src/lib/shared/{logger,log-context}.ts`, `worker/job-log-context.ts`), web + worker `GET /api/health`, admin queue-depth view extended (`/admin/jobs` + `completed`/`paused`), typed event taxonomy (`docs/analytics/events.md`) enforced by a CI drift audit (`scripts/ci/analytics-events-audit.ts`), and on-call runbooks (`docs/runbooks/{observability,oncall-3am,alert-tuning}.md`). **Deferred / external gates:** Bull Board, centralized log drain, Sentry P0–P2 alert routing, synthetic checks, and the bookmarked ops dashboard.
+
 ---
 
 ## 1. Why this matters

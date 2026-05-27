@@ -319,3 +319,21 @@ unique constraint enforce once-only** — never rely on a read-then-write check
 being atomic. (Per-attempt client intent events like `gbp_connect_started` use a
 non-deterministic key by design — they are NOT durable facts; see
 `docs/analytics/events.md`.)
+
+## Flagged-response hold (Wave 3, migration 051)
+
+The same once-only discipline applies to held moderation flags. When
+`ResponseGeneratorWorker` holds a high-severity unsafe draft it inserts a
+`flagged_responses` row inside the response transaction. BullMQ can retry the
+generation job, so the flag insert must not stack duplicates:
+
+- **Partial unique index** `idx_flagged_responses_open_response` on
+  `(response_id) WHERE status = 'open'` — at most one OPEN flag per response.
+  After an admin dispositions it (`approved_for_owner_review` /
+  `dismissed_false_positive` / `requires_regeneration`) the row leaves `open`, so
+  a later genuine re-flag is still allowed.
+- In practice a true retry-after-commit re-enters the Step-5 existing-response
+  early-return in `ResponseGeneratorWorker` (the `UNIQUE (review_id, version)` on
+  `responses`), so persist isn't re-run and `responseId` is freshly generated per
+  call anyway — the partial unique index is defense-in-depth, the same
+  belt-and-suspenders posture as the analytics `event_key` uniqueness above.
