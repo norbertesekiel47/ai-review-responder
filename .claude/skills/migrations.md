@@ -1,12 +1,12 @@
 ---
 name: migrations
-description: Full Supabase migration inventory (001–051) for the RepWorth project, plus known residual risks tied to schema decisions. Read this before writing any migration, querying migration state, debugging schema issues, or planning work that touches the database.
+description: Full Supabase migration inventory (001–052) for the RepWorth project, plus known residual risks tied to schema decisions. Read this before writing any migration, querying migration state, debugging schema issues, or planning work that touches the database.
 ---
 
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **051** — next migration is **052**
+Current head: **052** — next migration is **053**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **Worker file paths (as of 2026-05-05):** Class names below are
@@ -349,6 +349,18 @@ All tables use UUIDv7 (time-ordered primary keys).
   parents); CHECK constraints on `source`/`severity`/`status`; partial unique index
   on `(response_id) WHERE status='open'`; index on `(status, created_at DESC)`.
   PR 3b adds the admin queue + disposition.
+- **052** — `reviews` sentiment (Wave 3 PR 5a). Adds nullable `sentiment_score`
+  (NUMERIC), `sentiment_label` (TEXT), `sentiment_classified_at` (TIMESTAMPTZ),
+  `sentiment_source` (TEXT) to `reviews`; a label-domain CHECK
+  (`reviews_sentiment_label_check`, guarded idempotently by a `pg_constraint`
+  catalog lookup **scoped to the reviews relation** — `conname` is unique only
+  per-table, not globally); and a one-time, bounded, star-based deterministic
+  backfill (`WHERE sentiment_label IS NULL`, so re-running is a no-op). Additive.
+  No RLS change (`reviews` already has it; new columns inherit the SELECT policy).
+  Star→label/score mapping mirrors `src/lib/reviews/sentiment.ts` so backfilled
+  and newly-ingested rows agree. LLM-ready via `sentiment_source`.
+  PR 6 (finance) adds **no migration** — its margin signals aggregate `api_costs`
+  on read.
 
 ## Key Tables Reference
 

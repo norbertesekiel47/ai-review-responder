@@ -2,6 +2,8 @@
 
 > **Goal:** Track MRR / NRR / GRR / CAC / payback / gross margin monthly, ≥ 75% gross margin target, ProfitWell as the SaaS-metrics spine, cohort by acquisition channel, 18-month runway model in 3 scenarios.
 
+> **🟢 Implementation status (Wave 3, 2026-05-27):** LAUNCH SLICE CODE-COMPLETE (PR #102, open; no migration). Admin-only API/LLM **cost-margin signals** computed aggregate-on-read from `api_costs` (`src/lib/admin/margin-service.ts` `getMarginReport`): per-account variable API COGS vs MRR (`monthlyMrrCents`, mirrors `currentBillingSnapshot`) with risk thresholds (account cost/MRR ≥25% warn / ≥40% act; platform gross margin <70% warn / <60% act), provider split, fallback rate, avg cost/response, flagged-gen rate. Surfaced in `/admin/costs` (returned best-effort by `GET /api/admin/costs`). Finance discipline docs `docs/finance/{cogs-template,monthly-close,model}.md`. Platform margin is **API/LLM COGS only** — vendor bills are tracked in the COGS template/monthly close. **External gates:** ProfitWell / Stripe Revenue Recognition / QuickBooks-Xero, the first monthly close, and the first COGS file from real invoices. A materialized monthly account rollup table is deferred (aggregate-on-read suffices at launch scale).
+
 ---
 
 ## 1. Why this matters

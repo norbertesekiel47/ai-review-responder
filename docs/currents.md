@@ -2,7 +2,54 @@
 
 This file explains what is actually built in the repository today, how it maps to the implementation plan, and what is left to build.
 
-Last updated: 2026-05-26 (Wave 3 — Visibility & AI Safety: PRs 1–3b open as #93–#96 — see the Wave 3 section at the bottom of this file. Wave 2 — Activation shipped via PR #87.)
+Last updated: 2026-05-27 (Wave 3 — Visibility & AI Safety: PRs 1–3b merged (#93–#96); PRs 4–6 code-complete and open as #99 eval+trust-safety, #100 sentiment, #101 KPIs, #102 finance — see the simple-words summary directly below and the Wave 3 section at the bottom. Wave 2 — Activation shipped via PR #87.)
+
+## Quick summary — Wave 3 PRs 4–6 (2026-05-27: eval harness, review sentiment, customer KPIs, finance margins)
+
+In simple words:
+
+### What we changed
+
+Four mostly-additive slices that finish Wave 3. Nothing changes what an existing customer sees yet — the customer-facing KPI cards are a later UI step; the rest is plumbing, an admin screen, and docs.
+
+1. **A safety "exam" for the AI replies (`tests/llm-eval/`).** A small test set of 8 example reviews, each paired with a known-good reply. A scorer runs each reply through the *same* safety filter the real app uses and checks it didn't leak anything forbidden (refund promises, legal fault, following injected instructions, etc.). It runs with **no API keys** by default (`pnpm eval:llm`), so it's cheap and always-on in CI; an optional `--live` mode calls the real model. This gives us a repeatable way to catch safety regressions before launch.
+
+2. **A "mood" on every review (review sentiment).** Each review now gets a `sentiment_score` / `sentiment_label` (positive / neutral / negative), worked out from the star rating the moment the review is ingested. Existing reviews were back-filled once. It's deliberately simple (star-based) so the one-time database back-fill and the live code agree exactly; a `sentiment_source` column leaves room to swap in a smarter classifier later.
+
+3. **Customer performance numbers (KPIs).** A new backend that computes five numbers per location (and per account): response rate, average stars, this-month-vs-last-month review volume, average time-to-respond, and an 8-week mood trend. It's served read-only at `GET /api/dashboard/kpis` and only to paying / in-grace owners (a churned account can't pull them). The actual on-screen cards come in a follow-up; this PR ships the data + API + tests.
+
+4. **Money health for the admin (`/admin/costs`).** A new admin-only view that shows, per account, how much we spend on AI/API vs. what that account pays us (MRR), flags accounts whose cost eats >25% / >40% of their revenue, and shows a platform gross-margin number with provider split and the OpenAI→Anthropic fallback rate. It's computed live from the existing cost table (no new table). Plus three finance docs (a monthly COGS template, a monthly-close checklist, and a 3-scenario model) so the numbers have a process around them.
+
+### What got added — the new shape
+
+```text
+tests/llm-eval/                    ← NEW: the keyless safety eval harness
+├── eval-set.jsonl                   (8 launch scenarios + safe canned replies)
+├── scorer.ts / types.ts / load.ts   (scores candidates via the prod output filter)
+├── run.ts                           (pnpm eval:llm — offline default, --live opt-in)
+├── live-runner.ts                   (key-gated real generation, dynamic-imported)
+└── reports/                         (gitignored JSON run reports)
+
+docs/trust-safety/                 ← NEW: enforcement-workflow.md, abuse-reporting.md, cases/_template.md
+docs/finance/                      ← NEW: cogs-template.md, monthly-close.md, model.md
+docs/analytics/posthog-dashboards.md ← NEW: internal BI dashboard definitions
+
+supabase/migrations/052_reviews_sentiment.sql ← NEW: reviews.sentiment_* columns + star back-fill
+src/lib/reviews/sentiment.ts       ← NEW: classifySentiment() (star-based, deterministic)
+  (wired into process-review.ts inserts/updates + zernio insertImportedReview)
+
+src/lib/kpi/                       ← NEW: types.ts + service.ts (DashboardKpiSummary)
+src/app/api/dashboard/kpis/route.ts ← NEW: owner-scoped, subscription-gated KPI endpoint
+
+src/lib/admin/margin-service.ts    ← NEW: getMarginReport() (cost vs MRR, aggregate-on-read)
+src/app/api/admin/costs/route.ts   ← now also returns a best-effort `margin` payload
+src/app/admin/costs/page.tsx       ← now renders a margin-risk section
+src/lib/shared/subscription-status.ts ← + subscriptionAllowsDashboardRead() (read entitlement)
+```
+
+### Why we did it
+
+These are the last three launch-critical pieces of Wave 3: a way to *prove* the AI stays safe (eval harness + trust-safety docs), the *customer-value* numbers (sentiment + KPIs) the dashboard will show, and the *business-health* visibility (margins + finance discipline) the founder needs to watch unit economics. No new feature flags were needed; the only external (non-code) gates left are vendor setup — production PostHog dashboards, turning OpenAI Moderation on, ProfitWell/Stripe revenue tooling, and the first monthly close.
 
 ## Quick summary — what shipped 2026-05-24 (Step 1 keystones: past-due timer, audit helper, activation tracking)
 

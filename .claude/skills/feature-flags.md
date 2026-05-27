@@ -358,7 +358,7 @@ sent. Tuning: `ANALYTICS_DISPATCH_*` under Poller Tuning below.
 
 ---
 
-## Wave 3 flags & config (PRs 1–3b)
+## Wave 3 flags & config (PRs 1–6)
 
 | Var | Default | Notes |
 |---|---|---|
@@ -370,6 +370,20 @@ Not a flag, but related: structured logging (`createWorkerLogger`) and the
 `src/lib/shared/{logger,log-context}.ts`. The `flagged_responses` hold + admin
 disposition (`/admin/flagged`) are also unconditional, not flag-gated. The only
 Wave 3 behavior behind a flag is the optional OpenAI moderation layer above.
+
+**PRs 4–6 added NO new feature flags** (none required):
+- **PR 4 — eval harness (`tests/llm-eval/*`).** Offline scoring is keyless and
+  always available (`pnpm eval:llm`). The optional `--live` mode is gated by the
+  *presence of a provider key* (`OPENAI_API_KEY` or `ANTHROPIC_API_KEY`), not by
+  a feature flag — no key → it errors loudly rather than silently skipping.
+- **PR 5a — review sentiment.** Deterministic, always-on at ingest (no flag);
+  `sentiment_source` is the forward-compat seam for a later classifier.
+- **PR 5b — customer KPIs (`GET /api/dashboard/kpis`).** Always-on for entitled
+  owners; the per-location-vs-aggregate split reuses the existing
+  `MULTI_LOCATION_ENABLED` flag (same `scope=all` semantics as `/api/dashboard`).
+- **PR 6 — finance margin signals (`/admin/costs`).** Admin-only, always-on; no
+  flag. Turning OpenAI Moderation on / wiring ProfitWell etc. remain external
+  (non-flag) gates.
 
 ## Docs
 
