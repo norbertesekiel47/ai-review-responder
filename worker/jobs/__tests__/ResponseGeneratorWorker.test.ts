@@ -18,6 +18,7 @@ const {
   mockCheckRegenBudget,
   mockSetCachedGeneration,
   mockEnqueueAnalyticsEvent,
+  mockModerateResponse,
 } = vi.hoisted(() => {
   const sqlReturnQueue: unknown[] = [];
 
@@ -48,6 +49,7 @@ const {
     mockCheckRegenBudget: vi.fn(),
     mockSetCachedGeneration: vi.fn(),
     mockEnqueueAnalyticsEvent: vi.fn(),
+    mockModerateResponse: vi.fn(),
   };
 });
 
@@ -106,6 +108,10 @@ vi.mock('../../../src/lib/analytics/enqueue', () => ({
   enqueueAnalyticsEvent: mockEnqueueAnalyticsEvent,
 }));
 
+vi.mock('../../../src/lib/moderation/moderate', () => ({
+  moderateResponse: mockModerateResponse,
+}));
+
 vi.mock('uuid', () => ({
   v7: vi.fn(() => 'deterministic-uuid-v7'),
 }));
@@ -161,6 +167,9 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
     sqlReturnQueue.length = 0;
     mockTx.mockImplementation(() => Promise.resolve([]));
     mockIsMockMode.mockReturnValue(false);
+    mockModerateResponse.mockResolvedValue({
+      flagged: false, severity: 'low', reason: null, categories: {}, score: 0, source: null,
+    });
   });
 
   // 1. Successful generation
@@ -405,5 +414,57 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
           && !('review_id' in (arg as Record<string, unknown>)),
       );
     expect(sendNotificationPayloads).toHaveLength(1);
+  });
+
+  it('holds a high-severity flagged draft: no send_notification, writes a flagged_responses row', async () => {
+    sqlReturnQueue.push([mockReviewRow()]);
+    sqlReturnQueue.push([mockBusinessRow()]);
+    mockGenerateResponse.mockResolvedValueOnce(MOCK_RESULT);
+    mockModerateResponse.mockResolvedValueOnce({
+      flagged: true, severity: 'high', reason: 'refund_discount',
+      categories: { refund_discount: 1 }, score: 1, source: 'local_regex',
+    });
+
+    await handleResponseGeneration(makeJob());
+
+    const sendNotificationPayloads = mockTx.mock.calls
+      .flat()
+      .filter(
+        (arg): arg is Record<string, unknown> =>
+          !!arg && typeof arg === 'object' && !Array.isArray(arg)
+          && 'response_id' in (arg as Record<string, unknown>)
+          && 'business_id' in (arg as Record<string, unknown>)
+          && !('version' in (arg as Record<string, unknown>))
+          && !('review_id' in (arg as Record<string, unknown>)),
+      );
+    expect(sendNotificationPayloads).toHaveLength(0);
+
+    const txArgs = mockTx.mock.calls.flat();
+    expect(txArgs).toContain('local_regex');
+    expect(txArgs).toContain('open');
+
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-gen-1', undefined);
+  });
+
+  it('sends the normal notification when moderation does not flag (default)', async () => {
+    sqlReturnQueue.push([mockReviewRow()]);
+    sqlReturnQueue.push([mockBusinessRow()]);
+    mockGenerateResponse.mockResolvedValueOnce(MOCK_RESULT);
+
+    await handleResponseGeneration(makeJob());
+
+    const sendNotificationPayloads = mockTx.mock.calls
+      .flat()
+      .filter(
+        (arg): arg is Record<string, unknown> =>
+          !!arg && typeof arg === 'object' && !Array.isArray(arg)
+          && 'response_id' in (arg as Record<string, unknown>)
+          && 'business_id' in (arg as Record<string, unknown>)
+          && !('version' in (arg as Record<string, unknown>))
+          && !('review_id' in (arg as Record<string, unknown>)),
+      );
+    expect(sendNotificationPayloads).toHaveLength(1);
+    const txArgs = mockTx.mock.calls.flat();
+    expect(txArgs).not.toContain('open');
   });
 });

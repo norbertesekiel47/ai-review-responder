@@ -1,12 +1,12 @@
 ---
 name: migrations
-description: Full Supabase migration inventory (001–049) for the RepWorth project, plus known residual risks tied to schema decisions. Read this before writing any migration, querying migration state, debugging schema issues, or planning work that touches the database.
+description: Full Supabase migration inventory (001–051) for the RepWorth project, plus known residual risks tied to schema decisions. Read this before writing any migration, querying migration state, debugging schema issues, or planning work that touches the database.
 ---
 
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **049** — next migration is **050**
+Current head: **051** — next migration is **052**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **Worker file paths (as of 2026-05-05):** Class names below are
@@ -335,6 +335,20 @@ All tables use UUIDv7 (time-ordered primary keys).
     where 046 created the table without RLS — the only table-creating migration that
     had skipped it, leaving the table anon-readable via PostREST. Server access is
     unaffected (Postgres.js `postgres` role bypasses RLS).
+
+- **050** — `api_costs` AI-safety metadata (Wave 3 PR 2). Adds `system_prompt_hash`,
+  `prompt_version`, `latency_ms`, `moderation_score`, `moderation_categories`,
+  `flagged` (NOT NULL DEFAULT FALSE), `flag_reason`, `output_excerpt` to `api_costs`.
+  All additive/idempotent (`ADD COLUMN IF NOT EXISTS`). PR 2 populates
+  hash/version/latency + `account_id`; the moderation columns are populated by PR 3.
+  No RLS/index change (`api_costs` already has both).
+- **051** — `flagged_responses` (Wave 3 PR 3a). Admin-only table (deny-all RLS,
+  server reads via the postgres role) holding high-confidence unsafe drafts out of
+  the owner approval-notification path until admin disposition. FKs to
+  `responses`/`accounts`/`businesses`/`reviews`/`api_costs` (cascade on tenant
+  parents); CHECK constraints on `source`/`severity`/`status`; partial unique index
+  on `(response_id) WHERE status='open'`; index on `(status, created_at DESC)`.
+  PR 3b adds the admin queue + disposition.
 
 ## Key Tables Reference
 

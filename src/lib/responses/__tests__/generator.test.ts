@@ -100,6 +100,7 @@ const productionOptions: GenerationOptions = {
   version: 1,
   businessId: 'biz-001',
   subscriptionTier: 'standard',
+  accountId: 'acc-001',
 };
 
 const businessContext = {
@@ -129,7 +130,7 @@ describe('generateResponse', () => {
     const result = await generateResponse(review, businessContext, [], demoOptions);
 
     expect(result.provider).toBe('openai');
-    expect(result.model).toBe('gpt-4o-mini');
+    expect(result.model).toBe('gpt-4o-mini-2024-07-18');
     expect(result.responseText).toBe('Thank you, Jane!');
     expect(openaiCreate).toHaveBeenCalledOnce();
   });
@@ -208,6 +209,23 @@ describe('generateResponse', () => {
     expect(tracker.releaseConcurrencySlot).toHaveBeenCalledWith('biz-001');
     expect(tracker.setCachedGeneration).toHaveBeenCalled();
     expect(audit.recordApiCost).toHaveBeenCalled();
+  });
+
+  it('records prompt metadata, latency, and account_id in api_costs (production)', async () => {
+    openaiCreate.mockResolvedValueOnce(openAIResponse('Thanks!'));
+
+    const audit = await import('@/lib/costs/audit');
+    const { generateResponse } = await import('../generator');
+    await generateResponse(review, businessContext, [], productionOptions);
+
+    expect(audit.recordApiCost).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: 'acc-001',
+        promptVersion: expect.any(String),
+        systemPromptHash: expect.any(String),
+        latencyMs: expect.any(Number),
+      }),
+    );
   });
 
   it('returns cached result with costUsd 0 on cache hit', async () => {

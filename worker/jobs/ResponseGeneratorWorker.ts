@@ -10,6 +10,8 @@ import { isMockMode } from '../../src/lib/shared/mock-mode';
 import { sanitizeText } from '../../src/lib/shared/sanitize';
 import { getApprovedResponsePairs } from '../../src/lib/responses/voice-learning';
 import { generateResponse, TransientLLMError } from '../../src/lib/responses/generator';
+import { moderateResponse } from '../../src/lib/moderation/moderate';
+import type { ModerationDecision } from '../../src/lib/moderation/output-filter';
 import { generateMockResponse } from '../../src/lib/responses/mock-generator';
 import {
   CostLimitExceededError,
@@ -180,14 +182,14 @@ export async function handleResponseGeneration(
         normalizedReview,
         businessContext,
         voiceExamples,
-        { mode: 'production', reviewId: review_id, version, businessId: businessId, subscriptionTier: businessContext.subscriptionTier },
+        { mode: 'production', reviewId: review_id, version, businessId: businessId, subscriptionTier: businessContext.subscriptionTier, accountId: business.account_id },
       );
     } else {
       result = await generateResponse(
         normalizedReview,
         businessContext,
         voiceExamples,
-        { mode: 'production', reviewId: review_id, version, businessId: businessId, subscriptionTier: businessContext.subscriptionTier },
+        { mode: 'production', reviewId: review_id, version, businessId: businessId, subscriptionTier: businessContext.subscriptionTier, accountId: business.account_id },
       );
     }
   } catch (err) {
@@ -223,7 +225,7 @@ export async function handleResponseGeneration(
   try {
     result = await applyAvoidFactsGuardrail(
       result, businessContext, normalizedReview, voiceExamples,
-      { reviewId: review_id, version, businessId: businessId },
+      { reviewId: review_id, version, businessId: businessId, accountId: business.account_id },
       logger,
     );
   } catch (err) {
@@ -233,10 +235,14 @@ export async function handleResponseGeneration(
     return;
   }
 
-  // ── Step 9: Persist response + outbox + cost link in one transaction ─
+  // ── Step 8.5: Output moderation (local rules always; provider if configured) ─
+  const moderation = await moderateResponse(result.responseText);
+
+  // ── Step 9: Persist response + outbox + cost link + moderation in one tx ─
   const responseId = await persistResponseAndNotify(
     result, review_id, businessId, version, job.data.correlation_id,
     job.data.suppress_notification === true,
+    moderation, business.account_id,
   );
   // DB transaction failure throws for BullMQ retry (transient)
 
@@ -260,7 +266,7 @@ async function applyAvoidFactsGuardrail(
   businessContext: BusinessContext,
   normalizedReview: NormalizedReview,
   voiceExamples: VoiceExample[],
-  ids: { reviewId: string; version: number; businessId: string },
+  ids: { reviewId: string; version: number; businessId: string; accountId: string },
   logger: WorkerLogger,
 ): Promise<GenerationResult> {
   const { avoidFacts } = businessContext;
@@ -278,6 +284,7 @@ async function applyAvoidFactsGuardrail(
       version: ids.version,
       businessId: ids.businessId,
       subscriptionTier: businessContext.subscriptionTier,
+      accountId: ids.accountId,
       skipCache: true,
     };
     const retryResult = isMockMode()
@@ -332,8 +339,15 @@ async function persistResponseAndNotify(
   version: number,
   correlationId: string | undefined,
   suppressNotification: boolean,
+  moderation: ModerationDecision,
+  accountId: string,
 ): Promise<string> {
   const responseId = uuidv7();
+  const retryCostId = (result as any)._retryCostId as string | undefined;
+  // Moderation describes the FINAL output; when an avoid-facts retry happened,
+  // the final text's cost row is the retry's row.
+  const moderatedCostId = retryCostId ?? result.apiCostId;
+  const flaggedHigh = moderation.flagged && moderation.severity === 'high';
 
   await sql.begin(async (tx) => {
     await tx`
@@ -354,19 +368,43 @@ async function persistResponseAndNotify(
       `;
     }
 
-    const retryCostId = (result as any)._retryCostId as string | undefined;
     if (retryCostId) {
       await tx`
         UPDATE api_costs SET response_id = ${responseId} WHERE id = ${retryCostId}
       `;
     }
 
-    if (suppressNotification) {
-      // Backfill path (spec §4.6, §6.7) — skip the approval email so the
-      // first-connect backfill of up to 75 reviews doesn't blast 75 emails.
-      // No notification_deliveries row is written either; the
-      // NotificationFailoverPoller filters on EXISTS notification_deliveries
-      // WHERE template='approval_request' so missing rows are safely skipped.
+    // Record moderation metadata on the cost row for the final output. Excerpt
+    // is for operational triage only — full text already lives on responses.
+    if (moderatedCostId) {
+      await tx`
+        UPDATE api_costs SET
+          moderation_score = ${moderation.score},
+          moderation_categories = ${jsonb(moderation.categories)},
+          flagged = ${moderation.flagged},
+          flag_reason = ${moderation.reason},
+          output_excerpt = ${result.responseText.slice(0, 200)}
+        WHERE id = ${moderatedCostId}
+      `;
+    }
+
+    // High-confidence unsafe draft: hold it for admin disposition (PR 3b) and
+    // do NOT enqueue the owner notification. The response stays pending_approval.
+    if (flaggedHigh) {
+      await tx`
+        INSERT INTO flagged_responses (
+          id, response_id, account_id, business_id, review_id, api_cost_id,
+          source, reason, severity, status
+        ) VALUES (
+          ${uuidv7()}, ${responseId}, ${accountId}, ${businessId}, ${reviewId}, ${moderatedCostId ?? null},
+          ${moderation.source ?? 'local_regex'}, ${moderation.reason}, ${moderation.severity}, ${'open'}
+        )
+      `;
+    }
+
+    // Backfill suppression (spec §4.6, §6.7) OR a high-severity flag both skip
+    // the approval notification.
+    if (suppressNotification || flaggedHigh) {
       return;
     }
 

@@ -54,6 +54,15 @@ approval before posting.
 - **No auto-posting.** There is NO code path from response generation to
   Google posting without an explicit approval step. Make it architecturally
   impossible to bypass.
+- **High-confidence unsafe drafts are held, not notified.** `ResponseGeneratorWorker`
+  runs `moderateResponse` (`src/lib/moderation/*`) after generation; a
+  `high`-severity flag writes a `flagged_responses` row (migration 051,
+  admin-only deny-all RLS) and skips the `send_notification` outbox enqueue in
+  the SAME transaction as response persistence. The draft stays
+  `pending_approval` — no owner notification until an admin dispositions it
+  (PR 3b). Moderation metadata is recorded on `api_costs` (`moderation_*`,
+  `flagged`, `output_excerpt`). Local regex rules always run; the OpenAI
+  Moderation layer is gated behind `OPENAI_MODERATION_ENABLED` and fails open.
 - **Approval tokens never stored raw.** Only SHA-256 hashes in
   `approval_links`. Raw tokens exist only in memory and in the sent email.
   Never persist in Postgres, outbox payloads, or logs.
@@ -109,7 +118,7 @@ approval before posting.
 - Two Postgres clients: `postgres` (Postgres.js) for transactional writes,
   `@supabase/supabase-js` for auth/storage/reads
 - Two Redis instances: Upstash cache (separate from) Upstash BullMQ queue
-- LLM: GPT-4o-mini primary, `claude-haiku-4-5-20251001` fallback
+- LLM: GPT-4o-mini primary (pinned `gpt-4o-mini-2024-07-18`), `claude-haiku-4-5-20251001` fallback. Production model constants live in `src/lib/responses/generator.ts` (exported, guarded by `model-pinning.test.ts`); never use a bare `gpt-4o-mini` alias for generation. The versioned prompt safety base is `src/lib/responses/prompt-policy.ts` (`PROMPT_VERSION` + `systemPromptHash()`), recorded on every `api_costs` row.
 - JSONB via Postgres.js: use `jsonb()` helper (`sql.json(value)`, OID 3802).
   `${JSON.stringify(x)}::jsonb` double-encodes in Postgres.js v3.
 - Package manager: pnpm
@@ -155,7 +164,7 @@ approval before posting.
 
 - All tables: UUIDv7 (time-ordered)
 - Base schema: `supabase/migrations/001_initial_schema.sql`
-- Current head: migration **049** (next: **050**)
+- Current head: migration **051** (next: **052**)
 - For migration details: see `.claude/skills/migrations.md`
 
 ## Non-obvious gotchas — read these before touching related code
