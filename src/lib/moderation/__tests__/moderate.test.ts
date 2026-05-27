@@ -39,6 +39,12 @@ describe('moderateResponse', () => {
     });
     const d = await moderateResponse('Some text the local rules consider clean.');
     expect(moderationsCreate).toHaveBeenCalledOnce();
+    // A per-request timeout must be passed so a slow provider fails fast and
+    // falls back to local rules instead of stalling generation.
+    expect(moderationsCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ input: 'Some text the local rules consider clean.' }),
+      expect.objectContaining({ timeout: expect.any(Number) }),
+    );
     expect(d.flagged).toBe(true);
     expect(d.severity).toBe('high');
     expect(d.source).toBe('openai_moderation');

@@ -5,6 +5,11 @@ import { runOutputFilter, SEVERITY_RANK, type ModerationDecision } from './outpu
 // LLM-class external call and belongs on the Railway worker.
 const PROVIDER_MODEL = 'omni-moderation-latest';
 
+// Moderation runs inline on the response-generation path and is fail-open, so a
+// slow provider must fail fast and fall back to local rules rather than stall
+// generation. The OpenAI SDK default is ~10min × retries — far too long here.
+const PROVIDER_TIMEOUT_MS = 10_000;
+
 function providerEnabled(): boolean {
   return process.env.OPENAI_MODERATION_ENABLED === 'true';
 }
@@ -40,7 +45,10 @@ export async function moderateResponse(text: string): Promise<ModerationDecision
   if (!providerEnabled()) return local;
 
   try {
-    const response = await client().moderations.create({ model: PROVIDER_MODEL, input: text });
+    const response = await client().moderations.create(
+      { model: PROVIDER_MODEL, input: text },
+      { timeout: PROVIDER_TIMEOUT_MS },
+    );
     const result = response.results?.[0];
     if (!result) return local;
 
