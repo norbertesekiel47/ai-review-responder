@@ -45,6 +45,11 @@ describe('migration 052 — reviews sentiment columns', () => {
   it('adds the constraint idempotently (guarded by pg_constraint)', () => {
     expect(normalized).toContain("conname = 'reviews_sentiment_label_check'");
   });
+
+  it('scopes the constraint-existence guard to the reviews relation (conname is not globally unique)', () => {
+    expect(normalized).toContain("t.relname = 'reviews'");
+    expect(normalized).toContain('JOIN pg_class t ON t.oid = c.conrelid');
+  });
 });
 
 describe('migration 052 — deterministic backfill', () => {
