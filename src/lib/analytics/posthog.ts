@@ -8,6 +8,10 @@ export type CaptureAnalyticsEventInput = {
   event: string;
   distinctId: string;
   properties?: Record<string, unknown>;
+  /** Historical event time. Omit for live events (PostHog defaults to now). */
+  timestamp?: Date;
+  /** Deterministic dedup id. PostHog dedupes events that share a uuid. */
+  uuid?: string;
 };
 
 let client: PostHogClient | null | undefined;
@@ -43,6 +47,8 @@ export function captureAnalyticsEvent(input: CaptureAnalyticsEventInput): boolea
     event: input.event,
     distinctId: input.distinctId,
     properties: input.properties,
+    ...(input.timestamp !== undefined ? { timestamp: input.timestamp } : {}),
+    ...(input.uuid !== undefined ? { uuid: input.uuid } : {}),
   });
   return true;
 }

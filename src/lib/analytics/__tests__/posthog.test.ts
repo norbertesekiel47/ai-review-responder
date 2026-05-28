@@ -143,4 +143,43 @@ describe('PostHog analytics wrapper', () => {
       properties: undefined,
     });
   });
+
+  it('forwards timestamp and uuid to capture when provided', () => {
+    vi.stubEnv('POSTHOG_API_KEY', 'ph_test_key');
+    const when = new Date('2026-05-03T12:00:00.000Z');
+
+    const captured = captureAnalyticsEvent({
+      event: 'activation_completed',
+      distinctId: 'account_1',
+      properties: { account_id: 'account_1' },
+      timestamp: when,
+      uuid: 'response_1',
+    });
+
+    expect(captured).toBe(true);
+    expect(posthogMock.instances[0]?.capture).toHaveBeenCalledWith({
+      event: 'activation_completed',
+      distinctId: 'account_1',
+      properties: { account_id: 'account_1' },
+      timestamp: when,
+      uuid: 'response_1',
+    });
+  });
+
+  it('omits timestamp and uuid keys when not provided or explicitly undefined', () => {
+    vi.stubEnv('POSTHOG_API_KEY', 'ph_test_key');
+
+    captureAnalyticsEvent({ event: 'review_published', distinctId: 'business_1' });
+    captureAnalyticsEvent({
+      event: 'review_published',
+      distinctId: 'business_2',
+      timestamp: undefined,
+      uuid: undefined,
+    });
+
+    for (const call of posthogMock.instances[0]!.capture.mock.calls) {
+      expect(call[0]).not.toHaveProperty('timestamp');
+      expect(call[0]).not.toHaveProperty('uuid');
+    }
+  });
 });
