@@ -9,6 +9,14 @@
 import { describe, it, expect } from 'vitest';
 import { computeNextLocationBillingPreview, computeProration } from '../wizard/billing';
 import { buildAddLocationPayload, hasStep1LocationDetails } from '../wizard/payload';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+function readWizardSource(...relPaths: string[]): string {
+  return relPaths
+    .map((p) => readFileSync(resolve(__dirname, p), 'utf-8'))
+    .join('\n');
+}
 
 // ── computeNextLocationBillingPreview ────────────────────────────────────
 
@@ -124,22 +132,21 @@ describe('computeProration', () => {
 
 // ── Step 2 Zernio informational-only check ───────────────────────────────
 //
-// VAL-LOC-073: Step 2 is optional and skippable. After the fix, Step 2
-// must NOT contain any OAuth redirect — it shows informational text about
-// connecting Google Business later, with a link to /dashboard/connect.
+// VAL-LOC-073: Step 2 is optional and skippable. It must NOT contain any
+// OAuth redirect — it shows informational text about connecting Google
+// Business later, with a link to /dashboard/connect. After modularization
+// the Step-2 UI lives in wizard/steps/Step2GoogleBusiness.tsx and the submit
+// navigation lives in wizard/useAddLocationWizard.ts; we guard both.
 
 describe('Step 2 Zernio informational-only (no OAuth redirect)', () => {
-  it('has no handleZernioConnect export or window.location redirect', () => {
-    // Static analysis: the wizard module must NOT export or reference
-    // handleZernioConnect or window.location.href assignment for Zernio.
-    //
-    // We verify by reading the source code — the function was removed.
-    // This is a regression guard: if someone re-adds an OAuth redirect
-    // to Step 2, this test fails.
-    const fs = require('fs');
-    const path = require('path');
-    const sourcePath = path.resolve(__dirname, '../AddLocationWizard.tsx');
-    const source = fs.readFileSync(sourcePath, 'utf-8');
+  const step2AndHook = () =>
+    readWizardSource(
+      '../wizard/steps/Step2GoogleBusiness.tsx',
+      '../wizard/useAddLocationWizard.ts',
+    );
+
+  it('has no handleZernioConnect or window.location redirect', () => {
+    const source = step2AndHook();
 
     // No handleZernioConnect function
     expect(source).not.toContain('handleZernioConnect');
@@ -150,18 +157,14 @@ describe('Step 2 Zernio informational-only (no OAuth redirect)', () => {
     // No /api/zernio/connect/start fetch call (the OAuth initiation)
     expect(source).not.toContain('/api/zernio/connect/start');
 
-    // Must contain informational message about connecting later
-    expect(source).toContain('Connect later from Settings');
-
-    // Must contain link to /dashboard/connect
-    expect(source).toContain('/dashboard/connect');
+    // Step 2 shows the connect-later message and a link to the connect flow
+    const step2 = readWizardSource('../wizard/steps/Step2GoogleBusiness.tsx');
+    expect(step2).toContain('Connect later from Settings');
+    expect(step2).toContain('/dashboard/connect');
   });
 
   it('has no zernioConnecting or zernioConnected state variables', () => {
-    const fs = require('fs');
-    const path = require('path');
-    const sourcePath = path.resolve(__dirname, '../AddLocationWizard.tsx');
-    const source = fs.readFileSync(sourcePath, 'utf-8');
+    const source = step2AndHook();
 
     // These state variables were removed — they tracked the OAuth flow
     expect(source).not.toContain('zernioConnecting');
@@ -173,23 +176,17 @@ describe('Step 2 Zernio informational-only (no OAuth redirect)', () => {
 // Submit payload shape
 //
 // The API schema treats googleMapsUrl as optional, not nullable. When the
-// wizard uses Place Autocomplete, it must omit googleMapsUrl entirely.
+// wizard uses Place Autocomplete, it must omit googleMapsUrl entirely. The
+// payload builder lives in wizard/payload.ts and the submit navigation in
+// wizard/useAddLocationWizard.ts.
 describe('submit payload shape', () => {
   it('does not send googleMapsUrl:null for Place Autocomplete submissions', () => {
-    const fs = require('fs');
-    const path = require('path');
-    const sourcePath = path.resolve(__dirname, '../AddLocationWizard.tsx');
-    const source = fs.readFileSync(sourcePath, 'utf-8');
-
+    const source = readWizardSource('../wizard/payload.ts');
     expect(source).not.toContain('googleMapsUrl: null');
   });
 
   it('routes the newly added location directly to its Google connect flow', () => {
-    const fs = require('fs');
-    const path = require('path');
-    const sourcePath = path.resolve(__dirname, '../AddLocationWizard.tsx');
-    const source = fs.readFileSync(sourcePath, 'utf-8');
-
+    const source = readWizardSource('../wizard/useAddLocationWizard.ts');
     expect(source).toContain('/dashboard/connect?locationId=');
     expect(source).toContain('encodeURIComponent(result.businessId)');
     expect(source).not.toContain("router.push('/dashboard');");
