@@ -45,7 +45,7 @@ export interface EditPublishCatchArgs {
   logger: WorkerLogger;
 }
 
-export type Tx409Outcome =
+type Tx409Outcome =
   | { kind: '409_matches' }
   | { kind: '409_mismatch_after_delete' }
   | { kind: '409_mismatch_no_delete' }
@@ -63,7 +63,7 @@ export type TxCatchOutcome =
   | { kind: 'commit_then_throw'; error: Error }
   | { kind: 'rollback_then_throw'; error: Error };
 
-export function permanentErrorKind(
+function permanentErrorKind(
   err: ZernioPermanentError | ZernioValidationError,
 ): string {
   return err instanceof ZernioPermanentError ? err.kind ?? 'unknown' : 'validation';
@@ -74,7 +74,7 @@ export function permanentErrorKind(
  * (forcing ROLLBACK) only on the indeterminate/transient sub-cases where
  * nothing was externally committed; otherwise records a commit outcome.
  */
-export async function handle409Disposition(
+async function handle409Disposition(
   tx: postgres.TransactionSql,
   disp: Verify409Disposition,
   args: EditPublishCatchArgs,

@@ -1,31 +1,25 @@
 // worker/jobs/publisher/edit-publish.ts
 //
-// The edit-publisher DELETE-before-POST module (spec
+// Orchestrator for the DELETE-before-POST edit-publisher flow (spec
 // `docs/superpowers/specs/2026-05-01-edit-existing-replies-design.md` §4.5 +
 // §4.7; revival `2026-05-23-edit-existing-replies-revival-design.md` §3.2).
 //
-// When an owner edits an already-`posted` Google reply, the new reply must
-// REPLACE the old one. Google has at most one live reply per review, so the
-// publisher DELETEs the existing reply then POSTs the replacement. Both
-// external calls run inside ONE open Postgres transaction that holds
-// `reviews FOR UPDATE` + `responses FOR UPDATE` across the I/O, so a
-// concurrent `processReview` content-change serializes behind us and cannot
-// post stale text.
+// Error disposition (per-CATCH §4.5 commit semantics) lives in
+// `./edit-publish-errors`; the in-tx row mutations live in `./edit-publish-tx`.
 //
-// External side effects cannot be rolled back: once Zernio's DELETE returns
-// 200 Google's reply slot is empty and no ROLLBACK undoes that. So this
-// module uses per-CATCH commit semantics — each external outcome maps to a
-// specific COMMIT-or-ROLLBACK + outbox disposition (the §4.5 outcome table),
-// and DELETE-success-without-POST-success leaves an orphan marker
-// (`posting_error LIKE '%_after_delete_succeeded'`) so the failed-hook
-// (Task 7) and `/retry` (Task 11) can recover.
-//
-// This module does NOT decide WHEN it runs — the worker dispatcher (Task 6)
-// calls it when (a sibling `posted` row exists OR the candidate carries an
-// orphan marker) AND `EDIT_REPLIES_ENABLED === 'true'`. In every other case
-// the dispatcher uses today's POST-only `post-reply` path. Phase A here is a
-// non-locking pre-flight that returns `continue_to_fresh` when neither
-// condition holds under a fresh read, so a misroute degrades safely.
+// High-level structure:
+//   Phase A — non-locking pre-flight (no tx, no DELETE). Cheaply decides
+//             whether this is an edit (sibling 'posted' exists OR orphan
+//             marker). Returns `continue_to_fresh` immediately if neither.
+//   Phase B — single open Postgres tx holding `reviews FOR UPDATE` +
+//             `responses FOR UPDATE` across both external calls (DELETE then
+//             POST), so concurrent `processReview` content-changes serialize
+//             behind us. All in-tx row mutations are delegated to -tx helpers.
+//   Dispatch — the dispatcher owns the outbox lifecycle; this module returns
+//              an `EditPublishOutcome` for every committed tx path so the
+//              dispatcher calls `markOutboxCompleted/Failed/throw` in one place
+//              (per-CATCH §4.5 outcome table). A thrown 'rollback_then_throw'
+//              is re-surfaced from the catch and delivered as `outcome:'throw'`.
 
 import * as Sentry from '@sentry/node';
 import { sql } from '../../../src/lib/db/server';
@@ -382,5 +376,3 @@ export async function runEditPublishIfApplicable(
       return { outcome: 'throw', error: outcome.error };
   }
 }
-
-
