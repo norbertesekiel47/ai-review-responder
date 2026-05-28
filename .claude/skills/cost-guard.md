@@ -1,3 +1,8 @@
+---
+name: cost-guard
+description: The two-phase LLM cost-accounting pattern (Redis pessimistic reserve → finalize from actual tokens). Use before adding or modifying any LLM or paid external-API call in a worker.
+---
+
 # LLM Cost Guard Pattern
 
 All LLM calls MUST follow this two-phase cost accounting pattern. Use `import { createHash } from 'node:crypto'` and the cache Redis instance (NOT the queue Redis).
@@ -27,9 +32,10 @@ All LLM calls MUST follow this two-phase cost accounting pattern. Use `import { 
 2. DECR concurrency slot in finally block.
 
 ## Tier-aware limits
-- founding ($99/mo): 500 cents/day
-- standard ($149/mo): 1000 cents/day
-- premium ($199/mo): 2000 cents/day
+Per-tier daily ceilings derive from the canonical tier config — never hard-code
+prices here. Source of truth: `src/lib/accounts/tier-config.ts` (tiers
+`basic|standard|premium|founders`). Full env/flag inventory:
+`.claude/reference/env-vars.md`.
 
 ## Global circuit breaker
 - Redis key `cost:global:{date}` tracks total platform spend.

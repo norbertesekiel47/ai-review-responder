@@ -1,3 +1,8 @@
+---
+name: outbox-pattern
+description: The transactional outbox pattern every async workflow in RepWorth must follow (state change + job_outbox row in ONE Postgres tx; OutboxPoller dispatches to BullMQ). Use before writing any code that changes Postgres state and enqueues follow-up work.
+---
+
 # Transactional Outbox Pattern
 
 Every async workflow uses this pattern:

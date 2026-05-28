@@ -1,8 +1,3 @@
----
-name: feature-flags
-description: Complete environment variable and feature flag reference for RepWorth. Read this before adding a new env var, debugging a missing config error, configuring a new deployment environment, or flipping a feature flag in production. Includes startup assertion behavior, flag dependencies, and flag-gating patterns.
----
-
 # RepWorth — Environment Variables & Feature Flags
 
 ## Flag-Gating Pattern
@@ -25,20 +20,6 @@ Assertion source: `worker/config/startup-assert.ts`.
 > the mock path (e.g. `src/lib/zernio/client/transport.ts`). Setting it globally
 > `true` breaks the Zernio real-path tests — see `lab-notes.md` (2026-05-24). DB
 > integration + Playwright e2e are not gated yet (need `TEST_DATABASE_POOL_URL`).
-
-> **Worker file paths (as of 2026-05-05):** Worker class names below
-> are stable; file paths changed during the worker reorg, and per PR
-> #18 the BullMQ `'failed'` exhaustion handlers now live in dedicated
-> `failed-hook.ts` modules colocated with their workers. For any
-> worker mentioned, look at how it's imported in `worker/index.ts`
-> (or read `docs/directory.md`). Quick map for things mentioned in
-> this file:
-> - `ResponsePublisherWorker` → `worker/jobs/publisher/ResponsePublisherWorker.ts`
->   - Final-attempt failure logic: `worker/jobs/publisher/failed-hook.ts` (`handlePublisherFailed`)
-> - `ZernioReviewIngestWorker` → `worker/jobs/zernio/ZernioReviewIngestWorker.ts`
->   - Final-attempt failure logic: `worker/jobs/zernio/ingest-failed-hook.ts` (`handleIngestFailed`)
-> - Zernio webhook handler: `worker/ingress/zernio/zernio.ts`
-> - Zernio signature verifier: `worker/ingress/zernio/zernio-verify.ts`
 
 ---
 
@@ -198,6 +179,8 @@ of the flag — flipping the flag only exposes the user surface. The
 | standard | $79 | 1 | $25 | Yes |
 | premium | $199 | 5 | $20 | Yes |
 | founders | $19 | 1 | $25 | Yes |
+
+Source of truth: `src/lib/accounts/tier-config.ts` (`TIER_CONFIG`). Values above verified against the live file (2026-05-27). Note: billing snapshot reads `accounts.locations_included` and `accounts.locations_overage_price_cents` (stored, grandfathered) — not live `TIER_CONFIG` — except for base price, which has no stored column yet.
 
 **Stripe model:** one subscription per account, two subscription
 items — base price (qty 1) + overage price (qty = active locations

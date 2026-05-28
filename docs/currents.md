@@ -147,7 +147,7 @@ PR #53 (WhatsApp go-live) put a band-aid on this for WhatsApp only and flagged t
 
 ### The new house rule
 
-Owner channel enrollment is an **account-level** thing. Look it up by `account_id` (+ channel, + "no specific location"), never by the owner's `business_id`/location. The `.claude/CLAUDE.md` gotcha and `.claude/skills/migrations.md` (risk #5) both spell this out.
+Owner channel enrollment is an **account-level** thing. Look it up by `account_id` (+ channel, + "no specific location"), never by the owner's `business_id`/location. The `.claude/CLAUDE.md` gotcha and `.claude/reference/migrations-log.md` (risk #5) both spell this out.
 
 ### What didn't change
 
@@ -302,7 +302,7 @@ The approval flow, response generation, Zernio ingestion, and review dedup logic
 - Auth is now triple-gated for owner mutations: proxy role + account_id check, then in-route `requireRole('owner')`, then per-resource ownership lookup against the session's account. Closes IDOR risks that were possible in the original single-location code if URLs leaked.
 - Channel cache invalidation now logs Redis hiccups via `safeInvalidateChannelCache` instead of `.catch(() => {})`. TCPA-relevant cache staleness is no longer silently masked.
 - Migration 040+041 tightened RLS on `businesses` and `channel_enrollments` — owners can only directly UPDATE the safe columns (tone, products_services, etc.); subscription / Stripe / `is_primary` / `archived_at` columns require service-role + the dedicated transaction paths.
-- Eight new lab notes captured in `.claude/skills/lab-notes.md` — including the "column-level REVOKE doesn't override a table-level GRANT" gotcha and the "FOR UPDATE outside `sql.begin()` is a no-op under PgBouncer" gotcha.
+- Eight new lab notes captured in `.claude/reference/lab-notes.md` — including the "column-level REVOKE doesn't override a table-level GRANT" gotcha and the "FOR UPDATE outside `sql.begin()` is a no-op under PgBouncer" gotcha.
 
 ### Where to read more
 

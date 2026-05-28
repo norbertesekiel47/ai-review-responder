@@ -1,3 +1,8 @@
+---
+name: approval-security
+description: Approval-token security rules and the read-only approve-page flow (SHA-256 hashed tokens, POST-only session binding, TTL/rate limits, audit logging). Use before touching approval links, token generation/validation, or the /approve route.
+---
+
 # Approval Token Security
 
 ## Token storage

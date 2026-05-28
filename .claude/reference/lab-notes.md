@@ -1,25 +1,22 @@
----
-name: lab-notes
-description: Chronological engineering discoveries, bug postmortems, and non-obvious API behaviors discovered during RepWorth development. Read this before touching any of the named libraries, APIs, or subsystems — these are real bugs that already burned time. Organized by date discovered.
----
-
 # RepWorth — Lab Notes
 
 Hard-won discoveries from production debugging and integration work.
 Check the relevant section before implementing anything in these areas.
 
-> **Worker file paths (as of 2026-05-05):** Class names referenced in
-> these notes are stable — only file paths changed during the worker
-> reorg. PR #18 additionally moved the BullMQ `'failed'` exhaustion
-> handlers out of `worker/index.ts` into dedicated `failed-hook.ts`
-> modules colocated with their workers. For the current location of
-> any class, look at how it's imported in `worker/index.ts` (the
-> runtime registry) or read `docs/directory.md`. Quick map for things
-> mentioned below:
-> - `OutboxPoller` → `worker/background/pollers/OutboxPoller.ts`
-> - `CleanupAbandonedSignupsPoller` → `worker/background/pollers/CleanupAbandonedSignupsPoller.ts`
-> - Ingest failed-hook: `worker/jobs/zernio/ingest-failed-hook.ts` (`handleIngestFailed`)
-> - Publisher failed-hook: `worker/jobs/publisher/failed-hook.ts` (`handlePublisherFailed`)
+## Topic index
+
+Jump to the dated entries by subsystem (search the anchors below):
+
+- **Postgres.js / JSONB / PgBouncer** — JSONB string-wrapping, v3 double-encoding, statement_timeout, FOR UPDATE under PgBouncer
+- **Indexes / migrations** — STABLE-in-predicate, ON CONFLICT byte-for-byte, column-level REVOKE, pg_constraint relation scoping
+- **Zernio** — nested `account.id`, MOCK_EXTERNAL_APIS real-path tests, reviewReply normalization
+- **Stripe** — inbound_events payload shape, overage idempotency, billing reconciliation from stored quota
+- **Supabase auth** — implicit-flow OTP, identities:[] for existing emails, auth_id vs users.id, SMTP rate limit
+- **Billing / multi-location** — stored-quota vs TIER_CONFIG, base price not grandfathered, channel account-scope desync
+- **Analytics / PostHog** — unconfigured no-op retry budget, durable vs intent events, RLS on new tables
+- **Moderation / logging** — fail-open moderation, logger-never-throws (incl. AsyncLocalStorage binding for correlation IDs)
+- **CI / tooling** — nested-worktree poisoning, MOCK_EXTERNAL_APIS=false in CI, tenant-scope allowlist drift
+- **Testing** — vi.hoisted for shared mocks, NextRequest vs Request, relative imports under tsx
 
 ---
 
@@ -330,16 +327,11 @@ const { sqlMock } = vi.hoisted(() => ({ sqlMock: vi.fn() }));
 vi.mock('@/lib/db/server', () => ({ sql: sqlMock }));
 ```
 
-### `gitignore /docs/*` means runbook updates ship but docs don't
-`/docs/*` in `.gitignore` (per commit `b1d66f7`) means changes to
-`docs/currents.md`, `docs/progresstracking.md`, `docs/directory.md` etc.
-persist on disk but aren't committed. Only `docs/runbooks/*.md` are
-tracked because they were added before the `/docs/*` rule landed and
-ignore rules don't retroactively un-track tracked files.
-
-When you edit one of the gitignored doc files, mention the limitation in
-the commit message of any related commit so future readers know the
-on-disk content may have drifted from any committed snapshot.
+### [SUPERSEDED 2026-05-27] `/docs/*` is no longer gitignored
+The earlier rule ignored all of `docs/`. Current `.gitignore` tracks `docs/` by
+default and ignores only generated/binary noise (`docs/graphify-out/`,
+`docs/superpowers/landingPageScreenshots/`, `docs/**/*.docx`, `docs/**/*.zip`).
+New docs/specs/plans now commit normally.
 
 ### Zod v4 — `z.never()` options use `error:`, not `invalid_type_error:`
 [2026-05-03] WROTE `z.never({ invalid_type_error: '...' })` per zod v3
