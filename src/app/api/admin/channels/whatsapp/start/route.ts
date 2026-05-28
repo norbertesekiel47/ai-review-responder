@@ -67,10 +67,10 @@ async function startWhatsApp(req: NextRequest): Promise<NextResponse> {
   // releases at tx end; a bare call outside sql.begin would release immediately
   // and leave the state machine unprotected against concurrent starts.
   // Locks by the account-scoped mobile_enroll key, matching the Telegram start
-  // route + the owner routes. NOTE: admin SMS (withMobileEnrollmentLock) still
-  // locks per business, so SMS verify and WhatsApp start do NOT currently
-  // mutually exclude on the lock — deferred (see docs/known-issues.md). The
-  // one_mobile_per_scope index still prevents duplicate mobile channels.
+  // route, the SMS admin routes (withMobileEnrollmentLock, account-scoped as of
+  // PR #135), and the owner routes — so SMS verify and WhatsApp/Telegram start all
+  // mutually exclude on mobile_enroll:${accountId}. The one_mobile_per_scope index
+  // remains authoritative against duplicate mobile channels.
   const rawToken = randomUUID();
   const tokenHash = createHash('sha256').update(rawToken).digest('hex');
   const expiresAt = new Date(Date.now() + TOKEN_TTL_MS);

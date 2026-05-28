@@ -41,14 +41,25 @@ runtime API didn't see it (no `business_id = their location` row), so:
 
 ### Remaining gap — SMS
 
-SMS owner self-service does not exist yet. When built, it **must** use the same
-account-scoped pattern (`account_id` + `location_id IS NULL`) AND bring the SMS admin
-lock (`withMobileEnrollmentLock`) to account scope (currently keyed by `business_id`).
+SMS owner self-service does not exist yet. The SMS **admin** routes are now fully
+account-scoped org-default (PR #135): `withMobileEnrollmentLock` keys by
+`mobile_enroll:${accountId}`, and every SMS-row read/write keys by `account_id` +
+`channel = 'sms'` + `location_id IS NULL`. When owner self-service is built it
+**must** follow the same account-scoped pattern.
 
-### ACTIVE: Admin SMS lock + cross-channel precheck still business-scoped
+### RESOLVED (PR #135, 2026-05-28): Admin SMS lock + cross-channel precheck + SMS-row scope
 
-- **Status:** Open — deferred with the SMS owner self-service work.
-- **Affects:** `worker/ingress/twilio/` and `src/app/api/admin/channels/sms/`
+- **Status:** Resolved. `withMobileEnrollmentLock` and its five callers now lock by
+  `mobile_enroll:${accountId}`, and `verify/route.ts` prechecks other mobile channels
+  by `account_id` + `location_id IS NULL`. A PR-review follow-up went further: ALL five
+  SMS admin routes now read/write the SMS row by `account_id` + `channel = 'sms'` +
+  `location_id IS NULL` — previously the row was keyed by `business_id` while the INSERT
+  wrote org-default (`location_id` NULL), so an SMS row created under L1 was invisible
+  from L2, causing a wasted Twilio Verify + late `one_mobile_per_scope` 409. SMS is
+  one-per-account org-default (the 034 unique indexes make per-location SMS impossible),
+  like Telegram/WhatsApp. The Twilio STOP ingress was already handle-global (TCPA), no
+  change needed.
+- **Affects:** `src/app/api/admin/channels/sms/` (`_shared.ts` + verify/confirm/cancel/disable/delete).
 
 `sms/_shared.ts::withMobileEnrollmentLock` acquires the advisory lock under the key
 `mobile_enroll:${businessId}` (per-location), while the Telegram and WhatsApp admin
@@ -66,9 +77,15 @@ prevents data corruption, but the lock window is mismatched).
 Fix = account-scope `withMobileEnrollmentLock` and its five callers, plus the
 `verify/route.ts` precheck query.
 
-### ACTIVE: Admin per-business channel status read
+### RESOLVED (PR #132, 2026-05-28): Admin per-business channel status read
 
-- **Status:** Open — admin UX limitation, no data impact.
+- **Status:** Resolved. The read resolves the account from the location, then reads
+  account-scoped (`account_id` + `(location_id = $businessId OR location_id IS NULL)`),
+  deduping per channel with per-location override beating org-default — mirroring
+  `resolveChannels`. So an org-default row created under L1 now surfaces on L2's detail
+  page, matching what admin start/disable act on. A PR-review follow-up also scoped the
+  `last_activity_at` subquery to the viewed location (`nd.business_id = $businessId`)
+  rather than the enrollment row's legacy `business_id`.
 - **Affects:** `src/app/api/admin/businesses/[id]/channels/route.ts`
 
 The admin business-detail page lists channel enrollments by `business_id` (one
@@ -83,11 +100,16 @@ and filtering `location_id IS NULL`.
 
 ---
 
-## Dispatcher failure-handling enrollment writes still key by business_id
+## Dispatcher failure-handling enrollment writes (RESOLVED, PR #133)
 
 - **Severity:** Medium — a blocked recipient may not get marked unsubscribed,
   causing repeated failed sends. No data corruption.
-- **Status:** Open. Deferred pending org-default-vs-per-location-override awareness.
+- **Status:** Resolved (PR #133, 2026-05-28). The four failure branches
+  (`telegram_blocked`, `telegram_chat_not_found`, `whatsapp_blocked`,
+  `whatsapp_invalid_recipient`) now scope the UPDATE by `account_id = ctx.accountId`
+  plus the enrollment's location (`location_id IS NULL` for org-default,
+  `location_id = <id>` for a per-location override, from `ResolvedChannel.location_id`).
+  The `sms_unsubscribed` branch stays handle-global for TCPA.
 - **Affects:** `worker/jobs/notification/dispatch.ts` failure branches for
   `telegram_blocked`, `telegram_chat_not_found`, `whatsapp_blocked`, and similar
   states that flip `channel_enrollments.status` via `WHERE business_id = ctx.businessId`.
