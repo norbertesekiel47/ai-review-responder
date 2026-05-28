@@ -1,3 +1,35 @@
+// useEditReplyDraft — the edit-existing-reply state machine behind EditReplyDrawer.
+//
+// Drives the flow from spec §5.2. The six user-facing states:
+//   1. initial      — review snapshot + read-only Google reply + two CTAs
+//   2. editing      — manual textarea + char count + Update / Cancel
+//   3. regenerating — polling /draft-status every 1500ms (60s ceiling)
+//   4. preview      — AI draft visible + Update on Google / Edit further
+//   5. publishing   — submitted /publish; close on success
+//   6. recovery     — for failed rows; Retry posting / Restore original
+//
+// Plus the transient/branch states the machine needs (see the DrawerState union
+// below): creating_draft (in-flight POST /draft before the outbox_id is known),
+// regenerate_poll_error (polling stalled but the worker is still outstanding —
+// close stays blocked), review_changed (409 from a concurrent customer edit),
+// draft_conflict (a prior draft already exists), error, and success.
+//
+// The snapshot `{ hash: row.review_content_hash, version }` is captured once at
+// mount and sent on every mutating call; any 409 surfaces the matching prompt.
+//
+// API contract (server response shapes — see the route comments in
+// src/app/api/dashboard/past-replies/*):
+//   POST   /api/dashboard/past-replies/draft       → { response_id } | { outbox_id }
+//   PATCH  /api/dashboard/past-replies/draft/:id   → 204
+//   DELETE /api/dashboard/past-replies/draft/:id   → 204
+//   POST   /api/dashboard/past-replies/publish     → { outbox_id }
+//   GET    /api/dashboard/past-replies/draft-status?outbox_id=...
+//          → { status: 'generating' } | { status: 'failed', error } |
+//            { response_id, status, response_text }
+//   POST   /api/dashboard/past-replies/:id/retry              → { outbox_id }
+//   POST   /api/dashboard/past-replies/:id/restore-original   → { response_id, outbox_id }
+//          (terminal: republishes the original directly; drawer shows success)
+
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';

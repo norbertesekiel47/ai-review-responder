@@ -1,36 +1,19 @@
 // src/components/dashboard/EditReplyDrawer.tsx
 //
-// Right-side slide-out drawer that drives the 6-state edit-existing-reply
-// flow from spec §5.2:
-//
-//   1. initial      — review snapshot + read-only Google reply + two CTAs
-//   2. editing      — manual textarea + char count + Update / Cancel
-//   3. regenerating — polling /draft-status every 1500ms (60s ceiling)
-//   4. preview      — AI draft visible + Update on Google / Edit further
-//   5. publishing   — submitted /publish; close on success
-//   6. recovery     — for failed rows; Retry posting / Restore original
-//
-// The drawer captures `{ hash: row.review_content_hash, version }` at open
-// time and sends it on every mutating call. Any 409 surfaces a "review was
-// updated by the customer" prompt with a Refresh button.
-//
-// API contract (server returns these shapes — see the route comments in
-// src/app/api/dashboard/past-replies/*):
-//   POST   /api/dashboard/past-replies/draft       → { response_id } | { outbox_id }
-//   PATCH  /api/dashboard/past-replies/draft/:id   → 204
-//   DELETE /api/dashboard/past-replies/draft/:id   → 204
-//   POST   /api/dashboard/past-replies/publish     → { outbox_id }
-//   GET    /api/dashboard/past-replies/draft-status?outbox_id=...
-//          → { status: 'generating' } | { status: 'failed', error } |
-//            { response_id, status, response_text }
-//   POST   /api/dashboard/past-replies/:id/retry              → { outbox_id }
-//   POST   /api/dashboard/past-replies/:id/restore-original   → { response_id, outbox_id }
-//          (terminal: republishes the original directly; drawer shows success)
+// Right-side slide-out drawer for the edit-existing-reply flow. This is the
+// composing shell: it wires useEditReplyDraft (the state machine + every API
+// call) and useFocusTrap (focus capture / Tab-trap / Esc / restore), then
+// renders the review snapshot, the current Google reply, and the per-state
+// panel for state.kind. The state machine, its DrawerState variants, and the
+// API contract are documented in ./edit-reply/useEditReplyDraft.ts; the panels
+// live in ./edit-reply/*.
 
 'use client';
 
 import { useRouter } from 'next/navigation';
 import type { PastReplyRow } from '@/components/dashboard/PastReplyCard';
+// Used by the inline 'initial'-state CTA block below — the one state not
+// extracted to a panel (it has no stateful logic to isolate).
 import { AI_DRAFT_DISCLOSURE } from '@/lib/ui/disclosures';
 import { useEditReplyDraft } from '@/components/dashboard/edit-reply/useEditReplyDraft';
 import { useFocusTrap } from '@/components/dashboard/edit-reply/useFocusTrap';
