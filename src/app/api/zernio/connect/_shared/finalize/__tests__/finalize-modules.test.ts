@@ -377,7 +377,7 @@ describe('authorizeSelectLocation', () => {
     );
   });
 
-  it('throws 400 invalid_body for a scalar JSON body (normalized)', async () => {
+  it('throws 400 invalid_body for a scalar JSON body (was invalid_location_id)', async () => {
     await expectRouteError(
       authorizeSelectLocation(makeRequest('42')),
       400,
