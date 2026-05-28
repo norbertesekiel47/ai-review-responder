@@ -16,6 +16,7 @@ import Stripe from 'stripe';
 import { sql } from '../../../src/lib/db/server';
 import { markOutboxCompleted, markOutboxFailed, extractOutboxHandle } from '../../../src/lib/shared/outbox';
 import { TIER_CONFIG, type SubscriptionTierValue } from '../../../src/lib/accounts/tier-config';
+import { overagePriceIdForTier, overagePriceIdSet } from '../../../src/lib/payments/price-tier-map';
 import { computeOverageQuantity } from '../../../src/lib/accounts/quota';
 import { createWorkerLogger, type WorkerLogger } from '../../../src/lib/shared/logger';
 
@@ -35,17 +36,6 @@ function getStripe(): Stripe {
     stripeInstance = new Stripe(key);
   }
   return stripeInstance;
-}
-
-// Overage price IDs (for identifying/creating the overage item)
-function getOveragePriceId(tier: SubscriptionTierValue): string | null {
-  const map: Record<SubscriptionTierValue, string | undefined> = {
-    basic: undefined, // no overage for basic
-    standard: process.env.STRIPE_PRICE_STANDARD_OVERAGE,
-    premium: process.env.STRIPE_PRICE_PREMIUM_OVERAGE,
-    founders: process.env.STRIPE_PRICE_FOUNDERS_OVERAGE,
-  };
-  return map[tier] ?? null;
 }
 
 function overageUpdateIdempotencyKey(
@@ -150,7 +140,7 @@ export async function handleUpdateStripeOverage(
   }
 
   const newQuantity = computeOverageQuantity(activeLocations, account.locations_included);
-  const overagePriceId = getOveragePriceId(tier);
+  const overagePriceId = overagePriceIdForTier(tier);
 
   if (!overagePriceId) {
     logger.error(`No overage price ID for tier ${tier}`);
@@ -166,11 +156,7 @@ export async function handleUpdateStripeOverage(
       account.stripe_subscription_id,
     );
 
-    const overagePriceIds = new Set([
-      process.env.STRIPE_PRICE_STANDARD_OVERAGE ?? '',
-      process.env.STRIPE_PRICE_PREMIUM_OVERAGE ?? '',
-      process.env.STRIPE_PRICE_FOUNDERS_OVERAGE ?? '',
-    ].filter(Boolean));
+    const overagePriceIds = overagePriceIdSet();
 
     const existingOverageItem = subscription.items.data.find(
       (item) => item.price?.id && overagePriceIds.has(item.price.id),
