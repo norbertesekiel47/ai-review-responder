@@ -1597,10 +1597,10 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "Edit publisher path derives sibling response ids from the same business-scoped publish job before superseding posted rows.",
   },
   {
-    file: "worker/jobs/publisher/edit-publish.ts",
+    file: "worker/jobs/publisher/edit-publish-tx.ts",
     table: "responses",
     sqlSnippet: "UPDATE responses SET status = 'superseded', updated_at = NOW() WHERE id = ${siblingId} AND status = 'posted' RETURNING 1",
-    reason: "Edit publisher path derives sibling response ids from the same business-scoped publish job before superseding posted rows.",
+    reason: "Edit publisher in-tx mutation helper (supersedeSibling) supersedes sibling posted rows by id; sibling ids derive from the same business-scoped publish job. Extracted from edit-publish.ts in the publisher modularization.",
   },
   {
     file: "worker/jobs/zernio/zernio-ingest-shared.ts",

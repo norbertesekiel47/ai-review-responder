@@ -2,7 +2,7 @@
 //
 // L1 in-tx row mutations for the edit-publisher DELETE-before-POST flow
 // (spec docs/superpowers/specs/2026-05-01-edit-existing-replies-design.md §4.5).
-// Each helper runs on an already-open transaction (`tx`), enforces the
+// Each helper runs on an already-open transaction (the tx handle), enforces the
 // publishable-status guard, and asserts the affected-row count so a lost row
 // fails loudly. Leaf module: no imports from edit-publish.ts / -errors.ts.
 
@@ -90,7 +90,7 @@ export async function markCandidatePermanentFailedInTx(
  * In-tx auth-terminal sequence for the edit-publisher branch. Mirrors
  * `handlePublisherAuthErrorTerminal` (which opens its OWN sql.begin and would
  * self-deadlock if called from inside our tx). Differences:
- *   - Operates on the open `tx` so reads/writes share our locks.
+ *   - Operates on the open tx so reads/writes share our locks.
  *   - Does NOT call markOutboxCompleted (the dispatcher owns the outbox).
  *   - Picks posting_error based on postDeleteCommitted so the orphan marker
  *     survives drain re-enqueue (§4.5):
