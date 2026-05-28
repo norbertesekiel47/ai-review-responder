@@ -152,26 +152,27 @@ beforeEach(() => {
   }
 });
 
-// Queue helper: standard subscription.updated tx flow
+// Queue helper: standard subscription.updated tx flow.
+// NOTE: the audit write now goes through the mocked writeAccountAuditLog, so it
+// is NOT a tx SQL call and is asserted via mockWriteAccountAuditLog (not the queue).
 function queueSubscriptionUpdated(opts: {
   tier?: string;
   status?: string;
+  locationsPaid?: number;
   updateBiz?: boolean;
 } = {}) {
   const tier = opts.tier ?? 'standard';
   const status = opts.status ?? 'active';
-  // Inside sql.begin → tx calls in order:
-  // 1. SELECT id, subscription_tier, subscription_status FROM accounts WHERE stripe_customer_id FOR UPDATE
-  sqlReturnQueue.push([{ id: TEST_ACCOUNT_ID, subscription_tier: tier, subscription_status: status }]);
+  const locationsPaid = opts.locationsPaid ?? 0;
+  // Inside sql.begin -> tx calls in order:
+  // 1. SELECT id, subscription_tier, subscription_status, locations_paid ... FOR UPDATE
+  sqlReturnQueue.push([{ id: TEST_ACCOUNT_ID, subscription_tier: tier, subscription_status: status, locations_paid: locationsPaid }]);
   // 2. pg_advisory_xact_lock
   sqlReturnQueue.push([]);
   // 3. UPDATE accounts SET subscription_tier, locations_paid, updated_at WHERE id
   const updateAcctResult: any = []; updateAcctResult.count = 1;
   sqlReturnQueue.push(updateAcctResult);
-  // 4. INSERT account_audit_log (subscription_updated)
-  const auditResult: any = []; auditResult.count = 1;
-  sqlReturnQueue.push(auditResult);
-  // 5. UPDATE businesses SET subscription_tier, updated_at WHERE account_id
+  // 4. UPDATE businesses SET subscription_tier, updated_at WHERE account_id
   const updateBizResult: any = []; updateBizResult.count = opts.updateBiz !== false ? 1 : 0;
   sqlReturnQueue.push(updateBizResult);
 }
@@ -559,6 +560,135 @@ describe('customer.subscription.updated — two-item subscription', () => {
 
     expect(lockIdx).toBeGreaterThanOrEqual(0);
     expect(updateIdx).toBeGreaterThan(lockIdx);
+  });
+
+  it('writes NO audit row on a true no-op (same tier, same locations_paid)', async () => {
+    mockConstructEvent.mockReturnValue({
+      id: 'evt_sub_updated_noop',
+      type: 'customer.subscription.updated',
+      data: {
+        object: {
+          id: TEST_SUBSCRIPTION_ID,
+          customer: TEST_CUSTOMER_ID,
+          items: {
+            data: [
+              { price: { id: 'price_standard_test' }, quantity: 1 },
+              { price: { id: 'price_standard_overage_test' }, quantity: 2 },
+            ],
+          },
+        },
+      },
+    });
+
+    // Prior tier 'standard' == computed; prior locations_paid 2 == overage qty 2.
+    queueSubscriptionUpdated({ tier: 'standard', locationsPaid: 2 });
+
+    const { status, send } = mkReply();
+    await handleStripeWebhook(mkRequest(), { status, send } as any);
+
+    expect(status).toHaveBeenCalledWith(200);
+    expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
+  });
+
+  it('writes a tier-only audit payload when tier changes but locations_paid does not', async () => {
+    mockConstructEvent.mockReturnValue({
+      id: 'evt_sub_updated_tier_only',
+      type: 'customer.subscription.updated',
+      data: {
+        object: {
+          id: TEST_SUBSCRIPTION_ID,
+          customer: TEST_CUSTOMER_ID,
+          items: {
+            data: [
+              { price: { id: 'price_premium_test' }, quantity: 1 },
+              { price: { id: 'price_premium_overage_test' }, quantity: 2 },
+            ],
+          },
+        },
+      },
+    });
+
+    // Prior tier 'standard' -> 'premium'; prior locations_paid 2 == overage qty 2.
+    queueSubscriptionUpdated({ tier: 'standard', locationsPaid: 2 });
+
+    const { status, send } = mkReply();
+    await handleStripeWebhook(mkRequest(), { status, send } as any);
+
+    expect(mockWriteAccountAuditLog).toHaveBeenCalledTimes(1);
+    const [input] = mockWriteAccountAuditLog.mock.calls[0];
+    expect(input).toMatchObject({
+      accountId: TEST_ACCOUNT_ID,
+      eventType: 'subscription_updated',
+      payload: { fromTier: 'standard', toTier: 'premium' },
+    });
+    expect(input.payload).not.toHaveProperty('locationsPaid');
+  });
+
+  it('writes a locations-only audit payload when locations_paid changes but tier does not', async () => {
+    mockConstructEvent.mockReturnValue({
+      id: 'evt_sub_updated_loc_only',
+      type: 'customer.subscription.updated',
+      data: {
+        object: {
+          id: TEST_SUBSCRIPTION_ID,
+          customer: TEST_CUSTOMER_ID,
+          items: {
+            data: [
+              { price: { id: 'price_standard_test' }, quantity: 1 },
+              { price: { id: 'price_standard_overage_test' }, quantity: 5 },
+            ],
+          },
+        },
+      },
+    });
+
+    // Prior tier 'standard' == computed; prior locations_paid 2 -> overage qty 5.
+    queueSubscriptionUpdated({ tier: 'standard', locationsPaid: 2 });
+
+    const { status, send } = mkReply();
+    await handleStripeWebhook(mkRequest(), { status, send } as any);
+
+    expect(mockWriteAccountAuditLog).toHaveBeenCalledTimes(1);
+    const [input] = mockWriteAccountAuditLog.mock.calls[0];
+    expect(input).toMatchObject({
+      accountId: TEST_ACCOUNT_ID,
+      eventType: 'subscription_updated',
+      payload: { locationsPaid: 5 },
+    });
+    expect(input.payload).not.toHaveProperty('fromTier');
+  });
+
+  it('writes a combined audit payload when both tier and locations_paid change', async () => {
+    mockConstructEvent.mockReturnValue({
+      id: 'evt_sub_updated_both',
+      type: 'customer.subscription.updated',
+      data: {
+        object: {
+          id: TEST_SUBSCRIPTION_ID,
+          customer: TEST_CUSTOMER_ID,
+          items: {
+            data: [
+              { price: { id: 'price_premium_test' }, quantity: 1 },
+              { price: { id: 'price_premium_overage_test' }, quantity: 4 },
+            ],
+          },
+        },
+      },
+    });
+
+    // Prior tier 'standard' -> 'premium'; prior locations_paid 2 -> overage qty 4.
+    queueSubscriptionUpdated({ tier: 'standard', locationsPaid: 2 });
+
+    const { status, send } = mkReply();
+    await handleStripeWebhook(mkRequest(), { status, send } as any);
+
+    expect(mockWriteAccountAuditLog).toHaveBeenCalledTimes(1);
+    const [input] = mockWriteAccountAuditLog.mock.calls[0];
+    expect(input).toMatchObject({
+      accountId: TEST_ACCOUNT_ID,
+      eventType: 'subscription_updated',
+      payload: { fromTier: 'standard', toTier: 'premium', locationsPaid: 4 },
+    });
   });
 });
 

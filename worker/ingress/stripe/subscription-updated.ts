@@ -1,7 +1,8 @@
 import Stripe from 'stripe';
-import { v7 as uuidv7 } from 'uuid';
-import { sql, jsonb } from '../../../src/lib/db/server';
+import { sql } from '../../../src/lib/db/server';
 import { TIER_CONFIG, type SubscriptionTierValue } from '../../../src/lib/accounts/tier-config';
+import { writeAccountAuditLog } from '../../../src/lib/audit/log';
+import { tierForBasePriceId, overagePriceIdSet } from '../../../src/lib/payments/price-tier-map';
 import { LOG_PREFIX, extractCustomerId } from './shared';
 
 export async function processSubscriptionUpdated(sub: Stripe.Subscription): Promise<void> {
@@ -11,26 +12,12 @@ export async function processSubscriptionUpdated(sub: Stripe.Subscription): Prom
     return;
   }
 
-  // VAL-BILLING-009: Map base price_id to tier
-  // VAL-BILLING-030: All 7 price env vars referenced in the reverse-map
-  // VAL-BILLING-055: Reverse-map includes all 7 price IDs
-  const priceToTier: Record<string, SubscriptionTierValue> = {
-    [process.env.STRIPE_PRICE_BASIC ?? '']: 'basic',
-    [process.env.STRIPE_PRICE_FOUNDING ?? '']: 'founders',
-    [process.env.STRIPE_PRICE_STANDARD ?? '']: 'standard',
-    [process.env.STRIPE_PRICE_PREMIUM  ?? '']: 'premium',
-  };
-
-  // Overage price IDs (for identifying the overage item)
-  const overagePriceIds = new Set([
-    process.env.STRIPE_PRICE_FOUNDERS_OVERAGE ?? '',
-    process.env.STRIPE_PRICE_STANDARD_OVERAGE ?? '',
-    process.env.STRIPE_PRICE_PREMIUM_OVERAGE ?? '',
-  ].filter(Boolean));
-
   const items = sub.items?.data ?? [];
+  // Build the overage-price-ID set once; both item searches reuse it (the
+  // price-tier-map module recommends this over per-item isOveragePriceId).
+  const overagePriceIds = overagePriceIdSet();
 
-  // Find the base item (first non-overage item with quantity=1)
+  // VAL-BILLING-009: resolve base item -> tier via the single-owner price map.
   const baseItem = items.find(
     (item) => item.price?.id && !overagePriceIds.has(item.price.id),
   );
@@ -39,23 +26,28 @@ export async function processSubscriptionUpdated(sub: Stripe.Subscription): Prom
     return;
   }
 
-  const tier = priceToTier[baseItem.price.id];
+  const tier: SubscriptionTierValue | null = tierForBasePriceId(baseItem.price.id);
   if (!tier) {
     console.warn(`${LOG_PREFIX} Unknown base price ID ${baseItem.price.id} for customer=${customerId} — skipping tier update`);
     return;
   }
 
-  // VAL-BILLING-010: Read overage item quantity → accounts.locations_paid
-  // VAL-BILLING-011: Tolerate legacy single-item subscriptions
+  // VAL-BILLING-010: overage item quantity -> accounts.locations_paid.
+  // VAL-BILLING-011: tolerate legacy single-item subscriptions (quantity 0).
   const overageItem = items.find(
     (item) => item.price?.id && overagePriceIds.has(item.price.id),
   );
   const locationsPaid = overageItem?.quantity ?? 0;
 
-  // VAL-BILLING-062: Advisory lock prevents concurrent tier/overage writes.
+  // VAL-BILLING-062: advisory lock prevents concurrent tier/overage writes.
   await sql.begin(async (tx) => {
-    const [acctRow] = await tx<{ id: string; subscription_tier: string; subscription_status: string }[]>`
-      SELECT id, subscription_tier, subscription_status
+    const [acctRow] = await tx<{
+      id: string;
+      subscription_tier: string;
+      subscription_status: string;
+      locations_paid: number;
+    }[]>`
+      SELECT id, subscription_tier, subscription_status, locations_paid
       FROM accounts
       WHERE stripe_customer_id = ${customerId}
       FOR UPDATE
@@ -69,6 +61,7 @@ export async function processSubscriptionUpdated(sub: Stripe.Subscription): Prom
     await tx`SELECT pg_advisory_xact_lock(hashtext(${acctRow.id + ':subscription_update'}))`;
 
     const tierChanged = acctRow.subscription_tier !== tier;
+    const locationsPaidChanged = acctRow.locations_paid !== locationsPaid;
 
     // Update accounts (source of truth)
     await tx`
@@ -81,24 +74,26 @@ export async function processSubscriptionUpdated(sub: Stripe.Subscription): Prom
       WHERE id = ${acctRow.id}::uuid
     `;
 
-    // VAL-LOC-029 / VAL-LOC-058: Audit log for tier change and locations_paid update
+    // VAL-LOC-029 / VAL-LOC-058: audit only real changes. Setting locationsPaid
+    // only when it changed lets the guard below skip no-op deliveries entirely.
     const auditPayload: Record<string, unknown> = {};
     if (tierChanged) {
       auditPayload.fromTier = acctRow.subscription_tier;
       auditPayload.toTier = tier;
     }
-    auditPayload.locationsPaid = locationsPaid;
+    if (locationsPaidChanged) {
+      auditPayload.locationsPaid = locationsPaid;
+    }
 
     if (Object.keys(auditPayload).length > 0) {
-      await tx`
-        INSERT INTO account_audit_log (id, account_id, event_type, payload)
-        VALUES (
-          ${uuidv7()}::uuid,
-          ${acctRow.id}::uuid,
-          'subscription_updated',
-          ${jsonb(auditPayload)}
-        )
-      `;
+      await writeAccountAuditLog(
+        {
+          accountId: acctRow.id,
+          eventType: 'subscription_updated',
+          payload: auditPayload,
+        },
+        tx,
+      );
     }
 
     // Also update businesses deprecated column
