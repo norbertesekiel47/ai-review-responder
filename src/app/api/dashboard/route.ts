@@ -197,126 +197,110 @@ async function fetchPerLocationData(
   return jsonResponse(data);
 }
 
-export async function GET(request: NextRequest): Promise<NextResponse> {
-  let user;
+interface AggregateAccountRow {
+  subscription_status: string;
+  past_due_at: Date | string | null;
+  flags: AccountFlagsInput;
+  stripe_customer_id: string | null;
+}
+
+// Aggregate (scope=all) subscription gating. Returns a response for any
+// non-active subscription state; null means proceed with normal active
+// aggregate data.
+async function aggregateSubscriptionResponse(
+  accountRow: AggregateAccountRow,
+  accountId: string,
+): Promise<NextResponse | null> {
+  if (accountRow.subscription_status === SubscriptionStatus.PENDING_PAYMENT) {
+    return jsonResponse({
+      subscriptionStatus: 'pending_payment',
+      businessName: 'Account',
+      paymentUrl: `${process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'}/onboarding/pay`,
+    });
+  }
+
+  // VAL-CROSS-011: Cancelled account in aggregate mode
+  if (accountRow.subscription_status === SubscriptionStatus.CANCELLED) {
+    const [cancelledRow] = await sql<{
+      cancelled_at: Date | null;
+      subscription_activated_at: Date | null;
+    }[]>`
+      SELECT cancelled_at, subscription_activated_at FROM accounts WHERE id = ${accountId}::uuid
+    `;
+    const cancellationDate = cancelledRow?.cancelled_at ?? cancelledRow?.subscription_activated_at;
+    const gracePeriodEnd = cancellationDate
+      ? new Date(new Date(cancellationDate).getTime() + 30 * 86_400_000)
+      : null;
+    const readAccess = gracePeriodEnd
+      ? gracePeriodEnd > new Date()
+      : true;
+    return jsonResponse({
+      subscriptionStatus: 'cancelled',
+      businessName: 'Account',
+      gracePeriodEndDate: gracePeriodEnd?.toISOString() ?? null,
+      readAccess,
+    });
+  }
+
+  // VAL-CROSS-012: Past-due account in aggregate mode
+  if (accountRow.subscription_status === SubscriptionStatus.PAST_DUE) {
+    const billingPortalUrl = accountRow.stripe_customer_id
+      ? `/api/billing/portal`
+      : null;
+    const recovery = computePastDueRecoveryState({
+      subscriptionStatus: accountRow.subscription_status,
+      pastDueAt: accountRow.past_due_at,
+      accountFlags: accountRow.flags,
+    });
+    const data = await getAggregateDashboardData(accountId);
+    return jsonResponse({
+      ...data,
+      subscriptionStatus: 'past_due',
+      businessName: 'Account',
+      accountId,
+      billingPortalUrl,
+      ...serializePastDueRecovery(recovery),
+    });
+  }
+
+  if (accountRow.subscription_status !== SubscriptionStatus.ACTIVE) {
+    return jsonResponse({
+      subscriptionStatus: accountRow.subscription_status,
+    });
+  }
+
+  return null;
+}
+
+// scope=all: account-wide aggregate dashboard data, gated by subscription state.
+async function handleAggregateDashboard(accountId: string): Promise<NextResponse> {
   try {
-    user = await requireRole(request, 'owner');
-  } catch (err) {
-    if (err instanceof AuthError) {
-      return jsonResponse({ error: err.message }, err.statusCode);
+    const [accountRow] = await sql<AggregateAccountRow[]>`
+      SELECT subscription_status, past_due_at, flags, stripe_customer_id
+      FROM accounts
+      WHERE id = ${accountId}::uuid
+    `;
+    if (!accountRow) {
+      return jsonResponse({ error: 'Account not found' }, 404);
     }
-    return jsonResponse({ error: 'Unauthorized' }, 401);
+
+    const gated = await aggregateSubscriptionResponse(accountRow, accountId);
+    if (gated) return gated;
+
+    const data = await getAggregateDashboardData(accountId);
+    return jsonResponse(data);
+  } catch (error) {
+    console.error('[api/dashboard] Failed to fetch aggregate data:', error);
+    return jsonResponse({ error: 'Failed to fetch aggregate dashboard data' }, 500);
   }
+}
 
-  if (!user.accountId) {
-    return jsonResponse({ error: 'No account associated with this user' }, 403);
-  }
-
-  const accountId = user.accountId;
-
-  // VAL-DASH-024: Accept `scope` query parameter
-  // scope=all → aggregate dashboard data
-  // scope=<locationId> → per-location dashboard data
-  // no scope → use the user's current location from session/cookie
-  const scopeParam = request.nextUrl.searchParams.get('scope');
-  const multiLocationEnabled = process.env.MULTI_LOCATION_ENABLED === 'true';
-  const scopePolicy = resolveDashboardScopePolicy({
-    scopeParam,
-    userLocationId: user.locationId,
-    multiLocationEnabled,
-  });
-
-  // Aggregate mode: scope=all
-  if (scopePolicy.mode === 'aggregate') {
-    try {
-      // Verify account subscription status before returning aggregate data
-      const [accountRow] = await sql<{
-        subscription_status: string;
-        past_due_at: Date | string | null;
-        flags: AccountFlagsInput;
-        stripe_customer_id: string | null;
-      }[]>`
-        SELECT subscription_status, past_due_at, flags, stripe_customer_id
-        FROM accounts
-        WHERE id = ${accountId}::uuid
-      `;
-      if (!accountRow) {
-        return jsonResponse({ error: 'Account not found' }, 404);
-      }
-
-      if (accountRow.subscription_status === SubscriptionStatus.PENDING_PAYMENT) {
-        return jsonResponse({
-          subscriptionStatus: 'pending_payment',
-          businessName: 'Account',
-          paymentUrl: `${process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'}/onboarding/pay`,
-        });
-      }
-
-      // VAL-CROSS-011: Cancelled account in aggregate mode
-      if (accountRow.subscription_status === SubscriptionStatus.CANCELLED) {
-        const [cancelledRow] = await sql<{
-          cancelled_at: Date | null;
-          subscription_activated_at: Date | null;
-        }[]>`
-          SELECT cancelled_at, subscription_activated_at FROM accounts WHERE id = ${accountId}::uuid
-        `;
-        const cancellationDate = cancelledRow?.cancelled_at ?? cancelledRow?.subscription_activated_at;
-        const gracePeriodEnd = cancellationDate
-          ? new Date(new Date(cancellationDate).getTime() + 30 * 86_400_000)
-          : null;
-        const readAccess = gracePeriodEnd
-          ? gracePeriodEnd > new Date()
-          : true;
-        return jsonResponse({
-          subscriptionStatus: 'cancelled',
-          businessName: 'Account',
-          gracePeriodEndDate: gracePeriodEnd?.toISOString() ?? null,
-          readAccess,
-        });
-      }
-
-      // VAL-CROSS-012: Past-due account in aggregate mode
-      if (accountRow.subscription_status === SubscriptionStatus.PAST_DUE) {
-        const billingPortalUrl = accountRow.stripe_customer_id
-          ? `/api/billing/portal`
-          : null;
-        const recovery = computePastDueRecoveryState({
-          subscriptionStatus: accountRow.subscription_status,
-          pastDueAt: accountRow.past_due_at,
-          accountFlags: accountRow.flags,
-        });
-        const data = await getAggregateDashboardData(accountId);
-        return jsonResponse({
-          ...data,
-          subscriptionStatus: 'past_due',
-          businessName: 'Account',
-          accountId,
-          billingPortalUrl,
-          ...serializePastDueRecovery(recovery),
-        });
-      }
-
-      if (accountRow.subscription_status !== SubscriptionStatus.ACTIVE) {
-        return jsonResponse({
-          subscriptionStatus: accountRow.subscription_status,
-        });
-      }
-
-      const data = await getAggregateDashboardData(accountId);
-      return jsonResponse(data);
-    } catch (error) {
-      console.error('[api/dashboard] Failed to fetch aggregate data:', error);
-      return jsonResponse({ error: 'Failed to fetch aggregate dashboard data' }, 500);
-    }
-  }
-
-  // Per-location mode: use scope parameter or fall back to user's current location
-  const locationId = scopePolicy.locationId;
-
-  if (!locationId) {
-    return jsonResponse({ error: 'No business associated with this account' }, 403);
-  }
-
+// scope=<locationId> (or session default): per-location dashboard data with IDOR
+// ownership check and archived/not-found fallback to the account's primary.
+async function handlePerLocationDashboard(
+  locationId: string,
+  accountId: string,
+): Promise<NextResponse> {
   try {
     // IDOR protection: verify the location belongs to the authenticated user's account.
     // getLocationById fetches the row via service-role SQL (bypasses RLS), so we must
@@ -360,4 +344,43 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     console.error('[api/dashboard] Failed to fetch dashboard data:', error);
     return jsonResponse({ error: 'Failed to fetch dashboard data' }, 500);
   }
+}
+
+export async function GET(request: NextRequest): Promise<NextResponse> {
+  let user;
+  try {
+    user = await requireRole(request, 'owner');
+  } catch (err) {
+    if (err instanceof AuthError) {
+      return jsonResponse({ error: err.message }, err.statusCode);
+    }
+    return jsonResponse({ error: 'Unauthorized' }, 401);
+  }
+
+  if (!user.accountId) {
+    return jsonResponse({ error: 'No account associated with this user' }, 403);
+  }
+
+  const accountId = user.accountId;
+
+  // VAL-DASH-024: `scope` query parameter — `all` → aggregate; `<locationId>` →
+  // per-location; absent → the user's current location from session/cookie.
+  const scopeParam = request.nextUrl.searchParams.get('scope');
+  const multiLocationEnabled = process.env.MULTI_LOCATION_ENABLED === 'true';
+  const scopePolicy = resolveDashboardScopePolicy({
+    scopeParam,
+    userLocationId: user.locationId,
+    multiLocationEnabled,
+  });
+
+  if (scopePolicy.mode === 'aggregate') {
+    return handleAggregateDashboard(accountId);
+  }
+
+  const locationId = scopePolicy.locationId;
+  if (!locationId) {
+    return jsonResponse({ error: 'No business associated with this account' }, 403);
+  }
+
+  return handlePerLocationDashboard(locationId, accountId);
 }
