@@ -21,14 +21,13 @@ import Stripe from 'stripe';
 import { sql } from '../../../src/lib/db/server';
 import { isSubscriptionTier, TIER_CONFIG } from '../../../src/lib/accounts/tier-config';
 import { SubscriptionStatus } from '../../../src/lib/shared/subscription-status';
-import { Sentry } from '../../sentry';
 import {
   compareUpcomingInvoice,
   isExpectedStatusWindow,
   recurringSubscriptionLineTotalCents,
 } from './billing-reconciliation/drift';
 import { expectedInvoiceForAccount } from './billing-reconciliation/expected-invoice';
-import type { BillingReconciliationAccount, DriftFinding } from './billing-reconciliation/types';
+import type { BillingReconciliationAccount } from './billing-reconciliation/types';
 import {
   getOveragePriceIds,
   extractStripeCustomerId,
@@ -37,9 +36,10 @@ import {
   findOverageItem,
 } from './billing-reconciliation/stripe-overage';
 import { parseAccountFlags, isPilotAccount } from './billing-reconciliation/account-flags';
+import { LOG_PREFIX } from './billing-reconciliation/constants';
+import { emitDriftAlert } from './billing-reconciliation/drift-alert';
 
 const DEFAULT_INTERVAL_MS = 3_600_000; // 1 hour
-const LOG_PREFIX = '[StripeLocationsReconcilePoller]';
 
 let timer: ReturnType<typeof setInterval> | null = null;
 // Single-flight guard. Same pattern as EmailChannelReconcilePoller —
@@ -408,68 +408,6 @@ export async function runOnce(): Promise<ReconcileResult> {
     return { accountsChecked, driftsFound, errors };
   } finally {
     inProgress = false;
-  }
-}
-
-interface DriftAlertPayload {
-  driftType?: DriftFinding['type'];
-  dbExpectedOverage: number;
-  stripeOverageQuantity: number;
-  activeLocations: number;
-  locationsIncluded: number;
-  tier: string;
-  isPilot?: boolean;
-  expectedCents?: number;
-  actualCents?: number;
-  dbStatus?: string;
-  stripeStatus?: string;
-  stripeSubscriptionId?: string;
-  stripeCustomerId?: string | null;
-  driftMessage?: string;
-}
-
-/**
- * Emits a drift alert. Uses Sentry when SENTRY_DSN is set,
- * falls back to console.warn otherwise.
- */
-function emitDriftAlert(
-  accountId: string,
-  payload: DriftAlertPayload,
-): void {
-  const message = payload.driftMessage ??
-    `Stripe location drift detected for account ${accountId}: ` +
-    `expected_overage=${payload.dbExpectedOverage} (from DB: ${payload.activeLocations} active - ${payload.locationsIncluded} included), ` +
-    `stripe_overage=${payload.stripeOverageQuantity}, ` +
-    `tier=${payload.tier}`;
-
-  if (process.env.SENTRY_DSN) {
-    Sentry.captureMessage(message, {
-      level: 'warning',
-      tags: {
-        feature: 'stripe_reconciliation',
-        account_id: accountId,
-        drift_type: payload.driftType ?? 'quantity_mismatch',
-        is_pilot: String(payload.isPilot === true),
-      },
-      extra: {
-        accountId,
-        driftMessage: payload.driftMessage,
-        dbExpectedOverage: payload.dbExpectedOverage,
-        stripeOverageQuantity: payload.stripeOverageQuantity,
-        activeLocations: payload.activeLocations,
-        locationsIncluded: payload.locationsIncluded,
-        tier: payload.tier,
-        isPilot: payload.isPilot === true,
-        expectedCents: payload.expectedCents,
-        actualCents: payload.actualCents,
-        dbStatus: payload.dbStatus,
-        stripeStatus: payload.stripeStatus,
-        stripeSubscriptionId: payload.stripeSubscriptionId,
-        stripeCustomerId: payload.stripeCustomerId,
-      },
-    });
-  } else {
-    console.warn(`${LOG_PREFIX} ${message}`);
   }
 }
 
