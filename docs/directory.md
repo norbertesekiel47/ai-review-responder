@@ -859,7 +859,7 @@ Operational scripts. Run with `tsx scripts/<name>.ts`. Not part of the runtime.
 
 ## `supabase/migrations/`
 
-All schema migrations live here, numbered `001` … `045` (head; next is `046`). The user runs migrations manually in Supabase SQL editor — Claude does not apply them. Recent: `043` Step 1 keystones (`past_due_at` + audit cols), `044` approval audit snapshot (`response_text_at_approval`), `045` `onboarding_demos` RLS. For the full per-migration narrative, ordering rules, and residual risks, read `.claude/skills/migrations.md`.
+All schema migrations live here, numbered `001` … `045` (head; next is `046`). The user runs migrations manually in Supabase SQL editor — Claude does not apply them. Recent: `043` Step 1 keystones (`past_due_at` + audit cols), `044` approval audit snapshot (`response_text_at_approval`), `045` `onboarding_demos` RLS. For the full per-migration narrative, ordering rules, and residual risks, read `.claude/reference/migrations-log.md`.
 
 ---
 
