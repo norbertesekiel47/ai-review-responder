@@ -33,6 +33,11 @@ export async function transitionPendingToFinalizing(
   } catch {
     throw new ZernioRouteError(409, 'malformed_pending_marker');
   }
+  // A stored `"null"` (or any JSON scalar) parses fine; reading `.flowId` off it
+  // would throw a TypeError → 500. Treat a non-object marker as malformed (409).
+  if (parsedPending === null || typeof parsedPending !== 'object') {
+    throw new ZernioRouteError(409, 'malformed_pending_marker');
+  }
   if (parsedPending.flowId !== stored.flowId) {
     throw new ZernioRouteError(410, 'flow_changed');
   }

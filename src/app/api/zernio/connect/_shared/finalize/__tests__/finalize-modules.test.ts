@@ -490,6 +490,24 @@ describe('transitionPendingToFinalizing', () => {
     );
   });
 
+  it('throws 409 malformed_pending_marker for a "null" marker (not 500)', async () => {
+    mockRedis.get.mockResolvedValue('null');
+    await expectRouteError(
+      transitionPendingToFinalizing(redis, STORED),
+      409,
+      'malformed_pending_marker',
+    );
+  });
+
+  it('throws 409 malformed_pending_marker for a scalar marker (normalized)', async () => {
+    mockRedis.get.mockResolvedValue('42');
+    await expectRouteError(
+      transitionPendingToFinalizing(redis, STORED),
+      409,
+      'malformed_pending_marker',
+    );
+  });
+
   it('throws 410 flow_changed when the marker flowId differs', async () => {
     mockRedis.get.mockResolvedValue(
       JSON.stringify({ flowId: 'other-flow', status: 'oauth_in_progress' }),
