@@ -195,6 +195,80 @@ async function tombstoneMissingSourceReviews(
   return missing.length;
 }
 
+type FetchOutcome =
+  | { reviews: ZernioReview[]; feedComplete: boolean }
+  | { error: true };
+
+// Page through a connection's reviews. Returns the collected reviews + whether
+// the feed was fully read, or {error:true} after applying the auth-error
+// fallback (disconnect) / logging — the caller treats both error kinds the same
+// (count one error, skip to the next connection).
+async function fetchConnectionReviews(
+  connection: ConnectionRow,
+  pageSize: number,
+  maxPages: number,
+): Promise<FetchOutcome> {
+  const reviews: ZernioReview[] = [];
+  let feedComplete = false;
+  try {
+    let pageToken: string | undefined;
+    for (let i = 0; i < maxPages; i++) {
+      const page = await zernioClient.listReviews(connection.zernio_account_id, {
+        locationId: connection.zernio_location_id,
+        pageSize,
+        pageToken,
+      });
+      reviews.push(...page.reviews);
+      if (!page.nextPageToken) {
+        feedComplete = true;
+        break;
+      }
+      pageToken = page.nextPageToken;
+    }
+    return { reviews, feedComplete };
+  } catch (err) {
+    if (err instanceof ZernioAuthError) {
+      await applyIngestionAuthErrorFallback(
+        connection.business_id,
+        connection.zernio_account_id,
+        connection.zernio_location_id,
+        err.message,
+      );
+      console.warn(
+        `${LOG_PREFIX} disconnected business=${connection.business_id} after Zernio auth failure: ${err.message}`,
+      );
+      return { error: true };
+    }
+    console.error(`${LOG_PREFIX} listReviews failed for business=${connection.business_id}:`, err);
+    return { error: true };
+  }
+}
+
+// Process every review for a connection, folding outcomes into the running
+// result accumulator. Malformed reviews are skipped (not counted as errors).
+async function processConnectionReviews(
+  connection: ConnectionRow,
+  reviews: ZernioReview[],
+  result: ZernioRecentReviewPollResult,
+): Promise<void> {
+  for (const review of reviews) {
+    try {
+      const outcome = await processZernioReview(connection, review);
+      if (outcome === 'processed') result.reviewsProcessed += 1;
+      if (outcome === 'reconciled') result.reviewsReconciled += 1;
+      if (outcome === 'skipped') result.reviewsSkipped += 1;
+    } catch (err) {
+      if (err instanceof ZernioReviewNormalizationError) {
+        result.reviewsSkipped += 1;
+        console.warn(`${LOG_PREFIX} Skipping malformed review ${review.id}: ${err.message}`);
+        continue;
+      }
+      result.errors += 1;
+      console.error(`${LOG_PREFIX} Failed to process review ${review.id}:`, err);
+    }
+  }
+}
+
 export async function runOnce(): Promise<ZernioRecentReviewPollResult> {
   const result: ZernioRecentReviewPollResult = {
     connectionsChecked: 0,
@@ -226,58 +300,15 @@ export async function runOnce(): Promise<ZernioRecentReviewPollResult> {
       continue;
     }
 
-    const reviews: ZernioReview[] = [];
-    let feedComplete = false;
-    try {
-      let pageToken: string | undefined;
-      for (let i = 0; i < maxPages; i++) {
-        const page = await zernioClient.listReviews(connection.zernio_account_id, {
-          locationId: connection.zernio_location_id,
-          pageSize,
-          pageToken,
-        });
-        reviews.push(...page.reviews);
-        if (!page.nextPageToken) {
-          feedComplete = true;
-          break;
-        }
-        pageToken = page.nextPageToken;
-      }
-      result.reviewsSeen += reviews.length;
-    } catch (err) {
+    const fetched = await fetchConnectionReviews(connection, pageSize, maxPages);
+    if ('error' in fetched) {
       result.errors += 1;
-      if (err instanceof ZernioAuthError) {
-        await applyIngestionAuthErrorFallback(
-          connection.business_id,
-          connection.zernio_account_id,
-          connection.zernio_location_id,
-          err.message,
-        );
-        console.warn(
-          `${LOG_PREFIX} disconnected business=${connection.business_id} after Zernio auth failure: ${err.message}`,
-        );
-        continue;
-      }
-      console.error(`${LOG_PREFIX} listReviews failed for business=${connection.business_id}:`, err);
       continue;
     }
+    const { reviews, feedComplete } = fetched;
+    result.reviewsSeen += reviews.length;
 
-    for (const review of reviews) {
-      try {
-        const outcome = await processZernioReview(connection, review);
-        if (outcome === 'processed') result.reviewsProcessed += 1;
-        if (outcome === 'reconciled') result.reviewsReconciled += 1;
-        if (outcome === 'skipped') result.reviewsSkipped += 1;
-      } catch (err) {
-        if (err instanceof ZernioReviewNormalizationError) {
-          result.reviewsSkipped += 1;
-          console.warn(`${LOG_PREFIX} Skipping malformed review ${review.id}: ${err.message}`);
-          continue;
-        }
-        result.errors += 1;
-        console.error(`${LOG_PREFIX} Failed to process review ${review.id}:`, err);
-      }
-    }
+    await processConnectionReviews(connection, reviews, result);
 
     try {
       result.reviewsDeleted += await tombstoneMissingSourceReviews(
