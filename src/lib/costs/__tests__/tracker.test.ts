@@ -134,32 +134,6 @@ describe('reserveCost', () => {
   });
 });
 
-describe('acquireConcurrencySlot', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it('acquires slot when under limit', async () => {
-    mockRedis.eval.mockResolvedValueOnce(['ok', 1]);
-
-    const { acquireConcurrencySlot } = await import('../tracker');
-    await expect(acquireConcurrencySlot('biz-001')).resolves.toBeUndefined();
-    expect(mockRedis.eval).toHaveBeenCalledTimes(1);
-  });
-
-  it('throws ConcurrencyLimitExceededError at max+1 and releases', async () => {
-    // Lua script has already rolled back (DECR'd) when it returns 'exceeded'.
-    mockRedis.eval.mockResolvedValueOnce(['exceeded', 4]);
-
-    const { acquireConcurrencySlot, ConcurrencyLimitExceededError } =
-      await import('../tracker');
-    await expect(acquireConcurrencySlot('biz-001')).rejects.toThrow(
-      ConcurrencyLimitExceededError,
-    );
-    expect(mockRedis.eval).toHaveBeenCalledTimes(1);
-  });
-});
-
 describe('finalizeCost', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -201,26 +175,6 @@ describe('releaseCost', () => {
     // Release = negative pessimistic estimate, routed through the same Lua.
     expect(evalArgs[4]).toBe('-15');
     expect(mockPipeline.decrby).not.toHaveBeenCalled();
-  });
-});
-
-describe('releaseConcurrencySlot', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it('decrements and floors at 0', async () => {
-    mockRedis.decr.mockResolvedValueOnce(-1);
-    mockRedis.set.mockResolvedValueOnce('OK');
-
-    const { releaseConcurrencySlot } = await import('../tracker');
-    await releaseConcurrencySlot('biz-001');
-
-    expect(mockRedis.decr).toHaveBeenCalled();
-    expect(mockRedis.set).toHaveBeenCalledWith(
-      expect.stringContaining('gen:active:biz-001'),
-      '0',
-    );
   });
 });
 

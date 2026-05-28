@@ -1,5 +1,14 @@
 import { getCacheRedis } from '@/lib/db/redis-cache';
 
+// Compat shim: concurrency moved to ./concurrency-guard. Kept so external
+// consumers (ResponseGeneratorWorker) resolve unchanged. Follow-up: migrate
+// that import and drop this line once the parallel RGW work has landed.
+export {
+  acquireConcurrencySlot,
+  releaseConcurrencySlot,
+  ConcurrencyLimitExceededError,
+} from './concurrency-guard';
+
 // ── Error classes ────────────────────────────────────────────────────
 
 export class CostLimitExceededError extends Error {
@@ -16,13 +25,6 @@ export class GlobalCostLimitExceededError extends Error {
   }
 }
 
-export class ConcurrencyLimitExceededError extends Error {
-  constructor(public readonly businessId: string) {
-    super(`Concurrency limit exceeded for business ${businessId}`);
-    this.name = 'ConcurrencyLimitExceededError';
-  }
-}
-
 export class RegenBudgetExceededError extends Error {
   constructor(public readonly reviewId: string) {
     super(`Regeneration budget exceeded for review ${reviewId}`);
@@ -33,10 +35,8 @@ export class RegenBudgetExceededError extends Error {
 // ── Constants ────────────────────────────────────────────────────────
 
 const PESSIMISTIC_ESTIMATE_CENTS = 15;
-const MAX_CONCURRENCY_PER_BUSINESS = 3;
 const MAX_REGEN_PER_REVIEW_PER_DAY = 3;
 const CACHE_TTL_SECONDS = 86_400;
-const CONCURRENCY_TTL_SECONDS = 300; // 5-minute safety net
 
 const DEFAULT_TIER_LIMITS_CENTS: Record<string, number> = {
   founders: 500,
@@ -71,10 +71,6 @@ function dailyBusinessKey(businessId: string, dateStr: string): string {
 
 function dailyGlobalKey(dateStr: string): string {
   return `cost:global:${dateStr}`;
-}
-
-function concurrencyKey(businessId: string): string {
-  return `gen:active:${businessId}`;
 }
 
 function idempotentCacheKey(reviewId: string, version: number): string {
@@ -208,40 +204,6 @@ export async function reserveCost(
   return dateStr;
 }
 
-// INCR + limit check + TTL + rollback collapsed into one atomic Lua script.
-// Same rationale as RESERVE_COST_LUA — prevents concurrency-slot keys
-// from leaking past their TTL window after a mid-sequence crash.
-const ACQUIRE_CONCURRENCY_LUA = `
-local limit = tonumber(ARGV[1])
-local ttl = tonumber(ARGV[2])
-local cur = redis.call('INCR', KEYS[1])
-if cur > limit then
-  redis.call('DECR', KEYS[1])
-  return {'exceeded', cur}
-end
-redis.call('EXPIRE', KEYS[1], ttl)
-return {'ok', cur}
-`;
-
-export async function acquireConcurrencySlot(
-  businessId: string,
-): Promise<void> {
-  const redis = getCacheRedis();
-  const key = concurrencyKey(businessId);
-
-  const raw = (await redis.eval(
-    ACQUIRE_CONCURRENCY_LUA,
-    1,
-    key,
-    String(MAX_CONCURRENCY_PER_BUSINESS),
-    String(CONCURRENCY_TTL_SECONDS),
-  )) as [string, number];
-
-  if (raw[0] === 'exceeded') {
-    throw new ConcurrencyLimitExceededError(businessId);
-  }
-}
-
 // ── Phase 2: Finalization ────────────────────────────────────────────
 
 // Paired INCRBYs in a Lua script so a crash cannot drift the per-business
@@ -310,16 +272,6 @@ export async function releaseCost(
     dailyGlobalKey(reservationDate),
     String(-PESSIMISTIC_ESTIMATE_CENTS),
   );
-}
-
-export async function releaseConcurrencySlot(
-  businessId: string,
-): Promise<void> {
-  const redis = getCacheRedis();
-  const result = await redis.decr(concurrencyKey(businessId));
-  if (result < 0) {
-    await redis.set(concurrencyKey(businessId), '0');
-  }
 }
 
 // ── Regeneration budget ──────────────────────────────────────────────
