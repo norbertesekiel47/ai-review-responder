@@ -89,11 +89,13 @@ zernio-debug.log
 
 # local-only tooling and scratch artifacts
 .claude-octopus/
-.claude/scheduled_tasks.lock
 .graphify_query.py
 AGENTS.md
 graphify-out/
 scripts/zernio-count-reviews.ts
+
+# Claude Code transient lock
+.claude/scheduled_tasks.lock
 
 # Temp scratch scripts (investigation/debug artifacts)
 .tmp-*.cjs
