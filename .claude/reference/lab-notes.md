@@ -14,7 +14,7 @@ Jump to the dated entries by subsystem (search the anchors below):
 - **Supabase auth** — implicit-flow OTP, identities:[] for existing emails, auth_id vs users.id, SMTP rate limit
 - **Billing / multi-location** — stored-quota vs TIER_CONFIG, base price not grandfathered, channel account-scope desync
 - **Analytics / PostHog** — unconfigured no-op retry budget, durable vs intent events, RLS on new tables
-- **Moderation / logging** — fail-open moderation, logger-never-throws, AsyncLocalStorage binding
+- **Moderation / logging** — fail-open moderation, logger-never-throws (incl. AsyncLocalStorage binding for correlation IDs)
 - **CI / tooling** — nested-worktree poisoning, MOCK_EXTERNAL_APIS=false in CI, tenant-scope allowlist drift
 - **Testing** — vi.hoisted for shared mocks, NextRequest vs Request, relative imports under tsx
 
