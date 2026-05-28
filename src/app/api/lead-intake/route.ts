@@ -62,6 +62,117 @@ function readEnum(
   return { ok: true, value: raw };
 }
 
+interface ValidatedLead {
+  name: string;
+  /** Normalized (trimmed + lowercased) email; stored in both email columns. */
+  email: string;
+  businessName: string;
+  /** Trimmed Google Maps URL, or '' when not provided. */
+  googleMapsUrl: string;
+  intent: string;
+  source: string;
+}
+
+type ValidateResult =
+  | { ok: true; value: ValidatedLead }
+  | { ok: false; response: NextResponse };
+
+// Validate + normalize the lead intake body. All field rules and their exact
+// error responses are unchanged from the inline version.
+function validateLeadInput(data: Record<string, unknown>): ValidateResult {
+  const name = readString(data, 'name', 'name', MAX_NAME_LEN);
+  if (!name.ok) return { ok: false, response: name.response };
+
+  const emailRaw = data.email;
+  if (typeof emailRaw !== 'string' || !emailRaw.trim()) {
+    return { ok: false, response: jsonError('A valid email is required', 400) };
+  }
+  const emailNormalized = emailRaw.trim().toLowerCase();
+  if (!EMAIL_RE.test(emailNormalized)) {
+    return { ok: false, response: jsonError('A valid email is required', 400) };
+  }
+
+  const businessName = readString(data, 'businessName', 'businessName', MAX_BUSINESS_NAME_LEN);
+  if (!businessName.ok) return { ok: false, response: businessName.response };
+
+  const googleMapsRaw = data.googleMapsUrl;
+  if (googleMapsRaw !== undefined && typeof googleMapsRaw !== 'string') {
+    return { ok: false, response: jsonError('googleMapsUrl must be a valid https URL', 400) };
+  }
+  const rawUrl = typeof googleMapsRaw === 'string' ? googleMapsRaw.trim() : '';
+  if (rawUrl) {
+    if (rawUrl.length > MAX_URL_LEN) {
+      return { ok: false, response: jsonError('googleMapsUrl is too long', 400) };
+    }
+    try {
+      const parsed = new URL(rawUrl);
+      if (parsed.protocol !== 'https:') {
+        return { ok: false, response: jsonError('googleMapsUrl must be a valid https URL', 400) };
+      }
+    } catch {
+      return { ok: false, response: jsonError('googleMapsUrl must be a valid https URL', 400) };
+    }
+  }
+
+  const intent = readEnum(data, 'intent', 'waitlist', ALLOWED_INTENTS);
+  if (!intent.ok) return { ok: false, response: intent.response };
+
+  const source = readEnum(data, 'source', 'unknown', ALLOWED_SOURCES);
+  if (!source.ok) return { ok: false, response: source.response };
+
+  return {
+    ok: true,
+    value: {
+      name: name.value,
+      email: emailNormalized,
+      businessName: businessName.value,
+      googleMapsUrl: rawUrl,
+      intent: intent.value,
+      source: source.value,
+    },
+  };
+}
+
+// Best-effort founder notification. Returns success when RESEND_API_KEY is
+// unset (DB write already succeeded); a Resend failure is surfaced as 500.
+async function sendLeadNotification(lead: ValidatedLead, submittedAt: string): Promise<NextResponse> {
+  if (!process.env.RESEND_API_KEY) {
+    return NextResponse.json({ success: true });
+  }
+
+  const resend = new Resend(process.env.RESEND_API_KEY);
+  const from = process.env.RESEND_FROM_EMAIL ?? 'noreply@repworth.com';
+  const to = process.env.CONTACT_NOTIFY_TO ?? 'norbertesekiel@gmail.com';
+  const text = [
+    `Name: ${lead.name}`,
+    `Email: ${lead.email}`,
+    `Business: ${lead.businessName}`,
+    `Intent: ${lead.intent}`,
+    `Source: ${lead.source}`,
+    `Google Maps: ${lead.googleMapsUrl || '(not provided)'}`,
+    `Submitted at: ${submittedAt}`,
+  ].join('\n');
+
+  try {
+    const { error } = await resend.emails.send({
+      from,
+      to,
+      subject: `New owner lead - ${lead.intent} - RepWorth`,
+      text,
+    });
+
+    if (!error) {
+      return NextResponse.json({ success: true });
+    }
+
+    console.error('[lead-intake] Resend error:', error);
+    return jsonError('Failed to send notification', 500);
+  } catch (error) {
+    console.error('[lead-intake] Resend error:', error);
+    return jsonError('Failed to send notification', 500);
+  }
+}
+
 export async function POST(req: NextRequest): Promise<NextResponse> {
   const contentType = req.headers.get('content-type') ?? '';
   if (!contentType.toLowerCase().includes('application/json')) {
@@ -85,50 +196,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return jsonError('Invalid JSON', 400);
   }
 
-  const data = body as Record<string, unknown>;
-
-  const name = readString(data, 'name', 'name', MAX_NAME_LEN);
-  if (!name.ok) return name.response;
-
-  const emailRaw = data.email;
-  if (typeof emailRaw !== 'string' || !emailRaw.trim()) {
-    return jsonError('A valid email is required', 400);
-  }
-
-  const emailNormalized = emailRaw.trim().toLowerCase();
-  if (!EMAIL_RE.test(emailNormalized)) {
-    return jsonError('A valid email is required', 400);
-  }
-
-  const businessName = readString(data, 'businessName', 'businessName', MAX_BUSINESS_NAME_LEN);
-  if (!businessName.ok) return businessName.response;
-
-  const googleMapsRaw = data.googleMapsUrl;
-  if (googleMapsRaw !== undefined && typeof googleMapsRaw !== 'string') {
-    return jsonError('googleMapsUrl must be a valid https URL', 400);
-  }
-
-  const rawUrl = typeof googleMapsRaw === 'string' ? googleMapsRaw.trim() : '';
-  if (rawUrl) {
-    if (rawUrl.length > MAX_URL_LEN) {
-      return jsonError('googleMapsUrl is too long', 400);
-    }
-
-    try {
-      const parsed = new URL(rawUrl);
-      if (parsed.protocol !== 'https:') {
-        return jsonError('googleMapsUrl must be a valid https URL', 400);
-      }
-    } catch {
-      return jsonError('googleMapsUrl must be a valid https URL', 400);
-    }
-  }
-
-  const intent = readEnum(data, 'intent', 'waitlist', ALLOWED_INTENTS);
-  if (!intent.ok) return intent.response;
-
-  const source = readEnum(data, 'source', 'unknown', ALLOWED_SOURCES);
-  if (!source.ok) return source.response;
+  const validated = validateLeadInput(body as Record<string, unknown>);
+  if (!validated.ok) return validated.response;
+  const lead = validated.value;
 
   const submittedAt = new Date().toISOString();
   const metadata = {
@@ -153,13 +223,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         metadata
       )
       VALUES (
-        ${name.value},
-        ${emailNormalized},
-        ${emailNormalized},
-        ${businessName.value},
-        ${rawUrl || null},
-        ${intent.value},
-        ${source.value},
+        ${lead.name},
+        ${lead.email},
+        ${lead.email},
+        ${lead.businessName},
+        ${lead.googleMapsUrl || null},
+        ${lead.intent},
+        ${lead.source},
         ${jsonb(metadata)}
       )
       ON CONFLICT (email_normalized, intent) DO UPDATE SET
@@ -182,12 +252,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
     await appendOwnerLeadToSheet({
       leadId,
-      name: name.value,
-      email: emailNormalized,
-      businessName: businessName.value,
-      googleMapsUrl: rawUrl,
-      intent: intent.value,
-      source: source.value,
+      name: lead.name,
+      email: lead.email,
+      businessName: lead.businessName,
+      googleMapsUrl: lead.googleMapsUrl,
+      intent: lead.intent,
+      source: lead.source,
       ip,
       userAgent: metadata.userAgent,
       referer: metadata.referer,
@@ -197,39 +267,5 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     console.error('[lead-intake] Google Sheets append error:', error);
   }
 
-  if (process.env.RESEND_API_KEY) {
-    const resend = new Resend(process.env.RESEND_API_KEY);
-    const from = process.env.RESEND_FROM_EMAIL ?? 'noreply@repworth.com';
-    const to = process.env.CONTACT_NOTIFY_TO ?? 'norbertesekiel@gmail.com';
-    const text = [
-      `Name: ${name.value}`,
-      `Email: ${emailNormalized}`,
-      `Business: ${businessName.value}`,
-      `Intent: ${intent.value}`,
-      `Source: ${source.value}`,
-      `Google Maps: ${rawUrl || '(not provided)'}`,
-      `Submitted at: ${submittedAt}`,
-    ].join('\n');
-
-    try {
-      const { error } = await resend.emails.send({
-        from,
-        to,
-        subject: `New owner lead - ${intent.value} - RepWorth`,
-        text,
-      });
-
-      if (!error) {
-        return NextResponse.json({ success: true });
-      }
-
-      console.error('[lead-intake] Resend error:', error);
-      return jsonError('Failed to send notification', 500);
-    } catch (error) {
-      console.error('[lead-intake] Resend error:', error);
-      return jsonError('Failed to send notification', 500);
-    }
-  }
-
-  return NextResponse.json({ success: true });
+  return sendLeadNotification(lead, submittedAt);
 }
