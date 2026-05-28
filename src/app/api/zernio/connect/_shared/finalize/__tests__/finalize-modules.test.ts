@@ -499,7 +499,7 @@ describe('transitionPendingToFinalizing', () => {
     );
   });
 
-  it('throws 409 malformed_pending_marker for a scalar marker (normalized)', async () => {
+  it('throws 409 malformed_pending_marker for a scalar marker (was flow_changed)', async () => {
     mockRedis.get.mockResolvedValue('42');
     await expectRouteError(
       transitionPendingToFinalizing(redis, STORED),
