@@ -162,9 +162,11 @@ Follows `scripts/zernio-backfill-external-replies.ts` structure (header comment,
 ## Cross-cutting / ops notes
 
 - **Tenant-scope audit:** the candidate query reads across all accounts by design (like
-  `src/lib/admin/margin-service.ts`). `pnpm ci:tenant-scope` will need an allowlist
-  entry for the new file. (Known gotcha: moving an allowlisted query to a new file
-  orphans its entry — so the entry must name this script's path.)
+  `src/lib/admin/margin-service.ts`). **No allowlist entry is needed** — the audit's
+  `SCANNED_ROOTS = ['src', 'worker']` does not include `scripts/`, and it flags *unused*
+  allowlist entries, so adding one would actually fail the audit. The script header
+  documents the cross-account intent instead. (Corrected during planning: an earlier
+  draft assumed an allowlist entry was required.)
 - **Running the backfill in prod** is an operator step done *after* `POSTHOG_API_KEY`
   is live on Railway; with no key the script's `--execute` is a reported no-op. Document
   usage in the script header.
