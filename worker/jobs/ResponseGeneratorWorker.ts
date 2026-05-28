@@ -1,6 +1,6 @@
 import type { Job } from 'bullmq';
 import { v7 as uuidv7 } from 'uuid';
-import { sql, jsonb } from '../../src/lib/db/server';
+import { sql } from '../../src/lib/db/server';
 import {
   checkSubscription,
   type AccountFlagsInput,
@@ -11,7 +11,6 @@ import { sanitizeText } from '../../src/lib/shared/sanitize';
 import { getApprovedResponsePairs } from '../../src/lib/responses/voice-learning';
 import { generateResponse, TransientLLMError } from '../../src/lib/responses/generator';
 import { moderateResponse } from '../../src/lib/moderation/moderate';
-import type { ModerationDecision } from '../../src/lib/moderation/output-filter';
 import { generateMockResponse } from '../../src/lib/responses/mock-generator';
 import {
   CostLimitExceededError,
@@ -21,7 +20,7 @@ import {
   checkRegenBudget,
   setCachedGeneration,
 } from '../../src/lib/costs/tracker';
-import type { GenerateResponsePayload, SendNotificationPayload } from '../../src/lib/shared/worker-types';
+import type { GenerateResponsePayload } from '../../src/lib/shared/worker-types';
 import type { NormalizedReview } from '../../src/lib/reviews/types';
 import type { BusinessContext, GenerationResult, VoiceExample } from '../../src/lib/responses/types';
 import { createWorkerLogger, type WorkerLogger } from '../../src/lib/shared/logger';
@@ -30,6 +29,7 @@ import { parseDbArray } from '../../src/lib/shared/db-array';
 import { asLocationId } from '../../src/lib/shared/ids';
 import type { LocationId } from '../../src/lib/shared/ids';
 import { maybeEnqueueFirstResponseDrafted } from './response-generation/analytics';
+import { persistResponseAndNotify } from './response-generation/persist';
 
 export async function handleResponseGeneration(
   job: Job<GenerateResponsePayload>,
@@ -238,11 +238,18 @@ export async function handleResponseGeneration(
   const moderation = await moderateResponse(result.responseText);
 
   // ── Step 9: Persist response + outbox + cost link + moderation in one tx ─
-  const responseId = await persistResponseAndNotify(
-    result, review_id, businessId, version, job.data.correlation_id,
-    job.data.suppress_notification === true,
-    moderation, business.account_id,
-  );
+  const responseId = await persistResponseAndNotify({
+    result,
+    // TEMP bridge until Task 3 moves the guardrail and returns retryCostId typed.
+    retryCostId: (result as { _retryCostId?: string })._retryCostId,
+    reviewId: review_id,
+    businessId,
+    version,
+    correlationId: job.data.correlation_id,
+    suppressNotification: job.data.suppress_notification === true,
+    moderation,
+    accountId: business.account_id,
+  });
   // DB transaction failure throws for BullMQ retry (transient)
 
   await maybeEnqueueFirstResponseDrafted({
@@ -327,102 +334,6 @@ async function applyAvoidFactsGuardrail(
     const message = err instanceof Error ? err.message : String(err);
     throw new Error(`Avoid-fact guardrail failed for review ${ids.reviewId}: ${message}`);
   }
-}
-
-// ── Persist response + notification outbox ───────────────────────────────
-
-async function persistResponseAndNotify(
-  result: GenerationResult,
-  reviewId: string,
-  businessId: string,
-  version: number,
-  correlationId: string | undefined,
-  suppressNotification: boolean,
-  moderation: ModerationDecision,
-  accountId: string,
-): Promise<string> {
-  const responseId = uuidv7();
-  const retryCostId = (result as any)._retryCostId as string | undefined;
-  // Moderation describes the FINAL output; when an avoid-facts retry happened,
-  // the final text's cost row is the retry's row.
-  const moderatedCostId = retryCostId ?? result.apiCostId;
-  const flaggedHigh = moderation.flagged && moderation.severity === 'high';
-
-  await sql.begin(async (tx) => {
-    await tx`
-      INSERT INTO responses (
-        id, review_id, business_id, response_text, response_language,
-        version, status, original_draft_text,
-        llm_provider, llm_model, prompt_tokens, completion_tokens
-      ) VALUES (
-        ${responseId}, ${reviewId}, ${businessId}, ${result.responseText}, ${result.language},
-        ${version}, 'pending_approval', ${result.responseText},
-        ${result.provider}, ${result.model}, ${result.usage.promptTokens}, ${result.usage.completionTokens}
-      )
-    `;
-
-    if (result.apiCostId) {
-      await tx`
-        UPDATE api_costs SET response_id = ${responseId} WHERE id = ${result.apiCostId}
-      `;
-    }
-
-    if (retryCostId) {
-      await tx`
-        UPDATE api_costs SET response_id = ${responseId} WHERE id = ${retryCostId}
-      `;
-    }
-
-    // Record moderation metadata on the cost row for the final output. Excerpt
-    // is for operational triage only — full text already lives on responses.
-    if (moderatedCostId) {
-      await tx`
-        UPDATE api_costs SET
-          moderation_score = ${moderation.score},
-          moderation_categories = ${jsonb(moderation.categories)},
-          flagged = ${moderation.flagged},
-          flag_reason = ${moderation.reason},
-          output_excerpt = ${result.responseText.slice(0, 200)}
-        WHERE id = ${moderatedCostId}
-      `;
-    }
-
-    // High-confidence unsafe draft: hold it for admin disposition (PR 3b) and
-    // do NOT enqueue the owner notification. The response stays pending_approval.
-    if (flaggedHigh) {
-      await tx`
-        INSERT INTO flagged_responses (
-          id, response_id, account_id, business_id, review_id, api_cost_id,
-          source, reason, severity, status
-        ) VALUES (
-          ${uuidv7()}, ${responseId}, ${accountId}, ${businessId}, ${reviewId}, ${moderatedCostId ?? null},
-          ${moderation.source ?? 'local_regex'}, ${moderation.reason}, ${moderation.severity}, ${'open'}
-        )
-      `;
-    }
-
-    // Backfill suppression (spec §4.6, §6.7) OR a high-severity flag both skip
-    // the approval notification.
-    if (suppressNotification || flaggedHigh) {
-      return;
-    }
-
-    const notifyPayload: SendNotificationPayload = {
-      response_id: responseId,
-      business_id: businessId,
-      correlation_id: correlationId,
-    };
-
-    await tx`
-      INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-      VALUES (
-        ${uuidv7()}, 'send_notification', 'response', ${responseId},
-        ${jsonb(notifyPayload)}, 'pending'
-      )
-    `;
-  });
-
-  return responseId;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────
