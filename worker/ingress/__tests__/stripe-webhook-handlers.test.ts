@@ -615,7 +615,7 @@ describe('customer.subscription.updated — two-item subscription', () => {
     await handleStripeWebhook(mkRequest(), { status, send } as any);
 
     expect(mockWriteAccountAuditLog).toHaveBeenCalledTimes(1);
-    const [input] = mockWriteAccountAuditLog.mock.calls[0];
+    const [input] = mockWriteAccountAuditLog.mock.calls[0]!;
     expect(input).toMatchObject({
       accountId: TEST_ACCOUNT_ID,
       eventType: 'subscription_updated',
@@ -649,7 +649,7 @@ describe('customer.subscription.updated — two-item subscription', () => {
     await handleStripeWebhook(mkRequest(), { status, send } as any);
 
     expect(mockWriteAccountAuditLog).toHaveBeenCalledTimes(1);
-    const [input] = mockWriteAccountAuditLog.mock.calls[0];
+    const [input] = mockWriteAccountAuditLog.mock.calls[0]!;
     expect(input).toMatchObject({
       accountId: TEST_ACCOUNT_ID,
       eventType: 'subscription_updated',
@@ -683,7 +683,7 @@ describe('customer.subscription.updated — two-item subscription', () => {
     await handleStripeWebhook(mkRequest(), { status, send } as any);
 
     expect(mockWriteAccountAuditLog).toHaveBeenCalledTimes(1);
-    const [input] = mockWriteAccountAuditLog.mock.calls[0];
+    const [input] = mockWriteAccountAuditLog.mock.calls[0]!;
     expect(input).toMatchObject({
       accountId: TEST_ACCOUNT_ID,
       eventType: 'subscription_updated',
