@@ -865,8 +865,10 @@ All schema migrations live here, numbered `001` … `045` (head; next is `046`).
 
 ## Other top-level surfaces (not detailed here)
 
-- `.claude/skills/` — engineering rules and patterns (cost guard, approval security, outbox, review dedup, feature flags, lab notes, migrations). Read these before touching the matching code area.
-- `.claude/CLAUDE.md` — project-level invariants, env-var inventory, current branch status, gotchas. Always loaded into Claude's context.
+- `.claude/CLAUDE.md` — always-loaded project facts + the canonical architecture-invariants list + gotchas + a "where things live" index. Source of truth for architecture.
+- `.claude/rules/` — always-loaded behavioral law: `repworth.md` (project rules) plus the generic `engineering.md` / `production.md` / `design.md`.
+- `.claude/skills/` — patterns to follow, invoked on demand (cost-guard, approval-security, outbox-pattern, onboarding-demo-cost-guard).
+- `.claude/reference/` — recall-when-needed inventories, read on demand (env-vars, migrations-log, lab-notes, review-ingestion).
 - `docs/runbooks/` — operational + deployment runbooks (Zernio launch, smoke tests, ops, email deliverability, beta deployment plan; **Wave 1** added `secrets-rotation-*.md` + `security-scan-staging.md`).
 - `docs/security/` — **(Wave 1)** RLS inventory, tenant-isolation model, vendor-risk + access registers, CSP rollout plan.
 - `docs/finance/` — **(Wave 1)** pilot invoice-review template for the first multi-location accounts (`accounts.flags.is_pilot`).
