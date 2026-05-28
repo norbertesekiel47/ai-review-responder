@@ -6,23 +6,11 @@ import {
   type AccountFlagsInput,
 } from '../../src/lib/shared/subscription-guard';
 import { markOutboxCompleted, markOutboxFailed, extractOutboxHandle } from '../../src/lib/shared/outbox';
-import { isMockMode } from '../../src/lib/shared/mock-mode';
 import { sanitizeText } from '../../src/lib/shared/sanitize';
-import { getApprovedResponsePairs } from '../../src/lib/responses/voice-learning';
-import { generateResponse, TransientLLMError } from '../../src/lib/responses/generator';
 import { moderateResponse } from '../../src/lib/moderation/moderate';
-import { generateMockResponse } from '../../src/lib/responses/mock-generator';
-import {
-  CostLimitExceededError,
-  GlobalCostLimitExceededError,
-  ConcurrencyLimitExceededError,
-  RegenBudgetExceededError,
-  checkRegenBudget,
-  setCachedGeneration,
-} from '../../src/lib/costs/tracker';
 import type { GenerateResponsePayload } from '../../src/lib/shared/worker-types';
 import type { NormalizedReview } from '../../src/lib/reviews/types';
-import type { BusinessContext, GenerationResult, VoiceExample } from '../../src/lib/responses/types';
+import type { BusinessContext } from '../../src/lib/responses/types';
 import { createWorkerLogger, type WorkerLogger } from '../../src/lib/shared/logger';
 import { mergeLogContext } from '../../src/lib/shared/log-context';
 import { parseDbArray } from '../../src/lib/shared/db-array';
@@ -30,6 +18,7 @@ import { asLocationId } from '../../src/lib/shared/ids';
 import type { LocationId } from '../../src/lib/shared/ids';
 import { maybeEnqueueFirstResponseDrafted } from './response-generation/analytics';
 import { persistResponseAndNotify } from './response-generation/persist';
+import { generateDraft } from './response-generation/generate-draft';
 
 export async function handleResponseGeneration(
   job: Job<GenerateResponsePayload>,
@@ -156,92 +145,26 @@ export async function handleResponseGeneration(
     return;
   }
 
-  // ── Step 6: Voice learning ──────────────────────────────────────────
-  const voiceExamples: VoiceExample[] = await getApprovedResponsePairs(businessId);
-
-  // ── Step 7: Regeneration budget check ───────────────────────────────
-  if (version > 1) {
-    try {
-      await checkRegenBudget(review_id);
-    } catch (err) {
-      if (err instanceof RegenBudgetExceededError) {
-        logger.warn(`Regen budget exceeded for review ${review_id}`);
-        await markOutboxFailed(outboxId, err.message, outboxAttempt);
-        return;
-      }
-      throw err;
-    }
-  }
-
-  // ── Step 7: Generate response ───────────────────────────────────────
-  let result: GenerationResult;
-  try {
-    if (isMockMode()) {
-      result = await generateMockResponse(
-        normalizedReview,
-        businessContext,
-        voiceExamples,
-        { mode: 'production', reviewId: review_id, version, businessId: businessId, subscriptionTier: businessContext.subscriptionTier, accountId: business.account_id },
-      );
-    } else {
-      result = await generateResponse(
-        normalizedReview,
-        businessContext,
-        voiceExamples,
-        { mode: 'production', reviewId: review_id, version, businessId: businessId, subscriptionTier: businessContext.subscriptionTier, accountId: business.account_id },
-      );
-    }
-  } catch (err) {
-    if (err instanceof CostLimitExceededError || err instanceof GlobalCostLimitExceededError) {
-      logger.warn(`Cost limit exceeded for business ${businessId}: ${err.message}`);
-      await markOutboxFailed(outboxId, err.message, outboxAttempt);
-      return;
-    }
-    if (err instanceof ConcurrencyLimitExceededError) {
-      // Transient — other jobs will finish, then this one can proceed
-      throw err;
-    }
-    if (err instanceof TransientLLMError) {
-      // Provider outage / rate-limit / network — rethrow so BullMQ retries
-      // (3 attempts + exponential backoff) and, if those exhaust, the
-      // outbox watchdog re-dispatches after the 1h stale window.
-      logger.warn(`Transient LLM error for review ${review_id} (will retry): ${err.message}`);
-      throw err;
-    }
-    // Permanent LLM/config error (auth, bad request, validation)
-    logger.error(`Generation failed for review ${review_id}: ${err instanceof Error ? err.message : err}`);
-    await markOutboxFailed(outboxId, `generation_failed: ${err instanceof Error ? err.message : err}`, outboxAttempt);
+  // ── Generate draft (cost-guard → generate → avoid-facts guardrail) ───
+  // Retryable errors (concurrency / transient LLM) throw out of generateDraft
+  // and propagate to BullMQ for retry. Permanent failures return { failed }.
+  const draft = await generateDraft(
+    { accountId: business.account_id, normalizedReview, businessContext },
+    { reviewId: review_id, version, businessId },
+    logger,
+  );
+  if (draft.kind === 'failed') {
+    await markOutboxFailed(outboxId, draft.reason, outboxAttempt);
     return;
   }
 
-  // ── Step 8: Avoid-facts guardrail ───────────────────────────────────
-  // Guardrail errors (retry still violates, or retry LLM call itself fails)
-  // must mark the outbox failed and RETURN — not throw. Throwing causes
-  // BullMQ to retry the whole job while the outbox stays non-terminal
-  // until the watchdog recovers it, and each retry spends more on LLM
-  // calls for a problem that won't resolve on its own (the avoid_facts
-  // config needs an admin fix, not a retry).
-  try {
-    result = await applyAvoidFactsGuardrail(
-      result, businessContext, normalizedReview, voiceExamples,
-      { reviewId: review_id, version, businessId: businessId, accountId: business.account_id },
-      logger,
-    );
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    logger.error(`Avoid-facts guardrail failed for review ${review_id}: ${message}`);
-    await markOutboxFailed(outboxId, `guardrail_failed: ${message}`, outboxAttempt);
-    return;
-  }
-
-  // ── Step 8.5: Output moderation (local rules always; provider if configured) ─
-  const moderation = await moderateResponse(result.responseText);
+  // ── Output moderation (local rules always; provider if configured) ───
+  const moderation = await moderateResponse(draft.result.responseText);
 
   // ── Step 9: Persist response + outbox + cost link + moderation in one tx ─
   const responseId = await persistResponseAndNotify({
-    result,
-    // TEMP bridge until Task 3 moves the guardrail and returns retryCostId typed.
-    retryCostId: (result as { _retryCostId?: string })._retryCostId,
+    result: draft.result,
+    retryCostId: draft.retryCostId,
     reviewId: review_id,
     businessId,
     version,
@@ -263,87 +186,4 @@ export async function handleResponseGeneration(
   // ── Step 10: Complete outbox ─────────────────────────────────────────
   await markOutboxCompleted(outboxId, outboxAttempt);
   logger.log(`Response ${responseId} generated for review ${review_id} (v${version})`);
-}
-
-// ── Avoid-facts guardrail ───────────────────────────────────────────────
-
-async function applyAvoidFactsGuardrail(
-  result: GenerationResult,
-  businessContext: BusinessContext,
-  normalizedReview: NormalizedReview,
-  voiceExamples: VoiceExample[],
-  ids: { reviewId: string; version: number; businessId: string; accountId: string },
-  logger: WorkerLogger,
-): Promise<GenerationResult> {
-  const { avoidFacts } = businessContext;
-  if (avoidFacts.length === 0) return result;
-
-  const violation = findAvoidFactViolation(result.responseText, avoidFacts);
-  if (!violation) return result;
-
-  logger.warn(`Avoid-fact violation for review ${ids.reviewId}: "${violation}". Regenerating once.`);
-
-  try {
-    const retryOpts = {
-      mode: 'production' as const,
-      reviewId: ids.reviewId,
-      version: ids.version,
-      businessId: ids.businessId,
-      subscriptionTier: businessContext.subscriptionTier,
-      accountId: ids.accountId,
-      skipCache: true,
-    };
-    const retryResult = isMockMode()
-      ? await generateMockResponse(normalizedReview, businessContext, voiceExamples, retryOpts)
-      : await generateResponse(normalizedReview, businessContext, voiceExamples, retryOpts);
-
-    const merged: GenerationResult = {
-      ...retryResult,
-      costUsd: result.costUsd + retryResult.costUsd,
-      apiCostId: result.apiCostId, // Restore original (retryResult spread overwrote it)
-    };
-    // Attach retry cost ID separately for persistResponseAndNotify
-    (merged as any)._retryCostId = retryResult.apiCostId;
-
-    // Overwrite the cache so the polluted first-attempt entry doesn't persist
-    try {
-      await setCachedGeneration(ids.reviewId, ids.version, JSON.stringify({
-        responseText: merged.responseText,
-        language: merged.language,
-        provider: merged.provider,
-        model: merged.model,
-        promptTokens: merged.usage.promptTokens,
-        completionTokens: merged.usage.completionTokens,
-      }));
-    } catch {
-      // Best-effort — cache TTL will expire the polluted entry eventually
-    }
-
-    // Re-check the retry for violations
-    const retryViolation = findAvoidFactViolation(merged.responseText, avoidFacts);
-    if (retryViolation) {
-      throw new Error(
-        `Avoid-fact violation persists after retry for review ${ids.reviewId}: "${retryViolation}"`,
-      );
-    }
-
-    return merged;
-  } catch (err) {
-    // Retry failed or still violates — do NOT fall back to the violating draft.
-    // Throw so the worker marks this as failed and creates a review exception.
-    const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`Avoid-fact guardrail failed for review ${ids.reviewId}: ${message}`);
-  }
-}
-
-// ── Helpers ─────────────────────────────────────────────────────────────
-
-function findAvoidFactViolation(text: string, avoidFacts: string[]): string | null {
-  const lower = text.toLowerCase();
-  for (const fact of avoidFacts) {
-    if (fact && lower.includes(fact.toLowerCase())) {
-      return fact;
-    }
-  }
-  return null;
 }
