@@ -29,12 +29,13 @@
 
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { PastReplyRow } from '@/components/dashboard/PastReplyCard';
 import { AI_DRAFT_DISCLOSURE } from '@/lib/ui/disclosures';
 import { useEditReplyDraft } from '@/components/dashboard/edit-reply/useEditReplyDraft';
+import { useFocusTrap } from '@/components/dashboard/edit-reply/useFocusTrap';
 
 const MAX_REPLY_CHARS = 2000;
 
@@ -69,81 +70,7 @@ export function EditReplyDrawer({
 }: EditReplyDrawerProps) {
   const router = useRouter();
   const { state, isClosePending, tryClose, actions } = useEditReplyDraft({ row, initialFailureRecovery, onClose });
-
-  // Esc to close. Only handled when the drawer is mounted. Uses a ref to the
-  // current tryClose so the keydown binding doesn't re-attach on every state
-  // transition; tryClose itself is defined below and references state.
-  // Refs for focus management.
-  // panelRef: the aside panel element used to scope focus-trap queries.
-  // openerRef: the element that had focus when the drawer opened — restored on close.
-  const panelRef = useRef<HTMLElement | null>(null);
-  const openerRef = useRef<HTMLElement | null>(null);
-
-  const tryCloseRef = useRef<() => void>(onClose);
-
-  // Focus management: capture opener, move focus in, trap Tab, restore on close.
-  useEffect(() => {
-    if (!open) return;
-
-    // Capture the element that triggered the open BEFORE moving focus.
-    openerRef.current = document.activeElement as HTMLElement | null;
-
-    // Move focus into the panel.
-    const panel = panelRef.current;
-    if (panel) {
-      const tabbableSelector =
-        'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
-      const firstTabbable = panel.querySelector<HTMLElement>(tabbableSelector);
-      if (firstTabbable) {
-        firstTabbable.focus();
-      } else {
-        panel.focus();
-      }
-    }
-
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        tryCloseRef.current();
-        return;
-      }
-
-      if (e.key === 'Tab' && panel) {
-        const tabbableSelector =
-          'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
-        const tabbable = Array.from(panel.querySelectorAll<HTMLElement>(tabbableSelector));
-        if (tabbable.length === 0) {
-          e.preventDefault();
-          return;
-        }
-        const first = tabbable[0]!;
-        const last = tabbable[tabbable.length - 1]!;
-        if (e.shiftKey) {
-          if (document.activeElement === first) {
-            e.preventDefault();
-            last.focus();
-          }
-        } else {
-          if (document.activeElement === last) {
-            e.preventDefault();
-            first.focus();
-          }
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handler);
-    return () => {
-      window.removeEventListener('keydown', handler);
-      // Restore focus to the element that opened the drawer.
-      openerRef.current?.focus();
-    };
-  }, [open]);
-
-
-  // Keep the Esc-handler ref in sync with the latest tryClose.
-  useEffect(() => {
-    tryCloseRef.current = tryClose;
-  }, [tryClose]);
+  const { panelRef } = useFocusTrap(open, tryClose);
 
   if (!open) return null;
 
