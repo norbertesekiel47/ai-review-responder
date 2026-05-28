@@ -12,6 +12,7 @@
 
 import Stripe from 'stripe';
 import type { SubscriptionTierValue } from '@/lib/accounts/tier-config';
+import { basePriceIdForTier, overagePriceIdForTier } from '@/lib/payments/price-tier-map';
 import { computeOverageQuantity } from '@/lib/accounts/quota';
 import { sql } from '@/lib/db/server';
 
@@ -25,38 +26,6 @@ export function getStripe(): Stripe {
     stripeInstance = new Stripe(key);
   }
   return stripeInstance;
-}
-
-// ── Price ID resolution ─────────────────────────────────────────────────────
-
-/**
- * Maps a SubscriptionTierValue to its base price ID from env vars.
- * VAL-BILLING-030: all 7 price env vars read by this code path.
- * VAL-BILLING-032: STRIPE_PRICE_BASIC read, no STRIPE_PRICE_BASIC_OVERAGE.
- */
-function getBasePriceId(tier: SubscriptionTierValue): string | null {
-  const map: Record<SubscriptionTierValue, string | undefined> = {
-    basic: process.env.STRIPE_PRICE_BASIC,
-    standard: process.env.STRIPE_PRICE_STANDARD,
-    premium: process.env.STRIPE_PRICE_PREMIUM,
-    founders: process.env.STRIPE_PRICE_FOUNDING,
-  };
-  return map[tier] ?? null;
-}
-
-/**
- * Maps a SubscriptionTierValue to its overage price ID from env vars.
- * Basic tier has no overage (returns null). VAL-BILLING-032: no BASIC_OVERAGE.
- */
-function getOveragePriceId(tier: SubscriptionTierValue): string | null {
-  if (tier === 'basic') return null;
-  const map: Record<SubscriptionTierValue, string | undefined> = {
-    basic: undefined,
-    standard: process.env.STRIPE_PRICE_STANDARD_OVERAGE,
-    premium: process.env.STRIPE_PRICE_PREMIUM_OVERAGE,
-    founders: process.env.STRIPE_PRICE_FOUNDERS_OVERAGE,
-  };
-  return map[tier] ?? null;
 }
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -94,7 +63,7 @@ export async function createCheckoutSession(
   ownerEmail: string,
 ): Promise<CheckoutSessionResult> {
   // Resolve price IDs
-  const basePriceId = getBasePriceId(tier);
+  const basePriceId = basePriceIdForTier(tier);
   if (!basePriceId) {
     throw new CheckoutUnavailableError(`Missing base price ID for tier: ${tier}`);
   }
@@ -106,7 +75,7 @@ export async function createCheckoutSession(
 
   // VAL-BILLING-004: basic tier omits overage line item
   if (tier !== 'basic') {
-    const overagePriceId = getOveragePriceId(tier);
+    const overagePriceId = overagePriceIdForTier(tier);
     if (!overagePriceId) {
       throw new CheckoutUnavailableError(`Missing overage price ID for tier: ${tier}`);
     }
