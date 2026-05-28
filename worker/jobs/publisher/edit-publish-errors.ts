@@ -10,7 +10,9 @@ import type postgres from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
 import { jsonb } from '../../../src/lib/db/server';
 import {
+  ZernioAuthError,
   ZernioPermanentError,
+  ZernioTransientError,
   ZernioValidationError,
 } from '../../../src/lib/zernio/errors';
 import {
@@ -25,6 +27,7 @@ import {
   setOrphanMarker,
   supersedeSibling,
 } from './edit-publish-tx';
+import { deleteFailedMarker } from './orphan-markers';
 
 export interface EditPublishCatchArgs {
   responseId: string;
@@ -47,6 +50,16 @@ export type Tx409Outcome =
   | { kind: 'permanent_failed' }
   | { kind: 'auth_completed' }
   | { kind: 'commit_then_throw'; error: Error };
+
+/** Every outcome a DELETE/POST catch handler can produce. Extends Tx409Outcome with rollback_then_throw. */
+export type TxCatchOutcome =
+  | { kind: 'auth_completed' }
+  | { kind: 'permanent_failed' }
+  | { kind: '409_matches' }
+  | { kind: '409_mismatch_after_delete' }
+  | { kind: '409_mismatch_no_delete' }
+  | { kind: 'commit_then_throw'; error: Error }
+  | { kind: 'rollback_then_throw'; error: Error };
 
 export function permanentErrorKind(
   err: ZernioPermanentError | ZernioValidationError,
@@ -241,4 +254,80 @@ function indeterminateError(
     reason: disp.reason,
     ...disp.meta,
   });
+}
+
+export interface DeleteErrorArgs {
+  responseId: string;
+  businessId: string;
+  zernioAccountId: string;
+  zernioLocationId: string;
+  logger: WorkerLogger;
+}
+
+/**
+ * Disposition for an error thrown by the DELETE call. The orchestrator handles
+ * the 404-as-success case (isDeleteAlreadyGone) inline BEFORE calling this, so
+ * here the DELETE genuinely failed and the sibling 'posted' row is UNCHANGED on
+ * Google. Returns the outcome the orchestrator records; programming/unknown
+ * errors are re-thrown to bubble to the outer catch.
+ */
+export async function handleDeleteError(
+  tx: postgres.TransactionSql,
+  err: unknown,
+  args: DeleteErrorArgs,
+): Promise<TxCatchOutcome> {
+  const { responseId, businessId, zernioAccountId, zernioLocationId, logger } = args;
+
+  if (err instanceof ZernioAuthError) {
+    // True 401/403 on DELETE. DELETE did not succeed externally — plain
+    // 'zernio_auth_error' (no orphan suffix), sibling untouched.
+    await applyAuthErrorTerminalInTx(tx, {
+      responseId,
+      businessId,
+      accountId: zernioAccountId,
+      locationId: zernioLocationId,
+      errorBody: err.body ? String(err.body).slice(0, 500) : err.message,
+      postDeleteCommitted: false,
+      existingPosted: null,
+      logger,
+    });
+    return { kind: 'auth_completed' };
+  }
+
+  if (err instanceof ZernioTransientError) {
+    // Nothing externally committed → orchestrator throws to ROLLBACK + retry.
+    return {
+      kind: 'rollback_then_throw',
+      error: new PublisherTransientWithContext(err, {
+        response_id: responseId,
+        business_id: businessId,
+        account_id: zernioAccountId,
+        location_id: zernioLocationId,
+      }),
+    };
+  }
+
+  if (err instanceof ZernioPermanentError) {
+    // DELETE permanent failure (incl. inbox_addon_required). Sibling unchanged.
+    const kind = err.kind ?? 'unknown';
+    const updated = await tx`
+      UPDATE responses
+      SET status = 'failed',
+          posting_error = ${deleteFailedMarker(kind)},
+          updated_at = NOW()
+      WHERE id = ${responseId}
+        AND business_id = ${businessId}
+        AND status IN ('approved', 'edited', 'awaiting_owner_connect')
+      RETURNING 1
+    `;
+    if (updated.count !== 1) {
+      throw new Error(
+        `delete-permanent: candidate UPDATE expected 1 row, got ${updated.count}`,
+      );
+    }
+    return { kind: 'permanent_failed' };
+  }
+
+  // Programming bug / unknown error → bubble to the outer catch.
+  throw err;
 }

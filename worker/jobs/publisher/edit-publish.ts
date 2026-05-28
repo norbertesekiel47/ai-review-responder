@@ -45,17 +45,14 @@ import {
 import type { WorkerLogger } from '../../../src/lib/shared/logger';
 import type { SendOwnerEmailPayload } from '../../../src/lib/shared/worker-types';
 import type { PostedResponseActivationInput } from './activation';
-import {
-  deleteFailedMarker,
-  isOrphanMarker,
-} from './orphan-markers';
+import { isOrphanMarker } from './orphan-markers';
 import {
   applyAuthErrorTerminalInTx,
   markCandidatePermanentFailedInTx,
   setOrphanMarker,
   supersedeSibling,
 } from './edit-publish-tx';
-import { handle409Disposition, permanentErrorKind } from './edit-publish-errors';
+import { handle409Disposition, handleDeleteError, permanentErrorKind } from './edit-publish-errors';
 
 /** Context the dispatcher (Task 6) materializes before calling this module. */
 export interface EditPublishContext {
@@ -286,57 +283,17 @@ export async function runEditPublishIfApplicable(
           if (isDeleteAlreadyGone(err)) {
             // 404 → reply already gone. Treat as DELETE success; proceed to POST.
             deleteSucceeded = true;
-          } else if (err instanceof ZernioAuthError) {
-            // True 401/403 on DELETE. Sibling UNCHANGED (DELETE did not
-            // succeed externally — the old reply is still on Google). Plain
-            // 'zernio_auth_error' (no orphan suffix).
-            await applyAuthErrorTerminalInTx(tx, {
+          } else {
+            const outcome = await handleDeleteError(tx, err, {
               responseId,
               businessId,
-              accountId: zernioAccountId,
-              locationId: zernioLocationId,
-              errorBody: err.body ? String(err.body).slice(0, 500) : err.message,
-              postDeleteCommitted: false,
-              existingPosted: null,
+              zernioAccountId,
+              zernioLocationId,
               logger,
             });
-            outcomeRef.value = { kind: 'auth_completed' };
+            outcomeRef.value = outcome;
+            if (outcome.kind === 'rollback_then_throw') throw outcome.error;
             return;
-          } else if (err instanceof ZernioTransientError) {
-            // DELETE did not succeed → nothing externally committed. Throw to
-            // ROLLBACK and let BullMQ retry.
-            const wrapped = new PublisherTransientWithContext(err, {
-              response_id: responseId,
-              business_id: businessId,
-              account_id: zernioAccountId,
-              location_id: zernioLocationId,
-            });
-            outcomeRef.value = { kind: 'rollback_then_throw', error: wrapped };
-            throw wrapped;
-          } else if (err instanceof ZernioPermanentError) {
-            // DELETE permanent failure (incl. inbox_addon_required). Sibling
-            // UNCHANGED — the old reply is still on Google.
-            const kind = err.kind ?? 'unknown';
-            const updated = await tx`
-              UPDATE responses
-              SET status = 'failed',
-                  posting_error = ${deleteFailedMarker(kind)},
-                  updated_at = NOW()
-              WHERE id = ${responseId}
-                AND business_id = ${businessId}
-                AND status IN ('approved', 'edited', 'awaiting_owner_connect')
-              RETURNING 1
-            `;
-            if (updated.count !== 1) {
-              throw new Error(
-                `delete-permanent: candidate UPDATE expected 1 row, got ${updated.count}`,
-              );
-            }
-            outcomeRef.value = { kind: 'permanent_failed' };
-            return;
-          } else {
-            // Programming bug / unknown error → bubble to the outer catch.
-            throw err;
           }
         }
       }
