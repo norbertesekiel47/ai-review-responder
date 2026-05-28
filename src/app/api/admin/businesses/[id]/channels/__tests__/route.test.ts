@@ -104,16 +104,22 @@ describe('GET /api/admin/businesses/[id]/channels — account-scoped org-default
 
     const req = new NextRequest(`http://localhost/api/admin/businesses/${L2}/channels`);
     const res = await GET(req, { params: Promise.resolve({ id: L2 }) });
-    const body = (await res.json()) as { enrollments: Array<{ channel: string; status: string }> };
+    const body = (await res.json()) as {
+      enrollments: Array<{ channel: string; status: string }>;
+    };
 
     expect(body.enrollments).toHaveLength(1);
-    expect(body.enrollments[0].channel).toBe('telegram');
-    expect(body.enrollments[0].status).toBe('verified');
+    const [enrollment] = body.enrollments;
+    expect(enrollment).toBeDefined();
+    expect(enrollment?.channel).toBe('telegram');
+    expect(enrollment?.status).toBe('verified');
   });
 
   it('prefers a per-location L2 override over the org-default for the same channel', async () => {
     sqlReturnQueue.push([{ account_id: ACCOUNT_ID }]); // account resolution
     // Both rows exist for the SAME channel: org-default (NULL) + L2 override.
+    // The route's ORDER BY places overrides first, so the override row arrives
+    // first in this mocked result set.
     sqlReturnQueue.push([
       {
         channel: 'telegram',
@@ -149,9 +155,11 @@ describe('GET /api/admin/businesses/[id]/channels — account-scoped org-default
 
     // One effective enrollment per channel, and it's the per-location override.
     expect(body.enrollments).toHaveLength(1);
-    expect(body.enrollments[0].channel).toBe('telegram');
+    const [enrollment] = body.enrollments;
+    expect(enrollment).toBeDefined();
+    expect(enrollment?.channel).toBe('telegram');
     // telegram handle is masked to last 4 digits: 111111111 -> '••• 1111'
-    expect(body.enrollments[0].handle).toBe('••• 1111');
+    expect(enrollment?.handle).toBe('••• 1111');
   });
 
   it('returns empty enrollments and skips the enrollment query when the location is unknown', async () => {

@@ -1779,8 +1779,8 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/app/api/admin/businesses/[id]/channels/route.ts",
     table: "notification_deliveries",
-    sqlSnippet: "SELECT e.channel, e.handle, e.status, e.verified_at, e.disabled_at, e.unsubscribed_at, e.unsubscribed_reason, e.verification_token_expires_at AS expires_at, (SELECT MAX(COALESCE(nd.delivered_at, nd.sent_at)) FROM notification_deliveries nd WHERE nd.business_id = e.business_id AND nd.channel = e.channel) AS last_activity_at FROM channel_enrollments e WHERE e.business_id = ${businessId} AND e.archived_at IS NULL ORDER BY e.created_at ASC",
-    reason: "Admin-only route or service intentionally performs this statement after requireRole(admin).",
+    sqlSnippet: "SELECT e.channel, e.handle, e.status, e.verified_at, e.disabled_at, e.unsubscribed_at, e.unsubscribed_reason, e.verification_token_expires_at AS expires_at, e.location_id, (SELECT MAX(COALESCE(nd.delivered_at, nd.sent_at)) FROM notification_deliveries nd WHERE nd.business_id = e.business_id AND nd.channel = e.channel) AS last_activity_at FROM channel_enrollments e WHERE e.account_id = ${accountId} AND (e.location_id = ${businessId} OR e.location_id IS NULL) AND e.archived_at IS NULL ORDER BY CASE WHEN e.location_id IS NOT NULL THEN 0 ELSE 1 END, e.created_at ASC",
+    reason: "Admin-only route or service intentionally performs this statement after requireRole(admin). notification_deliveries last-activity subquery joins on the channel_enrollments row, which is account-scoped via e.account_id.",
   },
   {
     file: "worker/background/pollers/EmailChannelReconcilePoller.ts",
