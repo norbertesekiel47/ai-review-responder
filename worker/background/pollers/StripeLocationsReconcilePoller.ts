@@ -16,22 +16,21 @@
 // Override via STRIPE_LOCATIONS_RECONCILE_INTERVAL_MS.
 // Set STRIPE_LOCATIONS_RECONCILE_DISABLED=true to skip entirely
 // (mock mode does too).
+//
+// Per-account reconciliation lives in billing-reconciliation/reconcile-account.ts;
+// this file owns orchestration (query, single-flight, alert emission, tally) and
+// the poller lifecycle.
 
 import Stripe from 'stripe';
 import { sql } from '../../../src/lib/db/server';
-import { isSubscriptionTier, TIER_CONFIG } from '../../../src/lib/accounts/tier-config';
 import { SubscriptionStatus } from '../../../src/lib/shared/subscription-status';
-import { Sentry } from '../../sentry';
-import {
-  compareUpcomingInvoice,
-  isExpectedStatusWindow,
-  recurringSubscriptionLineTotalCents,
-} from './billing-reconciliation/drift';
-import { expectedInvoiceForAccount } from './billing-reconciliation/expected-invoice';
-import type { BillingReconciliationAccount, DriftFinding } from './billing-reconciliation/types';
+import { getOveragePriceIds } from './billing-reconciliation/stripe-overage';
+import { emitDriftAlert } from './billing-reconciliation/drift-alert';
+import { reconcileAccount } from './billing-reconciliation/reconcile-account';
+import { LOG_PREFIX } from './billing-reconciliation/constants';
+import type { AccountWithLocations } from './billing-reconciliation/types';
 
 const DEFAULT_INTERVAL_MS = 3_600_000; // 1 hour
-const LOG_PREFIX = '[StripeLocationsReconcilePoller]';
 
 let timer: ReturnType<typeof setInterval> | null = null;
 // Single-flight guard. Same pattern as EmailChannelReconcilePoller —
@@ -49,119 +48,10 @@ function getStripe(): Stripe {
   return stripeInstance;
 }
 
-// Overage price IDs — used to identify the overage subscription item
-function getOveragePriceIds(): Set<string> {
-  return new Set([
-    process.env.STRIPE_PRICE_STANDARD_OVERAGE ?? '',
-    process.env.STRIPE_PRICE_PREMIUM_OVERAGE ?? '',
-    process.env.STRIPE_PRICE_FOUNDERS_OVERAGE ?? '',
-  ].filter(Boolean));
-}
-
-function extractStripeCustomerId(
-  customer: string | Stripe.Customer | Stripe.DeletedCustomer | null,
-): string | null {
-  if (typeof customer === 'string') return customer;
-  return customer?.id ?? null;
-}
-
-function isMissingStripeSubscriptionError(err: unknown): boolean {
-  const maybeStripeError = err as {
-    code?: string;
-    statusCode?: number;
-    type?: string;
-    message?: string;
-  } | null;
-  if (!maybeStripeError) return false;
-
-  return maybeStripeError.code === 'resource_missing'
-    || maybeStripeError.statusCode === 404
-    || maybeStripeError.type === 'StripeInvalidRequestError'
-      && /no such subscription/i.test(maybeStripeError.message ?? '');
-}
-
-function activeStripeSubscriptions(
-  subscriptions: Stripe.ApiList<Stripe.Subscription> | { data?: Stripe.Subscription[] },
-): Stripe.Subscription[] {
-  const data = subscriptions.data ?? [];
-  return data.filter((subscription) =>
-    ['active', 'trialing', 'past_due', 'unpaid'].includes(subscription.status),
-  );
-}
-
-function parseAccountFlags(flags: Record<string, unknown> | string | null | undefined): Record<string, unknown> {
-  if (!flags) return {};
-  if (typeof flags === 'string') {
-    try {
-      const parsed = JSON.parse(flags);
-      return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-        ? parsed as Record<string, unknown>
-        : {};
-    } catch {
-      return {};
-    }
-  }
-  return flags;
-}
-
-function isPilotAccount(flags: Record<string, unknown> | string | null | undefined): boolean {
-  const parsedFlags = parseAccountFlags(flags);
-  return parsedFlags.is_pilot === true || parsedFlags.pilot === true;
-}
-
-function findOverageItem(
-  subscription: Stripe.Subscription,
-  overagePriceIds: Set<string>,
-  expectedOverageUnitPriceCents: number,
-): Stripe.SubscriptionItem | undefined {
-  const items = subscription.items?.data ?? [];
-  return items.find((item) =>
-    isOverageItem(item, overagePriceIds, expectedOverageUnitPriceCents, items.length),
-  );
-}
-
-function isOverageItem(
-  item: Stripe.SubscriptionItem,
-  overagePriceIds: Set<string>,
-  expectedOverageUnitPriceCents: number,
-  itemCount: number,
-): boolean {
-  const price = item.price;
-  if (!price) return false;
-  if (price.id && overagePriceIds.has(price.id)) return true;
-
-  const priceDescriptor = [
-    price.lookup_key,
-    price.nickname,
-    price.metadata?.billing_role,
-    price.metadata?.role,
-  ].filter(Boolean).join(' ').toLowerCase();
-  if (/\b(overage|additional|extra|add-on|addon)\b/.test(priceDescriptor)) {
-    return true;
-  }
-
-  return itemCount > 1
-    && expectedOverageUnitPriceCents > 0
-    && price.unit_amount === expectedOverageUnitPriceCents;
-}
-
 interface ReconcileResult {
   accountsChecked: number;
   driftsFound: number;
   errors: number;
-}
-
-interface AccountWithLocations {
-  id: string;
-  subscription_tier: string;
-  subscription_status: string;
-  stripe_customer_id: string | null;
-  stripe_subscription_id: string | null;
-  locations_included: number;
-  locations_overage_price_cents: number;
-  active_location_count: number;
-  past_due_at: Date | null;
-  flags: Record<string, unknown> | null;
 }
 
 /**
@@ -220,259 +110,12 @@ export async function runOnce(): Promise<ReconcileResult> {
 
     for (const account of accounts) {
       try {
-        const tier = account.subscription_tier;
-        if (!isSubscriptionTier(tier)) {
-          console.error(`${LOG_PREFIX} Unknown tier ${tier} for account ${account.id} — skipping`);
-          errors++;
-          continue;
-        }
-
-        const config = TIER_CONFIG[tier];
-        const activeLocations = Number(account.active_location_count);
-        const expectedAccount: BillingReconciliationAccount = {
-          ...account,
-          active_location_count: activeLocations,
-          flags: parseAccountFlags(account.flags),
-        };
-        const expectedInvoice = expectedInvoiceForAccount(expectedAccount);
-        const isPilot = isPilotAccount(expectedAccount.flags);
-
-        if (!account.stripe_subscription_id) {
-          emitDriftAlert(account.id, {
-            driftType: 'missing_subscription',
-            dbExpectedOverage: expectedInvoice.overageUnits,
-            stripeOverageQuantity: 0,
-            activeLocations,
-            locationsIncluded: account.locations_included,
-            tier,
-            isPilot,
-            dbStatus: account.subscription_status,
-            stripeCustomerId: account.stripe_customer_id,
-            driftMessage: `Missing Stripe subscription id for paid account ${account.id}`,
-          });
-          accountsChecked++;
+        const outcome = await reconcileAccount(stripe, account, overagePriceIds);
+        accountsChecked += outcome.accountsChecked;
+        errors += outcome.errors;
+        for (const payload of outcome.drifts) {
+          emitDriftAlert(account.id, payload);
           driftsFound++;
-          continue;
-        }
-
-        // Retrieve Stripe subscription
-        let subscription: Stripe.Subscription;
-        try {
-          subscription = await stripe.subscriptions.retrieve(
-            account.stripe_subscription_id,
-          );
-        } catch (err) {
-          if (!isMissingStripeSubscriptionError(err)) {
-            throw err;
-          }
-
-          emitDriftAlert(account.id, {
-            driftType: 'missing_subscription',
-            dbExpectedOverage: expectedInvoice.overageUnits,
-            stripeOverageQuantity: 0,
-            activeLocations,
-            locationsIncluded: account.locations_included,
-            tier,
-            isPilot,
-            dbStatus: account.subscription_status,
-            stripeSubscriptionId: account.stripe_subscription_id,
-            stripeCustomerId: account.stripe_customer_id,
-            driftMessage: `Stripe subscription ${account.stripe_subscription_id} is missing for paid account ${account.id}`,
-          });
-          accountsChecked++;
-          driftsFound++;
-          continue;
-        }
-        const stripeCustomerId = extractStripeCustomerId(subscription.customer);
-
-        if (stripeCustomerId) {
-          try {
-            const customerSubscriptions = await stripe.subscriptions.list({
-              customer: stripeCustomerId,
-              status: 'all',
-              limit: 100,
-            });
-            const activeSubscriptions = activeStripeSubscriptions(customerSubscriptions);
-            if (activeSubscriptions.length > 1) {
-              emitDriftAlert(account.id, {
-                driftType: 'duplicate_subscription',
-                dbExpectedOverage: expectedInvoice.overageUnits,
-                stripeOverageQuantity: 0,
-                activeLocations,
-                locationsIncluded: account.locations_included,
-                tier,
-                isPilot,
-                dbStatus: account.subscription_status,
-                stripeStatus: subscription.status,
-                stripeSubscriptionId: subscription.id,
-                stripeCustomerId,
-                driftMessage: `Duplicate active Stripe subscriptions for account ${account.id}: ${activeSubscriptions.map((sub) => sub.id).join(',')}`,
-              });
-              driftsFound++;
-            }
-          } catch (err) {
-            errors++;
-            const message = err instanceof Error ? err.message : String(err);
-            console.error(
-              `${LOG_PREFIX} Error listing Stripe subscriptions for account ${account.id}: ${message}`,
-            );
-          }
-        }
-
-        if (
-          subscription.status !== account.subscription_status
-          && !isExpectedStatusWindow(expectedAccount, subscription.status)
-        ) {
-          emitDriftAlert(account.id, {
-            driftType: 'status_mismatch',
-            dbExpectedOverage: expectedInvoice.overageUnits,
-            stripeOverageQuantity: 0,
-            activeLocations,
-            locationsIncluded: account.locations_included,
-            tier,
-            isPilot,
-            dbStatus: account.subscription_status,
-            stripeStatus: subscription.status,
-            stripeSubscriptionId: subscription.id,
-            stripeCustomerId,
-            driftMessage: `Stripe status ${subscription.status} differs from DB status ${account.subscription_status}`,
-          });
-          driftsFound++;
-        }
-
-        const overageItem = findOverageItem(
-          subscription,
-          overagePriceIds,
-          expectedInvoice.overageUnitPriceCents,
-        );
-        const stripeOverageQuantity = overageItem?.quantity ?? 0;
-
-        const subscriptionItems = subscription.items?.data ?? [];
-        const baseItem = subscriptionItems.find((item) => item.id !== overageItem?.id);
-        const baseUnitAmount = baseItem?.price?.unit_amount;
-        if (typeof baseUnitAmount === 'number' && baseUnitAmount !== expectedInvoice.baseCents) {
-          emitDriftAlert(account.id, {
-            driftType: 'price_mismatch',
-            dbExpectedOverage: expectedInvoice.overageUnits,
-            stripeOverageQuantity,
-            activeLocations,
-            locationsIncluded: account.locations_included,
-            tier,
-            isPilot,
-            expectedCents: expectedInvoice.baseCents,
-            actualCents: baseUnitAmount,
-            dbStatus: account.subscription_status,
-            stripeStatus: subscription.status,
-            stripeSubscriptionId: subscription.id,
-            stripeCustomerId,
-            driftMessage: `Stripe base price ${baseUnitAmount} differs from expected ${expectedInvoice.baseCents} for account ${account.id}`,
-          });
-          driftsFound++;
-        }
-
-        const overageUnitAmount = overageItem?.price?.unit_amount;
-        if (
-          typeof overageUnitAmount === 'number'
-          && expectedInvoice.overageUnitPriceCents > 0
-          && overageUnitAmount !== expectedInvoice.overageUnitPriceCents
-        ) {
-          emitDriftAlert(account.id, {
-            driftType: 'price_mismatch',
-            dbExpectedOverage: expectedInvoice.overageUnits,
-            stripeOverageQuantity,
-            activeLocations,
-            locationsIncluded: account.locations_included,
-            tier,
-            isPilot,
-            expectedCents: expectedInvoice.overageUnitPriceCents,
-            actualCents: overageUnitAmount,
-            dbStatus: account.subscription_status,
-            stripeStatus: subscription.status,
-            stripeSubscriptionId: subscription.id,
-            stripeCustomerId,
-            driftMessage: `Stripe overage price ${overageUnitAmount} differs from stored account price ${expectedInvoice.overageUnitPriceCents} for account ${account.id}`,
-          });
-          driftsFound++;
-        }
-
-        // Basic tier has no overage concept
-        if (!config.multiLocAllowed || config.overageCents === 0) {
-          if (overageItem && (overageItem.quantity ?? 0) > 0) {
-            // Basic tier should never have overage items with quantity > 0
-            emitDriftAlert(account.id, {
-              driftType: 'quantity_mismatch',
-              dbExpectedOverage: expectedInvoice.overageUnits,
-              stripeOverageQuantity,
-              activeLocations,
-              locationsIncluded: account.locations_included,
-              tier,
-              isPilot,
-              dbStatus: account.subscription_status,
-              stripeStatus: subscription.status,
-              stripeSubscriptionId: subscription.id,
-              stripeCustomerId,
-            });
-            driftsFound++;
-          }
-        } else if (stripeOverageQuantity !== expectedInvoice.overageUnits) {
-          emitDriftAlert(account.id, {
-            driftType: 'quantity_mismatch',
-            dbExpectedOverage: expectedInvoice.overageUnits,
-            stripeOverageQuantity,
-            activeLocations,
-            locationsIncluded: account.locations_included,
-            tier,
-            isPilot,
-            dbStatus: account.subscription_status,
-            stripeStatus: subscription.status,
-            stripeSubscriptionId: subscription.id,
-            stripeCustomerId,
-          });
-          driftsFound++;
-        }
-
-        accountsChecked++;
-
-        try {
-          if (!stripeCustomerId) {
-            throw new Error('Stripe subscription is missing a customer ID');
-          }
-
-          const upcoming = await stripe.invoices.createPreview({
-            customer: stripeCustomerId,
-            subscription: account.stripe_subscription_id,
-          });
-          const actualRecurringCents = recurringSubscriptionLineTotalCents(upcoming);
-
-          if (actualRecurringCents === null) {
-            throw new Error('Stripe invoice preview returned no recurring subscription lines');
-          }
-
-          for (const drift of compareUpcomingInvoice(account.id, expectedInvoice.totalCents, actualRecurringCents)) {
-            emitDriftAlert(account.id, {
-              driftType: drift.type,
-              dbExpectedOverage: expectedInvoice.overageUnits,
-              stripeOverageQuantity,
-              activeLocations,
-              locationsIncluded: account.locations_included,
-              tier,
-              isPilot,
-              expectedCents: drift.expectedCents,
-              actualCents: drift.actualCents,
-              dbStatus: account.subscription_status,
-              stripeStatus: subscription.status,
-              stripeSubscriptionId: subscription.id,
-              stripeCustomerId,
-              driftMessage: drift.message,
-            });
-            driftsFound++;
-          }
-        } catch (err) {
-          errors++;
-          const message = err instanceof Error ? err.message : String(err);
-          console.error(
-            `${LOG_PREFIX} Error reconciling invoice preview for account ${account.id}: ${message}`,
-          );
         }
       } catch (err) {
         errors++;
@@ -496,68 +139,6 @@ export async function runOnce(): Promise<ReconcileResult> {
     return { accountsChecked, driftsFound, errors };
   } finally {
     inProgress = false;
-  }
-}
-
-interface DriftAlertPayload {
-  driftType?: DriftFinding['type'];
-  dbExpectedOverage: number;
-  stripeOverageQuantity: number;
-  activeLocations: number;
-  locationsIncluded: number;
-  tier: string;
-  isPilot?: boolean;
-  expectedCents?: number;
-  actualCents?: number;
-  dbStatus?: string;
-  stripeStatus?: string;
-  stripeSubscriptionId?: string;
-  stripeCustomerId?: string | null;
-  driftMessage?: string;
-}
-
-/**
- * Emits a drift alert. Uses Sentry when SENTRY_DSN is set,
- * falls back to console.warn otherwise.
- */
-function emitDriftAlert(
-  accountId: string,
-  payload: DriftAlertPayload,
-): void {
-  const message = payload.driftMessage ??
-    `Stripe location drift detected for account ${accountId}: ` +
-    `expected_overage=${payload.dbExpectedOverage} (from DB: ${payload.activeLocations} active - ${payload.locationsIncluded} included), ` +
-    `stripe_overage=${payload.stripeOverageQuantity}, ` +
-    `tier=${payload.tier}`;
-
-  if (process.env.SENTRY_DSN) {
-    Sentry.captureMessage(message, {
-      level: 'warning',
-      tags: {
-        feature: 'stripe_reconciliation',
-        account_id: accountId,
-        drift_type: payload.driftType ?? 'quantity_mismatch',
-        is_pilot: String(payload.isPilot === true),
-      },
-      extra: {
-        accountId,
-        driftMessage: payload.driftMessage,
-        dbExpectedOverage: payload.dbExpectedOverage,
-        stripeOverageQuantity: payload.stripeOverageQuantity,
-        activeLocations: payload.activeLocations,
-        locationsIncluded: payload.locationsIncluded,
-        tier: payload.tier,
-        isPilot: payload.isPilot === true,
-        expectedCents: payload.expectedCents,
-        actualCents: payload.actualCents,
-        dbStatus: payload.dbStatus,
-        stripeStatus: payload.stripeStatus,
-        stripeSubscriptionId: payload.stripeSubscriptionId,
-        stripeCustomerId: payload.stripeCustomerId,
-      },
-    });
-  } else {
-    console.warn(`${LOG_PREFIX} ${message}`);
   }
 }
 
