@@ -36,7 +36,7 @@ approval before posting.
 
 3. **No auto-posting.** There is NO code path from response generation to Google posting without an explicit owner approval step. Make it architecturally impossible to bypass.
 
-4. **High-confidence unsafe drafts are held, not notified.** `ResponseGeneratorWorker` runs `moderateResponse` (`src/lib/moderation/*`) after generation; a `high`-severity flag writes a `flagged_responses` row (admin-only deny-all RLS) and skips `send_notification` outbox enqueue in the SAME transaction as response persistence. Owner notification re-fires only on admin `approved_for_owner_review` at `/admin/flagged`; dismiss/regenerate are terminal. Moderation metadata recorded on `api_costs`. OpenAI Moderation layer gated by `OPENAI_MODERATION_ENABLED` and fails open. See `skills/approval-security`.
+4. **High-confidence unsafe drafts are held, not notified.** `ResponseGeneratorWorker` runs `moderateResponse` (`src/lib/moderation/*`) after generation; a `high`-severity flag writes a `flagged_responses` row (admin-only deny-all RLS) and skips `send_notification` outbox enqueue in the SAME transaction as response persistence. Owner notification re-fires only on admin `approved_for_owner_review` at `/admin/flagged`; dismiss/regenerate are terminal. Moderation metadata recorded on `api_costs`. Local regex rules (`src/lib/moderation/output-filter.ts`) always run regardless; the OpenAI Moderation layer is additionally gated by `OPENAI_MODERATION_ENABLED` and fails open. See `skills/approval-security`.
 
 5. **Approval tokens never stored raw.** Only SHA-256 hashes in `approval_links`. Raw tokens exist only in memory and in the sent email — never in Postgres, outbox payloads, or logs.
 
