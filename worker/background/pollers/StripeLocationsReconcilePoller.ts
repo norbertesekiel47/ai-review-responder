@@ -29,6 +29,14 @@ import {
 } from './billing-reconciliation/drift';
 import { expectedInvoiceForAccount } from './billing-reconciliation/expected-invoice';
 import type { BillingReconciliationAccount, DriftFinding } from './billing-reconciliation/types';
+import {
+  getOveragePriceIds,
+  extractStripeCustomerId,
+  isMissingStripeSubscriptionError,
+  activeStripeSubscriptions,
+  findOverageItem,
+} from './billing-reconciliation/stripe-overage';
+import { parseAccountFlags, isPilotAccount } from './billing-reconciliation/account-flags';
 
 const DEFAULT_INTERVAL_MS = 3_600_000; // 1 hour
 const LOG_PREFIX = '[StripeLocationsReconcilePoller]';
@@ -47,102 +55,6 @@ function getStripe(): Stripe {
     stripeInstance = new Stripe(key);
   }
   return stripeInstance;
-}
-
-// Overage price IDs — used to identify the overage subscription item
-function getOveragePriceIds(): Set<string> {
-  return new Set([
-    process.env.STRIPE_PRICE_STANDARD_OVERAGE ?? '',
-    process.env.STRIPE_PRICE_PREMIUM_OVERAGE ?? '',
-    process.env.STRIPE_PRICE_FOUNDERS_OVERAGE ?? '',
-  ].filter(Boolean));
-}
-
-function extractStripeCustomerId(
-  customer: string | Stripe.Customer | Stripe.DeletedCustomer | null,
-): string | null {
-  if (typeof customer === 'string') return customer;
-  return customer?.id ?? null;
-}
-
-function isMissingStripeSubscriptionError(err: unknown): boolean {
-  const maybeStripeError = err as {
-    code?: string;
-    statusCode?: number;
-    type?: string;
-    message?: string;
-  } | null;
-  if (!maybeStripeError) return false;
-
-  return maybeStripeError.code === 'resource_missing'
-    || maybeStripeError.statusCode === 404
-    || maybeStripeError.type === 'StripeInvalidRequestError'
-      && /no such subscription/i.test(maybeStripeError.message ?? '');
-}
-
-function activeStripeSubscriptions(
-  subscriptions: Stripe.ApiList<Stripe.Subscription> | { data?: Stripe.Subscription[] },
-): Stripe.Subscription[] {
-  const data = subscriptions.data ?? [];
-  return data.filter((subscription) =>
-    ['active', 'trialing', 'past_due', 'unpaid'].includes(subscription.status),
-  );
-}
-
-function parseAccountFlags(flags: Record<string, unknown> | string | null | undefined): Record<string, unknown> {
-  if (!flags) return {};
-  if (typeof flags === 'string') {
-    try {
-      const parsed = JSON.parse(flags);
-      return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-        ? parsed as Record<string, unknown>
-        : {};
-    } catch {
-      return {};
-    }
-  }
-  return flags;
-}
-
-function isPilotAccount(flags: Record<string, unknown> | string | null | undefined): boolean {
-  const parsedFlags = parseAccountFlags(flags);
-  return parsedFlags.is_pilot === true || parsedFlags.pilot === true;
-}
-
-function findOverageItem(
-  subscription: Stripe.Subscription,
-  overagePriceIds: Set<string>,
-  expectedOverageUnitPriceCents: number,
-): Stripe.SubscriptionItem | undefined {
-  const items = subscription.items?.data ?? [];
-  return items.find((item) =>
-    isOverageItem(item, overagePriceIds, expectedOverageUnitPriceCents, items.length),
-  );
-}
-
-function isOverageItem(
-  item: Stripe.SubscriptionItem,
-  overagePriceIds: Set<string>,
-  expectedOverageUnitPriceCents: number,
-  itemCount: number,
-): boolean {
-  const price = item.price;
-  if (!price) return false;
-  if (price.id && overagePriceIds.has(price.id)) return true;
-
-  const priceDescriptor = [
-    price.lookup_key,
-    price.nickname,
-    price.metadata?.billing_role,
-    price.metadata?.role,
-  ].filter(Boolean).join(' ').toLowerCase();
-  if (/\b(overage|additional|extra|add-on|addon)\b/.test(priceDescriptor)) {
-    return true;
-  }
-
-  return itemCount > 1
-    && expectedOverageUnitPriceCents > 0
-    && price.unit_amount === expectedOverageUnitPriceCents;
 }
 
 interface ReconcileResult {
