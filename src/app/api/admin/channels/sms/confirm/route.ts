@@ -13,7 +13,7 @@
 // a verified state we'd immediately have to tear down on the next send.
 //
 // Ordering invariants:
-//   1. Auth → flag → subscription → per-(business_id,'sms') advisory lock.
+//   1. Auth → flag → subscription → per-account mobile-enrollment advisory lock.
 //   2. Load active row (any status) — authoritative row used for the Twilio
 //      `to` handle. Body has no `phone` — the row's handle is canonical.
 //   3. Re-check sms_sender_opt_outs BEFORE Twilio call.
@@ -27,13 +27,12 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import twilio from 'twilio';
-import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import {
   isSmsEnabled,
   flagOff,
   assertSmsEnvReady,
-  loadBusinessSubscriptionStatus,
+  loadBusinessAccountContext,
   isSubscriptionActive,
   subscriptionNotActive,
   withMobileEnrollmentLock,
@@ -69,14 +68,17 @@ async function confirmSms(request: NextRequest): Promise<NextResponse> {
   if (!rawBusinessId || !code) return badRequest('missing_fields');
   const businessId = asLocationId(rawBusinessId);
 
-  const subStatus = await loadBusinessSubscriptionStatus(businessId);
-  if (!isSubscriptionActive(subStatus)) return subscriptionNotActive();
+  const accountContext = await loadBusinessAccountContext(businessId);
+  if (!accountContext || !isSubscriptionActive(accountContext.subscriptionStatus)) {
+    return subscriptionNotActive();
+  }
+  const accountId = accountContext.accountId;
 
-  const result = await withMobileEnrollmentLock(businessId, async (tx) => {
+  const result = await withMobileEnrollmentLock(accountId, async (tx) => {
     // Step 1: Load active row (any status — row status gates are applied in step 3).
     const activeRows = await tx<{ handle: string; status: string }[]>`
       SELECT handle, status FROM channel_enrollments
-      WHERE business_id = ${businessId} AND channel = 'sms' AND archived_at IS NULL
+      WHERE account_id = ${accountId} AND channel = 'sms' AND location_id IS NULL AND archived_at IS NULL
     `;
     const row = activeRows[0];
     if (!row) return badRequest('no_pending_verification');
@@ -124,7 +126,7 @@ async function confirmSms(request: NextRequest): Promise<NextResponse> {
           unsubscribed_at = NULL,
           unsubscribed_reason = NULL,
           updated_at = NOW()
-      WHERE business_id = ${businessId} AND channel = 'sms'
+      WHERE account_id = ${accountId} AND channel = 'sms' AND location_id IS NULL
         AND status = 'pending_verification' AND archived_at IS NULL
       RETURNING id
     `;
@@ -134,13 +136,9 @@ async function confirmSms(request: NextRequest): Promise<NextResponse> {
   });
 
   // Invalidate channel cache — the newly verified channel must be
-  // immediately available for notification dispatch.
-  const [acctRow] = await sql<{ account_id: string }[]>`
-    SELECT account_id FROM businesses WHERE id = ${businessId}
-  `;
-  if (acctRow?.account_id) {
-    await safeInvalidateChannelCache(asAccountId(acctRow.account_id), 'admin.sms.confirm');
-  }
+  // immediately available for notification dispatch. Reuse the account id
+  // resolved up-front instead of a second businesses lookup.
+  await safeInvalidateChannelCache(asAccountId(accountId), 'admin.sms.confirm');
 
   return result;
 }

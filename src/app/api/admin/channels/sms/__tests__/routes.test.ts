@@ -235,7 +235,7 @@ describe('POST /api/admin/channels/sms/verify', () => {
   });
 
   it('400 phone_required when no active row and phone missing', async () => {
-    sqlReturnQueue.push([{ subscription_status: 'active' }]); // sub
+    sqlReturnQueue.push([{ subscription_status: 'active', account_id: 'acct-1' }]); // sub
     sqlReturnQueue.push([]);                                   // advisory lock
     sqlReturnQueue.push([]);                                   // active-row SELECT (empty)
     const res = await verifyPOST(adminReq({ business_id: 'biz' }));
@@ -244,7 +244,7 @@ describe('POST /api/admin/channels/sms/verify', () => {
   });
 
   it('400 phone_invalid on unparseable phone', async () => {
-    sqlReturnQueue.push([{ subscription_status: 'active' }]);
+    sqlReturnQueue.push([{ subscription_status: 'active', account_id: 'acct-1' }]);
     sqlReturnQueue.push([]);
     sqlReturnQueue.push([]);
     const res = await verifyPOST(adminReq({ business_id: 'biz', phone: 'not-a-phone' }));
@@ -253,7 +253,7 @@ describe('POST /api/admin/channels/sms/verify', () => {
   });
 
   it('400 sender_opt_in_required when phone is currently opted out', async () => {
-    sqlReturnQueue.push([{ subscription_status: 'active' }]);
+    sqlReturnQueue.push([{ subscription_status: 'active', account_id: 'acct-1' }]);
     sqlReturnQueue.push([]);                                          // advisory lock
     sqlReturnQueue.push([]);                                          // active row — none
     sqlReturnQueue.push([{ opted_out_at: new Date(), opted_in_at: null }]); // opt-out lookup
@@ -264,7 +264,7 @@ describe('POST /api/admin/channels/sms/verify', () => {
   });
 
   it('400 already_verified on verified row', async () => {
-    sqlReturnQueue.push([{ subscription_status: 'active' }]);
+    sqlReturnQueue.push([{ subscription_status: 'active', account_id: 'acct-1' }]);
     sqlReturnQueue.push([]);
     sqlReturnQueue.push([{ handle: '+14155552671', status: 'verified' }]);
     const res = await verifyPOST(adminReq({ business_id: 'biz' }));
@@ -273,7 +273,7 @@ describe('POST /api/admin/channels/sms/verify', () => {
   });
 
   it('400 handle_change_forbidden when submitted phone differs from row handle', async () => {
-    sqlReturnQueue.push([{ subscription_status: 'active' }]);
+    sqlReturnQueue.push([{ subscription_status: 'active', account_id: 'acct-1' }]);
     sqlReturnQueue.push([]);
     sqlReturnQueue.push([{ handle: '+14155552671', status: 'disabled' }]);
     const res = await verifyPOST(adminReq({ business_id: 'biz', phone: '+15559999999' }));
@@ -282,7 +282,7 @@ describe('POST /api/admin/channels/sms/verify', () => {
   });
 
   it('500 verify_send_failed when Twilio errors (DB unchanged)', async () => {
-    sqlReturnQueue.push([{ subscription_status: 'active' }]);
+    sqlReturnQueue.push([{ subscription_status: 'active', account_id: 'acct-1' }]);
     sqlReturnQueue.push([]);
     sqlReturnQueue.push([]);                       // no active row
     sqlReturnQueue.push([]);                       // opt-out — empty
@@ -297,13 +297,12 @@ describe('POST /api/admin/channels/sms/verify', () => {
   });
 
   it('200 on brand-new: INSERTs pending_verification row', async () => {
-    sqlReturnQueue.push([{ subscription_status: 'active' }]);
+    sqlReturnQueue.push([{ subscription_status: 'active', account_id: 'acct-1' }]);
     sqlReturnQueue.push([]);
     sqlReturnQueue.push([]);
     sqlReturnQueue.push([]);                       // opt-out — not present
     sqlReturnQueue.push([]);                       // mobile pre-check — no other channels
     sqlReturnQueue.push([]);                       // post-Twilio opt-out re-check
-    sqlReturnQueue.push([{ account_id: 'acct-1' }]); // SELECT account_id from businesses
     sqlReturnQueue.push([]);                       // INSERT
     const res = await verifyPOST(adminReq({ business_id: 'biz', phone: '+14155552671' }));
     expect(res.status).toBe(200);
@@ -319,7 +318,7 @@ describe('POST /api/admin/channels/sms/verify', () => {
   });
 
   it('200 on re-enable from disabled: UPDATE, preserves handle + disabled_at', async () => {
-    sqlReturnQueue.push([{ subscription_status: 'active' }]);
+    sqlReturnQueue.push([{ subscription_status: 'active', account_id: 'acct-1' }]);
     sqlReturnQueue.push([]);
     sqlReturnQueue.push([{ handle: '+14155552671', status: 'disabled' }]);
     sqlReturnQueue.push([]);                       // opt-out check — none
@@ -334,7 +333,7 @@ describe('POST /api/admin/channels/sms/verify', () => {
   });
 
   it('409 race_conflict if UPDATE affects 0 rows (concurrent cancel/delete)', async () => {
-    sqlReturnQueue.push([{ subscription_status: 'active' }]);
+    sqlReturnQueue.push([{ subscription_status: 'active', account_id: 'acct-1' }]);
     sqlReturnQueue.push([]);
     sqlReturnQueue.push([{ handle: '+14155552671', status: 'disabled' }]);
     sqlReturnQueue.push([]);                       // opt-out check
@@ -346,7 +345,7 @@ describe('POST /api/admin/channels/sms/verify', () => {
   });
 
   it('200 noop on pending_verification row: re-send code, no DB change', async () => {
-    sqlReturnQueue.push([{ subscription_status: 'active' }]);
+    sqlReturnQueue.push([{ subscription_status: 'active', account_id: 'acct-1' }]);
     sqlReturnQueue.push([]);
     sqlReturnQueue.push([{ handle: '+14155552671', status: 'pending_verification' }]);
     sqlReturnQueue.push([]);                       // opt-out check
@@ -367,7 +366,7 @@ describe('POST /api/admin/channels/sms/verify', () => {
   // and return 409 sender_opted_out_during_verification instead of flipping
   // the row to pending_verification (which would overwrite unsubscribed).
   it('H3: 409 sender_opted_out_during_verification on post-Twilio STOP race', async () => {
-    sqlReturnQueue.push([{ subscription_status: 'active' }]); // subscription
+    sqlReturnQueue.push([{ subscription_status: 'active', account_id: 'acct-1' }]); // subscription
     sqlReturnQueue.push([]);                                    // advisory lock
     sqlReturnQueue.push([{ handle: '+14155552671', status: 'disabled' }]); // active row
     sqlReturnQueue.push([]);                                    // pre-Twilio opt-out — clean
@@ -388,7 +387,7 @@ describe('POST /api/admin/channels/sms/verify', () => {
   // to pass — contradiction with /status.
   it('H4: 400 sender_opt_in_required when opted_in_at == opted_out_at', async () => {
     const sameTime = new Date('2026-04-20T10:00:00Z');
-    sqlReturnQueue.push([{ subscription_status: 'active' }]);
+    sqlReturnQueue.push([{ subscription_status: 'active', account_id: 'acct-1' }]);
     sqlReturnQueue.push([]);
     sqlReturnQueue.push([]);                       // no active row
     sqlReturnQueue.push([{ opted_out_at: sameTime, opted_in_at: sameTime }]); // equal!
@@ -429,7 +428,7 @@ describe('POST /api/admin/channels/sms/confirm', () => {
   });
 
   it('400 no_pending_verification when no active row', async () => {
-    sqlReturnQueue.push([{ subscription_status: 'active' }]);
+    sqlReturnQueue.push([{ subscription_status: 'active', account_id: 'acct-1' }]);
     sqlReturnQueue.push([]);                 // advisory lock
     sqlReturnQueue.push([]);                 // no active row
     const res = await confirmPOST(confirmReq({ business_id: 'biz', code: '123456' }));
@@ -438,7 +437,7 @@ describe('POST /api/admin/channels/sms/confirm', () => {
   });
 
   it('409 sender_opted_out_during_verification (mid-flow STOP race)', async () => {
-    sqlReturnQueue.push([{ subscription_status: 'active' }]);
+    sqlReturnQueue.push([{ subscription_status: 'active', account_id: 'acct-1' }]);
     sqlReturnQueue.push([]);
     sqlReturnQueue.push([{ handle: '+14155552671', status: 'pending_verification' }]);
     sqlReturnQueue.push([{ opted_out_at: new Date(), opted_in_at: null }]); // opted out!
@@ -449,7 +448,7 @@ describe('POST /api/admin/channels/sms/confirm', () => {
   });
 
   it('409 row_not_pending when row is verified', async () => {
-    sqlReturnQueue.push([{ subscription_status: 'active' }]);
+    sqlReturnQueue.push([{ subscription_status: 'active', account_id: 'acct-1' }]);
     sqlReturnQueue.push([]);
     sqlReturnQueue.push([{ handle: '+14155552671', status: 'verified' }]);
     sqlReturnQueue.push([]); // opt-out check — clean
@@ -460,7 +459,7 @@ describe('POST /api/admin/channels/sms/confirm', () => {
   });
 
   it('409 row_not_pending when row is disabled', async () => {
-    sqlReturnQueue.push([{ subscription_status: 'active' }]);
+    sqlReturnQueue.push([{ subscription_status: 'active', account_id: 'acct-1' }]);
     sqlReturnQueue.push([]);
     sqlReturnQueue.push([{ handle: '+14155552671', status: 'disabled' }]);
     sqlReturnQueue.push([]);
@@ -469,7 +468,7 @@ describe('POST /api/admin/channels/sms/confirm', () => {
   });
 
   it('400 invalid_code_or_expired when Twilio returns non-approved', async () => {
-    sqlReturnQueue.push([{ subscription_status: 'active' }]);
+    sqlReturnQueue.push([{ subscription_status: 'active', account_id: 'acct-1' }]);
     sqlReturnQueue.push([]);
     sqlReturnQueue.push([{ handle: '+14155552671', status: 'pending_verification' }]);
     sqlReturnQueue.push([]);                 // opt-out check — clean
@@ -480,7 +479,7 @@ describe('POST /api/admin/channels/sms/confirm', () => {
   });
 
   it('200 on approved: UPDATE flips to verified + clears unsub fields', async () => {
-    sqlReturnQueue.push([{ subscription_status: 'active' }]);
+    sqlReturnQueue.push([{ subscription_status: 'active', account_id: 'acct-1' }]);
     sqlReturnQueue.push([]);
     sqlReturnQueue.push([{ handle: '+14155552671', status: 'pending_verification' }]);
     sqlReturnQueue.push([]);                 // opt-out check — clean
@@ -496,7 +495,7 @@ describe('POST /api/admin/channels/sms/confirm', () => {
   });
 
   it('confirm does NOT touch sms_sender_opt_outs', async () => {
-    sqlReturnQueue.push([{ subscription_status: 'active' }]);
+    sqlReturnQueue.push([{ subscription_status: 'active', account_id: 'acct-1' }]);
     sqlReturnQueue.push([]);
     sqlReturnQueue.push([{ handle: '+14155552671', status: 'pending_verification' }]);
     // Opted back in — confirm proceeds. We then assert no writes to opt-out tables.
@@ -512,7 +511,7 @@ describe('POST /api/admin/channels/sms/confirm', () => {
   });
 
   it('409 race_conflict if UPDATE affects 0 rows', async () => {
-    sqlReturnQueue.push([{ subscription_status: 'active' }]);
+    sqlReturnQueue.push([{ subscription_status: 'active', account_id: 'acct-1' }]);
     sqlReturnQueue.push([]);
     sqlReturnQueue.push([{ handle: '+14155552671', status: 'pending_verification' }]);
     sqlReturnQueue.push([]);
@@ -524,7 +523,7 @@ describe('POST /api/admin/channels/sms/confirm', () => {
   // H4: equal timestamps treated as still opted out (matches /verify + /status).
   it('H4: 409 sender_opted_out_during_verification when opted_in_at == opted_out_at', async () => {
     const sameTime = new Date('2026-04-20T10:00:00Z');
-    sqlReturnQueue.push([{ subscription_status: 'active' }]);
+    sqlReturnQueue.push([{ subscription_status: 'active', account_id: 'acct-1' }]);
     sqlReturnQueue.push([]);
     sqlReturnQueue.push([{ handle: '+14155552671', status: 'pending_verification' }]);
     sqlReturnQueue.push([{ opted_out_at: sameTime, opted_in_at: sameTime }]); // equal!
@@ -564,7 +563,7 @@ describe('POST /api/admin/channels/sms/cancel', () => {
   });
 
   it('200 issues the state-revert CTE (UPDATE + DELETE subquery)', async () => {
-    sqlReturnQueue.push([{ subscription_status: 'active' }]);
+    sqlReturnQueue.push([{ subscription_status: 'active', account_id: 'acct-1' }]);
     sqlReturnQueue.push([]); // advisory lock
     sqlReturnQueue.push([]); // CTE result (empty — no active rows)
     const res = await cancelPOST(cancelReq({ business_id: 'biz' }));
@@ -584,7 +583,7 @@ describe('POST /api/admin/channels/sms/cancel', () => {
   });
 
   it('does NOT touch sms_sender_opt_outs or sms_sender_opt_out_events', async () => {
-    sqlReturnQueue.push([{ subscription_status: 'active' }]);
+    sqlReturnQueue.push([{ subscription_status: 'active', account_id: 'acct-1' }]);
     sqlReturnQueue.push([]);
     sqlReturnQueue.push([]);
     await cancelPOST(cancelReq({ business_id: 'biz' }));
@@ -593,14 +592,15 @@ describe('POST /api/admin/channels/sms/cancel', () => {
     expect(raw).not.toMatch(/sms_sender_opt_out_events/);
   });
 
-  it('acquires advisory lock scoped to business_id', async () => {
-    sqlReturnQueue.push([{ subscription_status: 'active' }]);
+  it('acquires advisory lock scoped to account_id (not business_id)', async () => {
+    sqlReturnQueue.push([{ subscription_status: 'active', account_id: 'acct-9' }]);
     sqlReturnQueue.push([]);
     sqlReturnQueue.push([]);
     await cancelPOST(cancelReq({ business_id: 'biz-42' }));
     const lockCall = sqlCallsLog.find(c => /pg_advisory_xact_lock/.test(c.raw));
     expect(lockCall).toBeDefined();
-    expect(lockCall!.values).toContain('mobile_enroll:biz-42');
+    expect(lockCall!.values).toContain('mobile_enroll:acct-9');
+    expect(lockCall!.values).not.toContain('mobile_enroll:biz-42');
   });
 });
 
@@ -622,7 +622,7 @@ describe('POST /api/admin/channels/sms/disable', () => {
   });
 
   it('200 UPDATEs verified → disabled', async () => {
-    sqlReturnQueue.push([{ subscription_status: 'active' }]);
+    sqlReturnQueue.push([{ subscription_status: 'active', account_id: 'acct-1' }]);
     sqlReturnQueue.push([]);                // advisory lock
     sqlReturnQueue.push([{ id: 'enr-1' }]); // UPDATE RETURNING
     const res = await disablePOST(disableReq({ business_id: 'biz' }));
@@ -636,7 +636,7 @@ describe('POST /api/admin/channels/sms/disable', () => {
   });
 
   it('409 not_verified when row is not in verified state', async () => {
-    sqlReturnQueue.push([{ subscription_status: 'active' }]);
+    sqlReturnQueue.push([{ subscription_status: 'active', account_id: 'acct-1' }]);
     sqlReturnQueue.push([]);
     sqlReturnQueue.push([]);                // UPDATE RETURNING — empty
     const res = await disablePOST(disableReq({ business_id: 'biz' }));
@@ -681,7 +681,7 @@ describe('POST /api/admin/channels/sms/delete', () => {
   });
 
   it('200 soft-deletes: UPDATE with archived_at + archive_reason', async () => {
-    sqlReturnQueue.push([{ subscription_status: 'active' }]);
+    sqlReturnQueue.push([{ subscription_status: 'active', account_id: 'acct-1' }]);
     sqlReturnQueue.push([]);                // advisory lock
     sqlReturnQueue.push([]);                // UPDATE
     const res = await deletePOST(deleteReq({ business_id: 'biz', confirm: true }));
@@ -694,7 +694,7 @@ describe('POST /api/admin/channels/sms/delete', () => {
   });
 
   it('does NOT touch sms_sender_opt_outs or audit events (TCPA retention)', async () => {
-    sqlReturnQueue.push([{ subscription_status: 'active' }]);
+    sqlReturnQueue.push([{ subscription_status: 'active', account_id: 'acct-1' }]);
     sqlReturnQueue.push([]);
     sqlReturnQueue.push([]);
     await deletePOST(deleteReq({ business_id: 'biz', confirm: true }));
@@ -704,7 +704,7 @@ describe('POST /api/admin/channels/sms/delete', () => {
   });
 
   it('does NOT delete channel_enrollments (soft-delete only)', async () => {
-    sqlReturnQueue.push([{ subscription_status: 'active' }]);
+    sqlReturnQueue.push([{ subscription_status: 'active', account_id: 'acct-1' }]);
     sqlReturnQueue.push([]);
     sqlReturnQueue.push([]);
     await deletePOST(deleteReq({ business_id: 'biz', confirm: true }));
@@ -784,5 +784,230 @@ describe('GET /api/admin/channels/sms/status', () => {
     expect(queryCall.raw).toMatch(/WHEN so\.handle IS NULL THEN TRUE/);
     expect(queryCall.raw).toMatch(/WHEN so\.opted_in_at IS NOT NULL AND so\.opted_in_at > so\.opted_out_at THEN TRUE/);
     expect(queryCall.raw).toMatch(/ELSE FALSE/);
+  });
+});
+
+// ── Account-scoped enrollment lock + cross-channel precheck ───────────
+// Regression for docs/known-issues.md "ACTIVE: Admin SMS lock + cross-channel
+// precheck still business-scoped". The mobile-enrollment advisory lock and the
+// SMS verify cross-channel precheck must be keyed by the billing-parent
+// account_id (matching Telegram/WhatsApp admin routes), NOT the per-location
+// business_id. Otherwise on a multi-location account, SMS verify for L2 fails
+// to mutually exclude — and fails to see — an account-scoped Telegram/WhatsApp
+// org-default created under L1, so the precheck misses and the duplicate is
+// only caught late by the one_mobile_per_scope unique index after a Twilio
+// Verify SMS has already been dispatched.
+describe('SMS admin routes: account-scoped enrollment lock', () => {
+  beforeEach(resetMocks);
+
+  function reqFor(path: string, body: unknown): NextRequest {
+    return new NextRequest(`http://localhost/api/admin/channels/sms/${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: APP_URL },
+      body: JSON.stringify(body),
+    });
+  }
+
+  // Each route resolves the account_id from the subscription lookup (which
+  // already JOINs accounts) and uses it for the lock key. The subscription
+  // lookup row therefore carries account_id alongside subscription_status.
+  const cases: Array<{ name: string; run: () => Promise<Response> }> = [
+    {
+      name: 'verify',
+      run: () => {
+        sqlReturnQueue.push([{ subscription_status: 'active', account_id: 'acct-7' }]); // sub + account
+        sqlReturnQueue.push([]); // advisory lock
+        sqlReturnQueue.push([]); // active-row SELECT — none
+        sqlReturnQueue.push([]); // opt-out — clean
+        sqlReturnQueue.push([]); // cross-channel precheck — none
+        sqlReturnQueue.push([]); // post-Twilio opt-out re-check
+        sqlReturnQueue.push([]); // INSERT
+        return verifyPOST(reqFor('verify', { business_id: 'biz-L2', phone: '+14155552671' }));
+      },
+    },
+    {
+      name: 'confirm',
+      run: () => {
+        sqlReturnQueue.push([{ subscription_status: 'active', account_id: 'acct-7' }]);
+        sqlReturnQueue.push([]); // advisory lock
+        sqlReturnQueue.push([{ handle: '+14155552671', status: 'pending_verification' }]);
+        sqlReturnQueue.push([]); // opt-out — clean
+        sqlReturnQueue.push([{ id: 'enr-1' }]); // UPDATE RETURNING
+        return confirmPOST(reqFor('confirm', { business_id: 'biz-L2', code: '123456' }));
+      },
+    },
+    {
+      name: 'cancel',
+      run: () => {
+        sqlReturnQueue.push([{ subscription_status: 'active', account_id: 'acct-7' }]);
+        sqlReturnQueue.push([]); // advisory lock
+        sqlReturnQueue.push([]); // CTE
+        return cancelPOST(reqFor('cancel', { business_id: 'biz-L2' }));
+      },
+    },
+    {
+      name: 'disable',
+      run: () => {
+        sqlReturnQueue.push([{ subscription_status: 'active', account_id: 'acct-7' }]);
+        sqlReturnQueue.push([]); // advisory lock
+        sqlReturnQueue.push([{ id: 'enr-1' }]); // UPDATE RETURNING
+        return disablePOST(reqFor('disable', { business_id: 'biz-L2' }));
+      },
+    },
+    {
+      name: 'delete',
+      run: () => {
+        sqlReturnQueue.push([{ subscription_status: 'active', account_id: 'acct-7' }]);
+        sqlReturnQueue.push([]); // advisory lock
+        sqlReturnQueue.push([]); // UPDATE
+        return deletePOST(reqFor('delete', { business_id: 'biz-L2', confirm: true }));
+      },
+    },
+  ];
+
+  for (const c of cases) {
+    it(`${c.name}: advisory lock keyed by account_id, never business_id`, async () => {
+      await c.run();
+      const lockCall = sqlCallsLog.find((call) => /pg_advisory_xact_lock/.test(call.raw));
+      expect(lockCall).toBeDefined();
+      expect(lockCall!.values).toContain('mobile_enroll:acct-7');
+      expect(lockCall!.values).not.toContain('mobile_enroll:biz-L2');
+    });
+  }
+});
+
+describe('SMS verify: account-scoped cross-channel precheck', () => {
+  beforeEach(resetMocks);
+
+  function verifyReq(body: unknown): NextRequest {
+    return new NextRequest('http://localhost/api/admin/channels/sms/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: APP_URL },
+      body: JSON.stringify(body),
+    });
+  }
+
+  it('409 multiple_mobile_channels when an account-scoped Telegram org-default exists (created under another location)', async () => {
+    sqlReturnQueue.push([{ subscription_status: 'active', account_id: 'acct-7' }]); // sub + account
+    sqlReturnQueue.push([]); // advisory lock
+    sqlReturnQueue.push([]); // active SMS row — none for L2
+    sqlReturnQueue.push([]); // opt-out — clean
+    sqlReturnQueue.push([{ channel: 'telegram' }]); // cross-channel precheck — L1 org-default seen
+    const res = await verifyPOST(verifyReq({ business_id: 'biz-L2', phone: '+14155552671' }));
+    expect(res.status).toBe(409);
+    expect((await res.json()).reason).toBe('multiple_mobile_channels');
+    // No Twilio Verify SMS should have been dispatched — the precheck caught it.
+    expect(mockVerifyCreate).not.toHaveBeenCalled();
+  });
+
+  it('cross-channel precheck queries by account_id + location_id IS NULL, not business_id', async () => {
+    sqlReturnQueue.push([{ subscription_status: 'active', account_id: 'acct-7' }]);
+    sqlReturnQueue.push([]); // advisory lock
+    sqlReturnQueue.push([]); // active SMS row — none
+    sqlReturnQueue.push([]); // opt-out — clean
+    sqlReturnQueue.push([]); // cross-channel precheck — none
+    sqlReturnQueue.push([]); // post-Twilio opt-out re-check
+    sqlReturnQueue.push([]); // INSERT
+    await verifyPOST(verifyReq({ business_id: 'biz-L2', phone: '+14155552671' }));
+    const precheck = sqlCallsLog.find(
+      (c) => /channel IN \('telegram', 'whatsapp'\)/.test(c.raw),
+    );
+    expect(precheck).toBeDefined();
+    expect(precheck!.raw).toMatch(/account_id = /);
+    expect(precheck!.raw).toMatch(/location_id IS NULL/);
+    expect(precheck!.raw).not.toMatch(/business_id = /);
+    expect(precheck!.values).toContain('acct-7');
+    expect(precheck!.values).not.toContain('biz-L2');
+  });
+});
+
+// ── SMS rows are account-scoped org-default, NOT business_id ──────────
+// Regression guard for the PR-review HIGH finding: SMS is a one-per-account
+// org-default channel (location_id IS NULL), like Telegram/WhatsApp. Every
+// SMS-row read/write must key by account_id + location_id IS NULL — keying by
+// the per-location business_id let an L1 row hide from L2, causing a wasted
+// Twilio Verify + late one_mobile_per_scope 409 on multi-location accounts.
+describe('SMS rows are account-scoped org-default (account_id + location_id IS NULL, never business_id)', () => {
+  beforeEach(resetMocks);
+
+  /** Joined SQL text of every call the route made. */
+  const allRaw = () => sqlCallsLog.map((c) => c.raw).join('\n');
+  /** Every bound value across all calls. */
+  const allValues = () => sqlCallsLog.flatMap((c) => c.values);
+
+  // No SELECT/UPDATE may key the SMS row by business_id. The INSERT lists
+  // business_id as a *column* (legacy FK) but has no WHERE, so this stays clean.
+  const ORG_DEFAULT_LOOKUP = /account_id = \? AND channel = 'sms' AND location_id IS NULL/;
+  const BIZ_LOOKUP = /WHERE business_id = \? AND channel = 'sms'/;
+
+  it('verify: active-row read is keyed by account_id + location_id IS NULL', async () => {
+    sqlReturnQueue.push([{ subscription_status: 'active', account_id: 'acct-1' }]);
+    sqlReturnQueue.push([]); // advisory lock
+    // active row exists + verified → route short-circuits right after the read.
+    sqlReturnQueue.push([{ handle: '+14155552671', status: 'verified' }]);
+    await verifyPOST(adminReq({ business_id: 'biz-L2' }));
+    expect(allRaw()).toMatch(
+      /SELECT handle, status FROM channel_enrollments\s+WHERE account_id = \? AND channel = 'sms' AND location_id IS NULL/,
+    );
+    expect(allRaw()).not.toMatch(BIZ_LOOKUP);
+    expect(allValues()).toContain('acct-1');
+  });
+
+  it('verify: brand-new INSERT writes account_id org-default (no location_id column)', async () => {
+    sqlReturnQueue.push([{ subscription_status: 'active', account_id: 'acct-1' }]);
+    sqlReturnQueue.push([]); // lock
+    sqlReturnQueue.push([]); // active row — none
+    sqlReturnQueue.push([]); // opt-out — clean
+    sqlReturnQueue.push([]); // cross-channel precheck — none
+    sqlReturnQueue.push([]); // post-Twilio opt-out re-check
+    sqlReturnQueue.push([]); // INSERT
+    await verifyPOST(adminReq({ business_id: 'biz-L2', phone: '+14155552671' }));
+    const insert = sqlCallsLog.find((c) => /INSERT INTO channel_enrollments/.test(c.raw));
+    expect(insert).toBeDefined();
+    expect(insert!.raw).toMatch(/\(id, account_id, business_id, channel, handle, status\)/);
+    expect(insert!.raw).not.toMatch(/location_id/); // org-default: column omitted → NULL
+    expect(insert!.values).toContain('acct-1');
+  });
+
+  it('confirm: verified-flip UPDATE is account-scoped org-default', async () => {
+    sqlReturnQueue.push([{ subscription_status: 'active', account_id: 'acct-1' }]);
+    sqlReturnQueue.push([]); // lock
+    sqlReturnQueue.push([{ handle: '+14155552671', status: 'pending_verification' }]); // active row
+    sqlReturnQueue.push([]); // opt-out — clean
+    sqlReturnQueue.push([{ id: 'enr-1' }]); // UPDATE RETURNING id
+    await confirmPOST(adminReq({ business_id: 'biz-L2', code: '123456' }));
+    expect(allRaw()).toMatch(new RegExp(`UPDATE channel_enrollments[\\s\\S]*?${ORG_DEFAULT_LOOKUP.source}`));
+    expect(allRaw()).not.toMatch(BIZ_LOOKUP);
+    expect(allValues()).toContain('acct-1');
+  });
+
+  it('cancel: revert CTE is account-scoped org-default', async () => {
+    sqlReturnQueue.push([{ subscription_status: 'active', account_id: 'acct-1' }]);
+    sqlReturnQueue.push([]); // lock
+    sqlReturnQueue.push([]); // revert CTE
+    await cancelPOST(adminReq({ business_id: 'biz-L2' }));
+    expect(allRaw()).toMatch(new RegExp(`UPDATE channel_enrollments[\\s\\S]*?${ORG_DEFAULT_LOOKUP.source}`));
+    expect(allRaw()).not.toMatch(BIZ_LOOKUP);
+    expect(allValues()).toContain('acct-1');
+  });
+
+  it('disable: UPDATE is account-scoped org-default', async () => {
+    sqlReturnQueue.push([{ subscription_status: 'active', account_id: 'acct-1' }]);
+    sqlReturnQueue.push([]); // lock
+    sqlReturnQueue.push([{ id: 'enr-1' }]); // UPDATE RETURNING id
+    await disablePOST(adminReq({ business_id: 'biz-L2' }));
+    expect(allRaw()).toMatch(new RegExp(`UPDATE channel_enrollments[\\s\\S]*?${ORG_DEFAULT_LOOKUP.source}`));
+    expect(allRaw()).not.toMatch(BIZ_LOOKUP);
+    expect(allValues()).toContain('acct-1');
+  });
+
+  it('delete: archive UPDATE is account-scoped org-default', async () => {
+    sqlReturnQueue.push([{ subscription_status: 'active', account_id: 'acct-1' }]);
+    sqlReturnQueue.push([]); // lock
+    sqlReturnQueue.push([]); // archive UPDATE
+    await deletePOST(adminReq({ business_id: 'biz-L2', confirm: true }));
+    expect(allRaw()).toMatch(new RegExp(`UPDATE channel_enrollments[\\s\\S]*?${ORG_DEFAULT_LOOKUP.source}`));
+    expect(allRaw()).not.toMatch(BIZ_LOOKUP);
+    expect(allValues()).toContain('acct-1');
   });
 });

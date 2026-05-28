@@ -7,8 +7,8 @@
 //
 // Ordering invariants:
 //   1. Same-origin wrapper → flag → env → auth → body parse → explicit confirm gate → subscription.
-//   2. Per-(business_id, 'sms') advisory lock — matches /verify, /confirm,
-//      /cancel, /disable.
+//   2. Per-account mobile-enrollment advisory lock — matches /verify, /confirm,
+//      /cancel, /disable (and the Telegram/WhatsApp admin routes).
 //   3. UPDATE gated on `archived_at IS NULL` so repeated calls are idempotent
 //      (0 rows updated on a second call is fine — no error surfaced).
 //
@@ -17,13 +17,12 @@
 // compliance (7-year retention).
 
 import { NextRequest, NextResponse } from 'next/server';
-import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import {
   isSmsEnabled,
   flagOff,
   assertSmsEnvReady,
-  loadBusinessSubscriptionStatus,
+  loadBusinessAccountContext,
   isSubscriptionActive,
   subscriptionNotActive,
   withMobileEnrollmentLock,
@@ -60,26 +59,25 @@ async function deleteSms(request: NextRequest): Promise<NextResponse> {
   // string 'true' or 1, which usually indicate a client serialization bug.
   if (body.confirm !== true) return badRequest('confirmation_required');
 
-  const subStatus = await loadBusinessSubscriptionStatus(businessId);
-  if (!isSubscriptionActive(subStatus)) return subscriptionNotActive();
+  const accountContext = await loadBusinessAccountContext(businessId);
+  if (!accountContext || !isSubscriptionActive(accountContext.subscriptionStatus)) {
+    return subscriptionNotActive();
+  }
+  const accountId = accountContext.accountId;
 
-  const result = await withMobileEnrollmentLock(businessId, async (tx) => {
+  const result = await withMobileEnrollmentLock(accountId, async (tx) => {
     await tx`
       UPDATE channel_enrollments
       SET archived_at = NOW(), archive_reason = 'admin_delete', updated_at = NOW()
-      WHERE business_id = ${businessId} AND channel = 'sms' AND archived_at IS NULL
+      WHERE account_id = ${accountId} AND channel = 'sms' AND location_id IS NULL AND archived_at IS NULL
     `;
     return NextResponse.json({ ok: true });
   });
 
   // Invalidate channel cache — the archived channel must be removed from
-  // the dispatch resolution immediately.
-  const [acctRow] = await sql<{ account_id: string }[]>`
-    SELECT account_id FROM businesses WHERE id = ${businessId}
-  `;
-  if (acctRow?.account_id) {
-    await safeInvalidateChannelCache(asAccountId(acctRow.account_id), 'admin.sms.delete');
-  }
+  // the dispatch resolution immediately. Reuse the account id resolved
+  // up-front instead of a second businesses lookup.
+  await safeInvalidateChannelCache(asAccountId(accountId), 'admin.sms.delete');
 
   return result;
 }

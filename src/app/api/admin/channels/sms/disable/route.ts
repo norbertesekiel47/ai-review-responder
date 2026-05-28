@@ -6,19 +6,18 @@
 //
 // Ordering invariants:
 //   1. Same-origin wrapper → flag → env → auth → body parse → subscription.
-//   2. Per-(business_id, 'sms') advisory lock — matches /verify, /confirm,
-//      /cancel.
+//   2. Per-account mobile-enrollment advisory lock — matches /verify, /confirm,
+//      /cancel (and the Telegram/WhatsApp admin routes).
 //   3. UPDATE gated on `status = 'verified'` + `archived_at IS NULL`; empty
 //      RETURNING means the row was not in verified state (409 not_verified).
 
 import { NextRequest, NextResponse } from 'next/server';
-import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import {
   isSmsEnabled,
   flagOff,
   assertSmsEnvReady,
-  loadBusinessSubscriptionStatus,
+  loadBusinessAccountContext,
   isSubscriptionActive,
   subscriptionNotActive,
   withMobileEnrollmentLock,
@@ -52,14 +51,17 @@ async function disableSms(request: NextRequest): Promise<NextResponse> {
   if (!rawBusinessId) return badRequest('business_id_required');
   const businessId = asLocationId(rawBusinessId);
 
-  const subStatus = await loadBusinessSubscriptionStatus(businessId);
-  if (!isSubscriptionActive(subStatus)) return subscriptionNotActive();
+  const accountContext = await loadBusinessAccountContext(businessId);
+  if (!accountContext || !isSubscriptionActive(accountContext.subscriptionStatus)) {
+    return subscriptionNotActive();
+  }
+  const accountId = accountContext.accountId;
 
-  const result = await withMobileEnrollmentLock(businessId, async (tx) => {
+  const result = await withMobileEnrollmentLock(accountId, async (tx) => {
     const result = await tx<{ id: string }[]>`
       UPDATE channel_enrollments
       SET status = 'disabled', disabled_at = NOW(), updated_at = NOW()
-      WHERE business_id = ${businessId} AND channel = 'sms'
+      WHERE account_id = ${accountId} AND channel = 'sms' AND location_id IS NULL
         AND status = 'verified' AND archived_at IS NULL
       RETURNING id
     `;
@@ -68,13 +70,9 @@ async function disableSms(request: NextRequest): Promise<NextResponse> {
   });
 
   // Invalidate channel cache — the disabled channel must be removed from
-  // the dispatch resolution immediately.
-  const [acctRow] = await sql<{ account_id: string }[]>`
-    SELECT account_id FROM businesses WHERE id = ${businessId}
-  `;
-  if (acctRow?.account_id) {
-    await safeInvalidateChannelCache(asAccountId(acctRow.account_id), 'admin.sms.disable');
-  }
+  // the dispatch resolution immediately. Reuse the account id resolved
+  // up-front instead of a second businesses lookup.
+  await safeInvalidateChannelCache(asAccountId(accountId), 'admin.sms.disable');
 
   return result;
 }

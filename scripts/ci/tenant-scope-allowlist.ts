@@ -61,36 +61,6 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "Admin-only cross-tenant read of the open flagged-response queue (deny-all RLS table joined to its parent rows); gated by requireRole('admin') and proxy /api/admin protection.",
   },
   {
-    file: "src/app/api/admin/channels/sms/cancel/route.ts",
-    table: "businesses",
-    sqlSnippet: "SELECT account_id FROM businesses WHERE id = ${businessId}",
-    reason: "Admin-only route or service intentionally performs this statement after requireRole(admin).",
-  },
-  {
-    file: "src/app/api/admin/channels/sms/confirm/route.ts",
-    table: "businesses",
-    sqlSnippet: "SELECT account_id FROM businesses WHERE id = ${businessId}",
-    reason: "Admin-only route or service intentionally performs this statement after requireRole(admin).",
-  },
-  {
-    file: "src/app/api/admin/channels/sms/delete/route.ts",
-    table: "businesses",
-    sqlSnippet: "SELECT account_id FROM businesses WHERE id = ${businessId}",
-    reason: "Admin-only route or service intentionally performs this statement after requireRole(admin).",
-  },
-  {
-    file: "src/app/api/admin/channels/sms/disable/route.ts",
-    table: "businesses",
-    sqlSnippet: "SELECT account_id FROM businesses WHERE id = ${businessId}",
-    reason: "Admin-only route or service intentionally performs this statement after requireRole(admin).",
-  },
-  {
-    file: "src/app/api/admin/channels/sms/verify/route.ts",
-    table: "businesses",
-    sqlSnippet: "SELECT account_id FROM businesses WHERE id = ${businessId}",
-    reason: "Admin-only route or service intentionally performs this statement after requireRole(admin).",
-  },
-  {
     file: "src/app/api/admin/channels/telegram/cancel/route.ts",
     table: "businesses",
     sqlSnippet: "SELECT account_id FROM businesses WHERE id = ${businessId}",

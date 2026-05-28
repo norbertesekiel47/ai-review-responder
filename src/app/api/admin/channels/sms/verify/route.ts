@@ -16,7 +16,7 @@
 //   verified           → 400 already_verified (admin must Disable/Delete first)
 //
 // Ordering invariants:
-//   1. Same-origin wrapper → flag → env → auth → subscription → per-(business_id,'sms') advisory lock.
+//   1. Same-origin wrapper → flag → env → auth → subscription → per-account mobile-enrollment advisory lock.
 //   2. Resolve dbAction inside the lock so concurrent admins can't race.
 //   3. Sender-opt-out check scoped to current Messaging Service SID.
 //   4. Twilio Verify call happens BEFORE the INSERT/UPDATE, so a Twilio
@@ -27,13 +27,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { parsePhoneNumber } from 'libphonenumber-js';
 import twilio from 'twilio';
 import { v7 as uuidv7 } from 'uuid';
-import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import {
   isSmsEnabled,
   flagOff,
   assertSmsEnvReady,
-  loadBusinessSubscriptionStatus,
+  loadBusinessAccountContext,
   isSubscriptionActive,
   subscriptionNotActive,
   withMobileEnrollmentLock,
@@ -42,9 +41,8 @@ import {
   twilioVerifyError,
 } from '../_shared';
 import { classifyEnrollmentError, MultipleMobileChannelsError, EnrollmentDatabaseError } from '@/lib/channels/unique-violation';
-import { asLocationId } from '@/lib/shared/ids';
+import { asLocationId, asAccountId } from '@/lib/shared/ids';
 import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
-import { asAccountId } from '@/lib/shared/ids';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
 
 interface VerifyBody {
@@ -81,16 +79,22 @@ async function verifySms(request: NextRequest): Promise<NextResponse> {
   const businessId = asLocationId(rawBusinessId);
   const submittedPhone = body.phone;
 
-  const subStatus = await loadBusinessSubscriptionStatus(businessId);
-  if (!isSubscriptionActive(subStatus)) return subscriptionNotActive();
+  const accountContext = await loadBusinessAccountContext(businessId);
+  if (!accountContext || !isSubscriptionActive(accountContext.subscriptionStatus)) {
+    return subscriptionNotActive();
+  }
+  const accountId = accountContext.accountId;
 
-  const result = await withMobileEnrollmentLock(businessId, async (tx) => {
-    // Load the active (non-archived) SMS enrollment row, if any. At most one
-    // exists because of the partial unique index (channel_enrollments
-    // (business_id, channel) WHERE archived_at IS NULL) shipped in 021.
+  const result = await withMobileEnrollmentLock(accountId, async (tx) => {
+    // Load the active (non-archived) SMS enrollment row, if any. SMS is an
+    // account-scoped org-default channel (location_id IS NULL), like Telegram
+    // and WhatsApp — so it is keyed by account_id, NOT the per-location
+    // business_id. At most one exists per account via the
+    // channel_enrollments_account_channel_scope_uniq index (migration 034),
+    // keyed (account_id, channel, COALESCE(location_id, sentinel)).
     const activeRows = await tx<{ handle: string; status: string }[]>`
       SELECT handle, status FROM channel_enrollments
-      WHERE business_id = ${businessId} AND channel = 'sms' AND archived_at IS NULL
+      WHERE account_id = ${accountId} AND channel = 'sms' AND location_id IS NULL AND archived_at IS NULL
     `;
     const row = activeRows[0];
 
@@ -141,16 +145,21 @@ async function verifySms(request: NextRequest): Promise<NextResponse> {
       return badRequest('sender_opt_in_required');
     }
 
-    // Pre-check migration 027's predicate before calling Twilio. Saves
-    // the cost of a Verify SMS when another mobile channel is already
-    // pending or verified. The DB index is still authoritative — a
-    // concurrent Telegram/WhatsApp start would race past this check and
-    // be caught by the catch block below.
+    // Pre-check the one_mobile_per_scope predicate before calling Twilio.
+    // Saves the cost of a Verify SMS when another mobile channel is already
+    // pending or verified for this account. Scoped by account_id +
+    // location_id IS NULL to match how Telegram/WhatsApp persist their
+    // account-scoped org-default rows — on a multi-location account a
+    // chat-channel org-default created under another location must be seen
+    // here. The DB index is still authoritative — a concurrent
+    // Telegram/WhatsApp start would race past this check and be caught by
+    // the catch block below.
     const otherMobileRows = await tx<{ channel: string }[]>`
       SELECT channel FROM channel_enrollments
-      WHERE business_id = ${businessId}
+      WHERE account_id = ${accountId}
         AND channel IN ('telegram', 'whatsapp')
         AND status IN ('pending_verification', 'verified')
+        AND location_id IS NULL
         AND archived_at IS NULL
       LIMIT 1
     `;
@@ -193,17 +202,12 @@ async function verifySms(request: NextRequest): Promise<NextResponse> {
 
     try {
       if (dbAction === 'insert') {
-        // Resolve account_id from businesses within the same tx so the
-        // INSERT satisfies the NOT NULL constraint added by migration 034.
-        const [bizRow] = await tx<{ account_id: string }[]>`
-          SELECT account_id FROM businesses WHERE id = ${businessId}
-        `;
-        if (!bizRow?.account_id) {
-          return NextResponse.json({ error: 'account_not_found' }, { status: 404 });
-        }
+        // accountId was resolved up-front (same JOIN as the subscription gate)
+        // and satisfies the account_id NOT NULL constraint added by migration
+        // 034 — no second businesses lookup needed inside the tx.
         await tx`
           INSERT INTO channel_enrollments (id, account_id, business_id, channel, handle, status)
-          VALUES (${uuidv7()}, ${bizRow.account_id}, ${businessId}, 'sms', ${twilioPhone}, 'pending_verification')
+          VALUES (${uuidv7()}, ${accountId}, ${businessId}, 'sms', ${twilioPhone}, 'pending_verification')
         `;
       } else if (dbAction === 'update') {
         // dbAction='update' is only set in the else branch above where `row`
@@ -214,7 +218,7 @@ async function verifySms(request: NextRequest): Promise<NextResponse> {
         const updated = await tx<{ id: string }[]>`
           UPDATE channel_enrollments
           SET status = 'pending_verification', updated_at = NOW()
-          WHERE business_id = ${businessId} AND channel = 'sms' AND archived_at IS NULL
+          WHERE account_id = ${accountId} AND channel = 'sms' AND location_id IS NULL AND archived_at IS NULL
             AND status = ${row!.status}
           RETURNING id
         `;
@@ -242,13 +246,9 @@ async function verifySms(request: NextRequest): Promise<NextResponse> {
 
   // Invalidate channel cache — the enrollment state change affects which
   // channels are available for dispatch. Best-effort: a Redis failure
-  // should not block the admin response.
-  const [acctRow] = await sql<{ account_id: string }[]>`
-    SELECT account_id FROM businesses WHERE id = ${businessId}
-  `;
-  if (acctRow?.account_id) {
-    await safeInvalidateChannelCache(asAccountId(acctRow.account_id), 'admin.sms.verify');
-  }
+  // should not block the admin response. Reuse the account id resolved
+  // up-front instead of a second businesses lookup.
+  await safeInvalidateChannelCache(asAccountId(accountId), 'admin.sms.verify');
 
   return result;
 }
