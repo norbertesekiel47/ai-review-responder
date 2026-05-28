@@ -316,40 +316,38 @@ function tenantAliasDirectlyScoped(
   return hasBoundIdentifierPredicate(clauses, identifiers);
 }
 
-function hasTenantScopeForTable(
+type PredicateClauses = ReturnType<typeof predicateClauses>;
+
+// `accounts` is scoped either directly (a.id = ...) or transitively through a
+// directly-scoped `businesses` row whose account_id ties back to this alias.
+function accountTableScoped(
   sqlText: string,
-  table: TenantTable,
-  referencedTables: readonly TenantTable[],
+  clauses: PredicateClauses,
+  aliases: string[],
 ): boolean {
-  const clauses = predicateClauses(sqlText);
-  const aliases = tableAliases(sqlText, table);
-  const allowUnqualified = aliases.length === 1 && referencedTables.length === 1;
-
-  if (table === 'accounts') {
-    if (aliases.some((alias) => accountAliasScoped(clauses, alias, aliases.length === 1))) {
-      return true;
-    }
-    for (const businessAlias of tableAliases(sqlText, 'businesses')) {
-      if (!businessAliasDirectlyScoped(clauses, businessAlias, false)) continue;
-      if (aliases.some((accountAlias) => hasIdentifierRelationship(
-        clauses,
-        qualifiedIdentifier(businessAlias, 'account_id'),
-        qualifiedIdentifier(accountAlias, 'id'),
-      ))) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  if (table === 'businesses') {
-    return aliases.some((alias) => businessAliasScoped(sqlText, clauses, alias, aliases.length === 1));
-  }
-
-  if (aliases.some((alias) => tenantAliasDirectlyScoped(clauses, alias, allowUnqualified))) {
+  if (aliases.some((alias) => accountAliasScoped(clauses, alias, aliases.length === 1))) {
     return true;
   }
+  for (const businessAlias of tableAliases(sqlText, 'businesses')) {
+    if (!businessAliasDirectlyScoped(clauses, businessAlias, false)) continue;
+    if (aliases.some((accountAlias) => hasIdentifierRelationship(
+      clauses,
+      qualifiedIdentifier(businessAlias, 'account_id'),
+      qualifiedIdentifier(accountAlias, 'id'),
+    ))) {
+      return true;
+    }
+  }
+  return false;
+}
 
+// A non-account/business tenant table is scoped if it joins to a scoped
+// `accounts` (via account_id) or a scoped `businesses` (via business_id).
+function tenantTableTransitivelyScoped(
+  sqlText: string,
+  clauses: PredicateClauses,
+  aliases: string[],
+): boolean {
   for (const alias of aliases) {
     for (const accountAlias of tableAliases(sqlText, 'accounts')) {
       const relatedToAccount = hasIdentifierRelationship(
@@ -371,8 +369,31 @@ function hasTenantScopeForTable(
       if (businessAliasScoped(sqlText, clauses, businessAlias, false)) return true;
     }
   }
-
   return false;
+}
+
+function hasTenantScopeForTable(
+  sqlText: string,
+  table: TenantTable,
+  referencedTables: readonly TenantTable[],
+): boolean {
+  const clauses = predicateClauses(sqlText);
+  const aliases = tableAliases(sqlText, table);
+  const allowUnqualified = aliases.length === 1 && referencedTables.length === 1;
+
+  if (table === 'accounts') {
+    return accountTableScoped(sqlText, clauses, aliases);
+  }
+
+  if (table === 'businesses') {
+    return aliases.some((alias) => businessAliasScoped(sqlText, clauses, alias, aliases.length === 1));
+  }
+
+  if (aliases.some((alias) => tenantAliasDirectlyScoped(clauses, alias, allowUnqualified))) {
+    return true;
+  }
+
+  return tenantTableTransitivelyScoped(sqlText, clauses, aliases);
 }
 
 function referencesTenantTable(sqlText: string, table: string): boolean {
