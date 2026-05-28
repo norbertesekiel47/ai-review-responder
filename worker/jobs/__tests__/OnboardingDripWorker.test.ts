@@ -314,7 +314,7 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
     sqlReturnQueue.push([{ responded: 12 }]);               // 5. responded
     sqlReturnQueue.push([{ keyword: 'pizza near me', rank_position: 3 }]); // 6. latest ranking
     sqlReturnQueue.push([{ rank_position: 8 }]);            // 7. earliest ranking
-    sqlReturnQueue.push([{ name: 'Sales Pat' }]);           // 8. sales partner (scoped)
+    sqlReturnQueue.push([{ name: 'Admin Pat' }]);           // 8. scoped admin sign-off
     sqlReturnQueue.push([]);                                 // 9. UPDATE sent_at
 
     await handleOnboardingDrip(makeJob({ drip_type: 'day_30' }));
@@ -327,7 +327,7 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
       responseRateNow: 80,     // 12/15 * 100 = 80
       timeSavedMinutes: 84,    // 12 * 7
       rankingChange: { keyword: 'pizza near me', from: 8, to: 3 },
-      salesPartnerName: 'Sales Pat',
+      supportContactName: 'Admin Pat',
     });
 
     expect(mockSendInternalEmail).toHaveBeenCalledWith({
@@ -365,7 +365,7 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
     expect(statements).toContain("WHERE role = 'admin'");
     expect(statements).not.toContain('sales_partner');
     expect(mockBuildOnboardingDay30Html).toHaveBeenCalledWith(
-      expect.objectContaining({ salesPartnerName: 'Admin Pat' }),
+      expect.objectContaining({ supportContactName: 'Admin Pat' }),
     );
   });
 
@@ -380,7 +380,7 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
     sqlReturnQueue.push([{ total: 3 }]);     // 4. total reviews
     sqlReturnQueue.push([{ responded: 3 }]); // 5. responded
     sqlReturnQueue.push([]);                  // 6. no latest ranking (skips earliest)
-    sqlReturnQueue.push([]);                  // 7. no scoped sales partner
+    sqlReturnQueue.push([]);                  // 7. no scoped admin sign-off
     sqlReturnQueue.push([]);                  // 8. no onboarder fallback
     sqlReturnQueue.push([]);                  // 9. UPDATE sent_at
 
@@ -394,7 +394,7 @@ describe('OnboardingDripWorker – handleOnboardingDrip', () => {
       responseRateNow: 100,
       timeSavedMinutes: 21,
       rankingChange: null,
-      salesPartnerName: null,
+      supportContactName: null,
     });
 
     expect(mockSendInternalEmail).toHaveBeenCalled();

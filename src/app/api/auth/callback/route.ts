@@ -171,17 +171,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return incomplete;
   }
 
-  if (role === 'sales_partner') {
-    await supabase.auth.signOut();
-    const unsupported = NextResponse.redirect(
-      new URL(`${loginUrl}?error=unsupported_role`, origin),
-    );
-    for (const cookie of response.cookies.getAll()) {
-      unsupported.cookies.set(cookie);
-    }
-    return unsupported;
-  }
-
   if (role !== 'owner' && role !== 'admin') {
     await supabase.auth.signOut();
     const incomplete = NextResponse.redirect(

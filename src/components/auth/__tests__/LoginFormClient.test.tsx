@@ -97,7 +97,10 @@ describe('LoginFormClient (admin)', () => {
     expect(html).not.toContain('Continue with Google');
   });
 
-  it('signs out sales_partner password login and shows an unsupported-role message', async () => {
+  // A legacy sales_partner row (now DB-impossible via migration 053) is not in
+  // the admin allowlist, so it fails closed through the general portal-mismatch
+  // path. There is no longer a sales_partner-specific message branch (#50).
+  it('signs out a non-allowlisted (legacy sales_partner) admin login via the portal-mismatch path', async () => {
     render(
       createElement(LoginFormInner, {
         portal: 'admin',
@@ -116,7 +119,7 @@ describe('LoginFormClient (admin)', () => {
       expect(mockSignOut).toHaveBeenCalledTimes(1);
     });
     expect(routerPush).not.toHaveBeenCalled();
-    expect(screen.getByText(/no longer supported/i)).toBeInTheDocument();
+    expect(screen.getByText(/owner portal/i)).toBeInTheDocument();
   });
 
   it('renders the Google button when showGoogleButton is true', () => {

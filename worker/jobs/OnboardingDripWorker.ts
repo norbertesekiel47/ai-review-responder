@@ -411,14 +411,14 @@ async function buildDay30(
   // 1. Business-scoped admin
   // 2. Onboarding staff via businesses.onboarded_by with role check
   // 3. null (no sign-off)
-  let salesPartnerName: string | null = null;
-  const [scopedPartner] = await sql<{ name: string }[]>`
+  let supportContactName: string | null = null;
+  const [scopedAdmin] = await sql<{ name: string }[]>`
     SELECT name FROM users
     WHERE role = 'admin' AND business_id = ${business.id}
     LIMIT 1
   `;
-  if (scopedPartner) {
-    salesPartnerName = scopedPartner.name;
+  if (scopedAdmin) {
+    supportContactName = scopedAdmin.name;
   } else {
     const [onboarder] = await sql<{ name: string }[]>`
       SELECT u.name FROM users u
@@ -426,7 +426,7 @@ async function buildDay30(
       WHERE b.id = ${business.id} AND u.role = 'admin'
       LIMIT 1
     `;
-    salesPartnerName = onboarder?.name ?? null;
+    supportContactName = onboarder?.name ?? null;
   }
 
   const timeSavedMinutes = responded * 7;
@@ -439,7 +439,7 @@ async function buildDay30(
     responseRateNow,
     timeSavedMinutes,
     rankingChange,
-    salesPartnerName,
+    supportContactName,
   });
 
   return { html, subject: `Your first month with RepWorth — ${business.name}` };

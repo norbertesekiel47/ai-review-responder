@@ -102,11 +102,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   //
   //    Defense-in-depth: explicit `u.role = 'owner'` filter. Proxy gates
   //    /onboarding/* PAGES on role, but proxy doesn't check `/api/onboarding/*`
-  //    — direct API calls from a signed-in admin/sales_partner session would
-  //    otherwise have access to whatever primary business their account points
-  //    at (NULL for true admins, but a sales_partner row could be misconfigured).
-  //    Filtering at the SQL boundary makes this an authorization invariant
-  //    that survives proxy refactors.
+  //    — direct API calls from a signed-in admin session would otherwise have
+  //    access to whatever primary business their account points at (NULL for
+  //    true admins). Filtering at the SQL boundary makes this an authorization
+  //    invariant that survives proxy refactors.
   const [bizRow] = await sql<BusinessRow[]>`
     SELECT b.id, a.id AS account_id, a.subscription_status, b.place_id_verified, b.google_maps_url
     FROM users u
@@ -118,9 +117,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   `;
   if (!bizRow) {
     // Either no users row yet (signup not finished provisioning), no
-    // business attached, OR the caller is admin/sales_partner posting
-    // directly to this owner-only endpoint. Return 404 either way so we
-    // don't leak whether an admin session has an associated business.
+    // business attached, OR the caller is an admin posting directly to
+    // this owner-only endpoint. Return 404 either way so we don't leak
+    // whether an admin session has an associated business.
     return NextResponse.json(
       { error: 'account_incomplete' },
       { status: 404, headers: NO_STORE },
