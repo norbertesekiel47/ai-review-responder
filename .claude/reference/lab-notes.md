@@ -15,8 +15,8 @@ Jump to the dated entries by subsystem (search the anchors below):
 - **Billing / multi-location** — stored-quota vs TIER_CONFIG, base price not grandfathered, channel account-scope desync
 - **Analytics / PostHog** — unconfigured no-op retry budget, durable vs intent events, RLS on new tables
 - **Moderation / logging** — fail-open moderation, logger-never-throws (incl. AsyncLocalStorage binding for correlation IDs)
-- **CI / tooling** — nested-worktree poisoning, MOCK_EXTERNAL_APIS=false in CI, tenant-scope allowlist drift, comment-backtick extractor false-positive, allowlist file-move orphaning
-- **Testing** — vi.hoisted for shared mocks, NextRequest vs Request, relative imports under tsx
+- **CI / tooling** — nested-worktree poisoning, MOCK_EXTERNAL_APIS=false in CI, tenant-scope allowlist drift, comment-backtick extractor false-positive, allowlist file-move orphaning, worktree test-failure vs real regression (verify on the same ref)
+- **Testing** — vi.hoisted for shared mocks, NextRequest vs Request, relative imports under tsx, compat re-export must shield all consumers (mock-contract)
 
 ---
 
@@ -1129,3 +1129,32 @@ NOT cover `worker/`, so a moved-query break passes local `lint` but fails the CI
 `lint` job (which also runs `pnpm ci:tenant-scope`).
 **Correct approach:** when SQL moves between files, repoint the entry's `file` and
 run `pnpm ci:tenant-scope` (+ `ci:rls-audit`) — not just `lint`/`typecheck`/`test`.
+
+### A worktree test failure can be a real regression, not the nested-worktree leak
+The nested-worktree `node_modules` leak (CLAUDE.md "CI & repo") is real, which makes
+it a tempting catch-all whenever tests fail inside a `.claude/worktrees/` checkout
+but "pass in a clean checkout." During PR #130 I dismissed 11 `generator.test.ts`
+failures as the leak — they were a genuine regression. The trap: I compared the
+worktree (MY branch) against a clean checkout sitting on `main` (WITHOUT my change),
+so "passes clean, fails in worktree" looked environmental when it was really "passes
+on `main`, fails on my branch." CI on a clean clone of the BRANCH failed identically
+— the decisive signal I should have trusted first.
+**Correct approach:** to separate an environmental artifact from a real bug, run the
+SAME ref in both places (or just read the branch's CI on a clean clone). "Passes on
+the base branch" proves nothing about your change. Never reach for a known gotcha as
+the explanation without reproducing it with one variable changed at a time.
+
+### A compat re-export must shield ALL consumers, not just the externally-owned one
+When you extract a module and leave a re-export shim on the OLD module for
+back-compat, repointing even ONE in-house consumer at the NEW module breaks every
+test that mocks the OLD module to neutralize that consumer's side effects. PR #130
+extracted `concurrency-guard.ts` from `costs/tracker.ts` (shim left on `tracker`) and
+repointed `cost-guard.ts` at the new module. `withCostGuard`'s consumers
+(`generator.ts`, `review-summary.ts`) have tests that `vi.mock('@/lib/costs/tracker')`
+to stub the guard — once `cost-guard` sourced the slot fns from `concurrency-guard`
+(unmocked), those tests hit the real `getCacheRedis()` ("Connection is closed.").
+Reverted; `cost-guard` stays on the shim like every other consumer.
+**Correct approach:** while the shim exists, keep ALL consumers on it; migrate them
+together — and update their test mocks to the new module — in one follow-up once the
+shim is removed. A consumer's import path is part of the test-mock contract of
+everything that exercises it.
