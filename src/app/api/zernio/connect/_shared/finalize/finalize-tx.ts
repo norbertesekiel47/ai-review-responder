@@ -143,8 +143,8 @@ export async function finalizeConnectionTx({
     // EITHER (a) no prior connect existed for this business OR
     // (b) prior connections existed but no backfill has ever COMPLETED
     // (handles the case where a prior backfill auth-failed mid-flight).
-    // The worker's ON CONFLICT (business_id) DO NOTHING on
-    // zernio_backfill_runs is the second-line guard.
+    // The worker's ON CONFLICT (business_id) WHERE run_reason = 'initial'
+    // DO NOTHING on zernio_backfill_runs is the second-line guard.
     //
     // KNOWN over-fire (issue #41 item 3, intentionally NOT fixed): on a
     // single-row reconnect, clause (a)'s `id != connectionId AND connected_at
