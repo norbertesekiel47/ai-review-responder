@@ -13,7 +13,7 @@
 // testing provides the full visual verification.
 
 import { describe, it, expect } from 'vitest';
-import { computeProration } from '../AddLocationWizard';
+import { computeProration } from '../wizard/billing';
 import * as fs from 'fs';
 import * as path from 'path';
 

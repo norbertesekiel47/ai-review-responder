@@ -7,12 +7,8 @@
 // validation), VAL-SETTINGS-044 (duplicate Place ID).
 
 import { describe, it, expect } from 'vitest';
-import {
-  buildAddLocationPayload,
-  computeNextLocationBillingPreview,
-  computeProration,
-  hasStep1LocationDetails,
-} from '../AddLocationWizard';
+import { computeNextLocationBillingPreview, computeProration } from '../wizard/billing';
+import { buildAddLocationPayload, hasStep1LocationDetails } from '../wizard/payload';
 
 // ── computeNextLocationBillingPreview ────────────────────────────────────
 

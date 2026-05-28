@@ -29,6 +29,11 @@ import { TopBar } from '@/components/dashboard/TopBar';
 import type { BillingSnapshot } from '@/lib/accounts/quota';
 import { useLocationScope } from '@/contexts/LocationContext';
 import type { LocationId } from '@/lib/shared/ids';
+import {
+  computeNextLocationBillingPreview,
+  computeProration,
+} from './wizard/billing';
+import { buildAddLocationPayload, hasStep1LocationDetails } from './wizard/payload';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -64,65 +69,6 @@ const STEP_INFO: Record<WizardStep, { title: string; subtitle: string }> = {
   4: { title: 'Add location', subtitle: 'Step 4 of 4 — Confirm & pay' },
 };
 
-// ── Proration helper ──────────────────────────────────────────────────────
-
-/**
- * Computes the prorated charge for adding a location mid-billing-cycle.
- * Formula: (overagePriceCents / daysInMonth) * remainingDays
- *
- * VAL-LOC-066: proration line shows actual prorated charge.
- */
-export function computeProration(
-  overagePriceCents: number,
-  now: Date = new Date(),
-): { prorationCents: number; daysRemaining: number; daysInMonth: number } {
-  const year = now.getFullYear();
-  const month = now.getMonth();
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const today = now.getDate();
-  const daysRemaining = Math.max(0, daysInMonth - today);
-
-  // Proration: (overage / daysInMonth) * daysRemaining
-  // Round to nearest cent
-  const prorationCents = Math.round(
-    (overagePriceCents / daysInMonth) * daysRemaining,
-  );
-
-  return { prorationCents, daysRemaining, daysInMonth };
-}
-
-export function computeNextLocationBillingPreview({
-  activeLocationCount,
-  billingSnapshot,
-}: {
-  activeLocationCount: number;
-  billingSnapshot: BillingSnapshot;
-}): {
-  nextOverageUnits: number;
-  additionalLocationMonthlyCents: number;
-  newMonthlyTotalCents: number;
-} {
-  const nextActiveLocations = activeLocationCount + 1;
-  const nextOverageUnits = Math.max(
-    0,
-    nextActiveLocations - billingSnapshot.includedLocations,
-  );
-  const additionalOverageUnits = Math.max(
-    0,
-    nextOverageUnits - billingSnapshot.overageUnits,
-  );
-  const additionalLocationMonthlyCents =
-    additionalOverageUnits * billingSnapshot.overagePriceCents;
-
-  return {
-    nextOverageUnits,
-    additionalLocationMonthlyCents,
-    newMonthlyTotalCents:
-      billingSnapshot.basePriceCents +
-      nextOverageUnits * billingSnapshot.overagePriceCents,
-  };
-}
-
 // ── Default voice config ──────────────────────────────────────────────────
 
 const DEFAULT_VOICE: VoiceFormState = {
@@ -131,56 +77,6 @@ const DEFAULT_VOICE: VoiceFormState = {
   avoidFacts: [],
   sampleResponses: [],
 };
-
-interface Step1LocationInput {
-  inputMode: LocationInputMode;
-  placeSelection: PlaceSelection | null;
-  googleMapsUrl: string;
-}
-
-interface BuildAddLocationPayloadInput extends Step1LocationInput {
-  accountId: string;
-  displayLabel: string;
-  voiceForm: VoiceFormState;
-}
-
-export function hasStep1LocationDetails({
-  inputMode,
-  placeSelection,
-  googleMapsUrl,
-}: Step1LocationInput): boolean {
-  if (inputMode === 'url') return googleMapsUrl.trim().length > 0;
-  return placeSelection !== null;
-}
-
-export function buildAddLocationPayload({
-  accountId,
-  displayLabel,
-  inputMode,
-  placeSelection,
-  googleMapsUrl,
-  voiceForm,
-}: BuildAddLocationPayloadInput) {
-  const trimmedMapsUrl = googleMapsUrl.trim();
-
-  return {
-    accountId,
-    displayLabel: displayLabel.trim(),
-    ...(inputMode === 'autocomplete' && placeSelection?.placeId
-      ? { googlePlaceId: placeSelection.placeId }
-      : {}),
-    ...(inputMode === 'url' && trimmedMapsUrl
-      ? { googleMapsUrl: trimmedMapsUrl }
-      : {}),
-    placeIdVerified: inputMode === 'autocomplete' && !!placeSelection,
-    voiceConfig: {
-      tone: voiceForm.tone,
-      productsServices: voiceForm.productsServices || null,
-      avoidFacts: voiceForm.avoidFacts.filter(Boolean),
-      sampleResponses: voiceForm.sampleResponses.filter(Boolean),
-    },
-  };
-}
 
 // ── Component ──────────────────────────────────────────────────────────────
 
