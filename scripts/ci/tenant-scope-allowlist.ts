@@ -499,9 +499,9 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "Worker follows a durable job payload or scheduler-selected id; caller establishes tenant context before this statement.",
   },
   {
-    file: "worker/jobs/ResponseGeneratorWorker.ts",
+    file: "worker/jobs/response-generation/load-context.ts",
     table: "reviews",
-    sqlSnippet: "SELECT id, reviewer_name, star_rating, review_text, review_date, detected_language FROM reviews WHERE id = ${review_id}",
+    sqlSnippet: "SELECT id, reviewer_name, star_rating, review_text, review_date, detected_language FROM reviews WHERE id = ${reviewId}",
     reason: "Worker follows a durable job payload or scheduler-selected id; caller establishes tenant context before this statement.",
   },
   {
@@ -517,25 +517,25 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "first_review_ingested activation check is account-scoped (b2.account_id = b.account_id) inside an EXISTS subquery the static scanner cannot see; the business is resolved by id for a durable ingest job.",
   },
   {
-    file: "worker/jobs/ResponseGeneratorWorker.ts",
+    file: "worker/jobs/response-generation/load-context.ts",
     table: "responses",
-    sqlSnippet: "SELECT r.id, r.business_id, b.account_id FROM responses r JOIN businesses b ON b.id = r.business_id WHERE r.review_id = ${review_id} AND r.version = ${version}",
+    sqlSnippet: "SELECT r.id, r.business_id, b.account_id FROM responses r JOIN businesses b ON b.id = r.business_id WHERE r.review_id = ${reviewId} AND r.version = ${version}",
     reason: "Worker follows a durable job payload or scheduler-selected id; caller establishes tenant context before this statement.",
   },
   {
-    file: "worker/jobs/ResponseGeneratorWorker.ts",
+    file: "worker/jobs/response-generation/load-context.ts",
     table: "businesses",
-    sqlSnippet: "SELECT r.id, r.business_id, b.account_id FROM responses r JOIN businesses b ON b.id = r.business_id WHERE r.review_id = ${review_id} AND r.version = ${version}",
+    sqlSnippet: "SELECT r.id, r.business_id, b.account_id FROM responses r JOIN businesses b ON b.id = r.business_id WHERE r.review_id = ${reviewId} AND r.version = ${version}",
     reason: "Worker follows a durable job payload or scheduler-selected id; caller establishes tenant context before this statement.",
   },
   {
-    file: "worker/jobs/ResponseGeneratorWorker.ts",
+    file: "worker/jobs/response-generation/analytics.ts",
     table: "responses",
     sqlSnippet: "SELECT EXISTS ( SELECT 1 FROM responses r2 JOIN businesses b2 ON b2.id = r2.business_id WHERE b2.account_id = ${input.accountId}::uuid AND r2.id <> ${input.responseId}::uuid AND r2.created_at IS NOT NULL LIMIT 1 ) AS earlier_exists, ( SELECT occurred_at FROM analytics_events WHERE event_name = 'email_verified' AND account_id = ${input.accountId}::uuid ORDER BY occurred_at ASC LIMIT 1 ) AS email_verified_at",
     reason: "first_response_drafted activation check is account-scoped (b2.account_id = input.accountId) inside an EXISTS subquery the static scanner cannot see; runs in the response-generation worker for a durable job.",
   },
   {
-    file: "worker/jobs/ResponseGeneratorWorker.ts",
+    file: "worker/jobs/response-generation/analytics.ts",
     table: "businesses",
     sqlSnippet: "SELECT EXISTS ( SELECT 1 FROM responses r2 JOIN businesses b2 ON b2.id = r2.business_id WHERE b2.account_id = ${input.accountId}::uuid AND r2.id <> ${input.responseId}::uuid AND r2.created_at IS NOT NULL LIMIT 1 ) AS earlier_exists, ( SELECT occurred_at FROM analytics_events WHERE event_name = 'email_verified' AND account_id = ${input.accountId}::uuid ORDER BY occurred_at ASC LIMIT 1 ) AS email_verified_at",
     reason: "first_response_drafted activation check is account-scoped (b2.account_id = input.accountId) inside an EXISTS subquery the static scanner cannot see; runs in the response-generation worker for a durable job.",
@@ -1573,22 +1573,16 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "Provider ingress resolves tenant rows from signed provider identifiers before tenant ids are available.",
   },
   {
-    file: "worker/jobs/ResponseGeneratorWorker.ts",
+    file: "worker/jobs/response-generation/persist.ts",
     table: "api_costs",
     sqlSnippet: "UPDATE api_costs SET response_id = ${responseId} WHERE id = ${result.apiCostId}",
     reason: "Response generator updates the api_costs row returned by the scoped LLM generation attempt for the same response job.",
   },
   {
-    file: "worker/jobs/ResponseGeneratorWorker.ts",
+    file: "worker/jobs/response-generation/persist.ts",
     table: "api_costs",
     sqlSnippet: "UPDATE api_costs SET response_id = ${responseId} WHERE id = ${retryCostId}",
     reason: "Response generator updates the api_costs row returned by the scoped LLM generation attempt for the same response job.",
-  },
-  {
-    file: "worker/jobs/ResponseGeneratorWorker.ts",
-    table: "api_costs",
-    sqlSnippet: "UPDATE api_costs SET moderation_score = ${moderation.score}, moderation_categories = ${jsonb(moderation.categories)}, flagged = ${moderation.flagged}, flag_reason = ${moderation.reason}, output_excerpt = ${result.responseText.slice(0, 200)} WHERE id = ${moderatedCostId}",
-    reason: "Response generator records moderation metadata on the api_costs row it just created for this response, addressed by the server-generated cost-row id from the scoped LLM generation attempt (same row as the response_id link above).",
   },
   {
     file: "worker/jobs/publisher/edit-publish.ts",
