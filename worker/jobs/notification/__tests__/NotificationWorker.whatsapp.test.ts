@@ -264,6 +264,12 @@ describe('NotificationWorker — WhatsApp error branches', () => {
     expect(enrollmentUpdate!.template).toMatch(/channel = 'whatsapp'/);
     expect(enrollmentUpdate!.values).toContain('+15550000001');
 
+    // Scoped by account_id + org-default location (location_id IS NULL),
+    // never by the legacy business_id FK.
+    expect(enrollmentUpdate!.template).toMatch(/account_id = /);
+    expect(enrollmentUpdate!.template).toMatch(/location_id IS NULL/);
+    expect(enrollmentUpdate!.template).not.toMatch(/business_id/);
+
     // Failed delivery must be recorded with reason 'whatsapp_blocked'
     expect(mockInsertFailedDelivery).toHaveBeenCalledOnce();
     const [_acct, _biz, _resp, channel, handle, reason] = mockInsertFailedDelivery.mock.calls[0]!;
@@ -296,6 +302,12 @@ describe('NotificationWorker — WhatsApp error branches', () => {
     // Channel is a literal in the SQL template, handle is a bound value.
     expect(enrollmentUpdate!.template).toMatch(/channel = 'whatsapp'/);
     expect(enrollmentUpdate!.values).toContain('+15550000001');
+
+    // Scoped by account_id + org-default location (location_id IS NULL),
+    // never by the legacy business_id FK.
+    expect(enrollmentUpdate!.template).toMatch(/account_id = /);
+    expect(enrollmentUpdate!.template).toMatch(/location_id IS NULL/);
+    expect(enrollmentUpdate!.template).not.toMatch(/business_id/);
 
     expect(mockInsertFailedDelivery).toHaveBeenCalledOnce();
     const [, , , channel, handle, reason] = mockInsertFailedDelivery.mock.calls[0]!;
