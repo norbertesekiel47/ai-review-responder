@@ -11,6 +11,94 @@ import { asLocationId } from '../../src/lib/shared/ids';
 import type { LocationId } from '../../src/lib/shared/ids';
 import { getLocationContext } from '../../src/lib/db/account-guard';
 
+type RankingLogger = ReturnType<typeof createWorkerLogger>;
+
+interface RankingBusiness {
+  google_place_id: string | null;
+  google_place_lat: number | null;
+  google_place_lng: number | null;
+  ranking_search_location: string | null;
+}
+
+// Parse the JSONB tracked_keywords column into a clean string[]. Malformed
+// JSON (or a non-array shape) collapses to an empty list rather than throwing,
+// matching the worker's "treat as no keywords" behavior.
+function parseTrackedKeywords(
+  raw: unknown,
+  businessId: LocationId,
+  logger: RankingLogger,
+): string[] {
+  try {
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    return Array.isArray(parsed)
+      ? parsed.filter((k): k is string => typeof k === 'string' && k.trim().length > 0)
+      : [];
+  } catch {
+    logger.warn(`Business ${businessId}: malformed tracked_keywords, treating as empty`);
+    return [];
+  }
+}
+
+// Resolve a single keyword's local-pack rank. Mock mode returns a random rank;
+// otherwise it queries SerpAPI and matches on google_place_id, preferring
+// SerpAPI's own position over the array index.
+async function resolveRankPosition(
+  keyword: string,
+  business: RankingBusiness,
+  hasCoords: boolean,
+  logger: RankingLogger,
+): Promise<number | null> {
+  if (isMockMode()) {
+    const rankPosition = Math.floor(Math.random() * 10) + 1;
+    logger.log(`[mock] keyword="${keyword}" rank=${rankPosition}`);
+    return rankPosition;
+  }
+
+  const params: Record<string, unknown> = {
+    engine: 'google_maps',
+    q: keyword,
+    api_key: process.env.SERPAPI_API_KEY,
+  };
+
+  if (hasCoords) {
+    params.ll = `@${business.google_place_lat},${business.google_place_lng},15z`;
+  } else {
+    params.location = business.ranking_search_location;
+  }
+
+  const response = await getJson(params);
+
+  if (response.error) {
+    const errorMsg = typeof response.error === 'string'
+      ? response.error
+      : JSON.stringify(response.error);
+    throw new Error(`SerpAPI ranking search error: ${errorMsg}`);
+  }
+
+  const localResults: Array<{ place_id?: string; title?: string; position?: number }> =
+    response.local_results ?? [];
+
+  const match = localResults.find(
+    (r) => r.place_id === business.google_place_id,
+  );
+
+  let rankPosition: number | null;
+  if (match) {
+    // Prefer SerpAPI's position field (handles non-contiguous results, ads, mixed groups).
+    // Fall back to array index + 1 only if position is missing or non-integer.
+    const idx = localResults.indexOf(match);
+    rankPosition = Number.isInteger(match.position) ? match.position! : idx + 1;
+  } else {
+    rankPosition = null;
+  }
+
+  logger.log(
+    `keyword="${keyword}" place_id=${business.google_place_id} ` +
+    `rank=${rankPosition ?? 'not found'} (${localResults.length} results)`,
+  );
+  return rankPosition;
+}
+
 export async function handleTrackRanking(job: Job<TrackRankingPayload>): Promise<void> {
   const logger = createWorkerLogger('[RankingTrackingWorker]', job.data.correlation_id);
   // Cast job data IDs to branded types at entry point
@@ -62,19 +150,7 @@ export async function handleTrackRanking(job: Job<TrackRankingPayload>): Promise
   }
 
   // ── Step 3: Parse tracked_keywords (JSONB guard + shape validation) ─
-  let rawKeywords: string[];
-  try {
-    const parsed = typeof business.tracked_keywords === 'string'
-      ? JSON.parse(business.tracked_keywords)
-      : business.tracked_keywords;
-    // Ensure it's an array of non-empty strings
-    rawKeywords = Array.isArray(parsed)
-      ? parsed.filter((k): k is string => typeof k === 'string' && k.trim().length > 0)
-      : [];
-  } catch {
-    logger.warn(`Business ${businessId}: malformed tracked_keywords, treating as empty`);
-    rawKeywords = [];
-  }
+  const rawKeywords = parseTrackedKeywords(business.tracked_keywords, businessId, logger);
 
   if (rawKeywords.length === 0) {
     logger.log(`Business ${businessId} has no tracked keywords`);
@@ -118,56 +194,8 @@ export async function handleTrackRanking(job: Job<TrackRankingPayload>): Promise
       break; // Stop processing keywords but still mark outbox completed for keywords already done
     }
 
-    let rankPosition: number | null;
-
-    if (isMockMode()) {
-      // ── Mock mode: random rank 1-10, skip SerpAPI ───────────────
-      rankPosition = Math.floor(Math.random() * 10) + 1;
-      logger.log(`[mock] keyword="${keyword}" rank=${rankPosition}`);
-    } else {
-      // ── Step 6: SerpAPI call ────────────────────────────────────
-      const params: Record<string, unknown> = {
-        engine: 'google_maps',
-        q: keyword,
-        api_key: process.env.SERPAPI_API_KEY,
-      };
-
-      if (hasCoords) {
-        params.ll = `@${business.google_place_lat},${business.google_place_lng},15z`;
-      } else {
-        params.location = business.ranking_search_location;
-      }
-
-      const response = await getJson(params);
-
-      if (response.error) {
-        const errorMsg = typeof response.error === 'string'
-          ? response.error
-          : JSON.stringify(response.error);
-        throw new Error(`SerpAPI ranking search error: ${errorMsg}`);
-      }
-
-      const localResults: Array<{ place_id?: string; title?: string; position?: number }> =
-        response.local_results ?? [];
-
-      const match = localResults.find(
-        (r) => r.place_id === business.google_place_id,
-      );
-
-      if (match) {
-        // Prefer SerpAPI's position field (handles non-contiguous results, ads, mixed groups).
-        // Fall back to array index + 1 only if position is missing or non-integer.
-        const idx = localResults.indexOf(match);
-        rankPosition = Number.isInteger(match.position) ? match.position! : idx + 1;
-      } else {
-        rankPosition = null;
-      }
-
-      logger.log(
-        `keyword="${keyword}" place_id=${business.google_place_id} ` +
-        `rank=${rankPosition ?? 'not found'} (${localResults.length} results)`,
-      );
-    }
+    // ── Step 6: Resolve rank (mock random, or SerpAPI google_maps match) ──
+    const rankPosition = await resolveRankPosition(keyword, business, hasCoords, logger);
 
     // ── Step 7: Upsert ranking snapshot ─────────────────────────────
     await sql`
