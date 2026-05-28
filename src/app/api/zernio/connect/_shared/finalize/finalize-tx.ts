@@ -145,6 +145,15 @@ export async function finalizeConnectionTx({
     // (handles the case where a prior backfill auth-failed mid-flight).
     // The worker's ON CONFLICT (business_id) DO NOTHING on
     // zernio_backfill_runs is the second-line guard.
+    //
+    // KNOWN over-fire (issue #41 item 3, intentionally NOT fixed): on a
+    // single-row reconnect, clause (a)'s `id != connectionId AND connected_at
+    // IS NOT NULL` is always false (the only row is the one just updated,
+    // excluded by id), so the predicate returns true and re-enqueues backfill
+    // even when one already completed. This is benign — the ON CONFLICT guard
+    // above makes the re-enqueue idempotent. A fix would gate clause (a) on the
+    // PRE-update connected_at, but (a)/(b) are entangled and a wrong gate could
+    // suppress the legitimate auth-failed-mid-flight re-fire, so we leave it.
     const [predicate] = await tx<{ needs_backfill: boolean }[]>`
       SELECT (
         NOT EXISTS (
