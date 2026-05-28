@@ -182,13 +182,13 @@ export interface OnboardingDay30Params {
   responseRateNow: number;
   timeSavedMinutes: number;
   rankingChange: { keyword: string; from: number; to: number } | null;
-  salesPartnerName: string | null;
+  supportContactName: string | null;
 }
 
 export function buildOnboardingDay30Html(params: OnboardingDay30Params): string {
   const safeName = escapeHtml(params.businessName);
   const safeOwner = escapeHtml(params.ownerName);
-  const { totalReviews, responseRateBefore, responseRateNow, timeSavedMinutes, rankingChange, salesPartnerName } = params;
+  const { totalReviews, responseRateBefore, responseRateNow, timeSavedMinutes, rankingChange, supportContactName } = params;
 
   const baselineHtml = responseRateBefore !== null
     ? ` <span style="font-size:13px;color:#6b7280;">(was ${responseRateBefore}% before RepWorth)</span>`
@@ -201,9 +201,9 @@ export function buildOnboardingDay30Html(params: OnboardingDay30Params): string 
         </td></tr>`
     : '';
 
-  const safeSalesPartner = salesPartnerName ? escapeHtml(salesPartnerName) : null;
-  const signoff = safeSalesPartner
-    ? `Questions? Reply to this email — ${safeSalesPartner} is here to help.`
+  const safeSupportContact = supportContactName ? escapeHtml(supportContactName) : null;
+  const signoff = safeSupportContact
+    ? `Questions? Reply to this email — ${safeSupportContact} is here to help.`
     : 'Questions? Reply to this email.';
 
   return `<!DOCTYPE html>

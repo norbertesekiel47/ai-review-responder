@@ -27,12 +27,11 @@ interface DisconnectBody {
  * connection (or admin-initiated). Marks the connection 'disconnected' and
  * best-effort deletes the Zernio account.
  *
- * Critical: sales_partner is intentionally EXCLUDED. Per the documented
- * latent issue in docs/security-audit/round-1-auth-authz.md, admin
- * business-detail routes don't scope by `businesses.onboarded_by = user.id`.
- * Adding a destructive per-business write reachable by sales_partner would
- * expand the blast radius of that bug. Owner remains scoped to their own
- * business; admin can disconnect any business.
+ * Auth is owner OR admin only (requireRole below). Note the documented latent
+ * issue in docs/security-audit/round-1-auth-authz.md: admin business-detail
+ * routes don't scope by `businesses.onboarded_by = user.id`, so an admin can
+ * disconnect any business — keep this route's write surface minimal. Owner
+ * remains scoped to their own business.
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
   // Feature flag — subsystem A is gated by ZERNIO_PUBLISHING_ENABLED (§1.1).
@@ -56,8 +55,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return errorToResponse(err);
   }
 
-  // 2. Auth — owner OR admin only. sales_partner is rejected by allowing
-  // only those two roles into requireRole.
+  // 2. Auth — owner OR admin only.
   let user;
   try {
     user = await requireRole(req, 'owner', 'admin');

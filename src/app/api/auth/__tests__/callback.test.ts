@@ -308,7 +308,10 @@ describe('GET /api/auth/callback', () => {
     expect(mockSignOut).not.toHaveBeenCalled();
   });
 
-  it('signs out and redirects unsupported sales_partner recovery callback to admin login', async () => {
+  // A legacy sales_partner row (now DB-impossible via migration 053) fails closed
+  // through the general owner/admin allowlist → account_incomplete. There is no
+  // longer a sales_partner-specific branch (#50).
+  it('signs out a legacy sales_partner recovery callback via the general allowlist', async () => {
     mockSingle.mockResolvedValueOnce({
       data: { role: 'sales_partner' },
       error: null,
@@ -326,7 +329,7 @@ describe('GET /api/auth/callback', () => {
     );
 
     expect(res.headers.get('Location')).toBe(
-      'https://app.example.com/admin/login?error=unsupported_role',
+      'https://app.example.com/admin/login?error=account_incomplete',
     );
     expect(mockSignOut).toHaveBeenCalledTimes(1);
   });
@@ -470,7 +473,7 @@ describe('GET /api/auth/callback', () => {
     );
   });
 
-  it('signs out and redirects unsupported sales_partner to /admin/login by default', async () => {
+  it('signs out a legacy sales_partner to /admin/login by default (account_incomplete via allowlist)', async () => {
     mockSingle.mockResolvedValueOnce({
       data: { role: 'sales_partner' },
       error: null,
@@ -478,12 +481,12 @@ describe('GET /api/auth/callback', () => {
 
     const res = await GET(mkReq(buildUrl({ code: 'valid-code' })));
     expect(res.headers.get('Location')).toBe(
-      'https://app.example.com/admin/login?error=unsupported_role',
+      'https://app.example.com/admin/login?error=account_incomplete',
     );
     expect(mockSignOut).toHaveBeenCalledTimes(1);
   });
 
-  it('signs out and redirects unsupported sales_partner to /login for owner flow', async () => {
+  it('signs out a legacy sales_partner to /login for owner flow (account_incomplete via allowlist)', async () => {
     mockSingle.mockResolvedValueOnce({
       data: { role: 'sales_partner' },
       error: null,
@@ -493,7 +496,7 @@ describe('GET /api/auth/callback', () => {
       mkReq(buildUrl({ code: 'valid-code', flow: 'owner' })),
     );
     expect(res.headers.get('Location')).toBe(
-      'https://app.example.com/login?error=unsupported_role',
+      'https://app.example.com/login?error=account_incomplete',
     );
     expect(mockSignOut).toHaveBeenCalledTimes(1);
   });
