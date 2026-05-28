@@ -10,8 +10,12 @@ import type { ValidatePlaceIdPayload } from '@/lib/shared/worker-types';
 import { reserveOnboardingDemoBudget, CostCeilingExceeded } from '@/lib/costs/onboarding-demo-cost-guard';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { PLACEHOLDER_BUSINESS_NAME } from '@/lib/onboarding/create-business';
+import type postgres from 'postgres';
 
 export const dynamic = 'force-dynamic';
+
+type TxClient = postgres.TransactionSql;
+type OnboardingStartInput = ReturnType<typeof OnboardingStartSchema.parse>;
 
 const NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
 
@@ -31,6 +35,133 @@ interface ForUpdateRow {
   id: string;
   place_id_verified: boolean;
   google_maps_url: string | null;
+}
+
+// Resolve the place id from the validated body. A direct googlePlaceId is
+// trusted (verified); a Maps URL is parsed and queued for async validation.
+function resolvePlaceId(
+  data: OnboardingStartInput,
+  bizId: string,
+  correlationId: string,
+): {
+  resolvedPlaceId: string | null;
+  placeIdVerified: boolean;
+  validatePayload: ValidatePlaceIdPayload | null;
+} {
+  if (data.googlePlaceId) {
+    return { resolvedPlaceId: data.googlePlaceId, placeIdVerified: true, validatePayload: null };
+  }
+  const mapsUrl = data.googleMapsUrl!;
+  return {
+    resolvedPlaceId: extractPlaceId(mapsUrl),
+    placeIdVerified: false,
+    validatePayload: {
+      business_id: bizId,
+      google_maps_url: mapsUrl,
+      correlation_id: correlationId,
+    },
+  };
+}
+
+interface OnboardingStartTxParams {
+  bizRow: BizRow;
+  data: OnboardingStartInput;
+  resolvedPlaceId: string | null;
+  placeIdVerified: boolean;
+  validatePayload: ValidatePlaceIdPayload | null;
+  demoBlocked: boolean;
+  reservationDate: string | null;
+  correlationId: string;
+}
+
+// The activation transaction: advisory-lock + FOR UPDATE idempotency re-read,
+// then the business/account updates, the optional place-id validation outbox,
+// and (unless the demo is blocked) the demo row + its outbox.
+//
+// Returns whether the demo row was actually inserted. The caller relies on this
+// to release the cost reservation on the idempotency-loser / vanished-row path
+// so we never leak a reservation for a demo that wasn't queued.
+async function persistOnboardingStart(tx: TxClient, p: OnboardingStartTxParams): Promise<boolean> {
+  await tx`SELECT pg_advisory_xact_lock(hashtext(${p.bizRow.id + ':activation'}))`;
+
+  const [forUpdateRow] = await tx<ForUpdateRow[]>`
+    SELECT id, place_id_verified, google_maps_url
+    FROM businesses
+    WHERE id = ${p.bizRow.id}::uuid
+    FOR UPDATE
+  `;
+  if (!forUpdateRow) return false;
+  if (forUpdateRow.place_id_verified || forUpdateRow.google_maps_url) return false;
+
+  await tx`
+    UPDATE businesses
+    SET
+      name = ${p.data.businessName},
+      category = ${p.data.prefilledCategory ?? null},
+      google_place_id = ${p.resolvedPlaceId},
+      place_id_verified = ${p.placeIdVerified},
+      google_maps_url = ${p.data.googleMapsUrl ?? null},
+      website = ${p.data.prefilledWebsite ?? null},
+      updated_at = NOW()
+    WHERE id = ${p.bizRow.id}::uuid
+  `;
+
+  await tx`
+    UPDATE accounts
+    SET display_name = ${p.data.businessName}, updated_at = NOW()
+    WHERE id = ${p.bizRow.account_id}::uuid
+      AND display_name = ${PLACEHOLDER_BUSINESS_NAME}
+  `;
+
+  if (p.validatePayload) {
+    await tx`
+      INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+      SELECT ${uuidv7()}::uuid, 'validate_place_id', 'business', ${p.bizRow.id}::uuid, ${jsonb(p.validatePayload)}, 'pending'
+      WHERE NOT EXISTS (
+        SELECT 1 FROM job_outbox jo
+        WHERE jo.aggregate_id = ${p.bizRow.id}::uuid
+          AND jo.topic = 'validate_place_id'
+          AND jo.status IN ('pending', 'dispatching', 'dispatched')
+      )
+    `;
+  }
+
+  if (p.demoBlocked) return false;
+
+  const demoId = uuidv7();
+  const outboxId = uuidv7();
+
+  await tx`
+    INSERT INTO onboarding_demos (
+      id, user_id, business_id, business_name, category,
+      google_place_id, google_maps_url, generation_status,
+      correlation_id, created_at, updated_at
+    ) VALUES (
+      ${demoId}, ${p.bizRow.user_id}::uuid, ${p.bizRow.id}::uuid,
+      ${p.data.businessName}, ${p.data.prefilledCategory ?? null},
+      ${p.resolvedPlaceId}, ${p.data.googleMapsUrl ?? null},
+      'queued', ${p.correlationId}, NOW(), NOW()
+    )
+  `;
+
+  await tx`
+    INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+    VALUES (
+      ${outboxId}, 'onboarding_demo_response', 'onboarding_demo', ${demoId}::uuid,
+      ${jsonb({
+        demoId,
+        googlePlaceId: p.resolvedPlaceId,
+        businessName: p.data.businessName,
+        category: p.data.prefilledCategory ?? undefined,
+        googleMapsUrl: p.data.googleMapsUrl ?? undefined,
+        correlation_id: p.correlationId,
+        outbox_id: outboxId,
+        cost_reservation_date: p.reservationDate ?? undefined,
+      })},
+      'pending'
+    )
+  `;
+  return true;
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
@@ -157,24 +288,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   // Resolve place id
-  let resolvedPlaceId: string | null = null;
-  let placeIdVerified = false;
-  let validatePayload: ValidatePlaceIdPayload | null = null;
   const correlationId = uuidv7();
-
-  if (data.googlePlaceId) {
-    resolvedPlaceId = data.googlePlaceId;
-    placeIdVerified = true;
-  } else {
-    const mapsUrl = data.googleMapsUrl!;
-    resolvedPlaceId = extractPlaceId(mapsUrl);
-    placeIdVerified = false;
-    validatePayload = {
-      business_id: bizRow.id,
-      google_maps_url: mapsUrl,
-      correlation_id: correlationId,
-    };
-  }
+  const { resolvedPlaceId, placeIdVerified, validatePayload } = resolvePlaceId(
+    data,
+    bizRow.id,
+    correlationId,
+  );
 
   // Track whether the demo INSERT actually fired inside the tx. The outer
   // closure can't observe a return-from-callback no-op (idempotency loser
@@ -184,86 +303,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   let demoInserted = false;
   try {
     await sql.begin(async (tx) => {
-      await tx`SELECT pg_advisory_xact_lock(hashtext(${bizRow.id + ':activation'}))`;
-
-      const [forUpdateRow] = await tx<ForUpdateRow[]>`
-        SELECT id, place_id_verified, google_maps_url
-        FROM businesses
-        WHERE id = ${bizRow.id}::uuid
-        FOR UPDATE
-      `;
-      if (!forUpdateRow) return;
-      if (forUpdateRow.place_id_verified || forUpdateRow.google_maps_url) return;
-
-      await tx`
-        UPDATE businesses
-        SET
-          name = ${data.businessName},
-          category = ${data.prefilledCategory ?? null},
-          google_place_id = ${resolvedPlaceId},
-          place_id_verified = ${placeIdVerified},
-          google_maps_url = ${data.googleMapsUrl ?? null},
-          website = ${data.prefilledWebsite ?? null},
-          updated_at = NOW()
-        WHERE id = ${bizRow.id}::uuid
-      `;
-
-      await tx`
-        UPDATE accounts
-        SET display_name = ${data.businessName}, updated_at = NOW()
-        WHERE id = ${bizRow.account_id}::uuid
-          AND display_name = ${PLACEHOLDER_BUSINESS_NAME}
-      `;
-
-      if (validatePayload) {
-        await tx`
-          INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-          SELECT ${uuidv7()}::uuid, 'validate_place_id', 'business', ${bizRow.id}::uuid, ${jsonb(validatePayload)}, 'pending'
-          WHERE NOT EXISTS (
-            SELECT 1 FROM job_outbox jo
-            WHERE jo.aggregate_id = ${bizRow.id}::uuid
-              AND jo.topic = 'validate_place_id'
-              AND jo.status IN ('pending', 'dispatching', 'dispatched')
-          )
-        `;
-      }
-
-      if (!demoBlocked) {
-        const demoId = uuidv7();
-        const outboxId = uuidv7();
-
-        await tx`
-          INSERT INTO onboarding_demos (
-            id, user_id, business_id, business_name, category,
-            google_place_id, google_maps_url, generation_status,
-            correlation_id, created_at, updated_at
-          ) VALUES (
-            ${demoId}, ${bizRow.user_id}::uuid, ${bizRow.id}::uuid,
-            ${data.businessName}, ${data.prefilledCategory ?? null},
-            ${resolvedPlaceId}, ${data.googleMapsUrl ?? null},
-            'queued', ${correlationId}, NOW(), NOW()
-          )
-        `;
-
-        await tx`
-          INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-          VALUES (
-            ${outboxId}, 'onboarding_demo_response', 'onboarding_demo', ${demoId}::uuid,
-            ${jsonb({
-              demoId,
-              googlePlaceId: resolvedPlaceId,
-              businessName: data.businessName,
-              category: data.prefilledCategory ?? undefined,
-              googleMapsUrl: data.googleMapsUrl ?? undefined,
-              correlation_id: correlationId,
-              outbox_id: outboxId,
-              cost_reservation_date: reservationDate ?? undefined,
-            })},
-            'pending'
-          )
-        `;
-        demoInserted = true;
-      }
+      demoInserted = await persistOnboardingStart(tx, {
+        bizRow,
+        data,
+        resolvedPlaceId,
+        placeIdVerified,
+        validatePayload,
+        demoBlocked,
+        reservationDate,
+        correlationId,
+      });
     });
   } catch (err) {
     if (cleanupReservation) {
