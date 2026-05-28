@@ -15,6 +15,10 @@ interface AnalyticsEventRow {
   max_attempts: number;
 }
 
+// Written to last_error when the stale-row reclaim hands a crashed-mid-dispatch row
+// back to 'pending'. Lets a recovered crash be distinguished from a real PostHog error.
+const RECLAIMED_STALE_DISPATCH_ERROR = 'reclaimed_stale_dispatch';
+
 function parseInteger(value: string | undefined, defaultValue: number): number {
   if (!value || !/^\d+$/.test(value.trim())) {
     return defaultValue;
@@ -91,10 +95,17 @@ async function dispatchOnce(): Promise<void> {
     return;
   }
 
+  // A worker that crashed between claim and mark leaves a row stranded in
+  // 'dispatching' with the claim's attempt increment already applied. Reclaiming it
+  // is an infra fault, not the event's fault, so hand the attempt back the same way
+  // markDispatchDeferred does. GREATEST floors at 0 because this bulk UPDATE acts on
+  // rows it did not claim and has no per-row `AND attempts = $n` guard.
   await sql`
     UPDATE analytics_events
     SET status = 'pending',
         locked_at = NULL,
+        attempts = GREATEST(attempts - 1, 0),
+        last_error = ${RECLAIMED_STALE_DISPATCH_ERROR},
         available_at = NOW()
     WHERE status = 'dispatching'
       AND locked_at IS NOT NULL

@@ -137,6 +137,21 @@ describe('AnalyticsDispatchPoller', () => {
     expect(sqlText(0)).toContain("locked_at < NOW() - INTERVAL '10 minutes'");
   });
 
+  it('hands the attempt back and stamps a marker when reclaiming a stale dispatch', async () => {
+    mockSql
+      .mockResolvedValueOnce([]) // stale-reclaim UPDATE (sql call 0)
+      .mockResolvedValueOnce([]); // claim returns no rows (sql call 1)
+
+    await runAnalyticsDispatchOnce();
+
+    // Reclaim is sql call 0. A crash mid-dispatch already incremented attempts at
+    // claim time; reclaiming is an infra fault, not the event's fault, so the
+    // attempt must be returned (floored — bulk UPDATE has no per-row guard) and a
+    // diagnostic marker recorded, mirroring markDispatchDeferred.
+    expect(sqlText(0)).toContain('attempts = GREATEST(attempts - 1, 0)');
+    expect(sqlValues(0)).toContain('reclaimed_stale_dispatch');
+  });
+
   it('parses JSONB string properties and includes insert id', async () => {
     mockSql
       .mockResolvedValueOnce([])
