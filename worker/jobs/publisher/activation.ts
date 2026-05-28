@@ -1,7 +1,6 @@
 import { captureAnalyticsEvent } from '../../../src/lib/analytics/posthog';
+import { buildActivationCompletedEvent } from '../../../src/lib/analytics/activation-event';
 import { sql } from '../../../src/lib/db/server';
-
-const MS_PER_DAY = 86_400_000;
 
 export interface PostedResponseActivationInput {
   responseId: string;
@@ -88,25 +87,19 @@ export async function maybeCaptureActivationCompleted(
       return;
     }
 
-    const postedAtMs = new Date(row.posted_at).getTime();
-    const accountCreatedAtMs = new Date(row.account_created_at).getTime();
-    const daysToActivation = (postedAtMs - accountCreatedAtMs) / MS_PER_DAY;
-
-    if (!Number.isFinite(daysToActivation) || daysToActivation < 0 || daysToActivation > 7) {
+    const event = buildActivationCompletedEvent({
+      accountId: row.account_id,
+      accountCreatedAt: row.account_created_at,
+      responseId: row.response_id,
+      businessId: row.business_id,
+      reviewId: row.review_id,
+      postedAt: row.posted_at,
+    });
+    if (!event) {
       return;
     }
 
-    captureAnalyticsEvent({
-      event: 'activation_completed',
-      distinctId: row.account_id,
-      properties: {
-        account_id: row.account_id,
-        business_id: row.business_id,
-        response_id: row.response_id,
-        review_id: row.review_id,
-        days_to_activation: Number(daysToActivation.toFixed(4)),
-      },
-    });
+    captureAnalyticsEvent(event);
   } catch (error) {
     input.logger?.warn(
       `activation_completed capture failed for response=${input.responseId}: ${errorMessage(error)}`,

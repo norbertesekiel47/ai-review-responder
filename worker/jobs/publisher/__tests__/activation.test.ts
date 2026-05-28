@@ -56,6 +56,7 @@ describe('maybeCaptureActivationCompleted', () => {
     expect(mockCaptureAnalyticsEvent).toHaveBeenCalledWith({
       event: 'activation_completed',
       distinctId: '00000000-0000-0000-0000-000000000004',
+      uuid: INPUT.responseId,
       properties: {
         account_id: '00000000-0000-0000-0000-000000000004',
         business_id: INPUT.businessId,
