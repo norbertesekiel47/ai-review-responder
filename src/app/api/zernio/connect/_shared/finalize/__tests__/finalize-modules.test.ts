@@ -369,6 +369,22 @@ describe('authorizeSelectLocation', () => {
     );
   });
 
+  it('throws 400 invalid_body for a literal null JSON body (not 500)', async () => {
+    await expectRouteError(
+      authorizeSelectLocation(makeRequest('null')),
+      400,
+      'invalid_body',
+    );
+  });
+
+  it('throws 400 invalid_body for a scalar JSON body (was invalid_location_id)', async () => {
+    await expectRouteError(
+      authorizeSelectLocation(makeRequest('42')),
+      400,
+      'invalid_body',
+    );
+  });
+
   it('throws 400 invalid_location_id for an empty-string locationId (permissive parser)', async () => {
     await expectRouteError(
       authorizeSelectLocation(makeRequest({ locationId: '' })),
@@ -467,6 +483,24 @@ describe('transitionPendingToFinalizing', () => {
 
   it('throws 409 malformed_pending_marker when the marker is unparseable', async () => {
     mockRedis.get.mockResolvedValue('{not json');
+    await expectRouteError(
+      transitionPendingToFinalizing(redis, STORED),
+      409,
+      'malformed_pending_marker',
+    );
+  });
+
+  it('throws 409 malformed_pending_marker for a "null" marker (not 500)', async () => {
+    mockRedis.get.mockResolvedValue('null');
+    await expectRouteError(
+      transitionPendingToFinalizing(redis, STORED),
+      409,
+      'malformed_pending_marker',
+    );
+  });
+
+  it('throws 409 malformed_pending_marker for a scalar marker (was flow_changed)', async () => {
+    mockRedis.get.mockResolvedValue('42');
     await expectRouteError(
       transitionPendingToFinalizing(redis, STORED),
       409,

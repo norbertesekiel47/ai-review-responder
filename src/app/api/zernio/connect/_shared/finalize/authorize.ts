@@ -72,15 +72,21 @@ export async function authorizeSelectLocation(
   }
 
   // 3. Parse body.
-  let body: SelectLocationBody;
+  let body: unknown;
   try {
-    body = (await req.json()) as SelectLocationBody;
+    body = await req.json();
   } catch {
     throw new ZernioRouteError(400, 'invalid_body');
   }
+  // A literal `null` (or any non-object) JSON body parses successfully; reading
+  // `.locationId` off it would throw a TypeError → 500. Reject as 400 here.
+  if (body === null || typeof body !== 'object') {
+    throw new ZernioRouteError(400, 'invalid_body');
+  }
+  const { locationId: rawLocationId } = body as SelectLocationBody;
   const locationId =
-    typeof body.locationId === 'string' && body.locationId.length > 0
-      ? body.locationId
+    typeof rawLocationId === 'string' && rawLocationId.length > 0
+      ? rawLocationId
       : null;
   if (!locationId) {
     throw new ZernioRouteError(400, 'invalid_location_id');
