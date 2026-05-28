@@ -15,7 +15,7 @@ Jump to the dated entries by subsystem (search the anchors below):
 - **Billing / multi-location** — stored-quota vs TIER_CONFIG, base price not grandfathered, channel account-scope desync
 - **Analytics / PostHog** — unconfigured no-op retry budget, durable vs intent events, RLS on new tables
 - **Moderation / logging** — fail-open moderation, logger-never-throws (incl. AsyncLocalStorage binding for correlation IDs)
-- **CI / tooling** — nested-worktree poisoning, MOCK_EXTERNAL_APIS=false in CI, tenant-scope allowlist drift
+- **CI / tooling** — nested-worktree poisoning, MOCK_EXTERNAL_APIS=false in CI, tenant-scope allowlist drift, comment-backtick extractor false-positive, allowlist file-move orphaning
 - **Testing** — vi.hoisted for shared mocks, NextRequest vs Request, relative imports under tsx
 
 ---
@@ -1099,3 +1099,33 @@ lacks that rule) had untracked report JSONs in the shared working tree; a
 file added-then-removed across a branch nets to absent in the PR diff. Prefer
 explicit `git add <paths>` over `-A` when sibling branches' artifacts may be
 loose in the tree.
+
+## 2026-05-28
+
+### Backtick-wrapped `tx`/`sql`/`db` in a comment silently breaks the tenant-scope audit
+`scripts/ci/tenant-scope-audit.ts` extracts SQL by regex-scanning raw source text
+for tag-template literals (tags `sql`/`tx`/`db` + any `sql` alias imported from
+`db/server`); it does NOT strip JS/TS comments first. A backtick-quoted tag word
+in a comment (e.g. `(`tx`)` in a doc-comment) is read as the OPENING of a template
+literal, and the parser consumes up to the next real backtick — SWALLOWING the SQL
+template that follows. The swallowed query is then never audited (a silent
+tenant-scope COVERAGE GAP), and any allowlist entry for it reports "unused entry".
+Bit PR #124: a new `edit-publish-tx.ts` header comment — "runs on an already-open
+transaction (`tx`)" — swallowed `supersedeSibling`'s
+`UPDATE responses ... WHERE id = ${siblingId}` → unused-entry → CI `lint` job
+(`pnpm ci:tenant-scope`) failed; the file's `zernio_connections` UPDATE was
+dropped from the audit too. Benign on `main` only because its lone backtick-`tx`
+sat AFTER the query.
+**Correct approach:** never put a backtick-wrapped `tx`/`sql`/`db` in a comment in
+a `src/` or `worker/` file — write "the tx handle" / "via sql" instead. Extractor
+hardening (strip comments before tag-scanning) tracked in issue #125. (Safe to use
+such backticks in `.claude/`, `docs/`, etc. — only `src/` + `worker/` are scanned.)
+
+### Moving an allowlisted query to a new file orphans its allowlist entry
+Allowlist entries are keyed by FILE + table + normalized snippet, so relocating a
+tenant-table query (extraction/refactor) leaves the old entry "unused" and the new
+file uncovered. `pnpm lint` is `eslint src` — it does NOT run this audit and does
+NOT cover `worker/`, so a moved-query break passes local `lint` but fails the CI
+`lint` job (which also runs `pnpm ci:tenant-scope`).
+**Correct approach:** when SQL moves between files, repoint the entry's `file` and
+run `pnpm ci:tenant-scope` (+ `ci:rls-audit`) — not just `lint`/`typecheck`/`test`.
