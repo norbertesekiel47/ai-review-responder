@@ -109,6 +109,8 @@ describe('generateDraft', () => {
     mockGenerateResponse.mockResolvedValueOnce(MOCK_RESULT);
     const outcome = await generateDraft(ctx(), IDS, makeLogger());
     expect(outcome).toEqual({ kind: 'ok', result: MOCK_RESULT, retryCostId: undefined });
+    // version === 1 must skip the regen-budget check entirely.
+    expect(mockCheckRegenBudget).not.toHaveBeenCalled();
   });
 
   it('classifies CostLimitExceededError as failed (no throw)', async () => {
@@ -122,6 +124,8 @@ describe('generateDraft', () => {
     mockGenerateResponse.mockRejectedValueOnce(new GlobalCostLimitExceededError());
     const outcome = await generateDraft(ctx(), IDS, makeLogger());
     expect(outcome.kind).toBe('failed');
+    // Distinct from the per-business cost path — carries the global message.
+    if (outcome.kind === 'failed') expect(outcome.reason).toContain('Global');
   });
 
   it('re-throws ConcurrencyLimitExceededError for BullMQ retry', async () => {
@@ -156,7 +160,8 @@ describe('generateDraft', () => {
     const outcome = await generateDraft(ctx({ avoidFacts: ['bad word'] }), IDS, makeLogger());
 
     expect(mockGenerateResponse).toHaveBeenCalledTimes(2);
-    const retryOpts = (mockGenerateResponse.mock.calls[1] as unknown[])[3] as Record<string, unknown>;
+    const calls = mockGenerateResponse.mock.calls as unknown[][];
+    const retryOpts = calls[1]?.[3] as Record<string, unknown> | undefined;
     expect(retryOpts).toMatchObject({ skipCache: true });
     expect(mockSetCachedGeneration).toHaveBeenCalledWith('rev-1', 1, expect.stringContaining('Thank you so much!'));
     expect(outcome.kind).toBe('ok');
