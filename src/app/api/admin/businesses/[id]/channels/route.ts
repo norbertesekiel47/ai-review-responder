@@ -10,6 +10,21 @@ import { requireRole, AuthError } from '@/lib/db/auth';
 import { asLocationId } from '@/lib/shared/ids';
 import type { LocationId } from '@/lib/shared/ids';
 
+// Shape of one enrollment row, before per-channel dedup and handle masking.
+interface ChannelEnrollmentRow {
+  channel: string;
+  handle: string | null;
+  status: string;
+  verified_at: Date | null;
+  disabled_at: Date | null;
+  unsubscribed_at: Date | null;
+  unsubscribed_reason: string | null;
+  expires_at: Date | null;
+  last_activity_at: Date | null;
+  /** null = account-scoped org-default; non-null = per-location override. */
+  location_id: string | null;
+}
+
 // Admin/customer data — never cache. Matches the pattern in the existing
 // admin business detail API at src/app/api/admin/businesses/[id]/route.ts:7.
 export const dynamic = 'force-dynamic';
@@ -30,21 +45,27 @@ export async function GET(
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const rows = await sql<{
-    channel: string;
-    handle: string | null;
-    status: string;
-    verified_at: Date | null;
-    disabled_at: Date | null;
-    unsubscribed_at: Date | null;
-    unsubscribed_reason: string | null;
-    expires_at: Date | null;
-    last_activity_at: Date | null;
-  }[]>`
+  // Channel enrollment is ACCOUNT-scoped: admin start/disable act on the
+  // org-default row (account_id + channel + location_id IS NULL), regardless of
+  // which location's detail page is open. `business_id` on the table is a legacy
+  // FK and is NOT the org-default lookup key. So we resolve the account from the
+  // location, then read account-scoped — mirroring resolveChannels' precedence
+  // (per-location override beats org-default). See docs/known-issues.md
+  // "ACTIVE: Admin per-business channel status read".
+  const [accountRow] = await sql<{ account_id: string }[]>`
+    SELECT account_id FROM businesses WHERE id = ${businessId}
+  `;
+  if (!accountRow) {
+    return NextResponse.json({ enrollments: [] });
+  }
+  const accountId = accountRow.account_id;
+
+  const rows = await sql<ChannelEnrollmentRow[]>`
     SELECT
       e.channel, e.handle, e.status,
       e.verified_at, e.disabled_at, e.unsubscribed_at, e.unsubscribed_reason,
       e.verification_token_expires_at AS expires_at,
+      e.location_id,
       -- Per-row COALESCE (delivered OR sent), THEN aggregate MAX. Doing it
       -- the other way (COALESCE(MAX(delivered), MAX(sent))) would return
       -- the older delivered timestamp when a newer row has only sent_at.
@@ -53,17 +74,49 @@ export async function GET(
          WHERE nd.business_id = e.business_id
            AND nd.channel = e.channel) AS last_activity_at
     FROM channel_enrollments e
-    WHERE e.business_id = ${businessId}
+    WHERE e.account_id = ${accountId}
+      AND (e.location_id = ${businessId} OR e.location_id IS NULL)
       AND e.archived_at IS NULL
-    ORDER BY e.created_at ASC
+    ORDER BY
+      -- Per-location overrides first so the dedup keeps them over org-defaults
+      -- for the same channel (mirrors resolveChannels VAL-NOTIF-003).
+      CASE WHEN e.location_id IS NOT NULL THEN 0 ELSE 1 END,
+      e.created_at ASC
   `;
 
-  const masked = rows.map((r) => ({
-    ...r,
+  const effective = resolveEffectiveEnrollments(rows);
+
+  // `location_id` is an internal resolution detail used only for override-vs-
+  // org-default precedence; it is intentionally not part of the response.
+  const masked = effective.map((r) => ({
+    channel: r.channel,
     handle: maskHandle(r.channel, r.handle),
+    status: r.status,
+    verified_at: r.verified_at,
+    disabled_at: r.disabled_at,
+    unsubscribed_at: r.unsubscribed_at,
+    unsubscribed_reason: r.unsubscribed_reason,
+    expires_at: r.expires_at,
+    last_activity_at: r.last_activity_at,
   }));
 
   return NextResponse.json({ enrollments: masked });
+}
+
+/**
+ * Collapses account-scoped rows to one effective enrollment per channel,
+ * preferring a per-location override over the org-default. Relies on the
+ * query's ORDER BY placing overrides (location_id NOT NULL) before org-defaults
+ * for each channel, so the first row seen per channel is the one that wins.
+ */
+function resolveEffectiveEnrollments(rows: ChannelEnrollmentRow[]): ChannelEnrollmentRow[] {
+  const byChannel = new Map<string, ChannelEnrollmentRow>();
+  for (const row of rows) {
+    if (!byChannel.has(row.channel)) {
+      byChannel.set(row.channel, row);
+    }
+  }
+  return Array.from(byChannel.values());
 }
 
 function maskHandle(channel: string, handle: string | null): string {
