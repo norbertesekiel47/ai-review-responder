@@ -241,70 +241,12 @@ describe('manual Google Maps URL fallback', () => {
   });
 });
 
-// ── Display label validation (unit-level) ────────────────────────────────
+// ── Step-1 validation (VAL-SETTINGS-043 / VAL-SETTINGS-044) ───────────────
 //
-// VAL-SETTINGS-043: display_label must be non-empty and ≤ 255 chars.
-// These validation rules are implemented inside the component's
-// validateStep1 callback. We test the pure logic here.
-
-describe('display_label validation rules', () => {
-  it('rejects empty string', () => {
-    const label = '';
-    const trimmed = label.trim();
-    expect(trimmed.length === 0).toBe(true);
-  });
-
-  it('rejects whitespace-only string', () => {
-    const label = '   ';
-    const trimmed = label.trim();
-    expect(trimmed.length === 0).toBe(true);
-  });
-
-  it('accepts 1-character string', () => {
-    const label = 'A';
-    const trimmed = label.trim();
-    expect(trimmed.length > 0).toBe(true);
-    expect(trimmed.length <= 255).toBe(true);
-  });
-
-  it('accepts exactly 255 characters', () => {
-    const label = 'A'.repeat(255);
-    const trimmed = label.trim();
-    expect(trimmed.length > 0).toBe(true);
-    expect(trimmed.length <= 255).toBe(true);
-  });
-
-  it('rejects 256 characters', () => {
-    const label = 'A'.repeat(256);
-    const trimmed = label.trim();
-    expect(trimmed.length > 255).toBe(true);
-  });
-});
-
-// ── Duplicate Place ID validation (unit-level) ──────────────────────────
-//
-// VAL-SETTINGS-044: Add-location rejects Place ID already used by another
-// active location in the account.
-
-describe('duplicate Place ID check', () => {
-  it('detects duplicate Place ID in existing set', () => {
-    const existingPlaceIds = new Set(['place_abc123', 'place_def456']);
-    const newPlaceId = 'place_abc123';
-
-    expect(existingPlaceIds.has(newPlaceId)).toBe(true);
-  });
-
-  it('allows new Place ID not in existing set', () => {
-    const existingPlaceIds = new Set(['place_abc123', 'place_def456']);
-    const newPlaceId = 'place_xyz789';
-
-    expect(existingPlaceIds.has(newPlaceId)).toBe(false);
-  });
-
-  it('allows when existing set is empty', () => {
-    const existingPlaceIds = new Set<string>();
-    const newPlaceId = 'place_abc123';
-
-    expect(existingPlaceIds.has(newPlaceId)).toBe(false);
-  });
-});
+// display_label non-empty + ≤ 255 chars (VAL-SETTINGS-043) and duplicate
+// Place-ID rejection (VAL-SETTINGS-044) are enforced by the reducer's
+// GO_NEXT step-1 validation. They are unit-tested directly against reducer()
+// in reducer.test.ts ("GO_NEXT — step 1 validation"). The previous
+// string/Set assertions here exercised JS built-ins rather than wizard
+// logic, so they were removed as redundant when the logic moved to the
+// reducer.
