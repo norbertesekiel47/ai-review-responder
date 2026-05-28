@@ -11,11 +11,25 @@
 // These tests validate the behavior of the AddLocationWizard component and
 // the computeProration helper function at the unit level. Agent-browser
 // testing provides the full visual verification.
+//
+// After modularization (Tasks 1–7) the wizard is split across:
+//   - wizard/reducer.ts         — state shape, action handling, initial state
+//   - wizard/useAddLocationWizard.ts — side effects, handleSubmit, navigation
+//   - wizard/steps/Step4Confirm.tsx  — step 4 rendering (error display, proration)
+//   - AddLocationWizard.tsx     — composing shell (TopBar, step indicator, nav)
+//
+// Source guards are repointed to the file that owns each piece of behavior.
 
 import { describe, it, expect } from 'vitest';
-import { computeProration } from '../AddLocationWizard';
+import { computeProration } from '../wizard/billing';
 import * as fs from 'fs';
 import * as path from 'path';
+
+function readSource(...relPaths: string[]): string {
+  return relPaths
+    .map((p) => fs.readFileSync(path.resolve(__dirname, p), 'utf-8'))
+    .join('\n');
+}
 
 // ── VAL-LOC-064: Wizard error display on Confirm & Pay ────────────────────
 //
@@ -24,67 +38,68 @@ import * as path from 'path';
 //   2. Stay on step 4 (not navigate away)
 //   3. NOT create a partial businesses row
 //
-// The wizard handles this via the `submitError` state and the `handleSubmit`
-// callback that checks `res.ok` before proceeding.
+// After modularization:
+//   - submitError state field lives in wizard/reducer.ts (WizardState)
+//   - SUBMIT_FAILED action sets it; SUBMIT_STARTED clears it
+//   - if (!res.ok) guard + router.push live in wizard/useAddLocationWizard.ts
+//   - inline error rendering (wizard-error + {submitError}) lives in Step4Confirm.tsx
 
 describe('VAL-LOC-064: Wizard error display on Confirm & Pay', () => {
-  // Static analysis: verify the wizard component handles API errors correctly.
-  // The source must contain:
-  //   - A `submitError` state variable
-  //   - An inline error display on step 4
-  //   - The handleSubmit callback that checks res.ok and sets submitError
-  //   - No businesses row creation before the API call succeeds
-
-  const sourcePath = path.resolve(__dirname, '../AddLocationWizard.tsx');
-  const source = fs.readFileSync(sourcePath, 'utf-8');
+  const reducerSource = readSource('../wizard/reducer.ts');
+  const hookSource = readSource('../wizard/useAddLocationWizard.ts');
+  const step4Source = readSource('../wizard/steps/Step4Confirm.tsx');
 
   it('has submitError state for displaying inline error messages', () => {
-    expect(source).toContain('submitError');
-    expect(source).toContain('setSubmitError');
+    // submitError field declared in WizardState (reducer.ts)
+    expect(reducerSource).toContain('submitError');
+    // SUBMIT_FAILED action sets it; SUBMIT_STARTED clears it to null
+    expect(reducerSource).toContain('SUBMIT_FAILED');
+    expect(reducerSource).toContain('submitError: null');
   });
 
   it('shows inline error message on step 4 when submitError is set', () => {
-    // Step 4 must render the submitError in a visible container
-    expect(source).toContain('wizard-error');
-    expect(source).toContain('{submitError}');
+    // Step4Confirm renders submitError inside a wizard-error container
+    expect(step4Source).toContain('wizard-error');
+    expect(step4Source).toContain('{submitError}');
   });
 
   it('checks API response status before navigating away', () => {
-    // handleSubmit must check res.ok before redirecting
-    expect(source).toContain('if (!res.ok)');
-    expect(source).toContain('setSubmitError');
+    // handleSubmit in useAddLocationWizard.ts checks res.ok before router.push
+    expect(hookSource).toContain('if (!res.ok)');
+    // On failure it dispatches SUBMIT_FAILED (sets submitError via reducer)
+    expect(hookSource).toContain('SUBMIT_FAILED');
   });
 
   it('does not create businesses row when API returns error', () => {
-    // The businesses row is only created server-side in the add-location tx.
-    // The wizard does NOT create any businesses row client-side.
-    // The only state mutation is `submitError` (error display).
-    // No fetch to create a businesses row occurs before the final POST.
-    //
-    // Verify the wizard only makes one POST call (the submit handler)
-    // and does not have any other endpoint that persists data.
-    const fetchCalls = source.match(/fetch\s*\(/g) ?? [];
-    // Should have fetch calls for: voice config, existing-place-ids, and locations/add
-    expect(fetchCalls.length).toBeGreaterThanOrEqual(1);
+    // The only write endpoint is /api/locations/add, called from handleSubmit.
+    // No "save draft" or "create partial" endpoint exists anywhere.
+    const allSource = readSource(
+      '../wizard/useAddLocationWizard.ts',
+      '../wizard/reducer.ts',
+      '../wizard/steps/Step4Confirm.tsx',
+      '../AddLocationWizard.tsx',
+    );
 
-    // The wizard does NOT have a "save draft" or "create partial" endpoint
-    expect(source).not.toContain('save-draft');
-    expect(source).not.toContain('create-partial');
-    expect(source).not.toContain('draft');
+    expect(allSource).not.toContain('save-draft');
+    expect(allSource).not.toContain('create-partial');
+    expect(allSource).not.toContain('/api/locations/create-draft');
+    expect(allSource).not.toContain('/api/locations/save-progress');
   });
 
   it('stays on step 4 after error (does not navigate on failure)', () => {
-    // After an error, the wizard must NOT call router.push
-    // Verify that router.push is only called after a successful response
-    const routerPushIndex = source.indexOf('router.push');
-    const successCheck = source.indexOf('if (!res.ok)');
-    // router.push should come AFTER the success check
+    // router.push must only be called after a successful response (res.ok).
+    // In the hook, if (!res.ok) dispatches SUBMIT_FAILED and returns early —
+    // router.push only executes on the success path, so its index is greater.
+    const routerPushIndex = hookSource.indexOf('router.push');
+    const successCheck = hookSource.indexOf('if (!res.ok)');
     expect(routerPushIndex).toBeGreaterThan(successCheck);
   });
 
   it('clears submitError when retrying', () => {
-    // handleSubmit must clear submitError at the start
-    expect(source).toContain('setSubmitError(null)');
+    // SUBMIT_STARTED sets submitError: null — clearing any previous error
+    // at the start of every handleSubmit call.
+    expect(reducerSource).toContain('SUBMIT_STARTED');
+    expect(reducerSource).toContain('submitError: null');
   });
 });
 
@@ -95,65 +110,46 @@ describe('VAL-LOC-064: Wizard error display on Confirm & Pay', () => {
 // should exist. The account state must be unchanged.
 
 describe('VAL-LOC-065: Wizard abandonment leaves no persistent state', () => {
-  const sourcePath = path.resolve(__dirname, '../AddLocationWizard.tsx');
-  const source = fs.readFileSync(sourcePath, 'utf-8');
+  const hookSource = readSource('../wizard/useAddLocationWizard.ts');
+  const shellSource = readSource('../AddLocationWizard.tsx');
 
   it('does not make any POST/PUT/PATCH request during steps 1-3', () => {
-    // The wizard must not persist any data to the server during steps 1-3.
-    // Only GET requests for loading data (voice configs, existing place IDs)
-    // are allowed during these steps.
-    const fetchLines = source.split('\n').filter((line) => line.includes('fetch('));
-
-    for (const line of fetchLines) {
-      // GET requests are fine (reading data)
-      if (line.includes('/api/settings/voice') || line.includes('/api/locations/existing-place-ids')) {
-        continue;
-      }
-      // The POST to /api/locations/add is only in handleSubmit (step 4)
-      if (line.includes("/api/locations/add") && line.includes('method:')) {
-        // This is the step 4 submit — OK
-        continue;
-      }
-      // Any other fetch that might persist data — shouldn't exist
-      // But the fetch calls may be spread across multiple lines, so
-      // we do a broader check on the entire source
-    }
-
-    // The only write endpoint is /api/locations/add, and it's called
-    // only from handleSubmit (step 4 "Confirm & Pay")
-    expect(source).toContain('/api/locations/add');
-    // No other write endpoints should be referenced
-    expect(source).not.toContain('/api/locations/create-draft');
-    expect(source).not.toContain('/api/locations/save-progress');
+    // The only write endpoint is /api/locations/add in handleSubmit (step 4).
+    expect(hookSource).toContain('/api/locations/add');
+    expect(hookSource).not.toContain('/api/locations/create-draft');
+    expect(hookSource).not.toContain('/api/locations/save-progress');
   });
 
   it('wizard data lives in React state only (not localStorage or sessionStorage)', () => {
-    // The wizard must not use browser storage for persistence
-    expect(source).not.toContain('localStorage');
-    expect(source).not.toContain('sessionStorage');
-    expect(source).not.toContain('IndexedDB');
+    // All wizard state is held in useReducer — no browser storage used.
+    const allSource = readSource(
+      '../wizard/useAddLocationWizard.ts',
+      '../wizard/reducer.ts',
+      '../AddLocationWizard.tsx',
+    );
+    expect(allSource).not.toContain('localStorage');
+    expect(allSource).not.toContain('sessionStorage');
+    expect(allSource).not.toContain('IndexedDB');
   });
 
   it('cancel link navigates away without persisting data', () => {
-    // The Cancel link in the TopBar right link navigates to /dashboard
-    // without calling any save endpoint
-    expect(source).toContain("rightLink={{ href: '/dashboard', label: 'Cancel' }}");
+    // The composing shell renders the Cancel link via TopBar rightLink prop.
+    expect(shellSource).toContain("rightLink={{ href: '/dashboard', label: 'Cancel' }}");
   });
 
   it('step navigation (Back/Continue) is client-side state only', () => {
-    // Step navigation changes the `step` state variable only
-    expect(source).toContain('setStep');
-    // No server calls during step transitions
+    // GO_NEXT and GO_BACK are pure reducer actions — no server calls.
+    const reducerSource = readSource('../wizard/reducer.ts');
+    expect(reducerSource).toContain('GO_NEXT');
+    expect(reducerSource).toContain('GO_BACK');
   });
 
   it('no businesses row is created until step 4 Confirm & Pay is clicked', () => {
-    // The add-location transaction only runs when handleSubmit is invoked.
-    // Steps 1-3 accumulate client-side state (placeSelection, displayLabel,
-    // voiceForm) that is only sent to the server in the POST on step 4.
-    const handleSubmitIndex = source.indexOf('const handleSubmit');
-    const addLocationFetchIndex = source.indexOf('/api/locations/add');
-
-    // The fetch to add location must be inside handleSubmit
+    // The fetch call to /api/locations/add must be inside handleSubmit.
+    // Use the quoted fetch string — the comment on line 6 uses the bare path
+    // without quotes, so this only matches the actual fetch(...) call site.
+    const handleSubmitIndex = hookSource.indexOf('const handleSubmit');
+    const addLocationFetchIndex = hookSource.indexOf("fetch('/api/locations/add'");
     expect(addLocationFetchIndex).toBeGreaterThan(handleSubmitIndex);
   });
 });
@@ -199,26 +195,24 @@ describe('VAL-LOC-066: Proration line shows actual prorated charge', () => {
   });
 
   it('proration is NOT a placeholder or TBD', () => {
-    // The wizard renders the proration as a formatted dollar amount
-    const sourcePath = path.resolve(__dirname, '../AddLocationWizard.tsx');
-    const source = fs.readFileSync(sourcePath, 'utf-8');
+    // Step4Confirm renders proration as a formatted dollar amount.
+    const step4Source = readSource('../wizard/steps/Step4Confirm.tsx');
 
     // Must contain the proration rendering logic
-    expect(source).toContain('wizard-billing-proration');
+    expect(step4Source).toContain('wizard-billing-proration');
     // Must format as dollar amount (toFixed(2))
-    expect(source).toContain('proration.prorationCents');
-    expect(source).toContain('toFixed(2)');
+    expect(step4Source).toContain('proration.prorationCents');
+    expect(step4Source).toContain('toFixed(2)');
     // Must NOT contain placeholder text
-    expect(source).not.toContain('TBD');
-    expect(source).not.toContain('pending');
+    expect(step4Source).not.toContain('TBD');
+    expect(step4Source).not.toContain('pending');
   });
 
   it('step 4 renders proration row only when the new location adds monthly cost and days remain', () => {
-    const sourcePath = path.resolve(__dirname, '../AddLocationWizard.tsx');
-    const source = fs.readFileSync(sourcePath, 'utf-8');
+    // Step4Confirm conditionally renders the proration row.
+    const step4Source = readSource('../wizard/steps/Step4Confirm.tsx');
 
-    // Conditional rendering: only show when both conditions are met
-    expect(source).toContain('billingPreview.additionalLocationMonthlyCents > 0');
-    expect(source).toContain('proration.daysRemaining > 0');
+    expect(step4Source).toContain('billingPreview.additionalLocationMonthlyCents > 0');
+    expect(step4Source).toContain('proration.daysRemaining > 0');
   });
 });

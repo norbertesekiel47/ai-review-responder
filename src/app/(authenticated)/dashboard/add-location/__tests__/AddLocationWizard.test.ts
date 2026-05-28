@@ -7,12 +7,16 @@
 // validation), VAL-SETTINGS-044 (duplicate Place ID).
 
 import { describe, it, expect } from 'vitest';
-import {
-  buildAddLocationPayload,
-  computeNextLocationBillingPreview,
-  computeProration,
-  hasStep1LocationDetails,
-} from '../AddLocationWizard';
+import { computeNextLocationBillingPreview, computeProration } from '../wizard/billing';
+import { buildAddLocationPayload, hasStep1LocationDetails } from '../wizard/payload';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+function readWizardSource(...relPaths: string[]): string {
+  return relPaths
+    .map((p) => readFileSync(resolve(__dirname, p), 'utf-8'))
+    .join('\n');
+}
 
 // ── computeNextLocationBillingPreview ────────────────────────────────────
 
@@ -128,22 +132,21 @@ describe('computeProration', () => {
 
 // ── Step 2 Zernio informational-only check ───────────────────────────────
 //
-// VAL-LOC-073: Step 2 is optional and skippable. After the fix, Step 2
-// must NOT contain any OAuth redirect — it shows informational text about
-// connecting Google Business later, with a link to /dashboard/connect.
+// VAL-LOC-073: Step 2 is optional and skippable. It must NOT contain any
+// OAuth redirect — it shows informational text about connecting Google
+// Business later, with a link to /dashboard/connect. After modularization
+// the Step-2 UI lives in wizard/steps/Step2GoogleBusiness.tsx and the submit
+// navigation lives in wizard/useAddLocationWizard.ts; we guard both.
 
 describe('Step 2 Zernio informational-only (no OAuth redirect)', () => {
-  it('has no handleZernioConnect export or window.location redirect', () => {
-    // Static analysis: the wizard module must NOT export or reference
-    // handleZernioConnect or window.location.href assignment for Zernio.
-    //
-    // We verify by reading the source code — the function was removed.
-    // This is a regression guard: if someone re-adds an OAuth redirect
-    // to Step 2, this test fails.
-    const fs = require('fs');
-    const path = require('path');
-    const sourcePath = path.resolve(__dirname, '../AddLocationWizard.tsx');
-    const source = fs.readFileSync(sourcePath, 'utf-8');
+  const step2AndHook = () =>
+    readWizardSource(
+      '../wizard/steps/Step2GoogleBusiness.tsx',
+      '../wizard/useAddLocationWizard.ts',
+    );
+
+  it('has no handleZernioConnect or window.location redirect', () => {
+    const source = step2AndHook();
 
     // No handleZernioConnect function
     expect(source).not.toContain('handleZernioConnect');
@@ -154,18 +157,14 @@ describe('Step 2 Zernio informational-only (no OAuth redirect)', () => {
     // No /api/zernio/connect/start fetch call (the OAuth initiation)
     expect(source).not.toContain('/api/zernio/connect/start');
 
-    // Must contain informational message about connecting later
-    expect(source).toContain('Connect later from Settings');
-
-    // Must contain link to /dashboard/connect
-    expect(source).toContain('/dashboard/connect');
+    // Step 2 shows the connect-later message and a link to the connect flow
+    const step2 = readWizardSource('../wizard/steps/Step2GoogleBusiness.tsx');
+    expect(step2).toContain('Connect later from Settings');
+    expect(step2).toContain('/dashboard/connect');
   });
 
   it('has no zernioConnecting or zernioConnected state variables', () => {
-    const fs = require('fs');
-    const path = require('path');
-    const sourcePath = path.resolve(__dirname, '../AddLocationWizard.tsx');
-    const source = fs.readFileSync(sourcePath, 'utf-8');
+    const source = step2AndHook();
 
     // These state variables were removed — they tracked the OAuth flow
     expect(source).not.toContain('zernioConnecting');
@@ -177,23 +176,17 @@ describe('Step 2 Zernio informational-only (no OAuth redirect)', () => {
 // Submit payload shape
 //
 // The API schema treats googleMapsUrl as optional, not nullable. When the
-// wizard uses Place Autocomplete, it must omit googleMapsUrl entirely.
+// wizard uses Place Autocomplete, it must omit googleMapsUrl entirely. The
+// payload builder lives in wizard/payload.ts and the submit navigation in
+// wizard/useAddLocationWizard.ts.
 describe('submit payload shape', () => {
   it('does not send googleMapsUrl:null for Place Autocomplete submissions', () => {
-    const fs = require('fs');
-    const path = require('path');
-    const sourcePath = path.resolve(__dirname, '../AddLocationWizard.tsx');
-    const source = fs.readFileSync(sourcePath, 'utf-8');
-
+    const source = readWizardSource('../wizard/payload.ts');
     expect(source).not.toContain('googleMapsUrl: null');
   });
 
   it('routes the newly added location directly to its Google connect flow', () => {
-    const fs = require('fs');
-    const path = require('path');
-    const sourcePath = path.resolve(__dirname, '../AddLocationWizard.tsx');
-    const source = fs.readFileSync(sourcePath, 'utf-8');
-
+    const source = readWizardSource('../wizard/useAddLocationWizard.ts');
     expect(source).toContain('/dashboard/connect?locationId=');
     expect(source).toContain('encodeURIComponent(result.businessId)');
     expect(source).not.toContain("router.push('/dashboard');");
@@ -248,70 +241,12 @@ describe('manual Google Maps URL fallback', () => {
   });
 });
 
-// ── Display label validation (unit-level) ────────────────────────────────
+// ── Step-1 validation (VAL-SETTINGS-043 / VAL-SETTINGS-044) ───────────────
 //
-// VAL-SETTINGS-043: display_label must be non-empty and ≤ 255 chars.
-// These validation rules are implemented inside the component's
-// validateStep1 callback. We test the pure logic here.
-
-describe('display_label validation rules', () => {
-  it('rejects empty string', () => {
-    const label = '';
-    const trimmed = label.trim();
-    expect(trimmed.length === 0).toBe(true);
-  });
-
-  it('rejects whitespace-only string', () => {
-    const label = '   ';
-    const trimmed = label.trim();
-    expect(trimmed.length === 0).toBe(true);
-  });
-
-  it('accepts 1-character string', () => {
-    const label = 'A';
-    const trimmed = label.trim();
-    expect(trimmed.length > 0).toBe(true);
-    expect(trimmed.length <= 255).toBe(true);
-  });
-
-  it('accepts exactly 255 characters', () => {
-    const label = 'A'.repeat(255);
-    const trimmed = label.trim();
-    expect(trimmed.length > 0).toBe(true);
-    expect(trimmed.length <= 255).toBe(true);
-  });
-
-  it('rejects 256 characters', () => {
-    const label = 'A'.repeat(256);
-    const trimmed = label.trim();
-    expect(trimmed.length > 255).toBe(true);
-  });
-});
-
-// ── Duplicate Place ID validation (unit-level) ──────────────────────────
-//
-// VAL-SETTINGS-044: Add-location rejects Place ID already used by another
-// active location in the account.
-
-describe('duplicate Place ID check', () => {
-  it('detects duplicate Place ID in existing set', () => {
-    const existingPlaceIds = new Set(['place_abc123', 'place_def456']);
-    const newPlaceId = 'place_abc123';
-
-    expect(existingPlaceIds.has(newPlaceId)).toBe(true);
-  });
-
-  it('allows new Place ID not in existing set', () => {
-    const existingPlaceIds = new Set(['place_abc123', 'place_def456']);
-    const newPlaceId = 'place_xyz789';
-
-    expect(existingPlaceIds.has(newPlaceId)).toBe(false);
-  });
-
-  it('allows when existing set is empty', () => {
-    const existingPlaceIds = new Set<string>();
-    const newPlaceId = 'place_abc123';
-
-    expect(existingPlaceIds.has(newPlaceId)).toBe(false);
-  });
-});
+// display_label non-empty + ≤ 255 chars (VAL-SETTINGS-043) and duplicate
+// Place-ID rejection (VAL-SETTINGS-044) are enforced by the reducer's
+// GO_NEXT step-1 validation. They are unit-tested directly against reducer()
+// in reducer.test.ts ("GO_NEXT — step 1 validation"). The previous
+// string/Set assertions here exercised JS built-ins rather than wizard
+// logic, so they were removed as redundant when the logic moved to the
+// reducer.
