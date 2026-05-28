@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **052** — next migration is **053**
+Current head: **053** — next migration is **054**
 All tables use UUIDv7 (time-ordered primary keys).
 
 ## Migration Log
@@ -342,6 +342,14 @@ All tables use UUIDv7 (time-ordered primary keys).
   and newly-ingested rows agree. LLM-ready via `sentiment_source`.
   PR 6 (finance) adds **no migration** — its margin signals aggregate `api_costs`
   on read.
+- **053** — retire the legacy `sales_partner` role (issue #50, deferred from
+  #43). Defensive one-time `UPDATE users SET role='admin' WHERE
+  role='sales_partner'` (prod has 0 such rows), then **adds** the first-ever role
+  constraint `users_role_check` CHECK (`role IN ('owner','admin')`) — guarded
+  idempotently by a `pg_constraint` catalog lookup **scoped to the users
+  relation** (`conname` is unique only per-table). No enum/CHECK previously
+  existed on `users.role` (bare `VARCHAR(20)`); role had been app-enforced only.
+  Additive + re-runnable. Completes #43's runtime removal at the DB layer.
 
 ## Key Tables Reference
 

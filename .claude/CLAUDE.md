@@ -99,7 +99,7 @@ codebase-memory `manage_adr`.
 ## Database
 
 - All tables: UUIDv7 (time-ordered)
-- Base schema: `supabase/migrations/001_initial_schema.sql`; current head: migration **052** (next: **053**)
+- Base schema: `supabase/migrations/001_initial_schema.sql`; current head: migration **053** (next: **054**)
 - Migration detail: `.claude/reference/migrations-log.md`
 - Review sentiment: `reviews.sentiment_*` populated by `classifySentiment` (`src/lib/reviews/sentiment.ts`, deterministic star-based `deterministic_star_v1`) at all review-content write sites; status-only writes don't touch it.
 - Customer KPIs: `src/lib/kpi/*` (`DashboardKpiSummary` — response rate, avg star, review-volume MoM, avg time-to-respond, 8-week sentiment trend); per-location or per-account; served by `GET /api/dashboard/kpis`.
