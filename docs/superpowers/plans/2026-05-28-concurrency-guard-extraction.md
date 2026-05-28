@@ -317,6 +317,14 @@ git commit -m "refactor(costs): remove concurrency from tracker, re-export from 
 
 ### Task 3: Repoint `cost-guard.ts` at the new module
 
+> **Reverted during execution (commit `b99e3318`).** Repointing `cost-guard.ts`
+> made it source the concurrency fns from `./concurrency-guard`, which
+> `withCostGuard`'s consumer tests (`generator.test.ts`, `review-summary.test.ts`)
+> don't mock — they mock only `@/lib/costs/tracker` — so CI hit the real
+> `getCacheRedis()`. `cost-guard.ts` is kept on the compat re-export like all
+> other consumers; this repoint + all consumer-test mock updates are deferred to
+> the follow-up PR. The steps below are retained for that follow-up.
+
 **Files:**
 - Modify: `src/lib/costs/cost-guard.ts:1-7`
 - Modify: `src/lib/costs/__tests__/cost-guard.test.ts` (import + `vi.mock` split — see correction below)

@@ -70,16 +70,17 @@ exports**; the key helper, Lua script, and tuning constants stay module-private
 `tracker.ts`'s **external** export surface is unchanged (still resolves all 13
 names); internally it now owns only two concerns.
 
-### `src/lib/costs/cost-guard.ts` (the one consumer I own)
+### `src/lib/costs/cost-guard.ts` (deferred — stays on the shim)
 
-Split the existing single import:
-
-```ts
-import { reserveCost, finalizeCost, releaseCost } from './tracker';
-import { acquireConcurrencySlot, releaseConcurrencySlot } from './concurrency-guard';
-```
-
-No logic change.
+This design originally repointed `cost-guard.ts` to import the concurrency
+functions directly from `./concurrency-guard`. **During execution that proved
+to ripple into consumer tests and was reverted.** `withCostGuard`'s consumers
+(`generator.ts`, `review-summary.ts`) have tests that mock only
+`@/lib/costs/tracker`; once `cost-guard` sourced the concurrency fns elsewhere,
+those tests hit the real `getCacheRedis()` (`"Connection is closed."`). The
+compat re-export exists precisely to shield consumers, so `cost-guard` stays on
+it like every other consumer. Repointing it — and updating all consumer test
+mocks in one pass — is deferred to the follow-up.
 
 ### `worker/jobs/ResponseGeneratorWorker.ts` — untouched
 
@@ -102,11 +103,14 @@ Behavior coverage is preserved; each module is now tested at its own source.
 
 ## Why a barrel re-export instead of a full migration
 
-The concurrency symbols have exactly two production consumers:
-`cost-guard.ts` (mine to edit) and `ResponseGeneratorWorker.ts` (being edited by
-a parallel agent right now). Editing RGW's import would collide at integration.
-The re-export keeps RGW's import valid and untouched, so the two branches don't
-conflict. The shim is explicitly temporary and reversible.
+The concurrency symbols have these production consumers: `cost-guard.ts` (the
+orchestrator) and `ResponseGeneratorWorker.ts` (being edited by a parallel agent
+right now). Editing RGW's import would collide at integration. The re-export
+keeps RGW's import valid and untouched, so the two branches don't conflict. As
+execution showed (see the cost-guard section), the shim must also shield
+`cost-guard.ts` itself — its downstream consumer tests mock only `tracker`. The
+shim is explicitly temporary and reversible; all consumers migrate together in
+the follow-up.
 
 ## Verification
 
@@ -126,6 +130,9 @@ runtime behavior change. Fully reversible by inlining the symbols back into
 
 ## Follow-up (separate PR, after parallel RGW work lands)
 
-Migrate `ResponseGeneratorWorker.ts`'s `ConcurrencyLimitExceededError` import to
-`./concurrency-guard` and delete the compat re-export from `tracker.ts`, fully
-narrowing `tracker.ts`'s surface.
+Migrate every consumer off the `tracker.ts` compat re-export and delete it,
+fully narrowing `tracker.ts`'s surface. In one pass: repoint `cost-guard.ts`
+and `ResponseGeneratorWorker.ts` to import from `./concurrency-guard`, and
+update the consumer test mocks (`cost-guard.test.ts`, `generator.test.ts`,
+`review-summary.test.ts`) to mock `@/lib/costs/concurrency-guard` for the slot
+functions.
