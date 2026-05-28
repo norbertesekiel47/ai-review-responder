@@ -369,6 +369,22 @@ describe('authorizeSelectLocation', () => {
     );
   });
 
+  it('throws 400 invalid_body for a literal null JSON body (not 500)', async () => {
+    await expectRouteError(
+      authorizeSelectLocation(makeRequest('null')),
+      400,
+      'invalid_body',
+    );
+  });
+
+  it('throws 400 invalid_body for a scalar JSON body (normalized)', async () => {
+    await expectRouteError(
+      authorizeSelectLocation(makeRequest('42')),
+      400,
+      'invalid_body',
+    );
+  });
+
   it('throws 400 invalid_location_id for an empty-string locationId (permissive parser)', async () => {
     await expectRouteError(
       authorizeSelectLocation(makeRequest({ locationId: '' })),
