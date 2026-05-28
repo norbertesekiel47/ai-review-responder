@@ -12,12 +12,14 @@ import { jsonb } from '../../../src/lib/db/server';
 import {
   ZernioAuthError,
   ZernioPermanentError,
+  ZernioReplyAlreadyExistsError,
   ZernioTransientError,
   ZernioValidationError,
 } from '../../../src/lib/zernio/errors';
 import {
   PublisherTransientWithContext,
   ZernioReplyVerificationIndeterminateError,
+  verify409InTx as defaultVerify409InTx,
   type Verify409Disposition,
 } from './publisher-error-handlers';
 import type { WorkerLogger } from '../../../src/lib/shared/logger';
@@ -329,5 +331,113 @@ export async function handleDeleteError(
   }
 
   // Programming bug / unknown error → bubble to the outer catch.
+  throw err;
+}
+
+/**
+ * Disposition for an error thrown by the POST call. Applies the §4.5 per-CATCH
+ * commit semantics: returns commit_then_throw for the indeterminate/transient
+ * sub-cases that committed a sibling supersede, rollback_then_throw for the
+ * no-external-commit cases, and terminal outcomes otherwise. The 409 path
+ * verifies the live reply (verify409InTx) then defers to handle409Disposition.
+ * Programming/unknown errors are re-thrown to bubble to the outer catch.
+ */
+export async function handlePostError(
+  tx: postgres.TransactionSql,
+  err: unknown,
+  args: EditPublishCatchArgs,
+  verify409InTx: typeof defaultVerify409InTx,
+): Promise<TxCatchOutcome> {
+  const {
+    responseId,
+    businessId,
+    approvedText,
+    zernioAccountId,
+    zernioLocationId,
+    zernioReviewId,
+    existingPosted,
+    postDeleteCommitted,
+    lockedIsOrphanRetry,
+    logger,
+  } = args;
+
+  if (err instanceof ZernioReplyAlreadyExistsError) {
+    const disp = await verify409InTx({
+      tx,
+      account_id: zernioAccountId,
+      location_id: zernioLocationId,
+      zernio_review_id: zernioReviewId,
+      approved_text: approvedText,
+      logger,
+    });
+    return handle409Disposition(tx, disp, args);
+  }
+
+  if (err instanceof ZernioAuthError) {
+    await applyAuthErrorTerminalInTx(tx, {
+      responseId,
+      businessId,
+      accountId: zernioAccountId,
+      locationId: zernioLocationId,
+      errorBody: err.body ? String(err.body).slice(0, 500) : err.message,
+      postDeleteCommitted,
+      existingPosted: postDeleteCommitted && existingPosted ? { id: existingPosted.id } : null,
+      logger,
+    });
+    return { kind: 'auth_completed' };
+  }
+
+  if (err instanceof ZernioTransientError) {
+    if (postDeleteCommitted && existingPosted) {
+      // DELETE succeeded externally — commit the sibling supersede + orphan
+      // marker so the retry's no-DELETE path keeps post-DELETE semantics.
+      await supersedeSibling(tx, existingPosted.id);
+      await setOrphanMarker(tx, responseId, businessId);
+      return {
+        kind: 'commit_then_throw',
+        error: new PublisherTransientWithContext(err, {
+          response_id: responseId,
+          business_id: businessId,
+          account_id: zernioAccountId,
+          location_id: zernioLocationId,
+        }),
+      };
+    }
+    if (lockedIsOrphanRetry) {
+      // Already orphan; posting_error stays. Commit (nothing changed) + retry.
+      return {
+        kind: 'commit_then_throw',
+        error: new PublisherTransientWithContext(err, {
+          response_id: responseId,
+          business_id: businessId,
+          account_id: zernioAccountId,
+          location_id: zernioLocationId,
+        }),
+      };
+    }
+    // No external commit → ROLLBACK + retry.
+    return {
+      kind: 'rollback_then_throw',
+      error: new PublisherTransientWithContext(err, {
+        response_id: responseId,
+        business_id: businessId,
+        account_id: zernioAccountId,
+        location_id: zernioLocationId,
+      }),
+    };
+  }
+
+  if (err instanceof ZernioPermanentError || err instanceof ZernioValidationError) {
+    await markCandidatePermanentFailedInTx(tx, {
+      responseId,
+      businessId,
+      postDeleteCommitted,
+      existingPosted,
+      kind: permanentErrorKind(err),
+    });
+    return { kind: 'permanent_failed' };
+  }
+
+  // Unknown error — bubble to the outer catch.
   throw err;
 }

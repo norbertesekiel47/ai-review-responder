@@ -31,28 +31,19 @@ import * as Sentry from '@sentry/node';
 import { sql } from '../../../src/lib/db/server';
 import { zernioClient as defaultZernioClient } from '../../../src/lib/zernio/client';
 import {
-  ZernioAuthError,
   ZernioPermanentError,
   ZernioReplyAlreadyDeletedError,
-  ZernioReplyAlreadyExistsError,
-  ZernioTransientError,
-  ZernioValidationError,
 } from '../../../src/lib/zernio/errors';
-import {
-  PublisherTransientWithContext,
-  verify409InTx as defaultVerify409InTx,
-} from './publisher-error-handlers';
+import { verify409InTx as defaultVerify409InTx } from './publisher-error-handlers';
 import type { WorkerLogger } from '../../../src/lib/shared/logger';
-import type { SendOwnerEmailPayload } from '../../../src/lib/shared/worker-types';
 import type { PostedResponseActivationInput } from './activation';
 import { isOrphanMarker } from './orphan-markers';
 import {
-  applyAuthErrorTerminalInTx,
-  markCandidatePermanentFailedInTx,
-  setOrphanMarker,
-  supersedeSibling,
-} from './edit-publish-tx';
-import { handle409Disposition, handleDeleteError, permanentErrorKind } from './edit-publish-errors';
+  handleDeleteError,
+  handlePostError,
+  type TxCatchOutcome,
+} from './edit-publish-errors';
+import { supersedeSibling } from './edit-publish-tx';
 
 /** Context the dispatcher (Task 6) materializes before calling this module. */
 export interface EditPublishContext {
@@ -181,18 +172,12 @@ export async function runEditPublishIfApplicable(
   // a thrown 'rollback_then_throw' is re-surfaced from the catch.
 
   type TxOutcome =
+    | TxCatchOutcome
     | { kind: 'continue_to_fresh' }
     | { kind: 'idempotent_completed' }
     | { kind: 'review_id_drift' }
     | { kind: 'orphan_response_review' }
-    | { kind: 'success' }
-    | { kind: 'auth_completed' }
-    | { kind: '409_matches' }
-    | { kind: '409_mismatch_after_delete' }
-    | { kind: '409_mismatch_no_delete' }
-    | { kind: 'permanent_failed' }
-    | { kind: 'commit_then_throw'; error: Error }
-    | { kind: 'rollback_then_throw'; error: Error };
+    | { kind: 'success' };
 
   // Single-field box so the closure mutation narrows across `await sql.begin`
   // (a bare `let x: T | null = null` gets pinned to `null` by TS narrowing).
@@ -309,16 +294,10 @@ export async function runEditPublishIfApplicable(
           comment: approvedText,
         });
       } catch (err) {
-        if (err instanceof ZernioReplyAlreadyExistsError) {
-          const disp = await verify409InTx({
-            tx,
-            account_id: zernioAccountId,
-            location_id: zernioLocationId,
-            zernio_review_id: zernioReviewId,
-            approved_text: approvedText,
-            logger,
-          });
-          outcomeRef.value = await handle409Disposition(tx, disp, {
+        const outcome = await handlePostError(
+          tx,
+          err,
+          {
             responseId,
             businessId,
             reviewId,
@@ -330,80 +309,12 @@ export async function runEditPublishIfApplicable(
             postDeleteCommitted,
             lockedIsOrphanRetry,
             logger,
-          });
-          // The indeterminate / transient sub-cases that committed a sibling
-          // supersede return `commit_then_throw`; the no-external-commit cases
-          // throw inside handle409Disposition to force ROLLBACK.
-          return;
-        }
-
-        if (err instanceof ZernioAuthError) {
-          await applyAuthErrorTerminalInTx(tx, {
-            responseId,
-            businessId,
-            accountId: zernioAccountId,
-            locationId: zernioLocationId,
-            errorBody: err.body ? String(err.body).slice(0, 500) : err.message,
-            postDeleteCommitted,
-            existingPosted: postDeleteCommitted && existingPosted ? { id: existingPosted.id } : null,
-            logger,
-          });
-          outcomeRef.value = { kind: 'auth_completed' };
-          return;
-        }
-
-        if (err instanceof ZernioTransientError) {
-          if (postDeleteCommitted && existingPosted) {
-            // DELETE succeeded externally — commit the sibling supersede AND
-            // set the orphan marker so the retry's no-DELETE path keeps
-            // post-DELETE-success semantics.
-            await supersedeSibling(tx, existingPosted.id);
-            await setOrphanMarker(tx, responseId, businessId);
-            const wrapped = new PublisherTransientWithContext(err, {
-              response_id: responseId,
-              business_id: businessId,
-              account_id: zernioAccountId,
-              location_id: zernioLocationId,
-            });
-            outcomeRef.value = { kind: 'commit_then_throw', error: wrapped };
-            return;
-          }
-          if (lockedIsOrphanRetry) {
-            // Already orphan; posting_error stays. Commit (nothing changed) + retry.
-            const wrapped = new PublisherTransientWithContext(err, {
-              response_id: responseId,
-              business_id: businessId,
-              account_id: zernioAccountId,
-              location_id: zernioLocationId,
-            });
-            outcomeRef.value = { kind: 'commit_then_throw', error: wrapped };
-            return;
-          }
-          // No external commit (no DELETE, no POST) → ROLLBACK + retry.
-          const wrapped = new PublisherTransientWithContext(err, {
-            response_id: responseId,
-            business_id: businessId,
-            account_id: zernioAccountId,
-            location_id: zernioLocationId,
-          });
-          outcomeRef.value = { kind: 'rollback_then_throw', error: wrapped };
-          throw wrapped;
-        }
-
-        if (err instanceof ZernioPermanentError || err instanceof ZernioValidationError) {
-          await markCandidatePermanentFailedInTx(tx, {
-            responseId,
-            businessId,
-            postDeleteCommitted,
-            existingPosted,
-            kind: permanentErrorKind(err),
-          });
-          outcomeRef.value = { kind: 'permanent_failed' };
-          return;
-        }
-
-        // Unknown error — bubble.
-        throw err;
+          },
+          verify409InTx,
+        );
+        outcomeRef.value = outcome;
+        if (outcome.kind === 'rollback_then_throw') throw outcome.error;
+        return;
       }
 
       // 7. Success path. Sibling supersede + candidate posted + clear marker.
