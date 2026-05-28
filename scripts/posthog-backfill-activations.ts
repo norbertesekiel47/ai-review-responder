@@ -71,12 +71,14 @@ function parseLimit(limit: string | undefined): number | undefined {
   if (limit === undefined) {
     return undefined;
   }
-  const parsed = Number.parseInt(limit, 10);
-  if (!Number.isInteger(parsed) || parsed <= 0) {
+  // Full positive-integer check BEFORE parsing — `Number.parseInt('1abc', 10)`
+  // would silently yield 1, accepting a malformed flag. `/^\d+$/` rejects any
+  // non-digit; the `Number(limit) <= 0` guard then rejects '0'/'00'.
+  if (!/^\d+$/.test(limit) || Number(limit) <= 0) {
     console.error(`Invalid --limit value: "${limit}". Use a positive integer.`);
     process.exit(1);
   }
-  return parsed;
+  return Number(limit);
 }
 
 async function main(): Promise<void> {
@@ -205,6 +207,13 @@ async function main(): Promise<void> {
       `[posthog-backfill] dry run — nothing sent. Re-run with --execute to send ${eligible} event(s).` +
         `${limit ? ` (limited to first ${limit} accounts — remove --limit for the full count)` : ''}`,
     );
+  }
+
+  // Surface send failures to the operator and any automation: a nonzero exit
+  // must mean "not everything was captured", never a silent success.
+  if (execute && failed > 0) {
+    console.error(`[posthog-backfill] ${failed} of ${eligible} capture(s) failed — exiting nonzero.`);
+    process.exit(1);
   }
 
   // Postgres.js connections persist; force exit so the script terminates.
