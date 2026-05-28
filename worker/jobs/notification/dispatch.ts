@@ -52,6 +52,153 @@ export interface DispatchContext {
   };
 }
 
+type StatusFlipKind =
+  | 'telegram_blocked'
+  | 'telegram_chat_not_found'
+  | 'whatsapp_blocked'
+  | 'whatsapp_invalid_recipient';
+
+/**
+ * Flip a single channel_enrollments row to unsubscribed/disabled after a
+ * permanent send failure.
+ *
+ * Scoping contract (see CLAUDE.md "Owner channel enrollment org-default is
+ * account-scoped" and docs/known-issues.md "Dispatcher failure-handling
+ * enrollment writes still key by business_id"): the row is keyed by
+ * `account_id` + the enrollment's location, NOT by `business_id`. On a
+ * multi-location account the org-default row (`location_id IS NULL`) carries a
+ * legacy `business_id` from its original INSERT, so a `business_id`-keyed UPDATE
+ * could miss it. `handle` is kept in the predicate (mirroring the SMS 21610
+ * pattern) so a stale failure cannot stomp a freshly re-enrolled handle.
+ *
+ * Channel names and the unsubscribed_reason are written as SQL literals (not
+ * bound params) to keep the unit-test SQL-text assertions stable. Each branch
+ * is idempotent: COALESCE preserves the first-set timestamps/reason on re-run.
+ */
+async function flipEnrollmentStatus(
+  kind: StatusFlipKind,
+  accountId: string,
+  enrollment: ResolvedChannel,
+): Promise<void> {
+  const locationId = enrollment.location_id;
+  await sql.begin(async (tx) => {
+    switch (kind) {
+      case 'telegram_blocked':
+        if (locationId === null) {
+          await tx`
+            UPDATE channel_enrollments
+            SET status = 'unsubscribed',
+                unsubscribed_at = COALESCE(unsubscribed_at, NOW()),
+                unsubscribed_reason = COALESCE(unsubscribed_reason, 'telegram_blocked'),
+                updated_at = NOW()
+            WHERE account_id = ${accountId}
+              AND channel = 'telegram'
+              AND handle = ${enrollment.handle}
+              AND location_id IS NULL
+              AND archived_at IS NULL
+          `;
+        } else {
+          await tx`
+            UPDATE channel_enrollments
+            SET status = 'unsubscribed',
+                unsubscribed_at = COALESCE(unsubscribed_at, NOW()),
+                unsubscribed_reason = COALESCE(unsubscribed_reason, 'telegram_blocked'),
+                updated_at = NOW()
+            WHERE account_id = ${accountId}
+              AND channel = 'telegram'
+              AND handle = ${enrollment.handle}
+              AND location_id = ${locationId}::uuid
+              AND archived_at IS NULL
+          `;
+        }
+        return;
+      case 'telegram_chat_not_found':
+        if (locationId === null) {
+          await tx`
+            UPDATE channel_enrollments
+            SET status = 'disabled',
+                disabled_at = COALESCE(disabled_at, NOW()),
+                updated_at = NOW()
+            WHERE account_id = ${accountId}
+              AND channel = 'telegram'
+              AND handle = ${enrollment.handle}
+              AND location_id IS NULL
+              AND archived_at IS NULL
+          `;
+        } else {
+          await tx`
+            UPDATE channel_enrollments
+            SET status = 'disabled',
+                disabled_at = COALESCE(disabled_at, NOW()),
+                updated_at = NOW()
+            WHERE account_id = ${accountId}
+              AND channel = 'telegram'
+              AND handle = ${enrollment.handle}
+              AND location_id = ${locationId}::uuid
+              AND archived_at IS NULL
+          `;
+        }
+        return;
+      case 'whatsapp_blocked':
+        if (locationId === null) {
+          await tx`
+            UPDATE channel_enrollments
+            SET status = 'unsubscribed',
+                unsubscribed_at = COALESCE(unsubscribed_at, NOW()),
+                unsubscribed_reason = COALESCE(unsubscribed_reason, 'whatsapp_blocked'),
+                updated_at = NOW()
+            WHERE account_id = ${accountId}
+              AND channel = 'whatsapp'
+              AND handle = ${enrollment.handle}
+              AND location_id IS NULL
+              AND archived_at IS NULL
+          `;
+        } else {
+          await tx`
+            UPDATE channel_enrollments
+            SET status = 'unsubscribed',
+                unsubscribed_at = COALESCE(unsubscribed_at, NOW()),
+                unsubscribed_reason = COALESCE(unsubscribed_reason, 'whatsapp_blocked'),
+                updated_at = NOW()
+            WHERE account_id = ${accountId}
+              AND channel = 'whatsapp'
+              AND handle = ${enrollment.handle}
+              AND location_id = ${locationId}::uuid
+              AND archived_at IS NULL
+          `;
+        }
+        return;
+      case 'whatsapp_invalid_recipient':
+        if (locationId === null) {
+          await tx`
+            UPDATE channel_enrollments
+            SET status = 'disabled',
+                disabled_at = COALESCE(disabled_at, NOW()),
+                updated_at = NOW()
+            WHERE account_id = ${accountId}
+              AND channel = 'whatsapp'
+              AND handle = ${enrollment.handle}
+              AND location_id IS NULL
+              AND archived_at IS NULL
+          `;
+        } else {
+          await tx`
+            UPDATE channel_enrollments
+            SET status = 'disabled',
+                disabled_at = COALESCE(disabled_at, NOW()),
+                updated_at = NOW()
+            WHERE account_id = ${accountId}
+              AND channel = 'whatsapp'
+              AND handle = ${enrollment.handle}
+              AND location_id = ${locationId}::uuid
+              AND archived_at IS NULL
+          `;
+        }
+        return;
+    }
+  });
+}
+
 /**
  * Dispatch one approval-request notification per eligible enrollment.
  * Each iteration is fully isolated: a thrown error from one channel
@@ -196,10 +343,15 @@ export async function dispatchAll(
         });
         let accountIdsToInvalidate: string[] | null = null;
 
-        // Apply the enrollment mutation. Each branch writes the SAME SQL
-        // text as the original NotificationWorker — channel names are
-        // literals (not bound) to keep the unit-test SQL-text assertions
-        // (worker/jobs/__tests__/NotificationWorker.whatsapp.test.ts) green.
+        // Apply the enrollment mutation. The four status-flip branches delegate
+        // to flipEnrollmentStatus, which scopes the UPDATE by account_id + the
+        // enrollment's location (org-default vs per-location override) — never by
+        // business_id (a legacy FK that can miss org-default rows on
+        // multi-location accounts). Channel names stay SQL literals (not bound)
+        // to keep the unit-test SQL-text assertions
+        // (worker/jobs/notification/__tests__/NotificationWorker.whatsapp.test.ts)
+        // green. The SMS branch below is deliberately handle-global for TCPA and
+        // is NOT account-scoped.
         if (directive.kind === 'sms_unsubscribed') {
           // Belt-and-suspenders: worker startup-assert already enforces
           // TWILIO_MESSAGING_SERVICE_SID when CHANNELS_SMS_ENABLED=true, but
@@ -239,62 +391,13 @@ export async function dispatchAll(
           accountIdsToInvalidate = [
             ...new Set(affectedAccounts.map((row) => row.account_id).filter(Boolean)),
           ];
-        } else if (directive.kind === 'telegram_blocked') {
-          // Filter by handle too (mirrors SMS 21610 pattern) so a stale send
-          // failure cannot stomp a freshly-re-enrolled handle.
-          await sql.begin(async (tx) => {
-            await tx`
-              UPDATE channel_enrollments
-              SET status = 'unsubscribed',
-                  unsubscribed_at = COALESCE(unsubscribed_at, NOW()),
-                  unsubscribed_reason = COALESCE(unsubscribed_reason, 'telegram_blocked'),
-                  updated_at = NOW()
-              WHERE business_id = ${ctx.businessId}
-                AND channel = 'telegram'
-                AND handle = ${enrollment.handle}
-                AND archived_at IS NULL
-            `;
-          });
-        } else if (directive.kind === 'telegram_chat_not_found') {
-          await sql.begin(async (tx) => {
-            await tx`
-              UPDATE channel_enrollments
-              SET status = 'disabled',
-                  disabled_at = COALESCE(disabled_at, NOW()),
-                  updated_at = NOW()
-              WHERE business_id = ${ctx.businessId}
-                AND channel = 'telegram'
-                AND handle = ${enrollment.handle}
-                AND archived_at IS NULL
-            `;
-          });
-        } else if (directive.kind === 'whatsapp_blocked') {
-          await sql.begin(async (tx) => {
-            await tx`
-              UPDATE channel_enrollments
-              SET status = 'unsubscribed',
-                  unsubscribed_at = COALESCE(unsubscribed_at, NOW()),
-                  unsubscribed_reason = COALESCE(unsubscribed_reason, 'whatsapp_blocked'),
-                  updated_at = NOW()
-              WHERE business_id = ${ctx.businessId}
-                AND channel = 'whatsapp'
-                AND handle = ${enrollment.handle}
-                AND archived_at IS NULL
-            `;
-          });
-        } else if (directive.kind === 'whatsapp_invalid_recipient') {
-          await sql.begin(async (tx) => {
-            await tx`
-              UPDATE channel_enrollments
-              SET status = 'disabled',
-                  disabled_at = COALESCE(disabled_at, NOW()),
-                  updated_at = NOW()
-              WHERE business_id = ${ctx.businessId}
-                AND channel = 'whatsapp'
-                AND handle = ${enrollment.handle}
-                AND archived_at IS NULL
-            `;
-          });
+        } else if (
+          directive.kind === 'telegram_blocked' ||
+          directive.kind === 'telegram_chat_not_found' ||
+          directive.kind === 'whatsapp_blocked' ||
+          directive.kind === 'whatsapp_invalid_recipient'
+        ) {
+          await flipEnrollmentStatus(directive.kind, ctx.accountId, enrollment);
         }
         // CONFIG-ERROR (whatsapp_template_config / whatsapp_session_window),
         // TRANSIENT (whatsapp_rate_limit / whatsapp_timeout), and 'unknown'

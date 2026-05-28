@@ -272,6 +272,16 @@ describe('NotificationWorker — Telegram blocked recipient', () => {
     expect(updateSql).toMatch(/unsubscribed_at/);
     expect(updateSql).toMatch(/archived_at IS NULL/);
 
+    // Scoped by account_id + org-default location (location_id IS NULL),
+    // never by the legacy business_id FK.
+    expect(updateSql).toMatch(/account_id = /);
+    expect(updateSql).toMatch(/channel = 'telegram'/);
+    expect(updateSql).toMatch(/location_id IS NULL/);
+    expect(updateSql).not.toMatch(/business_id/);
+    const updateValues = (mockTx.mock.calls[0]?.slice(1) ?? []) as unknown[];
+    expect(updateValues).toContain('acct-1');
+    expect(updateValues).not.toContain('biz-1');
+
     // Failed delivery recorded for telegram
     expect(mockInsertFailedDelivery).toHaveBeenCalledWith(
       'acct-1',
@@ -326,6 +336,16 @@ describe('NotificationWorker — Telegram chat not found', () => {
     // Must NOT set unsubscribed fields
     expect(updateSql).not.toMatch(/unsubscribed_at/);
     expect(updateSql).not.toMatch(/unsubscribed_reason/);
+
+    // Scoped by account_id + org-default location (location_id IS NULL),
+    // never by the legacy business_id FK.
+    expect(updateSql).toMatch(/account_id = /);
+    expect(updateSql).toMatch(/channel = 'telegram'/);
+    expect(updateSql).toMatch(/location_id IS NULL/);
+    expect(updateSql).not.toMatch(/business_id/);
+    const updateValues = (mockTx.mock.calls[0]?.slice(1) ?? []) as unknown[];
+    expect(updateValues).toContain('acct-1');
+    expect(updateValues).not.toContain('biz-1');
 
     // Failed delivery recorded for telegram
     expect(mockInsertFailedDelivery).toHaveBeenCalledWith(
