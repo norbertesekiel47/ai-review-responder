@@ -20,17 +20,17 @@
 //
 // Ordering invariants:
 //   1. Same-origin wrapper → flag → env → auth → body parse → subscription.
-//   2. Per-(business_id, 'sms') advisory lock — matches /verify and /confirm.
+//   2. Per-account mobile-enrollment advisory lock — matches /verify and /confirm
+//      (and the Telegram/WhatsApp admin routes).
 //   3. Single CTE inside the lock.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import {
   isSmsEnabled,
   flagOff,
   assertSmsEnvReady,
-  loadBusinessSubscriptionStatus,
+  loadBusinessAccountContext,
   isSubscriptionActive,
   subscriptionNotActive,
   withMobileEnrollmentLock,
@@ -63,10 +63,13 @@ async function cancelSms(request: NextRequest): Promise<NextResponse> {
   if (!rawBusinessId) return badRequest('business_id_required');
   const businessId = asLocationId(rawBusinessId);
 
-  const subStatus = await loadBusinessSubscriptionStatus(businessId);
-  if (!isSubscriptionActive(subStatus)) return subscriptionNotActive();
+  const accountContext = await loadBusinessAccountContext(businessId);
+  if (!accountContext || !isSubscriptionActive(accountContext.subscriptionStatus)) {
+    return subscriptionNotActive();
+  }
+  const accountId = accountContext.accountId;
 
-  const result = await withMobileEnrollmentLock(businessId, async (tx) => {
+  const result = await withMobileEnrollmentLock(accountId, async (tx) => {
     // State-revert CTE: UPDATE in-place based on prior terminal timestamps,
     // then DELETE any rows that remained 'pending_verification' (brand-new).
     await tx`
@@ -90,13 +93,9 @@ async function cancelSms(request: NextRequest): Promise<NextResponse> {
   });
 
   // Invalidate channel cache — the cancelled verification changes which
-  // channels are available for dispatch.
-  const [acctRow] = await sql<{ account_id: string }[]>`
-    SELECT account_id FROM businesses WHERE id = ${businessId}
-  `;
-  if (acctRow?.account_id) {
-    await safeInvalidateChannelCache(asAccountId(acctRow.account_id), 'admin.sms.cancel');
-  }
+  // channels are available for dispatch. Reuse the account id resolved
+  // up-front instead of a second businesses lookup.
+  await safeInvalidateChannelCache(asAccountId(accountId), 'admin.sms.cancel');
 
   return result;
 }

@@ -47,16 +47,36 @@ export function assertSmsEnvReady(): NextResponse | null {
 
 // ── Subscription gate ────────────────────────────────────────────────
 
-/** Loads the account subscription_status via the business's account_id. Returns null if the business doesn't exist. */
-export async function loadBusinessSubscriptionStatus(businessId: string): Promise<string | null> {
+/**
+ * The billing-parent account context for a business, resolved once per request
+ * from the same JOIN that loads subscription_status. `accountId` is the
+ * authoritative billing-parent id used for the account-scoped enrollment lock
+ * and the cross-channel precheck — never the per-location `business_id`.
+ */
+export interface BusinessAccountContext {
+  subscriptionStatus: string;
+  accountId: string;
+}
+
+/**
+ * Loads the account subscription_status AND billing-parent account_id via the
+ * business's account_id. Returns null if the business doesn't exist. The two
+ * facts come from one JOIN so callers get the account id without a second
+ * round-trip; both feed the account-scoped lock + cross-channel precheck.
+ */
+export async function loadBusinessAccountContext(
+  businessId: string,
+): Promise<BusinessAccountContext | null> {
   // After migration 034, subscription_status source of truth is accounts.
-  const rows = await sql<{ subscription_status: string }[]>`
-    SELECT a.subscription_status
+  const rows = await sql<{ subscription_status: string; account_id: string }[]>`
+    SELECT a.subscription_status, a.id AS account_id
     FROM accounts a
     JOIN businesses b ON b.account_id = a.id
     WHERE b.id = ${businessId}
   `;
-  return rows[0]?.subscription_status ?? null;
+  const row = rows[0];
+  if (!row) return null;
+  return { subscriptionStatus: row.subscription_status, accountId: row.account_id };
 }
 
 /** Returns true when the business's account has an active subscription. */
@@ -72,18 +92,18 @@ export function subscriptionNotActive(): NextResponse {
 // ── Advisory lock ────────────────────────────────────────────────────
 
 /**
- * Runs `fn` inside a transaction with a per-business mobile-enrollment advisory
- * lock, keyed per business (`mobile_enroll:${businessId}`). Serializes concurrent
- * SMS admin calls with each other.
+ * Runs `fn` inside a transaction with the mobile-enrollment advisory lock,
+ * keyed per billing-parent account (`mobile_enroll:${accountId}`). This matches
+ * the Telegram + WhatsApp admin routes so SMS enrollment mutually excludes
+ * against a concurrent Telegram/WhatsApp start across the whole account — the
+ * `one_mobile_per_scope` unique index is scoped by `(account_id, location)`, so
+ * the lock must be account-scoped to actually serialize against it. Locking by
+ * the per-location `business_id` would leave that window open on multi-location
+ * accounts.
  *
- * Used by SMS verify/confirm/cancel/disable/delete routes. NOTE: this lock is
- * still business-scoped while the Telegram + WhatsApp routes were moved to
- * account scope (`mobile_enroll:${accountId}`). So SMS verify does NOT currently
- * serialize against a concurrent Telegram/WhatsApp start, and the SMS verify
- * "other mobile channel" pre-check is also still business-scoped — both deferred
- * with the SMS owner-self-service work (see docs/known-issues.md). The
- * account-scoped `one_mobile_per_scope` index remains authoritative and prevents
- * duplicate mobile channels regardless.
+ * Used by SMS verify/confirm/cancel/disable/delete routes. The account-scoped
+ * `one_mobile_per_scope` index remains authoritative and prevents duplicate
+ * mobile channels regardless.
  *
  * Matches the createApprovalLink per-(response_id, channel) lock pattern
  * shipped in commit d01d729.
@@ -92,14 +112,14 @@ export function subscriptionNotActive(): NextResponse {
  * MUST use `tx`, not `sql`, to stay inside the lock/transaction.
  */
 export async function withMobileEnrollmentLock<T>(
-  businessId: string,
+  accountId: string,
   fn: (tx: typeof sql) => Promise<T>,
 ): Promise<T> {
   // sql.begin returns UnwrapPromiseArray<T> (postgres.js generic); our callback
   // always returns a plain Promise<T>, so the cast is safe. Keeping the public
   // signature as Promise<T> lets callers chain without re-declaring the type.
   return sql.begin(async (tx) => {
-    await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`mobile_enroll:${businessId}`}, 0))`;
+    await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`mobile_enroll:${accountId}`}, 0))`;
     return fn(tx as unknown as typeof sql);
   }) as Promise<T>;
 }
