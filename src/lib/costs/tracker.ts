@@ -1,14 +1,5 @@
 import { getCacheRedis } from '@/lib/db/redis-cache';
 
-// Compat shim: concurrency moved to ./concurrency-guard. Kept so external
-// consumers (ResponseGeneratorWorker) resolve unchanged. Follow-up: migrate
-// that import and drop this line once the parallel RGW work has landed.
-export {
-  acquireConcurrencySlot,
-  releaseConcurrencySlot,
-  ConcurrencyLimitExceededError,
-} from './concurrency-guard';
-
 // ── Error classes ────────────────────────────────────────────────────
 
 export class CostLimitExceededError extends Error {

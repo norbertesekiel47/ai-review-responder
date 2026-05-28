@@ -93,14 +93,18 @@ with a clean already-named seam.
   one-line compat re-export so all consumers resolve unchanged. Cost-reservation +
   regen budget stay in `tracker.ts` (the single named seam — not the full
   13-export split, which the "touch carefully" note cautions against).
-- **Follow-up (open):** once the parallel `ResponseGeneratorWorker` work has
-  landed, migrate every consumer off the `tracker.ts` re-export and delete the
-  shim — repoint `cost-guard.ts` **and** `ResponseGeneratorWorker.ts` to import
-  from `./concurrency-guard`, and update the consumer test mocks
-  (`cost-guard.test.ts`, `generator.test.ts`, `review-summary.test.ts`) to mock
-  `@/lib/costs/concurrency-guard` for the slot fns. Repointing `cost-guard.ts` in
-  isolation breaks those consumer tests (they mock only `tracker`) — see
-  lab-notes 2026-05-28 "compat re-export must shield ALL consumers".
+- **✅ Follow-up done — 2026-05-28.** Shim deleted. Repointed `cost-guard.ts`
+  (slot fns) and `worker/jobs/response-generation/generate-draft.ts`
+  (`ConcurrencyLimitExceededError`) to `concurrency-guard`, and moved the
+  concurrency mocks in all **five** consumer tests — `cost-guard.test.ts`,
+  `generator.test.ts`, `review-summary.test.ts` (transitive via `withCostGuard`),
+  plus `generate-draft.test.ts` and `ResponseGeneratorWorker.test.ts` (transitive
+  via the real `generate-draft`). The original follow-up named only the first
+  three and `ResponseGeneratorWorker.ts`; the post-PR-#128 reality is that the
+  RGW concurrency-error handling moved into `generate-draft.ts`, and the two
+  worker tests were surfaced during implementation. `concurrency-guard.ts` is now
+  the single source for the three symbols; `tracker.ts` keeps cost-reservation +
+  regen budget only.
 
 ---
 

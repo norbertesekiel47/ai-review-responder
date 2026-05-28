@@ -1,10 +1,8 @@
+import { reserveCost, finalizeCost, releaseCost } from './tracker';
 import {
-  reserveCost,
   acquireConcurrencySlot,
-  finalizeCost,
-  releaseCost,
   releaseConcurrencySlot,
-} from './tracker';
+} from './concurrency-guard';
 
 export interface CostGuardOptions {
   businessId: string;

@@ -15,11 +15,11 @@ import { isMockMode } from '../../../src/lib/shared/mock-mode';
 import {
   CostLimitExceededError,
   GlobalCostLimitExceededError,
-  ConcurrencyLimitExceededError,
   RegenBudgetExceededError,
   checkRegenBudget,
   setCachedGeneration,
 } from '../../../src/lib/costs/tracker';
+import { ConcurrencyLimitExceededError } from '../../../src/lib/costs/concurrency-guard';
 import type { BusinessContext, GenerationResult, VoiceExample } from '../../../src/lib/responses/types';
 import type { NormalizedReview } from '../../../src/lib/reviews/types';
 import type { WorkerLogger } from '../../../src/lib/shared/logger';

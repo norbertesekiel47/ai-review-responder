@@ -94,13 +94,16 @@ vi.mock('../../../src/lib/costs/tracker', () => ({
     name = 'GlobalCostLimitExceededError';
     constructor() { super('Global daily cost limit exceeded'); }
   },
-  ConcurrencyLimitExceededError: class extends Error {
-    name = 'ConcurrencyLimitExceededError';
-    constructor(public readonly businessId: string) { super(`Concurrency limit exceeded for business ${businessId}`); }
-  },
   RegenBudgetExceededError: class extends Error {
     name = 'RegenBudgetExceededError';
     constructor(public readonly reviewId: string) { super(`Regeneration budget exceeded for review ${reviewId}`); }
+  },
+}));
+
+vi.mock('../../../src/lib/costs/concurrency-guard', () => ({
+  ConcurrencyLimitExceededError: class extends Error {
+    name = 'ConcurrencyLimitExceededError';
+    constructor(public readonly businessId: string) { super(`Concurrency limit exceeded for business ${businessId}`); }
   },
 }));
 
