@@ -1,3 +1,8 @@
+---
+name: onboarding-demo-cost-guard
+description: Cost-guard helper for the PRE-pay onboarding demo lane (global daily ceiling, 20¢ pessimistic reserve → reconcile). Distinct from the post-pay cost-guard. Use before touching /api/onboarding/start, the onboarding demo worker, or pre-pay demo budgeting.
+---
+
 # Onboarding Demo Cost Guard
 
 Parallel cost-guard helper for the **pre-pay** onboarding demo lane. Lives at
