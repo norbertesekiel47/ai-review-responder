@@ -29,11 +29,9 @@ vi.mock('@/lib/reviews/detect-language', () => ({
 vi.mock('@/lib/costs/tracker', () => ({
   checkIdempotentCache: vi.fn().mockResolvedValue(null),
   reserveCost: vi.fn().mockResolvedValue('2025-06-15'),
-  acquireConcurrencySlot: vi.fn().mockResolvedValue(undefined),
   finalizeCost: vi.fn().mockResolvedValue(undefined),
   setCachedGeneration: vi.fn().mockResolvedValue(undefined),
   releaseCost: vi.fn().mockResolvedValue(undefined),
-  releaseConcurrencySlot: vi.fn().mockResolvedValue(undefined),
   CostLimitExceededError: class CostLimitExceededError extends Error {
     name = 'CostLimitExceededError';
     constructor(public readonly businessId: string) {
@@ -44,16 +42,21 @@ vi.mock('@/lib/costs/tracker', () => ({
     name = 'GlobalCostLimitExceededError';
     constructor() { super('Global daily cost limit exceeded'); }
   },
-  ConcurrencyLimitExceededError: class ConcurrencyLimitExceededError extends Error {
-    name = 'ConcurrencyLimitExceededError';
-    constructor(public readonly businessId: string) {
-      super(`Concurrency limit exceeded for business ${businessId}`);
-    }
-  },
   RegenBudgetExceededError: class RegenBudgetExceededError extends Error {
     name = 'RegenBudgetExceededError';
     constructor(public readonly reviewId: string) {
       super(`Regeneration budget exceeded for review ${reviewId}`);
+    }
+  },
+}));
+
+vi.mock('@/lib/costs/concurrency-guard', () => ({
+  acquireConcurrencySlot: vi.fn().mockResolvedValue(undefined),
+  releaseConcurrencySlot: vi.fn().mockResolvedValue(undefined),
+  ConcurrencyLimitExceededError: class ConcurrencyLimitExceededError extends Error {
+    name = 'ConcurrencyLimitExceededError';
+    constructor(public readonly businessId: string) {
+      super(`Concurrency limit exceeded for business ${businessId}`);
     }
   },
 }));
@@ -185,12 +188,13 @@ describe('generateResponse', () => {
         openaiCreate.mockResolvedValueOnce(openAIResponse('Thanks!'));
 
     const tracker = await import('@/lib/costs/tracker');
+    const concurrencyGuard = await import('@/lib/costs/concurrency-guard');
     const audit = await import('@/lib/costs/audit');
     const { generateResponse } = await import('../generator');
     await generateResponse(review, businessContext, [], demoOptions);
 
     expect(tracker.reserveCost).not.toHaveBeenCalled();
-    expect(tracker.acquireConcurrencySlot).not.toHaveBeenCalled();
+    expect(concurrencyGuard.acquireConcurrencySlot).not.toHaveBeenCalled();
     expect(tracker.finalizeCost).not.toHaveBeenCalled();
     expect(audit.recordApiCost).not.toHaveBeenCalled();
   });
@@ -199,14 +203,15 @@ describe('generateResponse', () => {
     openaiCreate.mockResolvedValueOnce(openAIResponse('Thanks!'));
 
     const tracker = await import('@/lib/costs/tracker');
+    const concurrencyGuard = await import('@/lib/costs/concurrency-guard');
     const audit = await import('@/lib/costs/audit');
     const { generateResponse } = await import('../generator');
     await generateResponse(review, businessContext, [], productionOptions);
 
     expect(tracker.reserveCost).toHaveBeenCalledWith('biz-001', 'standard');
-    expect(tracker.acquireConcurrencySlot).toHaveBeenCalledWith('biz-001');
+    expect(concurrencyGuard.acquireConcurrencySlot).toHaveBeenCalledWith('biz-001');
     expect(tracker.finalizeCost).toHaveBeenCalled();
-    expect(tracker.releaseConcurrencySlot).toHaveBeenCalledWith('biz-001');
+    expect(concurrencyGuard.releaseConcurrencySlot).toHaveBeenCalledWith('biz-001');
     expect(tracker.setCachedGeneration).toHaveBeenCalled();
     expect(audit.recordApiCost).toHaveBeenCalled();
   });
@@ -272,13 +277,14 @@ describe('generateResponse', () => {
     anthropicCreate.mockRejectedValueOnce(new Error('also fail'));
 
     const tracker = await import('@/lib/costs/tracker');
+    const concurrencyGuard = await import('@/lib/costs/concurrency-guard');
     const { generateResponse } = await import('../generator');
 
     await expect(
       generateResponse(review, businessContext, [], productionOptions),
     ).rejects.toThrow();
 
-    expect(tracker.releaseConcurrencySlot).toHaveBeenCalledWith('biz-001');
+    expect(concurrencyGuard.releaseConcurrencySlot).toHaveBeenCalledWith('biz-001');
     expect(tracker.releaseCost).toHaveBeenCalledWith('biz-001', '2025-06-15');
   });
 
@@ -308,7 +314,8 @@ describe('generateResponse', () => {
 
   it('releases cost reservation when concurrency slot acquisition fails', async () => {
     const tracker = await import('@/lib/costs/tracker');
-    vi.mocked(tracker.acquireConcurrencySlot).mockRejectedValueOnce(
+    const concurrencyGuard = await import('@/lib/costs/concurrency-guard');
+    vi.mocked(concurrencyGuard.acquireConcurrencySlot).mockRejectedValueOnce(
       new Error('Concurrency limit exceeded'),
     );
 
@@ -318,14 +325,14 @@ describe('generateResponse', () => {
     ).rejects.toThrow('Concurrency limit exceeded');
 
     expect(tracker.releaseCost).toHaveBeenCalledWith('biz-001', '2025-06-15');
-    expect(tracker.releaseConcurrencySlot).not.toHaveBeenCalled();
+    expect(concurrencyGuard.releaseConcurrencySlot).not.toHaveBeenCalled();
   });
 
   it('returns result even when wrapper cleanup throws', async () => {
     openaiCreate.mockResolvedValueOnce(openAIResponse('Good response'));
 
-    const tracker = await import('@/lib/costs/tracker');
-    vi.mocked(tracker.releaseConcurrencySlot).mockRejectedValueOnce(
+    const concurrencyGuard = await import('@/lib/costs/concurrency-guard');
+    vi.mocked(concurrencyGuard.releaseConcurrencySlot).mockRejectedValueOnce(
       new Error('Redis connection lost'),
     );
 
@@ -339,6 +346,7 @@ describe('generateResponse', () => {
     openaiCreate.mockResolvedValueOnce(openAIResponse('Thanks!'));
 
     const tracker = await import('@/lib/costs/tracker');
+    const concurrencyGuard = await import('@/lib/costs/concurrency-guard');
     const audit = await import('@/lib/costs/audit');
     const finalizeErr = new Error('Redis timeout during finalize');
     vi.mocked(tracker.finalizeCost).mockRejectedValueOnce(finalizeErr);
@@ -349,7 +357,7 @@ describe('generateResponse', () => {
     ).rejects.toThrow(finalizeErr);
 
     expect(tracker.releaseCost).not.toHaveBeenCalled();
-    expect(tracker.releaseConcurrencySlot).toHaveBeenCalledWith('biz-001');
+    expect(concurrencyGuard.releaseConcurrencySlot).toHaveBeenCalledWith('biz-001');
     expect(audit.recordApiCost).not.toHaveBeenCalled();
     // Cache write happens INSIDE the wrapper closure (before finalize) per M3,
     // so it succeeded before finalize threw. Audit happens AFTER the wrapper

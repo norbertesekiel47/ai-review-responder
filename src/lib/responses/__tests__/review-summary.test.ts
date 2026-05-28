@@ -32,8 +32,6 @@ vi.mock('@/lib/costs/tracker', () => ({
   reserveCost: (...args: unknown[]) => mockReserveCost(...args),
   finalizeCost: (...args: unknown[]) => mockFinalizeCost(...args),
   releaseCost: (...args: unknown[]) => mockReleaseCost(...args),
-  acquireConcurrencySlot: vi.fn().mockResolvedValue(undefined),
-  releaseConcurrencySlot: vi.fn().mockResolvedValue(undefined),
   CostLimitExceededError: class CostLimitExceededError extends Error {
     constructor(public readonly businessId: string) {
       super(`Daily cost limit exceeded for business ${businessId}`);
@@ -46,6 +44,11 @@ vi.mock('@/lib/costs/tracker', () => ({
       this.name = 'GlobalCostLimitExceededError';
     }
   },
+}));
+
+vi.mock('@/lib/costs/concurrency-guard', () => ({
+  acquireConcurrencySlot: vi.fn().mockResolvedValue(undefined),
+  releaseConcurrencySlot: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('@/lib/costs/cost-guard', async () => {
