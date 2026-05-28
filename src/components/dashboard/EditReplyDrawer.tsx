@@ -29,15 +29,14 @@
 
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { PastReplyRow } from '@/components/dashboard/PastReplyCard';
 import { AI_DRAFT_DISCLOSURE } from '@/lib/ui/disclosures';
+import { useEditReplyDraft } from '@/components/dashboard/edit-reply/useEditReplyDraft';
 
 const MAX_REPLY_CHARS = 2000;
-const POLL_INTERVAL_MS = 1500;
-const POLL_TIMEOUT_MS = 60_000;
 
 interface EditReplyDrawerProps {
   open: boolean;
@@ -61,64 +60,6 @@ interface EditReplyDrawerProps {
   } | null;
 }
 
-interface Snapshot {
-  hash: string;
-  version: number;
-}
-
-type DrawerState =
-  // 'creating_draft' is the in-flight POST /draft (regenerate) state — set
-  // BEFORE the outbox_id is known so the polling effect cannot fire with an
-  // empty outboxId. Renders the same loading UI as 'regenerating'.
-  // See Code Review fix Medium 2 (2026-05-02).
-  | { kind: 'initial' }
-  | { kind: 'editing'; text: string; draftResponseId: string | null }
-  | { kind: 'creating_draft' }
-  | { kind: 'regenerating'; outboxId: string }
-  // 'regenerate_poll_error' carries outboxId so the worker is still
-  // outstanding (timeout / network error / non-OK status check). The drawer
-  // refuses close in this state — the worker may yet succeed and create a
-  // pending_approval row that would otherwise be invisible. The owner can
-  // either Resume polling (back to 'regenerating') or wait for terminal
-  // worker failure to drop us to closable 'error'. See Round-4 M.
-  | { kind: 'regenerate_poll_error'; outboxId: string; message: string }
-  | { kind: 'preview'; draftResponseId: string; text: string }
-  | { kind: 'publishing' }
-  // failedPostingError carried so RecoveryPanel can show/hide Restore based
-  // on the failure mode (Round-2 M2).
-  | { kind: 'recovery'; failedResponseId: string; failedPostingError: string | null }
-  | { kind: 'review_changed'; currentText: string | null }
-  // A prior draft (reload / crash / failed-publish) already exists for this
-  // review. Rather than dead-ending on 409 'draft_already_exists', offer to
-  // Resume it (publish/edit the existing draft) or Discard it and start over.
-  // `status` discriminates which actions are available:
-  //   - 'pending_approval' → Resume + Discard are valid.
-  //   - 'approved' | 'edited' → publish already queued; inform only.
-  //   - 'awaiting_owner_connect' → parked until Google reconnect; inform + link.
-  | { kind: 'draft_conflict'; existing: { responseId: string; text: string; isEdited: boolean; status: string } }
-  | { kind: 'error'; message: string }
-  | { kind: 'success'; message: string };
-
-interface ApiErrorPayload {
-  error?: string;
-  current_review_text?: string | null;
-  current_review_hash?: string | null;
-  existing?: {
-    response_id: string;
-    text: string | null;
-    is_edited: boolean;
-    status: string;
-  };
-}
-
-async function readJsonSafe(res: Response): Promise<ApiErrorPayload | null> {
-  try {
-    return (await res.json()) as ApiErrorPayload;
-  } catch {
-    return null;
-  }
-}
-
 export function EditReplyDrawer({
   open,
   onClose,
@@ -127,30 +68,7 @@ export function EditReplyDrawer({
   initialFailureRecovery = null,
 }: EditReplyDrawerProps) {
   const router = useRouter();
-
-  // Snapshot is captured once at open time and never re-derived. The server
-  // uses (hash, version) to detect concurrent customer edits between /draft
-  // and /publish. version is null in the orphan-only state (no posted row);
-  // the recovery routes don't run validateOptimisticConcurrency so the
-  // snapshot is unused there.
-  const snapshotRef = useRef<Snapshot>({
-    hash: row.review_content_hash ?? '',
-    version: row.version ?? 0,
-  });
-
-  // If the card opened the drawer in recovery mode (failed_response_id set),
-  // start in 'recovery' instead of 'initial'. Carry the posting_error prefix
-  // so RecoveryPanel can hide Restore when only Retry is appropriate.
-  const [state, setState] = useState<DrawerState>(
-    initialFailureRecovery
-      ? {
-          kind: 'recovery',
-          failedResponseId: initialFailureRecovery.failedResponseId,
-          failedPostingError: initialFailureRecovery.failedPostingError,
-        }
-      : { kind: 'initial' },
-  );
-  const currentReplyText = row.approved_text ?? '';
+  const { state, isClosePending, tryClose, actions } = useEditReplyDraft({ row, initialFailureRecovery, onClose });
 
   // Esc to close. Only handled when the drawer is mounted. Uses a ref to the
   // current tryClose so the keydown binding doesn't re-attach on every state
@@ -221,460 +139,11 @@ export function EditReplyDrawer({
     };
   }, [open]);
 
-  // Polling effect for the regenerating state.
-  //
-  // Three transient failure paths preserve outboxId in 'regenerate_poll_error'
-  // so close stays blocked while the worker is still outstanding (Round-4 M):
-  //   - 60s polling-budget timeout (worker may finish later).
-  //   - non-OK /draft-status response (transient network / proxy / 5xx).
-  //   - thrown network error during fetch.
-  // Resume-polling re-enters 'regenerating' with the same outboxId and the
-  // 60s window restarts.
-  //
-  // Two terminal paths drop to plain closable 'error':
-  //   - body.status === 'failed' (worker reported terminal failure;
-  //     ResponseGeneratorWorker markOutboxFailed without inserting a row,
-  //     so no pending_approval will materialize — safe to close).
-  //   - Unknown response shape (treated as worker-finished-with-junk;
-  //     also closable. If we routed unknown shape to poll-error, an
-  //     ambiguous server response would trap the owner forever).
-  useEffect(() => {
-    if (state.kind !== 'regenerating') return;
-    const outboxId = state.outboxId;
-    const startedAt = Date.now();
-    let cancelled = false;
-
-    const tick = async () => {
-      if (cancelled) return;
-      if (Date.now() - startedAt > POLL_TIMEOUT_MS) {
-        setState({
-          kind: 'regenerate_poll_error',
-          outboxId,
-          message: 'Generation is taking longer than expected. The draft may still arrive.',
-        });
-        return;
-      }
-      try {
-        const res = await fetch(
-          `/api/dashboard/past-replies/draft-status?outbox_id=${encodeURIComponent(outboxId)}`,
-          { credentials: 'same-origin' },
-        );
-        const body = (await res.json().catch(() => null)) as
-          | { status?: string; error?: string; response_id?: string; response_text?: string | null }
-          | null;
-        if (cancelled) return;
-        if (!res.ok || !body) {
-          setState({
-            kind: 'regenerate_poll_error',
-            outboxId,
-            message: body?.error ?? `Status check failed (${res.status}). The worker may still finish.`,
-          });
-          return;
-        }
-        if (body.status === 'generating') {
-          setTimeout(tick, POLL_INTERVAL_MS);
-          return;
-        }
-        if (body.status === 'failed') {
-          // Terminal worker failure — ResponseGeneratorWorker did NOT insert
-          // a response row (markOutboxFailed before persistResponseAndNotify).
-          // Safe to close; no orphan can materialize.
-          setState({
-            kind: 'error',
-            message: body.error ?? 'Generation failed. Try again.',
-          });
-          return;
-        }
-        if (body.response_id) {
-          setState({
-            kind: 'preview',
-            draftResponseId: body.response_id,
-            text: body.response_text ?? '',
-          });
-          return;
-        }
-        // Unknown shape — surface generically. Closable on the assumption
-        // that an ambiguous server response shouldn't trap the owner.
-        setState({ kind: 'error', message: 'Unexpected response from server.' });
-      } catch (err) {
-        if (cancelled) return;
-        setState({
-          kind: 'regenerate_poll_error',
-          outboxId,
-          message: err instanceof Error ? err.message : 'Network error while polling.',
-        });
-      }
-    };
-
-    setTimeout(tick, POLL_INTERVAL_MS);
-    return () => {
-      cancelled = true;
-    };
-  }, [state]);
-
-  const handleHttpError = useCallback(
-    async (res: Response, fallback: string): Promise<void> => {
-      const body = await readJsonSafe(res);
-      if (res.status === 409 && body?.error === 'review_changed') {
-        setState({
-          kind: 'review_changed',
-          currentText: body.current_review_text ?? null,
-        });
-        return;
-      }
-      // A prior in-progress draft exists. The available actions depend on its
-      // status — only pending_approval supports Resume/Discard; the other
-      // non-terminal statuses (approved, edited, awaiting_owner_connect) are
-      // informational-only states where no further client action is needed.
-      if (res.status === 409 && body?.error === 'draft_already_exists' && body.existing) {
-        setState({
-          kind: 'draft_conflict',
-          existing: {
-            responseId: body.existing.response_id,
-            text: body.existing.text ?? '',
-            isEdited: body.existing.is_edited,
-            status: body.existing.status,
-          },
-        });
-        return;
-      }
-      setState({ kind: 'error', message: body?.error ?? fallback });
-    },
-    [],
-  );
-
-  // ──────────────────────────────────────────────────────────────────
-  // Actions
-  // ──────────────────────────────────────────────────────────────────
-
-  const startManualEdit = useCallback(() => {
-    setState({ kind: 'editing', text: currentReplyText, draftResponseId: null });
-  }, [currentReplyText]);
-
-  const startRegenerate = useCallback(async () => {
-    // Enter 'creating_draft' (NOT 'regenerating') so the polling effect does
-    // not fire with an empty outboxId. Only transition to 'regenerating'
-    // AFTER the POST returns the real outbox_id.
-    setState({ kind: 'creating_draft' });
-    try {
-      const res = await fetch('/api/dashboard/past-replies/draft', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          mode: 'regenerate',
-          review_id: row.review_id,
-          snapshot: snapshotRef.current,
-        }),
-      });
-      if (!res.ok) {
-        await handleHttpError(res, `Regenerate failed (${res.status})`);
-        return;
-      }
-      const body = (await res.json()) as { outbox_id?: string };
-      if (!body.outbox_id) {
-        setState({ kind: 'error', message: 'Server did not return an outbox id.' });
-        return;
-      }
-      setState({ kind: 'regenerating', outboxId: body.outbox_id });
-    } catch (err) {
-      setState({
-        kind: 'error',
-        message: err instanceof Error ? err.message : 'Regenerate failed.',
-      });
-    }
-  }, [row.review_id, handleHttpError]);
-
-  const submitManual = useCallback(
-    async (text: string, existingDraftId: string | null) => {
-      if (!text.trim()) {
-        setState({ kind: 'error', message: 'Reply text cannot be empty.' });
-        return;
-      }
-      setState({ kind: 'publishing' });
-      try {
-        let responseId = existingDraftId;
-        if (!responseId) {
-          // Create a new manual draft.
-          const res = await fetch('/api/dashboard/past-replies/draft', {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              mode: 'manual',
-              review_id: row.review_id,
-              new_text: text,
-              snapshot: snapshotRef.current,
-            }),
-          });
-          if (!res.ok) {
-            await handleHttpError(res, `Draft failed (${res.status})`);
-            return;
-          }
-          const body = (await res.json()) as { response_id?: string };
-          if (!body.response_id) {
-            setState({ kind: 'error', message: 'Server did not return a response id.' });
-            return;
-          }
-          responseId = body.response_id;
-        } else {
-          // PATCH the existing draft (e.g. user came back via "Edit further").
-          const res = await fetch(
-            `/api/dashboard/past-replies/draft/${encodeURIComponent(responseId)}`,
-            {
-              method: 'PATCH',
-              credentials: 'same-origin',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                new_text: text,
-                snapshot: snapshotRef.current,
-              }),
-            },
-          );
-          if (!res.ok) {
-            await handleHttpError(res, `Patch failed (${res.status})`);
-            return;
-          }
-        }
-
-        // Publish.
-        const pubRes = await fetch('/api/dashboard/past-replies/publish', {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            response_id: responseId,
-            snapshot: snapshotRef.current,
-          }),
-        });
-        if (!pubRes.ok) {
-          await handleHttpError(pubRes, `Publish failed (${pubRes.status})`);
-          return;
-        }
-        setState({
-          kind: 'success',
-          message: 'Update queued for Google. The new reply will appear shortly.',
-        });
-        // Refresh the underlying server data so the card reflects the new
-        // posted reply once the publisher finishes.
-        router.refresh();
-      } catch (err) {
-        setState({
-          kind: 'error',
-          message: err instanceof Error ? err.message : 'Publish failed.',
-        });
-      }
-    },
-    [row.review_id, handleHttpError, router],
-  );
-
-  // Publish an EXISTING draft as-is, WITHOUT a PATCH. Used by the
-  // regenerate-preview "accept as-is" path: the worker-inserted draft has
-  // llm_provider set and edited_text NULL, so /publish records it as
-  // 'regenerate_as_is'. PATCHing first (as submitManual does) would force
-  // edited_text and mis-record it as 'regenerate_edited'. The posted row
-  // still exists at this point, so /publish's validateOptimisticConcurrency
-  // passes.
-  const publishExisting = useCallback(
-    async (draftResponseId: string) => {
-      setState({ kind: 'publishing' });
-      try {
-        const pubRes = await fetch('/api/dashboard/past-replies/publish', {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            response_id: draftResponseId,
-            snapshot: snapshotRef.current,
-          }),
-        });
-        if (!pubRes.ok) {
-          await handleHttpError(pubRes, `Publish failed (${pubRes.status})`);
-          return;
-        }
-        setState({
-          kind: 'success',
-          message: 'Update queued for Google. The new reply will appear shortly.',
-        });
-        router.refresh();
-      } catch (err) {
-        setState({
-          kind: 'error',
-          message: err instanceof Error ? err.message : 'Publish failed.',
-        });
-      }
-    },
-    [handleHttpError, router],
-  );
-
-  const cancelDraft = useCallback(
-    async (draftResponseId: string | null) => {
-      // If we have a server-side draft, DELETE it (idempotent — safe even if
-      // the row is already gone). If not, just close.
-      if (draftResponseId) {
-        try {
-          await fetch(
-            `/api/dashboard/past-replies/draft/${encodeURIComponent(draftResponseId)}`,
-            { method: 'DELETE', credentials: 'same-origin' },
-          );
-        } catch {
-          // Best-effort; cancel always closes the drawer.
-        }
-      }
-      onClose();
-    },
-    [onClose],
-  );
-
-  // Wraps onClose with a "discard the in-flight draft if one exists" step.
-  // Used by the close paths (Esc / backdrop / X) to prevent leaving a hidden
-  // pending_approval row that would block future drafts with
-  // 409 'draft_already_exists'. See Code Review fix Medium 2 (2026-05-02).
-  //
-  // Two regenerate-window phases both need close-refusal:
-  //
-  //   1. 'creating_draft' (Round-2 M3): in-flight POST /draft. No draft id
-  //      yet; if drawer unmounts, POST still resolves server-side and an
-  //      orphan outbox row is created. Window is sub-second (POST just
-  //      enqueues, no LLM).
-  //
-  //   2. 'regenerating' (Round-3 M): outbox enqueued + worker generating
-  //      via LLM. Same orphan-class problem: if drawer unmounts during
-  //      this window, the worker eventually creates a pending_approval
-  //      response row that's invisible to the owner — next drawer-open
-  //      hits 409 'draft_already_exists'. The window is large (5-30s for
-  //      LLM generation). cancelDraft can't help here either because the
-  //      response row doesn't exist yet.
-  //
-  // Both refuse close in tryClose AND visually disable the X button via the
-  // header below. Backdrop / Esc no-op silently. Once state transitions to
-  // 'preview' (worker finished, response row exists), cancelDraft works.
-  // See Code Review fix Round-3 M (2026-05-02).
-  const tryClose = useCallback(() => {
-    // 'creating_draft' / 'regenerating' / 'regenerate_poll_error' all keep
-    // the worker outstanding. Refusing close prevents an invisible
-    // pending_approval row from materializing after unmount and blocking
-    // the next edit with 409 'draft_already_exists'. See Round-3 M (the
-    // first two) and Round-4 M (the poll-error case — outboxId still
-    // present, worker may yet succeed).
-    if (
-      state.kind === 'creating_draft' ||
-      state.kind === 'regenerating' ||
-      state.kind === 'regenerate_poll_error'
-    ) {
-      return;
-    }
-    if (state.kind === 'editing' && state.draftResponseId) {
-      void cancelDraft(state.draftResponseId);
-      return;
-    }
-    if (state.kind === 'preview') {
-      void cancelDraft(state.draftResponseId);
-      return;
-    }
-    onClose();
-  }, [state, cancelDraft, onClose]);
 
   // Keep the Esc-handler ref in sync with the latest tryClose.
   useEffect(() => {
     tryCloseRef.current = tryClose;
   }, [tryClose]);
-
-  const retryPosting = useCallback(async (failedResponseId: string) => {
-    setState({ kind: 'publishing' });
-    try {
-      const res = await fetch(
-        `/api/dashboard/past-replies/${encodeURIComponent(failedResponseId)}/retry`,
-        {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' },
-        },
-      );
-      if (!res.ok) {
-        await handleHttpError(res, `Retry failed (${res.status})`);
-        return;
-      }
-      setState({
-        kind: 'success',
-        message: 'Retry queued. The reply will reappear once posted.',
-      });
-      router.refresh();
-    } catch (err) {
-      setState({
-        kind: 'error',
-        message: err instanceof Error ? err.message : 'Retry failed.',
-      });
-    }
-  }, [handleHttpError, router]);
-
-  // Resume a stranded draft: drop into the preview state so the owner can
-  // publish it as-is (publishExisting — no PATCH) or "Edit further". Reuses
-  // the regenerate-preview machinery; the draft already exists server-side.
-  const resumeExistingDraft = useCallback(
-    (existing: { responseId: string; text: string }) => {
-      setState({
-        kind: 'preview',
-        draftResponseId: existing.responseId,
-        text: existing.text,
-      });
-    },
-    [],
-  );
-
-  // Discard a stranded draft (idempotent DELETE), then return to the initial
-  // CTAs so the owner can start a fresh edit.
-  const discardExistingDraft = useCallback(async (responseId: string) => {
-    try {
-      await fetch(
-        `/api/dashboard/past-replies/draft/${encodeURIComponent(responseId)}`,
-        { method: 'DELETE', credentials: 'same-origin' },
-      );
-    } catch {
-      // Best-effort; DELETE is idempotent. Fall through to the initial state.
-    }
-    setState({ kind: 'initial' });
-  }, []);
-
-  const restoreOriginal = useCallback(async (failedResponseId: string) => {
-    setState({ kind: 'publishing' });
-    try {
-      const res = await fetch(
-        `/api/dashboard/past-replies/${encodeURIComponent(failedResponseId)}/restore-original`,
-        {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' },
-        },
-      );
-      if (!res.ok) {
-        await handleHttpError(res, `Restore failed (${res.status})`);
-        return;
-      }
-      const body = (await res.json()) as { response_id?: string; outbox_id?: string };
-      if (!body.response_id) {
-        setState({ kind: 'error', message: 'Restore returned no response id.' });
-        return;
-      }
-      // Restore is TERMINAL recovery: the route already approved the restored
-      // row and enqueued a publish_response outbox, so the original is being
-      // republished directly (like /retry). The drawer does NOT route through
-      // the preview→submitManual path — that path PATCHes + /publishes and
-      // both run validateOptimisticConcurrency, which requires a live `posted`
-      // row that an orphan state does not have (it would 409). Transition to a
-      // success/closing state instead.
-      setState({
-        kind: 'success',
-        message: 'Original reply is being republished. It will reappear on Google shortly.',
-      });
-      router.refresh();
-    } catch (err) {
-      setState({
-        kind: 'error',
-        message: err instanceof Error ? err.message : 'Restore failed.',
-      });
-    }
-  }, [handleHttpError, router]);
 
   if (!open) return null;
 
@@ -706,16 +175,10 @@ export function EditReplyDrawer({
           <button
             type="button"
             onClick={tryClose}
-            disabled={
-              state.kind === 'creating_draft' ||
-              state.kind === 'regenerating' ||
-              state.kind === 'regenerate_poll_error'
-            }
+            disabled={isClosePending}
             className="rounded-md px-2 py-1 text-sm text-[#6a6a6a] hover:bg-gray-50 hover:text-[#2a2a2a] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
             aria-label={
-              state.kind === 'creating_draft' ||
-              state.kind === 'regenerating' ||
-              state.kind === 'regenerate_poll_error'
+              isClosePending
                 ? 'Close (disabled while draft is being created)'
                 : 'Close'
             }
@@ -761,7 +224,7 @@ export function EditReplyDrawer({
               Current Google reply
             </div>
             <p className="rounded-md bg-[#F0EEEA]/60 p-3 text-sm text-[#2a2a2a]">
-              {currentReplyText || <em className="text-[#6a6a6a]">(empty)</em>}
+              {(row.approved_text ?? '') || <em className="text-[#6a6a6a]">(empty)</em>}
             </p>
           </section>
 
@@ -774,14 +237,14 @@ export function EditReplyDrawer({
               <div className="flex flex-wrap gap-3">
                 <button
                   type="button"
-                  onClick={startManualEdit}
+                  onClick={actions.startManualEdit}
                   className="rounded-full bg-[#97B3AE] px-5 py-2 text-sm font-medium text-white shadow-sm hover:bg-[#7c9994]"
                 >
                   Edit manually
                 </button>
                 <button
                   type="button"
-                  onClick={startRegenerate}
+                  onClick={actions.startRegenerate}
                   className="rounded-full border border-[#97B3AE]/40 bg-white px-5 py-2 text-sm font-medium text-[#97B3AE] hover:bg-[#F0EEEA]/40"
                 >
                   Regenerate with AI
@@ -793,8 +256,8 @@ export function EditReplyDrawer({
           {state.kind === 'editing' && (
             <ManualEditor
               initialText={state.text}
-              onCancel={() => cancelDraft(state.draftResponseId)}
-              onSubmit={(text) => submitManual(text, state.draftResponseId)}
+              onCancel={() => actions.cancelDraft(state.draftResponseId)}
+              onSubmit={(text) => actions.submitManual(text, state.draftResponseId)}
             />
           )}
 
@@ -821,9 +284,7 @@ export function EditReplyDrawer({
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
-                  onClick={() =>
-                    setState({ kind: 'regenerating', outboxId: state.outboxId })
-                  }
+                  onClick={actions.resumePolling}
                   className="rounded-full bg-[#97B3AE] px-5 py-2 text-sm font-medium text-white shadow-sm hover:bg-[#7c9994]"
                 >
                   Resume polling
@@ -839,15 +300,9 @@ export function EditReplyDrawer({
               // records as 'regenerate_as_is'. "Edit further" routes to the
               // editing state, whose submit PATCHes then publishes →
               // 'regenerate_edited'.
-              onPublish={() => publishExisting(state.draftResponseId)}
-              onEditFurther={() =>
-                setState({
-                  kind: 'editing',
-                  text: state.text,
-                  draftResponseId: state.draftResponseId,
-                })
-              }
-              onCancel={() => cancelDraft(state.draftResponseId)}
+              onPublish={() => actions.publishExisting(state.draftResponseId)}
+              onEditFurther={actions.editFurther}
+              onCancel={() => actions.cancelDraft(state.draftResponseId)}
             />
           )}
 
@@ -862,8 +317,8 @@ export function EditReplyDrawer({
 
           {state.kind === 'recovery' && (
             <RecoveryPanel
-              onRetry={() => retryPosting(state.failedResponseId)}
-              onRestore={() => restoreOriginal(state.failedResponseId)}
+              onRetry={() => actions.retryPosting(state.failedResponseId)}
+              onRestore={() => actions.restoreOriginal(state.failedResponseId)}
               // Restore is only valid for orphan-state failures
               // (post_after_delete_failed_*). For delete_failed_* the live
               // posted reply is still on Google — there's nothing to
@@ -889,8 +344,8 @@ export function EditReplyDrawer({
               draftText={state.existing.text}
               isEdited={state.existing.isEdited}
               status={state.existing.status}
-              onResume={() => resumeExistingDraft(state.existing)}
-              onDiscard={() => discardExistingDraft(state.existing.responseId)}
+              onResume={() => actions.resumeExistingDraft(state.existing)}
+              onDiscard={() => actions.discardExistingDraft(state.existing.responseId)}
               onClose={onClose}
               onRefresh={() => router.refresh()}
             />
@@ -902,7 +357,7 @@ export function EditReplyDrawer({
               <div className="mt-3 flex gap-2">
                 <button
                   type="button"
-                  onClick={() => setState({ kind: 'initial' })}
+                  onClick={actions.reset}
                   className="rounded-md border border-red-200 px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-100"
                 >
                   Try again
