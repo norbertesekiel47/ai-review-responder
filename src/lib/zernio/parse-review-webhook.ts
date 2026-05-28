@@ -88,13 +88,8 @@ function extractBareReviewId(value: string): { bareReviewId: string; locationFro
   return { bareReviewId: trimmed, locationFromPath: null };
 }
 
-export function parseZernioReviewWebhook(body: unknown): ParsedReviewWebhook {
-  if (!body || typeof body !== 'object') {
-    throw new ZernioReviewWebhookParseError('body is not an object', body);
-  }
-  const b = body as Record<string, unknown>;
-
-  const account = b.account;
+function extractValidatedAccountId(body: object): string {
+  const account = (body as Record<string, unknown>).account;
   if (!account || typeof account !== 'object') {
     throw new ZernioReviewWebhookParseError('missing account object', body);
   }
@@ -102,8 +97,33 @@ export function parseZernioReviewWebhook(body: unknown): ParsedReviewWebhook {
   if (typeof accountId !== 'string' || accountId.trim().length === 0) {
     throw new ZernioReviewWebhookParseError('account.id missing or empty', body);
   }
+  return accountId.trim();
+}
 
-  const review = b.review;
+// Merge a candidate id/segment into the value already resolved from another
+// field (review.id vs review.name). A falsy candidate leaves the accumulator
+// untouched; a non-matching candidate is a hard parse error.
+function mergeOrConflict(
+  existing: string | null,
+  candidate: string | null,
+  describeConflict: (existing: string, candidate: string) => string,
+  body: unknown,
+): string | null {
+  if (!candidate) return existing;
+  if (existing !== null && existing !== candidate) {
+    throw new ZernioReviewWebhookParseError(describeConflict(existing, candidate), body);
+  }
+  return candidate;
+}
+
+interface ReviewIdentifiers {
+  bareReviewId: string;
+  locationIdFromPayload: string | null;
+  fullReviewName: string | null;
+}
+
+function resolveReviewIdentifiers(body: object): ReviewIdentifiers {
+  const review = (body as Record<string, unknown>).review;
   if (!review || typeof review !== 'object') {
     throw new ZernioReviewWebhookParseError('missing review object', body);
   }
@@ -122,22 +142,18 @@ export function parseZernioReviewWebhook(body: unknown): ParsedReviewWebhook {
 
   if (typeof r.name === 'string' && r.name.trim().length > 0) {
     const ext = extractBareReviewId(r.name);
-    if (ext.bareReviewId) {
-      if (bareReviewId && bareReviewId !== ext.bareReviewId) {
-        throw new ZernioReviewWebhookParseError(
-          `review.id and review.name yield different bare ids: ${bareReviewId} vs ${ext.bareReviewId}`, body,
-        );
-      }
-      bareReviewId = ext.bareReviewId;
-    }
-    if (ext.locationFromPath) {
-      if (locationIdFromPayload && locationIdFromPayload !== ext.locationFromPath) {
-        throw new ZernioReviewWebhookParseError(
-          `review.id and review.name yield different location segments: ${locationIdFromPayload} vs ${ext.locationFromPath}`, body,
-        );
-      }
-      locationIdFromPayload = ext.locationFromPath;
-    }
+    bareReviewId = mergeOrConflict(
+      bareReviewId,
+      ext.bareReviewId || null,
+      (a, b) => `review.id and review.name yield different bare ids: ${a} vs ${b}`,
+      body,
+    );
+    locationIdFromPayload = mergeOrConflict(
+      locationIdFromPayload,
+      ext.locationFromPath,
+      (a, b) => `review.id and review.name yield different location segments: ${a} vs ${b}`,
+      body,
+    );
     fullReviewName = r.name.trim();
   }
 
@@ -145,5 +161,15 @@ export function parseZernioReviewWebhook(body: unknown): ParsedReviewWebhook {
     throw new ZernioReviewWebhookParseError('could not extract bare review id from review.id or review.name', body);
   }
 
-  return { accountId: accountId.trim(), reviewId: bareReviewId, locationIdFromPayload, fullReviewName };
+  return { bareReviewId, locationIdFromPayload, fullReviewName };
+}
+
+export function parseZernioReviewWebhook(body: unknown): ParsedReviewWebhook {
+  if (!body || typeof body !== 'object') {
+    throw new ZernioReviewWebhookParseError('body is not an object', body);
+  }
+  const accountId = extractValidatedAccountId(body);
+  const { bareReviewId, locationIdFromPayload, fullReviewName } =
+    resolveReviewIdentifiers(body);
+  return { accountId, reviewId: bareReviewId, locationIdFromPayload, fullReviewName };
 }
