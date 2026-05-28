@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto';
 import { sql } from '@/lib/db/server';
 import ApprovalClient from '@/components/approval/approval-client';
 
+export const dynamic = 'force-dynamic';
+
 interface PageProps {
   params: Promise<{ token: string }>;
 }

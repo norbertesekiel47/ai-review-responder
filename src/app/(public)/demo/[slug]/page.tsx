@@ -3,6 +3,8 @@ import { sql } from '@/lib/db/server';
 import type { NormalizedReview } from '@/lib/reviews/types';
 import type { GenerationResult } from '@/lib/responses/types';
 
+export const dynamic = 'force-dynamic';
+
 // TODO Sprint 4: debounce view_count with Redis INCR instead of direct Postgres write
 
 interface DemoRow {
