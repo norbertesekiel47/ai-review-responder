@@ -319,6 +319,15 @@ git commit -m "refactor(costs): remove concurrency from tracker, re-export from 
 
 **Files:**
 - Modify: `src/lib/costs/cost-guard.ts:1-7`
+- Modify: `src/lib/costs/__tests__/cost-guard.test.ts` (import + `vi.mock` split — see correction below)
+
+> **Plan correction (applied during execution):** repointing the import also
+> requires the test to mock `../concurrency-guard` for the two concurrency
+> functions. The `../tracker` mock no longer intercepts them, so vitest would
+> otherwise load the real module and crash on `getCacheRedis()`. Split the test
+> import the same way and add
+> `vi.mock('../concurrency-guard', () => ({ acquireConcurrencySlot: vi.fn(), releaseConcurrencySlot: vi.fn(), ConcurrencyLimitExceededError: class … }))`,
+> moving those entries out of the `../tracker` mock. Commit both files together.
 
 - [ ] **Step 1: Split the import**
 
@@ -354,7 +363,7 @@ Expected: PASS.
 - [ ] **Step 3: Commit**
 
 ```bash
-git add src/lib/costs/cost-guard.ts
+git add src/lib/costs/cost-guard.ts src/lib/costs/__tests__/cost-guard.test.ts
 git commit -m "refactor(costs): import concurrency fns from concurrency-guard in cost-guard"
 ```
 
