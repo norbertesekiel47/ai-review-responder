@@ -82,7 +82,7 @@ async function cancelSms(request: NextRequest): Promise<NextResponse> {
               ELSE 'pending_verification'
             END,
             updated_at = NOW()
-        WHERE business_id = ${businessId} AND channel = 'sms'
+        WHERE account_id = ${accountId} AND channel = 'sms' AND location_id IS NULL
           AND status = 'pending_verification' AND archived_at IS NULL
         RETURNING id, status
       )

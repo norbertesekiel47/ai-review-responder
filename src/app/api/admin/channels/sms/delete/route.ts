@@ -69,7 +69,7 @@ async function deleteSms(request: NextRequest): Promise<NextResponse> {
     await tx`
       UPDATE channel_enrollments
       SET archived_at = NOW(), archive_reason = 'admin_delete', updated_at = NOW()
-      WHERE business_id = ${businessId} AND channel = 'sms' AND archived_at IS NULL
+      WHERE account_id = ${accountId} AND channel = 'sms' AND location_id IS NULL AND archived_at IS NULL
     `;
     return NextResponse.json({ ok: true });
   });

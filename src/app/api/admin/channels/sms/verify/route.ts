@@ -86,12 +86,15 @@ async function verifySms(request: NextRequest): Promise<NextResponse> {
   const accountId = accountContext.accountId;
 
   const result = await withMobileEnrollmentLock(accountId, async (tx) => {
-    // Load the active (non-archived) SMS enrollment row, if any. At most one
-    // exists because of the partial unique index (channel_enrollments
-    // (business_id, channel) WHERE archived_at IS NULL) shipped in 021.
+    // Load the active (non-archived) SMS enrollment row, if any. SMS is an
+    // account-scoped org-default channel (location_id IS NULL), like Telegram
+    // and WhatsApp — so it is keyed by account_id, NOT the per-location
+    // business_id. At most one exists per account via the
+    // channel_enrollments_account_channel_scope_uniq index (migration 034),
+    // keyed (account_id, channel, COALESCE(location_id, sentinel)).
     const activeRows = await tx<{ handle: string; status: string }[]>`
       SELECT handle, status FROM channel_enrollments
-      WHERE business_id = ${businessId} AND channel = 'sms' AND archived_at IS NULL
+      WHERE account_id = ${accountId} AND channel = 'sms' AND location_id IS NULL AND archived_at IS NULL
     `;
     const row = activeRows[0];
 
@@ -215,7 +218,7 @@ async function verifySms(request: NextRequest): Promise<NextResponse> {
         const updated = await tx<{ id: string }[]>`
           UPDATE channel_enrollments
           SET status = 'pending_verification', updated_at = NOW()
-          WHERE business_id = ${businessId} AND channel = 'sms' AND archived_at IS NULL
+          WHERE account_id = ${accountId} AND channel = 'sms' AND location_id IS NULL AND archived_at IS NULL
             AND status = ${row!.status}
           RETURNING id
         `;

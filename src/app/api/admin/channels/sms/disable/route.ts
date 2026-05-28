@@ -61,7 +61,7 @@ async function disableSms(request: NextRequest): Promise<NextResponse> {
     const result = await tx<{ id: string }[]>`
       UPDATE channel_enrollments
       SET status = 'disabled', disabled_at = NOW(), updated_at = NOW()
-      WHERE business_id = ${businessId} AND channel = 'sms'
+      WHERE account_id = ${accountId} AND channel = 'sms' AND location_id IS NULL
         AND status = 'verified' AND archived_at IS NULL
       RETURNING id
     `;

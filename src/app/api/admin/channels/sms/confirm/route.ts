@@ -78,7 +78,7 @@ async function confirmSms(request: NextRequest): Promise<NextResponse> {
     // Step 1: Load active row (any status — row status gates are applied in step 3).
     const activeRows = await tx<{ handle: string; status: string }[]>`
       SELECT handle, status FROM channel_enrollments
-      WHERE business_id = ${businessId} AND channel = 'sms' AND archived_at IS NULL
+      WHERE account_id = ${accountId} AND channel = 'sms' AND location_id IS NULL AND archived_at IS NULL
     `;
     const row = activeRows[0];
     if (!row) return badRequest('no_pending_verification');
@@ -126,7 +126,7 @@ async function confirmSms(request: NextRequest): Promise<NextResponse> {
           unsubscribed_at = NULL,
           unsubscribed_reason = NULL,
           updated_at = NOW()
-      WHERE business_id = ${businessId} AND channel = 'sms'
+      WHERE account_id = ${accountId} AND channel = 'sms' AND location_id IS NULL
         AND status = 'pending_verification' AND archived_at IS NULL
       RETURNING id
     `;
