@@ -1,26 +1,25 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { withCostGuard, type CostGuardedResult } from '../cost-guard';
-import { reserveCost, finalizeCost, releaseCost } from '../tracker';
 import {
+  reserveCost,
   acquireConcurrencySlot,
+  finalizeCost,
+  releaseCost,
   releaseConcurrencySlot,
-} from '../concurrency-guard';
+} from '../tracker';
 
 vi.mock('../tracker', () => ({
   reserveCost: vi.fn(),
+  acquireConcurrencySlot: vi.fn(),
   finalizeCost: vi.fn(),
   releaseCost: vi.fn(),
+  releaseConcurrencySlot: vi.fn(),
   CostLimitExceededError: class CostLimitExceededError extends Error {
     constructor(public readonly businessId: string) {
       super(`Daily cost limit exceeded for business ${businessId}`);
       this.name = 'CostLimitExceededError';
     }
   },
-}));
-
-vi.mock('../concurrency-guard', () => ({
-  acquireConcurrencySlot: vi.fn(),
-  releaseConcurrencySlot: vi.fn(),
   ConcurrencyLimitExceededError: class ConcurrencyLimitExceededError extends Error {
     constructor(public readonly businessId: string) {
       super(`Concurrency limit exceeded for business ${businessId}`);
