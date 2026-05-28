@@ -15,6 +15,7 @@ export async function handleResponseGeneration(
 ): Promise<void> {
   const logger = createWorkerLogger('[ResponseGeneratorWorker]', job.data.correlation_id);
   const { review_id, version } = job.data;
+  // Brand the raw job-data id at the entry point.
   const businessId = asLocationId(job.data.business_id);
   const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
   mergeLogContext({ outbox_id: outboxId });

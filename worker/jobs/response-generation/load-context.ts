@@ -6,6 +6,12 @@
 // may have committed the response but crashed before completing the outbox).
 // Returns a discriminated LoadOutcome; the caller maps each outcome to the
 // appropriate outbox effect. No outbox writes happen here.
+//
+// One side effect: once the business is read, this merges account_id into the
+// worker log context so EVERY subsequent log line (including the
+// subscription-blocked and already-exists branches) carries it. This is kept
+// here — not in the caller — to preserve the original worker's log-field
+// ordering across all outcome paths.
 
 import { sql } from '../../../src/lib/db/server';
 import { checkSubscription, type AccountFlagsInput } from '../../../src/lib/shared/subscription-guard';
@@ -81,6 +87,7 @@ export async function loadGenerationContext(input: {
     return { kind: 'business_not_found' };
   }
 
+  // Surface account_id on all subsequent log lines (see header note).
   mergeLogContext({ account_id: business.account_id });
 
   // ── Subscription guard ───────────────────────────────────────────────
