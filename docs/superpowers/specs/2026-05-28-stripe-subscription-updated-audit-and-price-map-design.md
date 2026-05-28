@@ -131,9 +131,23 @@ All other behavior (advisory lock, legacy single-item tolerance, deprecated `bus
 - **Verify unchanged** route tests: `tier-change/__tests__/route.test.ts`, `billing/checkout` tests — behavior preserved.
 - Gates: `pnpm lint && pnpm typecheck && pnpm test`, plus `pnpm ci:tenant-scope` and `pnpm ci:rls-audit` (DB-touching).
 
-## 9. CI risk to verify
+## 9. CI: tenant-scope allowlist (verified)
 
-Removing the raw `INSERT INTO account_audit_log` may **orphan a tenant-scope allowlist entry** (a documented lab-notes trap: moving/removing allowlisted SQL orphans its entry). During implementation, check `scripts`/audit config for an allowlist entry tied to that raw INSERT and remove it so `ci:tenant-scope` stays green. The new `writeAccountAuditLog` path is already an established, audited pattern.
+The raw `INSERT INTO account_audit_log` is **not** allowlisted (audit-log inserts are account-scoped — no entry needed), so switching to `writeAccountAuditLog` orphans nothing.
+
+The real action concerns the `SELECT … FOR UPDATE`. `scripts/ci/tenant-scope-allowlist.ts` line ~1534 allowlists the existing customer lookup:
+
+```
+SELECT id, subscription_tier, subscription_status FROM accounts WHERE stripe_customer_id = ${customerId} FOR UPDATE
+```
+
+Adding `locations_paid` to that SELECT changes the snippet. The audit normalizes whitespace and matches on `(file, table, sqlSnippet)`, then fails on both an un-allowlisted cross-account SELECT **and** an unused stale entry. So the allowlist entry's `sqlSnippet` **must be updated** to:
+
+```
+SELECT id, subscription_tier, subscription_status, locations_paid FROM accounts WHERE stripe_customer_id = ${customerId} FOR UPDATE
+```
+
+`writeAccountAuditLog` is already an established, audited pattern (siblings use it), so it needs no new allowlist entry.
 
 ## 10. Validation note (worktree)
 
