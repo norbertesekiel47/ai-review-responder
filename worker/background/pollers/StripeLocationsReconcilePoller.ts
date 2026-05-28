@@ -24,7 +24,7 @@
 import Stripe from 'stripe';
 import { sql } from '../../../src/lib/db/server';
 import { SubscriptionStatus } from '../../../src/lib/shared/subscription-status';
-import { getOveragePriceIds } from './billing-reconciliation/stripe-overage';
+import { overagePriceIdSet } from '../../../src/lib/payments/price-tier-map';
 import { emitDriftAlert } from './billing-reconciliation/drift-alert';
 import { reconcileAccount } from './billing-reconciliation/reconcile-account';
 import { LOG_PREFIX } from './billing-reconciliation/constants';
@@ -101,7 +101,7 @@ export async function runOnce(): Promise<ReconcileResult> {
       return { accountsChecked: 0, driftsFound: 0, errors: 0 };
     }
 
-    const overagePriceIds = getOveragePriceIds();
+    const overagePriceIds = overagePriceIdSet();
     const stripe = getStripe();
 
     let accountsChecked = 0;

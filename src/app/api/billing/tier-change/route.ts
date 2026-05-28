@@ -18,6 +18,7 @@ import { validateTierChange } from '@/lib/accounts/tier-change';
 import { isSubscriptionTier, type SubscriptionTierValue, TIER_CONFIG } from '@/lib/accounts/tier-config';
 import { getAccountOwnerUserId } from '@/lib/accounts/repo';
 import { getStripe } from '@/lib/payments/create-checkout-session';
+import { basePriceIdForTier, overagePriceIdForTier, overagePriceIdSet } from '@/lib/payments/price-tier-map';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
 
 export const dynamic = 'force-dynamic';
@@ -36,40 +37,16 @@ const TierChangeSchema = z.object({
 
 // ── Price ID reverse map ──────────────────────────────────────────────────
 
-function getBasePriceId(tier: SubscriptionTierValue): string | null {
-  const envMap: Record<SubscriptionTierValue, string | undefined> = {
-    basic: process.env.STRIPE_PRICE_BASIC,
-    standard: process.env.STRIPE_PRICE_STANDARD,
-    premium: process.env.STRIPE_PRICE_PREMIUM,
-    founders: process.env.STRIPE_PRICE_FOUNDING,
-  };
-  return envMap[tier] ?? null;
-}
-
-function getOveragePriceId(tier: SubscriptionTierValue): string | null {
-  const envMap: Record<SubscriptionTierValue, string | undefined> = {
-    basic: undefined, // basic has no overage
-    standard: process.env.STRIPE_PRICE_STANDARD_OVERAGE,
-    premium: process.env.STRIPE_PRICE_PREMIUM_OVERAGE,
-    founders: process.env.STRIPE_PRICE_FOUNDERS_OVERAGE,
-  };
-  return envMap[tier] ?? null;
-}
-
 function configuredBasePriceIds(): Set<string> {
   return new Set(
     (Object.keys(TIER_CONFIG) as SubscriptionTierValue[])
-      .map(getBasePriceId)
+      .map(basePriceIdForTier)
       .filter((priceId): priceId is string => Boolean(priceId)),
   );
 }
 
 function configuredOveragePriceIds(): Set<string> {
-  return new Set(
-    (Object.keys(TIER_CONFIG) as SubscriptionTierValue[])
-      .map(getOveragePriceId)
-      .filter((priceId): priceId is string => Boolean(priceId)),
-  );
+  return overagePriceIdSet();
 }
 
 function normalizeIdempotencyKey(raw: string | null): string {
@@ -161,7 +138,7 @@ async function changeBillingTier(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  const newBasePriceId = getBasePriceId(tier);
+  const newBasePriceId = basePriceIdForTier(tier);
   if (!newBasePriceId) {
     return NextResponse.json(
       { error: 'missing_price_config', detail: `No Stripe price configured for tier: ${tier}` },
@@ -215,7 +192,7 @@ async function changeBillingTier(req: NextRequest): Promise<NextResponse> {
     // - If overage units remain, update/create the overage item with quantity.
     // - If overage drops to zero or the tier has no overage, remove stale items.
     if (newConfig.overageCents > 0 && newConfig.multiLocAllowed && newOverageUnits > 0) {
-      const overagePriceId = getOveragePriceId(tier);
+      const overagePriceId = overagePriceIdForTier(tier);
 
       if (overageItem) {
         if (overagePriceId) {
