@@ -69,9 +69,13 @@ export async function GET(
       -- Per-row COALESCE (delivered OR sent), THEN aggregate MAX. Doing it
       -- the other way (COALESCE(MAX(delivered), MAX(sent))) would return
       -- the older delivered timestamp when a newer row has only sent_at.
+      -- Scope deliveries to the VIEWED location (the route's businessId), not
+      -- the enrollment row's legacy business_id: an org-default row carries
+      -- the creator location's business_id, so e.business_id would surface a
+      -- different location's activity on this page.
       (SELECT MAX(COALESCE(nd.delivered_at, nd.sent_at))
          FROM notification_deliveries nd
-         WHERE nd.business_id = e.business_id
+         WHERE nd.business_id = ${businessId}
            AND nd.channel = e.channel) AS last_activity_at
     FROM channel_enrollments e
     WHERE e.account_id = ${accountId}

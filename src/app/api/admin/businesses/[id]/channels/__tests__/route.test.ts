@@ -80,6 +80,11 @@ describe('GET /api/admin/businesses/[id]/channels — account-scoped org-default
     expect(enrollmentQuery).toMatch(/account_id\s*=/);
     expect(enrollmentQuery).toMatch(/location_id\s*=/);
     expect(enrollmentQuery).toMatch(/location_id IS NULL/);
+    // last_activity_at scopes deliveries to the VIEWED location (route
+    // businessId), not the enrollment row's legacy business_id — otherwise an
+    // org-default row would surface the creator location's activity on this page.
+    expect(enrollmentQuery).toMatch(/nd\.business_id = \?/);
+    expect(enrollmentQuery).not.toMatch(/nd\.business_id = e\.business_id/);
   });
 
   it('surfaces an org-default row created under L1 when viewing L2 detail', async () => {
