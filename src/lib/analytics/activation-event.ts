@@ -20,9 +20,11 @@ export interface ActivationCompletedInput {
  * cannot drift.
  *
  * The caller must guarantee `responseId` is the account's first posted
- * response; "is-first" is decided in SQL, not here. `uuid = responseId` makes
- * the event idempotent across re-emits, backfill re-runs, and live/backfill
- * overlap (PostHog dedupes on uuid).
+ * response; "is-first" is decided in SQL, not here. `uuid = responseId` lets
+ * PostHog dedupe identical re-emits (same uuid AND timestamp) — e.g. a re-run
+ * of the backfill. It does NOT by itself dedupe a live-vs-backfill collision,
+ * because PostHog's dedup key includes `timestamp` and the two paths stamp
+ * different times; the backfill's `--before` cutoff keeps those sets disjoint.
  *
  * The returned event omits `timestamp`: live callers let PostHog record the
  * event at send time (now), while the backfill caller sets `timestamp` from

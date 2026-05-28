@@ -5,9 +5,15 @@
 // emitting (live emits only for accounts created within ~8 days AND only once
 // POSTHOG_API_KEY exists in prod).
 //
-// Each event is stamped at its real `posted_at` and keyed on
-// uuid = response_id, so the backfill is idempotent: re-runs and any overlap
-// with the live path dedupe in PostHog.
+// Each event is stamped at its real `posted_at` and keyed on uuid =
+// response_id. Re-running the backfill is therefore safe: a second run emits
+// the identical (uuid, timestamp) tuple, which PostHog dedupes.
+//
+// Overlap with the live path is NOT prevented by dedup — PostHog's dedup key
+// includes `timestamp`, and the live path stamps events at send time (now)
+// while this backfill stamps `posted_at`, so the same response could yield two
+// events. Use `--before` (set it to when POSTHOG_API_KEY went live in prod) so
+// the backfill set (`posted_at < cutoff`) and the live set stay disjoint.
 //
 // Cross-account by design (operator tool, like src/lib/admin/margin-service.ts).
 // Lives in scripts/, which the tenant-scope audit does not scan.
