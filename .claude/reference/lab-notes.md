@@ -15,7 +15,7 @@ Jump to the dated entries by subsystem (search the anchors below):
 - **Billing / multi-location** — stored-quota vs TIER_CONFIG, base price not grandfathered, channel account-scope desync
 - **Analytics / PostHog** — unconfigured no-op retry budget, durable vs intent events, RLS on new tables
 - **Moderation / logging** — fail-open moderation, logger-never-throws (incl. AsyncLocalStorage binding for correlation IDs)
-- **CI / tooling** — nested-worktree poisoning, MOCK_EXTERNAL_APIS=false in CI, tenant-scope allowlist drift, comment-backtick extractor false-positive, allowlist file-move orphaning, worktree test-failure vs real regression (verify on the same ref)
+- **CI / tooling** — nested-worktree poisoning, MOCK_EXTERNAL_APIS=false in CI, tenant-scope allowlist drift, comment-backtick extractor false-positive, allowlist file-move orphaning, worktree test-failure vs real regression (verify on the same ref), nested-worktree Edit/Write path leak + concurrent branch/stash churn (explicit `git add`, /tmp patch, re-verify HEAD before commit)
 - **Testing** — vi.hoisted for shared mocks, NextRequest vs Request, relative imports under tsx, compat re-export must shield all consumers (mock-contract)
 
 ---
@@ -1158,3 +1158,25 @@ Reverted; `cost-guard` stays on the shim like every other consumer.
 together — and update their test mocks to the new module — in one follow-up once the
 shim is removed. A consumer's import path is part of the test-mock contract of
 everything that exercises it.
+
+### Nested-worktree work: tool path-resolution leak + concurrent branch/stash churn
+Two failure modes hit the parallel-agent channel-scope fixes (PRs #132/#133/#135),
+both rooted in `.claude/worktrees/<x>` living UNDER the main repo. (1) A subagent
+spawned with its own worktree had Edit/Write resolve file paths against the PARENT
+repo working tree, not its worktree — it "wrote" files into the main checkout, then
+detected the drift, captured diffs as patches, reverted main, and re-applied onto its
+worktree branch. (2) Across a long session the MAIN checkout's branch + `git stash`
+stack were mutated by concurrent work: HEAD moved off the fix branch onto an unrelated
+branch and the in-progress edits were auto-stashed ("WIP (preserve)"); the stash stack
+also reordered between two `git stash show` calls. Net effect: an "Edit succeeded"
+result followed by a "file modified since read" / reverted-content reminder is NOT
+proof your change landed on the branch you think you're on.
+**Correct approach:** for multi-step edits in a worktree/contended tree —
+(a) CI on the pushed branch is the only authoritative lint/test signal (never trust
+local runs from a nested worktree; CLAUDE.md "CI & repo");
+(b) re-verify `git rev-parse --abbrev-ref HEAD` immediately before EVERY commit;
+(c) `git add` files by EXPLICIT path, never `-A`/`.`, so a stray concurrent change
+(e.g. unrelated legal edits) can't ride along;
+(d) snapshot risky WIP to a `/tmp` patch (`git diff -- <files> > /tmp/x.patch`) so a
+branch switch or stash reorder can't lose it;
+(e) commit small and often rather than holding a large uncommitted WIP.
