@@ -7,15 +7,6 @@
 
 import Stripe from 'stripe';
 
-// Overage price IDs — used to identify the overage subscription item
-export function getOveragePriceIds(): Set<string> {
-  return new Set([
-    process.env.STRIPE_PRICE_STANDARD_OVERAGE ?? '',
-    process.env.STRIPE_PRICE_PREMIUM_OVERAGE ?? '',
-    process.env.STRIPE_PRICE_FOUNDERS_OVERAGE ?? '',
-  ].filter(Boolean));
-}
-
 export function extractStripeCustomerId(
   customer: string | Stripe.Customer | Stripe.DeletedCustomer | null,
 ): string | null {
