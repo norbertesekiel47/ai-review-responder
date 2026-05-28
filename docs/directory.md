@@ -2,6 +2,10 @@
 
 A guide to every folder and file in `src/` and `worker/`, what each one does, and how they connect.
 
+> **Class names are stable; file paths are authoritative here.** When a worker/
+> module path is referenced elsewhere (skills, reference, CLAUDE.md), this file
+> is the source of truth for its current location.
+
 ---
 
 ## High-Level Architecture
