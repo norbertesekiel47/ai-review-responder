@@ -175,6 +175,9 @@ export function StepLocation({
           onClear={() => {
             cancelPrefill();
             update({ googlePlaceId: '', googlePlaceAddress: '' });
+            // Reset prefill-derived fields if untouched so a subsequent
+            // place selection can refill them. Mirrors the admin form's
+            // resetField pattern.
             const reset: Partial<WizardFormData> = {};
             if (!dirtyRef.current?.category) reset.category = '';
             if (!dirtyRef.current?.website) reset.website = '';
