@@ -44,7 +44,7 @@ RepWorth currently ships **three different visual languages**, and only one of t
 
 | # | Issue | Location | Sev |
 |---|---|---|---|
-| M1 | **No mobile nav** — public nav links vanish `<640px` (`hidden sm:flex`), no hamburger | `src/components/ui/SiteNav.tsx:33` | P1 |
+| M1 | ✅ **No mobile nav** — public nav links vanish `<640px` (`hidden sm:flex`), no hamburger → **DONE (PR #175):** `SiteNav` is now a `'use client'` component with a `sm:hidden` branded hamburger toggling a `motion/react` dropdown of the nav links (+ Log in/Sign up when self-serve enabled); closes on link tap + `Escape`; desktop unchanged | `src/components/ui/SiteNav.tsx:33` | P1 |
 | M2 | ✅ **iOS input zoom** — `text-sm` (14px) inputs auto-zoom the viewport on focus; need ≥16px → **DONE (PR #160 + #165):** MFA code input + factor `<select>` (PR #160) and all onboarding funnel inputs via `field-styles` `fieldClass`/`textareaClass` (PR #165) are now `text-base` (16px) | `mfa/challenge/page.tsx:192,200` + onboarding inputs | P1 |
 | M3 | ✅ **Pricing matrix never scrolls** — 5-col grid only shrinks font at ≤720px, no `overflow-x:auto`; illegible at 375px → **DONE (PR #159):** `.pr-matrix` `overflow-x:auto` + `.pr-matrix-grid` `min-width:720px`, dropped 12px font crush, added keyboard-scrollable `role=group`/`aria-label`/`tabIndex` region | `globals.css:2231,2361` | P0 |
 | M4 | ✅ **`overflow:hidden` clips fixed elements on iOS** (see P0 #5) → **DONE (PR #161):** `overflow:hidden` removed from both `.rw-island` roots; auth `.rw-showcase` self-clips its corners; guard test added | `globals.css:126`, `auth-island.css:67` | P0 |
@@ -145,7 +145,7 @@ Admin has a coherent internal gray/white/blue style; judged on function, not pol
 12. **Fix SMS "coming soon" hardcode** to honor `CHANNELS_SMS_ENABLED`.
 
 ### P1 — Noticeable, fix before/at launch
-13. Add a **mobile nav** (hamburger) to `SiteNav`.
+13. ✅ Add a **mobile nav** (hamburger) to `SiteNav`. — **DONE (PR #175):** `'use client'` `SiteNav` + `sm:hidden` hamburger → `motion/react` dropdown (nav links + Log in/Sign up when self-serve enabled), closes on link tap + `Escape`, full ARIA (`aria-expanded`/`aria-controls`/dynamic `aria-label`); desktop (≥640px) untouched. Mirrors the `AdminNav` hamburger, re-skinned to the island brand. Focus rings use PR #174's canonical teal `:focus-visible` outline on all `SiteNav` controls.
 14. ✅ Replace remaining **amber/orange** in `EditReplyDrawer` + panels, `ConnectGoogleBanner`, onboarding alerts, admin overview. — **DONE (PR #173):** full sweep of banned `amber`/`orange`/`stone` across the owner Console + Admin. Owner-facing attention/awaiting → brand blush `#F2C3B9` (new `--rw-attn-*` tokens; `.banner-orange`→`.banner-attn`; recolored `Awaiting Manual Post` badge); edit-reply drawer amber panels → `#F0EEEA`/teal with a blush `border-l-4` accent on the 3 action-needed panels; admin amber → admin blue (CTAs/focus/notices) + neutral gray (status badges) + a green→yellow→red severity bar; lone `stone-*` nav → gray. Scoped Vitest guard (`console-admin-palette.test.ts`) locks the 19 files. (Onboarding alerts were already done in PR #165.) Excludes `dashboard/connect` (P0 #10), chart series `#ea580c`, yellow stars (P2 #28). Presentational-only; full suite green (4524 tests).
 15. ✅ **ProgressDots** + all funnel CTAs → teal pills wrapped in `motion.button`. — **DONE (PR #165).**
 16. Wrap **VoiceClient in `SettingsShell`**; add **TopBar to select-location**.
