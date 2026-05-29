@@ -31,15 +31,19 @@ const baseProps = {
   ownerEmailFallback: 'owner@example.com',
 };
 
-function smsRow(): HTMLElement {
-  return screen.getByText('SMS').closest('.channel-row') as HTMLElement;
+// Find a channel row by its visible name. Throws a clear error (rather than a
+// confusing null-deref later) if the `.channel-row` ancestor structure changes.
+function channelRow(name: string): HTMLElement {
+  const row = screen.getByText(name).closest('.channel-row');
+  if (!row) throw new Error(`channel row for "${name}" not found (.channel-row ancestor missing)`);
+  return row as HTMLElement;
 }
 
 describe('ChannelsClient — SMS row', () => {
   it('renders SMS as an honest "coming soon" row', () => {
     render(<ChannelsClient {...baseProps} initialAvailability={{ telegram: false, whatsapp: false }} />);
 
-    const sms = smsRow();
+    const sms = channelRow('SMS');
     expect(within(sms).getByText('SMS notifications are coming soon')).toBeInTheDocument();
     expect(within(sms).getByText('Coming soon')).toBeInTheDocument();
     // Regression guard: the old flag-dependent roadmap jargon must be gone.
@@ -53,7 +57,7 @@ describe('ChannelsClient — SMS row', () => {
     expect(screen.getByTestId('telegram-widget')).toBeInTheDocument();
     expect(screen.getByTestId('whatsapp-widget')).toBeInTheDocument();
     // …SMS is unchanged.
-    const sms = smsRow();
+    const sms = channelRow('SMS');
     expect(within(sms).getByText('SMS notifications are coming soon')).toBeInTheDocument();
     expect(sms.textContent).not.toMatch(/follow-up phase|10DLC|owner widget/i);
   });
@@ -61,7 +65,7 @@ describe('ChannelsClient — SMS row', () => {
   it('shows the email row as Always on', () => {
     render(<ChannelsClient {...baseProps} initialAvailability={{ telegram: false, whatsapp: false }} />);
 
-    const email = screen.getByText('Email').closest('.channel-row') as HTMLElement;
+    const email = channelRow('Email');
     expect(within(email).getByText('Always on')).toBeInTheDocument();
   });
 });
