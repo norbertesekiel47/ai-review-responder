@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Icon } from '@/components/dashboard/Icon';
+import { motion } from 'motion/react';
 import { AI_DRAFT_DISCLOSURE } from '@/lib/ui/disclosures';
+import { ApprovalErrorState } from './ApprovalErrorState';
 
 interface ReviewData {
   review: {
@@ -22,13 +23,21 @@ interface ReviewData {
   expiresAt: string;
 }
 
+type ApprovalAction = 'approve' | 'edit' | 'regenerate';
+
+interface ActionResponse {
+  success?: boolean;
+  message?: string;
+  error?: string;
+}
+
 function getCsrfToken(): string {
   const match = document.cookie.match(/(?:^|;\s*)__csrf=([^;]*)/);
   return match?.[1] ?? '';
 }
 
 function renderStars(rating: number): string {
-  return '\u2605'.repeat(rating) + '\u2606'.repeat(5 - rating);
+  return '★'.repeat(rating) + '☆'.repeat(5 - rating);
 }
 
 function formatDate(iso: string): string {
@@ -43,6 +52,30 @@ function formatDate(iso: string): string {
   }
 }
 
+function LocationPin() {
+  return (
+    <svg
+      width={12}
+      height={12}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z" />
+      <circle cx="12" cy="10" r="3" />
+    </svg>
+  );
+}
+
+const PRIMARY_BTN =
+  'flex-1 rounded-full bg-[#97B3AE] px-4 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-[#97B3AE]/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#97B3AE] focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed';
+const GHOST_BTN =
+  'flex-1 rounded-full border border-[#97B3AE]/30 bg-white px-4 py-3 text-sm font-semibold text-[#97B3AE] transition hover:bg-[#F0EEEA] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#97B3AE] focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed';
+
 export default function ApprovalClient({ token }: { token: string }) {
   const [data, setData] = useState<ReviewData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -51,12 +84,12 @@ export default function ApprovalClient({ token }: { token: string }) {
   const [isEditing, setIsEditing] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [successAction, setSuccessAction] = useState<ApprovalAction | null>(null);
   // Guard against same-tick double-click: setActionLoading(true) queues a
   // re-render, so between the first click and the button becoming disabled
   // a second click can fire. The ref reads synchronously and closes that gap.
   const actionLockRef = useRef(false);
 
-  // Fetch data and bind session on mount
   useEffect(() => {
     let cancelled = false;
 
@@ -98,7 +131,7 @@ export default function ApprovalClient({ token }: { token: string }) {
   }, [token]);
 
   const handleAction = useCallback(
-    async (action: 'approve' | 'edit' | 'regenerate') => {
+    async (action: ApprovalAction) => {
       if (actionLockRef.current) return;
       actionLockRef.current = true;
       setActionLoading(true);
@@ -119,13 +152,14 @@ export default function ApprovalClient({ token }: { token: string }) {
           body,
         });
 
-        const json = await res.json().catch(() => ({}));
+        const json: ActionResponse = await res.json().catch(() => ({}));
 
         if (!res.ok) {
           throw new Error(json.error ?? `HTTP ${res.status}`);
         }
 
-        setSuccessMessage(json.message);
+        setSuccessAction(action);
+        setSuccessMessage(json.message ?? 'Your request has been processed.');
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Action failed');
       } finally {
@@ -139,21 +173,34 @@ export default function ApprovalClient({ token }: { token: string }) {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#97B3AE] border-t-transparent" />
       </div>
     );
   }
 
   if (successMessage) {
+    const heading =
+      successAction === 'regenerate'
+        ? 'New draft on the way'
+        : 'Response approved!';
     return (
-      <div className="rounded-lg bg-green-50 p-6 text-center">
-        <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-green-100">
+      <motion.div
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        className="text-center"
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4 }}
+      >
+        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-[#97B3AE]/15">
           <svg
-            className="h-5 w-5 text-green-600"
+            className="h-7 w-7 text-[#97B3AE]"
             fill="none"
             viewBox="0 0 24 24"
-            strokeWidth="2"
+            strokeWidth={2.5}
             stroke="currentColor"
+            aria-hidden="true"
           >
             <path
               strokeLinecap="round"
@@ -162,17 +209,22 @@ export default function ApprovalClient({ token }: { token: string }) {
             />
           </svg>
         </div>
-        <p className="text-sm font-medium text-green-800">{successMessage}</p>
-      </div>
+        <h2 className="text-xl font-medium text-[#2a2a2a]">{heading}</h2>
+        <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-[#6a6a6a]">
+          {successMessage}
+        </p>
+        <a
+          href="/dashboard"
+          className="mt-6 inline-block rounded-sm text-sm font-semibold text-[#97B3AE] underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#97B3AE] focus-visible:ring-offset-2"
+        >
+          View your reviews →
+        </a>
+      </motion.div>
     );
   }
 
   if (error && !data) {
-    return (
-      <div className="rounded-lg bg-red-50 p-4 text-sm text-red-700">
-        {error}
-      </div>
-    );
+    return <ApprovalErrorState message={error} />;
   }
 
   if (!data) return null;
@@ -184,60 +236,84 @@ export default function ApprovalClient({ token }: { token: string }) {
   return (
     <div className="space-y-4">
       {error && (
-        <div className="rounded-lg bg-red-50 p-3 text-sm text-red-700">
+        <div
+          role="alert"
+          className="rounded-xl border border-[#dc2626]/30 bg-[#dc2626]/5 p-3 text-sm text-[#b91c1c]"
+        >
           {error}
         </div>
       )}
 
       {/* Location context chip — VAL-APPROVAL-001/004 */}
       <div className="flex items-center gap-2">
-        <span className="inline-flex items-center gap-1 text-[11px] font-medium text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full whitespace-nowrap max-w-[160px] truncate">
-          <Icon name="location" size={10} />
+        <span className="inline-flex max-w-[180px] items-center gap-1 truncate whitespace-nowrap rounded-full bg-[#97B3AE]/15 px-2.5 py-0.5 text-[11px] font-semibold text-[#5e7d77]">
+          <LocationPin />
           {data.locationLabel}
         </span>
         {data.isArchived && (
-          <span className="inline-flex items-center text-[10px] font-semibold uppercase tracking-wider text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
+          <span className="inline-flex items-center rounded-full bg-[#D6CBBF]/40 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[#6a6a6a]">
             Archived
           </span>
         )}
       </div>
 
       {/* Review card */}
-      <div className="rounded-lg border border-gray-200 bg-white p-4">
-        <div className="text-xl tracking-wider text-yellow-500">
+      <div className="rounded-2xl border border-[#97B3AE]/15 bg-[#F0EEEA]/60 p-4">
+        <div className="text-lg tracking-wider text-[#97B3AE]" aria-hidden="true">
           {renderStars(review.starRating)}
         </div>
-        <p className="mt-1 text-sm font-semibold text-gray-800">
+        <span className="sr-only">{review.starRating} out of 5 stars</span>
+        <p className="mt-1 text-sm font-semibold text-[#2a2a2a]">
           {review.reviewerName} &middot; {formatDate(review.reviewDate)}
         </p>
         {review.reviewText ? (
-          <p className="mt-2 text-sm leading-relaxed text-gray-600">
+          <p className="mt-2 text-sm leading-relaxed text-[#6a6a6a]">
             {review.reviewText}
           </p>
         ) : (
-          <p className="mt-2 text-sm italic text-gray-400">
+          <p className="mt-2 text-sm italic text-[#6a6a6a]/70">
             Rating only — no written review
           </p>
         )}
       </div>
 
       {/* Response */}
-      <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
-        <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-          {AI_DRAFT_DISCLOSURE}
+      <div className="rounded-2xl border border-[#97B3AE]/30 bg-white p-4">
+        <div className="mb-3 flex items-start gap-2 rounded-lg border border-[#97B3AE]/30 bg-[#D2E0D3]/40 px-3 py-2 text-xs leading-relaxed text-[#6a6a6a]">
+          <svg
+            className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-[#97B3AE]"
+            fill="none"
+            viewBox="0 0 24 24"
+            strokeWidth={2}
+            stroke="currentColor"
+            aria-hidden="true"
+          >
+            <circle cx="12" cy="12" r="9" />
+            <path strokeLinecap="round" d="M12 8h.01M11 12h1v4h1" />
+          </svg>
+          <span>{AI_DRAFT_DISCLOSURE}</span>
         </div>
-        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-blue-600">
+        <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-[#97B3AE]">
           Draft response (v{response.version})
         </p>
         {isEditing ? (
-          <textarea
-            value={editedText}
-            onChange={(e) => setEditedText(e.target.value)}
-            className="w-full rounded-md border border-gray-300 p-3 text-sm leading-relaxed focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-            rows={5}
-          />
+          <div>
+            <label
+              htmlFor="approval-edit"
+              className="mb-1 block text-xs font-medium text-[#2a2a2a]"
+            >
+              Edit your response
+            </label>
+            <textarea
+              id="approval-edit"
+              value={editedText}
+              onChange={(e) => setEditedText(e.target.value)}
+              className="w-full rounded-lg border border-[#97B3AE]/30 p-3 text-sm leading-relaxed text-[#2a2a2a] focus:border-[#97B3AE] focus:outline-none focus:ring-2 focus:ring-[#97B3AE]/30"
+              rows={5}
+            />
+          </div>
         ) : (
-          <p className="text-sm leading-relaxed text-gray-700">
+          <p className="text-sm leading-relaxed text-[#2a2a2a]">
             {response.responseText}
           </p>
         )}
@@ -247,52 +323,62 @@ export default function ApprovalClient({ token }: { token: string }) {
       <div className="flex flex-col gap-2 sm:flex-row">
         {isEditing ? (
           <>
-            <button
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
               onClick={() => handleAction('edit')}
               disabled={actionLoading || editedText.trim().length === 0}
-              className="flex-1 rounded-lg bg-blue-600 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+              className={PRIMARY_BTN}
             >
-              {actionLoading ? 'Saving...' : 'Save & Approve'}
-            </button>
-            <button
+              {actionLoading ? 'Saving…' : 'Save & Approve'}
+            </motion.button>
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
               onClick={() => {
                 setIsEditing(false);
                 setEditedText(response.responseText);
               }}
               disabled={actionLoading}
-              className="flex-1 rounded-lg border border-gray-300 bg-white px-4 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              className={GHOST_BTN}
             >
               Cancel
-            </button>
+            </motion.button>
           </>
         ) : (
           <>
-            <button
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
               onClick={() => handleAction('approve')}
               disabled={actionLoading}
-              className="flex-1 rounded-lg bg-blue-600 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+              className={PRIMARY_BTN}
             >
-              {actionLoading ? 'Approving...' : 'Approve'}
-            </button>
-            <button
+              {actionLoading ? 'Approving…' : 'Approve'}
+            </motion.button>
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
               onClick={() => setIsEditing(true)}
               disabled={actionLoading}
-              className="flex-1 rounded-lg border border-gray-300 bg-white px-4 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              className={GHOST_BTN}
             >
               Edit
-            </button>
-            <button
+            </motion.button>
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
               onClick={() => handleAction('regenerate')}
               disabled={actionLoading}
-              className="flex-1 rounded-lg border border-gray-300 bg-white px-4 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              className={GHOST_BTN}
             >
-              {actionLoading ? 'Requesting...' : 'Regenerate'}
-            </button>
+              {actionLoading ? 'Requesting…' : 'Regenerate'}
+            </motion.button>
           </>
         )}
       </div>
 
-      <p className="text-center text-xs text-gray-400">
+      <p className="text-center text-xs italic text-[#97B3AE]">
         This link expires in {hoursLeft} hour{hoursLeft !== 1 ? 's' : ''}
       </p>
     </div>
