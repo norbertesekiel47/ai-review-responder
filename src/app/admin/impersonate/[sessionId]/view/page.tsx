@@ -64,13 +64,13 @@ export default async function AdminImpersonationViewPage({ params }: PageProps) 
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="mx-auto max-w-5xl px-4 py-8">
-        <div className="rounded-lg border border-amber-300 bg-amber-50 p-4">
+        <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>
-              <p className="text-sm font-semibold text-amber-950">
+              <p className="text-sm font-semibold text-blue-900">
                 Admin view-as session
               </p>
-              <p className="mt-1 text-sm text-amber-800">
+              <p className="mt-1 text-sm text-blue-800">
                 Read-only support context for {session.impersonatedEmail ?? 'owner user'}.
                 Expires {expiresAt}. Actor: {admin.email}.
               </p>

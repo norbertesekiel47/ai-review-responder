@@ -78,18 +78,18 @@ export function PastDueExtensionPanel({
   }
 
   return (
-    <section className="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-4">
+    <section className="mt-6 rounded-lg border border-blue-200 bg-blue-50 p-4">
       <div>
         <div>
-          <h2 className="text-sm font-semibold text-amber-950">Grant past-due extension</h2>
-          <p className="mt-1 text-sm text-amber-800">
+          <h2 className="text-sm font-semibold text-blue-900">Grant past-due extension</h2>
+          <p className="mt-1 text-sm text-blue-800">
             Requires AAL2 and writes an account audit log entry.
           </p>
         </div>
       </div>
 
       <form onSubmit={handleSubmit} className="mt-4 grid gap-3 sm:grid-cols-[100px_140px_1fr_auto] sm:items-end">
-        <label className="grid gap-1 text-sm font-medium text-amber-950">
+        <label className="grid gap-1 text-sm font-medium text-gray-700">
           Days
           <input
             type="number"
@@ -97,33 +97,33 @@ export function PastDueExtensionPanel({
             max={7}
             value={days}
             onChange={(event) => setDays(event.target.value)}
-            className="rounded-md border border-amber-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-200"
+            className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
           />
         </label>
-        <label className="grid gap-1 text-sm font-medium text-amber-950">
+        <label className="grid gap-1 text-sm font-medium text-gray-700">
           Ticket ID
           <input
             type="text"
             value={ticketId}
             onChange={(event) => setTicketId(event.target.value)}
-            className="rounded-md border border-amber-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-200"
+            className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
             required
           />
         </label>
-        <label className="grid gap-1 text-sm font-medium text-amber-950">
+        <label className="grid gap-1 text-sm font-medium text-gray-700">
           Reason
           <input
             type="text"
             value={reason}
             onChange={(event) => setReason(event.target.value)}
-            className="rounded-md border border-amber-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-200"
+            className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
             required
           />
         </label>
         <button
           type="submit"
           disabled={submitting}
-          className="rounded-md bg-amber-700 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-amber-800 disabled:cursor-not-allowed disabled:opacity-60"
+          className="rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {submitting ? 'Granting...' : 'Grant extension'}
         </button>

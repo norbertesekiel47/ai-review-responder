@@ -18,7 +18,7 @@ export function PreviewPanel({
         <div className="mb-1 text-xs uppercase tracking-wider text-[#97B3AE]">
           Proposed reply
         </div>
-        <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+        <div className="mb-3 rounded-md border border-[#97B3AE]/30 bg-[#F0EEEA]/60 px-3 py-2 text-xs text-[#6a6a6a]">
           {AI_DRAFT_DISCLOSURE}
         </div>
         <p className="rounded-md border border-gray-200 bg-white p-3 text-sm text-[#2a2a2a]">

@@ -142,7 +142,7 @@ export function EditReplyDrawer({
           {/* State-specific UI */}
           {state.kind === 'initial' && canEdit && (
             <div className="space-y-3">
-              <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              <div className="rounded-md border border-[#97B3AE]/30 bg-[#F0EEEA]/60 px-3 py-2 text-xs text-[#6a6a6a]">
                 {AI_DRAFT_DISCLOSURE}
               </div>
               <div className="flex flex-wrap gap-3">
@@ -186,9 +186,9 @@ export function EditReplyDrawer({
             // close is blocked (Round-4 M). Resume polling re-enters
             // 'regenerating' with the same outboxId so the polling effect
             // reattaches and the 60s window restarts.
-            <div className="space-y-3 rounded-lg border border-amber-200 bg-amber-50 p-4">
-              <p className="text-sm text-amber-900">{state.message}</p>
-              <p className="text-xs text-amber-800">
+            <div className="space-y-3 rounded-lg border border-[#97B3AE]/40 border-l-4 border-l-[#F2C3B9] bg-[#F0EEEA]/40 p-4">
+              <p className="text-sm text-[#6a6a6a]">{state.message}</p>
+              <p className="text-xs text-[#6a6a6a]">
                 Close is paused until the draft arrives or the worker reports failure — otherwise the
                 draft would be created in the background and block your next attempt.
               </p>

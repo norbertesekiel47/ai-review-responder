@@ -10,8 +10,8 @@ export function RecoveryPanel({
   restoreAvailable: boolean;
 }) {
   return (
-    <div className="space-y-3 rounded-lg border border-amber-200 bg-amber-50 p-4">
-      <p className="text-sm text-amber-900">
+    <div className="space-y-3 rounded-lg border border-[#97B3AE]/40 bg-[#F0EEEA]/40 p-4">
+      <p className="text-sm text-[#6a6a6a]">
         {restoreAvailable
           ? 'The previous edit didn’t complete and your old reply is no longer on Google. Retry the edit, or restore the original reply.'
           : 'The previous edit didn’t complete. The original reply is still live on Google. Retry to re-attempt the edit.'}

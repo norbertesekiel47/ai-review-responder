@@ -465,7 +465,7 @@
 /* Sticky save bar */
 .save-bar {
   position: fixed;
-  left: 240px;
+  left: var(--rw-sidebar-width);
   right: 0;
   bottom: 0;
   z-index: 60;
