@@ -35,4 +35,12 @@ describe('SiteNav', () => {
     const html = renderToStaticMarkup(createElement(SiteNav));
     expect(html).toContain('focus-visible:outline-[#97B3AE]');
   });
+
+  it('gives the owner-auth links a focus-visible ring when shown', () => {
+    const html = renderToStaticMarkup(createElement(SiteNav, { selfServeEnabled: true }));
+    // Both the Log in and Sign up links carry the teal focus ring.
+    const ringCount = html.split('focus-visible:outline-[#97B3AE]').length - 1;
+    // 3 nav links + Log in + Sign up = 5 ring occurrences.
+    expect(ringCount).toBeGreaterThanOrEqual(5);
+  });
 });
