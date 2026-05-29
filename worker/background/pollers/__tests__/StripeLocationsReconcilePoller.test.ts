@@ -75,6 +75,7 @@ vi.mock('stripe', () => {
 });
 
 // Import AFTER mocks are wired
+import { TIER_CONFIG } from '../../../../src/lib/accounts/tier-config';
 import { expectedInvoiceForAccount } from '../billing-reconciliation/expected-invoice';
 import {
   compareUpcomingInvoice,
@@ -219,24 +220,17 @@ interface AccountRow {
   flags: Record<string, unknown> | string;
 }
 
-const TIER_BASE_DEFAULTS: Record<string, number> = {
-  basic: 2900,
-  standard: 7900,
-  premium: 19900,
-  founders: 1900,
-};
-
 function makeAccountRow(overrides: Partial<AccountRow> = {}): AccountRow {
   const tier = overrides.subscription_tier ?? 'standard';
   return {
     id: 'acct-1',
-    subscription_tier: 'standard',
+    subscription_tier: tier,
     subscription_status: 'active',
     stripe_customer_id: 'cus_123',
     stripe_subscription_id: 'sub_123',
     locations_included: 1,
     locations_overage_price_cents: 2500,
-    base_price_cents: TIER_BASE_DEFAULTS[tier] ?? 7900,
+    base_price_cents: TIER_CONFIG[tier as keyof typeof TIER_CONFIG]?.baseCents ?? 7900,
     active_location_count: 3,
     past_due_at: null,
     flags: {},
@@ -304,6 +298,7 @@ describe('billing reconciliation helpers', () => {
       stripe_subscription_id: 'sub_123',
       locations_included: 1,
       locations_overage_price_cents: 2500,
+      base_price_cents: 7900,
       active_location_count: 1,
       past_due_at: new Date('2026-05-22T00:00:00.000Z'),
       flags: {},
@@ -319,6 +314,7 @@ describe('billing reconciliation helpers', () => {
       stripe_subscription_id: 'sub_123',
       locations_included: 1,
       locations_overage_price_cents: 2500,
+      base_price_cents: 7900,
       active_location_count: 1,
       past_due_at: new Date('2026-05-10T00:00:00.000Z'),
       flags: {},
@@ -333,6 +329,7 @@ describe('billing reconciliation helpers', () => {
       stripe_subscription_id: 'sub_123',
       locations_included: 1,
       locations_overage_price_cents: 2500,
+      base_price_cents: 7900,
       active_location_count: 1,
       past_due_at: null,
       flags: {},
@@ -348,6 +345,7 @@ describe('billing reconciliation helpers', () => {
       stripe_subscription_id: 'sub_123',
       locations_included: 1,
       locations_overage_price_cents: 2500,
+      base_price_cents: 7900,
       active_location_count: 1,
       past_due_at: new Date('2026-05-22T00:00:00.000Z'),
       flags: {},
