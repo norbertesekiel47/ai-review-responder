@@ -447,11 +447,6 @@
 .banner-blue .b-title { color: #1E3A8A; }
 .banner .b-sub { font-size: 13px; color: #9A3412cc; margin-top: 2px; }
 .banner-blue .b-sub { color: #1E40AFcc; }
-/* Red inline alert (errors). Cool/utility red — mirrors .banner-blue. */
-.banner-red { border-color: var(--rw-red-300); background: var(--rw-red-50); }
-.banner-red .b-title { color: var(--rw-red-700); }
-.banner-red .b-sub { color: #B91C1Ccc; }
-.banner-red .b-icon { background: var(--rw-red-100); color: var(--rw-red-700); }
 .banner .b-icon {
   width: 36px; height: 36px;
   border-radius: 8px;
@@ -461,6 +456,13 @@
   color: #9A3412;
 }
 .banner-blue .b-icon { background: #BFDBFE; color: #1E40AF; }
+/* Red inline alert (errors). Cool/utility red — mirrors .banner-blue. Placed
+   after the base + blue .b-icon so the variant overrides win (equal specificity
+   → source order decides). */
+.banner-red { border-color: var(--rw-red-300); background: var(--rw-red-50); }
+.banner-red .b-title { color: var(--rw-red-700); }
+.banner-red .b-sub { color: #B91C1Ccc; }
+.banner-red .b-icon { background: var(--rw-red-100); color: var(--rw-red-700); }
 .banner-cta {
   margin-left: auto;
   background: var(--rw-orange-100, #FED7AA);
