@@ -23,7 +23,7 @@ const BATCH_SIZE = readBatchSize();
 let pollerInterval: ReturnType<typeof setInterval> | null = null;
 let isPolling = false;
 
-async function pollOutbox(): Promise<void> {
+export async function pollOutbox(): Promise<void> {
   if (isPolling) return;
   isPolling = true;
 
