@@ -1,8 +1,10 @@
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '../../../src/lib/db/server';
+import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import type { WeeklySummaryPayload } from '../../../src/lib/shared/worker-types';
 
 const LOG_PREFIX = '[WeeklySummaryScheduler]';
+const logger = createWorkerLogger(LOG_PREFIX);
 const DEFAULT_INTERVAL_MS = 3_600_000; // 1 hour
 const WEEKLY_SUMMARY_TIMEZONE = 'UTC';
 
@@ -89,15 +91,15 @@ async function checkAndSchedule(): Promise<void> {
       } catch (err: unknown) {
         const code = (err as { code?: string }).code;
         if (code === '23505') continue;
-        console.error(`${LOG_PREFIX} Failed to queue summary for business ${biz.id}:`, err);
+        logger.error(`Failed to queue summary for business ${biz.id}`, err);
       }
     }
 
     if (queued > 0) {
-      console.log(`${LOG_PREFIX} Queued ${queued} weekly_summary outbox entries for week ${weekStartDate}`);
+      logger.log(`Queued ${queued} weekly_summary outbox entries for week ${weekStartDate}`);
     }
   } catch (error) {
-    console.error(`${LOG_PREFIX} Scheduler cycle failed:`, error);
+    logger.error('Scheduler cycle failed', error);
   } finally {
     isPolling = false;
   }
@@ -105,10 +107,10 @@ async function checkAndSchedule(): Promise<void> {
 
 export function startWeeklySummaryScheduler(): void {
   const intervalMs = getIntervalMs();
-  console.log(`${LOG_PREFIX} Starting (interval=${intervalMs}ms, timezone=${WEEKLY_SUMMARY_TIMEZONE})`);
-  checkAndSchedule().catch(console.error);
+  logger.log(`Starting (interval=${intervalMs}ms, timezone=${WEEKLY_SUMMARY_TIMEZONE})`);
+  checkAndSchedule().catch((err) => logger.error('Initial run failed', err));
   pollerInterval = setInterval(() => {
-    checkAndSchedule().catch(console.error);
+    checkAndSchedule().catch((err) => logger.error('Scheduled run failed', err));
   }, intervalMs);
 }
 
@@ -116,6 +118,6 @@ export function stopWeeklySummaryScheduler(): void {
   if (pollerInterval) {
     clearInterval(pollerInterval);
     pollerInterval = null;
-    console.log(`${LOG_PREFIX} Stopped`);
+    logger.log('Stopped');
   }
 }
