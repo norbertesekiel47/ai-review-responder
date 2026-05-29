@@ -78,6 +78,7 @@ export async function runOnce(): Promise<ReconcileResult> {
         a.stripe_subscription_id,
         a.locations_included,
         a.locations_overage_price_cents,
+        a.base_price_cents,
         a.past_due_at,
         a.flags,
         COUNT(b.id) AS active_location_count
@@ -92,6 +93,7 @@ export async function runOnce(): Promise<ReconcileResult> {
         a.stripe_subscription_id,
         a.locations_included,
         a.locations_overage_price_cents,
+        a.base_price_cents,
         a.past_due_at,
         a.flags
     `;
