@@ -113,11 +113,13 @@ describe('notifyContactSubmission', () => {
     }
   });
 
-  it('skips (sent:false) and does not send when RESEND_FROM_EMAIL is unset', async () => {
+  it('sends from the company no-reply default when RESEND_FROM_EMAIL is unset (preserves pre-#167 delivery)', async () => {
     process.env.RESEND_API_KEY = 'k';
     const r = await notifyContactSubmission({ subject: 'S', lines: ['a'] });
-    expect(r).toEqual({ sent: false });
-    expect(mockSendInternalEmail).not.toHaveBeenCalled();
+    expect(r).toEqual({ sent: true });
+    expect(mockSendInternalEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ from: 'noreply@repworth.com' }),
+    );
   });
 
   it('skips (sent:false) when not in mock mode and RESEND_API_KEY is unset', async () => {
@@ -140,7 +142,7 @@ describe('notifyContactSubmission', () => {
     process.env.RESEND_FROM_EMAIL = 'notifications@repworth.com';
     await notifyContactSubmission({ subject: 'New lead', lines: ['Name: <Al & Co>', 'Email: a@b.com'] });
     expect(mockSendInternalEmail).toHaveBeenCalledWith(
-      expect.objectContaining({ to: 'ops@example.com', subject: 'New lead', category: 'internal' }),
+      expect.objectContaining({ to: 'ops@example.com', from: 'notifications@repworth.com', subject: 'New lead', category: 'internal' }),
     );
     const arg = mockSendInternalEmail.mock.calls[0]![0] as { bodyHtml: string };
     expect(arg.bodyHtml).toContain('Name: &lt;Al &amp; Co&gt;');

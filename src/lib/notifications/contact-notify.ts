@@ -9,10 +9,14 @@ import { sendInternalEmail } from './email/templates/internal';
 
 export type ContactNotifySource = 'env' | 'from-email' | 'default';
 
-// Company sending-domain default. Matches the routes' RESEND_FROM_EMAIL `from`
-// fallback so the notify recipient stays on an owned domain — never a personal
-// inbox. Operators should set CONTACT_NOTIFY_TO in production.
-const DEFAULT_NOTIFY_TO = 'noreply@repworth.com';
+// The company no-reply mailbox — the single default for BOTH the notify
+// recipient (when CONTACT_NOTIFY_TO is unset) and the email `from` (when
+// RESEND_FROM_EMAIL is unset). Keeps the recipient on an owned domain — never a
+// personal inbox — and preserves the routes' pre-#167 `from` fallback so a
+// missing sender env never silently drops a lead. Operators should still set
+// CONTACT_NOTIFY_TO in production.
+const COMPANY_NOREPLY = 'noreply@repworth.com';
+const DEFAULT_NOTIFY_TO = COMPANY_NOREPLY;
 
 /**
  * Resolves the recipient for public contact/demo/lead notification emails.
@@ -57,20 +61,24 @@ function escapeHtml(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-// True when the notification email can actually be sent. sendInternalEmail
-// throws without RESEND_FROM_EMAIL; outside mock mode it also needs a real
-// RESEND_API_KEY. Mirrors the routes' previous best-effort guard (no key →
-// skip, still 200) so a missing email config never 500s the public form.
+// True when the notification email should be sent. Mirrors the routes' pre-#167
+// best-effort guard: send when a real API key is present or in mock mode; when
+// neither (email genuinely off, e.g. local dev) skip and let the caller return
+// success. RESEND_FROM_EMAIL is intentionally NOT required here — the `from`
+// falls back to COMPANY_NOREPLY in notifyContactSubmission, so a missing sender
+// env preserves delivery instead of silently dropping the lead.
 function emailConfigured(): boolean {
-  if (!process.env.RESEND_FROM_EMAIL) return false;
   return isMockMode() || Boolean(process.env.RESEND_API_KEY);
 }
 
 /**
  * Sends a public contact/demo/lead notification through the shared
  * sendInternalEmail path (mock-mode aware, lazy client, category headers).
- * Best-effort: returns { sent: false } when email isn't configured (no throw);
- * propagates a real send error so the caller can surface a 500.
+ * Best-effort: returns { sent: false } only when email is genuinely off
+ * (no API key and not mock mode); otherwise sends and returns { sent: true }.
+ * The `from` falls back to COMPANY_NOREPLY when RESEND_FROM_EMAIL is unset, so a
+ * missing sender env preserves delivery (pre-#167 behavior) instead of dropping
+ * the lead. Propagates a real send error so the caller can surface a 500.
  */
 export async function notifyContactSubmission(params: {
   subject: string;
@@ -78,7 +86,8 @@ export async function notifyContactSubmission(params: {
 }): Promise<{ sent: boolean }> {
   if (!emailConfigured()) return { sent: false };
   const { to } = resolveContactNotifyTo();
+  const from = process.env.RESEND_FROM_EMAIL?.trim() || COMPANY_NOREPLY;
   const bodyHtml = params.lines.map(escapeHtml).join('<br>\n');
-  await sendInternalEmail({ to, subject: params.subject, bodyHtml, category: 'internal' });
+  await sendInternalEmail({ to, from, subject: params.subject, bodyHtml, category: 'internal' });
   return { sent: true };
 }
