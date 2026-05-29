@@ -171,6 +171,7 @@ describe('VAL-CROSS-001: Signup-to-multi-location end-to-end', () => {
       locations_included: 1,
       locations_paid: 1,
       locations_overage_price_cents: activeAccount.locations_overage_price_cents,
+      base_price_cents: 7900,
     }]);
     mockSql.mockResolvedValueOnce([{ count: 2 }]); // 2 active locations
 
@@ -233,6 +234,7 @@ describe('VAL-CROSS-002: Single-location regression', () => {
       locations_included: 1,
       locations_paid: 0,
       locations_overage_price_cents: account.locations_overage_price_cents,
+      base_price_cents: 2900,
     }]);
 
     const snapshot = await currentBillingSnapshot(account.id);
@@ -464,6 +466,7 @@ describe('VAL-CROSS-006: Billing + add-location e2e ($79 → add → $104 → ar
       locations_included: 1,
       locations_paid: 0,
       locations_overage_price_cents: account.locations_overage_price_cents,
+      base_price_cents: 7900,
     }]);
     mockSql.mockResolvedValueOnce([{ count: 1 }]);
 
@@ -478,6 +481,7 @@ describe('VAL-CROSS-006: Billing + add-location e2e ($79 → add → $104 → ar
       locations_included: 1,
       locations_paid: 1, // Stripe overage updated
       locations_overage_price_cents: account.locations_overage_price_cents,
+      base_price_cents: 7900,
     }]);
     mockSql.mockResolvedValueOnce([{ count: 2 }]);
 
@@ -492,6 +496,7 @@ describe('VAL-CROSS-006: Billing + add-location e2e ($79 → add → $104 → ar
       locations_included: 1,
       locations_paid: 0, // Stripe overage decremented
       locations_overage_price_cents: account.locations_overage_price_cents,
+      base_price_cents: 7900,
     }]);
     mockSql.mockResolvedValueOnce([{ count: 1 }]);
 
@@ -518,6 +523,7 @@ describe('VAL-CROSS-007: Tier upgrade Standard→Premium drops overage correctly
       locations_included: 1,
       locations_paid: 2,
       locations_overage_price_cents: account.locations_overage_price_cents,
+      base_price_cents: 7900,
     }]);
     mockSql.mockResolvedValueOnce([{ count: 3 }]);
 
@@ -532,6 +538,7 @@ describe('VAL-CROSS-007: Tier upgrade Standard→Premium drops overage correctly
       locations_included: 5,
       locations_paid: 0, // Stripe overage updated to 0
       locations_overage_price_cents: 2000,
+      base_price_cents: 19900,
     }]);
     mockSql.mockResolvedValueOnce([{ count: 3 }]);
 
@@ -670,6 +677,7 @@ Uptown Diner,ChIJ003,casual`;
       locations_included: 1,
       locations_paid: 3,
       locations_overage_price_cents: account.locations_overage_price_cents,
+      base_price_cents: 7900,
     }]);
     mockSql.mockResolvedValueOnce([{ count: 4 }]); // 1 primary + 3 CSV locations
 

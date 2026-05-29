@@ -15,6 +15,7 @@ function makeAccount(overrides: Partial<AccountWithLocations> = {}): AccountWith
     stripe_subscription_id: 'sub_123',
     locations_included: 1,
     locations_overage_price_cents: 2500,
+    base_price_cents: 7900,
     active_location_count: 3,
     past_due_at: null,
     flags: {},

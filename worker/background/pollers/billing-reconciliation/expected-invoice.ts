@@ -20,10 +20,12 @@ export function expectedInvoiceForAccount(
     ? Number(account.locations_overage_price_cents)
     : 0;
 
+  const baseCents = Number(account.base_price_cents);
+
   return {
-    baseCents: config.baseCents,
+    baseCents,
     overageUnits,
     overageUnitPriceCents,
-    totalCents: config.baseCents + overageUnits * overageUnitPriceCents,
+    totalCents: baseCents + overageUnits * overageUnitPriceCents,
   };
 }

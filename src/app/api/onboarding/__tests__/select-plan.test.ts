@@ -337,6 +337,15 @@ describe('POST /api/onboarding/select-plan', () => {
     );
     expect(updateCall).toBeDefined();
     expect(updateCall!.some((a: unknown) => a === 'founders')).toBe(true);
+
+    const updateAcctCall = mockSql.mock.calls.find((c: unknown[]) =>
+      (c[0] as TemplateStringsArray).join('?').includes('UPDATE accounts'),
+    );
+    expect(updateAcctCall).toBeDefined();
+    const updateAcctText = (updateAcctCall![0] as TemplateStringsArray).join('?');
+    expect(updateAcctText).toContain('base_price_cents');
+    // founders base = 1900 is bound into the UPDATE
+    expect(updateAcctCall!.slice(1)).toContain(1900);
   });
 
   it('returns 200 with standard checkout URL on success', async () => {

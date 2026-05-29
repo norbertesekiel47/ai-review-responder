@@ -199,15 +199,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // UPDATE accounts (source of truth) and businesses (deprecated column
     // retained for backward compat per VAL-SCHEMA-037). Verify count > 0
     // as defense-in-depth.
-    // VAL-BILLING-065: Also snapshot locations_included and
-    // locations_overage_price_cents from TIER_CONFIG so the account's
-    // billing snapshot is self-consistent from this point forward.
+    // VAL-BILLING-065: Also snapshot locations_included,
+    // locations_overage_price_cents, base_price_cents from TIER_CONFIG so the
+    // account's billing snapshot is self-consistent from this point forward.
     const tierConfig = TIER_CONFIG[tier as SubscriptionTierValue];
     const update = await tx`
       UPDATE accounts
       SET subscription_tier = ${tier},
           locations_included = ${tierConfig?.included ?? 1},
           locations_overage_price_cents = ${tierConfig?.overageCents ?? 2500},
+          base_price_cents = ${tierConfig?.baseCents ?? 7900},
           updated_at = NOW()
       WHERE id = (SELECT account_id FROM businesses WHERE id = ${businessId}::uuid)
         AND subscription_status = ${SubscriptionStatus.PENDING_PAYMENT}

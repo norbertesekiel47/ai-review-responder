@@ -97,12 +97,14 @@ function mockAccountRow(
   locationsIncluded: number,
   locationsPaid: number,
   locationsOveragePriceCents: number = tier === 'premium' ? 2000 : tier === 'basic' ? 0 : 2500,
+  basePriceCents: number = tier === 'basic' ? 2900 : tier === 'premium' ? 19900 : tier === 'founders' ? 1900 : 7900,
 ) {
   return {
     subscription_tier: tier,
     locations_included: locationsIncluded,
     locations_paid: locationsPaid,
     locations_overage_price_cents: locationsOveragePriceCents,
+    base_price_cents: basePriceCents,
   };
 }
 
@@ -271,6 +273,34 @@ describe('currentBillingSnapshot', () => {
     expect(snapshot.overagePriceCents).toBe(0);
     expect(snapshot.overageUnits).toBe(0);
     expect(snapshot.totalCents).toBe(2900);
+  });
+
+  it('reads stored base_price_cents, not live TIER_CONFIG (founders price-lock)', async () => {
+    const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+    // Founders row whose STORED base (1500) differs from TIER_CONFIG.founders.baseCents (1900).
+    mockSql.mockResolvedValueOnce([
+      mockAccountRow('founders', 1, 0, 2500, 1500),
+    ]);
+    mockSql.mockResolvedValueOnce(mockLocationCount(3)); // 2 overage units
+
+    const snapshot = await currentBillingSnapshot(accountId);
+
+    expect(snapshot.basePriceCents).toBe(1500);
+    expect(snapshot.totalCents).toBe(1500 + 2 * 2500);
+  });
+
+  it('reads stored base_price_cents for a no-overage (basic) snapshot', async () => {
+    const accountId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+    // Basic row with a stored base (2600) different from config (2900).
+    mockSql.mockResolvedValueOnce([
+      mockAccountRow('basic', 1, 0, 0, 2600),
+    ]);
+    mockSql.mockResolvedValueOnce(mockLocationCount(1));
+
+    const snapshot = await currentBillingSnapshot(accountId);
+
+    expect(snapshot.basePriceCents).toBe(2600);
+    expect(snapshot.totalCents).toBe(2600);
   });
 });
 

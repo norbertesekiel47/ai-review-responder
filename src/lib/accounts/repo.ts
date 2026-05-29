@@ -32,6 +32,7 @@ export interface AccountRow {
   locations_included: number;
   locations_paid: number;
   locations_overage_price_cents: number;
+  base_price_cents: number;
   flags: Record<string, unknown>;
   created_at: Date;
   updated_at: Date;
@@ -68,6 +69,7 @@ export async function getAccountById(
       locations_included,
       locations_paid,
       locations_overage_price_cents,
+      base_price_cents,
       flags,
       created_at,
       updated_at

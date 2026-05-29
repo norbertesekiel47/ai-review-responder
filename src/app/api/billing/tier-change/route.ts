@@ -225,11 +225,22 @@ async function changeBillingTier(req: NextRequest): Promise<NextResponse> {
         FOR UPDATE
       `;
 
-      // Update the accounts row immediately (webhook will confirm)
+      // Update the accounts row immediately. This is the PRIMARY writer for a
+      // tier change — it must snapshot ALL tier-derived billing columns from
+      // TIER_CONFIG, not just tier + included. The Stripe webhook is only a
+      // defense-in-depth confirmation, and it re-snapshots base_price_cents /
+      // locations_included via `CASE WHEN tierChanged`; because this UPDATE
+      // commits the new tier first, the webhook sees tierChanged=false and
+      // skips that branch. So base_price_cents and locations_overage_price_cents
+      // would never update unless we write them here, leaving e.g. a Premium
+      // account billed against the Standard base price (snapshot/margin/invoice
+      // reconciliation drift). Mirrors the snapshot written at select-plan/signup.
       await tx`
         UPDATE accounts
         SET subscription_tier = ${tier},
             locations_included = ${newConfig.included},
+            locations_overage_price_cents = ${newConfig.overageCents},
+            base_price_cents = ${newConfig.baseCents},
             updated_at = NOW()
         WHERE id = ${accountId}::uuid
       `;

@@ -6,6 +6,7 @@ export interface AccountWithLocations {
   stripe_subscription_id: string | null;
   locations_included: number;
   locations_overage_price_cents: number;
+  base_price_cents: number;
   active_location_count: number;
   past_due_at: Date | null;
   flags: Record<string, unknown> | null;
@@ -18,6 +19,7 @@ export interface BillingReconciliationAccount {
   stripe_subscription_id: string | null;
   locations_included: number;
   locations_overage_price_cents: number;
+  base_price_cents: number;
   active_location_count: number;
   past_due_at: Date | null;
   flags: Record<string, unknown>;

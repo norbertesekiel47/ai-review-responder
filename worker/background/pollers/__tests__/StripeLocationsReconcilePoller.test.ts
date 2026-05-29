@@ -74,6 +74,7 @@ vi.mock('stripe', () => {
 });
 
 // Import AFTER mocks are wired
+import { TIER_CONFIG } from '../../../../src/lib/accounts/tier-config';
 import { expectedInvoiceForAccount } from '../billing-reconciliation/expected-invoice';
 import {
   compareUpcomingInvoice,
@@ -212,20 +213,23 @@ interface AccountRow {
   stripe_subscription_id: string | null;
   locations_included: number;
   locations_overage_price_cents: number;
+  base_price_cents: number;
   active_location_count: number;
   past_due_at: Date | null;
   flags: Record<string, unknown> | string;
 }
 
 function makeAccountRow(overrides: Partial<AccountRow> = {}): AccountRow {
+  const tier = overrides.subscription_tier ?? 'standard';
   return {
     id: 'acct-1',
-    subscription_tier: 'standard',
+    subscription_tier: tier,
     subscription_status: 'active',
     stripe_customer_id: 'cus_123',
     stripe_subscription_id: 'sub_123',
     locations_included: 1,
     locations_overage_price_cents: 2500,
+    base_price_cents: TIER_CONFIG[tier as keyof typeof TIER_CONFIG]?.baseCents ?? 7900,
     active_location_count: 3,
     past_due_at: null,
     flags: {},
@@ -242,6 +246,7 @@ describe('billing reconciliation helpers', () => {
       subscription_tier: 'standard',
       subscription_status: 'active',
       stripe_subscription_id: 'sub_123',
+      base_price_cents: 7900,
       locations_included: 1,
       locations_overage_price_cents: 3000,
       active_location_count: 3,
@@ -252,6 +257,24 @@ describe('billing reconciliation helpers', () => {
     expect(invoice.overageUnits).toBe(2);
     expect(invoice.overageUnitPriceCents).toBe(3000);
     expect(invoice.totalCents).toBe(7900 + 2 * 3000);
+  });
+
+  it('uses stored base price instead of live tier base config (founders price-lock)', () => {
+    const invoice = expectedInvoiceForAccount({
+      id: 'acct-grandfathered-base',
+      subscription_tier: 'founders',
+      subscription_status: 'active',
+      stripe_subscription_id: 'sub_123',
+      base_price_cents: 1500, // stored != TIER_CONFIG.founders.baseCents (1900)
+      locations_included: 1,
+      locations_overage_price_cents: 2500,
+      active_location_count: 3,
+      past_due_at: null,
+      flags: {},
+    });
+
+    expect(invoice.baseCents).toBe(1500);
+    expect(invoice.totalCents).toBe(1500 + 2 * 2500);
   });
 
   it('does not flag one-cent invoice rounding differences', () => {
@@ -274,6 +297,7 @@ describe('billing reconciliation helpers', () => {
       stripe_subscription_id: 'sub_123',
       locations_included: 1,
       locations_overage_price_cents: 2500,
+      base_price_cents: 7900,
       active_location_count: 1,
       past_due_at: new Date('2026-05-22T00:00:00.000Z'),
       flags: {},
@@ -289,6 +313,7 @@ describe('billing reconciliation helpers', () => {
       stripe_subscription_id: 'sub_123',
       locations_included: 1,
       locations_overage_price_cents: 2500,
+      base_price_cents: 7900,
       active_location_count: 1,
       past_due_at: new Date('2026-05-10T00:00:00.000Z'),
       flags: {},
@@ -303,6 +328,7 @@ describe('billing reconciliation helpers', () => {
       stripe_subscription_id: 'sub_123',
       locations_included: 1,
       locations_overage_price_cents: 2500,
+      base_price_cents: 7900,
       active_location_count: 1,
       past_due_at: null,
       flags: {},
@@ -318,6 +344,7 @@ describe('billing reconciliation helpers', () => {
       stripe_subscription_id: 'sub_123',
       locations_included: 1,
       locations_overage_price_cents: 2500,
+      base_price_cents: 7900,
       active_location_count: 1,
       past_due_at: new Date('2026-05-22T00:00:00.000Z'),
       flags: {},
