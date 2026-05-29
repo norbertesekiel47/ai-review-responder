@@ -402,7 +402,9 @@ describe('GET /api/dashboard scope parameter', () => {
       zernioConnection: { status: 'none', queuedReconnectCount: 0, hasUnresolvedIncident: false },
     });
 
-    const res = await GET(makeRequest('http://localhost:3000/api/dashboard?scope=nonexistent-location-id'));
+    // Use a valid-format UUID that doesn't exist in the DB — tests the "not found"
+    // fallback path without triggering the malformed-UUID 400 guard (#103).
+    const res = await GET(makeRequest('http://localhost:3000/api/dashboard?scope=00000000-0000-0000-0000-000000000000'));
     expect(res.status).toBe(200);
 
     const body = await res.json();
@@ -488,6 +490,20 @@ describe('GET /api/dashboard scope parameter', () => {
     expect(body.business).toBeDefined();
 
     process.env.MULTI_LOCATION_ENABLED = originalEnv;
+  });
+
+  // VAL-DASH-103: malformed ?scope= value → 400 (not 500 from Postgres ::uuid cast)
+  it('malformed scope (not a UUID) → 400 Invalid scope; getLocationById not called', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+
+    const res = await GET(makeRequest('http://localhost:3000/api/dashboard?scope=not-a-uuid'));
+    expect(res.status).toBe(400);
+
+    const body = await res.json();
+    expect(body.error).toContain('Invalid scope');
+
+    expect(mockGetLocationById).not.toHaveBeenCalled();
+    expect(mockGetActiveDashboardData).not.toHaveBeenCalled();
   });
 
   it('returns 403 when default user.locationId belongs to a different account', async () => {
