@@ -88,6 +88,16 @@ function resetFixtures() {
   sqlFixtures.clear();
 }
 
+// True if any sql() call's normalized text contained the fragment — i.e. the
+// worker's business-load SELECT still matches the content-addressed fixture and
+// returned the bounced business (so the bounce branch ran, not business-not-found).
+function queryIssued(fragment: string): boolean {
+  return mockSql.mock.calls.some((c: unknown[]) => {
+    const t = (((c[0] as TemplateStringsArray) ?? []).join(' ')).replace(/\s+/g, ' ').trim();
+    return t.includes(fragment);
+  });
+}
+
 function bouncedBusiness(overrides: Record<string, unknown> = {}) {
   return {
     id: 'biz-1',
@@ -142,6 +152,7 @@ describe('NotificationWorker skips bounced owners', () => {
     } as any);
     expect(mockSendApprovalEmail).not.toHaveBeenCalled();
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('out-1', undefined);
+    expect(queryIssued(Q_NOTIFICATION_BUSINESS)).toBe(true);
   });
 });
 
@@ -160,6 +171,7 @@ describe('WeeklySummaryWorker skips bounced owners', () => {
     } as any);
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('out-2', undefined);
+    expect(queryIssued(Q_SUMMARY_BUSINESS)).toBe(true);
   });
 });
 
@@ -178,6 +190,7 @@ describe('MonthlyImpactWorker skips bounced owners', () => {
     } as any);
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('out-3', undefined);
+    expect(queryIssued(Q_SUMMARY_BUSINESS)).toBe(true);
   });
 });
 
@@ -196,5 +209,6 @@ describe('OnboardingDripWorker skips bounced owners', () => {
     } as any);
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('out-4', undefined);
+    expect(queryIssued(Q_DRIP_BUSINESS)).toBe(true);
   });
 });
