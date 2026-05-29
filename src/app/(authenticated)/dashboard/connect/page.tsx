@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useDashboardData } from '@/hooks/useDashboardData';
 import { useLocationScope } from '@/contexts/LocationContext';
+import { LiveRegion } from '@/components/ui/LiveRegion';
 import type { DashboardDataActive } from '@/lib/dashboard/types';
 import type { LocationId } from '@/lib/shared/ids';
 
@@ -88,6 +89,7 @@ export default function ConnectPage() {
   if (error) {
     return (
       <div className="mx-auto max-w-2xl px-4 py-8">
+        <LiveRegion message={error} level="assertive" />
         <div className="rounded-lg border border-red-300 bg-red-50 p-6">
           <h2 className="text-lg font-semibold text-red-800">Error</h2>
           <p className="mt-1 text-sm text-red-700">{error}</p>
@@ -211,6 +213,7 @@ export default function ConnectPage() {
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-8">
+      <LiveRegion message={actionError ?? ''} level="assertive" />
       {actionError && (
         <div className="mb-4 rounded-lg border border-red-300 bg-red-50 p-4 text-sm text-red-700">
           {actionError}
