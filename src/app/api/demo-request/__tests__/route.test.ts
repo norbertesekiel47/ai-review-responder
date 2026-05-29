@@ -1,15 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
 
-const { mockResendSend, mockCheckRateLimit } = vi.hoisted(() => ({
-  mockResendSend: vi.fn(),
+const { mockNotify, mockCheckRateLimit } = vi.hoisted(() => ({
+  mockNotify: vi.fn(),
   mockCheckRateLimit: vi.fn(),
 }));
 
-vi.mock('resend', () => ({
-  Resend: vi.fn().mockImplementation(function () {
-    return { emails: { send: mockResendSend } };
-  }),
+vi.mock('@/lib/notifications/contact-notify', () => ({
+  notifyContactSubmission: mockNotify,
 }));
 
 vi.mock('@/lib/shared/rate-limit', () => ({
@@ -27,10 +25,8 @@ function makeRequest(body: unknown): NextRequest {
 describe('POST /api/demo-request', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    delete process.env.RESEND_API_KEY;
-    delete process.env.RESEND_FROM_EMAIL;
-    delete process.env.CONTACT_NOTIFY_TO;
     mockCheckRateLimit.mockResolvedValue({ allowed: true, remaining: 4 });
+    mockNotify.mockResolvedValue({ sent: true });
   });
 
   it('returns 400 when name is missing', async () => {
@@ -54,29 +50,19 @@ describe('POST /api/demo-request', () => {
     expect((await res.json()).error).toMatch(/business/i);
   });
 
-  it('returns 200 without email when RESEND_API_KEY is unset', async () => {
-    const { POST } = await import('../route');
-    const res = await POST(makeRequest({ name: 'Alice', email: 'a@b.com', businessName: 'Acme', googleMapsUrl: '' }));
-    expect(res.status).toBe(200);
-    expect((await res.json()).success).toBe(true);
-    expect(mockResendSend).not.toHaveBeenCalled();
-  });
-
-  it('sends email with googleMapsUrl when RESEND_API_KEY is set', async () => {
-    process.env.RESEND_API_KEY = 'test-key';
-    process.env.RESEND_FROM_EMAIL = 'noreply@repworth.com';
-    mockResendSend.mockResolvedValue({ data: { id: 'msg-1' }, error: null });
+  it('notifies with the submission incl. googleMapsUrl and returns 200', async () => {
     const { POST } = await import('../route');
     const res = await POST(makeRequest({
       name: 'Alice', email: 'a@b.com', businessName: 'Acme',
       googleMapsUrl: 'https://maps.google.com/?cid=123',
     }));
     expect(res.status).toBe(200);
-    const callArg = mockResendSend.mock.calls[0]?.[0] as Parameters<typeof mockResendSend>[0];
-    expect(callArg.to).toBe('noreply@repworth.com');
-    expect(callArg.subject).toContain('Demo Request');
-    expect(callArg.text).toContain('Alice');
-    expect(callArg.text).toContain('https://maps.google.com/?cid=123');
+    expect(mockNotify).toHaveBeenCalledOnce();
+    const arg = mockNotify.mock.calls[0]![0] as { subject: string; lines: string[] };
+    expect(arg.subject).toContain('Demo Request');
+    const body = arg.lines.join('\n');
+    expect(body).toContain('Alice');
+    expect(body).toContain('https://maps.google.com/?cid=123');
   });
 
   it('returns 429 when rate limit exceeded', async () => {
@@ -87,9 +73,7 @@ describe('POST /api/demo-request', () => {
   });
 
   it('returns 500 when Resend returns error', async () => {
-    process.env.RESEND_API_KEY = 'test-key';
-    process.env.RESEND_FROM_EMAIL = 'noreply@repworth.com';
-    mockResendSend.mockResolvedValue({ data: null, error: { message: 'fail' } });
+    mockNotify.mockRejectedValueOnce(new Error('send failed'));
     const { POST } = await import('../route');
     const res = await POST(makeRequest({ name: 'Alice', email: 'a@b.com', businessName: 'Acme', googleMapsUrl: '' }));
     expect(res.status).toBe(500);

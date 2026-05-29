@@ -7,7 +7,6 @@ const {
   mockCheckRateLimit,
   mockFetch,
   mockJsonb,
-  mockResendSend,
   mockSql,
 } = vi.hoisted(() => {
   const dbState = {
@@ -30,7 +29,6 @@ const {
     mockCheckRateLimit: vi.fn(),
     mockFetch: vi.fn(),
     mockJsonb: vi.fn((value: unknown) => value),
-    mockResendSend: vi.fn(),
     mockSql,
   };
 });
@@ -44,11 +42,8 @@ vi.mock('@/lib/db/server', () => ({
   sql: mockSql,
 }));
 
-vi.mock('resend', () => ({
-  Resend: vi.fn().mockImplementation(function () {
-    return { emails: { send: mockResendSend } };
-  }),
-}));
+const { mockNotify } = vi.hoisted(() => ({ mockNotify: vi.fn() }));
+vi.mock('@/lib/notifications/contact-notify', () => ({ notifyContactSubmission: mockNotify }));
 
 function makeRequest(body: unknown, headers: Record<string, string> = {}): NextRequest {
   return new NextRequest('http://localhost:3000/api/lead-intake', {
@@ -127,15 +122,12 @@ describe('POST /api/lead-intake', () => {
     vi.stubGlobal('fetch', mockFetch);
     dbState.rejectNext = false;
     dbState.calls = [];
-    delete process.env.RESEND_API_KEY;
-    delete process.env.RESEND_FROM_EMAIL;
-    delete process.env.CONTACT_NOTIFY_TO;
     delete process.env.OWNER_LEADS_GOOGLE_SHEET_ID;
     delete process.env.OWNER_LEADS_GOOGLE_SHEET_RANGE;
     delete process.env.GOOGLE_SHEETS_CLIENT_EMAIL;
     delete process.env.GOOGLE_SHEETS_PRIVATE_KEY;
     mockCheckRateLimit.mockResolvedValue({ allowed: true, remaining: 4 });
-    mockResendSend.mockResolvedValue({ data: { id: 'msg-1' }, error: null });
+    mockNotify.mockResolvedValue({ sent: true });
   });
 
   it('returns 400 for invalid JSON and does not write to the database', async () => {
@@ -385,10 +377,7 @@ describe('POST /api/lead-intake', () => {
     expect(mockCheckRateLimit).toHaveBeenCalledWith('lead-intake:hour:203.0.113.10', 5, 3600);
   });
 
-  it('sends a Resend email after persistence and uses CONTACT_NOTIFY_TO', async () => {
-    process.env.RESEND_API_KEY = 'test-key';
-    process.env.CONTACT_NOTIFY_TO = 'leads@example.com';
-
+  it('notifies after persistence with the lead details', async () => {
     const { POST } = await import('../route');
     const res = await POST(makeRequest({
       name: 'Alice Owner',
@@ -400,24 +389,22 @@ describe('POST /api/lead-intake', () => {
 
     expect(res.status).toBe(200);
     expect(dbState.calls).toHaveLength(1);
-    expect(mockResendSend).toHaveBeenCalledOnce();
-    expect(firstInvocationOrder(mockResendSend)).toBeGreaterThan(firstInvocationOrder(mockSql));
+    expect(mockNotify).toHaveBeenCalledOnce();
+    expect(firstInvocationOrder(mockNotify)).toBeGreaterThan(firstInvocationOrder(mockSql));
 
-    const email = mockResendSend.mock.calls[0]?.[0];
-    if (!email) throw new Error('Expected Resend email payload');
-    expect(email.to).toBe('leads@example.com');
-    expect(email.subject).toBe('New owner lead - waitlist - RepWorth');
-    expect(email.text).toContain('Name: Alice Owner');
-    expect(email.text).toContain('Email: owner@example.com');
-    expect(email.text).toContain('Business: Alice Bakery');
-    expect(email.text).toContain('Intent: waitlist');
-    expect(email.text).toContain('Source: landing');
-    expect(email.text).toContain('Google Maps: https://maps.google.com/?cid=123');
-    expect(email.text).toContain('Submitted at:');
+    const arg = mockNotify.mock.calls[0]![0] as { subject: string; lines: string[] };
+    expect(arg.subject).toBe('New owner lead - waitlist - RepWorth');
+    const body = arg.lines.join('\n');
+    expect(body).toContain('Name: Alice Owner');
+    expect(body).toContain('Email: owner@example.com');
+    expect(body).toContain('Business: Alice Bakery');
+    expect(body).toContain('Intent: waitlist');
+    expect(body).toContain('Source: landing');
+    expect(body).toContain('Google Maps: https://maps.google.com/?cid=123');
+    expect(body).toContain('Submitted at:');
   });
 
   it('returns 500 on database failure and skips email', async () => {
-    process.env.RESEND_API_KEY = 'test-key';
     dbState.rejectNext = true;
 
     const { POST } = await import('../route');
@@ -430,12 +417,11 @@ describe('POST /api/lead-intake', () => {
     expect(res.status).toBe(500);
     expect((await res.json()).error).toBe('Failed to save lead');
     expect(dbState.calls).toHaveLength(1);
-    expect(mockResendSend).not.toHaveBeenCalled();
+    expect(mockNotify).not.toHaveBeenCalled();
   });
 
-  it('returns 500 when Resend returns an error after persistence', async () => {
-    process.env.RESEND_API_KEY = 'test-key';
-    mockResendSend.mockResolvedValue({ data: null, error: { message: 'send failed' } });
+  it('returns 500 when notification fails after persistence', async () => {
+    mockNotify.mockRejectedValueOnce(new Error('send failed'));
 
     const { POST } = await import('../route');
     const res = await POST(makeRequest({
@@ -447,23 +433,6 @@ describe('POST /api/lead-intake', () => {
     expect(res.status).toBe(500);
     expect((await res.json()).error).toBe('Failed to send notification');
     expect(dbState.calls).toHaveLength(1);
-    expect(mockResendSend).toHaveBeenCalledOnce();
-  });
-
-  it('returns 500 when Resend rejects after persistence', async () => {
-    process.env.RESEND_API_KEY = 'test-key';
-    mockResendSend.mockRejectedValue(new Error('network down'));
-
-    const { POST } = await import('../route');
-    const res = await POST(makeRequest({
-      name: 'Alice Owner',
-      email: 'owner@example.com',
-      businessName: 'Alice Bakery',
-    }));
-
-    expect(res.status).toBe(500);
-    expect((await res.json()).error).toBe('Failed to send notification');
-    expect(dbState.calls).toHaveLength(1);
-    expect(mockResendSend).toHaveBeenCalledOnce();
+    expect(mockNotify).toHaveBeenCalledOnce();
   });
 });

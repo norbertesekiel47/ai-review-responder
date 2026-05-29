@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { Resend } from 'resend';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
-import { resolveContactNotifyTo } from '@/lib/notifications/contact-notify';
+import { notifyContactSubmission } from '@/lib/notifications/contact-notify';
 
 export const dynamic = 'force-dynamic';
 
@@ -75,32 +74,22 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     ts: submission.timestamp,
   });
 
-  if (process.env.RESEND_API_KEY) {
-    const resend = new Resend(process.env.RESEND_API_KEY);
-    const from = process.env.RESEND_FROM_EMAIL ?? 'noreply@repworth.com';
-    const { to } = resolveContactNotifyTo();
-
-    const text = [
-      'New demo request — RepWorth',
-      '',
-      `Name:           ${submission.name}`,
-      `Email:          ${submission.email}`,
-      `Business:       ${submission.businessName}`,
-      `Google Maps:    ${submission.googleMapsUrl || '(not provided)'}`,
-      `Submitted at:   ${submission.timestamp}`,
-    ].join('\n');
-
-    const { error } = await resend.emails.send({
-      from,
-      to,
+  try {
+    await notifyContactSubmission({
       subject: 'New Demo Request — RepWorth',
-      text,
+      lines: [
+        'New demo request — RepWorth',
+        '',
+        `Name:           ${submission.name}`,
+        `Email:          ${submission.email}`,
+        `Business:       ${submission.businessName}`,
+        `Google Maps:    ${submission.googleMapsUrl || '(not provided)'}`,
+        `Submitted at:   ${submission.timestamp}`,
+      ],
     });
-
-    if (error) {
-      console.error('[demo-request] Resend error:', error.message);
-      return NextResponse.json({ error: 'Failed to send notification' }, { status: 500 });
-    }
+  } catch (err) {
+    console.error('[demo-request] notification failed:', err instanceof Error ? err.message : err);
+    return NextResponse.json({ error: 'Failed to send notification' }, { status: 500 });
   }
 
   return NextResponse.json({ success: true });
