@@ -60,6 +60,37 @@ export function assertAdminNotificationEmail(): void {
   }
 }
 
+/**
+ * Boot-time warnings (non-fatal) for vars that degrade silently in production but
+ * are not strictly required to boot:
+ *   - LIST_UNSUBSCRIBE_EMAIL: marketing emails fall back to a non-functional
+ *     mailbox and may fail Gmail/Outlook bulk-sender compliance.
+ *   - SENTRY_DSN: Sentry no-ops, so production errors go untracked.
+ *
+ * Only warns in production (and non-mock) so dev / CI / tests stay quiet.
+ */
+export function warnMissingProductionEnv(): void {
+  if (process.env.NODE_ENV !== 'production') return;
+  if (process.env.MOCK_EXTERNAL_APIS === 'true') return;
+  const checks: Array<{ key: string; message: string }> = [
+    {
+      key: 'LIST_UNSUBSCRIBE_EMAIL',
+      message:
+        'marketing emails will use a non-functional unsubscribe mailbox and may fail Gmail/Outlook bulk-sender compliance',
+    },
+    {
+      key: 'SENTRY_DSN',
+      message: 'Sentry is inert — production errors will not be tracked',
+    },
+  ];
+  for (const { key, message } of checks) {
+    const value = process.env[key];
+    if (!value || value.trim().length === 0) {
+      console.warn(`[startup] ${key} is unset — ${message}`);
+    }
+  }
+}
+
 export function assertWorkerStartupEnv(): void {
   assertProductionMockModeEnv();
   assertStripeWorkerEnv();

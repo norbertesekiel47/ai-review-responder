@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   assertAdminNotificationEmail,
   assertChannelsSmsEnv,
@@ -6,6 +6,7 @@ import {
   assertSelfServeSignupEnv,
   assertStripeWorkerEnv,
   assertWorkerStartupEnv,
+  warnMissingProductionEnv,
 } from '../startup-assert';
 import { SubscriptionTier, TIER_CONFIG, type SubscriptionTierValue } from '@/lib/accounts/tier-config';
 
@@ -155,6 +156,52 @@ describe('assertAdminNotificationEmail', () => {
     setEnv('NODE_ENV', 'production');
     process.env.MOCK_EXTERNAL_APIS = 'true';
     expect(() => assertAdminNotificationEmail()).not.toThrow();
+  });
+});
+
+describe('warnMissingProductionEnv', () => {
+  const SNAP: Record<string, string | undefined> = {};
+  const KEYS = ['NODE_ENV', 'MOCK_EXTERNAL_APIS', 'LIST_UNSUBSCRIBE_EMAIL', 'SENTRY_DSN'];
+  let warnSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    for (const k of KEYS) { SNAP[k] = process.env[k]; delete process.env[k]; }
+    warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    restoreEnv(SNAP);
+    warnSpy.mockRestore();
+  });
+
+  it('warns for each unset var in production non-mock mode', () => {
+    setEnv('NODE_ENV', 'production');
+    process.env.MOCK_EXTERNAL_APIS = 'false';
+    warnMissingProductionEnv();
+    const messages = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(messages.some((m: string) => m.includes('LIST_UNSUBSCRIBE_EMAIL'))).toBe(true);
+    expect(messages.some((m: string) => m.includes('SENTRY_DSN'))).toBe(true);
+  });
+
+  it('is silent outside production', () => {
+    setEnv('NODE_ENV', 'test');
+    warnMissingProductionEnv();
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it('is silent in production mock mode', () => {
+    setEnv('NODE_ENV', 'production');
+    process.env.MOCK_EXTERNAL_APIS = 'true';
+    warnMissingProductionEnv();
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it('does not warn for vars that are set', () => {
+    setEnv('NODE_ENV', 'production');
+    process.env.MOCK_EXTERNAL_APIS = 'false';
+    process.env.LIST_UNSUBSCRIBE_EMAIL = 'unsubscribe@repworth.com';
+    process.env.SENTRY_DSN = 'https://x@sentry.io/1';
+    warnMissingProductionEnv();
+    expect(warnSpy).not.toHaveBeenCalled();
   });
 });
 
