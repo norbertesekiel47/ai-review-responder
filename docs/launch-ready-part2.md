@@ -44,7 +44,7 @@ RepWorth currently ships **three different visual languages**, and only one of t
 
 | # | Issue | Location | Sev |
 |---|---|---|---|
-| M1 | **No mobile nav** — public nav links vanish `<640px` (`hidden sm:flex`), no hamburger | `src/components/ui/SiteNav.tsx:33` | P1 |
+| M1 | ✅ **No mobile nav** — public nav links vanish `<640px` (`hidden sm:flex`), no hamburger → **DONE (PR #175):** `SiteNav` is now a `'use client'` component with a `sm:hidden` branded hamburger toggling a `motion/react` dropdown of the nav links (+ Log in/Sign up when self-serve enabled); closes on link tap + `Escape`; desktop unchanged | `src/components/ui/SiteNav.tsx:33` | P1 |
 | M2 | ✅ **iOS input zoom** — `text-sm` (14px) inputs auto-zoom the viewport on focus; need ≥16px → **DONE (PR #160 + #165):** MFA code input + factor `<select>` (PR #160) and all onboarding funnel inputs via `field-styles` `fieldClass`/`textareaClass` (PR #165) are now `text-base` (16px) | `mfa/challenge/page.tsx:192,200` + onboarding inputs | P1 |
 | M3 | ✅ **Pricing matrix never scrolls** — 5-col grid only shrinks font at ≤720px, no `overflow-x:auto`; illegible at 375px → **DONE (PR #159):** `.pr-matrix` `overflow-x:auto` + `.pr-matrix-grid` `min-width:720px`, dropped 12px font crush, added keyboard-scrollable `role=group`/`aria-label`/`tabIndex` region | `globals.css:2231,2361` | P0 |
 | M4 | ✅ **`overflow:hidden` clips fixed elements on iOS** (see P0 #5) → **DONE (PR #161):** `overflow:hidden` removed from both `.rw-island` roots; auth `.rw-showcase` self-clips its corners; guard test added | `globals.css:126`, `auth-island.css:67` | P0 |
@@ -110,7 +110,7 @@ Admin has a coherent internal gray/white/blue style; judged on function, not pol
 
 ## ♿ Accessibility (cross-cutting)
 - 🟡 **No `aria-live`/`role="status"`** on async feedback anywhere — save confirmations, MFA notices, connection-status changes, dashboard error/loading are silent to screen readers. **P1.** → **PARTIAL (PR #160):** MFA now uses `aria-live="polite"` on loading/verifying and `role="alert"` on errors; **rest of app still pending.**
-- **No `focus-visible` styles** on dot nav, pricing toggle, FAQ accordions, SiteNav links. **P1.**
+- 🟡 **No `focus-visible` styles** on dot nav, pricing toggle, FAQ accordions, SiteNav links. **P1.** → **PARTIAL (PR #175):** all `SiteNav` controls (logo, nav links, auth links, hamburger) now have `focus-visible` rings; **dot nav / pricing toggle / FAQ accordions still pending.**
 - **Settings/MobileTabBar tabs** lack `role="tab"`/`aria-selected`/`role="tablist"` — no ARIA tab semantics, no arrow-key nav. **P2.**
 - 🟡 **Approval edit textarea, FinishSignup inputs** have no visible/associated labels (rely on placeholder or `sr-only`). **P1.** → **PARTIAL (PR #162):** approval edit textarea now has an associated `<label htmlFor>`; **FinishSignup inputs still pending.**
 - ✅ **`PageShell` dot-nav buttons missing `type="button"`** → submit forms when nested in `<form>` (e.g. book-a-demo). **P1.** → **DONE (PR #166):** dot-nav buttons now `type="button"` + regression test. (Defensive: the dot-nav renders as a fixed sibling outside the island `children`, so no current caller's `<form>` actually wraps it — but `type="button"` is the correct default.)
@@ -145,12 +145,12 @@ Admin has a coherent internal gray/white/blue style; judged on function, not pol
 12. **Fix SMS "coming soon" hardcode** to honor `CHANNELS_SMS_ENABLED`.
 
 ### P1 — Noticeable, fix before/at launch
-13. Add a **mobile nav** (hamburger) to `SiteNav`.
+13. ✅ Add a **mobile nav** (hamburger) to `SiteNav`. — **DONE (PR #175):** `'use client'` `SiteNav` + `sm:hidden` hamburger → `motion/react` dropdown (nav links + Log in/Sign up when self-serve enabled), closes on link tap + `Escape`, full ARIA (`aria-expanded`/`aria-controls`/dynamic `aria-label`); desktop (≥640px) untouched. Mirrors the `AdminNav` hamburger, re-skinned to the island brand. Also folded in the line-113 `focus-visible` rings on all `SiteNav` controls.
 14. Replace remaining **amber/orange** in `EditReplyDrawer` + panels, `ConnectGoogleBanner`, onboarding alerts, admin overview.
 15. ✅ **ProgressDots** + all funnel CTAs → teal pills wrapped in `motion.button`. — **DONE (PR #165).**
 16. Wrap **VoiceClient in `SettingsShell`**; add **TopBar to select-location**.
 17. Fix **MobileTabBar active state**; fix **save-bar `left:240px`** coupling.
-18. Add **`aria-live`** regions + **`focus-visible`** styles + **`type="button"`** on dot-nav. *(Partial: MFA page got `aria-live`/`role="alert"` + `focus-visible` rings in PR #160; PR #166 added `type="button"` to the `PageShell` dot-nav and `focus-visible` rings on the `help/contact` + `feedback/thanks` CTAs; `aria-live` across the rest of the app + marketing-component focus styles still pending.)*
+18. Add **`aria-live`** regions + **`focus-visible`** styles + **`type="button"`** on dot-nav. *(Partial: MFA page got `aria-live`/`role="alert"` + `focus-visible` rings in PR #160; PR #166 added `type="button"` to the `PageShell` dot-nav and `focus-visible` rings on the `help/contact` + `feedback/thanks` CTAs; PR #175 added `focus-visible` rings to all `SiteNav` controls; `aria-live` across the rest of the app + remaining marketing-component focus styles (dot nav / pricing toggle / FAQ accordions) still pending.)*
 19. 🟡 Add **per-page metadata** (titles + auth/legal `noindex`). *(Partial: PR #162 added the approval-page `title` + `noindex`; PR #166 added `help/contact` + `feedback/thanks` metadata (`feedback/thanks` `noindex`); auth/legal + remaining public pages still pending.)*
 20. 🟡 Fix **silent post-payment redirect** + add support escape hatches (payment-success timeout, MFA no-factor). *(Partial: MFA no-factor support hatch added in PR #160; the silent post-payment redirect was fixed in PR #165 — paid-but-not-onboarded users now get a "payment confirmed" ack + "Continue setup →" CTA into the wizard; **the payment-success 5-min-timeout support link is still pending.**)*
 21. Remove **"if implemented"** and **"(placeholder)"** public copy.
