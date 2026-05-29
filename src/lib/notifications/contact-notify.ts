@@ -3,7 +3,9 @@
 // contact, demo-request, and lead-intake routes.
 
 import * as Sentry from '@sentry/nextjs';
+import { isMockMode } from '@/lib/shared/mock-mode';
 import { extractMailbox } from './email/headers';
+import { sendInternalEmail } from './email/templates/internal';
 
 export type ContactNotifySource = 'env' | 'from-email' | 'default';
 
@@ -47,4 +49,36 @@ export function resolveContactNotifyTo(): { to: string; source: ContactNotifySou
     );
   }
   return { to, source };
+}
+
+// Escapes the HTML metacharacters so user-supplied submission fields render
+// literally in the notification email body.
+function escapeHtml(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// True when the notification email can actually be sent. sendInternalEmail
+// throws without RESEND_FROM_EMAIL; outside mock mode it also needs a real
+// RESEND_API_KEY. Mirrors the routes' previous best-effort guard (no key →
+// skip, still 200) so a missing email config never 500s the public form.
+function emailConfigured(): boolean {
+  if (!process.env.RESEND_FROM_EMAIL) return false;
+  return isMockMode() || Boolean(process.env.RESEND_API_KEY);
+}
+
+/**
+ * Sends a public contact/demo/lead notification through the shared
+ * sendInternalEmail path (mock-mode aware, lazy client, category headers).
+ * Best-effort: returns { sent: false } when email isn't configured (no throw);
+ * propagates a real send error so the caller can surface a 500.
+ */
+export async function notifyContactSubmission(params: {
+  subject: string;
+  lines: string[];
+}): Promise<{ sent: boolean }> {
+  if (!emailConfigured()) return { sent: false };
+  const { to } = resolveContactNotifyTo();
+  const bodyHtml = params.lines.map(escapeHtml).join('<br>\n');
+  await sendInternalEmail({ to, subject: params.subject, bodyHtml, category: 'internal' });
+  return { sent: true };
 }
