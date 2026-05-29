@@ -85,6 +85,13 @@ describe('/dashboard/connect Console restyle contract', () => {
     expect(getByRole('button', { name: /^cancel$/i })).toHaveClass('btn', 'btn-secondary');
   });
 
+  it('uses Console .btn-secondary for the interrupted clear-attempt control', () => {
+    mockSearchParams.value = new URLSearchParams('error=state_expired');
+    mockUseDashboardData.mockReturnValue(activeData({ status: 'pending', pendingFlow: { status: 'oauth_in_progress' }, queuedReconnectCount: 0, hasUnresolvedIncident: false }));
+    const { getByRole } = render(<ConnectPage />);
+    expect(getByRole('button', { name: /clear attempt/i })).toHaveClass('btn', 'btn-secondary');
+  });
+
   it('wraps view content in a Console .card', () => {
     mockUseDashboardData.mockReturnValue(activeData({ status: 'none', queuedReconnectCount: 0, hasUnresolvedIncident: false }));
     const { container } = render(<ConnectPage />);

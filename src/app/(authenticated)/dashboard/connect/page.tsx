@@ -11,7 +11,8 @@ import type { LocationId } from '@/lib/shared/ids';
 // Console text tokens reused across the connect views (no warm tones).
 const MUTED = { color: 'var(--rw-app-text-muted)' } as const;
 const FINE = { color: 'var(--rw-app-text-soft)', fontSize: 12 } as const;
-const CTA = { marginTop: 16 } as const;
+const HEADING = { font: 'var(--rw-app-h1)', margin: '0 0 14px', letterSpacing: '-0.01em' } as const;
+const CTA_SPACING = { marginTop: 16 } as const;
 const SPINNER_ROW = { display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 } as const;
 
 /**
@@ -297,7 +298,7 @@ function ReadOnlyConnectView({
 
   return (
     <div className="card">
-      <h1 className="card-h2">{heading}</h1>
+      <h1 style={HEADING}>{heading}</h1>
       <p style={MUTED}>{detail}</p>
       <p style={{ color: 'var(--rw-app-text)', fontWeight: 600, marginTop: 12 }}>
         Update billing to connect or change Google Business.
@@ -356,7 +357,7 @@ function ConnectView({
 }) {
   return (
     <div className="card">
-      <h1 className="card-h2">Connect Google Business</h1>
+      <h1 style={HEADING}>Connect Google Business</h1>
       <p style={MUTED}>
         Connect your Google Business Profile so RepWorth can publish approved
         responses for you. You&apos;ll be redirected to Google to grant access.
@@ -366,7 +367,7 @@ function ConnectView({
         onClick={onConnect}
         disabled={busy}
         className="btn btn-primary disabled:opacity-50"
-        style={CTA}
+        style={CTA_SPACING}
       >
         {busy ? 'Starting…' : 'Connect Google Business'}
       </button>
@@ -387,7 +388,7 @@ function ReconnectView({
 }) {
   return (
     <div className="card">
-      <h1 className="card-h2">Reconnect Google Business</h1>
+      <h1 style={HEADING}>Reconnect Google Business</h1>
       <p style={MUTED}>
         Auto-publishing is currently disconnected. Reconnect to resume posting
         approved responses.
@@ -409,7 +410,7 @@ function ReconnectView({
         onClick={onConnect}
         disabled={busy}
         className="btn btn-primary disabled:opacity-50"
-        style={CTA}
+        style={CTA_SPACING}
       >
         {busy ? 'Starting…' : 'Reconnect Google Business'}
       </button>
@@ -428,7 +429,7 @@ function PendingView({
     <div className="card">
       <div style={SPINNER_ROW}>
         <Spinner />
-        <h1 className="card-h2" style={{ margin: 0 }}>Connecting…</h1>
+        <h1 style={{ ...HEADING, margin: 0 }}>Connecting…</h1>
       </div>
       <p style={MUTED}>
         We&apos;re finishing the connection with Google. If you closed the
@@ -439,7 +440,7 @@ function PendingView({
         onClick={onCancel}
         disabled={busy}
         className="btn btn-secondary disabled:opacity-50"
-        style={CTA}
+        style={CTA_SPACING}
       >
         {busy ? 'Cancelling…' : 'Cancel'}
       </button>
@@ -456,7 +457,7 @@ function InterruptedPendingView({
 }) {
   return (
     <div className="card">
-      <h1 className="card-h2">Connection could not be completed</h1>
+      <h1 style={HEADING}>Connection could not be completed</h1>
       <p style={MUTED}>
         This connection attempt is no longer valid. Clear it, then start a new
         Google Business connection.
@@ -466,7 +467,7 @@ function InterruptedPendingView({
         onClick={onCancel}
         disabled={busy}
         className="btn btn-secondary disabled:opacity-50"
-        style={CTA}
+        style={CTA_SPACING}
       >
         {busy ? 'Clearing…' : 'Clear attempt'}
       </button>
@@ -479,7 +480,7 @@ function FinalizingView() {
     <div className="card">
       <div style={SPINNER_ROW}>
         <Spinner />
-        <h1 className="card-h2" style={{ margin: 0 }}>Finishing connection…</h1>
+        <h1 style={{ ...HEADING, margin: 0 }}>Finishing connection…</h1>
       </div>
       <p style={MUTED}>
         We&apos;re saving your Google Business connection. This usually takes
@@ -492,7 +493,7 @@ function FinalizingView() {
 function FinalizeUnknownView() {
   return (
     <div className="card">
-      <h1 className="card-h2">Connection requires manual review</h1>
+      <h1 style={HEADING}>Connection requires manual review</h1>
       <p style={MUTED}>
         Something unexpected happened while finishing your connection. Our
         support team has been alerted and will resolve this within 24 hours —
