@@ -67,7 +67,7 @@ export function PageShell({ sections, children, maxWidthClassName = 'max-w-5xl' 
               type="button"
               onClick={() => ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
               aria-label={`Go to ${label}`}
-              className="w-3 h-3 rounded-full bg-[#97B3AE]/30 hover:bg-[#97B3AE] transition-all hover:scale-125"
+              className="w-3 h-3 rounded-full bg-[#97B3AE]/30 hover:bg-[#97B3AE] transition-all hover:scale-125 focus-visible:outline-2 focus-visible:outline-[#97B3AE] focus-visible:outline-offset-2"
             />
           ))}
         </div>
