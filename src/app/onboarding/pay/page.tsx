@@ -4,6 +4,7 @@ import { redirect, notFound } from 'next/navigation';
 import { sql } from '@/lib/db/server';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { PlanPickerClient } from './PlanPickerClient';
+import { OnboardingFunnelShell } from '../_shared/OnboardingFunnelShell';
 
 export const dynamic = 'force-dynamic';
 
@@ -85,8 +86,8 @@ export default async function OnboardingPayPage({
   const { cancelled } = await searchParams;
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4 py-12">
+    <OnboardingFunnelShell step="plan" maxWidth="6xl">
       <PlanPickerClient cancelled={Boolean(cancelled)} />
-    </div>
+    </OnboardingFunnelShell>
   );
 }

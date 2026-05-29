@@ -1,6 +1,15 @@
 'use client';
 
 import type { WizardFormData } from './BusinessWizardClient';
+import { motion } from 'motion/react';
+import {
+  fieldClass,
+  textareaClass,
+  labelClass,
+  primaryButtonClass,
+  ghostButtonClass,
+  buttonMotion,
+} from '../_shared/field-styles';
 
 interface StepVoiceProps {
   data: WizardFormData;
@@ -19,16 +28,12 @@ export function StepVoice({
   onSkip,
   submitting,
 }: StepVoiceProps) {
-  const inputClass =
-    'w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500';
-  const textareaClass = `${inputClass} resize-y min-h-[60px]`;
-
   return (
-    <div className="bg-white rounded-lg border border-gray-200 p-6 space-y-4">
+    <div className="space-y-4">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-lg font-medium text-gray-900">Voice & context</h2>
-          <p className="text-sm text-gray-600">
+          <h2 className="text-xl font-medium text-[#2a2a2a]">Voice &amp; context</h2>
+          <p className="text-sm text-[#6a6a6a]">
             Help us write responses that sound like you. All optional — you can
             set this up later in Settings.
           </p>
@@ -37,35 +42,25 @@ export function StepVoice({
           type="button"
           onClick={onSkip}
           disabled={submitting}
-          className="text-sm text-blue-600 hover:text-blue-800 underline whitespace-nowrap disabled:opacity-50"
+          className="text-sm text-[#97B3AE] hover:text-[#7e9b96] underline whitespace-nowrap disabled:opacity-50"
         >
           Skip for now
         </button>
       </div>
 
       <div>
-        <label
-          htmlFor="biz-tone"
-          className="block text-sm font-medium text-gray-700 mb-1"
-        >
-          Tone
-        </label>
+        <label htmlFor="biz-tone" className={labelClass}>Tone</label>
         <input
           id="biz-tone"
           type="text"
           value={data.tone}
           onChange={(e) => update({ tone: e.target.value })}
-          className={inputClass}
+          className={fieldClass}
         />
       </div>
 
       <div>
-        <label
-          htmlFor="biz-products"
-          className="block text-sm font-medium text-gray-700 mb-1"
-        >
-          Products / services
-        </label>
+        <label htmlFor="biz-products" className={labelClass}>Products / services</label>
         <textarea
           id="biz-products"
           value={data.productsServices}
@@ -77,12 +72,7 @@ export function StepVoice({
       </div>
 
       <div>
-        <label
-          htmlFor="biz-staff"
-          className="block text-sm font-medium text-gray-700 mb-1"
-        >
-          Staff names
-        </label>
+        <label htmlFor="biz-staff" className={labelClass}>Staff names</label>
         <textarea
           id="biz-staff"
           value={data.staffNames}
@@ -94,12 +84,7 @@ export function StepVoice({
       </div>
 
       <div>
-        <label
-          htmlFor="biz-highlight"
-          className="block text-sm font-medium text-gray-700 mb-1"
-        >
-          Highlight facts
-        </label>
+        <label htmlFor="biz-highlight" className={labelClass}>Highlight facts</label>
         <textarea
           id="biz-highlight"
           value={data.highlightFacts}
@@ -111,12 +96,7 @@ export function StepVoice({
       </div>
 
       <div>
-        <label
-          htmlFor="biz-avoid"
-          className="block text-sm font-medium text-gray-700 mb-1"
-        >
-          Avoid facts
-        </label>
+        <label htmlFor="biz-avoid" className={labelClass}>Avoid facts</label>
         <textarea
           id="biz-avoid"
           value={data.avoidFacts}
@@ -128,12 +108,7 @@ export function StepVoice({
       </div>
 
       <div>
-        <label
-          htmlFor="biz-samples"
-          className="block text-sm font-medium text-gray-700 mb-1"
-        >
-          Sample responses
-        </label>
+        <label htmlFor="biz-samples" className={labelClass}>Sample responses</label>
         <textarea
           id="biz-samples"
           value={data.sampleResponses}
@@ -144,23 +119,24 @@ export function StepVoice({
         />
       </div>
 
-      <div className="flex justify-between pt-4">
+      <div className="flex justify-between items-center pt-4">
         <button
           type="button"
           onClick={onBack}
           disabled={submitting}
-          className="text-gray-600 font-medium py-2 px-4 hover:text-gray-900 disabled:opacity-50"
+          className={ghostButtonClass}
         >
           ← Back
         </button>
-        <button
+        <motion.button
           type="button"
           onClick={onSubmit}
           disabled={submitting}
-          className="bg-blue-600 text-white font-medium py-2 px-6 rounded-md hover:bg-blue-700 disabled:opacity-50"
+          {...buttonMotion}
+          className={primaryButtonClass}
         >
           {submitting ? 'Setting up…' : 'Finish setup'}
-        </button>
+        </motion.button>
       </div>
     </div>
   );

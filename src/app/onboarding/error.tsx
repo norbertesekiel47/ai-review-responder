@@ -1,5 +1,10 @@
 'use client';
 
+import { motion } from 'motion/react';
+
+import { OnboardingFunnelShell } from './_shared/OnboardingFunnelShell';
+import { primaryButtonClass, buttonMotion } from './_shared/field-styles';
+
 export default function OnboardingError({
   reset,
 }: {
@@ -7,28 +12,31 @@ export default function OnboardingError({
   reset: () => void;
 }) {
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
-      <div className="max-w-md w-full bg-white rounded-lg border border-gray-200 p-8 text-center">
-        <h1 className="text-xl font-bold mb-4">Something went wrong</h1>
-        <p className="text-gray-700 mb-6">
+    <OnboardingFunnelShell>
+      <div className="max-w-md mx-auto text-center py-6">
+        <h1 className="text-2xl font-medium text-[#2a2a2a] mb-3">
+          Something went wrong
+        </h1>
+        <p className="text-[#6a6a6a] mb-8">
           We couldn&apos;t load the onboarding page. Please try again.
         </p>
-        <button
+        <motion.button
           onClick={reset}
-          className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700"
+          {...buttonMotion}
+          className={primaryButtonClass}
         >
           Retry
-        </button>
-        <p className="text-sm text-gray-500 mt-4">
+        </motion.button>
+        <p className="text-sm text-[#9a948a] mt-6">
           Still having trouble?{' '}
           <a
             href="mailto:support@repworth.com"
-            className="underline"
+            className="text-[#97B3AE] underline hover:text-[#7e9b96]"
           >
             Contact support
           </a>
         </p>
       </div>
-    </div>
+    </OnboardingFunnelShell>
   );
 }

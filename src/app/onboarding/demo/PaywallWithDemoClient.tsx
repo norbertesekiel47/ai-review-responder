@@ -4,6 +4,9 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import type { NormalizedReview } from '@/lib/reviews/types';
 import type { GenerationResult } from '@/lib/responses/types';
+import { motion } from 'motion/react';
+import { OnboardingFunnelShell } from '../_shared/OnboardingFunnelShell';
+import { infoBannerClass, primaryButtonClass, buttonMotion } from '../_shared/field-styles';
 
 interface DemoPayload {
   id: string;
@@ -90,117 +93,150 @@ export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoC
   const isFallback = demo.source === 'curated_fallback';
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="max-w-2xl mx-auto px-4 py-8">
-        <h1 className="text-3xl font-bold text-center mb-2">
-          Your AI-powered review responses
-        </h1>
-        <p className="text-center text-gray-600 mb-8">
-          Here&apos;s what RepWorth would write for {demo.business_name}
-        </p>
+    <OnboardingFunnelShell step="preview">
+      <h1 className="text-3xl md:text-4xl font-medium text-center text-[#2a2a2a] mb-2">
+        Your AI-powered review responses
+      </h1>
+      <p className="text-center text-[#6a6a6a] mb-8">
+        Here&apos;s what RepWorth would write for {demo.business_name}
+      </p>
 
-        {isFallback && (
-          <div className="bg-amber-50 border border-amber-200 rounded-md p-4 mb-6 text-sm text-amber-800">
-            Sample reviews shown — connect your account after signup to see your real ones.
-          </div>
-        )}
+      {isFallback && (
+        <div className={`${infoBannerClass} mb-6`}>
+          Sample reviews shown — connect your account after signup to see your
+          real ones.
+        </div>
+      )}
 
-        {isStale && isCompleted && demo.completed_at && (
-          <div className="bg-gray-100 rounded-md p-3 mb-6 text-sm text-gray-600 text-center">
-            Last updated {Math.floor((Date.now() - new Date(demo.completed_at).getTime()) / (24 * 60 * 60 * 1000))} days ago
-          </div>
-        )}
+      {isStale && isCompleted && demo.completed_at && (
+        <div className="bg-[#F0EEEA] rounded-xl p-3 mb-6 text-sm text-[#6a6a6a] text-center">
+          Last updated{' '}
+          {Math.floor(
+            (Date.now() - new Date(demo.completed_at).getTime()) /
+              (24 * 60 * 60 * 1000),
+          )}{' '}
+          days ago
+        </div>
+      )}
 
-        {isLoading && (
-          <div className="text-center py-12">
-            <div className="inline-block w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mb-6" />
-            <p className="text-gray-600">Generating your demo...</p>
-            {pollCount >= MAX_POLLS && (
-              <p className="text-sm text-gray-400 mt-2">
-                Still working — refresh in a minute.
+      {isLoading && (
+        <div className="text-center py-12">
+          <div className="inline-block w-12 h-12 border-4 border-[#97B3AE]/25 border-t-[#97B3AE] rounded-full animate-spin mb-6" />
+          <p className="text-[#6a6a6a]">Generating your demo...</p>
+          {pollCount >= MAX_POLLS && (
+            <p className="text-sm text-[#9a948a] mt-2">
+              Still working — refresh in a minute.
+            </p>
+          )}
+        </div>
+      )}
+
+      {(isFailed || isSkipped) && (
+        <div className="space-y-6">
+          <div className="text-center py-8">
+            {isFailed ? (
+              <>
+                <div
+                  className="w-12 h-12 mx-auto mb-4 rounded-full bg-[#F2C3B9]/40 flex items-center justify-center"
+                  role="img"
+                  aria-label="warning"
+                >
+                  <svg
+                    className="w-6 h-6 text-[#2a2a2a]"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M12 9v4m0 4h.01M10.29 3.86l-8.48 14.7A1 1 0 002.67 20h18.66a1 1 0 00.86-1.44l-8.48-14.7a1 1 0 00-1.74 0z"
+                    />
+                  </svg>
+                </div>
+                <p className="text-[#6a6a6a] mb-4">
+                  We couldn&apos;t generate a sample demo this time.
+                </p>
+                <button
+                  onClick={handleRegenerate}
+                  className="bg-white border border-[#97B3AE]/30 text-[#2a2a2a] font-medium py-2 px-6 rounded-full hover:bg-[#F0EEEA] mb-2 transition"
+                >
+                  Try the demo again
+                </button>
+              </>
+            ) : (
+              <p className="text-[#6a6a6a]">
+                Your live demo is on the way after signup — for now, you can
+                still subscribe.
               </p>
             )}
           </div>
-        )}
 
-        {(isFailed || isSkipped) && (
-          <div className="space-y-6">
-            <div className="text-center py-8">
-              {isFailed ? (
-                <>
-                  <div className="text-4xl mb-4" role="img" aria-label="warning">⚠️</div>
-                  <p className="text-gray-600 mb-4">We couldn&apos;t generate a sample demo this time.</p>
-                  <button
-                    onClick={handleRegenerate}
-                    className="bg-white border border-gray-300 text-gray-700 font-medium py-2 px-6 rounded-md hover:bg-gray-50 mb-2"
-                  >
-                    Try the demo again
-                  </button>
-                </>
-              ) : (
-                <p className="text-gray-600">
-                  Your live demo is on the way after signup — for now, you can still subscribe.
-                </p>
-              )}
-            </div>
-
-            {/* Paywall stays available even when the demo isn't — never block payment on a transient generation issue. */}
-            <div className="bg-white rounded-xl border border-gray-200 p-6 sm:p-8 text-center">
-              <h2 className="text-xl font-bold text-gray-900 mb-2">
-                Choose your RepWorth plan
-              </h2>
-              <p className="text-gray-600 mb-6 max-w-md mx-auto">
-                Subscribe to start automatically generating responses for every review.
-              </p>
-              <a
-                href="/onboarding/pay"
-                onClick={() => {
-                  void captureDemoToSignup();
-                }}
-                className="inline-block bg-blue-600 text-white font-medium px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                Choose a plan →
-              </a>
-            </div>
+          {/* Paywall stays available even when the demo isn't — never block payment on a transient generation issue. */}
+          <div className="bg-[#F0EEEA] rounded-2xl border border-[#97B3AE]/15 p-6 sm:p-8 text-center">
+            <h2 className="text-xl font-medium text-[#2a2a2a] mb-2">
+              Choose your RepWorth plan
+            </h2>
+            <p className="text-[#6a6a6a] mb-6 max-w-md mx-auto">
+              Subscribe to start automatically generating responses for every
+              review.
+            </p>
+            <motion.a
+              href="/onboarding/pay"
+              onClick={() => {
+                void captureDemoToSignup();
+              }}
+              {...buttonMotion}
+              className={`inline-block ${primaryButtonClass}`}
+            >
+              Choose a plan →
+            </motion.a>
           </div>
-        )}
+        </div>
+      )}
 
-        {isCompleted && (
-          <div className="space-y-6">
-            {reviews.map((review, index) => (
-              <ReviewCard key={index} review={review} response={responses[index] ?? null} />
-            ))}
+      {isCompleted && (
+        <div className="space-y-6">
+          {reviews.map((review, index) => (
+            <ReviewCard
+              key={index}
+              review={review}
+              response={responses[index] ?? null}
+            />
+          ))}
 
-            <div className="bg-white rounded-xl border border-gray-200 p-6 sm:p-8 text-center mt-8">
-              <h2 className="text-xl font-bold text-gray-900 mb-2">
-                Want this for every review?
-              </h2>
-              <p className="text-gray-600 mb-6 max-w-md mx-auto">
-                Subscribe to RepWorth and we&apos;ll automatically generate responses for all your reviews.
-              </p>
-              <a
-                href="/onboarding/pay"
-                onClick={() => {
-                  void captureDemoToSignup();
-                }}
-                className="inline-block bg-blue-600 text-white font-medium px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                Choose a plan →
-              </a>
-            </div>
-
-            <div className="text-center">
-              <button
-                onClick={handleRegenerate}
-                className="text-sm text-gray-500 hover:text-gray-700 underline"
-              >
-                Regenerate demo
-              </button>
-            </div>
+          <div className="bg-[#F0EEEA] rounded-2xl border border-[#97B3AE]/15 p-6 sm:p-8 text-center mt-8">
+            <h2 className="text-xl font-medium text-[#2a2a2a] mb-2">
+              Want this for every review?
+            </h2>
+            <p className="text-[#6a6a6a] mb-6 max-w-md mx-auto">
+              Subscribe to RepWorth and we&apos;ll automatically generate
+              responses for all your reviews.
+            </p>
+            <motion.a
+              href="/onboarding/pay"
+              onClick={() => {
+                void captureDemoToSignup();
+              }}
+              {...buttonMotion}
+              className={`inline-block ${primaryButtonClass}`}
+            >
+              Choose a plan →
+            </motion.a>
           </div>
-        )}
-      </div>
-    </div>
+
+          <div className="text-center">
+            <button
+              onClick={handleRegenerate}
+              className="text-sm text-[#97B3AE] hover:text-[#7e9b96] underline"
+            >
+              Regenerate demo
+            </button>
+          </div>
+        </div>
+      )}
+    </OnboardingFunnelShell>
   );
 }
 
@@ -228,7 +264,7 @@ function Stars({ rating }: { rating: number }) {
   return (
     <span className="inline-flex gap-0.5" aria-label={`${rating} out of 5 stars`}>
       {Array.from({ length: 5 }, (_, i) => (
-        <span key={i} className={i < rating ? 'text-yellow-400' : 'text-gray-300'}>
+        <span key={i} className={i < rating ? 'text-[#97B3AE]' : 'text-[#cdd9ce]'}>
           ★
         </span>
       ))}
@@ -244,29 +280,41 @@ function ReviewCard({
   response: GenerationResult | null;
 }) {
   const formattedDate = new Date(review.reviewDate).toLocaleDateString('en-US', {
-    year: 'numeric', month: 'short', day: 'numeric',
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
   });
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <div className="bg-white rounded-2xl border border-[#97B3AE]/15 shadow-sm overflow-hidden">
       <div className="p-4 sm:p-5">
         <div className="flex items-start justify-between mb-2">
           <div>
-            <span className="font-semibold text-gray-900">{review.reviewerName}</span>
-            <span className="text-sm text-gray-400 ml-2">{formattedDate}</span>
+            <span className="font-semibold text-[#2a2a2a]">
+              {review.reviewerName}
+            </span>
+            <span className="text-sm text-[#9a948a] ml-2">{formattedDate}</span>
           </div>
         </div>
         <Stars rating={review.starRating} />
         {review.reviewText ? (
-          <p className="mt-2 text-gray-700 text-sm leading-relaxed">{review.reviewText}</p>
+          <p className="mt-2 text-[#6a6a6a] text-sm leading-relaxed">
+            {review.reviewText}
+          </p>
         ) : (
-          <p className="mt-2 text-gray-400 text-sm italic">Rating only — no written review</p>
+          <p className="mt-2 text-[#9a948a] text-sm italic">
+            Rating only — no written review
+          </p>
         )}
       </div>
       {response && (
-        <div className="bg-blue-50 border-t border-blue-100 p-4 sm:p-5">
-          <p className="text-xs font-semibold text-blue-600 uppercase tracking-wider mb-2">AI Response</p>
-          <p className="text-gray-700 text-sm leading-relaxed">{response.responseText}</p>
+        <div className="bg-[#F0EEEA] border-t border-[#97B3AE]/15 p-4 sm:p-5">
+          <p className="text-xs font-semibold text-[#97B3AE] uppercase tracking-wider mb-2">
+            RepWorth draft response
+          </p>
+          <p className="text-[#6a6a6a] text-sm leading-relaxed">
+            {response.responseText}
+          </p>
         </div>
       )}
     </div>

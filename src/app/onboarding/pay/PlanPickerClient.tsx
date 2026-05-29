@@ -1,6 +1,8 @@
 'use client';
 
 import { useState } from 'react';
+import { motion } from 'motion/react';
+import { buttonMotion } from '../_shared/field-styles';
 
 import type { SubscriptionTierValue } from '@/lib/accounts/tier-config';
 
@@ -55,9 +57,9 @@ export function PlanPickerClient({ cancelled }: { cancelled: boolean }) {
   }
 
   return (
-    <div className="w-full max-w-6xl">
+    <div className="w-full">
       {cancelled && (
-        <p className="text-sm text-amber-700 mb-4 text-center">
+        <p className="text-sm text-[#6a6a6a] mb-4 text-center">
           No worries — pick a plan when you&apos;re ready.
         </p>
       )}
@@ -75,7 +77,7 @@ export function PlanPickerClient({ cancelled }: { cancelled: boolean }) {
           return (
             <div
               key={plan.tier}
-              className={`relative rounded-2xl p-7 border shadow-lg flex flex-col bg-white ${
+              className={`relative rounded-2xl p-7 mx-1 sm:mx-0 border shadow-lg flex flex-col bg-white ${
                 plan.highlight
                   ? 'border-[#97B3AE]/40 bg-gradient-to-br from-[#F0EEEA]/60 to-white'
                   : 'border-[#97B3AE]/10'
@@ -99,10 +101,11 @@ export function PlanPickerClient({ cancelled }: { cancelled: boolean }) {
                 <span className="text-[#6a6a6a] text-sm">/month</span>
               </div>
 
-              <button
+              <motion.button
                 type="button"
                 onClick={() => handlePick(plan.tier)}
                 disabled={isLoading || isOtherLoading}
+                {...buttonMotion}
                 className={`block w-full text-center py-3 rounded-full font-medium text-sm mb-6 transition disabled:opacity-50 disabled:cursor-not-allowed ${
                   plan.highlight
                     ? 'bg-[#97B3AE] text-white shadow-lg hover:bg-[#7e9b96]'
@@ -110,7 +113,7 @@ export function PlanPickerClient({ cancelled }: { cancelled: boolean }) {
                 }`}
               >
                 {isLoading ? 'Redirecting to checkout…' : plan.cta}
-              </button>
+              </motion.button>
 
               <ul className="space-y-3 flex-1">
                 {plan.features.map((feature) => (
