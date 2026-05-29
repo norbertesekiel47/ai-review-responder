@@ -67,6 +67,17 @@ describe('createAccountRow', () => {
     expect(account.locations_overage_price_cents).toBe(500);
   });
 
+  it('defaults base_price_cents per tier', () => {
+    expect(createAccountRow({ subscription_tier: 'basic' }).base_price_cents).toBe(2900);
+    expect(createAccountRow({ subscription_tier: 'standard' }).base_price_cents).toBe(7900);
+    expect(createAccountRow({ subscription_tier: 'premium' }).base_price_cents).toBe(19900);
+    expect(createAccountRow({ subscription_tier: 'founders' }).base_price_cents).toBe(1900);
+  });
+
+  it('respects an explicit base_price_cents override', () => {
+    expect(createAccountRow({ subscription_tier: 'founders', base_price_cents: 1500 }).base_price_cents).toBe(1500);
+  });
+
   it('generates unique IDs for each account', () => {
     const a1 = createAccountRow();
     const a2 = createAccountRow();

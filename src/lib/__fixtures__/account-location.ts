@@ -24,6 +24,7 @@ export interface AccountRow {
   locations_included: number;
   locations_paid: number;
   locations_overage_price_cents: number;
+  base_price_cents: number;
   flags: Record<string, unknown>;
   created_at: Date;
   updated_at: Date;
@@ -69,6 +70,18 @@ export function createAccountRow(
     }
   }
 
+  let base_price_cents = overrides.base_price_cents;
+
+  if (base_price_cents === undefined) {
+    switch (tier) {
+      case 'basic': base_price_cents = 2900; break;
+      case 'standard': base_price_cents = 7900; break;
+      case 'premium': base_price_cents = 19900; break;
+      case 'founders': base_price_cents = 1900; break;
+      default: base_price_cents = 7900;
+    }
+  }
+
   return {
     id,
     owner_user_id: overrides.owner_user_id ?? 'owner-aaaaaaaa-0000-0000-0000-000000000001',
@@ -82,6 +95,7 @@ export function createAccountRow(
     locations_included,
     locations_paid: overrides.locations_paid ?? 0,
     locations_overage_price_cents,
+    base_price_cents,
     flags: overrides.flags ?? {},
     created_at: overrides.created_at ?? new Date('2026-01-01'),
     updated_at: overrides.updated_at ?? new Date('2026-01-01'),
