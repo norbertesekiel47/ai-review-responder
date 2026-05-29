@@ -69,7 +69,7 @@
 @media (max-width: 900px) { .rw-island { grid-template-columns: 1fr; } }
 
 /* Showcase pane */
-.rw-showcase { position: relative; padding: 56px 52px; background: radial-gradient(ellipse at 20% 0%, rgba(242,195,185,0.55) 0%, transparent 55%), radial-gradient(ellipse at 100% 100%, rgba(151,179,174,0.55) 0%, transparent 55%), linear-gradient(160deg, #f0eeea 0%, #ffffff 60%, #f0ddd6 100%); display: flex; flex-direction: column; justify-content: space-between; overflow: hidden; }
+.rw-showcase { position: relative; border-radius: 48px 0 0 48px; padding: 56px 52px; background: radial-gradient(ellipse at 20% 0%, rgba(242,195,185,0.55) 0%, transparent 55%), radial-gradient(ellipse at 100% 100%, rgba(151,179,174,0.55) 0%, transparent 55%), linear-gradient(160deg, #f0eeea 0%, #ffffff 60%, #f0ddd6 100%); display: flex; flex-direction: column; justify-content: space-between; overflow: hidden; }
 @media (max-width: 900px) { .rw-showcase { display: none; } }
 
 .rw-brand { display: flex; align-items: center; gap: 10px; }
