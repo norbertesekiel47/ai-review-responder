@@ -16,7 +16,7 @@ export type EmailCategory = 'transactional' | 'marketing' | 'internal';
  * Extracts a mailbox from RESEND_FROM_EMAIL, supporting both "Display <addr>"
  * and bare "addr" formats. Returns null if no valid mailbox can be extracted.
  */
-function extractMailbox(fromEmail: string | undefined): string | null {
+export function extractMailbox(fromEmail: string | undefined): string | null {
   if (!fromEmail) return null;
   const angleMatch = fromEmail.match(/<([^>]+)>/);
   if (angleMatch && angleMatch[1] && angleMatch[1].includes('@')) return angleMatch[1].trim();
