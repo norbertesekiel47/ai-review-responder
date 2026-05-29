@@ -105,7 +105,7 @@ const TIERS: Tier[] = [
     features: [
       { text: 'High-volume or fair-use unlimited review responses', hl: true },
       { text: 'Multi-location setup available' },
-      { text: 'Multiple approval notification channels, if implemented' },
+      { text: 'Multiple approval notification channels' },
       { text: 'Weekly and monthly review digest' },
       { text: 'Historical unanswered review backfill, up to 50 reviews before activation' },
       { text: 'Ranking tracking / search visibility reporting' },
