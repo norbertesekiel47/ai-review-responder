@@ -70,6 +70,13 @@ export default async function DemoViewerPage({
     );
   }
 
+  // Any status other than 'completed' that reaches here is unexpected
+  // (prospect_demos only uses queued/running/failed/completed). Fail safe
+  // to the branded not-found island rather than rendering an empty viewer.
+  if (demo.generation_status !== 'completed') {
+    notFound();
+  }
+
   // Only count views of completed demos — the loading state polls and would
   // inflate the count otherwise.
   // TODO Sprint 4: debounce with Redis INCR
