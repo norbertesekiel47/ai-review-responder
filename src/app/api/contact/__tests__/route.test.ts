@@ -3,15 +3,13 @@ import { NextRequest } from 'next/server';
 
 // ── Hoisted mocks ────────────────────────────────────────────────────
 
-const { mockResendSend, mockCheckRateLimit } = vi.hoisted(() => ({
-  mockResendSend: vi.fn(),
+const { mockNotify, mockCheckRateLimit } = vi.hoisted(() => ({
+  mockNotify: vi.fn(),
   mockCheckRateLimit: vi.fn(),
 }));
 
-vi.mock('resend', () => ({
-  Resend: vi.fn().mockImplementation(function () {
-    return { emails: { send: mockResendSend } };
-  }),
+vi.mock('@/lib/notifications/contact-notify', () => ({
+  notifyContactSubmission: mockNotify,
 }));
 
 vi.mock('@/lib/shared/rate-limit', () => ({
@@ -41,10 +39,8 @@ function makeRawRequest(rawBody: string): NextRequest {
 describe('POST /api/contact', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    delete process.env.RESEND_API_KEY;
-    delete process.env.RESEND_FROM_EMAIL;
-    delete process.env.CONTACT_NOTIFY_TO;
     mockCheckRateLimit.mockResolvedValue({ allowed: true, remaining: 9 });
+    mockNotify.mockResolvedValue({ sent: true });
   });
 
   it('returns 400 when name is missing', async () => {
@@ -83,55 +79,23 @@ describe('POST /api/contact', () => {
     expect(body.error).toMatch(/business/i);
   });
 
-  it('returns 200 without sending email when RESEND_API_KEY is unset', async () => {
+  it('calls notifyContactSubmission with the submission and returns 200', async () => {
     const { POST } = await import('../route');
     const req = makeRequest({ name: 'Alice', email: 'a@b.com', businessName: 'Acme' });
     const res = await POST(req);
     expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.success).toBe(true);
-    expect(mockResendSend).not.toHaveBeenCalled();
-  });
-
-  it('sends email via Resend when RESEND_API_KEY is set', async () => {
-    process.env.RESEND_API_KEY = 'test-key';
-    process.env.RESEND_FROM_EMAIL = 'noreply@repworth.com';
-    mockResendSend.mockResolvedValue({ data: { id: 'msg-1' }, error: null });
-
-    const { POST } = await import('../route');
-    const req = makeRequest({ name: 'Alice', email: 'a@b.com', businessName: 'Acme' });
-    const res = await POST(req);
-    expect(res.status).toBe(200);
-    expect(mockResendSend).toHaveBeenCalledOnce();
-
-    const callArg = mockResendSend.mock.calls[0]?.[0] as Parameters<typeof mockResendSend>[0];
-    expect(callArg.to).toBe('noreply@repworth.com');
-    expect(callArg.subject).toContain('Demo Request');
-    expect(callArg.text).toContain('Alice');
-    expect(callArg.text).toContain('a@b.com');
-    expect(callArg.text).toContain('Acme');
-  });
-
-  it('routes to CONTACT_NOTIFY_TO when it is set', async () => {
-    process.env.RESEND_API_KEY = 'test-key';
-    process.env.RESEND_FROM_EMAIL = 'noreply@repworth.com';
-    process.env.CONTACT_NOTIFY_TO = 'ops@repworth.com';
-    mockResendSend.mockResolvedValue({ data: { id: 'msg-2' }, error: null });
-
-    const { POST } = await import('../route');
-    const req = makeRequest({ name: 'Alice', email: 'a@b.com', businessName: 'Acme' });
-    const res = await POST(req);
-    expect(res.status).toBe(200);
-    const callArg = mockResendSend.mock.calls[0]?.[0] as Parameters<typeof mockResendSend>[0];
-    expect(callArg.to).toBe('ops@repworth.com');
-    delete process.env.CONTACT_NOTIFY_TO;
+    expect((await res.json()).success).toBe(true);
+    expect(mockNotify).toHaveBeenCalledOnce();
+    const arg = mockNotify.mock.calls[0]![0] as { subject: string; lines: string[] };
+    expect(arg.subject).toContain('Demo Request');
+    const body = arg.lines.join('\n');
+    expect(body).toContain('Alice');
+    expect(body).toContain('a@b.com');
+    expect(body).toContain('Acme');
   });
 
   it('returns 500 when Resend throws', async () => {
-    process.env.RESEND_API_KEY = 'test-key';
-    process.env.RESEND_FROM_EMAIL = 'noreply@repworth.com';
-    mockResendSend.mockResolvedValue({ data: null, error: { message: 'send failed' } });
-
+    mockNotify.mockRejectedValueOnce(new Error('send failed'));
     const { POST } = await import('../route');
     const req = makeRequest({ name: 'Alice', email: 'a@b.com', businessName: 'Acme' });
     const res = await POST(req);

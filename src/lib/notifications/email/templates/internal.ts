@@ -15,6 +15,13 @@ export interface InternalEmailParams {
   subject: string;
   bodyHtml: string;
   /**
+   * Sender address. Defaults to `process.env.RESEND_FROM_EMAIL`. Callers that
+   * own a sender-fallback policy (e.g. the public contact/demo/lead routes,
+   * which historically default to the company no-reply mailbox) pass it
+   * explicitly so a missing env var doesn't silently drop delivery.
+   */
+  from?: string;
+  /**
    * Email category for headers + Resend tags. Defaults to 'internal'
    * (admin-facing, no List-Unsubscribe). Use 'marketing' for owner-
    * directed recurring emails (weekly reports, drips, nudges).
@@ -25,7 +32,7 @@ export interface InternalEmailParams {
 export async function sendInternalEmail(
   params: InternalEmailParams,
 ): Promise<{ messageId: string }> {
-  const from = process.env.RESEND_FROM_EMAIL;
+  const from = params.from ?? process.env.RESEND_FROM_EMAIL;
   if (!from) throw new Error('RESEND_FROM_EMAIL not configured');
 
   if (isMockMode()) {

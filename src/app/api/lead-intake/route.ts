@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { Resend } from 'resend';
 import { sql, jsonb } from '@/lib/db/server';
 import { appendOwnerLeadToSheet } from '@/lib/google/owner-leads-sheet';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
-import { resolveContactNotifyTo } from '@/lib/notifications/contact-notify';
+import { notifyContactSubmission } from '@/lib/notifications/contact-notify';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -134,42 +133,25 @@ function validateLeadInput(data: Record<string, unknown>): ValidateResult {
   };
 }
 
-// Best-effort founder notification. Returns success when RESEND_API_KEY is
-// unset (DB write already succeeded); a Resend failure is surfaced as 500.
+// Best-effort founder notification. notifyContactSubmission skips (no throw)
+// when email is unconfigured; a real send failure is surfaced as 500.
 async function sendLeadNotification(lead: ValidatedLead, submittedAt: string): Promise<NextResponse> {
-  if (!process.env.RESEND_API_KEY) {
-    return NextResponse.json({ success: true });
-  }
-
-  const resend = new Resend(process.env.RESEND_API_KEY);
-  const from = process.env.RESEND_FROM_EMAIL ?? 'noreply@repworth.com';
-  const { to } = resolveContactNotifyTo();
-  const text = [
-    `Name: ${lead.name}`,
-    `Email: ${lead.email}`,
-    `Business: ${lead.businessName}`,
-    `Intent: ${lead.intent}`,
-    `Source: ${lead.source}`,
-    `Google Maps: ${lead.googleMapsUrl || '(not provided)'}`,
-    `Submitted at: ${submittedAt}`,
-  ].join('\n');
-
   try {
-    const { error } = await resend.emails.send({
-      from,
-      to,
+    await notifyContactSubmission({
       subject: `New owner lead - ${lead.intent} - RepWorth`,
-      text,
+      lines: [
+        `Name: ${lead.name}`,
+        `Email: ${lead.email}`,
+        `Business: ${lead.businessName}`,
+        `Intent: ${lead.intent}`,
+        `Source: ${lead.source}`,
+        `Google Maps: ${lead.googleMapsUrl || '(not provided)'}`,
+        `Submitted at: ${submittedAt}`,
+      ],
     });
-
-    if (!error) {
-      return NextResponse.json({ success: true });
-    }
-
-    console.error('[lead-intake] Resend error:', error);
-    return jsonError('Failed to send notification', 500);
+    return NextResponse.json({ success: true });
   } catch (error) {
-    console.error('[lead-intake] Resend error:', error);
+    console.error('[lead-intake] notification failed:', error instanceof Error ? error.message : error);
     return jsonError('Failed to send notification', 500);
   }
 }
