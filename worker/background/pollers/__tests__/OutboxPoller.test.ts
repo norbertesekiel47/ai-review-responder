@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // ── Hoisted mock state ──────────────────────────────────────────────
 const {
@@ -16,9 +16,7 @@ const {
     const r = q.shift() ?? [];
     return Promise.resolve(Array.isArray(r) ? r : [r]);
   };
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const mockTx: any = vi.fn((_s: TemplateStringsArray, ..._v: unknown[]) => shiftFrom(txReturnQueue));
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const mockSql: any = vi.fn((_s: TemplateStringsArray, ..._v: unknown[]) => shiftFrom(sqlReturnQueue));
   mockSql.begin = vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => cb(mockTx));
   return {
@@ -74,6 +72,11 @@ describe('OutboxPoller.pollOutbox', () => {
     txReturnQueue.length = 0;
     logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    logSpy.mockRestore();
+    errorSpy.mockRestore();
   });
 
   // ── Phase 1: watchdog ──
