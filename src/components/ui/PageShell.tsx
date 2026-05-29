@@ -11,9 +11,11 @@ interface PageSection {
 interface PageShellProps {
   sections: PageSection[];
   children: React.ReactNode;
+  /** Tailwind max-width class for the island. Defaults to 'max-w-5xl'. */
+  maxWidthClassName?: string;
 }
 
-export function PageShell({ sections, children }: PageShellProps) {
+export function PageShell({ sections, children, maxWidthClassName = 'max-w-5xl' }: PageShellProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   const { scrollYProgress } = useScroll({
@@ -62,6 +64,7 @@ export function PageShell({ sections, children }: PageShellProps) {
           {sections.map(({ ref, label }) => (
             <button
               key={label}
+              type="button"
               onClick={() => ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
               aria-label={`Go to ${label}`}
               className="w-3 h-3 rounded-full bg-[#97B3AE]/30 hover:bg-[#97B3AE] transition-all hover:scale-125"
@@ -73,7 +76,7 @@ export function PageShell({ sections, children }: PageShellProps) {
       {/* Island wrapper */}
       <div className="relative z-10 min-h-screen py-20 px-4 flex items-center justify-center">
         <motion.div
-          className="w-full max-w-5xl bg-white rounded-[3rem] shadow-2xl"
+          className={`w-full ${maxWidthClassName} bg-white rounded-[3rem] shadow-2xl`}
           initial={{ opacity: 0, y: 40, scale: 0.95 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           transition={{ duration: 0.8, ease: 'easeOut' }}
