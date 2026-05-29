@@ -48,4 +48,13 @@ describe('PricingContent', () => {
     expect(html).not.toContain('Book a Demo');
     expect(html).not.toContain('Book My Demo');
   });
+
+  it('exposes the comparison matrix as a labeled, keyboard-scrollable region', () => {
+    const html = renderToStaticMarkup(createElement(PricingContent));
+
+    expect(html).toContain(
+      'aria-label="Plan comparison — scroll horizontally to compare all plans"',
+    );
+    expect(html).toMatch(/class="pr-matrix"[^>]*tabindex="0"/);
+  });
 });

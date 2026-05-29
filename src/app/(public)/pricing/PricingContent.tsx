@@ -437,7 +437,12 @@ export function PricingContent({ selfServeEnabled = false }: { selfServeEnabled?
               <h2>Compare every detail</h2>
               <p>The full feature list, side-by-side. No asterisks, no gotchas.</p>
             </div>
-            <div className="pr-matrix">
+            <div
+              className="pr-matrix"
+              role="group"
+              aria-label="Plan comparison — scroll horizontally to compare all plans"
+              tabIndex={0}
+            >
               <div className="pr-matrix-grid">
                 <div className="pr-matrix-row">
                   <div className="pr-matrix-cell hdr first">Feature</div>
