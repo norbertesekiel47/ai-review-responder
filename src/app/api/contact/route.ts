@@ -45,7 +45,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   };
 
   console.log('[contact] submission received', {
-    ip,
     businessNameLength: submission.businessName.length,
     ts: submission.timestamp,
   });

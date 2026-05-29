@@ -70,7 +70,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   };
 
   console.log('[demo-request] submission received', {
-    ip,
     businessNameLength: submission.businessName.length,
     hasUrl: Boolean(submission.googleMapsUrl),
     ts: submission.timestamp,
