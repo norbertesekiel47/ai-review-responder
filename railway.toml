@@ -1,0 +1,17 @@
+# Railway config for the RepWorth worker (Fastify + BullMQ).
+# Vercel runs the Next.js UI; this file configures ONLY the Railway worker service.
+# Keeps deploy config in-repo so it survives dashboard edits / project recreation.
+# See docs/runbooks/beta-deployment-plan.md §5 and docs/runbooks/rollback.md.
+
+[build]
+builder = "NIXPACKS"
+
+[deploy]
+# Worker has no build step — tsx transpiles worker/index.ts at runtime.
+startCommand = "pnpm worker"
+# Dependency-light endpoint (no DB/queue/external calls); 200 = ready.
+# Port is injected by Railway as $PORT and read by the Fastify server.
+healthcheckPath = "/api/health"
+# Supervised crash recovery (matches Railway's default), not an infinite loop.
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10

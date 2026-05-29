@@ -44,12 +44,11 @@ vi.mock('../../../../src/lib/db/server', () => ({
   sql: mockSql,
 }));
 
+const { mockLogger } = vi.hoisted(() => ({
+  mockLogger: { log: vi.fn(), warn: vi.fn(), error: vi.fn() },
+}));
 vi.mock('../../../../src/lib/shared/logger', () => ({
-  createWorkerLogger: () => ({
-    log: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-  }),
+  createWorkerLogger: () => mockLogger,
 }));
 
 // Mock Stripe SDK — returns a lazy getter the poller can use
@@ -1256,7 +1255,7 @@ describe('StripeLocationsReconcilePoller', () => {
   it('does not start when MOCK_EXTERNAL_APIS=true', () => {
     process.env.MOCK_EXTERNAL_APIS = 'true';
     startStripeLocationsReconcilePoller();
-    expect(logSpy).toHaveBeenCalledWith(
+    expect(mockLogger.log).toHaveBeenCalledWith(
       expect.stringContaining('MOCK_EXTERNAL_APIS=true'),
     );
     stopStripeLocationsReconcilePoller();
@@ -1268,7 +1267,7 @@ describe('StripeLocationsReconcilePoller', () => {
   it('does not start when STRIPE_LOCATIONS_RECONCILE_DISABLED=true', () => {
     process.env.STRIPE_LOCATIONS_RECONCILE_DISABLED = 'true';
     startStripeLocationsReconcilePoller();
-    expect(logSpy).toHaveBeenCalledWith(
+    expect(mockLogger.log).toHaveBeenCalledWith(
       expect.stringContaining('STRIPE_LOCATIONS_RECONCILE_DISABLED=true'),
     );
     stopStripeLocationsReconcilePoller();

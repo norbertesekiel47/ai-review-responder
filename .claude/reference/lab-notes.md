@@ -1102,7 +1102,7 @@ loose in the tree.
 
 ## 2026-05-28
 
-### Backtick-wrapped `tx`/`sql`/`db` in a comment silently breaks the tenant-scope audit
+### Backtick-wrapped `tx`/`sql`/`db` in a comment broke the tenant-scope audit (RESOLVED #125, PR #149)
 `scripts/ci/tenant-scope-audit.ts` extracts SQL by regex-scanning raw source text
 for tag-template literals (tags `sql`/`tx`/`db` + any `sql` alias imported from
 `db/server`); it does NOT strip JS/TS comments first. A backtick-quoted tag word
@@ -1116,10 +1116,16 @@ transaction (`tx`)" — swallowed `supersedeSibling`'s
 (`pnpm ci:tenant-scope`) failed; the file's `zernio_connections` UPDATE was
 dropped from the audit too. Benign on `main` only because its lone backtick-`tx`
 sat AFTER the query.
-**Correct approach:** never put a backtick-wrapped `tx`/`sql`/`db` in a comment in
-a `src/` or `worker/` file — write "the tx handle" / "via sql" instead. Extractor
-hardening (strip comments before tag-scanning) tracked in issue #125. (Safe to use
-such backticks in `.claude/`, `docs/`, etc. — only `src/` + `worker/` are scanned.)
+**RESOLVED (#125, PR #149, commit `51dc796f`):** `extractSqlTemplates` now strips
+JS/TS comments before the tag-scan, via a char state machine that leaves `//` and
+`/*` inside string/template literals intact. A backtick-wrapped `tx`/`sql`/`db` in a
+comment no longer opens a phantom template, so the "never write a backtick tag in a
+comment" workaround is no longer required.
+**Residual limitation (noted during PR #149 review):** the stripper does NOT model
+JS regex literals or nested template interpolation. A `'` or `` ` `` inside a regex
+literal placed before a tagged SQL template could still mis-track state and drop the
+query — both are rare in scanned `src/`/`worker/` files, but if the audit ever
+reports a baffling "unused entry", check for a regex literal upstream.
 
 ### Moving an allowlisted query to a new file orphans its allowlist entry
 Allowlist entries are keyed by FILE + table + normalized snippet, so relocating a

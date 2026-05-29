@@ -215,7 +215,6 @@ ENCRYPTION_KEY
 ENCRYPTION_KEY_VERSION=1
 ADMIN_NOTIFICATION_EMAIL
 RESEND_FROM_EMAIL
-ADMIN_API_KEY                      # set to a random 32-char string for prod
 SENTRY_DSN                         # optional
 WORKER_SERVICE_URL=https://worker.<yourdomain>   # for Vercel → Railway calls
 ```

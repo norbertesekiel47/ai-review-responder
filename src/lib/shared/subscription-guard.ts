@@ -24,7 +24,7 @@ export interface SubscriptionGuardInput {
 
 /**
  * Checks whether a worker should process work for an account based on
- * its subscription status. Rules are authoritative from AGENTS.md:
+ * its subscription status. Rules are authoritative from CLAUDE.md:
  *
  * - cancelled → skip
  * - past_due  → 7-day grace, then skip

@@ -483,7 +483,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/lib/reviews/process-review.ts",
     table: "reviews",
-    sqlSnippet: "SELECT b.account_id, EXISTS ( SELECT 1 FROM reviews r2 JOIN businesses b2 ON b2.id = r2.business_id WHERE b2.account_id = b.account_id AND r2.id <> ${input.reviewId}::uuid AND r2.detected_at IS NOT NULL LIMIT 1 ) AS earlier_exists FROM businesses b WHERE b.id = ${input.accountIdForBusinessId}::uuid LIMIT 1",
+    sqlSnippet: "SELECT b.account_id, EXISTS ( SELECT 1 FROM reviews r2 JOIN businesses b2 ON b2.id = r2.business_id WHERE b2.account_id = b.account_id AND r2.id <> ${input.reviewId}::uuid AND r2.detected_at IS NOT NULL LIMIT 1 ) AS earlier_exists FROM businesses b WHERE b.id = ${input.businessId}::uuid LIMIT 1",
     reason: "first_review_ingested activation check is account-scoped (b2.account_id = b.account_id) inside an EXISTS subquery the static scanner cannot see; the business is resolved by id for a durable ingest job.",
   },
   {
@@ -1553,6 +1553,12 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     table: "api_costs",
     sqlSnippet: "UPDATE api_costs SET response_id = ${responseId} WHERE id = ${retryCostId}",
     reason: "Response generator updates the api_costs row returned by the scoped LLM generation attempt for the same response job.",
+  },
+  {
+    file: "worker/jobs/response-generation/persist.ts",
+    table: "api_costs",
+    sqlSnippet: "UPDATE api_costs SET moderation_score = ${moderation.score}, moderation_categories = ${jsonb(moderation.categories)}, flagged = ${moderation.flagged}, flag_reason = ${moderation.reason}, output_excerpt = ${outputExcerpt} WHERE id = ${moderatedCostId}",
+    reason: "Response generator records moderation metadata (invariant #4) on the same scoped api_costs row by its own id; moderatedCostId derives from the LLM generation attempt for this response job. Surfaced by the #125 comment-stripping fix, which previously hid this query.",
   },
   {
     file: "worker/jobs/publisher/edit-publish.ts",
