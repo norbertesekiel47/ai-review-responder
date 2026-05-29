@@ -1,11 +1,33 @@
 import { createHash } from 'node:crypto';
+import type { Metadata } from 'next';
 import { sql } from '@/lib/db/server';
+import { PageShell } from '@/components/ui/PageShell';
+import { ApprovalErrorState } from '@/components/approval/ApprovalErrorState';
 import ApprovalClient from '@/components/approval/approval-client';
 
 export const dynamic = 'force-dynamic';
 
+export const metadata: Metadata = {
+  title: 'Review a draft response · RepWorth',
+  robots: { index: false, follow: false },
+};
+
 interface PageProps {
   params: Promise<{ token: string }>;
+}
+
+function BrandHeaderRow() {
+  return (
+    <div className="flex items-center justify-end gap-2">
+      <div
+        aria-hidden="true"
+        className="h-8 w-8 rounded-full bg-gradient-to-br from-[#97B3AE] to-[#97B3AE]/80"
+      />
+      <span className="text-sm uppercase tracking-wider text-[#97B3AE]">
+        RepWorth
+      </span>
+    </div>
+  );
 }
 
 export default async function ApprovalPage({ params }: PageProps) {
@@ -26,62 +48,40 @@ export default async function ApprovalPage({ params }: PageProps) {
     FROM approval_links WHERE token_hash = ${tokenHash}
   `;
 
+  let errorMessage: string | null = null;
   if (!link) {
-    return <ErrorPage message="This approval link is invalid or has expired." />;
-  }
-  if (link.consumed_at) {
-    return (
-      <ErrorPage message="This response has already been approved." />
-    );
-  }
-  if (link.revoked_at) {
-    return (
-      <ErrorPage message="This approval link has been revoked. A new link may have been sent to your email." />
-    );
-  }
-  if (new Date(link.expires_at) <= new Date()) {
-    return (
-      <ErrorPage message="This approval link has expired. Please contact us for a new one." />
-    );
+    errorMessage = 'This approval link is invalid or has expired.';
+  } else if (link.consumed_at) {
+    errorMessage = 'This response has already been approved.';
+  } else if (link.revoked_at) {
+    errorMessage =
+      'This approval link has been revoked. A new link may have been sent to your email.';
+  } else if (new Date(link.expires_at) <= new Date()) {
+    errorMessage =
+      'This approval link has expired. Please contact us for a new one.';
   }
 
-  // Location chip and archived badge are rendered in the client component
-  // after it fetches the token-bound review data.
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="mx-auto max-w-lg px-4 py-8">
-        <h1 className="text-2xl font-semibold tracking-tight text-gray-900">
-          Review a draft response
-        </h1>
-        <div className="mt-6">
-          <ApprovalClient token={rawToken} />
+    <PageShell sections={[]}>
+      <div className="px-6 py-8 sm:px-10 sm:py-12">
+        <BrandHeaderRow />
+        <div className="mx-auto mt-8 max-w-xl">
+          {errorMessage ? (
+            <ApprovalErrorState message={errorMessage} />
+          ) : (
+            <>
+              <h1 className="text-3xl font-medium leading-tight text-[#2a2a2a]">
+                Review a draft response
+              </h1>
+              {/* Location chip and archived badge render in the client after
+                  it fetches the token-bound review data. */}
+              <div className="mt-6">
+                <ApprovalClient token={rawToken} />
+              </div>
+            </>
+          )}
         </div>
       </div>
-    </div>
-  );
-}
-
-function ErrorPage({ message }: { message: string }) {
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4">
-      <div className="max-w-md rounded-lg bg-white p-8 text-center shadow-sm">
-        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-red-100">
-          <svg
-            className="h-6 w-6 text-red-600"
-            fill="none"
-            viewBox="0 0 24 24"
-            strokeWidth="2"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"
-            />
-          </svg>
-        </div>
-        <p className="text-gray-700">{message}</p>
-      </div>
-    </div>
+    </PageShell>
   );
 }
