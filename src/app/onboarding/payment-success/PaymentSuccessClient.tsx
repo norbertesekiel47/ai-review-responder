@@ -1,6 +1,9 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { motion } from 'motion/react';
+import { OnboardingFunnelShell } from '../_shared/OnboardingFunnelShell';
+import { primaryButtonClass, buttonMotion } from '../_shared/field-styles';
 
 // Single source of truth for the polling cap. Used by both the poll loop
 // (to stop scheduling new ticks) and the UI branch that switches to the
@@ -117,36 +120,62 @@ export function PaymentSuccessClient({
   }, [router, checkoutSessionId]);
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
-      <div className="max-w-md w-full bg-white rounded-lg border border-gray-200 p-8 text-center">
+    <OnboardingFunnelShell step="setup">
+      <div className="max-w-md mx-auto text-center py-6">
         {active ? (
           <>
-            <h1 className="text-2xl font-bold mb-4">Welcome to RepWorth!</h1>
-            <p className="text-gray-700 mb-6">Your subscription is active.</p>
-            <button
+            <motion.div
+              className="w-16 h-16 mx-auto mb-6 rounded-full bg-[#97B3AE] flex items-center justify-center shadow-lg"
+              initial={{ scale: 0, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ duration: 0.5, ease: 'easeOut', delay: 0.1 }}
+            >
+              <svg
+                className="w-8 h-8 text-white"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2.5}
+                  d="M5 13l4 4L19 7"
+                />
+              </svg>
+            </motion.div>
+            <h1 className="text-3xl font-medium text-[#2a2a2a] mb-3">
+              Welcome to RepWorth!
+            </h1>
+            <p className="text-[#6a6a6a] mb-8">Your subscription is active.</p>
+            <motion.button
               onClick={() => router.push('/dashboard')}
-              className="bg-blue-600 text-white font-medium py-3 px-8 rounded-md hover:bg-blue-700"
+              {...buttonMotion}
+              className={primaryButtonClass}
             >
               Go to dashboard
-            </button>
+            </motion.button>
           </>
         ) : elapsed > MAX_POLL_DURATION_MS ? (
           <>
-            <h1 className="text-xl font-bold mb-4">Still processing...</h1>
-            <p className="text-gray-700">
+            <h1 className="text-2xl font-medium text-[#2a2a2a] mb-3">
+              Still processing...
+            </h1>
+            <p className="text-[#6a6a6a]">
               This is taking longer than usual. Please contact support if it
               persists.
             </p>
           </>
         ) : (
           <>
-            <h1 className="text-xl font-bold mb-4">
+            <div className="inline-block w-12 h-12 border-4 border-[#97B3AE]/25 border-t-[#97B3AE] rounded-full animate-spin mb-6" />
+            <h1 className="text-2xl font-medium text-[#2a2a2a] mb-3">
               Processing your payment...
             </h1>
-            <p className="text-gray-600">This usually takes a few seconds.</p>
+            <p className="text-[#6a6a6a]">This usually takes a few seconds.</p>
           </>
         )}
       </div>
-    </div>
+    </OnboardingFunnelShell>
   );
 }
