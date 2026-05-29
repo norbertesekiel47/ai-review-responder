@@ -44,7 +44,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     timestamp: new Date().toISOString(),
   };
 
-  console.log('[contact]', submission);
+  console.log('[contact] submission received', {
+    ip,
+    businessNameLength: submission.businessName.length,
+    ts: submission.timestamp,
+  });
 
   if (process.env.RESEND_API_KEY) {
     const resend = new Resend(process.env.RESEND_API_KEY);
