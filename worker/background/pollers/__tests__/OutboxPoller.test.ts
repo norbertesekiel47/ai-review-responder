@@ -100,7 +100,7 @@ describe('OutboxPoller.pollOutbox', () => {
     await pollOutbox();
 
     const watchdogLog = logSpy.mock.calls.find(
-      (c) => typeof c[0] === 'string' && (c[0] as string).includes('Watchdog'),
+      (c: unknown[]) => typeof c[0] === 'string' && (c[0] as string).includes('Watchdog'),
     );
     expect(watchdogLog).toBeDefined();
     expect(watchdogLog![0]).toContain('recovered=2');
