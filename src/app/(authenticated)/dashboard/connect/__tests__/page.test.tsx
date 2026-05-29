@@ -158,8 +158,9 @@ describe('/dashboard/connect target location', () => {
 
     await user.click(screen.getByRole('button', { name: /connect google business/i }));
 
-    expect(await screen.findByText(/update billing before connecting google business/i))
-      .toBeInTheDocument();
+    const billingCopies = await screen.findAllByText(/update billing before connecting google business/i);
+    const visibleCopy = billingCopies.find((el) => !el.closest('.sr-only'));
+    expect(visibleCopy).toBeInTheDocument();
   });
 
   it('hides direct connect actions when the account is read-only', () => {
@@ -249,5 +250,18 @@ describe('/dashboard/connect target location', () => {
 
     expect(screen.queryByRole('button', { name: /clear attempt/i })).not.toBeInTheDocument();
     expect(screen.getByText(/update billing/i)).toBeInTheDocument();
+  });
+
+  it('announces a dashboard-data error to screen readers', () => {
+    mockUseDashboardData.mockReturnValue({
+      data: null,
+      error: 'Could not load your connection status',
+      refresh: vi.fn(),
+    });
+
+    render(<ConnectPage />);
+
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent('Could not load your connection status');
   });
 });

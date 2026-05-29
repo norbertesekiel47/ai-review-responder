@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useDashboardData } from '@/hooks/useDashboardData';
 import { useLocationScope } from '@/contexts/LocationContext';
+import { LiveRegion } from '@/components/ui/LiveRegion';
 import type { DashboardDataActive } from '@/lib/dashboard/types';
 import type { LocationId } from '@/lib/shared/ids';
 
@@ -95,7 +96,8 @@ export default function ConnectPage() {
   if (error) {
     return (
       <div className="content">
-        <div className="banner banner-red" role="alert">
+        <LiveRegion message={error} level="assertive" />
+        <div className="banner banner-red">
           <div>
             <div className="b-title">Couldn&apos;t load this page</div>
             <div className="b-sub">{error}</div>
@@ -228,8 +230,9 @@ export default function ConnectPage() {
 
   return (
     <div className="content">
+      <LiveRegion message={actionError ?? ''} level="assertive" />
       {actionError && (
-        <div className="banner banner-red" role="alert">
+        <div className="banner banner-red">
           <div className="b-sub">{actionError}</div>
         </div>
       )}
