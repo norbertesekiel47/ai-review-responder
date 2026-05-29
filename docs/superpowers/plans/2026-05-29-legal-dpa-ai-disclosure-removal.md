@@ -23,6 +23,14 @@ No new files. No DB/migration/env/flag. `LegalPage.tsx` renderer untouched.
 
 ### Task 1: Remove DPA entry + misplaced AI-disclosure strings (TDD)
 
+> **Amendment (during execution):** a repo-wide grep found the same misplaced
+> microcopy in a **third** legal doc — Terms "AI-Generated Content"
+> (`content.ts:97`) — beyond the Privacy + AUP the audit listed. It is the same
+> defect, so it is removed here too, with a matching Terms test plus a cross-doc
+> guard asserting the microcopy appears in **no** legal document body. The
+> authoritative owner of the string is `src/lib/ui/disclosures.ts` (UI surfaces),
+> which is left untouched.
+
 **Files:**
 - Test: `src/lib/legal/__tests__/content.test.ts`
 - Modify: `src/lib/legal/content.ts`
