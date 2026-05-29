@@ -15,7 +15,7 @@ interface StepProfileProps {
   data: WizardFormData;
   update: (patch: Partial<WizardFormData>) => void;
   dirtyRef: RefObject<{ category: boolean; website: boolean }>;
-  onBack: () => void;
+  onBack?: () => void;
   onNext: () => void;
 }
 
@@ -86,10 +86,16 @@ export function StepProfile({
         />
       </div>
 
-      <div className="flex justify-between items-center pt-4">
-        <button type="button" onClick={onBack} className={ghostButtonClass}>
-          ← Back
-        </button>
+      <div
+        className={`flex items-center pt-4 ${
+          onBack ? 'justify-between' : 'justify-end'
+        }`}
+      >
+        {onBack && (
+          <button type="button" onClick={onBack} className={ghostButtonClass}>
+            ← Back
+          </button>
+        )}
         <motion.button
           type="button"
           onClick={onNext}

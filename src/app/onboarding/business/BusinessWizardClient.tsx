@@ -203,9 +203,6 @@ export function BusinessWizardClient({
               data={data}
               update={update}
               dirtyRef={dirtyRef}
-              onBack={() => {
-                /* no back from first step */
-              }}
               onNext={() => setStep(2)}
             />
           )}
