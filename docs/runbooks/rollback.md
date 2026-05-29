@@ -83,7 +83,7 @@ Notes:
 > **Boot prerequisite — set before deploying.** The worker asserts required env
 > at boot and `process.exit(1)`s if any are missing in production
 > (`worker/config/startup-assert.ts`). Because `railway.toml` caps restarts at
-> `restartPolicyMaxRetries = 10`, a *missing* var is a deterministic failure
+> `restartPolicyMaxRetries = 10`, a *missing* var is a deterministic failure that
 > Railway will **not** self-heal — the service exhausts its restarts and stays
 > down, and the outbox stops draining. Confirm these are set in Railway **before**
 > a deploy or rollback that ships this code:
