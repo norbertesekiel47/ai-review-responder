@@ -5,7 +5,6 @@ Cadence: quarterly and immediately after suspected exposure
 
 ## Scope
 
-- ADMIN_API_KEY
 - ENCRYPTION_KEY
 - SESSION_COOKIE_SECRET
 - CSRF_SECRET
