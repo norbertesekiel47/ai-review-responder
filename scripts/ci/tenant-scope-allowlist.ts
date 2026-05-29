@@ -1555,6 +1555,12 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "Response generator updates the api_costs row returned by the scoped LLM generation attempt for the same response job.",
   },
   {
+    file: "worker/jobs/response-generation/persist.ts",
+    table: "api_costs",
+    sqlSnippet: "UPDATE api_costs SET moderation_score = ${moderation.score}, moderation_categories = ${jsonb(moderation.categories)}, flagged = ${moderation.flagged}, flag_reason = ${moderation.reason}, output_excerpt = ${outputExcerpt} WHERE id = ${moderatedCostId}",
+    reason: "Response generator records moderation metadata (invariant #4) on the same scoped api_costs row by its own id; moderatedCostId derives from the LLM generation attempt for this response job. Surfaced by the #125 comment-stripping fix, which previously hid this query.",
+  },
+  {
     file: "worker/jobs/publisher/edit-publish.ts",
     table: "responses",
     sqlSnippet: "SELECT id FROM responses WHERE review_id = ${reviewId} AND status = 'posted' AND id != ${responseId} LIMIT 1 FOR UPDATE",
