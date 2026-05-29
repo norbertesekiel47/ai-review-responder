@@ -483,7 +483,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/lib/reviews/process-review.ts",
     table: "reviews",
-    sqlSnippet: "SELECT b.account_id, EXISTS ( SELECT 1 FROM reviews r2 JOIN businesses b2 ON b2.id = r2.business_id WHERE b2.account_id = b.account_id AND r2.id <> ${input.reviewId}::uuid AND r2.detected_at IS NOT NULL LIMIT 1 ) AS earlier_exists FROM businesses b WHERE b.id = ${input.accountIdForBusinessId}::uuid LIMIT 1",
+    sqlSnippet: "SELECT b.account_id, EXISTS ( SELECT 1 FROM reviews r2 JOIN businesses b2 ON b2.id = r2.business_id WHERE b2.account_id = b.account_id AND r2.id <> ${input.reviewId}::uuid AND r2.detected_at IS NOT NULL LIMIT 1 ) AS earlier_exists FROM businesses b WHERE b.id = ${input.businessId}::uuid LIMIT 1",
     reason: "first_review_ingested activation check is account-scoped (b2.account_id = b.account_id) inside an EXISTS subquery the static scanner cannot see; the business is resolved by id for a durable ingest job.",
   },
   {

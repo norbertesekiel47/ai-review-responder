@@ -304,7 +304,7 @@ function ReadOnlyConnectView({
   );
 }
 
-type ConnectAnalyticsEventName = 'gbp_connect_started' | 'gbp_connect_failed';
+type ConnectAnalyticsEventName = 'gbp_connect_failed';
 
 function enqueueConnectAnalytics(
   eventName: ConnectAnalyticsEventName,
