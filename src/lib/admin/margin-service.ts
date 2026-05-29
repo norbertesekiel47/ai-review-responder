@@ -61,11 +61,10 @@ export interface MarginData {
   };
 }
 
-// TODO: baseCents reads live TIER_CONFIG (not grandfathered), same gap as
-// currentBillingSnapshot in quota.ts — if base prices change, update both.
 /** Monthly recurring revenue in cents. Mirrors currentBillingSnapshot's formula. */
 export function monthlyMrrCents(input: {
   tier: string;
+  basePriceCents: number;
   includedLocations: number;
   overagePriceCents: number;
   activeLocations: number;
@@ -73,13 +72,13 @@ export function monthlyMrrCents(input: {
   if (!isSubscriptionTier(input.tier)) return 0;
   const config = TIER_CONFIG[input.tier];
   if (!config.multiLocAllowed || config.overageCents === 0) {
-    return config.baseCents;
+    return input.basePriceCents;
   }
   const overageUnits = computeOverageQuantity(
     input.activeLocations,
     input.includedLocations,
   );
-  return config.baseCents + overageUnits * input.overagePriceCents;
+  return input.basePriceCents + overageUnits * input.overagePriceCents;
 }
 
 export function classifyAccountRisk(costPctOfMrr: number | null): MarginRiskLevel {
@@ -108,6 +107,7 @@ interface AccountRow {
   subscription_status: string;
   locations_included: number;
   locations_overage_price_cents: number;
+  base_price_cents: number;
   active_locations: number;
 }
 interface CostAggRow {
@@ -128,7 +128,7 @@ export async function getMarginReport(
   const [accountRows, costRows, platformRows] = await Promise.all([
     sql<AccountRow[]>`
       SELECT a.id, a.display_name, a.subscription_tier, a.subscription_status,
-             a.locations_included, a.locations_overage_price_cents,
+             a.locations_included, a.locations_overage_price_cents, a.base_price_cents,
              COUNT(b.id) FILTER (WHERE b.archived_at IS NULL)::int AS active_locations
       FROM accounts a
       LEFT JOIN businesses b ON b.account_id = a.id
@@ -164,6 +164,7 @@ export async function getMarginReport(
   for (const acct of accountRows) {
     const mrrCents = monthlyMrrCents({
       tier: acct.subscription_tier,
+      basePriceCents: acct.base_price_cents,
       includedLocations: acct.locations_included,
       overagePriceCents: acct.locations_overage_price_cents,
       activeLocations: acct.active_locations,
