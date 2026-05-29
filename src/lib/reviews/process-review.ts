@@ -91,7 +91,6 @@ export async function processReview(
         `;
 
         await maybeEnqueueFirstReviewIngested(tx, {
-          accountIdForBusinessId: businessId,
           businessId,
           reviewId,
         });
@@ -143,7 +142,6 @@ export async function processReview(
 async function maybeEnqueueFirstReviewIngested(
   tx: TxClient,
   input: {
-    accountIdForBusinessId: string;
     businessId: string;
     reviewId: string;
   },
@@ -161,7 +159,7 @@ async function maybeEnqueueFirstReviewIngested(
         LIMIT 1
       ) AS earlier_exists
     FROM businesses b
-    WHERE b.id = ${input.accountIdForBusinessId}::uuid
+    WHERE b.id = ${input.businessId}::uuid
     LIMIT 1
   `;
 
