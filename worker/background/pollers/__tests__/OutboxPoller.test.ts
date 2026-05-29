@@ -135,7 +135,14 @@ describe('OutboxPoller.pollOutbox', () => {
     expect(payloadArg).toEqual({ response_id: 'resp-1', outbox_id: 'out-1', outbox_attempt: 1 });
     expect(optsArg).toEqual({ jobId: 'out-1_1' });
 
-    const dispatchedUpdate = findSql(mockSql.mock.calls, "status = 'dispatched'");
+    // Pin the optimistic-lock guard: the dispatched update must scope to the
+    // claimed row's dispatching state + attempt, not blindly set 'dispatched'.
+    const dispatchedUpdate = findSql(
+      mockSql.mock.calls,
+      "status = 'dispatched'",
+      "status = 'dispatching'",
+      'attempts =',
+    );
     expect(dispatchedUpdate).toBeDefined();
   });
 
@@ -176,6 +183,8 @@ describe('OutboxPoller.pollOutbox', () => {
 
     const pendingReset = findSql(mockSql.mock.calls, "status = 'pending'", 'last_error');
     expect(pendingReset).toBeDefined();
+    // …and must NOT also dead-letter the row.
+    expect(findSql(mockSql.mock.calls, "status = 'failed'", 'last_error')).toBeUndefined();
   });
 
   it('dead-letters the row to failed when enqueue fails and attempts are exhausted', async () => {
@@ -185,5 +194,7 @@ describe('OutboxPoller.pollOutbox', () => {
 
     const failedUpdate = findSql(mockSql.mock.calls, "status = 'failed'", 'last_error');
     expect(failedUpdate).toBeDefined();
+    // …and must NOT also reset the row to pending.
+    expect(findSql(mockSql.mock.calls, "status = 'pending'", 'last_error')).toBeUndefined();
   });
 });
