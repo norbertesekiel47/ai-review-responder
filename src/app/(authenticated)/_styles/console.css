@@ -441,25 +441,25 @@
   from { opacity: 0; transform: translateY(-6px); }
   to { opacity: 1; transform: translateY(0); }
 }
-.banner-orange { border-color: #FED7AA; background: #FFF7ED; }
+.banner-attn { border-color: var(--rw-attn-border); background: var(--rw-attn-bg); }
 .banner-blue { border-color: #BFDBFE; background: #EFF6FF; }
-.banner .b-title { font-weight: 600; color: #9A3412; font-size: 14px; }
+.banner .b-title { font-weight: 600; color: var(--rw-attn-fg); font-size: 14px; }
 .banner-blue .b-title { color: #1E3A8A; }
-.banner .b-sub { font-size: 13px; color: #9A3412cc; margin-top: 2px; }
+.banner .b-sub { font-size: 13px; color: var(--rw-attn-fg-soft); margin-top: 2px; }
 .banner-blue .b-sub { color: #1E40AFcc; }
 .banner .b-icon {
   width: 36px; height: 36px;
   border-radius: 8px;
-  background: #FED7AA;
+  background: var(--rw-attn-icon-bg);
   display: grid; place-items: center;
   flex: 0 0 36px;
-  color: #9A3412;
+  color: var(--rw-attn-fg);
 }
 .banner-blue .b-icon { background: #BFDBFE; color: #1E40AF; }
 .banner-cta {
   margin-left: auto;
-  background: var(--rw-orange-100, #FED7AA);
-  color: #9A3412;
+  background: #97B3AE;
+  color: #fff;
   border: none;
   padding: 8px 16px;
   border-radius: 6px;
@@ -469,8 +469,7 @@
   transition: background 160ms var(--rw-ease);
   font-family: var(--rw-font-body);
 }
-.banner-orange .banner-cta { background: #EA580C; color: #fff; }
-.banner-orange .banner-cta:hover { background: #C2410C; }
+.banner-attn .banner-cta:hover { background: #7c9994; }
 .banner-blue .banner-cta { background: var(--rw-blue-600); color: #fff; }
 .banner-blue .banner-cta:hover { background: var(--rw-blue-700); }
 
@@ -704,7 +703,7 @@
 }
 .badge-pending { background: var(--rw-yellow-100); color: var(--rw-yellow-800); }
 .badge-posted { background: var(--rw-green-100); color: var(--rw-green-800); }
-.badge-awaiting { background: var(--rw-orange-100); color: var(--rw-orange-800); }
+.badge-awaiting { background: var(--rw-attn-bg); color: var(--rw-attn-fg); }
 .badge-edited { background: var(--rw-blue-100); color: var(--rw-blue-800); }
 .badge-failed { background: var(--rw-red-100); color: #991B1B; }
 .review-meta-time {

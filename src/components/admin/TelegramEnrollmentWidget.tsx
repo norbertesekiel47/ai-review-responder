@@ -58,7 +58,7 @@ export function TelegramEnrollmentWidget({ businessId }: { businessId: string })
       )}
       {snapshot.state === 'unsubscribed' && (
         <div>
-          <p className="text-sm text-orange-600">Unsubscribed ({snapshot.unsubscribedReason ?? 'unknown'})</p>
+          <p className="text-sm text-gray-600">Unsubscribed ({snapshot.unsubscribedReason ?? 'unknown'})</p>
           <button onClick={actions.connect} className="mt-2 px-3 py-1 border rounded">Re-enroll</button>
         </div>
       )}

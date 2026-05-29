@@ -25,7 +25,7 @@ export function ManualEditor({
       >
         New reply
       </label>
-      <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+      <div className="rounded-md border border-[#97B3AE]/30 bg-[#F0EEEA]/60 px-3 py-2 text-xs text-[#6a6a6a]">
         {AI_DRAFT_DISCLOSURE}
       </div>
       <textarea

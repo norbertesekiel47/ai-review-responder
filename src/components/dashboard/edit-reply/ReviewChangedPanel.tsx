@@ -10,14 +10,14 @@ export function ReviewChangedPanel({
   onClose: () => void;
 }) {
   return (
-    <div className="space-y-3 rounded-lg border border-amber-200 bg-amber-50 p-4">
-      <p className="text-sm text-amber-900">
+    <div className="space-y-3 rounded-lg border border-[#97B3AE]/40 bg-[#F0EEEA]/40 p-4">
+      <p className="text-sm text-[#6a6a6a]">
         The customer updated this review. Refresh to see the latest version
         before editing again.
       </p>
       {currentText && (
         <div>
-          <div className="mb-1 text-xs uppercase tracking-wider text-amber-900/70">
+          <div className="mb-1 text-xs uppercase tracking-wider text-[#97B3AE]">
             Updated review text
           </div>
           <p className="rounded-md bg-white p-3 text-sm text-[#2a2a2a]">{currentText}</p>
