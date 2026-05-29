@@ -60,15 +60,15 @@ export function DraftConflictPanel({
   // reconnected. Resume/Discard cannot resolve this — inform and link to settings.
   if (status === 'awaiting_owner_connect') {
     return (
-      <div className="space-y-3 rounded-lg border border-amber-200 bg-amber-50 p-4">
-        <p className="text-sm font-medium text-amber-900">Google reconnect required</p>
-        <p className="text-sm text-amber-800">
+      <div className="space-y-3 rounded-lg border border-[#97B3AE]/40 border-l-4 border-l-[#F2C3B9] bg-[#F0EEEA]/40 p-4">
+        <p className="text-sm font-medium text-[#2a2a2a]">Google reconnect required</p>
+        <p className="text-sm text-[#6a6a6a]">
           Publishing is paused because your Google Business Profile connection has
           expired. Reconnect your account in Settings and this reply will publish
           automatically.
         </p>
         <div>
-          <div className="mb-1 text-xs uppercase tracking-wider text-amber-900/70">
+          <div className="mb-1 text-xs uppercase tracking-wider text-[#97B3AE]">
             {isEdited ? 'Your edited draft' : 'Draft reply'}
           </div>
           <p className="rounded-md bg-white p-3 text-sm text-[#2a2a2a]">
@@ -97,13 +97,13 @@ export function DraftConflictPanel({
   // pending_approval: Resume (→ preview, can publish/edit) + Discard (DELETE).
   // This is the only status where both actions are safe and meaningful.
   return (
-    <div className="space-y-3 rounded-lg border border-amber-200 bg-amber-50 p-4">
-      <p className="text-sm text-amber-900">
+    <div className="space-y-3 rounded-lg border border-[#97B3AE]/40 border-l-4 border-l-[#F2C3B9] bg-[#F0EEEA]/40 p-4">
+      <p className="text-sm text-[#6a6a6a]">
         You have an unsaved edit in progress for this review. Resume it to
         review and publish, or discard it to start over.
       </p>
       <div>
-        <div className="mb-1 text-xs uppercase tracking-wider text-amber-900/70">
+        <div className="mb-1 text-xs uppercase tracking-wider text-[#97B3AE]">
           {isEdited ? 'Your edited draft' : 'Draft reply'}
         </div>
         <p className="rounded-md bg-white p-3 text-sm text-[#2a2a2a]">
