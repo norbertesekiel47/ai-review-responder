@@ -3,11 +3,14 @@ import { resolveContactNotifyTo } from '../contact-notify';
 
 describe('resolveContactNotifyTo', () => {
   const SNAP: Record<string, string | undefined> = {};
-  const KEYS = ['CONTACT_NOTIFY_TO', 'RESEND_FROM_EMAIL'];
+  const KEYS = ['NODE_ENV', 'CONTACT_NOTIFY_TO', 'RESEND_FROM_EMAIL'];
   let warnSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     for (const k of KEYS) { SNAP[k] = process.env[k]; delete process.env[k]; }
+    // Default to production so the fallback-warning path is exercised; the
+    // "does not warn outside production" test overrides this.
+    process.env.NODE_ENV = 'production';
     warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
   });
   afterEach(() => {
@@ -55,5 +58,12 @@ describe('resolveContactNotifyTo', () => {
   it('uses the default when RESEND_FROM_EMAIL is unparseable', () => {
     process.env.RESEND_FROM_EMAIL = 'not-an-email';
     expect(resolveContactNotifyTo()).toEqual({ to: 'noreply@repworth.com', source: 'default' });
+  });
+
+  it('resolves the fallback but does NOT warn outside production', () => {
+    process.env.NODE_ENV = 'development';
+    process.env.RESEND_FROM_EMAIL = 'notifications@repworth.com';
+    expect(resolveContactNotifyTo()).toEqual({ to: 'notifications@repworth.com', source: 'from-email' });
+    expect(warnSpy).not.toHaveBeenCalled();
   });
 });

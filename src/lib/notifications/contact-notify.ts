@@ -19,9 +19,11 @@ const DEFAULT_NOTIFY_TO = 'noreply@repworth.com';
  *   2. mailbox parsed from RESEND_FROM_EMAIL (company sending domain)
  *   3. DEFAULT_NOTIFY_TO
  *
- * Emits one console.warn when falling back (source !== 'env') so a missing
- * CONTACT_NOTIFY_TO surfaces in production logs instead of silently mailing an
- * unintended address. Call volume is low (routes are rate-limited).
+ * Emits one console.warn — in production only — when falling back
+ * (source !== 'env'), so a missing CONTACT_NOTIFY_TO surfaces in production logs
+ * instead of silently mailing an unintended address. Gated to production (like the
+ * worker boot-time checks) because locally CONTACT_NOTIFY_TO is normally unset and
+ * a per-request warning would just spam dev/test logs.
  */
 export function resolveContactNotifyTo(): { to: string; source: ContactNotifySource } {
   const explicit = process.env.CONTACT_NOTIFY_TO?.trim();
@@ -31,10 +33,12 @@ export function resolveContactNotifyTo(): { to: string; source: ContactNotifySou
   const to = derived ?? DEFAULT_NOTIFY_TO;
   const source: ContactNotifySource = derived ? 'from-email' : 'default';
 
-  console.warn(
-    `[contact-notify] CONTACT_NOTIFY_TO is unset — falling back to ${
-      source === 'from-email' ? 'the RESEND_FROM_EMAIL mailbox' : 'the default noreply mailbox'
-    } (${to}). Set CONTACT_NOTIFY_TO so leads route to a monitored inbox.`,
-  );
+  if (process.env.NODE_ENV === 'production') {
+    console.warn(
+      `[contact-notify] CONTACT_NOTIFY_TO is unset — falling back to ${
+        source === 'from-email' ? 'the RESEND_FROM_EMAIL mailbox' : 'the default noreply mailbox'
+      } (${to}). Set CONTACT_NOTIFY_TO so leads route to a monitored inbox.`,
+    );
+  }
   return { to, source };
 }
