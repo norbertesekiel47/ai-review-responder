@@ -102,7 +102,7 @@ describe('notifyContactSubmission', () => {
 
   beforeEach(() => {
     for (const k of KEYS) { SNAP[k] = process.env[k]; delete process.env[k]; }
-    process.env.NODE_ENV = 'test';
+    setEnv('NODE_ENV', 'test');
     process.env.CONTACT_NOTIFY_TO = 'ops@example.com';
     mockSendInternalEmail.mockReset().mockResolvedValue({ messageId: 'ok' });
     mockIsMockMode.mockReset().mockReturnValue(false);
