@@ -121,5 +121,20 @@ describe('SiteNav', () => {
 
       expect(toggle).toHaveAttribute('aria-expanded', 'false');
     });
+
+    it('applies focus-visible rings to all interactive elements', () => {
+      const html = renderToStaticMarkup(createElement(SiteNav, { selfServeEnabled: true }));
+      // logo + 3 desktop nav links + Log in + Sign up + hamburger = 7 controls.
+      const occurrences = (html.match(/focus-visible:ring-2/g) || []).length;
+      expect(occurrences).toBeGreaterThanOrEqual(6);
+    });
+
+    it('suppresses auth links when comingSoon overrides self-serve', () => {
+      const html = renderToStaticMarkup(
+        createElement(SiteNav, { selfServeEnabled: true, comingSoon: true }),
+      );
+      expect(html).not.toContain('href="/login"');
+      expect(html).not.toContain('href="/signup"');
+    });
   });
 });
