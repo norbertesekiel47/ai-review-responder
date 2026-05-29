@@ -254,6 +254,7 @@ describe('createBusinessTx — tier config fields in accounts row', () => {
     // Standard tier: included=1, overageCents=2500
     expect(accountsCall.some((a: unknown) => a === 1)).toBe(true);
     expect(accountsCall.some((a: unknown) => a === 2500)).toBe(true);
+    expect(accountsCall.some((a: unknown) => a === 7900)).toBe(true);
   });
 
   it('admin mode: sets locations_included=5 and locations_overage_price_cents=2000 for premium tier', async () => {
@@ -267,6 +268,7 @@ describe('createBusinessTx — tier config fields in accounts row', () => {
     // Premium tier: included=5, overageCents=2000
     expect(accountsCall.some((a: unknown) => a === 5)).toBe(true);
     expect(accountsCall.some((a: unknown) => a === 2000)).toBe(true);
+    expect(accountsCall.some((a: unknown) => a === 19900)).toBe(true);
   });
 
   it('admin mode: sets locations_included=1 and locations_overage_price_cents=0 for basic tier', async () => {
@@ -280,6 +282,7 @@ describe('createBusinessTx — tier config fields in accounts row', () => {
     // Basic tier: included=1, overageCents=0
     expect(accountsCall.some((a: unknown) => a === 1)).toBe(true);
     expect(accountsCall.some((a: unknown) => a === 0)).toBe(true);
+    expect(accountsCall.some((a: unknown) => a === 2900)).toBe(true);
   });
 
   it('self_serve mode: sets locations_included=1 and locations_overage_price_cents=2500 for standard tier', async () => {
@@ -289,6 +292,7 @@ describe('createBusinessTx — tier config fields in accounts row', () => {
     // Self-serve defaults to standard: included=1, overageCents=2500
     expect(accountsCall.some((a: unknown) => a === 1)).toBe(true);
     expect(accountsCall.some((a: unknown) => a === 2500)).toBe(true);
+    expect(accountsCall.some((a: unknown) => a === 7900)).toBe(true);
   });
 
   it('accounts INSERT includes locations_included and locations_overage_price_cents columns', async () => {
@@ -298,5 +302,6 @@ describe('createBusinessTx — tier config fields in accounts row', () => {
     const template = (accountsCall[0] as TemplateStringsArray).join('?');
     expect(template).toContain('locations_included');
     expect(template).toContain('locations_overage_price_cents');
+    expect(template).toContain('base_price_cents');
   });
 });
