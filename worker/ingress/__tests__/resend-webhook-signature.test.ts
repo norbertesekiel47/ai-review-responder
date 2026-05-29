@@ -84,7 +84,8 @@ describe('handleResendWebhook — signature verification (real HMAC)', () => {
   });
 
   it('accepts a correctly signed request with a fresh timestamp', async () => {
-    sqlReturnQueue.push({ count: 1 }); // inbound_events INSERT (fresh, not duplicate)
+    // postgres.js returns a Result: an array carrying a numeric `.count`.
+    sqlReturnQueue.push(Object.assign([] as unknown[], { count: 1 })); // inbound_events INSERT (fresh)
     sqlReturnQueue.push([]); // UPDATE notification_deliveries (delivered)
     sqlReturnQueue.push([]); // UPDATE inbound_events → processed
 
@@ -93,7 +94,7 @@ describe('handleResendWebhook — signature verification (real HMAC)', () => {
     await handleResendWebhook(signedReq(body), reply);
 
     expect(captured.status).toBe(200);
-    expect(captured.body).toMatchObject({ received: true });
+    expect(captured.body).toEqual({ received: true });
     expect(mockSql).toHaveBeenCalled();
   });
 
@@ -147,7 +148,8 @@ describe('handleResendWebhook — signature verification (real HMAC)', () => {
   });
 
   it('accepts when one of several space-separated signatures matches', async () => {
-    sqlReturnQueue.push({ count: 1 });
+    // postgres.js returns a Result: an array carrying a numeric `.count`.
+    sqlReturnQueue.push(Object.assign([] as unknown[], { count: 1 })); // inbound_events INSERT (fresh)
     sqlReturnQueue.push([]);
     sqlReturnQueue.push([]);
 
@@ -155,10 +157,13 @@ describe('handleResendWebhook — signature verification (real HMAC)', () => {
     const ts = String(nowSeconds());
     const body = { type: 'email.delivered', data: { email_id: 'msg-abc' } };
     const good = sign(JSON.stringify(body), svixId, ts);
+    // A correctly-shaped but wrong signature (signed with a different svix-id):
+    // proves the handler skips a same-length value mismatch and accepts the valid one.
+    const wrong = sign(JSON.stringify(body), 'wrong-svix-id', ts);
     const req = makeReq(body, {
       'svix-id': svixId,
       'svix-timestamp': ts,
-      'svix-signature': `v1,AAAAbogus v1,${good}`,
+      'svix-signature': `v1,${wrong} v1,${good}`,
     });
     const { reply, captured } = makeReply();
     await handleResendWebhook(req, reply);
