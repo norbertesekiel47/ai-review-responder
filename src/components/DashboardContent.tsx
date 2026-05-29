@@ -12,6 +12,7 @@ import { CancelledBanner, PastDueBanner } from '@/components/dashboard/Subscript
 import { PastDueModal } from '@/components/dashboard/PastDueModal';
 import { ConnectGoogleBanner } from '@/components/dashboard/ConnectGoogleBanner';
 import { TopBar } from '@/components/dashboard/TopBar';
+import { LiveRegion } from '@/components/ui/LiveRegion';
 import { KpiCards } from '@/components/dashboard/KpiCards';
 import { ReviewsCard } from '@/components/dashboard/ReviewsCard';
 import { VelocityCard } from '@/components/dashboard/VelocityCard';
@@ -65,6 +66,7 @@ export function DashboardContent() {
       <>
         <TopBar title="Dashboard" />
         <div className="content">
+          <LiveRegion message={error} level="assertive" />
           <div className="card" style={{ borderColor: '#FCA5A5', background: '#FEF2F2' }}>
             <h2 className="card-h2" style={{ color: '#991B1B' }}>Error</h2>
             <p style={{ fontSize: 14, color: '#B91C1C', marginTop: 4 }}>{error}</p>
@@ -86,6 +88,7 @@ export function DashboardContent() {
       <>
         <TopBar title="Dashboard" />
         <div className="content">
+          <LiveRegion message="Loading your dashboard…" />
           <div className="dashboard-skeleton">
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
               <div className="skeleton-card" />
