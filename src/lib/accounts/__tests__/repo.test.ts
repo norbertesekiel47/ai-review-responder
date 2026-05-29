@@ -36,6 +36,7 @@ function mkAccountRow(overrides: Record<string, unknown> = {}) {
     locations_included: 1,
     locations_paid: 0,
     locations_overage_price_cents: 2500,
+    base_price_cents: 7900,
     flags: {} as Record<string, unknown>,
     created_at: new Date('2026-01-01'),
     updated_at: new Date('2026-01-01'),
@@ -66,6 +67,7 @@ describe('getAccountById', () => {
     expect(result!.subscription_status).toBe('active');
     expect(result!.locations_included).toBe(1);
     expect(result!.locations_paid).toBe(0);
+    expect(result!.base_price_cents).toBe(7900);
   });
 
   it('returns null when account does not exist', async () => {
@@ -94,6 +96,7 @@ describe('getAccountById', () => {
     const template = (call![0] as TemplateStringsArray).join('?');
     expect(template).toContain('FROM accounts');
     expect(template).toContain('WHERE id =');
+    expect(template).toContain('base_price_cents');
   });
 
   it('returns account with null stripe_customer_id', async () => {
