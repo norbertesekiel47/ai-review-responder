@@ -136,10 +136,15 @@ const logger = createWorkerLogger(LOG_PREFIX); // brackets stripped internally; 
   Sequence: update the test to expect logger calls (RED, impl still on
   `console`), then migrate the impl (GREEN). Reset the mock in `beforeEach`.
 
-- **`StripeLocationsReconcilePoller.test.ts`:** already mocks
-  `createWorkerLogger` (returns no-op `vi.fn()`s) and checks the drift-alert path
-  via `mockConsoleWarn`. No change required — verify it stays green after the
-  impl swap.
+- **`StripeLocationsReconcilePoller.test.ts` (small update):** it mocks
+  `createWorkerLogger` but returns a *fresh* no-op object per call, and it asserts
+  the poller's two disabled-path logs via a `console.log` spy (`logSpy`, lines
+  1232 & 1244: `MOCK_EXTERNAL_APIS=true` and `STRIPE_LOCATIONS_RECONCILE_DISABLED=true`).
+  Migrating those to `logger.log` breaks both. Fix: make the `createWorkerLogger`
+  mock return a *stable* hoisted `mockLogger` and repoint those two assertions to
+  `mockLogger.log`. The `warnSpy` (drift-alert `console.warn`) and `errorSpy`
+  (reconcile-account `console.error`) assertions target untouched modules and stay
+  green unchanged.
 
 - **`WeeklySummaryScheduler` / `MonthlyImpactScheduler`:** no test files exist;
   none added (per scope decision). The change is a behavior-preserving logging
