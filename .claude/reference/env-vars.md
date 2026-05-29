@@ -47,7 +47,18 @@ Assertion source: `worker/config/startup-assert.ts`.
 |---|---|---|
 | `MOCK_EXTERNAL_APIS` | `false` | `true` → bypass SerpAPI + LLM + Twilio/Telegram channel boot assertions. Uses `MockReviewSource` + `generateMockResponse`. |
 | `TEST_DATABASE_POOL_URL` | — | E2E tests skip gracefully when unset. |
-| `CONTACT_NOTIFY_TO` | `norbertesekiel@gmail.com` | Overrides notification email for `/api/contact` submissions. |
+
+---
+
+## Notifications, Deliverability & Observability
+
+| Var | Platform | Required? | Notes |
+|---|---|---|---|
+| `CONTACT_NOTIFY_TO` | Vercel | Recommended (prod) | Recipient for `/api/contact`, `/api/demo-request`, `/api/lead-intake` notification emails. No personal default: resolves via `resolveContactNotifyTo()` (`src/lib/notifications/contact-notify.ts`) → `CONTACT_NOTIFY_TO` → `RESEND_FROM_EMAIL` mailbox → `noreply@repworth.com`, with a `console.warn` on fallback. |
+| `ADMIN_NOTIFICATION_EMAIL` | Railway | **Yes (prod)** | Recipient for admin exception / failover / engagement alerts. Worker boot **hard-asserts** this in production (`assertAdminNotificationEmail` in `worker/config/startup-assert.ts`); the worker refuses to start without it. Per-site runtime guards remain as defense-in-depth. |
+| `LIST_UNSUBSCRIBE_EMAIL` | Railway | Recommended (prod) | Mailbox in the marketing `List-Unsubscribe` header (`src/lib/notifications/email/headers.ts`). Unset → falls back to the `RESEND_FROM_EMAIL` mailbox; worker boot warns in production (`warnMissingProductionEnv`). Without a working mailbox, marketing emails fail Gmail/Outlook bulk-sender compliance. |
+| `SENTRY_DSN` | Vercel + Railway | Recommended (prod) | Server-side Sentry DSN (`src/instrumentation.ts`, `worker/sentry.ts`). Unset → Sentry silently no-ops; both boots warn in production (`warnMissingProductionEnv` on the worker, `register()` on Next.js). |
+| `NEXT_PUBLIC_SENTRY_DSN` | Vercel | Recommended (prod) | Browser-side Sentry DSN (same value as `SENTRY_DSN`). Intentionally public. |
 
 ---
 
