@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { resolveContactNotifyTo } from '../contact-notify';
 
+// process.env.NODE_ENV is typed read-only (Next.js); assign through an index so
+// the writable string index signature applies. Mirrors startup-assertion.test.ts.
+function setEnv(key: string, value: string): void {
+  process.env[key] = value;
+}
+
 describe('resolveContactNotifyTo', () => {
   const SNAP: Record<string, string | undefined> = {};
   const KEYS = ['NODE_ENV', 'CONTACT_NOTIFY_TO', 'RESEND_FROM_EMAIL'];
@@ -10,7 +16,7 @@ describe('resolveContactNotifyTo', () => {
     for (const k of KEYS) { SNAP[k] = process.env[k]; delete process.env[k]; }
     // Default to production so the fallback-warning path is exercised; the
     // "does not warn outside production" test overrides this.
-    process.env.NODE_ENV = 'production';
+    setEnv('NODE_ENV', 'production');
     warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
   });
   afterEach(() => {
@@ -61,7 +67,7 @@ describe('resolveContactNotifyTo', () => {
   });
 
   it('resolves the fallback but does NOT warn outside production', () => {
-    process.env.NODE_ENV = 'development';
+    setEnv('NODE_ENV', 'development');
     process.env.RESEND_FROM_EMAIL = 'notifications@repworth.com';
     expect(resolveContactNotifyTo()).toEqual({ to: 'notifications@repworth.com', source: 'from-email' });
     expect(warnSpy).not.toHaveBeenCalled();
