@@ -68,8 +68,14 @@
   --rw-yellow-800: #854D0E;
   --rw-yellow-500: #EAB308;  /* star rating */
 
-  --rw-orange-100: #FFEDD5;  /* badge: awaiting_manual_post */
-  --rw-orange-800: #9A3412;
+  /* Attention / awaiting state — brand blush #F2C3B9 (replaces the old banned
+     palette). Owner-facing: ConnectGoogleBanner reconnect banner + the
+     awaiting_manual_post status badge. */
+  --rw-attn-bg:      #FBEDEA;  /* light blush wash — banner + badge surface */
+  --rw-attn-border:  #F2C3B9;  /* brand blush */
+  --rw-attn-fg:      #2a2a2a;  /* primary text on blush (~12:1, AAA) */
+  --rw-attn-fg-soft: #5a5a5a;  /* secondary text on blush (~6:1, AA) */
+  --rw-attn-icon-bg: #F2C3B9;
 
   --rw-red-600:    #DC2626;
   --rw-red-700:    #B91C1C;
