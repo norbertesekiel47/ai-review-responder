@@ -73,7 +73,7 @@ describe('POST /api/demo-request', () => {
     }));
     expect(res.status).toBe(200);
     const callArg = mockResendSend.mock.calls[0]?.[0] as Parameters<typeof mockResendSend>[0];
-    expect(callArg.to).toBe('norbertesekiel@gmail.com');
+    expect(callArg.to).toBe('noreply@repworth.com');
     expect(callArg.subject).toContain('Demo Request');
     expect(callArg.text).toContain('Alice');
     expect(callArg.text).toContain('https://maps.google.com/?cid=123');

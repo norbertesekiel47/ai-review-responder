@@ -43,6 +43,7 @@ describe('POST /api/contact', () => {
     vi.clearAllMocks();
     delete process.env.RESEND_API_KEY;
     delete process.env.RESEND_FROM_EMAIL;
+    delete process.env.CONTACT_NOTIFY_TO;
     mockCheckRateLimit.mockResolvedValue({ allowed: true, remaining: 9 });
   });
 
@@ -104,11 +105,26 @@ describe('POST /api/contact', () => {
     expect(mockResendSend).toHaveBeenCalledOnce();
 
     const callArg = mockResendSend.mock.calls[0]?.[0] as Parameters<typeof mockResendSend>[0];
-    expect(callArg.to).toBe('norbertesekiel@gmail.com');
+    expect(callArg.to).toBe('noreply@repworth.com');
     expect(callArg.subject).toContain('Demo Request');
     expect(callArg.text).toContain('Alice');
     expect(callArg.text).toContain('a@b.com');
     expect(callArg.text).toContain('Acme');
+  });
+
+  it('routes to CONTACT_NOTIFY_TO when it is set', async () => {
+    process.env.RESEND_API_KEY = 'test-key';
+    process.env.RESEND_FROM_EMAIL = 'noreply@repworth.com';
+    process.env.CONTACT_NOTIFY_TO = 'ops@repworth.com';
+    mockResendSend.mockResolvedValue({ data: { id: 'msg-2' }, error: null });
+
+    const { POST } = await import('../route');
+    const req = makeRequest({ name: 'Alice', email: 'a@b.com', businessName: 'Acme' });
+    const res = await POST(req);
+    expect(res.status).toBe(200);
+    const callArg = mockResendSend.mock.calls[0]?.[0] as Parameters<typeof mockResendSend>[0];
+    expect(callArg.to).toBe('ops@repworth.com');
+    delete process.env.CONTACT_NOTIFY_TO;
   });
 
   it('returns 500 when Resend throws', async () => {

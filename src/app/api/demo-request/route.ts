@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Resend } from 'resend';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
+import { resolveContactNotifyTo } from '@/lib/notifications/contact-notify';
 
 export const dynamic = 'force-dynamic';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const NOTIFY_TO = process.env.CONTACT_NOTIFY_TO ?? 'norbertesekiel@gmail.com';
 
 const MAX_NAME_LEN = 200;
 const MAX_BUSINESS_NAME_LEN = 300;
@@ -78,6 +78,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   if (process.env.RESEND_API_KEY) {
     const resend = new Resend(process.env.RESEND_API_KEY);
     const from = process.env.RESEND_FROM_EMAIL ?? 'noreply@repworth.com';
+    const { to } = resolveContactNotifyTo();
 
     const text = [
       'New demo request — RepWorth',
@@ -91,7 +92,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     const { error } = await resend.emails.send({
       from,
-      to: NOTIFY_TO,
+      to,
       subject: 'New Demo Request — RepWorth',
       text,
     });

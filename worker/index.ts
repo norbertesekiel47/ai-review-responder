@@ -30,7 +30,7 @@ import { handleTwilioStatusCallback, handleTwilioInbound } from './ingress/twili
 import { handleTwilioWhatsAppInbound, handleTwilioWhatsAppStatus } from './ingress/twilio/twilio-whatsapp';
 import { handleTelegramWebhook } from './ingress/telegram/telegram';
 import { handleZernioWebhook } from './ingress/zernio/zernio';
-import { assertChannelsSmsEnv, assertChannelsTelegramEnv, assertChannelsWhatsAppEnv, assertSelfServeSignupEnv, assertZernioPublishingEnv } from './config/startup-assert';
+import { assertChannelsSmsEnv, assertChannelsTelegramEnv, assertChannelsWhatsAppEnv, assertSelfServeSignupEnv, assertZernioPublishingEnv, warnMissingProductionEnv } from './config/startup-assert';
 import { startNotificationFailoverPoller, stopNotificationFailoverPoller } from './background/pollers/NotificationFailoverPoller';
 import { startWeeklySummaryScheduler, stopWeeklySummaryScheduler } from './background/schedulers/WeeklySummaryScheduler';
 import { startArchivalPoller, stopArchivalPoller } from './background/pollers/ArchivalPoller';
@@ -220,6 +220,7 @@ async function main(): Promise<void> {
     assertChannelsWhatsAppEnv();
     assertSelfServeSignupEnv();
     assertZernioPublishingEnv();
+    warnMissingProductionEnv();
     console.log(
       `[worker] Feature flags: ` +
         `SMS=${process.env.CHANNELS_SMS_ENABLED === 'true' ? 'on' : 'off'}, ` +

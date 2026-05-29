@@ -3,6 +3,7 @@ import { Resend } from 'resend';
 import { sql, jsonb } from '@/lib/db/server';
 import { appendOwnerLeadToSheet } from '@/lib/google/owner-leads-sheet';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
+import { resolveContactNotifyTo } from '@/lib/notifications/contact-notify';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -142,7 +143,7 @@ async function sendLeadNotification(lead: ValidatedLead, submittedAt: string): P
 
   const resend = new Resend(process.env.RESEND_API_KEY);
   const from = process.env.RESEND_FROM_EMAIL ?? 'noreply@repworth.com';
-  const to = process.env.CONTACT_NOTIFY_TO ?? 'norbertesekiel@gmail.com';
+  const { to } = resolveContactNotifyTo();
   const text = [
     `Name: ${lead.name}`,
     `Email: ${lead.email}`,
