@@ -18,6 +18,7 @@ export function PaymentSuccessClient({
   checkoutSessionId?: string | null;
 }) {
   const [active, setActive] = useState(false);
+  const [needsSetup, setNeedsSetup] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const router = useRouter();
 
@@ -71,14 +72,13 @@ export function PaymentSuccessClient({
             businessOnboarded: boolean;
           };
           if (body.subscriptionStatus === 'active') {
-            // The wizard at /onboarding/business is the next required step
-            // for self-serve owners. Push them straight in — no extra
-            // "Welcome!" button — so they don't have a chance to bookmark
-            // a half-onboarded dashboard.
-            if (!body.businessOnboarded) {
-              router.push('/onboarding/business');
-              return;
-            }
+            // Payment confirmed. Acknowledge it on THIS page before the user
+            // moves on. Not-yet-onboarded owners get an explicit "Continue
+            // setup" CTA into the wizard (NOT the dashboard) — this gives the
+            // acknowledgement they just paid for while preserving the original
+            // intent of never landing them on a half-onboarded dashboard they
+            // could bookmark.
+            setNeedsSetup(!body.businessOnboarded);
             setActive(true);
             return;
           }
@@ -144,17 +144,37 @@ export function PaymentSuccessClient({
                 />
               </svg>
             </motion.div>
-            <h1 className="text-3xl font-medium text-[#2a2a2a] mb-3">
-              Welcome to RepWorth!
-            </h1>
-            <p className="text-[#6a6a6a] mb-8">Your subscription is active.</p>
-            <motion.button
-              onClick={() => router.push('/dashboard')}
-              {...buttonMotion}
-              className={primaryButtonClass}
-            >
-              Go to dashboard
-            </motion.button>
+            {needsSetup ? (
+              <>
+                <h1 className="text-3xl font-medium text-[#2a2a2a] mb-3">
+                  You&apos;re in — payment confirmed
+                </h1>
+                <p className="text-[#6a6a6a] mb-8">
+                  Let&apos;s finish setting up your business.
+                </p>
+                <motion.button
+                  onClick={() => router.push('/onboarding/business')}
+                  {...buttonMotion}
+                  className={primaryButtonClass}
+                >
+                  Continue setup →
+                </motion.button>
+              </>
+            ) : (
+              <>
+                <h1 className="text-3xl font-medium text-[#2a2a2a] mb-3">
+                  Welcome to RepWorth!
+                </h1>
+                <p className="text-[#6a6a6a] mb-8">Your subscription is active.</p>
+                <motion.button
+                  onClick={() => router.push('/dashboard')}
+                  {...buttonMotion}
+                  className={primaryButtonClass}
+                >
+                  Go to dashboard
+                </motion.button>
+              </>
+            )}
           </>
         ) : elapsed > MAX_POLL_DURATION_MS ? (
           <>
