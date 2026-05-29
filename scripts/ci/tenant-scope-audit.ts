@@ -529,9 +529,84 @@ async function collectSourceFiles(root: string): Promise<string[]> {
   return files;
 }
 
+// Replace the characters of JS/TS line (`//`) and block (`/* */`) comments
+// with spaces so the tag scanners never read a backtick-wrapped tag word in a
+// comment (e.g. `(`tx`)`) as a template-literal opener. `//` and `/*` inside
+// string or template literals (e.g. `https://`, or `/*` in a query string) are
+// left untouched. Positions and length are preserved so callers can keep using
+// raw source offsets.
+function stripJsComments(sourceText: string): string {
+  const chars = Array.from(sourceText);
+  type ScanState =
+    | 'default'
+    | 'single-quote'
+    | 'double-quote'
+    | 'backtick'
+    | 'line-comment'
+    | 'block-comment';
+  let state: ScanState = 'default';
+
+  for (let index = 0; index < chars.length; index++) {
+    const current = chars[index];
+    const next = chars[index + 1];
+
+    if (state === 'single-quote' || state === 'double-quote' || state === 'backtick') {
+      if (current === '\\') {
+        index++;
+        continue;
+      }
+      const closer = state === 'single-quote' ? "'" : state === 'double-quote' ? '"' : '`';
+      if (current === closer) state = 'default';
+      continue;
+    }
+
+    if (state === 'line-comment') {
+      if (current === '\n') {
+        state = 'default';
+        continue;
+      }
+      chars[index] = ' ';
+      continue;
+    }
+
+    if (state === 'block-comment') {
+      if (current === '*' && next === '/') {
+        chars[index] = ' ';
+        chars[index + 1] = ' ';
+        index++;
+        state = 'default';
+        continue;
+      }
+      if (current !== '\n') chars[index] = ' ';
+      continue;
+    }
+
+    if (current === "'") { state = 'single-quote'; continue; }
+    if (current === '"') { state = 'double-quote'; continue; }
+    if (current === '`') { state = 'backtick'; continue; }
+    if (current === '/' && next === '/') {
+      chars[index] = ' ';
+      chars[index + 1] = ' ';
+      index++;
+      state = 'line-comment';
+      continue;
+    }
+    if (current === '/' && next === '*') {
+      chars[index] = ' ';
+      chars[index + 1] = ' ';
+      index++;
+      state = 'block-comment';
+      continue;
+    }
+  }
+
+  return chars.join('');
+}
+
 export function extractSqlTemplates(sourceText: string): ExtractedSqlTemplate[] {
+  const scanText = stripJsComments(sourceText);
   const templates: ExtractedSqlTemplate[] = [];
-  const sqlTagNames = extractSqlTagNames(sourceText);
+  const sqlTagNames = extractSqlTagNames(scanText);
   const tagPattern = Array.from(sqlTagNames).map(escapeRegExp).join('|');
   const tagRegex = new RegExp(
     `(?<![\\w$])(${tagPattern})(?:\\s*<[^\`]+>)?\\s*\``,
@@ -539,17 +614,17 @@ export function extractSqlTemplates(sourceText: string): ExtractedSqlTemplate[] 
   );
   let match: RegExpExecArray | null;
 
-  while ((match = tagRegex.exec(sourceText)) !== null) {
-    const templateStart = sourceText.indexOf('`', match.index);
+  while ((match = tagRegex.exec(scanText)) !== null) {
+    const templateStart = scanText.indexOf('`', match.index);
     if (templateStart < 0) continue;
     const tag = match[1] ?? 'sql';
-    const parsed = parseTemplateLiteral(sourceText, templateStart);
+    const parsed = parseTemplateLiteral(scanText, templateStart);
     if (!parsed) continue;
     templates.push({ tag, sqlText: parsed.sqlText });
     tagRegex.lastIndex = parsed.endIndex + 1;
   }
 
-  templates.push(...extractUnsafeSqlTemplates(sourceText, sqlTagNames));
+  templates.push(...extractUnsafeSqlTemplates(scanText, sqlTagNames));
 
   return templates;
 }

@@ -377,4 +377,48 @@ describe('tenant-scope-audit', () => {
       finding('src/example.ts', 'sms_sender_opt_outs'),
     );
   });
+
+  it('does not treat a backtick-wrapped tag word inside a comment as a template opener', () => {
+    expect(extractSqlTemplates(`
+      // Each helper runs on an already-open transaction (\`tx\`), enforcing the guard.
+      export async function supersedeSibling(tx) {
+        const sup = await tx\`
+          UPDATE responses SET status = 'superseded' WHERE id = \${siblingId} AND status = 'posted'
+        \`;
+      }
+    `)).toEqual([
+      {
+        tag: 'tx',
+        sqlText: `
+          UPDATE responses SET status = 'superseded' WHERE id = \${siblingId} AND status = 'posted'
+        `,
+      },
+    ]);
+  });
+
+  it('does not treat a backtick tag word inside a block comment as a template opener', () => {
+    expect(extractSqlTemplates(`
+      /* leaf module: helpers run on an open \`tx\` handle. */
+      await sql\`SELECT * FROM reviews WHERE business_id = \${businessId}\`;
+    `)).toEqual([
+      { tag: 'sql', sqlText: 'SELECT * FROM reviews WHERE business_id = ${businessId}' },
+    ]);
+  });
+
+  it('does not treat // inside a string literal as a line comment', () => {
+    expect(extractSqlTemplates(`
+      const u = 'https://example.com';
+      await sql\`SELECT * FROM accounts WHERE id = \${accountId}\`;
+    `)).toEqual([
+      { tag: 'sql', sqlText: 'SELECT * FROM accounts WHERE id = ${accountId}' },
+    ]);
+  });
+
+  it('does not treat /* inside a query string as a block comment', () => {
+    expect(extractSqlTemplates(`
+      await sql\`SELECT '/*' AS marker FROM reviews WHERE business_id = \${businessId}\`;
+    `)).toEqual([
+      { tag: 'sql', sqlText: "SELECT '/*' AS marker FROM reviews WHERE business_id = ${businessId}" },
+    ]);
+  });
 });
