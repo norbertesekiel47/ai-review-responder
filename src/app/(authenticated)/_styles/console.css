@@ -456,6 +456,13 @@
   color: var(--rw-attn-fg);
 }
 .banner-blue .b-icon { background: #BFDBFE; color: #1E40AF; }
+/* Red inline alert (errors). Cool/utility red — mirrors .banner-blue. Placed
+   after the base + blue .b-icon so the variant overrides win (equal specificity
+   → source order decides). */
+.banner-red { border-color: var(--rw-red-300); background: var(--rw-red-50); }
+.banner-red .b-title { color: var(--rw-red-700); }
+.banner-red .b-sub { color: #B91C1Ccc; }
+.banner-red .b-icon { background: var(--rw-red-100); color: var(--rw-red-700); }
 .banner-cta {
   margin-left: auto;
   background: #97B3AE;
