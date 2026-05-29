@@ -198,10 +198,14 @@ Expected: PASS — 3 passed.
 Run: `pnpm typecheck`
 Expected: clean exit, no errors. (If `page.tsx` still passed `sms`, TS would flag an excess property here — confirms the dead plumbing is gone from both ends.)
 
-- [ ] **Step 7: Grep guard — no dead references remain**
+- [ ] **Step 7: Grep guard — no dead references remain in the page/client layer**
 
-Run: `grep -rn "smsAvailable\|initialAvailability\.sms" src/`
-Expected: no output (zero matches). Confirms the flag→owner-UI plumbing is fully removed, not merely unused.
+Run: `grep -rn "smsAvailable\|initialAvailability\.sms" "src/app/(authenticated)/settings/channels/"`
+Expected: no output (zero matches) — confirms the owner-UI plumbing is fully removed, not merely unused.
+
+A repo-wide `grep -rn "smsAvailable" src/` will still show **one** hit:
+`src/app/api/dashboard/channels/route.ts`. That is a *separate*, intentionally out-of-scope
+availability status contract (its `available.sms` is unconsumed by any client/test) — leave it untouched.
 
 - [ ] **Step 8: Commit**
 
@@ -257,6 +261,6 @@ No DB/schema changes → `pnpm ci:tenant-scope` / `pnpm ci:rls-audit` are not re
 ## Done criteria
 
 - New `ChannelsClient.test.tsx` passes; the SMS row shows "SMS notifications are coming soon" with a "Coming soon" badge and no flag-dependent jargon.
-- `grep -rn "smsAvailable\|initialAvailability\.sms" src/` is empty.
+- `grep -rn "smsAvailable\|initialAvailability\.sms" "src/app/(authenticated)/settings/channels/"` is empty (the unrelated `route.ts` `smsAvailable()` is intentionally retained — out of scope).
 - `pnpm lint && pnpm typecheck && pnpm test && pnpm build` all green locally.
 - Ready for PR (handled separately via `superpowers:finishing-a-development-branch`); the launch-audit doc tick for P0 #12 is updated as part of that step.

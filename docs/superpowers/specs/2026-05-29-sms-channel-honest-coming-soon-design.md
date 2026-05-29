@@ -54,6 +54,14 @@ currently lacks.
 - **No change to the per-location override panel** (`ChannelsTabClient`); it is a separate
   component and does not read `initialAvailability.sms`.
 - **No change to the Telegram or WhatsApp rows.** Their `availability` branches stay as-is.
+- **No change to `GET /api/dashboard/channels` (`route.ts`).** It owns a *separate, symmetric*
+  availability status contract (`available: { telegram, sms, whatsapp }`) with its own independent
+  `smsAvailable()`. That `available.sms` field is currently unconsumed by any client or test (verified:
+  `useEnrollment` reads `enrollments`, not `available`; `status-get.test.ts` asserts neither), but it is
+  left intact — it is **not** the visible "coming soon" hardcode the audit flagged (line 88 names
+  `ChannelsClient.tsx:72-77`), and mutating a JSON response shape carries different (contract) risk than
+  fixing display copy. Removing/realigning it is a reasonable follow-up cleanup, deliberately out of
+  scope for this P0.
 
 ## Design
 
@@ -131,8 +139,10 @@ it('renders SMS as a flag-independent "coming soon" row', () => {
   under `.claude/worktrees/`, so local lint/test resolution is clean (CLAUDE.md nested-worktree
   caveat sidestepped). Authoritative check remains the 4 CI checks green on the PR.
 - No DB / schema changes → `ci:tenant-scope` / `ci:rls-audit` not required.
-- Grep guard after the change: `grep -rn "smsAvailable\|initialAvailability.sms"` returns no
-  hits in `src/` (confirms the dead plumbing is fully removed, not just unused).
+- Grep guard after the change: `grep -rn "smsAvailable\|initialAvailability\.sms"` in the
+  page/client layer returns no hits (confirms the owner-UI plumbing is fully removed, not just
+  unused). The one remaining hit — `src/app/api/dashboard/channels/route.ts`'s own `smsAvailable()`
+  — is expected and intentionally out of scope (see Non-goals).
 - Visual: SMS row still appears under "Pick one extra channel" with the new sub-line and the
   "Coming soon" badge, in single-location, multi-location, and locations-enabled modes (all
   three render the same `ChannelsClient`).
