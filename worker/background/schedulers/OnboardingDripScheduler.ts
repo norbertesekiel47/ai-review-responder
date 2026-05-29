@@ -1,9 +1,11 @@
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '../../../src/lib/db/server';
 import { isMockMode } from '../../../src/lib/shared/mock-mode';
+import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import type { OnboardingDripPayload } from '../../../src/lib/shared/worker-types';
 
 const LOG_PREFIX = '[OnboardingDripScheduler]';
+const logger = createWorkerLogger(LOG_PREFIX);
 const DEFAULT_INTERVAL_MS = 3_600_000; // 1 hour
 
 let pollerInterval: ReturnType<typeof setInterval> | null = null;
@@ -22,7 +24,7 @@ export async function checkAndSchedule(): Promise<void> {
 
   try {
     if (isMockMode()) {
-      console.log(`${LOG_PREFIX} Mock mode — skipping`);
+      logger.log('Mock mode — skipping');
       return;
     }
 
@@ -79,15 +81,15 @@ export async function checkAndSchedule(): Promise<void> {
       } catch (err: unknown) {
         const code = (err as { code?: string }).code;
         if (code === '23505') continue;
-        console.error(`${LOG_PREFIX} Failed to queue ${row.drip_type} for business ${row.business_id}:`, err);
+        logger.error(`Failed to queue ${row.drip_type} for business ${row.business_id}`, err);
       }
     }
 
     if (queued > 0) {
-      console.log(`${LOG_PREFIX} Queued ${queued} onboarding_drip outbox entries`);
+      logger.log(`Queued ${queued} onboarding_drip outbox entries`);
     }
   } catch (error) {
-    console.error(`${LOG_PREFIX} Scheduler cycle failed:`, error);
+    logger.error('Scheduler cycle failed', error);
   } finally {
     isPolling = false;
   }
@@ -96,10 +98,10 @@ export async function checkAndSchedule(): Promise<void> {
 export function startOnboardingDripScheduler(): void {
   if (pollerInterval) return;
   const intervalMs = getIntervalMs();
-  console.log(`${LOG_PREFIX} Starting (interval=${intervalMs}ms)`);
-  checkAndSchedule().catch(console.error);
+  logger.log(`Starting (interval=${intervalMs}ms)`);
+  checkAndSchedule().catch((err) => logger.error('Initial run failed', err));
   pollerInterval = setInterval(() => {
-    checkAndSchedule().catch(console.error);
+    checkAndSchedule().catch((err) => logger.error('Scheduled run failed', err));
   }, intervalMs);
 }
 
@@ -107,6 +109,6 @@ export function stopOnboardingDripScheduler(): void {
   if (pollerInterval) {
     clearInterval(pollerInterval);
     pollerInterval = null;
-    console.log(`${LOG_PREFIX} Stopped`);
+    logger.log('Stopped');
   }
 }

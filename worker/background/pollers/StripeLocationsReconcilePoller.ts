@@ -28,9 +28,11 @@ import { overagePriceIdSet } from '../../../src/lib/payments/price-tier-map';
 import { emitDriftAlert } from './billing-reconciliation/drift-alert';
 import { reconcileAccount } from './billing-reconciliation/reconcile-account';
 import { LOG_PREFIX } from './billing-reconciliation/constants';
+import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import type { AccountWithLocations } from './billing-reconciliation/types';
 
 const DEFAULT_INTERVAL_MS = 3_600_000; // 1 hour
+const logger = createWorkerLogger(LOG_PREFIX);
 
 let timer: ReturnType<typeof setInterval> | null = null;
 // Single-flight guard. Same pattern as EmailChannelReconcilePoller —
@@ -61,7 +63,7 @@ interface ReconcileResult {
  */
 export async function runOnce(): Promise<ReconcileResult> {
   if (inProgress) {
-    console.log(`${LOG_PREFIX} Previous run still in progress — skipping this tick`);
+    logger.log('Previous run still in progress — skipping this tick');
     return { accountsChecked: 0, driftsFound: 0, errors: 0 };
   }
   inProgress = true;
@@ -97,7 +99,7 @@ export async function runOnce(): Promise<ReconcileResult> {
     `;
 
     if (accounts.length === 0) {
-      console.log(`${LOG_PREFIX} No paid accounts to reconcile`);
+      logger.log('No paid accounts to reconcile');
       return { accountsChecked: 0, driftsFound: 0, errors: 0 };
     }
 
@@ -119,21 +121,14 @@ export async function runOnce(): Promise<ReconcileResult> {
         }
       } catch (err) {
         errors++;
-        const message = err instanceof Error ? err.message : String(err);
-        console.error(
-          `${LOG_PREFIX} Error reconciling account ${account.id}: ${message}`,
-        );
+        logger.error(`Error reconciling account ${account.id}`, err);
       }
     }
 
     if (driftsFound > 0 || errors > 0) {
-      console.log(
-        `${LOG_PREFIX} Run complete: accountsChecked=${accountsChecked} driftsFound=${driftsFound} errors=${errors}`,
-      );
+      logger.log(`Run complete: accountsChecked=${accountsChecked} driftsFound=${driftsFound} errors=${errors}`);
     } else {
-      console.log(
-        `${LOG_PREFIX} Run complete: ${accountsChecked} accounts checked, no drift detected`,
-      );
+      logger.log(`Run complete: ${accountsChecked} accounts checked, no drift detected`);
     }
 
     return { accountsChecked, driftsFound, errors };
@@ -147,23 +142,17 @@ export async function runOnce(): Promise<ReconcileResult> {
  */
 export function startStripeLocationsReconcilePoller(): void {
   if (process.env.STRIPE_LOCATIONS_RECONCILE_DISABLED === 'true') {
-    console.log(
-      `${LOG_PREFIX} STRIPE_LOCATIONS_RECONCILE_DISABLED=true — not starting`,
-    );
+    logger.log('STRIPE_LOCATIONS_RECONCILE_DISABLED=true — not starting');
     return;
   }
   if (process.env.MOCK_EXTERNAL_APIS === 'true') {
-    console.log(
-      `${LOG_PREFIX} MOCK_EXTERNAL_APIS=true — not starting`,
-    );
+    logger.log('MOCK_EXTERNAL_APIS=true — not starting');
     return;
   }
 
   // Idempotent start
   if (timer !== null) {
-    console.log(
-      `${LOG_PREFIX} Already started — ignoring duplicate startStripeLocationsReconcilePoller() call`,
-    );
+    logger.log('Already started — ignoring duplicate startStripeLocationsReconcilePoller() call');
     return;
   }
 
@@ -172,14 +161,10 @@ export function startStripeLocationsReconcilePoller(): void {
   const interval =
     Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_INTERVAL_MS;
 
-  console.log(`${LOG_PREFIX} Starting (interval=${interval}ms)`);
-  runOnce().catch((err) =>
-    console.error(`${LOG_PREFIX} Initial run failed:`, err),
-  );
+  logger.log(`Starting (interval=${interval}ms)`);
+  runOnce().catch((err) => logger.error('Initial run failed', err));
   timer = setInterval(() => {
-    runOnce().catch((err) =>
-      console.error(`${LOG_PREFIX} Scheduled run failed:`, err),
-    );
+    runOnce().catch((err) => logger.error('Scheduled run failed', err));
   }, interval);
 }
 
@@ -190,7 +175,7 @@ export function stopStripeLocationsReconcilePoller(): void {
   if (timer !== null) {
     clearInterval(timer);
     timer = null;
-    console.log(`${LOG_PREFIX} Stopped`);
+    logger.log('Stopped');
   }
   // Do NOT reset inProgress. If stop() fires mid-runOnce (graceful
   // shutdown), the in-flight run's finally{} clears the flag itself.
