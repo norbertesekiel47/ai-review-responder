@@ -64,7 +64,7 @@
 
 /* Page wrap + Island */
 .rw-page { position: relative; z-index: 10; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 40px 20px; }
-.rw-island { width: 100%; max-width: 1080px; background: #fff; border-radius: 48px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25); overflow: hidden; display: grid; grid-template-columns: 1.05fr 1fr; min-height: 680px; opacity: 0; transform: translateY(30px) scale(0.97); animation: rwIntro 0.8s cubic-bezier(0.25,0.46,0.45,0.94) forwards; }
+.rw-island { width: 100%; max-width: 1080px; background: #fff; border-radius: 48px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25); display: grid; grid-template-columns: 1.05fr 1fr; min-height: 680px; opacity: 0; transform: translateY(30px) scale(0.97); animation: rwIntro 0.8s cubic-bezier(0.25,0.46,0.45,0.94) forwards; }
 @keyframes rwIntro { to { opacity: 1; transform: none; } }
 @media (max-width: 900px) { .rw-island { grid-template-columns: 1fr; } }
 
