@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { resolveContactNotifyTo } from '../contact-notify';
 
+const { mockCaptureMessage } = vi.hoisted(() => ({ mockCaptureMessage: vi.fn() }));
+vi.mock('@sentry/nextjs', () => ({ captureMessage: mockCaptureMessage }));
+
 // process.env.NODE_ENV is typed read-only (Next.js); assign through an index so
 // the writable string index signature applies. Mirrors startup-assertion.test.ts.
 function setEnv(key: string, value: string): void {
@@ -18,6 +21,7 @@ describe('resolveContactNotifyTo', () => {
     // "does not warn outside production" test overrides this.
     setEnv('NODE_ENV', 'production');
     warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    mockCaptureMessage.mockClear();
   });
   afterEach(() => {
     for (const k of KEYS) {
@@ -30,6 +34,7 @@ describe('resolveContactNotifyTo', () => {
     process.env.CONTACT_NOTIFY_TO = 'leads@example.com';
     expect(resolveContactNotifyTo()).toEqual({ to: 'leads@example.com', source: 'env' });
     expect(warnSpy).not.toHaveBeenCalled();
+    expect(mockCaptureMessage).not.toHaveBeenCalled();
   });
 
   it('trims CONTACT_NOTIFY_TO and ignores whitespace-only', () => {
@@ -48,6 +53,11 @@ describe('resolveContactNotifyTo', () => {
     process.env.RESEND_FROM_EMAIL = 'RepWorth <notifications@repworth.com>';
     expect(resolveContactNotifyTo()).toEqual({ to: 'notifications@repworth.com', source: 'from-email' });
     expect(warnSpy).toHaveBeenCalledOnce();
+    expect(mockCaptureMessage).toHaveBeenCalledTimes(1);
+    expect(mockCaptureMessage).toHaveBeenCalledWith(
+      'contact_notify_to_unset',
+      expect.objectContaining({ extra: { resolvedTo: 'notifications@repworth.com', source: 'from-email' } }),
+    );
   });
 
   it('falls back to the RESEND_FROM_EMAIL mailbox (bare addr form)', () => {
@@ -59,6 +69,10 @@ describe('resolveContactNotifyTo', () => {
   it('falls back to the default noreply mailbox when both unset, and warns', () => {
     expect(resolveContactNotifyTo()).toEqual({ to: 'noreply@repworth.com', source: 'default' });
     expect(warnSpy).toHaveBeenCalledOnce();
+    expect(mockCaptureMessage).toHaveBeenCalledWith(
+      'contact_notify_to_unset',
+      expect.objectContaining({ level: 'error', tags: { subsystem: 'contact-notify' }, extra: { resolvedTo: 'noreply@repworth.com', source: 'default' } }),
+    );
   });
 
   it('uses the default when RESEND_FROM_EMAIL is unparseable', () => {
@@ -71,5 +85,6 @@ describe('resolveContactNotifyTo', () => {
     process.env.RESEND_FROM_EMAIL = 'notifications@repworth.com';
     expect(resolveContactNotifyTo()).toEqual({ to: 'notifications@repworth.com', source: 'from-email' });
     expect(warnSpy).not.toHaveBeenCalled();
+    expect(mockCaptureMessage).not.toHaveBeenCalled();
   });
 });

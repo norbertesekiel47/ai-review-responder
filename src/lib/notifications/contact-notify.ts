@@ -2,6 +2,7 @@
 // rule. Replaces the personal-Gmail fallback that used to be duplicated across the
 // contact, demo-request, and lead-intake routes.
 
+import * as Sentry from '@sentry/nextjs';
 import { extractMailbox } from './email/headers';
 
 export type ContactNotifySource = 'env' | 'from-email' | 'default';
@@ -34,6 +35,11 @@ export function resolveContactNotifyTo(): { to: string; source: ContactNotifySou
   const source: ContactNotifySource = derived ? 'from-email' : 'default';
 
   if (process.env.NODE_ENV === 'production') {
+    Sentry.captureMessage('contact_notify_to_unset', {
+      level: 'error',
+      tags: { subsystem: 'contact-notify' },
+      extra: { resolvedTo: to, source },
+    });
     console.warn(
       `[contact-notify] CONTACT_NOTIFY_TO is unset — falling back to ${
         source === 'from-email' ? 'the RESEND_FROM_EMAIL mailbox' : 'the default noreply mailbox'
