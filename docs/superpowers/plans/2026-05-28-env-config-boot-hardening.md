@@ -688,7 +688,7 @@ Make the env vars documented and discoverable. One authoritative owner per fact.
 - [ ] **Step 1: `.env.example` — add the two missing vars**
 
 In `.env.example`, in the `# --- Notifications ---` section, immediately after the `ADMIN_NOTIFICATION_EMAIL=your-admin@email.com` line (line 40), insert:
-```
+```dotenv
 # Recipient for public contact / demo-request / lead-intake notification emails.
 # Falls back to the RESEND_FROM_EMAIL mailbox, then noreply@repworth.com, with a
 # loud warning — set this in prod (Vercel) so leads reach a monitored inbox.
@@ -702,7 +702,7 @@ LIST_UNSUBSCRIBE_EMAIL=
 - [ ] **Step 2: `.claude/reference/env-vars.md` — remove the stale CONTACT_NOTIFY_TO row**
 
 In `.claude/reference/env-vars.md`, in the `## Development / Testing` table, delete this row (currently line 50):
-```
+```markdown
 | `CONTACT_NOTIFY_TO` | `norbertesekiel@gmail.com` | Overrides notification email for `/api/contact` submissions. |
 ```
 
@@ -726,11 +726,11 @@ Insert this new section immediately after the `## Development / Testing` table (
 - [ ] **Step 4: `docs/launch-ready-part1.md` — mark point 5 done**
 
 In `docs/launch-ready-part1.md`, change line 170 from:
-```
+```markdown
 5. Document + assert `CONTACT_NOTIFY_TO` and `LIST_UNSUBSCRIBE_EMAIL`; harden the `ADMIN_NOTIFICATION_EMAIL` silent-drop; add the `SENTRY_DSN`-unset boot warning.
 ```
 to:
-```
+```markdown
 5. ✅ **(done 2026-05-28, branch `feat/env-boot-hardening`)** Document + assert `CONTACT_NOTIFY_TO` and `LIST_UNSUBSCRIBE_EMAIL`; harden the `ADMIN_NOTIFICATION_EMAIL` silent-drop; add the `SENTRY_DSN`-unset boot warning. *Code/docs landed; production values still set at deploy.*
 ```
 
