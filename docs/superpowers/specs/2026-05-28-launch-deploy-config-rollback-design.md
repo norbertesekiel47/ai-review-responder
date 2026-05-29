@@ -76,7 +76,6 @@ builder = "NIXPACKS"
 [deploy]
 startCommand = "pnpm worker"
 healthcheckPath = "/api/health"
-healthcheckTimeout = 30
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 10
 ```
@@ -88,6 +87,9 @@ Rationale:
   (zero risk vs. today's dashboard deploy). *Known wasteful side effect:* Nixpacks
   runs `next build` on the worker too; harmless, left as a future optimization
   rather than a behavior change in this PR.
+- **No `healthcheckTimeout`** → Railway's default is retained (not tightened),
+  so a slow-but-healthy worker boot is never failed; preserves the "no deploy
+  behavior change" guarantee.
 - `ON_FAILURE` + bounded retries = supervised crash recovery, not an infinite
   restart loop (production.md "let-it-crash with supervision").
 

@@ -56,7 +56,7 @@ Vercel keeps every previous production deployment; promoting one is near-instant
 2. Find the last-known-good **Production** deployment (green, pre-incident).
 3. **⋯ → Promote to Production** (a.k.a. Instant Rollback). CLI equivalent:
    `vercel promote <deployment-url>`.
-4. Confirm: `curl -I https://app.<domain>/` → 200 + security headers; visit
+4. Confirm: `curl -I "$NEXT_PUBLIC_APP_URL/"` → 200 + security headers; visit
    `/admin/login`.
 
 Notes:
