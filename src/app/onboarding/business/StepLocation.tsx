@@ -3,6 +3,12 @@
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { PlaceAutocomplete } from '@/components/PlaceAutocomplete';
 import type { WizardFormData } from './BusinessWizardClient';
+import { motion } from 'motion/react';
+import {
+  fieldClass,
+  primaryButtonClass,
+  buttonMotion,
+} from '../_shared/field-styles';
 
 interface StepLocationProps {
   data: WizardFormData;
@@ -151,9 +157,9 @@ export function StepLocation({
       : Boolean(data.googleMapsUrl.trim());
 
   return (
-    <div className="bg-white rounded-lg border border-gray-200 p-6 space-y-4">
-      <h2 className="text-lg font-medium text-gray-900">Find your business</h2>
-      <p className="text-sm text-gray-600">
+    <div className="space-y-4">
+      <h2 className="text-xl font-medium text-[#2a2a2a]">Find your business</h2>
+      <p className="text-sm text-[#6a6a6a]">
         Search Google Maps for your business or paste its Google Maps URL.
       </p>
 
@@ -169,9 +175,6 @@ export function StepLocation({
           onClear={() => {
             cancelPrefill();
             update({ googlePlaceId: '', googlePlaceAddress: '' });
-            // Reset prefill-derived fields if untouched so a subsequent
-            // place selection can refill them. Mirrors the admin form's
-            // resetField pattern.
             const reset: Partial<WizardFormData> = {};
             if (!dirtyRef.current?.category) reset.category = '';
             if (!dirtyRef.current?.website) reset.website = '';
@@ -184,7 +187,7 @@ export function StepLocation({
           value={data.googleMapsUrl}
           onChange={(e) => update({ googleMapsUrl: e.target.value })}
           placeholder="https://maps.google.com/..."
-          className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className={fieldClass}
           autoComplete="url"
         />
       )}
@@ -203,7 +206,7 @@ export function StepLocation({
             update({ inputMode: 'autocomplete', googleMapsUrl: '' });
           }
         }}
-        className="text-xs text-blue-600 hover:text-blue-800"
+        className="text-xs text-[#97B3AE] hover:text-[#7e9b96]"
       >
         {data.inputMode === 'autocomplete'
           ? 'Or paste a Google Maps URL'
@@ -211,20 +214,21 @@ export function StepLocation({
       </button>
 
       {prefilling && (
-        <p className="text-xs text-gray-500">
+        <p className="text-xs text-[#9a948a]">
           Fetching business details from Google Maps…
         </p>
       )}
 
       <div className="flex justify-end pt-4">
-        <button
+        <motion.button
           type="button"
           onClick={onNext}
           disabled={!canContinue}
-          className="bg-blue-600 text-white font-medium py-2 px-6 rounded-md hover:bg-blue-700 disabled:opacity-50"
+          {...buttonMotion}
+          className={primaryButtonClass}
         >
           Continue →
-        </button>
+        </motion.button>
       </div>
     </div>
   );

@@ -8,6 +8,8 @@ import { StepProfile } from './StepProfile';
 import { StepVoice } from './StepVoice';
 import { StepConnect } from './StepConnect';
 import { buildBusinessWizardPayload } from './payload';
+import { OnboardingFunnelShell } from '../_shared/OnboardingFunnelShell';
+import { errorBannerClass } from '../_shared/field-styles';
 
 export interface WizardFormData {
   // Location (legacy 3-step only — empty/unused in post-pay flow)
@@ -176,91 +178,87 @@ export function BusinessWizardClient({
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12 px-4">
-      <div className="max-w-2xl mx-auto">
-        {demoFlowEnabled && (
-          <p className="text-center text-blue-600 text-sm mb-2">
-            You&apos;re in. A few quick steps to make responses sound like you and
-            connect your reviews, then we go live.
-          </p>
-        )}
-        <h1 className="text-3xl font-bold text-center mb-2">
-          Set up your business
-        </h1>
-        <p className="text-center text-gray-600 mb-8">
-          A few quick details so we can start fetching your reviews.
+    <OnboardingFunnelShell step="setup" showThread={demoFlowEnabled}>
+      {demoFlowEnabled && (
+        <p className="text-center text-[#97B3AE] text-sm mb-2">
+          You&apos;re in. A few quick steps to make responses sound like you and
+          connect your reviews, then we go live.
         </p>
+      )}
+      <h1 className="text-3xl md:text-4xl font-medium text-center text-[#2a2a2a] mb-2">
+        Set up your business
+      </h1>
+      <p className="text-center text-[#6a6a6a] mb-8">
+        A few quick details so we can start fetching your reviews.
+      </p>
 
-        <ProgressDots current={step} total={totalSteps} demoFlow={demoFlowEnabled} />
+      <ProgressDots current={step} total={totalSteps} demoFlow={demoFlowEnabled} />
 
-        {error && (
-          <div className="bg-red-50 border border-red-200 rounded-md p-4 mb-4 text-sm text-red-700">
-            {error}
-          </div>
-        )}
+      {error && <div className={`${errorBannerClass} mb-4`}>{error}</div>}
 
-        {demoFlowEnabled ? (
-          <>
-            {step === 1 && (
-              <StepProfile
-                data={data}
-                update={update}
-                dirtyRef={dirtyRef}
-                onBack={() => { /* no back from first step */ }}
-                onNext={() => setStep(2)}
-              />
-            )}
-            {step === 2 && (
-              <StepVoice
-                data={data}
-                update={update}
-                onBack={() => setStep(1)}
-                onSubmit={() => advanceToConnect()}
-                onSkip={() => advanceToConnect({ skipVoice: true })}
-                submitting={submitting}
-              />
-            )}
-            {step === 3 && (
-              <StepConnect
-                onBack={() => setStep(2)}
-                onConnect={handleConnectZernio}
-                onSkip={handleSkipConnect}
-                submitting={submitting}
-              />
-            )}
-          </>
-        ) : (
-          <>
-            {step === 1 && (
-              <StepLocation
-                data={data}
-                update={update}
-                dirtyRef={dirtyRef}
-                onNext={() => setStep(2)}
-              />
-            )}
-            {step === 2 && (
-              <StepProfile
-                data={data}
-                update={update}
-                dirtyRef={dirtyRef}
-                onBack={() => setStep(1)}
-                onNext={() => setStep(3)}
-              />
-            )}
-            {step === 3 && (
-              <StepVoice
-                data={data}
-                update={update}
-                onBack={() => setStep(2)}
-                onSubmit={() => legacySubmit()}
-                onSkip={() => legacySubmit({ skipVoice: true })}
-                submitting={submitting}
-              />
-            )}
-          </>
-        )}
-      </div>
-    </div>
+      {demoFlowEnabled ? (
+        <>
+          {step === 1 && (
+            <StepProfile
+              data={data}
+              update={update}
+              dirtyRef={dirtyRef}
+              onBack={() => {
+                /* no back from first step */
+              }}
+              onNext={() => setStep(2)}
+            />
+          )}
+          {step === 2 && (
+            <StepVoice
+              data={data}
+              update={update}
+              onBack={() => setStep(1)}
+              onSubmit={() => advanceToConnect()}
+              onSkip={() => advanceToConnect({ skipVoice: true })}
+              submitting={submitting}
+            />
+          )}
+          {step === 3 && (
+            <StepConnect
+              onBack={() => setStep(2)}
+              onConnect={handleConnectZernio}
+              onSkip={handleSkipConnect}
+              submitting={submitting}
+            />
+          )}
+        </>
+      ) : (
+        <>
+          {step === 1 && (
+            <StepLocation
+              data={data}
+              update={update}
+              dirtyRef={dirtyRef}
+              onNext={() => setStep(2)}
+            />
+          )}
+          {step === 2 && (
+            <StepProfile
+              data={data}
+              update={update}
+              dirtyRef={dirtyRef}
+              onBack={() => setStep(1)}
+              onNext={() => setStep(3)}
+            />
+          )}
+          {step === 3 && (
+            <StepVoice
+              data={data}
+              update={update}
+              onBack={() => setStep(2)}
+              onSubmit={() => legacySubmit()}
+              onSkip={() => legacySubmit({ skipVoice: true })}
+              submitting={submitting}
+            />
+          )}
+        </>
+      )}
+    </OnboardingFunnelShell>
   );
 }

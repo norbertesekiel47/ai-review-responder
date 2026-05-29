@@ -2,6 +2,14 @@
 
 import type { RefObject } from 'react';
 import type { WizardFormData } from './BusinessWizardClient';
+import { motion } from 'motion/react';
+import {
+  fieldClass,
+  labelClass,
+  primaryButtonClass,
+  ghostButtonClass,
+  buttonMotion,
+} from '../_shared/field-styles';
 
 interface StepProfileProps {
   data: WizardFormData;
@@ -18,24 +26,18 @@ export function StepProfile({
   onBack,
   onNext,
 }: StepProfileProps) {
-  const inputClass =
-    'w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500';
-
   const canContinue = data.businessName.trim().length > 0;
 
   return (
-    <div className="bg-white rounded-lg border border-gray-200 p-6 space-y-4">
-      <h2 className="text-lg font-medium text-gray-900">Business profile</h2>
-      <p className="text-sm text-gray-600">
+    <div className="space-y-4">
+      <h2 className="text-xl font-medium text-[#2a2a2a]">Business profile</h2>
+      <p className="text-sm text-[#6a6a6a]">
         We may have pre-filled some of these from Google Maps — feel free to
         edit.
       </p>
 
       <div>
-        <label
-          htmlFor="biz-name"
-          className="block text-sm font-medium text-gray-700 mb-1"
-        >
+        <label htmlFor="biz-name" className={labelClass}>
           Business name <span className="text-red-500">*</span>
         </label>
         <input
@@ -46,15 +48,12 @@ export function StepProfile({
           value={data.businessName}
           onChange={(e) => update({ businessName: e.target.value })}
           placeholder="Bella Vista Restaurant"
-          className={inputClass}
+          className={fieldClass}
         />
       </div>
 
       <div>
-        <label
-          htmlFor="biz-category"
-          className="block text-sm font-medium text-gray-700 mb-1"
-        >
+        <label htmlFor="biz-category" className={labelClass}>
           Category
         </label>
         <input
@@ -66,15 +65,12 @@ export function StepProfile({
             update({ category: e.target.value });
           }}
           placeholder="Restaurant, Salon, Dentist…"
-          className={inputClass}
+          className={fieldClass}
         />
       </div>
 
       <div>
-        <label
-          htmlFor="biz-website"
-          className="block text-sm font-medium text-gray-700 mb-1"
-        >
+        <label htmlFor="biz-website" className={labelClass}>
           Website
         </label>
         <input
@@ -86,26 +82,23 @@ export function StepProfile({
             update({ website: e.target.value });
           }}
           placeholder="https://yourbusiness.com"
-          className={inputClass}
+          className={fieldClass}
         />
       </div>
 
-      <div className="flex justify-between pt-4">
-        <button
-          type="button"
-          onClick={onBack}
-          className="text-gray-600 font-medium py-2 px-4 hover:text-gray-900"
-        >
+      <div className="flex justify-between items-center pt-4">
+        <button type="button" onClick={onBack} className={ghostButtonClass}>
           ← Back
         </button>
-        <button
+        <motion.button
           type="button"
           onClick={onNext}
           disabled={!canContinue}
-          className="bg-blue-600 text-white font-medium py-2 px-6 rounded-md hover:bg-blue-700 disabled:opacity-50"
+          {...buttonMotion}
+          className={primaryButtonClass}
         >
           Continue →
-        </button>
+        </motion.button>
       </div>
     </div>
   );

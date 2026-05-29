@@ -1,6 +1,13 @@
 'use client';
 
 import { useState } from 'react';
+import { motion } from 'motion/react';
+import {
+  errorBannerClass,
+  primaryButtonClass,
+  ghostButtonClass,
+  buttonMotion,
+} from '../_shared/field-styles';
 
 interface StepConnectProps {
   onBack: () => void;
@@ -42,12 +49,12 @@ export function StepConnect({ onBack, onConnect, onSkip, submitting }: StepConne
   }
 
   return (
-    <div className="bg-white rounded-lg border border-gray-200 p-6 space-y-5">
+    <div className="space-y-5">
       <div>
-        <h2 className="text-lg font-medium text-gray-900">
+        <h2 className="text-xl font-medium text-[#2a2a2a]">
           Connect your Google Business Profile
         </h2>
-        <p className="mt-1 text-sm text-gray-600">
+        <p className="mt-1 text-sm text-[#6a6a6a]">
           We use Zernio to securely read your reviews and post your approved
           replies on Google. You&apos;ll be redirected to Google to grant
           access — only you ever see review content, and we never auto-post
@@ -55,33 +62,29 @@ export function StepConnect({ onBack, onConnect, onSkip, submitting }: StepConne
         </p>
       </div>
 
-      <ul className="space-y-2 text-sm text-gray-700">
+      <ul className="space-y-2 text-sm text-[#6a6a6a]">
         <li className="flex items-start gap-2">
-          <span className="text-green-600 mt-0.5">✓</span>
+          <span className="text-[#97B3AE] mt-0.5">✓</span>
           <span>Pulls in every review on the location you pick.</span>
         </li>
         <li className="flex items-start gap-2">
-          <span className="text-green-600 mt-0.5">✓</span>
+          <span className="text-[#97B3AE] mt-0.5">✓</span>
           <span>Drafts a reply for each new review using your voice.</span>
         </li>
         <li className="flex items-start gap-2">
-          <span className="text-green-600 mt-0.5">✓</span>
+          <span className="text-[#97B3AE] mt-0.5">✓</span>
           <span>You approve each reply before it goes live.</span>
         </li>
       </ul>
 
-      {error && (
-        <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-          {error}
-        </div>
-      )}
+      {error && <div className={errorBannerClass}>{error}</div>}
 
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-2">
         <button
           type="button"
           onClick={onBack}
           disabled={submitting}
-          className="text-gray-600 font-medium py-2 px-4 hover:text-gray-900 disabled:opacity-50"
+          className={ghostButtonClass}
         >
           ← Back
         </button>
@@ -91,18 +94,19 @@ export function StepConnect({ onBack, onConnect, onSkip, submitting }: StepConne
             type="button"
             onClick={handleSkip}
             disabled={submitting}
-            className="text-gray-600 font-medium py-2 px-4 hover:text-gray-900 disabled:opacity-50"
+            className={ghostButtonClass}
           >
             Skip for now
           </button>
-          <button
+          <motion.button
             type="button"
             onClick={handleConnect}
             disabled={submitting}
-            className="bg-blue-600 text-white font-medium py-2 px-6 rounded-md hover:bg-blue-700 disabled:opacity-50"
+            {...buttonMotion}
+            className={primaryButtonClass}
           >
             {submitting ? 'Connecting…' : 'Connect Google Business Profile'}
-          </button>
+          </motion.button>
         </div>
       </div>
     </div>
