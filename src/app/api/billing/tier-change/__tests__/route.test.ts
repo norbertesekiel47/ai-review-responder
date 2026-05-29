@@ -515,6 +515,40 @@ describe('POST /api/billing/tier-change', () => {
     expect(auditLogCall).toBeDefined();
   });
 
+  it('persists the new tier base_price_cents and locations_overage_price_cents in the same transaction', async () => {
+    // Regression: the route updates subscription_tier synchronously, so the
+    // Stripe webhook later sees tierChanged=false and skips its CASE-WHEN
+    // re-snapshot. The route must therefore write ALL tier-derived billing
+    // columns itself, or a Standard->Premium change leaves the account on
+    // Premium with the Standard base price / overage price (drifts billing
+    // snapshot, margin reporting, and invoice reconciliation).
+    setupHappyPathMocks();
+
+    const req = mkRequest({ accountId: ACCOUNT_ID, newTier: 'premium' });
+    const res = await POST(req);
+    expect(res.status).toBe(200);
+
+    // Find the `UPDATE accounts SET ...` statement (distinct from the initial
+    // SELECT, the FOR UPDATE lock, and the audit INSERT).
+    const updateCall = mockSql.mock.calls.find(
+      (call: any[]) =>
+        Array.isArray(call[0]) &&
+        call[0].some((frag: string) => frag.includes('UPDATE')) &&
+        call[0].some((frag: string) => frag.includes('subscription_tier')) &&
+        call[0].some((frag: string) => frag.includes('accounts')),
+    );
+    expect(updateCall).toBeDefined();
+
+    const fragments = (updateCall![0] as string[]).join(' ');
+    expect(fragments).toContain('base_price_cents');
+    expect(fragments).toContain('locations_overage_price_cents');
+
+    // Premium tier billing params bound into the UPDATE: base 19900, overage 2000.
+    const boundValues = updateCall!.slice(1);
+    expect(boundValues).toContain(19900); // TIER_CONFIG.premium.baseCents
+    expect(boundValues).toContain(2000); // TIER_CONFIG.premium.overageCents
+  });
+
   it('returns 502 when Stripe API fails', async () => {
     mockRequireRole.mockResolvedValueOnce(ownerUser());
     mockValidateTierChange.mockResolvedValueOnce({
