@@ -17,7 +17,7 @@ export interface InitialEnrollment {
 
 export interface ChannelsClientProps {
   initialEnrollments: InitialEnrollment[];
-  initialAvailability: { telegram: boolean; sms: boolean; whatsapp: boolean };
+  initialAvailability: { telegram: boolean; whatsapp: boolean };
   ownerEmailFallback: string;
 }
 
@@ -69,11 +69,13 @@ export function ChannelsClient({ initialEnrollments, initialAvailability, ownerE
           />
         )}
 
-        {/* SMS — always coming-soon in Phase 4 */}
+        {/* SMS — owner self-service is post-launch. The CHANNELS_SMS_ENABLED flag
+            gates backend dispatch + admin enrollment, NOT this owner row, so the
+            row is intentionally flag-independent. */}
         <ComingSoonChannelRow
           icon="📱"
           name="SMS"
-          reason={initialAvailability.sms ? 'SMS owner widget ships in a follow-up phase' : 'Available once 10DLC verification clears'}
+          reason="SMS notifications are coming soon"
         />
 
         {/* WhatsApp — interactive if available, coming-soon otherwise */}

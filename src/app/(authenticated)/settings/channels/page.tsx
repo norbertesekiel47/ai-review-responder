@@ -28,14 +28,9 @@ import {
   shouldUseMultiLocationSettings,
 } from '@/lib/locations/multi-location-mode';
 
+// 'sms' stays known: backend/admin can create SMS enrollments even though the
+// owner UI has no SMS self-service yet (owner SMS is post-launch — see ChannelsClient).
 const KNOWN_CHANNELS = new Set<string>(['email', 'sms', 'telegram', 'whatsapp']);
-
-function smsAvailable(): boolean {
-  if (process.env.CHANNELS_SMS_ENABLED !== 'true') return false;
-  if (process.env.MOCK_EXTERNAL_APIS === 'true') return true;
-  const required = ['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_MESSAGING_SERVICE_SID', 'TWILIO_VERIFY_SERVICE_SID'];
-  return required.every((k) => process.env[k] && process.env[k]!.trim().length > 0);
-}
 
 function whatsappAvailable(): boolean {
   if (process.env.CHANNELS_WHATSAPP_ENABLED !== 'true') return false;
@@ -181,7 +176,6 @@ export default async function ChannelsPage() {
         initialEnrollments={orgLevelEnrollments}
         initialAvailability={{
           telegram: telegramAvailable(),
-          sms: smsAvailable(),
           whatsapp: whatsappAvailable(),
         }}
         ownerEmailFallback={ownerEmail}
