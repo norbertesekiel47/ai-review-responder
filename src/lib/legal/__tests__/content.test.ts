@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { legalDocs } from '../content';
+import { AI_DRAFT_DISCLOSURE } from '@/lib/ui/disclosures';
 
 describe('legal content', () => {
   it('publishes material Terms sections on the route-backed typed document', () => {
@@ -38,5 +39,28 @@ describe('legal content', () => {
     for (const excluded of ['PostHog', 'Help Scout', 'Cloudflare', 'Loops', 'Customer.io']) {
       expect(vendors).not.toContain(excluded);
     }
+  });
+
+  it('does not leak the in-product AI-draft disclosure into legal prose', () => {
+    for (const slug of ['privacy', 'aup', 'terms'] as const) {
+      const bodies = legalDocs[slug].sections.flatMap((section) => section.body);
+      expect(bodies).not.toContain(AI_DRAFT_DISCLOSURE);
+    }
+  });
+
+  it('publishes a non-misleading, on-request DPA', () => {
+    const dpa = legalDocs.dpa;
+    const headings = dpa.sections.map((section) => section.heading);
+    const bodyText = dpa.sections
+      .flatMap((section) => section.body)
+      .join(' ')
+      .toLowerCase();
+
+    expect(headings).toContain('Requesting a DPA');
+    expect(headings).not.toContain('Status');
+    expect(bodyText).not.toContain('pending');
+    expect(bodyText).not.toContain('should not treat');
+    expect(bodyText).toContain('request our dpa');
+    expect(bodyText).toContain('info@repworth.net');
   });
 });
