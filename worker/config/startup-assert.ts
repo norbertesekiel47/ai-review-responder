@@ -36,9 +36,34 @@ export function assertStripeWorkerEnv(): void {
   }
 }
 
+/**
+ * Boot-time assertion. ADMIN_NOTIFICATION_EMAIL is the recipient for every admin
+ * exception / failover / engagement alert. When unset these alerts silently drop:
+ * AdminExceptionWorker marks the outbox completed, NotificationFailoverPoller warns
+ * and continues, and EngagementAlertWorker logs an error and fails the outbox —
+ * unacceptable in production. Fail fast at boot instead.
+ *
+ * Production-only guard: fires only when NODE_ENV=production and MOCK_EXTERNAL_APIS
+ * is not 'true', so dev / CI / tests are unaffected. (Intentionally narrower than
+ * assertStripeWorkerEnv, which also fires in non-production non-mock environments —
+ * admin alerts only matter in production.) The per-site runtime guards remain as
+ * defense-in-depth.
+ */
+export function assertAdminNotificationEmail(): void {
+  if (process.env.NODE_ENV !== 'production') return;
+  if (process.env.MOCK_EXTERNAL_APIS === 'true') return;
+  const value = process.env.ADMIN_NOTIFICATION_EMAIL;
+  if (!value || value.trim().length === 0) {
+    throw new Error(
+      '[startup] Worker requires ADMIN_NOTIFICATION_EMAIL in production (admin/failover/engagement alerts route here)',
+    );
+  }
+}
+
 export function assertWorkerStartupEnv(): void {
   assertProductionMockModeEnv();
   assertStripeWorkerEnv();
+  assertAdminNotificationEmail();
 }
 
 /**

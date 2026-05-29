@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
+  assertAdminNotificationEmail,
   assertChannelsSmsEnv,
   assertProductionMockModeEnv,
   assertSelfServeSignupEnv,
@@ -114,9 +115,52 @@ describe('assertStripeWorkerEnv', () => {
   });
 });
 
+describe('assertAdminNotificationEmail', () => {
+  const SNAP: Record<string, string | undefined> = {};
+  const KEYS = ['NODE_ENV', 'MOCK_EXTERNAL_APIS', 'ADMIN_NOTIFICATION_EMAIL'];
+
+  beforeEach(() => {
+    for (const k of KEYS) { SNAP[k] = process.env[k]; delete process.env[k]; }
+  });
+  afterEach(() => {
+    restoreEnv(SNAP);
+  });
+
+  it('throws in production non-mock mode when unset', () => {
+    setEnv('NODE_ENV', 'production');
+    process.env.MOCK_EXTERNAL_APIS = 'false';
+    expect(() => assertAdminNotificationEmail()).toThrow(/ADMIN_NOTIFICATION_EMAIL/);
+  });
+
+  it('treats whitespace-only as missing in production', () => {
+    setEnv('NODE_ENV', 'production');
+    process.env.MOCK_EXTERNAL_APIS = 'false';
+    process.env.ADMIN_NOTIFICATION_EMAIL = '   ';
+    expect(() => assertAdminNotificationEmail()).toThrow(/ADMIN_NOTIFICATION_EMAIL/);
+  });
+
+  it('passes in production when set', () => {
+    setEnv('NODE_ENV', 'production');
+    process.env.MOCK_EXTERNAL_APIS = 'false';
+    process.env.ADMIN_NOTIFICATION_EMAIL = 'admin@repworth.com';
+    expect(() => assertAdminNotificationEmail()).not.toThrow();
+  });
+
+  it('is a no-op outside production even when unset', () => {
+    setEnv('NODE_ENV', 'test');
+    expect(() => assertAdminNotificationEmail()).not.toThrow();
+  });
+
+  it('is a no-op in production mock mode even when unset', () => {
+    setEnv('NODE_ENV', 'production');
+    process.env.MOCK_EXTERNAL_APIS = 'true';
+    expect(() => assertAdminNotificationEmail()).not.toThrow();
+  });
+});
+
 describe('assertWorkerStartupEnv', () => {
   const SNAP: Record<string, string | undefined> = {};
-  const KEYS = ['NODE_ENV', 'MOCK_EXTERNAL_APIS', ...STRIPE_WORKER_REQUIRED];
+  const KEYS = ['NODE_ENV', 'MOCK_EXTERNAL_APIS', 'ADMIN_NOTIFICATION_EMAIL', ...STRIPE_WORKER_REQUIRED];
 
   beforeEach(() => {
     for (const k of KEYS) { SNAP[k] = process.env[k]; delete process.env[k]; }
@@ -142,6 +186,7 @@ describe('assertWorkerStartupEnv', () => {
     setEnv('NODE_ENV', 'production');
     process.env.MOCK_EXTERNAL_APIS = 'false';
     for (const k of STRIPE_WORKER_REQUIRED) process.env[k] = 'x';
+    process.env.ADMIN_NOTIFICATION_EMAIL = 'admin@repworth.com';
     expect(() => assertWorkerStartupEnv()).not.toThrow();
   });
 });
