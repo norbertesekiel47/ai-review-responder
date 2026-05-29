@@ -159,7 +159,11 @@ export default function ApprovalClient({ token }: { token: string }) {
         }
 
         setSuccessAction(action);
-        setSuccessMessage(json.message ?? 'Your request has been processed.');
+        // Treat empty/whitespace messages as missing — the success view gates on
+        // successMessage truthiness, and `??` would let '' through and render nothing.
+        setSuccessMessage(
+          json.message?.trim() ? json.message : 'Your request has been processed.',
+        );
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Action failed');
       } finally {

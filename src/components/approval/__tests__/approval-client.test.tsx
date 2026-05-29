@@ -108,6 +108,20 @@ describe('ApprovalClient', () => {
     ).toBeInTheDocument();
   });
 
+  it('still shows the success view when the API returns an empty message', async () => {
+    stubFetch({ ok: true, status: 200, body: { success: true, message: '' } });
+    render(<ApprovalClient token="raw-token" />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Approve' }));
+
+    // An empty message must not suppress the success state (the view gates on
+    // successMessage truthiness); it falls back to the default copy.
+    expect(await screen.findByText('Response approved!')).toBeInTheDocument();
+    expect(
+      screen.getByText('Your request has been processed.'),
+    ).toBeInTheDocument();
+  });
+
   it('renders dashboard + support recovery when the page fails to load', async () => {
     const fetchMock = vi.fn(async () =>
       ({ ok: false, status: 410, json: async () => ({ error: 'This link has expired' }) }) as Response,
