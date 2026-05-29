@@ -2,6 +2,7 @@
 
 import { Icon } from '@/components/dashboard/Icon';
 import { SettingsTabs, type SettingsTab } from '@/components/dashboard/SettingsTabs';
+import { LiveRegion } from '@/components/ui/LiveRegion';
 
 interface Props {
   activeTab: SettingsTab;
@@ -14,6 +15,8 @@ interface Props {
     onDiscard: () => void;
   };
   savedFlash?: boolean;
+  /** Latest save-error message; announced assertively to screen readers. */
+  saveError?: string;
   /** When true, exposes the Locations tab without switching to true multi-location content mode. */
   locationsSettingsEnabled?: boolean;
   /** When true, shows 4-tab layout (Account, Locations, Voice, Notifications). */
@@ -25,6 +28,7 @@ export function SettingsShell({
   children,
   saveBar,
   savedFlash,
+  saveError,
   locationsSettingsEnabled,
   multiLocationEnabled,
 }: Props) {
@@ -71,6 +75,8 @@ export function SettingsShell({
         </div>
       )}
 
+      <LiveRegion message={savedFlash ? 'Settings saved' : ''} />
+      <LiveRegion message={saveError ?? ''} level="assertive" />
       <div className={`saved-toast ${savedFlash ? 'visible' : ''}`}>
         <Icon name="check" size={14} /> Settings saved
       </div>

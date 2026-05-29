@@ -16,7 +16,7 @@ import { useBusinessDetail } from './hooks/useBusinessDetail';
 function HealthBadge({ level, score }: { level: string; score: number }) {
   const styles: Record<string, string> = {
     healthy: 'bg-green-100 text-green-800',
-    watch: 'bg-amber-100 text-amber-800',
+    watch: 'bg-gray-100 text-gray-700',
     at_risk: 'bg-red-100 text-red-800',
   };
   const labels: Record<string, string> = { healthy: 'Healthy', watch: 'Watch', at_risk: 'At Risk' };
@@ -197,7 +197,7 @@ export default function BusinessDetailPage() {
                       <div
                         className={`h-full rounded ${
                           item.contribution > 15 ? 'bg-red-400' :
-                          item.contribution > 5 ? 'bg-amber-400' : 'bg-green-400'
+                          item.contribution > 5 ? 'bg-yellow-400' : 'bg-green-400'
                         }`}
                         style={{ width: `${Math.min(item.contribution * 3, 100)}%` }}
                       />

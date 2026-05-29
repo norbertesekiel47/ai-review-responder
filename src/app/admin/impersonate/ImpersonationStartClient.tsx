@@ -49,9 +49,9 @@ export function ImpersonationStartClient() {
 
   return (
     <form onSubmit={handleSubmit} className="mt-6 rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
-      <div className="rounded-md border border-amber-200 bg-amber-50 p-4">
-        <h2 className="text-sm font-semibold text-amber-950">Read-only admin view</h2>
-        <p className="mt-1 text-sm text-amber-800">
+      <div className="rounded-md border border-blue-200 bg-blue-50 p-4">
+        <h2 className="text-sm font-semibold text-blue-900">Read-only admin view</h2>
+        <p className="mt-1 text-sm text-blue-800">
           Creates an audited one-hour session for support diagnostics. The owner auth session is not reused.
         </p>
       </div>
@@ -63,7 +63,7 @@ export function ImpersonationStartClient() {
             type="text"
             value={accountId}
             onChange={(event) => setAccountId(event.target.value)}
-            className="rounded-md border border-gray-300 px-3 py-2 font-mono text-sm text-gray-900 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-200"
+            className="rounded-md border border-gray-300 px-3 py-2 font-mono text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
             required
           />
         </label>
@@ -73,7 +73,7 @@ export function ImpersonationStartClient() {
             type="text"
             value={impersonatedUserId}
             onChange={(event) => setImpersonatedUserId(event.target.value)}
-            className="rounded-md border border-gray-300 px-3 py-2 font-mono text-sm text-gray-900 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-200"
+            className="rounded-md border border-gray-300 px-3 py-2 font-mono text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
             required
           />
         </label>
@@ -83,7 +83,7 @@ export function ImpersonationStartClient() {
             type="text"
             value={ticketId}
             onChange={(event) => setTicketId(event.target.value)}
-            className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-200"
+            className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
             required
           />
         </label>
@@ -93,7 +93,7 @@ export function ImpersonationStartClient() {
             type="text"
             value={reason}
             onChange={(event) => setReason(event.target.value)}
-            className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-200"
+            className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
             required
           />
         </label>
@@ -103,7 +103,7 @@ export function ImpersonationStartClient() {
         <button
           type="submit"
           disabled={submitting}
-          className="rounded-md bg-amber-700 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-amber-800 disabled:cursor-not-allowed disabled:opacity-60"
+          className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {submitting ? 'Starting...' : 'Start view-as session'}
         </button>

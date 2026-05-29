@@ -22,7 +22,7 @@ export function ConnectGoogleBanner({ zernio, readOnly = false }: Props) {
 
   if (zernio.status === 'finalize_unknown') {
     return (
-      <div className="banner banner-orange" role="alert">
+      <div className="banner banner-attn" role="alert">
         <div className="b-icon">
           <Icon name="alert" size={18} />
         </div>
@@ -87,7 +87,7 @@ export function ConnectGoogleBanner({ zernio, readOnly = false }: Props) {
       : 'Auto-posting is currently disconnected.';
 
   return (
-    <div className="banner banner-orange">
+    <div className="banner banner-attn">
       <div className="b-icon">
         <Icon name="alert" size={18} />
       </div>

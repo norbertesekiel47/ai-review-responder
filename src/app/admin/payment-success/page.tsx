@@ -60,7 +60,7 @@ function PaymentSuccessContent() {
     <div className="max-w-md w-full rounded-lg bg-white p-8 text-center shadow-sm">
       {status === 'loading' && (
         <>
-          <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-amber-600 border-t-transparent" />
+          <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
           <h1 className="text-lg font-semibold text-gray-900">Processing payment...</h1>
           <p className="mt-2 text-sm text-gray-500">Waiting for Stripe confirmation. This usually takes a few seconds.</p>
         </>
@@ -77,7 +77,7 @@ function PaymentSuccessContent() {
           <p className="mt-2 text-sm text-gray-500">Subscription is now active. Redirecting to business page...</p>
           <Link
             href={`/admin/businesses/${businessId}`}
-            className="mt-4 inline-block rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700"
+            className="mt-4 inline-block rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
           >
             Go to Business
           </Link>
@@ -95,7 +95,7 @@ function PaymentSuccessContent() {
           <p className="mt-2 text-sm text-gray-500">{error}</p>
           <Link
             href="/admin/overview"
-            className="mt-4 inline-block rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700"
+            className="mt-4 inline-block rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
           >
             Go to Admin Overview
           </Link>
@@ -111,7 +111,7 @@ export default function PaymentSuccessPage() {
       <Suspense
         fallback={
           <div className="max-w-md w-full rounded-lg bg-white p-8 text-center shadow-sm">
-            <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-amber-600 border-t-transparent" />
+            <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
             <h1 className="text-lg font-semibold text-gray-900">Loading...</h1>
           </div>
         }

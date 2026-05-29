@@ -1028,6 +1028,7 @@
 }
 .rw-dot-nav button:hover { background: var(--rw-teal); transform: scale(1.3); }
 .rw-dot-nav button.active { background: var(--rw-teal); }
+.rw-dot-nav button:focus-visible { outline: 2px solid var(--rw-teal); outline-offset: 2px; }
 
 /* ---------- Mobile ---------- */
 @media (max-width: 900px) {
@@ -1949,6 +1950,7 @@
   white-space: nowrap;
 }
 .pr-toggle button.is-active { color: var(--rw-ink); }
+.pr-toggle button:focus-visible { outline: 2px solid var(--rw-teal); outline-offset: 2px; }
 .pr-toggle-thumb {
   position: absolute; top: 6px; bottom: 6px; left: 6px;
   width: calc((100% - 12px) / 2);
@@ -2307,6 +2309,7 @@
   display: flex; justify-content: space-between; align-items: center;
   cursor: pointer; text-align: left;
 }
+.pr-faq-q:focus-visible { outline: 2px solid var(--rw-teal); outline-offset: 2px; }
 .pr-faq-icon {
   width: 28px; height: 28px; border-radius: 9999px;
   background: rgba(151,179,174,0.12);

@@ -24,4 +24,11 @@ describe('PageShell', () => {
     expect(html).toContain('aria-label="Go to Top"');
     expect(html).toContain('type="button"');
   });
+
+  it('gives dot-nav buttons a teal focus-visible ring', () => {
+    const html = renderToStaticMarkup(
+      <PageShell sections={[{ ref: { current: null }, label: 'Top' }]}>x</PageShell>,
+    );
+    expect(html).toContain('focus-visible:outline-[#97B3AE]');
+  });
 });
