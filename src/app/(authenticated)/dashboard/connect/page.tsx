@@ -8,6 +8,12 @@ import { useLocationScope } from '@/contexts/LocationContext';
 import type { DashboardDataActive } from '@/lib/dashboard/types';
 import type { LocationId } from '@/lib/shared/ids';
 
+// Console text tokens reused across the connect views (no warm tones).
+const MUTED = { color: 'var(--rw-app-text-muted)' } as const;
+const FINE = { color: 'var(--rw-app-text-soft)', fontSize: 12 } as const;
+const CTA = { marginTop: 16 } as const;
+const SPINNER_ROW = { display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 } as const;
+
 /**
  * /dashboard/connect — Zernio Google Business connect entry point.
  *
@@ -87,10 +93,17 @@ export default function ConnectPage() {
 
   if (error) {
     return (
-      <div className="mx-auto max-w-2xl px-4 py-8">
-        <div className="rounded-lg border border-red-300 bg-red-50 p-6">
-          <h2 className="text-lg font-semibold text-red-800">Error</h2>
-          <p className="mt-1 text-sm text-red-700">{error}</p>
+      <div className="content">
+        <div className="banner banner-red" role="alert">
+          <div>
+            <div className="b-title">Couldn't load this page</div>
+            <div className="b-sub">{error}</div>
+          </div>
+        </div>
+        <div>
+          <Link href="/dashboard" className="text-sm text-blue-600 hover:underline">
+            ← Back to dashboard
+          </Link>
         </div>
       </div>
     );
@@ -98,8 +111,8 @@ export default function ConnectPage() {
 
   if (!data) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <p className="text-gray-500">Loading…</p>
+      <div className="content">
+        <p style={{ ...MUTED, textAlign: 'center', padding: '48px 0' }}>Loading…</p>
       </div>
     );
   }
@@ -109,16 +122,19 @@ export default function ConnectPage() {
   // practice; if they do, fall back to a generic message.
   if (!('zernioConnection' in data)) {
     return (
-      <div className="mx-auto max-w-2xl px-4 py-8">
-        <p className="text-gray-700">
-          Finish setting up your account before connecting Google Business.
-        </p>
-        <Link
-          href="/dashboard"
-          className="mt-4 inline-block text-blue-600 hover:underline"
-        >
-          Back to dashboard
-        </Link>
+      <div className="content">
+        <div className="card">
+          <p style={MUTED}>
+            Finish setting up your account before connecting Google Business.
+          </p>
+          <Link
+            href="/dashboard"
+            className="text-sm text-blue-600 hover:underline"
+            style={{ display: 'inline-block', marginTop: 16 }}
+          >
+            Back to dashboard
+          </Link>
+        </div>
       </div>
     );
   }
@@ -210,10 +226,10 @@ export default function ConnectPage() {
   }
 
   return (
-    <div className="mx-auto max-w-2xl px-4 py-8">
+    <div className="content">
       {actionError && (
-        <div className="mb-4 rounded-lg border border-red-300 bg-red-50 p-4 text-sm text-red-700">
-          {actionError}
+        <div className="banner banner-red" role="alert">
+          <div className="b-sub">{actionError}</div>
         </div>
       )}
 
@@ -242,19 +258,17 @@ export default function ConnectPage() {
       )}
 
       {!isReadOnly && redirectUrl ? (
-        <div className="mt-4">
+        <div>
           <a className="text-sm text-blue-600 hover:underline" href={redirectUrl}>
             Open connection manually
           </a>
         </div>
       ) : null}
 
-      <div className="mt-6">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <Link href="/dashboard" className="text-sm text-blue-600 hover:underline">
           ← Back to dashboard
         </Link>
-      </div>
-      <div className="mt-2">
         <Link href="/help/contact" className="text-sm text-blue-600 hover:underline">
           Get help connecting Google Business
         </Link>
@@ -282,21 +296,21 @@ function ReadOnlyConnectView({
         : 'Google Business is not connected. Update billing before connecting this location.';
 
   return (
-    <div className="rounded-lg border border-amber-200 bg-amber-50 p-6">
-      <h1 className="text-2xl font-semibold text-amber-950">{heading}</h1>
-      <p className="mt-2 text-sm text-amber-900">{detail}</p>
-      <p className="mt-3 text-sm font-medium text-amber-950">
+    <div className="card">
+      <h1 className="card-h2">{heading}</h1>
+      <p style={MUTED}>{detail}</p>
+      <p style={{ color: 'var(--rw-app-text)', fontWeight: 600, marginTop: 12 }}>
         Update billing to connect or change Google Business.
       </p>
       {zernio.queuedReconnectCount > 0 ? (
-        <p className="mt-2 text-sm text-amber-900">
+        <p style={{ ...MUTED, marginTop: 8 }}>
           {zernio.queuedReconnectCount} approved{' '}
           {zernio.queuedReconnectCount === 1 ? 'response is' : 'responses are'} waiting
           to publish after reconnect.
         </p>
       ) : null}
       {zernio.lastDisconnectReason ? (
-        <p className="mt-2 text-xs text-amber-800">
+        <p style={{ ...FINE, marginTop: 8 }}>
           Last disconnect reason: {zernio.lastDisconnectReason}
         </p>
       ) : null}
@@ -341,11 +355,9 @@ function ConnectView({
   busy: boolean;
 }) {
   return (
-    <div className="rounded-lg border border-gray-200 bg-white p-6">
-      <h1 className="text-2xl font-semibold text-gray-900">
-        Connect Google Business
-      </h1>
-      <p className="mt-2 text-sm text-gray-600">
+    <div className="card">
+      <h1 className="card-h2">Connect Google Business</h1>
+      <p style={MUTED}>
         Connect your Google Business Profile so RepWorth can publish approved
         responses for you. You&apos;ll be redirected to Google to grant access.
       </p>
@@ -353,7 +365,8 @@ function ConnectView({
         type="button"
         onClick={onConnect}
         disabled={busy}
-        className="mt-6 rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+        className="btn btn-primary disabled:opacity-50"
+        style={CTA}
       >
         {busy ? 'Starting…' : 'Connect Google Business'}
       </button>
@@ -373,23 +386,21 @@ function ReconnectView({
   queuedReconnectCount: number;
 }) {
   return (
-    <div className="rounded-lg border border-gray-200 bg-white p-6">
-      <h1 className="text-2xl font-semibold text-gray-900">
-        Reconnect Google Business
-      </h1>
-      <p className="mt-2 text-sm text-gray-600">
+    <div className="card">
+      <h1 className="card-h2">Reconnect Google Business</h1>
+      <p style={MUTED}>
         Auto-publishing is currently disconnected. Reconnect to resume posting
         approved responses.
       </p>
       {queuedReconnectCount > 0 && (
-        <p className="mt-2 text-sm text-orange-700">
+        <p style={{ ...MUTED, marginTop: 8 }}>
           {queuedReconnectCount} approved{' '}
           {queuedReconnectCount === 1 ? 'response is' : 'responses are'} waiting
           to publish.
         </p>
       )}
       {lastDisconnectReason && (
-        <p className="mt-2 text-xs text-gray-500">
+        <p style={{ ...FINE, marginTop: 8 }}>
           Last disconnect reason: {lastDisconnectReason}
         </p>
       )}
@@ -397,7 +408,8 @@ function ReconnectView({
         type="button"
         onClick={onConnect}
         disabled={busy}
-        className="mt-6 rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+        className="btn btn-primary disabled:opacity-50"
+        style={CTA}
       >
         {busy ? 'Starting…' : 'Reconnect Google Business'}
       </button>
@@ -413,12 +425,12 @@ function PendingView({
   busy: boolean;
 }) {
   return (
-    <div className="rounded-lg border border-gray-200 bg-white p-6">
-      <div className="flex items-center gap-3">
+    <div className="card">
+      <div style={SPINNER_ROW}>
         <Spinner />
-        <h1 className="text-2xl font-semibold text-gray-900">Connecting…</h1>
+        <h1 className="card-h2" style={{ margin: 0 }}>Connecting…</h1>
       </div>
-      <p className="mt-2 text-sm text-gray-600">
+      <p style={MUTED}>
         We&apos;re finishing the connection with Google. If you closed the
         Google window before authorizing, you can cancel and start over.
       </p>
@@ -426,7 +438,8 @@ function PendingView({
         type="button"
         onClick={onCancel}
         disabled={busy}
-        className="mt-6 rounded border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+        className="btn btn-secondary disabled:opacity-50"
+        style={CTA}
       >
         {busy ? 'Cancelling…' : 'Cancel'}
       </button>
@@ -442,11 +455,9 @@ function InterruptedPendingView({
   busy: boolean;
 }) {
   return (
-    <div className="rounded-lg border border-gray-200 bg-white p-6">
-      <h1 className="text-2xl font-semibold text-gray-900">
-        Connection could not be completed
-      </h1>
-      <p className="mt-2 text-sm text-gray-600">
+    <div className="card">
+      <h1 className="card-h2">Connection could not be completed</h1>
+      <p style={MUTED}>
         This connection attempt is no longer valid. Clear it, then start a new
         Google Business connection.
       </p>
@@ -454,7 +465,8 @@ function InterruptedPendingView({
         type="button"
         onClick={onCancel}
         disabled={busy}
-        className="mt-6 rounded border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+        className="btn btn-secondary disabled:opacity-50"
+        style={CTA}
       >
         {busy ? 'Clearing…' : 'Clear attempt'}
       </button>
@@ -464,14 +476,12 @@ function InterruptedPendingView({
 
 function FinalizingView() {
   return (
-    <div className="rounded-lg border border-gray-200 bg-white p-6">
-      <div className="flex items-center gap-3">
+    <div className="card">
+      <div style={SPINNER_ROW}>
         <Spinner />
-        <h1 className="text-2xl font-semibold text-gray-900">
-          Finishing connection…
-        </h1>
+        <h1 className="card-h2" style={{ margin: 0 }}>Finishing connection…</h1>
       </div>
-      <p className="mt-2 text-sm text-gray-600">
+      <p style={MUTED}>
         We&apos;re saving your Google Business connection. This usually takes
         a few seconds — please don&apos;t close this tab.
       </p>
@@ -481,11 +491,9 @@ function FinalizingView() {
 
 function FinalizeUnknownView() {
   return (
-    <div className="rounded-lg border border-yellow-300 bg-yellow-50 p-6">
-      <h1 className="text-2xl font-semibold text-yellow-900">
-        Connection requires manual review
-      </h1>
-      <p className="mt-2 text-sm text-yellow-800">
+    <div className="card">
+      <h1 className="card-h2">Connection requires manual review</h1>
+      <p style={MUTED}>
         Something unexpected happened while finishing your connection. Our
         support team has been alerted and will resolve this within 24 hours —
         you don&apos;t need to do anything.
@@ -498,7 +506,8 @@ function Spinner() {
   return (
     <span
       aria-hidden="true"
-      className="inline-block h-5 w-5 animate-spin rounded-full border-2 border-gray-300 border-t-blue-600"
+      className="inline-block h-5 w-5 animate-spin rounded-full border-2"
+      style={{ borderColor: 'var(--rw-app-border)', borderTopColor: 'var(--rw-teal)' }}
     />
   );
 }
