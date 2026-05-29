@@ -13,5 +13,8 @@ startCommand = "pnpm worker"
 # Port is injected by Railway as $PORT and read by the Fastify server.
 healthcheckPath = "/api/health"
 # Supervised crash recovery (matches Railway's default), not an infinite loop.
+# NOTE: a missing required env var (e.g. ADMIN_NOTIFICATION_EMAIL) is a
+# deterministic boot failure that exhausts these retries and stays down —
+# see docs/runbooks/rollback.md §3 "Boot prerequisite".
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 10

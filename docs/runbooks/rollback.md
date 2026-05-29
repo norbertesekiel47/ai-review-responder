@@ -80,6 +80,20 @@ Notes:
 - The health endpoint is dependency-light, so a healthy worker reports ready even
   if a downstream (Redis/Postgres) is briefly slow.
 
+> **Boot prerequisite — set before deploying.** The worker asserts required env
+> at boot and `process.exit(1)`s if any are missing in production
+> (`worker/config/startup-assert.ts`). Because `railway.toml` caps restarts at
+> `restartPolicyMaxRetries = 10`, a *missing* var is a deterministic failure
+> Railway will **not** self-heal — the service exhausts its restarts and stays
+> down, and the outbox stops draining. Confirm these are set in Railway **before**
+> a deploy or rollback that ships this code:
+> - `ADMIN_NOTIFICATION_EMAIL` — recipient for admin exception/failover/engagement
+>   alerts (hard-required in prod).
+> - Any channel/Stripe/self-serve var whose feature flag is ON (see
+>   `worker/config/startup-assert.ts` and `.claude/reference/env-vars.md`).
+> A missing *optional* var (`LIST_UNSUBSCRIBE_EMAIL`, `SENTRY_DSN`) only warns and
+> does not block boot.
+
 ---
 
 ## 4. Database — forward-only, expand/contract
