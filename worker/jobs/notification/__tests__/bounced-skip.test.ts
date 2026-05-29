@@ -36,6 +36,17 @@ const { sqlFixtures, mockSql, mockTx, mockSendApprovalEmail, mockSendInternalEma
 });
 
 vi.mock('../../../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
+// NotificationWorker resolves channels (eligibility.ts → resolveChannels →
+// getCacheRedis) BEFORE reaching the owner_email_bounced skip in dispatch.ts.
+// Stub resolveChannels to return a single email enrollment so the worker
+// reaches the bounce branch; without this the worker either dies on the
+// unconfigured Redis client or skips on no_verified_enrollments — either way
+// never exercising the bounce check this test exists to protect.
+vi.mock('../../../../src/lib/notifications/resolve-channels', () => ({
+  resolveChannels: vi.fn().mockResolvedValue([
+    { channel: 'email', handle: 'bounced@example.com', location_id: null },
+  ]),
+}));
 vi.mock('../../../../src/lib/notifications/email', async () => {
   const actual = await vi.importActual<typeof import('../../../../src/lib/notifications/email')>(
     '../../../../src/lib/notifications/email',
@@ -64,6 +75,10 @@ import { handleOnboardingDrip } from '../../OnboardingDripWorker';
 
 // Distinguishing leading fragments of each worker's query (verified against the
 // actual SELECTs in context.ts / summary-report-helpers.ts / OnboardingDripWorker.ts).
+// These MUST stay in sync with the worker SQL: if a worker's SELECT changes so a
+// fragment no longer matches, the content-addressed mock returns [], the worker
+// takes its business-not-found path, and the test fails loudly (just with a less
+// obvious message than a bounce-assertion failure).
 const Q_NOTIFICATION_RESPONSE = 'SELECT resp.id, resp.response_text';
 const Q_NOTIFICATION_BUSINESS = 'SELECT b.name, b.display_label';
 const Q_SUMMARY_BUSINESS = 'SELECT b.id, b.name, b.owner_email, b.owner_email_bounced';
@@ -80,6 +95,12 @@ function bouncedBusiness(overrides: Record<string, unknown> = {}) {
     owner_name: 'Jane',
     owner_email: 'bounced@example.com',
     owner_email_bounced: true,
+    // NotificationWorker reads archived_at (context.ts): with undefined the
+    // worker would short-circuit on the archived-location branch BEFORE the
+    // owner_email_bounced enforcement in dispatch.ts. Pin it null so the
+    // bounce branch is the one actually exercised. Harmless for the other
+    // three workers (Weekly/Monthly/Drip don't read archived_at).
+    archived_at: null,
     subscription_status: 'active',
     account_updated_at: new Date(),
     ...overrides,
@@ -107,8 +128,8 @@ describe('NotificationWorker skips bounced owners', () => {
     resetFixtures();
     process.env.NEXT_PUBLIC_APP_URL = 'https://app.test';
     process.env.RESEND_FROM_EMAIL = 'RepWorth <test@test.com>';
-    // Drain in-flight microtasks so any promise spawned by a prior test
-    // resolves against that test, never inside this one.
+    // Yield one event-loop turn to flush any pending async work from a prior
+    // test, so a promise it spawned resolves against that test, never here.
     await new Promise((r) => setImmediate(r));
   });
 
