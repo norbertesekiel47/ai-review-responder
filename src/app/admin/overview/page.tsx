@@ -107,7 +107,7 @@ function HealthCard({ label, value, warn }: HealthCardProps) {
 function HealthBadge({ level, score }: { level: string; score: number }) {
   const styles: Record<string, string> = {
     healthy: 'bg-green-100 text-green-800',
-    watch: 'bg-amber-100 text-amber-800',
+    watch: 'bg-gray-100 text-gray-700',
     at_risk: 'bg-red-100 text-red-800',
   };
   const labels: Record<string, string> = {
@@ -174,19 +174,19 @@ export default function AdminOverviewPage() {
           <div className="flex items-center gap-3">
             <Link
               href="/admin/demos"
-              className="rounded-lg border border-stone-300 px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-50"
+              className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
             >
               Demos
             </Link>
             <Link
               href="/admin/businesses"
-              className="rounded-lg border border-stone-300 px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-50"
+              className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
             >
               All Businesses
             </Link>
             <Link
               href="/admin/businesses/new"
-              className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700"
+              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
             >
               + Add Business
             </Link>
@@ -313,7 +313,7 @@ export default function AdminOverviewPage() {
                           {biz.pendingReconnectCount}
                         </span>
                       ) : biz.pendingReconnectCount > 0 ? (
-                        <span className="inline-block rounded bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+                        <span className="inline-block rounded bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700">
                           {biz.pendingReconnectCount}
                         </span>
                       ) : (

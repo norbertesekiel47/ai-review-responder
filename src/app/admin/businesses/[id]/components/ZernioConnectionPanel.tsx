@@ -28,7 +28,7 @@ function truncate(text: string | null, max: number): string {
 function StatusBadge({ status }: { status: 'pending' | 'active' | 'disconnected' | 'not_connected' }) {
   const styles: Record<string, string> = {
     active: 'bg-green-100 text-green-800',
-    pending: 'bg-amber-100 text-amber-800',
+    pending: 'bg-gray-100 text-gray-700',
     disconnected: 'bg-red-100 text-red-800',
     not_connected: 'bg-gray-100 text-gray-700',
   };
