@@ -9,6 +9,7 @@ import {
 } from '@/lib/dashboard/service';
 import { getAggregateDashboardData } from '@/lib/dashboard/aggregate-service';
 import { getLocationById } from '@/lib/locations/repo';
+import { isValidUuid } from '@/lib/shared/ids';
 import {
   computePastDueRecoveryState,
   type AccountFlagsInput,
@@ -301,6 +302,13 @@ async function handlePerLocationDashboard(
   locationId: string,
   accountId: string,
 ): Promise<NextResponse> {
+  // Validate the scope/location id BEFORE the DB read so a malformed
+  // client-supplied `?scope=` value produces a controlled 400, not a
+  // Postgres `::uuid` cast error surfaced as a 500.
+  if (!isValidUuid(locationId)) {
+    return jsonResponse({ error: 'Invalid scope: location must be a valid UUID' }, 400);
+  }
+
   try {
     // IDOR protection: verify the location belongs to the authenticated user's account.
     // getLocationById fetches the row via service-role SQL (bypasses RLS), so we must
