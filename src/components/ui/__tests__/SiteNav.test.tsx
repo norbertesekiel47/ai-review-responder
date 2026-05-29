@@ -124,9 +124,10 @@ describe('SiteNav', () => {
 
     it('applies focus-visible rings to all interactive elements', () => {
       const html = renderToStaticMarkup(createElement(SiteNav, { selfServeEnabled: true }));
-      // logo + 3 desktop nav links + Log in + Sign up + hamburger = 7 controls.
+      // SSR markup (panel is client-only/closed) renders 7 controls:
+      // logo + 3 desktop nav links + Log in + Sign up + hamburger.
       const occurrences = (html.match(/focus-visible:ring-2/g) || []).length;
-      expect(occurrences).toBeGreaterThanOrEqual(6);
+      expect(occurrences).toBe(7);
     });
 
     it('suppresses auth links when comingSoon overrides self-serve', () => {
