@@ -22,7 +22,7 @@ RepWorth currently ships **three different visual languages**, and only one of t
 
 **Confirmed off-brand files (20):** all of `src/app/onboarding/*`, `src/app/mfa/challenge/page.tsx`, `src/components/auth/*` (Login, CheckEmail, FinishSignup, ForgotPassword, ResetPassword), `src/components/approval/approval-client.tsx`, `src/app/(public)/demo/[slug]/page.tsx`, `src/app/(public)/help/contact/page.tsx`, `src/app/(public)/feedback/thanks/page.tsx`.
 
-**33 files** still use the explicitly-banned amber/orange/stone/yellow palette.
+**33 files** still use the explicitly-banned amber/orange/stone/yellow palette. *(PR #173 cleared `amber`/`orange`/`stone` from the owner Console + Admin — 19 files — and added a guard test; the deliberately-excluded `dashboard/connect` (P0 #10), the yellow review-star color (P2 #28), and chart series `#ea580c` remain.)*
 
 ---
 
@@ -84,7 +84,7 @@ RepWorth currently ships **three different visual languages**, and only one of t
 
 ### C. Authenticated owner app (Console)
 - **Connect page (`dashboard/connect/page.tsx`)** — raw Tailwind prototype (`rounded-lg border-gray-200`, `bg-blue-600`), not Console classes; looks like a different product. `ReadOnlyConnectView` uses `amber-*`, `ReconnectView` uses `text-orange-700`. **P0.**
-- **Amber bleed-through** — `EditReplyDrawer.tsx:145` + `edit-reply/{PreviewPanel,RecoveryPanel,ManualEditor,ReviewChangedPanel}.tsx` all use `border-amber-200 bg-amber-50 text-amber-900`. `ConnectGoogleBanner` uses `.banner-orange` (`#EA580C`). **P1.**
+- ✅ **Amber bleed-through** — `EditReplyDrawer.tsx:145` + `edit-reply/{PreviewPanel,RecoveryPanel,ManualEditor,ReviewChangedPanel}.tsx` all use `border-amber-200 bg-amber-50 text-amber-900`. `ConnectGoogleBanner` uses `.banner-orange` (`#EA580C`). **P1.** → **DONE (PR #173):** drawer panels (incl. `DraftConflictPanel`) → `#F0EEEA`/teal, with a blush `border-l-4 border-l-[#F2C3B9]` accent on the action-needed ones; `ConnectGoogleBanner` → `.banner-attn` (brand blush `#F2C3B9` surface, brand-teal CTA) via the new `--rw-attn-*` Console tokens.
 - **SMS hardcoded "coming soon"** even when `CHANNELS_SMS_ENABLED=true` (`ChannelsClient.tsx:72-77`). **P0.**
 - **Voice settings page** renders `<VoiceClient/>` **without `<SettingsShell>`** → no tab nav on that page (`settings/voice/page.tsx:38`). **P1.**
 - **`select-location` page** renders bare `<LocationPicker/>` — no TopBar, no chrome, no back link (`connect/select-location/page.tsx:67`). **P1.**
@@ -103,7 +103,7 @@ RepWorth currently ships **three different visual languages**, and only one of t
 Admin has a coherent internal gray/white/blue style; judged on function, not polish.
 - **`ZernioConnectionPanel.tsx:235`** — TODO: awaiting-reconnect queue has **no action buttons** (force-drain/dismiss) — admins can see stuck items but can't act. **P1 functional.**
 - **`admin/payment-success/page.tsx:28`** — polling loop has no unmount cleanup → state-update-on-unmounted warning. **P1.**
-- **`admin/overview` "Add Business" = `bg-amber-600`**, `admin/payment-success` uses `amber-600` spinner/buttons — inconsistent with admin's own blue, and amber is banned. **P2.**
+- ✅ **`admin/overview` "Add Business" = `bg-amber-600`**, `admin/payment-success` uses `amber-600` spinner/buttons — inconsistent with admin's own blue, and amber is banned. **P2.** → **DONE (PR #173):** admin amber/stone → admin blue (CTAs/spinners/focus/notice panels) + neutral gray (watch/pending/awaiting status badges); folded in the broader admin sweep (impersonate read-only notice + focus + submit, past-due extension panel, business-detail badges + green→yellow→red severity bar, enrollment-widget `text-orange-600` → gray, stone nav links → gray).
 - `admin/runbook/page.tsx:88` missing `min-h-screen` wrapper; flagged-queue pagination shows range but no total. **P2.**
 
 ---
@@ -146,7 +146,7 @@ Admin has a coherent internal gray/white/blue style; judged on function, not pol
 
 ### P1 — Noticeable, fix before/at launch
 13. Add a **mobile nav** (hamburger) to `SiteNav`.
-14. Replace remaining **amber/orange** in `EditReplyDrawer` + panels, `ConnectGoogleBanner`, onboarding alerts, admin overview.
+14. ✅ Replace remaining **amber/orange** in `EditReplyDrawer` + panels, `ConnectGoogleBanner`, onboarding alerts, admin overview. — **DONE (PR #173):** full sweep of banned `amber`/`orange`/`stone` across the owner Console + Admin. Owner-facing attention/awaiting → brand blush `#F2C3B9` (new `--rw-attn-*` tokens; `.banner-orange`→`.banner-attn`; recolored `Awaiting Manual Post` badge); edit-reply drawer amber panels → `#F0EEEA`/teal with a blush `border-l-4` accent on the 3 action-needed panels; admin amber → admin blue (CTAs/focus/notices) + neutral gray (status badges) + a green→yellow→red severity bar; lone `stone-*` nav → gray. Scoped Vitest guard (`console-admin-palette.test.ts`) locks the 19 files. (Onboarding alerts were already done in PR #165.) Excludes `dashboard/connect` (P0 #10), chart series `#ea580c`, yellow stars (P2 #28). Presentational-only; full suite green (4524 tests).
 15. ✅ **ProgressDots** + all funnel CTAs → teal pills wrapped in `motion.button`. — **DONE (PR #165).**
 16. Wrap **VoiceClient in `SettingsShell`**; add **TopBar to select-location**.
 17. Fix **MobileTabBar active state**; fix **save-bar `left:240px`** coupling.
