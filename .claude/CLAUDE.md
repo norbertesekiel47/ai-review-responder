@@ -27,6 +27,7 @@ approval before posting.
 - Repo: **`RepWorth/ai-review-responder`** (org, Team plan). `main` is protected — **land changes via PR**; direct pushes are rejected.
 - CI (`.github/workflows/ci.yml`) runs `lint`, `typecheck`, `test`, `build` on every PR + push to main. `MOCK_EXTERNAL_APIS=false` in CI (NOT true — `true` short-circuits Zernio transport and breaks real-path tests). Third-party actions pinned to commit SHAs.
 - Never validate CI from a git worktree nested inside the repo — module resolution leaks into parent `node_modules`/eslintrc and poisons lint+test. Push and read the runner, or clone clean.
+- In a nested worktree (`.claude/worktrees/<name>/`), Write/Edit resolve a **parent-absolute** path (e.g. `…/RepWorth/src/foo.ts`) against `main`'s working tree, not the worktree — silently editing the wrong checkout. Always include the `.claude/worktrees/<name>/` segment in absolute paths when editing inside a worktree.
 
 ## Architecture invariants — NEVER violate these
 
