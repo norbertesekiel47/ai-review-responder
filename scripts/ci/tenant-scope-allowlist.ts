@@ -165,7 +165,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/lib/accounts/quota.ts",
     table: "accounts",
-    sqlSnippet: "SELECT subscription_tier, locations_included, locations_paid, locations_overage_price_cents FROM accounts WHERE id = ${accountId}::uuid",
+    sqlSnippet: "SELECT subscription_tier, locations_included, locations_paid, locations_overage_price_cents, base_price_cents FROM accounts WHERE id = ${accountId}::uuid",
     reason: "Authenticated flow uses account id as the tenant-root lookup key for this statement.",
   },
   {
@@ -177,7 +177,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/lib/accounts/repo.ts",
     table: "accounts",
-    sqlSnippet: "SELECT id, owner_user_id, display_name, subscription_tier, subscription_status, stripe_customer_id, stripe_subscription_id, trial_ends_at, subscription_activated_at, locations_included, locations_paid, locations_overage_price_cents, flags, created_at, updated_at FROM accounts WHERE id = ${accountId}::uuid",
+    sqlSnippet: "SELECT id, owner_user_id, display_name, subscription_tier, subscription_status, stripe_customer_id, stripe_subscription_id, trial_ends_at, subscription_activated_at, locations_included, locations_paid, locations_overage_price_cents, base_price_cents, flags, created_at, updated_at FROM accounts WHERE id = ${accountId}::uuid",
     reason: "Authenticated flow uses account id as the tenant-root lookup key for this statement.",
   },
   {
@@ -232,7 +232,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     file: "src/lib/admin/margin-service.ts",
     table: "accounts",
     sqlSnippet: `SELECT a.id, a.display_name, a.subscription_tier, a.subscription_status,
-             a.locations_included, a.locations_overage_price_cents,
+             a.locations_included, a.locations_overage_price_cents, a.base_price_cents,
              COUNT(b.id) FILTER (WHERE b.archived_at IS NULL)::int AS active_locations
       FROM accounts a
       LEFT JOIN businesses b ON b.account_id = a.id
@@ -244,7 +244,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     file: "src/lib/admin/margin-service.ts",
     table: "businesses",
     sqlSnippet: `SELECT a.id, a.display_name, a.subscription_tier, a.subscription_status,
-             a.locations_included, a.locations_overage_price_cents,
+             a.locations_included, a.locations_overage_price_cents, a.base_price_cents,
              COUNT(b.id) FILTER (WHERE b.archived_at IS NULL)::int AS active_locations
       FROM accounts a
       LEFT JOIN businesses b ON b.account_id = a.id
@@ -753,13 +753,13 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/background/pollers/StripeLocationsReconcilePoller.ts",
     table: "accounts",
-    sqlSnippet: "SELECT a.id, a.subscription_tier, a.subscription_status, a.stripe_customer_id, a.stripe_subscription_id, a.locations_included, a.locations_overage_price_cents, a.past_due_at, a.flags, COUNT(b.id) AS active_location_count FROM accounts a LEFT JOIN businesses b ON b.account_id = a.id AND b.archived_at IS NULL WHERE a.subscription_status IN (${SubscriptionStatus.ACTIVE}, ${SubscriptionStatus.PAST_DUE}) GROUP BY a.id, a.subscription_tier, a.subscription_status, a.stripe_customer_id, a.stripe_subscription_id, a.locations_included, a.locations_overage_price_cents, a.past_due_at, a.flags",
+    sqlSnippet: "SELECT a.id, a.subscription_tier, a.subscription_status, a.stripe_customer_id, a.stripe_subscription_id, a.locations_included, a.locations_overage_price_cents, a.base_price_cents, a.past_due_at, a.flags, COUNT(b.id) AS active_location_count FROM accounts a LEFT JOIN businesses b ON b.account_id = a.id AND b.archived_at IS NULL WHERE a.subscription_status IN (${SubscriptionStatus.ACTIVE}, ${SubscriptionStatus.PAST_DUE}) GROUP BY a.id, a.subscription_tier, a.subscription_status, a.stripe_customer_id, a.stripe_subscription_id, a.locations_included, a.locations_overage_price_cents, a.base_price_cents, a.past_due_at, a.flags",
     reason: "Background scheduler or poller intentionally scans tenant rows globally before enqueueing scoped work.",
   },
   {
     file: "worker/background/pollers/StripeLocationsReconcilePoller.ts",
     table: "businesses",
-    sqlSnippet: "SELECT a.id, a.subscription_tier, a.subscription_status, a.stripe_customer_id, a.stripe_subscription_id, a.locations_included, a.locations_overage_price_cents, a.past_due_at, a.flags, COUNT(b.id) AS active_location_count FROM accounts a LEFT JOIN businesses b ON b.account_id = a.id AND b.archived_at IS NULL WHERE a.subscription_status IN (${SubscriptionStatus.ACTIVE}, ${SubscriptionStatus.PAST_DUE}) GROUP BY a.id, a.subscription_tier, a.subscription_status, a.stripe_customer_id, a.stripe_subscription_id, a.locations_included, a.locations_overage_price_cents, a.past_due_at, a.flags",
+    sqlSnippet: "SELECT a.id, a.subscription_tier, a.subscription_status, a.stripe_customer_id, a.stripe_subscription_id, a.locations_included, a.locations_overage_price_cents, a.base_price_cents, a.past_due_at, a.flags, COUNT(b.id) AS active_location_count FROM accounts a LEFT JOIN businesses b ON b.account_id = a.id AND b.archived_at IS NULL WHERE a.subscription_status IN (${SubscriptionStatus.ACTIVE}, ${SubscriptionStatus.PAST_DUE}) GROUP BY a.id, a.subscription_tier, a.subscription_status, a.stripe_customer_id, a.stripe_subscription_id, a.locations_included, a.locations_overage_price_cents, a.base_price_cents, a.past_due_at, a.flags",
     reason: "Background scheduler or poller intentionally scans tenant rows globally before enqueueing scoped work.",
   },
   {
@@ -1293,7 +1293,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/app/api/onboarding/select-plan/route.ts",
     table: "accounts",
-    sqlSnippet: "UPDATE accounts SET subscription_tier = ${tier}, locations_included = ${tierConfig?.included ?? 1}, locations_overage_price_cents = ${tierConfig?.overageCents ?? 2500}, updated_at = NOW() WHERE id = (SELECT account_id FROM businesses WHERE id = ${businessId}::uuid) AND subscription_status = ${SubscriptionStatus.PENDING_PAYMENT}",
+    sqlSnippet: "UPDATE accounts SET subscription_tier = ${tier}, locations_included = ${tierConfig?.included ?? 1}, locations_overage_price_cents = ${tierConfig?.overageCents ?? 2500}, base_price_cents = ${tierConfig?.baseCents ?? 7900}, updated_at = NOW() WHERE id = (SELECT account_id FROM businesses WHERE id = ${businessId}::uuid) AND subscription_status = ${SubscriptionStatus.PENDING_PAYMENT}",
     reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
   },
   {
@@ -1605,7 +1605,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/app/api/onboarding/select-plan/route.ts",
     table: "businesses",
-    sqlSnippet: "UPDATE accounts SET subscription_tier = ${tier}, locations_included = ${tierConfig?.included ?? 1}, locations_overage_price_cents = ${tierConfig?.overageCents ?? 2500}, updated_at = NOW() WHERE id = (SELECT account_id FROM businesses WHERE id = ${businessId}::uuid) AND subscription_status = ${SubscriptionStatus.PENDING_PAYMENT}",
+    sqlSnippet: "UPDATE accounts SET subscription_tier = ${tier}, locations_included = ${tierConfig?.included ?? 1}, locations_overage_price_cents = ${tierConfig?.overageCents ?? 2500}, base_price_cents = ${tierConfig?.baseCents ?? 7900}, updated_at = NOW() WHERE id = (SELECT account_id FROM businesses WHERE id = ${businessId}::uuid) AND subscription_status = ${SubscriptionStatus.PENDING_PAYMENT}",
     reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
   },
   {
