@@ -98,4 +98,16 @@ describe('DemoStatusIsland', () => {
     expect(screen.getByText(/this demo link has expired/i)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /book a demo/i })).toHaveAttribute('href', '/book-a-demo');
   });
+
+  it('loading variant omits the business name heading when not provided', () => {
+    render(createElement(DemoStatusIsland, { variant: 'loading', selfServeEnabled: false }));
+    expect(screen.queryByRole('heading')).not.toBeInTheDocument();
+    expect(screen.getByText(/being generated/i)).toBeInTheDocument();
+  });
+
+  it('error variant body copy omits the business name when not provided', () => {
+    render(createElement(DemoStatusIsland, { variant: 'error', selfServeEnabled: false }));
+    expect(screen.queryByText(/for undefined/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/something went wrong/i)).toBeInTheDocument();
+  });
 });

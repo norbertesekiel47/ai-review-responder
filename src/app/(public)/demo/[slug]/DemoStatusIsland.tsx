@@ -13,6 +13,7 @@ interface DemoStatusIslandProps {
   variant: DemoStatusVariant;
   /** Shown for loading/error; absent for expired (no demo row to name). */
   businessName?: string;
+  /** Forwarded to SiteNav to show/hide the owner sign-up link. */
   selfServeEnabled: boolean;
 }
 
@@ -43,7 +44,11 @@ export function DemoStatusIsland({ variant, businessName, selfServeEnabled }: De
   return (
     <PageShell sections={[]}>
       <SiteNav selfServeEnabled={selfServeEnabled} />
-      <div role="status" className="px-8 py-20 md:py-28 flex flex-col items-center text-center">
+      <div
+        role={variant === 'loading' ? 'status' : undefined}
+        aria-label={variant === 'loading' ? 'Demo generation status' : undefined}
+        className="px-8 py-20 md:py-28 flex flex-col items-center text-center"
+      >
         {variant === 'loading' ? (
           <LoadingBody businessName={businessName} />
         ) : (
