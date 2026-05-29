@@ -97,7 +97,7 @@ export default function ConnectPage() {
       <div className="content">
         <div className="banner banner-red" role="alert">
           <div>
-            <div className="b-title">Couldn't load this page</div>
+            <div className="b-title">Couldn&apos;t load this page</div>
             <div className="b-sub">{error}</div>
           </div>
         </div>
