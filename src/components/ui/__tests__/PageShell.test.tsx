@@ -16,4 +16,12 @@ describe('PageShell', () => {
     expect(html).toContain('max-w-md');
     expect(html).not.toContain('max-w-5xl');
   });
+
+  it('renders dot-nav buttons as type="button" so they never submit a wrapping form', () => {
+    const html = renderToStaticMarkup(
+      <PageShell sections={[{ ref: { current: null }, label: 'Top' }]}>x</PageShell>,
+    );
+    expect(html).toContain('aria-label="Go to Top"');
+    expect(html).toContain('type="button"');
+  });
 });
