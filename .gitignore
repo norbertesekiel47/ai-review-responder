@@ -80,6 +80,7 @@ screenshot.png
 
 # git worktrees (isolated workspaces for parallel feature work)
 .worktrees/
+.claude/worktrees/
 
 # Local tooling cache (not for commit)
 .fallow/
