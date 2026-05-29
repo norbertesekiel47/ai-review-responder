@@ -2226,9 +2226,19 @@
   background: #fff; border-radius: 20px;
   border: 1px solid rgba(151,179,174,0.18);
   overflow: hidden;
+  /* Horizontal scroll on narrow viewports; overflow-y stays hidden so the
+     rounded corners keep clipping. Keeps the 5-col grid legible instead of
+     crushing it below readability. */
+  overflow-x: auto;
   box-shadow: 0 10px 24px -14px rgba(42,42,42,0.08);
 }
-.pr-matrix-grid { display: grid; grid-template-columns: 1.6fr 1fr 1fr 1fr 1fr; }
+.pr-matrix:focus-visible {
+  outline: 2px solid var(--rw-teal); outline-offset: 2px;
+}
+.pr-matrix-grid {
+  display: grid; grid-template-columns: 1.6fr 1fr 1fr 1fr 1fr;
+  min-width: 720px;
+}
 .pr-matrix-row { display: contents; }
 .pr-matrix-cell {
   padding: 16px 20px;
@@ -2366,7 +2376,8 @@
   .pr-plans { grid-template-columns: 1fr; max-width: 440px; }
   .pr-calc-grid { grid-template-columns: 1fr; gap: 28px; }
   .pr-calc { padding: 28px 22px; }
-  .pr-matrix-grid { font-size: 12px; }
+  /* Matrix no longer shrinks to an illegible 12px here — it keeps the 13px
+     from the <=1100px rule and scrolls horizontally below its 720px min-width. */
   .pr-cta { padding: 48px 24px 56px; border-radius: 0 0 2rem 2rem; }
   .pr-cta h2 { font-size: 28px; }
 }
