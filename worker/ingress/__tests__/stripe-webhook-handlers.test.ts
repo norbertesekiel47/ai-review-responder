@@ -326,6 +326,9 @@ describe('customer.subscription.updated — two-item subscription', () => {
     );
     expect(updateAcct).toBeDefined();
     expect(updateAcct!.text).toContain('locations_included');
+    expect(updateAcct!.text).toContain('base_price_cents');
+    // tier changed standard -> premium, so the premium base (19900) is bound
+    expect(updateAcct!.values).toContain(19900);
     expect(updateAcct!.values).toContain('premium');
     expect(updateAcct!.values).toContain(2);
     expect(updateAcct!.values).toContain(5);
@@ -361,6 +364,7 @@ describe('customer.subscription.updated — two-item subscription', () => {
     );
     expect(updateAcct).toBeDefined();
     expect(updateAcct!.text).toMatch(/locations_included\s*=\s*CASE\s+WHEN\s+\?\s+THEN\s+\?\s+ELSE\s+locations_included\s+END/);
+    expect(updateAcct!.text).toMatch(/base_price_cents\s*=\s*CASE\s+WHEN\s+\?\s+THEN\s+\?\s+ELSE\s+base_price_cents\s+END/);
     expect(updateAcct!.values).toContain(false);
     expect(updateAcct!.values).toContain(4);
   });

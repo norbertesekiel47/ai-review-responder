@@ -70,6 +70,7 @@ export async function processSubscriptionUpdated(sub: Stripe.Subscription): Prom
         subscription_tier = ${tier},
         locations_paid = ${locationsPaid},
         locations_included = CASE WHEN ${tierChanged} THEN ${TIER_CONFIG[tier].included} ELSE locations_included END,
+        base_price_cents = CASE WHEN ${tierChanged} THEN ${TIER_CONFIG[tier].baseCents} ELSE base_price_cents END,
         updated_at = NOW()
       WHERE id = ${acctRow.id}::uuid
     `;
