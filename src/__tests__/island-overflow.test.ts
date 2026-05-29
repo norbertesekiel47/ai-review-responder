@@ -28,9 +28,9 @@ const ISLAND_ROOTS = [
 // `rw-island-in` keyframe; the non-greedy body stops at the first closing brace
 // (these blocks have no nested braces).
 function extractIslandRules(css: string): string[] {
-  const blocks = [
-    ...css.matchAll(/\.rw-island(?![\w-])\s*\{([\s\S]*?)\}/g),
-  ].map((match) => match[1]);
+  const blocks = [...css.matchAll(/\.rw-island(?![\w-])\s*\{([\s\S]*?)\}/g)]
+    .map((match) => match[1])
+    .filter((block): block is string => block !== undefined);
   if (blocks.length === 0) {
     throw new Error('.rw-island rule block not found');
   }
