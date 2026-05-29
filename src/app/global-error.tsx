@@ -104,6 +104,7 @@ export default function GlobalError({
               Try again
             </button>
             <p style={{ fontSize: '0.8125rem', color: '#6a6a6a', marginTop: '1.25rem' }}>
+              {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- root error boundary renders its own <html> outside the router; a full-document navigation re-bootstraps the crashed app */}
               <a href="/" style={{ color: '#97B3AE' }}>
                 Go to RepWorth home
               </a>
@@ -116,7 +117,7 @@ export default function GlobalError({
               <p
                 style={{
                   fontSize: '0.75rem',
-                  color: '#9CA3AF',
+                  color: '#6B7280',
                   marginTop: '0.75rem',
                   fontFamily: 'monospace',
                 }}

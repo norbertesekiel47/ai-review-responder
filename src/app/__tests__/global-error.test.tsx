@@ -22,7 +22,20 @@ describe('GlobalError', () => {
   let consoleError: ReturnType<typeof vi.spyOn>;
   beforeEach(() => {
     vi.clearAllMocks();
-    consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const original = console.error.bind(console);
+    consoleError = vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+      const first = args[0];
+      // Swallow only the expected <html>/<body>-in-<div> nesting warning React
+      // logs when this root boundary is rendered into the test container; let
+      // any other console.error through so real problems still surface.
+      if (
+        typeof first === 'string' &&
+        /cannot be a child|cannot appear|validateDOMNesting|<html>|<body>/i.test(first)
+      ) {
+        return;
+      }
+      original(...(args as Parameters<typeof console.error>));
+    });
   });
   afterEach(() => {
     consoleError.mockRestore();
