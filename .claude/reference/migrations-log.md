@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **053** — next migration is **054**
+Current head: **054** — next migration is **055**
 All tables use UUIDv7 (time-ordered primary keys).
 
 ## Migration Log
@@ -350,6 +350,19 @@ All tables use UUIDv7 (time-ordered primary keys).
   relation** (`conname` is unique only per-table). No enum/CHECK previously
   existed on `users.role` (bare `VARCHAR(20)`); role had been app-enforced only.
   Additive + re-runnable. Completes #43's runtime removal at the DB layer.
+
+- **054** — `accounts.base_price_cents` founders price-lock (launch-ready-part1
+  item 4). **Adds** nullable `base_price_cents` (INTEGER), backfills existing rows
+  per current tier from `TIER_CONFIG` base prices (basic 2900 / standard 7900 /
+  premium 19900 / founders 1900; `WHERE base_price_cents IS NULL`, so re-running
+  is a no-op), then `SET DEFAULT 7900` (mirrors `subscription_tier DEFAULT
+  'standard'`) and `SET NOT NULL`, plus a non-negative CHECK
+  (`accounts_base_price_cents_nonneg`, guarded idempotently by a `pg_constraint`
+  lookup **scoped to the accounts relation**). Closes CLAUDE.md #9a's lone
+  un-stored exception: base price is now grandfathered/point-in-time like
+  `locations_included` / `locations_overage_price_cents`, read in
+  `currentBillingSnapshot`, `monthlyMrrCents`, and `expectedInvoiceForAccount`.
+  Additive + re-runnable.
 
 ## Key Tables Reference
 
