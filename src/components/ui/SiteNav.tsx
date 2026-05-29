@@ -35,7 +35,7 @@ export function SiteNav({ comingSoon = false, selfServeEnabled = false }: SiteNa
           <Link
             key={label}
             href={href}
-            className="text-sm text-[#6a6a6a] hover:text-[#97B3AE] transition-colors"
+            className="text-sm text-[#6a6a6a] hover:text-[#97B3AE] transition-colors rounded focus-visible:outline-2 focus-visible:outline-[#97B3AE] focus-visible:outline-offset-2"
           >
             {label}
           </Link>
@@ -46,13 +46,13 @@ export function SiteNav({ comingSoon = false, selfServeEnabled = false }: SiteNa
         <div className="flex items-center gap-3">
           <Link
             href="/login"
-            className="text-sm text-[#6a6a6a] hover:text-[#97B3AE] transition-colors"
+            className="text-sm text-[#6a6a6a] hover:text-[#97B3AE] transition-colors rounded focus-visible:outline-2 focus-visible:outline-[#97B3AE] focus-visible:outline-offset-2"
           >
             Log in
           </Link>
           <Link
             href="/signup"
-            className="text-sm bg-[#97B3AE] text-white px-4 py-2 rounded-full hover:bg-[#97B3AE]/90 transition-colors"
+            className="text-sm bg-[#97B3AE] text-white px-4 py-2 rounded-full hover:bg-[#97B3AE]/90 transition-colors focus-visible:outline-2 focus-visible:outline-[#97B3AE] focus-visible:outline-offset-2"
           >
             Sign up
           </Link>

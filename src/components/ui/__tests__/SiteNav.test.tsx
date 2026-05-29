@@ -30,4 +30,9 @@ describe('SiteNav', () => {
     expect(html).toContain('Log in');
     expect(html).toContain('Sign up');
   });
+
+  it('gives nav links a teal focus-visible ring', () => {
+    const html = renderToStaticMarkup(createElement(SiteNav));
+    expect(html).toContain('focus-visible:outline-[#97B3AE]');
+  });
 });
