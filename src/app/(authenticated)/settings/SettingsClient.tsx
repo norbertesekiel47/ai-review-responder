@@ -76,6 +76,7 @@ export function SettingsClient({ locationsSettingsEnabled, multiLocationEnabled 
       activeTab={activeTab}
       locationsSettingsEnabled={locationsSettingsEnabled}
       savedFlash={f.savedFlash}
+      saveError={f.saveError ?? undefined}
       saveBar={{
         visible: f.dirty,
         dirtyCount: f.dirtyCount,
