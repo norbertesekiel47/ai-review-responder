@@ -126,7 +126,8 @@ describe('SiteNav', () => {
       const html = renderToStaticMarkup(createElement(SiteNav, { selfServeEnabled: true }));
       // SSR markup (panel is client-only/closed) renders 7 controls:
       // logo + 3 desktop nav links + Log in + Sign up + hamburger.
-      const occurrences = (html.match(/focus-visible:ring-2/g) || []).length;
+      // Uses the canonical teal outline treatment shared with PR #174 (P1 #18).
+      const occurrences = (html.match(/focus-visible:outline-\[#97B3AE\]/g) || []).length;
       expect(occurrences).toBe(7);
     });
 
