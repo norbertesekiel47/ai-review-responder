@@ -8,6 +8,7 @@ import {
 import { locationsKey } from '@/lib/zernio/connect-state';
 import type { ConnectLocationsBlob } from '@/lib/zernio/types';
 import { LocationPicker } from './LocationPicker';
+import { TopBar } from '@/components/dashboard/TopBar';
 
 export const dynamic = 'force-dynamic';
 
@@ -64,5 +65,14 @@ export default async function SelectLocationPage() {
     redirect('/dashboard/connect?error=no_locations');
   }
 
-  return <LocationPicker locations={blob.locations} />;
+  return (
+    <>
+      <TopBar
+        title="Connect Google Business"
+        subtitle="Select location"
+        rightLink={{ href: '/dashboard', label: 'Back to dashboard' }}
+      />
+      <LocationPicker locations={blob.locations} />
+    </>
+  );
 }
