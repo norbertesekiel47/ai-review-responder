@@ -51,6 +51,10 @@
   --rw-app-text-muted:  #6B7280;  /* gray-500 */
   --rw-app-text-soft:   #9CA3AF;  /* gray-400 */
 
+  /* App layout — sidebar width. The sticky save-bar's `left` offset derives
+     from this token so the two can never drift (M6). */
+  --rw-sidebar-width:   240px;
+
   --rw-blue-600:   #2563EB;  /* primary CTA, chart bars, active links */
   --rw-blue-700:   #1D4ED8;  /* hover */
   --rw-blue-500:   #3B82F6;  /* focus ring, accent border */

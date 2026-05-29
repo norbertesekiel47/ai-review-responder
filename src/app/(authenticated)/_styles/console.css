@@ -20,8 +20,8 @@
 }
 
 .sidebar {
-  width: 240px;
-  flex: 0 0 240px;
+  width: var(--rw-sidebar-width);
+  flex: 0 0 var(--rw-sidebar-width);
   position: sticky;
   top: 0;
   align-self: flex-start;
