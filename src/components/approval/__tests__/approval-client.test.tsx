@@ -123,4 +123,61 @@ describe('ApprovalClient', () => {
       screen.getByRole('link', { name: /contact support/i }),
     ).toHaveAttribute('href', '/help/contact');
   });
+
+  it('keeps the review visible with an inline alert when an action fails', async () => {
+    stubFetch({
+      ok: false,
+      status: 409,
+      body: { error: 'This response has already been approved.' },
+    });
+    render(<ApprovalClient token="raw-token" />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Approve' }));
+
+    // Inline error banner appears...
+    expect(
+      await screen.findByText('This response has already been approved.'),
+    ).toBeInTheDocument();
+    // ...but the review + actions stay on screen (not replaced by the full error island).
+    expect(screen.getByText(/Alex/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Approve' })).toBeInTheDocument();
+  });
+
+  it('shows a neutral Archived badge for archived locations', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/session')) {
+        return { ok: true, status: 200, json: async () => ({}) } as Response;
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ ...REVIEW_DATA, isArchived: true }),
+      } as Response;
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<ApprovalClient token="raw-token" />);
+
+    expect(await screen.findByText('Archived')).toBeInTheDocument();
+  });
+
+  it('saves an edited response and shows the success state', async () => {
+    stubFetch({
+      ok: true,
+      status: 200,
+      body: { success: true, message: "Response approved with your edits! We'll post it to Google shortly." },
+    });
+    render(<ApprovalClient token="raw-token" />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+    fireEvent.change(screen.getByLabelText('Edit your response'), {
+      target: { value: 'Thank you so much, Alex!' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save & Approve' }));
+
+    expect(await screen.findByText('Response approved!')).toBeInTheDocument();
+    expect(
+      screen.getByText("Response approved with your edits! We'll post it to Google shortly."),
+    ).toBeInTheDocument();
+  });
 });
