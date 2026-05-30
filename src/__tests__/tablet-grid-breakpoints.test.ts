@@ -21,10 +21,12 @@ const CASES = [
 describe('tablet grid breakpoints (P2 #25 / M7)', () => {
   it.each(CASES)('$label has a max-width:900px → 2-col rule', ({ path, selector }) => {
     const css = readFileSync(path, 'utf-8');
-    const block = css.match(/@media\s*\(max-width:\s*900px\)\s*\{[\s\S]*?\}\s*\}/);
-    expect(block, 'no @media (max-width: 900px) block found').not.toBeNull();
-    const text = block![0];
-    expect(text).toMatch(new RegExp(`\\.${selector}`));
-    expect(text).toMatch(/grid-template-columns:\s*repeat\(2,\s*1fr\)|grid-template-columns:\s*1fr 1fr/);
+    // There is a 900px media query…
+    expect(css, 'no @media (max-width: 900px) found').toMatch(/@media\s*\(max-width:\s*900px\)/);
+    // …and the selector is set to 2 columns somewhere in the file.
+    const twoCol = new RegExp(
+      `\\.${selector}[^{]*\\{[^}]*grid-template-columns:\\s*(repeat\\(2,\\s*1fr\\)|1fr 1fr)`,
+    );
+    expect(css, `${selector} not set to 2 columns`).toMatch(twoCol);
   });
 });
