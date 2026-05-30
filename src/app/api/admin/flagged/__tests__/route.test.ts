@@ -110,11 +110,13 @@ describe('GET /api/admin/flagged', () => {
         version: 1, reviewer_name: 'Jane', star_rating: 2, business_name: 'Bella Italia',
       },
     ]);
+    mockSql.mockResolvedValueOnce([{ total: 1 }]);
 
     const res = await GET(getReq());
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { flagged: Array<Record<string, unknown>> };
+    const body = (await res.json()) as { flagged: Array<Record<string, unknown>>; total: number };
     expect(body.flagged).toHaveLength(1);
+    expect(body.total).toBe(1);
     expect(body.flagged[0]).toMatchObject({
       id: 'flag-1',
       responseId: 'resp-1',
