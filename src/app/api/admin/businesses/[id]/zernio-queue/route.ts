@@ -201,7 +201,9 @@ async function dismiss(businessId: string, responseId: string, adminId: string):
         eventType: 'zernio_queue_response_dismissed',
         entityType: 'response',
         entityId: responseId,
-        payload: { response_id: responseId },
+        // entityId already records the response; carry the location so the
+        // audit row is self-describing without a join back to responses.
+        payload: { business_id: businessId },
       },
       tx,
     );

@@ -165,7 +165,7 @@ describe('POST /api/admin/businesses/[id]/zernio-queue', () => {
         eventType: 'zernio_queue_response_dismissed',
         entityType: 'response',
         entityId: RESPONSE_ID,
-        payload: { response_id: RESPONSE_ID },
+        payload: { business_id: BUSINESS_ID },
       }),
       mockTx,
     );
@@ -186,6 +186,7 @@ describe('POST /api/admin/businesses/[id]/zernio-queue', () => {
     const { POST } = await import('../route');
     const res = await POST(req({ action: 'dismiss', responseId: RESPONSE_ID }), ctx);
     expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, action: 'dismiss' });
   });
 
   it('400 when dismiss is missing responseId', async () => {
