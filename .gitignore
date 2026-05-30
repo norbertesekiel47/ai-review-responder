@@ -82,6 +82,9 @@ screenshot.png
 .worktrees/
 .claude/worktrees/
 
+# Supabase CLI local artifacts (link state / temp files — per-machine, not shared)
+supabase/.temp/
+
 # Local tooling cache (not for commit)
 .fallow/
 
