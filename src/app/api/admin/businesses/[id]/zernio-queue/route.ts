@@ -117,6 +117,9 @@ async function forceDrain(businessId: string, adminId: string): Promise<number> 
       FOR UPDATE OF zc
     `;
     const conn = connRows[0];
+    // Only an 'active' connection can publish. 'pending'/'disconnected' (or no
+    // row) would just re-park everything, so drain is refused until the owner
+    // reconnects — do NOT relax this to `!== 'disconnected'`.
     if (!conn || conn.status !== 'active') {
       throw new QueueActionError(409, 'connection_not_active');
     }
@@ -131,9 +134,11 @@ async function forceDrain(businessId: string, adminId: string): Promise<number> 
       throw new QueueActionError(409, 'queue_empty');
     }
 
-    // Re-run the SAME drain the reconnect flow fires (finalize-tx.ts). The
-    // DrainOwnerConnectWorker is idempotent, so repeat clicks are harmless.
-    const payload = { business_id: businessId, kind: 'drain', source: 'admin_force_drain' };
+    // Re-run the SAME drain the reconnect flow fires — payload matches
+    // finalize-tx.ts byte-for-byte (the one authoritative producer shape). The
+    // DrainOwnerConnectWorker is idempotent, so repeat clicks are harmless; the
+    // admin origin of this drain is recorded in the account_audit_log below.
+    const payload = { business_id: businessId, kind: 'drain' };
     await tx`
       INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, attempts, max_attempts)
       VALUES (${uuidv7()}, 'drain_pending_owner_connect', 'business', ${businessId}, ${jsonb(payload)}, 0, 5)

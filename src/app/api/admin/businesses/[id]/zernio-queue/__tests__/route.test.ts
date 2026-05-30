@@ -106,6 +106,14 @@ describe('POST /api/admin/businesses/[id]/zernio-queue', () => {
     expect(await res.json()).toEqual({ error: 'connection_not_active' });
   });
 
+  it('409 connection_not_active when the connection is pending (not active)', async () => {
+    txResults.push([{ status: 'pending', account_id: ACCOUNT_ID }]); // present but not active
+    const { POST } = await import('../route');
+    const res = await POST(req({ action: 'force_drain' }), ctx);
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: 'connection_not_active' });
+  });
+
   it('409 queue_empty when nothing is parked', async () => {
     txResults.push([{ status: 'active', account_id: ACCOUNT_ID }]); // connection
     txResults.push([{ stuck_count: 0 }]); // count
