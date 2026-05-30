@@ -182,8 +182,11 @@ export function PaymentSuccessClient({
               Still processing...
             </h1>
             <p className="text-[#6a6a6a]">
-              This is taking longer than usual. Please contact support if it
-              persists.
+              This is taking longer than usual. Please{' '}
+              <a href="mailto:support@repworth.com" className="text-[#97B3AE] underline">
+                contact support
+              </a>{' '}
+              if it persists.
             </p>
           </>
         ) : (
