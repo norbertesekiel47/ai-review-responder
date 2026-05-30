@@ -4565,3 +4565,67 @@ Each PR's full unit suite + `typecheck` + `build` + `ci:tenant-scope` are green 
 **Lessons captured** (`.claude/skills/lab-notes.md`, 2026-05-26 Wave 3): structured logging must fail open (never throw from a log call); bind log context once at the BullMQ registration boundary, not per handler; moderation must fail open (provider error → local decision, never silently approve); hold high-severity unsafe drafts by skipping notification in the SAME tx as response persist (no-auto-posting stays atomic); a long-lived audit FK (`flagged_responses.api_cost_id`) needs `ON DELETE SET NULL` so it can't block the `api_costs` prune; untrusted values in a delimited prompt block must be escaped or a `</review>` breaks out; a stale `.next/` after branch-switching breaks `typecheck` until cleared.
 
 ---
+
+## Launch Readiness — Production Audit + Fix Sweep (2026-05-28 → 2026-05-29, PRs #152–#186)
+
+**Status:** Code-side launch-readiness work COMPLETE on `main`. `pnpm lint` is 0-warning, `typecheck`/`build` green, the unit suite grew past **4500 tests**, and CI is green on `main`. What remains is **operational** (prod secrets, drills, flag flips), not code.
+
+**Why:** Before opening GA / self-serve signup we ran a full-codebase readiness audit in two parts and then closed every code-side gap it surfaced. The two audit docs are the source of truth and carry the ✅/🟡 status per item:
+- `docs/launch-ready-part1.md` — backend / infra / ops / test-coverage / architecture-invariant audit (commands actually run on `main`).
+- `docs/launch-ready-part2.md` — all 57 frontend pages audited against the RepWorth brand-design system (design consistency, mobile, placeholders, accessibility).
+- `docs/known-issues.md` — the multi-location channel-enrollment desync registry (now resolved for Telegram/WhatsApp + admin SMS; dispatcher branch resolved in #133).
+
+The headline finding held: **every safety-critical architecture invariant still HOLDS in code** — most importantly the enforced no-auto-posting gate. The work below is polish, hardening, and closing hidden-config / off-brand gaps.
+
+### Part 1 — Backend / infra / ops (PRs #152–#158, building on #132/#133/#135)
+
+| PR | What shipped |
+|---|---|
+| #132/#133/#135 | **Multi-location channel-enrollment account-scope fixes** (resolved in `docs/known-issues.md`): admin SMS lock + cross-channel precheck + SMS-row scope (#135); dispatcher failure-branch writes account-scoped (#133); admin per-business channel status read surfaces org-default rows (#132). |
+| #152 | Pricing copy bug fixed ("Multiple approval notification channels" — dropped *", if implemented"*); **PII removed from `console.log`** in contact/demo routes + all four schedulers switched to `createWorkerLogger`. |
+| #153 | **`OutboxPoller` test** added (watchdog reset, dispatch, attempt-guard, dead-letter). |
+| #154 | **Railway IaC** (`railway.toml`) + **rollback runbook** (`docs/runbooks/rollback.md`) in repo; stale `ADMIN_API_KEY` var/comment removed from `.env.example`. |
+| #155 | **Resend webhook signature accept-path test** (real svix HMAC accept + stale-timestamp reject). |
+| #156 | **Hidden-config closed**: `ADMIN_NOTIFICATION_EMAIL`, `CONTACT_NOTIFY_TO`, `SENTRY_DSN`, `IMPERSONATION_COOKIE_SECRET`, `LIST_UNSUBSCRIBE_EMAIL`, cost circuit-breakers + `STRIPE_PRICE_*` documented in `.env.example` and **boot-hardened** (worker hard-asserts `ADMIN_NOTIFICATION_EMAIL` in prod; the rest warn). These previously **silently dropped** alerts / fell back to a personal Gmail. |
+| #157 | **Migration 054 `accounts.base_price_cents`** — founders price-lock no longer drifts; `quota.ts` + `margin-service.ts` read the stored column instead of live `TIER_CONFIG.baseCents`. Closes migrations-log Residual Risk #4. |
+| #158 | **De-flaked** `worker/jobs/notification/__tests__/bounced-skip.test.ts` — isolated the shared module-level `sqlReturnQueue` per-test and replaced the fixed timeout (root cause: fixture-queue drift under parallel load). |
+
+**Still ops-only (no code blocks them):** rotate `ZERNIO_WEBHOOK_SECRET`, set real prod URLs, Stripe live mode, PITR restore drill, DKIM/SPF/DMARC confirmation, lawyer-review of `/legal/*`, wire `SENTRY_DSN` + `TEST_DATABASE_POOL_URL` into CI, flip `SELF_SERVE_SIGNUP_ENABLED` / `OPENAI_MODERATION_ENABLED` once prerequisites are met.
+
+### Part 2 — Frontend / brand / mobile / accessibility (PRs #159–#183)
+
+The audit found three visual languages; only the marketing island was on-brand. The fix sweep brought the **conversion funnel, approval loop, MFA, demo, auth utility pages, and the Console amber bleed-through** onto the island/Console systems, and closed the mobile + a11y gaps.
+
+| PR | What shipped |
+|---|---|
+| #159 | Pricing matrix scrolls on mobile (`overflow-x:auto` + `min-width`, keyboard-scrollable region). |
+| #160 | **MFA page** rebuilt as a branded island; iOS input zoom fixed (≥16px) + `pattern="[0-9]*"`; `aria-live`/`role=alert`; support-recovery link on dead-ends. |
+| #161 | **Removed `overflow:hidden`** from both `.rw-island` roots (real cause was the iOS Safari `overflow:hidden` + `border-radius` + retained `transform` repaint bug, **not** the dot-nav clip the audit assumed); auth `.rw-showcase` self-clips its corners; Vitest contract test locks the rule. |
+| #162 | **Approval loop** rebuilt on the `PageShell` island — action-aware success + recovery CTAs on every error state (shared `ApprovalErrorState`), labeled textarea, inlined icon, `robots:noindex`. |
+| #163 | Branded `(authenticated)/error.tsx` boundary + rebranded `global-error.tsx`; new `.error-state` Console CSS. |
+| #164 | **Prospect demo page** redesigned across all four states (island + `DemoStatusIsland` + branded `not-found.tsx`); replaced the broken in-body `<meta refresh>` with a `router.refresh()` poller; teal CTA → `/book-a-demo`. |
+| #165 | **Conversion funnel** rebuilt on a shared `OnboardingFunnelShell` + cross-page `FunnelStepThread`; reteal'd `ProgressDots`; payment-success acknowledgement (no more silent redirect); 16px inputs; `motion` CTAs. Built brainstorm → spec → plan → subagent-driven TDD. |
+| #166 | `help/contact` + `feedback/thanks` rebuilt on `PageShell` (clickable `mailto:` cards, CTA out of the dead-end, `type="button"` dot-nav hardening). |
+| #169 | **DPA placeholder route removed** (now 404s); misplaced AI-disclosure UI microcopy stripped from **three** legal docs (Terms/Privacy/AUP). |
+| #171 | MobileTabBar active-state via URL-hash tracking; save-bar `left` moved to a shared `--rw-sidebar-width` token. |
+| #172 | `select-location` gets the branded `TopBar` + back link; confirmed VoiceClient already wraps `SettingsShell`. |
+| #173 | **Amber/orange/stone sweep** across owner Console + Admin (19 files + guard test): new `--rw-attn-*` blush tokens, `.banner-orange`→`.banner-attn`, admin amber → admin blue + neutral gray. |
+| #175 | **Mobile nav** — `SiteNav` hamburger → `motion/react` dropdown (closes on tap + Escape, full ARIA). |
+| #176 | SMS "coming soon" made honest + flag-independent; dead owner-UI plumbing removed (SMS enrollment is admin-only). |
+| #177 | `dashboard/connect` (all 8 view states) reskinned onto Console primitives; warm tones removed. |
+| #180 | Per-page metadata across public + auth + legal (`src/lib/seo.ts` `noindexRobots`); fabricated testimonial removed; signup 2-col mobile stack; payment-success timeout support link; admin payment-success polling cleanup. |
+| #181 | **App-wide review-star color → teal** (`--rw-yellow-500`→`--rw-star`); tablet breakpoints (≤900px KPI/stats 2-col); 44×44 tap targets; settings `SettingsSkeleton`; ARIA `aria-current` route-nav semantics; security/legal typography to rubric; QR `<img>` rationale + `SiteNav` logo → `next/image`; `pnpm lint` reaches 0 warnings. |
+| #183 | Remaining yellow polish: domain unified to `.net`, first-run empty-state copy, flagged-queue total count, FinishSignup visible labels, more `aria-live` regions. |
+
+**Intentionally left (by design, not gaps):** Basic/Standard/Premium pricing cards stay "Coming soon" until those tiers open; chart series `#ea580c` is the lone intentional warm remainder; `How-it-works` green success states + legal AI-disclosure prose are P1 polish; GBP API application still gates `EDIT_REPLIES_ENABLED`.
+
+### Finishing PRs (#182, #184, #185, #186)
+
+- **#182** — marked completed code-side items in `docs/launch-ready-part1.md` (audit re-verified against the live tree).
+- **#184** — consolidated the staging guide + deployment runbook into a single self-contained `docs/runbooks/deployment-guide.md`.
+- **#185 — Zernio reconnect-queue admin actions (blocker #23b).** New admin-only `POST /api/admin/businesses/[id]/zernio-queue` (same-origin → admin → AAL2 → Zod → one tx, mirroring `grant-extension`/`flagged`): **force-drain** re-fires `drain_pending_owner_connect` → `DrainOwnerConnectWorker` for all parked responses (gated on `ZERNIO_PUBLISHING_ENABLED` + active connection), and per-response **dismiss** → `superseded` (`posting_error='admin_dismissed_awaiting_connect'`). Both write `account_audit_log` in the same tx. `ZernioConnectionPanel.tsx` gains "Force drain queue" + per-row "Dismiss"; the long-standing `TODO(zernio)` is removed. Invariant #3 preserved (these are post-approval drafts; the publisher subscription guard still applies). Cross-tenant SQL allowlisted; route + component tests added. Built brainstorm → TDD with two-stage review per task.
+- **#186 — External-services catalogue + `.env.example` sync.** Full codebase scan found 119 distinct `process.env.*` reads vs 82 vars in `.env.example`: **34 real app vars were missing** (LLM moderation, SerpAPI, Zernio tuning, `LIST_UNSUBSCRIBE_URL`, poller/scheduler tuning, 7 feature flags, 4 test/CI vars) and **3 were vestigial** (`ENCRYPTION_KEY`/`ENCRYPTION_KEY_VERSION` commented out; `WORKER_SERVICE_URL` retired in favor of `WORKER_PUBLIC_URL`). New canonical doc `docs/eservices-variables.md` maps every external service + the full env-var inventory + a drift report; deep per-flag behavior still lives in `.claude/reference/env-vars.md`.
+
+**Lessons captured** (`.claude/reference/lab-notes.md`, 2026-05-29): the iOS Safari island clip is the `overflow:hidden` + `border-radius` + retained `transform` repaint bug — fix the property, not the assumed sibling clip; a flag-driven "reason swap" on a feature that has no owner-facing path either way (owner SMS) is misleading — show one honest flag-independent message and delete the dead plumbing; an admin "act on stuck items" panel needs a real backend route + status transitions through the outbox, not a frontend-only button. Full per-item status lives in the two `docs/launch-ready-*.md` audit docs.
+
+---

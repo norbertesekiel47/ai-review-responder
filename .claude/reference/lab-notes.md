@@ -17,6 +17,7 @@ Jump to the dated entries by subsystem (search the anchors below):
 - **Moderation / logging** — fail-open moderation, logger-never-throws (incl. AsyncLocalStorage binding for correlation IDs)
 - **CI / tooling** — nested-worktree poisoning, MOCK_EXTERNAL_APIS=false in CI, tenant-scope allowlist drift, comment-backtick extractor false-positive, allowlist file-move orphaning, worktree test-failure vs real regression (verify on the same ref), nested-worktree Edit/Write path leak + concurrent branch/stash churn (explicit `git add`, /tmp patch, re-verify HEAD before commit)
 - **Testing** — vi.hoisted for shared mocks, NextRequest vs Request, relative imports under tsx, compat re-export must shield all consumers (mock-contract)
+- **Frontend / CSS / brand** — iOS Safari rounded-island clip is `overflow:hidden`+`border-radius`+retained `transform` (not a sibling clip), reproduce an audit's CSS cause before trusting it; flag-driven copy swaps on dead-end features mislead; an admin "act on stuck items" panel needs a real outbox-backed route (2026-05-29 launch readiness)
 
 ---
 
@@ -1186,3 +1187,51 @@ local runs from a nested worktree; CLAUDE.md "CI & repo");
 (d) snapshot risky WIP to a `/tmp` patch (`git diff -- <files> > /tmp/x.patch`) so a
 branch switch or stash reorder can't lose it;
 (e) commit small and often rather than holding a large uncommitted WIP.
+
+## 2026-05-29 — Launch readiness (Parts 1 & 2)
+
+### iOS Safari clips the rounded island — `overflow:hidden` + `border-radius` + retained `transform`, NOT the sibling clip the audit assumed
+The launch-ready-part2 audit reported that `.rw-island { overflow:hidden }` was
+clipping the **fixed dot-nav + parallax** on iOS. That diagnosis was wrong: the
+dot-nav and parallax are *siblings* of `.rw-island`, not descendants, so they were
+never inside its clip box. The real bug (PR #161) is the well-known **iOS Safari
+repaint glitch**: a box that has `overflow:hidden` **and** a `border-radius` **and**
+a retained `transform` (the marketing island holds `scale(1)` via a `both`-fill
+animation; the auth island animates `transform` on intro) intermittently fails to
+re-clip its own rounded corners on repaint, so content bleeds past the radius.
+**Correct approach:** fix the *property*, not the assumed sibling. Remove
+`overflow:hidden` from the island root; where a child genuinely needs to clip a
+full-bleed pane (the auth `.rw-showcase` gradient), give *that* child its own
+`border-radius` + `overflow:hidden` so it self-clips. A Vitest contract test
+(`src/__tests__/island-overflow.test.ts`) now asserts no `.rw-island` block — root
+or `@media` — re-declares `overflow:hidden`. Lesson: when an audit hands you a
+plausible CSS cause, reproduce the clip with one variable changed at a time before
+trusting the stated mechanism.
+
+### An admin "act on stuck items" panel needs a real backend route + outbox transitions, not a frontend-only button
+`ZernioConnectionPanel` carried a `TODO(zernio)` for force-drain/dismiss buttons on
+the awaiting-reconnect queue. There was **no backend** to wire them to —
+`awaiting_owner_connect` is only ever *set* by `zernio-publisher.ts`; nothing drained
+or dismissed it on demand. Adding buttons first would have been a dead end. The real
+fix (PR #185, blocker #23b) is an admin-only `POST
+/api/admin/businesses/[id]/zernio-queue` that **force-drain** re-fires the existing
+`drain_pending_owner_connect` → `DrainOwnerConnectWorker` (gated on
+`ZERNIO_PUBLISHING_ENABLED` + active connection) and per-response **dismiss** →
+`superseded` (`posting_error='admin_dismissed_awaiting_connect'`), each writing
+`account_audit_log` in the **same transaction**, mirroring `grant-extension`/`flagged`.
+**Correct approach:** before adding a control to a panel, confirm the state machine
+has a real, audited transition to drive it — and reuse the existing outbox worker
+rather than inventing a second drain path. Invariant #3 stays intact because these
+are post-approval drafts and the publisher's subscription guard still applies.
+
+### A flag-driven "reason swap" on a feature with no owner-facing path either way is misleading — show one honest, flag-independent message
+The owner SMS row swapped its "coming soon" copy based on `CHANNELS_SMS_ENABLED`, but
+there is **no owner self-service SMS path either state** (SMS enrollment is
+admin-only). So flipping the flag changed the *words* without changing what the owner
+could actually do. PR #176 de-scoped owner SMS to post-launch: the row now shows one
+honest, flag-independent "SMS notifications are coming soon", and the dead owner-UI
+plumbing (`smsAvailable()` + `initialAvailability.sms`) was removed. The flag's real
+consumers (worker dispatch, admin enrollment, factory, boot assertion) were left
+untouched. **Correct approach:** a feature flag should gate real behavior; if both
+branches dead-end at the same place, delete the branch and the plumbing rather than
+dressing it up.
