@@ -44,10 +44,11 @@ export function MobileTabBar({ pastRepliesEnabled, editRepliesEnabled = false }:
   const isSettings = pathname.startsWith('/settings');
 
   return (
-    <nav className="mobile-tabbar">
+    <nav className="mobile-tabbar" aria-label="Dashboard">
       <Link
         href="/dashboard"
         className={`mtab ${isHome ? 'active' : ''}`}
+        aria-current={isHome ? 'page' : undefined}
         onClick={() => setHash('')}
       >
         <Icon name="home" size={22} /> Home
@@ -55,17 +56,26 @@ export function MobileTabBar({ pastRepliesEnabled, editRepliesEnabled = false }:
       <Link
         href={`/dashboard${NEEDS_ACTION_HASH}`}
         className={`mtab ${isNeedsAction ? 'active' : ''}`}
+        aria-current={isNeedsAction ? 'page' : undefined}
         onClick={() => setHash(NEEDS_ACTION_HASH)}
       >
         <Icon name="inbox" size={22} /> Needs Action
         {pendingCount > 0 && <span className="nav-badge">{pendingCount}</span>}
       </Link>
       {pastRepliesEnabled && (
-        <Link href="/dashboard/past-replies" className={`mtab ${isHistory ? 'active' : ''}`}>
+        <Link
+          href="/dashboard/past-replies"
+          className={`mtab ${isHistory ? 'active' : ''}`}
+          aria-current={isHistory ? 'page' : undefined}
+        >
           <Icon name="history" size={22} /> History
         </Link>
       )}
-      <Link href="/settings" className={`mtab ${isSettings ? 'active' : ''}`}>
+      <Link
+        href="/settings"
+        className={`mtab ${isSettings ? 'active' : ''}`}
+        aria-current={isSettings ? 'page' : undefined}
+      >
         <Icon name="cog" size={22} /> Settings
       </Link>
     </nav>

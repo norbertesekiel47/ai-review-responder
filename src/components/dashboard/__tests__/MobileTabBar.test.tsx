@@ -102,3 +102,13 @@ describe('MobileTabBar — active tab state (M8)', () => {
     removeSpy.mockRestore();
   });
 });
+
+describe('MobileTabBar — route-nav ARIA (P2 #27)', () => {
+  it('labels the nav and marks the active tab aria-current=page', () => {
+    pathnameMock.mockReturnValue('/dashboard/past-replies');
+    render(<MobileTabBar pastRepliesEnabled />);
+    expect(screen.getByRole('navigation', { name: /dashboard/i })).toBeInTheDocument();
+    expect(linkByName(/history/i)).toHaveAttribute('aria-current', 'page');
+    expect(linkByName(/settings/i)).not.toHaveAttribute('aria-current');
+  });
+});
