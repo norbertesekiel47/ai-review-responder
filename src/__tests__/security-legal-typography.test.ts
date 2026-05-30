@@ -11,7 +11,8 @@ describe('Security + Legal typography rubric (P2 #26)', () => {
   it('security h1 uses the rubric scale and no longer text-3xl', () => {
     const src = readFileSync(SECURITY, 'utf-8');
     expect(src).toMatch(/text-5xl md:text-6xl lg:text-7xl/);
-    expect(src).not.toMatch(/text-3xl/);
+    // Forbid the old non-responsive h1 `text-3xl`, but allow `md:text-3xl` on the h2.
+    expect(src).not.toMatch(/(?<!md:)text-3xl/);
   });
   it('security body uses brand #6a6a6a, not #4a4a4a', () => {
     const src = readFileSync(SECURITY, 'utf-8');
