@@ -106,7 +106,7 @@ Test dynamic imports like `await import('../OnboardingDripScheduler')` stay corr
 
 7. **Update living docs:**
    - `docs/directory.md` — add subsections for `pollers/` and `schedulers/` inside background/
-   - `docs/runbooks/beta-deployment-plan.md:607` — `worker/background/OnboardingDripScheduler.ts` → `worker/background/schedulers/OnboardingDripScheduler.ts`
+   - `docs/runbooks/deployment-guide.md:607` — `worker/background/OnboardingDripScheduler.ts` → `worker/background/schedulers/OnboardingDripScheduler.ts`
 
 8. **Verify — every gate must pass before commit:**
    - `pnpm exec tsc --noEmit` → zero errors.

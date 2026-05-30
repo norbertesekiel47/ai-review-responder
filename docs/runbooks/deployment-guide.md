@@ -1,14 +1,87 @@
-# RepWorth — First Beta Deployment Plan
+# RepWorth — Deployment, Staging & Promotion Guide
 
-**Audience:** solo founder, first prod deploy. Friend's resort GBP is the
-only live business in scope.
+The single source for deploying RepWorth and running it across two environments.
+Two parts:
 
-**Scope:** Vercel (UI) + Railway (worker) + Supabase prod + Upstash Redis,
-running the Zernio ingestion path end-to-end. Self-serve signup, channels
-(SMS / Telegram / WhatsApp), and Stripe billing are deferred — see §0.
+- **Part I — Single-environment deployment recipe** (§0–§13). The step-by-step for
+  standing up **one** environment (Vercel UI + Railway worker + Supabase + Upstash
+  + webhooks) end-to-end. Written as the first production go-live (the friend's
+  resort), but it's the same recipe you run for staging and for prod.
+- **Part II — Staging & production: two environments + promotion** (§II.1–§II.8).
+  Applies Part I twice — staging first, then prod — and defines the ongoing
+  Option-1 release loop.
 
-**Source of truth:** this plan orchestrates existing runbooks. When a
-section says "follow `docs/runbooks/foo.md` §X," do that — don't rewrite.
+> **Why one file:** Part II constantly references Part I's mechanical steps. Note
+> that Part I's section numbers (esp. **§4.1, §5, §10.5, §12.5**) are referenced
+> by `railway.toml` and `rollback.md` — they are stable anchors; don't renumber.
+
+**Source of truth:** this guide orchestrates existing runbooks. When a section
+says "follow `docs/runbooks/foo.md` §X," do that — don't rewrite. `.env.example`
+is the canonical env-var list (overrides any inline list here).
+
+## Decisions baked in (2026-05-29)
+
+- **Option 1 — trunk-based + previews.** `main` is the source of truth; every PR
+  gets an automatic Vercel preview URL; one **persistent staging environment**
+  exists for full-stack/webhook testing; merging to `main` ships production.
+- **Separate Supabase project for staging** — staging never shares a DB with prod.
+- **One Railway project, two environments** (`production` + `staging`).
+
+## Current cloud state (verified 2026-05-29)
+
+- **Vercel — live.** Project `rep-worth` serves `https://repworth.net` (custom
+  domain, Node 24). **Preview deployments already fire automatically** on every
+  push — the per-PR-preview half of Option 1 already works. Caveats: it's on a
+  personal **Hobby** account (non-commercial-use only; isolated per-env vars via
+  Custom Environments need **Pro** — see §II.1).
+- **Railway — worker NOT deployed.** One empty project, a `production` env, zero
+  services. Nothing processes reviews / generates responses / receives webhooks
+  in prod yet — `repworth.net` is a front-end with no backend behind it.
+
+**Consequence:** this is a from-scratch worker stand-up, not "add staging to an
+existing prod." So **build staging first** (Part II §II.2), prove the whole
+pipeline with test creds, then **clone the proven config into production**
+(Part II §II.4).
+
+## Target topology
+
+Two fully isolated slices of the *whole* stack. The only things they share are
+the Git repo, `railway.toml`, and (optionally) the LLM API keys.
+
+| Layer | Production | Staging | Isolation matters because… |
+|---|---|---|---|
+| Vercel (UI) | `main` → `repworth.net` | `staging` branch → `staging.repworth.net` (Custom Env) | per-env vars; previews are separate again |
+| Railway worker | `production` env | `staging` env (same project) | own variables + deploy history |
+| Postgres | prod Supabase project | **separate** staging Supabase project | staging migrations/test data must never touch prod |
+| Redis (cache) | prod Upstash | separate staging Upstash | — |
+| Redis (BullMQ queue) | prod Upstash | **separate** staging Upstash | a staging worker on the prod queue would run prod jobs |
+| Stripe / Resend / Zernio | **live** keys + webhooks → prod worker | **test/sandbox** keys + webhooks → staging worker | exercise real flows without charging cards, emailing real people, or posting to a real GBP |
+| App / worker URLs | `repworth.net` / `worker.repworth.net` | `staging.repworth.net` / free `*.up.railway.app` | webhook signature bases + approval links must match |
+
+## The Option-1 loop
+
+```
+                    ┌─────────────────────────── feature/* branch ──────────────────────────┐
+                    │                                                                        │
+   open PR ─────────▶ Vercel PREVIEW URL (auto, ephemeral)   ← quick FRONTEND check          │
+                    │                                                                        │
+   need full-stack? ─▶ push/merge into `staging` branch                                      │
+                    │        └─▶ Vercel `staging` env  → staging.repworth.net                │
+                    │        └─▶ Railway `staging` env → staging worker + test integrations  │
+                    │            run §9 smoke as needed                                       │
+                    │                                                                        │
+   green? ──────────▶ merge the PR into `main`  ◀── THIS is promotion to prod ───────────────┘
+                             └─▶ Vercel prod    → repworth.net
+                             └─▶ Railway `production` env → prod worker + live integrations
+                    then fast-forward `staging` back onto `main` so it never drifts
+```
+
+**Promotion rule:** code reaches production by **merging the PR into `main`** —
+nothing else. The `staging` branch is an *integration anchor* for the persistent
+staging environment, **not** a promotion gate. You never "merge staging → main."
+A persistent staging env is needed (rather than relying only on per-PR previews)
+because previews are frontend-only and ephemeral — they have no worker, no queue,
+and no webhook endpoints, which is exactly what staging must exercise.
 
 | Reference | Use for |
 |---|---|
@@ -22,6 +95,15 @@ section says "follow `docs/runbooks/foo.md` §X," do that — don't rewrite.
 | `docs/zernio-ingestion-test-report-2026-05-01.md` | what's been verified locally; what's still blocked on real Zernio |
 
 ---
+
+## Part I — Single-environment deployment recipe (the first production go-live)
+
+> Part I stands up **one** environment end-to-end. You run it twice: first for
+> **staging** with test credentials (Part II §II.2), then for **production** with
+> live credentials (Part II §II.4). It reads as the first real production cutover
+> (the friend's resort), so §7–§10 carry the deliberate "one careful first post"
+> discipline that only applies to a live GBP — for staging, substitute a
+> throwaway test business (Part II §II.2.8).
 
 ## §0. What's in this beta — and what isn't
 
@@ -130,6 +212,12 @@ openssl rand -base64 32   # → CSRF_SECRET
 ---
 
 ## §2. Database — apply migrations 001–030
+
+> **Standing up staging, or a fresh prod that mirrors `main`?** Apply the **full**
+> set through the current head (**054**), not just 030 — the "stop at 030" below
+> was the original beta feature-scope. Later migrations may build indexes
+> `CONCURRENTLY` and must run **outside** a transaction; check
+> `.claude/reference/migrations-log.md` for per-migration handling. See §II.2.1.
 
 - [ ] In Supabase prod SQL editor, run each `supabase/migrations/0XX_*.sql` **in numeric order**. Per CLAUDE.md / user feedback memory, Claude does not run these for you — you run them, in the editor, and check the result.
 - [ ] **Skip 031** (`031_edit_existing_replies.sql`) — out of scope, requires non-transactional execution.
@@ -624,3 +712,219 @@ Before you go to bed on deploy day:
 - [ ] Kill switch (§10.5) tested at least mentally — you know exactly what env var to flip and where
 
 If all six are checked, you're shipped.
+
+---
+
+## Part II — Staging & production: two environments + promotion
+
+Part I is the recipe for one environment. Part II applies it twice (staging
+first, then prod) and adds the ongoing release loop. The orientation at the **top
+of this guide** already covers the current cloud state, the target topology, the
+Option-1 loop, and the "build staging first" sequencing — Part II is the
+operational detail.
+
+Cross-references: `rollback.md`, `smoke-test-checklist.md`, and
+`security-scan-staging.md` are separate runbooks (not folded in here);
+"§N" / "§N.M" without a "II" prefix means **Part I**.
+
+## §II.1 Prerequisites & plan decisions (do these once)
+
+- [ ] **Vercel Pro** (~$20/mo). Custom Environments with isolated per-env
+      variables require Pro; Hobby only has Production/Preview/Development scopes
+      and is non-commercial-use only. *Hobby fallback (not recommended):* assign
+      `staging.repworth.net` to the `staging` branch under Settings → Domains and
+      accept that Preview env vars are shared across all preview branches.
+- [ ] **Railway** bills by usage and you'll run two always-on workers — enable
+      **App Sleeping** on the *staging* worker (no real traffic, so idling is free
+      money). Leave the production worker always-on.
+- [ ] **DNS:** add a `staging` CNAME → Vercel (target shown when you attach the
+      domain in §II.2.6). The staging *worker* can use the free Railway
+      `*.up.railway.app` subdomain — no DNS needed for it.
+- [ ] **Google Maps key** is referrer-locked: add `https://staging.repworth.net/*`
+      to the existing `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`'s allowed referrers (or
+      mint a separate staging key), or PlaceAutocomplete silently breaks on staging.
+
+## §II.2 Build staging first (the tracer bullet)
+
+Run **Part I** end-to-end with **test/sandbox** credentials. Below are only the
+staging-specific deltas from Part I's prod recipe.
+
+### §II.2.1 Staging Supabase — separate project
+- Create a new project `repworth-staging`. Apply **all migrations `001`→`054`** in
+  numeric order (Part I §2 shows the SQL-editor procedure + verification queries;
+  ignore its "stop at 030" — that was beta feature-scope). Run any
+  `CREATE INDEX CONCURRENTLY` migrations **outside** a transaction; see
+  `.claude/reference/migrations-log.md`.
+- Capture `DATABASE_URL` (direct, 5432), `DATABASE_POOL_URL` (pooler, 6543,
+  `?pgbouncer=true`), `SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_URL`,
+  `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_KEY`. Seed a staging admin
+  user (Part I §2 last step).
+
+### §II.2.2 Staging Upstash — two separate instances
+- New cache instance → `REDIS_CACHE_URL`; new queue instance → `REDIS_QUEUE_URL`.
+  Both `rediss://` (TLS). **Never** reuse the prod queue instance.
+
+### §II.2.3 Staging integrations — test/sandbox mode
+- **Stripe:** test-mode `STRIPE_SECRET_KEY` (`sk_test_…`); recreate the 7
+  `STRIPE_PRICE_*` in test mode; the test `STRIPE_WEBHOOK_SECRET` comes from the
+  staging endpoint in §II.2.7.
+- **Resend:** a **staging sender** (separate verified subdomain) so staging mail
+  can never reach a real customer; separate `RESEND_WEBHOOK_SECRET`.
+- **Zernio:** sandbox `ZERNIO_API_KEY`, `ZERNIO_API_BASE` = sandbox base if Zernio
+  provides one, and **`ZERNIO_PROFILE_ID_PREFIX=repworth-staging-`** — a hard
+  requirement, not a nicety: it stops staging and prod colliding on Zernio profile
+  names in the same workspace.
+- **LLM:** reusing the prod `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` is fine if you
+  set a **low** staging `GLOBAL_DAILY_COST_LIMIT_CENTS` (e.g. `200` = $2/day) as a
+  circuit breaker. Separate keys give cleaner cost attribution.
+
+### §II.2.4 Staging secrets — generate fresh (never reuse prod)
+A leaked staging secret must never unlock a prod session/token:
+```bash
+openssl rand -hex 32     # ENCRYPTION_KEY   (ENCRYPTION_KEY_VERSION=1)
+openssl rand -base64 32  # SESSION_COOKIE_SECRET
+openssl rand -base64 32  # CSRF_SECRET
+openssl rand -hex 32     # IMPERSONATION_COOKIE_SECRET
+```
+
+### §II.2.5 Railway `staging` environment + worker
+- In the Railway project, create a second environment named **`staging`**
+  (`railway environment new staging`, or the dashboard).
+- Deploy the worker into it from GitHub. `railway.toml` is shared across
+  environments, so `startCommand = pnpm worker`, `healthcheckPath = /api/health`,
+  and the `ON_FAILURE` restart policy already apply — you only set **variables**
+  per environment.
+- Point the staging env's deploy trigger at the **`staging` branch**.
+- Generate a public domain (free `*.up.railway.app` is fine) → this is the staging
+  `WORKER_PUBLIC_URL` **and** `WORKER_SERVICE_URL`.
+- Deploy; confirm the `[startup-assert] … ✓` lines and
+  `curl <stagingWorker>/api/health` → `{"status":"ok",…}`.
+
+### §II.2.6 Vercel `staging` Custom Environment
+- Create a Custom Environment `staging`, deploying from the **`staging` branch**,
+  with its own variable set (the §II.3 matrix).
+- Attach `staging.repworth.net` (+ the CNAME Vercel shows you).
+- Set `NEXT_PUBLIC_APP_URL=https://staging.repworth.net` and both
+  `WORKER_SERVICE_URL` + `WORKER_PUBLIC_URL` to the staging worker URL.
+
+### §II.2.7 Wire staging webhooks → the staging worker
+Point each *test/sandbox* provider at the staging worker (Part I §6 = the exact
+dashboard steps + verification queries): `<stagingWorker>/ingress/stripe`,
+`/ingress/resend`, `/ingress/zernio`. SMS / Telegram / WhatsApp flags are OFF —
+skip their ingress.
+
+### §II.2.8 Prove the whole pipeline on staging
+Run **Part I §9** (or `smoke-test-checklist.md`) end-to-end on staging with a
+**throwaway test business** — never a real GBP: ingest → generate → moderate →
+approval email → approve → publish to a sandbox/test location. When this is
+green, staging is real and you're ready for §II.4.
+
+## §II.3 Staging ↔ production env-var matrix (values that MUST differ)
+
+Everything else from `.env.example` can hold the same shape; **these are wrong if
+they ever match across environments.** Staging column → Vercel `staging` + Railway
+`staging`; prod column → Vercel Production + Railway `production`.
+
+| Var | Staging | Production |
+|---|---|---|
+| `DATABASE_URL` / `DATABASE_POOL_URL` | staging Supabase | prod Supabase |
+| `SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_URL` | staging Supabase | prod Supabase |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_KEY` | staging Supabase | prod Supabase |
+| `REDIS_CACHE_URL` / `REDIS_QUEUE_URL` | staging Upstash ×2 | prod Upstash ×2 |
+| `NEXT_PUBLIC_APP_URL` | `https://staging.repworth.net` | `https://repworth.net` |
+| `WORKER_SERVICE_URL` / `WORKER_PUBLIC_URL` | staging worker URL | prod worker URL |
+| `STRIPE_SECRET_KEY` | `sk_test_…` | `sk_live_…` |
+| `STRIPE_WEBHOOK_SECRET` | staging endpoint secret | prod endpoint secret |
+| `STRIPE_PRICE_*` (×7) | **test-mode** price IDs | live price IDs |
+| `RESEND_API_KEY` / `RESEND_FROM_EMAIL` | staging sender | prod sender |
+| `RESEND_WEBHOOK_SECRET` | staging endpoint secret | prod endpoint secret |
+| `ZERNIO_API_KEY` / `ZERNIO_WEBHOOK_SECRET` | sandbox + staging endpoint | live + prod endpoint |
+| `ZERNIO_PROFILE_ID_PREFIX` | `repworth-staging-` | `repworth-prod-` (default) |
+| `ENCRYPTION_KEY`, `SESSION_COOKIE_SECRET`, `CSRF_SECRET`, `IMPERSONATION_COOKIE_SECRET` | fresh staging values | distinct prod values |
+| `GLOBAL_DAILY_COST_LIMIT_CENTS` | low (e.g. `200`) | real ceiling |
+| `SENTRY_*` environment tag | `staging` | `production` |
+| `WHATSAPP_APPROVAL_URL_BASE` *(only if WhatsApp ever on)* | `https://staging.repworth.net/approve/` | `https://repworth.net/approve/` |
+
+> `WHATSAPP_APPROVAL_URL_BASE` has a boot-time assertion that it equals
+> `NEXT_PUBLIC_APP_URL + '/approve/'`. If you ever enable WhatsApp, a mismatched
+> base = the worker refuses to start. It's off today; listed for completeness.
+
+## §II.4 Clone staging → production
+
+Once §II.2.8 is green, run **Part I once more** for the `production` environment,
+swapping in **live** credentials and the prod column of §II.3:
+
+- [ ] Production Supabase already backs `repworth.net`; apply any migrations it's
+      behind on (compare its head to `054`), in numeric order.
+- [ ] Railway `production` env: deploy the worker, set the prod variable set,
+      attach `worker.repworth.net` (or keep the Railway subdomain).
+- [ ] Vercel Production: set `WORKER_SERVICE_URL` / `WORKER_PUBLIC_URL` to the prod
+      worker; flip live keys.
+- [ ] Re-point the **live** Stripe/Resend/Zernio webhooks at the **prod** worker
+      (Part I §6). These are separate dashboard endpoints from the staging ones —
+      staging webhooks stay pointed at the staging worker.
+- [ ] Run Part I §7–§10 (onboard the first real business; the deliberate "one
+      careful post" discipline §9.6 / §10) against production.
+
+## §II.5 Ongoing workflow (the Option-1 loop)
+
+1. **Branch** off `main`, build the feature, **open a PR.** Vercel posts a preview
+   URL automatically — use it for a quick **frontend** review.
+2. **Frontend-only change?** PR preview is enough → review → merge to `main`.
+3. **Touches the worker, a webhook, a migration, or billing?** Get it onto the
+   **`staging` branch** (`git push origin HEAD:staging`, or merge the feature
+   branch into `staging`). Vercel + Railway redeploy staging; test the full flow on
+   `staging.repworth.net` (run the relevant slice of §9).
+   - New migration? Apply it to the **staging Supabase** first and verify there
+     before it ever runs against prod.
+4. **Green on staging?** Merge the **PR into `main`.** Vercel ships `repworth.net`;
+   Railway `production` redeploys the worker. **This is the promotion.**
+5. **Re-sync staging:** `git checkout staging && git merge --ff-only main &&
+   git push` so staging never drifts.
+
+**Two databases in lockstep:** every migration runs against **both** Supabase
+projects, in numeric order, **staging first**. "Applied to staging, not yet prod"
+is the normal mid-flight state; "applied to prod, not staging" is a bug to fix
+immediately.
+
+## §II.6 Promotion safety & rollback
+
+- **Rollback** of either environment is owned by `rollback.md`. Vercel: instant
+  redeploy/rollback to a previous deployment. Railway: redeploy a previous
+  deployment for the affected environment.
+- **Kill switch** (per env, independent): set `ZERNIO_PUBLISHING_ENABLED=false` on
+  that environment's worker and redeploy — ingress returns 503 and the publisher
+  stops calling Zernio (same switch as §10.5; already-posted replies stay posted).
+- **Boot-prerequisite trap:** a missing required env var (e.g.
+  `ADMIN_NOTIFICATION_EMAIL`, or any asserted secret) is a deterministic boot
+  failure that exhausts `restartPolicyMaxRetries` and stays down. When a
+  freshly-cloned environment won't boot, check the `[startup-assert]` lines first
+  (`rollback.md §3`).
+- **Never** cross webhook wires: a sandbox webhook → prod worker (or live → staging)
+  fails closed with `401 invalid_signature` because secrets differ per env — but a
+  crossed *Stripe live → staging* wire could mis-handle a real payment against test
+  data. Re-verify the webhook → worker mapping after any URL change.
+
+## §II.7 Cost & hygiene
+
+- **Staging worker sleeps when idle** (§II.1) — wake it by hitting
+  `staging.repworth.net` or `<stagingWorker>/api/health` before a test session.
+- **Staging cost ceiling stays low** (`GLOBAL_DAILY_COST_LIMIT_CENTS` ≈ `200`).
+- **Staging never emails real customers** — staging Resend sender + test data only.
+  If you copy prod data into staging to debug, scrub real owner emails first.
+- Two Supabase free projects are fine for staging + a small prod beta; watch the
+  10k-commands/day Upstash quota on each instance (BullMQ polls).
+- Run `security-scan-staging.md` against `staging.repworth.net` once it's live —
+  that's its intended target.
+
+## §II.8 Staging sign-off
+
+Staging is real when:
+- [ ] §II.2.5 staging worker boots clean (`[startup-assert] … ✓`, `/api/health` 200)
+- [ ] §II.2.7 all three test webhooks verified in staging logs + `inbound_events`
+- [ ] §II.2.8 a full ingest → generate → approve → publish cycle completed on a
+      sandbox location, charging no real card and emailing no real person
+- [ ] §II.3 matrix double-checked: nothing shared that shouldn't be (especially the
+      queue Redis URL and the four secrets)
+- [ ] §II.5 loop walked once: a throwaway change rode feature → preview → staging →
+      `main` → prod and you watched each hop deploy

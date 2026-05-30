@@ -14,7 +14,7 @@ RepWorth deploys with **zero infrastructure-as-code**: no `railway.toml`,
 entirely from dashboard configuration, so the deploy contract is undocumented and
 does not survive a project recreation or a stray dashboard edit. There is also no
 written rollback procedure (only a Zernio publishing kill-switch in
-`beta-deployment-plan.md §10.5`), and `.env.example` carries a **misleading,
+`deployment-guide.md §10.5`), and `.env.example` carries a **misleading,
 unused** `ADMIN_API_KEY` entry whose comment claims it guards `/api/admin/*` when
 admin authorization is actually enforced by `requireRole(request, 'admin')`.
 
@@ -35,7 +35,7 @@ Confirmed facts from the codebase:
   `maxDuration`.
 - **`ADMIN_API_KEY`:** referenced **nowhere** in `src/`, `worker/`, `scripts/`,
   or `tests/`. Present only as a misleading entry in `.env.example:78-81` and a
-  misleading line in `docs/runbooks/beta-deployment-plan.md:218`.
+  misleading line in `docs/runbooks/deployment-guide.md:218`.
 
 ## Goals
 
@@ -62,7 +62,7 @@ Confirmed facts from the codebase:
 
 ### Deliverable A — `railway.toml` (new, repo root)
 
-Configures **only** the Railway worker service. Mirrors `beta-deployment-plan.md
+Configures **only** the Railway worker service. Mirrors `deployment-guide.md
 §5.1` and the launch-doc spec (`launch-ready-part1.md:93-94`).
 
 ```toml
@@ -95,7 +95,7 @@ Rationale:
 
 ### Deliverable B — `vercel.json` (new, repo root) — minimal & safe
 
-Pins only what the dashboard already uses (`beta-deployment-plan.md §4.1`).
+Pins only what the dashboard already uses (`deployment-guide.md §4.1`).
 
 ```json
 {
@@ -123,14 +123,14 @@ Follows the established runbook house style (H1 + short intro + `---` + sections
    `observability.md`.
 2. **Feature-flag rollback (fastest)** — server-authoritative flips (invariant 13);
    includes the Zernio kill-switch (`ZERNIO_PUBLISHING_ENABLED=false`) pointing to
-   `beta-deployment-plan.md §10.5`.
+   `deployment-guide.md §10.5`.
 3. **Vercel (web) rollback** — Instant Rollback / promote previous deployment.
 4. **Railway (worker) rollback** — redeploy/rollback to a prior deployment;
    `$PORT` + healthcheck notes.
 5. **Database — forward-only + expand/contract** — never auto-down-migrate prod;
    fix a bad migration via a compensating *forward* migration or a manual
    transaction; code must remain schema-compatible after a code rollback;
-   reference Supabase PITR/backups (`beta-deployment-plan.md §12.5`).
+   reference Supabase PITR/backups (`deployment-guide.md §12.5`).
 6. **Web ↔ worker version skew** — the transactional outbox decouples them; safe
    ordering; what to watch.
 7. **Post-rollback verification** — both `/api/health`, `/admin/jobs`, Sentry
@@ -144,7 +144,7 @@ Follows the established runbook house style (H1 + short intro + `---` + sections
   block. The comment falsely claims it locks down `/api/admin/*`; the var is
   unused (admin auth = `requireRole(request, 'admin')`). Collapse surrounding
   blank lines cleanly.
-- **`docs/runbooks/beta-deployment-plan.md:218`** — remove the
+- **`docs/runbooks/deployment-guide.md:218`** — remove the
   `ADMIN_API_KEY  # set to a random 32-char string for prod` line from the Vercel
   server-only env block (misleading; the var is unused).
 - **Pre-removal verification** — re-grep `src/`, `worker/`, `scripts/`, `tests/`,

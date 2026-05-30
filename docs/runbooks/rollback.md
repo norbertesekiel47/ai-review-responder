@@ -5,7 +5,7 @@ How to undo a bad production deploy fast and safely. RepWorth is two deploys —
 decoupled by the transactional outbox in Postgres. This runbook orchestrates the
 existing runbooks; it does not duplicate them. For severity definitions and what
 to watch, see `observability.md`; for the Zernio publishing kill-switch, see
-`beta-deployment-plan.md §10.5`.
+`deployment-guide.md §10.5`.
 
 ---
 
@@ -38,7 +38,7 @@ Common flips:
 
 | Flag | Effect when off |
 |---|---|
-| `ZERNIO_PUBLISHING_ENABLED=false` | Worker stops calling Zernio; ingress returns 503; already-posted replies stay posted. The Zernio kill-switch — see `beta-deployment-plan.md §10.5`. |
+| `ZERNIO_PUBLISHING_ENABLED=false` | Worker stops calling Zernio; ingress returns 503; already-posted replies stay posted. The Zernio kill-switch — see `deployment-guide.md §10.5`. |
 | `SELF_SERVE_SIGNUP_ENABLED=false` | Public signup closes; admin onboarding still works. |
 | `OPENAI_MODERATION_ENABLED=false` | OpenAI moderation layer off; local regex rules still run (they always run). Drafts are still held on local high-severity flags. |
 
@@ -113,7 +113,7 @@ To recover from a bad migration:
    account-status changes go through `writeAccountAuditLog` in the same tx
    (CLAUDE.md). Re-validate predicates with `SELECT … FOR UPDATE` before mutating.
 4. **For catastrophic data loss**, restore from Supabase backups / PITR
-   (`beta-deployment-plan.md §12.5`): Supabase dashboard → Database → Backups.
+   (`deployment-guide.md §12.5`): Supabase dashboard → Database → Backups.
    Do **not** test-restore on the prod project.
 
 Rule of thumb: a code rollback must never require a schema rollback. If it does,

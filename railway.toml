@@ -1,7 +1,7 @@
 # Railway config for the RepWorth worker (Fastify + BullMQ).
 # Vercel runs the Next.js UI; this file configures ONLY the Railway worker service.
 # Keeps deploy config in-repo so it survives dashboard edits / project recreation.
-# See docs/runbooks/beta-deployment-plan.md §5 and docs/runbooks/rollback.md.
+# See docs/runbooks/deployment-guide.md §5 and docs/runbooks/rollback.md.
 
 [build]
 builder = "NIXPACKS"
