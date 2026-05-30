@@ -1,7 +1,11 @@
+import type { Metadata } from 'next';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { FinishSignupClient } from '@/components/auth/FinishSignupClient';
+import { noindexRobots } from '@/lib/seo';
+
+export const metadata: Metadata = { title: 'Finish signup · RepWorth', robots: noindexRobots };
 
 export default async function FinishSignupPage() {
   if (process.env.SELF_SERVE_SIGNUP_ENABLED !== 'true') redirect('/signup');
