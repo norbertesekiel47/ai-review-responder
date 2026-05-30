@@ -1,43 +1,11 @@
 import { Queue } from 'bullmq';
-import type { RedisOptions } from 'ioredis';
 import { QUEUE_NAMES } from '../src/lib/shared/queue-names';
+import { getRedisOptions } from './redis-connection';
 
-// Re-export for existing callers (worker entry points, tests).
-export { QUEUE_NAMES };
-
-// ---------------------------------------------------------------------------
-// Redis connection options for BullMQ
-// Supports:
-//   redis://localhost:6379/1       — local Docker / WSL Redis (development)
-//   rediss://default:pw@host:6379  — Railway / TLS-enabled Redis (production)
-//   https://host.upstash.io        — Upstash REST URL (legacy, needs REDIS_QUEUE_TOKEN)
-// ---------------------------------------------------------------------------
-export function getRedisOptions(): RedisOptions {
-  const url = process.env.REDIS_QUEUE_URL!;
-  const token = process.env.REDIS_QUEUE_TOKEN;
-
-  // Upstash REST URL → extract host and use Redis protocol over TLS
-  if (url.startsWith('https://')) {
-    return {
-      host: new URL(url).hostname,
-      port: 6379,
-      password: token,
-      tls: {},
-      maxRetriesPerRequest: null, // Required by BullMQ
-    };
-  }
-
-  // Standard redis:// or rediss:// URL (local, Railway, or any Redis)
-  const parsed = new URL(url);
-  return {
-    host: parsed.hostname,
-    port: parseInt(parsed.port || '6379', 10),
-    password: parsed.password || token || undefined,
-    db: parsed.pathname ? parseInt(parsed.pathname.slice(1), 10) || 0 : 0,
-    tls: parsed.protocol === 'rediss:' ? {} : undefined,
-    maxRetriesPerRequest: null,
-  };
-}
+// Re-export for existing callers (worker entry points, tests). `getRedisOptions`
+// lives in the side-effect-free `redis-connection` module so it can be
+// unit-tested without instantiating the Queues below.
+export { QUEUE_NAMES, getRedisOptions };
 
 // ---------------------------------------------------------------------------
 // Queue names — each maps 1:1 to a job_outbox.topic value. The canonical

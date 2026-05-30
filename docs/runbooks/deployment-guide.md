@@ -4,7 +4,7 @@ The single source for deploying RepWorth and running it across two environments.
 Two parts:
 
 - **Part I — Single-environment deployment recipe** (§0–§13). The step-by-step for
-  standing up **one** environment (Vercel UI + Railway worker + Supabase + Upstash
+  standing up **one** environment (Vercel UI + Railway worker + Supabase + Redis
   + webhooks) end-to-end. Written as the first production go-live (the friend's
   resort), but it's the same recipe you run for staging and for prod.
 - **Part II — Staging & production: two environments + promotion** (§II.1–§II.8).
@@ -26,6 +26,11 @@ is the canonical env-var list (overrides any inline list here).
   exists for full-stack/webhook testing; merging to `main` ships production.
 - **Separate Supabase project for staging** — staging never shares a DB with prod.
 - **One Railway project, two environments** (`production` + `staging`).
+- **Redis is split** — the **BullMQ queue** runs on **Railway** (same project as the
+  worker, reached over private networking, no public proxy → no egress); the
+  **cache** stays on **Upstash** (TLS, Vercel-reachable). This replaces the original
+  "two Upstash instances" and is the fix for the egress bill. Why, plus the IPv6
+  `family: 0` code prerequisite: **§1.4**.
 
 ## Current cloud state (verified 2026-05-29)
 
@@ -53,8 +58,8 @@ the Git repo, `railway.toml`, and (optionally) the LLM API keys.
 | Vercel (UI) | `main` → `repworth.net` | `staging` branch → `staging.repworth.net` (Custom Env) | per-env vars; previews are separate again |
 | Railway worker | `production` env | `staging` env (same project) | own variables + deploy history |
 | Postgres | prod Supabase project | **separate** staging Supabase project | staging migrations/test data must never touch prod |
-| Redis (cache) | prod Upstash | separate staging Upstash | — |
-| Redis (BullMQ queue) | prod Upstash | **separate** staging Upstash | a staging worker on the prod queue would run prod jobs |
+| Redis (cache) | prod Upstash (TLS) | separate staging Upstash | Vercel-reachable; low volume (§1.4) |
+| Redis (BullMQ queue) | **Railway Redis**, prod env (private net) | **Railway Redis**, staging env | colocated with the worker = no egress; per-env isolation means a staging worker can't touch the prod queue (§1.4) |
 | Stripe / Resend / Zernio | **live** keys + webhooks → prod worker | **test/sandbox** keys + webhooks → staging worker | exercise real flows without charging cards, emailing real people, or posting to a real GBP |
 | App / worker URLs | `repworth.net` / `worker.repworth.net` | `staging.repworth.net` / free `*.up.railway.app` | webhook signature bases + approval links must match |
 
@@ -170,14 +175,81 @@ DNS propagation is the long-pole item. Get it started first, do everything else 
   - `SUPABASE_SERVICE_KEY` (server-only — never to browser)
 - [ ] Note the `statement_timeout` gotcha: pooler clamps at ~8s. The Postgres.js client overrides to 30s in `src/lib/db/server.ts`. No action needed — just don't accidentally bypass that client.
 
-### 1.4 Upstash Redis × 2
+### 1.4 Redis — Railway for the queue (private networking), Upstash for the cache
 
-You need **two logically separate Redis instances** — one for cache, one for BullMQ.
+> **Why this split — read first.** The original recipe ran **two Upstash
+> instances**. BullMQ is relentlessly chatty — ~19 queues, each `Worker` holding
+> blocking connections and polling **24/7 even when idle** — and Upstash bills
+> **per-command *and* per-byte of egress**. With the worker on Railway and the
+> queue on Upstash (two separate clouds), every poll crossed the public internet as
+> metered egress. **That is what spiked the bill.** The cache, by contrast, is hit
+> only when real work happens (cost-guard reserve/finalize, connect-flow CAS, rate
+> limits) — low volume — and it must stay reachable from **Vercel**, which cannot
+> join Railway's private network.
+>
+> | | Lives on | Worker reaches it via | Vercel reaches it via | Egress |
+> |---|---|---|---|---|
+> | **Queue** (BullMQ) | **Railway Redis** (same project+env as worker) | **private net** (`*.railway.internal`) | never — Vercel enqueues through the Postgres outbox, not BullMQ | **free** |
+> | **Cache** | **Upstash** (TLS) | public TLS, low volume | public TLS | small |
+>
+> Moving the *queue* to Railway private networking removes essentially all the
+> egress. The cache stays on Upstash because Railway's stock Redis image has **no
+> TLS** — exposing it to Vercel over the TCP Proxy would send the Redis password in
+> cleartext over the internet, and bill egress on top. (Going fully off Upstash
+> would require a TLS-capable Redis for the cache — a separate decision, not needed
+> for launch.)
 
-- [ ] Create cache instance → `REDIS_CACHE_URL` (`rediss://default:<token>@<host>:6379`). Use TLS in prod.
-- [ ] Create queue instance → `REDIS_QUEUE_URL` (same format).
-- [ ] If using Upstash REST URLs (https://) instead of `rediss://`, also set `REDIS_CACHE_TOKEN` / `REDIS_QUEUE_TOKEN`. The `rediss://` form is simpler — prefer it.
-- [ ] Note free tier: 10,000 commands/day per instance. For one business this is fine but BullMQ does background polling; watch the quota in week 1.
+**⚠️ Code prerequisite — `family: 0` (must land *before* the Railway deploy).**
+Railway's private network is **IPv6-only**, and `ioredis`/BullMQ will not resolve
+`*.railway.internal` without `family: 0` in the connection options (per Railway's
+[library-configuration docs](https://docs.railway.com/networking/private-networking/library-configuration)).
+`getRedisOptions()` in `worker/queues.ts` does **not** set this today. Add it on
+the **queue** path — driven by a `?family=0` query param on `REDIS_QUEUE_URL` so the
+code stays vendor-neutral (local/Upstash unaffected). Without it the worker boots
+but every BullMQ connection fails with `ENOTFOUND <svc>.railway.internal`. The cache
+path (`getCacheRedisOptions()`) does **not** need it — the cache stays on Upstash
+(public, dual-stack).
+
+**Provision (per environment — do this during §5, after the Railway project exists):**
+
+- [ ] In the **worker's** Railway project/environment: **+ New → Database → Add
+      Redis**. One service, name it `redis`. It deploys from the stock `redis`
+      Docker image with `noeviction` (Redis default) — keep that; it guarantees a
+      full instance errors writes rather than silently evicting BullMQ jobs.
+- [ ] **Disable its TCP Proxy** (Settings → Networking). The queue is reached
+      **only** by the worker over private networking, so it needs no public
+      endpoint — less attack surface, zero egress, no cleartext exposure.
+- [ ] Use DB index **1** for the queue (matches `.env.example` / local dev where
+      cache=`/0`, queue=`/1`). Only the queue lives here, so the index is cosmetic —
+      keep `/1` for stack-wide consistency.
+
+**Wire it (use Railway [reference variables](https://docs.railway.com/variables/reference)
+so the URL survives a Redis re-provision):**
+
+- [ ] **Worker `REDIS_QUEUE_URL`** — built from the Redis service's own vars
+      (`REDISPASSWORD`, `RAILWAY_PRIVATE_DOMAIN`):
+      ```
+      REDIS_QUEUE_URL=redis://default:${{redis.REDISPASSWORD}}@${{redis.RAILWAY_PRIVATE_DOMAIN}}:6379/1?family=0
+      ```
+      Plain `redis://` — no TLS on the private network (Wireguard already encrypts
+      it). `getRedisOptions()` branches on `rediss:` vs `redis:`, so this is correct.
+- [ ] **Worker `REDIS_CACHE_URL`** — the **Upstash** cache URL (below). The worker
+      uses the cache for cost guards + zernio-publisher; that traffic is per-work and
+      small.
+- [ ] **Vercel `REDIS_CACHE_URL`** — the **same** Upstash cache URL. Vercel needs
+      only the cache (never the queue). Vercel needs **no** `REDIS_QUEUE_URL`.
+- [ ] **Upstash cache instance** — one instance → `REDIS_CACHE_URL`
+      (`rediss://default:<token>@<host>:6379/0`, TLS). If you use the Upstash REST
+      `https://` host form, also set `REDIS_CACHE_TOKEN`; the `rediss://` form is
+      simpler — prefer it. `REDIS_QUEUE_TOKEN` is unused (Railway needs no token).
+- [ ] **Never** point the **worker's** queue URL at the Railway **public proxy**
+      (`*.proxy.rlwy.net`) — that re-introduces the exact cross-cloud egress this
+      section exists to kill. Worker → queue = private domain, always.
+
+> **Watch in week 1:** Railway Redis memory (service → Metrics) — `noeviction` errors
+> writes on a full instance rather than dropping jobs; for one business it sits
+> near-empty. Upstash cache command count stays well under the free 10k/day tier now
+> that the polling queue no longer lives there.
 
 ### 1.5 Zernio API access
 
@@ -343,15 +415,18 @@ MOCK_EXTERNAL_APIS=false
 
 Paste the entire block. Adjust values to match what you provisioned in §1.
 
-**Database + Redis:**
+**Database + Redis:** (split per §1.4 — queue on Railway private net, cache on Upstash)
 ```
 DATABASE_URL=...
 DATABASE_POOL_URL=...
 SUPABASE_URL=...
 SUPABASE_SERVICE_KEY=...
-REDIS_CACHE_URL=rediss://default:...@...:6379
-REDIS_QUEUE_URL=rediss://default:...@...:6379
+REDIS_CACHE_URL=rediss://default:...@...upstash.io:6379/0                                                     # Upstash, TLS — cache only
+REDIS_QUEUE_URL=redis://default:${{redis.REDISPASSWORD}}@${{redis.RAILWAY_PRIVATE_DOMAIN}}:6379/1?family=0    # Railway Redis, private net — queue
 ```
+> `?family=0` is required (Railway private net is IPv6-only; needs the one-line
+> `getRedisOptions()` change flagged in §1.4). Never point the worker's queue URL at
+> the Railway public proxy — that's the egress trap. Vercel needs no `REDIS_QUEUE_URL`.
 
 **LLM:**
 ```
@@ -658,7 +733,8 @@ Daily, 2 minutes:
 
 Weekly:
 - [ ] Resend domain reputation, bounce rate <2%.
-- [ ] Upstash Redis quota (10K commands/day per instance on free tier — BullMQ polling adds up).
+- [ ] Upstash **cache** command count (free tier 10K/day — comfortable now the BullMQ queue lives on Railway, not Upstash).
+- [ ] Railway Redis (queue) **memory** in the service Metrics tab — `noeviction` means a full instance errors writes; for one business it stays near-empty.
 - [ ] OpenAI / Anthropic spend trend.
 - [ ] Zernio API rate limit headroom — Build tier is 600 req/min; one business won't approach this.
 - [ ] `SELECT * FROM zernio_finalize_incidents WHERE resolved_at IS NULL` — must always be 0 rows. Any row → `zernio-launch-runbook.md` §6.
@@ -760,9 +836,14 @@ staging-specific deltas from Part I's prod recipe.
   `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_KEY`. Seed a staging admin
   user (Part I §2 last step).
 
-### §II.2.2 Staging Upstash — two separate instances
-- New cache instance → `REDIS_CACHE_URL`; new queue instance → `REDIS_QUEUE_URL`.
-  Both `rediss://` (TLS). **Never** reuse the prod queue instance.
+### §II.2.2 Staging Redis — Railway queue (staging env) + Upstash cache
+- **Queue:** add a **Redis service to the Railway `staging` environment** (§1.4
+  provisioning). Because Railway private networking is **per-environment isolated**,
+  the staging worker physically cannot reach the prod queue — that isolation is now
+  structural, not just a different URL. Wire `REDIS_QUEUE_URL` to its private domain
+  with `?family=0`, TCP Proxy off.
+- **Cache:** a **separate staging Upstash** instance → `REDIS_CACHE_URL`
+  (`rediss://`, TLS). **Never** reuse the prod cache instance.
 
 ### §II.2.3 Staging integrations — test/sandbox mode
 - **Stripe:** test-mode `STRIPE_SECRET_KEY` (`sk_test_…`); recreate the 7
@@ -830,7 +911,8 @@ they ever match across environments.** Staging column → Vercel `staging` + Rai
 | `DATABASE_URL` / `DATABASE_POOL_URL` | staging Supabase | prod Supabase |
 | `SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_URL` | staging Supabase | prod Supabase |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_KEY` | staging Supabase | prod Supabase |
-| `REDIS_CACHE_URL` / `REDIS_QUEUE_URL` | staging Upstash ×2 | prod Upstash ×2 |
+| `REDIS_CACHE_URL` | staging Upstash | prod Upstash |
+| `REDIS_QUEUE_URL` | Railway Redis, `staging` env (private, `?family=0`) | Railway Redis, `production` env (private, `?family=0`) |
 | `NEXT_PUBLIC_APP_URL` | `https://staging.repworth.net` | `https://repworth.net` |
 | `WORKER_SERVICE_URL` / `WORKER_PUBLIC_URL` | staging worker URL | prod worker URL |
 | `STRIPE_SECRET_KEY` | `sk_test_…` | `sk_live_…` |
@@ -912,8 +994,11 @@ immediately.
 - **Staging cost ceiling stays low** (`GLOBAL_DAILY_COST_LIMIT_CENTS` ≈ `200`).
 - **Staging never emails real customers** — staging Resend sender + test data only.
   If you copy prod data into staging to debug, scrub real owner emails first.
-- Two Supabase free projects are fine for staging + a small prod beta; watch the
-  10k-commands/day Upstash quota on each instance (BullMQ polls).
+- Two Supabase free projects are fine for staging + a small prod beta. The Upstash
+  **cache** now stays well under the 10k-commands/day free tier — the chatty BullMQ
+  **queue** moved to Railway (§1.4), so it no longer burns Upstash commands/egress.
+  Watch Railway Redis **memory** (Metrics) instead; `noeviction` errors writes on a
+  full instance rather than dropping jobs.
 - Run `security-scan-staging.md` against `staging.repworth.net` once it's live —
   that's its intended target.
 
