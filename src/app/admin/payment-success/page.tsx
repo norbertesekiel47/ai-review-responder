@@ -20,21 +20,28 @@ function PaymentSuccessContent() {
       return;
     }
 
-    // Poll the business table — the Stripe webhook may take a few seconds
-    // to process and transition the status to 'active'
+    // Poll the business table — the Stripe webhook may take a few seconds to
+    // process and transition the status to 'active'. Timers are tracked so the
+    // cleanup below can cancel them if the admin navigates away mid-poll.
+    let cancelled = false;
+    let pollTimer: ReturnType<typeof setTimeout> | null = null;
+    let redirectTimer: ReturnType<typeof setTimeout> | null = null;
     let attempts = 0;
     const maxAttempts = 15;
 
     async function checkBusiness() {
+      if (cancelled) return;
       try {
         const res = await fetch(`/api/admin/payment-success?session_id=${sessionId}`);
         const json = await res.json();
+        if (cancelled) return;
 
         if (res.ok && json.businessId) {
           setBusinessId(json.businessId);
           setStatus('success');
           // Auto-redirect after 3 seconds
-          setTimeout(() => {
+          redirectTimer = setTimeout(() => {
+            if (cancelled) return;
             router.push(`/admin/businesses/${json.businessId}`);
           }, 3000);
           return;
@@ -42,18 +49,25 @@ function PaymentSuccessContent() {
 
         attempts++;
         if (attempts < maxAttempts) {
-          setTimeout(checkBusiness, 2000);
+          pollTimer = setTimeout(checkBusiness, 2000);
         } else {
           setStatus('error');
           setError('Could not find the business. The payment may still be processing — check the admin overview.');
         }
       } catch {
+        if (cancelled) return;
         setStatus('error');
         setError('Network error — check the admin overview for your business.');
       }
     }
 
-    checkBusiness();
+    void checkBusiness();
+
+    return () => {
+      cancelled = true;
+      if (pollTimer) clearTimeout(pollTimer);
+      if (redirectTimer) clearTimeout(redirectTimer);
+    };
   }, [sessionId, router]);
 
   return (
