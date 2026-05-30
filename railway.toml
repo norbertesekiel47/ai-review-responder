@@ -4,7 +4,15 @@
 # See docs/runbooks/deployment-guide.md §5 and docs/runbooks/rollback.md.
 
 [build]
-builder = "NIXPACKS"
+# RAILPACK (Railway's modern default) installs Node 24 + pnpm 11 via mise and the
+# Node-bundled corepack. NIXPACKS 1.41 hardcodes `npm i -g corepack@0.24.1`, which
+# is incompatible with Node 24's vm API and crashes pnpm at install with
+# ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING. See deployment-guide.md §5 / lab-notes.
+builder = "RAILPACK"
+# The worker runs via tsx at runtime (see startCommand) and produces no build
+# artifact. Override Railpack's auto-detected `next build` (wrong for the worker,
+# and it lacks the NEXT_PUBLIC_* build vars) with a no-op to skip the build phase.
+buildCommand = "echo 'RepWorth worker: no build step (tsx runs worker/index.ts)'"
 
 [deploy]
 # Worker has no build step — tsx transpiles worker/index.ts at runtime.
