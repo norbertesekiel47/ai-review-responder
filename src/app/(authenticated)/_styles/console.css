@@ -894,6 +894,8 @@
 }
 @media (max-width: 900px) {
   .chart-row { grid-template-columns: 1fr; }
+  .kpi-grid,
+  .kpi-grid.has-pending { grid-template-columns: repeat(2, 1fr); }
 }
 .chart-shell {
   height: 200px;
