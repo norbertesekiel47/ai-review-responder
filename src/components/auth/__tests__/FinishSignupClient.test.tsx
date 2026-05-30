@@ -15,7 +15,7 @@ describe('FinishSignupClient', () => {
   it('renders visible (non-sr-only) labels for each field', () => {
     render(<FinishSignupClient defaultEmail="owner@example.com" defaultName="Owner" />);
 
-    for (const text of [/email/i, /your name/i, /phone/i]) {
+    for (const text of [/email/i, /^your name$/i, /phone/i]) {
       const label = screen.getByText(text);
       expect(label.className).not.toContain('sr-only');
     }
