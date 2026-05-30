@@ -1070,3 +1070,84 @@ Staging is real when:
       queue Redis URL and the four secrets)
 - [ ] §II.5 loop walked once: a throwaway change rode feature → preview → staging →
       `main` → prod and you watched each hop deploy
+
+---
+
+# Part III — Launch execution checklist
+
+Sequential, tickable version of the recipe above for **this** project's first real
+launch — **staging first** (Part II §II.2), then **production** (§II.4).
+`[YOU]` = needs a dashboard/login/secret/DNS · `[ME]` = Claude can run it via CLI ·
+⏱ = has lag, start early.
+
+**Concrete IDs:** prod Supabase `udeyaqnvpojbwgoaxwdg` · staging Supabase
+`kubdiqdhqbhwmqfditeg` (both **Startups** org, **West US (Oregon)**) · domain
+`repworth.net` · worker `worker.repworth.net` · staging `staging.repworth.net`.
+
+## Phase 0 — Prerequisites ✅ (done 2026-05-30)
+- [x] `[YOU]` Vercel **Pro** purchased
+- [x] `[YOU]` Supabase CLI authenticated
+- [x] CLIs authenticated: vercel · railway · gh · stripe (live + test)
+
+## Phase 1 — Provision staging backing services (test/sandbox)
+- [ ] `[YOU]` ⏱ DNS: add `staging.repworth.net` CNAME → Vercel (target shown in Phase 3)
+- [x] `[ME]` Staging Supabase project created — `RepWorth-staging` (Startups, Oregon, ref `kubdiqdhqbhwmqfditeg`) — *done 2026-05-30*
+- [x] `[ME]` Apply migrations 001→054 to staging — *done 2026-05-30 (verified: 32 tables, RLS on 28)*
+- [ ] `[YOU]` Staging Supabase Auth: custom SMTP (`smtp.resend.com:465`, user `resend`, pass = staging `RESEND_API_KEY`) + signup confirmation template uses `{{ .Token }}`
+- [ ] `[YOU/ME]` Seed a staging admin user (`users` row linked to a Supabase Auth user)
+- [ ] `[YOU]` Staging Upstash **cache** instance → `REDIS_CACHE_URL` (`rediss://`, TLS)
+- [ ] `[ME]` Capture staging `DATABASE_POOL_URL` (Transaction pooler, 6543)
+- [ ] `[ME]` Create the 7 Stripe **test-mode** prices → `STRIPE_PRICE_*`
+- [ ] `[YOU]` Resend staging sender → `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, `RESEND_WEBHOOK_SECRET`
+- [ ] `[YOU]` Zernio sandbox → `ZERNIO_API_KEY`, `ZERNIO_WEBHOOK_SECRET`; set `ZERNIO_PROFILE_ID_PREFIX=repworth-staging-`
+- [ ] `[YOU]` Google Maps: add `https://staging.repworth.net/*` to the key's referrer allowlist
+- [ ] `[ME]` Generate staging secrets: `SESSION_COOKIE_SECRET`, `CSRF_SECRET`, `IMPERSONATION_COOKIE_SECRET`
+
+## Phase 2 — Deploy staging worker (Railway)
+- [ ] `[ME]` Create Railway `staging` environment
+- [ ] `[YOU/ME]` Add Railway **Redis** (queue) to staging env; disable its TCP Proxy
+- [ ] `[ME]` Create worker service from the GitHub repo, deploy branch = `staging`
+- [ ] `[ME]` Set staging worker env vars (+ `REDIS_QUEUE_URL=…?family=0`)
+- [ ] `[ME]` Generate worker public domain (`*.up.railway.app`) → staging `WORKER_PUBLIC_URL`
+- [ ] `[ME]` Deploy; verify `[startup-assert] … ✓` + `/api/health` 200
+
+## Phase 3 — Deploy staging UI (Vercel)
+- [ ] `[YOU/ME]` Create Vercel **Custom Environment** `staging`, deploy branch = `staging`
+- [ ] `[ME]` Set staging Vercel vars (app URL, worker URL, staging Supabase, Stripe test, `REDIS_CACHE_URL`, secrets, flags)
+- [ ] `[YOU]` Attach `staging.repworth.net` (add the CNAME from Phase 1)
+- [ ] Smoke: `/signup` + `/admin/login` render
+
+## Phase 4 — Wire staging webhooks → staging worker
+- [ ] `[YOU]` Stripe **test** → `<stagingWorker>/ingress/stripe` → secret to worker `STRIPE_WEBHOOK_SECRET`
+- [ ] `[YOU]` Resend **staging** → `<stagingWorker>/ingress/resend`
+- [ ] `[YOU]` Zernio **sandbox** → `<stagingWorker>/ingress/zernio`
+
+## Phase 5 — Prove staging end-to-end (the gate)
+- [ ] Worker + ingress sanity (health; webhook "send test" → `inbound_events` rows)
+- [ ] Full pipeline on a **throwaway test business**: signup → test-card pay → onboarding → connect Zernio sandbox → ingest → generate → approval email → approve → publish to a sandbox location
+- [ ] Edge cases (§9.7): duplicate webhook, expired token → 410, subscription guard, cost circuit
+
+## Phase 6 — Build production (clone staging, live creds)
+- [ ] `[YOU]` Prod Supabase (`udeyaqnvpojbwgoaxwdg`): check current head, apply any migrations through **054** (CONCURRENTLY ones individually)
+- [ ] `[YOU]` Prod Upstash **cache** → `REDIS_CACHE_URL`
+- [ ] `[ME]` Railway `production` env: add Railway Redis (queue), deploy worker, set **live** vars
+- [ ] `[YOU]` ⏱ DNS: `worker.repworth.net` CNAME → Railway; attach in Railway Networking
+- [ ] `[ME]` Vercel Production vars: `WORKER_PUBLIC_URL`, **live** Stripe (live keys + live price IDs), prod Supabase, `REDIS_CACHE_URL`, secrets, flags
+- [ ] `[YOU]` Wire **live** webhooks → prod worker (Stripe / Resend / Zernio)
+- [ ] `[ME]` Deploy prod worker; verify startup-assert + health
+
+## Phase 7 — Go live (careful first customer)
+- [ ] `[YOU]` OpenAI/Anthropic hard spend caps + prod `GLOBAL_DAILY_COST_LIMIT_CENTS`
+- [ ] **Flip `SELF_SERVE_SIGNUP_ENABLED=true`** on Vercel + Railway prod — **only after** worker + webhooks are confirmed live
+- [ ] First real customer: careful first-post discipline (§8–§10); kill switch (`ZERNIO_PUBLISHING_ENABLED=false`) ready
+
+## Phase 8 — Ongoing (Option-1 loop)
+- [ ] Wire the loop: feature branch → PR (Vercel preview) → push to `staging` branch (full-stack test) → merge PR to `main` (ships prod) → fast-forward `staging` onto `main`
+- [ ] Migrations: apply to **staging Supabase first**, then prod
+- [ ] Schedule a daily health check (§11)
+
+## Critical ordering cautions
+- Vercel Pro **before** the staging UI (Phase 3) ✅ · DNS early (⏱ items) ·
+  **never flip `SELF_SERVE_SIGNUP_ENABLED=true` in prod before the worker + Stripe
+  webhook are live** — that's the one mistake that takes real money and drops it ·
+  staging uses **test/sandbox** keys only (Stripe test, Zernio sandbox, staging Resend).
