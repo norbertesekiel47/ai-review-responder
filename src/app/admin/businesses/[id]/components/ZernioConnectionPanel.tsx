@@ -88,6 +88,31 @@ export function ZernioConnectionPanel({
     }
   }, [businessId, onChanged]);
 
+  const handleDismiss = useCallback(
+    async (responseId: string) => {
+      if (!confirm('Permanently discard this queued reply? It will not post to Google.')) return;
+      setDismissingId(responseId);
+      setQueueError(null);
+      try {
+        const res = await fetch(`/api/admin/businesses/${businessId}/zernio-queue`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'dismiss', responseId }),
+        });
+        if (!res.ok) {
+          const body = (await res.json().catch(() => ({}))) as { error?: string };
+          throw new Error(body.error ?? `HTTP ${res.status}`);
+        }
+        onChanged();
+      } catch (err) {
+        setQueueError(err instanceof Error ? err.message : 'Failed to dismiss');
+      } finally {
+        setDismissingId(null);
+      }
+    },
+    [businessId, onChanged],
+  );
+
   const handleDisconnect = useCallback(async () => {
     if (
       !confirm(
@@ -291,6 +316,16 @@ export function ZernioConnectionPanel({
                   <span className="text-xs text-gray-400">
                     Queued {formatTimestamp(r.createdAt)}
                   </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void handleDismiss(r.responseId);
+                    }}
+                    disabled={dismissingId === r.responseId}
+                    className="ml-auto rounded border border-red-300 bg-white px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {dismissingId === r.responseId ? 'Dismissing…' : 'Dismiss'}
+                  </button>
                 </div>
                 {r.reviewText && (
                   <p className="mt-1 line-clamp-2 text-xs text-gray-500">{r.reviewText}</p>
