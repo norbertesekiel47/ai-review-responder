@@ -63,6 +63,55 @@ export function ZernioConnectionPanel({
 }: ZernioConnectionPanelProps) {
   const [disconnecting, setDisconnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [draining, setDraining] = useState(false);
+  const [dismissingId, setDismissingId] = useState<string | null>(null);
+  const [queueError, setQueueError] = useState<string | null>(null);
+
+  const handleForceDrain = useCallback(async () => {
+    setDraining(true);
+    setQueueError(null);
+    try {
+      const res = await fetch(`/api/admin/businesses/${businessId}/zernio-queue`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'force_drain' }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? `HTTP ${res.status}`);
+      }
+      onChanged();
+    } catch (err) {
+      setQueueError(err instanceof Error ? err.message : 'Failed to drain queue');
+    } finally {
+      setDraining(false);
+    }
+  }, [businessId, onChanged]);
+
+  const handleDismiss = useCallback(
+    async (responseId: string) => {
+      if (!confirm('Permanently discard this queued reply? It will not post to Google.')) return;
+      setDismissingId(responseId);
+      setQueueError(null);
+      try {
+        const res = await fetch(`/api/admin/businesses/${businessId}/zernio-queue`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'dismiss', responseId }),
+        });
+        if (!res.ok) {
+          const body = (await res.json().catch(() => ({}))) as { error?: string };
+          throw new Error(body.error ?? `HTTP ${res.status}`);
+        }
+        onChanged();
+      } catch (err) {
+        setQueueError(err instanceof Error ? err.message : 'Failed to dismiss');
+      } finally {
+        setDismissingId(null);
+      }
+    },
+    [businessId, onChanged],
+  );
 
   const handleDisconnect = useCallback(async () => {
     if (
@@ -225,18 +274,36 @@ export function ZernioConnectionPanel({
       {/* Awaiting list */}
       {awaitingOwnerConnect.length > 0 && (
         <div className="mt-5">
-          <h3 className="text-sm font-semibold text-gray-800">
-            Responses queued for reconnect ({awaitingOwnerConnect.length})
-          </h3>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold text-gray-800">
+              Responses queued for reconnect ({awaitingOwnerConnect.length})
+            </h3>
+            {status === 'active' ? (
+              <button
+                type="button"
+                onClick={() => {
+                  void handleForceDrain();
+                }}
+                disabled={draining}
+                className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {draining ? 'Draining…' : 'Force drain queue'}
+              </button>
+            ) : (
+              <span className="text-xs text-gray-400">
+                Drain becomes available once the owner reconnects Zernio.
+              </span>
+            )}
+          </div>
           <p className="mt-1 text-xs text-gray-500">
             These approved responses cannot publish until the owner reconnects Zernio. After
             reconnect, the worker drains them automatically.
           </p>
-          {/*
-            TODO(zernio): per-response admin actions (force-drain, dismiss)
-            can be wired here once an admin-only route is added in a later task.
-            For now the panel renders the queue without action buttons.
-          */}
+          {queueError && (
+            <p className="mt-2 rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700">
+              {queueError}
+            </p>
+          )}
           <ul className="mt-3 space-y-2">
             {awaitingOwnerConnect.map((r) => (
               <li
@@ -249,6 +316,16 @@ export function ZernioConnectionPanel({
                   <span className="text-xs text-gray-400">
                     Queued {formatTimestamp(r.createdAt)}
                   </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void handleDismiss(r.responseId);
+                    }}
+                    disabled={dismissingId === r.responseId}
+                    className="ml-auto rounded border border-red-300 bg-white px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {dismissingId === r.responseId ? 'Dismissing…' : 'Dismiss'}
+                  </button>
                 </div>
                 {r.reviewText && (
                   <p className="mt-1 line-clamp-2 text-xs text-gray-500">{r.reviewText}</p>
