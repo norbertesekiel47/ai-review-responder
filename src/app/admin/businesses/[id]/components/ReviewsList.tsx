@@ -52,7 +52,7 @@ export function ReviewsList({ reviews }: ReviewsListProps) {
               className="rounded-lg border border-gray-200 bg-white p-4"
             >
               <div className="flex items-center gap-2 text-sm">
-                <span className="text-yellow-500">{renderStars(review.starRating)}</span>
+                <span className="text-[#97B3AE]">{renderStars(review.starRating)}</span>
                 <span className="font-medium text-gray-700">{review.reviewerName}</span>
                 {review.reviewDate && (
                   <span className="text-gray-400">

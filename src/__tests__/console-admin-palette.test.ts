@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
 //   - src/app/(authenticated)/dashboard/connect/page.tsx        (P0 #10)
 //   - chart SERIES color #ea580c (RankingChart, AggregateVelocityCard,
 //     tokens.css --rw-chart-5)                                  (data-viz)
-//   - yellow review stars text-yellow-500 / --rw-yellow-500     (P2 #28)
+//   - review stars are now brand teal #97B3AE (swept in P2 #28, locked by no-yellow-star-colors.test.ts)
 const SWEPT_FILES = [
   // Owner Console — token system
   'src/app/(authenticated)/_styles/tokens.css',

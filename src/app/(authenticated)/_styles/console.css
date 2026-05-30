@@ -694,7 +694,7 @@
   display: flex; align-items: center; gap: 10px;
   flex-wrap: wrap;
 }
-.stars { color: var(--rw-yellow-500); font-size: 14px; letter-spacing: 0.5px; font-feature-settings: "tnum"; }
+.stars { color: var(--rw-star); font-size: 14px; letter-spacing: 0.5px; font-feature-settings: "tnum"; }
 .reviewer {
   font-weight: 600;
   font-size: 14px;
@@ -894,6 +894,8 @@
 }
 @media (max-width: 900px) {
   .chart-row { grid-template-columns: 1fr; }
+  .kpi-grid,
+  .kpi-grid.has-pending { grid-template-columns: repeat(2, 1fr); }
 }
 .chart-shell {
   height: 200px;
@@ -1009,6 +1011,7 @@
     align-items: center;
     gap: 2px;
     padding: 8px 4px;
+    min-height: 44px;
     color: #6B7280;
     background: none;
     border: none;
@@ -1231,3 +1234,12 @@
   border-radius: var(--rw-radius-md);
   height: 260px;
 }
+
+/* ---------- Settings loading skeleton (P2 #28) ---------- */
+.settings-skeleton { display: flex; flex-direction: column; gap: 18px; padding: 24px 0; max-width: 520px; }
+.settings-skeleton__row { display: flex; flex-direction: column; gap: 8px; }
+.settings-skeleton__label { height: 12px; width: 120px; border-radius: 6px; background: #ECECEC; }
+.settings-skeleton__field { height: 40px; width: 100%; border-radius: 10px; background: #F2F2F2; }
+.settings-skeleton__row > div { animation: rw-skeleton-pulse 1.4s ease-in-out infinite; }
+@keyframes rw-skeleton-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+@media (prefers-reduced-motion: reduce) { .settings-skeleton__row > div { animation: none; } }

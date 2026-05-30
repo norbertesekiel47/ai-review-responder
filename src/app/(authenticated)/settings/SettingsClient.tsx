@@ -6,6 +6,7 @@ import { SettingsShell } from '@/components/dashboard/settings/SettingsShell';
 import { GeneralPanel } from '@/components/dashboard/settings/GeneralPanel';
 import { AccountPanel } from '@/components/dashboard/settings/AccountPanel';
 import { BrandVoicePanel } from '@/components/dashboard/settings/BrandVoicePanel';
+import { SettingsSkeleton } from '@/components/dashboard/settings/SettingsSkeleton';
 import type { SettingsTab } from '@/components/dashboard/SettingsTabs';
 
 interface Props {
@@ -45,7 +46,7 @@ export function SettingsClient({ locationsSettingsEnabled, multiLocationEnabled 
         locationsSettingsEnabled={locationsSettingsEnabled}
         multiLocationEnabled={multiLocationEnabled}
       >
-        <p style={{ textAlign: 'center', color: '#6B7280', padding: '60px 0' }}>Loading settings…</p>
+        <SettingsSkeleton />
       </SettingsShell>
     );
   }

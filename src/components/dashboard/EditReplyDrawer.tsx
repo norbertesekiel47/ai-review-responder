@@ -87,7 +87,7 @@ export function EditReplyDrawer({
             type="button"
             onClick={tryClose}
             disabled={isClosePending}
-            className="rounded-md px-2 py-1 text-sm text-[#6a6a6a] hover:bg-gray-50 hover:text-[#2a2a2a] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+            className="flex min-h-11 min-w-11 items-center justify-center rounded-md text-sm text-[#6a6a6a] hover:bg-gray-50 hover:text-[#2a2a2a] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
             aria-label={
               isClosePending
                 ? 'Close (disabled while draft is being created)'
@@ -115,7 +115,7 @@ export function EditReplyDrawer({
             </div>
             <div className="flex items-center gap-2">
               {row.star_rating != null && (
-                <span className="text-sm text-yellow-500" aria-label={`${row.star_rating} stars`}>
+                <span className="text-sm text-[#97B3AE]" aria-label={`${row.star_rating} stars`}>
                   {'★'.repeat(Math.round(row.star_rating))}
                   {'☆'.repeat(Math.max(0, 5 - Math.round(row.star_rating)))}
                 </span>

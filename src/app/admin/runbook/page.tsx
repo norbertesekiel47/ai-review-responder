@@ -85,7 +85,7 @@ const SCENARIOS: Scenario[] = [
 
 export default function RunbookPage() {
   return (
-    <div className="mx-auto max-w-5xl px-4 py-8">
+    <div className="mx-auto min-h-screen max-w-5xl px-4 py-8">
       <header className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Operational Runbook</h1>
         <p className="mt-1 text-sm text-gray-600">

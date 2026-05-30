@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { SettingsTabs } from '../SettingsTabs';
 
 vi.mock('next/link', () => ({
@@ -15,9 +16,9 @@ describe('SettingsTabs', () => {
   it('uses the existing single-location tabs when locations settings are disabled', () => {
     render(<SettingsTabs activeTab="general" />);
 
-    expect(screen.getByRole('tab', { name: /general/i })).toHaveAttribute('href', '/settings');
-    expect(screen.queryByRole('tab', { name: /locations/i })).not.toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: /brand voice/i })).toHaveAttribute('href', '/settings#brand-voice');
+    expect(screen.getByRole('link', { name: /general/i })).toHaveAttribute('href', '/settings');
+    expect(screen.queryByRole('link', { name: /locations/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /brand voice/i })).toHaveAttribute('href', '/settings#brand-voice');
   });
 
   it('uses Account as the settings home tab when Locations is exposed', () => {
@@ -29,10 +30,10 @@ describe('SettingsTabs', () => {
       />,
     );
 
-    expect(screen.getByRole('tab', { name: /^account$/i })).toHaveAttribute('href', '/settings');
-    expect(screen.getByRole('tab', { name: /locations/i })).toHaveAttribute('href', '/settings/locations');
-    expect(screen.getByRole('tab', { name: /brand voice/i })).toHaveAttribute('href', '/settings#brand-voice');
-    expect(screen.queryByRole('tab', { name: /general/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /^account$/i })).toHaveAttribute('href', '/settings');
+    expect(screen.getByRole('link', { name: /locations/i })).toHaveAttribute('href', '/settings/locations');
+    expect(screen.getByRole('link', { name: /brand voice/i })).toHaveAttribute('href', '/settings#brand-voice');
+    expect(screen.queryByRole('link', { name: /general/i })).not.toBeInTheDocument();
   });
 
   it('uses the multi-location account tabs for true multi-location accounts', () => {
@@ -44,10 +45,10 @@ describe('SettingsTabs', () => {
       />,
     );
 
-    expect(screen.getByRole('tab', { name: /^account$/i })).toHaveAttribute('href', '/settings');
-    expect(screen.getByRole('tab', { name: /locations/i })).toHaveAttribute('href', '/settings/locations');
-    expect(screen.getByRole('tab', { name: /^voice$/i })).toHaveAttribute('href', '/settings/voice');
-    expect(screen.getByRole('tab', { name: /notifications/i })).toHaveAttribute('href', '/settings/channels');
+    expect(screen.getByRole('link', { name: /^account$/i })).toHaveAttribute('href', '/settings');
+    expect(screen.getByRole('link', { name: /locations/i })).toHaveAttribute('href', '/settings/locations');
+    expect(screen.getByRole('link', { name: /^voice$/i })).toHaveAttribute('href', '/settings/voice');
+    expect(screen.getByRole('link', { name: /notifications/i })).toHaveAttribute('href', '/settings/channels');
   });
 
   it('shows the Security tab for account settings layouts', () => {
@@ -59,7 +60,29 @@ describe('SettingsTabs', () => {
       />,
     );
 
-    expect(screen.getByRole('tab', { name: /security/i })).toHaveAttribute('href', '/settings/security');
-    expect(screen.getByRole('tab', { name: /security/i })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('link', { name: /security/i })).toHaveAttribute('href', '/settings/security');
+    expect(screen.getByRole('link', { name: /security/i })).toHaveAttribute('aria-current', 'page');
+  });
+});
+
+describe('SettingsTabs — route-nav ARIA (P2 #27)', () => {
+  it('marks the active tab with aria-current="page" and not role=tab', () => {
+    render(<SettingsTabs activeTab="security" locationsSettingsEnabled multiLocationEnabled />);
+    const active = screen.getByRole('link', { name: /security/i });
+    expect(active).toHaveAttribute('aria-current', 'page');
+    expect(active).not.toHaveAttribute('role', 'tab');
+  });
+  it('uses roving tabindex (active 0, others -1)', () => {
+    render(<SettingsTabs activeTab="security" locationsSettingsEnabled multiLocationEnabled />);
+    expect(screen.getByRole('link', { name: /security/i })).toHaveAttribute('tabindex', '0');
+    expect(screen.getByRole('link', { name: /notifications/i })).toHaveAttribute('tabindex', '-1');
+  });
+  it('ArrowRight moves focus to the next tab', async () => {
+    const user = userEvent.setup();
+    render(<SettingsTabs activeTab="general" />);
+    const first = screen.getByRole('link', { name: /general/i });
+    first.focus();
+    await user.keyboard('{ArrowRight}');
+    expect(screen.getByRole('link', { name: /brand voice/i })).toHaveFocus();
   });
 });

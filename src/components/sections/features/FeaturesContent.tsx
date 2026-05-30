@@ -299,7 +299,7 @@ export function FeaturesContent({
                     <span className="rw-label-mono text-[10px] uppercase text-[#97B3AE]">
                       {r.lang}
                     </span>
-                    <span className="text-yellow-400 text-xs">{r.stars}</span>
+                    <span className="text-[#97B3AE] text-xs">{r.stars}</span>
                     <span className="text-sm text-[#2a2a2a]">{r.text}</span>
                   </div>
                 ))}
@@ -496,7 +496,7 @@ function FeatAi({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
               />
               <div>
                 <p className="text-sm font-medium text-[#2a2a2a]">Sarah K.</p>
-                <div className="flex gap-0.5 text-yellow-400">★★★★★</div>
+                <div className="flex gap-0.5 text-[#97B3AE]">★★★★★</div>
               </div>
               <span className="ml-auto text-xs rw-label-mono text-[#6a6a6a]">2h ago · Google</span>
             </div>
@@ -592,7 +592,7 @@ function FeatLang({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
               />
               <div>
                 <p className="text-xs font-medium text-[#2a2a2a]">Carlos M.</p>
-                <div className="flex gap-0.5 text-yellow-400 text-[10px]">★★★★★</div>
+                <div className="flex gap-0.5 text-[#97B3AE] text-[10px]">★★★★★</div>
               </div>
               <span className="ml-auto rw-label-mono text-[10px] text-[#6a6a6a]">detected: ES</span>
             </div>

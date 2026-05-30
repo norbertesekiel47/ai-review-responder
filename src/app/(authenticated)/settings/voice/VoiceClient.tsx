@@ -15,6 +15,7 @@
 import { useLocationVoiceForm } from '@/hooks/useLocationVoiceForm';
 import { SettingsShell } from '@/components/dashboard/settings/SettingsShell';
 import { BrandVoicePanel } from '@/components/dashboard/settings/BrandVoicePanel';
+import { SettingsSkeleton } from '@/components/dashboard/settings/SettingsSkeleton';
 import { Icon } from '@/components/dashboard/Icon';
 
 export function VoiceClient() {
@@ -36,7 +37,7 @@ export function VoiceClient() {
   if (f.loading || !f.form) {
     return (
       <SettingsShell activeTab="voice" multiLocationEnabled>
-        <p style={{ textAlign: 'center', color: '#6B7280', padding: '60px 0' }}>Loading voice settings…</p>
+        <SettingsSkeleton />
       </SettingsShell>
     );
   }

@@ -76,14 +76,14 @@
 }
 .pr-chip:hover { color: #374151; }
 .pr-chip.active { background: #fff; color: var(--rw-app-text); box-shadow: var(--rw-shadow-sm); font-weight: 600; }
-.pr-chip-stars { color: var(--rw-yellow-500); font-size: 11px; letter-spacing: 0; }
+.pr-chip-stars { color: var(--rw-star); font-size: 11px; letter-spacing: 0; }
 
 .pr-stats {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 10px;
 }
-@media (max-width: 768px) { .pr-stats { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 900px) { .pr-stats { grid-template-columns: repeat(2, 1fr); } }
 .pr-stat {
   background: #fff;
   border: 1px solid var(--rw-app-border);
@@ -262,8 +262,8 @@
 .pr-empty-icon {
   width: 56px; height: 56px;
   border-radius: 16px;
-  background: var(--rw-blue-50);
-  color: var(--rw-blue-600);
+  background: rgba(151, 179, 174, 0.14);
+  color: #97B3AE;
   display: grid; place-items: center;
   animation: float 3s ease-in-out infinite;
 }

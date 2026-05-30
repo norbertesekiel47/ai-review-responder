@@ -77,6 +77,7 @@ export function OwnerWhatsAppWidget({ initialEnrollment }: OwnerWhatsAppWidgetPr
         {/* QR panel — expands inline below the handle text */}
         {snapshot.state === 'awaiting_scan' && snapshot.qrDataUrl && snapshot.deepLink && (
           <div style={{ marginTop: 12 }}>
+            {/* QR is a runtime base64 data: URI — next/image cannot optimize a data URL. */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={snapshot.qrDataUrl} alt="WhatsApp QR" width={160} height={160} />
             <p style={{ marginTop: 6, wordBreak: 'break-all', fontSize: 12, color: 'var(--rw-blue-600)' }}>

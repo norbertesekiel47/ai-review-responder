@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
@@ -38,13 +39,13 @@ export function SiteNav({ comingSoon = false, selfServeEnabled = false }: SiteNa
     <nav className="border-b border-[#97B3AE]/10">
       <div className="px-8 py-4 flex items-center justify-between gap-4">
         <Link href="/" className="flex items-center gap-2 rounded-md focus-visible:outline-2 focus-visible:outline-[#97B3AE] focus-visible:outline-offset-2">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/Logo - SVG.svg"
+          <Image
+            src="/logo.svg"
             alt="RepWorth"
             width={32}
             height={32}
             className="w-8 h-8 object-contain"
+            unoptimized
           />
           <span className="text-sm tracking-wider uppercase text-[#97B3AE]">RepWorth</span>
         </Link>

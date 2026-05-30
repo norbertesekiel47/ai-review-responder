@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Icon, type IconName } from './Icon';
 
 // ── Tab types ──────────────────────────────────────────────────────────
@@ -69,22 +69,57 @@ export function SettingsTabs({ activeTab, locationsSettingsEnabled, multiLocatio
     if (el) setU({ left: el.offsetLeft, width: el.offsetWidth });
   }, [activeTab, locationsSettingsEnabled, multiLocationEnabled]);
 
+  const focusTabAt = (index: number) => {
+    const count = tabs.length;
+    const next = ((index % count) + count) % count;
+    refs.current[tabs[next]!.id]?.focus();
+  };
+
+  const onKeyDown = (event: KeyboardEvent<HTMLAnchorElement>, index: number) => {
+    switch (event.key) {
+      case 'ArrowRight':
+      case 'ArrowDown':
+        event.preventDefault();
+        focusTabAt(index + 1);
+        break;
+      case 'ArrowLeft':
+      case 'ArrowUp':
+        event.preventDefault();
+        focusTabAt(index - 1);
+        break;
+      case 'Home':
+        event.preventDefault();
+        focusTabAt(0);
+        break;
+      case 'End':
+        event.preventDefault();
+        focusTabAt(tabs.length - 1);
+        break;
+      default:
+        break;
+    }
+  };
+
   return (
-    <div className="settings-tabs" role="tablist">
-      {tabs.map((t) => (
-        <Link
-          key={t.id}
-          ref={(el) => {
-            refs.current[t.id] = el;
-          }}
-          href={t.href}
-          className={`stab ${activeTab === t.id ? 'active' : ''}`}
-          role="tab"
-          aria-selected={activeTab === t.id}
-        >
-          <Icon name={t.icon} size={16} /> {t.label}
-        </Link>
-      ))}
+    <div className="settings-tabs">
+      {tabs.map((t, index) => {
+        const isActive = activeTab === t.id;
+        return (
+          <Link
+            key={t.id}
+            ref={(el) => {
+              refs.current[t.id] = el;
+            }}
+            href={t.href}
+            className={`stab ${isActive ? 'active' : ''}`}
+            aria-current={isActive ? 'page' : undefined}
+            tabIndex={isActive ? 0 : -1}
+            onKeyDown={(event) => onKeyDown(event, index)}
+          >
+            <Icon name={t.icon} size={16} /> {t.label}
+          </Link>
+        );
+      })}
       <div className="stab-underline" style={{ left: u.left, width: u.width }} />
     </div>
   );
