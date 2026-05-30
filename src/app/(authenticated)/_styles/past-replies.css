@@ -262,8 +262,8 @@
 .pr-empty-icon {
   width: 56px; height: 56px;
   border-radius: 16px;
-  background: var(--rw-blue-50);
-  color: var(--rw-blue-600);
+  background: rgba(151, 179, 174, 0.14);
+  color: #97B3AE;
   display: grid; place-items: center;
   animation: float 3s ease-in-out infinite;
 }

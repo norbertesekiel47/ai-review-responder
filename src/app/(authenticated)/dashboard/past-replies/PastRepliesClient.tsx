@@ -278,6 +278,11 @@ function Stat({ label, icon, value, suffix }: { label: string; icon: 'check' | '
   );
 }
 
+// TODO(P2 #28): Empty() renders in the gap section for brand-new accounts with
+// zero replies, but its copy ("No replies match this filter") is filter-state
+// language. A first-run account sees no historical section (gated by
+// hasHistoricalSection) and only this component in the gap section. Consider
+// differentiating copy when hasActiveFilter=false and totalReplies=0.
 function Empty() {
   return (
     <div className="pr-empty">
