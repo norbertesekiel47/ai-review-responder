@@ -87,7 +87,7 @@ export function EditReplyDrawer({
             type="button"
             onClick={tryClose}
             disabled={isClosePending}
-            className="rounded-md px-2 py-1 text-sm text-[#6a6a6a] hover:bg-gray-50 hover:text-[#2a2a2a] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+            className="flex min-h-11 min-w-11 items-center justify-center rounded-md text-sm text-[#6a6a6a] hover:bg-gray-50 hover:text-[#2a2a2a] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
             aria-label={
               isClosePending
                 ? 'Close (disabled while draft is being created)'

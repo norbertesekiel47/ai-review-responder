@@ -1011,6 +1011,7 @@
     align-items: center;
     gap: 2px;
     padding: 8px 4px;
+    min-height: 44px;
     color: #6B7280;
     background: none;
     border: none;
