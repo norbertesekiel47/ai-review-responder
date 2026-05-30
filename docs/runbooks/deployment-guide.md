@@ -1090,18 +1090,47 @@ launch — **staging first** (Part II §II.2), then **production** (§II.4).
 - [x] CLIs authenticated: vercel · railway · gh · stripe (live + test)
 
 ## Phase 1 — Provision staging backing services (test/sandbox)
-- [ ] `[YOU]` ⏱ DNS: add `staging.repworth.net` CNAME → Vercel (target shown in Phase 3)
+- [x] `[YOU]` ⏱ DNS: add `staging.repworth.net` CNAME → Vercel (target shown in Phase 3)
 - [x] `[ME]` Staging Supabase project created — `RepWorth-staging` (Startups, Oregon, ref `kubdiqdhqbhwmqfditeg`) — *done 2026-05-30*
 - [x] `[ME]` Apply migrations 001→054 to staging — *done 2026-05-30 (verified: 32 tables, RLS on 28)*
-- [ ] `[YOU]` Staging Supabase Auth: custom SMTP (`smtp.resend.com:465`, user `resend`, pass = staging `RESEND_API_KEY`) + signup confirmation template uses `{{ .Token }}`
-- [ ] `[YOU/ME]` Seed a staging admin user (`users` row linked to a Supabase Auth user)
-- [ ] `[YOU]` Staging Upstash **cache** instance → `REDIS_CACHE_URL` (`rediss://`, TLS)
-- [ ] `[ME]` Capture staging `DATABASE_POOL_URL` (Transaction pooler, 6543)
-- [ ] `[ME]` Create the 7 Stripe **test-mode** prices → `STRIPE_PRICE_*`
-- [ ] `[YOU]` Resend staging sender → `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, `RESEND_WEBHOOK_SECRET`
-- [ ] `[YOU]` Zernio sandbox → `ZERNIO_API_KEY`, `ZERNIO_WEBHOOK_SECRET`; set `ZERNIO_PROFILE_ID_PREFIX=repworth-staging-`
-- [ ] `[YOU]` Google Maps: add `https://staging.repworth.net/*` to the key's referrer allowlist
-- [ ] `[ME]` Generate staging secrets: `SESSION_COOKIE_SECRET`, `CSRF_SECRET`, `IMPERSONATION_COOKIE_SECRET`
+- [x] `[YOU]` Staging Supabase Auth: custom SMTP (`smtp.resend.com:465`, user `resend`, pass = staging `RESEND_API_KEY`) + signup confirmation template uses `{{ .Token }}`
+- [x] `[YOU/ME]` Seed a staging admin user (`users` row linked to a Supabase Auth user)
+- [x] `[YOU]` Staging Upstash **cache** instance → `REDIS_CACHE_URL` (`rediss://`, TLS)
+- [x] `[ME]` Capture staging `DATABASE_POOL_URL` (Transaction pooler, 6543)
+- [x] `[ME]` Create the 7 Stripe **test-mode** prices → `STRIPE_PRICE_*`
+- [x] `[YOU]` Resend staging sender → `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, `RESEND_WEBHOOK_SECRET`
+- [x] `[YOU]` Zernio sandbox → `ZERNIO_API_KEY`, `ZERNIO_WEBHOOK_SECRET`; set `ZERNIO_PROFILE_ID_PREFIX=repworth-staging-`
+- [x] `[YOU]` Google Maps: add `https://staging.repworth.net/*` to the key's referrer allowlist
+- [x] `[ME]` Generate staging secrets: `SESSION_COOKIE_SECRET`, `CSRF_SECRET`, `IMPERSONATION_COOKIE_SECRET`
+
+### Phase 1 — completed: record, learnings & carry-forward (2026-05-30)
+
+**What was provisioned**
+- **Staging Supabase** `RepWorth-staging` — Startups org, **West US (Oregon)**, ref `kubdiqdhqbhwmqfditeg`. All **54 migrations** applied via `psql` over the *direct* connection in session mode (so the `CONCURRENTLY` migrations 018/023/026/031 run); verified **32 public tables, RLS on 28**.
+- **Auth keys rotated to the new system:** legacy `anon`/`service_role` JWTs **disabled** — this neutralized a staging service key that had leaked into a terminal transcript. Staging now uses **`sb_publishable_`** (anon) + **`sb_secret_`** (service). DB password, schema, and SMTP were untouched by the rotation.
+- **Supabase Auth:** custom SMTP via Resend (`smtp.resend.com:465`, user `resend`); signup template `{{ .Token }}` (6-digit OTP); reset/invite `/api/auth/callback?…&amp;…` links; Site URL `https://staging.repworth.net`. Admin `users` row seeded (role `admin`, no `account_id`).
+- **Redis:** cache on **Upstash** (`rediss://`). The BullMQ **queue** is Railway-side — created in Phase 2.
+- **Stripe (TEST mode):** 4 products + **7 prices** created via CLI (Basic $29 · Standard $79 +$25/loc · Premium $199 +$20/loc · Founders $19 +$25/loc); `sk_test_…` secret.
+- **Resend / Zernio / LLM / app secrets** — all generated **distinct from prod** (intentional isolation). Zernio is a **sandbox** key; `ZERNIO_PROFILE_ID_PREFIX=repworth-staging-`.
+
+**Where the values live**
+- All staging values are in **`.env.staging.local`** (gitignored via `.env*.local`), namespaced `STAGING_*`. Never committed; never pasted into chat. When wiring Railway/Vercel, map `STAGING_X` → `X`.
+
+**Learnings / gotchas (also apply to prod in Phase 6)**
+- **Supabase region is immutable after creation.** Slugs follow AWS: Oregon = `us-west-2` (NOT `us-west-1`, which is N. California). Get it right at create time. *(We had to delete + recreate.)*
+- **Connection strings moved** behind the dashboard **"Connect"** button (not Settings → Database). Use the **Transaction pooler** (port 6543) string and **keep `?pgbouncer=true`** (psql rejects that param, but Postgres.js needs it).
+- **Legacy keys can't be individually re-rolled** — you neutralize them by disabling legacy keys + moving to `sb_` keys. ⚠️ **Do NOT disable prod's legacy keys until the prod env is on `sb_` keys** (the live `repworth.net` deploy may still use them).
+- **`ZERNIO_API_BASE` = `https://zernio.com/api`** (no `/v1`) — the client appends `/v1` per-endpoint, so the docs' `…/api/v1` base would double to `/v1/v1` → 404.
+- **Resend webhook secret is a Svix `whsec_…`** value *from Resend* (created in Phase 4 with the endpoint) — **not** openssl-generated. *(Its Phase-1 checkbox covers only the API key + sender; the webhook secret is genuinely a Phase-4 item. Guide §1.2's "openssl" note is wrong — pending fix.)*
+- **`.env` append hygiene:** ensure the file ends in a newline before appending, or the first appended line glues onto the previous entry (this bit `SESSION_COOKIE_SECRET` once — now fixed).
+
+**How to start Phase 2 (Railway staging worker)**
+1. Create a **`staging` git branch** from `main` and push it (Railway's staging env deploys from it).
+2. Pick the Railway project — the empty auto-named **`soothing-luck`** (ideally rename to `repworth`) — and add a **`staging` environment**.
+3. Add **Railway Redis** (the queue) to the staging env; **disable its TCP Proxy**; wire `REDIS_QUEUE_URL=redis://default:${{redis.REDISPASSWORD}}@${{redis.RAILWAY_PRIVATE_DOMAIN}}:6379/1?family=0`.
+4. Create the **worker service** from the GitHub repo on the `staging` branch (`railway.toml` already sets `pnpm worker` + healthcheck `/api/health`).
+5. Set all worker env vars from `.env.staging.local` (`STAGING_X` → `X`) + `NEXT_PUBLIC_APP_URL=https://staging.repworth.net`, `ZERNIO_PUBLISHING_ENABLED=true`, `SELF_SERVE_SIGNUP_ENABLED=true`, channels off, `MOCK_EXTERNAL_APIS=false`; then generate the worker domain → `WORKER_PUBLIC_URL`.
+6. Deploy; confirm `[startup-assert] … ✓` and `/api/health` 200.
 
 ## Phase 2 — Deploy staging worker (Railway)
 - [ ] `[ME]` Create Railway `staging` environment
