@@ -22,6 +22,7 @@
   --rw-sage-soft:   #D2E0D380;
   --rw-teal:        #97B3AE; /* primary accent — CTAs, nav links, step dots */
   --rw-teal-soft:   #97B3AE33;
+  --rw-star:        #97B3AE;       /* review star glyph — intentionally teal, not yellow */
   --rw-peach:       #F2C3B9; /* secondary accent — step 3, "dots" highlights */
   --rw-peach-soft:  #F2C3B940;
   --rw-pink:        #F0DDD6; /* tertiary — step 2 */
@@ -70,7 +71,6 @@
 
   --rw-yellow-100: #FEF9C3;  /* badge: pending_approval */
   --rw-yellow-800: #854D0E;
-  --rw-star:       #97B3AE;  /* review star glyph */
 
   /* Attention / awaiting state — brand blush #F2C3B9 (replaces the old banned
      palette). Owner-facing: ConnectGoogleBanner reconnect banner + the

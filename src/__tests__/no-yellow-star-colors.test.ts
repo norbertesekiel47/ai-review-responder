@@ -11,7 +11,7 @@ const STAR = '#97B3AE';
 describe('review stars are brand teal, never yellow (P2 #28)', () => {
   it('token is renamed --rw-star and no --rw-yellow-500 remains', () => {
     const tokens = read('src/app/(authenticated)/_styles/tokens.css');
-    expect(tokens).toMatch(new RegExp(`--rw-star:\\s*${STAR}`, 'i'));
+    expect(tokens).toMatch(/--rw-star:\s*#97B3AE/);
     expect(tokens).not.toMatch(/--rw-yellow-500/);
   });
 
@@ -31,6 +31,7 @@ describe('review stars are brand teal, never yellow (P2 #28)', () => {
       ['src/app/(authenticated)/_styles/past-replies.css', /\.pr-chip-stars\s*\{[^}]*var\(--rw-star\)/],
       ['src/app/globals.css', /\.rw-demo-stars\s*\{[^}]*#97B3AE/i],
       ['src/app/globals.css', /\.hiw-feed-stars\s*\{[^}]*#97B3AE/i],
+      ['src/app/globals.css', /\.rw-bg-stars\s*\{[^}]*#97B3AE/i],
       ['src/components/auth/auth-island/auth-island.css', /\.rw-pcard-stars\s*\{[^}]*#97B3AE/i],
       ['src/components/auth/auth-island/auth-island.css', /\.rw-review-stars\s*\{[^}]*#97B3AE/i],
     ];
@@ -45,6 +46,7 @@ describe('review stars are brand teal, never yellow (P2 #28)', () => {
       'src/components/sections/how-it-works/HowItWorksContent.tsx',
       'src/app/(authenticated)/dashboard/past-replies/PastRepliesClient.tsx',
       'src/components/dashboard/EditReplyDrawer.tsx',
+      'src/components/approval/approval-client.tsx',
     ]) {
       const src = read(p);
       expect(src, `${p} has text-yellow-4xx star`).not.toMatch(/text-yellow-4\d0/);
