@@ -5,8 +5,8 @@ Two parts:
 
 - **Part I — Single-environment deployment recipe** (§0–§13). The step-by-step for
   standing up **one** environment (Vercel UI + Railway worker + Supabase + Redis
-  + webhooks) end-to-end. Written as the first production go-live (the friend's
-  resort), but it's the same recipe you run for staging and for prod.
+  + Stripe + webhooks) end-to-end. It's the same recipe you run for staging and for
+  prod; §7–§10 also walk the careful onboarding of your first real customer.
 - **Part II — Staging & production: two environments + promotion** (§II.1–§II.8).
   Applies Part I twice — staging first, then prod — and defines the ongoing
   Option-1 release loop.
@@ -105,40 +105,46 @@ and no webhook endpoints, which is exactly what staging must exercise.
 
 > Part I stands up **one** environment end-to-end. You run it twice: first for
 > **staging** with test credentials (Part II §II.2), then for **production** with
-> live credentials (Part II §II.4). It reads as the first real production cutover
-> (the friend's resort), so §7–§10 carry the deliberate "one careful first post"
-> discipline that only applies to a live GBP — for staging, substitute a
+> live credentials (Part II §II.4). §7–§10 carry the deliberate "one careful first
+> post" discipline for your first real customer's GBP — for staging, substitute a
 > throwaway test business (Part II §II.2.8).
 
-## §0. What's in this beta — and what isn't
+## §0. What this deployment includes — and what's intentionally off
 
-### IN — must work
+### IN — live in production
 
-- **One business** (friend's resort), onboarded via admin (`/admin/businesses/new`).
+- **Self-serve signup + Stripe billing** (the primary onboarding path). Owners
+  register at `/signup`, confirm an emailed OTP, pick a tier, pay via a Stripe
+  **Checkout Session**, then complete a profile/voice wizard. Gated by
+  `SELF_SERVE_SIGNUP_ENABLED` (§7). Stripe **webhooks are wired** (§6.3).
+- **Admin onboarding** (`/admin/businesses/new`) as a **secondary** path for
+  internal / demo / manual provisioning (§7B).
 - **Zernio ingestion + posting** (`ZERNIO_PUBLISHING_ENABLED=true`).
-- **Email-only approval channel** (Resend → owner inbox).
-- **Approval flow**: read-only shell, edit/regenerate, approve, publish via Zernio.
-- **Subscription state set manually** (no Stripe — see "OFF" below).
-- **Cost guard, outbox, watchdog, failover poller, archival, weekly/monthly digests** (everything code-complete in Sprints 1-6).
+- **Email approval channel** (Resend → owner inbox): read-only shell, edit/
+  regenerate, approve, publish via Zernio.
+- **Cost guard, outbox, watchdog, failover poller, archival, weekly/monthly
+  digests, multi-location billing** — all on `main`.
 
-### OFF — explicitly disabled for beta
+### OFF — disabled by flag (a launch decision, not a blocker)
 
-| Feature | Flag | Why off |
+| Feature | Flag | Status |
 |---|---|---|
-| Self-serve signup | `SELF_SERVE_SIGNUP_ENABLED=false` | Supabase custom SMTP not yet configured. Admin onboards the friend manually. |
-| SMS channel | `CHANNELS_SMS_ENABLED=false` | 10DLC registration not done. |
-| Telegram channel | `CHANNELS_TELEGRAM_ENABLED=false` | Bot not deployed; ⚠️ **dev .env.local has this true — flip it OFF in Railway**. |
-| WhatsApp channel | `CHANNELS_WHATSAPP_ENABLED=false` | Meta verification + template approval not done. |
-| Ranking tracking | `RANKING_TRACKING_ENABLED=false` | Feature not ready; SerpAPI cost. |
-| Edit-existing-replies | `EDIT_EXISTING_REPLIES_ENABLED=false` | Migration 031 + feature in progress on different branch. |
-| Stripe billing | _no flag — just don't trigger_ | One business, manually marked active via SQL. Skip Stripe webhook wiring entirely. |
-| `MOCK_EXTERNAL_APIS` | **must be `false`** | Mock mode bypasses all third parties — would silently no-op real Zernio + Resend calls. |
+| SMS channel | `CHANNELS_SMS_ENABLED=false` | code complete; 10DLC registration is the remaining external gate |
+| Telegram channel | `CHANNELS_TELEGRAM_ENABLED=false` | code complete; ⚠️ dev `.env.local` may have this `true` — keep it **OFF** in Railway |
+| WhatsApp channel | `CHANNELS_WHATSAPP_ENABLED=false` | code complete; **Meta verification + template already approved** — flip on when ready |
+| Ranking tracking | `RANKING_TRACKING_ENABLED=false` | feature not ready; SerpAPI cost |
+| Edit existing replies | `EDIT_REPLIES_ENABLED=false` | code complete on `main`; requires `PAST_REPLIES_VIEW_ENABLED=true` |
+| Pre-pay demo lane | `ONBOARDING_DEMO_ENABLED=false` | code complete; pre-paywall demo preview + 3-step wizard |
+| `MOCK_EXTERNAL_APIS` | **must be `false`** in any deployed env | mock mode no-ops real Zernio / Resend / Stripe |
 
-### Branch state to ship
+> `SELF_SERVE_SIGNUP_ENABLED` itself defaults `false`. Its prerequisites — Supabase
+> **custom SMTP** and the Stripe price IDs — **are configured**; flip it `true` when
+> you're ready to open public signups (§4.2 lists the vars it then requires).
 
-- Current: `feat/zernio-ingestion-replace-serpapi` — code-complete, mock smokes pass per `docs/zernio-ingestion-test-report-2026-05-01.md`.
-- Action: merge to `main` before deploy. Vercel/Railway both build from `main`.
-- Migration 031 (`edit_existing_replies`) is in the repo but **DO NOT apply it** in this deploy. It belongs to a feature not shipping in beta and needs `CONCURRENTLY` index builds (non-transactional execution).
+### Deploy from `main`
+
+All features are merged to `main`; Vercel and Railway both build from it — there is
+no feature branch to land first. Apply migrations **001→054** (§2).
 
 ---
 
@@ -146,23 +152,30 @@ and no webhook endpoints, which is exactly what staging must exercise.
 
 DNS propagation is the long-pole item. Get it started first, do everything else while you wait.
 
-### 1.1 Domain & DNS (T-48h)
+### 1.1 Domain & DNS
 
-- [ ] Pick the production domain. Suggested split:
-  - `app.<yourdomain>` → Vercel (Next.js UI + `/approve/<token>` links)
-  - `worker.<yourdomain>` → Railway (Fastify worker, all `/ingress/*` webhooks)
-  - `<yourdomain>` (apex) → marketing/landing — point at Vercel too if same project
-- [ ] Add `app.` and `worker.` CNAMEs in your DNS panel. Vercel and Railway will give you the target hostnames once you create the projects (§4.1, §5.1).
-- [ ] If you don't have a domain yet, you can ship the first beta on the free `*.vercel.app` and `*.up.railway.app` subdomains — just be aware Resend domain verification (§1.2) requires a real domain you own.
+`repworth.net` is already registered and **live on Vercel** — production UI serves
+at the apex `https://repworth.net`. Production domain map:
 
-### 1.2 Resend domain verification (T-48h — DNS lag is the long pole)
+  - `repworth.net` (apex) → Vercel (Next.js UI + `/approve/<token>` links)
+  - `worker.repworth.net` → Railway (Fastify worker, all `/ingress/*` webhooks)
+  - `staging.repworth.net` → Vercel `staging` env (Part II)
 
-- [ ] Create Resend account, add your domain.
-- [ ] Add the SPF, DKIM, DMARC records Resend gives you. **DNS verification can take 1–24 h.** Don't block on it — start it now.
-- [ ] Once verified, set `RESEND_FROM_EMAIL` to a sender on that domain, e.g. `RepWorth <notifications@yourdomain.com>`.
-- [ ] Generate the API key (`re_...`) → `RESEND_API_KEY`.
-- [ ] Generate the webhook secret: `openssl rand -hex 32` → `RESEND_WEBHOOK_SECRET`. Don't configure the webhook URL yet — we don't have `WORKER_PUBLIC_URL` until §5.
-- [ ] See `docs/runbooks/email-deliverability.md` for the warmup curve. For one business sending ~10 emails/week, you won't hit warmup ceilings, but read it anyway so you understand the bounce/complaint signals.
+- [ ] Add the `worker.` CNAME in your DNS panel once the Railway project exists (§5)
+      — Railway gives you the target hostname. The staging *worker* can use the free
+      `*.up.railway.app` subdomain (no DNS needed).
+
+### 1.2 Resend & Supabase SMTP (prod already configured)
+
+The Resend domain is verified and **Supabase custom SMTP is already configured**
+(host `smtp.resend.com`, port `465`, user `resend`, password = `RESEND_API_KEY`), so
+owner-auth emails (signup OTP, reset, invite) send through Resend. For a **fresh**
+environment (e.g. staging) you re-do this per project:
+
+- [ ] Confirm/add the domain in Resend (SPF, DKIM, DMARC). On a brand-new domain, DNS verification can take 1–24 h.
+- [ ] Set `RESEND_FROM_EMAIL` to a sender on that domain.
+- [ ] `RESEND_API_KEY` (`re_…`); `RESEND_WEBHOOK_SECRET` (`openssl rand -hex 32`) — configure the webhook URL in §6 once `WORKER_PUBLIC_URL` exists.
+- [ ] `docs/runbooks/email-deliverability.md` covers the warmup curve + bounce/complaint signals.
 
 ### 1.3 Supabase production project
 
@@ -199,16 +212,15 @@ DNS propagation is the long-pole item. Get it started first, do everything else 
 > would require a TLS-capable Redis for the cache — a separate decision, not needed
 > for launch.)
 
-**⚠️ Code prerequisite — `family: 0` (must land *before* the Railway deploy).**
+**`family: 0` — already handled in code; you only append `?family=0` to the URL.**
 Railway's private network is **IPv6-only**, and `ioredis`/BullMQ will not resolve
 `*.railway.internal` without `family: 0` in the connection options (per Railway's
 [library-configuration docs](https://docs.railway.com/networking/private-networking/library-configuration)).
-`getRedisOptions()` in `worker/queues.ts` does **not** set this today. Add it on
-the **queue** path — driven by a `?family=0` query param on `REDIS_QUEUE_URL` so the
-code stays vendor-neutral (local/Upstash unaffected). Without it the worker boots
-but every BullMQ connection fails with `ENOTFOUND <svc>.railway.internal`. The cache
-path (`getCacheRedisOptions()`) does **not** need it — the cache stays on Upstash
-(public, dual-stack).
+This is already wired: `getRedisOptions()` (`worker/redis-connection.ts`) reads a
+`?family=` query param off the Redis URL, so you only need to append `?family=0` to
+`REDIS_QUEUE_URL` (vendor-neutral — local/Upstash unaffected). Without it the worker
+boots but every BullMQ connection fails with `ENOTFOUND <svc>.railway.internal`. The
+cache path stays on Upstash (public, dual-stack) and needs no `family` hint.
 
 **Provision (per environment — do this during §5, after the Railway project exists):**
 
@@ -272,39 +284,38 @@ so the URL survives a Redis re-provision):**
 ### 1.8 Generate app secrets
 
 ```bash
-# 32-byte hex (64 chars) — for token encryption
-openssl rand -hex 32   # → ENCRYPTION_KEY
-# 32+ char random strings — for cookie + CSRF signing
 openssl rand -base64 32   # → SESSION_COOKIE_SECRET
 openssl rand -base64 32   # → CSRF_SECRET
+openssl rand -hex 32      # → IMPERSONATION_COOKIE_SECRET  (admin view-as; ≥32 chars)
 ```
 
-`ENCRYPTION_KEY_VERSION=1`.
+> Do **not** generate `ENCRYPTION_KEY` / `ENCRYPTION_KEY_VERSION` — they are
+> vestigial (no symmetric crypto exists; tokens are SHA-256 *hashed*). See
+> `docs/eservices-variables.md`.
 
 ---
 
-## §2. Database — apply migrations 001–030
+## §2. Database — apply migrations 001–054
 
-> **Standing up staging, or a fresh prod that mirrors `main`?** Apply the **full**
-> set through the current head (**054**), not just 030 — the "stop at 030" below
-> was the original beta feature-scope. Later migrations may build indexes
-> `CONCURRENTLY` and must run **outside** a transaction; check
-> `.claude/reference/migrations-log.md` for per-migration handling. See §II.2.1.
+> **Fresh environment (staging, or a prod that mirrors `main`)?** Apply the full set
+> **001→054**. Migrations 018, 023, 026, 031 build indexes `CONCURRENTLY` and must
+> run **outside** a transaction; check `.claude/reference/migrations-log.md` for
+> per-migration handling. See §II.2.1.
 
-- [ ] In Supabase prod SQL editor, run each `supabase/migrations/0XX_*.sql` **in numeric order**. Per CLAUDE.md / user feedback memory, Claude does not run these for you — you run them, in the editor, and check the result.
-- [ ] **Skip 031** (`031_edit_existing_replies.sql`) — out of scope, requires non-transactional execution.
+- [ ] In Supabase SQL editor, run each `supabase/migrations/0XX_*.sql` **in numeric order, 001→054**. Per CLAUDE.md / user feedback memory, Claude does not run these for you — you run them, in the editor, and check the result.
+- [ ] **Non-transactional migrations:** 018, 023, 026, and 031 use `CREATE INDEX CONCURRENTLY`, which **cannot** run inside a transaction block — run each of those on its own (not wrapped in `BEGIN/COMMIT`). See `.claude/reference/migrations-log.md` for per-migration handling.
 - [ ] Pre-flight before 029 (idempotent — should be 0 in a fresh DB):
   ```sql
   SELECT COUNT(*) FROM responses WHERE status = 'awaiting_manual_post';
   -- expect: 0
   ```
-- [ ] Verification queries after running all 30:
+- [ ] Verification queries after running all 54:
   ```sql
   -- All tables present
   SELECT table_name FROM information_schema.tables
   WHERE table_schema = 'public'
   ORDER BY table_name;
-  -- expect: ~30 tables including reviews, responses, businesses, users,
+  -- expect: ~50 tables including reviews, responses, businesses, accounts, users,
   --         job_outbox, approval_links, approval_audit_log, zernio_connections,
   --         zernio_backfill_runs, zernio_finalize_incidents,
   --         channel_enrollments, notification_deliveries, etc.
@@ -334,7 +345,7 @@ openssl rand -base64 32   # → CSRF_SECRET
 
 ## §3. Code prep
 
-- [ ] Merge `feat/zernio-ingestion-replace-serpapi` → `main`. Run `pnpm test` once on main before deploy — expect ~1707 passing per the test report.
+- [ ] Deploy from `main` — all features are merged; there's no feature branch to land first. Run `pnpm test` on `main` before deploy (the full suite also gates CI on every PR).
 - [ ] `pnpm build` locally to catch any prod-build-only issues (Next.js sometimes fails on env vars referenced at build time but not provided).
 - [ ] Confirm `package.json` scripts that prod will run: `pnpm build`, `pnpm start` (Vercel), `pnpm worker` (Railway). No build step for the worker — `tsx` transpiles on the fly.
 
@@ -352,51 +363,67 @@ openssl rand -base64 32   # → CSRF_SECRET
 
 ### 4.2 Vercel env vars
 
-Set these in Project Settings → Environment Variables, scope **Production** (and **Preview** if you want preview deploys to use prod creds — usually no, keep previews on dev DB).
+Set in Project Settings → Environment Variables, scope **Production** (give the
+`staging` Custom Environment its own set — Part II §II.3). Full per-var reference:
+`.env.example` + `docs/eservices-variables.md`.
 
 **Public (browser-safe):**
 ```
 NEXT_PUBLIC_SUPABASE_URL
 NEXT_PUBLIC_SUPABASE_ANON_KEY
-NEXT_PUBLIC_APP_URL=https://app.<yourdomain>
-NEXT_PUBLIC_GOOGLE_MAPS_API_KEY    # optional — only needed for PlaceAutocomplete on /signup
+NEXT_PUBLIC_APP_URL=https://repworth.net
+NEXT_PUBLIC_GOOGLE_MAPS_API_KEY    # PlaceAutocomplete in the onboarding wizard
 NEXT_PUBLIC_SENTRY_DSN              # optional
 ```
 
-**Server-only (Vercel API routes need DB + auth):**
+**Server-only (Vercel routes: DB, auth, signup, Stripe Checkout):**
 ```
 DATABASE_URL
 DATABASE_POOL_URL
 SUPABASE_URL
 SUPABASE_SERVICE_KEY
+REDIS_CACHE_URL                    # Upstash cache (TLS) — required when self-serve signup is on
 SESSION_COOKIE_SECRET
 CSRF_SECRET
-ENCRYPTION_KEY
-ENCRYPTION_KEY_VERSION=1
+IMPERSONATION_COOKIE_SECRET        # admin view-as
 ADMIN_NOTIFICATION_EMAIL
 RESEND_FROM_EMAIL
+CONTACT_NOTIFY_TO                  # recommended — where /contact + lead emails land
+WORKER_PUBLIC_URL=https://worker.repworth.net
 SENTRY_DSN                         # optional
-WORKER_SERVICE_URL=https://worker.<yourdomain>   # for Vercel → Railway calls
 ```
 
-**Feature flags (explicit OFF):**
+**Stripe (required when `SELF_SERVE_SIGNUP_ENABLED=true` — `/onboarding/pay` builds the Checkout Session):**
 ```
-SELF_SERVE_SIGNUP_ENABLED=false
+STRIPE_SECRET_KEY
+STRIPE_PRICE_BASIC
+STRIPE_PRICE_STANDARD
+STRIPE_PRICE_STANDARD_OVERAGE
+STRIPE_PRICE_PREMIUM
+STRIPE_PRICE_PREMIUM_OVERAGE
+STRIPE_PRICE_FOUNDING
+STRIPE_PRICE_FOUNDERS_OVERAGE
+```
+
+**Flags:**
+```
+SELF_SERVE_SIGNUP_ENABLED=true     # the live onboarding path — set false to close signups
 ZERNIO_PUBLISHING_ENABLED=true
 MOCK_EXTERNAL_APIS=false
+# MULTI_LOCATION_ENABLED, ONBOARDING_DEMO_ENABLED, … — server-authoritative; see .env.example
 ```
 
 ### 4.3 First deploy
 
 - [ ] Click Deploy. Watch the build log for missing-env-var crashes.
-- [ ] Add the custom domain (`app.<yourdomain>`) under Project → Settings → Domains. Vercel will give you the CNAME target — confirm DNS resolves.
+- [ ] Confirm the domain resolves under Project → Settings → Domains (`repworth.net` is already attached in prod; for a fresh env attach `staging.repworth.net`).
 - [ ] Smoke:
   ```
-  curl -I https://app.<yourdomain>/
+  curl -I https://repworth.net/
   # expect: 200 OK + security headers (Strict-Transport-Security, X-Content-Type-Options)
   ```
-- [ ] Visit `/admin/login` in browser — form renders.
-- [ ] Log in with the admin user from §2. Land on `/admin/overview`. Empty state OK.
+- [ ] Visit `/admin/login` — form renders; log in with the admin user from §2 → `/admin/overview`.
+- [ ] If `SELF_SERVE_SIGNUP_ENABLED=true`: visit `/signup` — the form renders (a 404 means the flag is off).
 
 ---
 
@@ -442,6 +469,19 @@ RESEND_FROM_EMAIL=RepWorth <notifications@yourdomain.com>
 ADMIN_NOTIFICATION_EMAIL=norbertesekiel@gmail.com
 ```
 
+**Stripe (required when `SELF_SERVE_SIGNUP_ENABLED=true`):**
+```
+STRIPE_SECRET_KEY=sk_live_...
+STRIPE_WEBHOOK_SECRET=<from the Stripe endpoint you add in §6.3>
+STRIPE_PRICE_BASIC=price_...
+STRIPE_PRICE_STANDARD=price_...
+STRIPE_PRICE_STANDARD_OVERAGE=price_...
+STRIPE_PRICE_PREMIUM=price_...
+STRIPE_PRICE_PREMIUM_OVERAGE=price_...
+STRIPE_PRICE_FOUNDING=price_...
+STRIPE_PRICE_FOUNDERS_OVERAGE=price_...
+```
+
 **Zernio:**
 ```
 ZERNIO_PUBLISHING_ENABLED=true
@@ -455,24 +495,23 @@ ZERNIO_WEBHOOK_SECRET=<the 64-hex secret from §1.5>
 
 **App URLs:**
 ```
-NEXT_PUBLIC_APP_URL=https://app.<yourdomain>
-WORKER_PUBLIC_URL=https://worker.<yourdomain>     # no trailing slash, must match Zernio dashboard exactly
+NEXT_PUBLIC_APP_URL=https://repworth.net
+WORKER_PUBLIC_URL=https://worker.repworth.net     # no trailing slash, must match provider dashboards exactly
 ```
 
 **Security:**
 ```
 SESSION_COOKIE_SECRET=...
 CSRF_SECRET=...
-ENCRYPTION_KEY=...
-ENCRYPTION_KEY_VERSION=1
+IMPERSONATION_COOKIE_SECRET=...   # admin view-as (≥32 chars)
 ```
 
-**Feature flags — explicit OFF for everything not shipping:**
+**Feature flags:**
 ```
-SELF_SERVE_SIGNUP_ENABLED=false
+SELF_SERVE_SIGNUP_ENABLED=true     # live onboarding path (requires REDIS_CACHE_URL + all 7 STRIPE_PRICE_*)
 CHANNELS_SMS_ENABLED=false
 CHANNELS_TELEGRAM_ENABLED=false
-CHANNELS_WHATSAPP_ENABLED=false
+CHANNELS_WHATSAPP_ENABLED=false    # code + Meta approval done; flip on when ready
 RANKING_TRACKING_ENABLED=false
 MOCK_EXTERNAL_APIS=false
 ```
@@ -492,10 +531,10 @@ SENTRY_DSN=...
   [startup-assert] zernio: NEXT_PUBLIC_APP_URL ✓
   ```
   If any are missing, the worker exits with code 1. Fix the env var, redeploy.
-- [ ] Add the custom domain (`worker.<yourdomain>`) under Settings → Networking. Wait for the cert.
+- [ ] Add the custom domain (`worker.repworth.net`) under Settings → Networking. Wait for the cert.
 - [ ] Smoke:
   ```
-  curl https://worker.<yourdomain>/api/health
+  curl https://worker.repworth.net/api/health
   # expect: {"status":"ok","timestamp":"..."}
   ```
 
@@ -506,7 +545,7 @@ SENTRY_DSN=...
 ### 6.1 Resend webhook
 
 - [ ] In Resend dashboard → Webhooks → Add endpoint.
-- [ ] URL: `https://worker.<yourdomain>/ingress/resend`
+- [ ] URL: `https://worker.repworth.net/ingress/resend`
 - [ ] Signing secret: paste `RESEND_WEBHOOK_SECRET` from §1.2.
 - [ ] Events: `email.delivered`, `email.bounced`, `email.complained`, `email.opened` (the worker handles these — see `worker/ingress/resend.ts`).
 - [ ] Click "Send test" → check Railway logs for `[ingress/resend] processed`.
@@ -514,7 +553,7 @@ SENTRY_DSN=...
 ### 6.2 Zernio webhook
 
 - [ ] In Zernio dashboard → Webhooks (per `zernio-launch-runbook.md` §2.2).
-- [ ] URL: `https://worker.<yourdomain>/ingress/zernio` (exact, no trailing slash).
+- [ ] URL: `https://worker.repworth.net/ingress/zernio` (exact, no trailing slash).
 - [ ] Signing secret: paste `ZERNIO_WEBHOOK_SECRET` from §1.5.
 - [ ] Subscribed events:
   - `account.disconnected` (required — drives connection-lost emails)
@@ -533,33 +572,58 @@ SENTRY_DSN=...
 
 If you get 401 `invalid_signature`, see `zernio-launch-runbook.md` §5.1–5.2 — most common cause is webhook-secret mismatch between Zernio dashboard and Railway env.
 
+### 6.3 Stripe webhook (required when self-serve signup is on)
+
+- [ ] In Stripe dashboard → Developers → Webhooks → Add endpoint.
+- [ ] URL: `https://worker.repworth.net/ingress/stripe`
+- [ ] Copy the signing secret → set `STRIPE_WEBHOOK_SECRET` on the **worker** (§5.2).
+- [ ] Subscribed events (handled in `worker/ingress/stripe.ts`):
+  - `checkout.session.completed` — activates the account (`subscription_status='active'`, records `subscription_activated_at`)
+  - `invoice.paid`, `invoice.payment_failed`
+  - `customer.subscription.updated`, `customer.subscription.deleted`
+- [ ] "Send test" `checkout.session.completed` → check Railway logs + verify the `accounts` row transitions. For staging, use Stripe **test mode** + the Stripe CLI (`stripe listen --forward-to <stagingWorker>/ingress/stripe`).
+
 ---
 
-## §7. Onboard the friend's resort — admin path, no Stripe
+## §7. Onboarding your first customer
 
-This is the deliberate detour around the self-serve signup flow.
+Two paths now exist — **self-serve is the live one**; admin is for internal/demo use.
 
-- [ ] In browser, log in as admin → `/admin/businesses/new`.
-- [ ] Fill the form. Use PlaceAutocomplete to pick the resort if you have `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` set; otherwise paste the Google Maps URL.
-- [ ] Owner email: **friend's email** (he'll receive approval emails).
-- [ ] Tone, products/services, staff names, highlight facts, avoid facts: gather from the friend in advance.
-- [ ] Subscription tier: founding (cosmetic for beta — billing isn't wired).
-- [ ] Submit. The form will try to redirect to a Stripe Payment Link — **ignore it / close the tab**. We're skipping payment.
+### 7A. Self-serve signup (primary, live path)
 
-- [ ] Manually mark the business active so workers process it (no Stripe webhook):
-  ```sql
-  UPDATE businesses
-  SET subscription_status = 'active',
-      subscription_activated_at = NOW(),
-      stripe_customer_id = 'manual-beta-no-stripe',
-      updated_at = NOW()
-  WHERE id = '<the-business-id>';
-  ```
-  (Verify with `SELECT id, name, subscription_status FROM businesses WHERE id = '...'`)
+With `SELF_SERVE_SIGNUP_ENABLED=true`, an owner onboards themselves end-to-end —
+no admin action needed (`src/app/api/auth/*`, `src/app/onboarding/*`):
 
-- [ ] Confirm `place_id_verified = true`. If false, follow `operational-runbook.md` §A5 — the cleanest fix is to re-onboard via PlaceAutocomplete.
+1. `/signup` → email + password → confirmation email with a 6-digit OTP.
+2. `/signup/check-email` → enter the OTP (`/api/auth/verify-otp`).
+3. `/onboarding/pay` → pick a tier → server builds a Stripe **Checkout Session** (`/api/onboarding/select-plan`) → Stripe-hosted payment.
+4. Payment → `checkout.session.completed` webhook (§6.3) flips the `accounts` row to `subscription_status='active'` and records `subscription_activated_at`.
+5. `/onboarding/business` → profile + brand-voice wizard → **Connect Google Business** (Zernio OAuth, §8) → `/dashboard`.
 
-⚠️ **Do NOT trigger the SerpAPI initial sync** — Zernio replaces SerpAPI as the ingestion source for this beta. The first batch of reviews will come in via Zernio backfill (§8) and steady-state webhooks. If you have a `sync_reviews` outbox row queued from onboarding, it'll either no-op or pull stale data — leave it alone.
+Tiers (`src/lib/accounts/tier-config.ts`): basic $29 (1 loc) · standard $79 (1 loc, +$25/loc) · premium $199 (5 loc, +$20/loc) · founders $19 (1 loc, +$25/loc). Billing parent = `accounts`; each location = a `businesses` row.
+
+### 7B. Admin onboarding (secondary — internal / demo / manual)
+
+For staff, demos, or a manually-provisioned customer, use `/admin/businesses/new`
+(`/api/admin/businesses` → `onboardBusinessAsAdmin`). It creates the auth user
+(pre-confirmed), the `users` + `accounts` + `businesses` rows, and emails an invite —
+no OTP flow.
+
+If you onboard a customer this way **without** taking payment, set the subscription
+active manually so workers process it:
+```sql
+UPDATE accounts
+SET subscription_status = 'active',
+    subscription_activated_at = NOW(),
+    stripe_customer_id = 'manual-no-stripe',
+    updated_at = NOW()
+WHERE id = '<account-id>';
+```
+(Verify: `SELECT id, subscription_status FROM accounts WHERE id = '...'`.) Self-serve
+customers skip this — the Stripe webhook activates them. Confirm `place_id_verified
+= true` on the location; if false, follow `operational-runbook.md` §A5.
+
+⚠️ **Do NOT trigger the SerpAPI initial sync** — Zernio is the ingestion source. The first reviews arrive via Zernio backfill (§8) + steady-state webhooks. A stray `sync_reviews` outbox row will no-op or pull stale data — leave it alone.
 
 ---
 
@@ -592,7 +656,7 @@ The core principle: **everything below approval click is reversible. Approval cl
 
 | Test | How | Pass |
 |---|---|---|
-| Worker health | `curl https://worker.<yourdomain>/api/health` | `{"status":"ok",...}` |
+| Worker health | `curl https://worker.repworth.net/api/health` | `{"status":"ok",...}` |
 | Resend webhook | "Send test" in Resend dashboard | Railway log: `[ingress/resend] processed`; `inbound_events` row with `source='resend'`, `status='processed'` |
 | Zernio webhook | "Send test" in Zernio dashboard | Railway log: `[ingress/zernio] webhook.test received`; `inbound_events` row with `source='zernio'`, `event_type='webhook.test'` |
 | Sentry wiring | trigger any handled error (e.g. visit `/api/admin/overview` without session) | error appears in Sentry within 30s |
@@ -747,7 +811,7 @@ Per-customer issues: see `operational-runbook.md` §A1–A5.
 
 These are the items not covered above that I'd want to know before hitting deploy.
 
-1. **Resend domain verification has DNS lag.** Add the records 24–48 h before you plan to deploy. If you skip this, your first approval email won't reach the friend, and you'll burn an hour figuring out why.
+1. **Resend + Supabase SMTP are already configured for prod** (§1.2). For a **fresh** environment (e.g. staging) the domain's SPF/DKIM/DMARC records lag 1–24 h — add them first so the first approval email actually delivers.
 
 2. **The friend's email might silently bounce.** Some corporate inboxes greylist new senders. Send a non-RepWorth test email from `notifications@yourdomain.com` to the friend's address before the smoke test, and ask him to confirm receipt + check spam.
 
@@ -763,15 +827,11 @@ These are the items not covered above that I'd want to know before hitting deplo
 
 8. **Approval-link prefetch by email scanners.** GET is read-only by design (`approval-security.md`). Even if Gmail/Outlook prefetches the URL when opening the email, no state changes. Approval requires POST + device-cookie + CSRF. This is correct; don't worry about it. But it means: the friend MUST open the link from his phone (or any browser), not approve it from a click in the email preview pane.
 
-9. **You will not have working Stripe webhooks in beta.** Anything in the code that depends on `subscription_activated_at` (engagement monitor, onboarding drip) gets that timestamp from your manual SQL UPDATE in §7. Onboarding drip will fire day 1 / 7 / 30 from that timestamp — disable it for the friend if you don't want him to get nudge emails:
-   ```sql
-   -- find what onboarding drip checks (likely a per-business flag or a "system" sender opt-out)
-   ```
-   Cross-reference `worker/background/schedulers/OnboardingDripScheduler.ts` for the exact gate. If you don't want to dig: just leave it. Three friendly nudge emails on days 1/7/30 won't hurt.
+9. **Stripe webhooks are wired (§6.3).** Self-serve customers get `subscription_activated_at` automatically from `checkout.session.completed`. Only the **admin-onboarded-without-payment** path (§7B) needs the manual SQL `UPDATE`. Anything keyed on that timestamp (engagement monitor, onboarding drip) fires from whatever set it; the onboarding drip fires day 1 / 7 / 30. Gate: `worker/background/schedulers/OnboardingDripScheduler.ts`.
 
-10. **Migration 031 is in the repo and you're skipping it.** Don't accidentally run it. If someone (you, in 2 weeks, having forgotten) executes "all migrations," 031 will try to do `CREATE INDEX CONCURRENTLY` inside a transaction and either fail or silently degrade. Apply migrations one at a time, by number, and stop at 030.
+10. **Migrations run 001→054, and four use `CONCURRENTLY`.** Migrations 018, 023, 026, and 031 build indexes with `CREATE INDEX CONCURRENTLY`, which **must not** run inside a transaction block — apply each on its own. Do **not** stop at 030 (old beta scope); a current environment needs the full set. See `.claude/reference/migrations-log.md`.
 
-11. **The branch is not yet merged to main.** Currently the working branch is `feat/zernio-ingestion-replace-serpapi`. Vercel and Railway both deploy from `main` by default. Either change the deploy branch (works but means future hotfixes need to land on the long-lived feature branch) or merge to main first (cleaner). Recommend: merge to main once you've decided to deploy.
+11. **Everything is on `main`.** Vercel and Railway both deploy from `main`; there's no feature branch to merge first. Staging tracks the `staging` branch (Part II §II.5).
 
 12. **You'll want to /loop or /schedule a recurring health check.** After this deploys, ask Claude Code to schedule a recurring agent that runs the §11 daily checklist as a script (each morning, query `/admin/overview` API, post any anomalies to your inbox). This is a clean "set and forget" — see the `schedule` skill.
 
@@ -827,10 +887,9 @@ staging-specific deltas from Part I's prod recipe.
 
 ### §II.2.1 Staging Supabase — separate project
 - Create a new project `repworth-staging`. Apply **all migrations `001`→`054`** in
-  numeric order (Part I §2 shows the SQL-editor procedure + verification queries;
-  ignore its "stop at 030" — that was beta feature-scope). Run any
-  `CREATE INDEX CONCURRENTLY` migrations **outside** a transaction; see
-  `.claude/reference/migrations-log.md`.
+  numeric order (Part I §2 shows the SQL-editor procedure + verification queries).
+  Run the `CONCURRENTLY` migrations (018, 023, 026, 031) **outside** a transaction;
+  see `.claude/reference/migrations-log.md`.
 - Capture `DATABASE_URL` (direct, 5432), `DATABASE_POOL_URL` (pooler, 6543,
   `?pgbouncer=true`), `SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_URL`,
   `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_KEY`. Seed a staging admin
@@ -862,7 +921,6 @@ staging-specific deltas from Part I's prod recipe.
 ### §II.2.4 Staging secrets — generate fresh (never reuse prod)
 A leaked staging secret must never unlock a prod session/token:
 ```bash
-openssl rand -hex 32     # ENCRYPTION_KEY   (ENCRYPTION_KEY_VERSION=1)
 openssl rand -base64 32  # SESSION_COOKIE_SECRET
 openssl rand -base64 32  # CSRF_SECRET
 openssl rand -hex 32     # IMPERSONATION_COOKIE_SECRET
@@ -877,7 +935,7 @@ openssl rand -hex 32     # IMPERSONATION_COOKIE_SECRET
   per environment.
 - Point the staging env's deploy trigger at the **`staging` branch**.
 - Generate a public domain (free `*.up.railway.app` is fine) → this is the staging
-  `WORKER_PUBLIC_URL` **and** `WORKER_SERVICE_URL`.
+  `WORKER_PUBLIC_URL`.
 - Deploy; confirm the `[startup-assert] … ✓` lines and
   `curl <stagingWorker>/api/health` → `{"status":"ok",…}`.
 
@@ -885,8 +943,8 @@ openssl rand -hex 32     # IMPERSONATION_COOKIE_SECRET
 - Create a Custom Environment `staging`, deploying from the **`staging` branch**,
   with its own variable set (the §II.3 matrix).
 - Attach `staging.repworth.net` (+ the CNAME Vercel shows you).
-- Set `NEXT_PUBLIC_APP_URL=https://staging.repworth.net` and both
-  `WORKER_SERVICE_URL` + `WORKER_PUBLIC_URL` to the staging worker URL.
+- Set `NEXT_PUBLIC_APP_URL=https://staging.repworth.net` and
+  `WORKER_PUBLIC_URL` to the staging worker URL.
 
 ### §II.2.7 Wire staging webhooks → the staging worker
 Point each *test/sandbox* provider at the staging worker (Part I §6 = the exact
@@ -914,7 +972,7 @@ they ever match across environments.** Staging column → Vercel `staging` + Rai
 | `REDIS_CACHE_URL` | staging Upstash | prod Upstash |
 | `REDIS_QUEUE_URL` | Railway Redis, `staging` env (private, `?family=0`) | Railway Redis, `production` env (private, `?family=0`) |
 | `NEXT_PUBLIC_APP_URL` | `https://staging.repworth.net` | `https://repworth.net` |
-| `WORKER_SERVICE_URL` / `WORKER_PUBLIC_URL` | staging worker URL | prod worker URL |
+| `WORKER_PUBLIC_URL` | staging worker URL | prod worker URL |
 | `STRIPE_SECRET_KEY` | `sk_test_…` | `sk_live_…` |
 | `STRIPE_WEBHOOK_SECRET` | staging endpoint secret | prod endpoint secret |
 | `STRIPE_PRICE_*` (×7) | **test-mode** price IDs | live price IDs |
@@ -922,7 +980,7 @@ they ever match across environments.** Staging column → Vercel `staging` + Rai
 | `RESEND_WEBHOOK_SECRET` | staging endpoint secret | prod endpoint secret |
 | `ZERNIO_API_KEY` / `ZERNIO_WEBHOOK_SECRET` | sandbox + staging endpoint | live + prod endpoint |
 | `ZERNIO_PROFILE_ID_PREFIX` | `repworth-staging-` | `repworth-prod-` (default) |
-| `ENCRYPTION_KEY`, `SESSION_COOKIE_SECRET`, `CSRF_SECRET`, `IMPERSONATION_COOKIE_SECRET` | fresh staging values | distinct prod values |
+| `SESSION_COOKIE_SECRET`, `CSRF_SECRET`, `IMPERSONATION_COOKIE_SECRET` | fresh staging values | distinct prod values |
 | `GLOBAL_DAILY_COST_LIMIT_CENTS` | low (e.g. `200`) | real ceiling |
 | `SENTRY_*` environment tag | `staging` | `production` |
 | `WHATSAPP_APPROVAL_URL_BASE` *(only if WhatsApp ever on)* | `https://staging.repworth.net/approve/` | `https://repworth.net/approve/` |
@@ -940,8 +998,7 @@ swapping in **live** credentials and the prod column of §II.3:
       behind on (compare its head to `054`), in numeric order.
 - [ ] Railway `production` env: deploy the worker, set the prod variable set,
       attach `worker.repworth.net` (or keep the Railway subdomain).
-- [ ] Vercel Production: set `WORKER_SERVICE_URL` / `WORKER_PUBLIC_URL` to the prod
-      worker; flip live keys.
+- [ ] Vercel Production: set `WORKER_PUBLIC_URL` to the prod worker; flip live keys.
 - [ ] Re-point the **live** Stripe/Resend/Zernio webhooks at the **prod** worker
       (Part I §6). These are separate dashboard endpoints from the staging ones —
       staging webhooks stay pointed at the staging worker.
