@@ -285,7 +285,7 @@ function Step4Artifact() {
             <div className="hiw-avatar">SL</div>
             <div>
               <span className="hiw-posted-name">
-                Sarah L. · <span style={{ color: '#EAB308' }}>★★★★★</span>
+                Sarah L. · <span style={{ color: '#97B3AE' }}>★★★★★</span>
               </span>
               <span className="hiw-posted-when">Bright Linen Dry Cleaning · 1 hour ago</span>
             </div>

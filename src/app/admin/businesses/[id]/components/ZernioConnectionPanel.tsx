@@ -244,7 +244,7 @@ export function ZernioConnectionPanel({
                 className="rounded border border-gray-200 bg-white p-3 text-sm"
               >
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-yellow-500">{renderStars(r.starRating)}</span>
+                  <span className="text-[#97B3AE]">{renderStars(r.starRating)}</span>
                   <span className="font-medium text-gray-700">{r.reviewerName}</span>
                   <span className="text-xs text-gray-400">
                     Queued {formatTimestamp(r.createdAt)}

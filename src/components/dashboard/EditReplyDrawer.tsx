@@ -115,7 +115,7 @@ export function EditReplyDrawer({
             </div>
             <div className="flex items-center gap-2">
               {row.star_rating != null && (
-                <span className="text-sm text-yellow-500" aria-label={`${row.star_rating} stars`}>
+                <span className="text-sm text-[#97B3AE]" aria-label={`${row.star_rating} stars`}>
                   {'★'.repeat(Math.round(row.star_rating))}
                   {'☆'.repeat(Math.max(0, 5 - Math.round(row.star_rating)))}
                 </span>

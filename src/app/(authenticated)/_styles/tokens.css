@@ -70,7 +70,7 @@
 
   --rw-yellow-100: #FEF9C3;  /* badge: pending_approval */
   --rw-yellow-800: #854D0E;
-  --rw-yellow-500: #EAB308;  /* star rating */
+  --rw-star:       #97B3AE;  /* review star glyph */
 
   /* Attention / awaiting state — brand blush #F2C3B9 (replaces the old banned
      palette). Owner-facing: ConnectGoogleBanner reconnect banner + the

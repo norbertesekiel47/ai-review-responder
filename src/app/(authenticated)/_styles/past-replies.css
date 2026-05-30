@@ -76,7 +76,7 @@
 }
 .pr-chip:hover { color: #374151; }
 .pr-chip.active { background: #fff; color: var(--rw-app-text); box-shadow: var(--rw-shadow-sm); font-weight: 600; }
-.pr-chip-stars { color: var(--rw-yellow-500); font-size: 11px; letter-spacing: 0; }
+.pr-chip-stars { color: var(--rw-star); font-size: 11px; letter-spacing: 0; }
 
 .pr-stats {
   display: grid;

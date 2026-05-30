@@ -272,7 +272,7 @@ function Stat({ label, icon, value, suffix }: { label: string; icon: 'check' | '
       </div>
       <div className="pr-stat-value">
         {value}
-        {suffix && <span style={{ color: 'var(--rw-yellow-500)', marginLeft: 4 }}>{suffix}</span>}
+        {suffix && <span style={{ color: 'var(--rw-star)', marginLeft: 4 }}>{suffix}</span>}
       </div>
     </div>
   );

@@ -694,7 +694,7 @@
   display: flex; align-items: center; gap: 10px;
   flex-wrap: wrap;
 }
-.stars { color: var(--rw-yellow-500); font-size: 14px; letter-spacing: 0.5px; font-feature-settings: "tnum"; }
+.stars { color: var(--rw-star); font-size: 14px; letter-spacing: 0.5px; font-feature-settings: "tnum"; }
 .reviewer {
   font-weight: 600;
   font-size: 14px;

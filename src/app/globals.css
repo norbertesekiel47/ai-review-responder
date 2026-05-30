@@ -76,7 +76,7 @@
 .rw-bg-stars {
   display: flex;
   gap: 2px;
-  color: #EAB308;
+  color: #97B3AE;
   font-size: 11px;
   margin-bottom: 8px;
 }
@@ -275,7 +275,7 @@
   color: #2a2a2a;
 }
 .rw-demo-name { font: 500 13px/1.2 var(--rw-font-body); color: var(--rw-ink); }
-.rw-demo-stars { color: #EAB308; font-size: 12px; letter-spacing: 1px; margin: 2px 0 6px; display: flex; gap: 1px; }
+.rw-demo-stars { color: #97B3AE; font-size: 12px; letter-spacing: 1px; margin: 2px 0 6px; display: flex; gap: 1px; }
 .rw-demo-text { font: 400 13px/1.5 var(--rw-font-body); color: var(--rw-ink-soft); min-height: 40px; }
 .rw-caret {
   display: inline-block;
@@ -1492,7 +1492,7 @@
 }
 .hiw-feed-line1 { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 .hiw-feed-name { font-weight: 600; color: var(--rw-ink); }
-.hiw-feed-stars { color: #EAB308; letter-spacing: 1px; font-size: 12px; }
+.hiw-feed-stars { color: #97B3AE; letter-spacing: 1px; font-size: 12px; }
 .hiw-feed-excerpt {
   font-size: 12.5px; color: var(--rw-ink-soft);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
