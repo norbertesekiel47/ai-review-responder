@@ -33,3 +33,27 @@ describe('page metadata — auth surfaces are noindex (#19)', () => {
     expect(src).toMatch(/follow:\s*false/);
   });
 });
+
+const PUBLIC_INDEXABLE = [
+  'src/app/(public)/page.tsx',
+  'src/app/(public)/features/page.tsx',
+  'src/app/(public)/how-it-works/page.tsx',
+  'src/app/(public)/pricing/page.tsx',
+  'src/app/(public)/book-a-demo/page.tsx',
+  'src/app/(public)/security/page.tsx',
+  'src/app/(public)/legal/aup/page.tsx',
+  'src/app/(public)/legal/cookies/page.tsx',
+  'src/app/(public)/legal/privacy/page.tsx',
+  'src/app/(public)/legal/sub-processors/page.tsx',
+  'src/app/(public)/legal/terms/page.tsx',
+];
+
+describe('page metadata — public + legal pages have titles and stay indexable (#19)', () => {
+  it.each(PUBLIC_INDEXABLE)('%s exports metadata with a title and is not noindex', (rel) => {
+    const src = read(rel);
+    expect(src).toMatch(/export const metadata/);
+    expect(src).toMatch(/title:\s*['"]/);
+    expect(src).not.toMatch(/noindexRobots/);
+    expect(src).not.toMatch(/index:\s*false/);
+  });
+});

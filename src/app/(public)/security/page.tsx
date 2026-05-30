@@ -1,6 +1,13 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import { PageShell } from '@/components/ui/PageShell';
 import { SiteNav } from '@/components/ui/SiteNav';
+
+export const metadata: Metadata = {
+  title: 'Security · RepWorth',
+  description:
+    'How RepWorth protects review, billing, and approval data: scoped access, hashed approval tokens, and explicit owner approval before posting.',
+};
 
 export default function SecurityPage() {
   const selfServeEnabled = process.env.SELF_SERVE_SIGNUP_ENABLED === 'true';
