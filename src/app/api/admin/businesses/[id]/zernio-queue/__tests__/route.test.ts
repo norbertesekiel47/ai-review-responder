@@ -145,4 +145,51 @@ describe('POST /api/admin/businesses/[id]/zernio-queue', () => {
       mockTx,
     );
   });
+
+  it('dismiss supersedes a parked response + audit', async () => {
+    txResults.push([{ id: RESPONSE_ID, account_id: ACCOUNT_ID }]); // select FOR UPDATE
+    txResults.push(Object.assign([], { count: 1 })); // update
+    const { POST } = await import('../route');
+    const res = await POST(req({ action: 'dismiss', responseId: RESPONSE_ID }), ctx);
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, action: 'dismiss' });
+    expect(txCalls.some((c) => /SET status = 'superseded'/.test(c.text))).toBe(true);
+    expect(txCalls.some((c) => /admin_dismissed_awaiting_connect/.test(c.values.join(' ') + c.text))).toBe(
+      true,
+    );
+    expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: ACCOUNT_ID,
+        actorUserId: ADMIN_ID,
+        eventType: 'zernio_queue_response_dismissed',
+        entityType: 'response',
+        entityId: RESPONSE_ID,
+        payload: { response_id: RESPONSE_ID },
+      }),
+      mockTx,
+    );
+  });
+
+  it('409 not_awaiting when the response is not parked / wrong business', async () => {
+    txResults.push([]); // select FOR UPDATE → none
+    const { POST } = await import('../route');
+    const res = await POST(req({ action: 'dismiss', responseId: RESPONSE_ID }), ctx);
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: 'not_awaiting' });
+  });
+
+  it('dismiss is NOT gated by ZERNIO_PUBLISHING_ENABLED', async () => {
+    process.env.ZERNIO_PUBLISHING_ENABLED = 'false';
+    txResults.push([{ id: RESPONSE_ID, account_id: ACCOUNT_ID }]);
+    txResults.push(Object.assign([], { count: 1 }));
+    const { POST } = await import('../route');
+    const res = await POST(req({ action: 'dismiss', responseId: RESPONSE_ID }), ctx);
+    expect(res.status).toBe(200);
+  });
+
+  it('400 when dismiss is missing responseId', async () => {
+    const { POST } = await import('../route');
+    expect((await POST(req({ action: 'dismiss' }), ctx)).status).toBe(400);
+  });
 });

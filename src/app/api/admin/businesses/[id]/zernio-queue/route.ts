@@ -30,7 +30,10 @@ function mfaClientForRequest(request: NextRequest): SupabaseMfaAalClient {
   ) as SupabaseMfaAalClient;
 }
 
-const ActionSchema = z.object({ action: z.literal('force_drain') });
+const ActionSchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('force_drain') }),
+  z.object({ action: z.literal('dismiss'), responseId: z.string().uuid() }),
+]);
 
 class QueueActionError extends Error {
   constructor(
@@ -92,11 +95,16 @@ export async function POST(
   }
 
   try {
-    if (process.env.ZERNIO_PUBLISHING_ENABLED !== 'true') {
-      return NextResponse.json({ error: 'feature_disabled' }, { status: 503, headers: NO_STORE });
+    if (parsed.data.action === 'force_drain') {
+      if (process.env.ZERNIO_PUBLISHING_ENABLED !== 'true') {
+        return NextResponse.json({ error: 'feature_disabled' }, { status: 503, headers: NO_STORE });
+      }
+      const queued = await forceDrain(businessId, admin.id);
+      return NextResponse.json({ ok: true, action: 'force_drain', queued }, { headers: NO_STORE });
     }
-    const queued = await forceDrain(businessId, admin.id);
-    return NextResponse.json({ ok: true, action: 'force_drain', queued }, { headers: NO_STORE });
+
+    await dismiss(businessId, parsed.data.responseId, admin.id);
+    return NextResponse.json({ ok: true, action: 'dismiss' }, { headers: NO_STORE });
   } catch (err) {
     if (err instanceof QueueActionError) {
       return NextResponse.json({ error: err.code }, { status: err.status, headers: NO_STORE });
@@ -157,6 +165,46 @@ async function forceDrain(businessId: string, adminId: string): Promise<number> 
     );
 
     return stuckCount;
+  });
+}
+
+async function dismiss(businessId: string, responseId: string, adminId: string): Promise<void> {
+  await sql.begin(async (tx) => {
+    const rows = await tx<{ id: string; account_id: string }[]>`
+      SELECT r.id, b.account_id
+      FROM responses r
+      JOIN businesses b ON b.id = r.business_id
+      WHERE r.id = ${responseId}
+        AND r.business_id = ${businessId}
+        AND r.status = 'awaiting_owner_connect'
+      FOR UPDATE OF r
+    `;
+    const row = rows[0];
+    if (!row) {
+      throw new QueueActionError(409, 'not_awaiting');
+    }
+
+    // Terminal 'give up on this parked draft' transition — the same status +
+    // posting_error pattern process-review.ts uses for parked responses.
+    await tx`
+      UPDATE responses
+      SET status = 'superseded',
+          posting_error = 'admin_dismissed_awaiting_connect',
+          updated_at = NOW()
+      WHERE id = ${responseId} AND status = 'awaiting_owner_connect'
+    `;
+
+    await writeAccountAuditLog(
+      {
+        accountId: row.account_id,
+        actorUserId: adminId,
+        eventType: 'zernio_queue_response_dismissed',
+        entityType: 'response',
+        entityId: responseId,
+        payload: { response_id: responseId },
+      },
+      tx,
+    );
   });
 }
 
