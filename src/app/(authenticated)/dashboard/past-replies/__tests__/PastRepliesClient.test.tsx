@@ -71,6 +71,44 @@ describe('PastRepliesClient', () => {
     expect(screen.queryByText('2 of 47')).not.toBeInTheDocument();
   });
 
+  it('shows first-run copy for a brand-new account with zero replies and no filter', () => {
+    render(
+      <PastRepliesClient
+        {...baseProps}
+        gapRows={[]}
+        histRows={[]}
+        gapTotal={0}
+        histTotal={0}
+        hasHistoricalSection={false}
+      />,
+    );
+
+    expect(screen.getByText('No replies yet')).toBeInTheDocument();
+    expect(
+      screen.getByText('Approved replies will appear here as you respond to your reviews.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('No replies match this filter')).not.toBeInTheDocument();
+  });
+
+  it('shows filter-empty copy (not first-run) when a filter matches nothing', async () => {
+    const user = userEvent.setup();
+    render(
+      <PastRepliesClient
+        {...baseProps}
+        gapRows={[row({ star_rating: 5 })]}
+        gapTotal={1}
+        histTotal={0}
+        hasHistoricalSection={false}
+      />,
+    );
+
+    // Filter to a rating with no matches → gap section empties.
+    await user.click(screen.getByRole('button', { name: /^1/ }));
+
+    expect(screen.getByText('No replies match this filter')).toBeInTheDocument();
+    expect(screen.queryByText('No replies yet')).not.toBeInTheDocument();
+  });
+
   // ── Flag-off: read-only (Phase A inertness) ─────────────────────────────
 
   it('flag-off: no Edit CTA, no lock badge, no recovery button', () => {
