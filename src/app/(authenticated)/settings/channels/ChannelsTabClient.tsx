@@ -19,6 +19,7 @@
 import { useState } from 'react';
 import { useSettingsForm } from '@/hooks/useSettingsForm';
 import { SettingsShell } from '@/components/dashboard/settings/SettingsShell';
+import { SettingsSkeleton } from '@/components/dashboard/settings/SettingsSkeleton';
 import { Icon } from '@/components/dashboard/Icon';
 import { ChannelsClient, type ChannelsClientProps } from './ChannelsClient';
 import {
@@ -90,7 +91,7 @@ export function ChannelsTabClient(props: Props) {
       >
         <ChannelsClient {...props} />
         <div className="set-section">
-          <p style={{ textAlign: 'center', color: '#6B7280', padding: '24px 0' }}>Loading preferences…</p>
+          <SettingsSkeleton />
         </div>
       </SettingsShell>
     );
