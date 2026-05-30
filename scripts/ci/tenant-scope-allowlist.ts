@@ -2025,4 +2025,30 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "SELECT gs::date AS week_start, agg.avg_score::float AS avg_score, COALESCE(agg.cnt, 0)::int AS cnt FROM generate_series( DATE_TRUNC('week', NOW() - INTERVAL '7 weeks'), DATE_TRUNC('week', NOW()), INTERVAL '1 week' ) gs LEFT JOIN ( SELECT DATE_TRUNC('week', r.detected_at)::date AS wk, AVG(r.sentiment_score) AS avg_score, COUNT(*) AS cnt FROM reviews r JOIN businesses b ON b.id = r.business_id WHERE b.account_id = ${accountId} AND b.archived_at IS NULL AND r.status <> 'deleted' AND r.detected_at >= NOW() - INTERVAL '8 weeks' GROUP BY DATE_TRUNC('week', r.detected_at) ) agg ON agg.wk = gs::date ORDER BY week_start ASC",
     reason: "Account-aggregate KPI; reviews accessed inside a LEFT JOIN subquery scoped by JOIN businesses b WHERE b.account_id = ${accountId} AND b.archived_at IS NULL. Scanner strips SELECT subqueries before predicate analysis.",
   },
+  {
+    // force_drain connection lookup — businesses is joined only for account_id;
+    // it is not value-bound (b.id = zc.business_id is a join), so the scanner
+    // flags it. The route is admin-only (requireRole(admin) + AAL2) and acts
+    // cross-tenant by design; zernio_connections itself is scoped by zc.business_id.
+    file: "src/app/api/admin/businesses/[id]/zernio-queue/route.ts",
+    table: "businesses",
+    sqlSnippet: "SELECT zc.status, b.account_id FROM zernio_connections zc JOIN businesses b ON b.id = zc.business_id WHERE zc.business_id = ${businessId} ORDER BY zc.created_at DESC LIMIT 1 FOR UPDATE OF zc",
+    reason: "Admin-only route or service intentionally performs this statement after requireRole(admin).",
+  },
+  {
+    // dismiss lookup — businesses is joined only for account_id (not value-bound).
+    // responses itself is scoped by r.business_id = ${businessId}.
+    file: "src/app/api/admin/businesses/[id]/zernio-queue/route.ts",
+    table: "businesses",
+    sqlSnippet: "SELECT r.id, b.account_id FROM responses r JOIN businesses b ON b.id = r.business_id WHERE r.id = ${responseId} AND r.business_id = ${businessId} AND r.status = 'awaiting_owner_connect' FOR UPDATE OF r",
+    reason: "Admin-only route or service intentionally performs this statement after requireRole(admin).",
+  },
+  {
+    // dismiss update — scoped by primary key id (already locked FOR UPDATE in the
+    // select above), which the scanner does not treat as tenant scope. Admin-only.
+    file: "src/app/api/admin/businesses/[id]/zernio-queue/route.ts",
+    table: "responses",
+    sqlSnippet: "UPDATE responses SET status = 'superseded', posting_error = 'admin_dismissed_awaiting_connect', updated_at = NOW() WHERE id = ${responseId} AND status = 'awaiting_owner_connect'",
+    reason: "Admin-only route or service intentionally performs this statement after requireRole(admin).",
+  },
 ];
