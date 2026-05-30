@@ -95,6 +95,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     LIMIT ${limit} OFFSET ${offset}
   `;
 
+  // Total OPEN flags for the "Showing X–Y of Z" pagination footer.
+  const countRows = await sql<{ total: number }[]>`
+    SELECT COUNT(*)::int AS total FROM flagged_responses WHERE status = 'open'
+  `;
+  const total = countRows[0]?.total ?? 0;
+
   const flagged = rows.map((row) => ({
     id: row.id,
     responseId: row.response_id,
@@ -113,7 +119,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     businessName: row.business_name,
   }));
 
-  return NextResponse.json({ flagged, limit, offset }, { headers: NO_STORE });
+  return NextResponse.json({ flagged, limit, offset, total }, { headers: NO_STORE });
 }
 
 const DispositionSchema = z.object({

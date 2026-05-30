@@ -30,7 +30,7 @@ export default function OnboardingError({
         <p className="text-sm text-[#9a948a] mt-6">
           Still having trouble?{' '}
           <a
-            href="mailto:support@repworth.com"
+            href="mailto:support@repworth.net"
             className="text-[#97B3AE] underline hover:text-[#7e9b96]"
           >
             Contact support

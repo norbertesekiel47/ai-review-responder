@@ -66,7 +66,7 @@ describe('GlobalError', () => {
     ).toHaveAttribute('href', '/');
     expect(
       screen.getByRole('link', { name: /contact support/i }),
-    ).toHaveAttribute('href', 'mailto:support@repworth.com');
+    ).toHaveAttribute('href', 'mailto:support@repworth.net');
     expect(screen.getByText(/reference:\s*ref-789/i)).toBeInTheDocument();
   });
 });

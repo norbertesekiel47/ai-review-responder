@@ -52,7 +52,7 @@ export default function AuthenticatedError({
         <a className="btn btn-secondary" href="/dashboard">
           Back to dashboard
         </a>
-        <a className="btn btn-tertiary" href="mailto:support@repworth.com">
+        <a className="btn btn-tertiary" href="mailto:support@repworth.net">
           Contact support
         </a>
       </div>

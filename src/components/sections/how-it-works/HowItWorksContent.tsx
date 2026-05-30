@@ -205,7 +205,7 @@ function Step3Artifact() {
           <div className="hiw-email-head-l">
             <span className="hiw-brand-mini" aria-hidden />
             <strong style={{ color: 'var(--rw-ink)' }}>RepWorth</strong>
-            <span>&lt;drafts@repworth.com&gt;</span>
+            <span>&lt;drafts@repworth.net&gt;</span>
           </div>
           <div>to you</div>
         </div>

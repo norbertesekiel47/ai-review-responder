@@ -82,6 +82,25 @@ describe('GET /api/admin/flagged', () => {
     expect(mockSql).not.toHaveBeenCalled();
   });
 
+  it('returns the total open-flag count alongside the page', async () => {
+    // 1st sql call → page rows; 2nd sql call → COUNT.
+    mockSql.mockResolvedValueOnce([
+      {
+        id: 'flag-1', response_id: 'resp-1', business_id: 'biz-1', account_id: 'acct-1',
+        review_id: 'rev-1', source: 'local_regex', reason: 'refund_discount', severity: 'high',
+        status: 'open', created_at: '2026-05-26T00:00:00.000Z', response_text: 'x',
+        version: 1, reviewer_name: 'Jane', star_rating: 2, business_name: 'Bella Italia',
+      },
+    ]);
+    mockSql.mockResolvedValueOnce([{ total: 137 }]);
+
+    const res = await GET(getReq());
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { flagged: unknown[]; total: number };
+    expect(body.total).toBe(137);
+    expect(body.flagged).toHaveLength(1);
+  });
+
   it('lists open flags mapped to the display shape', async () => {
     mockSql.mockResolvedValueOnce([
       {
@@ -91,11 +110,13 @@ describe('GET /api/admin/flagged', () => {
         version: 1, reviewer_name: 'Jane', star_rating: 2, business_name: 'Bella Italia',
       },
     ]);
+    mockSql.mockResolvedValueOnce([{ total: 1 }]);
 
     const res = await GET(getReq());
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { flagged: Array<Record<string, unknown>> };
+    const body = (await res.json()) as { flagged: Array<Record<string, unknown>>; total: number };
     expect(body.flagged).toHaveLength(1);
+    expect(body.total).toBe(1);
     expect(body.flagged[0]).toMatchObject({
       id: 'flag-1',
       responseId: 'resp-1',

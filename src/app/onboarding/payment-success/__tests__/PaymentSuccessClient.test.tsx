@@ -87,7 +87,7 @@ describe('PaymentSuccessClient', () => {
     // After fetch resolves, setElapsed(400_000) fires, and the loop returns
     // (400_000 > MAX_POLL_DURATION_MS). findByRole waits for React to flush.
     const link = await screen.findByRole('link', { name: /contact support/i });
-    expect(link).toHaveAttribute('href', 'mailto:support@repworth.com');
+    expect(link).toHaveAttribute('href', 'mailto:support@repworth.net');
   });
 
   it('routes to login on a 401 (session expired) — unchanged behavior', async () => {

@@ -164,7 +164,7 @@ export function PastRepliesClient({
           </div>
         </div>
         {visibleGap.length === 0 ? (
-          <Empty />
+          <Empty firstRun={!hasActiveFilter && totalReplies === 0} />
         ) : (
           <div className="pr-list">
             {visibleGap.map((r) => (
@@ -192,7 +192,7 @@ export function PastRepliesClient({
           </div>
           {!isPremium && <HistoricalUpgradeBanner />}
           {visibleHist.length === 0 ? (
-            <Empty />
+            <Empty firstRun={false} />
           ) : (
             <div className="pr-list">
               {visibleHist.map((r) => (
@@ -278,19 +278,20 @@ function Stat({ label, icon, value, suffix }: { label: string; icon: 'check' | '
   );
 }
 
-// TODO(P2 #28): Empty() renders in the gap section for brand-new accounts with
-// zero replies, but its copy ("No replies match this filter") is filter-state
-// language. A first-run account sees no historical section (gated by
-// hasHistoricalSection) and only this component in the gap section. Consider
-// differentiating copy when hasActiveFilter=false and totalReplies=0.
-function Empty() {
+function Empty({ firstRun }: { firstRun: boolean }) {
   return (
     <div className="pr-empty">
       <div className="pr-empty-icon">
         <Icon name="history" size={28} />
       </div>
-      <div className="pr-empty-title">No replies match this filter</div>
-      <div className="pr-empty-sub">Try clearing your search, or pick a different rating chip.</div>
+      <div className="pr-empty-title">
+        {firstRun ? 'No replies yet' : 'No replies match this filter'}
+      </div>
+      <div className="pr-empty-sub">
+        {firstRun
+          ? 'Approved replies will appear here as you respond to your reviews.'
+          : 'Try clearing your search, or pick a different rating chip.'}
+      </div>
     </div>
   );
 }

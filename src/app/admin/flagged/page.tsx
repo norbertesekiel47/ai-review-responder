@@ -4,6 +4,7 @@
 
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { LiveRegion } from '@/components/ui/LiveRegion';
 
 interface FlaggedItem {
   id: string;
@@ -41,12 +42,12 @@ export default function FlaggedQueuePage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [offset, setOffset] = useState(0);
 
-  const { data, isLoading, isError } = useQuery<{ flagged: FlaggedItem[] }>({
+  const { data, isLoading, isError } = useQuery<{ flagged: FlaggedItem[]; total: number }>({
     queryKey: ['admin-flagged', offset],
     queryFn: async () => {
       const res = await fetch(`/api/admin/flagged?limit=${PAGE_SIZE}&offset=${offset}`);
       if (!res.ok) throw new Error(`Failed to fetch flagged queue: ${res.status}`);
-      return res.json() as Promise<{ flagged: FlaggedItem[] }>;
+      return res.json() as Promise<{ flagged: FlaggedItem[]; total: number }>;
     },
     refetchInterval: 30_000,
   });
@@ -83,10 +84,11 @@ export default function FlaggedQueuePage() {
         </p>
 
         {actionError && (
-          <p className="mt-4 rounded border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
+          <p role="alert" className="mt-4 rounded border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
             {actionError}
           </p>
         )}
+        <LiveRegion level="polite" message={disposition.isSuccess ? 'Disposition applied.' : ''} />
 
         {isLoading && <p className="mt-6 text-gray-500">Loading...</p>}
         {isError && <p className="mt-6 text-red-600">Failed to load flagged queue.</p>}
@@ -154,7 +156,7 @@ export default function FlaggedQueuePage() {
               Previous
             </button>
             <span className="text-xs text-gray-400">
-              Showing {offset + 1}–{offset + data.flagged.length}
+              Showing {offset + 1}–{offset + data.flagged.length} of {data.total}
             </span>
             <button
               onClick={() => setOffset((o) => o + PAGE_SIZE)}
