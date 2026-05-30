@@ -22,7 +22,7 @@ RepWorth currently ships **three different visual languages**, and only one of t
 
 **Confirmed off-brand files (20):** all of `src/app/onboarding/*`, `src/app/mfa/challenge/page.tsx`, `src/components/auth/*` (Login, CheckEmail, FinishSignup, ForgotPassword, ResetPassword), `src/components/approval/approval-client.tsx`, `src/app/(public)/demo/[slug]/page.tsx`, `src/app/(public)/help/contact/page.tsx`, `src/app/(public)/feedback/thanks/page.tsx`.
 
-**33 files** still use the explicitly-banned amber/orange/stone/yellow palette. *(PR #173 cleared `amber`/`orange`/`stone` from the owner Console + Admin — 19 files — and added a guard test; the deliberately-excluded `dashboard/connect` (P0 #10), the yellow review-star color (P2 #28), and chart series `#ea580c` remain.)*
+**33 files** still use the explicitly-banned amber/orange/stone/yellow palette. *(PR #173 cleared `amber`/`orange`/`stone` from the owner Console + Admin — 19 files — and added a guard test; `dashboard/connect` cleared in PR #177 (P0 #10); the **yellow review-star color is now cleared app-wide → teal `#97B3AE` in PR #181** (P2 #28; `--rw-yellow-500` → `--rw-star`, guard test added); chart series `#ea580c` is the lone intentional remainder.)*
 
 ---
 
@@ -158,11 +158,11 @@ Admin has a coherent internal gray/white/blue style; judged on function, not pol
 23. Admin: add **Zernio reconnect-queue actions**; fix **admin payment-success polling cleanup**.
 
 ### P2 — Polish
-24. QR codes + SiteNav logo → `next/image`.
-25. Add ~900px tablet breakpoints for KPI/stats grids.
-26. Security page typography to rubric scale; legal body color/size.
-27. ARIA tab semantics on settings/mobile tabs; enlarge tap targets.
-28. Settings loading skeleton; verify zero-replies empty state; admin runbook `min-h-screen`; star colors off `#eab308`. *(Partial: onboarding-demo review stars moved off `#eab308` → teal `#97B3AE` in PR #165; other star locations + the rest still pending.)*
+24. ✅ QR codes + SiteNav logo → `next/image`. — **DONE (PR #181):** `SiteNav` logo → `next/image` (`<Image … unoptimized>`, no `dangerouslyAllowSVG`) and `public/Logo - SVG.svg` renamed → `public/logo.svg` (drops the spaced filename, P2 line 75). The 5 QR codes are runtime `data:` URLs `next/image` can't optimize, so they stay `<img>` with an honest rationale + correct eslint-disable; `pnpm lint` now 0 warnings.
+25. ✅ Add ~900px tablet breakpoints for KPI/stats grids. — **DONE (PR #181):** `.kpi-grid` (+`.has-pending`) and `.pr-stats` drop to 2-col at ≤900px (M7); contract test added. `.pr-stats` collapsed to a single 900px rule (the old 768px duplicate removed).
+26. ✅ Security page typography to rubric scale; legal body color/size. — **DONE (PR #181):** Security h1 → `text-5xl md:text-6xl lg:text-7xl`, h2 → `text-2xl md:text-3xl`, body → `text-lg #6a6a6a`; Legal h1 → rubric scale, body → `text-base #6a6a6a` (16px, AA). Source-contract test added.
+27. ✅ ARIA tab semantics on settings/mobile tabs; enlarge tap targets. — **DONE (PR #181):** these are `<Link>` route navigations, so the correct semantics are `aria-current="page"` (not the in-page `role=tab` anti-pattern) — settings tabs + `MobileTabBar` reskinned; settings tabs gain roving tabindex + ←/→/Home/End keys; `MobileTabBar` `<nav aria-label>`. 44×44 hit areas for EditReplyDrawer close, `.mtab`, and both dot-navs (transparent `::after`, visual dot unchanged). (Settings tabs already had `role=tablist` — the real fix was switching to honest route-nav ARIA + keyboard nav.)
+28. 🟡 Settings loading skeleton; verify zero-replies empty state; admin runbook `min-h-screen`; star colors off `#eab308`. — **DONE (PR #181):** shared branded `SettingsSkeleton` (role=status/aria-busy, reduced-motion) replaces the 3 plain "Loading…" texts; **app-wide review-star sweep off `#eab308` → teal `#97B3AE`** (`--rw-yellow-500` → `--rw-star`; Console + marketing + auth + admin) with a scoped guard test (status badges untouched, supersedes the PR #165 onboarding-only start); admin runbook `min-h-screen`; past-replies empty-state icon blue → teal. **Still pending:** the empty-state *copy* renders correctly but reads filter-specific ("No replies match this filter") for a genuine first-run account — a `TODO(P2 #28)` is left to thread filter-state into the copy (verify-and-note per spec).
 
 ---
 
