@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { LiveRegion } from '@/components/ui/LiveRegion';
 
 type FormState = {
   ownerName: string;
@@ -71,7 +72,7 @@ export function FinishSignupClient({
           className="bg-white rounded-lg border border-gray-200 p-6 space-y-4"
         >
           <div>
-            <label htmlFor="finish-email" className="sr-only">
+            <label htmlFor="finish-email" className="block text-sm font-medium text-gray-700 mb-1">
               Email (from your Google account)
             </label>
             <input
@@ -84,7 +85,7 @@ export function FinishSignupClient({
             />
           </div>
           <div>
-            <label htmlFor="finish-name" className="sr-only">
+            <label htmlFor="finish-name" className="block text-sm font-medium text-gray-700 mb-1">
               Your name
             </label>
             <input
@@ -92,21 +93,19 @@ export function FinishSignupClient({
               type="text"
               autoComplete="name"
               required
-              placeholder="Your name"
               value={form.ownerName}
               onChange={onChange('ownerName')}
               className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
           <div>
-            <label htmlFor="finish-phone" className="sr-only">
+            <label htmlFor="finish-phone" className="block text-sm font-medium text-gray-700 mb-1">
               Phone (optional)
             </label>
             <input
               id="finish-phone"
               type="tel"
               autoComplete="tel"
-              placeholder="Phone (optional)"
               value={form.ownerPhone}
               onChange={onChange('ownerPhone')}
               className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -114,6 +113,7 @@ export function FinishSignupClient({
           </div>
 
           {error && <p className="text-sm text-red-600">{error}</p>}
+          <LiveRegion level="assertive" message={error} />
 
           <button
             type="submit"
