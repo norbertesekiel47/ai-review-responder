@@ -36,6 +36,7 @@ export function WhatsAppEnrollmentWidget({ businessId }: { businessId: string })
       {snapshot.state === 'awaiting_scan' && snapshot.qrDataUrl && snapshot.deepLink && (
         <div>
           <p className="text-sm mb-2">Scan the QR with WhatsApp or share this link. The owner sends the prefilled message to verify.</p>
+          {/* QR is a runtime base64 data: URI — next/image cannot optimize a data URL. */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={snapshot.qrDataUrl} alt="WhatsApp deep link QR" width={256} height={256} />
           <p className="mt-2"><a href={snapshot.deepLink} target="_blank" rel="noreferrer" className="text-green-700 underline break-all">{snapshot.deepLink}</a></p>

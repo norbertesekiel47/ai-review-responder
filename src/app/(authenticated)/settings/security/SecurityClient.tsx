@@ -273,6 +273,8 @@ export function SecurityClient() {
           {enrollment.qrCode?.startsWith('data:') ? (
             // Supabase returns this QR image from its Auth API; the TOTP secret
             // itself is shown separately for manual entry.
+            // QR is a runtime base64 data: URI — next/image cannot optimize a data URL.
+            // eslint-disable-next-line @next/next/no-img-element
             <img
               src={enrollment.qrCode}
               alt="Authenticator setup QR code"
