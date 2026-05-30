@@ -109,7 +109,7 @@ export default function GlobalError({
                 Go to RepWorth home
               </a>
               {' · '}
-              <a href="mailto:support@repworth.com" style={{ color: '#97B3AE' }}>
+              <a href="mailto:support@repworth.net" style={{ color: '#97B3AE' }}>
                 Contact support
               </a>
             </p>

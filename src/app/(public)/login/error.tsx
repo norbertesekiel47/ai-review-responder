@@ -16,7 +16,7 @@ export default function LoginError({ reset }: { error: Error; reset: () => void 
         </button>
         <p className="text-sm text-[#6a6a6a] mt-4">
           Still having trouble?{' '}
-          <a href="mailto:support@repworth.com" className="text-[#97B3AE] underline">
+          <a href="mailto:support@repworth.net" className="text-[#97B3AE] underline">
             Contact support
           </a>
         </p>

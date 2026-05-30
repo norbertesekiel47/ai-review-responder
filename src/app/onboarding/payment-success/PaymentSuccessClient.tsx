@@ -183,7 +183,7 @@ export function PaymentSuccessClient({
             </h1>
             <p className="text-[#6a6a6a]">
               This is taking longer than usual. Please{' '}
-              <a href="mailto:support@repworth.com" className="text-[#97B3AE] underline">
+              <a href="mailto:support@repworth.net" className="text-[#97B3AE] underline">
                 contact support
               </a>{' '}
               if it persists.

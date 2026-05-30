@@ -13,7 +13,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { motion, useReducedMotion } from 'motion/react';
 import { createBrowserSupabaseClient } from '@/lib/db/browser';
 
-const SUPPORT_EMAIL = 'support@repworth.com';
+const SUPPORT_EMAIL = 'support@repworth.net';
 
 interface ChallengeFactor {
   id: string;

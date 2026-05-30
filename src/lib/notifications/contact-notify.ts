@@ -15,7 +15,7 @@ export type ContactNotifySource = 'env' | 'from-email' | 'default';
 // personal inbox — and preserves the routes' pre-#167 `from` fallback so a
 // missing sender env never silently drops a lead. Operators should still set
 // CONTACT_NOTIFY_TO in production.
-const COMPANY_NOREPLY = 'noreply@repworth.com';
+const COMPANY_NOREPLY = 'noreply@repworth.net';
 const DEFAULT_NOTIFY_TO = COMPANY_NOREPLY;
 
 /**
