@@ -1,0 +1,26 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { describe, expect, it } from 'vitest';
+
+// launch-ready-part2 P2 #26: Security + Legal pages must follow the brand
+// typography rubric — rubric h1 scale and #6a6a6a body (not text-3xl/#4a4a4a).
+const SECURITY = resolve(process.cwd(), 'src/app/(public)/security/page.tsx');
+const LEGAL = resolve(process.cwd(), 'src/components/legal/LegalPage.tsx');
+
+describe('Security + Legal typography rubric (P2 #26)', () => {
+  it('security h1 uses the rubric scale and no longer text-3xl', () => {
+    const src = readFileSync(SECURITY, 'utf-8');
+    expect(src).toMatch(/text-5xl md:text-6xl lg:text-7xl/);
+    expect(src).not.toMatch(/text-3xl/);
+  });
+  it('security body uses brand #6a6a6a, not #4a4a4a', () => {
+    const src = readFileSync(SECURITY, 'utf-8');
+    expect(src).not.toMatch(/#4a4a4a/);
+    expect(src).toMatch(/text-\[#6a6a6a\]/);
+  });
+  it('legal h1 uses the rubric scale and body is no longer text-sm/#4a4a4a', () => {
+    const src = readFileSync(LEGAL, 'utf-8');
+    expect(src).toMatch(/text-5xl md:text-6xl lg:text-7xl/);
+    expect(src).not.toMatch(/#4a4a4a/);
+  });
+});

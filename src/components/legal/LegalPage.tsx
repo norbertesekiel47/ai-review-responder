@@ -11,25 +11,25 @@ export function LegalPage({ doc }: { doc: LegalDoc }) {
       <SiteNav selfServeEnabled={selfServeEnabled} />
       <main className="px-8 py-16 md:px-16">
         <article className="mx-auto max-w-3xl">
-          <h1 className="mb-2 text-3xl font-medium text-[#2a2a2a]">
+          <h1 className="mb-2 text-5xl md:text-6xl lg:text-7xl font-medium leading-tight text-[#2a2a2a]">
             {doc.title}
           </h1>
           <p className="mb-10 text-sm text-[#97B3AE]">
             Version {doc.version} - Effective {doc.effectiveDate}
           </p>
-          <div className="space-y-8 text-[#4a4a4a]">
+          <div className="space-y-8 text-[#6a6a6a]">
             {doc.sections.map((section) => (
               <section key={section.heading} className="space-y-3">
                 <h2 className="text-xl font-medium text-[#2a2a2a]">
                   {section.heading}
                 </h2>
                 {section.body.map((paragraph) => (
-                  <p key={paragraph} className="text-sm leading-relaxed">
+                  <p key={paragraph} className="text-base leading-relaxed">
                     {paragraph}
                   </p>
                 ))}
                 {section.bullets && (
-                  <ul className="list-disc space-y-2 pl-5 text-sm leading-relaxed">
+                  <ul className="list-disc space-y-2 pl-5 text-base leading-relaxed">
                     {section.bullets.map((item) => (
                       <li key={item}>{item}</li>
                     ))}
@@ -59,7 +59,7 @@ export function LegalPage({ doc }: { doc: LegalDoc }) {
                                 className={`py-2 pr-6 ${
                                   index === 0
                                     ? 'whitespace-nowrap font-medium text-[#2a2a2a]'
-                                    : 'text-[#4a4a4a]'
+                                    : 'text-[#6a6a6a]'
                                 }`}
                               >
                                 {cell}
