@@ -2,7 +2,64 @@
 
 This file explains what is actually built in the repository today, how it maps to the implementation plan, and what is left to build.
 
-Last updated: 2026-05-27 (Wave 3 — Visibility & AI Safety: PRs 1–3b merged (#93–#96); PRs 4–6 code-complete and open as #99 eval+trust-safety, #100 sentiment, #101 KPIs, #102 finance — see the simple-words summary directly below and the Wave 3 section at the bottom. Wave 2 — Activation shipped via PR #87.)
+Last updated: 2026-05-29 (Launch readiness — the production audit + fix sweep, PRs #152–#186: brand/mobile/a11y pass over the funnel, approval, MFA, demo and auth pages; hidden-config closed in `.env.example`; founders price-lock migration 054; Zernio reconnect-queue admin actions; full external-services catalogue. See the simple-words summary directly below. Earlier: Wave 3 — Visibility & AI Safety (#93–#96); Wave 2 — Activation (#87).)
+
+## Quick summary — Launch readiness sweep (2026-05-28 → 2026-05-29, PRs #152–#186)
+
+In simple words: we ran a **two-part launch audit** (one for the backend/ops, one for every screen) and then **fixed everything code could fix** so the product is ready to open to the public. Nothing here changes how the core product *works* — the AI still drafts, the owner still approves, nothing posts to Google without that approval. This was about **polish, hidden settings, mobile, and accessibility** — plus two small new capabilities (an admin "unstick the Google reconnect queue" button and a full catalogue of every outside service we use).
+
+### What we changed (plain English)
+
+1. **Every screen now looks like RepWorth.** Before, the most important first moments — finishing signup, paying, approving a reply from the email link, the two-factor screen, the demo page we send to prospects — looked like unstyled developer prototypes (gray boxes, blue buttons). They're all rebuilt on the brand "island" look (sage background, white rounded card, teal buttons, gentle motion), with real success and error states and "what happens next" guidance.
+
+2. **It works on a phone now.** Added a mobile menu, made form inputs big enough that iPhones stop zooming in, made the pricing table scroll instead of getting crushed, fixed a Safari bug that clipped the rounded card, added tablet layouts, and made tap targets finger-sized.
+
+3. **Screen readers and keyboards are handled.** Save confirmations, errors, and loading now announce themselves; menus and tabs got proper keyboard navigation and focus outlines.
+
+4. **No more hidden settings that silently fail.** Several important config values (admin alert email, contact-form recipient, error tracking, billing prices, the impersonation secret) used to be undocumented and would *silently* drop alerts or fall back to a personal inbox. They're now all documented in `.env.example` and the worker refuses to start in production without the most critical one.
+
+5. **A full map of every outside service.** We scanned the whole codebase and found 34 environment variables the code reads that weren't in the template (and 3 dead ones). All fixed, and there's now one doc that lists every third-party service (Stripe, Resend, Twilio, Zernio, OpenAI, …) and every setting in one place.
+
+6. **Admins can unstick the Google reconnect queue.** When a customer's Google connection drops, approved replies park in an "awaiting reconnect" queue. Admins previously could *see* stuck items but not act. Now there's a "Force drain queue" button (re-tries posting them all) and a per-item "Dismiss" — both fully audited, and still impossible to post anything that wasn't already owner-approved.
+
+7. **One small database change.** The founders "price locked for life" promise now stores each account's base price (migration 054) instead of reading a live config value that could drift.
+
+### What got added — the new shape
+
+```text
+docs/
+├── eservices-variables.md          ← NEW: catalogue of every external service + full env-var inventory + drift report
+├── runbooks/deployment-guide.md     ← NEW (consolidated): staging guide + deploy runbook merged into one
+└── launch-ready-part1.md / -part2.md ← the two audit docs (now marked ✅/🟡 per item)
+
+supabase/migrations/054_accounts_base_price_cents.sql  ← NEW: stores the grandfathered base price (founders price-lock)
+
+src/app/api/admin/businesses/[id]/zernio-queue/route.ts ← NEW: admin force-drain + dismiss for the reconnect queue
+src/components/admin/ZernioConnectionPanel.tsx          ← now has "Force drain queue" + per-row "Dismiss"
+
+# New shared UI shells / components (the brand sweep)
+src/components/onboarding/OnboardingFunnelShell.tsx + FunnelStepThread  ← one island shell + progress thread for the whole funnel
+src/components/approval/ApprovalErrorState.tsx          ← shared recovery UI for every approval error state
+src/components/ui/LiveRegion.tsx                         ← NEW: screen-reader announcements (save/error/loading)
+src/components/ui/SettingsSkeleton.tsx                   ← NEW: branded settings loading skeleton
+src/app/(public)/demo/[slug]/{not-found.tsx, DemoStatusIsland}  ← branded demo loading/error/expired states
+src/app/(authenticated)/error.tsx + global-error.tsx    ← branded error boundaries (were unstyled Next.js pages)
+src/app/mfa/layout.tsx                                   ← noindex on the MFA subtree
+src/lib/seo.ts                                           ← NEW: shared noindexRobots fragment for auth/utility pages
+public/logo.svg                                          ← renamed from "Logo - SVG.svg" (spaced filename gone)
+
+# CSS tokens introduced by the sweep
+--rw-sidebar-width   (save-bar/sidebar share one width)
+--rw-attn-*          (brand "blush" attention surface, replaces banned amber)
+--rw-star            (review stars → teal #97B3AE, app-wide; was yellow #eab308)
+
+.env.example                          ← synced: +34 real vars, 3 vestigial commented/retired
+src/lib/accounts/quota.ts + margin-service.ts  ← read the stored base price (migration 054)
+```
+
+### One thing to remember
+
+This sweep is **almost entirely presentational + config**. The funnel/approval/demo redesigns preserve the underlying data, polling, redirect, and auth logic byte-for-byte — only the look changed. The two `docs/launch-ready-part1.md` / `-part2.md` files carry the authoritative per-item ✅/🟡 status; the remaining unticked items are **operational** (rotate prod secrets, run the restore drill, confirm email auth, flip the launch flags), not code. The admin reconnect-queue actions never bypass owner approval — they only re-fire or dismiss drafts the owner already approved.
 
 ## Quick summary — Wave 3 PRs 4–6 (2026-05-27: eval harness, review sentiment, customer KPIs, finance margins)
 

@@ -472,7 +472,15 @@ A customer activating Stripe in January but connecting Zernio in July gets all
 **Deferred fix:** use `zernio_connections.connected_at` as gap boundary.
 Requires snapshotting `connected_at` into `zernio_backfill_runs`.
 
-### 4. No `accounts.base_price_cents` — base price is not grandfathered
+### 4. No `accounts.base_price_cents` — base price is not grandfathered (RESOLVED, migration 054 / PR #157)
+> **RESOLVED (2026-05-29, migration 054, PR #157 — launch-ready-part1 item 4):**
+> `accounts.base_price_cents` now exists (backfilled per current tier, `NOT NULL`,
+> non-negative CHECK). `currentBillingSnapshot`, `monthlyMrrCents`, and
+> `expectedInvoiceForAccount` read the **stored** column instead of live
+> `TIER_CONFIG[tier].baseCents`, so the founders "rate locked for life" base no
+> longer drifts when a tier's price changes. Closes CLAUDE.md #9a's lone un-stored
+> exception. The original deferred-fix writeup below is retained for history.
+
 [2026-05-22, PR #51/#52] `accounts` snapshots `locations_included` and
 `locations_overage_price_cents` at signup / select-plan / tier change, and
 `currentBillingSnapshot` reads both (point-in-time, grandfathered). But there is

@@ -1,5 +1,13 @@
 # RepWorth — Environment Variables & Feature Flags
 
+> **Canonical catalogue (since 2026-05-29, PR #186):** `docs/eservices-variables.md`
+> maps every external service RepWorth integrates with and indexes the **full**
+> env-var inventory (cross-checked against `.env.example` — that pass found 34
+> missing real vars + 3 vestigial). `.env.example` is the copy-paste template;
+> **this file owns deep per-flag *behavior*** (don't duplicate the flat inventory
+> here). Read the catalogue for "does var X exist / which service uses it"; read
+> this file for "what does flag X do when I flip it".
+
 ## Flag-Gating Pattern
 
 All feature flags are **server-authoritative**. Browser learns flag state via
@@ -56,7 +64,8 @@ Assertion source: `worker/config/startup-assert.ts`.
 |---|---|---|---|
 | `CONTACT_NOTIFY_TO` | Vercel | Recommended (prod) | Recipient for `/api/contact`, `/api/demo-request`, `/api/lead-intake` notification emails. No personal default: resolves via `resolveContactNotifyTo()` (`src/lib/notifications/contact-notify.ts`) → `CONTACT_NOTIFY_TO` → `RESEND_FROM_EMAIL` mailbox → `noreply@repworth.net`, with a Sentry error (`contact_notify_to_unset`) **and** `console.warn` on fallback. |
 | `ADMIN_NOTIFICATION_EMAIL` | Railway | **Yes (prod)** | Recipient for admin exception / failover / engagement alerts. Worker boot **hard-asserts** this in production (`assertAdminNotificationEmail` in `worker/config/startup-assert.ts`); the worker refuses to start without it. Per-site runtime guards remain as defense-in-depth. |
-| `LIST_UNSUBSCRIBE_EMAIL` | Railway | Recommended (prod) | Mailbox in the marketing `List-Unsubscribe` header (`src/lib/notifications/email/headers.ts`). Unset → falls back to the `RESEND_FROM_EMAIL` mailbox; worker boot warns in production (`warnMissingProductionEnv`). Without a working mailbox, marketing emails fail Gmail/Outlook bulk-sender compliance. |
+| `LIST_UNSUBSCRIBE_URL` | Railway | Recommended (prod) | **HTTPS one-click** unsubscribe endpoint in the marketing `List-Unsubscribe` header (`src/lib/notifications/email/headers.ts`). Only when this is set does the header emit the https URL **plus** `List-Unsubscribe-Post: List-Unsubscribe=One-Click` (RFC 8058 — Gmail/Outlook bulk-sender one-click). Unset → only the `mailto:` fallback is sent (no one-click), which weakens compliance. Documented in `.env.example` since PR #186. |
+| `LIST_UNSUBSCRIBE_EMAIL` | Railway | Recommended (prod) | `mailto:` fallback recipient in the marketing `List-Unsubscribe` header (`src/lib/notifications/email/headers.ts`). Unset → falls back to the `RESEND_FROM_EMAIL` mailbox; worker boot warns in production (`warnMissingProductionEnv`). Without a working mailbox AND no `LIST_UNSUBSCRIBE_URL`, marketing emails fail Gmail/Outlook bulk-sender compliance (falls back to a non-functional `example.com` mailbox). |
 | `SENTRY_DSN` | Vercel + Railway | Recommended (prod) | Server-side Sentry DSN (`src/instrumentation.ts`, `worker/sentry.ts`). Unset → Sentry silently no-ops; both boots warn in production (`warnMissingProductionEnv` on the worker, `register()` on Next.js). |
 | `NEXT_PUBLIC_SENTRY_DSN` | Vercel | Recommended (prod) | Browser-side Sentry DSN (same value as `SENTRY_DSN`). Intentionally public. |
 
@@ -287,12 +296,33 @@ sent. Tuning: `ANALYTICS_DISPATCH_*` under Poller Tuning below.
 
 ---
 
+## Reviews (SerpAPI)
+
+| Var | Default | Notes |
+|---|---|---|
+| `SERPAPI_API_KEY` | — | Required in prod for SerpAPI review/ranking data: onboarding demo review fetch (`src/lib/demos/fetch-reviews.ts`), Place-ID resolution (`src/lib/reviews/place-id-resolver.ts`), onboarding review **prefill** (`src/lib/reviews/serpapi-prefill.ts`), and the Railway `RankingTrackingWorker`. Used on **both** Next.js (prefill/place-id) and the worker (ranking). `MOCK_EXTERNAL_APIS=true` bypasses it locally (`MockReviewSource`). |
+| `SERPAPI_TIMEOUT_MS` | `10000` | Optional per-call timeout for the prefill path (`serpapi-prefill.ts`, floored at 1ms). |
+
+---
+
 ## Worker Infrastructure
 
 | Var | Notes |
 |---|---|
-| `WORKER_PUBLIC_URL` | Public URL of Railway worker. Required when SMS enabled. Must match Twilio console exactly (scheme, host, no trailing slash). |
+| `WORKER_PUBLIC_URL` | Public URL of Railway worker. Required when SMS enabled. Must match Twilio console exactly (scheme, host, no trailing slash). This is the single canonical worker-URL var — the older `WORKER_SERVICE_URL` was **retired** in PR #186 (deduped into `WORKER_PUBLIC_URL`). |
 | `PORT` | Worker Fastify port (default: `3001`) |
+
+---
+
+## Retired / vestigial (do not re-add)
+
+Confirmed unused by the 2026-05-29 codebase scan (PR #186) and **commented out / removed** from `.env.example`. Re-introducing them is a smell — check `docs/eservices-variables.md` §2 first.
+
+| Var | Why retired |
+|---|---|
+| `ENCRYPTION_KEY` / `ENCRYPTION_KEY_VERSION` | Vestigial. RepWorth's token security model is **SHA-256 hashing, not symmetric encryption** (approval tokens stored as hashes — invariant #5); no code reads these. Commented out in `.env.example`. |
+| `WORKER_SERVICE_URL` | Superseded by `WORKER_PUBLIC_URL` (see Worker Infrastructure above). |
+| `ADMIN_API_KEY` | Removed earlier (PR #154). `/api/admin/*` uses `requireRole(request, 'admin')`, not a static key. |
 
 ---
 
