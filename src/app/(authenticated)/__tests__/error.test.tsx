@@ -43,7 +43,7 @@ describe('AuthenticatedError', () => {
     ).toHaveAttribute('href', '/dashboard');
     expect(
       screen.getByRole('link', { name: /contact support/i }),
-    ).toHaveAttribute('href', 'mailto:support@repworth.com');
+    ).toHaveAttribute('href', 'mailto:support@repworth.net');
   });
 
   it('shows the reference id when the error has a digest', () => {

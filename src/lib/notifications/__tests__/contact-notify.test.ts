@@ -74,17 +74,17 @@ describe('resolveContactNotifyTo', () => {
   });
 
   it('falls back to the default noreply mailbox when both unset, and warns', () => {
-    expect(resolveContactNotifyTo()).toEqual({ to: 'noreply@repworth.com', source: 'default' });
+    expect(resolveContactNotifyTo()).toEqual({ to: 'noreply@repworth.net', source: 'default' });
     expect(warnSpy).toHaveBeenCalledOnce();
     expect(mockCaptureMessage).toHaveBeenCalledWith(
       'contact_notify_to_unset',
-      expect.objectContaining({ level: 'error', tags: { subsystem: 'contact-notify' }, extra: { resolvedTo: 'noreply@repworth.com', source: 'default' } }),
+      expect.objectContaining({ level: 'error', tags: { subsystem: 'contact-notify' }, extra: { resolvedTo: 'noreply@repworth.net', source: 'default' } }),
     );
   });
 
   it('uses the default when RESEND_FROM_EMAIL is unparseable', () => {
     process.env.RESEND_FROM_EMAIL = 'not-an-email';
-    expect(resolveContactNotifyTo()).toEqual({ to: 'noreply@repworth.com', source: 'default' });
+    expect(resolveContactNotifyTo()).toEqual({ to: 'noreply@repworth.net', source: 'default' });
   });
 
   it('resolves the fallback but does NOT warn outside production', () => {
@@ -118,7 +118,7 @@ describe('notifyContactSubmission', () => {
     const r = await notifyContactSubmission({ subject: 'S', lines: ['a'] });
     expect(r).toEqual({ sent: true });
     expect(mockSendInternalEmail).toHaveBeenCalledWith(
-      expect.objectContaining({ from: 'noreply@repworth.com' }),
+      expect.objectContaining({ from: 'noreply@repworth.net' }),
     );
   });
 

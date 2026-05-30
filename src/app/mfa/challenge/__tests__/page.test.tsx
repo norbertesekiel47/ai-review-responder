@@ -73,7 +73,7 @@ describe('MfaChallengeForm', () => {
     expect(loginLink).toHaveAttribute('href', '/login');
 
     const supportLink = screen.getByRole('link', { name: /contact support/i });
-    expect(supportLink).toHaveAttribute('href', 'mailto:support@repworth.com');
+    expect(supportLink).toHaveAttribute('href', 'mailto:support@repworth.net');
   });
 
   it('announces a factor-load failure through an alert region', async () => {
