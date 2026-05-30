@@ -7,6 +7,8 @@
 
 ---
 
+> **Progress markers (re-verified 2026-05-29):** ✅ = code-side work complete and confirmed in the current tree · 🟡 = partially done (residual noted — usually an ops/prod step) · unmarked = ops/config only, intentional waitlist, or still outstanding. These ticks were reconstructed from a fresh code-based audit (the worktree copy was lost), cross-checked against merged PRs **#152–#158** and **#132/#133/#135**.
+
 ## Headline
 
 **The code is in strong shape. The remaining work is mostly operational, not code.** `lint`, `typecheck`, and `build` pass; CI is green on `main`; and every safety-critical architecture invariant **holds** in code — most importantly, there is a real, enforced gate preventing any auto-posting to Google without owner approval.
@@ -31,8 +33,10 @@ Remaining work clusters into: **infra/config setup**, **launch-gating flag flips
 | CI on `main` HEAD (`d614b0c9`) | **success** |
 | Safety invariants (7 audited) | **All HOLD** |
 
-### Flaky test note
+### ✅ Flaky test note
 `worker/jobs/notification/__tests__/bounced-skip.test.ts` reported 2 failures during a full-suite parallel run (one 5000ms timeout, one fixture-ordering assertion: `"Response resp-1 belongs to business undefined, not biz-1"`). Re-run in isolation it passes **4/4 twice**, and CI on `main` is green. → **Flakiness under parallel load, not a correctness bug.** Worth hardening (event-based waits instead of fixed timeout; isolate the SQL-mock queue).
+
+> ✅ **Resolved (PR #158).** De-flaked: the shared module-level `sqlReturnQueue` (drained positionally) was isolated per-test and the fixed timeout replaced — root-caused as fixture-queue drift under parallel load yielding the exact audited message.
 
 ---
 
@@ -57,8 +61,8 @@ Most are **ops/config (set in Vercel + Railway)**, not code:
 1. **Rotate `ZERNIO_WEBHOOK_SECRET`** — currently the dev dummy `test-secret-32-bytes-minimum-zzz` (`.env.local:204`). Forgeable Zernio webhooks otherwise.
 2. **Set real production URLs** — `NEXT_PUBLIC_APP_URL`, `WORKER_SERVICE_URL`, `WORKER_PUBLIC_URL` (currently localhost / Cloudflare dev tunnel). Approval email links + Twilio callbacks break otherwise.
 3. **Switch Stripe to live mode** — replace `sk_test_…` + all test `price_…` IDs with live ones in prod env.
-4. **Set `ADMIN_NOTIFICATION_EMAIL`** — **undocumented in `.env.example`** but all admin exception/failover/engagement alerts route here and **silently drop if unset** (`worker/jobs/AdminExceptionWorker.ts:121`, `worker/background/pollers/NotificationFailoverPoller.ts:172`, `worker/jobs/EngagementAlertWorker.ts:227`). Highest-risk hidden var.
-5. **Set `CONTACT_NOTIFY_TO`** — undocumented; contact/demo/lead emails silently fall back to a personal Gmail (`src/app/api/contact/route.ts:8`, `demo-request/route.ts:8`, `lead-intake/route.ts:145`).
+4. 🟡 **Set `ADMIN_NOTIFICATION_EMAIL`** — **undocumented in `.env.example`** but all admin exception/failover/engagement alerts route here and **silently drop if unset** (`worker/jobs/AdminExceptionWorker.ts:121`, `worker/background/pollers/NotificationFailoverPoller.ts:172`, `worker/jobs/EngagementAlertWorker.ts:227`). Highest-risk hidden var. **→ ✅ Code-side closed (#156): now documented + boot-hardened in `.env.example`; setting the real prod value remains an ops step.**
+5. 🟡 **Set `CONTACT_NOTIFY_TO`** — undocumented; contact/demo/lead emails silently fall back to a personal Gmail (`src/app/api/contact/route.ts:8`, `demo-request/route.ts:8`, `lead-intake/route.ts:145`). **→ ✅ Code-side closed (#156): now documented + boot-hardened in `.env.example`; prod value remains ops.**
 6. **External drills from `docs/launch-checklist.md` (can't verify from repo):**
    - PITR restore drill never run (🔴).
    - Email auth (DKIM/SPF/DMARC) unconfirmed — the approval email loop *is* the product (🔴).
@@ -68,24 +72,24 @@ Most are **ops/config (set in Vercel + Railway)**, not code:
 
 ## 🟠 P1 — Before paying customers
 
-- **`SENTRY_DSN` blank** in both env files — Sentry fully wired (`src/instrumentation.ts`, `worker/sentry.ts`) but silently no-ops; prod errors untracked.
-- **Cost circuit-breakers undocumented** — `DAILY_COST_LIMIT_CENTS_FOUNDING/STANDARD/PREMIUM` (500/1000/2000¢) + `GLOBAL_DAILY_COST_LIMIT_CENTS` (10000¢) have code defaults but aren't in `.env.example`. Set consciously before live LLM calls.
-- **`STRIPE_PRICE_FOUNDING` + all `STRIPE_PRICE_*`** must be set before flipping `SELF_SERVE_SIGNUP_ENABLED`, or checkout/webhook silently mishandles tiers (`create-checkout-session.ts`, `subscription-updated.ts`).
-- **`IMPERSONATION_COOKIE_SECRET`** required before admin "view-as" works (fails closed). `openssl rand -hex 32`.
-- **`LIST_UNSUBSCRIBE_EMAIL` unset** → marketing emails fail Gmail/Outlook bulk-sender compliance (`src/lib/notifications/email/headers.ts:65`).
-- **Public pricing copy bug** — Premium bullet reads *"Multiple approval notification channels, if implemented"* at `src/app/(public)/pricing/PricingContent.tsx:108`. Ships to every visitor.
+- 🟡 **`SENTRY_DSN` blank** in both env files — Sentry fully wired (`src/instrumentation.ts`, `worker/sentry.ts`) but silently no-ops; prod errors untracked. **→ ✅ Key now documented in `.env.example` (#156); providing the real DSN is an ops step.**
+- 🟡 **Cost circuit-breakers undocumented** — `DAILY_COST_LIMIT_CENTS_FOUNDING/STANDARD/PREMIUM` (500/1000/2000¢) + `GLOBAL_DAILY_COST_LIMIT_CENTS` (10000¢) have code defaults but aren't in `.env.example`. Set consciously before live LLM calls. **→ ✅ `FOUNDING`, `STANDARD`, and `GLOBAL` now documented in `.env.example`; `DAILY_COST_LIMIT_CENTS_PREMIUM` is still missing from the example.**
+- 🟡 **`STRIPE_PRICE_FOUNDING` + all `STRIPE_PRICE_*`** must be set before flipping `SELF_SERVE_SIGNUP_ENABLED`, or checkout/webhook silently mishandles tiers (`create-checkout-session.ts`, `subscription-updated.ts`). **→ ✅ All `STRIPE_PRICE_*` (+ `_OVERAGE`) keys now documented in `.env.example`; live values remain ops.**
+- 🟡 **`IMPERSONATION_COOKIE_SECRET`** required before admin "view-as" works (fails closed). `openssl rand -hex 32`. **→ ✅ Documented in `.env.example` (#156); generating/setting the secret is ops.**
+- 🟡 **`LIST_UNSUBSCRIBE_EMAIL` unset** → marketing emails fail Gmail/Outlook bulk-sender compliance (`src/lib/notifications/email/headers.ts:65`). **→ ✅ Documented + boot-hardened in `.env.example` (#156); value remains ops.**
+- ✅ **Public pricing copy bug** — *FIXED (#152):* the Premium bullet now reads *"Multiple approval notification channels"* — the *", if implemented"* qualifier was removed in `src/app/(public)/pricing/PricingContent.tsx`.
 
 ---
 
 ## 🟡 P2 — Before scale / GA polish
 
-- **No IaC for Railway** (no `railway.toml`/`Dockerfile`/Nixpacks) and **no `vercel.json`** — both deploy from dashboard config only. Add `railway.toml` (`startCommand = "pnpm worker"`, `healthcheckPath = "/api/health"`) so config survives project recreation; add `vercel.json` if any route needs a timeout above plan defaults.
-- **`TEST_DATABASE_POOL_URL` not in CI** → cross-tenant RLS isolation test (`src/__tests__/tenant-isolation.test.ts`) and 13 Playwright E2E tests never run in the PR gate. Strongest correctness guarantee, currently dark.
-- **PII in `console.log`** — `src/app/api/contact/route.ts:47`, `demo-request/route.ts:72`. Plus 4 worker schedulers use raw `console.log` instead of `createWorkerLogger`: `OnboardingDripScheduler.ts`, `WeeklySummaryScheduler.ts`, `MonthlyImpactScheduler.ts`, `StripeLocationsReconcilePoller.ts`.
-- **No `docs/runbooks/rollback.md`** (only the Zernio kill-switch is documented in the beta plan §10.5).
-- **Founders tier price-lock gap** — no `accounts.base_price_cents` column; if `TIER_CONFIG.baseCents` ever changes, the "3-year price lock" silently drifts (`src/lib/accounts/quota.ts:90`, `src/lib/admin/margin-service.ts:64`).
-- **Demo page view counter** — direct hot-row Postgres `UPDATE` on every page load (`src/app/(public)/demo/[slug]/page.tsx:54`); fine at low traffic, bottleneck at scale.
-- **`ADMIN_API_KEY` confusion** — `.env.example` implies it guards `/api/admin/*`, but routes actually use `requireRole(request, 'admin')`; the var is referenced nowhere. Stale comment; consider removing or adding a real prod assertion.
+- ✅ **Railway IaC added (#154)** — `railway.toml` now lives in repo (`builder = "NIXPACKS"`, `startCommand = "pnpm worker"`, `healthcheckPath = "/api/health"`, supervised `ON_FAILURE` restart policy) so config survives project recreation. `vercel.json` intentionally deferred — no route needs a timeout above plan defaults yet.
+- **`TEST_DATABASE_POOL_URL` not in CI** → cross-tenant RLS isolation test (`src/__tests__/tenant-isolation.test.ts`) and 13 Playwright E2E tests never run in the PR gate. Strongest correctness guarantee, currently dark. *(Still outstanding — CI wiring not yet added.)*
+- ✅ **PII in `console.log`** — *FIXED (#152):* `contact`/`demo-request` routes now log only sanitized metadata (lengths/flags, no PII), and all four schedulers (`OnboardingDripScheduler.ts`, `WeeklySummaryScheduler.ts`, `MonthlyImpactScheduler.ts`, `StripeLocationsReconcilePoller.ts`) use `createWorkerLogger`.
+- ✅ **`docs/runbooks/rollback.md` added (#154)** — full rollback runbook now in repo (was: only the Zernio kill-switch documented in the beta plan §10.5).
+- ✅ **Founders tier price-lock gap** — *FIXED (#157):* migration `054_accounts_base_price_cents.sql` adds `accounts.base_price_cents` (backfilled, NOT NULL); `quota.ts` and `margin-service.ts` now read the stored column instead of `TIER_CONFIG.baseCents`, so the "3-year price lock" no longer drifts.
+- **Demo page view counter** — direct hot-row Postgres `UPDATE` on every page load (`src/app/(public)/demo/[slug]/page.tsx`); now fire-and-forget (`.catch()`, non-blocking) with a `TODO` to debounce via Redis `INCR`. Fine at low traffic, still a bottleneck at scale. *(Softened, not fundamentally resolved.)*
+- ✅ **`ADMIN_API_KEY` confusion** — *FIXED (#154):* the stale var/comment was removed from `.env.example`; `/api/admin/*` continues to use `requireRole(request, 'admin')`.
 
 ---
 
@@ -104,55 +108,55 @@ Most are **ops/config (set in Vercel + Railway)**, not code:
 
 ---
 
-## 🔧 In-flight work (3 open PRs — finish these)
+## ✅ In-flight work (3 PRs — all merged)
 
-All three fix the same class of bug: **multi-location channel enrollment keyed by `business_id` instead of `account_id`**, causing misfired Twilio charges and stuck "active" enrollments on multi-location accounts.
+All three fixed the same class of bug: **multi-location channel enrollment keyed by `business_id` instead of `account_id`**, causing misfired Twilio charges and stuck "active" enrollments on multi-location accounts. **All three have since merged to `main`.**
 
-| PR | Title | CI |
+| PR | Title | Status |
 |---|---|---|
-| **#135** | account-scope SMS admin enrollment lock + cross-channel precheck | **was failing, last run in progress — needs attention** |
-| #133 | account-scope dispatcher enrollment failure writes | green |
-| #132 | surface account-scoped org-default channel rows on business detail | green |
+| **#135** | account-scope SMS admin enrollment lock + cross-channel precheck | ✅ merged |
+| #133 | account-scope dispatcher enrollment failure writes | ✅ merged |
+| #132 | surface account-scoped org-default channel rows on business detail | ✅ merged |
 
-Worktrees under `.claude/worktrees/` back these three (all clean) + a `tracker-concurrency-shim-removal` refactor (spec only, not started).
+Worktrees under `.claude/worktrees/` backed these three (all clean) + a `tracker-concurrency-shim-removal` refactor (now also done — see "Documented open / follow-up work").
 
 ---
 
 ## 🧪 Test-coverage gaps worth closing
 
 **P0:**
-- **No test for `OutboxPoller`** (`worker/background/pollers/OutboxPoller.ts`) — drives the *entire* outbox dispatch/watchdog/dead-letter path. A regression silently halts all generation + publishing. Add: watchdog reset, dispatch, attempt-guard, dead-letter.
-- **Resend webhook signature acceptance path untested** — tests bypass via `MOCK_EXTERNAL_APIS=true`; only the rejection path is covered (`worker/ingress/resend.ts:24-66`). Add real svix HMAC accept + stale-timestamp reject.
+- ✅ **`OutboxPoller` test added (#153)** — `worker/background/pollers/__tests__/OutboxPoller.test.ts` covers watchdog reset, dispatch, attempt-guard, and dead-letter (the entire outbox dispatch/watchdog/dead-letter path).
+- ✅ **Resend webhook signature accept path covered (#155)** — `worker/ingress/__tests__/resend-webhook-signature.test.ts` exercises a real svix HMAC accept plus stale-timestamp reject (was: only the rejection path covered).
 
 **P1:**
-- **`hasOpenFlag` (`src/lib/moderation/held-draft.ts`)** has no direct unit test — a typo in its `status='open'` predicate would silently release held drafts.
-- **`past_due`/`pending_payment` subscription guard** tested in the pure unit but not exercised in worker integration tests.
+- **`hasOpenFlag` (`src/lib/moderation/held-draft.ts`)** has no direct unit test — a typo in its `status='open'` predicate would silently release held drafts. *(Still outstanding — only covered indirectly via integration tests.)*
+- 🟡 **`past_due`/`pending_payment` subscription guard** tested in the pure unit but not exercised in worker integration tests. *(Partial: `pending_payment` is now exercised in `worker/jobs/notification/__tests__/NotificationWorker.test.ts`; the `past_due` worker-path is still uncovered.)*
 
 **P2:**
-- Permanently-skipped e2e: `e2e/forgot-password.spec.ts` (4), `e2e/reset-password.spec.ts` (3), `e2e/signup-google.spec.ts` (1) — all `test.skip(true, ...)` (harness not wired).
-- `session-mode.ts` / `token-mode.ts` only tested indirectly via `service.test.ts`.
-- Tenant-isolation integration test self-skips without `TEST_DATABASE_POOL_URL` (see P2 CI gap above).
+- Permanently-skipped e2e: `e2e/forgot-password.spec.ts` (4), `e2e/reset-password.spec.ts` (3), `e2e/signup-google.spec.ts` (1) — all `test.skip(true, ...)` (harness not wired). *(Still skipped.)*
+- `session-mode.ts` / `token-mode.ts` only tested indirectly via `service.test.ts`. *(Still no direct test.)*
+- Tenant-isolation integration test self-skips without `TEST_DATABASE_POOL_URL` (see P2 CI gap above). *(Still dark in CI.)*
 
 ---
 
 ## 📋 Incomplete-code inventory (lower-stakes)
 
-- **Pricing page** — Basic/Standard/Premium cards hardcoded `'Coming soon'` + disabled; only Founders claimable (`src/app/(public)/pricing/PricingContent.tsx:59,80,102`). Intentional waitlist mode; flip when those tiers open.
-- **SMS owner self-enrollment** — admin widget exists; owner-facing widget hardcoded "coming soon" regardless of `CHANNELS_SMS_ENABLED` (`ChannelsClient.tsx:72-76`).
-- **Admin Zernio panel** — no force-drain/dismiss buttons for stuck reconnect-queue responses (`ZernioConnectionPanel.tsx:236`).
-- **Signup wizard-complete signal** is a timestamp proxy that can false-positive (`src/app/api/auth/signup-status/route.ts:139`); planned `business_profile_completed_at` column.
+- **Pricing page** — Basic/Standard/Premium cards hardcoded `'Coming soon'` + disabled; only Founders claimable (`src/app/(public)/pricing/PricingContent.tsx`). Intentional waitlist mode; flip when those tiers open. *(Unchanged — by design.)*
+- **SMS owner self-enrollment** — admin widget exists; owner-facing widget hardcoded "coming soon" regardless of `CHANNELS_SMS_ENABLED` (`ChannelsClient.tsx`). *(Unchanged — intentional post-launch; honest "coming soon" row.)*
+- **Admin Zernio panel** — no force-drain/dismiss buttons for stuck reconnect-queue responses (`ZernioConnectionPanel.tsx`). *(Still outstanding — TODO present.)*
+- **Signup wizard-complete signal** is a timestamp proxy that can false-positive (`src/app/api/auth/signup-status/route.ts`); planned `business_profile_completed_at` column. *(Still outstanding — no migration/column yet.)*
 - 4 `any` usages (all low-risk UI/Google Maps typing); 8 `eslint-disable` (all `exhaustive-deps`/`no-img-element`). No `debugger`, no `throw "not implemented"` in prod paths.
 
 ---
 
 ## 📌 Documented open / follow-up work (from project docs)
 
-- **Modularization (Tier 1):** `worker/jobs/publisher/edit-publish.ts` (910 LOC), `StripeLocationsReconcilePoller.ts` (617 LOC). (`EditReplyDrawer` + `AddLocationWizard` already done.)
-- **Concurrency-guard shim cleanup** — migrate consumers off `tracker.ts` re-export to `./concurrency-guard` (spec written, not started).
-- **Channel-scoping follow-ups** — covered by PRs #132/#133/#135 above; plus migrate dispatcher failure branches and admin per-business channel page to account-scope.
-- **Telegram/SMS owner routes** — re-throw non-`AuthError` instead of collapsing to 401.
-- **CSV bulk-import audit writes** — migrate to `writeAccountAuditLog`.
-- **Worker grace-period clock** — switch to new `past_due_at` column.
+- ✅ **Modularization (Tier 1):** *DONE* — `worker/jobs/publisher/edit-publish.ts` is now **378 LOC** (was 910; split into `edit-publish-tx.ts` + `edit-publish-errors.ts`) and `StripeLocationsReconcilePoller.ts` is now **185 LOC** (was 617). (`EditReplyDrawer` + `AddLocationWizard` already done.)
+- ✅ **Concurrency-guard shim cleanup** — *DONE* — consumers now import directly from `./concurrency-guard`; `tracker.ts` is no longer a re-export shim.
+- ✅ **Channel-scoping follow-ups** — *DONE* — PRs #132/#133/#135 merged (dispatcher failure branches + admin per-business channel page now account-scoped).
+- ✅ **Telegram/SMS owner routes** — *DONE* — non-`AuthError` exceptions now re-throw (surface as 5xx) instead of collapsing to 401.
+- ✅ **CSV bulk-import audit writes** — *DONE* — now writes an audit row via `writeCsvImportAuditLog` (`src/lib/admin/csv-import.ts`).
+- ✅ **Worker grace-period clock** — *DONE* — migration 043 added `accounts.past_due_at`; `subscription-guard.ts` now reads `pastDueAt` for the recovery-state computation.
 - **Production PostHog dashboards** — not yet created.
 - **GBP API application** — pending; gates the full `EDIT_REPLIES_ENABLED` edit-existing-replies path.
 
@@ -160,9 +164,9 @@ Worktrees under `.claude/worktrees/` back these three (all clean) + a `tracker-c
 
 ## Suggested order
 
-1. **Finish PR #135** (get all 3 channel-scoping PRs merged) — active failing CI.
-2. **P0 ops/config block** (secrets rotation, prod URLs, Stripe live, the two hidden alert/email vars) + the 3 external drills from `docs/launch-checklist.md`.
-3. **Wire Sentry DSN + `TEST_DATABASE_POOL_URL` in CI** — restores error tracking and the RLS gate.
-4. **Close `OutboxPoller` + Resend-signature test gaps.**
+1. ✅ **Finish PR #135** (get all 3 channel-scoping PRs merged) — *DONE: #132/#133/#135 all merged.*
+2. **P0 ops/config block** (secrets rotation, prod URLs, Stripe live, the two hidden alert/email vars) + the 3 external drills from `docs/launch-checklist.md`. *(Env vars now documented + boot-hardened in code (#156); the remaining work is setting real prod values + drills.)*
+3. **Wire Sentry DSN + `TEST_DATABASE_POOL_URL` in CI** — restores error tracking and the RLS gate. *(Still outstanding.)*
+4. ✅ **Close `OutboxPoller` + Resend-signature test gaps.** *DONE (#153, #155).*
 5. **Flip `SELF_SERVE_SIGNUP_ENABLED` + `OPENAI_MODERATION_ENABLED`** once prerequisites met.
-6. **P2 cleanups** (IaC, rollback runbook, logging hygiene, founders price column).
+6. ✅ **P2 cleanups** (IaC, rollback runbook, logging hygiene, founders price column) — *DONE (#154, #152, #157).*
