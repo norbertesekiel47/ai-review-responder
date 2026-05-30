@@ -64,18 +64,6 @@ export function BookADemoContent({ selfServeEnabled = false }: { selfServeEnable
                 ))}
               </ul>
 
-              {/* Testimonial */}
-              <motion.div
-                className="bg-[#F0EEEA]/60 rounded-2xl p-6 border border-[#97B3AE]/10"
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.6, delay: 0.7 }}
-              >
-                <p className="text-[#2a2a2a] italic mb-3 leading-relaxed">
-                  &ldquo;RepWorth responds to our reviews faster than we ever could. Our response rate went from 12% to 100% in the first week.&rdquo;
-                </p>
-                <p className="text-sm text-[#97B3AE]">- Local restaurant owner (placeholder)</p>
-              </motion.div>
             </motion.div>
 
             {/* Right: form */}
