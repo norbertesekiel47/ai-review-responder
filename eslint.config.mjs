@@ -9,7 +9,13 @@ import nextCoreWebVitals from 'eslint-config-next/core-web-vitals';
  */
 const config = [
   {
-    ignores: ['.next/**', 'out/**', 'build/**', 'coverage/**', 'next-env.d.ts'],
+    // `**/*.mjs` is excluded: eslint-config-next's globals handling calls
+    // `scopeManager.addGlobals`, which ESLint 10 removed, so it hard-crashes on
+    // ANY `.mjs` source (verified — even a one-line probe crashes). Our only
+    // such file under src/ is the config helper src/lib/security/csp.mjs, which
+    // stays covered by tsc (allowJs) + its vitest unit test. Revisit when
+    // eslint-config-next ships ESLint 10 support.
+    ignores: ['.next/**', 'out/**', 'build/**', 'coverage/**', 'next-env.d.ts', '**/*.mjs'],
   },
   ...nextCoreWebVitals,
   {
