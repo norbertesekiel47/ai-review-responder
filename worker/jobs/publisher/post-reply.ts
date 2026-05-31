@@ -14,6 +14,7 @@ import {
   verify409AndDispose,
   ZernioReplyVerificationIndeterminateError,
 } from './publisher-error-handlers';
+import { verifyOwnReplyAttached } from './verify-posted';
 import type { ZernioConnectionRow } from './types';
 
 export async function postReplyAndHandleTerminalOutcomes(input: {
@@ -47,7 +48,7 @@ export async function postReplyAndHandleTerminalOutcomes(input: {
       zernioReviewId,
       { comment: approvedText },
     );
-    return 'posted';
+    // Fall through to post-verification below — do NOT return 'posted' yet.
   } catch (err) {
     if (err instanceof ZernioReplyAlreadyExistsError) {
       const result = await verify409AndDispose({
@@ -178,4 +179,22 @@ export async function postReplyAndHandleTerminalOutcomes(input: {
 
     throw err;
   }
+
+  // postReply returned 2xx. Confirm our reply is actually attached on Zernio
+  // before reporting 'posted'. A stale/phantom review id can yield a 2xx while
+  // the reply never reaches Google (staging 2026-05-31 false-positive). Throws
+  // when unconfirmed: ZernioReplyVerificationIndeterminateError → failed +
+  // review_exception + admin alert at retry exhaustion; PublisherTransientWith-
+  // Context → BullMQ retry, whose next attempt 409s into verify409AndDispose.
+  await verifyOwnReplyAttached({
+    responseId,
+    businessId,
+    reviewId,
+    zernioReviewId,
+    approvedText,
+    accountId: zernioConnection.zernio_account_id,
+    locationId: zernioConnection.zernio_location_id,
+    logger,
+  });
+  return 'posted';
 }
