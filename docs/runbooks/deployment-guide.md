@@ -437,6 +437,11 @@ MOCK_EXTERNAL_APIS=false
 - [ ] **Health check path:** `/api/health` (Settings → Networking → Health Check). Railway will probe this; 200 = ready.
 - [ ] **Port:** Railway auto-injects `PORT`; the Fastify server reads it and binds `0.0.0.0:$PORT`. No action needed.
 - [ ] Don't deploy yet — set env vars first.
+> **Builder:** `railway.toml` pins **RAILPACK** (not Nixpacks). Nixpacks 1.41 installs
+> `corepack@0.24.1`, which is incompatible with Node 24's vm API and crashes pnpm at
+> `pnpm install` (`ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING`). RAILPACK installs Node 24 +
+> pnpm 11 via mise. The worker's `next build` is overridden to a no-op `buildCommand` —
+> tsx runs `worker/index.ts` at runtime, so no build artifact is needed.
 
 ### 5.2 Railway env vars
 
@@ -492,6 +497,15 @@ ZERNIO_WEBHOOK_SECRET=<the 64-hex secret from §1.5>
 # ZERNIO_PROFILE_ID_PREFIX=repworth-prod-
 # ZERNIO_INGEST_MAX_PAGES=4
 ```
+
+**Reviews (SerpAPI) — required; the worker imports it eagerly at boot:**
+```
+SERPAPI_API_KEY=...
+```
+> `src/lib/demos/fetch-reviews.ts` throws at **module load** when `MOCK_EXTERNAL_APIS=false`
+> and this is unset — a hard boot failure, not a feature gate. The worker pulls it in via the
+> onboarding-demo path; it's also used for Place-ID resolution, prefill, and `RankingTrackingWorker`.
+> (See `.claude/reference/env-vars.md` → "Reviews (SerpAPI)".)
 
 **App URLs:**
 ```
@@ -1133,12 +1147,32 @@ launch — **staging first** (Part II §II.2), then **production** (§II.4).
 6. Deploy; confirm `[startup-assert] … ✓` and `/api/health` 200.
 
 ## Phase 2 — Deploy staging worker (Railway)
-- [ ] `[ME]` Create Railway `staging` environment
-- [ ] `[YOU/ME]` Add Railway **Redis** (queue) to staging env; disable its TCP Proxy
-- [ ] `[ME]` Create worker service from the GitHub repo, deploy branch = `staging`
-- [ ] `[ME]` Set staging worker env vars (+ `REDIS_QUEUE_URL=…?family=0`)
-- [ ] `[ME]` Generate worker public domain (`*.up.railway.app`) → staging `WORKER_PUBLIC_URL`
-- [ ] `[ME]` Deploy; verify `[startup-assert] … ✓` + `/api/health` 200
+- [x] `[ME]` Create Railway `staging` environment
+- [x] `[ME]` Add Railway **Redis** (queue) to staging env; disable its TCP Proxy
+- [x] `[ME]` Create worker service from the GitHub repo, deploy branch = `staging`
+- [x] `[ME]` Set staging worker env vars (+ `REDIS_QUEUE_URL=…?family=0`)
+- [x] `[ME]` Generate worker public domain (`*.up.railway.app`) → staging `WORKER_PUBLIC_URL`
+- [x] `[ME]` Deploy; verify boot + `/api/health` 200
+
+### Phase 2 — completed: record, learnings & carry-forward (2026-05-31)
+
+**What was provisioned**
+- **Railway project `repworth`** (renamed from the auto-name `soothing-luck`) + a **`staging` environment**.
+- **Redis queue** — Railway managed Redis, service named **`redis`** (lowercase, so the `${{redis.…}}` reference resolves), **TCP proxy deleted** (private-net only — closes the public-egress trap). Wired `REDIS_QUEUE_URL=redis://default:${{redis.REDISPASSWORD}}@${{redis.RAILWAY_PRIVATE_DOMAIN}}:6379/1?family=0` on the worker.
+- **Worker service `repworth-worker`** — GitHub source `RepWorth/ai-review-responder`, deploy branch `staging`. Generated domain `https://repworth-worker-staging.up.railway.app` → `WORKER_PUBLIC_URL`.
+- **38 env vars** mapped from `.env.staging.local` (`STAGING_*` → `X`) + flags (`NODE_ENV=production`, `ZERNIO_PUBLISHING_ENABLED=true`, `SELF_SERVE_SIGNUP_ENABLED=true`, channels off, `MOCK_EXTERNAL_APIS=false`). `STRIPE_WEBHOOK_SECRET` is a **placeholder** until Phase 4; `RESEND_WEBHOOK_SECRET` deferred to Phase 4 (neither is boot-required).
+- **Verified:** deploy `SUCCESS`, `GET /api/health` → 200, all pollers started, Postgres + Redis connected (no ioredis errors in boot logs).
+
+**Learnings / gotchas (these also bite prod in Phase 6)**
+- **Builder must be RAILPACK, not NIXPACKS.** Nixpacks 1.41 hardcodes `npm i -g corepack@0.24.1`, incompatible with Node 24's vm API → `ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING` at `pnpm install`. RAILPACK installs Node 24 + pnpm 11 via mise. Pinned in `railway.toml` with a no-op `buildCommand` to skip the worker's unneeded `next build`.
+- **`SERPAPI_API_KEY` is a hard boot requirement** (was missing from §5.2 — now added). `src/lib/demos/fetch-reviews.ts` throws at **module load** when `MOCK_EXTERNAL_APIS=false`; the worker imports it eagerly via the onboarding-demo path, so a missing key crashes boot even with demo/ranking flags off. *(Provisioned in `.env.staging.local` as `STAGING_SERP_API_KEY` → mapped to `SERPAPI_API_KEY`; rename the file key to `STAGING_SERPAPI_API_KEY` for `set_staging_vars` mapper consistency.)*
+- **Private GitHub repo connection is dashboard-only.** CLI `railway add --repo` and the `githubRepos` API both return *Unauthorized* for a private org repo — the GitHub-App OAuth must be done in the Railway dashboard (Settings → Source). Everything else (`[ME]`) is CLI/API.
+- **CI does not run on `staging` pushes** (workflow = `pull_request` + push to `main` only). Railway's "Wait for CI" proceeds when no check suite is pending, so it does **not** hang; direct staging commits are not CI-gated — rely on the PR's CI before promoting.
+- **Set `WORKER_PUBLIC_URL` before the verifying deploy** (the Zernio boot assert needs it); generate the `*.up.railway.app` domain pre-deploy so the first build boots clean.
+
+**Carry-forward to Phase 3 (Vercel staging UI)**
+- Point Vercel staging's `WORKER_PUBLIC_URL` at `https://repworth-worker-staging.up.railway.app`.
+- Worker `STRIPE_WEBHOOK_SECRET` / `RESEND_WEBHOOK_SECRET` get real values in **Phase 4** (webhook wiring).
 
 ## Phase 3 — Deploy staging UI (Vercel)
 - [ ] `[YOU/ME]` Create Vercel **Custom Environment** `staging`, deploy branch = `staging`
