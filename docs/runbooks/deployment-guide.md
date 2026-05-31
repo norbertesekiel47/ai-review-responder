@@ -1183,10 +1183,31 @@ launch — **staging first** (Part II §II.2), then **production** (§II.4).
 **Then (Phase 4):** wire the staging webhooks — Stripe **test** / Resend / Zernio **sandbox** → the worker `/ingress/*` endpoints; that's where the real `STRIPE_WEBHOOK_SECRET` + `RESEND_WEBHOOK_SECRET` come from (replacing the Phase 2 placeholder/unset values).
 
 ## Phase 3 — Deploy staging UI (Vercel)
-- [ ] `[YOU/ME]` Create Vercel **Custom Environment** `staging`, deploy branch = `staging`
-- [ ] `[ME]` Set staging Vercel vars (app URL, worker URL, staging Supabase, Stripe test, `REDIS_CACHE_URL`, secrets, flags)
-- [ ] `[YOU]` Attach `staging.repworth.net` (add the CNAME from Phase 1)
-- [ ] Smoke: `/signup` + `/admin/login` render
+- [x] `[ME]` Create Vercel **Custom Environment** `staging`, deploy branch = `staging`
+- [x] `[ME]` Set staging Vercel vars (app URL, worker URL, staging Supabase, Stripe test, `REDIS_CACHE_URL`, secrets, flags)
+- [x] `[ME]` Attach `staging.repworth.net` (CNAME from Phase 1 — verified)
+- [x] Smoke: `/signup` + `/admin/login` build-confirmed + serving (team-SSO gate; visual render verified in-browser)
+
+### Phase 3 — completed: record, learnings & carry-forward (2026-05-31)
+
+**What was provisioned**
+- **Vercel `staging` Custom Environment** in project `rep-worth` (id `env_Xdvi79MDL9zMt5LmTMRLFSBBeKGT`), type `preview`, **branch-tracking `equals "staging"`**. Pro allows **1** custom env/project — now used.
+- **28 env vars scoped to the `staging` custom env** (not Production/Preview): mapped `STAGING_X → X` from `.env.staging.local` + literals (`NEXT_PUBLIC_APP_URL=https://staging.repworth.net`, `WORKER_PUBLIC_URL=https://repworth-worker-staging.up.railway.app`, `SELF_SERVE_SIGNUP_ENABLED=true`, `ZERNIO_PUBLISHING_ENABLED=true`, `MOCK_EXTERNAL_APIS=false`). Includes `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` and `SERPAPI_API_KEY` (from `STAGING_SERP_API_KEY`).
+- **`staging.repworth.net`** attached to the `staging` branch, **verified** (Phase 1 CNAME). Git-sourced deploy of `staging`@`464efbba` → `READY`; `✓ Compiled successfully`, `/signup` + `/admin/login` prerendered.
+
+**Where the values live**
+- Vercel vars are scoped to the **`staging` Custom Environment** — read with `vercel env pull --environment=staging`. Production's vars are a separate scope and were **not** touched. Source secrets stay in `.env.staging.local` (`STAGING_*`).
+
+**Learnings / gotchas (also apply to prod in Phase 6)**
+- **The Vercel CLI can't create a Custom Environment** (`vercel target` only lists) and **`vercel env add` via stdin stores EMPTY values in v54.6.1**. Use the REST API: create env → `POST /v9/projects/{id}/custom-environments` with `branchMatcher:{type:"equals",pattern:"staging"}`; set vars → `POST /v9/projects/{id}/env?upsert=true` with `target:[]` + `customEnvironmentIds:[envId]` (values in the JSON body, never argv).
+- **Trigger a custom-env deploy via API** (git-sourced): `POST /v13/deployments` with `target:"staging"` + `gitSource:{type:"github",repoId,ref:"staging"}`. (The env was created after the last `staging` push, so no auto-deploy had fired.)
+- **Staging is behind Vercel team-SSO.** `ssoProtection:"all_except_custom_domains"` exempts only the **production** domain, so `staging.repworth.net` returns the SSO gate (401) to anonymous requests — correct for a private staging env. Webhooks hit the **Railway worker** (unaffected); the Zernio OAuth callback is a browser redirect carrying the tester's Vercel session. For automated smoke, enable Protection-Bypass-for-Automation.
+
+**How to start Phase 4 (wire staging webhooks → worker)**
+1. **Stripe (TEST)** → add endpoint `https://repworth-worker-staging.up.railway.app/ingress/stripe` → copy the signing secret → set worker `STRIPE_WEBHOOK_SECRET` (replaces the Phase 2 placeholder).
+2. **Resend (staging)** → add endpoint `https://repworth-worker-staging.up.railway.app/ingress/resend` → the Svix `whsec_…` → set worker `RESEND_WEBHOOK_SECRET`.
+3. **Zernio (sandbox)** → add endpoint `https://repworth-worker-staging.up.railway.app/ingress/zernio`.
+4. Redeploy the **worker** (Railway) so the new webhook secrets take effect, then send a test event from each provider and confirm `inbound_events` rows.
 
 ## Phase 4 — Wire staging webhooks → staging worker
 - [ ] `[YOU]` Stripe **test** → `<stagingWorker>/ingress/stripe` → secret to worker `STRIPE_WEBHOOK_SECRET`
