@@ -298,6 +298,10 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
       comment: 'Thank you for your kind review!',
       updateTime: '2026-04-27T00:00:00Z',
     });
+    // Post-verify: our reply is actually attached on Zernio (matches approved_text).
+    mockListAllReviews.mockResolvedValueOnce([
+      makeZernioReview('zernio-rev-id-1', 'Thank you for your kind review!'),
+    ]);
 
     await handlePublishResponse(makeJob());
 
@@ -733,6 +737,9 @@ describe('ResponsePublisherWorker — edit-publish dispatch (Task 6)', () => {
       comment: 'Thank you for your kind review!',
       updateTime: '2026-04-27T00:00:00Z',
     });
+    mockListAllReviews.mockResolvedValueOnce([
+      makeZernioReview('zernio-rev-id-1', 'Thank you for your kind review!'),
+    ]);
 
     await handlePublishResponse(makeJob());
 
@@ -756,6 +763,9 @@ describe('ResponsePublisherWorker — edit-publish dispatch (Task 6)', () => {
       comment: 'Thank you for your kind review!',
       updateTime: '2026-04-27T00:00:00Z',
     });
+    mockListAllReviews.mockResolvedValueOnce([
+      makeZernioReview('zernio-rev-id-1', 'Thank you for your kind review!'),
+    ]);
 
     await handlePublishResponse(makeJob());
 
@@ -814,6 +824,9 @@ describe('ResponsePublisherWorker — edit-publish dispatch (Task 6)', () => {
       comment: 'Thank you for your kind review!',
       updateTime: '2026-04-27T00:00:00Z',
     });
+    mockListAllReviews.mockResolvedValueOnce([
+      makeZernioReview('zernio-rev-id-1', 'Thank you for your kind review!'),
+    ]);
 
     await handlePublishResponse(makeJob());
 

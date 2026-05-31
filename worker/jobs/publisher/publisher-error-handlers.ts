@@ -83,6 +83,7 @@ export class ZernioReplyVerificationIndeterminateError extends Error {
     reason:
       | 'review_not_found_after_pagination'
       | 'review_found_but_reply_null'
+      | 'reply_text_mismatch'
       | 'verifier_unknown_error';
     pages_walked?: number;
     reviews_seen?: number;
