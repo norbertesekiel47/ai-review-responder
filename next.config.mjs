@@ -1,4 +1,5 @@
 import { withSentryConfig } from '@sentry/nextjs';
+import { buildContentSecurityPolicy } from './src/lib/security/csp.mjs';
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -23,9 +24,7 @@ const nextConfig = {
           },
           {
             key: 'Content-Security-Policy',
-            value: process.env.NODE_ENV === 'production'
-              ? "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://*.supabase.co https://*.sentry.io https://o*.ingest.sentry.io; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
-              : '',
+            value: buildContentSecurityPolicy(process.env.NODE_ENV),
           },
         ].filter((h) => h.value !== ''),
       },
