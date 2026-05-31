@@ -20,7 +20,11 @@ describe('buildContentSecurityPolicy', () => {
       expect(directive('script-src')).toContain('https://maps.googleapis.com');
     });
     it('allows Google Maps Places API fetches via connect-src', () => {
+      // The PlaceAutocompleteElement RPCs (AutocompletePlaces, fetchFields) go
+      // to the NEW Places API host, not maps.googleapis.com — caught on staging
+      // 2026-05-31 as a blocked places.googleapis.com request.
       expect(directive('connect-src')).toContain('https://maps.googleapis.com');
+      expect(directive('connect-src')).toContain('https://places.googleapis.com');
     });
     it('allows the fonts the Places web component pulls', () => {
       expect(directive('font-src')).toContain('https://fonts.gstatic.com');
@@ -32,7 +36,10 @@ describe('buildContentSecurityPolicy', () => {
     it('keeps the Supabase + Sentry connect-src hosts', () => {
       expect(directive('connect-src')).toContain('https://*.supabase.co');
       expect(directive('connect-src')).toContain('https://*.sentry.io');
-      expect(directive('connect-src')).toContain('https://o*.ingest.sentry.io');
+    });
+    it('drops the invalid partial-wildcard Sentry source (browser ignored it)', () => {
+      // 'o*.ingest.sentry.io' is an illegal CSP source; '*.sentry.io' covers it.
+      expect(csp).not.toContain('o*.ingest.sentry.io');
     });
     it('preserves the lockdown directives', () => {
       expect(directive('default-src')).toBe("default-src 'self'");
