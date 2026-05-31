@@ -1163,6 +1163,10 @@ launch — **staging first** (Part II §II.2), then **production** (§II.4).
 - **38 env vars** mapped from `.env.staging.local` (`STAGING_*` → `X`) + flags (`NODE_ENV=production`, `ZERNIO_PUBLISHING_ENABLED=true`, `SELF_SERVE_SIGNUP_ENABLED=true`, channels off, `MOCK_EXTERNAL_APIS=false`). `STRIPE_WEBHOOK_SECRET` is a **placeholder** until Phase 4; `RESEND_WEBHOOK_SECRET` deferred to Phase 4 (neither is boot-required).
 - **Verified:** deploy `SUCCESS`, `GET /api/health` → 200, all pollers started, Postgres + Redis connected (no ioredis errors in boot logs).
 
+**Where the values live**
+- Worker env vars are set **directly on the Railway `repworth` / `staging` service `repworth-worker`** (38 vars). The source secrets stay in **`.env.staging.local`** (gitignored, `STAGING_*`-namespaced) — map `STAGING_X` → `X` to re-apply. `REDIS_QUEUE_URL` is a Railway **reference** (`${{redis.…}}`), not a literal; `WORKER_PUBLIC_URL=https://repworth-worker-staging.up.railway.app`.
+- `SERPAPI_API_KEY` lives in `.env.staging.local` as `STAGING_SERP_API_KEY` (rename → `STAGING_SERPAPI_API_KEY` for `set_staging_vars` mapper consistency). `STRIPE_WEBHOOK_SECRET` is a placeholder and `RESEND_WEBHOOK_SECRET` is unset — both get real values in Phase 4.
+
 **Learnings / gotchas (these also bite prod in Phase 6)**
 - **Builder must be RAILPACK, not NIXPACKS.** Nixpacks 1.41 hardcodes `npm i -g corepack@0.24.1`, incompatible with Node 24's vm API → `ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING` at `pnpm install`. RAILPACK installs Node 24 + pnpm 11 via mise. Pinned in `railway.toml` with a no-op `buildCommand` to skip the worker's unneeded `next build`.
 - **`SERPAPI_API_KEY` is a hard boot requirement** (was missing from §5.2 — now added). `src/lib/demos/fetch-reviews.ts` throws at **module load** when `MOCK_EXTERNAL_APIS=false`; the worker imports it eagerly via the onboarding-demo path, so a missing key crashes boot even with demo/ranking flags off. *(Provisioned in `.env.staging.local` as `STAGING_SERP_API_KEY` → mapped to `SERPAPI_API_KEY`; rename the file key to `STAGING_SERPAPI_API_KEY` for `set_staging_vars` mapper consistency.)*
@@ -1170,9 +1174,13 @@ launch — **staging first** (Part II §II.2), then **production** (§II.4).
 - **CI does not run on `staging` pushes** (workflow = `pull_request` + push to `main` only). Railway's "Wait for CI" proceeds when no check suite is pending, so it does **not** hang; direct staging commits are not CI-gated — rely on the PR's CI before promoting.
 - **Set `WORKER_PUBLIC_URL` before the verifying deploy** (the Zernio boot assert needs it); generate the `*.up.railway.app` domain pre-deploy so the first build boots clean.
 
-**Carry-forward to Phase 3 (Vercel staging UI)**
-- Point Vercel staging's `WORKER_PUBLIC_URL` at `https://repworth-worker-staging.up.railway.app`.
-- Worker `STRIPE_WEBHOOK_SECRET` / `RESEND_WEBHOOK_SECRET` get real values in **Phase 4** (webhook wiring).
+**How to start Phase 3 (Vercel staging UI)**
+1. Create a Vercel **Custom Environment** `staging`, deploy branch = `staging`.
+2. Set staging Vercel env vars (map from `.env.staging.local`): `NEXT_PUBLIC_APP_URL=https://staging.repworth.net`, `WORKER_PUBLIC_URL=https://repworth-worker-staging.up.railway.app`, staging Supabase (`NEXT_PUBLIC_SUPABASE_URL` + anon key), Stripe **test** secret key + 7 price IDs, `REDIS_CACHE_URL` (Upstash cache — Vercel needs **no** `REDIS_QUEUE_URL`), the session/CSRF/impersonation secrets, and flags (`SELF_SERVE_SIGNUP_ENABLED=true`, channels off).
+3. Attach `staging.repworth.net` (add the CNAME from Phase 1).
+4. Smoke: `/signup` + `/admin/login` render (a 404 on `/signup` means the flag is off).
+
+**Then (Phase 4):** wire the staging webhooks — Stripe **test** / Resend / Zernio **sandbox** → the worker `/ingress/*` endpoints; that's where the real `STRIPE_WEBHOOK_SECRET` + `RESEND_WEBHOOK_SECRET` come from (replacing the Phase 2 placeholder/unset values).
 
 ## Phase 3 — Deploy staging UI (Vercel)
 - [ ] `[YOU/ME]` Create Vercel **Custom Environment** `staging`, deploy branch = `staging`
