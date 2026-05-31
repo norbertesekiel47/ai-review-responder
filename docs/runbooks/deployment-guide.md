@@ -1237,9 +1237,36 @@ launch — **staging first** (Part II §II.2), then **production** (§II.4).
 3. Edge cases (§9.7): duplicate webhook (idempotency), expired approval token → 410, subscription guard, cost circuit.
 
 ## Phase 5 — Prove staging end-to-end (the gate)
-- [ ] Worker + ingress sanity (health; webhook "send test" → `inbound_events` rows)
-- [ ] Full pipeline on a **throwaway test business**: signup → test-card pay → onboarding → connect Zernio sandbox → ingest → generate → approval email → approve → publish to a sandbox location
-- [ ] Edge cases (§9.7): duplicate webhook, expired token → 410, subscription guard, cost circuit
+- [x] Worker + ingress sanity (health; webhook "send test" → `inbound_events` rows)
+- [x] Full pipeline on a **throwaway test business**: signup → test-card pay → onboarding → connect Zernio sandbox → ingest → generate → approval email → approve → publish to a sandbox location
+- [x] Edge cases (§9.7): duplicate webhook, expired token → 410, subscription guard, cost circuit
+
+### Phase 5 — completed: record, learnings & carry-forward (2026-05-31)
+
+**What was proven**
+- **Full pipeline ran clean end-to-end on a throwaway test business**: `/signup` → 6-digit OTP → Stripe **test-card** (`4242…`) checkout → `checkout.session.completed` flipped `accounts.subscription_status='active'` (`subscription_activated_at` set) → onboarding (demo lane, `ONBOARDING_DEMO_ENABLED=true`) → Zernio **sandbox** connect (`zernio_connections` active, both IDs populated) → backfill ingest → `generate_response` (OpenAI) → approval email (Resend, real inbox) → owner Approve → `ResponsePublisherWorker`. Each hop verified in Postgres + Railway logs.
+- **§9.7 edge cases verified** (automated tests + live DB checks, no worker mutation): 106 automated tests green across all four mechanisms; subscription guard confirmed (`past_due`>7d/`cancelled`/`pending_payment`→skip publisher, generator-allowed for `pending_payment`, `active`→allow); expired-token→410 confirmed against a throwaway expired `approval_links` row (route's `expires_at <= NOW()` branch); duplicate-webhook idempotency via `claimInboundEvent` (`ON CONFLICT (external_event_key) DO NOTHING`); cost circuit via `withCostGuard` tests.
+
+**Two real bugs found on staging and fixed (PR'd to `main`)**
+1. **CSP blocked Google Maps Places.** The production CSP (`next.config.mjs`, now `src/lib/security/csp.mjs`) omitted the Maps hosts, so the onboarding `PlaceAutocompleteElement` couldn't load. Fixed in **two** passes — dev returns `''` so this only bites `NODE_ENV=production` (= staging/prod):
+   - **#200**: `maps.googleapis.com` on `script-src` + `connect-src`, fonts/`maps.gstatic.com` on `style-src`/`font-src`, `blob:` on `img-src`. Also extracted the CSP into `src/lib/security/csp.mjs` (unit-testable) and added `**/*.mjs` to the eslint ignore (eslint-config-next + ESLint 10 hard-crashes on any `.mjs`).
+   - **#203**: the `PlaceAutocompleteElement` makes its actual RPCs (`AutocompletePlaces`, `fetchFields`) to the **new Places API host `places.googleapis.com`**, not `maps.googleapis.com` — so it was still blocked after #200. Added `places.googleapis.com` to `connect-src` + dropped the invalid `o*.ingest.sentry.io` source (illegal partial-label wildcard the browser ignored; `*.sentry.io` covers ingest).
+2. **Publisher false-positive on stale review id (#201).** `postReply` can return **2xx for a stale/phantom Zernio review id** while the reply never reaches Google; the publisher trusted that 2xx and marked the response `posted` — a silent false-positive (caught here: `status=posted`, nothing on Google, review absent from the live feed, `ZernioRecentReviewPoller` looping "external reply detected … no active responses"). Fix: after `postReply`, **`verifyOwnReplyAttached`** re-fetches the review and confirms OUR reply text is attached before reporting `posted`; otherwise it throws → existing failed-hook lands `status=failed` + `review_exception` + admin alert (loud, not silent). Reuses the 409-verifier page-cache + `canonicalizeReplyText`.
+
+**Also fixed**: the Google Maps **API key referrer allowlist** needed `https://staging.repworth.net/*` added in Google Cloud Console (project `490954435940`, key `cc389070-…`) — a referrer block (`API_KEY_HTTP_REFERRER_BLOCKED`), not a CSP/code issue. **Prod (Phase 6) needs `https://repworth.net/*` on the same key.**
+
+**Learnings / gotchas (these also apply to prod in Phase 6/7)**
+- **CSP is `NODE_ENV=production`-only.** Dev returns `''`, so any CSP host gap is invisible locally and only surfaces on staging/prod. Maps needs `script-src`+`connect-src` for `maps.googleapis.com` AND `connect-src` for `places.googleapis.com` — the loader host and the RPC host are different.
+- **Google Maps key referrer allowlist is per-environment.** Add each origin (`localhost`, staging, then prod apex) in GCP Console; the loader host being CSP-allowed is necessary but not sufficient — the key itself referrer-blocks.
+- **`subscription_status` lives on BOTH `accounts` and `businesses`.** The publisher's subscription guard reads from the **account** (invariant #9). The §9.7 runbook SQL targeting `businesses` would test the wrong column — use `accounts` (+ `past_due_at` for the grace window).
+- **`/api/approve` is behind Vercel team-SSO (401) on staging**, and approval tokens are SHA-256-only (invariant #5). The expired-token→410 path can't be curl-tested externally; verify the route's `expires_at <= NOW()` predicate against a throwaway `approval_links` row instead (clean it up after).
+- **`inbound_events` dedup key is `external_event_key`** (UNIQUE), claimed via `ON CONFLICT DO NOTHING` + a 2-min reclaim window for crashed workers. No `provider_event_id`/`created_at` columns.
+- **`ONBOARDING_DEMO_ENABLED=true` changes onboarding** to the 2-step demo lane (`/onboarding/start` + `/onboarding/demo`). It was enabled on staging in Phase 5; the legacy 3-step flow (runbook §7A) is the `=false` path. Decide deliberately per environment.
+
+**Carry-forward to Phase 6 (prod)**
+- Apply all three Phase-5 fixes — they're on `main` (#200, #201, #203). Production gets them automatically when `main` deploys.
+- Add `https://repworth.net/*` to the Maps API key referrer allowlist **before** prod onboarding.
+- The live cost-circuit exercise (set `GLOBAL_DAILY_COST_LIMIT_CENTS` low, redeploy, trigger generation, confirm `cost_limit_exceeded`, reset) was deferred on staging (needs worker redeploys) — run it once against prod or staging if you want the live signal; the code path is test-covered.
 
 ## Phase 6 — Build production (clone staging, live creds)
 - [ ] `[YOU]` Prod Supabase (`udeyaqnvpojbwgoaxwdg`): check current head, apply any migrations through **054** (CONCURRENTLY ones individually)
