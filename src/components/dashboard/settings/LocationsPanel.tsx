@@ -1,10 +1,11 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Icon } from '@/components/dashboard/Icon';
 import type { LocationId } from '@/lib/shared/ids';
 import { getDisplayLabel } from '@/lib/locations/display-label';
+import { SettingsModal } from './SettingsModal';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -70,51 +71,43 @@ function ArchiveConfirmModal({
   loading: boolean;
 }) {
   return (
-    <div className="modal-overlay">
-      <button
-        type="button"
-        className="modal-backdrop"
-        aria-label="Cancel archive"
-        onClick={onCancel}
-      />
-      <div className="modal-content">
-        <div className="set-section-title" style={{ marginBottom: 8 }}>
-          Archive &ldquo;{locationName}&rdquo;?
-        </div>
-        <p style={{ fontSize: 13, color: '#6B7280', lineHeight: 1.5, marginBottom: 16 }}>
-          This location will be archived and its data will become read-only.
-          You can restore it later by contacting support.
-        </p>
-        {/* VAL-LOC-067: Show pending approval count with warning */}
-        {pendingApprovalCount > 0 && (
-          <div style={{
-            marginBottom: 16,
-            padding: '10px 12px',
-            borderRadius: 8,
-            background: '#FEF3C7',
-            border: '1px solid #F59E0B',
-            fontSize: 13,
-            color: '#92400E',
-            lineHeight: 1.5,
-          }}>
-            <strong>{pendingApprovalCount} pending approval{pendingApprovalCount !== 1 ? 's' : ''}</strong> will not be published after archiving.
-          </div>
-        )}
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          <button type="button" className="btn btn-secondary" onClick={onCancel} disabled={loading}>
-            Cancel
-          </button>
-          <button
-            type="button"
-            className="btn btn-danger"
-            onClick={onConfirm}
-            disabled={loading}
-          >
-            {loading ? 'Archiving…' : 'Archive'}
-          </button>
-        </div>
+    <SettingsModal closeLabel="Cancel archive" onClose={onCancel}>
+      <div className="set-section-title" style={{ marginBottom: 8 }}>
+        Archive &ldquo;{locationName}&rdquo;?
       </div>
-    </div>
+      <p style={{ fontSize: 13, color: '#6B7280', lineHeight: 1.5, marginBottom: 16 }}>
+        This location will be archived and its data will become read-only.
+        You can restore it later by contacting support.
+      </p>
+      {/* VAL-LOC-067: Show pending approval count with warning */}
+      {pendingApprovalCount > 0 && (
+        <div style={{
+          marginBottom: 16,
+          padding: '10px 12px',
+          borderRadius: 8,
+          background: '#FEF3C7',
+          border: '1px solid #F59E0B',
+          fontSize: 13,
+          color: '#92400E',
+          lineHeight: 1.5,
+        }}>
+          <strong>{pendingApprovalCount} pending approval{pendingApprovalCount !== 1 ? 's' : ''}</strong> will not be published after archiving.
+        </div>
+      )}
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+        <button type="button" className="btn btn-secondary" onClick={onCancel} disabled={loading}>
+          Cancel
+        </button>
+        <button
+          type="button"
+          className="btn btn-danger"
+          onClick={onConfirm}
+          disabled={loading}
+        >
+          {loading ? 'Archiving…' : 'Archive'}
+        </button>
+      </div>
+    </SettingsModal>
   );
 }
 
@@ -130,31 +123,23 @@ function PromoteFirstModal({
   onCancel: () => void;
 }) {
   return (
-    <div className="modal-overlay">
-      <button
-        type="button"
-        className="modal-backdrop"
-        aria-label="Close promote first dialog"
-        onClick={onCancel}
-      />
-      <div className="modal-content">
-        <div className="set-section-title" style={{ marginBottom: 8 }}>
-          Promote first
-        </div>
-        <p style={{ fontSize: 13, color: '#6B7280', lineHeight: 1.5, marginBottom: 16 }}>
-          &ldquo;{locationName}&rdquo; is your primary location. You must promote
-          another location to primary before archiving this one.
-        </p>
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          <button type="button" className="btn btn-secondary" onClick={onCancel}>
-            Cancel
-          </button>
-          <button type="button" className="btn btn-primary" onClick={onPromote}>
-            Go to Locations
-          </button>
-        </div>
+    <SettingsModal closeLabel="Close promote first dialog" onClose={onCancel}>
+      <div className="set-section-title" style={{ marginBottom: 8 }}>
+        Promote first
       </div>
-    </div>
+      <p style={{ fontSize: 13, color: '#6B7280', lineHeight: 1.5, marginBottom: 16 }}>
+        &ldquo;{locationName}&rdquo; is your primary location. You must promote
+        another location to primary before archiving this one.
+      </p>
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+        <button type="button" className="btn btn-secondary" onClick={onCancel}>
+          Cancel
+        </button>
+        <button type="button" className="btn btn-primary" onClick={onPromote}>
+          Go to Locations
+        </button>
+      </div>
+    </SettingsModal>
   );
 }
 
@@ -172,36 +157,28 @@ function PromotePrimaryConfirmModal({
   loading: boolean;
 }) {
   return (
-    <div className="modal-overlay">
-      <button
-        type="button"
-        className="modal-backdrop"
-        aria-label="Cancel primary location change"
-        onClick={onCancel}
-      />
-      <div className="modal-content">
-        <div className="set-section-title" style={{ marginBottom: 8 }}>
-          Make &quot;{locationName}&quot; primary?
-        </div>
-        <p style={{ fontSize: 13, color: '#6B7280', lineHeight: 1.5, marginBottom: 16 }}>
-          This changes the primary marker for the account. Existing reviews,
-          Google connections, and billing stay attached to their locations.
-        </p>
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          <button type="button" className="btn btn-secondary" onClick={onCancel} disabled={loading}>
-            Cancel
-          </button>
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={onConfirm}
-            disabled={loading}
-          >
-            {loading ? 'Promoting...' : 'Confirm primary'}
-          </button>
-        </div>
+    <SettingsModal closeLabel="Cancel primary location change" onClose={onCancel}>
+      <div className="set-section-title" style={{ marginBottom: 8 }}>
+        Make &quot;{locationName}&quot; primary?
       </div>
-    </div>
+      <p style={{ fontSize: 13, color: '#6B7280', lineHeight: 1.5, marginBottom: 16 }}>
+        This changes the primary marker for the account. Existing reviews,
+        Google connections, and billing stay attached to their locations.
+      </p>
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+        <button type="button" className="btn btn-secondary" onClick={onCancel} disabled={loading}>
+          Cancel
+        </button>
+        <button
+          type="button"
+          className="btn btn-primary"
+          onClick={onConfirm}
+          disabled={loading}
+        >
+          {loading ? 'Promoting...' : 'Confirm primary'}
+        </button>
+      </div>
+    </SettingsModal>
   );
 }
 
@@ -228,6 +205,9 @@ function LocationRow({
   const [editingLabel, setEditingLabel] = useState(false);
   const [newLabel, setNewLabel] = useState(displayName);
   const [savingLabel, setSavingLabel] = useState(false);
+  const focusLabelInput = useCallback((input: HTMLInputElement | null) => {
+    input?.focus();
+  }, []);
 
   async function handleArchive() {
     setArchiving(true);
@@ -341,6 +321,7 @@ function LocationRow({
           {editingLabel ? (
             <div className="loc-row-edit">
               <input
+                ref={focusLabelInput}
                 className="input"
                 value={newLabel}
                 onChange={(e) => setNewLabel(e.target.value)}

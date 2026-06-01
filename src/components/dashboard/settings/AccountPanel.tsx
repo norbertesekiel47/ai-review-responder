@@ -5,6 +5,7 @@ import { Icon } from '@/components/dashboard/Icon';
 import { useAccountData, type AccountSettingsData } from '@/hooks/useAccountData';
 import type { DashboardDataActive } from '@/lib/dashboard/types';
 import { SubscriptionTier, type SubscriptionTierValue, TIER_CONFIG } from '@/lib/accounts/tier-config';
+import { SettingsModal } from './SettingsModal';
 
 // ── TierChangeModal ───────────────────────────────────────────────────
 
@@ -40,14 +41,7 @@ function TierChangeModal({
   const isDowngrade = TIER_CONFIG[newTier].baseCents < TIER_CONFIG[currentTier].baseCents;
 
   return (
-    <div className="modal-overlay">
-      <button
-        type="button"
-        className="modal-backdrop"
-        aria-label="Cancel tier change"
-        onClick={onCancel}
-      />
-      <div className="modal-content">
+    <SettingsModal closeLabel="Cancel tier change" onClose={onCancel}>
         <div className="set-section-title" style={{ marginBottom: 8 }}>
           {isDowngrade ? 'Downgrade' : 'Upgrade'} to {newTier.charAt(0).toUpperCase() + newTier.slice(1)}?
         </div>
@@ -133,8 +127,7 @@ function TierChangeModal({
             {changing ? 'Changing…' : `Confirm ${isDowngrade ? 'downgrade' : 'upgrade'}`}
           </button>
         </div>
-      </div>
-    </div>
+    </SettingsModal>
   );
 }
 

@@ -97,7 +97,7 @@ Modify:
 - `src/components/dashboard/aggregate/AggregateIntelligenceBriefCard.tsx`
   - Raise period label text from 11px to 12px.
 - `src/components/dashboard/settings/AccountPanel.tsx`
-  - Replace clickable overlay div with a semantic backdrop button and associate locked identity labels/inputs.
+  - Use the shared settings modal shell and associate locked identity labels/inputs.
 - `src/components/dashboard/settings/BrandVoicePanel.tsx`
   - Associate the products/services textarea with its section heading.
 - `src/components/dashboard/settings/GeneralPanel.tsx`
@@ -105,11 +105,13 @@ Modify:
 - `src/components/dashboard/settings/ListEditor.tsx`
   - Give each row input and remove button a specific accessible name.
 - `src/components/dashboard/settings/LocationsPanel.tsx`
-  - Replace clickable overlay divs with semantic backdrop buttons, name the edit-label input, remove edit `autoFocus`, and raise archived badge text.
+  - Use the shared settings modal shell, name the edit-label input, preserve focus-on-open with a ref, and raise archived badge text.
 - `src/components/dashboard/settings/PerLocationOverridePanel.tsx`
   - Raise primary badge text from 10px to 12px.
 - `src/components/dashboard/settings/SettingsSkeleton.tsx`
   - Use native `<output>` for loading status.
+- `src/components/dashboard/settings/SettingsModal.tsx`
+  - Own the accessible modal backdrop/content scaffold once for settings modals.
 - `src/components/dashboard/settings/ToneChipPicker.tsx`
   - Name the custom tone textarea.
 - `src/app/(authenticated)/_styles/settings.css`
@@ -151,17 +153,9 @@ git commit -m "fix: label accessible form controls"
 - [ ] In `LocationsPanel.tsx` and `AccountPanel.tsx`, replace overlay-level `onClick` handlers with:
 
 ```tsx
-<div className="modal-overlay">
-  <button
-    type="button"
-    className="modal-backdrop"
-    aria-label="Cancel archive"
-    onClick={onCancel}
-  />
-  <div className="modal-content">
-    ...
-  </div>
-</div>
+<SettingsModal onClose={onCancel} closeLabel="Cancel archive">
+  ...
+</SettingsModal>
 ```
 
 - [ ] Add CSS:

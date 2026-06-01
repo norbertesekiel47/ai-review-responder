@@ -122,6 +122,26 @@ describe('LocationsPanel connection action', () => {
       `/dashboard/connect?locationId=${SECONDARY_LOCATION_ID}`,
     );
   });
+
+  it('focuses the display label field when edit mode opens', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <LocationsPanel
+        locations={[location({})]}
+        archivedLocations={[]}
+        activeCount={1}
+        accountId={ACCOUNT_ID}
+        onLocationChange={() => {}}
+      />,
+    );
+
+    await user.click(screen.getByTitle('Edit display label'));
+
+    await waitFor(() => {
+      expect(screen.getByRole('textbox', { name: /location display name/i })).toHaveFocus();
+    });
+  });
 });
 
 describe('LocationsPanel primary promotion', () => {
