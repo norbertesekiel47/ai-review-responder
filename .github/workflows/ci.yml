@@ -51,6 +51,8 @@ jobs:
         run: pnpm ci:tenant-scope
       - name: Run analytics events audit
         run: pnpm ci:analytics-events
+      - name: Run static policy audit
+        run: pnpm ci:static-policy
 
   typecheck:
     name: typecheck

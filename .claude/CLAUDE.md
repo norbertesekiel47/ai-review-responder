@@ -2,10 +2,9 @@
 
 ## What this project is
 
-Automated Google review response service for SMBs. Next.js 16 (Vercel) +
-Railway worker (Fastify + BullMQ) + Supabase/PostgreSQL + Upstash Redis.
-Reviews ingested via Zernio webhooks; responses require explicit owner
-approval before posting.
+Subscription SaaS that auto-drafts Google review responses for SMBs with an LLM, then posts them to Google only after explicit owner approval. Next.js 16 (Vercel, UI only) + Railway worker (Fastify + BullMQ, all LLM/external/long-running work) + Supabase/PostgreSQL + Redis(Upstash for Cache/Railway Redis for Queue).
+
+Pipeline: Zernio webhook ingest → AI draft → moderation → owner notified → owner approves via notification channel → posted to Google. Never auto-posts.
 
 ## Dev commands
 
@@ -20,14 +19,25 @@ approval before posting.
 - `pnpm ci:tenant-scope` — tenant-scope audit
 - `pnpm ci:rls-audit` — RLS audit
 - `pnpm ci:analytics-events` — analytics events audit
+- `pnpm ci:static-policy` — bans `crypto-js`; allowlists `NEXT_PUBLIC_*` (invariants #10, #13)
 - Set `MOCK_EXTERNAL_APIS=true` in `.env.local` to bypass all external APIs locally
 
 ## CI & repo
 
-- Repo: **`RepWorth/ai-review-responder`** (org, Team plan). `main` is protected — **land changes via PR**; direct pushes are rejected.
-- CI (`.github/workflows/ci.yml`) runs `lint`, `typecheck`, `test`, `build` on every PR + push to main. `MOCK_EXTERNAL_APIS=false` in CI (NOT true — `true` short-circuits Zernio transport and breaks real-path tests). Third-party actions pinned to commit SHAs.
-- Never validate CI from a git worktree nested inside the repo — module resolution leaks into parent `node_modules`/eslintrc and poisons lint+test. Push and read the runner, or clone clean.
-- In a nested worktree (`.claude/worktrees/<name>/`), Write/Edit resolve a **parent-absolute** path (e.g. `…/RepWorth/src/foo.ts`) against `main`'s working tree, not the worktree — silently editing the wrong checkout. Always include the `.claude/worktrees/<name>/` segment in absolute paths when editing inside a worktree.
+- Repo **`RepWorth/ai-review-responder`**; `main` is protected — **land changes via PR**, direct pushes rejected.
+- CI (`.github/workflows/ci.yml`): `lint` (also runs tenant-scope + analytics-events + static-policy audits), `typecheck`, `test`, `build` on every PR + push to `main`. `MOCK_EXTERNAL_APIS=false` in CI — `true` short-circuits Zernio transport and breaks real-path tests. Third-party actions pinned to commit SHAs.
+- **Worktrees are footguns here.** Validating CI from a nested worktree poisons lint/test (parent `node_modules`/eslintrc leakage) — push and read the runner instead. And Write/Edit given a parent-absolute path silently edits `main`'s checkout, not the worktree — always include the `.claude/worktrees/<name>/` segment in paths.
+
+## Environments & branches
+
+Trunk-based: `main` is the source of truth. Two long-lived branches — `main` (prod) and `staging` (integration anchor for the persistent staging env); "preview" is any open PR's auto-deploy, not a branch. Topology, URLs, concrete IDs: `docs/runbooks/deployment-guide.md`.
+
+- **Three lanes.** *Preview* — per-PR, Vercel UI only (no worker/queue/webhooks → frontend checks only). *Staging* — persistent full stack, test/sandbox creds + separate Supabase; **the only non-prod place the whole pipeline runs**. *Production* — `main`, live creds.
+- **Promotion = merge the PR into `main`.** `staging` is not a promotion gate — never "merge `staging` → `main`". Anything touching the worker, a webhook, a migration, or billing rides `staging` first, then lands on `main` via PR.
+- **After promotion, fast-forward `staging` onto `main`** (`git merge --ff-only main`) so it never drifts. Migrations run against **both** Supabase projects in lockstep, **staging first**; "applied to prod, not staging" is a bug.
+- **Auto-deploy is asymmetric.** Push to `staging` → Railway staging worker redeploys; the **Vercel staging Custom Env does NOT** (deploy it explicitly). Vercel previews auto-deploy per PR.
+- **CI gates PRs + push-to-`main`, NOT `staging` pushes** — rely on the PR's CI before promoting.
+- **Local `main` lags after GitHub squash-merges** — `git pull --ff-only` (then `pnpm install` if deps changed).
 
 ## Architecture invariants — NEVER violate these
 
@@ -37,9 +47,11 @@ approval before posting.
 
 3. **No auto-posting.** There is NO code path from response generation to Google posting without an explicit owner approval step. Make it architecturally impossible to bypass.
 
-4. **High-confidence unsafe drafts are held, not notified.** `ResponseGeneratorWorker` runs `moderateResponse` (`src/lib/moderation/*`) after generation; a `high`-severity flag writes a `flagged_responses` row (admin-only deny-all RLS) and skips `send_notification` outbox enqueue in the SAME transaction as response persistence. Owner notification re-fires only on admin `approved_for_owner_review` at `/admin/flagged`; dismiss/regenerate are terminal. Moderation metadata recorded on `api_costs`. Local regex rules (`src/lib/moderation/output-filter.ts`) always run regardless; the OpenAI Moderation layer is additionally gated by `OPENAI_MODERATION_ENABLED` and fails open. See `.claude/skills/approval-security.md`.
+   > 🚧 **Planned (not yet built):** an owner-configurable **auto-approval policy** will amend #3/#4/#11 and add invariant #14 — design + change-map in `docs/superpowers/specs/2026-05-31-auto-approval-design.md`. Until that feature lands, **#3 as written is authoritative**: no auto-posting path exists today, and none may be added outside that design (moderation stays an absolute veto; auto-approval skips only the owner step).
 
-5. **Approval tokens never stored raw.** Only SHA-256 hashes in `approval_links`. Raw tokens exist only in memory and in the sent email — never in Postgres, outbox payloads, or logs.
+4. **High-confidence unsafe drafts are held, not notified.** After generation `ResponseGeneratorWorker` runs `moderateResponse`; a `high`-severity flag writes a `flagged_responses` row (admin-only deny-all RLS) and skips the `send_notification` enqueue in the SAME transaction as response persistence. Re-notify only via admin `approved_for_owner_review` at `/admin/flagged`. Full flow (admin actions, `api_costs` metadata, `OPENAI_MODERATION_ENABLED` fail-open, local regex filter): the `approval-security` skill.
+
+5. **Approval tokens never stored raw.** Only SHA-256 hashes in `approval_links`. Raw tokens exist only in memory and in the approval link sent over the owner's notification channel — never in Postgres, outbox payloads, or logs.
 
 6. **Third-party ingress terminates on Railway.** Stripe, Resend, Twilio, Zernio webhooks hit `worker/ingress/*`. Do NOT proxy through Next.js except in local dev with an explicit comment.
 
@@ -47,15 +59,15 @@ approval before posting.
 
 8. **Auth scope is app-enforced.** `users.auth_id` maps to Supabase Auth identity. Browser code never receives `SUPABASE_SERVICE_KEY`. Every owner read/write scoped by `account_id` (billing parent) and, per-location, `business_id` (= one Google Business Profile location).
 
-9. **`businesses` row = location; `accounts` row = billing parent.** Don't re-introduce subscription columns on `businesses`. Two sub-rules: (a) billing snapshot reads STORED quota from `accounts` (`locations_included`, `locations_overage_price_cents` — point-in-time, grandfathered), not live `TIER_CONFIG` values; base price is the lone un-stored exception (`TIER_CONFIG.baseCents`); (b) multi-location settings use three distinct checks — `shouldUseMultiLocationSettings` (mode: count > 1), `shouldShowLocationsSettings` (visibility: flag only), `canAddLocationForAccount` (eligibility: flag + active + `multiLocAllowed`) — never collapse to one boolean.
+9. **`businesses` row = location; `accounts` row = billing parent.** Don't re-introduce subscription columns on `businesses`. Two sub-rules: (a) billing snapshot reads STORED quota + price from `accounts` (`locations_included`, `locations_overage_price_cents`, `base_price_cents` — point-in-time, grandfathered via migration 054), not live `TIER_CONFIG` values; (b) multi-location settings use three distinct checks — `shouldUseMultiLocationSettings` (mode: count > 1), `shouldShowLocationsSettings` (visibility: flag only), `canAddLocationForAccount` (eligibility: flag + active + `multiLocAllowed`) — never collapse to one boolean.
 
-10. **Use Node.js native crypto.** `import { createHash, randomUUID } from 'node:crypto'`. Never `crypto-js`.
+10. **Use Node.js native crypto.** `import { createHash, randomUUID } from 'node:crypto'`. Never `crypto-js` (CI-enforced: `ci:static-policy`).
 
 11. **Subscription guard in all customer-facing workers.** Check status early: `cancelled` → no-op; `past_due` → 7-day grace; `pending_payment` → NotificationWorker and ResponsePublisherWorker skip (ResponseGenerator allowed for admin demo drafts).
 
 12. **Entry points orchestrate; modules own failure behavior.** Route handlers, worker boot files, and ingress handlers may validate, orchestrate, and map errors — extract any error-handling branch over ~30 lines into a named module with focused tests.
 
-13. **Feature flags are server-authoritative.** The browser learns flag state via API responses. Never add a `NEXT_PUBLIC_*` companion for a feature flag.
+13. **Feature flags are server-authoritative.** The browser learns flag state via API responses. Never add a `NEXT_PUBLIC_*` companion for a feature flag — `ci:static-policy` allowlists every `NEXT_PUBLIC_*` and fails CI on any new one.
 
 ## Where things live
 
@@ -67,17 +79,19 @@ Detailed inventories load on demand — read the matching file before the work:
 | add an env var or flip a feature flag | `.claude/reference/env-vars.md` |
 | touch review ingestion / add a ReviewSource | `.claude/reference/review-ingestion.md` |
 | touch a named library/subsystem (Postgres.js, Zernio, Stripe, Supabase auth, …) | `.claude/reference/lab-notes.md` |
+| deploy, promote, or reason about the preview/staging/prod split | `docs/runbooks/deployment-guide.md` |
 
 Patterns to follow (invoke as Skills): `outbox-pattern`, `approval-security`,
-`cost-guard`, `onboarding-demo-cost-guard`.
+`cost-guard`, `onboarding-demo-cost-guard`. Also invoke: `repworth-brand-design`
+(any RepWorth UI), `supabase-postgres-best-practices` (Postgres query/schema perf).
 
-Code map: `docs/directory.md` · Layout reasoning: `docs/currents.md` · ADRs via
-codebase-memory `manage_adr`.
+Code map: `docs/directory.md` · Layout reasoning: `docs/currents.md` ·
+ADRs: `docs/adr/` · Ops runbooks: `docs/runbooks/`.
 
 ## Tech stack (non-obvious choices)
 
 - **Two Postgres clients**: `postgres` (Postgres.js) for transactional writes; `@supabase/supabase-js` for auth/storage/reads. Do not collapse them.
-- **Two Redis instances**: Upstash cache (not the source of truth) and Upstash BullMQ queue (not the cache).
+- **Two Redis instances, different providers**: BullMQ queue on **Railway Redis** (private net, per-env — not the cache); cache on **Upstash** (TLS, Vercel-reachable — not the source of truth). Split to kill Upstash egress; full why in `deployment-guide.md` §1.4.
 - **LLM**: `gpt-4o-mini-2024-07-18` primary, `claude-haiku-4-5-20251001` fallback — pinned IDs, never bare aliases. Constants in `src/lib/responses/generator.ts` (guarded by `model-pinning.test.ts`). Prompt policy + version hash: `src/lib/responses/prompt-policy.ts`, recorded on every `api_costs` row.
 - **JSONB via Postgres.js**: use `jsonb()` helper (`sql.json(value)`, OID 3802). `${JSON.stringify(x)}::jsonb` double-encodes in Postgres.js v3.
 - **Package manager**: pnpm.
@@ -87,24 +101,30 @@ codebase-memory `manage_adr`.
 
 ## Worker layout
 
-- BullMQ job handlers: `worker/jobs/*.ts` + sub-folders `notification/`, `publisher/`, `zernio/`
-- BullMQ `'failed'` exhaustion hooks: `worker/jobs/zernio/ingest-failed-hook.ts` and `worker/jobs/publisher/failed-hook.ts` — colocated with their workers
-- Background loops: `worker/background/pollers/` (Postgres-state-driven) + `worker/background/schedulers/` (time-cadence-driven)
-- Webhook ingress: `worker/ingress/{stripe,resend,shared}.ts` + sub-folders `twilio/`, `telegram/`, `zernio/`
-- Boot-time env assertions: `worker/config/startup-assert.ts`
-- Sentry init + scrubber: `worker/sentry.ts` (imported for side effect by `worker/index.ts`)
-- Queues + Redis options: `worker/queues.ts`
-- Entry point: `worker/index.ts` — pure registration + lifecycle, no DB writes
-- Full file map: `docs/directory.md`
+`docs/directory.md` is the full file map — this lists only the conventions that
+decide *where new worker code goes*:
+
+- **Job handlers** in `worker/jobs/`: one top-level `*.ts` per worker, plus a
+  per-domain subfolder when a worker has helpers (`response-generation/`,
+  `notification/`, `publisher/`, `zernio/`, `billing/`, `onboarding-demo/`).
+- **`'failed'` exhaustion hooks** colocate with their worker
+  (`worker/jobs/{publisher/failed-hook,zernio/ingest-failed-hook}.ts`).
+- **Background loops** split by trigger: `background/pollers/` (Postgres-state-driven)
+  vs `background/schedulers/` (time-cadence-driven) — new loop → pick by trigger.
+- **Webhook ingress** terminates in `worker/ingress/`: `{stripe,resend,shared}.ts`
+  + per-provider subfolders (`stripe/`, `twilio/`, `telegram/`, `zernio/`).
+- **Boot-time env assertions**: `worker/config/startup-assert.ts`.
+- **Sentry init + scrubber**: `worker/sentry.ts` (imported for side effect by `index.ts`).
+- **Queues**: `worker/queues.ts`; **Redis connection options**: `worker/redis-connection.ts`
+  (side-effect-free — unit-testable without booting the queues).
+- **Entry point** `worker/index.ts`: pure registration + lifecycle, **no DB writes**.
 
 ## Database
 
-- All tables: UUIDv7 (time-ordered)
-- Base schema: `supabase/migrations/001_initial_schema.sql`; current head: migration **054** (next: **055**)
-- Migration detail: `.claude/reference/migrations-log.md`
-- Review sentiment: `reviews.sentiment_*` populated by `classifySentiment` (`src/lib/reviews/sentiment.ts`, deterministic star-based `deterministic_star_v1`) at all review-content write sites; status-only writes don't touch it.
-- Customer KPIs: `src/lib/kpi/*` (`DashboardKpiSummary` — response rate, avg star, review-volume MoM, avg time-to-respond, 8-week sentiment trend); per-location or per-account; served by `GET /api/dashboard/kpis`.
-- Finance/margin signals: admin-only, aggregate-on-read from `api_costs` via `src/lib/admin/margin-service.ts`. Cross-account queries intentionally allowlisted in tenant-scope audit.
+- **Schema + migrations** → `.claude/reference/migrations-log.md` (authoritative): base schema (`001_initial_schema.sql`), current head / next number, and the UUIDv7 time-ordered-PK convention. Read it before any migration.
+- **Review sentiment**: `reviews.sentiment_*` populated by `classifySentiment` (`src/lib/reviews/sentiment.ts`, deterministic star-based `deterministic_star_v1`) at all review-content write sites; status-only writes don't touch it.
+- **Customer KPIs**: `src/lib/kpi/*` (`DashboardKpiSummary` — response rate, avg star, review-volume MoM, avg time-to-respond, 8-week sentiment trend); per-location or per-account; served by `GET /api/dashboard/kpis`.
+- **Finance/margin signals**: admin-only, aggregate-on-read from `api_costs` via `src/lib/admin/margin-service.ts`. Cross-account queries intentionally allowlisted in tenant-scope audit.
 
 ## Non-obvious gotchas — read before touching related code
 
@@ -119,6 +139,9 @@ codebase-memory `manage_adr`.
 - **`NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`** required for PlaceAutocomplete. Use only Essentials-tier fields: `id + formattedAddress + location`. Do not use `displayName` (Pro tier).
 - **Google Maps URLs use hex CIDs** (`0x...:0x...`), not canonical Place IDs. Resolve via PlaceAutocomplete or SerpAPI, never `data_id`.
 - **Owner channel enrollment org-default is account-scoped** — keyed by `account_id` + `channel` + `location_id IS NULL`. `business_id` is a legacy FK written on INSERT but NOT used for org-default lookup. All cancel/disable enrollment helpers take `accountId`.
+- **`SELECT … FOR UPDATE` is a no-op outside `sql.begin()`** — Supabase PgBouncer (transaction pooling) drops the row lock the instant the SELECT returns, so it never spans the following work. Either wrap the whole flow in `sql.begin()`, or drop the lock and use provider-side idempotency keys.
+- **Railway private network is IPv6-only** — `ioredis`/BullMQ won't resolve `*.railway.internal` unless `family: 0` is set (`worker/redis-connection.ts` parses `?family=`). Works on local/Upstash, silently fails to connect on Railway without it.
+- **Best-effort work after a worker's primary side effect needs its own `try/catch` (log-and-swallow)** — a secondary failure (telemetry, Sentry, cost-threshold check) caught by the outer handler flips an already-completed job to `failed`. Never let observability poison the success path.
 
 ## Codebase intelligence
 
@@ -142,11 +165,24 @@ Read `graphify-out/GRAPH_REPORT.md` before answering architecture or design ques
 | "Why was this designed this way?" / god nodes / architecture | graphify GRAPH_REPORT |
 | Text/string search | grep/Glob |
 
-## MCP servers in use
+## MCP servers & CLIs
 
-| MCP            | When                                                               |
-| -------------- | ------------------------------------------------------------------ |
-| **Supabase**   | DB queries, migrations, data debugging                             |
-| **Context7**   | Library docs (BullMQ, Resend, Stripe, Next.js) before implementing |
-| **Playwright** | E2E tests                                                          |
-| **Sentry**     | Error tracking, production debugging                               |
+**MCP servers** — load tool schemas via ToolSearch before calling; prefer the MCP over the matching CLI when both fit (structured results).
+
+| MCP | When |
+| --- | --- |
+| **Supabase** | DB queries, migrations, data debugging (remote HTTP MCP — auth before first use) |
+| **Railway** | Worker infra — deploys, logs, metrics, env vars, services |
+| **Vercel** | Frontend deploys, build logs, project status (remote HTTP MCP — auth before first use) |
+| **codebase-memory** | Structural code questions — who-calls-X, call chains, routes, dead code |
+| **Context7** | Library/framework docs (BullMQ, Resend, Stripe, Next.js) before implementing |
+| **claude-mem** | "Did we solve this before?" — cross-session memory / observations |
+
+Playwright (E2E via `pnpm test:e2e`) and Sentry (`@sentry/*` SDK + `worker/sentry.ts`) are **not** MCPs. Per-developer personal MCPs (Gmail, Drive, Calendar) may also be connected; not project tools.
+
+**CLIs** (in Bash):
+
+- **Git/CI**: `git`, `gh` (PRs, issues, CI runs + logs)
+- **Platform**: `vercel`, `railway`, `supabase`, `stripe` (webhook test + event replay), `gcloud`
+- **Data/infra**: `psql` (Postgres direct), `redis-cli` (cache/queue), `docker`
+- **Runtime/utils**: `node`, `pnpm`, `npx`, `tsx` (via pnpm/npx — not global), `rg`, `jq`, `curl`, `python3`
