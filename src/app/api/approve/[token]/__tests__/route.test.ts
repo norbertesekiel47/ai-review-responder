@@ -1,13 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
+type SqlTemplateMock = (
+  strings: TemplateStringsArray,
+  ...values: unknown[]
+) => Promise<unknown[]>;
+
 const {
   mockCheckRateLimit,
+  mockSql,
   mockSetDeviceCookie,
   mockSetCsrfCookie,
   mockVerifyDeviceCookie,
 } = vi.hoisted(() => ({
   mockCheckRateLimit: vi.fn(),
+  mockSql: vi.fn<SqlTemplateMock>(),
   mockSetDeviceCookie: vi.fn(),
   mockSetCsrfCookie: vi.fn(),
   mockVerifyDeviceCookie: vi.fn(),
@@ -24,11 +31,12 @@ vi.mock('@/lib/approval/cookies', () => ({
 }));
 
 vi.mock('@/lib/db/server', () => ({
-  sql: vi.fn(),
+  sql: mockSql,
 }));
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockSql.mockReset();
   mockVerifyDeviceCookie.mockReturnValue(false);
 });
 
@@ -59,9 +67,7 @@ describe('GET /api/approve/[token]', () => {
   it('keeps successful GET read-only and sets approval cookies', async () => {
     mockCheckRateLimit.mockResolvedValueOnce({ allowed: true });
 
-    const { sql } = await import('@/lib/db/server');
-    const sqlMock = vi.mocked(sql);
-    sqlMock
+    mockSql
       .mockResolvedValueOnce([
         {
           id: 'link-1',
@@ -104,7 +110,7 @@ describe('GET /api/approve/[token]', () => {
     expect(mockSetDeviceCookie).toHaveBeenCalledTimes(1);
     expect(mockSetCsrfCookie).toHaveBeenCalledTimes(1);
 
-    const sqlText = sqlMock.mock.calls
+    const sqlText = mockSql.mock.calls
       .map((call) => Array.from(call[0] as TemplateStringsArray).join(' '))
       .join('\n');
     expect(sqlText).toMatch(/\bSELECT\b/i);
