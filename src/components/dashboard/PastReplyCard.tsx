@@ -1,5 +1,6 @@
 'use client';
 
+import { uniqueSiblingKey } from '@/lib/shared/unique-sibling-key';
 import { Icon } from './Icon';
 
 // PastReplyRow is the wire shape flowing from page.tsx → PastRepliesClient →
@@ -63,10 +64,7 @@ function highlight(text: string | null, query?: string) {
   const seen = new Map<string, number>();
   return text.split(re).map((part) => {
     const isMatch = part.toLocaleLowerCase() === trimmed.toLocaleLowerCase();
-    const keyBase = `${isMatch ? 'mark' : 'text'}-${part}`;
-    const occurrence = seen.get(keyBase) ?? 0;
-    seen.set(keyBase, occurrence + 1);
-    const key = occurrence === 0 ? keyBase : `${keyBase}-${occurrence}`;
+    const key = uniqueSiblingKey(seen, `${isMatch ? 'mark' : 'text'}:${part}`);
 
     return isMatch ? (
       <mark key={key} className="pr-mark">

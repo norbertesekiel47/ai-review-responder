@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import type { NormalizedReview } from '@/lib/reviews/types';
-import { getNormalizedReviewRows } from '@/lib/reviews/stable-key';
 import type { GenerationResult } from '@/lib/responses/types';
 import { motion } from 'motion/react';
 import { OnboardingFunnelShell } from '../_shared/OnboardingFunnelShell';
@@ -48,7 +47,6 @@ export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoC
     typeof demo.generated_responses === 'string'
       ? JSON.parse(demo.generated_responses)
       : demo.generated_responses ?? [];
-  const reviewRows = getNormalizedReviewRows(reviews);
 
   const poll = useCallback(async () => {
     if (pollCount >= MAX_POLLS) return;
@@ -204,9 +202,9 @@ export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoC
 
       {isCompleted && (
         <div className="space-y-6">
-          {reviewRows.map(({ key, review, index }) => (
+          {reviews.map((review, index) => (
             <ReviewCard
-              key={key}
+              key={index}
               review={review}
               response={responses[index] ?? null}
             />

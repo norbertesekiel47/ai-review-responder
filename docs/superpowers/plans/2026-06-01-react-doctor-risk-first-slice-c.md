@@ -25,18 +25,19 @@ Defer:
 - `exhaustive-deps` findings in mount-only flows (`StepLocation`, `LoginForm`, `useLocationVoiceForm`, `FeaturesContent`, `TopBar`) because naive dependency additions would rerun redirects, fetches, or timer setup.
 - Static placeholder dots created by `Array.from({ length })`, which React Doctor already mostly treats as positional placeholders.
 - `TickerBar`'s static tile key: the key itself is trivial, but touching the file surfaces a pre-existing `no-adjust-state-on-prop-change` error in its visibility hook. Leave that file to a focused state/effect slice instead of mixing it into key cleanup.
+- `ListEditor` primitive row keys. A ref-backed local key array is fragile for same-length wholesale replacement; the correct fix is lifting identity into the parent-owned voice-list data model. That is too broad for this slice, so leave the existing index key and defer.
+- SSR demo review feeds. They are non-reordered server-provided arrays, and a client-side review-key hash would fork the existing review-identity concept from `src/lib/reviews/types.ts`.
+- Decorative hero-word and duplicated-marquee animation lists, where positional keys are correct because the arrays are static and never reorder.
 
 ## Files
 
-- Create: `src/lib/reviews/stable-key.ts`
-- Create: `src/lib/reviews/__tests__/stable-key.test.ts`
-- Modify: `src/app/(public)/demo/[slug]/DemoViewerContent.tsx`
-- Modify: `src/app/onboarding/demo/PaywallWithDemoClient.tsx`
+- Create: `src/lib/shared/unique-sibling-key.ts`
+- Create: `src/lib/shared/__tests__/unique-sibling-key.test.ts`
+- Create: `src/components/dashboard/__tests__/brief-bullets.test.ts`
+- Create: `src/components/dashboard/brief-bullets.ts`
 - Modify: `src/components/dashboard/IntelligenceBriefCard.tsx`
 - Modify: `src/components/dashboard/aggregate/AggregateIntelligenceBriefCard.tsx`
 - Modify: `src/components/dashboard/PastReplyCard.tsx`
-- Modify: `src/components/dashboard/settings/ListEditor.tsx`
-- Modify: `src/components/dashboard/settings/__tests__/ListEditor.test.tsx`
 - Modify: `src/app/(public)/book-a-demo/BookADemoContent.tsx`
 - Modify: `src/app/(public)/pricing/PricingContent.tsx`
 - Modify: `src/app/onboarding/_shared/OnboardingFunnelShell.tsx`
@@ -48,131 +49,35 @@ Defer:
 - Modify: `src/components/PlaceAutocomplete.tsx`
 - Modify: `src/components/__tests__/PlaceAutocomplete.test.tsx`
 
-## Task 1: Shared Stable Review Keys
+## Task 1: Shared Duplicate-Sibling Key Helper
 
-- [ ] **Step 1: Add tests for deterministic review keys**
+- [ ] **Step 1: Add the helper and tests**
 
-Create `src/lib/reviews/__tests__/stable-key.test.ts`:
+Create `src/lib/shared/unique-sibling-key.ts` and `src/lib/shared/__tests__/unique-sibling-key.test.ts`. The helper owns duplicate occurrence counting for all content-derived sibling keys in this slice.
 
-```ts
-import { describe, expect, it } from 'vitest';
-import type { NormalizedReview } from '../types';
-import { getNormalizedReviewKey, getNormalizedReviewRows } from '../stable-key';
+- [ ] **Step 2: Verify the helper**
 
-const baseReview: NormalizedReview = {
-  reviewerName: 'Ari',
-  starRating: 5,
-  reviewText: 'Great service',
-  reviewDate: '2026-05-01T00:00:00.000Z',
-  detectedLanguage: 'en',
-};
-
-describe('stable review keys', () => {
-  it('returns the same key for the same review content', () => {
-    expect(getNormalizedReviewKey(baseReview)).toBe(getNormalizedReviewKey({ ...baseReview }));
-  });
-
-  it('adds an occurrence suffix so identical sibling reviews remain unique', () => {
-    const rows = getNormalizedReviewRows([baseReview, { ...baseReview }]);
-    expect(rows.map((row) => row.key)).toHaveLength(2);
-    expect(new Set(rows.map((row) => row.key)).size).toBe(2);
-  });
-});
-```
-
-- [ ] **Step 2: Run the new tests and confirm they fail**
-
-Run: `pnpm exec vitest run src/lib/reviews/__tests__/stable-key.test.ts`
-
-Expected: fail because `src/lib/reviews/stable-key.ts` does not exist.
-
-- [ ] **Step 3: Add the pure key helper**
-
-Create `src/lib/reviews/stable-key.ts`:
-
-```ts
-import type { NormalizedReview } from './types';
-
-const SEPARATOR = '\u001f';
-
-function hashString(input: string): string {
-  let hash = 5381;
-  for (let i = 0; i < input.length; i += 1) {
-    hash = (hash * 33) ^ input.charCodeAt(i);
-  }
-  return (hash >>> 0).toString(36);
-}
-
-function reviewIdentityInput(review: NormalizedReview): string {
-  return [
-    review.reviewerName,
-    review.starRating,
-    review.reviewText ?? '',
-    review.reviewDate,
-    review.detectedLanguage,
-  ].join(SEPARATOR);
-}
-
-export function getNormalizedReviewKey(review: NormalizedReview, occurrence = 0): string {
-  const base = `review-${hashString(reviewIdentityInput(review))}`;
-  return occurrence === 0 ? base : `${base}-${occurrence}`;
-}
-
-export function getNormalizedReviewRows<T extends NormalizedReview>(
-  reviews: T[],
-): Array<{ key: string; review: T; index: number }> {
-  const seen = new Map<string, number>();
-  return reviews.map((review, index) => {
-    const base = getNormalizedReviewKey(review);
-    const occurrence = seen.get(base) ?? 0;
-    seen.set(base, occurrence + 1);
-    return {
-      key: occurrence === 0 ? base : `${base}-${occurrence}`,
-      review,
-      index,
-    };
-  });
-}
-```
-
-- [ ] **Step 4: Verify the helper**
-
-Run: `pnpm exec vitest run src/lib/reviews/__tests__/stable-key.test.ts`
+Run: `pnpm exec vitest run src/lib/shared/__tests__/unique-sibling-key.test.ts`
 
 Expected: pass.
 
 ## Task 2: Dynamic Product Keys
 
-- [ ] **Step 1: Replace review index keys**
+- [ ] **Step 1: Replace brief bullet index keys**
 
-In `DemoViewerContent.tsx` and `PaywallWithDemoClient.tsx`, import `getNormalizedReviewRows`, derive `const reviewRows = getNormalizedReviewRows(reviews);`, and render `reviewRows.map(({ key, review, index }) => <ReviewCard key={key} ... />)`.
+Create `src/components/dashboard/brief-bullets.ts`, import `uniqueSiblingKey`, and use it from `IntelligenceBriefCard.tsx` and `AggregateIntelligenceBriefCard.tsx`.
 
-- [ ] **Step 2: Replace brief bullet index keys**
+- [ ] **Step 2: Add direct brief-bullet tests**
 
-Add a local `getBriefBullets(text: string)` helper in `IntelligenceBriefCard.tsx` that returns `{ key, text }[]` using bullet text plus duplicate occurrence. Use the same helper from `AggregateIntelligenceBriefCard.tsx` by exporting it from the single-location file.
+Create `src/components/dashboard/__tests__/brief-bullets.test.ts` covering markdown bullet stripping, numbered-line stripping, and duplicate key uniqueness.
 
 - [ ] **Step 3: Replace highlighted text index keys**
 
-In `PastReplyCard.tsx`, change `highlight()` so it tracks duplicate text parts and uses keys like `mark-<part>-<occurrence>` or `text-<part>-<occurrence>` instead of `i`.
+In `PastReplyCard.tsx`, change `highlight()` so it uses `uniqueSiblingKey()` for mark/text parts instead of `i`. Keep the case-insensitive equality match, which avoids global-regex `lastIndex` state.
 
-- [ ] **Step 4: Replace `ListEditor` row index keys with row IDs**
+- [ ] **Step 4: Verify dynamic key changes**
 
-In `ListEditor.tsx`, keep the public `items: string[]` API. Add a ref-backed row key list so add/remove operations preserve row identity:
-
-```ts
-const nextKeyRef = useRef(0);
-const itemKeysRef = useRef<string[]>([]);
-```
-
-Build rows as `{ key, value, index }`, splice `itemKeysRef.current` in `remove`, append a new key in `add`, and keep `update` keyed by the row index.
-
-- [ ] **Step 5: Add a ListEditor regression test**
-
-In `ListEditor.test.tsx`, add a test that renders `['first', 'second']`, removes the first row, rerenders with `['second']`, and asserts the remaining input still displays `second`.
-
-- [ ] **Step 6: Verify dynamic key changes**
-
-Run: `pnpm exec vitest run src/lib/reviews/__tests__/stable-key.test.ts src/components/dashboard/settings/__tests__/ListEditor.test.tsx src/app/(public)/demo/[slug]/__tests__/DemoViewerContent.test.tsx`
+Run: `pnpm exec vitest run src/lib/shared/__tests__/unique-sibling-key.test.ts src/components/dashboard/__tests__/brief-bullets.test.ts`
 
 Expected: pass.
 
@@ -186,7 +91,7 @@ Use existing unique strings:
 - `PricingContent`: `section-${row.section}`, `feature-${row.label}`
 - `OnboardingFunnelShell`: `card.className`
 - `PageShell`: `card.className`
-- `FeaturesContent`: use words, metric labels, and add a `loop` marker for duplicated marquee reviews.
+- `FeaturesContent`: metric labels only. Leave hero words and duplicated marquee rows on positional keys because those animation arrays are static and never reorder.
 
 - [ ] **Step 2: Run a React Doctor diff spot-check**
 
@@ -254,4 +159,4 @@ Expected: lint, typecheck, tests, and React Doctor diff pass. If `pnpm build` re
 
 - Spec coverage: covers Slice C dynamic keys, hydration-time warnings, concrete uncontrolled input, and one concrete hook dependency issue. Defers broad state-reset and mount-only dependency rewrites per the risk-first spec.
 - Placeholder scan: no TODO/TBD placeholders.
-- Type consistency: `getNormalizedReviewRows()` returns key/review/index rows and is consumed by both review demo clients.
+- Type consistency: `uniqueSiblingKey()` is the only duplicate-occurrence key helper; review demo feeds and primitive voice-list identity are deferred rather than solved with local identity forks.
