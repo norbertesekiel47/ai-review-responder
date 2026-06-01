@@ -21,9 +21,11 @@
     "ci:tenant-scope": "tsx scripts/ci/tenant-scope-audit.ts",
     "ci:rls-audit": "tsx scripts/ci/rls-audit.ts",
     "ci:analytics-events": "tsx scripts/ci/analytics-events-audit.ts",
+    "ci:static-policy": "tsx scripts/ci/static-policy-audit.ts",
     "worker": "tsx worker/index.ts",
     "redis": "tsx scripts/redis.ts",
-    "eval:llm": "tsx tests/llm-eval/run.ts"
+    "eval:llm": "tsx tests/llm-eval/run.ts",
+    "doctor": "npx react-doctor@latest"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.100.1",
@@ -76,6 +78,7 @@
     "eslint-config-next": "^16.2.6",
     "jsdom": "^29.1.1",
     "postcss": "^8.5.15",
+    "react-doctor": "^0.2.14",
     "tailwindcss": "^4.3.0",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3",

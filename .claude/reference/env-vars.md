@@ -41,7 +41,7 @@ Assertion source: `worker/config/startup-assert.ts`.
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key (browser-safe) |
 | `SUPABASE_SERVICE_KEY` | Server-only. NEVER expose to browser. |
 | `REDIS_CACHE_URL` | Upstash Redis — cache instance (separate from queue) |
-| `REDIS_QUEUE_URL` | Upstash Redis — BullMQ queue instance (separate from cache) |
+| `REDIS_QUEUE_URL` | Railway Redis — BullMQ queue instance, private net/per-env (separate from cache; see deployment-guide §1.4) |
 | `OPENAI_API_KEY` | GPT-4o-mini (primary LLM) |
 | `ANTHROPIC_API_KEY` | Claude Haiku fallback (`claude-haiku-4-5-20251001`) |
 | `RESEND_API_KEY` | Transactional email + custom SMTP password |

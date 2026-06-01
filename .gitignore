@@ -107,8 +107,12 @@ scripts/zernio-count-reviews.ts
 # Literal "-w" file (accidental git add of vim swap-like artifact)
 \-w
 
-# Mission runtime artifacts (evidence, scripts — not for source control)
-.factory/missions/
+# Factory/Droid tooling artifacts (skills, missions, evidence — not source-controlled)
+.factory/
+
+# Lock-managed vendored skill: a local symlink into gitignored .agents/.
+# Source of truth is skills-lock.json (committed); re-materialized on skills install.
+.claude/skills/supabase-postgres-best-practices
 
 # LLM eval run artifacts (keep the dir via .gitkeep)
 tests/llm-eval/reports/*
