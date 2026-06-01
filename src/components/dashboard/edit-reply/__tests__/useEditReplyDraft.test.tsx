@@ -176,6 +176,50 @@ describe('useEditReplyDraft — regenerate + polling', () => {
     expect(result.current.state).toEqual({ kind: 'preview', draftResponseId: 'resp-ai', text: 'AI draft' });
   });
 
+  it('continues recursive polling through repeated generating statuses', async () => {
+    vi.useFakeTimers();
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ outbox_id: 'ob-loop' }))
+      .mockResolvedValueOnce(jsonResponse({ status: 'generating' }))
+      .mockResolvedValueOnce(jsonResponse({ status: 'generating' }))
+      .mockResolvedValueOnce(jsonResponse({ response_id: 'resp-loop', response_text: 'Loop draft' }));
+
+    const { result } = setup();
+
+    await act(async () => { await result.current.actions.startRegenerate(); });
+    expect(result.current.state).toEqual({ kind: 'regenerating', outboxId: 'ob-loop' });
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(1500); });
+    expect(result.current.state).toEqual({ kind: 'regenerating', outboxId: 'ob-loop' });
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(1500); });
+    expect(result.current.state).toEqual({ kind: 'regenerating', outboxId: 'ob-loop' });
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(1500); });
+    expect(result.current.state).toEqual({
+      kind: 'preview',
+      draftResponseId: 'resp-loop',
+      text: 'Loop draft',
+    });
+  });
+
+  it('clears the scheduled poll timeout when unmounted while regenerating', async () => {
+    vi.useFakeTimers();
+    fetchMock.mockResolvedValueOnce(jsonResponse({ outbox_id: 'ob-cleanup' }));
+
+    const { result, unmount } = setup();
+
+    await act(async () => { await result.current.actions.startRegenerate(); });
+    expect(result.current.state).toEqual({ kind: 'regenerating', outboxId: 'ob-cleanup' });
+    expect(vi.getTimerCount()).toBe(1);
+
+    unmount();
+
+    expect(vi.getTimerCount()).toBe(0);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1500); });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it('transitions to regenerate_poll_error after the 60s budget', async () => {
     vi.useFakeTimers();
     fetchMock.mockResolvedValueOnce(jsonResponse({ outbox_id: 'ob-t' }));
