@@ -43,9 +43,9 @@ function fmt(iso: string): string {
   return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
-function renderStars(n: number | null) {
-  if (n == null) return null;
-  const filled = Math.round(Math.max(0, Math.min(5, n)));
+function Stars({ rating }: { rating: number | null }) {
+  if (rating == null) return null;
+  const filled = Math.round(Math.max(0, Math.min(5, rating)));
   return (
     <span className="stars" aria-label={`${filled} stars`}>
       {'★'.repeat(filled)}
@@ -102,7 +102,7 @@ export function PastReplyCard({
             <Icon name="google" size={12} /> Customer review
           </div>
           <div className="pr-meta">
-            {renderStars(row.star_rating)}
+            <Stars rating={row.star_rating} />
             <span className="pr-name">{row.reviewer_name ?? 'Anonymous'}</span>
             <span className="pr-date">{fmt(row.review_date)}</span>
           </div>

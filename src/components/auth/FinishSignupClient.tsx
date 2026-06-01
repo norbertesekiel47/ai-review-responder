@@ -80,7 +80,6 @@ export function FinishSignupClient({
               type="email"
               autoComplete="email"
               disabled
-              readOnly
               value={defaultEmail}
               className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-gray-100 text-gray-600"
             />

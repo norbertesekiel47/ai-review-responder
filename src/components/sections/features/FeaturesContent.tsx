@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import {
   useEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -37,6 +38,72 @@ const MARQUEE_REVIEWS: Array<{ lang: string; stars: string; text: string }> = [
   { lang: 'EN', stars: '★★★★★', text: '"Worth the drive across town — Marcus O."' },
   { lang: 'KO', stars: '★★★★★', text: '"불고기 정말 맛있어요 — Min J."' },
   { lang: 'EN', stars: '★★★★☆', text: '"Made my Monday — David K."' },
+];
+
+const AI_REPLIES = {
+  before: {
+    label: 'Generic reply',
+    meta: 'Template · no personalization',
+    borderColor: 'rgba(242,195,185,0.6)',
+    text: '"Thank you for your feedback! We appreciate your business and hope to see you again soon."',
+    diag: [
+      ['Named customer', 'No'],
+      ['References detail', 'No'],
+      ['Invites return', 'Generic'],
+    ],
+  },
+  after: {
+    label: 'Your response',
+    meta: 'Personalized · in your voice',
+    borderColor: 'rgba(151,179,174,0.35)',
+    text: `"Sarah, thank you so much! We're thrilled the al pastor tacos hit the spot — our team makes the achiote marinade from scratch every morning. Looking forward to your next visit!"`,
+    diag: [
+      ['Named customer', 'Sarah'],
+      ['References detail', 'Al pastor · achiote'],
+      ['Invites return', 'Next visit'],
+    ],
+  },
+} as const;
+
+const FEATURE_LANGS = [
+  { code: 'ES', name: 'Español' },
+  { code: 'VI', name: 'Tiếng Việt' },
+  { code: 'ZH', name: '中文' },
+  { code: 'TL', name: 'Tagalog' },
+  { code: 'KO', name: '한국어' },
+  { code: '+14', name: 'more' },
+];
+
+const APPROVAL_STEPS = [
+  { n: '01', title: 'New review lands', sub: 'Webhook from Google · detected in < 60 seconds', t: '0:00', dark: false, d: '100ms' },
+  { n: '02', title: 'AI drafts a reply in your voice', sub: 'Uses past approvals as style reference', t: '+0:12', dark: false, d: '300ms' },
+  { n: '03', title: 'You get a text or email', sub: 'Review + draft + three big buttons', t: '+0:15', dark: false, d: '500ms' },
+  { n: '04', title: 'You tap approve · we post it', sub: 'Median owner time: 28 seconds · No login required', t: '+0:58', dark: true, d: '700ms' },
+];
+
+const VOICE_BARS = [
+  { h: 85, op: 0.8, d: '80ms' },
+  { h: 72, op: 0.7, d: '160ms' },
+  { h: 61, op: 0.6, d: '240ms' },
+  { h: 48, op: 0.55, d: '320ms' },
+  { h: 35, op: 0.45, d: '400ms' },
+  { h: 28, op: 0.4, d: '480ms' },
+  { h: 18, op: 0.35, d: '560ms' },
+  { h: 12, op: 1, d: '640ms', anno: true },
+];
+
+const BRIEF_MENTIONS = [
+  { topic: 'al pastor tacos', count: '7×', width: 88, tone: 'sage' as const },
+  { topic: 'friendly staff', count: '6×', width: 75, tone: 'sage' as const },
+  { topic: 'wait time', count: '4×', width: 50, tone: 'peach' as const },
+  { topic: 'parking', count: '2×', width: 25, tone: 'peach' as const },
+];
+
+const COMPETITOR_ROWS = [
+  { rank: '#1', name: 'You — Mama Rosa’s', stars: '4.8', resp: '100% responded', highlighted: true },
+  { rank: '#2', name: 'El Farolito', stars: '4.4', resp: '28% responded' },
+  { rank: '#3', name: 'La Taqueria', stars: '4.2', resp: '8% responded' },
+  { rank: '#4', name: 'Tacos El Primo', stars: '4.0', resp: '0% responded' },
 ];
 
 function useReveal<T extends HTMLElement>() {
@@ -115,15 +182,18 @@ export function FeaturesContent({
   const roiRef = useRef<HTMLElement>(null);
   const compRef = useRef<HTMLElement>(null);
 
-  const refMap: Record<string, RefObject<HTMLElement | null>> = {
-    'f-ai': aiRef,
-    'f-lang': langRef,
-    'f-approve': approveRef,
-    'f-voice': voiceRef,
-    'f-brief': briefRef,
-    'f-roi': roiRef,
-    'f-comp': compRef,
-  };
+  const refMap = useMemo<Record<string, RefObject<HTMLElement | null>>>(
+    () => ({
+      'f-ai': aiRef,
+      'f-lang': langRef,
+      'f-approve': approveRef,
+      'f-voice': voiceRef,
+      'f-brief': briefRef,
+      'f-roi': roiRef,
+      'f-comp': compRef,
+    }),
+    []
+  );
 
   const [activeSection, setActiveSection] = useState<string>('f-ai');
 
@@ -145,9 +215,7 @@ export function FeaturesContent({
       observers.push(io);
     });
     return () => observers.forEach((o) => o.disconnect());
-    // refMap is stable across renders (refs only).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [refMap]);
 
   // Hero entry — trigger immediately on mount.
   const [heroIn, setHeroIn] = useState(false);
@@ -418,31 +486,7 @@ function FeatAi({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
   const [headRef, headSeen] = useReveal<HTMLDivElement>();
   const [cardRef, cardSeen] = useReveal<HTMLDivElement>();
 
-  const replies = {
-    before: {
-      label: 'Generic reply',
-      meta: 'Template · no personalization',
-      borderColor: 'rgba(242,195,185,0.6)',
-      text: '"Thank you for your feedback! We appreciate your business and hope to see you again soon."',
-      diag: [
-        ['Named customer', 'No'],
-        ['References detail', 'No'],
-        ['Invites return', 'Generic'],
-      ],
-    },
-    after: {
-      label: 'Your response',
-      meta: 'Personalized · in your voice',
-      borderColor: 'rgba(151,179,174,0.35)',
-      text: `"Sarah, thank you so much! We're thrilled the al pastor tacos hit the spot — our team makes the achiote marinade from scratch every morning. Looking forward to your next visit!"`,
-      diag: [
-        ['Named customer', 'Sarah'],
-        ['References detail', 'Al pastor · achiote'],
-        ['Invites return', 'Next visit'],
-      ],
-    },
-  } as const;
-  const r = replies[tab];
+  const r = AI_REPLIES[tab];
 
   return (
     <FeatureSection innerRef={innerRef} id="f-ai" label="AI drafting" className="px-8 md:px-16 py-20 relative">
@@ -451,7 +495,7 @@ function FeatAi({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
         <div className="flex-1">
           <p className="rw-label-mono text-xs uppercase text-[#97B3AE] mb-3">The engine</p>
           <h2 className="text-4xl md:text-5xl font-medium text-[#2a2a2a] leading-tight max-w-xl">
-            Every reply written from scratch — <span className="rw-display-serif text-[#97B3AE]">never</span> from a template.
+            Every reply written from scratch, <span className="rw-display-serif text-[#97B3AE]">never</span> from a template.
           </h2>
           <p className="text-[#6a6a6a] mt-4 max-w-xl leading-relaxed">
             Our AI reads the actual review, references specifics the customer mentioned, and writes in
@@ -501,7 +545,7 @@ function FeatAi({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
               <span className="ml-auto text-xs rw-label-mono text-[#6a6a6a]">2h ago · Google</span>
             </div>
             <p className="text-[15px] text-[#2a2a2a] leading-relaxed">
-              &ldquo;The al pastor tacos were incredible — the achiote marinade had this perfect
+              &ldquo;The al pastor tacos were incredible; the achiote marinade had this perfect
               smoky-sweet balance. Will be back next weekend!&rdquo;
             </p>
           </div>
@@ -535,15 +579,6 @@ function FeatAi({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
 function FeatLang({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
   const [leftRef, leftSeen] = useReveal<HTMLDivElement>();
   const [rightRef, rightSeen] = useReveal<HTMLDivElement>();
-  const langs = [
-    { code: 'ES', name: 'Español' },
-    { code: 'VI', name: 'Tiếng Việt' },
-    { code: 'ZH', name: '中文' },
-    { code: 'TL', name: 'Tagalog' },
-    { code: 'KO', name: '한국어' },
-    { code: '+14', name: 'more' },
-  ];
-
   return (
     <FeatureSection
       innerRef={innerRef}
@@ -563,11 +598,11 @@ function FeatLang({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
             </div>
           </div>
           <p className="text-[#6a6a6a] max-w-md leading-relaxed mb-8">
-            RepWorth detects the language of every review and responds in the same language — no
+            RepWorth detects the language of every review and responds in the same language: no
             setup, no toggles. Your customers feel heard in their own words.
           </p>
           <div className="grid grid-cols-3 gap-2 max-w-md">
-            {langs.map((l, i) => (
+            {FEATURE_LANGS.map((l, i) => (
               <div
                 key={l.code}
                 className="rw-lang-chip bg-white rounded-2xl p-3 border border-[#97B3AE]/15 text-center"
@@ -621,7 +656,7 @@ function FeatLang({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
               <span className="ml-auto rw-label-mono text-[10px] text-[#6a6a6a]">auto-generated</span>
             </div>
             <p className="text-sm text-[#2a2a2a] leading-relaxed">
-              &ldquo;Carlos, ¡muchísimas gracias! El mole es la receta de mi abuela — tardan tres días
+              &ldquo;Carlos, ¡muchísimas gracias! El mole es la receta de mi abuela; tardan tres días
               en prepararlo. Nos alegra mucho que lo hayas disfrutado. ¡Hasta pronto!&rdquo;
             </p>
           </div>
@@ -636,13 +671,6 @@ function FeatApprove({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) 
   const [headRef, headSeen] = useReveal<HTMLDivElement>();
   const [tlRef, tlSeen] = useReveal<HTMLDivElement>();
   const [phoneRef, phoneSeen] = useReveal<HTMLDivElement>();
-
-  const steps = [
-    { n: '01', title: 'New review lands', sub: 'Webhook from Google · detected in < 60 seconds', t: '0:00', dark: false, d: '100ms' },
-    { n: '02', title: 'AI drafts a reply in your voice', sub: 'Uses past approvals as style reference', t: '+0:12', dark: false, d: '300ms' },
-    { n: '03', title: 'You get a text or email', sub: 'Review + draft + three big buttons', t: '+0:15', dark: false, d: '500ms' },
-    { n: '04', title: 'You tap approve · we post it', sub: 'Median owner time: 28 seconds · No login required', t: '+0:58', dark: true, d: '700ms' },
-  ];
 
   return (
     <FeatureSection innerRef={innerRef} id="f-approve" label="One-tap approval" className="px-8 md:px-16 py-20 relative">
@@ -664,7 +692,7 @@ function FeatApprove({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) 
       <div className="grid md:grid-cols-12 gap-10 items-center">
         <div ref={tlRef} className={`rw-reveal md:col-span-7 ${tlSeen ? 'in' : ''}`}>
           <ol className="space-y-4">
-            {steps.map((s) => (
+            {APPROVAL_STEPS.map((s) => (
               <li
                 key={s.n}
                 className="rw-t-step flex gap-4 items-start"
@@ -707,7 +735,7 @@ function FeatApprove({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) 
                     <p className="rw-label-mono text-[10px] uppercase text-[#97B3AE] mb-1">New review</p>
                     <p className="text-[11px] text-[#6a6a6a]">★★★★★ · Sarah K.</p>
                     <p className="text-[12px] text-[#2a2a2a] mt-1 leading-snug">
-                      &ldquo;Al pastor tacos were incredible — the achiote marinade…&rdquo;
+                      &ldquo;Al pastor tacos were incredible, the achiote marinade…&rdquo;
                     </p>
                   </div>
                   <div
@@ -750,17 +778,6 @@ function FeatApprove({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) 
 function FeatVoice({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
   const [headRef, headSeen] = useReveal<HTMLDivElement>();
   const [chartRef, chartSeen] = useReveal<HTMLDivElement>();
-  const bars = [
-    { h: 85, op: 0.8, d: '80ms' },
-    { h: 72, op: 0.7, d: '160ms' },
-    { h: 61, op: 0.6, d: '240ms' },
-    { h: 48, op: 0.55, d: '320ms' },
-    { h: 35, op: 0.45, d: '400ms' },
-    { h: 28, op: 0.4, d: '480ms' },
-    { h: 18, op: 0.35, d: '560ms' },
-    { h: 12, op: 1, d: '640ms', anno: true },
-  ];
-
   return (
     <FeatureSection
       innerRef={innerRef}
@@ -781,7 +798,7 @@ function FeatVoice({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
           <span className="rw-num-tag text-7xl leading-none text-white/20 block mb-4">04</span>
           <p className="rw-label-mono text-xs uppercase text-[#F2C3B9] mb-3">Over time</p>
           <h2 className="text-4xl md:text-5xl font-medium leading-tight mb-4">
-            It learns your <span className="rw-display-serif text-[#F2C3B9]">voice</span> — edit by edit.
+            It learns your <span className="rw-display-serif text-[#F2C3B9]">voice</span>: edit by edit.
           </h2>
           <p className="text-white/70 max-w-md leading-relaxed">
             Every time you tweak a draft, RepWorth notices the change. Your warmth level, your phrasing,
@@ -802,9 +819,9 @@ function FeatVoice({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
               <div className="border-t border-white/10" />
             </div>
             <div className="absolute inset-0 flex items-end gap-3 px-1">
-              {bars.map((b, i) => (
+              {VOICE_BARS.map((b) => (
                 <div
-                  key={i}
+                  key={b.d}
                   className="rw-voice-bar flex-1 rounded-t relative"
                   style={{
                     height: `${b.h}%`,
@@ -836,13 +853,6 @@ function FeatVoice({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
 function FeatBrief({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
   const [leftRef, leftSeen] = useReveal<HTMLDivElement>();
   const [rightRef, rightSeen] = useReveal<HTMLDivElement>();
-  const mentions = [
-    { topic: 'al pastor tacos', count: '7×', width: 88, tone: 'sage' as const },
-    { topic: 'friendly staff', count: '6×', width: 75, tone: 'sage' as const },
-    { topic: 'wait time', count: '4×', width: 50, tone: 'peach' as const },
-    { topic: 'parking', count: '2×', width: 25, tone: 'peach' as const },
-  ];
-
   return (
     <FeatureSection innerRef={innerRef} id="f-brief" label="Weekly brief" className="px-8 md:px-16 py-20 relative">
       <div className="grid md:grid-cols-12 gap-10 items-start">
@@ -854,7 +864,7 @@ function FeatBrief({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
           </h2>
           <p className="text-[#6a6a6a] max-w-md leading-relaxed mb-6">
             Not a dashboard. Not a chart dump. A short, plain-language summary of what customers said
-            this week — what they loved, what they complained about, and what to look at on the ops side.
+            this week: what they loved, what they complained about, and what to look at on the ops side.
           </p>
           <ul className="space-y-3 text-sm">
             {[
@@ -900,7 +910,7 @@ function FeatBrief({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
 
             <p className="rw-label-mono text-[10px] uppercase text-[#6a6a6a] mb-3">Top mentions this week</p>
             <div className="space-y-2 mb-6">
-              {mentions.map((m, i) => {
+              {BRIEF_MENTIONS.map((m, i) => {
                 const dot = m.tone === 'sage' ? 'bg-[#97B3AE]' : 'bg-[#F2C3B9]';
                 const fill = m.tone === 'sage' ? 'bg-[#97B3AE]' : 'bg-[#F2C3B9]';
                 const track = m.tone === 'sage' ? 'bg-[#97B3AE]/15' : 'bg-[#F2C3B9]/20';
@@ -928,7 +938,7 @@ function FeatBrief({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
             <div className="border-t border-[#97B3AE]/20 pt-5">
               <p className="rw-label-mono text-[10px] uppercase text-[#97B3AE] mb-2">One thing to look at</p>
               <p className="text-[#2a2a2a] rw-display-serif text-lg leading-snug">
-                &ldquo;Wait time came up in 4 reviews this week — all on Saturday nights. Worth looking at
+                &ldquo;Wait time came up in 4 reviews this week; all on Saturday nights. Worth looking at
                 7–9pm staffing.&rdquo;
               </p>
             </div>
@@ -1028,7 +1038,7 @@ function FeatRoi({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
         <div className="md:col-span-12 bg-[#2a2a2a] text-white rounded-3xl p-8 relative overflow-hidden">
           <div className="flex items-start justify-between mb-6 flex-wrap gap-3">
             <div>
-              <p className="rw-label-mono text-xs uppercase text-[#F2C3B9] mb-2">Google map position — 90 days</p>
+              <p className="rw-label-mono text-xs uppercase text-[#F2C3B9] mb-2">Google map position: 90 days</p>
               <p className="rw-display-serif text-2xl">From #14 to top 3 in the neighborhood.</p>
             </div>
             <div className="text-right">
@@ -1074,13 +1084,6 @@ function FeatRoi({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
 function FeatComp({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
   const [leftRef, leftSeen] = useReveal<HTMLDivElement>();
   const [rightRef, rightSeen] = useReveal<HTMLDivElement>();
-  const rows = [
-    { rank: '#1', name: 'You — Mama Rosa’s', stars: '4.8', resp: '100% responded', highlighted: true },
-    { rank: '#2', name: 'El Farolito', stars: '4.4', resp: '28% responded' },
-    { rank: '#3', name: 'La Taqueria', stars: '4.2', resp: '8% responded' },
-    { rank: '#4', name: 'Tacos El Primo', stars: '4.0', resp: '0% responded' },
-  ];
-
   return (
     <FeatureSection innerRef={innerRef} id="f-comp" label="Competitor monitoring" className="px-8 md:px-16 py-20 relative">
       <div className="grid md:grid-cols-12 gap-10 items-center">
@@ -1113,7 +1116,7 @@ function FeatComp({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
               Neighborhood scorecard · Mission District
             </p>
             <div className="space-y-3">
-              {rows.map((r, i) => (
+              {COMPETITOR_ROWS.map((r, i) => (
                 <div
                   key={r.name}
                   className={`rw-comp-row flex items-center gap-3 p-3 rounded-2xl ${

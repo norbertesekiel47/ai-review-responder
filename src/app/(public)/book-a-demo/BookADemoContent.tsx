@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef } from 'react';
-import { motion } from 'motion/react';
+import { m } from 'motion/react';
 import { PageShell } from '@/components/ui/PageShell';
 import { SiteNav } from '@/components/ui/SiteNav';
 import { LeadIntakeForm } from '@/components/sections/lead-intake/LeadIntakeForm';
@@ -32,7 +32,7 @@ export function BookADemoContent({ selfServeEnabled = false }: { selfServeEnable
         <div className="max-w-4xl mx-auto">
           <div className="grid md:grid-cols-2 gap-12 items-start">
             {/* Left: pitch */}
-            <motion.div
+            <m.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.2 }}
@@ -47,7 +47,7 @@ export function BookADemoContent({ selfServeEnabled = false }: { selfServeEnable
 
               <ul className="space-y-4 mb-10">
                 {WAITLIST_BULLETS.map((bullet, i) => (
-                  <motion.li
+                  <m.li
                     key={bullet}
                     className="flex items-start gap-3"
                     initial={{ opacity: 0, x: -10 }}
@@ -60,14 +60,13 @@ export function BookADemoContent({ selfServeEnabled = false }: { selfServeEnable
                       </svg>
                     </div>
                     <span className="text-[#6a6a6a]">{bullet}</span>
-                  </motion.li>
+                  </m.li>
                 ))}
               </ul>
-
-            </motion.div>
+            </m.div>
 
             {/* Right: form */}
-            <motion.div
+            <m.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.4 }}
@@ -76,14 +75,14 @@ export function BookADemoContent({ selfServeEnabled = false }: { selfServeEnable
                 <h2 className="text-xl font-medium text-[#2a2a2a] mb-6">Join waitlist</h2>
                 <LeadIntakeForm intent="waitlist" source="book-a-demo" tone="light" />
               </div>
-            </motion.div>
+            </m.div>
           </div>
         </div>
       </div>
 
       {/* Trust signals */}
       <section className="px-8 py-12 bg-gradient-to-br from-[#97B3AE] to-[#97B3AE]/80 text-white rounded-b-[3rem]">
-        <motion.div
+        <m.div
           className="max-w-3xl mx-auto flex flex-col sm:flex-row gap-6 justify-center items-center text-center sm:text-left"
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
@@ -98,7 +97,7 @@ export function BookADemoContent({ selfServeEnabled = false }: { selfServeEnable
               {signal}
             </div>
           ))}
-        </motion.div>
+        </m.div>
       </section>
     </PageShell>
   );

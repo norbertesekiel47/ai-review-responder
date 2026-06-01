@@ -10,8 +10,8 @@ export function getBriefBullets(text: string): BriefBullet[] {
   return text
     .split(/\n+/)
     .map((line) => line.trim())
-    .filter((line) => line.length > 0)
     .map((line) => line.replace(/^[-*•]\s*/, '').replace(/^\d+[.)]\s*/, ''))
+    .filter((bullet) => bullet.length > 0)
     .map((bullet) => {
       return {
         key: uniqueSiblingKey(seen, bullet),

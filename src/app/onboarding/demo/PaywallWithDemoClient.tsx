@@ -142,11 +142,11 @@ export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoC
               <>
                 <div
                   className="w-12 h-12 mx-auto mb-4 rounded-full bg-[#F2C3B9]/40 flex items-center justify-center"
-                  role="img"
-                  aria-label="warning"
                 >
                   <svg
                     className="w-6 h-6 text-[#2a2a2a]"
+                    role="img"
+                    aria-label="Warning"
                     fill="none"
                     viewBox="0 0 24 24"
                     stroke="currentColor"

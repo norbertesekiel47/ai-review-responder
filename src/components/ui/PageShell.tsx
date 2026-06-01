@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, type RefObject } from 'react';
-import { motion, useScroll, useTransform } from 'motion/react';
+import { LazyMotion, domAnimation, m, useScroll, useTransform } from 'motion/react';
 
 interface PageSection {
   ref: RefObject<HTMLDivElement | null>;
@@ -29,7 +29,8 @@ export function PageShell({ sections, children, maxWidthClassName = 'max-w-5xl' 
   const bgY4 = useTransform(scrollYProgress, [0, 1], [0, -400]);
 
   return (
-    <div ref={containerRef} className="min-h-screen bg-[#D2E0D3] relative">
+    <LazyMotion features={domAnimation}>
+      <div ref={containerRef} className="min-h-screen bg-[#D2E0D3] relative">
       {/* Parallax background */}
       <div className="fixed inset-0 pointer-events-none" aria-hidden="true">
         <div className="absolute inset-0 backdrop-blur-sm bg-[#D2E0D3]/80" />
@@ -39,7 +40,7 @@ export function PageShell({ sections, children, maxWidthClassName = 'max-w-5xl' 
           { style: { y: bgY3 }, className: 'absolute top-[1000px] left-[15%] w-56 h-72', dots: 5 },
           { style: { y: bgY4 }, className: 'absolute top-[1400px] right-[10%] w-64 h-56', dots: 5 },
         ].map((card) => (
-          <motion.div
+          <m.div
             key={card.className}
             style={card.style}
             className={`${card.className} bg-white/40 backdrop-blur-md rounded-3xl shadow-xl p-6 border border-white/60`}
@@ -54,7 +55,7 @@ export function PageShell({ sections, children, maxWidthClassName = 'max-w-5xl' 
               <div className="h-3 bg-[#2a2a2a]/20 rounded w-5/6" />
               <div className="h-3 bg-[#2a2a2a]/20 rounded w-4/6" />
             </div>
-          </motion.div>
+          </m.div>
         ))}
       </div>
 
@@ -75,15 +76,16 @@ export function PageShell({ sections, children, maxWidthClassName = 'max-w-5xl' 
 
       {/* Island wrapper */}
       <div className="relative z-10 min-h-screen py-20 px-4 flex items-center justify-center">
-        <motion.div
+        <m.div
           className={`w-full ${maxWidthClassName} bg-white rounded-[3rem] shadow-2xl`}
           initial={{ opacity: 0, y: 40, scale: 0.95 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           transition={{ duration: 0.8, ease: 'easeOut' }}
         >
           {children}
-        </motion.div>
+        </m.div>
       </div>
-    </div>
+      </div>
+    </LazyMotion>
   );
 }
