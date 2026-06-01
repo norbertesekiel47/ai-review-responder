@@ -83,6 +83,8 @@ export function PlaceAutocomplete({
               fields: ['id', 'formattedAddress', 'location'],
             });
 
+            if (cancelled) return;
+
             if (!place.location || !place.id) {
               setError('Place has no location data');
               return;
@@ -99,6 +101,8 @@ export function PlaceAutocomplete({
             setError(null);
             onPlaceSelect(result);
           } catch (err: unknown) {
+            if (cancelled) return;
+
             setError('Failed to load place details');
             console.error('[PlaceAutocomplete]', err);
           }
