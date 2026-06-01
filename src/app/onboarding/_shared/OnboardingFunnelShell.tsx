@@ -1,7 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { motion } from 'motion/react';
+import { LazyMotion, domAnimation, m } from 'motion/react';
 
 import { FunnelStepThread, type FunnelStep } from './FunnelStepThread';
 
@@ -36,52 +36,54 @@ export function OnboardingFunnelShell({
   children,
 }: OnboardingFunnelShellProps) {
   return (
-    <div className="min-h-screen bg-[#D2E0D3] relative">
-      <div className="fixed inset-0 pointer-events-none" aria-hidden="true">
-        {ATMOSPHERE.map((card, i) => (
-          <div
-            key={i}
-            className={`${card.className} bg-white/40 backdrop-blur-md rounded-3xl shadow-xl p-6 border border-white/60`}
+    <LazyMotion features={domAnimation}>
+      <div className="min-h-screen bg-[#D2E0D3] relative">
+        <div className="fixed inset-0 pointer-events-none" aria-hidden="true">
+          {ATMOSPHERE.map((card) => (
+            <div
+              key={card.className}
+              className={`${card.className} bg-white/40 backdrop-blur-md rounded-3xl shadow-xl p-6 border border-white/60`}
+            >
+              <div className="flex gap-1 mb-3">
+                {Array.from({ length: card.dots }).map((_, j) => (
+                  <div key={j} className="size-4 bg-[#F2C3B9]/60 rounded-full" />
+                ))}
+              </div>
+              <div className="space-y-2">
+                <div className="h-3 bg-[#2a2a2a]/20 rounded w-full" />
+                <div className="h-3 bg-[#2a2a2a]/20 rounded w-5/6" />
+                <div className="h-3 bg-[#2a2a2a]/20 rounded w-4/6" />
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="relative z-10 min-h-screen py-12 sm:py-20 px-4 flex items-center justify-center">
+          <m.div
+            className={`w-full ${MAX_WIDTH[maxWidth]} bg-white rounded-[3rem] shadow-2xl`}
+            initial={{ opacity: 0, y: 40, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ duration: 0.8, ease: 'easeOut' }}
           >
-            <div className="flex gap-1 mb-3">
-              {Array.from({ length: card.dots }).map((_, j) => (
-                <div key={j} className="size-4 bg-[#F2C3B9]/60 rounded-full" />
-              ))}
-            </div>
-            <div className="space-y-2">
-              <div className="h-3 bg-[#2a2a2a]/20 rounded w-full" />
-              <div className="h-3 bg-[#2a2a2a]/20 rounded w-5/6" />
-              <div className="h-3 bg-[#2a2a2a]/20 rounded w-4/6" />
-            </div>
-          </div>
-        ))}
+            <nav className="px-6 sm:px-8 py-4 border-b border-[#97B3AE]/10 flex items-center justify-end">
+              <div className="flex items-center gap-2">
+                <div className="size-8 rounded-full bg-gradient-to-br from-[#97B3AE] to-[#97B3AE]/80" />
+                <span className="text-sm tracking-wider uppercase text-[#97B3AE]">
+                  RepWorth
+                </span>
+              </div>
+            </nav>
+
+            {showThread && step && (
+              <div className="px-4 sm:px-8 pt-6">
+                <FunnelStepThread step={step} />
+              </div>
+            )}
+
+            <div className="px-6 sm:px-10 py-8 sm:py-10">{children}</div>
+          </m.div>
+        </div>
       </div>
-
-      <div className="relative z-10 min-h-screen py-12 sm:py-20 px-4 flex items-center justify-center">
-        <motion.div
-          className={`w-full ${MAX_WIDTH[maxWidth]} bg-white rounded-[3rem] shadow-2xl`}
-          initial={{ opacity: 0, y: 40, scale: 0.95 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          transition={{ duration: 0.8, ease: 'easeOut' }}
-        >
-          <nav className="px-6 sm:px-8 py-4 border-b border-[#97B3AE]/10 flex items-center justify-end">
-            <div className="flex items-center gap-2">
-              <div className="size-8 rounded-full bg-gradient-to-br from-[#97B3AE] to-[#97B3AE]/80" />
-              <span className="text-sm tracking-wider uppercase text-[#97B3AE]">
-                RepWorth
-              </span>
-            </div>
-          </nav>
-
-          {showThread && step && (
-            <div className="px-4 sm:px-8 pt-6">
-              <FunnelStepThread step={step} />
-            </div>
-          )}
-
-          <div className="px-6 sm:px-10 py-8 sm:py-10">{children}</div>
-        </motion.div>
-      </div>
-    </div>
+    </LazyMotion>
   );
 }

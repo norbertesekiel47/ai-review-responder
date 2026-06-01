@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef } from 'react';
-import { motion } from 'motion/react';
+import { m } from 'motion/react';
 import { PageShell } from '@/components/ui/PageShell';
 import { SiteNav } from '@/components/ui/SiteNav';
 import { LeadIntakeForm } from '@/components/sections/lead-intake/LeadIntakeForm';
@@ -32,7 +32,7 @@ export function BookADemoContent({ selfServeEnabled = false }: { selfServeEnable
         <div className="max-w-4xl mx-auto">
           <div className="grid md:grid-cols-2 gap-12 items-start">
             {/* Left: pitch */}
-            <motion.div
+            <m.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.2 }}
@@ -47,8 +47,8 @@ export function BookADemoContent({ selfServeEnabled = false }: { selfServeEnable
 
               <ul className="space-y-4 mb-10">
                 {WAITLIST_BULLETS.map((bullet, i) => (
-                  <motion.li
-                    key={i}
+                  <m.li
+                    key={bullet}
                     className="flex items-start gap-3"
                     initial={{ opacity: 0, x: -10 }}
                     animate={{ opacity: 1, x: 0 }}
@@ -60,14 +60,13 @@ export function BookADemoContent({ selfServeEnabled = false }: { selfServeEnable
                       </svg>
                     </div>
                     <span className="text-[#6a6a6a]">{bullet}</span>
-                  </motion.li>
+                  </m.li>
                 ))}
               </ul>
-
-            </motion.div>
+            </m.div>
 
             {/* Right: form */}
-            <motion.div
+            <m.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.4 }}
@@ -76,29 +75,29 @@ export function BookADemoContent({ selfServeEnabled = false }: { selfServeEnable
                 <h2 className="text-xl font-medium text-[#2a2a2a] mb-6">Join waitlist</h2>
                 <LeadIntakeForm intent="waitlist" source="book-a-demo" tone="light" />
               </div>
-            </motion.div>
+            </m.div>
           </div>
         </div>
       </div>
 
       {/* Trust signals */}
       <section className="px-8 py-12 bg-gradient-to-br from-[#97B3AE] to-[#97B3AE]/80 text-white rounded-b-[3rem]">
-        <motion.div
+        <m.div
           className="max-w-3xl mx-auto flex flex-col sm:flex-row gap-6 justify-center items-center text-center sm:text-left"
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
           transition={{ duration: 0.6 }}
         >
-          {TRUST_SIGNALS.map((signal, i) => (
-            <div key={i} className="flex items-center gap-2 text-sm text-white/90">
+          {TRUST_SIGNALS.map((signal) => (
+            <div key={signal} className="flex items-center gap-2 text-sm text-white/90">
               <svg className="size-4 text-white/70 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
               </svg>
               {signal}
             </div>
           ))}
-        </motion.div>
+        </m.div>
       </section>
     </PageShell>
   );

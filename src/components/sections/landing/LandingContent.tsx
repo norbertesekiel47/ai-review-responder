@@ -24,19 +24,19 @@ const SECTIONS = [
   { id: 'rw-cta', label: 'Join waitlist' },
 ];
 
+function scrollToSection(id: string) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const y = el.getBoundingClientRect().top + window.scrollY - 24;
+  window.scrollTo({ top: y, behavior: 'smooth' });
+}
+
 export function LandingContent({
   comingSoon = false,
   selfServeEnabled = false,
 }: LandingContentProps) {
   const [active, setActive] = useState('rw-hero');
   const ctaRef = useRef<HTMLElement>(null);
-
-  const scrollTo = (id: string) => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    const y = el.getBoundingClientRect().top + window.scrollY - 24;
-    window.scrollTo({ top: y, behavior: 'smooth' });
-  };
 
   useEffect(() => {
     const onScroll = () => {
@@ -65,7 +65,7 @@ export function LandingContent({
             key={id}
             type="button"
             className={active === id ? 'active' : ''}
-            onClick={() => scrollTo(id)}
+            onClick={() => scrollToSection(id)}
             aria-label={label}
             title={label}
           />
@@ -77,8 +77,8 @@ export function LandingContent({
           <SiteNav comingSoon={comingSoon} selfServeEnabled={selfServeEnabled} />
 
           <Hero
-            onBook={() => scrollTo('rw-cta')}
-            onTry={() => scrollTo('rw-timeline')}
+            onBook={() => scrollToSection('rw-cta')}
+            onTry={() => scrollToSection('rw-timeline')}
             primaryCtaLabel={comingSoon ? 'Coming soon' : 'Join waitlist'}
             primaryCtaDisabled={comingSoon}
           />
@@ -103,7 +103,7 @@ export function LandingContent({
           )}
 
           <footer className="rw-foot">
-            <span>© {new Date().getFullYear()} RepWorth. All rights reserved.</span>
+            <span suppressHydrationWarning>© {new Date().getFullYear()} RepWorth. All rights reserved.</span>
             <span>
               <Link href="/legal/privacy">Privacy</Link>
               <Link href="/legal/terms">Terms &amp; Conditions</Link>

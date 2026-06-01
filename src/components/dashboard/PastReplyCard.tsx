@@ -1,5 +1,6 @@
 'use client';
 
+import { uniqueSiblingKey } from '@/lib/shared/unique-sibling-key';
 import { Icon } from './Icon';
 
 // PastReplyRow is the wire shape flowing from page.tsx → PastRepliesClient →
@@ -42,9 +43,9 @@ function fmt(iso: string): string {
   return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
-function renderStars(n: number | null) {
-  if (n == null) return null;
-  const filled = Math.round(Math.max(0, Math.min(5, n)));
+function Stars({ rating }: { rating: number | null }) {
+  if (rating == null) return null;
+  const filled = Math.round(Math.max(0, Math.min(5, rating)));
   return (
     <span className="stars" aria-label={`${filled} stars`}>
       {'★'.repeat(filled)}
@@ -60,15 +61,19 @@ function highlight(text: string | null, query?: string) {
   if (!trimmed) return text;
   const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const re = new RegExp(`(${escaped})`, 'gi');
-  return text.split(re).map((part, i) =>
-    re.test(part) ? (
-      <mark key={i} className="pr-mark">
+  const seen = new Map<string, number>();
+  return text.split(re).map((part) => {
+    const isMatch = part.toLocaleLowerCase() === trimmed.toLocaleLowerCase();
+    const key = uniqueSiblingKey(seen, `${isMatch ? 'mark' : 'text'}:${part}`);
+
+    return isMatch ? (
+      <mark key={key} className="pr-mark">
         {part}
       </mark>
     ) : (
-      <span key={i}>{part}</span>
-    ),
-  );
+      <span key={key}>{part}</span>
+    );
+  });
 }
 
 export function PastReplyCard({
@@ -97,7 +102,7 @@ export function PastReplyCard({
             <Icon name="google" size={12} /> Customer review
           </div>
           <div className="pr-meta">
-            {renderStars(row.star_rating)}
+            <Stars rating={row.star_rating} />
             <span className="pr-name">{row.reviewer_name ?? 'Anonymous'}</span>
             <span className="pr-date">{fmt(row.review_date)}</span>
           </div>

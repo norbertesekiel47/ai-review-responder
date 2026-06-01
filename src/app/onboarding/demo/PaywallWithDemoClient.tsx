@@ -34,6 +34,7 @@ export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoC
   // loading spinner would never clear. SSR is the source of truth here.
   const demo = initialDemo;
   const [pollCount, setPollCount] = useState(0);
+  const [nowMs, setNowMs] = useState<number | null>(null);
 
   // Postgres.js + PgBouncer can hand back JSONB columns as strings — guard
   // both shapes here rather than coupling the SSR layer to a specific driver.
@@ -70,6 +71,10 @@ export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoC
   }, [demo.generation_status, poll]);
 
   useEffect(() => {
+    if (demo.completed_at) setNowMs(Date.now());
+  }, [demo.completed_at]);
+
+  useEffect(() => {
     function handleVisibility() {
       if (document.visibilityState === 'visible') {
         setPollCount(0);
@@ -91,6 +96,10 @@ export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoC
   const isCompleted = demo.generation_status === 'completed';
   const isSkipped = demo.generation_status === 'skipped';
   const isFallback = demo.source === 'curated_fallback';
+  const staleAgeDays =
+    nowMs !== null && demo.completed_at
+      ? Math.floor((nowMs - new Date(demo.completed_at).getTime()) / (24 * 60 * 60 * 1000))
+      : null;
 
   return (
     <OnboardingFunnelShell step="preview">
@@ -108,14 +117,9 @@ export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoC
         </div>
       )}
 
-      {isStale && isCompleted && demo.completed_at && (
+      {isStale && isCompleted && staleAgeDays !== null && (
         <div className="bg-[#F0EEEA] rounded-xl p-3 mb-6 text-sm text-[#6a6a6a] text-center">
-          Last updated{' '}
-          {Math.floor(
-            (Date.now() - new Date(demo.completed_at).getTime()) /
-              (24 * 60 * 60 * 1000),
-          )}{' '}
-          days ago
+          Last updated {staleAgeDays} days ago
         </div>
       )}
 
@@ -138,11 +142,11 @@ export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoC
               <>
                 <div
                   className="w-12 h-12 mx-auto mb-4 rounded-full bg-[#F2C3B9]/40 flex items-center justify-center"
-                  role="img"
-                  aria-label="warning"
                 >
                   <svg
                     className="w-6 h-6 text-[#2a2a2a]"
+                    role="img"
+                    aria-label="Warning"
                     fill="none"
                     viewBox="0 0 24 24"
                     stroke="currentColor"

@@ -53,7 +53,7 @@ describe('PricingContent', () => {
     const html = renderToStaticMarkup(createElement(PricingContent));
 
     expect(html).toContain(
-      'aria-label="Plan comparison — scroll horizontally to compare all plans"',
+      'aria-label="Plan comparison, scroll horizontally to compare all plans"',
     );
     expect(html).toMatch(/class="pr-matrix"[^>]*tabindex="0"/);
   });

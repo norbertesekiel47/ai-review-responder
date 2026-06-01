@@ -2,17 +2,14 @@
 
 import type { DashboardDataActive } from '@/lib/dashboard/types';
 import { Icon } from './Icon';
+import { getBriefBullets } from './brief-bullets';
 
 interface Props {
   brief: NonNullable<DashboardDataActive['latestBrief']>;
 }
 
 export function IntelligenceBriefCard({ brief }: Props) {
-  const bullets = brief.text
-    .split(/\n+/)
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0)
-    .map((line) => line.replace(/^[-*•]\s*/, '').replace(/^\d+[.)]\s*/, ''));
+  const bullets = getBriefBullets(brief.text);
 
   return (
     <div className="card">
@@ -32,10 +29,10 @@ export function IntelligenceBriefCard({ brief }: Props) {
         </div>
       </div>
       <ul className="brief-list">
-        {bullets.map((b, i) => (
-          <li key={i} className="brief-li">
+        {bullets.map((bullet, i) => (
+          <li key={bullet.key} className="brief-li">
             <span className="brief-li-bullet">{i + 1}</span>
-            <span>{b}</span>
+            <span>{bullet.text}</span>
           </li>
         ))}
       </ul>

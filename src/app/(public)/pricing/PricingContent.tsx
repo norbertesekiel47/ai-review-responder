@@ -164,18 +164,18 @@ const CheckIcon = () => (
   </svg>
 );
 
-function PlanIcon({ icon }: { icon: TierIcon }) {
-  const common = {
-    fill: 'none',
-    stroke: 'currentColor',
-    strokeLinecap: 'round' as const,
-    strokeLinejoin: 'round' as const,
-    'aria-hidden': true,
-  };
+const PLAN_ICON_COMMON = {
+  fill: 'none',
+  stroke: 'currentColor',
+  strokeLinecap: 'round',
+  strokeLinejoin: 'round',
+  'aria-hidden': true,
+} as const;
 
+function PlanIcon({ icon }: { icon: TierIcon }) {
   if (icon === 'spark') {
     return (
-      <svg viewBox="0 0 24 24" {...common}>
+      <svg viewBox="0 0 24 24" {...PLAN_ICON_COMMON}>
         <path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3z" />
         <path d="M18 16l.8 2.2L21 19l-2.2.8L18 22l-.8-2.2L15 19l2.2-.8L18 16z" />
       </svg>
@@ -184,7 +184,7 @@ function PlanIcon({ icon }: { icon: TierIcon }) {
 
   if (icon === 'solo') {
     return (
-      <svg viewBox="0 0 24 24" {...common}>
+      <svg viewBox="0 0 24 24" {...PLAN_ICON_COMMON}>
         <path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8z" />
         <path d="M5 21a7 7 0 0 1 14 0" />
       </svg>
@@ -193,7 +193,7 @@ function PlanIcon({ icon }: { icon: TierIcon }) {
 
   if (icon === 'growth') {
     return (
-      <svg viewBox="0 0 24 24" {...common}>
+      <svg viewBox="0 0 24 24" {...PLAN_ICON_COMMON}>
         <path d="M4 19V5" />
         <path d="M4 19h16" />
         <path d="M7 15l4-4 3 3 5-7" />
@@ -202,7 +202,7 @@ function PlanIcon({ icon }: { icon: TierIcon }) {
   }
 
   return (
-    <svg viewBox="0 0 24 24" {...common}>
+    <svg viewBox="0 0 24 24" {...PLAN_ICON_COMMON}>
       <path d="M4 21V7l6-3 6 3v14" />
       <path d="M16 10l4 2v9" />
       <path d="M8 10h2M8 14h2M8 18h2" />
@@ -401,7 +401,7 @@ export function PricingContent({ selfServeEnabled = false }: { selfServeEnabled?
               <div className="pr-calc-head">
                 <div>
                   <p className="pr-calc-eyebrow">How much are reviews costing you?</p>
-                  <h2>See what you get back — before you pick a plan</h2>
+                  <h2>See what you get back before you pick a plan</h2>
                 </div>
               </div>
               <div className="pr-calc-grid">
@@ -440,7 +440,7 @@ export function PricingContent({ selfServeEnabled = false }: { selfServeEnabled?
             <div
               className="pr-matrix"
               role="group"
-              aria-label="Plan comparison — scroll horizontally to compare all plans"
+              aria-label="Plan comparison, scroll horizontally to compare all plans"
               tabIndex={0}
             >
               <div className="pr-matrix-grid">
@@ -451,16 +451,16 @@ export function PricingContent({ selfServeEnabled = false }: { selfServeEnabled?
                   <div className={`pr-matrix-cell hdr ${headerFeatured('standard') ? 'featured' : ''}`}>Standard</div>
                   <div className={`pr-matrix-cell hdr ${headerFeatured('premium') ? 'featured' : ''}`}>Premium</div>
                 </div>
-                {MATRIX.map((row, i) => {
+                {MATRIX.map((row) => {
                   if ('section' in row) {
                     return (
-                      <div key={`s-${i}`} className="pr-matrix-row">
+                      <div key={`section-${row.section}`} className="pr-matrix-row">
                         <div className="pr-matrix-cell section first">{row.section}</div>
                       </div>
                     );
                   }
                   return (
-                    <div key={`r-${i}`} className="pr-matrix-row">
+                    <div key={`feature-${row.label}`} className="pr-matrix-row">
                       <div className="pr-matrix-cell first">{row.label}</div>
                       <MatrixCell v={row.values[0] ?? ''} featured={headerFeatured('founders')} />
                       <MatrixCell v={row.values[1] ?? ''} featured={headerFeatured('basic')} />
