@@ -114,6 +114,8 @@ export function PlaceAutocomplete({
         containerRef.current.appendChild(element);
       })
       .catch((err: unknown) => {
+        if (cancelled) return;
+
         setError('Failed to load Google Maps — use the URL input instead');
         console.error('[PlaceAutocomplete] Load error:', err);
       });

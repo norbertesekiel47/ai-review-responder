@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, waitFor } from '@testing-library/react';
+import { act, render, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
@@ -27,9 +27,13 @@ let autocompleteElement: HTMLElement;
 
 function makeAutocompleteElement(): HTMLElement {
   const element = document.createElement('div');
+  const originalRemove = element.remove.bind(element);
   element.addEventListener = addEventListenerMock as unknown as typeof element.addEventListener;
   element.removeEventListener =
     removeEventListenerMock as unknown as typeof element.removeEventListener;
+  removeElementMock.mockImplementation(() => {
+    originalRemove();
+  });
   element.remove = removeElementMock as unknown as typeof element.remove;
   autocompleteElement = element;
   return element;
@@ -62,6 +66,36 @@ describe('PlaceAutocomplete', () => {
 
     expect(removeEventListenerMock).toHaveBeenCalledWith('gmp-select', handler);
     expect(removeElementMock).toHaveBeenCalledOnce();
+    expect(autocompleteElement.isConnected).toBe(false);
+  });
+
+  it('ignores loader rejection after unmount', async () => {
+    let rejectImport!: (reason: unknown) => void;
+    const importFailure = new Promise((_resolve, reject) => {
+      rejectImport = reject;
+    });
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    importLibraryMock.mockReturnValueOnce(importFailure);
+
+    try {
+      const { queryByText, unmount } = render(
+        <PlaceAutocomplete onPlaceSelect={vi.fn()} />,
+      );
+
+      unmount();
+
+      await act(async () => {
+        rejectImport(new Error('loader failed'));
+        await importFailure.catch(() => undefined);
+      });
+
+      expect(
+        queryByText('Failed to load Google Maps — use the URL input instead'),
+      ).toBeNull();
+      expect(consoleErrorSpy).not.toHaveBeenCalled();
+    } finally {
+      consoleErrorSpy.mockRestore();
+    }
   });
 
   it('does not call onPlaceSelect when fetchFields resolves after unmount', async () => {
