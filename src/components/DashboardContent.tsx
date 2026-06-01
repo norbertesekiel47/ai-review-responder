@@ -42,16 +42,18 @@ export function DashboardContent() {
   // OQ-3 — read URL hash on mount; auto-select Needs Action + scroll into view.
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    if (window.location.hash === '#needs-action') {
-      setInitialTab('needs');
-      // Defer until layout settles.
-      setTimeout(() => {
-        if (reviewsRef.current) {
-          const top = reviewsRef.current.getBoundingClientRect().top + window.scrollY - 80;
-          window.scrollTo({ top, behavior: 'smooth' });
-        }
-      }, 100);
-    }
+    if (window.location.hash !== '#needs-action') return;
+
+    setInitialTab('needs');
+    // Defer until layout settles.
+    const timeoutId = setTimeout(() => {
+      if (reviewsRef.current) {
+        const top = reviewsRef.current.getBoundingClientRect().top + window.scrollY - 80;
+        window.scrollTo({ top, behavior: 'smooth' });
+      }
+    }, 100);
+
+    return () => clearTimeout(timeoutId);
   }, []);
 
   // Push pending count to the layout-scoped context so MobileTabBar's "Needs

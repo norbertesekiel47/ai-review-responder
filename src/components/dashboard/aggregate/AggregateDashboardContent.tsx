@@ -38,15 +38,17 @@ export function AggregateDashboardContent({ data, refresh }: Props) {
   // Read URL hash on mount — auto-select Needs Action + scroll into view
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    if (window.location.hash === '#needs-action') {
-      setInitialTab('needs');
-      setTimeout(() => {
-        if (reviewsRef.current) {
-          const top = reviewsRef.current.getBoundingClientRect().top + window.scrollY - 80;
-          window.scrollTo({ top, behavior: 'smooth' });
-        }
-      }, 100);
-    }
+    if (window.location.hash !== '#needs-action') return;
+
+    setInitialTab('needs');
+    const timeoutId = setTimeout(() => {
+      if (reviewsRef.current) {
+        const top = reviewsRef.current.getBoundingClientRect().top + window.scrollY - 80;
+        window.scrollTo({ top, behavior: 'smooth' });
+      }
+    }, 100);
+
+    return () => clearTimeout(timeoutId);
   }, []);
 
   // Compute pending count across all locations
