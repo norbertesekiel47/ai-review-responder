@@ -70,8 +70,14 @@ function ArchiveConfirmModal({
   loading: boolean;
 }) {
   return (
-    <div className="modal-overlay" onClick={onCancel}>
-      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+    <div className="modal-overlay">
+      <button
+        type="button"
+        className="modal-backdrop"
+        aria-label="Cancel archive"
+        onClick={onCancel}
+      />
+      <div className="modal-content">
         <div className="set-section-title" style={{ marginBottom: 8 }}>
           Archive &ldquo;{locationName}&rdquo;?
         </div>
@@ -124,8 +130,14 @@ function PromoteFirstModal({
   onCancel: () => void;
 }) {
   return (
-    <div className="modal-overlay" onClick={onCancel}>
-      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+    <div className="modal-overlay">
+      <button
+        type="button"
+        className="modal-backdrop"
+        aria-label="Close promote first dialog"
+        onClick={onCancel}
+      />
+      <div className="modal-content">
         <div className="set-section-title" style={{ marginBottom: 8 }}>
           Promote first
         </div>
@@ -160,8 +172,14 @@ function PromotePrimaryConfirmModal({
   loading: boolean;
 }) {
   return (
-    <div className="modal-overlay" onClick={onCancel}>
-      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+    <div className="modal-overlay">
+      <button
+        type="button"
+        className="modal-backdrop"
+        aria-label="Cancel primary location change"
+        onClick={onCancel}
+      />
+      <div className="modal-content">
         <div className="set-section-title" style={{ marginBottom: 8 }}>
           Make &quot;{locationName}&quot; primary?
         </div>

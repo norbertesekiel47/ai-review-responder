@@ -40,8 +40,14 @@ function TierChangeModal({
   const isDowngrade = TIER_CONFIG[newTier].baseCents < TIER_CONFIG[currentTier].baseCents;
 
   return (
-    <div className="modal-overlay" onClick={onCancel}>
-      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+    <div className="modal-overlay">
+      <button
+        type="button"
+        className="modal-backdrop"
+        aria-label="Cancel tier change"
+        onClick={onCancel}
+      />
+      <div className="modal-content">
         <div className="set-section-title" style={{ marginBottom: 8 }}>
           {isDowngrade ? 'Downgrade' : 'Upgrade'} to {newTier.charAt(0).toUpperCase() + newTier.slice(1)}?
         </div>

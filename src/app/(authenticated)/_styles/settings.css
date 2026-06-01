@@ -716,7 +716,17 @@
   justify-content: center;
   animation: fadeIn 160ms var(--rw-ease);
 }
+.modal-backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: default;
+}
 .modal-content {
+  position: relative;
+  z-index: 1;
   background: #fff;
   border-radius: 14px;
   padding: 24px;
