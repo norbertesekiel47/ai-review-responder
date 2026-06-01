@@ -12,6 +12,7 @@ import { LocationKpiStrip } from '@/components/dashboard/aggregate/LocationKpiSt
 import { PastDueBanner } from '@/components/dashboard/SubscriptionStatusBanner';
 import { PastDueModal } from '@/components/dashboard/PastDueModal';
 import { useSetPendingCount } from '@/components/dashboard/PendingCountContext';
+import { useNeedsActionHashScroll } from '@/components/dashboard/useNeedsActionHashScroll';
 
 interface Props {
   data: AggregateDashboardData;
@@ -35,21 +36,7 @@ export function AggregateDashboardContent({ data, refresh }: Props) {
   const reviewsRef = useRef<HTMLDivElement | null>(null);
   const [initialTab, setInitialTab] = useState<'needs' | 'all'>('needs');
 
-  // Read URL hash on mount — auto-select Needs Action + scroll into view
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    if (window.location.hash !== '#needs-action') return;
-
-    setInitialTab('needs');
-    const timeoutId = setTimeout(() => {
-      if (reviewsRef.current) {
-        const top = reviewsRef.current.getBoundingClientRect().top + window.scrollY - 80;
-        window.scrollTo({ top, behavior: 'smooth' });
-      }
-    }, 100);
-
-    return () => clearTimeout(timeoutId);
-  }, []);
+  useNeedsActionHashScroll(reviewsRef, () => setInitialTab('needs'));
 
   // Compute pending count across all locations
   const pendingCount = data.recentReviews.filter(
