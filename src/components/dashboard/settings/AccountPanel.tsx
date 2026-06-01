@@ -41,7 +41,11 @@ function TierChangeModal({
   const isDowngrade = TIER_CONFIG[newTier].baseCents < TIER_CONFIG[currentTier].baseCents;
 
   return (
-    <SettingsModal closeLabel="Cancel tier change" onClose={onCancel}>
+    <SettingsModal
+      title={isDowngrade ? 'Downgrade plan' : 'Upgrade plan'}
+      closeLabel="Cancel tier change"
+      onClose={onCancel}
+    >
         <div className="set-section-title" style={{ marginBottom: 8 }}>
           {isDowngrade ? 'Downgrade' : 'Upgrade'} to {newTier.charAt(0).toUpperCase() + newTier.slice(1)}?
         </div>

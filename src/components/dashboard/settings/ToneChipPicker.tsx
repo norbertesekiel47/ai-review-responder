@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { Icon } from '@/components/dashboard/Icon';
 
 const TONES: { id: string; label: string; canonical: string; preview: string }[] = [
@@ -41,31 +41,31 @@ export function ToneChipPicker({ tone, onChange }: Props) {
   // Track the last value we wrote so we can tell when `tone` changed
   // externally (e.g. parent called Discard, or initial fetch resolved).
   // External changes drop the override so the chip strip reflects truth.
-  const lastWrittenRef = useRef(tone);
-  useEffect(() => {
-    if (tone !== lastWrittenRef.current) {
-      setOverride(null);
-      lastWrittenRef.current = tone;
-    }
-  }, [tone]);
+  // Reconciled during render (not an effect) so the reset lands in the same
+  // commit as the prop change — no stale-UI flash between renders.
+  const [lastWritten, setLastWritten] = useState(tone);
+  if (tone !== lastWritten) {
+    setLastWritten(tone);
+    setOverride(null);
+  }
 
   const active = override ?? inferActiveTone(tone);
   const preview = TONES.find((t) => t.id === active)?.preview ?? FALLBACK_PREVIEW;
 
   const pickPreset = (id: string, canonical: string) => {
     setOverride(id);
-    lastWrittenRef.current = canonical;
+    setLastWritten(canonical);
     onChange(canonical);
   };
 
   const pickCustom = () => {
     setOverride('custom');
     // Don't clobber the existing tone — the user may want to edit it.
-    // lastWrittenRef stays as-is; tone hasn't changed.
+    // lastWritten stays as-is; tone hasn't changed.
   };
 
   const handleCustomTyping = (next: string) => {
-    lastWrittenRef.current = next;
+    setLastWritten(next);
     onChange(next);
   };
 

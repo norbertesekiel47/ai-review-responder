@@ -71,7 +71,7 @@ function ArchiveConfirmModal({
   loading: boolean;
 }) {
   return (
-    <SettingsModal closeLabel="Cancel archive" onClose={onCancel}>
+    <SettingsModal title="Archive location" closeLabel="Cancel archive" onClose={onCancel}>
       <div className="set-section-title" style={{ marginBottom: 8 }}>
         Archive &ldquo;{locationName}&rdquo;?
       </div>
@@ -123,7 +123,7 @@ function PromoteFirstModal({
   onCancel: () => void;
 }) {
   return (
-    <SettingsModal closeLabel="Close promote first dialog" onClose={onCancel}>
+    <SettingsModal title="Promote first" closeLabel="Close promote first dialog" onClose={onCancel}>
       <div className="set-section-title" style={{ marginBottom: 8 }}>
         Promote first
       </div>
@@ -157,7 +157,7 @@ function PromotePrimaryConfirmModal({
   loading: boolean;
 }) {
   return (
-    <SettingsModal closeLabel="Cancel primary location change" onClose={onCancel}>
+    <SettingsModal title="Make location primary" closeLabel="Cancel primary location change" onClose={onCancel}>
       <div className="set-section-title" style={{ marginBottom: 8 }}>
         Make &quot;{locationName}&quot; primary?
       </div>
