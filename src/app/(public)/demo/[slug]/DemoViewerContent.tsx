@@ -5,6 +5,7 @@ import { motion } from 'motion/react';
 import { PageShell } from '@/components/ui/PageShell';
 import { SiteNav } from '@/components/ui/SiteNav';
 import type { NormalizedReview } from '@/lib/reviews/types';
+import { getNormalizedReviewRows } from '@/lib/reviews/stable-key';
 import type { GenerationResult } from '@/lib/responses/types';
 
 interface DemoViewerContentProps {
@@ -16,6 +17,7 @@ interface DemoViewerContentProps {
 
 export function DemoViewerContent({ businessName, reviews, responses, selfServeEnabled }: DemoViewerContentProps) {
   const successCount = responses.filter((r) => r !== null).length;
+  const reviewRows = getNormalizedReviewRows(reviews);
 
   const languages = new Set<string>();
   for (const review of reviews) languages.add(review.detectedLanguage);
@@ -50,8 +52,8 @@ export function DemoViewerContent({ businessName, reviews, responses, selfServeE
       {/* Feed */}
       <div className="px-8 pb-12 bg-white">
         <div className="max-w-3xl mx-auto space-y-6">
-          {reviews.map((review, index) => (
-            <ReviewCard key={index} review={review} response={responses[index] ?? null} index={index} />
+          {reviewRows.map(({ key, review, index }) => (
+            <ReviewCard key={key} review={review} response={responses[index] ?? null} index={index} />
           ))}
         </div>
       </div>

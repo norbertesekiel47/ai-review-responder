@@ -24,6 +24,7 @@ Defer:
 - `no-adjust-state-on-prop-change`, `no-derived-useState`, and `no-derived-state-effect` unless a focused stale-UI bug is proven during this slice.
 - `exhaustive-deps` findings in mount-only flows (`StepLocation`, `LoginForm`, `useLocationVoiceForm`, `FeaturesContent`, `TopBar`) because naive dependency additions would rerun redirects, fetches, or timer setup.
 - Static placeholder dots created by `Array.from({ length })`, which React Doctor already mostly treats as positional placeholders.
+- `TickerBar`'s static tile key: the key itself is trivial, but touching the file surfaces a pre-existing `no-adjust-state-on-prop-change` error in its visibility hook. Leave that file to a focused state/effect slice instead of mixing it into key cleanup.
 
 ## Files
 
@@ -41,7 +42,6 @@ Defer:
 - Modify: `src/app/onboarding/_shared/OnboardingFunnelShell.tsx`
 - Modify: `src/components/ui/PageShell.tsx`
 - Modify: `src/components/sections/features/FeaturesContent.tsx`
-- Modify: `src/components/sections/landing/TickerBar.tsx`
 - Modify: `src/components/sections/landing/LandingContent.tsx`
 - Modify: `src/components/auth/FinishSignupClient.tsx`
 - Modify: `src/components/auth/__tests__/FinishSignupClient.test.tsx`
@@ -186,7 +186,6 @@ Use existing unique strings:
 - `PricingContent`: `section-${row.section}`, `feature-${row.label}`
 - `OnboardingFunnelShell`: `card.className`
 - `PageShell`: `card.className`
-- `TickerBar`: add `id` to each item and use `it.id`
 - `FeaturesContent`: use words, metric labels, and add a `loop` marker for duplicated marquee reviews.
 
 - [ ] **Step 2: Run a React Doctor diff spot-check**

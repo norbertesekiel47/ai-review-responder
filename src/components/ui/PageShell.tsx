@@ -38,9 +38,9 @@ export function PageShell({ sections, children, maxWidthClassName = 'max-w-5xl' 
           { style: { y: bgY2 }, className: 'absolute top-[500px] right-20 w-72 h-64', dots: 4 },
           { style: { y: bgY3 }, className: 'absolute top-[1000px] left-[15%] w-56 h-72', dots: 5 },
           { style: { y: bgY4 }, className: 'absolute top-[1400px] right-[10%] w-64 h-56', dots: 5 },
-        ].map((card, i) => (
+        ].map((card) => (
           <motion.div
-            key={i}
+            key={card.className}
             style={card.style}
             className={`${card.className} bg-white/40 backdrop-blur-md rounded-3xl shadow-xl p-6 border border-white/60`}
           >

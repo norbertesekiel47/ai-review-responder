@@ -21,6 +21,15 @@ describe('FinishSignupClient', () => {
     }
   });
 
+  it('renders the account email as disabled and read-only', () => {
+    render(<FinishSignupClient defaultEmail="owner@example.com" defaultName="Owner" />);
+
+    const email = screen.getByLabelText(/email/i);
+
+    expect(email).toBeDisabled();
+    expect(email).toHaveAttribute('readOnly');
+  });
+
   it('announces a submission error via an assertive live region', async () => {
     const user = userEvent.setup();
     vi.stubGlobal(

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import { importLibrary, setOptions } from '@googlemaps/js-api-loader';
 
 export interface PlaceSelection {
@@ -37,6 +37,7 @@ export function PlaceAutocomplete({
   const containerRef = useRef<HTMLDivElement>(null);
   const [selection, setSelection] = useState<PlaceSelection | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const onPlaceSelectEvent = useEffectEvent(onPlaceSelect);
 
   useEffect(() => {
     let cancelled = false;
@@ -109,7 +110,7 @@ export function PlaceAutocomplete({
 
             setSelection(result);
             setError(null);
-            onPlaceSelect(result);
+            onPlaceSelectEvent(result);
           } catch (err: unknown) {
             if (cancelled) return;
 
@@ -137,7 +138,7 @@ export function PlaceAutocomplete({
       }
       element?.remove();
     };
-  }, [ariaLabel, ariaLabelledBy, placeholder, onPlaceSelect]);
+  }, [ariaLabel, ariaLabelledBy, placeholder]);
 
   const handleClear = () => {
     setSelection(null);

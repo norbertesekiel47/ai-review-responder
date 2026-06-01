@@ -38,9 +38,9 @@ export function OnboardingFunnelShell({
   return (
     <div className="min-h-screen bg-[#D2E0D3] relative">
       <div className="fixed inset-0 pointer-events-none" aria-hidden="true">
-        {ATMOSPHERE.map((card, i) => (
+        {ATMOSPHERE.map((card) => (
           <div
-            key={i}
+            key={card.className}
             className={`${card.className} bg-white/40 backdrop-blur-md rounded-3xl shadow-xl p-6 border border-white/60`}
           >
             <div className="flex gap-1 mb-3">

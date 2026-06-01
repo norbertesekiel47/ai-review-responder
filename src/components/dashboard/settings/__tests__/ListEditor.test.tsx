@@ -32,6 +32,19 @@ describe('ListEditor', () => {
     expect(onChange).toHaveBeenLastCalledWith(['b']);
   });
 
+  it('keeps the remaining row value after removing the first item', async () => {
+    const onChange = vi.fn();
+    const user = userEvent.setup();
+    const { rerender } = render(
+      <ListEditor items={['first', 'second']} onChange={onChange} placeholder="" addLabel="Add" />,
+    );
+
+    await user.click(screen.getAllByRole('button', { name: /remove/i })[0]!);
+    rerender(<ListEditor items={['second']} onChange={onChange} placeholder="" addLabel="Add" />);
+
+    expect(screen.getByRole('textbox')).toHaveValue('second');
+  });
+
   it('appends an empty row on add click', async () => {
     const onChange = vi.fn();
     const user = userEvent.setup();

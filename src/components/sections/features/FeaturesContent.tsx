@@ -39,6 +39,11 @@ const MARQUEE_REVIEWS: Array<{ lang: string; stars: string; text: string }> = [
   { lang: 'EN', stars: '★★★★☆', text: '"Made my Monday — David K."' },
 ];
 
+const MARQUEE_REVIEW_LOOP = [
+  ...MARQUEE_REVIEWS.map((review) => ({ ...review, loop: 'first' as const })),
+  ...MARQUEE_REVIEWS.map((review) => ({ ...review, loop: 'second' as const })),
+];
+
 function useReveal<T extends HTMLElement>() {
   const ref = useRef<T>(null);
   const [seen, setSeen] = useState(false);
@@ -223,7 +228,7 @@ export function FeaturesContent({
                   <span className="rw-hero-line">
                     {HERO_WORDS_LINE_1.map((w, i) => (
                       <span
-                        key={`l1-${i}`}
+                        key={w}
                         className={`rw-hero-word ${heroIn ? 'in' : ''}`}
                         style={{ ['--word-delay' as string]: `${80 + i * 80}ms` }}
                       >
@@ -240,7 +245,7 @@ export function FeaturesContent({
                     </span>
                     {HERO_WORDS_LINE_2.slice(1).map((w, i) => (
                       <span
-                        key={`l2-${i}`}
+                        key={w}
                         className={`rw-hero-word ${heroIn ? 'in' : ''}`}
                         style={{
                           ['--word-delay' as string]: `${80 + (HERO_WORDS_LINE_1.length + 1 + i) * 80}ms`,
@@ -266,7 +271,7 @@ export function FeaturesContent({
                   { val: m3, target: 30, suffix: 'sec', label: 'Owner time per\napproval, after week 4', delay: '1.4s' },
                 ].map((m, i) => (
                   <div
-                    key={i}
+                    key={m.label}
                     className={`rw-hero-metric relative flex items-baseline gap-3 ${i < 2 ? 'pb-3' : ''} ${heroIn ? 'in' : ''}`}
                     style={
                       {
@@ -291,9 +296,9 @@ export function FeaturesContent({
             {/* Hero review marquee */}
             <div className="mt-14 -mx-8 md:-mx-16 rw-feat-marquee-mask">
               <div className="rw-feat-marquee-track flex gap-3 whitespace-nowrap w-max">
-                {[...MARQUEE_REVIEWS, ...MARQUEE_REVIEWS].map((r, i) => (
+                {MARQUEE_REVIEW_LOOP.map((r) => (
                   <div
-                    key={i}
+                    key={`${r.loop}-${r.lang}-${r.text}`}
                     className="flex items-center gap-3 px-4 py-2.5 rounded-full bg-[#F0EEEA]/70 border border-[#97B3AE]/15"
                   >
                     <span className="rw-label-mono text-[10px] uppercase text-[#97B3AE]">

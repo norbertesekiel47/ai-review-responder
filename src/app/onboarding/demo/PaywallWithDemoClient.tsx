@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import type { NormalizedReview } from '@/lib/reviews/types';
+import { getNormalizedReviewRows } from '@/lib/reviews/stable-key';
 import type { GenerationResult } from '@/lib/responses/types';
 import { motion } from 'motion/react';
 import { OnboardingFunnelShell } from '../_shared/OnboardingFunnelShell';
@@ -34,6 +35,7 @@ export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoC
   // loading spinner would never clear. SSR is the source of truth here.
   const demo = initialDemo;
   const [pollCount, setPollCount] = useState(0);
+  const [nowMs, setNowMs] = useState<number | null>(null);
 
   // Postgres.js + PgBouncer can hand back JSONB columns as strings — guard
   // both shapes here rather than coupling the SSR layer to a specific driver.
@@ -46,6 +48,7 @@ export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoC
     typeof demo.generated_responses === 'string'
       ? JSON.parse(demo.generated_responses)
       : demo.generated_responses ?? [];
+  const reviewRows = getNormalizedReviewRows(reviews);
 
   const poll = useCallback(async () => {
     if (pollCount >= MAX_POLLS) return;
@@ -70,6 +73,10 @@ export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoC
   }, [demo.generation_status, poll]);
 
   useEffect(() => {
+    if (demo.completed_at) setNowMs(Date.now());
+  }, [demo.completed_at]);
+
+  useEffect(() => {
     function handleVisibility() {
       if (document.visibilityState === 'visible') {
         setPollCount(0);
@@ -91,6 +98,10 @@ export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoC
   const isCompleted = demo.generation_status === 'completed';
   const isSkipped = demo.generation_status === 'skipped';
   const isFallback = demo.source === 'curated_fallback';
+  const staleAgeDays =
+    nowMs !== null && demo.completed_at
+      ? Math.floor((nowMs - new Date(demo.completed_at).getTime()) / (24 * 60 * 60 * 1000))
+      : null;
 
   return (
     <OnboardingFunnelShell step="preview">
@@ -108,14 +119,9 @@ export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoC
         </div>
       )}
 
-      {isStale && isCompleted && demo.completed_at && (
+      {isStale && isCompleted && staleAgeDays !== null && (
         <div className="bg-[#F0EEEA] rounded-xl p-3 mb-6 text-sm text-[#6a6a6a] text-center">
-          Last updated{' '}
-          {Math.floor(
-            (Date.now() - new Date(demo.completed_at).getTime()) /
-              (24 * 60 * 60 * 1000),
-          )}{' '}
-          days ago
+          Last updated {staleAgeDays} days ago
         </div>
       )}
 
@@ -198,9 +204,9 @@ export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoC
 
       {isCompleted && (
         <div className="space-y-6">
-          {reviews.map((review, index) => (
+          {reviewRows.map(({ key, review, index }) => (
             <ReviewCard
-              key={index}
+              key={key}
               review={review}
               response={responses[index] ?? null}
             />

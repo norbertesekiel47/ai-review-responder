@@ -60,15 +60,22 @@ function highlight(text: string | null, query?: string) {
   if (!trimmed) return text;
   const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const re = new RegExp(`(${escaped})`, 'gi');
-  return text.split(re).map((part, i) =>
-    re.test(part) ? (
-      <mark key={i} className="pr-mark">
+  const seen = new Map<string, number>();
+  return text.split(re).map((part) => {
+    const isMatch = part.toLocaleLowerCase() === trimmed.toLocaleLowerCase();
+    const keyBase = `${isMatch ? 'mark' : 'text'}-${part}`;
+    const occurrence = seen.get(keyBase) ?? 0;
+    seen.set(keyBase, occurrence + 1);
+    const key = occurrence === 0 ? keyBase : `${keyBase}-${occurrence}`;
+
+    return isMatch ? (
+      <mark key={key} className="pr-mark">
         {part}
       </mark>
     ) : (
-      <span key={i}>{part}</span>
-    ),
-  );
+      <span key={key}>{part}</span>
+    );
+  });
 }
 
 export function PastReplyCard({

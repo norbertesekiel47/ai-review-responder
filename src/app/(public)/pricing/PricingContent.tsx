@@ -451,16 +451,16 @@ export function PricingContent({ selfServeEnabled = false }: { selfServeEnabled?
                   <div className={`pr-matrix-cell hdr ${headerFeatured('standard') ? 'featured' : ''}`}>Standard</div>
                   <div className={`pr-matrix-cell hdr ${headerFeatured('premium') ? 'featured' : ''}`}>Premium</div>
                 </div>
-                {MATRIX.map((row, i) => {
+                {MATRIX.map((row) => {
                   if ('section' in row) {
                     return (
-                      <div key={`s-${i}`} className="pr-matrix-row">
+                      <div key={`section-${row.section}`} className="pr-matrix-row">
                         <div className="pr-matrix-cell section first">{row.section}</div>
                       </div>
                     );
                   }
                   return (
-                    <div key={`r-${i}`} className="pr-matrix-row">
+                    <div key={`feature-${row.label}`} className="pr-matrix-row">
                       <div className="pr-matrix-cell first">{row.label}</div>
                       <MatrixCell v={row.values[0] ?? ''} featured={headerFeatured('founders')} />
                       <MatrixCell v={row.values[1] ?? ''} featured={headerFeatured('basic')} />
