@@ -37,6 +37,7 @@ export function PlaceAutocomplete({
   useEffect(() => {
     let cancelled = false;
     let element: HTMLElement | null = null;
+    let handleSelect: ((event: Event) => Promise<void>) | null = null;
 
     // Force light theme on the web component (system may be in dark mode)
     const styleId = 'gmp-autocomplete-light';
@@ -64,12 +65,12 @@ export function PlaceAutocomplete({
 
         element = new PlaceAutocompleteElement({
           includedPrimaryTypes: ['establishment'],
-        });
+        }) as HTMLElement;
 
-        element!.setAttribute('placeholder', placeholder);
-        element!.style.width = '100%';
+        element.setAttribute('placeholder', placeholder);
+        element.style.width = '100%';
 
-        element!.addEventListener('gmp-select', async (event: Event) => {
+        handleSelect = async (event: Event) => {
           try {
             const { placePrediction } = event as any;
             if (!placePrediction) {
@@ -101,10 +102,12 @@ export function PlaceAutocomplete({
             setError('Failed to load place details');
             console.error('[PlaceAutocomplete]', err);
           }
-        });
+        };
 
-        containerRef.current!.innerHTML = '';
-        containerRef.current!.appendChild(element!);
+        element.addEventListener('gmp-select', handleSelect);
+
+        containerRef.current.innerHTML = '';
+        containerRef.current.appendChild(element);
       })
       .catch((err: unknown) => {
         setError('Failed to load Google Maps — use the URL input instead');
@@ -113,6 +116,10 @@ export function PlaceAutocomplete({
 
     return () => {
       cancelled = true;
+      if (element && handleSelect) {
+        element.removeEventListener('gmp-select', handleSelect);
+      }
+      element?.remove();
     };
   }, [placeholder, onPlaceSelect]);
 
