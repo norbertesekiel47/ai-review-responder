@@ -20,18 +20,25 @@ these. If a term here disagrees with CLAUDE.md, CLAUDE.md wins.
   is never eligible (guarded explicitly, not via SQL NULL-comparison semantics).
 
 - **Origin lane** — *which ingestion path produced this draft.* An explicit,
-  greppable enum carried in the `generate_response` payload:
+  greppable, **required** enum carried in the `generate_response` payload. It is
+  **fail-closed**: only the exact value `'live_ingest'` is auto-eligible; every
+  other value — `'backfill'`, `'regenerate'`, an unknown string, *or a missing
+  field* — resolves to manual. There is **no default-to-live**.
   - `'live_ingest'` — live, post-connect reviews (`ZernioReviewIngestWorker` /
-    `ZernioRecentReviewPoller`). **The only auto-eligible lane.**
-  - `'backfill'` — first-connect historical backfill (`ZernioBackfillWorker`).
-    Never auto.
-  - `'regenerate'` — owner-initiated re-draft of an already-posted reply
-    (`/api/dashboard/past-replies/draft`, `EDIT_REPLIES_ENABLED`). Never auto.
-  - **`isLiveIngestLane`** = `origin_lane === 'live_ingest'`.
+    `ZernioRecentReviewPoller` → `process-review.ts`, never suppresses). **The
+    only auto-eligible value.**
+  - `'backfill'` — first-connect historical backfill (`ZernioBackfillWorker` →
+    `process-review.ts`, suppresses). Never auto.
+  - `'regenerate'` — re-draft of an existing/posted reply. **Five producers**,
+    all of which must set this value: `past-replies/draft/route.ts:228`; the
+    approval supersede-regenerate paths `token-mode.ts:153`, `session-mode.ts:174`,
+    `callback-mode.ts:99`; and the admin held-draft re-generate
+    `admin/flagged/route.ts:254`. Never auto.
+  - **`isLiveIngestLane`** = `origin_lane === 'live_ingest'` (exact match only).
   - This signal is **distinct from `suppressNotification`**: that flag has more
-    than one producer (backfill *and* regenerate both set it), so it cannot mean
-    "is backfill." Origin lane is the single owner of "which lane," carrying its
-    own meaning instead of overloading a notification flag.
+    than one producer (backfill *and* the regenerate lanes set it), so it cannot
+    mean "is backfill." Origin lane is the single owner of "which lane," carrying
+    its own meaning instead of overloading a notification flag.
 
 - **`suppressNotification`** — *do not send the owner an approval notification for
   this draft.* Set by both backfill and the regenerate path. It is **not** an
