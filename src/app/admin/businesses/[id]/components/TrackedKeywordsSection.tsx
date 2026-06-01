@@ -83,6 +83,7 @@ export function TrackedKeywordsSection({ businessId, keywords: initialKeywords }
       </div>
       <div className="flex gap-2">
         <input
+          aria-label="New tracked keyword"
           type="text"
           value={newKeyword}
           onChange={(e) => { setNewKeyword(e.target.value); setError(null); }}

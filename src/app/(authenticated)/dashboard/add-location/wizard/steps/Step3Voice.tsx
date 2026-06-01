@@ -72,7 +72,9 @@ export function Step3Voice({
                 <Icon name="lightbulb" size={18} />
               </div>
               <div>
-                <div className="set-section-title">Products &amp; services</div>
+                <label className="set-section-title" htmlFor="add-location-products-services">
+                  Products &amp; services
+                </label>
                 <div className="set-section-sub">
                   A short description so we know what to highlight.
                 </div>
@@ -80,6 +82,7 @@ export function Step3Voice({
             </div>
             <div className="field">
               <textarea
+                id="add-location-products-services"
                 className="textarea textarea-tall"
                 maxLength={2000}
                 value={voiceForm.productsServices}
@@ -108,6 +111,7 @@ export function Step3Voice({
               onChange={(v) => onVoiceFieldChange('avoidFacts', v)}
               placeholder="e.g. We never discount on weekends"
               addLabel="Add another"
+              itemLabel="thing to avoid"
               maxItems={20}
               maxLength={500}
             />
@@ -131,6 +135,7 @@ export function Step3Voice({
               onChange={(v) => onVoiceFieldChange('sampleResponses', v)}
               placeholder="Paste a reply you're proud of"
               addLabel="Add another"
+              itemLabel="sample reply"
               maxItems={10}
               maxLength={2000}
             />

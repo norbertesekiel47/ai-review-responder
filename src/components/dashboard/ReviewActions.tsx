@@ -99,6 +99,7 @@ export function ReviewActions({
     return (
       <div className="mt-2 space-y-2">
         <textarea
+          aria-label="Edit reply text"
           value={editText}
           onChange={(e) => setEditText(e.target.value)}
           maxLength={2000}

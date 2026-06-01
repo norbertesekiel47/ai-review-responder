@@ -188,10 +188,16 @@ export function ChannelsTabClient(props: Props) {
             />
           </div>
           <div className="field">
-            <label className="field-label">
+            <label className="field-label" htmlFor="ownerEmail">
               Email <span className="locked-pill">Locked</span>
             </label>
-            <input className="input locked" value={f.data.settings.ownerEmail} disabled readOnly />
+            <input
+              id="ownerEmail"
+              className="input locked"
+              value={f.data.settings.ownerEmail}
+              disabled
+              readOnly
+            />
           </div>
         </div>
       </div>

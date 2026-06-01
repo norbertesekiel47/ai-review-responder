@@ -362,24 +362,25 @@ export function AccountPanel({ data, accountData, accountLoading, accountError, 
 
         <div className="two-col">
           <div className="field">
-            <label className="field-label">
+            <label className="field-label" htmlFor="account-business-name">
               Business name <span className="locked-pill">Locked</span>
             </label>
-            <input className="input locked" value={data.business.name} disabled readOnly />
+            <input id="account-business-name" className="input locked" value={data.business.name} disabled readOnly />
           </div>
           <div className="field">
-            <label className="field-label">
+            <label className="field-label" htmlFor="account-business-category">
               Category <span className="locked-pill">Locked</span>
             </label>
-            <input className="input locked" value={data.settings.category} disabled readOnly />
+            <input id="account-business-category" className="input locked" value={data.settings.category} disabled readOnly />
           </div>
         </div>
         <div className="field">
-          <label className="field-label">
+          <label className="field-label" htmlFor="account-google-place-id">
             Google Place ID <span className="locked-pill">Locked</span>
           </label>
           <div className="copy-row">
             <input
+              id="account-google-place-id"
               className="input locked"
               value={data.settings.googlePlaceId}
               disabled

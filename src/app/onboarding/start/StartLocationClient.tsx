@@ -130,6 +130,7 @@ export function StartLocationClient() {
 
         {inputMode === 'autocomplete' ? (
           <PlaceAutocomplete
+            ariaLabel="Business location"
             onPlaceSelect={(sel) => {
               setGooglePlaceId(sel.placeId);
               setGooglePlaceAddress(sel.formattedAddress);
@@ -143,6 +144,7 @@ export function StartLocationClient() {
           />
         ) : (
           <input
+            aria-label="Google Maps URL"
             type="text"
             value={googleMapsUrl}
             onChange={(e) => setGoogleMapsUrl(e.target.value)}

@@ -94,6 +94,7 @@ export function ToneChipPicker({ tone, onChange }: Props) {
       {active === 'custom' && (
         <div className="field" style={{ marginTop: 12 }}>
           <textarea
+            aria-label="Custom response tone"
             className="textarea"
             maxLength={100}
             value={tone}

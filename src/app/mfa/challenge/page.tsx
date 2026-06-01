@@ -303,7 +303,6 @@ export function MfaChallengeForm() {
               inputMode="numeric"
               pattern="[0-9]*"
               autoComplete="one-time-code"
-              autoFocus
               required
             />
           </div>

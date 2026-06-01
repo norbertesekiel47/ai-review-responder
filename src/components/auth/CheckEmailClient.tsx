@@ -157,7 +157,6 @@ function CheckEmailInner() {
               type="text"
               inputMode="numeric"
               autoComplete="one-time-code"
-              autoFocus
               required
               minLength={8}
               maxLength={8}

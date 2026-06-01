@@ -327,7 +327,7 @@ function LocationRow({
                 value={newLabel}
                 onChange={(e) => setNewLabel(e.target.value)}
                 style={{ fontSize: 14, fontWeight: 600 }}
-                autoFocus
+                aria-label="Location display name"
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') handleSaveLabel();
                   if (e.key === 'Escape') { setEditingLabel(false); setNewLabel(displayName); }
