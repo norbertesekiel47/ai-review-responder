@@ -64,12 +64,19 @@ Fix error-class diagnostics first, but classify each one before editing.
     equivalent cleanup can leak work after unmount or after an effect reruns.
   - Current examples include `PlaceAutocomplete`, dashboard hash-scroll timers,
     aggregate dashboard hash-scroll timers, and edit-reply polling timers.
+  - The edit-reply polling timer is the highest-risk target because it is a
+    self-rescheduling `setTimeout(tick, ...)` loop. Preserve recursive polling:
+    store the active timer id, clear exactly that id in cleanup, and add a
+    dedicated regression test proving polling continues while regenerating and
+    stops after unmount/state exit.
 
 - `react-doctor/no-adjust-state-on-prop-change`
   - Fix only where the state reset can show stale UI, reset user input
     incorrectly, or cause hydration/render glitches.
   - Prefer deriving state, lazy initialization, or render-time prev-prop
     reconciliation over effect-driven resets.
+  - Treat each refactor as a behavior change. If a touched component has no
+    existing test, add a focused regression test or defer the refactor.
 
 **Review carefully before changing**
 
@@ -81,6 +88,9 @@ Fix error-class diagnostics first, but classify each one before editing.
     validation plus CSRF/device cookie setup for the approval page.
   - Do not convert this route to POST unless a manual security review finds a
     real unsafe state mutation.
+  - Do not remove or relocate `setDeviceCookie` or `setCsrfCookie` to appease
+    the rule. Cookie setup on GET is part of the approved approval-security
+    flow; the actual approval mutation stays in POST routes.
 
 ### Tier 1: Accessibility
 
@@ -97,6 +107,11 @@ Preferred fixes use semantic controls first: `button`, `label`, `fieldset`,
 `legend`, and visible text. Use `aria-label` or `aria-labelledby` only when a
 visible label would be inappropriate for the existing UI.
 
+When replacing a clickable non-button with `button`, preserve the existing
+non-submit behavior with `type="button"` unless the control is intentionally
+submitting a form. Reset or reuse existing classes so native button styling does
+not shift layout, and spot-check tab order after the change.
+
 ### Tier 2: Correctness
 
 Fix correctness warnings when the underlying list or state is dynamic:
@@ -108,6 +123,11 @@ Fix correctness warnings when the underlying list or state is dynamic:
 
 Static decorative maps on marketing pages may be deferred unless they are
 trivial to fix with a stable data-derived key.
+
+For key changes, the replacement key must be both stable and unique among
+siblings. If the data has no unique identifier, use a deterministic composite
+that is proven unique for that list; otherwise defer the finding rather than
+replacing an index key with a collision-prone key.
 
 ### Tier 3: Async And Server Performance
 
@@ -140,7 +160,11 @@ Scope:
 
 Validation:
 
-- targeted unit tests for touched hooks/components where existing tests exist
+- targeted unit tests for touched hooks/components; add a focused test when the
+  change alters polling, state reset, or lifecycle behavior
+- `pnpm lint`
+- `pnpm typecheck`
+- `pnpm test`
 - `pnpm build`
 - `pnpm doctor -- --verbose --diff`
 
@@ -157,6 +181,9 @@ Validation:
 
 - relevant component or page tests if present
 - browser spot-check for any changed UI flow
+- `pnpm lint`
+- `pnpm typecheck`
+- `pnpm test`
 - `pnpm build`
 - `pnpm doctor -- --verbose --diff`
 
@@ -172,6 +199,9 @@ Scope:
 Validation:
 
 - targeted tests around changed behavior
+- `pnpm lint`
+- `pnpm typecheck`
+- `pnpm test`
 - `pnpm build`
 - `pnpm doctor -- --verbose --diff`
 
@@ -187,6 +217,9 @@ Scope:
 Validation:
 
 - narrow tests for touched route/service/worker code
+- `pnpm lint`
+- `pnpm typecheck`
+- `pnpm test`
 - `pnpm build`
 - `pnpm doctor -- --verbose --diff`
 
@@ -199,6 +232,9 @@ Validation:
   comment would help future reviewers.
 - Avoid mixing high-risk behavior fixes with cosmetic score cleanup.
 - Preserve unrelated user changes; do not rewrite touched files broadly.
+- `pnpm doctor -- --verbose --diff` is a regression signal for touched files,
+  not a replacement for the app test suite. Shared-component edits can break
+  downstream flows that do not appear in the doctor diff.
 
 ## 7. Success Criteria
 
@@ -210,6 +246,11 @@ The cleanup is successful when:
 - dynamic/stateful key and hydration issues are addressed where they can affect
   correctness
 - async changes are limited to proven-independent operations
+- behavior-changing fixes have focused regression coverage, even when no prior
+  test existed
+- `pnpm lint` passes
+- `pnpm typecheck` passes
+- `pnpm test` passes
 - `pnpm build` passes
 - `pnpm doctor -- --verbose --diff` shows no regressions in touched files
 
