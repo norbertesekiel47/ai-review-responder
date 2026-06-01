@@ -329,7 +329,7 @@ export function FeaturesContent({
                   <div className="flex items-center justify-between">
                     <span className="rw-num-tag text-lg text-[#97B3AE]">{f.n}</span>
                     <svg
-                      className="w-3 h-3 text-[#6a6a6a] group-hover:text-[#97B3AE] transition-colors"
+                      className="size-3 text-[#6a6a6a] group-hover:text-[#97B3AE] transition-colors"
                       fill="none"
                       viewBox="0 0 24 24"
                       stroke="currentColor"
@@ -360,7 +360,7 @@ export function FeaturesContent({
             style={{ background: 'linear-gradient(135deg, #97B3AE, rgba(151,179,174,0.82))' }}
           >
             <svg
-              className="absolute -top-20 -left-20 w-80 h-80 opacity-20"
+              className="absolute -top-20 -left-20 size-80 opacity-20"
               viewBox="0 0 200 200"
               fill="none"
               aria-hidden
@@ -370,7 +370,7 @@ export function FeaturesContent({
               <circle cx="100" cy="100" r="40" stroke="white" strokeWidth="1" />
             </svg>
             <svg
-              className="absolute -bottom-32 -right-20 w-96 h-96 opacity-15"
+              className="absolute -bottom-32 -right-20 size-96 opacity-15"
               viewBox="0 0 200 200"
               fill="none"
               aria-hidden
@@ -471,7 +471,7 @@ function FeatAi({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
           >
             Generic reply
           </button>
-          <svg className="w-4 h-4 text-[#97B3AE]" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+          <svg className="size-4 text-[#97B3AE]" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7-7 7M3 12h18" />
           </svg>
           <button
@@ -490,7 +490,7 @@ function FeatAi({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
           <div className="bg-white rounded-2xl p-6 border border-[#97B3AE]/10 shadow-sm">
             <div className="flex items-center gap-3 mb-3">
               <div
-                className="w-10 h-10 rounded-full"
+                className="size-10 rounded-full"
                 style={{ background: 'linear-gradient(135deg, #F2C3B9, #D6CBBF)' }}
                 aria-hidden
               />
@@ -586,7 +586,7 @@ function FeatLang({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
           <div className="bg-white rounded-3xl p-6 border border-[#97B3AE]/15 shadow-sm max-w-md">
             <div className="flex items-center gap-2 mb-3">
               <div
-                className="w-8 h-8 rounded-full"
+                className="size-8 rounded-full"
                 style={{ background: 'linear-gradient(135deg, #F2C3B9, #D6CBBF)' }}
                 aria-hidden
               />
@@ -723,7 +723,7 @@ function FeatApprove({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) 
                     className="rw-phone-item w-full bg-[#2a2a2a] text-white py-2.5 rounded-full text-[12px] font-medium flex items-center justify-center gap-1.5"
                     style={{ ['--pi-d' as string]: '900ms' }}
                   >
-                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+                    <svg className="size-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
                     </svg>
                     Approve &amp; post
@@ -863,7 +863,7 @@ function FeatBrief({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
               'One concrete operational suggestion',
             ].map((t) => (
               <li key={t} className="flex items-start gap-3">
-                <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-[#97B3AE] shrink-0" />
+                <span className="mt-1.5 size-1.5 rounded-full bg-[#97B3AE] shrink-0" />
                 <span className="text-[#2a2a2a]">{t}</span>
               </li>
             ))}
@@ -970,7 +970,7 @@ function FeatRoi({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
           <p className="rw-label-mono text-[10px] uppercase text-[#6a6a6a] mb-4">Response rate</p>
           <div className="flex items-baseline gap-3">
             <span className="rw-num-tag text-lg line-through text-[#6a6a6a]/60">12%</span>
-            <svg className="w-4 h-4 text-[#97B3AE]" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+            <svg className="size-4 text-[#97B3AE]" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7-7 7M3 12h18" />
             </svg>
             <span className="rw-num-tag text-4xl text-[#2a2a2a]">100<span className="text-lg">%</span></span>
@@ -985,7 +985,7 @@ function FeatRoi({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
           <p className="rw-label-mono text-[10px] uppercase text-[#6a6a6a] mb-4">Avg response time</p>
           <div className="flex items-baseline gap-3">
             <span className="rw-num-tag text-lg line-through text-[#6a6a6a]/60">4 days</span>
-            <svg className="w-4 h-4 text-[#97B3AE]" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+            <svg className="size-4 text-[#97B3AE]" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7-7 7M3 12h18" />
             </svg>
             <span className="rw-num-tag text-4xl text-[#2a2a2a]">58<span className="text-lg">min</span></span>
@@ -1007,7 +1007,7 @@ function FeatRoi({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
           <p className="rw-label-mono text-[10px] uppercase text-[#6a6a6a] mb-4">Local map rank</p>
           <div className="flex items-baseline gap-3">
             <span className="rw-num-tag text-lg line-through text-[#6a6a6a]/60">#14</span>
-            <svg className="w-4 h-4 text-[#97B3AE]" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+            <svg className="size-4 text-[#97B3AE]" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7-7 7M3 12h18" />
             </svg>
             <span className="rw-num-tag text-4xl text-[#2a2a2a]">#3</span>
@@ -1135,7 +1135,7 @@ function FeatComp({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
                     </div>
                   </div>
                   {r.highlighted && (
-                    <svg className="w-4 h-4 text-[#97B3AE]" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+                    <svg className="size-4 text-[#97B3AE]" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" />
                     </svg>
                   )}

@@ -9,9 +9,9 @@ const SUPPORT_HREF = '/help/contact';
 export function ApprovalErrorState({ message }: { message: string }) {
   return (
     <div role="alert" className="text-center">
-      <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-[#dc2626]/10">
+      <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-full bg-[#dc2626]/10">
         <svg
-          className="h-7 w-7 text-[#dc2626]"
+          className="size-7 text-[#dc2626]"
           fill="none"
           viewBox="0 0 24 24"
           strokeWidth={2}

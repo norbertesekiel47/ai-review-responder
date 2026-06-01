@@ -125,13 +125,13 @@ export function PaymentSuccessClient({
         {active ? (
           <>
             <motion.div
-              className="w-16 h-16 mx-auto mb-6 rounded-full bg-[#97B3AE] flex items-center justify-center shadow-lg"
+              className="size-16 mx-auto mb-6 rounded-full bg-[#97B3AE] flex items-center justify-center shadow-lg"
               initial={{ scale: 0, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               transition={{ duration: 0.5, ease: 'easeOut', delay: 0.1 }}
             >
               <svg
-                className="w-8 h-8 text-white"
+                className="size-8 text-white"
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
@@ -191,7 +191,7 @@ export function PaymentSuccessClient({
           </>
         ) : (
           <>
-            <div className="inline-block w-12 h-12 border-4 border-[#97B3AE]/25 border-t-[#97B3AE] rounded-full animate-spin mb-6" />
+            <div className="inline-block size-12 border-4 border-[#97B3AE]/25 border-t-[#97B3AE] rounded-full animate-spin mb-6" />
             <h1 className="text-2xl font-medium text-[#2a2a2a] mb-3">
               Processing your payment...
             </h1>

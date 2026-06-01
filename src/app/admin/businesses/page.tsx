@@ -179,14 +179,14 @@ export default function BusinessListPage() {
                   Showing {startItem}–{endItem} of {total}
                 </span>
                 <div className="flex gap-2">
-                  <button
+                  <button type="button"
                     disabled={page === 0}
                     onClick={() => setPage((p) => p - 1)}
                     className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     Prev
                   </button>
-                  <button
+                  <button type="button"
                     disabled={page >= totalPages - 1}
                     onClick={() => setPage((p) => p + 1)}
                     className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"

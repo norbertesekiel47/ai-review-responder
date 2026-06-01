@@ -345,14 +345,14 @@ export default function AdminOverviewPage() {
                 Showing {(data?.offset ?? 0) + 1}–{Math.min((data?.offset ?? 0) + PAGE_SIZE, data?.totalBusinesses ?? 0)} of {data?.totalBusinesses ?? 0}
               </p>
               <div className="flex gap-2">
-                <button
+                <button type="button"
                   onClick={() => setPage((p) => Math.max(0, p - 1))}
                   disabled={page === 0}
                   className="px-3 py-1 rounded border border-gray-300 text-sm disabled:opacity-40"
                 >
                   Prev
                 </button>
-                <button
+                <button type="button"
                   onClick={() => setPage((p) => p + 1)}
                   disabled={page >= totalPages - 1}
                   className="px-3 py-1 rounded border border-gray-300 text-sm disabled:opacity-40"

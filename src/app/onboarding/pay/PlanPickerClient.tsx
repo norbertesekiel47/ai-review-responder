@@ -122,7 +122,7 @@ export function PlanPickerClient({ cancelled }: { cancelled: boolean }) {
                     className="flex items-start gap-2 text-sm text-[#6a6a6a]"
                   >
                     <svg
-                      className="w-4 h-4 text-[#97B3AE] shrink-0 mt-0.5"
+                      className="size-4 text-[#97B3AE] shrink-0 mt-0.5"
                       fill="none"
                       viewBox="0 0 24 24"
                       stroke="currentColor"

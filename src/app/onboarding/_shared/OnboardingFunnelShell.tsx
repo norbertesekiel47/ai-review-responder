@@ -45,7 +45,7 @@ export function OnboardingFunnelShell({
           >
             <div className="flex gap-1 mb-3">
               {Array.from({ length: card.dots }).map((_, j) => (
-                <div key={j} className="w-4 h-4 bg-[#F2C3B9]/60 rounded-full" />
+                <div key={j} className="size-4 bg-[#F2C3B9]/60 rounded-full" />
               ))}
             </div>
             <div className="space-y-2">
@@ -66,7 +66,7 @@ export function OnboardingFunnelShell({
         >
           <nav className="px-6 sm:px-8 py-4 border-b border-[#97B3AE]/10 flex items-center justify-end">
             <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#97B3AE] to-[#97B3AE]/80" />
+              <div className="size-8 rounded-full bg-gradient-to-br from-[#97B3AE] to-[#97B3AE]/80" />
               <span className="text-sm tracking-wider uppercase text-[#97B3AE]">
                 RepWorth
               </span>

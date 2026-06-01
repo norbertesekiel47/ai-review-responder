@@ -164,7 +164,7 @@ export function SmsEnrollmentWidget({ businessId }: { businessId: string }) {
               disabled={busy}
             />
           </label>
-          <button onClick={onSendCode} disabled={busy}>
+          <button type="button" onClick={onSendCode} disabled={busy}>
             Send code
           </button>
         </div>
@@ -182,10 +182,10 @@ export function SmsEnrollmentWidget({ businessId }: { businessId: string }) {
               disabled={busy}
             />
           </label>
-          <button onClick={onConfirm} disabled={busy}>
+          <button type="button" onClick={onConfirm} disabled={busy}>
             Verify
           </button>
-          <button onClick={onCancel} disabled={busy}>
+          <button type="button" onClick={onCancel} disabled={busy}>
             Cancel
           </button>
         </div>
@@ -194,10 +194,10 @@ export function SmsEnrollmentWidget({ businessId }: { businessId: string }) {
       {state.kind === 'verified' && (
         <div>
           <p>✅ SMS verified: {state.maskedPhone}</p>
-          <button onClick={onDisable} disabled={busy}>
+          <button type="button" onClick={onDisable} disabled={busy}>
             Disable
           </button>
-          <button onClick={onDelete} disabled={busy}>
+          <button type="button" onClick={onDelete} disabled={busy}>
             Delete enrollment
           </button>
         </div>
@@ -206,10 +206,10 @@ export function SmsEnrollmentWidget({ businessId }: { businessId: string }) {
       {state.kind === 'disabled' && (
         <div>
           <p>⛔ SMS disabled: {state.maskedPhone}</p>
-          <button onClick={onSendCode} disabled={busy}>
+          <button type="button" onClick={onSendCode} disabled={busy}>
             Re-enable — send code to {state.maskedPhone}
           </button>
-          <button onClick={onDelete} disabled={busy}>
+          <button type="button" onClick={onDelete} disabled={busy}>
             Delete enrollment
           </button>
         </div>
@@ -221,10 +221,10 @@ export function SmsEnrollmentWidget({ businessId }: { businessId: string }) {
             🚫 SMS unsubscribed: {state.maskedPhone}
             {state.reason ? ` (${state.reason})` : ''}
           </p>
-          <button onClick={() => setAwaitingOptIn(true)} disabled={busy}>
+          <button type="button" onClick={() => setAwaitingOptIn(true)} disabled={busy}>
             Start re-enable
           </button>
-          <button onClick={onDelete} disabled={busy}>
+          <button type="button" onClick={onDelete} disabled={busy}>
             Delete enrollment
           </button>
         </div>
@@ -236,7 +236,7 @@ export function SmsEnrollmentWidget({ businessId }: { businessId: string }) {
             Ask the owner at {state.maskedPhone} to text <strong>START</strong> to our RepWorth number. We&rsquo;ll
             detect it automatically.
           </p>
-          <button onClick={() => setAwaitingOptIn(false)} disabled={busy}>
+          <button type="button" onClick={() => setAwaitingOptIn(false)} disabled={busy}>
             Cancel waiting
           </button>
         </div>
@@ -245,7 +245,7 @@ export function SmsEnrollmentWidget({ businessId }: { businessId: string }) {
       {state.kind === 'opt_in_received' && (
         <div>
           <p>✅ Opt-in detected for {state.maskedPhone}. Send the verification code now.</p>
-          <button
+          <button type="button"
             onClick={async () => {
               await onSendCode();
               setAwaitingOptIn(false);
@@ -254,7 +254,7 @@ export function SmsEnrollmentWidget({ businessId }: { businessId: string }) {
           >
             Send verification code
           </button>
-          <button onClick={() => setAwaitingOptIn(false)} disabled={busy}>
+          <button type="button" onClick={() => setAwaitingOptIn(false)} disabled={busy}>
             Cancel
           </button>
         </div>

@@ -1,9 +1,11 @@
 # Auto-Approval Policy — Design Spec
 
 - **Date:** 2026-05-31
-- **Status:** Draft — design decisions approved; **NOT implemented**. CLAUDE.md invariants #3/#4/#11 remain authoritative until the implementation PR lands.
+- **Status:** Draft — design decisions approved **and refined via a grilling session (2026-05-31, cross-referenced against the codebase); NOT implemented**. CLAUDE.md invariants #3/#4/#11 remain authoritative until the implementation PR lands.
 - **Owner:** Norbert Esekiel
 - **Origin:** Potential-client survey — clients want to choose which reviews get fully automated (drafting → posting) vs. which require manual owner approval.
+
+> **Grilling-session amendments (2026-05-31).** Several originally-drafted decisions were corrected after reading the actual code. The material changes: auto-approval **reuses the `approved` status** with an `approval_method` discriminator instead of a new `auto_approved` status (§7); it **never applies to the first-connect backfill** (§5); the subscription gate uses **publisher** semantics, not generator (§9); auto requires the **provider moderation layer on + a per-draft clean verdict + zero flags** (§4); and v1 ships **no per-review FYI notification** (§8). The body below reflects the refined decisions; `CONTEXT.md` holds the glossary.
 
 ---
 
@@ -25,26 +27,40 @@ We need an **owner-configurable auto-approval policy** that lets a client pick, 
 - Signals other than **star rating** (sentiment, keyword match, length, language) — clean future extension, explicitly out of scope.
 - Per-reviewer or per-campaign rules.
 - Auto-*editing* of drafts — auto-approval posts the generated draft as-is or holds it; it never silently rewrites.
+- Auto-approving the **first-connect backfill** of historical reviews — see §5.
+- A per-review "we auto-responded" notification — deferred to a future batched digest (§8, §13).
 
 ## 3. Locked decisions
 
-1. **Moderation is an absolute veto** (approved in design dialogue). A draft flagged high-severity unsafe (invariant #4) is held for manual/admin review and **never** auto-posts, regardless of policy. Auto-approval skips the *owner* step, never the *safety* step.
+1. **Moderation is an absolute veto** (approved in design dialogue). A draft flagged high-severity unsafe (invariant #4) is held for manual/admin review and **never** auto-posts, regardless of policy. Auto-approval skips the *owner* step, never the *safety* step. **Refined (§4):** auto further requires the provider moderation layer enabled, a per-draft clean provider verdict, and *zero* flags (medium/low flags also fall to manual).
 2. **Scope = account default + per-location override** (approved). Mirrors owner channel-enrollment (account-scoped default keyed by `location_id IS NULL`, per-location override row) and the multi-location settings pattern. Respects invariant #9 (`accounts` = billing parent, `businesses` = location).
-3. **Dimension = star rating only, threshold model** (recommended; not objected). A single `auto_approve_min_star` expresses every survey case (see §5). Richer signals are a future generalization.
+3. **Dimension = star rating only, threshold model** (locked). A single `auto_approve_min_star` expresses every survey case (see §5). Richer signals are a future generalization.
+4. **Reuse the `approved` status; record the auto-ness in `approval_method`** (locked — *reverses the original §7*). Auto-approval sets `responses.status = 'approved'` and `responses.approval_method = 'auto_policy'`; it does **not** introduce a separate `auto_approved` status. Distinguishability lives in a dedicated column on the same row, not in the status value — which keeps the ~20 inline publisher status lists, the KPI status groups, the non-terminal partial unique index, the dashboard, and edit-replies all working byte-for-byte unchanged. See §7.
+5. **Backfill is never auto** (locked). The one-time first-connect historical backfill always stays manual, regardless of policy. See §5.
 
 ## 4. Safety model (the core)
 
-Auto-approval is **subordinate** to every existing guarantee. In priority order, a draft posts automatically **only if all** hold:
+Auto-approval is **subordinate** to every existing guarantee. A draft posts automatically **only if all** of the following hold (evaluated as one predicate; the final branch runs inside the response-persistence transaction where the moderation hold result is known):
 
-1. **Moderation passed** — not high-severity-held (invariant #4). The hold overrides policy.
-2. **Subscription allows publishing** — same gate as manual publish (invariant #11): `active`, or `past_due` within grace. `cancelled` / `pending_payment` ⇒ no auto-post.
-3. **Policy says auto** — resolved policy marks this (location, star rating) as auto.
+```
+auto =  policyEligible            // resolved min_star ≠ NULL AND star_rating ≥ min_star  (NULL star ⇒ false)
+     && !isBackfill               // suppressNotification === true  ⇒ always manual (§5)
+     && publisherSubscriptionOK   // checkSubscription(workerType:'publisher')  — NOT the generator gate (§9)
+     && providerModerationClean   // moderation.categories.openai_moderation === 'clean'  (§4 below)
+     && !moderation.flagged       // zero flags; high-severity still HOLDS, medium/low ⇒ manual
+     && !held                     // recordModerationAndHold returned false (known only inside persist tx)
+```
 
-If any fails, the response falls back to the **manual** path (owner notification + approval), exactly as today. Auto-approval can only ever **remove the owner step** — it can never bypass moderation, billing, or audit.
+If any condition fails, the response falls back to the **manual** path (`pending_approval`, owner notification as today). Auto-approval can only ever **remove the owner step** — it can never bypass moderation, billing, or audit.
+
+**Moderation prerequisite (refined).** The human approval step is today's real safety backstop, and `OPENAI_MODERATION_ENABLED` is **off in prod** (local regex only). Auto-approval removes the human, so it must not run on regex-only vetting:
+- **Environment prerequisite:** auto-approval requires `OPENAI_MODERATION_ENABLED=true`. If it is off, no draft carries the `'clean'` provider marker, so `providerModerationClean` is false and **everything stays manual** — the feature fails safe to today's behavior. The provider layer (already a launch-checklist item) is a hard dependency; enable + threshold-tune it first.
+- **Per-draft verification:** `providerModerationClean` is true only when the provider actually ran and passed for *that* draft (`categories.openai_moderation === 'clean'`). A fail-open (`'error'`) or disabled (marker absent) result ⇒ not auto-eligible ⇒ manual.
+- **Zero-flag strictness:** auto requires `!moderation.flagged`, not merely `!held`. High-severity still holds; **medium/low flags fall to manual** so a human at least reads flagged text before it posts.
 
 **Fail-closed:** any error resolving the policy (missing row, malformed value, DB error) ⇒ treat as **manual**. We never auto-post on uncertainty.
 
-**Opt-in default:** absence of any policy row ⇒ manual. New accounts and newly-added locations are manual until the owner explicitly enables auto-approval.
+**Opt-in default:** absence of any policy row ⇒ manual. New accounts and newly-added locations are manual until the owner explicitly enables auto-approval (§13.3).
 
 ## 5. Policy model & resolution
 
@@ -54,110 +70,143 @@ If any fails, the response falls back to the **manual** path (owner notification
 |---|---|---|
 | All manual (today) | `NULL` | nothing auto-approves |
 | Auto 3–5★, manual 1–2★ | `3` | auto if `star_rating ≥ 3` |
-| All automated | `1` | auto for every rating |
+| All automated | `1` | auto for every (rated) review |
 
 **Resolution order** for a review at location `L` (account `A`, star `S`):
 1. Per-location override row (`account_id = A, location_id = L`). If present, use it.
 2. Else account default row (`account_id = A, location_id IS NULL`).
 3. Else **manual** (no row = opt-out).
-4. Decision = `auto` iff `min_star IS NOT NULL AND S >= min_star`.
+4. `policyEligible = (min_star IS NOT NULL) AND (S IS NOT NULL) AND (S >= min_star)`.
 
 This is the same override→default→fallback resolution used by owner channel enrollment.
 
+**NULL star rating (refined).** `reviews.star_rating` is nullable in the schema (the `CHECK` passes on NULL; Zernio normalization enforces 1..5 but other write paths may not). The resolver guards this explicitly: a NULL star is **not** auto-eligible (do not rely on SQL `NULL >= n` semantics leaking through) ⇒ manual.
+
+**Backfill exclusion (refined — locked).** The first-connect backfill ingests up to 75 historical reviews via `ZernioBackfillWorker`, which is the **only** caller passing `suppressNotification: true`. Auto-approving these would blast dozens of replies onto years-old Google reviews the moment an owner connects. Therefore: when `suppressNotification === true`, the review is **never** auto-eligible (`isBackfill` in §4). Only live, post-connect reviews (`ZernioRecentReviewPoller` / `ZernioReviewIngestWorker`, which never suppress) can auto-approve. Reusing `suppressNotification` is correct, not merely convenient, because backfill is its sole producer.
+
 ## 6. Data model
 
-New table `auto_approval_policies` (migration **055+**; next free number at implementation time — confirm against `migrations-log.md`):
+**Migration 055** (head is **054**; confirm `migrations-log.md` at implementation time) carries two changes:
+
+**(a) New table `auto_approval_policies`:**
 
 ```
-id                   uuid  PK  (uuidv7)
-account_id           uuid  NOT NULL  FK accounts(id)
-location_id          uuid  NULL      FK businesses(id)   -- NULL = account default
-auto_approve_min_star smallint NULL  -- NULL = disabled; 1..5 threshold
-created_at           timestamptz NOT NULL default now()
-updated_at           timestamptz NOT NULL default now()
+id                    uuid  PK  (uuidv7)
+account_id            uuid  NOT NULL  FK accounts(id)
+location_id           uuid  NULL      FK businesses(id)   -- NULL = account default
+auto_approve_min_star smallint NULL   -- NULL = disabled; 1..5 threshold
+created_at            timestamptz NOT NULL default now()
+updated_at            timestamptz NOT NULL default now()
 ```
 
 - Partial unique indexes mirroring channel enrollment: one default per account (`UNIQUE (account_id) WHERE location_id IS NULL`) and one override per (account, location) (`UNIQUE (account_id, location_id) WHERE location_id IS NOT NULL`).
 - `CHECK (auto_approve_min_star BETWEEN 1 AND 5)` when not null.
-- All reads scoped by `account_id` (and `location_id`) per invariant #8; add to tenant-scope audit allowlist only if a justified cross-account admin read exists.
+- Settings-UI writes upsert via `ON CONFLICT`; **the conflict target's predicate must match the partial-index predicate BYTE-FOR-BYTE** (documented gotcha) — two distinct upsert paths, one per index.
+- All reads scoped by `account_id` (and `location_id`) per invariant #8. No cross-account read is required, so **no** tenant-scope allowlist entry is added. Follow the app-enforced scoping pattern (invariant #8); `ci:tenant-scope` + `ci:rls-audit` must stay green.
+
+**(b) New column on `responses`:**
+
+```
+approval_method  text NOT NULL DEFAULT 'owner'   -- 'owner' | 'auto_policy'
+```
+
+Records *how* a response was approved without overloading `status` (locked decision #4). Existing rows default to `'owner'`; the manual approval paths keep that default; the auto branch sets `'auto_policy'`. The dashboard badges auto-responded reviews from this column.
+
+**Policy-change auditing.** Editing a policy is a security-relevant config change. Each create/update writes an audit row capturing owner, account/location scope, and old→new threshold (mechanism: same `account_audit_log` path used for other account-config changes, in the write transaction).
 
 ## 7. Decision flow & state machine
 
-**Single chokepoint.** The auto/manual decision is resolved **once**, in the response-persistence step (`worker/jobs/response-generation/persist.ts`), immediately after moderation — the same transaction that persists the response. This keeps "no post without a decision" a single enforceable gate.
+**Single chokepoint.** The auto/manual decision is resolved **once**, in the response-persistence step (`worker/jobs/response-generation/persist.ts`), immediately after moderation — the same transaction that persists the response. This is the chokepoint precisely because the moderation-hold result (`held`) is only known *inside* that transaction, where it meets the policy/subscription eligibility resolved earlier in `load-context.ts`.
 
 ```
 generate → moderate
-  ├─ high-severity flag → flagged_responses + HOLD (invariant #4)         [unchanged; overrides all]
-  └─ clean → resolve auto-approval decision (policy + subscription)
-       ├─ AUTO  → status = 'auto_approved'  → enqueue publish via job_outbox
-       │                                     → enqueue post-hoc FYI notification (see §8)
-       └─ MANUAL→ status = 'pending_approval'→ enqueue send_notification     [today's behavior]
+  ├─ high-severity flag → flagged_responses + HOLD (invariant #4)              [unchanged; overrides all]
+  └─ resolve §4 predicate (policy ∧ !backfill ∧ publisherSub ∧ providerClean ∧ !flagged ∧ !held)
+       ├─ AUTO  → status = 'approved', approval_method = 'auto_policy',
+       │          approved_text = response_text, approved_at = NOW()
+       │          → write approval_audit_log row (action 'auto_approved_by_policy', token_hash NULL)
+       │          → enqueue publish_response via job_outbox     (NO send_notification; NO FYI — §8)
+       └─ MANUAL→ status = 'pending_approval', approval_method = 'owner'
+                  → enqueue send_notification (unless suppressed)              [today's behavior]
 ```
 
-- **New response status `auto_approved`** — distinct, audited; added to the publisher's `ZERNIO_PUBLISHABLE_STATES` / `AWAITING_PUBLISH_STATUSES` (`src/lib/shared/response-status.ts`). **Never reuse `approved`** — the human-approved status must remain meaningful and distinguishable in audit.
+- **No new status.** Auto-approval reuses `approved` (locked decision #4). Because the status value is unchanged, the publisher's `ZERNIO_PUBLISHABLE_STATES`, the ~20 inline `status IN ('approved','edited','awaiting_owner_connect')` clauses across the publisher subsystem, the `response-status.ts` groups (`NON_TERMINAL`, `HANDLED`, `AWAITING_PUBLISH`, `RECENT_REVIEW_DISPLAY`, …), the non-terminal partial unique index, and edit-replies are **untouched** — no status migration, no risk of a missed inline list silently black-holing a post.
+- **Placement.** `load-context.ts` (which already loads `star_rating` and the subscription inputs) also resolves the policy row (override→default→null). A **pure resolver** computes `policyEligible` + `publisherSubscriptionOK` from already-loaded data. `persist.ts` receives a single `autoApproveEligible` boolean (plus audit inputs) and evaluates the final branch against its in-transaction `held` result.
+- **`approved_text` population.** The publisher reads `responses.approved_text`. The manual flow sets it at approval time; the auto branch sets `approved_text = response_text` at persist so the existing publisher read works unchanged.
 - All enqueues use the transactional outbox (invariant #2); no Postgres-write-then-enqueue.
-- The publisher path is otherwise unchanged — it already gates on publishable status + subscription, so an `auto_approved` row flows through the same posting + idempotency machinery.
+- The publisher path is otherwise unchanged — it already gates on publishable status + (publisher) subscription, so an auto-`approved` row flows through the same posting + idempotency machinery, including supersede/edit (DELETE-before-POST) for a later review version.
 
 ## 8. Notification & audit
 
-- **Post-hoc owner notification (recommended default):** after a successful auto-post, send a non-blocking "we auto-responded to this review" notice (own channel or batched into a digest). This is transparency/FYI, **not** an approval gate. *Open decision (§13).*
-- **Audit (required):** every auto-approval decision is recorded — the resolved policy, threshold, star rating, location, and outcome — via the existing audit path (`src/lib/audit/log.ts`) and/or `api_costs` metadata, in the same transaction. Owners and support must be able to answer "why did this post automatically?"
+- **No per-review FYI notification in v1 (refined).** A client who sets `min_star = 1` ("all auto") did so to *stop* being pinged per review; a per-review "we auto-responded" notice re-introduces the interruption they opted out of. The existing `send_notification` path also mints an **approval link/token** (invariant #5), which an already-posted reply must not have. Transparency in v1 is served entirely by (a) the **dashboard**, which lists responded reviews and badges `approval_method = 'auto_policy'`, and (b) the **audit row** (below). A **batched digest** ("we auto-responded to N reviews this week") is the documented fast-follow — emitted by a time-cadence scheduler reading `approval_method`, never wired into the hot publish path. See §13.
+- **Audit (required, single owner).** Every auto-approval decision writes one row to **`approval_audit_log`** (the response-scoped approval audit; `token_hash` is nullable since migration 014, so a tokenless row is valid), action `auto_approved_by_policy`, `auth_method = 'auto_policy'`, `actor_user_id` NULL, with the resolved threshold + star + location in metadata — in the same transaction as persistence. This is the *one* owner of "why did this post automatically?" `api_costs` continues to own the separate *moderation* fact only; the original "audit/log.ts **and/or** api_costs" wording is resolved to `approval_audit_log` alone.
 
 ## 9. Subscription & billing gating
 
-Auto-post is a publisher action and inherits invariant #11 exactly:
-- `cancelled` ⇒ no auto-post (and no manual post).
-- `pending_payment` ⇒ publisher skips ⇒ auto-post skips; response falls to manual so the owner can act after paying.
-- `past_due` ⇒ within 7-day grace, auto-post allowed; after grace, falls to manual.
+Auto-post is a publisher action and inherits invariant #11 — but the **decision-time check must use publisher semantics, not the generator's**, because the two gates diverge on exactly one status:
 
-A subscription-blocked auto-decision **degrades to manual** (notify owner) rather than dropping the response.
+- `checkSubscription` allows `pending_payment` for `workerType: 'generator'` (admin demo drafts) but **denies** it for `workerType: 'publisher'`.
+- A naive auto decision using the generator gate would set `approved` + enqueue `publish_response` for a `pending_payment` account; the publisher then skips it, leaving the row stuck in `approved` forever with no re-drive and (per §8) no notification — a silent black hole.
+
+Therefore the §4 predicate uses `checkSubscription({ …business, workerType: 'publisher' })`:
+- `cancelled` ⇒ not auto (and not manual-postable).
+- `pending_payment` ⇒ **not auto** ⇒ degrades to `pending_approval`, exactly like a manual review for a `pending_payment` account (notification itself is skipped, but the row is dashboard-visible and the owner acts after paying).
+- `past_due` within 7-day grace ⇒ auto allowed; after grace (`past_due_expired`) ⇒ not auto ⇒ manual.
+
+A subscription-blocked auto-decision **degrades to `pending_approval`** (owner-actionable) rather than dropping or stranding the response.
+
+**Residual race (accepted, pre-existing).** Subscription `active` at persist → flips to denied before the `publish_response` job runs → publisher skips → row stranded in `approved`. This window is seconds and already affects *manually*-approved rows today; it is not auto-specific. Documented and **out of v1 scope** (no sweeper built now).
 
 ## 10. Error handling
 
 - Policy resolution error ⇒ **manual** (fail-closed).
-- Moderation error already fails open to local rules (invariant #4) but a high-severity local-rule flag still holds — unaffected.
-- Auto-publish enqueue is idempotent via the outbox key (invariant #2; BullMQ `_` separator).
-- Best-effort post-hoc notification wrapped in its own try/catch — never flips a completed auto-post to failed (per the worker fail-open gotcha).
+- Provider moderation degraded — fail-open (`'error'`) or disabled (marker absent) ⇒ `providerModerationClean` false ⇒ **manual** (§4). A high-severity *local-rule* flag still holds, unaffected.
+- Auto-publish enqueue is idempotent via the outbox key (invariant #2; BullMQ `_` separator), the generator's `already_exists` idempotency check (re-run ⇒ no re-persist / re-enqueue), and the `idx_jo_publish_response_inflight` partial unique index. Correlation chained `ingest → generate → publish_response` (notification skipped).
+- The auto branch performs no best-effort work after the primary side effect in v1 (no FYI), so the worker fail-open gotcha does not apply; if a digest is added later, its enqueue is best-effort and must not flip a completed post to failed.
 
 ## 11. Testing
 
-- Policy resolution: override beats default; default applies; **no row ⇒ manual**.
-- Threshold boundaries: `min_star = 3` ⇒ 2★ manual, 3★ auto; `min_star = 1` ⇒ all auto; `NULL` ⇒ all manual.
+- Policy resolution: override beats default; default applies; **no row ⇒ manual**; **NULL star ⇒ manual**.
+- Threshold boundaries: `min_star = 3` ⇒ 2★ manual, 3★ auto; `min_star = 1` ⇒ all (rated) auto; `NULL` ⇒ all manual.
+- **Backfill never auto** — `suppressNotification === true` ⇒ manual even with `min_star = 1`.
 - **Moderation veto overrides auto** — high-severity draft is held even with `min_star = 1`.
-- **Subscription blocks auto** — `pending_payment`/`cancelled` ⇒ falls to manual, no post.
+- **Provider-degraded ⇒ manual** — `openai_moderation` `'error'` or absent ⇒ not auto; **medium/low flag ⇒ manual** (only `!flagged` is auto).
+- **Subscription (publisher gate)** — `pending_payment`/`cancelled`/`past_due_expired` ⇒ degrades to `pending_approval`, no post, no strand.
 - **Fail-closed** — resolution throws ⇒ manual, never auto.
-- `auto_approved` is in the publishable set and flows through publisher idempotency.
-- Audit row written for every auto decision; tenant-scope + RLS audits pass.
-- Outbox idempotency for the auto-publish enqueue.
+- Auto path sets `status='approved'`, `approval_method='auto_policy'`, `approved_text=response_text`; flows through publisher idempotency unchanged.
+- `approval_audit_log` row written for every auto decision (tokenless, `auth_method='auto_policy'`); tenant-scope + RLS audits pass.
+- Outbox idempotency for the auto-publish enqueue (`idx_jo_publish_response_inflight`).
 
 ## 12. CLAUDE.md change-map (applied WITH the implementation PR, not before)
 
 | Location | Change |
 |---|---|
-| **What this project is** (pipeline) | `Never auto-posts.` → posts via owner approval **or** owner-configured auto-approve policy; moderation can always veto |
+| **What this project is** (pipeline) | `Never auto-posts.` → posts via owner approval **or** owner-configured auto-approval policy; moderation can always veto |
 | **Invariant #3** | Rewrite: no posting without an approval *decision* (explicit approval **or** owner-set policy); auto-approval **cannot** bypass moderation; still impossible to post without a decision |
-| **Invariant #4** | Add: the high-severity hold **overrides auto-approval** — auto never posts a held draft |
-| **Invariant #11** | Add: auto-post gated by subscription **identically** to manual publish |
-| **New invariant #14** | Policy contract: account-default + per-location override, star-threshold, resolved once after moderation, **subordinate** to moderation veto + subscription guard; new audited status `auto_approved` (never reuse `approved`) |
-| **Database** | New `auto_approval_policies` table; migration 055+ |
+| **Invariant #4** | Add: the high-severity hold **overrides auto-approval**; auto additionally requires provider moderation enabled + a per-draft `'clean'` verdict + **zero** flags |
+| **Invariant #11** | Add: auto-post gated by subscription via the **publisher** gate; `pending_payment` degrades to `pending_approval` (no strand) |
+| **New invariant #14** | Policy contract: account-default + per-location override, star-threshold, resolved once after moderation, **subordinate** to moderation veto + **publisher** subscription guard; backfill never auto; auto-approval **reuses `approved`** with an `approval_method` discriminator (**never** a separate status) |
+| **Database** | New `auto_approval_policies` table + `responses.approval_method` column; migration 055 |
 | **Where things live** | New `auto-approval-policy` skill (sibling of `approval-security`); **update `approval-security`** skill — it currently assumes every post is human-approved |
 
 These edits flip the docs to the new reality **in the same commit** the code lands, so CLAUDE.md never describes a bypass that isn't yet built.
 
-## 13. Open product decisions (recommended defaults; settle at implementation)
+## 13. Product decisions (settled in the grilling session)
 
-1. **Post-hoc notification** on auto-post — *recommend:* yes, batched/digest, non-blocking.
-2. **Threshold vs per-rating map** — *recommend:* threshold for v1 (covers all survey cases); generalize to a per-rating set only if a non-monotonic case appears.
-3. **First-N grace / onboarding ramp** — should a brand-new account be allowed `min_star = 1` immediately, or require a short manual-trust period first? *Recommend:* allow immediately but surface a confirmation in the settings UI; revisit if abuse appears.
+1. **Per-review FYI on auto-post** — **No in v1.** Dashboard badge + `approval_audit_log` provide transparency; a batched digest is the documented fast-follow (§8).
+2. **Threshold vs per-rating map** — **Threshold for v1** (covers all survey cases). Generalize to a per-rating set only if a non-monotonic case appears; `min_star` is the degenerate case of that future widening.
+3. **Onboarding ramp** — **Allow all-auto immediately, no hard trust-gate.** Make it cheaply safe instead: an explicit, unmistakable settings-UI confirmation when enabling ("Replies to these reviews will post to Google automatically, without your review"); rely on dashboard transparency so the owner can audit from post #1 and dial back; optionally pre-select a conservative default threshold (4–5★, "automate your best reviews first"). No trust-tracking infrastructure built speculatively; revisit if quality complaints appear.
 
 ## 14. Out of scope / future
 
-- Non-star signals (sentiment, keywords, length, language).
+- Non-star signals (sentiment, keywords, length, language) and the per-rating-map generalization.
 - Auto-editing / auto-regeneration before posting.
 - Per-reviewer rules, scheduling windows, A/B of auto vs manual.
+- Batched "auto-responded to N reviews" digest notification (fast-follow off a scheduler).
+- A sweeper for the residual `active→denied` publish-time strand (also affects manual today).
 
 ---
 
 ## Next step
 
-When ready to build: run the **writing-plans** skill against this spec to produce the phased implementation plan (policy table + migration → resolution module + tests → persist.ts decision integration → publisher status → settings UI → CLAUDE.md change-map). Anything touching the worker/migration rides `staging` first, then lands on `main` via PR (the CLAUDE.md change-map travels in that same PR).
+When ready to build: run the **writing-plans** skill against this spec to produce the phased implementation plan (policy table + `approval_method` column + migration 055 → resolution module + pure resolver + tests → `load-context` policy load → `persist.ts` decision integration gated on `held` → settings UI + confirmation → CLAUDE.md change-map). Auto-approval requires `OPENAI_MODERATION_ENABLED=true` enabled + threshold-tuned **before** launch. Anything touching the worker/migration rides `staging` first, then lands on `main` via PR (the CLAUDE.md change-map travels in that same PR).

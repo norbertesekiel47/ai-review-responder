@@ -10,7 +10,7 @@ export function FeedbackThanksContent() {
       {/* Minimal brand header */}
       <div className="flex items-center justify-center gap-2 px-8 pt-8">
         <div
-          className="w-8 h-8 rounded-full bg-gradient-to-br from-[#97B3AE] to-[#97B3AE]/80"
+          className="size-8 rounded-full bg-gradient-to-br from-[#97B3AE] to-[#97B3AE]/80"
           aria-hidden="true"
         />
         <span className="text-sm tracking-wider uppercase text-[#97B3AE]">RepWorth</span>
@@ -23,10 +23,10 @@ export function FeedbackThanksContent() {
         transition={{ duration: 0.6, delay: 0.2 }}
       >
         <div
-          className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-[#97B3AE]/15"
+          className="mx-auto mb-6 flex size-16 items-center justify-center rounded-full bg-[#97B3AE]/15"
           aria-hidden="true"
         >
-          <svg className="h-8 w-8 text-[#97B3AE]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg className="size-8 text-[#97B3AE]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
           </svg>
         </div>

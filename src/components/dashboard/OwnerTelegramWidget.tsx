@@ -95,25 +95,25 @@ export function OwnerTelegramWidget({ initialEnrollment }: OwnerTelegramWidgetPr
       {/* Action button / status badge */}
       <div style={{ flexShrink: 0 }}>
         {snapshot.state === 'idle' && (
-          <button onClick={actions.connect} className="btn btn-primary">Connect</button>
+          <button type="button" onClick={actions.connect} className="btn btn-primary">Connect</button>
         )}
         {snapshot.state === 'generating' && (
           <span className="channel-status cs-soon">Working…</span>
         )}
         {snapshot.state === 'verified' && (
-          <button onClick={onDisconnect} className="btn btn-secondary">Disconnect</button>
+          <button type="button" onClick={onDisconnect} className="btn btn-secondary">Disconnect</button>
         )}
         {(snapshot.state === 'disabled' || snapshot.state === 'unsubscribed') && (
-          <button onClick={actions.connect} className="btn btn-secondary">Reconnect</button>
+          <button type="button" onClick={actions.connect} className="btn btn-secondary">Reconnect</button>
         )}
         {snapshot.state === 'expired' && (
-          <button onClick={actions.connect} className="btn btn-secondary">New link</button>
+          <button type="button" onClick={actions.connect} className="btn btn-secondary">New link</button>
         )}
         {snapshot.state === 'awaiting_scan' && (
-          <button onClick={actions.cancel} className="btn btn-secondary">Cancel</button>
+          <button type="button" onClick={actions.cancel} className="btn btn-secondary">Cancel</button>
         )}
         {snapshot.state === 'error' && (
-          <button onClick={actions.dismissError} className="btn btn-secondary">Try again</button>
+          <button type="button" onClick={actions.dismissError} className="btn btn-secondary">Try again</button>
         )}
       </div>
     </div>

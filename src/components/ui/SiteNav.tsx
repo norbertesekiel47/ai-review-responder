@@ -44,7 +44,7 @@ export function SiteNav({ comingSoon = false, selfServeEnabled = false }: SiteNa
             alt="RepWorth"
             width={32}
             height={32}
-            className="w-8 h-8 object-contain"
+            className="size-8 object-contain"
             unoptimized
           />
           <span className="text-sm tracking-wider uppercase text-[#97B3AE]">RepWorth</span>
@@ -91,7 +91,7 @@ export function SiteNav({ comingSoon = false, selfServeEnabled = false }: SiteNa
           className="sm:hidden inline-flex items-center justify-center rounded-md p-2 text-[#97B3AE] hover:bg-[#97B3AE]/10 transition-colors focus-visible:outline-2 focus-visible:outline-[#97B3AE] focus-visible:outline-offset-2"
         >
           <svg
-            className="w-6 h-6"
+            className="size-6"
             fill="none"
             viewBox="0 0 24 24"
             strokeWidth={2}
