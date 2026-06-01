@@ -177,7 +177,7 @@ export default function ApprovalClient({ token }: { token: string }) {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#97B3AE] border-t-transparent" />
+        <div className="size-8 animate-spin rounded-full border-4 border-[#97B3AE] border-t-transparent" />
       </div>
     );
   }
@@ -197,9 +197,9 @@ export default function ApprovalClient({ token }: { token: string }) {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4 }}
       >
-        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-[#97B3AE]/15">
+        <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-full bg-[#97B3AE]/15">
           <svg
-            className="h-7 w-7 text-[#97B3AE]"
+            className="size-7 text-[#97B3AE]"
             fill="none"
             viewBox="0 0 24 24"
             strokeWidth={2.5}
@@ -285,7 +285,7 @@ export default function ApprovalClient({ token }: { token: string }) {
       <div className="rounded-2xl border border-[#97B3AE]/30 bg-white p-4">
         <div className="mb-3 flex items-start gap-2 rounded-lg border border-[#97B3AE]/30 bg-[#D2E0D3]/40 px-3 py-2 text-xs leading-relaxed text-[#6a6a6a]">
           <svg
-            className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-[#97B3AE]"
+            className="mt-0.5 size-3.5 flex-shrink-0 text-[#97B3AE]"
             fill="none"
             viewBox="0 0 24 24"
             strokeWidth={2}

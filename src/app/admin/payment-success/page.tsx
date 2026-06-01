@@ -74,7 +74,7 @@ function PaymentSuccessContent() {
     <div className="max-w-md w-full rounded-lg bg-white p-8 text-center shadow-sm">
       {status === 'loading' && (
         <>
-          <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
+          <div className="mx-auto mb-4 size-10 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
           <h1 className="text-lg font-semibold text-gray-900">Processing payment...</h1>
           <p className="mt-2 text-sm text-gray-500">Waiting for Stripe confirmation. This usually takes a few seconds.</p>
         </>
@@ -82,8 +82,8 @@ function PaymentSuccessContent() {
 
       {status === 'success' && businessId && (
         <>
-          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-green-100">
-            <svg className="h-6 w-6 text-green-600" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
+          <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-green-100">
+            <svg className="size-6 text-green-600" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
             </svg>
           </div>
@@ -100,8 +100,8 @@ function PaymentSuccessContent() {
 
       {status === 'error' && (
         <>
-          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-yellow-100">
-            <svg className="h-6 w-6 text-yellow-600" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
+          <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-yellow-100">
+            <svg className="size-6 text-yellow-600" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
             </svg>
           </div>
@@ -125,7 +125,7 @@ export default function PaymentSuccessPage() {
       <Suspense
         fallback={
           <div className="max-w-md w-full rounded-lg bg-white p-8 text-center shadow-sm">
-            <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
+            <div className="mx-auto mb-4 size-10 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
             <h1 className="text-lg font-semibold text-gray-900">Loading...</h1>
           </div>
         }

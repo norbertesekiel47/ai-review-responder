@@ -312,7 +312,7 @@ function Spinner() {
   return (
     <span
       aria-hidden="true"
-      className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-[#97B3AE]/30 border-t-[#97B3AE]"
+      className="inline-block size-4 animate-spin rounded-full border-2 border-[#97B3AE]/30 border-t-[#97B3AE]"
     />
   );
 }

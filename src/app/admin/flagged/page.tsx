@@ -132,7 +132,7 @@ export default function FlaggedQueuePage() {
 
               <div className="mt-4 flex flex-wrap gap-2">
                 {(Object.keys(ACTION_LABELS) as DispositionAction[]).map((action) => (
-                  <button
+                  <button type="button"
                     key={action}
                     onClick={() => disposition.mutate({ flaggedId: item.id, action })}
                     disabled={disposition.isPending}
@@ -148,7 +148,7 @@ export default function FlaggedQueuePage() {
 
         {data && (offset > 0 || data.flagged.length === PAGE_SIZE) && (
           <div className="mt-6 flex items-center justify-between">
-            <button
+            <button type="button"
               onClick={() => setOffset((o) => Math.max(0, o - PAGE_SIZE))}
               disabled={offset === 0}
               className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
@@ -158,7 +158,7 @@ export default function FlaggedQueuePage() {
             <span className="text-xs text-gray-400">
               Showing {offset + 1}–{offset + data.flagged.length} of {data.total}
             </span>
-            <button
+            <button type="button"
               onClick={() => setOffset((o) => o + PAGE_SIZE)}
               disabled={data.flagged.length < PAGE_SIZE}
               className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"

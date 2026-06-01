@@ -21,7 +21,7 @@ function BrandHeaderRow() {
     <div className="flex items-center justify-end gap-2">
       <div
         aria-hidden="true"
-        className="h-8 w-8 rounded-full bg-gradient-to-br from-[#97B3AE] to-[#97B3AE]/80"
+        className="size-8 rounded-full bg-gradient-to-br from-[#97B3AE] to-[#97B3AE]/80"
       />
       <span className="text-sm uppercase tracking-wider text-[#97B3AE]">
         RepWorth

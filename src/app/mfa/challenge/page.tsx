@@ -72,7 +72,7 @@ function BrandBackground() {
       <div className="absolute top-24 left-12 w-56 h-64 bg-white/40 backdrop-blur-md rounded-3xl shadow-xl border border-white/60 p-6">
         <div className="flex gap-1 mb-3">
           {Array.from({ length: 4 }).map((_, j) => (
-            <div key={j} className="w-3.5 h-3.5 bg-[#F2C3B9]/60 rounded-full" />
+            <div key={j} className="size-3.5 bg-[#F2C3B9]/60 rounded-full" />
           ))}
         </div>
         <div className="space-y-2">
@@ -84,7 +84,7 @@ function BrandBackground() {
       <div className="absolute bottom-24 right-16 w-60 h-56 bg-white/40 backdrop-blur-md rounded-3xl shadow-xl border border-white/60 p-6">
         <div className="flex gap-1 mb-3">
           {Array.from({ length: 5 }).map((_, j) => (
-            <div key={j} className="w-3.5 h-3.5 bg-[#97B3AE]/50 rounded-full" />
+            <div key={j} className="size-3.5 bg-[#97B3AE]/50 rounded-full" />
           ))}
         </div>
         <div className="space-y-2">
@@ -109,7 +109,7 @@ function MfaShell({ children }: { children: ReactNode }) {
         transition={{ duration: 0.6, ease: 'easeOut' }}
       >
         <div className="flex items-center gap-2 mb-8">
-          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#97B3AE] to-[#97B3AE]/80" />
+          <div className="size-8 rounded-full bg-gradient-to-br from-[#97B3AE] to-[#97B3AE]/80" />
           <span className="text-sm tracking-wider uppercase text-[#97B3AE]">
             RepWorth
           </span>

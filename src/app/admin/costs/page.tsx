@@ -123,7 +123,7 @@ export default function CostsPage() {
           {/* Day filter */}
           <div className="flex gap-2">
             {DAY_OPTIONS.map((d) => (
-              <button
+              <button type="button"
                 key={d}
                 onClick={() => { setDays(d); setPage(0); }}
                 className={`rounded px-3 py-1.5 text-sm font-medium transition-colors ${
@@ -313,14 +313,14 @@ export default function CostsPage() {
                 Showing {data.offset + 1}–{Math.min(data.offset + PAGE_SIZE, data.totalBusinesses)} of {data.totalBusinesses}
               </p>
               <div className="flex gap-2">
-                <button
+                <button type="button"
                   onClick={() => setPage((p) => Math.max(0, p - 1))}
                   disabled={page === 0}
                   className="px-3 py-1 rounded border border-gray-300 text-sm disabled:opacity-40"
                 >
                   Prev
                 </button>
-                <button
+                <button type="button"
                   onClick={() => setPage((p) => p + 1)}
                   disabled={page >= Math.ceil(data.totalBusinesses / PAGE_SIZE) - 1}
                   className="px-3 py-1 rounded border border-gray-300 text-sm disabled:opacity-40"

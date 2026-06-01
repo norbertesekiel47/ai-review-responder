@@ -88,10 +88,10 @@ export function ContactContent({ selfServeEnabled = false }: { selfServeEnabled?
               transition={{ duration: 0.6, delay: i * 0.1 }}
             >
               <div
-                className={`mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br shadow-md ${channel.circle}`}
+                className={`mb-4 flex size-12 items-center justify-center rounded-full bg-gradient-to-br shadow-md ${channel.circle}`}
                 aria-hidden="true"
               >
-                <svg className="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg className="size-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={ICON_PATHS[channel.icon]} />
                 </svg>
               </div>
