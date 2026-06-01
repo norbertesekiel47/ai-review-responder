@@ -152,6 +152,7 @@ export function useEditReplyDraft({ row, initialFailureRecovery, onClose }: UseE
     const outboxId = state.outboxId;
     const startedAt = Date.now();
     let cancelled = false;
+    let timerId: ReturnType<typeof setTimeout> | null = null;
 
     const tick = async () => {
       if (cancelled) return;
@@ -181,7 +182,7 @@ export function useEditReplyDraft({ row, initialFailureRecovery, onClose }: UseE
           return;
         }
         if (body.status === 'generating') {
-          setTimeout(tick, POLL_INTERVAL_MS);
+          timerId = setTimeout(tick, POLL_INTERVAL_MS);
           return;
         }
         if (body.status === 'failed') {
@@ -215,9 +216,12 @@ export function useEditReplyDraft({ row, initialFailureRecovery, onClose }: UseE
       }
     };
 
-    setTimeout(tick, POLL_INTERVAL_MS);
+    timerId = setTimeout(tick, POLL_INTERVAL_MS);
     return () => {
       cancelled = true;
+      if (timerId !== null) {
+        clearTimeout(timerId);
+      }
     };
   }, [state]);
 

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 
 const { mockUseDashboardData } = vi.hoisted(() => ({
@@ -22,6 +22,11 @@ import { DashboardContent } from '../DashboardContent';
 describe('DashboardContent announcements (P1 #18)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    window.history.replaceState(null, '', '/');
+    vi.useRealTimers();
   });
 
   it('announces a load error assertively', () => {
@@ -50,5 +55,25 @@ describe('DashboardContent announcements (P1 #18)', () => {
     render(<DashboardContent />);
 
     expect(screen.getByRole('status')).toHaveTextContent('Loading your dashboard');
+  });
+
+  it('clears the deferred needs-action hash scroll timer on unmount', () => {
+    vi.useFakeTimers();
+    window.history.replaceState(null, '', '/dashboard#needs-action');
+    mockUseDashboardData.mockReturnValue({
+      data: null,
+      error: null,
+      loading: true,
+      refresh: vi.fn(),
+      scopeFallback: null,
+    });
+
+    const { unmount } = render(<DashboardContent />);
+
+    expect(vi.getTimerCount()).toBe(1);
+
+    unmount();
+
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

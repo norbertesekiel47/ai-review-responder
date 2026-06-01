@@ -22,6 +22,7 @@ import { AggregateDashboardContent } from '@/components/dashboard/aggregate/Aggr
 import { useDashboardData } from '@/hooks/useDashboardData';
 import { useSetPendingCount } from '@/components/dashboard/PendingCountContext';
 import { useLocationScope } from '@/contexts/LocationContext';
+import { useNeedsActionHashScroll } from '@/components/dashboard/useNeedsActionHashScroll';
 
 export function DashboardContent() {
   const { currentScope, setLocationScope } = useLocationScope();
@@ -39,20 +40,7 @@ export function DashboardContent() {
   const reviewsRef = useRef<HTMLDivElement | null>(null);
   const [initialTab, setInitialTab] = useState<'needs' | 'all'>('needs');
 
-  // OQ-3 — read URL hash on mount; auto-select Needs Action + scroll into view.
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    if (window.location.hash === '#needs-action') {
-      setInitialTab('needs');
-      // Defer until layout settles.
-      setTimeout(() => {
-        if (reviewsRef.current) {
-          const top = reviewsRef.current.getBoundingClientRect().top + window.scrollY - 80;
-          window.scrollTo({ top, behavior: 'smooth' });
-        }
-      }, 100);
-    }
-  }, []);
+  useNeedsActionHashScroll(reviewsRef, () => setInitialTab('needs'));
 
   // Push pending count to the layout-scoped context so MobileTabBar's "Needs
   // Action" tab can show a red badge on every authenticated route.
