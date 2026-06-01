@@ -512,7 +512,7 @@ function ArchivedLocationRow({
         <div className="loc-row-name-wrap">
           <span className="loc-row-name" style={{ color: '#9CA3AF' }}>{displayName}</span>
           <span style={{
-            fontSize: 10,
+            fontSize: 12,
             fontWeight: 500,
             color: '#9CA3AF',
             background: '#F3F4F6',

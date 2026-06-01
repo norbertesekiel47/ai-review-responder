@@ -84,7 +84,7 @@ export function OwnerTelegramWidget({ initialEnrollment }: OwnerTelegramWidgetPr
               <a href={snapshot.deepLink} target="_blank" rel="noreferrer">{snapshot.deepLink}</a>
             </p>
             {ttl.secondsRemaining !== null && (
-              <p style={{ marginTop: 4, fontSize: 11, color: 'var(--rw-app-text-muted)' }}>
+              <p style={{ marginTop: 4, fontSize: 12, color: 'var(--rw-app-text-muted)' }}>
                 Expires in {Math.floor(ttl.secondsRemaining / 60)}m {ttl.secondsRemaining % 60}s
               </p>
             )}

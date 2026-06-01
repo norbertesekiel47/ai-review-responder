@@ -72,8 +72,8 @@ export function ReviewsList({ reviews }: ReviewsListProps) {
                 </p>
               )}
               {review.approvedText && (
-                <div className="mt-2 rounded bg-blue-50 px-3 py-2 text-sm text-gray-800">
-                  <span className="font-medium text-gray-500">Response: </span>
+                <div className="mt-2 rounded bg-blue-50 px-3 py-2 text-sm text-blue-900">
+                  <span className="font-medium text-blue-700">Response: </span>
                   {review.approvedText}
                 </div>
               )}

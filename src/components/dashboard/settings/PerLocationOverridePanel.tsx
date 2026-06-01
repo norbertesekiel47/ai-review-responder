@@ -245,7 +245,7 @@ export function PerLocationOverridePanel({
                   <Icon name="location" size={14} />
                   {loc.displayName}
                   {loc.isPrimary && (
-                    <span style={{ fontSize: 10, fontWeight: 500, color: '#059669', background: '#ECFDF5', padding: '1px 6px', borderRadius: 4 }}>
+                    <span style={{ fontSize: 12, fontWeight: 500, color: '#059669', background: '#ECFDF5', padding: '1px 6px', borderRadius: 4 }}>
                       Primary
                     </span>
                   )}

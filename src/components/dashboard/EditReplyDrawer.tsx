@@ -293,7 +293,7 @@ export function EditReplyDrawer({
                   onClick={onClose}
                   className="rounded-full bg-[#97B3AE] px-5 py-2 text-sm font-medium text-white shadow-sm hover:bg-[#7c9994]"
                 >
-                  Done
+                  Close editor
                 </button>
               </div>
             </div>

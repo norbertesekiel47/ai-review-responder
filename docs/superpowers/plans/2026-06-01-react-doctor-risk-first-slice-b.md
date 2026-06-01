@@ -204,7 +204,7 @@ git commit -m "fix: use semantic settings modal backdrops"
 - [ ] Rename the `EditReplyDrawer` success close button from `Done` to `Close editor`.
 - [ ] Replace low-risk `role="status"` wrappers with `<output>` in `SettingsSkeleton` and MFA busy status.
 - [ ] Replace gray text on pale blue backgrounds with blue-family text in admin status panels.
-- [ ] For pricing's horizontally scrollable plan matrix, remove `tabIndex={0}` unless a product requirement says keyboard focus is needed for scroll. Do not change pricing layout beyond that.
+- [ ] Defer pricing's horizontally scrollable plan matrix `tabIndex={0}`. It is a public marketing surface, and the existing test asserts the focusable scroll region; changing it belongs in a dedicated pricing accessibility pass.
 - [ ] Run focused tests:
 
 ```bash
@@ -243,4 +243,5 @@ pnpm build
 ## Deferred Notes for PR
 
 - `prefer-html-dialog`: deferred for a dedicated modal accessibility slice because native dialog changes focus trap, Escape handling, top-layer behavior, and backdrop rendering.
+- `no-noninteractive-tabindex` in pricing: deferred because the plan matrix is intentionally focusable for keyboard access to a horizontal scroll region, and the existing pricing test asserts that behavior.
 - Marketing/demo semantic role findings: defer unless touched by this branch; Slice B prioritizes active product surfaces and low-risk semantic fixes.

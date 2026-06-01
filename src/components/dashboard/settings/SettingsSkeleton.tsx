@@ -5,7 +5,7 @@
  */
 export function SettingsSkeleton({ rows = 5 }: { rows?: number }) {
   return (
-    <div className="settings-skeleton" role="status" aria-busy="true">
+    <output className="settings-skeleton" aria-busy="true">
       <span className="sr-only">Loading settings…</span>
       {Array.from({ length: rows }).map((_, i) => (
         <div key={i} className="settings-skeleton__row" aria-hidden="true">
@@ -13,6 +13,6 @@ export function SettingsSkeleton({ rows = 5 }: { rows?: number }) {
           <div className="settings-skeleton__field" />
         </div>
       ))}
-    </div>
+    </output>
   );
 }

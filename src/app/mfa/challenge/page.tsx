@@ -259,9 +259,9 @@ export function MfaChallengeForm() {
       ) : (
         <form className="space-y-5" onSubmit={(event) => void verify(event)}>
           {busy ? (
-            <span role="status" className="sr-only">
+            <output className="sr-only">
               Verifying your code…
-            </span>
+            </output>
           ) : null}
           {factors.length > 1 ? (
             <div>

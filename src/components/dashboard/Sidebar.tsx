@@ -112,7 +112,7 @@ export function Sidebar({
       </div>
 
       {signOutError && (
-        <p style={{ fontSize: 11, color: '#dc2626', marginTop: 4 }}>Sign out failed</p>
+        <p style={{ fontSize: 12, color: '#dc2626', marginTop: 4 }}>Sign out failed</p>
       )}
       <button
         type="button"

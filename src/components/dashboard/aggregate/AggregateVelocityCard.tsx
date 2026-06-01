@@ -198,7 +198,7 @@ function StackedVelocityChart({ perLocationVelocity }: { perLocationVelocity: Ag
 function KpiSummary({ label, value, delta }: { label: string; value: number; delta?: number }) {
   return (
     <div>
-      <div style={{ fontSize: 11, color: '#6B7280', fontWeight: 500, letterSpacing: '0.02em' }}>{label}</div>
+      <div style={{ fontSize: 12, color: '#6B7280', fontWeight: 500, letterSpacing: '0.02em' }}>{label}</div>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
         <span style={{ fontFamily: 'Plus Jakarta Sans', fontWeight: 700, fontSize: 24, letterSpacing: '-0.02em' }}>{value}</span>
         {delta != null && (
