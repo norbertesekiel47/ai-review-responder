@@ -49,22 +49,23 @@ export function Step1Location({
           onChange={(e) => onDisplayLabelChange(e.target.value)}
           placeholder="e.g. Downtown Cafe"
           maxLength={255}
-          autoFocus
         />
         {displayLabelError && <p className="field-error">{displayLabelError}</p>}
         <div className="field-counter">{displayLabel.length}/255</div>
       </div>
 
       <div className="field" style={{ marginTop: 16 }}>
-        <label className="field-label">Business address</label>
+        <div className="field-label" id="add-location-address-label">Business address</div>
         {inputMode === 'autocomplete' ? (
           <PlaceAutocomplete
             onPlaceSelect={onSelectPlace}
             onClear={onClearPlace}
             placeholder="Search for your business..."
+            ariaLabelledBy="add-location-address-label"
           />
         ) : (
           <input
+            aria-labelledby="add-location-address-label"
             className="input"
             type="url"
             value={googleMapsUrl}

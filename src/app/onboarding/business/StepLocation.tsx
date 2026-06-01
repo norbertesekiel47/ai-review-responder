@@ -165,6 +165,7 @@ export function StepLocation({
 
       {data.inputMode === 'autocomplete' ? (
         <PlaceAutocomplete
+          ariaLabel="Business location"
           onPlaceSelect={(sel) => {
             update({
               googlePlaceId: sel.placeId,
@@ -186,6 +187,7 @@ export function StepLocation({
         />
       ) : (
         <input
+          aria-label="Google Maps URL"
           type="text"
           value={data.googleMapsUrl}
           onChange={(e) => update({ googleMapsUrl: e.target.value })}

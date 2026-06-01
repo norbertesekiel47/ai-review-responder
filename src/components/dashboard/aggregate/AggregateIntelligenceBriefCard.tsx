@@ -50,7 +50,7 @@ export function AggregateIntelligenceBriefCard({ perLocationBriefs }: Props) {
                 <Icon name="location" size={10} />
                 {locBrief.displayName}
               </span>
-              <span style={{ fontSize: 11, color: '#6B7280' }}>
+              <span style={{ fontSize: 12, color: '#6B7280' }}>
                 {locBrief.brief.type === 'monthly' ? 'monthly' : 'weekly'} · {locBrief.brief.periodLabel}
               </span>
             </div>

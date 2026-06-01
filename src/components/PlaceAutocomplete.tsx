@@ -14,6 +14,8 @@ interface PlaceAutocompleteProps {
   onPlaceSelect: (selection: PlaceSelection) => void;
   onClear?: () => void;
   placeholder?: string;
+  ariaLabel?: string;
+  ariaLabelledBy?: string;
 }
 
 // Guard against SSR — setOptions accesses `window` internally
@@ -29,6 +31,8 @@ export function PlaceAutocomplete({
   onPlaceSelect,
   onClear,
   placeholder = 'Search for a business...',
+  ariaLabel,
+  ariaLabelledBy,
 }: PlaceAutocompleteProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [selection, setSelection] = useState<PlaceSelection | null>(null);
@@ -68,6 +72,12 @@ export function PlaceAutocomplete({
         }) as HTMLElement;
 
         element.setAttribute('placeholder', placeholder);
+        if (ariaLabel) {
+          element.setAttribute('aria-label', ariaLabel);
+        }
+        if (ariaLabelledBy) {
+          element.setAttribute('aria-labelledby', ariaLabelledBy);
+        }
         element.style.width = '100%';
 
         handleSelect = async (event: Event) => {
@@ -127,7 +137,7 @@ export function PlaceAutocomplete({
       }
       element?.remove();
     };
-  }, [placeholder, onPlaceSelect]);
+  }, [ariaLabel, ariaLabelledBy, placeholder, onPlaceSelect]);
 
   const handleClear = () => {
     setSelection(null);

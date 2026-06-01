@@ -5,6 +5,7 @@ import { Icon } from '@/components/dashboard/Icon';
 import { useAccountData, type AccountSettingsData } from '@/hooks/useAccountData';
 import type { DashboardDataActive } from '@/lib/dashboard/types';
 import { SubscriptionTier, type SubscriptionTierValue, TIER_CONFIG } from '@/lib/accounts/tier-config';
+import { SettingsModal } from './SettingsModal';
 
 // ── TierChangeModal ───────────────────────────────────────────────────
 
@@ -40,8 +41,11 @@ function TierChangeModal({
   const isDowngrade = TIER_CONFIG[newTier].baseCents < TIER_CONFIG[currentTier].baseCents;
 
   return (
-    <div className="modal-overlay" onClick={onCancel}>
-      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+    <SettingsModal
+      title={isDowngrade ? 'Downgrade plan' : 'Upgrade plan'}
+      closeLabel="Cancel tier change"
+      onClose={onCancel}
+    >
         <div className="set-section-title" style={{ marginBottom: 8 }}>
           {isDowngrade ? 'Downgrade' : 'Upgrade'} to {newTier.charAt(0).toUpperCase() + newTier.slice(1)}?
         </div>
@@ -127,8 +131,7 @@ function TierChangeModal({
             {changing ? 'Changing…' : `Confirm ${isDowngrade ? 'downgrade' : 'upgrade'}`}
           </button>
         </div>
-      </div>
-    </div>
+    </SettingsModal>
   );
 }
 
@@ -362,24 +365,25 @@ export function AccountPanel({ data, accountData, accountLoading, accountError, 
 
         <div className="two-col">
           <div className="field">
-            <label className="field-label">
+            <label className="field-label" htmlFor="account-business-name">
               Business name <span className="locked-pill">Locked</span>
             </label>
-            <input className="input locked" value={data.business.name} disabled readOnly />
+            <input id="account-business-name" className="input locked" value={data.business.name} disabled readOnly />
           </div>
           <div className="field">
-            <label className="field-label">
+            <label className="field-label" htmlFor="account-business-category">
               Category <span className="locked-pill">Locked</span>
             </label>
-            <input className="input locked" value={data.settings.category} disabled readOnly />
+            <input id="account-business-category" className="input locked" value={data.settings.category} disabled readOnly />
           </div>
         </div>
         <div className="field">
-          <label className="field-label">
+          <label className="field-label" htmlFor="account-google-place-id">
             Google Place ID <span className="locked-pill">Locked</span>
           </label>
           <div className="copy-row">
             <input
+              id="account-google-place-id"
               className="input locked"
               value={data.settings.googlePlaceId}
               disabled

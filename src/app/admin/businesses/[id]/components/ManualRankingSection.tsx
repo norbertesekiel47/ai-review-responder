@@ -110,8 +110,9 @@ export function ManualRankingSection({ businessId, snapshots }: ManualRankingSec
       <h3 className="text-sm font-medium text-gray-700 mb-3">Manual Entry</h3>
       <form onSubmit={submit} className="flex flex-wrap gap-3 items-end">
         <div className="flex-1 min-w-[160px]">
-          <label className="block text-xs text-gray-500 mb-1">Keyword</label>
+          <label className="block text-xs text-gray-500 mb-1" htmlFor="manual-ranking-keyword">Keyword</label>
           <input
+            id="manual-ranking-keyword"
             type="text"
             value={keyword}
             onChange={(e) => { setKeyword(e.target.value); setError(null); setSuccess(false); }}
@@ -122,8 +123,9 @@ export function ManualRankingSection({ businessId, snapshots }: ManualRankingSec
           />
         </div>
         <div className="w-24">
-          <label className="block text-xs text-gray-500 mb-1">Rank</label>
+          <label className="block text-xs text-gray-500 mb-1" htmlFor="manual-ranking-rank">Rank</label>
           <input
+            id="manual-ranking-rank"
             type="number"
             value={rankPosition}
             onChange={(e) => { setRankPosition(e.target.value); setError(null); setSuccess(false); }}
@@ -136,8 +138,9 @@ export function ManualRankingSection({ businessId, snapshots }: ManualRankingSec
           />
         </div>
         <div className="w-40">
-          <label className="block text-xs text-gray-500 mb-1">Date</label>
+          <label className="block text-xs text-gray-500 mb-1" htmlFor="manual-ranking-date">Date</label>
           <input
+            id="manual-ranking-date"
             type="date"
             value={date}
             onChange={(e) => { setDate(e.target.value); setError(null); setSuccess(false); }}

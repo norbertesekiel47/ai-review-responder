@@ -119,6 +119,7 @@ export function PastRepliesClient({
             <path d="M21 21l-4.3-4.3" />
           </svg>
           <input
+            aria-label="Search past replies"
             type="text"
             placeholder="Search reviews and replies on this page…"
             value={query}
