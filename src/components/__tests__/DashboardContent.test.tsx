@@ -17,7 +17,7 @@ vi.mock('@/components/dashboard/PendingCountContext', () => ({
 }));
 vi.mock('@/components/dashboard/TopBar', () => ({ TopBar: () => null }));
 
-import { DashboardContent } from '../DashboardContent';
+import { DashboardContent } from '@/components/dashboard/DashboardContent';
 
 describe('DashboardContent announcements (P1 #18)', () => {
   beforeEach(() => {
