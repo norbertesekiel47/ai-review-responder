@@ -1,0 +1,299 @@
+{
+  "$schema": "https://www.react.doctor/schema.json",
+  "ignore": {
+    "overrides": [
+      {
+        "files": ["package.json"],
+        "rules": ["deslop/unused-dev-dependency"]
+      },
+      {
+        "files": ["src/app/(public)/pricing/PricingContent.tsx"],
+        "rules": ["react-doctor/no-noninteractive-tabindex"]
+      },
+      {
+        "files": ["src/lib/responses/prompt-builder.ts"],
+        "rules": ["react-doctor/js-set-map-lookups"]
+      },
+      {
+        "files": ["worker/jobs/response-generation/generate-draft.ts"],
+        "rules": ["react-doctor/js-set-map-lookups"]
+      },
+      {
+        "files": ["worker/jobs/zernio/ZernioReviewIngestWorker.ts"],
+        "rules": ["react-doctor/js-index-maps"]
+      },
+      {
+        "files": ["src/app/*/dashboard/add-location/wizard/useAddLocationWizard.ts"],
+        "rules": ["react-doctor/no-fetch-in-effect"]
+      },
+      {
+        "files": ["src/app/*/dashboard/connect/page.tsx"],
+        "rules": ["react-doctor/nextjs-no-client-side-redirect"]
+      },
+      {
+        "files": ["src/app/*/dashboard/past-replies/page.tsx"],
+        "rules": ["react-doctor/server-sequential-independent-await"]
+      },
+      {
+        "files": ["src/app/admin/businesses/new/hooks/useBusinessPrefill.ts"],
+        "rules": ["react-doctor/async-defer-await"]
+      },
+      {
+        "files": ["src/app/admin/impersonate/[sessionId]/view/page.tsx"],
+        "rules": ["react-doctor/server-sequential-independent-await"]
+      },
+      {
+        "files": ["src/app/admin/payment-success/page.tsx"],
+        "rules": [
+          "react-doctor/nextjs-no-client-fetch-for-server-data",
+          "react-doctor/nextjs-no-client-side-redirect",
+          "react-doctor/no-fetch-in-effect"
+        ]
+      },
+      {
+        "files": ["src/app/api/admin/jobs/route.ts"],
+        "rules": ["react-doctor/async-await-in-loop"]
+      },
+      {
+        "files": ["src/app/api/admin/locations/csv-import/route.ts"],
+        "rules": ["react-doctor/async-await-in-loop"]
+      },
+      {
+        "files": ["src/app/api/billing/tier-change/route.ts"],
+        "rules": ["react-doctor/async-parallel"]
+      },
+      {
+        "files": ["src/app/api/onboarding/start/route.ts"],
+        "rules": ["react-doctor/async-parallel"]
+      },
+      {
+        "files": ["src/app/api/zernio/connect/_shared/finalize/finalize-tx.ts"],
+        "rules": ["react-doctor/async-parallel"]
+      },
+      {
+        "files": ["src/app/onboarding/business/StepLocation.tsx"],
+        "rules": ["react-doctor/async-defer-await", "react-doctor/exhaustive-deps"]
+      },
+      {
+        "files": ["src/app/onboarding/payment-success/PaymentSuccessClient.tsx"],
+        "rules": [
+          "react-doctor/nextjs-no-client-side-redirect",
+          "react-doctor/no-fetch-in-effect"
+        ]
+      },
+      {
+        "files": ["src/components/approval/approval-client.tsx"],
+        "rules": ["react-doctor/no-fetch-in-effect"]
+      },
+      {
+        "files": ["src/components/auth/auth-island/LoginForm.tsx"],
+        "rules": [
+          "react-doctor/exhaustive-deps",
+          "react-doctor/nextjs-no-client-side-redirect",
+          "react-doctor/no-initialize-state"
+        ]
+      },
+      {
+        "files": ["src/components/dashboard/aggregate/AggregateDashboardContent.tsx"],
+        "rules": ["react-doctor/no-derived-state-effect"]
+      },
+      {
+        "files": ["src/components/dashboard/edit-reply/useEditReplyDraft.ts"],
+        "rules": ["react-doctor/no-fetch-in-effect"]
+      },
+      {
+        "files": ["src/components/dashboard/settings/SettingsSkeleton.tsx"],
+        "rules": ["react-doctor/prefer-tag-over-role"]
+      },
+      {
+        "files": ["src/components/dashboard/TopBar.tsx"],
+        "rules": ["react-doctor/exhaustive-deps"]
+      },
+      {
+        "files": ["src/components/DashboardContent.tsx"],
+        "rules": ["react-doctor/no-derived-state-effect"]
+      },
+      {
+        "files": ["src/hooks/useAccountData.ts"],
+        "rules": ["react-doctor/no-fetch-in-effect", "react-doctor/no-initialize-state"]
+      },
+      {
+        "files": ["src/hooks/useDashboardData.ts"],
+        "rules": ["react-doctor/async-defer-await"]
+      },
+      {
+        "files": ["src/hooks/useLocationVoiceForm.ts"],
+        "rules": [
+          "react-doctor/exhaustive-deps",
+          "react-doctor/no-fetch-in-effect",
+          "react-doctor/no-initialize-state"
+        ]
+      },
+      {
+        "files": ["src/hooks/useSettingsForm.ts"],
+        "rules": ["react-doctor/no-fetch-in-effect", "react-doctor/no-initialize-state"]
+      },
+      {
+        "files": ["src/lib/approval/http-routes.ts"],
+        "rules": ["react-doctor/async-defer-await"]
+      },
+      {
+        "files": ["src/lib/approval/session-mode.ts"],
+        "rules": ["react-doctor/async-parallel"]
+      },
+      {
+        "files": ["src/lib/approval/token-mode.ts"],
+        "rules": ["react-doctor/async-parallel"]
+      },
+      {
+        "files": ["src/lib/costs/onboarding-demo-cost-guard.ts"],
+        "rules": [
+          "react-doctor/async-await-in-loop",
+          "react-doctor/server-sequential-independent-await"
+        ]
+      },
+      {
+        "files": ["src/lib/dashboard/aggregate-service.ts"],
+        "rules": ["react-doctor/async-await-in-loop"]
+      },
+      {
+        "files": ["src/lib/locations/archive-location-tx.ts"],
+        "rules": ["react-doctor/async-parallel"]
+      },
+      {
+        "files": ["src/lib/onboarding/admin-onboarding-service.ts"],
+        "rules": ["react-doctor/async-parallel"]
+      },
+      {
+        "files": ["src/lib/onboarding/create-business.ts"],
+        "rules": ["react-doctor/async-parallel"]
+      },
+      {
+        "files": ["worker/background/pollers/AnalyticsDispatchPoller.ts"],
+        "rules": ["react-doctor/async-await-in-loop"]
+      },
+      {
+        "files": ["worker/background/pollers/ArchivalPoller.ts"],
+        "rules": ["react-doctor/async-parallel"]
+      },
+      {
+        "files": ["worker/background/pollers/CancellationGracePoller.ts"],
+        "rules": ["react-doctor/async-await-in-loop"]
+      },
+      {
+        "files": ["worker/background/pollers/EmailChannelReconcilePoller.ts"],
+        "rules": ["react-doctor/async-await-in-loop"]
+      },
+      {
+        "files": ["worker/background/pollers/EngagementMonitorPoller.ts"],
+        "rules": ["react-doctor/async-await-in-loop"]
+      },
+      {
+        "files": ["worker/background/pollers/NotificationFailoverPoller.ts"],
+        "rules": ["react-doctor/async-await-in-loop"]
+      },
+      {
+        "files": ["worker/background/pollers/OutboxPoller.ts"],
+        "rules": [
+          "react-doctor/async-await-in-loop",
+          "react-doctor/server-sequential-independent-await"
+        ]
+      },
+      {
+        "files": ["worker/background/pollers/StripeLocationsReconcilePoller.ts"],
+        "rules": ["react-doctor/async-await-in-loop"]
+      },
+      {
+        "files": ["worker/background/pollers/ZernioRecentReviewPoller.ts"],
+        "rules": ["react-doctor/async-await-in-loop"]
+      },
+      {
+        "files": ["worker/background/schedulers/MonthlyImpactScheduler.ts"],
+        "rules": ["react-doctor/async-await-in-loop"]
+      },
+      {
+        "files": ["worker/background/schedulers/OnboardingDripScheduler.ts"],
+        "rules": ["react-doctor/async-await-in-loop"]
+      },
+      {
+        "files": ["worker/background/schedulers/RankingTrackingScheduler.ts"],
+        "rules": ["react-doctor/async-await-in-loop"]
+      },
+      {
+        "files": ["worker/background/schedulers/WeeklySummaryScheduler.ts"],
+        "rules": ["react-doctor/async-await-in-loop"]
+      },
+      {
+        "files": ["worker/index.ts"],
+        "rules": ["react-doctor/async-parallel"]
+      },
+      {
+        "files": ["worker/ingress/stripe/invoice-paid.ts"],
+        "rules": [
+          "react-doctor/async-await-in-loop",
+          "react-doctor/async-defer-await",
+          "react-doctor/async-parallel"
+        ]
+      },
+      {
+        "files": ["worker/ingress/stripe/invoice-payment-failed.ts"],
+        "rules": ["react-doctor/async-parallel"]
+      },
+      {
+        "files": ["worker/ingress/stripe/subscription-deleted.ts"],
+        "rules": ["react-doctor/async-parallel"]
+      },
+      {
+        "files": ["worker/ingress/telegram/telegram-enrollment.ts"],
+        "rules": ["react-doctor/async-parallel"]
+      },
+      {
+        "files": ["worker/ingress/twilio/twilio.ts"],
+        "rules": ["react-doctor/async-parallel"]
+      },
+      {
+        "files": ["worker/jobs/EngagementAlertWorker.ts"],
+        "rules": ["react-doctor/async-await-in-loop", "react-doctor/async-parallel"]
+      },
+      {
+        "files": ["worker/jobs/MonthlyImpactWorker.ts"],
+        "rules": ["react-doctor/server-sequential-independent-await"]
+      },
+      {
+        "files": ["worker/jobs/notification/dispatch.ts"],
+        "rules": ["react-doctor/async-parallel"]
+      },
+      {
+        "files": ["worker/jobs/OnboardingDripWorker.ts"],
+        "rules": ["react-doctor/async-await-in-loop", "react-doctor/async-parallel"]
+      },
+      {
+        "files": ["worker/jobs/PlaceIdValidationWorker.ts"],
+        "rules": ["react-doctor/async-parallel"]
+      },
+      {
+        "files": ["worker/jobs/publisher/failed-hook.ts"],
+        "rules": ["react-doctor/async-defer-await"]
+      },
+      {
+        "files": ["worker/jobs/publisher/publisher-error-handlers.ts"],
+        "rules": ["react-doctor/server-sequential-independent-await"]
+      },
+      {
+        "files": ["worker/jobs/RankingTrackingWorker.ts"],
+        "rules": ["react-doctor/async-await-in-loop"]
+      },
+      {
+        "files": ["worker/jobs/WeeklySummaryWorker.ts"],
+        "rules": [
+          "react-doctor/async-parallel",
+          "react-doctor/server-sequential-independent-await"
+        ]
+      },
+      {
+        "files": ["worker/jobs/zernio/ZernioBackfillWorker.ts"],
+        "rules": ["react-doctor/async-await-in-loop", "react-doctor/async-defer-await"]
+      }
+    ]
+  }
+}
