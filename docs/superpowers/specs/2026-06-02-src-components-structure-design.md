@@ -1,6 +1,6 @@
 # `src/components/` Structure — Convention + Targeted Cleanup
 
-**Status:** Draft — pending user review (brainstorm 2026-06-02). Not yet approved.
+**Status:** Approved 2026-06-02 (brainstorm + review). Ready for implementation plan.
 **Owner of the living convention:** [`docs/src-structure-preferences.md`](../../src-structure-preferences.md)
 **Authority:** [`.claude/CLAUDE.md`](../../../.claude/CLAUDE.md) wins on any conflict.
 
