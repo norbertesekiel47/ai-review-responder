@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
 import { useState } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/db/browser';
-import { Icon } from '@/components/dashboard/Icon';
+import { Icon } from '@/components/dashboard/shell/Icon';
 import { LocationPicker } from '@/components/dashboard/LocationPicker';
 import { useLocationScope } from '@/contexts/LocationContext';
 

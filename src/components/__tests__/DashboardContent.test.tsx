@@ -15,7 +15,7 @@ vi.mock('@/contexts/LocationContext', () => ({
 vi.mock('@/components/dashboard/PendingCountContext', () => ({
   useSetPendingCount: () => vi.fn(),
 }));
-vi.mock('@/components/dashboard/TopBar', () => ({ TopBar: () => null }));
+vi.mock('@/components/dashboard/shell/TopBar', () => ({ TopBar: () => null }));
 
 import { DashboardContent } from '@/components/dashboard/DashboardContent';
 

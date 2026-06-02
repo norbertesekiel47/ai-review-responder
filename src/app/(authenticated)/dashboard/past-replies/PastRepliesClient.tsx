@@ -6,7 +6,7 @@ import { PastReplyCard } from '@/components/dashboard/PastReplyCard';
 import type { PastReplyRow } from '@/components/dashboard/PastReplyCard';
 import { EditReplyDrawer } from '@/components/dashboard/EditReplyDrawer';
 import { HistoricalUpgradeBanner } from '@/components/dashboard/HistoricalUpgradeBanner';
-import { Icon } from '@/components/dashboard/Icon';
+import { Icon } from '@/components/dashboard/shell/Icon';
 
 interface Props {
   gapRows: PastReplyRow[];

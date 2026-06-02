@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import type { AggregateDashboardData } from '@/lib/dashboard/types';
-import { TopBar } from '@/components/dashboard/TopBar';
+import { TopBar } from '@/components/dashboard/shell/TopBar';
 import { AggregateKpiCards } from '@/components/dashboard/aggregate/AggregateKpiCards';
 import { AggregateReviewsCard } from '@/components/dashboard/aggregate/AggregateReviewsCard';
 import { AggregateVelocityCard } from '@/components/dashboard/aggregate/AggregateVelocityCard';

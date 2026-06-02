@@ -10,7 +10,7 @@ import { PendingPaymentScreen } from '@/components/dashboard/PendingPaymentScree
 import { CancelledBanner, PastDueBanner } from '@/components/dashboard/SubscriptionStatusBanner';
 import { PastDueModal } from '@/components/dashboard/PastDueModal';
 import { ConnectGoogleBanner } from '@/components/dashboard/ConnectGoogleBanner';
-import { TopBar } from '@/components/dashboard/TopBar';
+import { TopBar } from '@/components/dashboard/shell/TopBar';
 import { LiveRegion } from '@/components/ui/LiveRegion';
 import { KpiCards } from '@/components/dashboard/KpiCards';
 import { ReviewsCard } from '@/components/dashboard/ReviewsCard';

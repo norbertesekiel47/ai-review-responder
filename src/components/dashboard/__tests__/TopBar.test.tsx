@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 import { act, render, screen } from '@testing-library/react';
 import { createElement as h } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { TopBar } from '@/components/dashboard/TopBar';
+import { TopBar } from '@/components/dashboard/shell/TopBar';
 import { LocationProvider, type LocationInfo } from '@/contexts/LocationContext';
 import type { LocationId } from '@/lib/shared/ids';
 
@@ -35,7 +35,7 @@ describe('TopBar', () => {
   });
 
   it('keeps auto-refresh side effects outside the countdown state updater', () => {
-    const source = readFileSync(resolve(process.cwd(), 'src/components/dashboard/TopBar.tsx'), 'utf8');
+    const source = readFileSync(resolve(process.cwd(), 'src/components/dashboard/shell/TopBar.tsx'), 'utf8');
     const updaterBody =
       source.match(/setSecondsToRefresh\(\(s\) => \s*\{([\s\S]*?)\n\s*\}\);/)?.[1] ?? '';
 

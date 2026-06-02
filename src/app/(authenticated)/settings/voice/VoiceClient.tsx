@@ -16,7 +16,7 @@ import { useLocationVoiceForm } from '@/hooks/useLocationVoiceForm';
 import { SettingsShell } from '@/components/dashboard/settings/SettingsShell';
 import { BrandVoicePanel } from '@/components/dashboard/settings/BrandVoicePanel';
 import { SettingsSkeleton } from '@/components/dashboard/settings/SettingsSkeleton';
-import { Icon } from '@/components/dashboard/Icon';
+import { Icon } from '@/components/dashboard/shell/Icon';
 
 export function VoiceClient() {
   const f = useLocationVoiceForm();

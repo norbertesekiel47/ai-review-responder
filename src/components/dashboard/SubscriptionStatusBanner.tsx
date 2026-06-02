@@ -8,7 +8,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Icon } from '@/components/dashboard/Icon';
+import { Icon } from '@/components/dashboard/shell/Icon';
 import { openBillingPortal } from '@/components/dashboard/billing-portal';
 
 interface CancelledBannerProps {

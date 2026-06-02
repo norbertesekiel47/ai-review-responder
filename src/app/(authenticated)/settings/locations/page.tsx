@@ -9,7 +9,7 @@
 import { notFound } from 'next/navigation';
 import { sql } from '@/lib/db/server';
 import { requireOwnerAccess } from '@/lib/auth/require-owner-access';
-import { TopBar } from '@/components/dashboard/TopBar';
+import { TopBar } from '@/components/dashboard/shell/TopBar';
 import { LocationsClient } from './LocationsClient';
 import type { AddLocationState } from '@/components/dashboard/settings/LocationsPanel';
 import { getLocationsForAccount, getActiveLocationCount, getArchivedLocationsForAccount } from '@/lib/locations/repo';

@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Icon } from '@/components/dashboard/Icon';
+import { Icon } from '@/components/dashboard/shell/Icon';
 
 export function HistoricalUpgradeBanner() {
   return (

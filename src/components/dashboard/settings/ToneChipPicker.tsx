@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { Icon } from '@/components/dashboard/Icon';
+import { Icon } from '@/components/dashboard/shell/Icon';
 import { inferActiveTone } from './ToneChipPicker.helpers';
 
 const TONES: { id: string; label: string; canonical: string; preview: string }[] = [

@@ -1,7 +1,7 @@
 'use client';
 
 import { uniqueSiblingKey } from '@/lib/shared/unique-sibling-key';
-import { Icon } from '@/components/dashboard/Icon';
+import { Icon } from '@/components/dashboard/shell/Icon';
 
 // PastReplyRow is the wire shape flowing from page.tsx → PastRepliesClient →
 // PastReplyCard → EditReplyDrawer. Fields with `?` are added by the edit

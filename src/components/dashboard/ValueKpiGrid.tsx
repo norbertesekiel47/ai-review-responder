@@ -1,6 +1,6 @@
 'use client';
 
-import { Icon } from '@/components/dashboard/Icon';
+import { Icon } from '@/components/dashboard/shell/Icon';
 import { Sparkline } from '@/components/dashboard/Sparkline';
 import { useCountUp } from '@/components/dashboard/useCountUp';
 

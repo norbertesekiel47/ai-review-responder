@@ -17,8 +17,8 @@
 // VAL-SETTINGS-043 (display_label validation), VAL-SETTINGS-044 (duplicate
 // Place ID rejected).
 
-import { Icon } from '@/components/dashboard/Icon';
-import { TopBar } from '@/components/dashboard/TopBar';
+import { Icon } from '@/components/dashboard/shell/Icon';
+import { TopBar } from '@/components/dashboard/shell/TopBar';
 import { useAddLocationWizard } from './wizard/useAddLocationWizard';
 import type { Props, WizardStep } from './wizard/types';
 import { Step1Location } from './wizard/steps/Step1Location';
