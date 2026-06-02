@@ -1,6 +1,6 @@
 # `src/components/` Structure — Convention + Targeted Cleanup
 
-**Status:** Design approved (brainstorm 2026-06-02). Ready for implementation plan.
+**Status:** Draft — pending user review (brainstorm 2026-06-02). Not yet approved.
 **Owner of the living convention:** [`docs/src-structure-preferences.md`](../../src-structure-preferences.md)
 **Authority:** [`.claude/CLAUDE.md`](../../../.claude/CLAUDE.md) wins on any conflict.
 
@@ -22,9 +22,11 @@ evidence from the tree**, and the evidence reframed the problem:
   - **`components/dashboard/`** (customer-facing) is a flat `components/<domain>`
     pile — convention **(A)**.
 - **`@tanstack/react-query` is concentrated in `app/admin/**`** (12 of 13
-  using files). The customer dashboard is server-first. The client-fetch
-  "policy" the original doc left vague is **already a real, principled split** —
-  it just was never written down.
+  using files). The customer dashboard does **not** use react-query — it mixes
+  Server Components with plain `'use client'` fetch hooks (e.g.
+  `useDashboardData` → `/api/dashboard`). So the policy worth writing down is a
+  **react-query scoping rule**, not a client-fetch ban — and that split already
+  exists in practice; it was just never named.
 - **The `cn()` rejection was the weakest call.** ~**274** manual
   className-juggling sites (170 template-literal interpolations + 104 ternaries),
   **zero** helper, nothing installed.
@@ -45,7 +47,7 @@ cleanup in one behavior-preserving PR.
 |---|---|---|
 | D1 | Component co-location convention | **Codify the existing split with one shared-ness rule** (see §3). |
 | D2 | `cn()` / className helper | **Local zero-dependency `cn()`** at `src/lib/ui/cn.ts`; adopt opportunistically (see §4). |
-| D3 | Client-fetch / react-query policy | **Write down the existing boundary**: admin tooling + polling/approve = client-fetch OK; customer-facing = server-first (see §5). |
+| D3 | react-query / client-fetch policy | **Scope `@tanstack/react-query`** to admin tooling + polling/approve; customer-facing *prefers* server-first but existing client fetches (e.g. `useDashboardData`) are fine (see §5). |
 | D4 | "Lightweight feature co-location" | **Not a new idea** — it is convention (B), which admin already runs. Folded into D1. |
 | D5 | Migration execution | **One atomic, behavior-preserving cleanup PR** (see §6). |
 
@@ -133,19 +135,22 @@ export function cn(...values: ClassValue[]): string {
 
 ## 5. Client-fetch convention (D3)
 
-Document the boundary that already exists; introduce no new machinery:
+The policy governs **`@tanstack/react-query`**, not client fetching in general.
+Introduce no new machinery:
 
-- **`app/admin/**` internal tooling** is client-fetch by design — `@tanstack/
-  react-query` for server state, route-co-located hooks for orchestration. This
-  is appropriate: admin dashboards are interactive, low-traffic internal tools.
-- **The few customer-facing client-fetch spots** — status polling and the
-  approve page — use `@tanstack/react-query` deliberately. This is the
-  *exception list*, not the default.
-- **All other customer-facing reads stay server-first**: Server Component /
-  server action → props. No `useQuery` for data a Server Component can fetch.
-- **This is a naming exercise, not a code change.** It records the existing
-  boundary in `src-structure-preferences.md` so future code stops treating
-  client-fetch as an accidental free-for-all.
+- **`@tanstack/react-query` is scoped** to `app/admin/**` internal tooling (server
+  state + route-co-located hooks) and the few customer-facing polling/approve
+  spots. It is **not** the default data layer.
+- **Customer-facing client fetches that already exist are allowed and stay.**
+  Concretely, `src/hooks/useDashboardData.ts` is a `'use client'` hook that
+  `fetch()`es `/api/dashboard` directly (no react-query). That is fine. The rule
+  is **not** "no client fetch in customer-facing code."
+- **Preference, not ban:** for *new* customer-facing reads, prefer server-first
+  (Server Component / server action → props) where a Server Component can do the
+  fetch; use a plain client hook when interactivity or polling needs it; reach
+  for react-query only in the scoped cases above.
+- **This is a naming exercise, not a code change** — it records the existing
+  boundary in `src-structure-preferences.md`.
 
 ---
 
@@ -160,7 +165,7 @@ changes. Guarded by the verification gate in §7.
 |---|---|---|
 | `components/AdminNav.tsx` | `components/admin/` | Admin-shared chrome. |
 | `components/DashboardContent.tsx` | `components/dashboard/` (shell or container) | Customer dashboard container. |
-| `components/PlaceAutocomplete.tsx` | onboarding home (per its sole consumer; apply §3 test) | If one route → that route's `_components/`; if shared → `components/onboarding/`. |
+| `components/PlaceAutocomplete.tsx` | `components/places/` (shared) | **Cross-domain shared, NOT onboarding-only** — consumed by onboarding, the add-location wizard, admin (`businesses/new`, `demos`), API routes, and `lib/` (`shared/schemas`, `reviews/serpapi-prefill`). Move the Google Places widget to `components/places/`. Its exported `PlaceSelection` type is also consumed server-side; keep the export for the behavior-preserving move, and hoist the type to `lib/shared/schemas`/`types/` only as an explicit follow-up (out of scope here). |
 
 ### 6.2 Break up `components/dashboard/` (29 flat files) into sub-feature folders
 
@@ -186,15 +191,33 @@ route's `_components/` instead):
 Continue the pattern already started (`aggregate/`, `edit-reply/`, `settings/`).
 **Target:** no folder is a 20+ flat dump.
 
+**Co-move non-`.tsx` companions and tests (do not move only the components).**
+`components/dashboard/` also holds helper modules and a 13-file `__tests__/` that
+imports will break on if left behind:
+
+- `RankingChart.helpers.ts` → `kpi/` (with `RankingChart`)
+- `brief-bullets.ts` → `kpi/` (with `IntelligenceBriefCard`)
+- `useCountUp.ts`, `useNeedsActionHashScroll.ts` → move next to their consuming
+  components (grep each for its sole/primary consumer)
+- `billing-portal.ts` → `account-state/` (with the billing / past-due UI)
+- `__tests__/` (13 files) → co-locate per moved unit or fix import paths
+
+Every relocation updates importers **and** test paths in the same commit; the
+build/test gate (§7) is what catches a missed companion.
+
 ### 6.3 Relocate the two stray contexts
 
-`PendingCountContext.tsx` and `AuthenticatedProviders.tsx` are React
-context/provider code living under `components/dashboard/`. Move to:
-- `contexts/` if shared across the authenticated subtree (matches
-  `contexts/LocationContext.tsx`), **or**
-- `components/dashboard/shell/` if they are dashboard-shell-only.
+Both are mounted by `app/(authenticated)/layout.tsx`. **Do not** use
+`dashboard/shell/` — that would make the route-group layout depend on dashboard
+internals. Decisive targets:
 
-Decide each against §3 (does a second subtree consume it?).
+- `PendingCountContext.tsx` → **`contexts/`** (a shared React context; matches the
+  existing `contexts/LocationContext.tsx`).
+- `AuthenticatedProviders.tsx` → **`app/(authenticated)/_components/`** (provider
+  composition specific to the authenticated route group — §3 page-specific glue).
+
+(The shell chrome the same layout imports — `Sidebar`/`MobileTabBar` — is
+layout-mounted reusable UI and stays in `components/dashboard/shell/` per §3.)
 
 ### 6.4 Mop up `../../` imports → `@/` aliases
 
@@ -221,7 +244,9 @@ identically in admin and elsewhere.
 The cleanup PR is correct iff it changes *only* file locations and import paths.
 Before claiming done:
 
-- `pnpm lint && pnpm typecheck && pnpm test` — all green.
+- `pnpm lint && pnpm typecheck && pnpm test && pnpm build` — all green. `build` is
+  **required**, not optional: import-path changes can break the Next.js route /
+  module graph in ways `typecheck` alone misses.
 - **React Doctor regression check** — score must not drop (bundle/a11y/arch).
 - `pnpm ci:tenant-scope` — only if any moved file touches tenant-scoped queries
   (none expected; run as a cheap guard).
