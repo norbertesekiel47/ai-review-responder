@@ -45,19 +45,21 @@ const AGGREGATE_LOCATION_CONCURRENCY = 5;
 export async function getAggregateDashboardData(
   accountId: string,
 ): Promise<AggregateDashboardData> {
-  const locations = await getLocationsForAccount(accountId);
-
-  // VAL-DASH-028: Fetch account billing data to determine billingPending flag.
-  // A location's KPI shows "Billing update pending" when the Stripe overage
-  // webhook has not yet confirmed the quantity update (i.e., the active
-  // location count exceeds locations_included + locations_paid).
-  const [accountRow] = await sql<{
-    locations_included: number;
-    locations_paid: number;
-  }[]>`
-    SELECT locations_included, locations_paid
-    FROM accounts WHERE id = ${accountId}::uuid
-  `;
+  const [locations, accountRows] = await Promise.all([
+    getLocationsForAccount(accountId),
+    // VAL-DASH-028: Fetch account billing data to determine billingPending flag.
+    // A location's KPI shows "Billing update pending" when the Stripe overage
+    // webhook has not yet confirmed the quantity update (i.e., the active
+    // location count exceeds locations_included + locations_paid).
+    sql<{
+      locations_included: number;
+      locations_paid: number;
+    }[]>`
+      SELECT locations_included, locations_paid
+      FROM accounts WHERE id = ${accountId}::uuid
+    `,
+  ]);
+  const [accountRow] = accountRows;
   const locationsIncluded = accountRow?.locations_included ?? 1;
   const locationsPaid = accountRow?.locations_paid ?? 0;
   const billingConfirmedCount = locationsIncluded + locationsPaid;
@@ -123,8 +125,10 @@ export async function getAggregateDashboardData(
   );
 
   // Aggregate response rate: weighted average across all locations
-  const totalReviewsAcrossLocations = await getTotalReviewsForAccount(accountId);
-  const totalRespondedAcrossLocations = await getTotalRespondedForAccount(accountId);
+  const [totalReviewsAcrossLocations, totalRespondedAcrossLocations] = await Promise.all([
+    getTotalReviewsForAccount(accountId),
+    getTotalRespondedForAccount(accountId),
+  ]);
   const currentResponseRate =
     totalReviewsAcrossLocations > 0
       ? Math.round((totalRespondedAcrossLocations / totalReviewsAcrossLocations) * 100)

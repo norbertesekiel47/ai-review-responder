@@ -72,11 +72,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return jsonResponse({ error: 'Account not found' }, 404);
   }
 
-  // Fetch active location count for quota display
-  const activeLocations = await getActiveLocationCount(user.accountId);
-
-  // Fetch billing snapshot (base + overage breakdown)
-  const billingSnapshot = await currentBillingSnapshot(user.accountId);
+  // Fetch independent account metrics after the account existence check.
+  const [activeLocations, billingSnapshot] = await Promise.all([
+    getActiveLocationCount(user.accountId),
+    currentBillingSnapshot(user.accountId),
+  ]);
 
   // Format tier label for display
   const tierLabel = isSubscriptionTier(account.subscription_tier)

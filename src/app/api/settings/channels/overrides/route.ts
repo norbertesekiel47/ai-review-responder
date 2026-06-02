@@ -35,25 +35,26 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return jsonResponse({ error: 'No account associated with this user' }, 403);
   }
 
-  // Fetch per-location overrides (location_id IS NOT NULL)
-  const overrides = await sql<{
-    id: string;
-    channel: string;
-    handle: string | null;
-    status: string;
-    verified_at: Date | null;
-    location_id: string;
-  }[]>`
-    SELECT e.id, e.channel, e.handle, e.status, e.verified_at, e.location_id
-    FROM channel_enrollments e
-    WHERE e.account_id = ${user.accountId}::uuid
-      AND e.location_id IS NOT NULL
-      AND e.archived_at IS NULL
-    ORDER BY e.location_id, e.channel
-  `;
-
-  // Fetch location names for display
-  const locations = await getLocationsForAccount(user.accountId);
+  const [overrides, locations] = await Promise.all([
+    // Fetch per-location overrides (location_id IS NOT NULL)
+    sql<{
+      id: string;
+      channel: string;
+      handle: string | null;
+      status: string;
+      verified_at: Date | null;
+      location_id: string;
+    }[]>`
+      SELECT e.id, e.channel, e.handle, e.status, e.verified_at, e.location_id
+      FROM channel_enrollments e
+      WHERE e.account_id = ${user.accountId}::uuid
+        AND e.location_id IS NOT NULL
+        AND e.archived_at IS NULL
+      ORDER BY e.location_id, e.channel
+    `,
+    // Fetch location names for display
+    getLocationsForAccount(user.accountId),
+  ]);
   const locationMap = new Map(
     locations.map((loc) => [loc.id, { name: loc.name, display_label: loc.display_label }]),
   );
