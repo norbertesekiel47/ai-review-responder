@@ -38,7 +38,11 @@ function getCsrfToken(): string {
 }
 
 function formatStars(rating: number): string {
-  return '★'.repeat(rating) + '☆'.repeat(5 - rating);
+  // Clamp to an integer in [0, 5] — '★'.repeat() throws RangeError on a
+  // negative count, so malformed (negative, non-finite, or > 5) ratings must
+  // not reach repeat(). Matches the defensive helpers in the dashboard cards.
+  const filled = Math.round(Math.max(0, Math.min(5, Number.isFinite(rating) ? rating : 0)));
+  return '★'.repeat(filled) + '☆'.repeat(5 - filled);
 }
 
 function formatDate(iso: string): string {
