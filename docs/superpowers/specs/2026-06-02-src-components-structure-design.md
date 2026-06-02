@@ -221,8 +221,11 @@ layout-mounted reusable UI and stays in `components/dashboard/shell/` per §3.)
 
 ### 6.4 Mop up `../../` imports → `@/` aliases
 
-20 remaining relative-parent imports in `src/` → `@/`, `@/lib/*`, `@/types/*`.
-Pure mechanical fixup.
+Convert the **within-`src/`** relative-parent imports to `@/` / `@/lib/*` /
+`@/types/*`. **Exception:** several `../../…/worker/…` imports cross from `src/`
+into the sibling `worker/` tree, which has **no path alias** (`@/*` → `./src/*`
+only); those **stay relative**. So this is "convert the convertible ones," not a
+blanket rewrite of all 20.
 
 ### 6.5 Standardize admin co-located folders
 
