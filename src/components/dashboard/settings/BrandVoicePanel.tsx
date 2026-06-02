@@ -100,7 +100,7 @@ export function BrandVoicePanel({ form, set }: Props) {
           <div>
             <div className="set-section-title">Sample replies</div>
             <div className="set-section-sub">
-              Your own past replies — the more we have, the more &quot;you&quot; we sound.
+              Your own past replies: the more we have, the more &quot;you&quot; we sound.
             </div>
           </div>
         </div>

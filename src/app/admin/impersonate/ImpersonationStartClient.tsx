@@ -1,21 +1,62 @@
 'use client';
 
-import { FormEvent, useState } from 'react';
+import { FormEvent, useReducer } from 'react';
 import { useRouter } from 'next/navigation';
+
+interface ImpersonationState {
+  accountId: string;
+  impersonatedUserId: string;
+  ticketId: string;
+  reason: string;
+  error: string | null;
+  submitting: boolean;
+}
+
+type ImpersonationAction =
+  | { type: 'setAccountId'; value: string }
+  | { type: 'setImpersonatedUserId'; value: string }
+  | { type: 'setTicketId'; value: string }
+  | { type: 'setReason'; value: string }
+  | { type: 'submitStart' }
+  | { type: 'submitError'; error: string }
+  | { type: 'submitDone' };
+
+const initialState: ImpersonationState = {
+  accountId: '',
+  impersonatedUserId: '',
+  ticketId: '',
+  reason: '',
+  error: null,
+  submitting: false,
+};
+
+function reducer(state: ImpersonationState, action: ImpersonationAction): ImpersonationState {
+  switch (action.type) {
+    case 'setAccountId':
+      return { ...state, accountId: action.value };
+    case 'setImpersonatedUserId':
+      return { ...state, impersonatedUserId: action.value };
+    case 'setTicketId':
+      return { ...state, ticketId: action.value };
+    case 'setReason':
+      return { ...state, reason: action.value };
+    case 'submitStart':
+      return { ...state, error: null, submitting: true };
+    case 'submitError':
+      return { ...state, error: action.error };
+    case 'submitDone':
+      return { ...state, submitting: false };
+  }
+}
 
 export function ImpersonationStartClient() {
   const router = useRouter();
-  const [accountId, setAccountId] = useState('');
-  const [impersonatedUserId, setImpersonatedUserId] = useState('');
-  const [ticketId, setTicketId] = useState('');
-  const [reason, setReason] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+  const [state, dispatch] = useReducer(reducer, initialState);
+  const { accountId, impersonatedUserId, ticketId, reason, error, submitting } = state;
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setError(null);
-    setSubmitting(true);
+    dispatch({ type: 'submitStart' });
 
     try {
       const res = await fetch('/api/admin/impersonation/start', {
@@ -34,16 +75,16 @@ export function ImpersonationStartClient() {
       };
 
       if (!res.ok || !json.viewUrl) {
-        setError(json.error ?? `HTTP ${res.status}`);
+        dispatch({ type: 'submitError', error: json.error ?? `HTTP ${res.status}` });
         return;
       }
 
       router.push(json.viewUrl);
     } catch (err) {
       console.error('[ImpersonationStartClient] start failed:', err);
-      setError('Failed to start impersonation session.');
+      dispatch({ type: 'submitError', error: 'Failed to start impersonation session.' });
     } finally {
-      setSubmitting(false);
+      dispatch({ type: 'submitDone' });
     }
   }
 
@@ -62,7 +103,7 @@ export function ImpersonationStartClient() {
           <input
             type="text"
             value={accountId}
-            onChange={(event) => setAccountId(event.target.value)}
+            onChange={(event) => dispatch({ type: 'setAccountId', value: event.target.value })}
             className="rounded-md border border-gray-300 px-3 py-2 font-mono text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
             required
           />
@@ -72,7 +113,7 @@ export function ImpersonationStartClient() {
           <input
             type="text"
             value={impersonatedUserId}
-            onChange={(event) => setImpersonatedUserId(event.target.value)}
+            onChange={(event) => dispatch({ type: 'setImpersonatedUserId', value: event.target.value })}
             className="rounded-md border border-gray-300 px-3 py-2 font-mono text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
             required
           />
@@ -82,7 +123,7 @@ export function ImpersonationStartClient() {
           <input
             type="text"
             value={ticketId}
-            onChange={(event) => setTicketId(event.target.value)}
+            onChange={(event) => dispatch({ type: 'setTicketId', value: event.target.value })}
             className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
             required
           />
@@ -92,7 +133,7 @@ export function ImpersonationStartClient() {
           <input
             type="text"
             value={reason}
-            onChange={(event) => setReason(event.target.value)}
+            onChange={(event) => dispatch({ type: 'setReason', value: event.target.value })}
             className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
             required
           />

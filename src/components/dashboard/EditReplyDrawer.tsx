@@ -10,6 +10,7 @@
 
 'use client';
 
+import { useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import type { PastReplyRow } from '@/components/dashboard/PastReplyCard';
 // Used by the inline 'initial'-state CTA block below — the one state not
@@ -55,15 +56,30 @@ export function EditReplyDrawer({
   const router = useRouter();
   const { state, isClosePending, tryClose, actions } = useEditReplyDraft({ row, initialFailureRecovery, onClose });
   const { panelRef } = useFocusTrap(open, tryClose);
+  const dialogRef = useRef<HTMLDialogElement>(null);
+
+  // Mounted only while open, so this opens the native dialog on mount.
+  // showModal() promotes it to the top layer and exposes the dialog role.
+  useEffect(() => {
+    if (!open) return;
+    const dialog = dialogRef.current;
+    if (dialog && !dialog.open) dialog.showModal();
+    return () => {
+      if (dialog?.open) dialog.close();
+    };
+  }, [open]);
 
   if (!open) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex"
-      role="dialog"
-      aria-modal="true"
+    <dialog
+      ref={dialogRef}
+      className="fixed inset-0 z-50 m-0 flex size-full max-h-none max-w-none border-0 bg-transparent p-0"
       aria-labelledby="edit-reply-drawer-title"
+      // Escape is owned by useFocusTrap (routes through tryClose, the in-flight
+      // draft guard). preventDefault suppresses the native dialog's own ESC
+      // auto-close so close never bypasses that guard.
+      onCancel={(event) => event.preventDefault()}
     >
       {/* Backdrop — uses tryClose to discard an in-flight draft before
           closing. See Code Review fix Medium 2 (2026-05-02). */}
@@ -125,7 +141,7 @@ export function EditReplyDrawer({
               </span>
             </div>
             <p className="mt-1 text-sm text-[#2a2a2a]">
-              {row.review_text ?? <em className="text-[#6a6a6a]">No review text — rating only.</em>}
+              {row.review_text ?? <em className="text-[#6a6a6a]">No review text, rating only.</em>}
             </p>
           </section>
 
@@ -186,10 +202,10 @@ export function EditReplyDrawer({
             // close is blocked (Round-4 M). Resume polling re-enters
             // 'regenerating' with the same outboxId so the polling effect
             // reattaches and the 60s window restarts.
-            <div className="space-y-3 rounded-lg border border-[#97B3AE]/40 border-l-4 border-l-[#F2C3B9] bg-[#F0EEEA]/40 p-4">
+            <div className="space-y-3 rounded-lg border border-[#97B3AE]/40 shadow-[inset_4px_0_0_#F2C3B9] bg-[#F0EEEA]/40 p-4">
               <p className="text-sm text-[#6a6a6a]">{state.message}</p>
               <p className="text-xs text-[#6a6a6a]">
-                Close is paused until the draft arrives or the worker reports failure — otherwise the
+                Close is paused until the draft arrives or the worker reports failure; otherwise the
                 draft would be created in the background and block your next attempt.
               </p>
               <div className="flex flex-wrap gap-2">
@@ -300,7 +316,7 @@ export function EditReplyDrawer({
           )}
         </div>
       </aside>
-    </div>
+    </dialog>
   );
 }
 

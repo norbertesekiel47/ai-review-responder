@@ -70,8 +70,11 @@ export function renderExceptionBody(
 
     default: {
       const safeFields = Object.entries(payload)
-        .filter(([_, v]) => typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean' || v === null)
-        .map(([k, v]) => `<li><code>${escapeHtml(k)}</code>: ${fmt(v)}</li>`)
+        .flatMap(([k, v]) =>
+          typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean' || v === null
+            ? [`<li><code>${escapeHtml(k)}</code>: ${fmt(v)}</li>`]
+            : [],
+        )
         .join('');
       return `${reviewerBlock}
         <p><strong>Exception type:</strong> <code>${escapeHtml(exception.type)}</code></p>

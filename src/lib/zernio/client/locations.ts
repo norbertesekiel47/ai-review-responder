@@ -10,22 +10,25 @@ function normalizeLocations(raw: unknown): ZernioLocationOption[] {
     (Array.isArray(o.data) ? o.data : undefined) ??
     (Array.isArray(o.results) ? o.results : undefined) ??
     [];
-  return (arr as Array<Record<string, unknown>>).map((loc) => ({
-    id:
-      (typeof loc._id === 'string' ? loc._id : undefined) ??
-      (typeof loc.id === 'string' ? loc.id : undefined) ??
-      (typeof loc.locationId === 'string' ? loc.locationId : undefined) ??
-      '',
-    name:
-      (typeof loc.name === 'string' ? loc.name : undefined) ??
-      (typeof loc.title === 'string' ? loc.title : undefined) ??
-      (typeof loc.displayName === 'string' ? loc.displayName : undefined) ??
-      '<unnamed>',
-    address:
-      (typeof loc.address === 'string' ? loc.address : undefined) ??
-      (typeof loc.formattedAddress === 'string' ? loc.formattedAddress : undefined) ??
-      '',
-  })).filter((l) => l.id !== '');
+  return (arr as Array<Record<string, unknown>>).flatMap((loc) => {
+    const option: ZernioLocationOption = {
+      id:
+        (typeof loc._id === 'string' ? loc._id : undefined) ??
+        (typeof loc.id === 'string' ? loc.id : undefined) ??
+        (typeof loc.locationId === 'string' ? loc.locationId : undefined) ??
+        '',
+      name:
+        (typeof loc.name === 'string' ? loc.name : undefined) ??
+        (typeof loc.title === 'string' ? loc.title : undefined) ??
+        (typeof loc.displayName === 'string' ? loc.displayName : undefined) ??
+        '<unnamed>',
+      address:
+        (typeof loc.address === 'string' ? loc.address : undefined) ??
+        (typeof loc.formattedAddress === 'string' ? loc.formattedAddress : undefined) ??
+        '',
+    };
+    return option.id !== '' ? [option] : [];
+  });
 }
 
 export function createLocationClient(transport: ZernioTransport) {

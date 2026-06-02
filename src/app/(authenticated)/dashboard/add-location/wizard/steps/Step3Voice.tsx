@@ -125,7 +125,7 @@ export function Step3Voice({
               <div>
                 <div className="set-section-title">Sample replies</div>
                 <div className="set-section-sub">
-                  Your own past replies — the more we have, the more
+                  Your own past replies: the more we have, the more
                   &quot;you&quot; we sound.
                 </div>
               </div>

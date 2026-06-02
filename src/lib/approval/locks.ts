@@ -23,7 +23,7 @@ import type { ApprovalLink } from './types';
 
 type TxClient = postgres.TransactionSql;
 
-function hashToken(rawToken: string): string {
+export function hashApprovalToken(rawToken: string): string {
   return createHash('sha256').update(rawToken).digest('hex');
 }
 
@@ -32,7 +32,7 @@ function hashToken(rawToken: string): string {
  * Uses SELECT ... FOR UPDATE to hold a row-level lock for the duration of the transaction.
  */
 export async function lockValidLink(tx: TxClient, rawToken: string): Promise<ApprovalLink> {
-  const tokenHash = hashToken(rawToken);
+  const tokenHash = hashApprovalToken(rawToken);
 
   const rows = await tx<ApprovalLink[]>`
     SELECT id, response_id, business_id, token_hash, channel, expires_at, consumed_at, revoked_at, device_cookie_hash, created_at

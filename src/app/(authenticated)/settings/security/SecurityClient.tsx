@@ -1,6 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import Image from 'next/image';
+import { useCallback, useEffect, useMemo, useReducer, type FormEvent } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '@/lib/db/browser';
 
@@ -62,29 +63,81 @@ function normalizeFactors(data: unknown): MfaFactor[] {
   return [...unique.values()];
 }
 
+interface SecurityState {
+  factors: MfaFactor[];
+  loading: boolean;
+  busy: boolean;
+  error: string | null;
+  notice: string | null;
+  enrollment: EnrollmentState | null;
+  code: string;
+}
+
+type SecurityAction =
+  | { type: 'loadStart' }
+  | { type: 'loadError'; error: string }
+  | { type: 'loadSuccess'; factors: MfaFactor[] }
+  | { type: 'actionStart' }
+  | { type: 'setError'; error: string }
+  | { type: 'enrollmentStarted'; enrollment: EnrollmentState }
+  | { type: 'enrollmentVerified'; notice: string }
+  | { type: 'setNotice'; notice: string }
+  | { type: 'actionDone' }
+  | { type: 'setCode'; value: string }
+  | { type: 'cancelEnrollment' };
+
+const initialState: SecurityState = {
+  factors: [],
+  loading: true,
+  busy: false,
+  error: null,
+  notice: null,
+  enrollment: null,
+  code: '',
+};
+
+function reducer(state: SecurityState, action: SecurityAction): SecurityState {
+  switch (action.type) {
+    case 'loadStart':
+      return { ...state, loading: true, error: null };
+    case 'loadError':
+      return { ...state, error: action.error, loading: false };
+    case 'loadSuccess':
+      return { ...state, factors: action.factors, loading: false };
+    case 'actionStart':
+      return { ...state, busy: true, error: null, notice: null };
+    case 'setError':
+      return { ...state, error: action.error };
+    case 'enrollmentStarted':
+      return { ...state, enrollment: action.enrollment, code: '' };
+    case 'enrollmentVerified':
+      return { ...state, enrollment: null, code: '', notice: action.notice };
+    case 'setNotice':
+      return { ...state, notice: action.notice };
+    case 'actionDone':
+      return { ...state, busy: false };
+    case 'setCode':
+      return { ...state, code: action.value };
+    case 'cancelEnrollment':
+      return { ...state, enrollment: null };
+  }
+}
+
 export function SecurityClient() {
   const supabase = useMemo(() => createBrowserSupabaseClient(), []);
-  const [factors, setFactors] = useState<MfaFactor[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [enrollment, setEnrollment] = useState<EnrollmentState | null>(null);
-  const [code, setCode] = useState('');
+  const [state, dispatch] = useReducer(reducer, initialState);
+  const { factors, loading, busy, error, notice, enrollment, code } = state;
 
   const verifiedFactors = factors.filter((factor) => factor.status === 'verified');
 
   const loadFactors = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+    dispatch({ type: 'loadStart' });
     const { data, error: listError } = await supabase.auth.mfa.listFactors();
     if (listError) {
-      setError('Could not load MFA factors.');
-      setLoading(false);
+      dispatch({ type: 'loadError', error: 'Could not load MFA factors.' });
       return;
     }
-    setFactors(normalizeFactors(data));
-    setLoading(false);
+    dispatch({ type: 'loadSuccess', factors: normalizeFactors(data) });
   }, [supabase]);
 
   useEffect(() => {
@@ -92,37 +145,35 @@ export function SecurityClient() {
   }, [loadFactors]);
 
   async function startEnrollment() {
-    setBusy(true);
-    setError(null);
-    setNotice(null);
+    dispatch({ type: 'actionStart' });
     try {
       const { data, error: enrollError } = await supabase.auth.mfa.enroll({
         factorType: 'totp',
         friendlyName: 'RepWorth',
       });
       if (enrollError || !data) {
-        setError('Could not start MFA enrollment.');
+        dispatch({ type: 'setError', error: 'Could not start MFA enrollment.' });
         return;
       }
       const record = data as unknown as Record<string, unknown>;
       const totp = record.totp as Record<string, unknown> | undefined;
-      setEnrollment({
-        factorId: String(record.id),
-        qrCode: typeof totp?.qr_code === 'string' ? totp.qr_code : null,
-        secret: typeof totp?.secret === 'string' ? totp.secret : null,
+      dispatch({
+        type: 'enrollmentStarted',
+        enrollment: {
+          factorId: String(record.id),
+          qrCode: typeof totp?.qr_code === 'string' ? totp.qr_code : null,
+          secret: typeof totp?.secret === 'string' ? totp.secret : null,
+        },
       });
-      setCode('');
     } finally {
-      setBusy(false);
+      dispatch({ type: 'actionDone' });
     }
   }
 
   async function verifyEnrollment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!enrollment) return;
-    setBusy(true);
-    setError(null);
-    setNotice(null);
+    dispatch({ type: 'actionStart' });
     try {
       const challengeRes = await fetch('/api/auth/mfa/challenge', {
         method: 'POST',
@@ -130,12 +181,12 @@ export function SecurityClient() {
         body: JSON.stringify({ action: 'challenge', factorId: enrollment.factorId }),
       });
       if (challengeRes.status === 429) {
-        setError('Too many MFA attempts. Try again in a few minutes.');
+        dispatch({ type: 'setError', error: 'Too many MFA attempts. Try again in a few minutes.' });
         return;
       }
       const challenge = await challengeRes.json().catch(() => ({}));
       if (!challengeRes.ok || typeof challenge.challengeId !== 'string') {
-        setError('Could not create MFA challenge.');
+        dispatch({ type: 'setError', error: 'Could not create MFA challenge.' });
         return;
       }
       const verifyRes = await fetch('/api/auth/mfa/challenge', {
@@ -149,26 +200,22 @@ export function SecurityClient() {
         }),
       });
       if (verifyRes.status === 429) {
-        setError('Too many MFA attempts. Try again in a few minutes.');
+        dispatch({ type: 'setError', error: 'Too many MFA attempts. Try again in a few minutes.' });
         return;
       }
       if (!verifyRes.ok) {
-        setError('The verification code was not accepted.');
+        dispatch({ type: 'setError', error: 'The verification code was not accepted.' });
         return;
       }
-      setEnrollment(null);
-      setCode('');
-      setNotice('MFA factor enrolled.');
+      dispatch({ type: 'enrollmentVerified', notice: 'MFA factor enrolled.' });
       await loadFactors();
     } finally {
-      setBusy(false);
+      dispatch({ type: 'actionDone' });
     }
   }
 
   async function unenrollFactor(factorId: string) {
-    setBusy(true);
-    setError(null);
-    setNotice(null);
+    dispatch({ type: 'actionStart' });
     try {
       // Routed through the server so removal requires a current AAL2 session and
       // is audit-logged — never a direct AAL1 client-side unenroll.
@@ -178,21 +225,21 @@ export function SecurityClient() {
         body: JSON.stringify({ action: 'unenroll', factorId }),
       });
       if (res.status === 403) {
-        setError('Sign in again with your authenticator before removing this factor.');
+        dispatch({ type: 'setError', error: 'Sign in again with your authenticator before removing this factor.' });
         return;
       }
       if (res.status === 429) {
-        setError('Too many attempts. Try again in a few minutes.');
+        dispatch({ type: 'setError', error: 'Too many attempts. Try again in a few minutes.' });
         return;
       }
       if (!res.ok) {
-        setError('Could not remove MFA factor. Verify your current session and try again.');
+        dispatch({ type: 'setError', error: 'Could not remove MFA factor. Verify your current session and try again.' });
         return;
       }
-      setNotice('MFA factor removed.');
+      dispatch({ type: 'setNotice', notice: 'MFA factor removed.' });
       await loadFactors();
     } finally {
-      setBusy(false);
+      dispatch({ type: 'actionDone' });
     }
   }
 
@@ -274,12 +321,13 @@ export function SecurityClient() {
           {enrollment.qrCode?.startsWith('data:') ? (
             // Supabase returns this QR image from its Auth API; the TOTP secret
             // itself is shown separately for manual entry.
-            // QR is a runtime base64 data: URI — next/image cannot optimize a data URL.
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
+            <Image
               src={enrollment.qrCode}
               alt="Authenticator setup QR code"
-              style={{ width: 180, height: 180, border: '1px solid #E5E7EB' }}
+              width={180}
+              height={180}
+              unoptimized
+              style={{ border: '1px solid #E5E7EB' }}
             />
           ) : null}
           {enrollment.secret ? (
@@ -296,7 +344,7 @@ export function SecurityClient() {
           <input
             id="mfa-code"
             value={code}
-            onChange={(event) => setCode(event.target.value)}
+            onChange={(event) => dispatch({ type: 'setCode', value: event.target.value })}
             inputMode="numeric"
             autoComplete="one-time-code"
             className="input"
@@ -316,7 +364,7 @@ export function SecurityClient() {
               type="button"
               className="btn btn-secondary"
               disabled={busy}
-              onClick={() => setEnrollment(null)}
+              onClick={() => dispatch({ type: 'cancelEnrollment' })}
             >
               Cancel
             </button>

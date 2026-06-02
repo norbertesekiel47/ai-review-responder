@@ -14,9 +14,9 @@ const MEDICAL_CONTEXT =
 
 export function detectLikelyPhi(text: string | null | undefined): PhiDetection {
   const value = text ?? '';
-  const reasons = IDENTIFIER_PATTERNS
-    .filter((pattern) => pattern.regex.test(value))
-    .map((pattern) => pattern.reason);
+  const reasons = IDENTIFIER_PATTERNS.flatMap((pattern) =>
+    pattern.regex.test(value) ? [pattern.reason] : [],
+  );
 
   if (SELF_REFERENCE.test(value) && MEDICAL_CONTEXT.test(value)) {
     reasons.push('self_referenced_medical_context');

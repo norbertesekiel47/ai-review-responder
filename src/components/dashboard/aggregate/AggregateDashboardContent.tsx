@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import type { AggregateDashboardData } from '@/lib/dashboard/types';
 import { TopBar } from '@/components/dashboard/TopBar';
 import { AggregateKpiCards } from '@/components/dashboard/aggregate/AggregateKpiCards';
@@ -34,9 +34,12 @@ interface Props {
 export function AggregateDashboardContent({ data, refresh }: Props) {
   const setPendingCount = useSetPendingCount();
   const reviewsRef = useRef<HTMLDivElement | null>(null);
-  const [initialTab, setInitialTab] = useState<'needs' | 'all'>('needs');
+  // The "needs" tab intent is recorded but never read on the render path, so a
+  // ref avoids the no-op re-render a state setter would queue when the hash
+  // scroll fires.
+  const initialTabRef = useRef<'needs' | 'all'>('needs');
 
-  useNeedsActionHashScroll(reviewsRef, () => setInitialTab('needs'));
+  useNeedsActionHashScroll(reviewsRef, () => { initialTabRef.current = 'needs'; });
 
   // Compute pending count across all locations
   const pendingCount = data.recentReviews.filter(

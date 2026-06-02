@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { redirectAfterServerSessionCookie } from '../CheckEmailClient';
+import { redirectAfterServerSessionCookie } from '../CheckEmailClient.helpers';
 
 describe('redirectAfterServerSessionCookie', () => {
   it('uses a full document navigation to the verified onboarding target', () => {

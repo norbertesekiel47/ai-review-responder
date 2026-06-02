@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { motion } from 'motion/react';
+import { LazyMotion, m, domAnimation } from 'motion/react';
 import { PageShell } from '@/components/ui/PageShell';
 import { SiteNav } from '@/components/ui/SiteNav';
 
@@ -59,11 +59,12 @@ const HELP_TOPICS = [
 
 export function ContactContent({ selfServeEnabled = false }: { selfServeEnabled?: boolean }) {
   return (
+    <LazyMotion features={domAnimation}>
     <PageShell sections={[]}>
       <SiteNav selfServeEnabled={selfServeEnabled} />
 
       <div className="px-8 py-16 md:py-20">
-        <motion.div
+        <m.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.2 }}
@@ -75,11 +76,11 @@ export function ContactContent({ selfServeEnabled = false }: { selfServeEnabled?
           <p className="mb-10 text-lg leading-relaxed text-[#6a6a6a]">
             Pick the channel that fits. We answer fastest by email.
           </p>
-        </motion.div>
+        </m.div>
 
         <div className="grid gap-6 md:grid-cols-3">
           {CHANNELS.map((channel, i) => (
-            <motion.div
+            <m.div
               key={channel.email}
               className="flex flex-col rounded-2xl border border-[#97B3AE]/10 bg-white p-6 shadow-lg"
               initial={{ opacity: 0, y: 20 }}
@@ -97,20 +98,20 @@ export function ContactContent({ selfServeEnabled = false }: { selfServeEnabled?
               </div>
               <h2 className="mb-2 text-xl font-medium text-[#2a2a2a]">{channel.title}</h2>
               <p className="mb-6 flex-1 text-[#6a6a6a]">{channel.purpose}</p>
-              <motion.a
+              <m.a
                 href={`mailto:${channel.email}`}
                 className="inline-block rounded-full border border-[#97B3AE]/20 bg-[#97B3AE]/10 px-5 py-3 text-center font-medium text-[#97B3AE] transition-colors hover:bg-[#97B3AE]/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#97B3AE] focus-visible:ring-offset-2"
                 whileHover={{ scale: 1.04, y: -2 }}
                 whileTap={{ scale: 0.98 }}
               >
                 {channel.email}
-              </motion.a>
-            </motion.div>
+              </m.a>
+            </m.div>
           ))}
         </div>
 
         <div className="mt-10 grid gap-6 md:grid-cols-2">
-          <motion.div
+          <m.div
             className="rounded-2xl border border-[#97B3AE]/10 bg-[#F0EEEA]/60 p-6"
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
@@ -123,9 +124,9 @@ export function ContactContent({ selfServeEnabled = false }: { selfServeEnabled?
                 <li key={target}>{target}</li>
               ))}
             </ul>
-          </motion.div>
+          </m.div>
 
-          <motion.div
+          <m.div
             className="rounded-2xl border border-[#97B3AE]/10 bg-[#F0EEEA]/60 p-6"
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
@@ -138,12 +139,12 @@ export function ContactContent({ selfServeEnabled = false }: { selfServeEnabled?
                 <li key={topic}>{topic}</li>
               ))}
             </ul>
-          </motion.div>
+          </m.div>
         </div>
       </div>
 
       <div className="rounded-b-[3rem] bg-gradient-to-br from-[#97B3AE] to-[#97B3AE]/80 px-8 py-12 text-center text-white">
-        <motion.div
+        <m.div
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
@@ -156,8 +157,9 @@ export function ContactContent({ selfServeEnabled = false }: { selfServeEnabled?
           >
             Back to RepWorth →
           </Link>
-        </motion.div>
+        </m.div>
       </div>
     </PageShell>
+    </LazyMotion>
   );
 }

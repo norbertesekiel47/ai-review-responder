@@ -164,6 +164,202 @@ function FeatureSection({
   );
 }
 
+function DotNav({
+  activeSection,
+  onJump,
+}: {
+  activeSection: string;
+  onJump: (id: string) => void;
+}) {
+  return (
+    <nav
+      aria-label="Section navigation"
+      className="fixed right-6 top-1/2 -translate-y-1/2 z-50 hidden lg:flex flex-col gap-1.5 bg-white/85 backdrop-blur-md rounded-3xl py-4 px-2 shadow-xl border border-[#97B3AE]/20"
+    >
+      {FEATURES.map((f) => {
+        const isActive = activeSection === f.id;
+        return (
+          <button
+            key={f.id}
+            type="button"
+            onClick={() => onJump(f.id)}
+            aria-label={`Jump to ${f.label}`}
+            className="group flex items-center gap-2 py-1.5 pl-2 pr-1"
+          >
+            <span className="rw-label-mono text-[10px] text-[#6a6a6a] opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+              {f.label}
+            </span>
+            <span
+              className={`w-2 h-2 rounded-full transition-all ${
+                isActive ? 'bg-[#97B3AE] rw-pulse-dot' : 'bg-[#97B3AE]/30 group-hover:bg-[#97B3AE]'
+              }`}
+            />
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
+function HeroSection({
+  heroIn,
+  m1,
+  m2,
+  m3,
+}: {
+  heroIn: boolean;
+  m1: number;
+  m2: number;
+  m3: number;
+}) {
+  return (
+    <section id="hero" aria-label="Features overview" className="relative px-8 md:px-16 pt-20 pb-12">
+      <div className="grid md:grid-cols-12 gap-8 items-end">
+        <div className="md:col-span-8">
+          <p
+            className={`rw-hero-kicker rw-label-mono text-xs uppercase text-[#97B3AE] mb-8 flex items-center gap-3 ${heroIn ? 'in' : ''}`}
+          >
+            <span className="line" />
+            <span>Features · 2026 Edition</span>
+          </p>
+          <h1 className="text-[3.25rem] md:text-[4.75rem] leading-[0.95] tracking-tight text-[#2a2a2a] font-medium mb-6">
+            <span className="rw-hero-line">
+              {HERO_WORDS_LINE_1.map((w, i) => (
+                <span
+                  key={`l1-${w}`}
+                  className={`rw-hero-word ${heroIn ? 'in' : ''}`}
+                  style={{ ['--word-delay' as string]: `${80 + i * 80}ms` }}
+                >
+                  {w}
+                </span>
+              ))}
+            </span>
+            <span className="rw-hero-line">
+              <span
+                className={`rw-hero-word rw-display-serif text-[#97B3AE] ${heroIn ? 'in' : ''}`}
+                style={{ ['--word-delay' as string]: `${80 + HERO_WORDS_LINE_1.length * 80}ms` }}
+              >
+                nothing
+              </span>
+              {HERO_WORDS_LINE_2.slice(1).map((w, i) => (
+                <span
+                  key={`l2-${w}`}
+                  className={`rw-hero-word ${heroIn ? 'in' : ''}`}
+                  style={{
+                    ['--word-delay' as string]: `${80 + (HERO_WORDS_LINE_1.length + 1 + i) * 80}ms`,
+                  }}
+                >
+                  {w}
+                </span>
+              ))}
+            </span>
+          </h1>
+          <p className={`rw-hero-lede text-lg text-[#6a6a6a] max-w-md leading-relaxed ${heroIn ? 'in' : ''}`}>
+            RepWorth is a done-for-you service and not another dashboard to learn.
+            Seven pieces, one weekly rhythm, zero late-night copywriting.
+          </p>
+        </div>
+
+        <div className="md:col-span-4 space-y-4">
+          {[
+            { val: m1, target: 58, suffix: 'min', label: 'Avg time from review\nposted to response', delay: '0.9s' },
+            { val: m2, target: 100, suffix: '%', label: 'Response rate\nacross all reviews', delay: '1.15s' },
+            { val: m3, target: 30, suffix: 'sec', label: 'Owner time per\napproval, after week 4', delay: '1.4s' },
+          ].map((m, i) => (
+            <div
+              key={m.label}
+              className={`rw-hero-metric relative flex items-baseline gap-3 ${i < 2 ? 'pb-3' : ''} ${heroIn ? 'in' : ''}`}
+              style={
+                {
+                  '--m-delay': m.delay,
+                  '--u-delay': `${parseFloat(m.delay) + 0.1}s`,
+                } as CSSProperties
+              }
+            >
+              <span className="rw-num-tag text-5xl text-[#2a2a2a]">
+                {m.val}
+                <span className="text-lg text-[#6a6a6a] ml-1">{m.suffix}</span>
+              </span>
+              <span className="text-xs text-[#6a6a6a] leading-tight whitespace-pre-line">
+                {m.label}
+              </span>
+              {i < 2 && <span className="rw-hero-metric-underline" />}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Hero review marquee */}
+      <div className="mt-14 -mx-8 md:-mx-16 rw-feat-marquee-mask">
+        <div className="rw-feat-marquee-track flex gap-3 whitespace-nowrap w-max">
+          {[
+            ...MARQUEE_REVIEWS.map((r) => ({ r, k: `a-${r.text}` })),
+            ...MARQUEE_REVIEWS.map((r) => ({ r, k: `b-${r.text}` })),
+          ].map(({ r, k }) => (
+            <div
+              key={k}
+              className="flex items-center gap-3 px-4 py-2.5 rounded-full bg-[#F0EEEA]/70 border border-[#97B3AE]/15"
+            >
+              <span className="rw-label-mono text-[10px] uppercase text-[#97B3AE]">{r.lang}</span>
+              <span className="text-[#97B3AE] text-xs">{r.stars}</span>
+              <span className="text-sm text-[#2a2a2a]">{r.text}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function FeatureTOC({
+  tocRef,
+  tocSeen,
+  onJump,
+}: {
+  tocRef: RefObject<HTMLDivElement | null>;
+  tocSeen: boolean;
+  onJump: (id: string) => void;
+}) {
+  return (
+    <section
+      aria-label="Feature index"
+      className="px-8 md:px-16 py-10 border-y border-[#97B3AE]/10 bg-[#F0EEEA]/40"
+    >
+      <div className="flex items-center gap-4 mb-6">
+        <span className="rw-label-mono text-xs uppercase text-[#97B3AE]">Index</span>
+        <div className="flex-1 h-px bg-[#97B3AE]/20" />
+        <span className="rw-label-mono text-xs uppercase text-[#6a6a6a]">07 features</span>
+      </div>
+      <div ref={tocRef} className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+        {FEATURES.map((f, i) => (
+          <button
+            key={f.id}
+            type="button"
+            onClick={() => onJump(f.id)}
+            className={`rw-toc-chip group flex flex-col gap-1 p-3 rounded-2xl border border-[#97B3AE]/15 bg-white hover:bg-[#97B3AE]/5 hover:border-[#97B3AE]/40 text-left ${tocSeen ? 'in' : ''}`}
+            style={{ ['--chip-delay' as string]: `${i * 70}ms` }}
+          >
+            <div className="flex items-center justify-between">
+              <span className="rw-num-tag text-lg text-[#97B3AE]">{f.n}</span>
+              <svg
+                className="size-3 text-[#6a6a6a] group-hover:text-[#97B3AE] transition-colors"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                aria-hidden="true"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7-7 7M3 12h18" />
+              </svg>
+            </div>
+            <span className="text-sm font-medium text-[#2a2a2a]">{f.label}</span>
+            <span className="rw-label-mono text-[10px] uppercase text-[#6a6a6a]">{f.sub}</span>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 interface FeaturesContentProps {
   comingSoon?: boolean;
   selfServeEnabled?: boolean;
@@ -240,178 +436,16 @@ export function FeaturesContent({
     <div className="rw-feat-page">
       <MarqueeBackground />
 
-      {/* Right-rail dot navigation */}
-      <nav
-        aria-label="Section navigation"
-        className="fixed right-6 top-1/2 -translate-y-1/2 z-50 hidden lg:flex flex-col gap-1.5 bg-white/85 backdrop-blur-md rounded-3xl py-4 px-2 shadow-xl border border-[#97B3AE]/20"
-      >
-        {FEATURES.map((f) => {
-          const isActive = activeSection === f.id;
-          return (
-            <button
-              key={f.id}
-              type="button"
-              onClick={() => scrollTo(f.id)}
-              aria-label={`Jump to ${f.label}`}
-              className="group flex items-center gap-2 py-1.5 pl-2 pr-1"
-            >
-              <span className="rw-label-mono text-[10px] text-[#6a6a6a] opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-                {f.label}
-              </span>
-              <span
-                className={`w-2 h-2 rounded-full transition-all ${
-                  isActive ? 'bg-[#97B3AE] rw-pulse-dot' : 'bg-[#97B3AE]/30 group-hover:bg-[#97B3AE]'
-                }`}
-              />
-            </button>
-          );
-        })}
-      </nav>
+      <DotNav activeSection={activeSection} onJump={scrollTo} />
 
       {/* Island */}
       <div className="rw-island-wrap">
         <main className="rw-island">
           <SiteNav comingSoon={comingSoon} selfServeEnabled={selfServeEnabled} />
 
-          {/* HERO */}
-          <section
-            id="hero"
-            aria-label="Features overview"
-            className="relative px-8 md:px-16 pt-20 pb-12"
-          >
-            <div className="grid md:grid-cols-12 gap-8 items-end">
-              <div className="md:col-span-8">
-                <p
-                  className={`rw-hero-kicker rw-label-mono text-xs uppercase text-[#97B3AE] mb-8 flex items-center gap-3 ${heroIn ? 'in' : ''}`}
-                >
-                  <span className="line" />
-                  <span>Features · 2026 Edition</span>
-                </p>
-                <h1 className="text-[3.25rem] md:text-[4.75rem] leading-[0.95] tracking-tight text-[#2a2a2a] font-medium mb-6">
-                  <span className="rw-hero-line">
-                    {HERO_WORDS_LINE_1.map((w, i) => (
-                      <span
-                        key={`l1-${i}`}
-                        className={`rw-hero-word ${heroIn ? 'in' : ''}`}
-                        style={{ ['--word-delay' as string]: `${80 + i * 80}ms` }}
-                      >
-                        {w}
-                      </span>
-                    ))}
-                  </span>
-                  <span className="rw-hero-line">
-                    <span
-                      className={`rw-hero-word rw-display-serif text-[#97B3AE] ${heroIn ? 'in' : ''}`}
-                      style={{ ['--word-delay' as string]: `${80 + HERO_WORDS_LINE_1.length * 80}ms` }}
-                    >
-                      nothing
-                    </span>
-                    {HERO_WORDS_LINE_2.slice(1).map((w, i) => (
-                      <span
-                        key={`l2-${i}`}
-                        className={`rw-hero-word ${heroIn ? 'in' : ''}`}
-                        style={{
-                          ['--word-delay' as string]: `${80 + (HERO_WORDS_LINE_1.length + 1 + i) * 80}ms`,
-                        }}
-                      >
-                        {w}
-                      </span>
-                    ))}
-                  </span>
-                </h1>
-                <p
-                  className={`rw-hero-lede text-lg text-[#6a6a6a] max-w-md leading-relaxed ${heroIn ? 'in' : ''}`}
-                >
-                  RepWorth is a done-for-you service and not another dashboard to learn.
-                  Seven pieces, one weekly rhythm, zero late-night copywriting.
-                </p>
-              </div>
+          <HeroSection heroIn={heroIn} m1={m1} m2={m2} m3={m3} />
 
-              <div className="md:col-span-4 space-y-4">
-                {[
-                  { val: m1, target: 58, suffix: 'min', label: 'Avg time from review\nposted to response', delay: '0.9s' },
-                  { val: m2, target: 100, suffix: '%', label: 'Response rate\nacross all reviews', delay: '1.15s' },
-                  { val: m3, target: 30, suffix: 'sec', label: 'Owner time per\napproval, after week 4', delay: '1.4s' },
-                ].map((m, i) => (
-                  <div
-                    key={m.label}
-                    className={`rw-hero-metric relative flex items-baseline gap-3 ${i < 2 ? 'pb-3' : ''} ${heroIn ? 'in' : ''}`}
-                    style={
-                      {
-                        '--m-delay': m.delay,
-                        '--u-delay': `${parseFloat(m.delay) + 0.1}s`,
-                      } as CSSProperties
-                    }
-                  >
-                    <span className="rw-num-tag text-5xl text-[#2a2a2a]">
-                      {m.val}
-                      <span className="text-lg text-[#6a6a6a] ml-1">{m.suffix}</span>
-                    </span>
-                    <span className="text-xs text-[#6a6a6a] leading-tight whitespace-pre-line">
-                      {m.label}
-                    </span>
-                    {i < 2 && <span className="rw-hero-metric-underline" />}
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Hero review marquee */}
-            <div className="mt-14 -mx-8 md:-mx-16 rw-feat-marquee-mask">
-              <div className="rw-feat-marquee-track flex gap-3 whitespace-nowrap w-max">
-                {[...MARQUEE_REVIEWS, ...MARQUEE_REVIEWS].map((r, i) => (
-                  <div
-                    key={i}
-                    className="flex items-center gap-3 px-4 py-2.5 rounded-full bg-[#F0EEEA]/70 border border-[#97B3AE]/15"
-                  >
-                    <span className="rw-label-mono text-[10px] uppercase text-[#97B3AE]">
-                      {r.lang}
-                    </span>
-                    <span className="text-[#97B3AE] text-xs">{r.stars}</span>
-                    <span className="text-sm text-[#2a2a2a]">{r.text}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </section>
-
-          {/* TOC */}
-          <section
-            aria-label="Feature index"
-            className="px-8 md:px-16 py-10 border-y border-[#97B3AE]/10 bg-[#F0EEEA]/40"
-          >
-            <div className="flex items-center gap-4 mb-6">
-              <span className="rw-label-mono text-xs uppercase text-[#97B3AE]">Index</span>
-              <div className="flex-1 h-px bg-[#97B3AE]/20" />
-              <span className="rw-label-mono text-xs uppercase text-[#6a6a6a]">07 features</span>
-            </div>
-            <div ref={tocRef} className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
-              {FEATURES.map((f, i) => (
-                <button
-                  key={f.id}
-                  type="button"
-                  onClick={() => scrollTo(f.id)}
-                  className={`rw-toc-chip group flex flex-col gap-1 p-3 rounded-2xl border border-[#97B3AE]/15 bg-white hover:bg-[#97B3AE]/5 hover:border-[#97B3AE]/40 text-left ${tocSeen ? 'in' : ''}`}
-                  style={{ ['--chip-delay' as string]: `${i * 70}ms` }}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="rw-num-tag text-lg text-[#97B3AE]">{f.n}</span>
-                    <svg
-                      className="size-3 text-[#6a6a6a] group-hover:text-[#97B3AE] transition-colors"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                      aria-hidden="true"
-                    >
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7-7 7M3 12h18" />
-                    </svg>
-                  </div>
-                  <span className="text-sm font-medium text-[#2a2a2a]">{f.label}</span>
-                  <span className="rw-label-mono text-[10px] uppercase text-[#6a6a6a]">{f.sub}</span>
-                </button>
-              ))}
-            </div>
-          </section>
+          <FeatureTOC tocRef={tocRef} tocSeen={tocSeen} onJump={scrollTo} />
 
           <FeatAi innerRef={aiRef} />
           <FeatLang innerRef={langRef} />

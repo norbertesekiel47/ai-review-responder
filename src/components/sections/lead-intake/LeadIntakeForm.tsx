@@ -1,8 +1,13 @@
 'use client';
 
 import type { FormEvent } from 'react';
-import { useState } from 'react';
-import { motion } from 'motion/react';
+import { useReducer } from 'react';
+import { LazyMotion, domAnimation, m } from 'motion/react';
+import {
+  getLeadIntakeFieldErrorProps,
+  submitLeadIntake,
+  validateLeadIntakeFields,
+} from './LeadIntakeForm.helpers';
 
 export type LeadIntent = 'waitlist' | 'demo';
 export type LeadSource =
@@ -14,8 +19,8 @@ export type LeadSource =
   | 'unknown';
 
 type FormState = 'idle' | 'loading' | 'success' | 'error';
-type InvalidLeadIntakeField = 'name' | 'email' | 'businessName';
-type LeadIntakeField = InvalidLeadIntakeField | 'googleMapsUrl';
+export type InvalidLeadIntakeField = 'name' | 'email' | 'businessName';
+export type LeadIntakeField = InvalidLeadIntakeField | 'googleMapsUrl';
 
 export interface LeadIntakePayload {
   name: string;
@@ -39,8 +44,6 @@ type LeadIntakeFormProps = {
   tone?: 'onTeal' | 'light';
   copy?: LeadIntakeCopy;
 };
-
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const DEFAULT_COPY = {
   button: 'Join waitlist',
@@ -83,51 +86,55 @@ const TONE_STYLES = {
   },
 };
 
-export function submitLeadIntake(payload: LeadIntakePayload): Promise<Response> {
-  return fetch('/api/lead-intake', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
+interface LeadIntakeState {
+  name: string;
+  email: string;
+  businessName: string;
+  googleMapsUrl: string;
+  state: FormState;
+  errorMsg: string;
+  invalidField: InvalidLeadIntakeField | null;
 }
 
-export function validateLeadIntakeFields({
-  name,
-  email,
-  businessName,
-}: Pick<LeadIntakePayload, 'name' | 'email' | 'businessName'>): LeadIntakeValidationResult {
-  if (!name.trim()) {
-    return { message: 'Please enter your name.', invalidField: 'name' };
+const initialLeadIntakeState: LeadIntakeState = {
+  name: '',
+  email: '',
+  businessName: '',
+  googleMapsUrl: '',
+  state: 'idle',
+  errorMsg: '',
+  invalidField: null,
+};
+
+type LeadIntakeAction =
+  | { type: 'setName'; name: string }
+  | { type: 'setEmail'; email: string }
+  | { type: 'setBusinessName'; businessName: string }
+  | { type: 'setGoogleMapsUrl'; googleMapsUrl: string }
+  | { type: 'validationFailed'; errorMsg: string; invalidField: InvalidLeadIntakeField }
+  | { type: 'submitStart' }
+  | { type: 'submitSuccess' }
+  | { type: 'submitError'; errorMsg: string };
+
+function leadIntakeReducer(state: LeadIntakeState, action: LeadIntakeAction): LeadIntakeState {
+  switch (action.type) {
+    case 'setName':
+      return { ...state, name: action.name };
+    case 'setEmail':
+      return { ...state, email: action.email };
+    case 'setBusinessName':
+      return { ...state, businessName: action.businessName };
+    case 'setGoogleMapsUrl':
+      return { ...state, googleMapsUrl: action.googleMapsUrl };
+    case 'validationFailed':
+      return { ...state, errorMsg: action.errorMsg, invalidField: action.invalidField, state: 'error' };
+    case 'submitStart':
+      return { ...state, state: 'loading', errorMsg: '', invalidField: null };
+    case 'submitSuccess':
+      return { ...state, state: 'success' };
+    case 'submitError':
+      return { ...state, errorMsg: action.errorMsg, invalidField: null, state: 'error' };
   }
-
-  if (!EMAIL_RE.test(email.trim())) {
-    return {
-      message: 'Please enter a valid email address.',
-      invalidField: 'email',
-    };
-  }
-
-  if (!businessName.trim()) {
-    return {
-      message: 'Please enter your business name.',
-      invalidField: 'businessName',
-    };
-  }
-
-  return null;
-}
-
-export function getLeadIntakeFieldErrorProps(
-  field: LeadIntakeField,
-  invalidField: InvalidLeadIntakeField | null,
-  errorId: string,
-) {
-  if (field !== invalidField) return {};
-
-  return {
-    'aria-invalid': true,
-    'aria-describedby': errorId,
-  };
 }
 
 export function LeadIntakeForm({
@@ -140,13 +147,8 @@ export function LeadIntakeForm({
   const styles = TONE_STYLES[tone];
   const errorId = `lead-intake-${intent}-${source}-error`;
 
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [businessName, setBusinessName] = useState('');
-  const [googleMapsUrl, setGoogleMapsUrl] = useState('');
-  const [state, setState] = useState<FormState>('idle');
-  const [errorMsg, setErrorMsg] = useState('');
-  const [invalidField, setInvalidField] = useState<InvalidLeadIntakeField | null>(null);
+  const [formState, dispatch] = useReducer(leadIntakeReducer, initialLeadIntakeState);
+  const { name, email, businessName, googleMapsUrl, state, errorMsg, invalidField } = formState;
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -156,15 +158,15 @@ export function LeadIntakeForm({
       businessName,
     });
     if (validationError) {
-      setErrorMsg(validationError.message);
-      setInvalidField(validationError.invalidField);
-      setState('error');
+      dispatch({
+        type: 'validationFailed',
+        errorMsg: validationError.message,
+        invalidField: validationError.invalidField,
+      });
       return;
     }
 
-    setState('loading');
-    setErrorMsg('');
-    setInvalidField(null);
+    dispatch({ type: 'submitStart' });
 
     try {
       const res = await submitLeadIntake({
@@ -177,98 +179,104 @@ export function LeadIntakeForm({
       });
 
       if (res.ok) {
-        setState('success');
+        dispatch({ type: 'submitSuccess' });
       } else {
         const data = await res.json().catch(() => ({}));
-        setErrorMsg((data as { error?: string }).error ?? 'Something went wrong. Please try again.');
-        setInvalidField(null);
-        setState('error');
+        dispatch({
+          type: 'submitError',
+          errorMsg: (data as { error?: string }).error ?? 'Something went wrong. Please try again.',
+        });
       }
     } catch {
-      setErrorMsg('Network error. Please check your connection and try again.');
-      setInvalidField(null);
-      setState('error');
+      dispatch({
+        type: 'submitError',
+        errorMsg: 'Network error. Please check your connection and try again.',
+      });
     }
   };
 
   if (state === 'success') {
     return (
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        className={styles.success}
-      >
-        <h3 className={styles.successHeading}>{resolvedCopy.successHeading}</h3>
-        <p className={styles.successBody}>{resolvedCopy.successBody}</p>
-      </motion.div>
+      <LazyMotion features={domAnimation}>
+        <m.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className={styles.success}
+        >
+          <h3 className={styles.successHeading}>{resolvedCopy.successHeading}</h3>
+          <p className={styles.successBody}>{resolvedCopy.successBody}</p>
+        </m.div>
+      </LazyMotion>
     );
   }
 
   return (
-    <form onSubmit={handleSubmit} noValidate className={styles.form}>
-      <input type="hidden" name="intent" value={intent} readOnly />
-      <input type="hidden" name="source" value={source} readOnly />
-      <input
-        type="text"
-        placeholder="Your name"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        disabled={state === 'loading'}
-        className={styles.input}
-        autoComplete="name"
-        aria-label="Your name"
-        {...getLeadIntakeFieldErrorProps('name', invalidField, errorId)}
-        name="name"
-      />
-      <input
-        type="email"
-        placeholder="Email address"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        disabled={state === 'loading'}
-        className={styles.input}
-        autoComplete="email"
-        aria-label="Email address"
-        {...getLeadIntakeFieldErrorProps('email', invalidField, errorId)}
-        name="email"
-      />
-      <input
-        type="text"
-        placeholder="Business name"
-        value={businessName}
-        onChange={(e) => setBusinessName(e.target.value)}
-        disabled={state === 'loading'}
-        className={styles.input}
-        autoComplete="organization"
-        aria-label="Business name"
-        {...getLeadIntakeFieldErrorProps('businessName', invalidField, errorId)}
-        name="businessName"
-      />
-      <input
-        type="text"
-        placeholder="Google Maps link (optional - helps us prep)"
-        value={googleMapsUrl}
-        onChange={(e) => setGoogleMapsUrl(e.target.value)}
-        disabled={state === 'loading'}
-        className={styles.input}
-        autoComplete="url"
-        aria-label="Google Maps link"
-        name="googleMapsUrl"
-      />
+    <LazyMotion features={domAnimation}>
+      <form onSubmit={handleSubmit} noValidate className={styles.form}>
+        <input type="hidden" name="intent" value={intent} readOnly />
+        <input type="hidden" name="source" value={source} readOnly />
+        <input
+          type="text"
+          placeholder="Your name"
+          value={name}
+          onChange={(e) => dispatch({ type: 'setName', name: e.target.value })}
+          disabled={state === 'loading'}
+          className={styles.input}
+          autoComplete="name"
+          aria-label="Your name"
+          {...getLeadIntakeFieldErrorProps('name', invalidField, errorId)}
+          name="name"
+        />
+        <input
+          type="email"
+          placeholder="Email address"
+          value={email}
+          onChange={(e) => dispatch({ type: 'setEmail', email: e.target.value })}
+          disabled={state === 'loading'}
+          className={styles.input}
+          autoComplete="email"
+          aria-label="Email address"
+          {...getLeadIntakeFieldErrorProps('email', invalidField, errorId)}
+          name="email"
+        />
+        <input
+          type="text"
+          placeholder="Business name"
+          value={businessName}
+          onChange={(e) => dispatch({ type: 'setBusinessName', businessName: e.target.value })}
+          disabled={state === 'loading'}
+          className={styles.input}
+          autoComplete="organization"
+          aria-label="Business name"
+          {...getLeadIntakeFieldErrorProps('businessName', invalidField, errorId)}
+          name="businessName"
+        />
+        <input
+          type="text"
+          placeholder="Google Maps link (optional - helps us prep)"
+          value={googleMapsUrl}
+          onChange={(e) => dispatch({ type: 'setGoogleMapsUrl', googleMapsUrl: e.target.value })}
+          disabled={state === 'loading'}
+          className={styles.input}
+          autoComplete="url"
+          aria-label="Google Maps link"
+          name="googleMapsUrl"
+        />
 
-      {state === 'error' && errorMsg && (
-        <p id={errorId} role="alert" className={styles.error}>{errorMsg}</p>
-      )}
+        {state === 'error' && errorMsg && (
+          <p id={errorId} role="alert" className={styles.error}>{errorMsg}</p>
+        )}
 
-      <motion.button
-        type="submit"
-        disabled={state === 'loading'}
-        whileHover={{ scale: 1.05, y: -2, boxShadow: styles.hoverShadow }}
-        whileTap={{ scale: 0.98 }}
-        className={styles.button}
-      >
-        {state === 'loading' ? resolvedCopy.loading : resolvedCopy.button}
-      </motion.button>
-    </form>
+        <m.button
+          type="submit"
+          disabled={state === 'loading'}
+          whileHover={{ scale: 1.05, y: -2, boxShadow: styles.hoverShadow }}
+          whileTap={{ scale: 0.98 }}
+          className={styles.button}
+        >
+          {state === 'loading' ? resolvedCopy.loading : resolvedCopy.button}
+        </m.button>
+      </form>
+    </LazyMotion>
   );
 }

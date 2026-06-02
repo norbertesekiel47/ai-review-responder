@@ -38,6 +38,7 @@ export default async function SelectLocationPage() {
 
   const redis = getCacheRedis();
   let raw: string | null = null;
+  let cacheUnavailable = false;
   try {
     raw = await redis.get(locationsKey(sessionId));
   } catch (err) {
@@ -48,16 +49,24 @@ export default async function SelectLocationPage() {
       '[dashboard/connect/select-location] Redis read failed (treating as cache_unavailable):',
       err,
     );
+    cacheUnavailable = true;
+  }
+  // redirect() throws NEXT_REDIRECT as a control-flow signal; keep every call
+  // outside the try/catch so a catch can never swallow it.
+  if (cacheUnavailable) {
     redirect('/dashboard/connect?error=cache_unavailable');
   }
   if (!raw) {
     redirect('/dashboard/connect?error=session_expired');
   }
 
-  let blob: ConnectLocationsBlob;
+  let blob: ConnectLocationsBlob | null = null;
   try {
     blob = JSON.parse(raw) as ConnectLocationsBlob;
   } catch {
+    blob = null;
+  }
+  if (!blob) {
     redirect('/dashboard/connect?error=session_invalid');
   }
 

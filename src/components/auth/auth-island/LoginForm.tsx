@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { PREFILL_EMAIL_KEY } from '@/components/auth/shared/prefillEmail';
@@ -11,6 +11,16 @@ import { Field } from './Field';
 import { ArrowIcon, GoogleIcon, LockIcon, MailIcon } from './Icons';
 
 export function LoginForm() {
+  // useSearchParams() opts the whole route into client rendering unless it sits
+  // under a Suspense boundary, so the param-reading body lives in LoginFormInner.
+  return (
+    <Suspense fallback={<div className="rw-stagger" aria-hidden="true" />}>
+      <LoginFormInner />
+    </Suspense>
+  );
+}
+
+function LoginFormInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [email, setEmail] = useState(() => searchParams.get('email') ?? '');
@@ -52,7 +62,7 @@ export function LoginForm() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError('');
-    await submit(email, password);
+    await submit(email, password, searchParams.get('from') ?? '');
   }
 
   return (

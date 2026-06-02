@@ -5,6 +5,8 @@ import type { AggregateDashboardData } from '@/lib/dashboard/types';
 
 const STACK_COLORS = ['#2563eb', '#16a34a', '#ea580c', '#9333ea', '#0891b2', '#dc2626'];
 
+const PAD = { l: 36, r: 16, t: 28, b: 32 };
+
 interface Props {
   reviewVelocity: AggregateDashboardData['reviewVelocity'];
   perLocationVelocity: AggregateDashboardData['perLocationVelocity'];
@@ -75,12 +77,11 @@ function VelocityChart({ data, accent }: { data: { label: string; count: number 
 
   const W = 640;
   const H = 220;
-  const pad = { l: 36, r: 16, t: 28, b: 32 };
-  const innerW = W - pad.l - pad.r;
-  const innerH = H - pad.t - pad.b;
+  const innerW = W - PAD.l - PAD.r;
+  const innerH = H - PAD.t - PAD.b;
   const gap = innerW / Math.max(1, data.length);
   const barW = gap * 0.5;
-  const yFor = (v: number) => pad.t + innerH - (v / max) * innerH;
+  const yFor = (v: number) => PAD.t + innerH - (v / max) * innerH;
   const yTicks = [0, Math.round(max / 2), max];
 
   return (
@@ -93,14 +94,14 @@ function VelocityChart({ data, accent }: { data: { label: string; count: number 
       <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid meet" className="chart-shell" width="100%" style={{ height: 220, display: 'block', overflow: 'visible', maxWidth: '100%' }}>
         {yTicks.map((t, i) => (
           <g key={i}>
-            <line x1={pad.l} x2={W - pad.r} y1={yFor(t)} y2={yFor(t)} stroke="#F3F4F6" strokeWidth="1" />
-            <text x={pad.l - 8} y={yFor(t) + 3} textAnchor="end" fontSize="10" fill="#9CA3AF" fontFamily="DM Sans">{t}</text>
+            <line x1={PAD.l} x2={W - PAD.r} y1={yFor(t)} y2={yFor(t)} stroke="#F3F4F6" strokeWidth="1" />
+            <text x={PAD.l - 8} y={yFor(t) + 3} textAnchor="end" fontSize="10" fill="#9CA3AF" fontFamily="DM Sans">{t}</text>
           </g>
         ))}
         {data.map((d, i) => {
-          const x = pad.l + i * gap + (gap - barW) / 2;
+          const x = PAD.l + i * gap + (gap - barW) / 2;
           const h = (d.count / max) * innerH;
-          const y = pad.t + innerH - h;
+          const y = PAD.t + innerH - h;
           const isHover = hover === i;
           return (
             <g key={i} onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)} style={{ cursor: 'pointer' }}>
@@ -139,13 +140,12 @@ function StackedVelocityChart({ perLocationVelocity }: { perLocationVelocity: Ag
 
   const W = 640;
   const H = 220;
-  const pad = { l: 36, r: 16, t: 28, b: 32 };
-  const innerW = W - pad.l - pad.r;
-  const innerH = H - pad.t - pad.b;
+  const innerW = W - PAD.l - PAD.r;
+  const innerH = H - PAD.t - PAD.b;
   const gap = innerW / Math.max(1, weeks.length);
   const barW = gap * 0.6;
 
-  const yFor = (v: number) => pad.t + innerH - (v / maxStack) * innerH;
+  const yFor = (v: number) => PAD.t + innerH - (v / maxStack) * innerH;
 
   return (
     <div style={{ position: 'relative' }}>
@@ -153,24 +153,25 @@ function StackedVelocityChart({ perLocationVelocity }: { perLocationVelocity: Ag
         {/* Y-axis ticks */}
         {[0, Math.round(maxStack / 2), maxStack].map((t, i) => (
           <g key={i}>
-            <line x1={pad.l} x2={W - pad.r} y1={yFor(t)} y2={yFor(t)} stroke="#F3F4F6" strokeWidth="1" />
-            <text x={pad.l - 8} y={yFor(t) + 3} textAnchor="end" fontSize="10" fill="#9CA3AF" fontFamily="DM Sans">{t}</text>
+            <line x1={PAD.l} x2={W - PAD.r} y1={yFor(t)} y2={yFor(t)} stroke="#F3F4F6" strokeWidth="1" />
+            <text x={PAD.l - 8} y={yFor(t) + 3} textAnchor="end" fontSize="10" fill="#9CA3AF" fontFamily="DM Sans">{t}</text>
           </g>
         ))}
 
         {/* Stacked bars per week */}
         {weeks.map((week, wi) => {
-          const x = pad.l + wi * gap + (gap - barW) / 2;
+          const x = PAD.l + wi * gap + (gap - barW) / 2;
           let yOffset = 0;
-          const segments = perLocationVelocity.map((loc, li) => {
+          const segments = perLocationVelocity.flatMap((loc, li) => {
             const v = loc.velocity.find((x) => x.weekStart === week);
             const count = v?.count ?? 0;
+            if (count <= 0) return [];
             const color = STACK_COLORS[li % STACK_COLORS.length]!;
             const h = (count / maxStack) * innerH;
-            const y = pad.t + innerH - yOffset - h;
+            const y = PAD.t + innerH - yOffset - h;
             yOffset += h;
-            return { count, color, y, h };
-          }).filter((s) => s.count > 0);
+            return [{ count, color, y, h }];
+          });
 
           return (
             <g key={week}>

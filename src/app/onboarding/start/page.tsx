@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import { notFound, redirect } from 'next/navigation';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
@@ -13,6 +14,8 @@ interface GuardRow {
   place_id_verified: boolean;
   google_maps_url: string | null;
 }
+
+export const metadata: Metadata = { title: 'Get started | RepWorth' };
 
 export default async function OnboardingStartPage() {
   if (process.env.ONBOARDING_DEMO_ENABLED !== 'true') notFound();

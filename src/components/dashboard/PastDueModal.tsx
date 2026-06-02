@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react';
 import Link from 'next/link';
 
 interface PastDueModalProps {
@@ -16,50 +16,75 @@ const PAST_DUE_DEADLINE_FORMATTER = new Intl.DateTimeFormat('en-US', {
   year: 'numeric',
 });
 
+// Full-screen dimmed overlay for the native <dialog> (UA defaults neutralized).
+const PAST_DUE_DIALOG_STYLE: CSSProperties = {
+  position: 'fixed',
+  inset: 0,
+  zIndex: 80,
+  display: 'grid',
+  placeItems: 'center',
+  background: 'rgba(17, 24, 39, 0.42)',
+  padding: 16,
+  border: 'none',
+  maxWidth: 'none',
+  maxHeight: 'none',
+  width: '100%',
+  height: '100%',
+  margin: 0,
+};
+
 export function PastDueModal({
   accountId,
   daysRemaining,
   isReadOnly,
   deadline,
 }: PastDueModalProps) {
-  const [dismissed, setDismissed] = useState(true);
-  const dismissalKey = useMemo(
-    () => `rw:past_due_modal:${accountId}:${new Date().toISOString().slice(0, 10)}`,
-    [accountId],
-  );
+  const dismissalKey = `rw:past_due_modal:${accountId}:${new Date().toISOString().slice(0, 10)}`;
   const shouldShow = daysRemaining !== null && daysRemaining <= 2 && !isReadOnly;
   const deadlineCopy = deadline
     ? PAST_DUE_DEADLINE_FORMATTER.format(new Date(deadline))
     : null;
 
-  useEffect(() => {
-    if (!shouldShow) return;
-    setDismissed(window.localStorage.getItem(dismissalKey) === 'dismissed');
-  }, [dismissalKey, shouldShow]);
+  const persistedDismissed = useSyncExternalStore(
+    () => () => {},
+    () => window.localStorage.getItem(dismissalKey) === 'dismissed',
+    () => true,
+  );
+  const [sessionDismissed, setSessionDismissed] = useState(false);
+  const dismissed = persistedDismissed || sessionDismissed;
+  const isOpen = shouldShow && !dismissed;
 
-  if (!shouldShow || dismissed) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+
+  // Rendered only while open, so this effect runs when the dialog mounts.
+  // showModal() promotes it to the top layer and exposes the dialog role.
+  useEffect(() => {
+    if (!isOpen) return;
+    const dialog = dialogRef.current;
+    if (dialog && !dialog.open) dialog.showModal();
+    return () => {
+      if (dialog?.open) dialog.close();
+    };
+  }, [isOpen]);
+
+  if (!isOpen) {
     return null;
   }
 
   function dismiss() {
     window.localStorage.setItem(dismissalKey, 'dismissed');
-    setDismissed(true);
+    setSessionDismissed(true);
   }
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
+    <dialog
+      ref={dialogRef}
       aria-labelledby="past-due-modal-title"
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 80,
-        display: 'grid',
-        placeItems: 'center',
-        background: 'rgba(17, 24, 39, 0.42)',
-        padding: 16,
-      }}
+      // ESC is intentionally inert: this reminder has no dismiss-on-Escape
+      // path, only the explicit Dismiss button. preventDefault keeps the
+      // native dialog from auto-closing on ESC.
+      onCancel={(event) => event.preventDefault()}
+      style={PAST_DUE_DIALOG_STYLE}
     >
       <div
         style={{
@@ -96,6 +121,6 @@ export function PastDueModal({
           Dismiss
         </button>
       </div>
-    </div>
+    </dialog>
   );
 }

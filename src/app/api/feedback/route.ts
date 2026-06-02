@@ -13,6 +13,12 @@ type Rating = (typeof VALID_RATINGS)[number];
 const WEEK_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_COMMENT_LENGTH = 1000;
 
+const RATING_LABELS: Record<Rating, string> = {
+  great: 'Great',
+  ok: 'OK',
+  not_great: 'Not Great',
+};
+
 function isValidRating(value: string): value is Rating {
   return (VALID_RATINGS as readonly string[]).includes(value);
 }
@@ -67,12 +73,6 @@ export async function GET(request: NextRequest) {
 
   const { businessId, rating, week, sig } = result;
 
-  const ratingLabels: Record<Rating, string> = {
-    great: 'Great',
-    ok: 'OK',
-    not_great: 'Not Great',
-  };
-
   const commentField =
     rating === 'not_great'
       ? `<div style="margin-bottom:16px">
@@ -96,7 +96,7 @@ export async function GET(request: NextRequest) {
   <div style="max-width:480px;margin:40px auto;background:#fff;border-radius:12px;padding:32px;box-shadow:0 1px 3px rgba(0,0,0,.1)">
     <h1 style="margin:0 0 8px;font-size:22px;font-weight:600">Confirm Your Feedback</h1>
     <p style="margin:0 0 24px;color:#6b7280;font-size:15px">
-      You rated your experience: <strong style="color:#111827">${ratingLabels[rating]}</strong>
+      You rated your experience: <strong style="color:#111827">${RATING_LABELS[rating]}</strong>
     </p>
     <form method="POST" action="/api/feedback">
       <input type="hidden" name="business_id" value="${businessId}" />

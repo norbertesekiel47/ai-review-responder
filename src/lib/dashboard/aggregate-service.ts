@@ -190,14 +190,15 @@ export async function getAggregateDashboardData(
   >(); // keyword → date → bestPosition
 
   for (const p of validPairs) {
-    if (p.data.ranking) {
+    const locationRanking = p.data.ranking;
+    if (locationRanking) {
       perLocationRanking.push({
         locationId: p.location.id,
         displayName: getDisplayLabel(p.location),
-        ranking: p.data.ranking,
+        ranking: locationRanking,
       });
 
-      for (const kw of p.data.ranking) {
+      for (const kw of locationRanking) {
         if (!keywordMap.has(kw.keyword)) {
           keywordMap.set(kw.keyword, new Map());
         }

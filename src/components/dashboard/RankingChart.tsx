@@ -1,39 +1,6 @@
 'use client';
 
-export const RANKING_COLORS = ['#2563eb', '#16a34a', '#ea580c', '#9333ea', '#0891b2', '#dc2626'] as const;
-
-export interface RankingSnapshotPoint {
-  date: string;
-  position: number;
-}
-
-export interface RankingSourceSeries {
-  keyword: string;
-  snapshots: RankingSnapshotPoint[];
-}
-
-export interface RankingChartSeries {
-  keyword: string;
-  color: string;
-  points: { date: string; label: string; position: number }[];
-}
-
-export function formatRankingDateLabel(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
-}
-
-export function buildRankingSeries(series: RankingSourceSeries[]): RankingChartSeries[] {
-  return series.map((s, i) => ({
-    keyword: s.keyword,
-    color: RANKING_COLORS[i % RANKING_COLORS.length]!,
-    points: s.snapshots.map((p) => ({
-      date: p.date,
-      label: formatRankingDateLabel(p.date),
-      position: p.position,
-    })),
-  }));
-}
+import type { RankingChartSeries } from './RankingChart.helpers';
 
 interface RankingChartProps {
   series: RankingChartSeries[];
@@ -41,6 +8,8 @@ interface RankingChartProps {
   labelFontSize?: string;
   labelFontWeight?: string;
 }
+
+const PAD = { l: 36, r: 80, t: 16, b: 28 };
 
 export function RankingChart({
   series,
@@ -50,9 +19,8 @@ export function RankingChart({
 }: RankingChartProps) {
   const W = 600;
   const H = 240;
-  const pad = { l: 36, r: 80, t: 16, b: 28 };
-  const innerW = W - pad.l - pad.r;
-  const innerH = H - pad.t - pad.b;
+  const innerW = W - PAD.l - PAD.r;
+  const innerH = H - PAD.t - PAD.b;
 
   // Build a union axis from every series' dates so sparse / mismatched
   // series still position points correctly. The axis is sorted ascending so
@@ -72,17 +40,17 @@ export function RankingChart({
   const stepX = innerW / Math.max(1, allDates.length - 1);
   const xFor = (date: string) => {
     const idx = allDates.indexOf(date);
-    return pad.l + (idx < 0 ? 0 : idx) * stepX;
+    return PAD.l + (idx < 0 ? 0 : idx) * stepX;
   };
-  const yFor = (r: number) => pad.t + ((r - minRank) / (maxRank - minRank)) * innerH;
+  const yFor = (r: number) => PAD.t + ((r - minRank) / (maxRank - minRank)) * innerH;
   const yTicks = [1, Math.ceil((maxRank + 1) / 2), maxRank];
 
   return (
     <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="chart-shell tall" style={{ height: 240 }}>
       {yTicks.map((t, i) => (
         <g key={i}>
-          <line x1={pad.l} x2={pad.l + innerW} y1={yFor(t)} y2={yFor(t)} stroke="#E5E7EB" strokeDasharray="3 3" />
-          <text x={pad.l - 6} y={yFor(t) + 3} textAnchor="end" fontSize="10" fill="#9CA3AF" fontFamily="DM Sans">
+          <line x1={PAD.l} x2={PAD.l + innerW} y1={yFor(t)} y2={yFor(t)} stroke="#E5E7EB" strokeDasharray="3 3" />
+          <text x={PAD.l - 6} y={yFor(t) + 3} textAnchor="end" fontSize="10" fill="#9CA3AF" fontFamily="DM Sans">
             #{t}
           </text>
         </g>
@@ -90,7 +58,7 @@ export function RankingChart({
       {allDates.map((date, i) => (
         <text
           key={date}
-          x={pad.l + i * stepX}
+          x={PAD.l + i * stepX}
           y={H - 10}
           textAnchor="middle"
           fontSize="10"
@@ -101,7 +69,7 @@ export function RankingChart({
         </text>
       ))}
       {series.map((s, si) => {
-        const sorted = [...s.points].sort((a, b) => a.date.localeCompare(b.date));
+        const sorted = s.points.toSorted((a, b) => a.date.localeCompare(b.date));
         const path = sorted
           .map((p, i) => {
             const x = xFor(p.date);

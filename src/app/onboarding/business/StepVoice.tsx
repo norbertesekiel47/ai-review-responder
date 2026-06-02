@@ -1,7 +1,7 @@
 'use client';
 
 import type { WizardFormData } from './BusinessWizardClient';
-import { motion } from 'motion/react';
+import { LazyMotion, m, domAnimation } from 'motion/react';
 import {
   fieldClass,
   textareaClass,
@@ -29,12 +29,13 @@ export function StepVoice({
   submitting,
 }: StepVoiceProps) {
   return (
+    <LazyMotion features={domAnimation}>
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h2 className="text-xl font-medium text-[#2a2a2a]">Voice &amp; context</h2>
           <p className="text-sm text-[#6a6a6a]">
-            Help us write responses that sound like you. All optional — you can
+            Help us write responses that sound like you. All optional, you can
             set this up later in Settings.
           </p>
         </div>
@@ -128,7 +129,7 @@ export function StepVoice({
         >
           ← Back
         </button>
-        <motion.button
+        <m.button
           type="button"
           onClick={onSubmit}
           disabled={submitting}
@@ -136,8 +137,9 @@ export function StepVoice({
           className={primaryButtonClass}
         >
           {submitting ? 'Setting up…' : 'Finish setup'}
-        </motion.button>
+        </m.button>
       </div>
     </div>
+    </LazyMotion>
   );
 }

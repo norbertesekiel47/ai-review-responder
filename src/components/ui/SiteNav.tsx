@@ -3,7 +3,7 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { AnimatePresence, motion } from 'motion/react';
+import { AnimatePresence, LazyMotion, m, domAnimation } from 'motion/react';
 
 interface SiteNavProps {
   /** When true, the right-side Log in / Sign up cluster is hidden. */
@@ -36,6 +36,7 @@ export function SiteNav({ comingSoon = false, selfServeEnabled = false }: SiteNa
   const closeMenu = () => setMobileOpen(false);
 
   return (
+    <LazyMotion features={domAnimation}>
     <nav className="border-b border-[#97B3AE]/10">
       <div className="px-8 py-4 flex items-center justify-between gap-4">
         <Link href="/" className="flex items-center gap-2 rounded-md focus-visible:outline-2 focus-visible:outline-[#97B3AE] focus-visible:outline-offset-2">
@@ -114,7 +115,7 @@ export function SiteNav({ comingSoon = false, selfServeEnabled = false }: SiteNa
       {/* Mobile dropdown panel */}
       <AnimatePresence initial={false}>
         {mobileOpen && (
-          <motion.div
+          <m.div
             key="mobile-menu"
             id={MOBILE_MENU_ID}
             initial={{ opacity: 0, height: 0 }}
@@ -155,9 +156,10 @@ export function SiteNav({ comingSoon = false, selfServeEnabled = false }: SiteNa
                 </>
               )}
             </div>
-          </motion.div>
+          </m.div>
         )}
       </AnimatePresence>
     </nav>
+    </LazyMotion>
   );
 }

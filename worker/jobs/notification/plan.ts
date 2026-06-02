@@ -2,7 +2,7 @@ import type { ChannelId } from '../../../src/lib/notifications/channels/types';
 
 export type NotificationChannelName = ChannelId;
 
-export const NOTIFICATION_DISPATCH_CHANNEL_ORDER = [
+const NOTIFICATION_DISPATCH_CHANNEL_ORDER = [
   'email',
   'sms',
   'telegram',
@@ -44,7 +44,7 @@ export function orderNotificationDispatchEnrollments<
   // Defensive normalization: callers currently provide a complete,
   // alphabetically ordered channel set, so this preserves behavior while
   // keeping dispatch tied to the canonical order above if input order drifts.
-  return [...enrollments].sort((a, b) => {
+  return enrollments.toSorted((a, b) => {
     const aOrder = channelOrder.get(a.channel) ?? Number.MAX_SAFE_INTEGER;
     const bOrder = channelOrder.get(b.channel) ?? Number.MAX_SAFE_INTEGER;
     return aOrder - bOrder;

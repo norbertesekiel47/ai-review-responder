@@ -62,26 +62,29 @@ function Reveal({ children, delay = 0 }: { children: ReactNode; delay?: number }
 
 /* ───── Step artifacts ───── */
 
+const STEP1_ROWS = [
+  { name: 'Sarah L.', initials: 'SL', stars: 5, excerpt: 'Best dry cleaners in town. Picked up my suits on time and they...', time: 'Just now', isNew: true },
+  { name: 'Marcus T.', initials: 'MT', stars: 4, excerpt: 'Quick service, friendly staff. Will return for my shirts next week.', time: '12 min ago' },
+  { name: 'Priya R.', initials: 'PR', stars: 5, excerpt: 'Saved my wedding dress. Honestly, nothing short of magic.', time: '48 min ago' },
+  { name: 'David C.', initials: 'DC', stars: 3, excerpt: 'Decent service but the pickup hours could be better on weekends.', time: '2 hrs ago' },
+];
+const STEP1_COLORS = ['#F2C3B9', '#D6CBBF', '#D2E0D3', '#F0DDD6'];
+
 function Step1Artifact() {
   const [tick, setTick] = useState(0);
   useEffect(() => {
     const i = setInterval(() => setTick((t) => t + 1), 4200);
     return () => clearInterval(i);
   }, []);
-  const rows = [
-    { name: 'Sarah L.', initials: 'SL', stars: 5, excerpt: 'Best dry cleaners in town. Picked up my suits on time and they...', time: 'Just now', isNew: true },
-    { name: 'Marcus T.', initials: 'MT', stars: 4, excerpt: 'Quick service, friendly staff. Will return for my shirts next week.', time: '12 min ago' },
-    { name: 'Priya R.', initials: 'PR', stars: 5, excerpt: 'Saved my wedding dress. Honestly, nothing short of magic.', time: '48 min ago' },
-    { name: 'David C.', initials: 'DC', stars: 3, excerpt: 'Decent service but the pickup hours could be better on weekends.', time: '2 hrs ago' },
-  ];
-  const colors = ['#F2C3B9', '#D6CBBF', '#D2E0D3', '#F0DDD6'];
+  const rows = STEP1_ROWS;
+  const colors = STEP1_COLORS;
   const mins = String(59 - (tick % 60)).padStart(2, '0');
   const secs = String(59 - ((tick * 3) % 60)).padStart(2, '0');
   return (
     <div className="hiw-artifact">
       <div className="hiw-artifact-cap">
         <span className="hiw-artifact-cap-dot" />
-        <span>Google Business Profile — Bright Linen Dry Cleaning</span>
+        <span>Google Business Profile: Bright Linen Dry Cleaning</span>
         <span className="hiw-artifact-cap-tail">polling · next in {mins}:{secs}</span>
       </div>
       <div className="hiw-feed">
@@ -114,23 +117,27 @@ function Step2Artifact() {
     "Sarah, thank you — that's genuinely wonderful to hear. We take punctuality seriously because we know your schedule doesn't wait for ours. See you again soon.";
   const [typed, setTyped] = useState('');
   useEffect(() => {
+    // Single timer drives lead-in → type → hold → loop, so the effect has one
+    // state setter (avoids a chain of setState calls across nested timers).
     let i = 0;
-    let timer: ReturnType<typeof setTimeout>;
-    const tick = () => {
+    let lead = 0;
+    let hold = 0;
+    const iv = setInterval(() => {
+      if (lead < 400) {
+        lead += 22;
+        return;
+      }
       if (i <= full.length) {
         setTyped(full.slice(0, i));
         i += 2;
-        timer = setTimeout(tick, 22);
+      } else if (hold < 2400) {
+        hold += 22;
       } else {
-        timer = setTimeout(() => {
-          i = 0;
-          setTyped('');
-          tick();
-        }, 2400);
+        i = 0;
+        hold = 0;
       }
-    };
-    timer = setTimeout(tick, 400);
-    return () => clearTimeout(timer);
+    }, 22);
+    return () => clearInterval(iv);
   }, [full]);
   return (
     <div className="hiw-artifact">
@@ -209,7 +216,7 @@ function Step3Artifact() {
           </div>
           <div>to you</div>
         </div>
-        <h4 className="hiw-email-subj">New 5★ review from Sarah L. — ready to approve</h4>
+        <h4 className="hiw-email-subj">New 5★ review from Sarah L., ready to approve</h4>
         <p className="hiw-email-meta">
           We drafted a reply in your voice. Tap to approve, edit, or regenerate.
         </p>
@@ -221,7 +228,7 @@ function Step3Artifact() {
         </div>
         <div className="hiw-email-reply">
           <div className="hiw-email-reply-meta">Suggested reply</div>
-          Sarah, thank you — that&apos;s genuinely wonderful to hear. We take punctuality seriously
+          Sarah, thank you. That&apos;s genuinely wonderful to hear. We take punctuality seriously
           because we know your schedule doesn&apos;t wait for ours. See you again soon.
         </div>
 
@@ -236,7 +243,7 @@ function Step3Artifact() {
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                 <polyline points="20 6 9 17 4 12" />
               </svg>
-              Approved — posting to Google
+              Approved, posting to Google
             </button>
           ) : (
             <>
@@ -301,7 +308,7 @@ function Step4Artifact() {
               <span>· just now</span>
             </div>
             <div className="hiw-posted-reply-body">
-              Sarah, thank you — that&apos;s genuinely wonderful to hear. We take punctuality
+              Sarah, thank you. That&apos;s genuinely wonderful to hear. We take punctuality
               seriously because we know your schedule doesn&apos;t wait for ours. See you again soon.
             </div>
           </div>
@@ -473,6 +480,16 @@ const OVERVIEW = [
   },
 ];
 
+const jumpTo = (id: string) => {
+  const el = document.getElementById(id);
+  if (el) {
+    window.scrollTo({
+      top: el.getBoundingClientRect().top + window.scrollY - 80,
+      behavior: 'smooth',
+    });
+  }
+};
+
 export function HowItWorksContent({
   comingSoon = false,
   selfServeEnabled = false,
@@ -496,16 +513,6 @@ export function HowItWorksContent({
     els.forEach((s) => io.observe(s));
     return () => io.disconnect();
   }, []);
-
-  const jumpTo = (id: string) => {
-    const el = document.getElementById(id);
-    if (el) {
-      window.scrollTo({
-        top: el.getBoundingClientRect().top + window.scrollY - 80,
-        behavior: 'smooth',
-      });
-    }
-  };
 
   return (
     <div className="hiw-page">
@@ -621,7 +628,7 @@ export function HowItWorksContent({
               <h2 className="hiw-h2">The pipeline, end to end.</h2>
               <p className="hiw-lead">
                 A poll worker, a voice model, a signed approval email, and a posting API. Nothing
-                magical — just four well-behaved services.
+                magical, just four well-behaved services.
               </p>
             </div>
             <Reveal>

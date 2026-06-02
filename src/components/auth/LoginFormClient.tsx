@@ -52,7 +52,7 @@ export function LoginFormInner({
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError('');
-    await submit(email, password);
+    await submit(email, password, searchParams.get('from') ?? '');
   }
 
   const forgotPath = portal === 'owner' ? '/forgot-password' : '/admin/forgot-password';

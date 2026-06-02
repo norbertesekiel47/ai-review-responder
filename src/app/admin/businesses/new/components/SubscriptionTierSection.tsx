@@ -25,7 +25,7 @@ export function SubscriptionTierSection({
           />
           <div>
             <span className="block text-sm font-semibold text-gray-900">
-              Founding Member — $99/mo
+              Founding Member · $99/mo
             </span>
             <span className="text-xs text-gray-500">
               Rate locked for life. Limited availability.
@@ -42,7 +42,7 @@ export function SubscriptionTierSection({
           />
           <div>
             <span className="block text-sm font-semibold text-gray-900">
-              Standard — $149/mo
+              Standard · $149/mo
             </span>
             <span className="text-xs text-gray-500">
               Full feature access at the standard rate.

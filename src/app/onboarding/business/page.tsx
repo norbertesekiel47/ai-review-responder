@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import { notFound, redirect } from 'next/navigation';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
@@ -12,6 +13,8 @@ interface BusinessDataRow extends WizardGuardRow {
   website: string | null;
   name: string;
 }
+
+export const metadata: Metadata = { title: 'Set up your business | RepWorth' };
 
 export default async function OnboardingBusinessPage() {
   if (process.env.SELF_SERVE_SIGNUP_ENABLED !== 'true') notFound();

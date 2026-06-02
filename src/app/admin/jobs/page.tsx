@@ -97,7 +97,7 @@ export default function JobsPage() {
     return (
       <div className="min-h-screen bg-gray-50">
         <div className="mx-auto max-w-6xl px-4 py-8">
-          <p className="text-gray-500">Loading...</p>
+          <p className="text-gray-500">Loading…</p>
         </div>
       </div>
     );
@@ -142,7 +142,7 @@ export default function JobsPage() {
 
           {queueUnavailable ? (
             <p className="mt-3 text-sm font-medium text-yellow-700">
-              Redis unavailable — queue depth cannot be retrieved.
+              Redis unavailable; queue depth cannot be retrieved.
             </p>
           ) : (
             <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">

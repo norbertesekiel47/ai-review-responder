@@ -142,7 +142,7 @@ export function ChannelsTabClient(props: Props) {
         <div className="toggle-row">
           <div className="toggle-info">
             <div className="t-title">Weekly summary</div>
-            <div className="t-sub">Every Monday — top reviews, response rate, search ranking moves.</div>
+            <div className="t-sub">Every Monday: top reviews, response rate, search ranking moves.</div>
           </div>
           <Switch
             on={f.form.weeklySummaryEnabled}
@@ -154,7 +154,7 @@ export function ChannelsTabClient(props: Props) {
         <div className="toggle-row">
           <div className="toggle-info">
             <div className="t-title">Monthly impact report</div>
-            <div className="t-sub">A bigger-picture brief on the first of the month — time saved, sentiment trends, suggested actions.</div>
+            <div className="t-sub">A bigger-picture brief on the first of the month: time saved, sentiment trends, suggested actions.</div>
           </div>
           <Switch
             on={f.form.monthlyImpactEnabled}
@@ -171,7 +171,7 @@ export function ChannelsTabClient(props: Props) {
           </div>
           <div>
             <div className="set-section-title">Contact details</div>
-            <div className="set-section-sub">Used only for urgent system alerts — never marketing.</div>
+            <div className="set-section-sub">Used only for urgent system alerts, never marketing.</div>
           </div>
         </div>
 

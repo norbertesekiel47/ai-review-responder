@@ -1,7 +1,12 @@
 'use client';
 
-import { useState, useCallback } from 'react';
-import type { ZernioPanelData } from '../types';
+import { useReducer, useCallback } from 'react';
+import type {
+  ZernioPanelData,
+  ZernioConnectionSummary,
+  AwaitingOwnerConnectResponse,
+  ZernioFinalizeIncident,
+} from '../types';
 
 interface ZernioConnectionPanelProps {
   businessId: string;
@@ -58,20 +63,261 @@ function formatStars(rating: number): string {
   return '★'.repeat(clamped) + '☆'.repeat(5 - clamped);
 }
 
+function ConnectionDetails({ connection }: { connection: ZernioConnectionSummary | null }) {
+  return (
+    <div className="mt-4 grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
+      {connection ? (
+        <>
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
+              Connected at
+            </p>
+            <p className="mt-0.5 text-gray-800">{formatTimestamp(connection.connectedAt)}</p>
+          </div>
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
+              Disconnected at
+            </p>
+            <p className="mt-0.5 text-gray-800">
+              {formatTimestamp(connection.disconnectedAt)}
+            </p>
+          </div>
+          {connection.disconnectReason && (
+            <div className="sm:col-span-2">
+              <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                Disconnect reason
+              </p>
+              <p className="mt-0.5 text-gray-800">{connection.disconnectReason}</p>
+            </div>
+          )}
+          {connection.lastError && (
+            <div className="sm:col-span-2">
+              <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                Last error
+                {connection.lastErrorAt && (
+                  <span className="ml-2 font-normal normal-case text-gray-400">
+                    {formatTimestamp(connection.lastErrorAt)}
+                  </span>
+                )}
+              </p>
+              <p className="mt-0.5 break-words text-gray-800">
+                {truncate(connection.lastError, LAST_ERROR_PREVIEW_LIMIT)}
+              </p>
+            </div>
+          )}
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
+              Zernio account
+            </p>
+            <p className="mt-0.5 break-all font-mono text-xs text-gray-700">
+              {connection.zernioAccountId}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
+              Zernio location
+            </p>
+            <p className="mt-0.5 break-all font-mono text-xs text-gray-700">
+              {connection.zernioLocationId}
+            </p>
+          </div>
+        </>
+      ) : (
+        <p className="text-sm text-gray-500 sm:col-span-2">
+          This business has never started a Zernio connect flow. Approved responses will stay
+          queued in the dashboard until the owner connects Google via Zernio.
+        </p>
+      )}
+    </div>
+  );
+}
+
+interface AwaitingQueueSectionProps {
+  awaitingOwnerConnect: AwaitingOwnerConnectResponse[];
+  status: 'pending' | 'active' | 'disconnected' | 'not_connected';
+  draining: boolean;
+  dismissingId: string | null;
+  queueError: string | null;
+  onForceDrain: () => void;
+  onDismiss: (responseId: string) => void;
+}
+
+function AwaitingQueueSection({
+  awaitingOwnerConnect,
+  status,
+  draining,
+  dismissingId,
+  queueError,
+  onForceDrain,
+  onDismiss,
+}: AwaitingQueueSectionProps) {
+  return (
+    <div className="mt-5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold text-gray-800">
+          Responses queued for reconnect ({awaitingOwnerConnect.length})
+        </h3>
+        {status === 'active' ? (
+          <button
+            type="button"
+            onClick={onForceDrain}
+            disabled={draining}
+            className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {draining ? 'Draining…' : 'Force drain queue'}
+          </button>
+        ) : (
+          <span className="text-xs text-gray-400">
+            Drain becomes available once the owner reconnects Zernio.
+          </span>
+        )}
+      </div>
+      <p className="mt-1 text-xs text-gray-500">
+        These approved responses cannot publish until the owner reconnects Zernio. After
+        reconnect, the worker drains them automatically.
+      </p>
+      {queueError && (
+        <p className="mt-2 rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700">
+          {queueError}
+        </p>
+      )}
+      <ul className="mt-3 space-y-2">
+        {awaitingOwnerConnect.map((r) => (
+          <li
+            key={r.responseId}
+            className="rounded border border-gray-200 bg-white p-3 text-sm"
+          >
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[#97B3AE]">{formatStars(r.starRating)}</span>
+              <span className="font-medium text-gray-700">{r.reviewerName}</span>
+              <span className="text-xs text-gray-400">
+                Queued {formatTimestamp(r.createdAt)}
+              </span>
+              <button
+                type="button"
+                onClick={() => onDismiss(r.responseId)}
+                disabled={dismissingId === r.responseId}
+                className="ml-auto rounded border border-red-300 bg-white px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {dismissingId === r.responseId ? 'Dismissing…' : 'Dismiss'}
+              </button>
+            </div>
+            {r.reviewText && (
+              <p className="mt-1 line-clamp-2 text-xs text-gray-500">{r.reviewText}</p>
+            )}
+            {r.draftText && (
+              <p className="mt-2 line-clamp-3 rounded bg-blue-50 p-2 text-xs text-blue-900">
+                {r.draftText}
+              </p>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function IncidentsSection({
+  unresolvedIncidents,
+}: {
+  unresolvedIncidents: ZernioFinalizeIncident[];
+}) {
+  return (
+    <div className="mt-5">
+      <h3 className="text-sm font-semibold text-red-800">
+        Unresolved finalize incidents ({unresolvedIncidents.length})
+      </h3>
+      <p className="mt-1 text-xs text-gray-600">
+        New connect/start attempts are blocked while any incident is unresolved. See{' '}
+        <code className="rounded bg-gray-100 px-1">docs/runbook</code> for the
+        reconciliation procedure.
+      </p>
+      <ul className="mt-3 space-y-2">
+        {unresolvedIncidents.map((i) => (
+          <li
+            key={i.id}
+            className="rounded border border-red-200 bg-red-50 p-3 text-xs"
+          >
+            <div className="flex flex-wrap gap-3">
+              <span className="text-red-700">
+                <span className="font-medium">Opened:</span>{' '}
+                {formatTimestamp(i.finalizeUnknownAt)}
+              </span>
+              <span className="text-red-700">
+                <span className="font-medium">Flow:</span>{' '}
+                <span className="font-mono">{i.flowId}</span>
+              </span>
+              <span className="text-red-700">
+                <span className="font-medium">Zernio profile:</span>{' '}
+                <span className="font-mono">{i.zernioProfileId}</span>
+              </span>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+interface PanelState {
+  disconnecting: boolean;
+  error: string | null;
+  draining: boolean;
+  dismissingId: string | null;
+  queueError: string | null;
+}
+
+const initialPanelState: PanelState = {
+  disconnecting: false,
+  error: null,
+  draining: false,
+  dismissingId: null,
+  queueError: null,
+};
+
+type PanelAction =
+  | { type: 'drainStart' }
+  | { type: 'drainEnd' }
+  | { type: 'dismissStart'; dismissingId: string }
+  | { type: 'dismissEnd' }
+  | { type: 'queueError'; error: string }
+  | { type: 'disconnectStart' }
+  | { type: 'disconnectEnd' }
+  | { type: 'disconnectError'; error: string };
+
+function panelReducer(state: PanelState, action: PanelAction): PanelState {
+  switch (action.type) {
+    case 'drainStart':
+      return { ...state, draining: true, queueError: null };
+    case 'drainEnd':
+      return { ...state, draining: false };
+    case 'dismissStart':
+      return { ...state, dismissingId: action.dismissingId, queueError: null };
+    case 'dismissEnd':
+      return { ...state, dismissingId: null };
+    case 'queueError':
+      return { ...state, queueError: action.error };
+    case 'disconnectStart':
+      return { ...state, disconnecting: true, error: null };
+    case 'disconnectEnd':
+      return { ...state, disconnecting: false };
+    case 'disconnectError':
+      return { ...state, error: action.error };
+    default:
+      return state;
+  }
+}
+
 export function ZernioConnectionPanel({
   businessId,
   zernio,
   onChanged,
 }: ZernioConnectionPanelProps) {
-  const [disconnecting, setDisconnecting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [draining, setDraining] = useState(false);
-  const [dismissingId, setDismissingId] = useState<string | null>(null);
-  const [queueError, setQueueError] = useState<string | null>(null);
+  const [state, dispatch] = useReducer(panelReducer, initialPanelState);
+  const { disconnecting, error, draining, dismissingId, queueError } = state;
 
   const handleForceDrain = useCallback(async () => {
-    setDraining(true);
-    setQueueError(null);
+    dispatch({ type: 'drainStart' });
     try {
       const res = await fetch(`/api/admin/businesses/${businessId}/zernio-queue`, {
         method: 'POST',
@@ -84,17 +330,19 @@ export function ZernioConnectionPanel({
       }
       onChanged();
     } catch (err) {
-      setQueueError(err instanceof Error ? err.message : 'Failed to drain queue');
+      dispatch({
+        type: 'queueError',
+        error: err instanceof Error ? err.message : 'Failed to drain queue',
+      });
     } finally {
-      setDraining(false);
+      dispatch({ type: 'drainEnd' });
     }
   }, [businessId, onChanged]);
 
   const handleDismiss = useCallback(
     async (responseId: string) => {
       if (!confirm('Permanently discard this queued reply? It will not post to Google.')) return;
-      setDismissingId(responseId);
-      setQueueError(null);
+      dispatch({ type: 'dismissStart', dismissingId: responseId });
       try {
         const res = await fetch(`/api/admin/businesses/${businessId}/zernio-queue`, {
           method: 'POST',
@@ -107,9 +355,12 @@ export function ZernioConnectionPanel({
         }
         onChanged();
       } catch (err) {
-        setQueueError(err instanceof Error ? err.message : 'Failed to dismiss');
+        dispatch({
+          type: 'queueError',
+          error: err instanceof Error ? err.message : 'Failed to dismiss',
+        });
       } finally {
-        setDismissingId(null);
+        dispatch({ type: 'dismissEnd' });
       }
     },
     [businessId, onChanged],
@@ -122,8 +373,7 @@ export function ZernioConnectionPanel({
       )
     )
       return;
-    setDisconnecting(true);
-    setError(null);
+    dispatch({ type: 'disconnectStart' });
     try {
       const res = await fetch('/api/zernio/disconnect', {
         method: 'POST',
@@ -136,9 +386,12 @@ export function ZernioConnectionPanel({
       }
       onChanged();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to disconnect');
+      dispatch({
+        type: 'disconnectError',
+        error: err instanceof Error ? err.message : 'Failed to disconnect',
+      });
     } finally {
-      setDisconnecting(false);
+      dispatch({ type: 'disconnectEnd' });
     }
   }, [businessId, onChanged]);
 
@@ -174,70 +427,7 @@ export function ZernioConnectionPanel({
       )}
 
       {/* Connection details */}
-      <div className="mt-4 grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
-        {connection ? (
-          <>
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-                Connected at
-              </p>
-              <p className="mt-0.5 text-gray-800">{formatTimestamp(connection.connectedAt)}</p>
-            </div>
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-                Disconnected at
-              </p>
-              <p className="mt-0.5 text-gray-800">
-                {formatTimestamp(connection.disconnectedAt)}
-              </p>
-            </div>
-            {connection.disconnectReason && (
-              <div className="sm:col-span-2">
-                <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-                  Disconnect reason
-                </p>
-                <p className="mt-0.5 text-gray-800">{connection.disconnectReason}</p>
-              </div>
-            )}
-            {connection.lastError && (
-              <div className="sm:col-span-2">
-                <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-                  Last error
-                  {connection.lastErrorAt && (
-                    <span className="ml-2 font-normal normal-case text-gray-400">
-                      {formatTimestamp(connection.lastErrorAt)}
-                    </span>
-                  )}
-                </p>
-                <p className="mt-0.5 break-words text-gray-800">
-                  {truncate(connection.lastError, LAST_ERROR_PREVIEW_LIMIT)}
-                </p>
-              </div>
-            )}
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-                Zernio account
-              </p>
-              <p className="mt-0.5 break-all font-mono text-xs text-gray-700">
-                {connection.zernioAccountId}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-                Zernio location
-              </p>
-              <p className="mt-0.5 break-all font-mono text-xs text-gray-700">
-                {connection.zernioLocationId}
-              </p>
-            </div>
-          </>
-        ) : (
-          <p className="text-sm text-gray-500 sm:col-span-2">
-            This business has never started a Zernio connect flow. Approved responses will stay
-            queued in the dashboard until the owner connects Google via Zernio.
-          </p>
-        )}
-      </div>
+      <ConnectionDetails connection={connection} />
 
       {/* Counts */}
       <div className="mt-5 grid grid-cols-2 gap-3">
@@ -275,109 +465,24 @@ export function ZernioConnectionPanel({
 
       {/* Awaiting list */}
       {awaitingOwnerConnect.length > 0 && (
-        <div className="mt-5">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h3 className="text-sm font-semibold text-gray-800">
-              Responses queued for reconnect ({awaitingOwnerConnect.length})
-            </h3>
-            {status === 'active' ? (
-              <button
-                type="button"
-                onClick={() => {
-                  void handleForceDrain();
-                }}
-                disabled={draining}
-                className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {draining ? 'Draining…' : 'Force drain queue'}
-              </button>
-            ) : (
-              <span className="text-xs text-gray-400">
-                Drain becomes available once the owner reconnects Zernio.
-              </span>
-            )}
-          </div>
-          <p className="mt-1 text-xs text-gray-500">
-            These approved responses cannot publish until the owner reconnects Zernio. After
-            reconnect, the worker drains them automatically.
-          </p>
-          {queueError && (
-            <p className="mt-2 rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700">
-              {queueError}
-            </p>
-          )}
-          <ul className="mt-3 space-y-2">
-            {awaitingOwnerConnect.map((r) => (
-              <li
-                key={r.responseId}
-                className="rounded border border-gray-200 bg-white p-3 text-sm"
-              >
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-[#97B3AE]">{formatStars(r.starRating)}</span>
-                  <span className="font-medium text-gray-700">{r.reviewerName}</span>
-                  <span className="text-xs text-gray-400">
-                    Queued {formatTimestamp(r.createdAt)}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      void handleDismiss(r.responseId);
-                    }}
-                    disabled={dismissingId === r.responseId}
-                    className="ml-auto rounded border border-red-300 bg-white px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {dismissingId === r.responseId ? 'Dismissing…' : 'Dismiss'}
-                  </button>
-                </div>
-                {r.reviewText && (
-                  <p className="mt-1 line-clamp-2 text-xs text-gray-500">{r.reviewText}</p>
-                )}
-                {r.draftText && (
-                  <p className="mt-2 line-clamp-3 rounded bg-blue-50 p-2 text-xs text-blue-900">
-                    {r.draftText}
-                  </p>
-                )}
-              </li>
-            ))}
-          </ul>
-        </div>
+        <AwaitingQueueSection
+          awaitingOwnerConnect={awaitingOwnerConnect}
+          status={status}
+          draining={draining}
+          dismissingId={dismissingId}
+          queueError={queueError}
+          onForceDrain={() => {
+            void handleForceDrain();
+          }}
+          onDismiss={(responseId) => {
+            void handleDismiss(responseId);
+          }}
+        />
       )}
 
       {/* Incidents list */}
       {unresolvedIncidents.length > 0 && (
-        <div className="mt-5">
-          <h3 className="text-sm font-semibold text-red-800">
-            Unresolved finalize incidents ({unresolvedIncidents.length})
-          </h3>
-          <p className="mt-1 text-xs text-gray-600">
-            New connect/start attempts are blocked while any incident is unresolved. See{' '}
-            <code className="rounded bg-gray-100 px-1">docs/runbook</code> for the
-            reconciliation procedure.
-          </p>
-          <ul className="mt-3 space-y-2">
-            {unresolvedIncidents.map((i) => (
-              <li
-                key={i.id}
-                className="rounded border border-red-200 bg-red-50 p-3 text-xs"
-              >
-                <div className="flex flex-wrap gap-3">
-                  <span className="text-red-700">
-                    <span className="font-medium">Opened:</span>{' '}
-                    {formatTimestamp(i.finalizeUnknownAt)}
-                  </span>
-                  <span className="text-red-700">
-                    <span className="font-medium">Flow:</span>{' '}
-                    <span className="font-mono">{i.flowId}</span>
-                  </span>
-                  <span className="text-red-700">
-                    <span className="font-medium">Zernio profile:</span>{' '}
-                    <span className="font-mono">{i.zernioProfileId}</span>
-                  </span>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </div>
+        <IncidentsSection unresolvedIncidents={unresolvedIncidents} />
       )}
     </section>
   );

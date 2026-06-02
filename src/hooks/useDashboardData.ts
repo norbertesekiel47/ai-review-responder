@@ -41,10 +41,16 @@ export function useDashboardData(
   scope: LocationScope | null = null,
   options: UseDashboardDataOptions = {},
 ): UseDashboardDataResult {
-  const [data, setData] = useState<DashboardOrAggregate | null>(null);
+  // Data is keyed by the scope it was fetched for. Stale data from a previous
+  // scope is never returned (derived below), so we don't reset state in an
+  // effect when `scope` changes (VAL-DASH-025) — the derivation handles it.
+  const [dataState, setDataState] = useState<{
+    scope: LocationScope | null;
+    data: DashboardOrAggregate | null;
+    fallback: ScopeFallbackInfo | null;
+  }>({ scope, data: null, fallback: null });
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [scopeFallback, setScopeFallback] = useState<ScopeFallbackInfo | null>(null);
   // Sequence id: increments on every refresh() call. Responses that resolve
   // with a stale id are discarded so a slow request can't overwrite fresher
   // data (e.g. auto-refresh tick fires while a manual refresh is still
@@ -62,14 +68,14 @@ export function useDashboardData(
 
   const refresh = useCallback(async () => {
     const myReqId = ++reqIdRef.current;
+    const fetchScope = scopeRef.current;
     setError(null);
     setLoading(true);
-    setScopeFallback(null);
     try {
       // Build URL with scope query parameter
       let url = '/api/dashboard';
-      if (scopeRef.current !== null) {
-        const param = scopeRef.current === 'all' ? 'all' : scopeRef.current;
+      if (fetchScope !== null) {
+        const param = fetchScope === 'all' ? 'all' : fetchScope;
         url = `/api/dashboard?scope=${encodeURIComponent(param)}`;
       }
       const res = await fetch(url);
@@ -82,13 +88,13 @@ export function useDashboardData(
       if (myReqId !== reqIdRef.current || unmountedRef.current) return;
 
       // VAL-DASH-029: Check for scopeFallback indicator in the response
+      let fallback: ScopeFallbackInfo | null = null;
       if (json && typeof json === 'object' && 'scopeFallback' in json) {
-        const fallback = (json as unknown as Record<string, unknown>).scopeFallback as ScopeFallbackInfo;
-        setScopeFallback(fallback);
+        fallback = (json as unknown as Record<string, unknown>).scopeFallback as ScopeFallbackInfo;
         onFallbackRef.current?.(fallback);
       }
 
-      setData(json);
+      setDataState({ scope: fetchScope, data: json, fallback });
       setLoading(false);
     } catch (err) {
       if (myReqId !== reqIdRef.current || unmountedRef.current) return;
@@ -97,16 +103,20 @@ export function useDashboardData(
     }
   }, []);
 
-  // Re-fetch when scope changes
+  // Re-fetch when scope changes. No synchronous state reset here — `data` and
+  // `scopeFallback` are derived from `dataState.scope` below, so a scope change
+  // makes them read as null immediately without an extra setState.
   useEffect(() => {
     unmountedRef.current = false;
-    setData(null); // Clear stale data from previous scope (VAL-DASH-025)
-    setScopeFallback(null);
     refresh();
     return () => {
       unmountedRef.current = true;
     };
   }, [scope, refresh]);
+
+  // Stale data from a previous scope is never surfaced (VAL-DASH-025).
+  const data = dataState.scope === scope ? dataState.data : null;
+  const scopeFallback = dataState.scope === scope ? dataState.fallback : null;
 
   return { data, error, loading, refresh, scopeFallback };
 }

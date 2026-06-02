@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useReducer, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ProgressDots } from './ProgressDots';
 import { StepLocation } from './StepLocation';
@@ -50,13 +50,50 @@ interface BusinessWizardClientProps {
 
 type Step = 1 | 2 | 3;
 
+interface WizardState {
+  step: Step;
+  submitting: boolean;
+  error: string;
+  voiceSkipped: boolean;
+}
+
+const initialWizardState: WizardState = {
+  step: 1,
+  submitting: false,
+  error: '',
+  voiceSkipped: false,
+};
+
+type WizardAction =
+  | { type: 'goToStep'; step: Step }
+  | { type: 'submitStart' }
+  | { type: 'setSubmitting'; submitting: boolean }
+  | { type: 'setError'; error: string }
+  | { type: 'advanceToConnect'; voiceSkipped: boolean };
+
+function wizardReducer(state: WizardState, action: WizardAction): WizardState {
+  switch (action.type) {
+    case 'goToStep':
+      return { ...state, step: action.step };
+    case 'submitStart':
+      return { ...state, submitting: true, error: '' };
+    case 'setSubmitting':
+      return { ...state, submitting: action.submitting };
+    case 'setError':
+      return { ...state, error: action.error };
+    case 'advanceToConnect':
+      return { ...state, voiceSkipped: action.voiceSkipped, step: 3 };
+    default:
+      return state;
+  }
+}
+
 export function BusinessWizardClient({
   initialValues,
   demoFlowEnabled = false,
 }: BusinessWizardClientProps) {
-  const [step, setStep] = useState<Step>(1);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState('');
+  const [state, dispatch] = useReducer(wizardReducer, initialWizardState);
+  const { step, submitting, error, voiceSkipped } = state;
   const router = useRouter();
 
   // Both flows are 3-step now; only the step labels differ.
@@ -93,8 +130,7 @@ export function BusinessWizardClient({
    * Zernio OAuth, or land on /dashboard).
    */
   async function saveProfileAndVoice(opts: { skipVoice?: boolean } = {}): Promise<boolean> {
-    setSubmitting(true);
-    setError('');
+    dispatch({ type: 'submitStart' });
     try {
       const payload = buildBusinessWizardPayload(data, {
         demoFlowEnabled,
@@ -113,16 +149,16 @@ export function BusinessWizardClient({
           router.push(body.redirectTo);
           return false;
         }
-        setError(body.message ?? body.error ?? 'Submission failed');
+        dispatch({ type: 'setError', error: body.message ?? body.error ?? 'Submission failed' });
         return false;
       }
 
       return true;
     } catch {
-      setError('Connection failed');
+      dispatch({ type: 'setError', error: 'Connection failed' });
       return false;
     } finally {
-      setSubmitting(false);
+      dispatch({ type: 'setSubmitting', submitting: false });
     }
   }
 
@@ -134,10 +170,8 @@ export function BusinessWizardClient({
 
   // Demo flow: Voice submit/skip stores intent and advances to Connect step
   // (no POST yet — the POST happens at the Connect step's terminal action).
-  const [voiceSkipped, setVoiceSkipped] = useState(false);
   function advanceToConnect(opts: { skipVoice?: boolean } = {}) {
-    setVoiceSkipped(Boolean(opts.skipVoice));
-    setStep(3);
+    dispatch({ type: 'advanceToConnect', voiceSkipped: Boolean(opts.skipVoice) });
   }
 
   // Demo flow Step 3: "Connect Google Business Profile" — save then redirect
@@ -146,7 +180,7 @@ export function BusinessWizardClient({
   async function handleConnectZernio() {
     const saved = await saveProfileAndVoice({ skipVoice: voiceSkipped });
     if (!saved) return;
-    setSubmitting(true);
+    dispatch({ type: 'setSubmitting', submitting: true });
     try {
       const res = await fetch('/api/zernio/connect/start', {
         method: 'POST',
@@ -154,9 +188,10 @@ export function BusinessWizardClient({
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok || !body.authUrl) {
-        setError(
-          'Could not start the Google connection. You can try again from the dashboard.',
-        );
+        dispatch({
+          type: 'setError',
+          error: 'Could not start the Google connection. You can try again from the dashboard.',
+        });
         // Best UX on failure: don't block them — Profile/Voice is already
         // saved, send them to /dashboard so they can retry from there.
         router.push('/dashboard');
@@ -164,10 +199,10 @@ export function BusinessWizardClient({
       }
       window.location.href = body.authUrl;
     } catch {
-      setError('Network error. Redirecting to dashboard.');
+      dispatch({ type: 'setError', error: 'Network error. Redirecting to dashboard.' });
       router.push('/dashboard');
     } finally {
-      setSubmitting(false);
+      dispatch({ type: 'setSubmitting', submitting: false });
     }
   }
 
@@ -203,14 +238,14 @@ export function BusinessWizardClient({
               data={data}
               update={update}
               dirtyRef={dirtyRef}
-              onNext={() => setStep(2)}
+              onNext={() => dispatch({ type: 'goToStep', step: 2 })}
             />
           )}
           {step === 2 && (
             <StepVoice
               data={data}
               update={update}
-              onBack={() => setStep(1)}
+              onBack={() => dispatch({ type: 'goToStep', step: 1 })}
               onSubmit={() => advanceToConnect()}
               onSkip={() => advanceToConnect({ skipVoice: true })}
               submitting={submitting}
@@ -218,7 +253,7 @@ export function BusinessWizardClient({
           )}
           {step === 3 && (
             <StepConnect
-              onBack={() => setStep(2)}
+              onBack={() => dispatch({ type: 'goToStep', step: 2 })}
               onConnect={handleConnectZernio}
               onSkip={handleSkipConnect}
               submitting={submitting}
@@ -232,7 +267,7 @@ export function BusinessWizardClient({
               data={data}
               update={update}
               dirtyRef={dirtyRef}
-              onNext={() => setStep(2)}
+              onNext={() => dispatch({ type: 'goToStep', step: 2 })}
             />
           )}
           {step === 2 && (
@@ -240,15 +275,15 @@ export function BusinessWizardClient({
               data={data}
               update={update}
               dirtyRef={dirtyRef}
-              onBack={() => setStep(1)}
-              onNext={() => setStep(3)}
+              onBack={() => dispatch({ type: 'goToStep', step: 1 })}
+              onNext={() => dispatch({ type: 'goToStep', step: 3 })}
             />
           )}
           {step === 3 && (
             <StepVoice
               data={data}
               update={update}
-              onBack={() => setStep(2)}
+              onBack={() => dispatch({ type: 'goToStep', step: 2 })}
               onSubmit={() => legacySubmit()}
               onSkip={() => legacySubmit({ skipVoice: true })}
               submitting={submitting}

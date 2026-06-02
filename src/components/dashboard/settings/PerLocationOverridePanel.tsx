@@ -130,9 +130,9 @@ export function PerLocationOverridePanel({
   }
 
   // Only allow adding overrides for channels that have verified org-defaults
-  const overridableChannels = orgDefaults
-    .filter((d) => d.status === 'verified')
-    .map((d) => d.channel);
+  const overridableChannels = orgDefaults.flatMap((d) =>
+    d.status === 'verified' ? [d.channel] : [],
+  );
 
   // Remove an override
   const handleRemove = useCallback(async (enrollmentId: string, locationId: string, channel: string) => {
@@ -283,7 +283,7 @@ export function PerLocationOverridePanel({
                 {/* No overrides and no org-defaults to clone */}
                 {availableChannels.length === 0 && locOverrides.length === 0 && (
                   <div style={{ fontSize: 12, color: '#9CA3AF', padding: '4px 0' }}>
-                    No overrides — uses default channels
+                    No overrides, uses default channels
                   </div>
                 )}
               </div>

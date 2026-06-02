@@ -91,18 +91,18 @@ function redactEmail(email: string): string {
 
 function splitCommaOrNewline(text: string | undefined): string[] {
   if (!text?.trim()) return [];
-  return text
-    .split(/\n|,/)
-    .map((s) => s.trim())
-    .filter(Boolean);
+  return text.split(/\n|,/).flatMap((s) => {
+    const trimmed = s.trim();
+    return trimmed ? [trimmed] : [];
+  });
 }
 
 function splitParagraphs(text: string | undefined): string[] {
   if (!text?.trim()) return [];
-  return text
-    .split(/\n\n+/)
-    .map((s) => s.trim())
-    .filter(Boolean);
+  return text.split(/\n\n+/).flatMap((s) => {
+    const trimmed = s.trim();
+    return trimmed ? [trimmed] : [];
+  });
 }
 
 /**

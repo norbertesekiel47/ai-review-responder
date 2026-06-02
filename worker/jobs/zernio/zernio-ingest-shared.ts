@@ -300,18 +300,18 @@ export async function reconcileExternallyAnsweredReview(
     // Protect responses whose approved_text matches the external reply
     // (those are OUR reply that Zernio is reflecting back via review.updated).
     const protectedIds = new Set(
-      activeResponses
-        .filter((r) =>
-          r.approved_text !== null &&
-          canonicalizeReplyText(r.approved_text) === externalReplyText &&
-          r.status !== 'pending_approval',
-        )
-        .map((r) => r.id),
+      activeResponses.flatMap((r) =>
+        r.approved_text !== null &&
+        canonicalizeReplyText(r.approved_text) === externalReplyText &&
+        r.status !== 'pending_approval'
+          ? [r.id]
+          : [],
+      ),
     );
 
-    const supersedeIds = activeResponses
-      .filter((r) => !protectedIds.has(r.id))
-      .map((r) => r.id);
+    const supersedeIds = activeResponses.flatMap((r) =>
+      !protectedIds.has(r.id) ? [r.id] : [],
+    );
 
     if (supersedeIds.length === 0) {
       logger.log(

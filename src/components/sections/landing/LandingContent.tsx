@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useSyncExternalStore } from 'react';
 import { MarqueeBackground } from '@/components/ui/MarqueeBackground';
 import { SiteNav } from '@/components/ui/SiteNav';
 import { LeadIntakeForm } from '../lead-intake/LeadIntakeForm';
@@ -31,29 +31,38 @@ function scrollToSection(id: string) {
   window.scrollTo({ top: y, behavior: 'smooth' });
 }
 
+// Active section is a read-only projection of the scroll position. Modeling it
+// as an external store (vs. a mount effect that seeds state) avoids the extra
+// render the seed would queue, while getServerSnapshot keeps SSR deterministic.
+function subscribeToScroll(onChange: () => void): () => void {
+  window.addEventListener('scroll', onChange, { passive: true });
+  return () => window.removeEventListener('scroll', onChange);
+}
+
+function getActiveSectionFromScroll(): string {
+  const mid = window.scrollY + window.innerHeight * 0.35;
+  let cur = 'rw-hero';
+  for (const { id } of SECTIONS) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    const top = el.getBoundingClientRect().top + window.scrollY;
+    if (top <= mid) cur = id;
+  }
+  return cur;
+}
+
+const ACTIVE_SECTION_SERVER_SNAPSHOT = 'rw-hero';
+
 export function LandingContent({
   comingSoon = false,
   selfServeEnabled = false,
 }: LandingContentProps) {
-  const [active, setActive] = useState('rw-hero');
+  const active = useSyncExternalStore(
+    subscribeToScroll,
+    getActiveSectionFromScroll,
+    () => ACTIVE_SECTION_SERVER_SNAPSHOT,
+  );
   const ctaRef = useRef<HTMLElement>(null);
-
-  useEffect(() => {
-    const onScroll = () => {
-      const mid = window.scrollY + window.innerHeight * 0.35;
-      let cur = 'rw-hero';
-      for (const { id } of SECTIONS) {
-        const el = document.getElementById(id);
-        if (!el) continue;
-        const top = el.getBoundingClientRect().top + window.scrollY;
-        if (top <= mid) cur = id;
-      }
-      setActive(cur);
-    };
-    window.addEventListener('scroll', onScroll, { passive: true });
-    onScroll();
-    return () => window.removeEventListener('scroll', onScroll);
-  }, []);
 
   return (
     <div className="rw-landing">

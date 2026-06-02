@@ -1,11 +1,78 @@
 'use client';
 
-import { useState } from 'react';
+import { useReducer, useState } from 'react';
 import { Icon } from '@/components/dashboard/Icon';
 import { useAccountData, type AccountSettingsData } from '@/hooks/useAccountData';
 import type { DashboardDataActive } from '@/lib/dashboard/types';
 import { SubscriptionTier, type SubscriptionTierValue, TIER_CONFIG } from '@/lib/accounts/tier-config';
 import { SettingsModal } from './SettingsModal';
+
+const TIER_OPTIONS: SubscriptionTierValue[] = ['basic', 'standard', 'premium', 'founders'];
+
+type BillingPreview = {
+  basePriceCents: number;
+  overagePriceCents: number;
+  overageUnits: number;
+  totalCents: number;
+};
+
+interface TierChangeState {
+  selectedTier: SubscriptionTierValue | null;
+  billingPreview: BillingPreview | null;
+  previewLoading: boolean;
+  previewError: string | null;
+  changing: boolean;
+  tierChangeError: string | null;
+}
+
+const initialTierChangeState: TierChangeState = {
+  selectedTier: null,
+  billingPreview: null,
+  previewLoading: false,
+  previewError: null,
+  changing: false,
+  tierChangeError: null,
+};
+
+type TierChangeAction =
+  | { type: 'previewStart'; selectedTier: SubscriptionTierValue }
+  | { type: 'previewError'; previewError: string }
+  | { type: 'previewSuccess'; billingPreview: BillingPreview | null }
+  | { type: 'previewFinish' }
+  | { type: 'confirmStart' }
+  | { type: 'confirmSuccess' }
+  | { type: 'confirmError'; tierChangeError: string }
+  | { type: 'confirmFinish' }
+  | { type: 'closeModal' };
+
+function tierChangeReducer(state: TierChangeState, action: TierChangeAction): TierChangeState {
+  switch (action.type) {
+    case 'previewStart':
+      return {
+        ...state,
+        selectedTier: action.selectedTier,
+        billingPreview: null,
+        previewError: null,
+        previewLoading: true,
+      };
+    case 'previewError':
+      return { ...state, previewError: action.previewError };
+    case 'previewSuccess':
+      return { ...state, billingPreview: action.billingPreview };
+    case 'previewFinish':
+      return { ...state, previewLoading: false };
+    case 'confirmStart':
+      return { ...state, changing: true, tierChangeError: null };
+    case 'confirmSuccess':
+      return { ...state, selectedTier: null };
+    case 'confirmError':
+      return { ...state, tierChangeError: action.tierChangeError };
+    case 'confirmFinish':
+      return { ...state, changing: false };
+    case 'closeModal':
+      return { ...state, selectedTier: null, billingPreview: null, previewError: null };
+  }
+}
 
 // ── TierChangeModal ───────────────────────────────────────────────────
 
@@ -252,19 +319,10 @@ interface Props {
 
 export function AccountPanel({ data, accountData, accountLoading, accountError, onAccountRefetch }: Props) {
   const [copied, setCopied] = useState(false);
-  const [tierChangeError, setTierChangeError] = useState<string | null>(null);
 
   // Tier change modal state
-  const [selectedTier, setSelectedTier] = useState<SubscriptionTierValue | null>(null);
-  const [billingPreview, setBillingPreview] = useState<{
-    basePriceCents: number;
-    overagePriceCents: number;
-    overageUnits: number;
-    totalCents: number;
-  } | null>(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
-  const [previewError, setPreviewError] = useState<string | null>(null);
-  const [changing, setChanging] = useState(false);
+  const [tierChange, dispatch] = useReducer(tierChangeReducer, initialTierChangeState);
+  const { selectedTier, billingPreview, previewLoading, previewError, changing, tierChangeError } = tierChange;
 
   const copy = async () => {
     try {
@@ -278,10 +336,7 @@ export function AccountPanel({ data, accountData, accountLoading, accountError, 
 
   async function openTierChangeModal(newTier: SubscriptionTierValue) {
     if (!accountData) return;
-    setSelectedTier(newTier);
-    setBillingPreview(null);
-    setPreviewError(null);
-    setPreviewLoading(true);
+    dispatch({ type: 'previewStart', selectedTier: newTier });
 
     try {
       const res = await fetch('/api/billing/tier-change', {
@@ -293,8 +348,8 @@ export function AccountPanel({ data, accountData, accountLoading, accountError, 
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         // If validation fails (e.g., same_tier, subscription_inactive), still open modal to show error
-        setPreviewError(body.error ?? body.detail ?? `Tier change not allowed (${res.status})`);
-        setPreviewLoading(false);
+        dispatch({ type: 'previewError', previewError: body.error ?? body.detail ?? `Tier change not allowed (${res.status})` });
+        dispatch({ type: 'previewFinish' });
         return;
       }
 
@@ -302,18 +357,17 @@ export function AccountPanel({ data, accountData, accountLoading, accountError, 
       // The validation endpoint returns the preview but doesn't actually change the tier
       // We need to call a separate validate endpoint — but for simplicity,
       // we use the validation result from tier-change to preview
-      setBillingPreview(result.newBilling ?? null);
+      dispatch({ type: 'previewSuccess', billingPreview: result.newBilling ?? null });
     } catch (err) {
-      setPreviewError(err instanceof Error ? err.message : 'Failed to preview tier change');
+      dispatch({ type: 'previewError', previewError: err instanceof Error ? err.message : 'Failed to preview tier change' });
     } finally {
-      setPreviewLoading(false);
+      dispatch({ type: 'previewFinish' });
     }
   }
 
   async function confirmTierChange() {
     if (!accountData || !selectedTier) return;
-    setChanging(true);
-    setTierChangeError(null);
+    dispatch({ type: 'confirmStart' });
 
     try {
       const res = await fetch('/api/billing/tier-change', {
@@ -331,19 +385,18 @@ export function AccountPanel({ data, accountData, accountLoading, accountError, 
       }
 
       // Success — close modal and refetch
-      setSelectedTier(null);
+      dispatch({ type: 'confirmSuccess' });
       onAccountRefetch();
     } catch (err) {
-      setTierChangeError(err instanceof Error ? err.message : 'Failed to change tier');
+      dispatch({ type: 'confirmError', tierChangeError: err instanceof Error ? err.message : 'Failed to change tier' });
     } finally {
-      setChanging(false);
+      dispatch({ type: 'confirmFinish' });
     }
   }
 
   // Available tier options for the current account
   const currentTier = (accountData?.subscription?.tier ?? 'standard') as SubscriptionTierValue;
-  const tierOptions: SubscriptionTierValue[] = ['basic', 'standard', 'premium', 'founders'];
-  const otherTiers = tierOptions.filter((t) => t !== currentTier);
+  const otherTiers = TIER_OPTIONS.filter((t) => t !== currentTier);
   const upgradableTiers = otherTiers.filter((t) => TIER_CONFIG[t].baseCents > TIER_CONFIG[currentTier].baseCents);
   const downgradableTiers = otherTiers.filter((t) => TIER_CONFIG[t].baseCents < TIER_CONFIG[currentTier].baseCents);
 
@@ -496,11 +549,7 @@ export function AccountPanel({ data, accountData, accountLoading, accountError, 
           previewLoading={previewLoading}
           previewError={previewError}
           onConfirm={confirmTierChange}
-          onCancel={() => {
-            setSelectedTier(null);
-            setBillingPreview(null);
-            setPreviewError(null);
-          }}
+          onCancel={() => dispatch({ type: 'closeModal' })}
           changing={changing}
         />
       )}
