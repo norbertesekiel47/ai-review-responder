@@ -77,28 +77,29 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const limit = Math.min(Math.max(parseInt(rawLimit ?? '20', 10) || 20, 1), 100);
   const offset = Math.max(parseInt(rawOffset ?? '0', 10) || 0, 0);
 
-  // Admin cross-tenant read of the OPEN flagged queue. The joins to tenant
-  // tables (responses/reviews/businesses) are intentionally unscoped (admin
-  // sees every tenant) and are covered by tenant-scope-allowlist.ts entries.
-  const rows = await sql<FlaggedRow[]>`
-    SELECT fr.id, fr.response_id, fr.business_id, fr.account_id, fr.review_id,
-           fr.source, fr.reason, fr.severity, fr.status, fr.created_at,
-           r.response_text, r.version,
-           rev.reviewer_name, rev.star_rating,
-           b.name AS business_name
-    FROM flagged_responses fr
-    JOIN responses r ON r.id = fr.response_id
-    JOIN reviews rev ON rev.id = fr.review_id
-    JOIN businesses b ON b.id = fr.business_id
-    WHERE fr.status = 'open'
-    ORDER BY fr.created_at DESC
-    LIMIT ${limit} OFFSET ${offset}
-  `;
-
-  // Total OPEN flags for the "Showing X–Y of Z" pagination footer.
-  const countRows = await sql<{ total: number }[]>`
-    SELECT COUNT(*)::int AS total FROM flagged_responses WHERE status = 'open'
-  `;
+  const [rows, countRows] = await Promise.all([
+    // Admin cross-tenant read of the OPEN flagged queue. The joins to tenant
+    // tables (responses/reviews/businesses) are intentionally unscoped (admin
+    // sees every tenant) and are covered by tenant-scope-allowlist.ts entries.
+    sql<FlaggedRow[]>`
+      SELECT fr.id, fr.response_id, fr.business_id, fr.account_id, fr.review_id,
+             fr.source, fr.reason, fr.severity, fr.status, fr.created_at,
+             r.response_text, r.version,
+             rev.reviewer_name, rev.star_rating,
+             b.name AS business_name
+      FROM flagged_responses fr
+      JOIN responses r ON r.id = fr.response_id
+      JOIN reviews rev ON rev.id = fr.review_id
+      JOIN businesses b ON b.id = fr.business_id
+      WHERE fr.status = 'open'
+      ORDER BY fr.created_at DESC
+      LIMIT ${limit} OFFSET ${offset}
+    `,
+    // Total OPEN flags for the "Showing X-Y of Z" pagination footer.
+    sql<{ total: number }[]>`
+      SELECT COUNT(*)::int AS total FROM flagged_responses WHERE status = 'open'
+    `,
+  ]);
   const total = countRows[0]?.total ?? 0;
 
   const flagged = rows.map((row) => ({
