@@ -2,7 +2,7 @@
 
 import type { AggregateDashboardData } from '@/lib/dashboard/types';
 import { Icon } from '@/components/dashboard/shell/Icon';
-import { getBriefBullets } from '@/components/dashboard/brief-bullets';
+import { getBriefBullets } from '@/components/dashboard/kpi/brief-bullets';
 
 interface Props {
   perLocationBriefs: AggregateDashboardData['perLocationBriefs'];

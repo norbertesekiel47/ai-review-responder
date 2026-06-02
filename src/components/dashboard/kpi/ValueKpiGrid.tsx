@@ -1,7 +1,7 @@
 'use client';
 
 import { Icon } from '@/components/dashboard/shell/Icon';
-import { Sparkline } from '@/components/dashboard/Sparkline';
+import { Sparkline } from '@/components/dashboard/kpi/Sparkline';
 import { useCountUp } from '@/components/dashboard/useCountUp';
 
 interface ValueSummary {

@@ -1,7 +1,7 @@
 'use client';
 
 import type { AggregateDashboardData } from '@/lib/dashboard/types';
-import { ValueKpiGrid } from '@/components/dashboard/ValueKpiGrid';
+import { ValueKpiGrid } from '@/components/dashboard/kpi/ValueKpiGrid';
 
 interface Props {
   valueSummary: AggregateDashboardData['valueSummary'];

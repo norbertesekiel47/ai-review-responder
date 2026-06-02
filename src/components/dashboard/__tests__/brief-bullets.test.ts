@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getBriefBullets } from '@/components/dashboard/brief-bullets';
+import { getBriefBullets } from '@/components/dashboard/kpi/brief-bullets';
 
 describe('getBriefBullets', () => {
   it('normalizes markdown bullets and numbered lines', () => {
