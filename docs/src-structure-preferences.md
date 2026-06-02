@@ -113,8 +113,24 @@ Do **not** add `features/`, `services/`, or `store/`. Targeted cleanup only:
 
 ---
 
-## Open decision
+## Component placement rule (decided 2026-06-02)
 
-- [ ] Choose convention **(A)** mirror-`lib/` vs **(B)** `app/_components/` for
-      route-only UI. Record the choice in this file and in
-      [`docs/directory.md`](directory.md).
+Placement is decided by **shared-ness**. Unit = a route leaf (a dir owning a `page.tsx`).
+
+- **Page-specific glue for exactly one route leaf** (forms, per-entity panels,
+  page-only layouts) → co-locate: `app/<area>/_components/` (+ route-only hooks in
+  `app/<area>/_hooks/`).
+- **Reusable domain UI** — feature cards, widgets, charts, shell chrome, or
+  anything rendered by a shared `layout.tsx` / composed via a shared container →
+  `components/<domain>/`, mirroring `lib/<domain>/`.
+- **Domain-agnostic primitive** → `components/ui/`.
+
+Co-located folders use the Next.js `_`-prefixed private-folder idiom
+(`_components/`, `_hooks/`). A file graduates from `_components/` to
+`components/<domain>/` only when a second route leaf consumes it.
+
+**`cn()`:** use `@/lib/ui/cn` (zero-dep className joiner). No `clsx`/`tailwind-merge`.
+
+**react-query:** scoped to `app/admin/**` + the few polling/approve spots. Customer
+-facing prefers server-first; existing plain client fetches (e.g. `useDashboardData`)
+are fine. react-query is NOT the default data layer.
