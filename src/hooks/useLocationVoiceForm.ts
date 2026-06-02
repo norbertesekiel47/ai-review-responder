@@ -11,6 +11,7 @@
 // VAL-SETTINGS-036: Voice tab for single-location account.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { getDisplayLabel, type HasDisplayLabelCamelCase } from '@/lib/locations/display-label';
 
 // ── Types ────────────────────────────────────────────────────────────────
@@ -96,10 +97,16 @@ function buildPatchInternal(initial: VoiceFormState, current: VoiceFormState): R
   if (current.tone !== initial.tone) patch.tone = current.tone;
   if (current.productsServices !== initial.productsServices) patch.productsServices = current.productsServices || null;
   if (JSON.stringify(current.avoidFacts) !== JSON.stringify(initial.avoidFacts)) {
-    patch.avoidFacts = current.avoidFacts.map((l) => l.trim()).filter(Boolean);
+    patch.avoidFacts = current.avoidFacts.flatMap((l) => {
+      const trimmed = l.trim();
+      return trimmed ? [trimmed] : [];
+    });
   }
   if (JSON.stringify(current.sampleResponses) !== JSON.stringify(initial.sampleResponses)) {
-    patch.sampleResponses = current.sampleResponses.map((l) => l.trim()).filter(Boolean);
+    patch.sampleResponses = current.sampleResponses.flatMap((l) => {
+      const trimmed = l.trim();
+      return trimmed ? [trimmed] : [];
+    });
   }
   return Object.keys(patch).length > 0 ? patch : null;
 }
@@ -111,11 +118,13 @@ export function buildPatch(initial: VoiceFormState, current: VoiceFormState): Re
 
 // ── Hook ─────────────────────────────────────────────────────────────────
 
+interface VoiceConfigResponse {
+  locations?: LocationVoiceConfig[];
+}
+
 export function useLocationVoiceForm(): UseLocationVoiceForm {
   const [entries, setEntries] = useState<Map<string, LocationFormEntry>>(new Map());
   const [selectedLocationId, setSelectedLocationId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [fetchError, setFetchError] = useState<string | null>(null);
   const [savedFlash, setSavedFlash] = useState(false);
   const flashTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -127,55 +136,48 @@ export function useLocationVoiceForm(): UseLocationVoiceForm {
     [],
   );
 
-  // Fetch all location voice configs on mount
-  useEffect(() => {
-    let cancelled = false;
-
-    async function load() {
-      try {
-        const res = await fetch('/api/settings/voice');
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          throw new Error(body.error ?? `Request failed (${res.status})`);
-        }
-        const json = await res.json();
-
-        if (cancelled) return;
-
-        const locs: LocationVoiceConfig[] = json.locations ?? [];
-        const map = new Map<string, LocationFormEntry>();
-
-        for (const loc of locs) {
-          const form = configToForm(loc);
-          map.set(loc.locationId, {
-            config: loc,
-            form,
-            initial: { ...form },
-            saveError: null,
-            saving: false,
-          });
-        }
-
-        setEntries(map);
-
-        // Default selection: primary location, or first location
-        const primary = locs.find((l) => l.isPrimary);
-        const defaultId = primary?.locationId ?? locs[0]?.locationId ?? null;
-        if (defaultId && !selectedLocationId) {
-          setSelectedLocationId(defaultId);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setFetchError(err instanceof Error ? err.message : 'Failed to load voice settings');
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
+  const query = useQuery<VoiceConfigResponse>({
+    queryKey: ['settings-voice'],
+    queryFn: async () => {
+      const res = await fetch('/api/settings/voice');
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? `Request failed (${res.status})`);
       }
-    }
+      return res.json() as Promise<VoiceConfigResponse>;
+    },
+  });
 
-    load();
-    return () => { cancelled = true; };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const loading = query.isPending;
+  const fetchError = query.error ? query.error.message : null;
+
+  // Seed per-location entries + default selection from fetched data during
+  // render via the store-previous-value pattern (no initialization effect).
+  const seededRef = useRef<VoiceConfigResponse | null>(null);
+  if (query.data && query.data !== seededRef.current) {
+    seededRef.current = query.data;
+
+    const locs: LocationVoiceConfig[] = query.data.locations ?? [];
+    const map = new Map<string, LocationFormEntry>();
+    for (const loc of locs) {
+      const form = configToForm(loc);
+      map.set(loc.locationId, {
+        config: loc,
+        form,
+        initial: { ...form },
+        saveError: null,
+        saving: false,
+      });
+    }
+    setEntries(map);
+
+    // Default selection: primary location, or first location
+    const primary = locs.find((l) => l.isPrimary);
+    const defaultId = primary?.locationId ?? locs[0]?.locationId ?? null;
+    if (defaultId && !selectedLocationId) {
+      setSelectedLocationId(defaultId);
+    }
+  }
 
   // Current entry
   const currentEntry = selectedLocationId ? entries.get(selectedLocationId) : null;

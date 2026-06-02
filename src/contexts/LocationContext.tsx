@@ -3,7 +3,7 @@
 import {
   createContext,
   useCallback,
-  useContext,
+  use,
   useMemo,
   useState,
   type ReactNode,
@@ -121,7 +121,7 @@ export function LocationProvider({
 // ── Hook ────────────────────────────────────────────────────────────────────
 
 export function useLocationScope(): LocationContextValue {
-  const ctx = useContext(LocationContext);
+  const ctx = use(LocationContext);
   if (!ctx) {
     throw new Error('useLocationScope must be used within a LocationProvider');
   }

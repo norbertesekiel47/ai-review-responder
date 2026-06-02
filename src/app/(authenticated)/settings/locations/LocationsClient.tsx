@@ -18,6 +18,11 @@ interface Props {
   voiceHref: string;
 }
 
+const handleLocationChange = () => {
+  // Reload the page to get fresh server data and update the switcher context via the layout
+  window.location.reload();
+};
+
 export function LocationsClient({
   locations,
   archivedLocations,
@@ -27,11 +32,6 @@ export function LocationsClient({
   multiLocationEnabled,
   voiceHref,
 }: Props) {
-  const handleLocationChange = () => {
-    // Reload the page to get fresh server data and update the switcher context via the layout
-    window.location.reload();
-  };
-
   return (
     <SettingsShell
       activeTab="locations"

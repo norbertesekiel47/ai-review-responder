@@ -53,4 +53,3 @@ export interface DashboardKpiSummary {
 }
 
 export const KPI_WINDOW_DAYS = 30;
-export const SENTIMENT_TREND_WEEKS = 8;

@@ -51,7 +51,12 @@ export function DemoViewerContent({ businessName, reviews, responses, selfServeE
       <div className="px-8 pb-12 bg-white">
         <div className="max-w-3xl mx-auto space-y-6">
           {reviews.map((review, index) => (
-            <ReviewCard key={index} review={review} response={responses[index] ?? null} index={index} />
+            <ReviewCard
+              key={reviewKey(review)}
+              review={review}
+              response={responses[index] ?? null}
+              index={index}
+            />
           ))}
         </div>
       </div>
@@ -79,6 +84,12 @@ export function DemoViewerContent({ businessName, reviews, responses, selfServeE
       </section>
     </PageShell>
   );
+}
+
+// NormalizedReview has no id field, so derive a stable key from its content.
+// reviewerName + date + rating + text uniquely identifies a demo review.
+function reviewKey(review: NormalizedReview): string {
+  return `${review.reviewerName}|${review.reviewDate}|${review.starRating}|${review.reviewText ?? ''}`;
 }
 
 function StatChip({ children }: { children: React.ReactNode }) {

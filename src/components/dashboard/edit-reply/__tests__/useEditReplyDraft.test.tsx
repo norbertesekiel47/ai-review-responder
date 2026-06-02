@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
+import type { ReactNode } from 'react';
 import { act, renderHook, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PastReplyRow } from '@/components/dashboard/PastReplyCard';
 import { useEditReplyDraft } from '../useEditReplyDraft';
@@ -8,6 +10,16 @@ const { refreshMock } = vi.hoisted(() => ({ refreshMock: vi.fn() }));
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ refresh: refreshMock, push: vi.fn() }),
 }));
+
+// useEditReplyDraft now polls /draft-status via useQuery. In production the
+// QueryClient comes from the root layout's provider; isolated hook renders must
+// supply their own. A fresh client per render keeps the poll cache isolated.
+function makeWrapper() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return function Wrapper({ children }: { children: ReactNode }) {
+    return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+  };
+}
 
 function makeRow(overrides: Partial<PastReplyRow> = {}): PastReplyRow {
   return {
@@ -52,12 +64,14 @@ function setup(args?: {
   onClose?: () => void;
 }) {
   const onClose = args?.onClose ?? vi.fn();
-  const utils = renderHook(() =>
-    useEditReplyDraft({
-      row: args?.row ?? makeRow(),
-      initialFailureRecovery: args?.initialFailureRecovery ?? null,
-      onClose,
-    }),
+  const utils = renderHook(
+    () =>
+      useEditReplyDraft({
+        row: args?.row ?? makeRow(),
+        initialFailureRecovery: args?.initialFailureRecovery ?? null,
+        onClose,
+      }),
+    { wrapper: makeWrapper() },
   );
   return { ...utils, onClose };
 }
@@ -203,7 +217,12 @@ describe('useEditReplyDraft — regenerate + polling', () => {
     });
   });
 
-  it('clears the scheduled poll timeout when unmounted while regenerating', async () => {
+  it('stops polling (no further fetch) when unmounted while regenerating', async () => {
+    // Intent preserved from the setTimeout-cleanup era: tearing down the hook
+    // mid-poll must stop the poll so no work runs after unmount. With useQuery
+    // the cadence is an internal refetchInterval (react-query schedules its own
+    // timers), so we assert the observable contract — no /draft-status fetch
+    // fires after unmount — rather than an exact vi.getTimerCount().
     vi.useFakeTimers();
     fetchMock.mockResolvedValueOnce(jsonResponse({ outbox_id: 'ob-cleanup' }));
 
@@ -211,12 +230,14 @@ describe('useEditReplyDraft — regenerate + polling', () => {
 
     await act(async () => { await result.current.actions.startRegenerate(); });
     expect(result.current.state).toEqual({ kind: 'regenerating', outboxId: 'ob-cleanup' });
-    expect(vi.getTimerCount()).toBe(1);
+    // Only the POST /draft has fired so far; the first poll is still pending the
+    // 1500ms refetchInterval (no immediate t=0 poll).
+    expect(fetchMock).toHaveBeenCalledTimes(1);
 
     unmount();
 
-    expect(vi.getTimerCount()).toBe(0);
-    await act(async () => { await vi.advanceTimersByTimeAsync(1500); });
+    // Advancing past several poll intervals must NOT trigger a draft-status poll.
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 

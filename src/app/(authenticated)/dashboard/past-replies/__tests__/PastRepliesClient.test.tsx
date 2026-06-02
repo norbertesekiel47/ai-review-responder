@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 
+import type { ReactElement } from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PastRepliesClient } from '../PastRepliesClient';
 
@@ -9,6 +11,14 @@ import { PastRepliesClient } from '../PastRepliesClient';
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
 }));
+
+// EditReplyDrawer's useEditReplyDraft now polls /draft-status via useQuery. In
+// production the QueryClient is provided by the root layout; isolated component
+// renders must supply their own. Wrap every render so the drawer can mount.
+function renderWithClient(ui: ReactElement) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
+}
 
 function row(overrides: Partial<Parameters<typeof PastRepliesClient>[0]['gapRows'][number]> = {}) {
   return {
@@ -45,7 +55,7 @@ describe('PastRepliesClient', () => {
   it('uses the current page denominator when an active-period filter is active', async () => {
     const user = userEvent.setup();
 
-    render(
+    renderWithClient(
       <PastRepliesClient
         gapRows={[
           row({ review_id: 'gap-1', response_id: 'response-1', star_rating: 5 }),
@@ -72,7 +82,7 @@ describe('PastRepliesClient', () => {
   });
 
   it('shows first-run copy for a brand-new account with zero replies and no filter', () => {
-    render(
+    renderWithClient(
       <PastRepliesClient
         {...baseProps}
         gapRows={[]}
@@ -92,7 +102,7 @@ describe('PastRepliesClient', () => {
 
   it('shows filter-empty copy (not first-run) when a filter matches nothing', async () => {
     const user = userEvent.setup();
-    render(
+    renderWithClient(
       <PastRepliesClient
         {...baseProps}
         gapRows={[row({ star_rating: 5 })]}
@@ -112,7 +122,7 @@ describe('PastRepliesClient', () => {
   // ── Flag-off: read-only (Phase A inertness) ─────────────────────────────
 
   it('flag-off: no Edit CTA, no lock badge, no recovery button', () => {
-    render(
+    renderWithClient(
       <PastRepliesClient
         {...baseProps}
         gapRows={[
@@ -138,7 +148,7 @@ describe('PastRepliesClient', () => {
   // ── Flag-on: Edit CTA for canEdit rows ──────────────────────────────────
 
   it('flag-on: Edit CTA is present for a canEdit=true row', () => {
-    render(
+    renderWithClient(
       <PastRepliesClient
         {...baseProps}
         gapRows={[row({ canEdit: true })]}
@@ -152,7 +162,7 @@ describe('PastRepliesClient', () => {
   it('flag-on: clicking Edit CTA opens the drawer', async () => {
     const user = userEvent.setup();
 
-    render(
+    renderWithClient(
       <PastRepliesClient
         {...baseProps}
         gapRows={[row({ canEdit: true })]}
@@ -169,7 +179,7 @@ describe('PastRepliesClient', () => {
   it('shows the AI disclosure in the initial edit drawer before edit actions', async () => {
     const user = userEvent.setup();
 
-    render(
+    renderWithClient(
       <PastRepliesClient
         {...baseProps}
         gapRows={[row({ canEdit: true })]}
@@ -188,7 +198,7 @@ describe('PastRepliesClient', () => {
   // ── Flag-on: lock badge for !canEdit rows ───────────────────────────────
 
   it('flag-on: lock badge shown for canEdit=false (historical + non-premium)', () => {
-    render(
+    renderWithClient(
       <PastRepliesClient
         {...baseProps}
         gapRows={[row({ canEdit: false })]}
@@ -203,7 +213,7 @@ describe('PastRepliesClient', () => {
   // ── Flag-on: recovery affordance ────────────────────────────────────────
 
   it('flag-on: recovery button shown when failed_response_id is present', () => {
-    render(
+    renderWithClient(
       <PastRepliesClient
         {...baseProps}
         gapRows={[
@@ -224,7 +234,7 @@ describe('PastRepliesClient', () => {
   it('flag-on: clicking recovery button opens drawer in recovery state', async () => {
     const user = userEvent.setup();
 
-    render(
+    renderWithClient(
       <PastRepliesClient
         {...baseProps}
         gapRows={[
@@ -266,7 +276,7 @@ describe('PastRepliesClient', () => {
       failed_posting_error: 'post_after_delete_failed_http_400',
     });
 
-    render(
+    renderWithClient(
       <PastRepliesClient
         {...baseProps}
         gapRows={[orphanRow]}
@@ -300,7 +310,7 @@ describe('PastRepliesClient', () => {
       failed_posting_error: 'post_after_delete_failed_timeout',
     });
 
-    render(
+    renderWithClient(
       <PastRepliesClient
         {...baseProps}
         gapRows={[orphanRow]}
@@ -338,7 +348,7 @@ describe('PastRepliesClient', () => {
       failed_posting_error: 'post_after_delete_failed_http_400',
     });
 
-    render(
+    renderWithClient(
       <PastRepliesClient
         gapRows={[]}
         histRows={[orphanHistRow]}
@@ -378,7 +388,7 @@ describe('PastRepliesClient', () => {
       failed_posting_error: 'post_after_delete_failed_timeout',
     });
 
-    render(
+    renderWithClient(
       <PastRepliesClient
         gapRows={[
           row({ review_id: 'gap-posted-1', response_id: 'rsp-1' }),
@@ -418,7 +428,7 @@ describe('PastRepliesClient', () => {
       failed_posting_error: 'post_after_delete_failed_http_400',
     });
 
-    render(
+    renderWithClient(
       <PastRepliesClient
         gapRows={[]}
         histRows={[
@@ -504,7 +514,7 @@ describe('PastRepliesClient', () => {
     it('accept-as-is issues a /publish call and NO PATCH', async () => {
       const user = userEvent.setup();
       const { calls } = installFetchMock();
-      render(
+      renderWithClient(
         <PastRepliesClient {...baseProps} gapRows={[row({ canEdit: true })]} editRepliesEnabled={true} />,
       );
 
@@ -522,7 +532,7 @@ describe('PastRepliesClient', () => {
     it('shows the AI disclosure in the regenerated draft preview', async () => {
       const user = userEvent.setup();
       installFetchMock();
-      render(
+      renderWithClient(
         <PastRepliesClient {...baseProps} gapRows={[row({ canEdit: true })]} editRepliesEnabled={true} />,
       );
 
@@ -536,7 +546,7 @@ describe('PastRepliesClient', () => {
     it('edit-further issues a PATCH then a /publish', async () => {
       const user = userEvent.setup();
       const { calls } = installFetchMock();
-      render(
+      renderWithClient(
         <PastRepliesClient {...baseProps} gapRows={[row({ canEdit: true })]} editRepliesEnabled={true} />,
       );
 
@@ -615,7 +625,7 @@ describe('PastRepliesClient', () => {
     it('surfaces Resume/Discard on 409 draft_already_exists instead of an error', async () => {
       const user = userEvent.setup();
       installConflictFetchMock();
-      render(
+      renderWithClient(
         <PastRepliesClient {...baseProps} gapRows={[row({ canEdit: true })]} editRepliesEnabled={true} />,
       );
 
@@ -629,7 +639,7 @@ describe('PastRepliesClient', () => {
     it('Discard issues a DELETE for the existing draft', async () => {
       const user = userEvent.setup();
       const { calls } = installConflictFetchMock();
-      render(
+      renderWithClient(
         <PastRepliesClient {...baseProps} gapRows={[row({ canEdit: true })]} editRepliesEnabled={true} />,
       );
 
@@ -646,7 +656,7 @@ describe('PastRepliesClient', () => {
     it('Resume drops into the preview state (publish/edit-further available)', async () => {
       const user = userEvent.setup();
       installConflictFetchMock();
-      render(
+      renderWithClient(
         <PastRepliesClient {...baseProps} gapRows={[row({ canEdit: true })]} editRepliesEnabled={true} />,
       );
 
@@ -668,7 +678,7 @@ describe('PastRepliesClient', () => {
     it('approved conflict: shows "already approved" message, NO Resume/Discard buttons', async () => {
       const user = userEvent.setup();
       installConflictFetchMock({ status: 'approved' });
-      render(
+      renderWithClient(
         <PastRepliesClient {...baseProps} gapRows={[row({ canEdit: true })]} editRepliesEnabled={true} />,
       );
 
@@ -682,7 +692,7 @@ describe('PastRepliesClient', () => {
     it('edited conflict: shows "already approved" message, NO Resume/Discard buttons', async () => {
       const user = userEvent.setup();
       installConflictFetchMock({ status: 'edited' });
-      render(
+      renderWithClient(
         <PastRepliesClient {...baseProps} gapRows={[row({ canEdit: true })]} editRepliesEnabled={true} />,
       );
 
@@ -696,7 +706,7 @@ describe('PastRepliesClient', () => {
     it('awaiting_owner_connect conflict: shows reconnect message, NO Resume/Discard buttons', async () => {
       const user = userEvent.setup();
       installConflictFetchMock({ status: 'awaiting_owner_connect' });
-      render(
+      renderWithClient(
         <PastRepliesClient {...baseProps} gapRows={[row({ canEdit: true })]} editRepliesEnabled={true} />,
       );
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useState, type Dispatch, type SetStateAction } from 'react';
+import { createContext, use, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
 
 /**
  * Lifts the dashboard's pending-approval count into a layout-scoped context
@@ -35,17 +35,18 @@ export function PendingCountProvider({
   initialCount?: number;
 }) {
   const [count, setCount] = useState(initialCount);
+  const value = useMemo(() => ({ count, setCount }), [count]);
   return (
-    <PendingCountContext.Provider value={{ count, setCount }}>
+    <PendingCountContext.Provider value={value}>
       {children}
     </PendingCountContext.Provider>
   );
 }
 
 export function usePendingCount(): number {
-  return useContext(PendingCountContext).count;
+  return use(PendingCountContext).count;
 }
 
 export function useSetPendingCount(): Dispatch<SetStateAction<number>> {
-  return useContext(PendingCountContext).setCount;
+  return use(PendingCountContext).setCount;
 }

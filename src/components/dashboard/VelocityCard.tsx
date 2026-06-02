@@ -33,6 +33,8 @@ function shortLabel(weekStartIso: string, idx: number, total: number): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
+const PAD = { l: 36, r: 16, t: 28, b: 32 };
+
 function VelocityChart({ data, accent }: { data: { label: string; count: number }[]; accent: string }) {
   const [hover, setHover] = useState<number | null>(null);
   const counts = data.map((d) => d.count);
@@ -46,15 +48,14 @@ function VelocityChart({ data, accent }: { data: { label: string; count: number 
 
   const W = 640;
   const H = 220;
-  const pad = { l: 36, r: 16, t: 28, b: 32 };
-  const innerW = W - pad.l - pad.r;
-  const innerH = H - pad.t - pad.b;
+  const innerW = W - PAD.l - PAD.r;
+  const innerH = H - PAD.t - PAD.b;
   const gap = innerW / Math.max(1, data.length);
   const barW = gap * 0.5;
-  const yFor = (v: number) => pad.t + innerH - (v / max) * innerH;
+  const yFor = (v: number) => PAD.t + innerH - (v / max) * innerH;
   const yTicks = [0, Math.round(max / 2), max];
 
-  const pts = data.map((d, i) => [pad.l + i * gap + gap / 2, yFor(d.count)] as const);
+  const pts = data.map((d, i) => [PAD.l + i * gap + gap / 2, yFor(d.count)] as const);
   const curve = pts.reduce((acc, [x, y], i, arr) => {
     if (i === 0) return `M${x},${y}`;
     const [px, py] = arr[i - 1]!;
@@ -93,16 +94,16 @@ function VelocityChart({ data, accent }: { data: { label: string; count: number 
 
         {yTicks.map((t, i) => (
           <g key={i}>
-            <line x1={pad.l} x2={W - pad.r} y1={yFor(t)} y2={yFor(t)} stroke="#F3F4F6" strokeWidth="1" />
-            <text x={pad.l - 8} y={yFor(t) + 3} textAnchor="end" fontSize="10" fill="#9CA3AF" fontFamily="DM Sans">
+            <line x1={PAD.l} x2={W - PAD.r} y1={yFor(t)} y2={yFor(t)} stroke="#F3F4F6" strokeWidth="1" />
+            <text x={PAD.l - 8} y={yFor(t) + 3} textAnchor="end" fontSize="10" fill="#9CA3AF" fontFamily="DM Sans">
               {t}
             </text>
           </g>
         ))}
 
         <line
-          x1={pad.l}
-          x2={W - pad.r}
+          x1={PAD.l}
+          x2={W - PAD.r}
           y1={yFor(avg)}
           y2={yFor(avg)}
           stroke="#9CA3AF"
@@ -111,7 +112,7 @@ function VelocityChart({ data, accent }: { data: { label: string; count: number 
           opacity="0.7"
         />
         <text
-          x={W - pad.r}
+          x={W - PAD.r}
           y={yFor(avg) - 4}
           textAnchor="end"
           fontSize="9"
@@ -123,9 +124,9 @@ function VelocityChart({ data, accent }: { data: { label: string; count: number 
         </text>
 
         {data.map((d, i) => {
-          const x = pad.l + i * gap + (gap - barW) / 2;
+          const x = PAD.l + i * gap + (gap - barW) / 2;
           const h = (d.count / max) * innerH;
-          const y = pad.t + innerH - h;
+          const y = PAD.t + innerH - h;
           const isPeak = i === peakIdx;
           const isHover = hover === i;
           return (
@@ -135,7 +136,7 @@ function VelocityChart({ data, accent }: { data: { label: string; count: number 
               onMouseLeave={() => setHover(null)}
               style={{ cursor: 'pointer' }}
             >
-              <rect x={x - 4} y={pad.t} width={barW + 8} height={innerH} fill="transparent" />
+              <rect x={x - 4} y={PAD.t} width={barW + 8} height={innerH} fill="transparent" />
               <rect
                 x={x}
                 y={y}
@@ -189,14 +190,14 @@ function VelocityChart({ data, accent }: { data: { label: string; count: number 
                 <line
                   x1={hx}
                   x2={hx}
-                  y1={pad.t}
-                  y2={pad.t + innerH}
+                  y1={PAD.t}
+                  y2={PAD.t + innerH}
                   stroke={accent}
                   strokeWidth="1"
                   strokeDasharray="2 3"
                   opacity="0.5"
                 />
-                <g transform={`translate(${Math.min(hx, W - pad.r - 90)}, ${Math.max(hy - 48, pad.t)})`}>
+                <g transform={`translate(${Math.min(hx, W - PAD.r - 90)}, ${Math.max(hy - 48, PAD.t)})`}>
                   <rect x="-4" y="-4" width="96" height="40" rx="8" fill="#111827" opacity="0.95" />
                   <text x="44" y="11" textAnchor="middle" fontSize="9" fill="#9CA3AF" fontFamily="DM Sans" fontWeight="500">
                     Week of {d.label || `#${hover + 1}`}

@@ -90,7 +90,7 @@ export default function FlaggedQueuePage() {
         )}
         <LiveRegion level="polite" message={disposition.isSuccess ? 'Disposition applied.' : ''} />
 
-        {isLoading && <p className="mt-6 text-gray-500">Loading...</p>}
+        {isLoading && <p className="mt-6 text-gray-500">Loading…</p>}
         {isError && <p className="mt-6 text-red-600">Failed to load flagged queue.</p>}
 
         {data && data.flagged.length === 0 && (

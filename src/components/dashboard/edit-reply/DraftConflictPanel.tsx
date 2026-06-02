@@ -26,7 +26,7 @@ export function DraftConflictPanel({
         <p className="text-sm font-medium text-[#2a2a2a]">Edit already approved</p>
         <p className="text-sm text-[#6a6a6a]">
           This reply has been approved and is being published to Google. No further
-          action is needed — check back shortly and the updated reply will appear.
+          action is needed; check back shortly and the updated reply will appear.
         </p>
         <div>
           <div className="mb-1 text-xs uppercase tracking-wider text-[#97B3AE]">
@@ -60,7 +60,7 @@ export function DraftConflictPanel({
   // reconnected. Resume/Discard cannot resolve this — inform and link to settings.
   if (status === 'awaiting_owner_connect') {
     return (
-      <div className="space-y-3 rounded-lg border border-[#97B3AE]/40 border-l-4 border-l-[#F2C3B9] bg-[#F0EEEA]/40 p-4">
+      <div className="space-y-3 rounded-lg border border-[#97B3AE]/40 shadow-[inset_4px_0_0_#F2C3B9] bg-[#F0EEEA]/40 p-4">
         <p className="text-sm font-medium text-[#2a2a2a]">Google reconnect required</p>
         <p className="text-sm text-[#6a6a6a]">
           Publishing is paused because your Google Business Profile connection has
@@ -97,7 +97,7 @@ export function DraftConflictPanel({
   // pending_approval: Resume (→ preview, can publish/edit) + Discard (DELETE).
   // This is the only status where both actions are safe and meaningful.
   return (
-    <div className="space-y-3 rounded-lg border border-[#97B3AE]/40 border-l-4 border-l-[#F2C3B9] bg-[#F0EEEA]/40 p-4">
+    <div className="space-y-3 rounded-lg border border-[#97B3AE]/40 shadow-[inset_4px_0_0_#F2C3B9] bg-[#F0EEEA]/40 p-4">
       <p className="text-sm text-[#6a6a6a]">
         You have an unsaved edit in progress for this review. Resume it to
         review and publish, or discard it to start over.

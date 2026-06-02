@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useReducer } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { RankingSnapshot } from '../types';
 
@@ -22,23 +22,65 @@ function todayLocal(): string {
   return `${year}-${month}-${day}`;
 }
 
+interface RankingFormState {
+  keyword: string;
+  rankPosition: string;
+  date: string;
+  saving: boolean;
+  error: string | null;
+  success: boolean;
+}
+
+type RankingFormAction =
+  | { type: 'setKeyword'; value: string }
+  | { type: 'setRankPosition'; value: string }
+  | { type: 'setDate'; value: string }
+  | { type: 'submitStart' }
+  | { type: 'submitError'; error: string }
+  | { type: 'submitSuccess' }
+  | { type: 'submitDone' };
+
+function createInitialState(): RankingFormState {
+  return {
+    keyword: '',
+    rankPosition: '',
+    date: todayLocal(),
+    saving: false,
+    error: null,
+    success: false,
+  };
+}
+
+function reducer(state: RankingFormState, action: RankingFormAction): RankingFormState {
+  switch (action.type) {
+    case 'setKeyword':
+      return { ...state, keyword: action.value, error: null, success: false };
+    case 'setRankPosition':
+      return { ...state, rankPosition: action.value, error: null, success: false };
+    case 'setDate':
+      return { ...state, date: action.value, error: null, success: false };
+    case 'submitStart':
+      return { ...state, saving: true, error: null, success: false };
+    case 'submitError':
+      return { ...state, error: action.error };
+    case 'submitSuccess':
+      return { ...state, keyword: '', rankPosition: '', date: todayLocal(), success: true };
+    case 'submitDone':
+      return { ...state, saving: false };
+  }
+}
+
 export function ManualRankingSection({ businessId, snapshots }: ManualRankingSectionProps) {
   const queryClient = useQueryClient();
-  const [keyword, setKeyword] = useState('');
-  const [rankPosition, setRankPosition] = useState('');
-  const [date, setDate] = useState(() => todayLocal());
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
+  const [state, dispatch] = useReducer(reducer, undefined, createInitialState);
+  const { keyword, rankPosition, date, saving, error, success } = state;
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmedKeyword = keyword.trim();
     if (!trimmedKeyword) return;
 
-    setSaving(true);
-    setError(null);
-    setSuccess(false);
+    dispatch({ type: 'submitStart' });
     try {
       const res = await fetch(`/api/admin/businesses/${businessId}/ranking`, {
         method: 'POST',
@@ -53,15 +95,12 @@ export function ManualRankingSection({ businessId, snapshots }: ManualRankingSec
         const json = await res.json().catch(() => ({}));
         throw new Error((json as { error?: string }).error ?? `HTTP ${res.status}`);
       }
-      setKeyword('');
-      setRankPosition('');
-      setDate(todayLocal());
-      setSuccess(true);
+      dispatch({ type: 'submitSuccess' });
       void queryClient.invalidateQueries({ queryKey: ['admin-business', businessId] });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Save failed');
+      dispatch({ type: 'submitError', error: err instanceof Error ? err.message : 'Save failed' });
     } finally {
-      setSaving(false);
+      dispatch({ type: 'submitDone' });
     }
   };
 
@@ -115,7 +154,7 @@ export function ManualRankingSection({ businessId, snapshots }: ManualRankingSec
             id="manual-ranking-keyword"
             type="text"
             value={keyword}
-            onChange={(e) => { setKeyword(e.target.value); setError(null); setSuccess(false); }}
+            onChange={(e) => dispatch({ type: 'setKeyword', value: e.target.value })}
             placeholder="e.g. plumber downtown"
             className="w-full rounded border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             disabled={saving}
@@ -128,7 +167,7 @@ export function ManualRankingSection({ businessId, snapshots }: ManualRankingSec
             id="manual-ranking-rank"
             type="number"
             value={rankPosition}
-            onChange={(e) => { setRankPosition(e.target.value); setError(null); setSuccess(false); }}
+            onChange={(e) => dispatch({ type: 'setRankPosition', value: e.target.value })}
             placeholder="e.g. 3"
             min={1}
             max={100}
@@ -143,7 +182,7 @@ export function ManualRankingSection({ businessId, snapshots }: ManualRankingSec
             id="manual-ranking-date"
             type="date"
             value={date}
-            onChange={(e) => { setDate(e.target.value); setError(null); setSuccess(false); }}
+            onChange={(e) => dispatch({ type: 'setDate', value: e.target.value })}
             className="w-full rounded border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             disabled={saving}
             required

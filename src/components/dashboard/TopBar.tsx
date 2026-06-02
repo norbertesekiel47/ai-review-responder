@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Icon } from './Icon';
 import { LocationPicker } from './LocationPicker';
@@ -56,20 +56,22 @@ export function TopBar({
     }
   }, []);
 
+  const onTick = useEffectEvent(() => {
+    const shouldRefresh = secondsToRefreshRef.current <= 1;
+    const nextSeconds = shouldRefresh ? 60 : secondsToRefreshRef.current - 1;
+    secondsToRefreshRef.current = nextSeconds;
+    setSecondsToRefresh(nextSeconds);
+    if (shouldRefresh) void doRefresh(true);
+  });
+
   useEffect(() => {
     if (!showLive) return;
-    const interval = setInterval(() => {
-      const shouldRefresh = secondsToRefreshRef.current <= 1;
-      const nextSeconds = shouldRefresh ? 60 : secondsToRefreshRef.current - 1;
-      secondsToRefreshRef.current = nextSeconds;
-      setSecondsToRefresh(nextSeconds);
-      if (shouldRefresh) void doRefresh(true);
-    }, 1000);
+    const interval = setInterval(() => onTick(), 1000);
     return () => {
       clearInterval(interval);
       if (spinTimeoutRef.current) clearTimeout(spinTimeoutRef.current);
     };
-  }, [showLive, doRefresh]);
+  }, [showLive]);
 
   return (
     <div className="topbar">

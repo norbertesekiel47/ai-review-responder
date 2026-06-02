@@ -2,11 +2,30 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import { Icon } from './Icon';
 import { usePendingCount } from './PendingCountContext';
 
 const NEEDS_ACTION_HASH = '#needs-action';
+
+// External store for the URL hash. usePathname() drops the hash, and Next's
+// <Link> pushState navigation does not reliably emit `hashchange`, so the hash
+// is its own source of truth: hashchange/popstate cover back/forward + deep
+// links. Reading `window.location.hash` live in getSnapshot is safe — it is a
+// primitive, so it only differs (and re-renders) when an event notifies.
+function subscribeToHash(onStoreChange: () => void) {
+  window.addEventListener('hashchange', onStoreChange);
+  window.addEventListener('popstate', onStoreChange);
+  return () => {
+    window.removeEventListener('hashchange', onStoreChange);
+    window.removeEventListener('popstate', onStoreChange);
+  };
+}
+
+const getHashSnapshot = () => window.location.hash;
+// Client-only component: '' matches the pre-hydration seed, so the first
+// browser read is not an SSR hydration mismatch.
+const getHashServerSnapshot = () => '';
 
 interface Props {
   pastRepliesEnabled: boolean;
@@ -18,24 +37,22 @@ export function MobileTabBar({ pastRepliesEnabled, editRepliesEnabled = false }:
   const pathname = usePathname() ?? '';
   const pendingCount = usePendingCount();
 
-  // Home and "Needs Action" both live on /dashboard; the URL hash is the only
-  // differentiator. usePathname() drops the hash and Next's <Link> pushState
-  // navigation does not reliably emit `hashchange`, so we track the hash here:
-  // a mount read seeds it, hashchange/popstate cover back/forward + deep links,
-  // and an optimistic onClick gives instant tap feedback. Seeding with '' is
-  // safe: this is a client-only component, so the mount-time correction is not
-  // an SSR hydration mismatch.
-  const [hash, setHash] = useState('');
-  useEffect(() => {
-    const sync = () => setHash(window.location.hash);
-    sync();
-    window.addEventListener('hashchange', sync);
-    window.addEventListener('popstate', sync);
-    return () => {
-      window.removeEventListener('hashchange', sync);
-      window.removeEventListener('popstate', sync);
-    };
-  }, []);
+  // Real hash from the external store (back/forward + deep links).
+  const storeHash = useSyncExternalStore(
+    subscribeToHash,
+    getHashSnapshot,
+    getHashServerSnapshot,
+  );
+
+  // Optimistic override for instant tap feedback: <Link>'s pushState does not
+  // fire `hashchange`, so a tap would otherwise leave the active tab stale
+  // until the next real event. The override is tagged with the storeHash it was
+  // set against; once a real event moves the store, the tag no longer matches
+  // and the override is dropped during render (no effect needed), letting the
+  // store win again.
+  const [optimistic, setOptimistic] = useState<{ base: string; value: string } | null>(null);
+  const hash = optimistic && optimistic.base === storeHash ? optimistic.value : storeHash;
+  const setHash = (value: string) => setOptimistic({ base: storeHash, value });
 
   const onDashboard = pathname === '/dashboard';
   const isNeedsAction = onDashboard && hash === NEEDS_ACTION_HASH;

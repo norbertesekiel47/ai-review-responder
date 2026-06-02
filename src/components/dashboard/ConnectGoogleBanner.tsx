@@ -29,7 +29,7 @@ export function ConnectGoogleBanner({ zernio, readOnly = false }: Props) {
         <div>
           <div className="b-title">Connection requires manual review</div>
           <div className="b-sub">
-            We&apos;ve notified our support team — they&apos;ll have this resolved within 24 hours. You don&apos;t need to do anything.
+            We&apos;ve notified our support team; they&apos;ll have this resolved within 24 hours. You don&apos;t need to do anything.
           </div>
         </div>
       </div>

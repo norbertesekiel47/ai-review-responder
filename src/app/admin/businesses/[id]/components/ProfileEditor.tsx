@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useEffect, useReducer } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { BusinessDetail } from '../types';
 
 /**
@@ -29,18 +29,83 @@ interface ProfileEditorProps {
   onSaved: () => void;
 }
 
+interface FormFields {
+  name: string;
+  category: string;
+  website: string;
+  tone: string;
+  ownerEmail: string;
+  productsServices: string;
+  staffNames: string;
+  highlightFacts: string;
+  avoidFacts: string;
+}
+
+interface FormState extends FormFields {
+  editing: boolean;
+  saveError: string | null;
+}
+
+function fieldsFromBusiness(business: BusinessDetail): FormFields {
+  return {
+    name: business.name,
+    category: business.category ?? '',
+    website: business.website ?? '',
+    tone: business.tone,
+    ownerEmail: business.ownerEmail,
+    productsServices: business.productsServices ?? '',
+    staffNames: business.staffNames.join(', '),
+    highlightFacts: business.highlightFacts.join('\n'),
+    avoidFacts: business.avoidFacts.join('\n'),
+  };
+}
+
+function initFormState(business: BusinessDetail): FormState {
+  return { ...fieldsFromBusiness(business), editing: false, saveError: null };
+}
+
+type FormAction =
+  | { type: 'startEditing' }
+  | { type: 'setField'; field: keyof FormFields; value: string }
+  | { type: 'syncFromBusiness'; business: BusinessDetail }
+  | { type: 'cancel'; business: BusinessDetail }
+  | { type: 'saveError'; message: string }
+  | { type: 'saved' };
+
+function formReducer(state: FormState, action: FormAction): FormState {
+  switch (action.type) {
+    case 'startEditing':
+      return { ...state, editing: true };
+    case 'setField':
+      return { ...state, [action.field]: action.value };
+    case 'syncFromBusiness':
+      // Refresh fields from fresh props (single update, replaces nine setters).
+      return { ...state, ...fieldsFromBusiness(action.business) };
+    case 'cancel':
+      return { ...fieldsFromBusiness(action.business), editing: false, saveError: null };
+    case 'saveError':
+      return { ...state, saveError: action.message };
+    case 'saved':
+      return { ...state, editing: false, saveError: null };
+  }
+}
+
 export function ProfileEditor({ business, businessId, onSaved }: ProfileEditorProps) {
-  const [editing, setEditing] = useState(false);
-  const [name, setName] = useState(business.name);
-  const [category, setCategory] = useState(business.category ?? '');
-  const [website, setWebsite] = useState(business.website ?? '');
-  const [tone, setTone] = useState(business.tone);
-  const [ownerEmail, setOwnerEmail] = useState(business.ownerEmail);
-  const [productsServices, setProductsServices] = useState(business.productsServices ?? '');
-  const [staffNames, setStaffNames] = useState(business.staffNames.join(', '));
-  const [highlightFacts, setHighlightFacts] = useState(business.highlightFacts.join('\n'));
-  const [avoidFacts, setAvoidFacts] = useState(business.avoidFacts.join('\n'));
-  const [saveError, setSaveError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const [state, dispatch] = useReducer(formReducer, business, initFormState);
+  const {
+    editing,
+    name,
+    category,
+    website,
+    tone,
+    ownerEmail,
+    productsServices,
+    staffNames,
+    highlightFacts,
+    avoidFacts,
+    saveError,
+  } = state;
 
   // Refresh local form state when the parent provides updated business data
   // — but ONLY while the user isn't actively editing. Without this guard,
@@ -49,15 +114,7 @@ export function ProfileEditor({ business, businessId, onSaved }: ProfileEditorPr
   // typing. While `editing` is true we deliberately keep local state stable.
   useEffect(() => {
     if (editing) return;
-    setName(business.name);
-    setCategory(business.category ?? '');
-    setWebsite(business.website ?? '');
-    setTone(business.tone);
-    setOwnerEmail(business.ownerEmail);
-    setProductsServices(business.productsServices ?? '');
-    setStaffNames(business.staffNames.join(', '));
-    setHighlightFacts(business.highlightFacts.join('\n'));
-    setAvoidFacts(business.avoidFacts.join('\n'));
+    dispatch({ type: 'syncFromBusiness', business });
   }, [business, editing]);
 
   const mutation = useMutation({
@@ -71,16 +128,22 @@ export function ProfileEditor({ business, businessId, onSaved }: ProfileEditorPr
         productsServices: productsServices.trim() || null,
         staffNames: staffNames
           .split(/[,\n]/)
-          .map((s) => s.trim())
-          .filter(Boolean),
+          .flatMap((s) => {
+            const trimmed = s.trim();
+            return trimmed ? [trimmed] : [];
+          }),
         highlightFacts: highlightFacts
           .split('\n')
-          .map((s) => s.trim())
-          .filter(Boolean),
+          .flatMap((s) => {
+            const trimmed = s.trim();
+            return trimmed ? [trimmed] : [];
+          }),
         avoidFacts: avoidFacts
           .split('\n')
-          .map((s) => s.trim())
-          .filter(Boolean),
+          .flatMap((s) => {
+            const trimmed = s.trim();
+            return trimmed ? [trimmed] : [];
+          }),
       };
       // Only send ownerEmail if it actually changed — UpdateBusinessSchema
       // rejects empty strings, and sending an unchanged value is wasted work.
@@ -98,27 +161,17 @@ export function ProfileEditor({ business, businessId, onSaved }: ProfileEditorPr
       }
     },
     onSuccess: () => {
-      setSaveError(null);
-      setEditing(false);
+      dispatch({ type: 'saved' });
+      void queryClient.invalidateQueries({ queryKey: ['admin-business', businessId] });
       onSaved();
     },
     onError: (err) => {
-      setSaveError(err instanceof Error ? err.message : 'Save failed');
+      dispatch({ type: 'saveError', message: err instanceof Error ? err.message : 'Save failed' });
     },
   });
 
   const handleCancel = () => {
-    setName(business.name);
-    setCategory(business.category ?? '');
-    setWebsite(business.website ?? '');
-    setTone(business.tone);
-    setOwnerEmail(business.ownerEmail);
-    setProductsServices(business.productsServices ?? '');
-    setStaffNames(business.staffNames.join(', '));
-    setHighlightFacts(business.highlightFacts.join('\n'));
-    setAvoidFacts(business.avoidFacts.join('\n'));
-    setSaveError(null);
-    setEditing(false);
+    dispatch({ type: 'cancel', business });
   };
 
   if (!editing) {
@@ -128,7 +181,7 @@ export function ProfileEditor({ business, businessId, onSaved }: ProfileEditorPr
           <h2 className="text-lg font-semibold text-gray-800">Business Profile</h2>
           <button
             type="button"
-            onClick={() => setEditing(true)}
+            onClick={() => dispatch({ type: 'startEditing' })}
             className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
           >
             Edit
@@ -137,7 +190,7 @@ export function ProfileEditor({ business, businessId, onSaved }: ProfileEditorPr
         <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2 text-sm">
           <div>
             <dt className="font-medium text-gray-500">Owner</dt>
-            <dd className="text-gray-900">{business.ownerName} — {business.ownerEmail}</dd>
+            <dd className="text-gray-900">{business.ownerName} · {business.ownerEmail}</dd>
           </div>
           <div>
             <dt className="font-medium text-gray-500">Tier</dt>
@@ -206,7 +259,7 @@ export function ProfileEditor({ business, businessId, onSaved }: ProfileEditorPr
             id="business-name"
             type="text"
             value={name}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(e) => dispatch({ type: 'setField', field: 'name', value: e.target.value })}
             className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
@@ -216,7 +269,7 @@ export function ProfileEditor({ business, businessId, onSaved }: ProfileEditorPr
             id="business-category"
             type="text"
             value={category}
-            onChange={(e) => setCategory(e.target.value)}
+            onChange={(e) => dispatch({ type: 'setField', field: 'category', value: e.target.value })}
             className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
@@ -226,7 +279,7 @@ export function ProfileEditor({ business, businessId, onSaved }: ProfileEditorPr
             id="business-website"
             type="url"
             value={website}
-            onChange={(e) => setWebsite(e.target.value)}
+            onChange={(e) => dispatch({ type: 'setField', field: 'website', value: e.target.value })}
             placeholder="https://example.com"
             className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
@@ -237,7 +290,7 @@ export function ProfileEditor({ business, businessId, onSaved }: ProfileEditorPr
             id="business-tone"
             type="text"
             value={tone}
-            onChange={(e) => setTone(e.target.value)}
+            onChange={(e) => dispatch({ type: 'setField', field: 'tone', value: e.target.value })}
             className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
@@ -247,12 +300,12 @@ export function ProfileEditor({ business, businessId, onSaved }: ProfileEditorPr
             id="business-owner-email"
             type="email"
             value={ownerEmail}
-            onChange={(e) => setOwnerEmail(e.target.value)}
+            onChange={(e) => dispatch({ type: 'setField', field: 'ownerEmail', value: e.target.value })}
             placeholder="owner@example.com"
             className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
           <p className="mt-1 text-xs text-gray-500">
-            Updating this address does not clear a hard-bounce flag — use the banner above to clear it after verifying.
+            Updating this address does not clear a hard-bounce flag. Use the banner above to clear it after verifying.
           </p>
         </div>
         <div>
@@ -260,7 +313,7 @@ export function ProfileEditor({ business, businessId, onSaved }: ProfileEditorPr
           <textarea
             id="business-products-services"
             value={productsServices}
-            onChange={(e) => setProductsServices(e.target.value)}
+            onChange={(e) => dispatch({ type: 'setField', field: 'productsServices', value: e.target.value })}
             rows={3}
             className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
@@ -273,7 +326,7 @@ export function ProfileEditor({ business, businessId, onSaved }: ProfileEditorPr
             id="business-staff-names"
             type="text"
             value={staffNames}
-            onChange={(e) => setStaffNames(e.target.value)}
+            onChange={(e) => dispatch({ type: 'setField', field: 'staffNames', value: e.target.value })}
             className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
@@ -284,7 +337,7 @@ export function ProfileEditor({ business, businessId, onSaved }: ProfileEditorPr
           <textarea
             id="business-highlight-facts"
             value={highlightFacts}
-            onChange={(e) => setHighlightFacts(e.target.value)}
+            onChange={(e) => dispatch({ type: 'setField', field: 'highlightFacts', value: e.target.value })}
             rows={4}
             className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
@@ -296,7 +349,7 @@ export function ProfileEditor({ business, businessId, onSaved }: ProfileEditorPr
           <textarea
             id="business-avoid-facts"
             value={avoidFacts}
-            onChange={(e) => setAvoidFacts(e.target.value)}
+            onChange={(e) => dispatch({ type: 'setField', field: 'avoidFacts', value: e.target.value })}
             rows={4}
             className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />

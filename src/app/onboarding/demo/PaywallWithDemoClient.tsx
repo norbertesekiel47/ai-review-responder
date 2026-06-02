@@ -204,7 +204,7 @@ export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoC
         <div className="space-y-6">
           {reviews.map((review, index) => (
             <ReviewCard
-              key={index}
+              key={reviewKey(review)}
               review={review}
               response={responses[index] ?? null}
             />
@@ -262,6 +262,12 @@ function makeClientEventId(): string {
     return crypto.randomUUID();
   }
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+// NormalizedReview has no id field, so derive a stable key from its content.
+// reviewerName + date + rating + text uniquely identifies a demo review.
+function reviewKey(review: NormalizedReview): string {
+  return `${review.reviewerName}|${review.reviewDate}|${review.starRating}|${review.reviewText ?? ''}`;
 }
 
 function Stars({ rating }: { rating: number }) {

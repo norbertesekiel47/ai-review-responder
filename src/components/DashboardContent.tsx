@@ -4,11 +4,9 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import type { DashboardDataActive, DashboardDataPastDue, AggregateDashboardData } from '@/lib/dashboard/types';
 import type { DashboardOrAggregate } from '@/hooks/useDashboardData';
-import {
-  ActivePendingBusinessScreen,
-  PendingAdminHandoffScreen,
-  PendingPaymentScreen,
-} from '@/components/dashboard/AccountStateScreens';
+import { ActivePendingBusinessScreen } from '@/components/dashboard/AccountStateScreens';
+import { PendingAdminHandoffScreen } from '@/components/dashboard/PendingAdminHandoffScreen';
+import { PendingPaymentScreen } from '@/components/dashboard/PendingPaymentScreen';
 import { CancelledBanner, PastDueBanner } from '@/components/dashboard/SubscriptionStatusBanner';
 import { PastDueModal } from '@/components/dashboard/PastDueModal';
 import { ConnectGoogleBanner } from '@/components/dashboard/ConnectGoogleBanner';

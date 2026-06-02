@@ -1,5 +1,8 @@
+import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { PaymentSuccessClient } from './PaymentSuccessClient';
+
+export const metadata: Metadata = { title: 'Payment confirmed | RepWorth' };
 
 export default async function PaymentSuccessPage({
   searchParams,

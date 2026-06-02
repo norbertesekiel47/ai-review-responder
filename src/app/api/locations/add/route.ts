@@ -42,6 +42,14 @@ const AddLocationSchema = z.object({
   }).optional(),
 });
 
+// Maps quota-denial reasons to HTTP status codes.
+const QUOTA_DENIAL_STATUS: Record<string, number> = {
+  account_not_found: 404,
+  subscription_inactive: 403,
+  tier_disallows_multi_location: 403,
+  quota_exhausted: 409,
+};
+
 // ── Handler ─────────────────────────────────────────────────────────────────
 
 /**
@@ -78,13 +86,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const quotaResult = await assertCanAddLocation(accountId);
 
   if (!quotaResult.allowed) {
-    const statusMap: Record<string, number> = {
-      account_not_found: 404,
-      subscription_inactive: 403,
-      tier_disallows_multi_location: 403,
-      quota_exhausted: 409,
-    };
-    const httpStatus = statusMap[quotaResult.reason] ?? 403;
+    const httpStatus = QUOTA_DENIAL_STATUS[quotaResult.reason] ?? 403;
 
     return NextResponse.json(
       { error: quotaResult.reason },

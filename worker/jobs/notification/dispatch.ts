@@ -389,7 +389,7 @@ export async function dispatchAll(
             return updated;
           });
           accountIdsToInvalidate = [
-            ...new Set(affectedAccounts.map((row) => row.account_id).filter(Boolean)),
+            ...new Set(affectedAccounts.flatMap((row) => (row.account_id ? [row.account_id] : []))),
           ];
         } else if (
           directive.kind === 'telegram_blocked' ||

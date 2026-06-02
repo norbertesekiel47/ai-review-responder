@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import { useEnrollment } from '@/lib/notifications/channels/use-enrollment';
 import type { EnrollmentSnapshot } from '@/lib/notifications/channels/enrollment-reducer';
 
@@ -77,9 +78,7 @@ export function OwnerTelegramWidget({ initialEnrollment }: OwnerTelegramWidgetPr
         {/* QR panel — expands inline below the handle text */}
         {snapshot.state === 'awaiting_scan' && snapshot.qrDataUrl && snapshot.deepLink && (
           <div style={{ marginTop: 12 }}>
-            {/* QR is a runtime base64 data: URI — next/image cannot optimize a data URL. */}
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={snapshot.qrDataUrl} alt="Telegram QR" width={160} height={160} />
+            <Image src={snapshot.qrDataUrl} alt="Telegram QR" width={160} height={160} unoptimized />
             <p style={{ marginTop: 6, wordBreak: 'break-all', fontSize: 12, color: 'var(--rw-blue-600)' }}>
               <a href={snapshot.deepLink} target="_blank" rel="noreferrer">{snapshot.deepLink}</a>
             </p>

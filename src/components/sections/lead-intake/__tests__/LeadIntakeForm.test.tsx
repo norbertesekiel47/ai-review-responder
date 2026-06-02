@@ -1,12 +1,12 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { LeadIntakeForm } from '../LeadIntakeForm';
 import {
   getLeadIntakeFieldErrorProps,
-  LeadIntakeForm,
   submitLeadIntake,
   validateLeadIntakeFields,
-} from '../LeadIntakeForm';
+} from '../LeadIntakeForm.helpers';
 
 afterEach(() => {
   vi.restoreAllMocks();

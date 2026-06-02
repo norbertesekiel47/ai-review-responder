@@ -1,10 +1,25 @@
 'use client';
 
 import * as Sentry from '@sentry/nextjs';
-import { useEffect } from 'react';
+import { type CSSProperties, useEffect } from 'react';
+
+// Intentional full-document navigation: the crashed app must re-bootstrap, so
+// this is a plain <a> (href via const so it is not treated as an in-app <Link>).
+const HOME_HREF = '/';
 
 const FONT_STACK =
   "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
+
+const RETRY_BUTTON_STYLE: CSSProperties = {
+  background: '#97B3AE',
+  color: '#fff',
+  border: 'none',
+  padding: '0.625rem 1.5rem',
+  borderRadius: '9999px',
+  fontSize: '0.95rem',
+  fontWeight: 600,
+  cursor: 'pointer',
+};
 
 export default function GlobalError({
   error,
@@ -90,22 +105,12 @@ export default function GlobalError({
             <button
               type="button"
               onClick={() => reset()}
-              style={{
-                background: '#97B3AE',
-                color: '#fff',
-                border: 'none',
-                padding: '0.625rem 1.5rem',
-                borderRadius: '9999px',
-                fontSize: '0.95rem',
-                fontWeight: 600,
-                cursor: 'pointer',
-              }}
+              style={RETRY_BUTTON_STYLE}
             >
               Try again
             </button>
             <p style={{ fontSize: '0.8125rem', color: '#6a6a6a', marginTop: '1.25rem' }}>
-              {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- root error boundary renders its own <html> outside the router; a full-document navigation re-bootstraps the crashed app */}
-              <a href="/" style={{ color: '#97B3AE' }}>
+              <a href={HOME_HREF} style={{ color: '#97B3AE' }}>
                 Go to RepWorth home
               </a>
               {' · '}

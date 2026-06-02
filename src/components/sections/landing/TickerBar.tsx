@@ -6,21 +6,20 @@ function useInView(ref: RefObject<HTMLElement | null>, threshold = 0.05) {
   const [seen, setSeen] = useState(false);
   useEffect(() => {
     if (!ref.current || seen) return;
-    const r = ref.current.getBoundingClientRect();
-    if (r.top < window.innerHeight && r.bottom > 0) {
-      setSeen(true);
-      return;
-    }
+    const markSeen = () => setSeen(true);
+    // IntersectionObserver delivers an initial callback for an already-visible
+    // element on observe(), so no synchronous getBoundingClientRect check is
+    // needed (which would adjust state purely from the ref/threshold deps).
     const io = new IntersectionObserver(
       (entries) => {
         entries.forEach((e) => {
-          if (e.isIntersecting) setSeen(true);
+          if (e.isIntersecting) markSeen();
         });
       },
       { threshold, rootMargin: '0px 0px -10% 0px' }
     );
     io.observe(ref.current);
-    const t = setTimeout(() => setSeen(true), 3000);
+    const t = setTimeout(() => markSeen(), 3000);
     return () => {
       io.disconnect();
       clearTimeout(t);
@@ -52,8 +51,10 @@ function useAnimatedNumber(
   return val;
 }
 
+const HOURS_BARS_SEED = [38, 42, 51, 47, 58, 63, 71, 68, 79, 86, 92, 100];
+
 function HoursBars({ active }: { active: boolean }) {
-  const seed = [38, 42, 51, 47, 58, 63, 71, 68, 79, 86, 92, 100];
+  const seed = HOURS_BARS_SEED;
   return (
     <svg viewBox="0 0 120 36" width="120" height="36" aria-hidden>
       {seed.map((h, i) => (
@@ -105,7 +106,7 @@ function ApprovalArc({ active, pct = 96.3 }: { active: boolean; pct?: number }) 
         strokeDasharray={c}
         strokeDashoffset={offset}
         transform="rotate(-90 20 20)"
-        style={{ transition: 'stroke-dashoffset 1600ms cubic-bezier(.2,.7,.2,1) 200ms' }}
+        style={{ transition: 'stroke-dashoffset 950ms cubic-bezier(.2,.7,.2,1) 200ms' }}
       />
     </svg>
   );
@@ -199,7 +200,7 @@ export function TickerBar() {
     <div className={`rw-ticker-bar ${seen ? 'in' : ''}`} ref={barRef}>
       {items.map((it, i) => (
         <div
-          key={i}
+          key={it.tone}
           className={`rw-tk-tile tone-${it.tone}`}
           style={{ transitionDelay: `${i * 90}ms` }}
         >

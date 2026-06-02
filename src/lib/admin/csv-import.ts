@@ -118,10 +118,16 @@ export function parseCsv(
       row.productsServices = fields[productsServicesIdx]!.trim();
     }
     if (avoidFactsIdx !== -1 && fields[avoidFactsIdx]?.trim()) {
-      row.avoidFacts = fields[avoidFactsIdx]!.trim().split('|').map((s) => s.trim()).filter(Boolean);
+      row.avoidFacts = fields[avoidFactsIdx]!.trim().split('|').flatMap((s) => {
+        const trimmed = s.trim();
+        return trimmed ? [trimmed] : [];
+      });
     }
     if (sampleResponsesIdx !== -1 && fields[sampleResponsesIdx]?.trim()) {
-      row.sampleResponses = fields[sampleResponsesIdx]!.trim().split('|').map((s) => s.trim()).filter(Boolean);
+      row.sampleResponses = fields[sampleResponsesIdx]!.trim().split('|').flatMap((s) => {
+        const trimmed = s.trim();
+        return trimmed ? [trimmed] : [];
+      });
     }
 
     rows.push(row);

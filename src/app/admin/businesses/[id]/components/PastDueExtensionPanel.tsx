@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useState } from 'react';
+import { FormEvent, useReducer } from 'react';
 
 interface PastDueExtensionPanelProps {
   accountId: string;
@@ -14,17 +14,65 @@ const EXTENSION_DEADLINE_FORMATTER = new Intl.DateTimeFormat('en-US', {
   year: 'numeric',
 });
 
+interface ExtensionState {
+  days: string;
+  ticketId: string;
+  reason: string;
+  message: string | null;
+  error: string | null;
+  submitting: boolean;
+}
+
+type ExtensionAction =
+  | { type: 'setDays'; value: string }
+  | { type: 'setTicketId'; value: string }
+  | { type: 'setReason'; value: string }
+  | { type: 'submitReset' }
+  | { type: 'validationError'; error: string }
+  | { type: 'submitStart' }
+  | { type: 'submitError'; error: string }
+  | { type: 'submitSuccess'; message: string }
+  | { type: 'submitDone' };
+
+const initialState: ExtensionState = {
+  days: '3',
+  ticketId: '',
+  reason: '',
+  message: null,
+  error: null,
+  submitting: false,
+};
+
+function reducer(state: ExtensionState, action: ExtensionAction): ExtensionState {
+  switch (action.type) {
+    case 'setDays':
+      return { ...state, days: action.value };
+    case 'setTicketId':
+      return { ...state, ticketId: action.value };
+    case 'setReason':
+      return { ...state, reason: action.value };
+    case 'submitReset':
+      return { ...state, message: null, error: null };
+    case 'validationError':
+      return { ...state, error: action.error };
+    case 'submitStart':
+      return { ...state, submitting: true };
+    case 'submitError':
+      return { ...state, error: action.error };
+    case 'submitSuccess':
+      return { ...state, message: action.message, ticketId: '', reason: '' };
+    case 'submitDone':
+      return { ...state, submitting: false };
+  }
+}
+
 export function PastDueExtensionPanel({
   accountId,
   subscriptionStatus,
   onGranted,
 }: PastDueExtensionPanelProps) {
-  const [days, setDays] = useState('3');
-  const [ticketId, setTicketId] = useState('');
-  const [reason, setReason] = useState('');
-  const [message, setMessage] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+  const [state, dispatch] = useReducer(reducer, initialState);
+  const { days, ticketId, reason, message, error, submitting } = state;
 
   if (subscriptionStatus !== 'past_due') {
     return null;
@@ -32,16 +80,15 @@ export function PastDueExtensionPanel({
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setMessage(null);
-    setError(null);
+    dispatch({ type: 'submitReset' });
 
     const parsedDays = Number(days);
     if (!Number.isInteger(parsedDays) || parsedDays < 1 || parsedDays > 7) {
-      setError('Use 1 to 7 days.');
+      dispatch({ type: 'validationError', error: 'Use 1 to 7 days.' });
       return;
     }
 
-    setSubmitting(true);
+    dispatch({ type: 'submitStart' });
     try {
       const res = await fetch('/api/admin/billing/grant-extension', {
         method: 'POST',
@@ -59,7 +106,7 @@ export function PastDueExtensionPanel({
       };
 
       if (!res.ok) {
-        setError(json.error ?? `HTTP ${res.status}`);
+        dispatch({ type: 'submitError', error: json.error ?? `HTTP ${res.status}` });
         return;
       }
 
@@ -67,15 +114,13 @@ export function PastDueExtensionPanel({
       const formatted = expiresAt
         ? EXTENSION_DEADLINE_FORMATTER.format(new Date(expiresAt))
         : 'the updated deadline';
-      setMessage(`Extension granted until ${formatted}.`);
-      setTicketId('');
-      setReason('');
+      dispatch({ type: 'submitSuccess', message: `Extension granted until ${formatted}.` });
       onGranted();
     } catch (err) {
       console.error('[PastDueExtensionPanel] grant extension failed:', err);
-      setError('Failed to grant extension.');
+      dispatch({ type: 'submitError', error: 'Failed to grant extension.' });
     } finally {
-      setSubmitting(false);
+      dispatch({ type: 'submitDone' });
     }
   }
 
@@ -98,7 +143,7 @@ export function PastDueExtensionPanel({
             min={1}
             max={7}
             value={days}
-            onChange={(event) => setDays(event.target.value)}
+            onChange={(event) => dispatch({ type: 'setDays', value: event.target.value })}
             className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
           />
         </label>
@@ -107,7 +152,7 @@ export function PastDueExtensionPanel({
           <input
             type="text"
             value={ticketId}
-            onChange={(event) => setTicketId(event.target.value)}
+            onChange={(event) => dispatch({ type: 'setTicketId', value: event.target.value })}
             className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
             required
           />
@@ -117,7 +162,7 @@ export function PastDueExtensionPanel({
           <input
             type="text"
             value={reason}
-            onChange={(event) => setReason(event.target.value)}
+            onChange={(event) => dispatch({ type: 'setReason', value: event.target.value })}
             className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
             required
           />

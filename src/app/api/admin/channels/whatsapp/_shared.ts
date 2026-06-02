@@ -13,7 +13,7 @@ export function flagOff(): NextResponse {
   return NextResponse.json({ error: 'not_found' }, { status: 404 });
 }
 
-export const WHATSAPP_REQUIRED_ENV = [
+const WHATSAPP_REQUIRED_ENV = [
   'TWILIO_ACCOUNT_SID',
   'TWILIO_AUTH_TOKEN',
   'TWILIO_WHATSAPP_NUMBER',

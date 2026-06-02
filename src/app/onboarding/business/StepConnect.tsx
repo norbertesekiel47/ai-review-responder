@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { motion } from 'motion/react';
+import { LazyMotion, m, domAnimation } from 'motion/react';
 import {
   errorBannerClass,
   primaryButtonClass,
@@ -49,6 +49,7 @@ export function StepConnect({ onBack, onConnect, onSkip, submitting }: StepConne
   }
 
   return (
+    <LazyMotion features={domAnimation}>
     <div className="space-y-5">
       <div>
         <h2 className="text-xl font-medium text-[#2a2a2a]">
@@ -57,7 +58,7 @@ export function StepConnect({ onBack, onConnect, onSkip, submitting }: StepConne
         <p className="mt-1 text-sm text-[#6a6a6a]">
           We use Zernio to securely read your reviews and post your approved
           replies on Google. You&apos;ll be redirected to Google to grant
-          access — only you ever see review content, and we never auto-post
+          access, only you ever see review content, and we never auto-post
           without your explicit approval.
         </p>
       </div>
@@ -98,7 +99,7 @@ export function StepConnect({ onBack, onConnect, onSkip, submitting }: StepConne
           >
             Skip for now
           </button>
-          <motion.button
+          <m.button
             type="button"
             onClick={handleConnect}
             disabled={submitting}
@@ -106,9 +107,10 @@ export function StepConnect({ onBack, onConnect, onSkip, submitting }: StepConne
             className={primaryButtonClass}
           >
             {submitting ? 'Connecting…' : 'Connect Google Business Profile'}
-          </motion.button>
+          </m.button>
         </div>
       </div>
     </div>
+    </LazyMotion>
   );
 }

@@ -19,6 +19,166 @@ const CLOCK_REVIEWS = [
   { h: 2.4, stars: 5 },
 ];
 
+const ang = (h: number) => (h / 24) * Math.PI * 2 - Math.PI / 2;
+
+// Polar→cartesian projection onto the clock face, and elapsed-hours-since
+// helpers. They close over the face center / current time in HourClock, so the
+// SVG sub-layers below receive them as props rather than recomputing geometry.
+type PointAt = (h: number, r: number) => { x: number; y: number };
+type HoursSince = (h: number) => number;
+
+function ClockTicks({ c, rOuter }: { c: number; rOuter: number }) {
+  return (
+    <>
+      {Array.from({ length: 24 }).map((_, i) => {
+        const a = ang(i);
+        const major = i % 6 === 0;
+        const x1 = c + Math.cos(a) * (rOuter - 4);
+        const y1 = c + Math.sin(a) * (rOuter - 4);
+        const x2 = c + Math.cos(a) * (rOuter - (major ? 16 : 8));
+        const y2 = c + Math.sin(a) * (rOuter - (major ? 16 : 8));
+        return (
+          <line
+            key={i}
+            x1={x1}
+            y1={y1}
+            x2={x2}
+            y2={y2}
+            stroke="rgba(42,42,42,0.35)"
+            strokeWidth={major ? 1.8 : 0.7}
+            strokeLinecap="round"
+          />
+        );
+      })}
+    </>
+  );
+}
+
+function ClockHourLabels({ pt, rOuter }: { pt: PointAt; rOuter: number }) {
+  return (
+    <>
+      {[0, 6, 12, 18].map((h) => {
+        const p = pt(h, rOuter - 30);
+        return (
+          <text
+            key={h}
+            x={p.x}
+            y={p.y + 4}
+            textAnchor="middle"
+            style={{ font: '600 10px/1 var(--rw-font-body)', fill: '#6a6a6a', letterSpacing: '0.08em', textTransform: 'uppercase' }}
+          >
+            {h === 0 ? '12A' : h === 12 ? '12P' : h > 12 ? `${h - 12}P` : `${h}A`}
+          </text>
+        );
+      })}
+    </>
+  );
+}
+
+function OwnerReplyDots({ pt, since, rOwn }: { pt: PointAt; since: HoursSince; rOwn: number }) {
+  return (
+    <>
+      {/* Owner reply dots — pile up at 9-10am */}
+      {CLOCK_REVIEWS.map((r, i) => {
+        if (r.h >= 9 && r.h <= 17) return null;
+        const rh = 9 + i * 0.2;
+        const p = pt(rh, rOwn);
+        const s = since(r.h);
+        const ownerDelay = 10;
+        let opacity = 0;
+        if (s > ownerDelay) opacity = Math.min(0.95, (s - ownerDelay) / 2);
+        return (
+          <circle
+            key={`own${i}`}
+            cx={p.x}
+            cy={p.y}
+            r={3.5}
+            fill="#D6CBBF"
+            opacity={opacity}
+            style={{ transition: 'opacity 600ms ease-out' }}
+          />
+        );
+      })}
+    </>
+  );
+}
+
+function ReviewTendrils({ pt, since, rRev, rRep }: { pt: PointAt; since: HoursSince; rRev: number; rRep: number }) {
+  return (
+    <>
+      {CLOCK_REVIEWS.map((r, i) => {
+        const s = since(r.h);
+        const reviewActive = s < 24;
+        const reviewScale = s < 0.4 ? s / 0.4 : 1;
+        const replyS = since(r.h + 0.15);
+        const replyScale = replyS < 0.4 ? replyS / 0.4 : 1;
+        const rp = pt(r.h, rRev);
+        const rep = pt(r.h + 0.15, rRep);
+        const tendrilAlpha = Math.max(0.15, 1 - s / 3);
+        const rippleT = replyS / 0.6;
+        const showRipple = rippleT >= 0 && rippleT < 1;
+
+        return (
+          <g key={i}>
+            {reviewActive && (
+              <line
+                x1={rp.x}
+                y1={rp.y}
+                x2={rep.x}
+                y2={rep.y}
+                stroke="#97B3AE"
+                strokeWidth={1.2}
+                strokeLinecap="round"
+                opacity={tendrilAlpha}
+              />
+            )}
+            {showRipple && (
+              <circle
+                cx={rep.x}
+                cy={rep.y}
+                r={4 + rippleT * 18}
+                fill="none"
+                stroke="#97B3AE"
+                strokeWidth={1.5}
+                opacity={(1 - rippleT) * 0.7}
+              />
+            )}
+            {replyS >= 0 && replyS < 24 && (
+              <circle
+                cx={rep.x}
+                cy={rep.y}
+                r={4.2 * replyScale}
+                fill="#97B3AE"
+                style={{ filter: showRipple ? 'drop-shadow(0 0 6px rgba(151,179,174,0.9))' : 'none' }}
+              />
+            )}
+            {s < 0.5 && s >= 0 && (
+              <circle
+                cx={rp.x}
+                cy={rp.y}
+                r={4 + (1 - s / 0.5) * 14}
+                fill="none"
+                stroke="#2a2a2a"
+                strokeWidth={1}
+                opacity={(1 - s / 0.5) * 0.6}
+              />
+            )}
+            {reviewActive && (
+              <circle
+                cx={rp.x}
+                cy={rp.y}
+                r={4.5 * reviewScale}
+                fill={r.stars <= 2 ? '#D97757' : '#2a2a2a'}
+                opacity={0.85}
+              />
+            )}
+          </g>
+        );
+      })}
+    </>
+  );
+}
+
 function HourClock({ speed = 1.5 }: { speed?: number }) {
   const [now, setNow] = useState(0);
   const rafRef = useRef<number | null>(null);
@@ -45,7 +205,6 @@ function HourClock({ speed = 1.5 }: { speed?: number }) {
   const rRep = c - 88;
   const rOwn = c - 128;
 
-  const ang = (h: number) => (h / 24) * Math.PI * 2 - Math.PI / 2;
   const pt = (h: number, r: number) => ({
     x: c + Math.cos(ang(h)) * r,
     y: c + Math.sin(ang(h)) * r,
@@ -127,41 +286,9 @@ function HourClock({ speed = 1.5 }: { speed?: number }) {
           fill="rgba(242, 195, 185, 0.13)"
         />
 
-        {Array.from({ length: 24 }).map((_, i) => {
-          const a = ang(i);
-          const major = i % 6 === 0;
-          const x1 = c + Math.cos(a) * (rOuter - 4);
-          const y1 = c + Math.sin(a) * (rOuter - 4);
-          const x2 = c + Math.cos(a) * (rOuter - (major ? 16 : 8));
-          const y2 = c + Math.sin(a) * (rOuter - (major ? 16 : 8));
-          return (
-            <line
-              key={i}
-              x1={x1}
-              y1={y1}
-              x2={x2}
-              y2={y2}
-              stroke="rgba(42,42,42,0.35)"
-              strokeWidth={major ? 1.8 : 0.7}
-              strokeLinecap="round"
-            />
-          );
-        })}
+        <ClockTicks c={c} rOuter={rOuter} />
 
-        {[0, 6, 12, 18].map((h) => {
-          const p = pt(h, rOuter - 30);
-          return (
-            <text
-              key={h}
-              x={p.x}
-              y={p.y + 4}
-              textAnchor="middle"
-              style={{ font: '600 10px/1 var(--rw-font-body)', fill: '#6a6a6a', letterSpacing: '0.08em' }}
-            >
-              {h === 0 ? '12A' : h === 12 ? '12P' : h > 12 ? `${h - 12}P` : `${h}A`}
-            </text>
-          );
-        })}
+        <ClockHourLabels pt={pt} rOuter={rOuter} />
 
         <circle cx={c} cy={c} r={rRep} fill="none" stroke="rgba(151,179,174,0.35)" strokeWidth={1} strokeDasharray="2 5" />
         <circle cx={c} cy={c} r={rOwn} fill="none" stroke="rgba(214,203,191,0.45)" strokeWidth={1} />
@@ -180,97 +307,9 @@ function HourClock({ speed = 1.5 }: { speed?: number }) {
           opacity={0.9}
         />
 
-        {/* Owner reply dots — pile up at 9-10am */}
-        {CLOCK_REVIEWS.map((r, i) => {
-          if (r.h >= 9 && r.h <= 17) return null;
-          const rh = 9 + i * 0.2;
-          const p = pt(rh, rOwn);
-          const s = since(r.h);
-          const ownerDelay = 10;
-          let opacity = 0;
-          if (s > ownerDelay) opacity = Math.min(0.95, (s - ownerDelay) / 2);
-          return (
-            <circle
-              key={`own${i}`}
-              cx={p.x}
-              cy={p.y}
-              r={3.5}
-              fill="#D6CBBF"
-              opacity={opacity}
-              style={{ transition: 'opacity 600ms ease-out' }}
-            />
-          );
-        })}
+        <OwnerReplyDots pt={pt} since={since} rOwn={rOwn} />
 
-        {CLOCK_REVIEWS.map((r, i) => {
-          const s = since(r.h);
-          const reviewActive = s < 24;
-          const reviewScale = s < 0.4 ? s / 0.4 : 1;
-          const replyS = since(r.h + 0.15);
-          const replyScale = replyS < 0.4 ? replyS / 0.4 : 1;
-          const rp = pt(r.h, rRev);
-          const rep = pt(r.h + 0.15, rRep);
-          const tendrilAlpha = Math.max(0.15, 1 - s / 3);
-          const rippleT = replyS / 0.6;
-          const showRipple = rippleT >= 0 && rippleT < 1;
-
-          return (
-            <g key={i}>
-              {reviewActive && (
-                <line
-                  x1={rp.x}
-                  y1={rp.y}
-                  x2={rep.x}
-                  y2={rep.y}
-                  stroke="#97B3AE"
-                  strokeWidth={1.2}
-                  strokeLinecap="round"
-                  opacity={tendrilAlpha}
-                />
-              )}
-              {showRipple && (
-                <circle
-                  cx={rep.x}
-                  cy={rep.y}
-                  r={4 + rippleT * 18}
-                  fill="none"
-                  stroke="#97B3AE"
-                  strokeWidth={1.5}
-                  opacity={(1 - rippleT) * 0.7}
-                />
-              )}
-              {replyS >= 0 && replyS < 24 && (
-                <circle
-                  cx={rep.x}
-                  cy={rep.y}
-                  r={4.2 * replyScale}
-                  fill="#97B3AE"
-                  style={{ filter: showRipple ? 'drop-shadow(0 0 6px rgba(151,179,174,0.9))' : 'none' }}
-                />
-              )}
-              {s < 0.5 && s >= 0 && (
-                <circle
-                  cx={rp.x}
-                  cy={rp.y}
-                  r={4 + (1 - s / 0.5) * 14}
-                  fill="none"
-                  stroke="#2a2a2a"
-                  strokeWidth={1}
-                  opacity={(1 - s / 0.5) * 0.6}
-                />
-              )}
-              {reviewActive && (
-                <circle
-                  cx={rp.x}
-                  cy={rp.y}
-                  r={4.5 * reviewScale}
-                  fill={r.stars <= 2 ? '#D97757' : '#2a2a2a'}
-                  opacity={0.85}
-                />
-              )}
-            </g>
-          );
-        })}
+        <ReviewTendrils pt={pt} since={since} rRev={rRev} rRep={rRep} />
 
         <g>
           <circle cx={handP.x} cy={handP.y} r={8} fill="#97B3AE" opacity={0.35} filter="url(#rw-soft)" />
@@ -293,7 +332,7 @@ function HourClock({ speed = 1.5 }: { speed?: number }) {
           x={c}
           y={c - 38}
           textAnchor="middle"
-          style={{ font: '500 9px/1 var(--rw-font-body)', fill: '#97B3AE', letterSpacing: '0.14em' }}
+          style={{ font: '500 9px/1 var(--rw-font-body)', fill: '#97B3AE', letterSpacing: '0.14em', textTransform: 'uppercase' }}
         >
           {periodLabel}
         </text>

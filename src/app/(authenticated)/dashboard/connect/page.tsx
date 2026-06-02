@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useDashboardData } from '@/hooks/useDashboardData';
@@ -33,6 +33,23 @@ const SPINNER_ROW = { display: 'flex', alignItems: 'center', gap: 12, marginBott
  * location (or the primary location when scope is "all").
  */
 export default function ConnectPage() {
+  // useSearchParams() (read in ConnectPageInner) requires a Suspense boundary or
+  // Next.js opts the whole route into client rendering. The fallback mirrors the
+  // page's own "Loading…" state so there is no visible flash on the boundary.
+  return (
+    <Suspense
+      fallback={
+        <div className="content">
+          <p style={{ ...MUTED, textAlign: 'center', padding: '48px 0' }}>Loading…</p>
+        </div>
+      }
+    >
+      <ConnectPageInner />
+    </Suspense>
+  );
+}
+
+function ConnectPageInner() {
   const { currentScope, setLocationScope } = useLocationScope();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -487,7 +504,7 @@ function FinalizingView() {
       </div>
       <p style={MUTED}>
         We&apos;re saving your Google Business connection. This usually takes
-        a few seconds — please don&apos;t close this tab.
+        a few seconds, please don&apos;t close this tab.
       </p>
     </div>
   );
@@ -499,7 +516,7 @@ function FinalizeUnknownView() {
       <h1 style={HEADING}>Connection requires manual review</h1>
       <p style={MUTED}>
         Something unexpected happened while finishing your connection. Our
-        support team has been alerted and will resolve this within 24 hours —
+        support team has been alerted and will resolve this within 24 hours,
         you don&apos;t need to do anything.
       </p>
     </div>

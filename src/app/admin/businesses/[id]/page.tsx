@@ -13,16 +13,17 @@ import { ZernioConnectionPanel } from './components/ZernioConnectionPanel';
 import { PastDueExtensionPanel } from './components/PastDueExtensionPanel';
 import { useBusinessDetail } from './hooks/useBusinessDetail';
 
+const HEALTH_BADGE_STYLES: Record<string, string> = {
+  healthy: 'bg-green-100 text-green-800',
+  watch: 'bg-gray-100 text-gray-700',
+  at_risk: 'bg-red-100 text-red-800',
+};
+const HEALTH_BADGE_LABELS: Record<string, string> = { healthy: 'Healthy', watch: 'Watch', at_risk: 'At Risk' };
+
 function HealthBadge({ level, score }: { level: string; score: number }) {
-  const styles: Record<string, string> = {
-    healthy: 'bg-green-100 text-green-800',
-    watch: 'bg-gray-100 text-gray-700',
-    at_risk: 'bg-red-100 text-red-800',
-  };
-  const labels: Record<string, string> = { healthy: 'Healthy', watch: 'Watch', at_risk: 'At Risk' };
   return (
-    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${styles[level] ?? styles.healthy}`}>
-      {labels[level] ?? level} <span className="opacity-60">{score}</span>
+    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${HEALTH_BADGE_STYLES[level] ?? HEALTH_BADGE_STYLES.healthy}`}>
+      {HEALTH_BADGE_LABELS[level] ?? level} <span className="opacity-60">{score}</span>
     </span>
   );
 }

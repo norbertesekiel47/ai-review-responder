@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useReducer } from 'react';
 import Link from 'next/link';
 import { PREFILL_EMAIL_KEY } from '@/components/auth/shared/prefillEmail';
 import { useSignupSubmit } from '@/components/auth/hooks/useSignupSubmit';
@@ -19,12 +19,47 @@ import {
   UserIcon,
 } from './Icons';
 
+interface SignupFormState {
+  name: string;
+  phone: string;
+  email: string;
+  pwd: string;
+  agree: boolean;
+}
+
+const initialSignupFormState: SignupFormState = {
+  name: '',
+  phone: '',
+  email: '',
+  pwd: '',
+  agree: false,
+};
+
+type SignupFormAction =
+  | { type: 'setName'; name: string }
+  | { type: 'setPhone'; phone: string }
+  | { type: 'setEmail'; email: string }
+  | { type: 'setPwd'; pwd: string }
+  | { type: 'setAgree'; agree: boolean };
+
+function signupFormReducer(state: SignupFormState, action: SignupFormAction): SignupFormState {
+  switch (action.type) {
+    case 'setName':
+      return { ...state, name: action.name };
+    case 'setPhone':
+      return { ...state, phone: action.phone };
+    case 'setEmail':
+      return { ...state, email: action.email };
+    case 'setPwd':
+      return { ...state, pwd: action.pwd };
+    case 'setAgree':
+      return { ...state, agree: action.agree };
+  }
+}
+
 export function SignupForm() {
-  const [name, setName] = useState('');
-  const [phone, setPhone] = useState('');
-  const [email, setEmail] = useState('');
-  const [pwd, setPwd] = useState('');
-  const [agree, setAgree] = useState(false);
+  const [form, dispatch] = useReducer(signupFormReducer, initialSignupFormState);
+  const { name, phone, email, pwd, agree } = form;
 
   const { submit, loading, error, errorKind } = useSignupSubmit();
   const oauth = useGoogleOAuth({ flow: 'owner', next: '/signup/finish' });
@@ -77,7 +112,7 @@ export function SignupForm() {
             placeholder="Sofia Reyes"
             icon={<UserIcon />}
             value={name}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(e) => dispatch({ type: 'setName', name: e.target.value })}
             required
           />
           <Field
@@ -88,7 +123,7 @@ export function SignupForm() {
             placeholder="+1 555 0136"
             icon={<PhoneIcon />}
             value={phone}
-            onChange={(e) => setPhone(e.target.value)}
+            onChange={(e) => dispatch({ type: 'setPhone', phone: e.target.value })}
           />
         </div>
       </div>
@@ -101,7 +136,7 @@ export function SignupForm() {
         placeholder="you@yourshop.com"
         icon={<MailIcon />}
         value={email}
-        onChange={(e) => setEmail(e.target.value)}
+        onChange={(e) => dispatch({ type: 'setEmail', email: e.target.value })}
         required
       />
 
@@ -113,7 +148,7 @@ export function SignupForm() {
         placeholder="At least 8 characters"
         icon={<LockIcon />}
         value={pwd}
-        onChange={(e) => setPwd(e.target.value)}
+        onChange={(e) => dispatch({ type: 'setPwd', pwd: e.target.value })}
         required
         minLength={8}
       />
@@ -157,7 +192,7 @@ export function SignupForm() {
           <input
             type="checkbox"
             checked={agree}
-            onChange={(e) => setAgree(e.target.checked)}
+            onChange={(e) => dispatch({ type: 'setAgree', agree: e.target.checked })}
           />
           <span className="box">
             <CheckIcon />

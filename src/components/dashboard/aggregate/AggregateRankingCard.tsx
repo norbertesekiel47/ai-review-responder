@@ -2,12 +2,12 @@
 
 import { useState } from 'react';
 import type { AggregateDashboardData } from '@/lib/dashboard/types';
+import { RankingChart } from '../RankingChart';
 import {
   buildRankingSeries,
   formatRankingDateLabel,
-  RankingChart,
   RANKING_COLORS,
-} from '../RankingChart';
+} from '../RankingChart.helpers';
 
 interface Props {
   ranking: AggregateDashboardData['ranking'];

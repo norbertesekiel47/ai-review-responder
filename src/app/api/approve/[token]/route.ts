@@ -1,7 +1,7 @@
-import { createHash } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
 import { setDeviceCookie, setCsrfCookie, verifyDeviceCookie } from '@/lib/approval/cookies';
+import { hashApprovalToken } from '@/lib/approval/locks';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 import { getIpKey } from '@/lib/shared/request-ip';
@@ -23,7 +23,7 @@ export async function GET(
   }
 
   const { token: rawToken } = await params;
-  const tokenHash = createHash('sha256').update(rawToken).digest('hex');
+  const tokenHash = hashApprovalToken(rawToken);
 
   const [link] = await sql<{
     id: string;
