@@ -3,8 +3,8 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import { PastReplyCard } from '../PastReplyCard';
-import type { PastReplyRow } from '../PastReplyCard';
+import { PastReplyCard } from '@/components/dashboard/PastReplyCard';
+import type { PastReplyRow } from '@/components/dashboard/PastReplyCard';
 
 function makeRow(overrides: Partial<PastReplyRow> = {}): PastReplyRow {
   return {

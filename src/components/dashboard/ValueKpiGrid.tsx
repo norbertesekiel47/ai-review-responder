@@ -1,8 +1,8 @@
 'use client';
 
-import { Icon } from './Icon';
-import { Sparkline } from './Sparkline';
-import { useCountUp } from './useCountUp';
+import { Icon } from '@/components/dashboard/Icon';
+import { Sparkline } from '@/components/dashboard/Sparkline';
+import { useCountUp } from '@/components/dashboard/useCountUp';
 
 interface ValueSummary {
   totalReviewsHandled: number;

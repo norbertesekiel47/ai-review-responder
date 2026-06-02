@@ -8,8 +8,8 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Icon } from './Icon';
-import { openBillingPortal } from './billing-portal';
+import { Icon } from '@/components/dashboard/Icon';
+import { openBillingPortal } from '@/components/dashboard/billing-portal';
 
 interface CancelledBannerProps {
   gracePeriodEndDate: string | null;

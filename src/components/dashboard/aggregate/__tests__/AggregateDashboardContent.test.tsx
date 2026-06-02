@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render } from '@testing-library/react';
 import type { AggregateDashboardData } from '@/lib/dashboard/types';
-import { AggregateDashboardContent } from '../AggregateDashboardContent';
+import { AggregateDashboardContent } from '@/components/dashboard/aggregate/AggregateDashboardContent';
 
 vi.mock('@/components/dashboard/TopBar', () => ({ TopBar: () => null }));
 vi.mock('@/components/dashboard/PendingCountContext', () => ({

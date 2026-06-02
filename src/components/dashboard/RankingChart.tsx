@@ -1,6 +1,6 @@
 'use client';
 
-import type { RankingChartSeries } from './RankingChart.helpers';
+import type { RankingChartSeries } from '@/components/dashboard/RankingChart.helpers';
 
 interface RankingChartProps {
   series: RankingChartSeries[];

@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { Icon, type IconName } from './Icon';
+import { Icon, type IconName } from '@/components/dashboard/Icon';
 
 // ── Tab types ──────────────────────────────────────────────────────────
 

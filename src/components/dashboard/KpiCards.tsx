@@ -1,7 +1,7 @@
 'use client';
 
 import type { DashboardDataActive } from '@/lib/dashboard/types';
-import { ValueKpiGrid } from './ValueKpiGrid';
+import { ValueKpiGrid } from '@/components/dashboard/ValueKpiGrid';
 
 interface Props {
   valueSummary: DashboardDataActive['valueSummary'];

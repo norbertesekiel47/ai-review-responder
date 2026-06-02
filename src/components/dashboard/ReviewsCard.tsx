@@ -3,7 +3,7 @@
 import { useState, type Ref } from 'react';
 import type { DashboardDataActive } from '@/lib/dashboard/types';
 import { ReviewActions } from '@/components/dashboard/ReviewActions';
-import { Icon } from './Icon';
+import { Icon } from '@/components/dashboard/Icon';
 
 const STATUS_BADGE: Record<string, { label: string; cls: string }> = {
   pending_approval: { label: 'Pending Approval', cls: 'badge-pending' },

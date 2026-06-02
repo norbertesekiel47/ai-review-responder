@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import type { DashboardDataActive } from '@/lib/dashboard/types';
-import { Icon } from './Icon';
+import { Icon } from '@/components/dashboard/Icon';
 
 interface Props {
   zernio: DashboardDataActive['zernioConnection'];

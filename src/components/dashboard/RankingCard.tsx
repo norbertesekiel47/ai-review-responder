@@ -1,8 +1,8 @@
 'use client';
 
 import type { DashboardDataActive } from '@/lib/dashboard/types';
-import { RankingChart } from './RankingChart';
-import { buildRankingSeries } from './RankingChart.helpers';
+import { RankingChart } from '@/components/dashboard/RankingChart';
+import { buildRankingSeries } from '@/components/dashboard/RankingChart.helpers';
 
 interface Props {
   ranking: DashboardDataActive['ranking'];
