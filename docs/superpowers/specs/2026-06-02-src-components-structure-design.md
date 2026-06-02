@@ -175,8 +175,8 @@ mirroring `lib/` domains. Proposed clustering (each file re-checked against §3
 before moving; any file imported by exactly one route subtree goes to that
 route's `_components/` instead):
 
-- **`shell/`** — `Sidebar`, `TopBar`, `MobileTabBar`, `SettingsTabs`,
-  `AuthenticatedProviders`, `Icon`
+- **`shell/`** — `Sidebar`, `TopBar`, `MobileTabBar`, `SettingsTabs`, `Icon`
+  (`AuthenticatedProviders` is **not** here — it relocates per §6.3)
 - **`kpi/`** — `KpiCards`, `ValueKpiGrid`, `Sparkline`, `VelocityCard`,
   `RankingCard`, `RankingChart`, `IntelligenceBriefCard`
 - **`reviews/`** — `ReviewsCard`, `ReviewActions`, `PastReplyCard`,
