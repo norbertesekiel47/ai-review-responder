@@ -49,7 +49,7 @@ import type { PublishResponsePayload } from '@/lib/shared/worker-types';
 export const dynamic = 'force-dynamic';
 
 const bodySchema = z.object({
-  response_id: z.string().uuid(),
+  response_id: z.uuid(),
   snapshot: snapshotSchema,
 });
 

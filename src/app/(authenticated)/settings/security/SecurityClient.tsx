@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import Link from 'next/link';
 import { createBrowserSupabaseClient } from '@/lib/db/browser';
 
 interface MfaFactor {
@@ -203,9 +204,9 @@ export function SecurityClient() {
       </p>
       <p style={{ fontSize: 13, color: '#6B7280', marginTop: 6 }}>
         Lost access to your authenticator?{' '}
-        <a href="/help/contact" style={{ color: '#2563EB', textDecoration: 'underline' }}>
+        <Link href="/help/contact" style={{ color: '#2563EB', textDecoration: 'underline' }}>
           Contact support
-        </a>
+        </Link>
         .
       </p>
 

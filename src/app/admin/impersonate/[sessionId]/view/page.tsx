@@ -11,13 +11,19 @@ import { EndImpersonationButton } from './EndImpersonationButton';
 
 export const dynamic = 'force-dynamic';
 
+const IMPERSONATION_EXPIRES_FORMATTER = new Intl.DateTimeFormat('en-US', {
+  month: 'short',
+  day: 'numeric',
+  hour: 'numeric',
+  minute: '2-digit',
+});
+
 interface PageProps {
   params: Promise<{ sessionId: string }>;
 }
 
 export default async function AdminImpersonationViewPage({ params }: PageProps) {
-  const { sessionId } = await params;
-  const cookieStore = await cookies();
+  const [{ sessionId }, cookieStore] = await Promise.all([params, cookies()]);
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -54,12 +60,7 @@ export default async function AdminImpersonationViewPage({ params }: PageProps) 
 
   const { session, admin } = resolution;
   const locations = await loadImpersonationAccountLocations(session.accountId);
-  const expiresAt = new Intl.DateTimeFormat('en-US', {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  }).format(session.expiresAt);
+  const expiresAt = IMPERSONATION_EXPIRES_FORMATTER.format(session.expiresAt);
 
   return (
     <div className="min-h-screen bg-gray-50">

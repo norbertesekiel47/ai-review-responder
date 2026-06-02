@@ -17,8 +17,8 @@ export const dynamic = 'force-dynamic';
 const NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
 
 const StartImpersonationSchema = z.object({
-  accountId: z.string().uuid(),
-  impersonatedUserId: z.string().uuid(),
+  accountId: z.uuid(),
+  impersonatedUserId: z.uuid(),
   ticketId: z.string().trim().min(1).max(100),
   reason: z.string().trim().min(1).max(1_000),
 });

@@ -1,6 +1,6 @@
 'use client';
 
-import { forwardRef, useState } from 'react';
+import { useState, type Ref } from 'react';
 import type { AggregateDashboardData, AggregateReviewItem } from '@/lib/dashboard/types';
 import { ReviewActions } from '../ReviewActions';
 import { Icon } from '../Icon';
@@ -16,7 +16,7 @@ const STATUS_BADGE: Record<string, { label: string; cls: string }> = {
   approved: { label: 'Approved', cls: 'badge-edited' },
 };
 
-function renderStars(n: number | null): string {
+function formatStars(n: number | null): string {
   if (n == null) return '';
   const filled = Math.round(Math.max(0, Math.min(5, n)));
   return '★'.repeat(filled) + '☆'.repeat(5 - filled);
@@ -35,14 +35,17 @@ interface Props {
   recentReviews: AggregateDashboardData['recentReviews'];
   onActionSuccess: () => void;
   readOnly?: boolean;
+  ref?: Ref<HTMLDivElement>;
 }
 
 /** VAL-DASH-013: Global pending-approval feed combines all locations.
  *  VAL-DASH-014: Location chips in approval feed use display_label. */
-export const AggregateReviewsCard = forwardRef<HTMLDivElement, Props>(function AggregateReviewsCard(
-  { recentReviews, onActionSuccess, readOnly = false },
-  scrollRef,
-) {
+export function AggregateReviewsCard({
+  recentReviews,
+  onActionSuccess,
+  readOnly = false,
+  ref: scrollRef,
+}: Props) {
   const [tab, setTab] = useState<'needs' | 'all'>('needs');
   const pending = recentReviews.filter((r) => (r.responseStatus ?? r.status) === 'pending_approval');
   const list = tab === 'needs' ? pending : recentReviews;
@@ -94,7 +97,7 @@ export const AggregateReviewsCard = forwardRef<HTMLDivElement, Props>(function A
       )}
     </div>
   );
-});
+}
 
 function AggregateReviewRow({
   r,
@@ -115,7 +118,7 @@ function AggregateReviewRow({
       <div className="review-head">
         {r.starRating != null && (
           <span className="stars" aria-label={`${r.starRating} stars`}>
-            {renderStars(r.starRating)}
+            {formatStars(r.starRating)}
           </span>
         )}
         <span className="reviewer">{r.reviewerName}</span>

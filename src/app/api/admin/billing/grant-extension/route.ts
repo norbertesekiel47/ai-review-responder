@@ -16,7 +16,7 @@ const DAY_MS = 86_400_000;
 const GRACE_MS = 7 * DAY_MS;
 
 const GrantExtensionSchema = z.object({
-  accountId: z.string().uuid(),
+  accountId: z.uuid(),
   days: z.number().int().min(1).max(MAX_EXTENSION_DAYS),
   ticketId: z.string().trim().min(1).max(100),
   reason: z.string().trim().min(1).max(1_000),

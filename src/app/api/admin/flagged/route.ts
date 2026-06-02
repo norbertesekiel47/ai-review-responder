@@ -123,7 +123,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 }
 
 const DispositionSchema = z.object({
-  flaggedId: z.string().uuid(),
+  flaggedId: z.uuid(),
   action: z.enum([
     'approved_for_owner_review',
     'dismissed_false_positive',

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import Link from 'next/link';
 import * as Sentry from '@sentry/nextjs';
 
 export default function AuthenticatedError({
@@ -42,16 +43,16 @@ export default function AuthenticatedError({
         Something went wrong
       </h1>
       <p className="error-state-sub">
-        We couldn&apos;t load this page. This one&apos;s on us — try again, or head
+        We couldn&apos;t load this page. This one&apos;s on us, try again, or head
         back to your dashboard.
       </p>
       <div className="error-state-actions">
         <button type="button" className="btn btn-primary" onClick={() => reset()}>
           Try again
         </button>
-        <a className="btn btn-secondary" href="/dashboard">
+        <Link className="btn btn-secondary" href="/dashboard">
           Back to dashboard
-        </a>
+        </Link>
         <a className="btn btn-tertiary" href="mailto:support@repworth.net">
           Contact support
         </a>

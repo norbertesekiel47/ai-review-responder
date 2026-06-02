@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 
 interface PastDueModalProps {
   accountId: string;
@@ -8,6 +9,12 @@ interface PastDueModalProps {
   isReadOnly: boolean;
   deadline: string | null;
 }
+
+const PAST_DUE_DEADLINE_FORMATTER = new Intl.DateTimeFormat('en-US', {
+  month: 'short',
+  day: 'numeric',
+  year: 'numeric',
+});
 
 export function PastDueModal({
   accountId,
@@ -22,14 +29,11 @@ export function PastDueModal({
   );
   const shouldShow = daysRemaining !== null && daysRemaining <= 2 && !isReadOnly;
   const deadlineCopy = deadline
-    ? new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(deadline))
+    ? PAST_DUE_DEADLINE_FORMATTER.format(new Date(deadline))
     : null;
 
   useEffect(() => {
-    if (!shouldShow) {
-      setDismissed(true);
-      return;
-    }
+    if (!shouldShow) return;
     setDismissed(window.localStorage.getItem(dismissalKey) === 'dismissed');
   }, [dismissalKey, shouldShow]);
 
@@ -76,12 +80,12 @@ export function PastDueModal({
         <p style={{ margin: '10px 0 18px', fontSize: 14, lineHeight: 1.5, color: '#78350F' }}>
           Update your payment method to keep approvals, edits, and publishing available.
         </p>
-        <a
+        <Link
           href="/help/contact"
           style={{ display: 'inline-block', marginBottom: 16, fontSize: 14, color: '#1D4ED8' }}
         >
           Contact support
-        </a>
+        </Link>
         <br />
         <button
           type="button"
