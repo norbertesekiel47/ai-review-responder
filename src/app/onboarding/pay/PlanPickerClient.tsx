@@ -27,11 +27,11 @@ export function PlanPickerClient({ cancelled }: { cancelled: boolean }) {
         body: JSON.stringify({ tier }),
       });
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
         if (res.status === 401) {
           window.location.href = '/login';
           return;
         }
+        const body = await res.json().catch(() => ({}));
         if (res.status === 409 && body.subscriptionStatus === 'active') {
           window.location.href = '/dashboard';
           return;

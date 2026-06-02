@@ -62,12 +62,7 @@ export function VoiceDial() {
                 setDragging(true);
                 onPointer(e);
               }}
-              role="slider"
-              aria-valuemin={0}
-              aria-valuemax={4}
-              aria-valuenow={value}
-              aria-label="Voice dial — drag to adjust tone"
-              tabIndex={0}
+              aria-hidden="true"
             >
               <div className="rw-voice-ticks">
                 {Array.from({ length: 5 }).map((_, i) => {
@@ -93,6 +88,15 @@ export function VoiceDial() {
                 <div className="rw-voice-dial-value-label">Tone</div>
               </div>
             </div>
+            <input
+              className="sr-only"
+              type="range"
+              min={0}
+              max={4}
+              value={value}
+              aria-label="Voice dial — adjust tone"
+              onChange={(e) => setValue(Number(e.target.value))}
+            />
             <div className="rw-voice-labels">
               {LABELS.map((l, i) => (
                 <Fragment key={l}>

@@ -377,8 +377,6 @@ export function PricingContent({ selfServeEnabled = false }: { selfServeEnabled?
           <div className="pr-toggle-wrap">
             <div
               className={`pr-toggle ${isAnnual ? 'is-annual' : 'is-monthly'}`}
-              role="group"
-              aria-label="Billing cadence"
             >
               <div className="pr-toggle-thumb" />
               <button
@@ -464,9 +462,8 @@ export function PricingContent({ selfServeEnabled = false }: { selfServeEnabled?
               <h2>Compare every detail</h2>
               <p>The full feature list, side-by-side. No asterisks, no gotchas.</p>
             </div>
-            <div
+            <section
               className="pr-matrix"
-              role="group"
               aria-label="Plan comparison, scroll horizontally to compare all plans"
               tabIndex={0}
             >
@@ -497,7 +494,7 @@ export function PricingContent({ selfServeEnabled = false }: { selfServeEnabled?
                   );
                 })}
               </div>
-            </div>
+            </section>
           </div>
 
           {/* FAQ */}

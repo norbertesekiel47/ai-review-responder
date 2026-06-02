@@ -68,7 +68,7 @@ export function LocationPicker({ compact, singleLocationLabel }: LocationPickerP
         className="loc-picker-trigger"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
-        aria-haspopup="listbox"
+        aria-haspopup="menu"
       >
         <span className="loc-picker-label">{selectedLabel}</span>
         <span className={`loc-picker-chevron ${open ? 'loc-picker-chevron--open' : ''}`}>
@@ -77,12 +77,12 @@ export function LocationPicker({ compact, singleLocationLabel }: LocationPickerP
       </button>
 
       {open && (
-        <div className="loc-picker-dropdown" role="listbox">
+        <div className="loc-picker-dropdown" role="menu">
           {/* All Locations option */}
           <button
             type="button"
-            role="option"
-            aria-selected={currentScope === 'all'}
+            role="menuitemradio"
+            aria-checked={currentScope === 'all'}
             className={`loc-picker-item ${currentScope === 'all' ? 'loc-picker-item--active' : ''}`}
             onClick={() => handleSelect('all')}
           >
@@ -102,8 +102,8 @@ export function LocationPicker({ compact, singleLocationLabel }: LocationPickerP
               <button
                 key={loc.id}
                 type="button"
-                role="option"
-                aria-selected={isActive}
+                role="menuitemradio"
+                aria-checked={isActive}
                 className={`loc-picker-item ${isActive ? 'loc-picker-item--active' : ''}`}
                 onClick={() => handleSelect(loc.id)}
               >
