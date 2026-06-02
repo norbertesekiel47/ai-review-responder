@@ -11,6 +11,20 @@ interface ZernioConnectionPanelProps {
 
 const LAST_ERROR_PREVIEW_LIMIT = 120;
 
+const STATUS_BADGE_STYLES: Record<string, string> = {
+  active: 'bg-green-100 text-green-800',
+  pending: 'bg-gray-100 text-gray-700',
+  disconnected: 'bg-red-100 text-red-800',
+  not_connected: 'bg-gray-100 text-gray-700',
+};
+
+const STATUS_BADGE_LABELS: Record<string, string> = {
+  active: 'Active',
+  pending: 'Pending',
+  disconnected: 'Disconnected',
+  not_connected: 'Not connected',
+};
+
 function formatTimestamp(iso: string | null): string {
   if (!iso) return '—';
   try {
@@ -26,30 +40,18 @@ function truncate(text: string | null, max: number): string {
 }
 
 function StatusBadge({ status }: { status: 'pending' | 'active' | 'disconnected' | 'not_connected' }) {
-  const styles: Record<string, string> = {
-    active: 'bg-green-100 text-green-800',
-    pending: 'bg-gray-100 text-gray-700',
-    disconnected: 'bg-red-100 text-red-800',
-    not_connected: 'bg-gray-100 text-gray-700',
-  };
-  const labels: Record<string, string> = {
-    active: 'Active',
-    pending: 'Pending',
-    disconnected: 'Disconnected',
-    not_connected: 'Not connected',
-  };
   return (
     <span
       className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-        styles[status] ?? styles.not_connected
+        STATUS_BADGE_STYLES[status] ?? STATUS_BADGE_STYLES.not_connected
       }`}
     >
-      {labels[status] ?? status}
+      {STATUS_BADGE_LABELS[status] ?? status}
     </span>
   );
 }
 
-function renderStars(rating: number): string {
+function formatStars(rating: number): string {
   // Defensive clamp: bad data (negative, NaN, > 5) shouldn't render 0 or
   // 100 stars. Floor handles fractional inputs from any future schema drift.
   const clamped = Math.min(5, Math.max(0, Number.isFinite(rating) ? Math.floor(rating) : 0));
@@ -311,7 +313,7 @@ export function ZernioConnectionPanel({
                 className="rounded border border-gray-200 bg-white p-3 text-sm"
               >
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-[#97B3AE]">{renderStars(r.starRating)}</span>
+                  <span className="text-[#97B3AE]">{formatStars(r.starRating)}</span>
                   <span className="font-medium text-gray-700">{r.reviewerName}</span>
                   <span className="text-xs text-gray-400">
                     Queued {formatTimestamp(r.createdAt)}

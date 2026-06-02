@@ -1,11 +1,11 @@
 'use client';
 
-import { FormEvent, useState } from 'react';
-
-export interface ClientCsvValidationError {
-  row: number;
-  reason: string;
-}
+import { FormEvent, useRef, useState } from 'react';
+import Link from 'next/link';
+import {
+  validateLocationsCsvClient,
+  type ClientCsvValidationError,
+} from './csv-validation';
 
 interface CsvRowFailure {
   row: number;
@@ -20,24 +20,9 @@ interface CsvImportReport {
 
 const MAX_CLIENT_FILE_SIZE = 5 * 1024 * 1024;
 
-export function validateLocationsCsvClient(
-  rows: Array<Record<string, string>>,
-): ClientCsvValidationError[] {
-  const failures: ClientCsvValidationError[] = [];
-  if (rows.length > 100) {
-    failures.push({ row: 0, reason: 'CSV contains more than 100 data rows.' });
-  }
-  rows.forEach((row, index) => {
-    const rowNumber = index + 2;
-    if (!row.name?.trim()) failures.push({ row: rowNumber, reason: 'Missing name.' });
-    if (!row.placeId?.trim()) failures.push({ row: rowNumber, reason: 'Missing placeId.' });
-  });
-  return failures;
-}
-
 export function CsvImportClient() {
   const [accountId, setAccountId] = useState('');
-  const [file, setFile] = useState<File | null>(null);
+  const fileRef = useRef<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<ClientCsvValidationError[]>([]);
@@ -57,6 +42,7 @@ export function CsvImportClient() {
         setFormError('Enter an account ID.');
         return;
       }
+      const file = fileRef.current;
       if (!file) {
         setFormError('Choose a CSV file.');
         return;
@@ -156,7 +142,9 @@ export function CsvImportClient() {
                 id="csv-import-file"
                 type="file"
                 accept=".csv,text/csv"
-                onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+                onChange={(event) => {
+                  fileRef.current = event.target.files?.[0] ?? null;
+                }}
                 className="mt-1 block w-full text-sm text-gray-700 file:mr-4 file:rounded-md file:border-0 file:bg-gray-100 file:px-3 file:py-2 file:text-sm file:font-medium file:text-gray-700 hover:file:bg-gray-200"
               />
               <p className="mt-2 text-xs text-gray-500">
@@ -222,12 +210,12 @@ export function CsvImportClient() {
                     </li>
                   ))}
                 </ul>
-                <a
+                <Link
                   href="/help/contact"
                   className="mt-4 inline-block text-sm font-medium text-blue-600 hover:underline"
                 >
                   Contact support
-                </a>
+                </Link>
               </>
             ) : null}
           </div>

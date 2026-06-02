@@ -7,7 +7,9 @@
 // VAL-CROSS-012: Past-due account → payment warning banner with billing portal link.
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { Icon } from './Icon';
+import { openBillingPortal } from './billing-portal';
 
 interface CancelledBannerProps {
   gracePeriodEndDate: string | null;
@@ -23,31 +25,11 @@ interface PastDueBannerProps {
   navigate?: (url: string) => void;
 }
 
-export async function openBillingPortal(
-  billingPortalUrl: string,
-  options: {
-    fetchFn?: typeof fetch;
-    navigate?: (url: string) => void;
-  } = {},
-): Promise<void> {
-  const fetchFn = options.fetchFn ?? fetch;
-  const navigate = options.navigate ?? ((url: string) => window.location.assign(url));
-  const response = await fetchFn(billingPortalUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-  });
-
-  if (!response.ok) {
-    throw new Error('billing_portal_unavailable');
-  }
-
-  const body = (await response.json()) as { url?: string };
-  if (!body.url) {
-    throw new Error('billing_portal_url_missing');
-  }
-
-  navigate(body.url);
-}
+const PAST_DUE_DEADLINE_FORMATTER = new Intl.DateTimeFormat('en-US', {
+  month: 'short',
+  day: 'numeric',
+  year: 'numeric',
+});
 
 export function CancelledBanner({ gracePeriodEndDate, readAccess }: CancelledBannerProps) {
   const formattedDate = gracePeriodEndDate
@@ -96,7 +78,7 @@ export function PastDueBanner({
   const [isOpeningPortal, setIsOpeningPortal] = useState(false);
   const [portalError, setPortalError] = useState(false);
   const deadlineCopy = deadline
-    ? new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(deadline))
+    ? PAST_DUE_DEADLINE_FORMATTER.format(new Date(deadline))
     : null;
   const daysCopy = daysRemaining === null
     ? null
@@ -159,9 +141,9 @@ export function PastDueBanner({
               Update payment method →
             </button>
           ) : (
-            <a className="sub-status-banner__link" href="/help/contact">
+            <Link className="sub-status-banner__link" href="/help/contact">
               Contact support
-            </a>
+            </Link>
           )}
           {portalError ? (
             <span className="sub-status-banner__error">

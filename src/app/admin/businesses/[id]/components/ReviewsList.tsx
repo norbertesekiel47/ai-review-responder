@@ -2,7 +2,17 @@
 
 import type { ReviewRow } from '../types';
 
-function renderStars(rating: number): string {
+const RESPONSE_BADGE_COLORS: Record<string, string> = {
+  new: 'bg-gray-100 text-gray-600',
+  pending_approval: 'bg-yellow-100 text-yellow-800',
+  approved: 'bg-blue-100 text-blue-800',
+  edited: 'bg-blue-100 text-blue-800',
+  awaiting_owner_connect: 'bg-gray-100 text-gray-700',
+  posted: 'bg-green-100 text-green-800',
+  failed: 'bg-red-100 text-red-800',
+};
+
+function formatStars(rating: number): string {
   // Clamp to [0, 5] integer range — '★'.repeat() throws RangeError on
   // negative counts, so a malformed row with rating > 5 or < 0 would
   // crash the entire reviews list.
@@ -12,18 +22,7 @@ function renderStars(rating: number): string {
 
 function ResponseBadge({ status }: { status: string | null }) {
   const displayStatus = status ?? 'new';
-
-  const colorMap: Record<string, string> = {
-    new: 'bg-gray-100 text-gray-600',
-    pending_approval: 'bg-yellow-100 text-yellow-800',
-    approved: 'bg-blue-100 text-blue-800',
-    edited: 'bg-blue-100 text-blue-800',
-    awaiting_owner_connect: 'bg-gray-100 text-gray-700',
-    posted: 'bg-green-100 text-green-800',
-    failed: 'bg-red-100 text-red-800',
-  };
-
-  const colorClass = colorMap[displayStatus] ?? 'bg-gray-100 text-gray-700';
+  const colorClass = RESPONSE_BADGE_COLORS[displayStatus] ?? 'bg-gray-100 text-gray-700';
 
   return (
     <span className={`inline-block rounded px-2 py-0.5 text-xs font-medium ${colorClass}`}>
@@ -52,7 +51,7 @@ export function ReviewsList({ reviews }: ReviewsListProps) {
               className="rounded-lg border border-gray-200 bg-white p-4"
             >
               <div className="flex items-center gap-2 text-sm">
-                <span className="text-[#97B3AE]">{renderStars(review.starRating)}</span>
+                <span className="text-[#97B3AE]">{formatStars(review.starRating)}</span>
                 <span className="font-medium text-gray-700">{review.reviewerName}</span>
                 {review.reviewDate && (
                   <span className="text-gray-400">

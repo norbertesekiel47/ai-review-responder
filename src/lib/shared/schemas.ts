@@ -7,7 +7,7 @@ const businessNameSchema = z.string().min(1, 'Business name is required').max(25
 const categorySchema = z.string().max(100);
 const toneSchema = z.string().max(100);
 const ownerNameSchema = z.string().min(1, 'Owner name is required').max(255);
-const ownerEmailSchema = z.string().email('Valid email is required').max(255);
+const ownerEmailSchema = z.email('Valid email is required').max(255);
 const ownerPhoneSchema = z.string().max(20);
 const staffNamesArraySchema = z.array(z.string().max(100));
 const highlightFactsArraySchema = z.array(z.string().max(500));
@@ -222,7 +222,7 @@ export const UpdateBusinessSchema = z
 
 const normalizedEmailSchema = z.preprocess(
   (v) => (typeof v === 'string' ? v.trim().toLowerCase() : v),
-  z.string().email().max(254),
+  z.email().max(254),
 );
 
 const passwordSchema = z.string().min(8).max(128);

@@ -43,13 +43,13 @@ export const dynamic = 'force-dynamic';
 const bodySchema = z.discriminatedUnion('mode', [
   z.object({
     mode: z.literal('manual'),
-    review_id: z.string().uuid(),
+    review_id: z.uuid(),
     new_text: z.string().trim().min(1).max(2000),
     snapshot: snapshotSchema,
   }),
   z.object({
     mode: z.literal('regenerate'),
-    review_id: z.string().uuid(),
+    review_id: z.uuid(),
     snapshot: snapshotSchema,
   }),
 ]);

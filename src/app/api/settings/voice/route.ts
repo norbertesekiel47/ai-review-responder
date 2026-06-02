@@ -117,7 +117,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
 const VoiceConfigSchema = z
   .object({
-    locationId: z.string().uuid(),
+    locationId: z.uuid(),
     tone: z.string().trim().max(100).optional(),
     productsServices: z.string().max(2000).nullable().optional(),
     avoidFacts: z.array(z.string().trim().max(500)).max(20, 'Maximum 20 avoid facts').optional(),

@@ -8,6 +8,12 @@ interface PastDueExtensionPanelProps {
   onGranted: () => void;
 }
 
+const EXTENSION_DEADLINE_FORMATTER = new Intl.DateTimeFormat('en-US', {
+  month: 'long',
+  day: 'numeric',
+  year: 'numeric',
+});
+
 export function PastDueExtensionPanel({
   accountId,
   subscriptionStatus,
@@ -59,11 +65,7 @@ export function PastDueExtensionPanel({
 
       const expiresAt = json.extension?.expires_at;
       const formatted = expiresAt
-        ? new Intl.DateTimeFormat('en-US', {
-          month: 'long',
-          day: 'numeric',
-          year: 'numeric',
-        }).format(new Date(expiresAt))
+        ? EXTENSION_DEADLINE_FORMATTER.format(new Date(expiresAt))
         : 'the updated deadline';
       setMessage(`Extension granted until ${formatted}.`);
       setTicketId('');

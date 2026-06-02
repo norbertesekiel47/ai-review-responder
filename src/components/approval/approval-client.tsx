@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { motion } from 'motion/react';
+import Link from 'next/link';
+import { LazyMotion, domAnimation, m } from 'motion/react';
 import { AI_DRAFT_DISCLOSURE } from '@/lib/ui/disclosures';
 import { ApprovalErrorState } from './ApprovalErrorState';
 
@@ -36,7 +37,7 @@ function getCsrfToken(): string {
   return match?.[1] ?? '';
 }
 
-function renderStars(rating: number): string {
+function formatStars(rating: number): string {
   return '★'.repeat(rating) + '☆'.repeat(5 - rating);
 }
 
@@ -188,42 +189,44 @@ export default function ApprovalClient({ token }: { token: string }) {
         ? 'New draft on the way'
         : 'Response approved!';
     return (
-      <motion.div
-        role="status"
-        aria-live="polite"
-        aria-atomic="true"
-        className="text-center"
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4 }}
-      >
-        <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-full bg-[#97B3AE]/15">
-          <svg
-            className="size-7 text-[#97B3AE]"
-            fill="none"
-            viewBox="0 0 24 24"
-            strokeWidth={2.5}
-            stroke="currentColor"
-            aria-hidden="true"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M4.5 12.75l6 6 9-13.5"
-            />
-          </svg>
-        </div>
-        <h2 className="text-xl font-medium text-[#2a2a2a]">{heading}</h2>
-        <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-[#6a6a6a]">
-          {successMessage}
-        </p>
-        <a
-          href="/dashboard"
-          className="mt-6 inline-block rounded-sm text-sm font-semibold text-[#97B3AE] underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#97B3AE] focus-visible:ring-offset-2"
+      <LazyMotion features={domAnimation}>
+        <m.div
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          className="text-center"
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4 }}
         >
-          View your reviews →
-        </a>
-      </motion.div>
+          <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-full bg-[#97B3AE]/15">
+            <svg
+              className="size-7 text-[#97B3AE]"
+              fill="none"
+              viewBox="0 0 24 24"
+              strokeWidth={2.5}
+              stroke="currentColor"
+              aria-hidden="true"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M4.5 12.75l6 6 9-13.5"
+              />
+            </svg>
+          </div>
+          <h2 className="text-xl font-medium text-[#2a2a2a]">{heading}</h2>
+          <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-[#6a6a6a]">
+            {successMessage}
+          </p>
+          <Link
+            href="/dashboard"
+            className="mt-6 inline-block rounded-sm text-sm font-semibold text-[#97B3AE] underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#97B3AE] focus-visible:ring-offset-2"
+          >
+            View your reviews →
+          </Link>
+        </m.div>
+      </LazyMotion>
     );
   }
 
@@ -238,7 +241,8 @@ export default function ApprovalClient({ token }: { token: string }) {
   const hoursLeft = Math.max(0, Math.round(timeLeft / 3_600_000));
 
   return (
-    <div className="space-y-4">
+    <LazyMotion features={domAnimation}>
+      <div className="space-y-4">
       {error && (
         <div
           role="alert"
@@ -264,7 +268,7 @@ export default function ApprovalClient({ token }: { token: string }) {
       {/* Review card */}
       <div className="rounded-2xl border border-[#97B3AE]/15 bg-[#F0EEEA]/60 p-4">
         <div className="text-lg tracking-wider text-[#97B3AE]" aria-hidden="true">
-          {renderStars(review.starRating)}
+          {formatStars(review.starRating)}
         </div>
         <span className="sr-only">{review.starRating} out of 5 stars</span>
         <p className="mt-1 text-sm font-semibold text-[#2a2a2a]">
@@ -276,7 +280,7 @@ export default function ApprovalClient({ token }: { token: string }) {
           </p>
         ) : (
           <p className="mt-2 text-sm italic text-[#6a6a6a]/70">
-            Rating only — no written review
+            Rating only, no written review
           </p>
         )}
       </div>
@@ -327,7 +331,7 @@ export default function ApprovalClient({ token }: { token: string }) {
       <div className="flex flex-col gap-2 sm:flex-row">
         {isEditing ? (
           <>
-            <motion.button
+            <m.button
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
               onClick={() => handleAction('edit')}
@@ -335,8 +339,8 @@ export default function ApprovalClient({ token }: { token: string }) {
               className={PRIMARY_BTN}
             >
               {actionLoading ? 'Saving…' : 'Save & Approve'}
-            </motion.button>
-            <motion.button
+            </m.button>
+            <m.button
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
               onClick={() => {
@@ -347,11 +351,11 @@ export default function ApprovalClient({ token }: { token: string }) {
               className={GHOST_BTN}
             >
               Cancel
-            </motion.button>
+            </m.button>
           </>
         ) : (
           <>
-            <motion.button
+            <m.button
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
               onClick={() => handleAction('approve')}
@@ -359,8 +363,8 @@ export default function ApprovalClient({ token }: { token: string }) {
               className={PRIMARY_BTN}
             >
               {actionLoading ? 'Approving…' : 'Approve'}
-            </motion.button>
-            <motion.button
+            </m.button>
+            <m.button
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
               onClick={() => setIsEditing(true)}
@@ -368,8 +372,8 @@ export default function ApprovalClient({ token }: { token: string }) {
               className={GHOST_BTN}
             >
               Edit
-            </motion.button>
-            <motion.button
+            </m.button>
+            <m.button
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
               onClick={() => handleAction('regenerate')}
@@ -377,7 +381,7 @@ export default function ApprovalClient({ token }: { token: string }) {
               className={GHOST_BTN}
             >
               {actionLoading ? 'Requesting…' : 'Regenerate'}
-            </motion.button>
+            </m.button>
           </>
         )}
       </div>
@@ -385,6 +389,7 @@ export default function ApprovalClient({ token }: { token: string }) {
       <p className="text-center text-xs italic text-[#97B3AE]">
         This link expires in {hoursLeft} hour{hoursLeft !== 1 ? 's' : ''}
       </p>
-    </div>
+      </div>
+    </LazyMotion>
   );
 }

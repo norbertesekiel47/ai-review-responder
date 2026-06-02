@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { PREFILL_EMAIL_KEY } from '@/components/auth/shared/prefillEmail';
 import { useLoginSubmit } from '@/components/auth/hooks/useLoginSubmit';
@@ -96,9 +97,9 @@ export function LoginForm() {
       )}
 
       <div className="rw-row-end">
-        <a className="rw-link" href="/forgot-password">
+        <Link className="rw-link" href="/forgot-password">
           Forgot password?
-        </a>
+        </Link>
       </div>
 
       <button

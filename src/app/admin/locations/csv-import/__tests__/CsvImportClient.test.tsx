@@ -2,10 +2,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import {
-  CsvImportClient,
-  validateLocationsCsvClient,
-} from '../CsvImportClient';
+import { CsvImportClient } from '../CsvImportClient';
+import { validateLocationsCsvClient } from '../csv-validation';
 
 describe('CsvImportClient', () => {
   it('validates row count and required client-side columns', () => {

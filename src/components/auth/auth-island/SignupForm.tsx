@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { PREFILL_EMAIL_KEY } from '@/components/auth/shared/prefillEmail';
 import { useSignupSubmit } from '@/components/auth/hooks/useSignupSubmit';
 import { useGoogleOAuth } from '@/components/auth/hooks/useGoogleOAuth';
@@ -26,7 +26,6 @@ export function SignupForm() {
   const [pwd, setPwd] = useState('');
   const [agree, setAgree] = useState(false);
 
-  const router = useRouter();
   const { submit, loading, error, errorKind } = useSignupSubmit();
   const oauth = useGoogleOAuth({ flow: 'owner', next: '/signup/finish' });
   const displayError = error || oauth.error;
@@ -137,19 +136,17 @@ export function SignupForm() {
           {showAccountExists && (
             <>
               {' '}
-              <a
+              <Link
                 className="rw-link"
                 href="/login"
-                onClick={(e) => {
-                  e.preventDefault();
+                onClick={() => {
                   if (typeof sessionStorage !== 'undefined') {
                     sessionStorage.setItem(PREFILL_EMAIL_KEY, email.trim().toLowerCase());
                   }
-                  router.replace('/login');
                 }}
               >
                 Sign in
-              </a>
+              </Link>
             </>
           )}
         </p>
@@ -166,13 +163,13 @@ export function SignupForm() {
             <CheckIcon />
           </span>
           I agree to the{' '}
-          <a className="rw-link" style={{ marginLeft: 4 }} href="/legal/terms">
+          <Link className="rw-link" style={{ marginLeft: 4 }} href="/legal/terms">
             Terms
-          </a>
+          </Link>
           &nbsp;&amp;&nbsp;
-          <a className="rw-link" href="/legal/privacy">
+          <Link className="rw-link" href="/legal/privacy">
             Privacy
-          </a>
+          </Link>
         </label>
       </div>
 

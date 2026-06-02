@@ -40,7 +40,7 @@ function jsonResponse(body: unknown, status = 200): NextResponse {
 // VAL-SETTINGS-033: Only one override per (account, location, channel).
 
 const CreateOverrideSchema = z.object({
-  locationId: z.string().uuid(),
+  locationId: z.uuid(),
   channel: z.enum(['email', 'telegram', 'sms', 'whatsapp']),
 });
 
@@ -207,7 +207,7 @@ async function createOverride(request: NextRequest): Promise<NextResponse> {
 // VAL-SETTINGS-016: Removing override reverts to org-default.
 
 const DeleteOverrideSchema = z.object({
-  locationId: z.string().uuid(),
+  locationId: z.uuid(),
   channel: z.enum(['email', 'telegram', 'sms', 'whatsapp']),
 });
 

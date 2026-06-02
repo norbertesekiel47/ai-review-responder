@@ -1,6 +1,6 @@
 'use client';
 
-import { forwardRef, useState } from 'react';
+import { useState, type Ref } from 'react';
 import type { DashboardDataActive } from '@/lib/dashboard/types';
 import { ReviewActions } from '@/components/dashboard/ReviewActions';
 import { Icon } from './Icon';
@@ -16,7 +16,7 @@ const STATUS_BADGE: Record<string, { label: string; cls: string }> = {
   approved: { label: 'Approved', cls: 'badge-edited' },
 };
 
-function renderStars(n: number | null): string {
+function formatStars(n: number | null): string {
   if (n == null) return '';
   const filled = Math.round(Math.max(0, Math.min(5, n)));
   return '★'.repeat(filled) + '☆'.repeat(5 - filled);
@@ -36,12 +36,16 @@ interface Props {
   onActionSuccess: () => void;
   initialTab?: 'needs' | 'all';
   readOnly?: boolean;
+  ref?: Ref<HTMLDivElement>;
 }
 
-export const ReviewsCard = forwardRef<HTMLDivElement, Props>(function ReviewsCard(
-  { recentReviews, onActionSuccess, initialTab = 'needs', readOnly = false },
-  scrollRef,
-) {
+export function ReviewsCard({
+  recentReviews,
+  onActionSuccess,
+  initialTab = 'needs',
+  readOnly = false,
+  ref: scrollRef,
+}: Props) {
   const [tab, setTab] = useState<'needs' | 'all'>(initialTab);
   const pending = recentReviews.filter((r) => (r.responseStatus ?? r.status) === 'pending_approval');
   const list = tab === 'needs' ? pending : recentReviews;
@@ -81,7 +85,7 @@ export const ReviewsCard = forwardRef<HTMLDivElement, Props>(function ReviewsCar
           <div className="empty-emoji">🎉</div>
           <div className="empty-title">All caught up!</div>
           <div className="empty-sub">
-            No replies waiting on you. We&apos;ll email when a new draft is ready — usually within an hour of a new review.
+            No replies waiting on you. We&apos;ll email when a new draft is ready, usually within an hour of a new review.
           </div>
         </div>
       ) : (
@@ -93,7 +97,7 @@ export const ReviewsCard = forwardRef<HTMLDivElement, Props>(function ReviewsCar
       )}
     </div>
   );
-});
+}
 
 function ReviewRow({
   r,
@@ -114,7 +118,7 @@ function ReviewRow({
       <div className="review-head">
         {r.starRating != null && (
           <span className="stars" aria-label={`${r.starRating} stars`}>
-            {renderStars(r.starRating)}
+            {formatStars(r.starRating)}
           </span>
         )}
         <span className="reviewer">{r.reviewerName}</span>

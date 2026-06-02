@@ -32,7 +32,7 @@ function mfaClientForRequest(request: NextRequest): SupabaseMfaAalClient {
 
 const ActionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('force_drain') }),
-  z.object({ action: z.literal('dismiss'), responseId: z.string().uuid() }),
+  z.object({ action: z.literal('dismiss'), responseId: z.uuid() }),
 ]);
 
 class QueueActionError extends Error {

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import type { DashboardDataActive, DashboardDataPastDue, AggregateDashboardData } from '@/lib/dashboard/types';
 import type { DashboardOrAggregate } from '@/hooks/useDashboardData';
 import {
@@ -58,12 +59,12 @@ export function DashboardContent() {
           <div className="card" style={{ borderColor: '#FCA5A5', background: '#FEF2F2' }}>
             <h2 className="card-h2" style={{ color: '#991B1B' }}>Error</h2>
             <p style={{ fontSize: 14, color: '#B91C1C', marginTop: 4 }}>{error}</p>
-            <a
+            <Link
               href="/help/contact"
               style={{ display: 'inline-block', fontSize: 14, marginTop: 10, color: '#1D4ED8' }}
             >
               Contact support
-            </a>
+            </Link>
           </div>
         </div>
       </>

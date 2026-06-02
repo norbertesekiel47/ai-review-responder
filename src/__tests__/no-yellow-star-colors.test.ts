@@ -61,8 +61,8 @@ describe('review stars are brand teal, never yellow (P2 #28)', () => {
       'src/app/admin/businesses/[id]/components/ZernioConnectionPanel.tsx',
     ]) {
       const src = read(p);
-      expect(src, `${p} renderStars span still yellow`).not.toMatch(/text-yellow-\d00">\s*\{renderStars/);
-      expect(src).toMatch(/text-\[#97B3AE\]">\s*\{renderStars/);
+      expect(src, `${p} star span still yellow`).not.toMatch(/text-yellow-\d00">\s*\{(?:renderStars|formatStars)/);
+      expect(src).toMatch(/text-\[#97B3AE\]">\s*\{(?:renderStars|formatStars)/);
     }
   });
 });
