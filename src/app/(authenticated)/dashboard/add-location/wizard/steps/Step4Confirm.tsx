@@ -3,7 +3,7 @@
 // Step 4 — Confirm & pay with proration preview.
 
 import { Icon } from '@/components/dashboard/Icon';
-import type { PlaceSelection } from '@/components/PlaceAutocomplete';
+import type { PlaceSelection } from '@/components/places/PlaceAutocomplete';
 import type { BillingSnapshot } from '@/lib/accounts/quota';
 import type { NextLocationBillingPreview, ProrationResult } from '../billing';
 import type { ExistingLocationVoice, LocationInputMode } from '../types';

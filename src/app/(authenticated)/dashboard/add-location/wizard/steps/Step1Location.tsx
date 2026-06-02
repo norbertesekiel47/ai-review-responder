@@ -2,7 +2,7 @@
 
 // Step 1 — Place autocomplete + display_label input.
 
-import { PlaceAutocomplete, type PlaceSelection } from '@/components/PlaceAutocomplete';
+import { PlaceAutocomplete, type PlaceSelection } from '@/components/places/PlaceAutocomplete';
 import type { LocationInputMode } from '../types';
 
 interface Step1LocationProps {

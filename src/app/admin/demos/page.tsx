@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { DemoListItem } from '@/lib/demos/types';
-import { PlaceAutocomplete, type PlaceSelection } from '@/components/PlaceAutocomplete';
+import { PlaceAutocomplete, type PlaceSelection } from '@/components/places/PlaceAutocomplete';
 
 // Auth: Supabase session checked by src/proxy.ts (admin role required)
 

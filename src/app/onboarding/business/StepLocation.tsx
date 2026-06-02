@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, type RefObject } from 'react';
-import { PlaceAutocomplete } from '@/components/PlaceAutocomplete';
+import { PlaceAutocomplete } from '@/components/places/PlaceAutocomplete';
 import type { WizardFormData } from './BusinessWizardClient';
 import { LazyMotion, m, domAnimation } from 'motion/react';
 import {

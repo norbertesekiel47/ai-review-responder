@@ -7,7 +7,7 @@ import type {
   UseFormResetField,
   UseFormSetValue,
 } from 'react-hook-form';
-import { PlaceAutocomplete } from '@/components/PlaceAutocomplete';
+import { PlaceAutocomplete } from '@/components/places/PlaceAutocomplete';
 import type { FormData } from '../schema';
 import { Field, SectionCard, inputClass } from './_shared';
 

@@ -2,7 +2,7 @@
 
 import { useReducer, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { PlaceAutocomplete } from '@/components/PlaceAutocomplete';
+import { PlaceAutocomplete } from '@/components/places/PlaceAutocomplete';
 import { LazyMotion, m, domAnimation } from 'motion/react';
 import { OnboardingFunnelShell } from '../_shared/OnboardingFunnelShell';
 import {
