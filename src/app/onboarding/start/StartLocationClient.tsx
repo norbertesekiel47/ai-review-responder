@@ -67,13 +67,23 @@ function startLocationReducer(
     case 'setGoogleMapsUrl':
       return { ...state, googleMapsUrl: action.googleMapsUrl };
     case 'selectPlace':
+      // Drop any prefill from a previously selected place so submit() can't post
+      // the new place with stale category/website until the new prefill resolves.
       return {
         ...state,
         googlePlaceId: action.googlePlaceId,
         googlePlaceAddress: action.googlePlaceAddress,
+        prefilledCategory: null,
+        prefilledWebsite: null,
       };
     case 'clearPlace':
-      return { ...state, googlePlaceId: '', googlePlaceAddress: '' };
+      return {
+        ...state,
+        googlePlaceId: '',
+        googlePlaceAddress: '',
+        prefilledCategory: null,
+        prefilledWebsite: null,
+      };
     case 'setPrefill':
       return {
         ...state,

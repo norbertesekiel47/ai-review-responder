@@ -2,13 +2,11 @@
 
 // src/app/(authenticated)/dashboard/add-location/wizard/useAddLocationWizard.ts
 //
-// Owns all wizard impurity: useReducer + two useQuery data loads (bridged into
-// the reducer) + the async submit (POST /api/locations/add → set location scope
-// → navigate to the connect flow). Returns a flat state-plus-actions object the
-// shell composes from.
+// Owns all wizard impurity: useReducer + two fetch effects + the async submit
+// (POST /api/locations/add → set location scope → navigate to the connect
+// flow). Returns a flat state-plus-actions object the shell composes from.
 
 import { useCallback, useEffect, useReducer } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import type { PlaceSelection } from '@/components/PlaceAutocomplete';
 import { useLocationScope } from '@/contexts/LocationContext';
@@ -23,17 +21,6 @@ import {
   type VoiceFormState,
 } from './types';
 
-// Shape of a single /api/settings/voice location row. Every field beyond the
-// two identifiers is optional and normalized to its empty default below.
-interface RawVoiceLocation {
-  locationId: string;
-  displayName: string;
-  tone?: string;
-  productsServices?: string;
-  avoidFacts?: string[];
-  sampleResponses?: string[];
-}
-
 export function useAddLocationWizard({
   accountId,
   billingSnapshot,
@@ -44,57 +31,65 @@ export function useAddLocationWizard({
   const [state, dispatch] = useReducer(reducer, undefined, initialState);
 
   // Fetch existing location voice configs for the "copy from" dropdown.
-  // The query throws on non-OK / network error; the bridging effect below maps
-  // both success and failure into the reducer (VOICE_CONFIGS_LOADED / _FAILED)
-  // so existingLocations + voiceLoading stay owned solely by the reducer.
-  const voiceConfigsQuery = useQuery<ExistingLocationVoice[]>({
-    queryKey: ['add-location-wizard', 'voice-configs'],
-    queryFn: async () => {
-      const res = await fetch('/api/settings/voice');
-      if (!res.ok) {
-        throw new Error(`Failed to load voice configs (${res.status})`);
-      }
-      const json: { locations?: RawVoiceLocation[] } = await res.json();
-      return (json.locations ?? []).map((loc) => ({
-        locationId: loc.locationId,
-        displayName: loc.displayName,
-        tone: loc.tone ?? '',
-        productsServices: loc.productsServices ?? '',
-        avoidFacts: loc.avoidFacts ?? [],
-        sampleResponses: loc.sampleResponses ?? [],
-      }));
-    },
-  });
-
   useEffect(() => {
-    if (voiceConfigsQuery.data) {
-      dispatch({ type: 'VOICE_CONFIGS_LOADED', locations: voiceConfigsQuery.data });
-    } else if (voiceConfigsQuery.isError) {
-      // Non-critical — "copy from" dropdown just won't populate.
-      dispatch({ type: 'VOICE_CONFIGS_FAILED' });
-    }
-  }, [voiceConfigsQuery.data, voiceConfigsQuery.isError]);
+    let cancelled = false;
 
-  // Fetch existing Place IDs for the duplicate check. Non-critical — a failure
-  // just leaves the client-side duplicate check empty (the reducer keeps its
-  // initial empty Set), so the error branch dispatches nothing.
-  const existingPlaceIdsQuery = useQuery<string[]>({
-    queryKey: ['add-location-wizard', 'existing-place-ids'],
-    queryFn: async () => {
-      const res = await fetch('/api/locations/existing-place-ids');
-      if (!res.ok) {
-        throw new Error(`Failed to load existing place ids (${res.status})`);
+    async function fetchVoiceConfigs() {
+      try {
+        const res = await fetch('/api/settings/voice');
+        if (!res.ok) {
+          if (!cancelled) dispatch({ type: 'VOICE_CONFIGS_FAILED' });
+          return;
+        }
+        const json = await res.json();
+        if (cancelled) return;
+
+        const locs: ExistingLocationVoice[] = (json.locations ?? []).map(
+          (loc: any) => ({
+            locationId: loc.locationId,
+            displayName: loc.displayName,
+            tone: loc.tone ?? '',
+            productsServices: loc.productsServices ?? '',
+            avoidFacts: loc.avoidFacts ?? [],
+            sampleResponses: loc.sampleResponses ?? [],
+          }),
+        );
+        dispatch({ type: 'VOICE_CONFIGS_LOADED', locations: locs });
+      } catch {
+        // Non-critical — "copy from" dropdown just won't populate.
+        if (!cancelled) dispatch({ type: 'VOICE_CONFIGS_FAILED' });
       }
-      const json: { placeIds?: string[] } = await res.json();
-      return json.placeIds ?? [];
-    },
-  });
-
-  useEffect(() => {
-    if (existingPlaceIdsQuery.data !== undefined) {
-      dispatch({ type: 'PLACE_IDS_LOADED', placeIds: existingPlaceIdsQuery.data });
     }
-  }, [existingPlaceIdsQuery.data]);
+
+    fetchVoiceConfigs();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Fetch existing Place IDs for the duplicate check.
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetchExisting() {
+      try {
+        const res = await fetch('/api/locations/existing-place-ids');
+        if (!res.ok) return;
+        const json = await res.json();
+        if (cancelled) return;
+        if (json.placeIds) {
+          dispatch({ type: 'PLACE_IDS_LOADED', placeIds: json.placeIds });
+        }
+      } catch {
+        // Non-critical — duplicate check just won't be client-side.
+      }
+    }
+
+    fetchExisting();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const goNext = useCallback(() => dispatch({ type: 'GO_NEXT' }), []);
   const goBack = useCallback(() => dispatch({ type: 'GO_BACK' }), []);

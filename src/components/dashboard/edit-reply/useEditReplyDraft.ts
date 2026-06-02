@@ -32,21 +32,12 @@
 
 'use client';
 
-import { useCallback, useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { PastReplyRow } from '@/components/dashboard/PastReplyCard';
 
 const POLL_INTERVAL_MS = 1500;
 const POLL_TIMEOUT_MS = 60_000;
-
-// The poll's queryFn returns one of these markers per tick. The state machine
-// transition is applied via setState inside the queryFn (the poll's "tick"
-// hook); this marker is what `refetchInterval` inspects to decide whether to
-// keep ticking. 'pending' = worker still generating, keep polling. Every other
-// value is terminal for this poll cycle: setState has already moved the drawer
-// out of 'regenerating', so refetchInterval returns false.
-type PollOutcome = 'pending' | 'done';
 
 interface Snapshot {
   hash: string;
@@ -139,16 +130,7 @@ export function useEditReplyDraft({ row, initialFailureRecovery, onClose }: UseE
   );
   const currentReplyText = row.approved_text ?? '';
 
-  // Polling for the regenerating state, driven by useQuery's refetchInterval
-  // instead of a hand-rolled setTimeout chain (kills react-doctor
-  // no-fetch-in-effect — the fetch lives in queryFn, not a useEffect).
-  //
-  // The poll is `enabled` only while the drawer is in 'regenerating'. Each tick
-  // (queryFn) checks the 60s budget, fetches /draft-status, and applies the
-  // matching state-machine transition via setState — queryFn is the natural
-  // per-tick hook, so the transitions live there and the returned PollOutcome
-  // tells refetchInterval whether to keep ticking. Unmount stops the query, so
-  // no setState fires after teardown.
+  // Polling effect for the regenerating state.
   //
   // Three transient failure paths preserve outboxId in 'regenerate_poll_error'
   // so close stays blocked while the worker is still outstanding (Round-4 M):
@@ -156,7 +138,7 @@ export function useEditReplyDraft({ row, initialFailureRecovery, onClose }: UseE
   //   - non-OK /draft-status response (transient network / proxy / 5xx).
   //   - thrown network error during fetch.
   // Resume-polling re-enters 'regenerating' with the same outboxId and the
-  // 60s window restarts (the budget ref is re-stamped on each fresh cycle).
+  // 60s window restarts.
   //
   // Two terminal paths drop to plain closable 'error':
   //   - body.status === 'failed' (worker reported terminal failure;
@@ -165,46 +147,22 @@ export function useEditReplyDraft({ row, initialFailureRecovery, onClose }: UseE
   //   - Unknown response shape (treated as worker-finished-with-junk;
   //     also closable. If we routed unknown shape to poll-error, an
   //     ambiguous server response would trap the owner forever).
-  const isRegenerating = state.kind === 'regenerating';
-  const pollOutboxId = isRegenerating ? state.outboxId : null;
+  useEffect(() => {
+    if (state.kind !== 'regenerating') return;
+    const outboxId = state.outboxId;
+    const startedAt = Date.now();
+    let cancelled = false;
+    let timerId: ReturnType<typeof setTimeout> | null = null;
 
-  // Per-cycle 60s budget. Stamped at the start of each regenerating cycle and
-  // re-stamped whenever a new cycle begins (fresh outboxId, or Resume polling
-  // re-enters 'regenerating' with the same id). Mirrors the old effect's
-  // `startedAt = Date.now()` captured on each effect (re)run.
-  const pollBudgetRef = useRef<{ outboxId: string; startedAt: number } | null>(null);
-  if (isRegenerating && pollBudgetRef.current?.outboxId !== pollOutboxId) {
-    pollBudgetRef.current = { outboxId: state.outboxId, startedAt: Date.now() };
-  } else if (!isRegenerating && pollBudgetRef.current !== null) {
-    pollBudgetRef.current = null;
-  }
-
-  useQuery<PollOutcome>({
-    queryKey: ['edit-reply-draft-status', pollOutboxId],
-    enabled: isRegenerating,
-    gcTime: 0,
-    // Seed 'pending' + freeze staleness so the query does NOT fetch on mount;
-    // the first real poll fires via refetchInterval at +1500ms, matching the
-    // old setTimeout(tick, 1500) cadence (no immediate t=0 poll). refetchInterval
-    // fires regardless of staleTime, so the cadence is unaffected by the freeze.
-    initialData: 'pending',
-    staleTime: Infinity,
-    // We never read the query's data for render — the state machine owns it.
-    // refetchOnWindowFocus off so a tab refocus can't fire an off-cadence poll.
-    refetchOnWindowFocus: false,
-    refetchInterval: (query) => (query.state.data === 'pending' ? POLL_INTERVAL_MS : false),
-    queryFn: async () => {
-      const outboxId = pollOutboxId;
-      // enabled gates this, so outboxId is non-null here; guard for type safety.
-      if (outboxId === null) return 'done';
-      const startedAt = pollBudgetRef.current?.startedAt ?? Date.now();
+    const tick = async () => {
+      if (cancelled) return;
       if (Date.now() - startedAt > POLL_TIMEOUT_MS) {
         setState({
           kind: 'regenerate_poll_error',
           outboxId,
           message: 'Generation is taking longer than expected. The draft may still arrive.',
         });
-        return 'done';
+        return;
       }
       try {
         const res = await fetch(
@@ -214,17 +172,18 @@ export function useEditReplyDraft({ row, initialFailureRecovery, onClose }: UseE
         const body = (await res.json().catch(() => null)) as
           | { status?: string; error?: string; response_id?: string; response_text?: string | null }
           | null;
+        if (cancelled) return;
         if (!res.ok || !body) {
           setState({
             kind: 'regenerate_poll_error',
             outboxId,
             message: body?.error ?? `Status check failed (${res.status}). The worker may still finish.`,
           });
-          return 'done';
+          return;
         }
         if (body.status === 'generating') {
-          // Still working — keep polling on the refetchInterval cadence.
-          return 'pending';
+          timerId = setTimeout(tick, POLL_INTERVAL_MS);
+          return;
         }
         if (body.status === 'failed') {
           // Terminal worker failure — ResponseGeneratorWorker did NOT insert
@@ -234,7 +193,7 @@ export function useEditReplyDraft({ row, initialFailureRecovery, onClose }: UseE
             kind: 'error',
             message: body.error ?? 'Generation failed. Try again.',
           });
-          return 'done';
+          return;
         }
         if (body.response_id) {
           setState({
@@ -242,22 +201,29 @@ export function useEditReplyDraft({ row, initialFailureRecovery, onClose }: UseE
             draftResponseId: body.response_id,
             text: body.response_text ?? '',
           });
-          return 'done';
+          return;
         }
         // Unknown shape — surface generically. Closable on the assumption
         // that an ambiguous server response shouldn't trap the owner.
         setState({ kind: 'error', message: 'Unexpected response from server.' });
-        return 'done';
       } catch (err) {
+        if (cancelled) return;
         setState({
           kind: 'regenerate_poll_error',
           outboxId,
           message: err instanceof Error ? err.message : 'Network error while polling.',
         });
-        return 'done';
       }
-    },
-  });
+    };
+
+    timerId = setTimeout(tick, POLL_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      if (timerId !== null) {
+        clearTimeout(timerId);
+      }
+    };
+  }, [state]);
 
   const handleHttpError = useCallback(
     async (res: Response, fallback: string): Promise<void> => {

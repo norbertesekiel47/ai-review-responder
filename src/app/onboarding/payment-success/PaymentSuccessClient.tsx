@@ -1,99 +1,123 @@
 'use client';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useQuery } from '@tanstack/react-query';
 import { LazyMotion, m, domAnimation } from 'motion/react';
 import { OnboardingFunnelShell } from '../_shared/OnboardingFunnelShell';
 import { primaryButtonClass, buttonMotion } from '../_shared/field-styles';
 
-// Fixed-interval poll cadence. The original loop used 2s→×1.5→30s backoff with a
-// 5-minute wall-clock cap, which made ~18 actual fetches before giving up (the
-// growing delays, not a fixed 2s, are what stretched 18 attempts across 5min).
-// The react-query mapping keeps the same envelope — poll until success or a
-// bounded stop — with a simpler fixed 2s interval and an attempt cap chosen to
-// match the original's effective fetch count.
-const POLL_INTERVAL_MS = 2000;
-const MAX_ATTEMPTS = 20;
-
-// Sentinel thrown while Stripe is still provisioning (subscription not yet
-// 'active', or a transient 404/429/5xx). react-query treats it as retryable and
-// keeps polling; it carries no diagnostic value of its own.
-class SubscriptionNotReadyError extends Error {}
-
-// Terminal auth failure (401/403): the session is gone (expired during the
-// Stripe round-trip, or revoked elsewhere). Polling forever here is a dead end —
-// this is thrown as a NON-retryable error and drives a redirect to login via a
-// state-keyed effect, keeping navigation out of the data-fetching path. Both 401
-// and 403 map here even though the API currently only emits 401 — defensive
-// against future routes that add proper RBAC failures.
-class SessionExpiredError extends Error {}
-
-type SignupStatus = {
-  subscriptionStatus: string;
-  businessOnboarded: boolean;
-};
+// Single source of truth for the polling cap. Used by both the poll loop
+// (to stop scheduling new ticks) and the UI branch that switches to the
+// "Still processing…" copy. Keeping these synced prevents drift where the
+// loop stops at 5min but the UI keeps showing the spinner indefinitely
+// (or vice versa).
+const MAX_POLL_DURATION_MS = 5 * 60_000;
 
 export function PaymentSuccessClient({
   checkoutSessionId,
 }: {
   checkoutSessionId?: string | null;
 }) {
+  const [active, setActive] = useState(false);
+  const [needsSetup, setNeedsSetup] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
   const router = useRouter();
 
-  const { data, isError, error, failureCount } = useQuery<
-    SignupStatus,
-    SessionExpiredError | SubscriptionNotReadyError | Error
-  >({
-    queryKey: ['onboarding-signup-status', checkoutSessionId],
-    enabled: Boolean(checkoutSessionId),
-    queryFn: async (): Promise<SignupStatus> => {
-      const statusUrl = checkoutSessionId
-        ? `/api/auth/signup-status?session_id=${encodeURIComponent(checkoutSessionId)}`
-        : '/api/auth/signup-status';
-      const res = await fetch(statusUrl);
-
-      if (res.status === 401 || res.status === 403) {
-        throw new SessionExpiredError();
-      }
-
-      if (res.ok) {
-        const body = (await res.json()) as SignupStatus;
-        if (body.subscriptionStatus === 'active') {
-          return body;
-        }
-      }
-      // Anything else (404 mid-provisioning, 429 rate-limit, 5xx, or a non-active
-      // status) is retryable — keep polling.
-      throw new SubscriptionNotReadyError();
-    },
-    // SessionExpiredError is terminal (never retry → redirect immediately).
-    // SubscriptionNotReadyError retries up to the attempt cap. react-query
-    // evaluates this with the PRE-increment failureCount right after the
-    // (failureCount + 1)-th fetch fails, so `< MAX_ATTEMPTS - 1` caps total
-    // fetches at MAX_ATTEMPTS.
-    retry: (currentFailureCount, err) =>
-      err instanceof SubscriptionNotReadyError && currentFailureCount < MAX_ATTEMPTS - 1,
-    retryDelay: POLL_INTERVAL_MS,
-    gcTime: 0,
-  });
-
-  const sessionExpired = isError && error instanceof SessionExpiredError;
-  // Exhausted the retry budget without confirmation → the "Still processing…"
-  // copy. A non-SessionExpired error reaching isError means retry stopped, which
-  // only happens at the attempt cap (transport errors are wrapped as retryable
-  // SubscriptionNotReadyError, never surfaced before the cap).
-  const timedOut = isError && !sessionExpired && failureCount >= MAX_ATTEMPTS - 1;
-
-  const active = Boolean(data);
-  const needsSetup = active && data ? !data.businessOnboarded : false;
-
-  // Terminal 401/403 → route to login so they can re-authenticate. Driven off
-  // the error state (not the fetch callback) so navigation is not buried inside
-  // data-fetching logic; if the component unmounts first, the effect never runs.
   useEffect(() => {
-    if (!sessionExpired) return;
-    router.push('/login?error=session_expired&from=/onboarding/payment-success');
-  }, [sessionExpired, router]);
+    let cancelled = false;
+    let timerId: ReturnType<typeof setTimeout> | null = null;
+    // Track the in-flight AbortController so the cleanup function can also
+    // abort a pending fetch — without this, a stuck request (e.g., Vercel
+    // cold-start hang) would keep awaiting after the user navigates away.
+    let activeController: AbortController | null = null;
+    let delay = 2000;
+    const startedAt = Date.now();
+
+    // Per-request timeout. The poll interval grows from 2s up to 30s, so
+    // a fetch that takes >10s is almost certainly stuck — abort and let
+    // the retry/backoff loop drive the recovery instead of awaiting forever.
+    const FETCH_TIMEOUT_MS = 10_000;
+
+    async function poll() {
+      if (cancelled) return;
+      const controller = new AbortController();
+      activeController = controller;
+      const abortTimer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+      try {
+        const statusUrl = checkoutSessionId
+          ? `/api/auth/signup-status?session_id=${encodeURIComponent(checkoutSessionId)}`
+          : '/api/auth/signup-status';
+        const res = await fetch(statusUrl, {
+          signal: controller.signal,
+        });
+        if (cancelled) return;
+
+        // Terminal auth failures — the session is gone (expired during the
+        // Stripe round-trip, or revoked elsewhere). Polling forever in
+        // this state is a dead end; route them to login so they can
+        // re-authenticate. Both 401 and 403 land here even though the
+        // current API only emits 401 — defensive against future route
+        // changes that add proper RBAC failures.
+        if (res.status === 401 || res.status === 403) {
+          // Don't continue the loop. The unmount on router.push() will fire
+          // the cleanup function below and clear any timers, but mark
+          // cancelled here too so a synchronous retry can't slip through.
+          cancelled = true;
+          router.push('/login?error=session_expired&from=/onboarding/payment-success');
+          return;
+        }
+
+        if (res.ok) {
+          const body = (await res.json()) as {
+            subscriptionStatus: string;
+            businessOnboarded: boolean;
+          };
+          if (body.subscriptionStatus === 'active') {
+            // Payment confirmed. Acknowledge it on THIS page before the user
+            // moves on. Not-yet-onboarded owners get an explicit "Continue
+            // setup" CTA into the wizard (NOT the dashboard) — this gives the
+            // acknowledgement they just paid for while preserving the original
+            // intent of never landing them on a half-onboarded dashboard they
+            // could bookmark.
+            setNeedsSetup(!body.businessOnboarded);
+            setActive(true);
+            return;
+          }
+        }
+        // Anything else (404 mid-provisioning, 429 rate-limit, 5xx) falls
+        // through to the retry/backoff path below.
+      } catch (err) {
+        if (cancelled) return;
+        // AbortError fires both when the per-request timeout trips AND when
+        // cleanup aborts on unmount. The cancelled check above handles the
+        // unmount case; the timeout case falls through to retry naturally.
+        if (err instanceof DOMException && err.name === 'AbortError') {
+          // fall through to retry
+        }
+        // Other transient errors (network down, JSON parse fail) — retry.
+      } finally {
+        clearTimeout(abortTimer);
+        if (activeController === controller) activeController = null;
+      }
+
+      if (cancelled) return;
+      const now = Date.now();
+      setElapsed(now - startedAt);
+      if (now - startedAt > MAX_POLL_DURATION_MS) return;
+      delay = Math.min(delay * 1.5, 30_000);
+      timerId = setTimeout(poll, delay);
+    }
+
+    void poll();
+    return () => {
+      cancelled = true;
+      if (timerId) clearTimeout(timerId);
+      // Abort any in-flight fetch so the await unblocks immediately and
+      // the .finally() runs to clear the per-request timeout. Without
+      // this, a hung request continues consuming until its 10s timeout
+      // even though the component is gone.
+      if (activeController) activeController.abort();
+    };
+  }, [router, checkoutSessionId]);
 
   return (
     <LazyMotion features={domAnimation}>
@@ -153,7 +177,7 @@ export function PaymentSuccessClient({
               </>
             )}
           </>
-        ) : timedOut ? (
+        ) : elapsed > MAX_POLL_DURATION_MS ? (
           <>
             <h1 className="text-2xl font-medium text-[#2a2a2a] mb-3">
               Still processing…

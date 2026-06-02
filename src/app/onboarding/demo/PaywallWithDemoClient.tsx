@@ -101,6 +101,17 @@ export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoC
       ? Math.floor((nowMs - new Date(demo.completed_at).getTime()) / (24 * 60 * 60 * 1000))
       : null;
 
+  // reviewKey can collide if two demo reviews share name/date/rating/text, so
+  // disambiguate by occurrence to keep React keys unique (without using the
+  // array index, which has its own re-render hazards).
+  const reviewKeyCounts = new Map<string, number>();
+  const keyedReviews = reviews.map((review, index) => {
+    const base = reviewKey(review);
+    const occurrence = reviewKeyCounts.get(base) ?? 0;
+    reviewKeyCounts.set(base, occurrence + 1);
+    return { review, index, key: occurrence === 0 ? base : `${base}#${occurrence}` };
+  });
+
   return (
     <OnboardingFunnelShell step="preview">
       <h1 className="text-3xl md:text-4xl font-medium text-center text-[#2a2a2a] mb-2">
@@ -202,9 +213,9 @@ export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoC
 
       {isCompleted && (
         <div className="space-y-6">
-          {reviews.map((review, index) => (
+          {keyedReviews.map(({ review, index, key }) => (
             <ReviewCard
-              key={reviewKey(review)}
+              key={key}
               review={review}
               response={responses[index] ?? null}
             />

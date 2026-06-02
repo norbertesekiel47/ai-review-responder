@@ -1,6 +1,6 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
+import { useEffect, useState, useRef } from 'react';
 
 // ── Response type from /api/account/settings ────────────────────────────
 
@@ -38,24 +38,72 @@ export interface UseAccountData {
 }
 
 export function useAccountData(): UseAccountData {
-  const query = useQuery<AccountSettingsData>({
-    queryKey: ['account-settings'],
-    queryFn: async () => {
-      const res = await fetch('/api/account/settings');
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error ?? `Request failed (${res.status})`);
-      }
-      return res.json() as Promise<AccountSettingsData>;
-    },
-  });
+  const [data, setData] = useState<AccountSettingsData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const fetchIdRef = useRef(0);
 
-  return {
-    data: query.data ?? null,
-    loading: query.isPending,
-    error: query.error ? query.error.message : null,
-    refetch: () => {
-      void query.refetch();
-    },
-  };
+  useEffect(() => {
+    let cancelled = false;
+    const fetchId = ++fetchIdRef.current;
+
+    async function load() {
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await fetch('/api/account/settings');
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.error ?? `Request failed (${res.status})`);
+        }
+        const json: AccountSettingsData = await res.json();
+        if (cancelled || fetchId !== fetchIdRef.current) return;
+        setData(json);
+      } catch (err) {
+        if (!cancelled && fetchId === fetchIdRef.current) {
+          setError(err instanceof Error ? err.message : 'Failed to load account data');
+        }
+      } finally {
+        if (!cancelled && fetchId === fetchIdRef.current) {
+          setLoading(false);
+        }
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  function refetch() {
+    // Increment fetchId to invalidate any in-flight request
+    const newFetchId = ++fetchIdRef.current;
+    let cancelled = false;
+
+    async function load() {
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await fetch('/api/account/settings');
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.error ?? `Request failed (${res.status})`);
+        }
+        const json: AccountSettingsData = await res.json();
+        if (cancelled || newFetchId !== fetchIdRef.current) return;
+        setData(json);
+      } catch (err) {
+        if (!cancelled && newFetchId === fetchIdRef.current) {
+          setError(err instanceof Error ? err.message : 'Failed to load account data');
+        }
+      } finally {
+        if (!cancelled && newFetchId === fetchIdRef.current) {
+          setLoading(false);
+        }
+      }
+    }
+    load();
+  }
+
+  return { data, loading, error, refetch };
 }

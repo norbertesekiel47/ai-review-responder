@@ -1,7 +1,6 @@
 import type { Metadata } from 'next';
 import { Inter, Plus_Jakarta_Sans, DM_Sans, Fraunces, JetBrains_Mono } from 'next/font/google';
 import './globals.css';
-import { RootProviders } from './providers';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter', display: 'swap' });
 const plusJakarta = Plus_Jakarta_Sans({
@@ -41,9 +40,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       lang="en"
       className={`${inter.variable} ${plusJakarta.variable} ${dmSans.variable} ${fraunces.variable} ${jetBrainsMono.variable}`}
     >
-      <body className={inter.className}>
-        <RootProviders>{children}</RootProviders>
-      </body>
+      <body className={inter.className}>{children}</body>
     </html>
   );
 }

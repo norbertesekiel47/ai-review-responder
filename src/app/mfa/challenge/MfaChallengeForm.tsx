@@ -217,11 +217,17 @@ export function MfaChallengeForm() {
 
   async function ensureChallenge(factorId: string): Promise<string | null> {
     if (challengeId) return challengeId;
-    const res = await fetch('/api/auth/mfa/challenge', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ action: 'challenge', factorId }),
-    });
+    let res: Response;
+    try {
+      res = await fetch('/api/auth/mfa/challenge', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'challenge', factorId }),
+      });
+    } catch {
+      dispatch({ type: 'setError', error: 'Could not start MFA challenge. Check your connection and try again.' });
+      return null;
+    }
     if (res.status === 429) {
       dispatch({ type: 'setError', error: 'Too many MFA attempts. Try again in a few minutes.' });
       return null;
@@ -242,16 +248,23 @@ export function MfaChallengeForm() {
     try {
       const nextChallengeId = await ensureChallenge(selectedFactorId);
       if (!nextChallengeId) return;
-      const res = await fetch('/api/auth/mfa/challenge', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          action: 'verify',
-          factorId: selectedFactorId,
-          challengeId: nextChallengeId,
-          code,
-        }),
-      });
+      let res: Response;
+      try {
+        res = await fetch('/api/auth/mfa/challenge', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            action: 'verify',
+            factorId: selectedFactorId,
+            challengeId: nextChallengeId,
+            code,
+          }),
+        });
+      } catch {
+        dispatch({ type: 'setError', error: 'Could not verify the MFA code. Check your connection and try again.' });
+        dispatch({ type: 'setChallengeId', challengeId: null });
+        return;
+      }
       if (res.status === 429) {
         dispatch({ type: 'setError', error: 'Too many MFA attempts. Try again in a few minutes.' });
         dispatch({ type: 'setChallengeId', challengeId: null });

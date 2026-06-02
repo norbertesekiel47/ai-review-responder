@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import type { DashboardData, DashboardDataActive, DashboardSettings } from '@/lib/dashboard/types';
 
 export interface SettingsForm {
@@ -75,8 +74,10 @@ export interface UseSettingsForm {
 }
 
 export function useSettingsForm(): UseSettingsForm {
+  const [data, setData] = useState<DashboardDataActive | null>(null);
   const [form, setForm] = useState<SettingsForm | null>(null);
   const [initial, setInitial] = useState<SettingsForm | null>(null);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
@@ -89,40 +90,36 @@ export function useSettingsForm(): UseSettingsForm {
     [],
   );
 
-  const query = useQuery<DashboardData>({
-    queryKey: ['dashboard-settings'],
-    queryFn: async () => {
-      const res = await fetch('/api/dashboard');
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error ?? `Request failed (${res.status})`);
-      }
-      return res.json() as Promise<DashboardData>;
-    },
-  });
-
-  const redirectUrl = query.data ? settingsRedirectForDashboardData(query.data) : null;
-  // Statuses that redirect away from settings never expose active data; mirror
-  // the original effect, which only set `data` when no redirect applied.
-  const data: DashboardDataActive | null =
-    query.data && !redirectUrl ? (query.data as DashboardDataActive) : null;
-  const fetchError = query.error ? query.error.message : null;
-
-  // The redirect is a genuine browser side effect, so it stays in an effect
-  // keyed off the resolved URL (runs once per distinct redirect target).
   useEffect(() => {
-    if (redirectUrl) window.location.href = redirectUrl;
-  }, [redirectUrl]);
-
-  // Seed editable form state from fetched data during render via the
-  // store-previous-value pattern, so no initialization effect remains.
-  const seededRef = useRef<DashboardDataActive | null>(null);
-  if (data && data !== seededRef.current) {
-    seededRef.current = data;
-    const f = settingsToForm(data.settings);
-    setForm(f);
-    setInitial(f);
-  }
+    let cancelled = false;
+    async function load() {
+      try {
+        const res = await fetch('/api/dashboard');
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.error ?? `Request failed (${res.status})`);
+        }
+        const json: DashboardData = await res.json();
+        if (cancelled) return;
+        const redirectUrl = settingsRedirectForDashboardData(json);
+        if (redirectUrl) {
+          window.location.href = redirectUrl;
+          return;
+        }
+        const active = json as DashboardDataActive;
+        setData(active);
+        const f = settingsToForm(active.settings);
+        setForm(f);
+        setInitial(f);
+      } catch (err) {
+        if (!cancelled) setFetchError(err instanceof Error ? err.message : 'Failed to load settings');
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const dirty = useMemo(() => {
     if (!form || !initial) return false;
