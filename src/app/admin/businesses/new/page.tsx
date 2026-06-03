@@ -7,11 +7,11 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { FormSchema, type FormData } from './schema';
-import { useBusinessPrefill } from './hooks/useBusinessPrefill';
-import { BusinessInfoSection } from './components/BusinessInfoSection';
-import { OwnerInfoSection } from './components/OwnerInfoSection';
-import { VoiceContextSection } from './components/VoiceContextSection';
-import { SubscriptionTierSection } from './components/SubscriptionTierSection';
+import { useBusinessPrefill } from './_hooks/useBusinessPrefill';
+import { BusinessInfoSection } from './_components/BusinessInfoSection';
+import { OwnerInfoSection } from './_components/OwnerInfoSection';
+import { VoiceContextSection } from './_components/VoiceContextSection';
+import { SubscriptionTierSection } from './_components/SubscriptionTierSection';
 
 export default function NewBusinessPage() {
   const router = useRouter();

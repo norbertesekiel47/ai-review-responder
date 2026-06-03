@@ -57,8 +57,8 @@ describe('review stars are brand teal, never yellow (P2 #28)', () => {
 
   it('admin star spans are teal (status badges untouched)', () => {
     for (const p of [
-      'src/app/admin/businesses/[id]/components/ReviewsList.tsx',
-      'src/app/admin/businesses/[id]/components/ZernioConnectionPanel.tsx',
+      'src/app/admin/businesses/[id]/_components/ReviewsList.tsx',
+      'src/app/admin/businesses/[id]/_components/ZernioConnectionPanel.tsx',
     ]) {
       const src = read(p);
       expect(src, `${p} star span still yellow`).not.toMatch(/text-yellow-\d00">\s*\{(?:renderStars|formatStars)/);
