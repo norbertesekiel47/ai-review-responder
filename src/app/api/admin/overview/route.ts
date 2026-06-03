@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
-import { requireAdminOr401 } from '@/lib/auth/route-helpers';
+import { requireRoleOr401 } from '@/lib/auth/route-helpers';
 import { computeChurnRiskScore, type ChurnScore } from '@/lib/shared/churn-score';
 import { HANDLED_STATUSES } from '@/lib/shared/response-status';
 
@@ -67,7 +67,7 @@ interface OverviewData {
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  const auth = await requireAdminOr401(request);
+  const auth = await requireRoleOr401(request, 'admin');
   if (!auth.ok) return auth.response;
 
   try {

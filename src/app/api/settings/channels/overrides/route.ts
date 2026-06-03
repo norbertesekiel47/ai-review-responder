@@ -9,14 +9,14 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
-import { jsonResponse, requireOwnerOr401 } from '@/lib/auth/route-helpers';
+import { jsonResponse, requireRoleOr401 } from '@/lib/auth/route-helpers';
 import { getLocationsForAccount } from '@/lib/locations/repo';
 import { getDisplayLabel, type HasDisplayLabel } from '@/lib/locations/display-label';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  const auth = await requireOwnerOr401(request);
+  const auth = await requireRoleOr401(request, 'owner');
   if (!auth.ok) return auth.response;
   const user = auth.user;
 

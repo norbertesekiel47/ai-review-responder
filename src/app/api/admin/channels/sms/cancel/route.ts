@@ -37,7 +37,7 @@ import {
 } from '../_shared';
 import { asLocationId, asAccountId } from '@/lib/shared/ids';
 import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
-import { requireAdminOr401, withSameOrigin } from '@/lib/auth/route-helpers';
+import { requireRoleOr401, withSameOrigin } from '@/lib/auth/route-helpers';
 
 interface CancelBody {
   business_id?: string;
@@ -48,7 +48,7 @@ async function cancelSms(request: NextRequest): Promise<NextResponse> {
   const envError = assertSmsEnvReady();
   if (envError) return envError;
 
-  const auth = await requireAdminOr401(request);
+  const auth = await requireRoleOr401(request, 'admin');
   if (!auth.ok) return auth.response;
 
   const body = (await request.json()) as CancelBody;

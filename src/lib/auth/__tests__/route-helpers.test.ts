@@ -16,6 +16,10 @@ const { mockGetUser } = vi.hoisted(() => ({
   mockGetUser: vi.fn(),
 }));
 
+const { mockRequireRole } = vi.hoisted(() => ({
+  mockRequireRole: vi.fn(),
+}));
+
 // ── Module mocks (hoisted before imports) ────────────────────────────────────
 
 vi.mock('@/lib/shared/rate-limit', () => ({
@@ -28,9 +32,20 @@ vi.mock('@supabase/ssr', () => ({
   })),
 }));
 
+vi.mock('@/lib/db/auth', () => {
+  class AuthError extends Error {
+    constructor(message: string, public readonly statusCode: number) {
+      super(message);
+      this.name = 'AuthError';
+    }
+  }
+  return { requireRole: mockRequireRole, AuthError };
+});
+
 // ── Import AFTER mocks ───────────────────────────────────────────────────────
 
-import { withRateLimit, withSameOrigin, withSession } from '../route-helpers';
+import { withRateLimit, withSameOrigin, withSession, requireRoleOr401 } from '../route-helpers';
+import { AuthError } from '@/lib/db/auth';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -245,5 +260,72 @@ describe('withSession', () => {
     // getAll() on the cookie adapter should return the request cookies
     const cookies = (opts as any).cookies.getAll();
     expect(Array.isArray(cookies)).toBe(true);
+  });
+});
+
+// ── requireRoleOr401 ───────────────────────────────────────────────────────────
+//
+// The single role-auth gate shared by every admin/owner/channel API route.
+// Contract:
+//   - success → { ok: true, user }
+//   - AuthError → { ok: false, response } as a no-store JSON body carrying the
+//     AuthError's message + statusCode (401 unauth / 403 forbidden)
+//   - any other (unexpected, non-AuthError) failure → THROWS, surfacing a real
+//     5xx rather than a misleading 401-mask. This is the one deliberate
+//     behavior change of the auth-gate unification.
+
+describe('requireRoleOr401', () => {
+  const fakeUser = { id: 'u-1', name: 'Owner', email: 'o@example.com', role: 'owner', accountId: 'a-1', locationId: 'b-1' };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('returns { ok: true, user } and forwards the role to requireRole', async () => {
+    mockRequireRole.mockResolvedValue(fakeUser);
+    const req = makeReq();
+
+    const result = await requireRoleOr401(req, 'owner');
+
+    expect(result).toEqual({ ok: true, user: fakeUser });
+    expect(mockRequireRole).toHaveBeenCalledWith(req, 'owner');
+  });
+
+  it('forwards the admin role through to requireRole', async () => {
+    mockRequireRole.mockResolvedValue({ ...fakeUser, role: 'admin' });
+    const req = makeReq();
+
+    await requireRoleOr401(req, 'admin');
+
+    expect(mockRequireRole).toHaveBeenCalledWith(req, 'admin');
+  });
+
+  it('maps AuthError(401) to a no-store 401 JSON response', async () => {
+    mockRequireRole.mockRejectedValue(new AuthError('Unauthorized', 401));
+
+    const result = await requireRoleOr401(makeReq(), 'owner');
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected failure');
+    expect(result.response.status).toBe(401);
+    expect(await result.response.json()).toEqual({ error: 'Unauthorized' });
+    expect(result.response.headers.get('Cache-Control')).toBe('no-store, private');
+  });
+
+  it('maps AuthError(403) to a 403 JSON response carrying the message', async () => {
+    mockRequireRole.mockRejectedValue(new AuthError('Forbidden', 403));
+
+    const result = await requireRoleOr401(makeReq(), 'admin');
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected failure');
+    expect(result.response.status).toBe(403);
+    expect(await result.response.json()).toEqual({ error: 'Forbidden' });
+  });
+
+  it('THROWS on an unexpected non-AuthError failure (no 401-mask → real 5xx)', async () => {
+    mockRequireRole.mockRejectedValue(new Error('unexpected DB crash'));
+
+    await expect(requireRoleOr401(makeReq(), 'owner')).rejects.toThrow('unexpected DB crash');
   });
 });

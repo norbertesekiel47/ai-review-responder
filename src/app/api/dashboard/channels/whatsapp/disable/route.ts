@@ -1,9 +1,8 @@
 // src/app/api/dashboard/channels/whatsapp/disable/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
-import { requireRole, AuthError } from '@/lib/db/auth';
 import { resolveWritableAccountForLocation } from '@/lib/shared/writable-subscription';
-import { withSameOrigin } from '@/lib/auth/route-helpers';
+import { requireRoleOr401, withSameOrigin } from '@/lib/auth/route-helpers';
 import { isWhatsAppEnabled, flagOff, assertWhatsAppEnvReady } from '@/app/api/admin/channels/whatsapp/_shared';
 import { disableWhatsAppEnrollment } from '@/lib/channels/whatsapp-enrollment';
 import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
@@ -15,15 +14,9 @@ async function handler(req: NextRequest): Promise<NextResponse> {
   const envErr = assertWhatsAppEnvReady();
   if (envErr) return envErr;
 
-  let user;
-  try {
-    user = await requireRole(req, 'owner');
-  } catch (err) {
-    if (err instanceof AuthError) {
-      return NextResponse.json({ error: err.message }, { status: err.statusCode });
-    }
-    throw err; // surface unexpected (non-auth) failures as 5xx, not a misleading 401
-  }
+  const auth = await requireRoleOr401(req, 'owner');
+  if (!auth.ok) return auth.response;
+  const user = auth.user;
 
   if (!user.locationId) return NextResponse.json({ error: 'no_business' }, { status: 403 });
 

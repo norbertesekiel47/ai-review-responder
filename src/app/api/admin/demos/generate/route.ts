@@ -6,7 +6,7 @@ import { sql, jsonb } from '@/lib/db/server';
 import { isPlaceId, extractPlaceId } from '@/lib/reviews/url-parser';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import type { DemoJobPayload } from '@/lib/demos/types';
-import { requireAdminOr401, withSameOrigin } from '@/lib/auth/route-helpers';
+import { requireRoleOr401, withSameOrigin } from '@/lib/auth/route-helpers';
 
 const GenerateDemoSchema = z
   .object({
@@ -21,7 +21,7 @@ const GenerateDemoSchema = z
   );
 
 async function generateDemo(request: NextRequest): Promise<NextResponse> {
-  const auth = await requireAdminOr401(request);
+  const auth = await requireRoleOr401(request, 'admin');
   if (!auth.ok) return auth.response;
 
   // Rate limits: fail CLOSED for cost-sensitive demo generation.

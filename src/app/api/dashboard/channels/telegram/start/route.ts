@@ -8,9 +8,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createHash, randomUUID } from 'node:crypto';
 import QRCode from 'qrcode';
 import { sql } from '@/lib/db/server';
-import { requireRole, AuthError } from '@/lib/db/auth';
 import { resolveWritableAccountForLocation } from '@/lib/shared/writable-subscription';
-import { withSameOrigin } from '@/lib/auth/route-helpers';
+import { requireRoleOr401, withSameOrigin } from '@/lib/auth/route-helpers';
 import { isTelegramEnabled, flagOff, assertTelegramEnvReady } from '@/app/api/admin/channels/telegram/_shared';
 import { startTelegramEnrollment } from '@/lib/channels/telegram-enrollment';
 import { MultipleMobileChannelsError, EnrollmentDatabaseError } from '@/lib/channels/unique-violation';
@@ -24,15 +23,9 @@ async function handler(req: NextRequest): Promise<NextResponse> {
   const envErr = assertTelegramEnvReady();
   if (envErr) return envErr;
 
-  let user;
-  try {
-    user = await requireRole(req, 'owner');
-  } catch (err) {
-    if (err instanceof AuthError) {
-      return NextResponse.json({ error: err.message }, { status: err.statusCode });
-    }
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-  }
+  const auth = await requireRoleOr401(req, 'owner');
+  if (!auth.ok) return auth.response;
+  const user = auth.user;
 
   const locationId = user.locationId;
   if (!locationId) return NextResponse.json({ error: 'no_business' }, { status: 403 });

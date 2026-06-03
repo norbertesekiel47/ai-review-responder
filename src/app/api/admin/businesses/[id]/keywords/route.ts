@@ -4,7 +4,7 @@ import { sql, jsonb } from '@/lib/db/server';
 import { asLocationId } from '@/lib/shared/ids';
 import type { LocationId } from '@/lib/shared/ids';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
-import { requireAdminOr401, withSameOrigin } from '@/lib/auth/route-helpers';
+import { requireRoleOr401, withSameOrigin } from '@/lib/auth/route-helpers';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,7 +20,7 @@ async function updateKeywords(
   const { id: rawBusinessId } = await params;
   const businessId: LocationId = asLocationId(rawBusinessId);
 
-  const auth = await requireAdminOr401(request);
+  const auth = await requireRoleOr401(request, 'admin');
   if (!auth.ok) return auth.response;
 
   let parsed: z.infer<typeof KeywordsSchema>;

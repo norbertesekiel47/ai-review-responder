@@ -13,14 +13,14 @@ import { z } from 'zod';
 import { sql } from '@/lib/db/server';
 import { getLocationsForAccount } from '@/lib/locations/repo';
 import { getDisplayLabel, type HasDisplayLabel } from '@/lib/locations/display-label';
-import { jsonResponse, requireOwnerOr401, requireWritableOwner, withSameOrigin } from '@/lib/auth/route-helpers';
+import { jsonResponse, requireRoleOr401, requireWritableOwner, withSameOrigin } from '@/lib/auth/route-helpers';
 
 export const dynamic = 'force-dynamic';
 
 // ── GET: Fetch voice config for one or all locations ────────────────────
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  const auth = await requireOwnerOr401(request);
+  const auth = await requireRoleOr401(request, 'owner');
   if (!auth.ok) return auth.response;
   const user = auth.user;
 

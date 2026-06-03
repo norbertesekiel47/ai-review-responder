@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
-import { requireAdminOr401 } from '@/lib/auth/route-helpers';
+import { requireRoleOr401 } from '@/lib/auth/route-helpers';
 import type { DemoListItem } from '@/lib/demos/types';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  const auth = await requireAdminOr401(request);
+  const auth = await requireRoleOr401(request, 'admin');
   if (!auth.ok) return auth.response;
 
   try {

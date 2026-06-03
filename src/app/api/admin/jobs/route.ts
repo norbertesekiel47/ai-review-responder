@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Queue } from 'bullmq';
 import type { RedisOptions } from 'ioredis';
 import { sql } from '@/lib/db/server';
-import { requireAdminOr401 } from '@/lib/auth/route-helpers';
+import { requireRoleOr401 } from '@/lib/auth/route-helpers';
 import { ALL_QUEUE_NAMES } from '@/lib/shared/queue-names';
 
 // Queue names come from the shared registry (src/lib/shared/queue-names.ts)
@@ -61,7 +61,7 @@ interface JobsData {
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  const auth = await requireAdminOr401(request);
+  const auth = await requireRoleOr401(request, 'admin');
   if (!auth.ok) return auth.response;
 
   try {

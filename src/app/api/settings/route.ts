@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { sql } from '@/lib/db/server';
-import { jsonResponse, requireOwnerOr401, withSameOrigin } from '@/lib/auth/route-helpers';
+import { jsonResponse, requireRoleOr401, withSameOrigin } from '@/lib/auth/route-helpers';
 import { assertWritableSubscriptionForAccount } from '@/lib/shared/writable-subscription';
 
 export const dynamic = 'force-dynamic';
@@ -31,7 +31,7 @@ const FIELD_TO_COLUMN: Record<string, string> = {
 };
 
 async function putSettings(request: NextRequest): Promise<NextResponse> {
-  const auth = await requireOwnerOr401(request);
+  const auth = await requireRoleOr401(request, 'owner');
   if (!auth.ok) return auth.response;
   const user = auth.user;
 

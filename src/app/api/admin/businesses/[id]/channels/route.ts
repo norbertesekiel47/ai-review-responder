@@ -6,7 +6,7 @@
 // (Next.js 15: params is a Promise that must be awaited).
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
-import { requireAdminOr401 } from '@/lib/auth/route-helpers';
+import { requireRoleOr401 } from '@/lib/auth/route-helpers';
 import { asLocationId } from '@/lib/shared/ids';
 import type { LocationId } from '@/lib/shared/ids';
 
@@ -36,7 +36,7 @@ export async function GET(
   const { id: rawBusinessId } = await params;
   const businessId: LocationId = asLocationId(rawBusinessId);
 
-  const auth = await requireAdminOr401(request);
+  const auth = await requireRoleOr401(request, 'admin');
   if (!auth.ok) return auth.response;
 
   // Channel enrollment is ACCOUNT-scoped: admin start/disable act on the

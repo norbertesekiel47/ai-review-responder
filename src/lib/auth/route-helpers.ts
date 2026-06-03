@@ -3,7 +3,7 @@ import { createServerClient } from '@supabase/ssr';
 import type { User } from '@supabase/supabase-js';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
-import { requireRole, AuthError } from '@/lib/db/auth';
+import { requireRole, AuthError, type AppUser } from '@/lib/db/auth';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 import { assertWritableSubscriptionForAccount } from '@/lib/shared/writable-subscription';
 
@@ -116,48 +116,55 @@ export function jsonResponse(body: unknown, status = 200): NextResponse {
   return NextResponse.json(body, { status, headers: NO_STORE_HEADERS });
 }
 
-export type AdminAuthResult =
-  | { ok: true; user: Awaited<ReturnType<typeof requireRole>> }
-  | { ok: false; response: NextResponse };
-
-export type OwnerAuthResult =
-  | { ok: true; user: Awaited<ReturnType<typeof requireRole>> }
+export type RoleAuthResult =
+  | { ok: true; user: AppUser }
   | { ok: false; response: NextResponse };
 
 /**
- * Owner-role gate shared by the owner/account API routes: runs
- * requireRole(_, 'owner') and maps an AuthError to its no-store JSON response,
- * falling back to a 401 for any other failure (the routes' long-standing
- * behavior). Returns the resolved owner user on success.
+ * The single role-auth gate shared by every admin/owner/channel API route.
+ * Runs requireRole(request, role) and maps the outcome:
  *
- *   const auth = await requireOwnerOr401(request);
+ *   - success           → { ok: true, user }
+ *   - AuthError         → { ok: false, response } — a no-store JSON body
+ *                         ({ error: message }) at the AuthError's statusCode
+ *                         (401 unauthenticated / 403 forbidden).
+ *   - any other failure → re-thrown, surfacing a real 5xx. An unexpected
+ *                         (non-auth) failure must not be masked as a 401 —
+ *                         that drift hid genuine server faults behind an
+ *                         "Unauthorized" response.
+ *
+ *   const auth = await requireRoleOr401(request, 'owner');
  *   if (!auth.ok) return auth.response;
  *   const user = auth.user;
  */
-export async function requireOwnerOr401(request: NextRequest): Promise<OwnerAuthResult> {
+export async function requireRoleOr401(
+  request: NextRequest,
+  role: string,
+): Promise<RoleAuthResult> {
   try {
-    const user = await requireRole(request, 'owner');
+    const user = await requireRole(request, role);
     return { ok: true, user };
   } catch (err) {
     if (err instanceof AuthError) {
       return { ok: false, response: jsonResponse({ error: err.message }, err.statusCode) };
     }
-    return { ok: false, response: jsonResponse({ error: 'Unauthorized' }, 401) };
+    throw err;
   }
 }
 
 export type WritableOwnerResult =
-  | { ok: true; user: Awaited<ReturnType<typeof requireRole>>; accountId: string }
+  | { ok: true; user: AppUser; accountId: string }
   | { ok: false; response: NextResponse };
 
 /**
- * Owner gate for mutating owner/account routes: requireOwnerOr401 → account
- * association check → writable-subscription gate (past-due read-only enforced).
- * Returns the owner user + accountId on success, or the inline no-store JSON
- * response (401 / 403 no-account / 402|403 not-writable) on failure.
+ * Owner gate for mutating owner/account routes: requireRoleOr401(_, 'owner') →
+ * account association check → writable-subscription gate (past-due read-only
+ * enforced). Returns the owner user + accountId on success, or the inline
+ * no-store JSON response (401 / 403 no-account / 402|403 not-writable) on
+ * failure. Unexpected non-auth failures propagate as 5xx (see requireRoleOr401).
  */
 export async function requireWritableOwner(request: NextRequest): Promise<WritableOwnerResult> {
-  const auth = await requireOwnerOr401(request);
+  const auth = await requireRoleOr401(request, 'owner');
   if (!auth.ok) return auth;
 
   if (!auth.user.accountId) {
@@ -170,26 +177,4 @@ export async function requireWritableOwner(request: NextRequest): Promise<Writab
   }
 
   return { ok: true, user: auth.user, accountId: auth.user.accountId };
-}
-
-/**
- * Admin-role gate shared by the admin API routes: runs `requireRole(_, 'admin')`
- * and maps an AuthError to its HTTP response, falling back to a 401 for any
- * other failure (the routes' long-standing behavior — an unexpected error is
- * surfaced as Unauthorized, not a 5xx). Returns the resolved user on success.
- *
- *   const auth = await requireAdminOr401(request);
- *   if (!auth.ok) return auth.response;
- *   // auth.user is the admin AppUser
- */
-export async function requireAdminOr401(request: NextRequest): Promise<AdminAuthResult> {
-  try {
-    const user = await requireRole(request, 'admin');
-    return { ok: true, user };
-  } catch (err) {
-    if (err instanceof AuthError) {
-      return { ok: false, response: NextResponse.json({ error: err.message }, { status: err.statusCode }) };
-    }
-    return { ok: false, response: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) };
-  }
 }

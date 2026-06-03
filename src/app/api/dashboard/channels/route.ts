@@ -8,7 +8,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
-import { requireRole, AuthError } from '@/lib/db/auth';
+import { requireRoleOr401 } from '@/lib/auth/route-helpers';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { isTelegramEnabled, assertTelegramEnvReady } from '@/app/api/admin/channels/telegram/_shared';
 import { whatsappEnvReady } from '@/app/api/admin/channels/whatsapp/_shared';
@@ -48,15 +48,9 @@ function telegramAvailable(): boolean {
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  let user;
-  try {
-    user = await requireRole(request, 'owner');
-  } catch (err) {
-    if (err instanceof AuthError) {
-      return NextResponse.json({ error: err.message }, { status: err.statusCode });
-    }
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const auth = await requireRoleOr401(request, 'owner');
+  if (!auth.ok) return auth.response;
+  const user = auth.user;
 
   if (!user.locationId) {
     return NextResponse.json({ error: 'no_business' }, { status: 403 });

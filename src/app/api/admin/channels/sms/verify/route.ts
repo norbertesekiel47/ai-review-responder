@@ -42,7 +42,7 @@ import {
 import { classifyEnrollmentError, MultipleMobileChannelsError, EnrollmentDatabaseError } from '@/lib/channels/unique-violation';
 import { asLocationId, asAccountId } from '@/lib/shared/ids';
 import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
-import { requireAdminOr401, withSameOrigin } from '@/lib/auth/route-helpers';
+import { requireRoleOr401, withSameOrigin } from '@/lib/auth/route-helpers';
 
 interface VerifyBody {
   business_id?: string;
@@ -63,7 +63,7 @@ async function verifySms(request: NextRequest): Promise<NextResponse> {
   const envError = assertSmsEnvReady();
   if (envError) return envError;
 
-  const auth = await requireAdminOr401(request);
+  const auth = await requireRoleOr401(request, 'admin');
   if (!auth.ok) return auth.response;
 
   const body = (await request.json()) as VerifyBody;
