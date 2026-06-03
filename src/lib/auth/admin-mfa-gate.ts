@@ -55,6 +55,13 @@ function internalError(error: unknown): NextResponse {
  * routes (e.g. the flagged GET queue) need no wrapper. The 500 path replaces
  * both the per-route errorToResponse helpers and the old non-AuthError
  * 401-mask on the flagged GET.
+ *
+ * Deliberate asymmetry with requireRoleOr401 (the owner/channel gate,
+ * src/lib/auth/route-helpers.ts) on the unexpected-error mode: that gate
+ * RE-THROWS a non-auth failure (bare Next 500), while this gate CATCHES it and
+ * returns the clean internal_error 500 above. Each preserves its own routes'
+ * pre-refactor behavior; don't unify one onto the other without accepting the
+ * observable change.
  */
 export async function requireAdminWithAal2(
   request: NextRequest,

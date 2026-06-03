@@ -133,6 +133,15 @@ export type RoleAuthResult =
  *                         that drift hid genuine server faults behind an
  *                         "Unauthorized" response.
  *
+ * Deliberate asymmetry with requireAdminWithAal2 (the admin control-plane gate,
+ * src/lib/auth/admin-mfa-gate.ts) on this exact failure mode: that gate CATCHES
+ * a non-auth failure and returns a clean { error: 'internal_error' } 500, while
+ * this gate RE-THROWS. Each preserves its own routes' pre-refactor behavior —
+ * the owner/channel/admin routes here intentionally let server faults surface
+ * as a real (un-masked) 5xx; the admin mutation routes return a uniform
+ * internal_error 500. Don't unify one onto the other without accepting that
+ * observable change across ~40 routes.
+ *
  *   const auth = await requireRoleOr401(request, 'owner');
  *   if (!auth.ok) return auth.response;
  *   const user = auth.user;
