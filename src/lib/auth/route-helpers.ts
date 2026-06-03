@@ -152,18 +152,19 @@ export async function requireRoleOr401(
   }
 }
 
-export type WritableOwnerResult =
+export type OwnerAccountResult =
   | { ok: true; user: AppUser; accountId: string }
   | { ok: false; response: NextResponse };
 
 /**
- * Owner gate for mutating owner/account routes: requireRoleOr401(_, 'owner') →
- * account association check → writable-subscription gate (past-due read-only
- * enforced). Returns the owner user + accountId on success, or the inline
- * no-store JSON response (401 / 403 no-account / 402|403 not-writable) on
- * failure. Unexpected non-auth failures propagate as 5xx (see requireRoleOr401).
+ * Owner gate for account-scoped READ routes: requireRoleOr401(_, 'owner') →
+ * account-association check. Returns the owner user + accountId on success, or
+ * the inline no-store JSON response (401/403 AuthError, 403 no-account). Does
+ * NOT enforce the writable-subscription gate — reads stay available to past-due
+ * accounts (use requireWritableOwner for mutations). Unexpected non-auth
+ * failures propagate as 5xx (see requireRoleOr401).
  */
-export async function requireWritableOwner(request: NextRequest): Promise<WritableOwnerResult> {
+export async function requireOwnerWithAccount(request: NextRequest): Promise<OwnerAccountResult> {
   const auth = await requireRoleOr401(request, 'owner');
   if (!auth.ok) return auth;
 
@@ -171,10 +172,26 @@ export async function requireWritableOwner(request: NextRequest): Promise<Writab
     return { ok: false, response: jsonResponse({ error: 'No account associated with this user' }, 403) };
   }
 
-  const writable = await assertWritableSubscriptionForAccount(auth.user.accountId);
+  return { ok: true, user: auth.user, accountId: auth.user.accountId };
+}
+
+export type WritableOwnerResult = OwnerAccountResult;
+
+/**
+ * Owner gate for mutating owner/account routes: requireOwnerWithAccount →
+ * writable-subscription gate (past-due read-only enforced). Returns the owner
+ * user + accountId on success, or the inline no-store JSON response
+ * (401 / 403 no-account / 402|403 not-writable) on failure. Unexpected non-auth
+ * failures propagate as 5xx (see requireRoleOr401).
+ */
+export async function requireWritableOwner(request: NextRequest): Promise<WritableOwnerResult> {
+  const owner = await requireOwnerWithAccount(request);
+  if (!owner.ok) return owner;
+
+  const writable = await assertWritableSubscriptionForAccount(owner.accountId);
   if (!writable.ok) {
     return { ok: false, response: jsonResponse({ error: writable.error }, writable.status) };
   }
 
-  return { ok: true, user: auth.user, accountId: auth.user.accountId };
+  return owner;
 }

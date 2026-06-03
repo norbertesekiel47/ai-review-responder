@@ -44,7 +44,7 @@ vi.mock('@/lib/db/auth', () => {
 
 // ── Import AFTER mocks ───────────────────────────────────────────────────────
 
-import { withRateLimit, withSameOrigin, withSession, requireRoleOr401 } from '../route-helpers';
+import { withRateLimit, withSameOrigin, withSession, requireRoleOr401, requireOwnerWithAccount } from '../route-helpers';
 import { AuthError } from '@/lib/db/auth';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -327,5 +327,49 @@ describe('requireRoleOr401', () => {
     mockRequireRole.mockRejectedValue(new Error('unexpected DB crash'));
 
     await expect(requireRoleOr401(makeReq(), 'owner')).rejects.toThrow('unexpected DB crash');
+  });
+});
+
+// ── requireOwnerWithAccount ─────────────────────────────────────────────────
+//
+// Owner read-gate (the account-scoped subset of requireWritableOwner, minus the
+// writable-subscription check): requireRoleOr401('owner') → account presence.
+
+describe('requireOwnerWithAccount', () => {
+  const ownerUser = { id: 'u-1', name: 'Owner', email: 'o@x.com', role: 'owner', accountId: 'acct-1', locationId: 'loc-1' };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('returns { ok: true, user, accountId } when an owner with an account resolves', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser);
+
+    const result = await requireOwnerWithAccount(makeReq());
+
+    expect(result).toEqual({ ok: true, user: ownerUser, accountId: 'acct-1' });
+    expect(mockRequireRole).toHaveBeenCalledWith(expect.anything(), 'owner');
+  });
+
+  it('returns 403 no-account (no-store) when the owner has no accountId', async () => {
+    mockRequireRole.mockResolvedValue({ ...ownerUser, accountId: null });
+
+    const result = await requireOwnerWithAccount(makeReq());
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected failure');
+    expect(result.response.status).toBe(403);
+    expect(await result.response.json()).toEqual({ error: 'No account associated with this user' });
+    expect(result.response.headers.get('Cache-Control')).toBe('no-store, private');
+  });
+
+  it('forwards the AuthError response (401) when auth fails', async () => {
+    mockRequireRole.mockRejectedValue(new AuthError('Unauthorized', 401));
+
+    const result = await requireOwnerWithAccount(makeReq());
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected failure');
+    expect(result.response.status).toBe(401);
   });
 });

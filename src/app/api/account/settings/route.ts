@@ -10,7 +10,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
-import { jsonResponse, requireRoleOr401 } from '@/lib/auth/route-helpers';
+import { jsonResponse, requireOwnerWithAccount } from '@/lib/auth/route-helpers';
 import { currentBillingSnapshot } from '@/lib/accounts/quota';
 import { getActiveLocationCount } from '@/lib/locations/repo';
 import { SubscriptionTier } from '@/lib/accounts/tier-config';
@@ -20,16 +20,9 @@ import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  const auth = await requireRoleOr401(request, 'owner');
-  if (!auth.ok) return auth.response;
-  const user = auth.user;
-
-  if (!user.accountId) {
-    return jsonResponse(
-      { error: 'No account associated with this user' },
-      403,
-    );
-  }
+  const owner = await requireOwnerWithAccount(request);
+  if (!owner.ok) return owner.response;
+  const user = owner.user;
 
   // Fetch account data
   const [account] = await sql<{
@@ -63,8 +56,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   // Fetch independent account metrics after the account existence check.
   const [activeLocations, billingSnapshot] = await Promise.all([
-    getActiveLocationCount(user.accountId),
-    currentBillingSnapshot(user.accountId),
+    getActiveLocationCount(owner.accountId),
+    currentBillingSnapshot(owner.accountId),
   ]);
 
   // Format tier label for display

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
-import { jsonResponse, requireRoleOr401 } from '@/lib/auth/route-helpers';
+import { jsonResponse, requireOwnerWithAccount } from '@/lib/auth/route-helpers';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import {
   getActiveDashboardData,
@@ -349,15 +349,11 @@ async function handlePerLocationDashboard(
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  const auth = await requireRoleOr401(request, 'owner');
-  if (!auth.ok) return auth.response;
-  const user = auth.user;
+  const owner = await requireOwnerWithAccount(request);
+  if (!owner.ok) return owner.response;
+  const user = owner.user;
 
-  if (!user.accountId) {
-    return jsonResponse({ error: 'No account associated with this user' }, 403);
-  }
-
-  const accountId = user.accountId;
+  const accountId = owner.accountId;
 
   // VAL-DASH-024: `scope` query parameter — `all` → aggregate; `<locationId>` →
   // per-location; absent → the user's current location from session/cookie.

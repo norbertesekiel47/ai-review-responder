@@ -13,20 +13,16 @@ import { z } from 'zod';
 import { sql } from '@/lib/db/server';
 import { getLocationsForAccount } from '@/lib/locations/repo';
 import { getDisplayLabel, type HasDisplayLabel } from '@/lib/locations/display-label';
-import { jsonResponse, requireRoleOr401, requireWritableOwner, withSameOrigin } from '@/lib/auth/route-helpers';
+import { jsonResponse, requireOwnerWithAccount, requireWritableOwner, withSameOrigin } from '@/lib/auth/route-helpers';
 
 export const dynamic = 'force-dynamic';
 
 // ── GET: Fetch voice config for one or all locations ────────────────────
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  const auth = await requireRoleOr401(request, 'owner');
-  if (!auth.ok) return auth.response;
-  const user = auth.user;
-
-  if (!user.accountId) {
-    return jsonResponse({ error: 'No account associated with this user' }, 403);
-  }
+  const owner = await requireOwnerWithAccount(request);
+  if (!owner.ok) return owner.response;
+  const user = owner.user;
 
   const locationId = request.nextUrl.searchParams.get('locationId');
 
@@ -63,7 +59,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   // Fetch voice config for all active locations in the account
-  const locations = await getLocationsForAccount(user.accountId);
+  const locations = await getLocationsForAccount(owner.accountId);
 
   if (locations.length === 0) {
     return jsonResponse({ locations: [] });

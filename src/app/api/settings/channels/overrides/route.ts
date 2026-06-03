@@ -9,20 +9,16 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
-import { jsonResponse, requireRoleOr401 } from '@/lib/auth/route-helpers';
+import { jsonResponse, requireOwnerWithAccount } from '@/lib/auth/route-helpers';
 import { getLocationsForAccount } from '@/lib/locations/repo';
 import { getDisplayLabel, type HasDisplayLabel } from '@/lib/locations/display-label';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  const auth = await requireRoleOr401(request, 'owner');
-  if (!auth.ok) return auth.response;
-  const user = auth.user;
-
-  if (!user.accountId) {
-    return jsonResponse({ error: 'No account associated with this user' }, 403);
-  }
+  const owner = await requireOwnerWithAccount(request);
+  if (!owner.ok) return owner.response;
+  const user = owner.user;
 
   const [overrides, locations] = await Promise.all([
     // Fetch per-location overrides (location_id IS NOT NULL)
@@ -42,7 +38,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       ORDER BY e.location_id, e.channel
     `,
     // Fetch location names for display
-    getLocationsForAccount(user.accountId),
+    getLocationsForAccount(owner.accountId),
   ]);
   const locationMap = new Map(
     locations.map((loc) => [loc.id, { name: loc.name, display_label: loc.display_label }]),
