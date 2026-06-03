@@ -9,8 +9,8 @@ import { AggregateVelocityCard } from '@/components/dashboard/aggregate/Aggregat
 import { AggregateRankingCard } from '@/components/dashboard/aggregate/AggregateRankingCard';
 import { AggregateIntelligenceBriefCard } from '@/components/dashboard/aggregate/AggregateIntelligenceBriefCard';
 import { LocationKpiStrip } from '@/components/dashboard/aggregate/LocationKpiStrip';
-import { PastDueBanner } from '@/components/dashboard/SubscriptionStatusBanner';
-import { PastDueModal } from '@/components/dashboard/PastDueModal';
+import { PastDueBanner } from '@/components/dashboard/account-state/SubscriptionStatusBanner';
+import { PastDueModal } from '@/components/dashboard/account-state/PastDueModal';
 import { useSetPendingCount } from '@/components/dashboard/PendingCountContext';
 import { useNeedsActionHashScroll } from '@/components/dashboard/useNeedsActionHashScroll';
 

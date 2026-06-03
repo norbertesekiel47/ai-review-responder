@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { PastReplyCard } from '@/components/dashboard/reviews/PastReplyCard';
 import type { PastReplyRow } from '@/components/dashboard/reviews/PastReplyCard';
 import { EditReplyDrawer } from '@/components/dashboard/reviews/EditReplyDrawer';
-import { HistoricalUpgradeBanner } from '@/components/dashboard/HistoricalUpgradeBanner';
+import { HistoricalUpgradeBanner } from '@/components/dashboard/account-state/HistoricalUpgradeBanner';
 import { Icon } from '@/components/dashboard/shell/Icon';
 
 interface Props {

@@ -2,7 +2,7 @@
 
 import { describe, expect, it, beforeEach } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
-import { PastDueModal } from '@/components/dashboard/PastDueModal';
+import { PastDueModal } from '@/components/dashboard/account-state/PastDueModal';
 
 describe('PastDueModal', () => {
   beforeEach(() => {

@@ -14,7 +14,7 @@ const SWEPT_FILES = [
   // Owner Console — token system
   'src/app/(authenticated)/_styles/tokens.css',
   'src/app/(authenticated)/_styles/console.css',
-  'src/components/dashboard/ConnectGoogleBanner.tsx',
+  'src/components/dashboard/account-state/ConnectGoogleBanner.tsx',
   // Owner Console — edit-reply drawer
   'src/components/dashboard/reviews/EditReplyDrawer.tsx',
   'src/components/dashboard/reviews/edit-reply/DraftConflictPanel.tsx',
