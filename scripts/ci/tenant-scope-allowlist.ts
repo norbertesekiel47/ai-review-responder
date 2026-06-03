@@ -1579,12 +1579,6 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "Owner past-replies transaction has already resolved request account/location scope before this row-level lock or mutation.",
   },
   {
-    file: "src/app/api/locations/existing-place-ids/route.ts",
-    table: "businesses",
-    sqlSnippet: "SELECT google_place_id FROM businesses WHERE account_id = ${user.accountId}::uuid AND archived_at IS NULL AND google_place_id IS NOT NULL",
-    reason: "Owner locations route uses user.accountId from the authenticated request before listing existing location place ids.",
-  },
-  {
     file: "src/app/api/onboarding/select-plan/route.ts",
     table: "businesses",
     sqlSnippet: "UPDATE accounts SET subscription_tier = ${tier}, locations_included = ${tierConfig?.included ?? 1}, locations_overage_price_cents = ${tierConfig?.overageCents ?? 2500}, base_price_cents = ${tierConfig?.baseCents ?? 7900}, updated_at = NOW() WHERE id = (SELECT account_id FROM businesses WHERE id = ${businessId}::uuid) AND subscription_status = ${SubscriptionStatus.PENDING_PAYMENT}",
