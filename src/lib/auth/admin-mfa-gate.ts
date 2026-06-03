@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { AuthError, requireRole, type AppUser } from '@/lib/db/auth';
 import { requireCurrentAal2FromSupabase, type SupabaseMfaAalClient } from '@/lib/auth/mfa';
-import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 
 export type AdminMfaGateResult =
@@ -37,39 +36,29 @@ function internalError(error: unknown): NextResponse {
 }
 
 /**
- * The admin control-plane preamble shared by every admin mutation route:
- * optional same-origin (CSRF) check → requireRole(admin) → AAL2 (MFA step-up)
- * against a cookie-backed Supabase client. Returns the admin user on success,
- * or a no-store JSON Response on failure:
+ * The admin control-plane preamble shared by every admin route that needs
+ * elevated access: requireRole(admin) → AAL2 (MFA step-up) against a
+ * cookie-backed Supabase client. Returns the admin user on success, or a
+ * no-store JSON Response on failure:
  *
- *   - cross-origin           → 403 { error: 'forbidden' }
  *   - AuthError              → its statusCode (401 unauth / 403 forbidden),
  *                              { error: message }
  *   - missing AAL2 step-up   → 403 { error: 'mfa_required' | 'mfa_check_failed' }
  *   - unexpected (non-auth)  → 500 { error: 'internal_error' }
  *
- * Pass `{ sameOrigin: true }` for mutating (POST) routes; read routes (e.g. the
- * flagged GET queue) omit it. The 500 path replaces both the per-route
- * errorToResponse helpers and the old non-AuthError 401-mask on the flagged GET.
+ * CSRF is deliberately NOT handled here. Mutating routes get same-origin
+ * protection by construction at the export — `export const POST =
+ * withSameOrigin()(handler)` (src/lib/auth/route-helpers.ts) — the same
+ * mechanism the rest of the app uses, visible at the route boundary. A
+ * previous `{ sameOrigin: true }` opt-in flag made the check forgettable: a new
+ * admin POST that omitted it shipped CSRF-vulnerable with no type error. Read
+ * routes (e.g. the flagged GET queue) need no wrapper. The 500 path replaces
+ * both the per-route errorToResponse helpers and the old non-AuthError
+ * 401-mask on the flagged GET.
  */
 export async function requireAdminWithAal2(
   request: NextRequest,
-  opts: { sameOrigin?: boolean } = {},
 ): Promise<AdminMfaGateResult> {
-  if (opts.sameOrigin) {
-    try {
-      assertSameOrigin(request);
-    } catch (err) {
-      if (err instanceof SameOriginError) {
-        return {
-          ok: false,
-          response: NextResponse.json({ error: 'forbidden' }, { status: 403, headers: NO_STORE_HEADERS }),
-        };
-      }
-      return { ok: false, response: internalError(err) };
-    }
-  }
-
   let admin: AppUser;
   try {
     admin = await requireRole(request, 'admin');

@@ -4,6 +4,7 @@ import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '@/lib/db/server';
 import { writeAccountAuditLog } from '@/lib/audit/log';
 import { requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';
+import { withSameOrigin } from '@/lib/auth/route-helpers';
 import type { SendNotificationPayload, GenerateResponsePayload } from '@/lib/shared/worker-types';
 
 export const dynamic = 'force-dynamic';
@@ -110,8 +111,8 @@ interface OpenFlagRow {
   account_id: string;
 }
 
-export async function POST(request: NextRequest): Promise<NextResponse> {
-  const gate = await requireAdminWithAal2(request, { sameOrigin: true });
+async function dispositionFlaggedResponse(request: NextRequest): Promise<NextResponse> {
+  const gate = await requireAdminWithAal2(request);
   if (!gate.ok) return gate.response;
   const admin = gate.admin;
 
@@ -229,3 +230,6 @@ function dispositionErrorResponse(error: unknown): NextResponse {
   console.error('[api/admin/flagged] disposition failed:', error);
   return NextResponse.json({ error: 'internal_error' }, { status: 500, headers: NO_STORE });
 }
+
+// CSRF by construction: same-origin enforced at the export, not inside the gate.
+export const POST = withSameOrigin()(dispositionFlaggedResponse);

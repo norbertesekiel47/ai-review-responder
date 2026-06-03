@@ -2,13 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { IMPERSONATION_COOKIE_NAME, verifyImpersonationSession } from '@/lib/admin/impersonation/cookie';
 import { endImpersonationSession } from '@/lib/admin/impersonation/session';
 import { requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';
+import { withSameOrigin } from '@/lib/auth/route-helpers';
 
 export const dynamic = 'force-dynamic';
 
 const NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
 
-export async function POST(request: NextRequest): Promise<NextResponse> {
-  const gate = await requireAdminWithAal2(request, { sameOrigin: true });
+async function endImpersonation(request: NextRequest): Promise<NextResponse> {
+  const gate = await requireAdminWithAal2(request);
   if (!gate.ok) return gate.response;
   const admin = gate.admin;
 
@@ -51,3 +52,6 @@ function errorToResponse(error: unknown): NextResponse {
     { status: 500, headers: NO_STORE },
   );
 }
+
+// CSRF by construction: same-origin enforced at the export, not inside the gate.
+export const POST = withSameOrigin()(endImpersonation);
