@@ -54,10 +54,16 @@
       // The clones below are either deliberately parallel, behaviourally
       // divergent, or extractable only by adding tiny pass-through helpers that
       // the project's design rules reject (design.md / repworth.md "add nothing").
-      // They are acknowledged here instead of force-merged.
+      // They are acknowledged here instead of force-merged. The genuinely-deep
+      // shared concern — the role-auth gate family — was EXTRACTED, not frozen:
+      // requireRoleOr401 (all admin/owner/channel routes), requireAdminWithAal2
+      // (admin control-plane MFA gate), requireOwnerWithAccount/requireWritableOwner
+      // (owner + account), so admin control-plane and billing no longer appear here.
 
-      // Admin SMS channel routes: shared flag/env/auth + loadBusinessAccountContext
-      // preamble; SMS verification flow differs enough per-action to keep separate.
+      // Admin SMS channel routes: the deep logic already lives in _shared
+      // (loadBusinessAccountContext, withMobileEnrollmentLock, subscription
+      // guards). The residual is per-action composition glue around a GET-query
+      // vs POST-body business_id parse — extracting it would be a thin wrapper.
       "src/app/api/admin/channels/sms/cancel/route.ts",
       "src/app/api/admin/channels/sms/confirm/route.ts",
       "src/app/api/admin/channels/sms/delete/route.ts",
@@ -71,18 +77,25 @@
       "src/app/api/admin/businesses/*/route.ts",
       "src/lib/admin/business-detail/update.ts",
 
-      // Owner settings/account routes: residual accountId/writable-gate scaffolding
-      // after extraction (the deep shared blocks already live in route-helpers).
+      // Owner settings/account routes: the deep owner+account and writable-owner
+      // gates are extracted (requireOwnerWithAccount / requireWritableOwner). The
+      // residual clone is the force-dynamic export + the standardized 3-line gate
+      // call + per-route locationId/writable guards — framework scaffolding, not
+      // extractable without a per-handler HOF wrapper. (dashboard/route.ts dropped
+      // out of the clone set once its preamble adopted requireOwnerWithAccount.)
       "src/app/api/account/settings/route.ts",
       "src/app/api/settings/route.ts",
       "src/app/api/settings/voice/route.ts",
       "src/app/api/settings/channels/override/route.ts",
       "src/app/api/settings/channels/overrides/route.ts",
-      "src/app/api/dashboard/route.ts",
       "src/app/api/locations/display-label/route.ts",
 
-      // Dashboard channel routes: flag/env/cache wrapper shared, but telegram vs
-      // whatsapp diverge by design (401-mask vs throw on unexpected errors).
+      // Dashboard channel routes: the owner-auth gate is now shared
+      // (requireRoleOr401). The residual preamble (flag → env → location →
+      // writable-account resolution) diverges by design — start maps no_account
+      // → 404 while cancel/disable map it → 403, and each route binds a
+      // channel-specific enrollment fn + flag/env helper. Not cleanly unifiable
+      // without a config-knobbed helper.
       "src/app/api/dashboard/channels/telegram/cancel/route.ts",
       "src/app/api/dashboard/channels/telegram/disable/route.ts",
       "src/app/api/dashboard/channels/telegram/start/route.ts",
@@ -134,7 +147,13 @@
       "src/components/sections/landing/Features.tsx",
       "src/components/sections/landing/TimelineSection.tsx",
 
-      // Worker schedulers: poll-cadence scaffold; each schedules a distinct job.
+      // Worker schedulers: a shared poll-loop scaffold (interval env-parse,
+      // isPolling reentrancy guard, setInterval lifecycle) wrapping divergent
+      // jobs. A createIntervalScheduler factory is tempting, but the lifecycles
+      // genuinely differ — OnboardingDrip has an idempotent-start guard + an
+      // exported tick + a mock-mode skip; Monthly/Weekly log a timezone. A factory
+      // would need behaviour-changing normalization or config knobs, so kept
+      // per-scheduler (reliability-sensitive worker loops; production.md).
       "worker/background/schedulers/MonthlyImpactScheduler.ts",
       "worker/background/schedulers/OnboardingDripScheduler.ts",
       "worker/background/schedulers/WeeklySummaryScheduler.ts",
