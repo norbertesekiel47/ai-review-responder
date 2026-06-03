@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { notifyContactSubmission } from '@/lib/notifications/contact-notify';
+import { parseContactCoreFields } from '@/lib/notifications/contact-form';
 
 export const dynamic = 'force-dynamic';
-
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown';
@@ -13,33 +12,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'Too many submissions. Try again later.' }, { status: 429 });
   }
 
-  let body: unknown;
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
-  }
-
-  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
-    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
-  }
-
-  const { name, email, businessName } = body as Record<string, unknown>;
-
-  if (!name || typeof name !== 'string' || !name.trim()) {
-    return NextResponse.json({ error: 'name is required' }, { status: 400 });
-  }
-  if (!email || typeof email !== 'string' || !EMAIL_RE.test(email.trim())) {
-    return NextResponse.json({ error: 'A valid email is required' }, { status: 400 });
-  }
-  if (!businessName || typeof businessName !== 'string' || !businessName.trim()) {
-    return NextResponse.json({ error: 'businessName is required' }, { status: 400 });
-  }
+  const parsed = await parseContactCoreFields(req);
+  if (!parsed.ok) return parsed.response;
 
   const submission = {
-    name: name.trim(),
-    email: email.trim(),
-    businessName: businessName.trim(),
+    ...parsed.fields,
     timestamp: new Date().toISOString(),
   };
 
