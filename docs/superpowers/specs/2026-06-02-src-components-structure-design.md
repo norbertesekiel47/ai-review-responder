@@ -277,3 +277,15 @@ Before claiming done:
 - A 274-site `cn()` codemod (adoption is opportunistic).
 - Any behavior change, prop change, or refactor beyond file relocation +
   import fixups + the `cn()` helper addition.
+
+## 10. Known follow-ups (deliberately deferred)
+
+- **`doctor.config.json` path-scoped overrides are fragile under file moves.**
+  ~63 suppressions are keyed by exact file path, so any move silently
+  un-suppresses the finding (this PR had to hand-repoint 4). A separate change
+  should migrate categorically-accepted suppressions to `ignore.tags` / rule
+  severity, and genuinely file-local ones to co-located inline disables, leaving
+  path-scoped overrides only where the suppression is truly path-specific.
+  Acceptance: a representative file move requires no `doctor.config.json` edit and
+  the full-scan score stays 100. Kept out of this PR to avoid re-deriving 63
+  override intents (score-regression risk) inside a behavior-preserving refactor.
