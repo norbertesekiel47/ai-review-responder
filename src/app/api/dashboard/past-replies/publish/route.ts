@@ -32,13 +32,12 @@ import { v7 as uuidv7 } from 'uuid';
 import { z } from 'zod';
 import { sql, jsonb } from '@/lib/db/server';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
-import { resolveOwnerScope, ScopeError } from '@/lib/auth/resolve-owner-scope';
 import {
   validateOptimisticConcurrency,
   ReviewChangedError,
   ResponseChangedError,
 } from '@/lib/responses/edit-existing';
-import { authorizeEditReplyResponse } from '../_shared/edit-reply-request';
+import { authorizeEditReplyResponse, resolveEditReplyScope } from '../_shared/edit-reply-request';
 import { snapshotSchema } from '../_shared/schemas';
 import { insertAuditLogSession } from '@/lib/approval/audit';
 import { hasOpenFlag } from '@/lib/moderation/held-draft';
@@ -70,23 +69,10 @@ function computePublishMode(
 }
 
 async function handler(request: NextRequest): Promise<Response> {
-  if (
-    process.env.PAST_REPLIES_VIEW_ENABLED !== 'true' ||
-    process.env.EDIT_REPLIES_ENABLED !== 'true'
-  ) {
-    return NextResponse.json({ error: 'feature_disabled' }, { status: 503 });
-  }
-
-  // Auth + current-location scope. CSRF handled by withSameOrigin wrapper.
-  let accountId, locationId, userId;
-  try {
-    ({ accountId, locationId, userId } = await resolveOwnerScope(request));
-  } catch (err) {
-    if (err instanceof ScopeError) {
-      return NextResponse.json({ error: err.message }, { status: err.statusCode });
-    }
-    throw err;
-  }
+  // Feature gate + owner scope. CSRF handled by withSameOrigin wrapper.
+  const scope = await resolveEditReplyScope(request);
+  if (!scope.ok) return scope.response;
+  const { accountId, locationId, userId } = scope.value;
 
   const json = await request.json().catch(() => null);
   const parsed = bodySchema.safeParse(json);

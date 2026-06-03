@@ -42,6 +42,40 @@ export interface EditReplyContext {
 }
 
 /**
+ * Feature gate + owner scope shared by the wrapper-CSRF edit-reply routes
+ * (/draft POST, /publish): the PAST_REPLIES_VIEW + EDIT_REPLIES flags must both
+ * be on, then resolveOwnerScope yields the owner's account/location/user. Used
+ * by routes wrapped with withSameOrigin() (so same-origin runs in the wrapper,
+ * not inline). Returns the inline 503/scope-error response on failure.
+ */
+export async function resolveEditReplyScope(
+  request: NextRequest,
+): Promise<EditReplyGuard<{ accountId: string; locationId: string; userId: string }>> {
+  if (
+    process.env.PAST_REPLIES_VIEW_ENABLED !== 'true' ||
+    process.env.EDIT_REPLIES_ENABLED !== 'true'
+  ) {
+    return {
+      ok: false,
+      response: NextResponse.json({ error: 'feature_disabled' }, { status: 503 }),
+    };
+  }
+
+  try {
+    const { accountId, locationId, userId } = await resolveOwnerScope(request);
+    return { ok: true, value: { accountId, locationId, userId } };
+  } catch (err) {
+    if (err instanceof ScopeError) {
+      return {
+        ok: false,
+        response: NextResponse.json({ error: err.message }, { status: err.statusCode }),
+      };
+    }
+    throw err;
+  }
+}
+
+/**
  * Resolves the review_id for `responseId` scoped to `locationId`, then runs the
  * tier/ownership gate. A response from another location surfaces as 404
  * `response_not_found` (never a cross-tenant read); a tier/ownership failure is
