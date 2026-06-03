@@ -2,7 +2,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ZernioConnectionPanel } from '../ZernioConnectionPanel';
-import type { ZernioPanelData } from '../../types';
+import type { ZernioPanelData } from '@/app/admin/businesses/[id]/types';
 
 const BUSINESS_ID = '33333333-3333-4333-8333-333333333333';
 const RESPONSE_ID = '44444444-4444-4444-8444-444444444444';

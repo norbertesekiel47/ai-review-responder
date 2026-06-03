@@ -32,7 +32,7 @@ import { sql, jsonb } from '@/lib/db/server';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { resolveOwnerScope, ScopeError } from '@/lib/auth/resolve-owner-scope';
 import { assertCanEditReply } from '@/lib/responses/edit-existing';
-import { mapEditReplyError } from '../../_shared/edit-reply-errors';
+import { mapEditReplyError } from '@/app/api/dashboard/past-replies/_shared/edit-reply-errors';
 import { insertAuditLogSession } from '@/lib/approval/audit';
 import type { SessionAuditContext } from '@/lib/approval/audit';
 import type { PublishResponsePayload } from '@/lib/shared/worker-types';

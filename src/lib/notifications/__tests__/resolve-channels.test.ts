@@ -50,8 +50,8 @@ vi.mock('../../db/redis-cache', () => ({
 
 // Import after mocks are wired
 import { resolveChannels, invalidateChannelCache, safeInvalidateChannelCache, type ResolvedChannel } from '../resolve-channels';
-import type { AccountId, LocationId } from '../../shared/ids';
-import { asAccountId, asLocationId } from '../../shared/ids';
+import type { AccountId, LocationId } from '@/lib/shared/ids';
+import { asAccountId, asLocationId } from '@/lib/shared/ids';
 
 // ── Test fixtures ────────────────────────────────────────────────────────
 

@@ -15,7 +15,7 @@ import { escapeHtml } from '@/lib/shared/html';
 import { getResend } from '../client';
 import { getEmailTags, type EmailCategory } from '../headers';
 import { LOG_PREFIX, renderStars, truncate } from './shared';
-import { sanitizeLocationLabelForPrefix } from '../../channels/template-prefix';
+import { sanitizeLocationLabelForPrefix } from '@/lib/notifications/channels/template-prefix';
 
 export interface ApprovalEmailParams {
   to: string;

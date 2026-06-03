@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createLocationClient } from '../locations';
 import type { RequestOptions, ZernioTransport } from '../transport';
-import type { ZernioReview } from '../../types';
+import type { ZernioReview } from '@/lib/zernio/types';
 
 // A fake transport injected straight into createLocationClient so we exercise
 // the client's shape-normalization branches (the many `??` fallbacks) without

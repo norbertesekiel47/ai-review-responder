@@ -38,8 +38,8 @@ import {
   ReviewChangedError,
   ResponseChangedError,
 } from '@/lib/responses/edit-existing';
-import { mapEditReplyError } from '../../_shared/edit-reply-errors';
-import { snapshotSchema } from '../../_shared/schemas';
+import { mapEditReplyError } from '@/app/api/dashboard/past-replies/_shared/edit-reply-errors';
+import { snapshotSchema } from '@/app/api/dashboard/past-replies/_shared/schemas';
 
 export const dynamic = 'force-dynamic';
 
