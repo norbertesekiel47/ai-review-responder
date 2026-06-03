@@ -1,34 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@supabase/ssr';
 import { z } from 'zod';
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '@/lib/db/server';
-import { AuthError, requireRole } from '@/lib/db/auth';
 import { writeAccountAuditLog } from '@/lib/audit/log';
-import { requireCurrentAal2FromSupabase, type SupabaseMfaAalClient } from '@/lib/auth/mfa';
-import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
+import { requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';
 
 export const dynamic = 'force-dynamic';
 
 const NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-function mfaClientForRequest(request: NextRequest): SupabaseMfaAalClient {
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll() {
-          // Route handlers cannot mutate request cookies; proxy handles refresh.
-        },
-      },
-    },
-  ) as SupabaseMfaAalClient;
-}
 
 const ActionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('force_drain') }),
@@ -51,29 +31,9 @@ export async function POST(
 ): Promise<NextResponse> {
   const { id: businessId } = await params;
 
-  try {
-    assertSameOrigin(request);
-  } catch (err) {
-    if (err instanceof SameOriginError) {
-      return NextResponse.json({ error: 'forbidden' }, { status: 403, headers: NO_STORE });
-    }
-    return errorToResponse(err);
-  }
-
-  let admin;
-  try {
-    admin = await requireRole(request, 'admin');
-  } catch (err) {
-    if (err instanceof AuthError) {
-      return NextResponse.json({ error: err.message }, { status: err.statusCode, headers: NO_STORE });
-    }
-    return errorToResponse(err);
-  }
-
-  const aal = await requireCurrentAal2FromSupabase(mfaClientForRequest(request));
-  if (!aal.ok) {
-    return NextResponse.json({ error: aal.reason }, { status: 403, headers: NO_STORE });
-  }
+  const gate = await requireAdminWithAal2(request, { sameOrigin: true });
+  if (!gate.ok) return gate.response;
+  const admin = gate.admin;
 
   if (!UUID_RE.test(businessId)) {
     return NextResponse.json({ error: 'invalid_business_id' }, { status: 400, headers: NO_STORE });

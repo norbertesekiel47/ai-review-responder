@@ -56,14 +56,6 @@
       // the project's design rules reject (design.md / repworth.md "add nothing").
       // They are acknowledged here instead of force-merged.
 
-      // Admin control-plane routes: shared same-origin + admin-auth preamble with
-      // per-route NO_STORE + errorToResponse handling (kept per-route).
-      "src/app/api/admin/billing/grant-extension/route.ts",
-      "src/app/api/admin/impersonation/start/route.ts",
-      "src/app/api/admin/impersonation/end/route.ts",
-      "src/app/api/admin/businesses/*/zernio-queue/route.ts",
-      "src/app/api/admin/flagged/route.ts",
-
       // Admin SMS channel routes: shared flag/env/auth + loadBusinessAccountContext
       // preamble; SMS verification flow differs enough per-action to keep separate.
       "src/app/api/admin/channels/sms/cancel/route.ts",

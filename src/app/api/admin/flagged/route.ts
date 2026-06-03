@@ -1,40 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@supabase/ssr';
 import { z } from 'zod';
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '@/lib/db/server';
-import { AuthError, requireRole } from '@/lib/db/auth';
 import { writeAccountAuditLog } from '@/lib/audit/log';
-import { requireCurrentAal2FromSupabase, type SupabaseMfaAalClient } from '@/lib/auth/mfa';
-import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
+import { requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';
 import type { SendNotificationPayload, GenerateResponsePayload } from '@/lib/shared/worker-types';
 
 export const dynamic = 'force-dynamic';
 
 const NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
-
-/**
- * Build the cookie-backed Supabase client used for the AAL2 (MFA step-up)
- * check. Both GET (reads cross-tenant flagged draft text) and POST (mutates
- * dispositions) require a current AAL2 session — flagged drafts contain
- * sensitive, potentially policy-violating customer-facing text.
- */
-function mfaClientForRequest(request: NextRequest): SupabaseMfaAalClient {
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll() {
-          // Route handlers cannot mutate request cookies; proxy handles refresh.
-        },
-      },
-    },
-  ) as SupabaseMfaAalClient;
-}
 
 interface FlaggedRow {
   id: string;
@@ -55,22 +29,12 @@ interface FlaggedRow {
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  try {
-    await requireRole(request, 'admin');
-  } catch (err) {
-    if (err instanceof AuthError) {
-      return NextResponse.json({ error: err.message }, { status: err.statusCode, headers: NO_STORE });
-    }
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: NO_STORE });
-  }
-
   // Reading the queue exposes flagged draft text + reviewer/business identity
   // across every tenant — same sensitivity as the POST disposition, so it gets
-  // the same MFA step-up requirement.
-  const aal = await requireCurrentAal2FromSupabase(mfaClientForRequest(request));
-  if (!aal.ok) {
-    return NextResponse.json({ error: aal.reason }, { status: 403, headers: NO_STORE });
-  }
+  // the same admin + AAL2 (MFA step-up) gate. No same-origin: GET is not a
+  // mutation.
+  const gate = await requireAdminWithAal2(request);
+  if (!gate.ok) return gate.response;
 
   const rawLimit = request.nextUrl.searchParams.get('limit');
   const rawOffset = request.nextUrl.searchParams.get('offset');
@@ -147,29 +111,9 @@ interface OpenFlagRow {
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  try {
-    assertSameOrigin(request);
-  } catch (err) {
-    if (err instanceof SameOriginError) {
-      return NextResponse.json({ error: 'forbidden' }, { status: 403, headers: NO_STORE });
-    }
-    return dispositionErrorResponse(err);
-  }
-
-  let admin;
-  try {
-    admin = await requireRole(request, 'admin');
-  } catch (err) {
-    if (err instanceof AuthError) {
-      return NextResponse.json({ error: err.message }, { status: err.statusCode, headers: NO_STORE });
-    }
-    return dispositionErrorResponse(err);
-  }
-
-  const aal = await requireCurrentAal2FromSupabase(mfaClientForRequest(request));
-  if (!aal.ok) {
-    return NextResponse.json({ error: aal.reason }, { status: 403, headers: NO_STORE });
-  }
+  const gate = await requireAdminWithAal2(request, { sameOrigin: true });
+  if (!gate.ok) return gate.response;
+  const admin = gate.admin;
 
   let rawBody: unknown;
   try {

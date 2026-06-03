@@ -1,11 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@supabase/ssr';
 import { z } from 'zod';
 import { writeAccountAuditLog } from '@/lib/audit/log';
-import { requireCurrentAal2FromSupabase, type SupabaseMfaAalClient } from '@/lib/auth/mfa';
-import { AuthError, requireRole } from '@/lib/db/auth';
+import { requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';
 import { jsonb, sql } from '@/lib/db/server';
-import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,47 +30,9 @@ class GrantExtensionError extends Error {
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  try {
-    assertSameOrigin(request);
-  } catch (err) {
-    if (err instanceof SameOriginError) {
-      return NextResponse.json({ error: 'forbidden' }, { status: 403, headers: NO_STORE });
-    }
-    return errorToResponse(err);
-  }
-
-  let admin;
-  try {
-    admin = await requireRole(request, 'admin');
-  } catch (err) {
-    if (err instanceof AuthError) {
-      return NextResponse.json(
-        { error: err.message },
-        { status: err.statusCode, headers: NO_STORE },
-      );
-    }
-    return errorToResponse(err);
-  }
-
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll() {
-          // Route handlers cannot mutate request cookies; proxy handles refresh.
-        },
-      },
-    },
-  ) as SupabaseMfaAalClient;
-
-  const aal = await requireCurrentAal2FromSupabase(supabase);
-  if (!aal.ok) {
-    return NextResponse.json({ error: aal.reason }, { status: 403, headers: NO_STORE });
-  }
+  const gate = await requireAdminWithAal2(request, { sameOrigin: true });
+  if (!gate.ok) return gate.response;
+  const admin = gate.admin;
 
   let rawBody: unknown;
   try {
