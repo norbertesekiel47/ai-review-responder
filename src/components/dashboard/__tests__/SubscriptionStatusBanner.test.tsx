@@ -10,10 +10,6 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { openBillingPortal } from '@/components/dashboard/account-state/billing-portal';
 import { CancelledBanner, PastDueBanner } from '@/components/dashboard/account-state/SubscriptionStatusBanner';
 
-vi.mock('../Icon', () => ({
-  Icon: ({ name }: { name: string }) => <span data-testid="icon">{name}</span>,
-}));
-
 describe('CancelledBanner (VAL-CROSS-011)', () => {
   it('renders read-only banner with grace period date', () => {
     render(

@@ -30,7 +30,6 @@ export class SmsChannel implements NotificationChannel {
   readonly supportsInlineActions = false;
   readonly requiresOptInHandshake = false;
 
-  // fallow-ignore-next-line unused-class-member
   async sendApprovalRequest(p: SendApprovalParams): Promise<SendApprovalResult> {
     const body = formatApprovalSms({
       reviewerName: p.reviewerName,
