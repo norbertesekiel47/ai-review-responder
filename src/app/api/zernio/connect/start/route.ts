@@ -6,6 +6,7 @@ import { getCacheRedis } from '@/lib/db/redis-cache';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { ZernioRouteError } from '@/lib/zernio/errors';
+import { zernioRouteErrorResponse } from '../../_shared/error-response';
 import { assertWritableSubscriptionStatus } from '@/lib/shared/writable-subscription';
 import { zernioClient } from '@/lib/zernio/client';
 import { isFreshPendingMarker, parseConnectPendingMarker } from '../_shared/pending-flow';
@@ -335,12 +336,5 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 }
 
 function errorToResponse(err: unknown): NextResponse {
-  if (err instanceof ZernioRouteError) {
-    return NextResponse.json(
-      { error: err.code },
-      { status: err.statusCode, headers: NO_STORE },
-    );
-  }
-  console.error('[api/zernio/connect/start] internal error:', err);
-  return NextResponse.json({ error: 'internal_error' }, { status: 500, headers: NO_STORE });
+  return zernioRouteErrorResponse(err, '[api/zernio/connect/start]');
 }
