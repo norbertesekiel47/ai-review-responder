@@ -66,7 +66,9 @@ async function handler(req: NextRequest): Promise<NextResponse> {
   // should not block the owner response.
   await safeInvalidateChannelCache(asAccountId(accountId), 'dashboard.telegram.start');
 
-  const botUsername = process.env.TELEGRAM_BOT_USERNAME ?? 'RepWorthBot';
+  // `||` (not `??`) so a blank TELEGRAM_BOT_USERNAME falls back too — an empty
+  // string would otherwise produce a broken https://t.me/?start=... link.
+  const botUsername = process.env.TELEGRAM_BOT_USERNAME?.trim() || 'RepWorthBot';
   const deepLink = `https://t.me/${botUsername}?start=${rawToken}`;
   const qrDataUrl = await QRCode.toDataURL(deepLink, { margin: 1, width: 256 });
 

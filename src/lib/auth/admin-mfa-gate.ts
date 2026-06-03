@@ -83,7 +83,15 @@ export async function requireAdminWithAal2(
     return { ok: false, response: internalError(err) };
   }
 
-  const aal = await requireCurrentAal2FromSupabase(mfaClientForRequest(request));
+  let aal;
+  try {
+    aal = await requireCurrentAal2FromSupabase(mfaClientForRequest(request));
+  } catch (err) {
+    // The Supabase client construction or the AAL2 lookup can throw (network,
+    // misconfig) rather than returning { ok: false }. Surface it as the same
+    // clean 500 the role step uses, not a raw unhandled 500.
+    return { ok: false, response: internalError(err) };
+  }
   if (!aal.ok) {
     return {
       ok: false,

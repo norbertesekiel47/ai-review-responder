@@ -66,8 +66,9 @@ async function handler(req: NextRequest): Promise<NextResponse> {
   // should not block the owner response.
   await safeInvalidateChannelCache(asAccountId(accountId), 'dashboard.whatsapp.start');
 
-  // wa.me requires digits only (no +, no whatsapp:).
-  const digits = process.env.TWILIO_WHATSAPP_NUMBER!.replace(/^whatsapp:\+?/, '');
+  // wa.me requires digits only — strip every non-digit (the whatsapp: prefix,
+  // a leading +, and any spaces/dashes/parens the env value may carry).
+  const digits = process.env.TWILIO_WHATSAPP_NUMBER!.replace(/\D/g, '');
   const prefilled = encodeURIComponent(`start-${rawToken}`);
   const deepLink = `https://wa.me/${digits}?text=${prefilled}`;
   const qrDataUrl = await QRCode.toDataURL(deepLink, { margin: 1, width: 256 });

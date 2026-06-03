@@ -114,4 +114,18 @@ describe('requireAdminWithAal2', () => {
     expect(result.response.status).toBe(500);
     expect(await result.response.json()).toEqual({ error: 'internal_error' });
   });
+
+  it('returns a clean 500 internal_error when the AAL2 step itself throws', async () => {
+    // requireCurrentAal2FromSupabase / the Supabase client can throw (network,
+    // misconfig) rather than returning { ok: false } — that must not escape the
+    // gate as a raw 500; it gets the same internalError treatment as the role step.
+    mockAal.mockRejectedValue(new Error('aal backend unreachable'));
+
+    const result = await requireAdminWithAal2(req(), { sameOrigin: true });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected failure');
+    expect(result.response.status).toBe(500);
+    expect(await result.response.json()).toEqual({ error: 'internal_error' });
+  });
 });
