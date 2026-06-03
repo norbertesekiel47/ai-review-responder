@@ -2,7 +2,7 @@
 
 import { Icon } from '@/components/dashboard/shell/Icon';
 import { Sparkline } from '@/components/dashboard/kpi/Sparkline';
-import { useCountUp } from '@/components/dashboard/useCountUp';
+import { useCountUp } from '@/hooks/useCountUp';
 
 interface ValueSummary {
   totalReviewsHandled: number;

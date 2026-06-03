@@ -12,7 +12,7 @@ import { LocationKpiStrip } from '@/components/dashboard/aggregate/LocationKpiSt
 import { PastDueBanner } from '@/components/dashboard/account-state/SubscriptionStatusBanner';
 import { PastDueModal } from '@/components/dashboard/account-state/PastDueModal';
 import { useSetPendingCount } from '@/components/dashboard/PendingCountContext';
-import { useNeedsActionHashScroll } from '@/components/dashboard/useNeedsActionHashScroll';
+import { useNeedsActionHashScroll } from '@/hooks/useNeedsActionHashScroll';
 
 interface Props {
   data: AggregateDashboardData;

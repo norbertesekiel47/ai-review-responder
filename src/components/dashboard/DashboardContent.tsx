@@ -21,7 +21,7 @@ import { AggregateDashboardContent } from '@/components/dashboard/aggregate/Aggr
 import { useDashboardData } from '@/hooks/useDashboardData';
 import { useSetPendingCount } from '@/components/dashboard/PendingCountContext';
 import { useLocationScope } from '@/contexts/LocationContext';
-import { useNeedsActionHashScroll } from '@/components/dashboard/useNeedsActionHashScroll';
+import { useNeedsActionHashScroll } from '@/hooks/useNeedsActionHashScroll';
 
 export function DashboardContent() {
   const { currentScope, setLocationScope } = useLocationScope();
