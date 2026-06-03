@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { IMPERSONATION_COOKIE_NAME, verifyImpersonationSession } from '@/lib/admin/impersonation/cookie';
 import { endImpersonationSession } from '@/lib/admin/impersonation/session';
-import { requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';
+import { requireAdminWithAal2, internalError } from '@/lib/auth/admin-mfa-gate';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
 
 export const dynamic = 'force-dynamic';
@@ -18,7 +18,7 @@ async function endImpersonation(request: NextRequest): Promise<NextResponse> {
   try {
     sessionId = rawCookie ? verifyImpersonationSession(rawCookie) : null;
   } catch (err) {
-    return errorToResponse(err);
+    return internalError('[api/admin/impersonation/end] Failed:', err);
   }
   if (!sessionId) {
     return NextResponse.json(
@@ -30,7 +30,7 @@ async function endImpersonation(request: NextRequest): Promise<NextResponse> {
   try {
     await endImpersonationSession({ sessionId, actorUserId: admin.id });
   } catch (err) {
-    return errorToResponse(err);
+    return internalError('[api/admin/impersonation/end] Failed:', err);
   }
 
   const response = NextResponse.json({ ok: true }, { headers: NO_STORE });
@@ -43,14 +43,6 @@ async function endImpersonation(request: NextRequest): Promise<NextResponse> {
     maxAge: 0,
   });
   return response;
-}
-
-function errorToResponse(error: unknown): NextResponse {
-  console.error('[api/admin/impersonation/end] Failed:', error);
-  return NextResponse.json(
-    { error: 'internal_error' },
-    { status: 500, headers: NO_STORE },
-  );
 }
 
 // CSRF by construction: same-origin enforced at the export, not inside the gate.

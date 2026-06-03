@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { writeAccountAuditLog } from '@/lib/audit/log';
-import { requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';
+import { requireAdminWithAal2, internalError } from '@/lib/auth/admin-mfa-gate';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
 import { jsonb, sql } from '@/lib/db/server';
 
@@ -128,20 +128,12 @@ async function grantExtension(request: NextRequest): Promise<NextResponse> {
     if (err instanceof GrantExtensionError) {
       return NextResponse.json({ error: err.code }, { status: err.status, headers: NO_STORE });
     }
-    return errorToResponse(err);
+    return internalError('[api/admin/billing/grant-extension] Failed:', err);
   }
 
   return NextResponse.json(
     { ok: true, extension: { days, expires_at: extensionExpiresAt } },
     { headers: NO_STORE },
-  );
-}
-
-function errorToResponse(error: unknown): NextResponse {
-  console.error('[api/admin/billing/grant-extension] Failed:', error);
-  return NextResponse.json(
-    { error: 'internal_error' },
-    { status: 500, headers: NO_STORE },
   );
 }
 

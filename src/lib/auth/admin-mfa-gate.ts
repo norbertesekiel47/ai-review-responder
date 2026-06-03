@@ -7,8 +7,14 @@ export type AdminMfaGateResult =
   | { ok: true; admin: AppUser }
   | { ok: false; response: NextResponse };
 
-function internalError(error: unknown): NextResponse {
-  console.error('[admin-mfa-gate] unexpected failure:', error);
+/**
+ * The admin control-plane's uniform internal-error response: a structured log
+ * line under `label` + a 500 { error: 'internal_error' } with no-store headers.
+ * Shared by this gate and every admin mutation route so the on-the-wire shape of
+ * an admin server fault — and its no-store cache behavior — has a single owner.
+ */
+export function internalError(label: string, error: unknown): NextResponse {
+  console.error(label, error);
   return NextResponse.json({ error: 'internal_error' }, { status: 500, headers: NO_STORE_HEADERS });
 }
 
@@ -53,7 +59,7 @@ export async function requireAdminWithAal2(
         response: NextResponse.json({ error: err.message }, { status: err.statusCode, headers: NO_STORE_HEADERS }),
       };
     }
-    return { ok: false, response: internalError(err) };
+    return { ok: false, response: internalError('[admin-mfa-gate] unexpected failure:', err) };
   }
 
   let aal;
@@ -65,7 +71,7 @@ export async function requireAdminWithAal2(
     // The Supabase client construction or the AAL2 lookup can throw (network,
     // misconfig) rather than returning { ok: false }. Surface it as the same
     // clean 500 the role step uses, not a raw unhandled 500.
-    return { ok: false, response: internalError(err) };
+    return { ok: false, response: internalError('[admin-mfa-gate] unexpected failure:', err) };
   }
   if (!aal.ok) {
     return {

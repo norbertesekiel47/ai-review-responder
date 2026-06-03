@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '@/lib/db/server';
 import { writeAccountAuditLog } from '@/lib/audit/log';
-import { requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';
+import { requireAdminWithAal2, internalError } from '@/lib/auth/admin-mfa-gate';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
 
 export const dynamic = 'force-dynamic';
@@ -70,7 +70,7 @@ async function handleZernioQueueAction(
     if (err instanceof QueueActionError) {
       return NextResponse.json({ error: err.code }, { status: err.status, headers: NO_STORE });
     }
-    return errorToResponse(err);
+    return internalError('[api/admin/businesses/[id]/zernio-queue] failed:', err);
   }
 }
 
@@ -169,11 +169,6 @@ async function dismiss(businessId: string, responseId: string, adminId: string):
       tx,
     );
   });
-}
-
-function errorToResponse(error: unknown): NextResponse {
-  console.error('[api/admin/businesses/[id]/zernio-queue] failed:', error);
-  return NextResponse.json({ error: 'internal_error' }, { status: 500, headers: NO_STORE });
 }
 
 // CSRF by construction: same-origin enforced at the export, not inside the gate.

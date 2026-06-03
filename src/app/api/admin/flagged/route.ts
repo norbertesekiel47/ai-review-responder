@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '@/lib/db/server';
 import { writeAccountAuditLog } from '@/lib/audit/log';
-import { requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';
+import { requireAdminWithAal2, internalError } from '@/lib/auth/admin-mfa-gate';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
 import type { SendNotificationPayload, GenerateResponsePayload } from '@/lib/shared/worker-types';
 
@@ -220,15 +220,10 @@ async function dispositionFlaggedResponse(request: NextRequest): Promise<NextRes
     if (err instanceof DispositionError) {
       return NextResponse.json({ error: err.code }, { status: err.status, headers: NO_STORE });
     }
-    return dispositionErrorResponse(err);
+    return internalError('[api/admin/flagged] disposition failed:', err);
   }
 
   return NextResponse.json({ ok: true, action }, { headers: NO_STORE });
-}
-
-function dispositionErrorResponse(error: unknown): NextResponse {
-  console.error('[api/admin/flagged] disposition failed:', error);
-  return NextResponse.json({ error: 'internal_error' }, { status: 500, headers: NO_STORE });
 }
 
 // CSRF by construction: same-origin enforced at the export, not inside the gate.

@@ -6,7 +6,7 @@ import {
   IMPERSONATION_COOKIE_NAME,
 } from '@/lib/admin/impersonation/cookie';
 import { ImpersonationStartError, startImpersonationSession } from '@/lib/admin/impersonation/session';
-import { requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';
+import { requireAdminWithAal2, internalError } from '@/lib/auth/admin-mfa-gate';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
 import { sql } from '@/lib/db/server';
 
@@ -29,7 +29,7 @@ async function startImpersonation(request: NextRequest): Promise<NextResponse> {
   try {
     assertImpersonationCookieConfigured();
   } catch (err) {
-    return errorToResponse(err);
+    return internalError('[api/admin/impersonation/start] Failed:', err);
   }
 
   let rawBody: unknown;
@@ -96,16 +96,8 @@ async function startImpersonation(request: NextRequest): Promise<NextResponse> {
     if (err instanceof ImpersonationStartError) {
       return NextResponse.json({ error: err.code }, { status: 409, headers: NO_STORE });
     }
-    return errorToResponse(err);
+    return internalError('[api/admin/impersonation/start] Failed:', err);
   }
-}
-
-function errorToResponse(error: unknown): NextResponse {
-  console.error('[api/admin/impersonation/start] Failed:', error);
-  return NextResponse.json(
-    { error: 'internal_error' },
-    { status: 500, headers: NO_STORE },
-  );
 }
 
 // CSRF by construction: same-origin enforced at the export, not inside the gate.
