@@ -16,12 +16,12 @@ const SWEPT_FILES = [
   'src/app/(authenticated)/_styles/console.css',
   'src/components/dashboard/ConnectGoogleBanner.tsx',
   // Owner Console — edit-reply drawer
-  'src/components/dashboard/EditReplyDrawer.tsx',
-  'src/components/dashboard/edit-reply/DraftConflictPanel.tsx',
-  'src/components/dashboard/edit-reply/RecoveryPanel.tsx',
-  'src/components/dashboard/edit-reply/PreviewPanel.tsx',
-  'src/components/dashboard/edit-reply/ManualEditor.tsx',
-  'src/components/dashboard/edit-reply/ReviewChangedPanel.tsx',
+  'src/components/dashboard/reviews/EditReplyDrawer.tsx',
+  'src/components/dashboard/reviews/edit-reply/DraftConflictPanel.tsx',
+  'src/components/dashboard/reviews/edit-reply/RecoveryPanel.tsx',
+  'src/components/dashboard/reviews/edit-reply/PreviewPanel.tsx',
+  'src/components/dashboard/reviews/edit-reply/ManualEditor.tsx',
+  'src/components/dashboard/reviews/edit-reply/ReviewChangedPanel.tsx',
   // Admin tool
   'src/app/admin/overview/page.tsx',
   'src/app/admin/payment-success/page.tsx',

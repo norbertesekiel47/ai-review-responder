@@ -2,7 +2,7 @@
 
 import { useState, type Ref } from 'react';
 import type { AggregateDashboardData, AggregateReviewItem } from '@/lib/dashboard/types';
-import { ReviewActions } from '@/components/dashboard/ReviewActions';
+import { ReviewActions } from '@/components/dashboard/reviews/ReviewActions';
 import { Icon } from '@/components/dashboard/shell/Icon';
 
 const STATUS_BADGE: Record<string, { label: string; cls: string }> = {

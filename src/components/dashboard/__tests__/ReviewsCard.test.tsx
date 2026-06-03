@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { ReviewsCard } from '@/components/dashboard/ReviewsCard';
+import { ReviewsCard } from '@/components/dashboard/reviews/ReviewsCard';
 
 const REVIEWS = [
   {

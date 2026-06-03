@@ -2,9 +2,9 @@
 
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
-import { PastReplyCard } from '@/components/dashboard/PastReplyCard';
-import type { PastReplyRow } from '@/components/dashboard/PastReplyCard';
-import { EditReplyDrawer } from '@/components/dashboard/EditReplyDrawer';
+import { PastReplyCard } from '@/components/dashboard/reviews/PastReplyCard';
+import type { PastReplyRow } from '@/components/dashboard/reviews/PastReplyCard';
+import { EditReplyDrawer } from '@/components/dashboard/reviews/EditReplyDrawer';
 import { HistoricalUpgradeBanner } from '@/components/dashboard/HistoricalUpgradeBanner';
 import { Icon } from '@/components/dashboard/shell/Icon';
 

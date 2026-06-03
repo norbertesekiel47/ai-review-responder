@@ -12,17 +12,17 @@
 
 import { useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import type { PastReplyRow } from '@/components/dashboard/PastReplyCard';
+import type { PastReplyRow } from '@/components/dashboard/reviews/PastReplyCard';
 // Used by the inline 'initial'-state CTA block below — the one state not
 // extracted to a panel (it has no stateful logic to isolate).
 import { AI_DRAFT_DISCLOSURE } from '@/lib/ui/disclosures';
-import { useEditReplyDraft } from '@/components/dashboard/edit-reply/useEditReplyDraft';
-import { useFocusTrap } from '@/components/dashboard/edit-reply/useFocusTrap';
-import { ManualEditor } from '@/components/dashboard/edit-reply/ManualEditor';
-import { PreviewPanel } from '@/components/dashboard/edit-reply/PreviewPanel';
-import { RecoveryPanel } from '@/components/dashboard/edit-reply/RecoveryPanel';
-import { DraftConflictPanel } from '@/components/dashboard/edit-reply/DraftConflictPanel';
-import { ReviewChangedPanel } from '@/components/dashboard/edit-reply/ReviewChangedPanel';
+import { useEditReplyDraft } from '@/components/dashboard/reviews/edit-reply/useEditReplyDraft';
+import { useFocusTrap } from '@/components/dashboard/reviews/edit-reply/useFocusTrap';
+import { ManualEditor } from '@/components/dashboard/reviews/edit-reply/ManualEditor';
+import { PreviewPanel } from '@/components/dashboard/reviews/edit-reply/PreviewPanel';
+import { RecoveryPanel } from '@/components/dashboard/reviews/edit-reply/RecoveryPanel';
+import { DraftConflictPanel } from '@/components/dashboard/reviews/edit-reply/DraftConflictPanel';
+import { ReviewChangedPanel } from '@/components/dashboard/reviews/edit-reply/ReviewChangedPanel';
 
 interface EditReplyDrawerProps {
   open: boolean;

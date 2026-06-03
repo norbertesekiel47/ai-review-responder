@@ -45,7 +45,7 @@ describe('review stars are brand teal, never yellow (P2 #28)', () => {
       'src/components/sections/features/FeaturesContent.tsx',
       'src/components/sections/how-it-works/HowItWorksContent.tsx',
       'src/app/(authenticated)/dashboard/past-replies/PastRepliesClient.tsx',
-      'src/components/dashboard/EditReplyDrawer.tsx',
+      'src/components/dashboard/reviews/EditReplyDrawer.tsx',
       'src/components/approval/approval-client.tsx',
     ]) {
       const src = read(p);

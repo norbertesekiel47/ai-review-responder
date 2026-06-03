@@ -13,7 +13,7 @@ import { ConnectGoogleBanner } from '@/components/dashboard/ConnectGoogleBanner'
 import { TopBar } from '@/components/dashboard/shell/TopBar';
 import { LiveRegion } from '@/components/ui/LiveRegion';
 import { KpiCards } from '@/components/dashboard/kpi/KpiCards';
-import { ReviewsCard } from '@/components/dashboard/ReviewsCard';
+import { ReviewsCard } from '@/components/dashboard/reviews/ReviewsCard';
 import { VelocityCard } from '@/components/dashboard/kpi/VelocityCard';
 import { RankingCard } from '@/components/dashboard/kpi/RankingCard';
 import { IntelligenceBriefCard } from '@/components/dashboard/kpi/IntelligenceBriefCard';

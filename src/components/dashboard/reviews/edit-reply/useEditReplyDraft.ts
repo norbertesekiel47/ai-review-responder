@@ -34,7 +34,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import type { PastReplyRow } from '@/components/dashboard/PastReplyCard';
+import type { PastReplyRow } from '@/components/dashboard/reviews/PastReplyCard';
 
 const POLL_INTERVAL_MS = 1500;
 const POLL_TIMEOUT_MS = 60_000;
