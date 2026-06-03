@@ -9,10 +9,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { sql } from '@/lib/db/server';
-import { requireRole, AuthError } from '@/lib/db/auth';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { getStripe } from '@/lib/payments/create-checkout-session';
-import { withSameOrigin } from '@/lib/auth/route-helpers';
+import { requireOwnerWithAccount, withSameOrigin } from '@/lib/auth/route-helpers';
 
 export const dynamic = 'force-dynamic';
 
@@ -40,32 +39,11 @@ const NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
  * customer.subscription.deleted webhook (handled by existing webhook handler).
  */
 async function createBillingPortal(req: NextRequest): Promise<NextResponse> {
-  // ── Auth: require owner role ────────────────────────────────────────────
-  let user;
-  try {
-    user = await requireRole(req, 'owner');
-  } catch (err) {
-    if (err instanceof AuthError) {
-      return NextResponse.json(
-        { error: err.message },
-        { status: err.statusCode, headers: NO_STORE },
-      );
-    }
-    return NextResponse.json(
-      { error: 'Unauthorized' },
-      { status: 401, headers: NO_STORE },
-    );
-  }
-
-  if (!user.accountId) {
-    return NextResponse.json(
-      { error: 'No account associated with this user' },
-      { status: 403, headers: NO_STORE },
-    );
-  }
+  const owner = await requireOwnerWithAccount(req);
+  if (!owner.ok) return owner.response;
 
   // Use the authenticated user's accountId — ignore any body accountId
-  const accountId = user.accountId;
+  const accountId = owner.accountId;
 
   // Look up the account
   const [account] = await sql<{

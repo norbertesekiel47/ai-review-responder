@@ -115,11 +115,6 @@
       "src/app/api/auth/reset-password/route.ts",
       "src/components/auth/auth-island/SignupForm.tsx",
 
-      // Billing routes: shared Stripe-session preamble; actions differ.
-      "src/app/api/billing/checkout/route.ts",
-      "src/app/api/billing/portal/route.ts",
-      "src/app/api/billing/tier-change/route.ts",
-
       // Dashboard data hooks + approval client: SWR/fetch boilerplate; forcing a
       // generic hook would over-couple distinct data shapes.
       "src/hooks/useAccountData.ts",
