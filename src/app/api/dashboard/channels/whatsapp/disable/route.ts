@@ -2,9 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
-import { SubscriptionStatus } from '@/lib/shared/subscription-status';
-import { computePastDueRecoveryState, type AccountFlagsInput } from '@/lib/shared/past-due-recovery';
-import { assertWritableSubscription } from '@/lib/shared/writable-subscription';
+import { resolveWritableAccountForLocation } from '@/lib/shared/writable-subscription';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
 import { isWhatsAppEnabled, flagOff, assertWhatsAppEnvReady } from '@/app/api/admin/channels/whatsapp/_shared';
 import { disableWhatsAppEnrollment } from '@/lib/channels/whatsapp-enrollment';
@@ -29,28 +27,10 @@ async function handler(req: NextRequest): Promise<NextResponse> {
 
   if (!user.locationId) return NextResponse.json({ error: 'no_business' }, { status: 403 });
 
-  const [accountRow] = await sql<{
-    id: string;
-    subscription_status: string;
-    past_due_at: Date | string | null;
-    flags: AccountFlagsInput;
-  }[]>`
-    SELECT a.id, a.subscription_status, a.past_due_at, a.flags
-    FROM accounts a
-    JOIN businesses b ON b.account_id = a.id
-    WHERE b.id = ${user.locationId}
-  `;
-  if (accountRow?.subscription_status === SubscriptionStatus.PAST_DUE) {
-    const writable = assertWritableSubscription(computePastDueRecoveryState({
-      subscriptionStatus: accountRow.subscription_status,
-      pastDueAt: accountRow.past_due_at,
-      accountFlags: accountRow.flags,
-    }));
-    if (!writable.ok) return NextResponse.json({ error: writable.error }, { status: writable.status });
-  } else if (accountRow?.subscription_status !== SubscriptionStatus.ACTIVE) {
-    return NextResponse.json({ error: 'subscription_not_active' }, { status: 403 });
-  }
-  const accountId = accountRow.id;
+  const gate = await resolveWritableAccountForLocation(user.locationId);
+  if (gate.kind === 'blocked') return NextResponse.json({ error: gate.error }, { status: gate.status });
+  if (gate.kind === 'no_account') return NextResponse.json({ error: 'subscription_not_active' }, { status: 403 });
+  const accountId = gate.accountId;
 
   const result = await disableWhatsAppEnrollment(sql, accountId);
 

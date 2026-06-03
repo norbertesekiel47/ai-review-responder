@@ -33,12 +33,11 @@ import { sql } from '@/lib/db/server';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { resolveOwnerScope, ScopeError } from '@/lib/auth/resolve-owner-scope';
 import {
-  assertCanEditReply,
   validateOptimisticConcurrency,
   ReviewChangedError,
   ResponseChangedError,
 } from '@/lib/responses/edit-existing';
-import { mapEditReplyError } from '@/app/api/dashboard/past-replies/_shared/edit-reply-errors';
+import { authorizeEditReplyResponse } from '@/app/api/dashboard/past-replies/_shared/edit-reply-request';
 import { snapshotSchema } from '@/app/api/dashboard/past-replies/_shared/schemas';
 
 export const dynamic = 'force-dynamic';
@@ -96,27 +95,10 @@ export async function PATCH(
     );
   }
 
-  // Look up review_id BEFORE opening the tx so assertCanEditReply
-  // (which itself queries reviews + businesses) doesn't run inside the lock.
-  const responseRows = await sql<{ review_id: string }[]>`
-    SELECT review_id FROM responses
-    WHERE id = ${responseId} AND business_id = ${locationId}
-    LIMIT 1
-  `;
-  const responseRow = responseRows[0];
-  if (!responseRow) {
-    return NextResponse.json({ error: 'response_not_found' }, { status: 404 });
-  }
-  const reviewId = responseRow.review_id;
-
-  // Tier + ownership gate BEFORE any side effects.
-  try {
-    await assertCanEditReply(reviewId, { accountId, locationId });
-  } catch (err) {
-    const mapped = mapEditReplyError(err);
-    if (mapped) return mapped;
-    throw err;
-  }
+  // Location-scoped review lookup + tier/ownership gate BEFORE any side effects.
+  const authorized = await authorizeEditReplyResponse(responseId, { accountId, locationId });
+  if (!authorized.ok) return authorized.response;
+  const { reviewId } = authorized.value;
 
   try {
     return await sql.begin(async (tx) => {

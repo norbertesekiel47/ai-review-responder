@@ -34,12 +34,11 @@ import { sql, jsonb } from '@/lib/db/server';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
 import { resolveOwnerScope, ScopeError } from '@/lib/auth/resolve-owner-scope';
 import {
-  assertCanEditReply,
   validateOptimisticConcurrency,
   ReviewChangedError,
   ResponseChangedError,
 } from '@/lib/responses/edit-existing';
-import { mapEditReplyError } from '../_shared/edit-reply-errors';
+import { authorizeEditReplyResponse } from '../_shared/edit-reply-request';
 import { snapshotSchema } from '../_shared/schemas';
 import { insertAuditLogSession } from '@/lib/approval/audit';
 import { hasOpenFlag } from '@/lib/moderation/held-draft';
@@ -98,29 +97,10 @@ async function handler(request: NextRequest): Promise<Response> {
     );
   }
 
-  // Look up review_id BEFORE opening the tx so assertCanEditReply (which
-  // queries reviews + businesses on its own connection) doesn't run inside
-  // the transaction. Scope by locationId — prevents cross-location response
-  // lookup (response_id from a different location → 404).
-  const responseRows = await sql<{ review_id: string }[]>`
-    SELECT review_id FROM responses
-    WHERE id = ${parsed.data.response_id} AND business_id = ${locationId}
-    LIMIT 1
-  `;
-  const responseRow = responseRows[0];
-  if (!responseRow) {
-    return NextResponse.json({ error: 'response_not_found' }, { status: 404 });
-  }
-  const reviewId = responseRow.review_id;
-
-  // Tier + ownership gate BEFORE any side effects.
-  try {
-    await assertCanEditReply(reviewId, { accountId, locationId });
-  } catch (err) {
-    const mapped = mapEditReplyError(err);
-    if (mapped) return mapped;
-    throw err;
-  }
+  // Location-scoped review lookup + tier/ownership gate BEFORE any side effects.
+  const authorized = await authorizeEditReplyResponse(parsed.data.response_id, { accountId, locationId });
+  if (!authorized.ok) return authorized.response;
+  const { reviewId } = authorized.value;
 
   const ip = request.headers.get('x-forwarded-for') ?? null;
   const audit: SessionAuditContext = { actorUserId: userId, ipAddress: ip };
