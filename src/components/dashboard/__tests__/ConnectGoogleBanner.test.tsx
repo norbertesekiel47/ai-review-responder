@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { ConnectGoogleBanner } from '@/components/dashboard/ConnectGoogleBanner';
+import { ConnectGoogleBanner } from '@/components/dashboard/account-state/ConnectGoogleBanner';
 
 describe('ConnectGoogleBanner', () => {
   it('renders the connect CTA when writable', () => {

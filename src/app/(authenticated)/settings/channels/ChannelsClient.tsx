@@ -1,8 +1,8 @@
 'use client';
 
-import { OwnerTelegramWidget } from '@/components/dashboard/OwnerTelegramWidget';
-import { OwnerWhatsAppWidget } from '@/components/dashboard/OwnerWhatsAppWidget';
-import { ComingSoonChannelRow } from '@/components/dashboard/ComingSoonChannelRow';
+import { OwnerTelegramWidget } from '@/components/dashboard/channels/OwnerTelegramWidget';
+import { OwnerWhatsAppWidget } from '@/components/dashboard/channels/OwnerWhatsAppWidget';
+import { ComingSoonChannelRow } from '@/components/dashboard/channels/ComingSoonChannelRow';
 
 export interface InitialEnrollment {
   channel: 'email' | 'sms' | 'telegram' | 'whatsapp';

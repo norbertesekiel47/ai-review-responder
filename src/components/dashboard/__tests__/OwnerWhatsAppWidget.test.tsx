@@ -8,7 +8,7 @@ vi.mock('@/lib/notifications/channels/use-enrollment', () => ({
   useEnrollment: () => useEnrollmentMock(),
 }));
 
-import { OwnerWhatsAppWidget } from '../OwnerWhatsAppWidget';
+import { OwnerWhatsAppWidget } from '@/components/dashboard/channels/OwnerWhatsAppWidget';
 
 function snap(partial: Partial<EnrollmentSnapshot>): EnrollmentSnapshot {
   return {

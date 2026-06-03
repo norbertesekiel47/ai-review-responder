@@ -1,5 +1,5 @@
 import { requireOwnerAccess } from '@/lib/auth/require-owner-access';
-import { TopBar } from '@/components/dashboard/TopBar';
+import { TopBar } from '@/components/dashboard/shell/TopBar';
 import { SettingsClient } from './SettingsClient';
 import { getActiveLocationCount } from '@/lib/locations/repo';
 import { shouldShowLocationsSettings, shouldUseMultiLocationSettings } from '@/lib/locations/multi-location-mode';

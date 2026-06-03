@@ -4,14 +4,14 @@
 
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { ProfileEditor } from './components/ProfileEditor';
-import { TrackedKeywordsSection } from './components/TrackedKeywordsSection';
-import { ManualRankingSection } from './components/ManualRankingSection';
-import { ReviewsList } from './components/ReviewsList';
-import { ChannelsPanel } from './components/ChannelsPanel';
-import { ZernioConnectionPanel } from './components/ZernioConnectionPanel';
-import { PastDueExtensionPanel } from './components/PastDueExtensionPanel';
-import { useBusinessDetail } from './hooks/useBusinessDetail';
+import { ProfileEditor } from './_components/ProfileEditor';
+import { TrackedKeywordsSection } from './_components/TrackedKeywordsSection';
+import { ManualRankingSection } from './_components/ManualRankingSection';
+import { ReviewsList } from './_components/ReviewsList';
+import { ChannelsPanel } from './_components/ChannelsPanel';
+import { ZernioConnectionPanel } from './_components/ZernioConnectionPanel';
+import { PastDueExtensionPanel } from './_components/PastDueExtensionPanel';
+import { useBusinessDetail } from './_hooks/useBusinessDetail';
 
 const HEALTH_BADGE_STYLES: Record<string, string> = {
   healthy: 'bg-green-100 text-green-800',

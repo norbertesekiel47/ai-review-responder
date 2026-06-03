@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildRankingSeries, formatRankingDateLabel } from '@/components/dashboard/RankingChart.helpers';
+import { buildRankingSeries, formatRankingDateLabel } from '@/components/dashboard/kpi/RankingChart.helpers';
 
 describe('RankingChart helpers', () => {
   it('formats ISO dates into short dashboard labels', () => {

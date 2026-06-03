@@ -1,8 +1,8 @@
 'use client';
 
 import type { AggregateDashboardData } from '@/lib/dashboard/types';
-import { Icon } from '../Icon';
-import { getBriefBullets } from '../brief-bullets';
+import { Icon } from '@/components/dashboard/shell/Icon';
+import { getBriefBullets } from '@/components/dashboard/kpi/brief-bullets';
 
 interface Props {
   perLocationBriefs: AggregateDashboardData['perLocationBriefs'];

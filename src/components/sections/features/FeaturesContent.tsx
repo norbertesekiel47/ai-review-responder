@@ -1,6 +1,8 @@
 'use client';
 
 import Link from 'next/link';
+import { useCountUp } from '@/hooks/useCountUp';
+import { cn } from '@/lib/ui/cn';
 import {
   useEffect,
   useMemo,
@@ -126,24 +128,6 @@ function useReveal<T extends HTMLElement>() {
   return [ref, seen] as const;
 }
 
-function useCountUp(target: number, active: boolean, duration = 1600) {
-  const [v, setV] = useState(0);
-  useEffect(() => {
-    if (!active) return;
-    let raf = 0;
-    const t0 = performance.now() + 400;
-    const tick = (t: number) => {
-      const k = Math.max(0, Math.min(1, (t - t0) / duration));
-      const eased = 1 - Math.pow(1 - k, 3);
-      setV(Math.round(target * eased));
-      if (k < 1) raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [target, duration, active]);
-  return v;
-}
-
 function FeatureSection({
   innerRef,
   id,
@@ -217,7 +201,7 @@ function HeroSection({
       <div className="grid md:grid-cols-12 gap-8 items-end">
         <div className="md:col-span-8">
           <p
-            className={`rw-hero-kicker rw-label-mono text-xs uppercase text-[#97B3AE] mb-8 flex items-center gap-3 ${heroIn ? 'in' : ''}`}
+            className={cn('rw-hero-kicker rw-label-mono text-xs uppercase text-[#97B3AE] mb-8 flex items-center gap-3', heroIn && 'in')}
           >
             <span className="line" />
             <span>Features · 2026 Edition</span>
@@ -227,7 +211,7 @@ function HeroSection({
               {HERO_WORDS_LINE_1.map((w, i) => (
                 <span
                   key={`l1-${w}`}
-                  className={`rw-hero-word ${heroIn ? 'in' : ''}`}
+                  className={cn('rw-hero-word', heroIn && 'in')}
                   style={{ ['--word-delay' as string]: `${80 + i * 80}ms` }}
                 >
                   {w}
@@ -236,7 +220,7 @@ function HeroSection({
             </span>
             <span className="rw-hero-line">
               <span
-                className={`rw-hero-word rw-display-serif text-[#97B3AE] ${heroIn ? 'in' : ''}`}
+                className={cn('rw-hero-word rw-display-serif text-[#97B3AE]', heroIn && 'in')}
                 style={{ ['--word-delay' as string]: `${80 + HERO_WORDS_LINE_1.length * 80}ms` }}
               >
                 nothing
@@ -244,7 +228,7 @@ function HeroSection({
               {HERO_WORDS_LINE_2.slice(1).map((w, i) => (
                 <span
                   key={`l2-${w}`}
-                  className={`rw-hero-word ${heroIn ? 'in' : ''}`}
+                  className={cn('rw-hero-word', heroIn && 'in')}
                   style={{
                     ['--word-delay' as string]: `${80 + (HERO_WORDS_LINE_1.length + 1 + i) * 80}ms`,
                   }}
@@ -254,7 +238,7 @@ function HeroSection({
               ))}
             </span>
           </h1>
-          <p className={`rw-hero-lede text-lg text-[#6a6a6a] max-w-md leading-relaxed ${heroIn ? 'in' : ''}`}>
+          <p className={cn('rw-hero-lede text-lg text-[#6a6a6a] max-w-md leading-relaxed', heroIn && 'in')}>
             RepWorth is a done-for-you service and not another dashboard to learn.
             Seven pieces, one weekly rhythm, zero late-night copywriting.
           </p>
@@ -268,7 +252,7 @@ function HeroSection({
           ].map((m, i) => (
             <div
               key={m.label}
-              className={`rw-hero-metric relative flex items-baseline gap-3 ${i < 2 ? 'pb-3' : ''} ${heroIn ? 'in' : ''}`}
+              className={cn('rw-hero-metric relative flex items-baseline gap-3', i < 2 && 'pb-3', heroIn && 'in')}
               style={
                 {
                   '--m-delay': m.delay,
@@ -421,9 +405,9 @@ export function FeaturesContent({
   }, []);
 
   // Metrics count-up — fire after hero is in.
-  const m1 = useCountUp(58, heroIn);
-  const m2 = useCountUp(100, heroIn);
-  const m3 = useCountUp(30, heroIn);
+  const m1 = useCountUp(58, { active: heroIn, duration: 1600, delayMs: 400, round: true });
+  const m2 = useCountUp(100, { active: heroIn, duration: 1600, delayMs: 400, round: true });
+  const m3 = useCountUp(30, { active: heroIn, duration: 1600, delayMs: 400, round: true });
 
   // TOC reveal trigger.
   const [tocRef, tocSeen] = useReveal<HTMLDivElement>();

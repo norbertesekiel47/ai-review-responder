@@ -1,7 +1,7 @@
 'use client';
 
-import { Icon } from '@/components/dashboard/Icon';
-import { SettingsTabs, type SettingsTab } from '@/components/dashboard/SettingsTabs';
+import { Icon } from '@/components/dashboard/shell/Icon';
+import { SettingsTabs, type SettingsTab } from '@/components/dashboard/shell/SettingsTabs';
 import { LiveRegion } from '@/components/ui/LiveRegion';
 
 interface Props {

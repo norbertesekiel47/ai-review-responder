@@ -12,12 +12,12 @@ vi.mock('@/hooks/useDashboardData', () => ({
 vi.mock('@/contexts/LocationContext', () => ({
   useLocationScope: () => ({ currentScope: null, setLocationScope: vi.fn() }),
 }));
-vi.mock('@/components/dashboard/PendingCountContext', () => ({
+vi.mock('@/contexts/PendingCountContext', () => ({
   useSetPendingCount: () => vi.fn(),
 }));
-vi.mock('@/components/dashboard/TopBar', () => ({ TopBar: () => null }));
+vi.mock('@/components/dashboard/shell/TopBar', () => ({ TopBar: () => null }));
 
-import { DashboardContent } from '../DashboardContent';
+import { DashboardContent } from '@/components/dashboard/DashboardContent';
 
 describe('DashboardContent announcements (P1 #18)', () => {
   beforeEach(() => {

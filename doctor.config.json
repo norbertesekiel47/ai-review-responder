@@ -34,7 +34,7 @@
         "rules": ["react-doctor/server-sequential-independent-await"]
       },
       {
-        "files": ["src/app/admin/businesses/new/hooks/useBusinessPrefill.ts"],
+        "files": ["src/app/admin/businesses/new/_hooks/useBusinessPrefill.ts"],
         "rules": ["react-doctor/async-defer-await"]
       },
       {
@@ -97,7 +97,7 @@
         "rules": ["react-doctor/no-derived-state-effect"]
       },
       {
-        "files": ["src/components/dashboard/edit-reply/useEditReplyDraft.ts"],
+        "files": ["src/components/dashboard/reviews/edit-reply/useEditReplyDraft.ts"],
         "rules": ["react-doctor/no-fetch-in-effect"]
       },
       {
@@ -105,11 +105,11 @@
         "rules": ["react-doctor/prefer-tag-over-role"]
       },
       {
-        "files": ["src/components/dashboard/TopBar.tsx"],
+        "files": ["src/components/dashboard/shell/TopBar.tsx"],
         "rules": ["react-doctor/exhaustive-deps"]
       },
       {
-        "files": ["src/components/DashboardContent.tsx"],
+        "files": ["src/components/dashboard/DashboardContent.tsx"],
         "rules": ["react-doctor/no-derived-state-effect"]
       },
       {

@@ -3,7 +3,7 @@
 // Step 2 — Google Business info (informational only; connect later from Settings).
 
 import Link from 'next/link';
-import { Icon } from '@/components/dashboard/Icon';
+import { Icon } from '@/components/dashboard/shell/Icon';
 
 interface Step2GoogleBusinessProps {
   onNext: () => void;

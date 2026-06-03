@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, render, screen } from '@testing-library/react';
-import { MobileTabBar } from '../MobileTabBar';
+import { MobileTabBar } from '@/components/dashboard/shell/MobileTabBar';
 
 // Per-test control of the route. vi.hoisted runs before the hoisted vi.mock factory.
 const { pathnameMock } = vi.hoisted(() => ({

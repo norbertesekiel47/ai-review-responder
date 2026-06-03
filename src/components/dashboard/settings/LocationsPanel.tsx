@@ -2,10 +2,10 @@
 
 import Link from 'next/link';
 import { type CSSProperties, useCallback, useReducer, useState } from 'react';
-import { Icon } from '@/components/dashboard/Icon';
+import { Icon } from '@/components/dashboard/shell/Icon';
 import type { LocationId } from '@/lib/shared/ids';
 import { getDisplayLabel } from '@/lib/locations/display-label';
-import { SettingsModal } from './SettingsModal';
+import { SettingsModal } from '@/components/dashboard/settings/SettingsModal';
 
 // ── Static styles ───────────────────────────────────────────────────────
 

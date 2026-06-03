@@ -5,7 +5,7 @@
 // useAddLocationWizard hook owns side effects (fetch, submit, navigation)
 // and dispatches these actions.
 
-import type { PlaceSelection } from '@/components/PlaceAutocomplete';
+import type { PlaceSelection } from '@/components/places/PlaceAutocomplete';
 import {
   DEFAULT_VOICE,
   type ExistingLocationVoice,

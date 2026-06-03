@@ -3,7 +3,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { KpiCards } from '@/components/dashboard/KpiCards';
+import { KpiCards } from '@/components/dashboard/kpi/KpiCards';
 
 const baseSummary = {
   totalReviewsHandled: 412,

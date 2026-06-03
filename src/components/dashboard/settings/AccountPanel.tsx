@@ -1,11 +1,11 @@
 'use client';
 
 import { useReducer, useState } from 'react';
-import { Icon } from '@/components/dashboard/Icon';
+import { Icon } from '@/components/dashboard/shell/Icon';
 import { useAccountData, type AccountSettingsData } from '@/hooks/useAccountData';
 import type { DashboardDataActive } from '@/lib/dashboard/types';
 import { SubscriptionTier, type SubscriptionTierValue, TIER_CONFIG } from '@/lib/accounts/tier-config';
-import { SettingsModal } from './SettingsModal';
+import { SettingsModal } from '@/components/dashboard/settings/SettingsModal';
 
 const TIER_OPTIONS: SubscriptionTierValue[] = ['basic', 'standard', 'premium', 'founders'];
 

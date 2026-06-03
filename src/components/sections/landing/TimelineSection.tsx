@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { useCountUp } from '@/hooks/useCountUp';
+import { cn } from '@/lib/ui/cn';
 
 const CLOCK_REVIEWS = [
   { h: 7.5, stars: 5 },
@@ -368,25 +370,6 @@ function HourClock({ speed = 1.5 }: { speed?: number }) {
   );
 }
 
-function useCountUp(target: number, active: boolean, duration = 1400) {
-  const [v, setV] = useState(0);
-  useEffect(() => {
-    if (!active) return;
-    let raf: number;
-    let t0: number | null = null;
-    const step = (t: number) => {
-      if (t0 == null) t0 = t;
-      const p = Math.min(1, (t - t0) / duration);
-      const ease = 1 - Math.pow(1 - p, 3);
-      setV(target * ease);
-      if (p < 1) raf = requestAnimationFrame(step);
-    };
-    raf = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(raf);
-  }, [active, target, duration]);
-  return v;
-}
-
 function TimelineStats() {
   const ref = useRef<HTMLDivElement>(null);
   const [seen, setSeen] = useState(false);
@@ -406,12 +389,12 @@ function TimelineStats() {
     return () => io.disconnect();
   }, [seen]);
 
-  const mult = useCountUp(143, seen, 1800);
-  const rep = useCountUp(8, seen, 1100);
-  const owner = useCountUp(19, seen, 1500);
+  const mult = useCountUp(143, { active: seen, duration: 1800 });
+  const rep = useCountUp(8, { active: seen, duration: 1100 });
+  const owner = useCountUp(19, { active: seen, duration: 1500 });
 
   return (
-    <div ref={ref} className={`rw-tl-verdict ${seen ? 'in' : ''}`}>
+    <div ref={ref} className={cn('rw-tl-verdict', seen && 'in')}>
       <div className="rw-tl-v-compare">
         <div className="rw-tl-v-line">
           <div className="rw-tl-v-bar">

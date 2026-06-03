@@ -4,7 +4,7 @@
 
 import { ToneChipPicker } from '@/components/dashboard/settings/ToneChipPicker';
 import { ListEditor } from '@/components/dashboard/settings/ListEditor';
-import { Icon } from '@/components/dashboard/Icon';
+import { Icon } from '@/components/dashboard/shell/Icon';
 import type { ExistingLocationVoice, VoiceFormState } from '../types';
 
 interface Step3VoiceProps {

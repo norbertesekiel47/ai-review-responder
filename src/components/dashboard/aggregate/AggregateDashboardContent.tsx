@@ -2,17 +2,17 @@
 
 import { useEffect, useRef } from 'react';
 import type { AggregateDashboardData } from '@/lib/dashboard/types';
-import { TopBar } from '@/components/dashboard/TopBar';
+import { TopBar } from '@/components/dashboard/shell/TopBar';
 import { AggregateKpiCards } from '@/components/dashboard/aggregate/AggregateKpiCards';
 import { AggregateReviewsCard } from '@/components/dashboard/aggregate/AggregateReviewsCard';
 import { AggregateVelocityCard } from '@/components/dashboard/aggregate/AggregateVelocityCard';
 import { AggregateRankingCard } from '@/components/dashboard/aggregate/AggregateRankingCard';
 import { AggregateIntelligenceBriefCard } from '@/components/dashboard/aggregate/AggregateIntelligenceBriefCard';
 import { LocationKpiStrip } from '@/components/dashboard/aggregate/LocationKpiStrip';
-import { PastDueBanner } from '@/components/dashboard/SubscriptionStatusBanner';
-import { PastDueModal } from '@/components/dashboard/PastDueModal';
-import { useSetPendingCount } from '@/components/dashboard/PendingCountContext';
-import { useNeedsActionHashScroll } from '@/components/dashboard/useNeedsActionHashScroll';
+import { PastDueBanner } from '@/components/dashboard/account-state/SubscriptionStatusBanner';
+import { PastDueModal } from '@/components/dashboard/account-state/PastDueModal';
+import { useSetPendingCount } from '@/contexts/PendingCountContext';
+import { useNeedsActionHashScroll } from '@/hooks/useNeedsActionHashScroll';
 
 interface Props {
   data: AggregateDashboardData;

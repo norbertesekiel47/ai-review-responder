@@ -20,7 +20,7 @@ import { useState } from 'react';
 import { useSettingsForm } from '@/hooks/useSettingsForm';
 import { SettingsShell } from '@/components/dashboard/settings/SettingsShell';
 import { SettingsSkeleton } from '@/components/dashboard/settings/SettingsSkeleton';
-import { Icon } from '@/components/dashboard/Icon';
+import { Icon } from '@/components/dashboard/shell/Icon';
 import { ChannelsClient, type ChannelsClientProps } from './ChannelsClient';
 import {
   PerLocationOverridePanel,

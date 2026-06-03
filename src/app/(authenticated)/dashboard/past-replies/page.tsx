@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation';
 import { sql } from '@/lib/db/server';
 import { requireOwnerAccess } from '@/lib/auth/require-owner-access';
-import { TopBar } from '@/components/dashboard/TopBar';
+import { TopBar } from '@/components/dashboard/shell/TopBar';
 import { PastRepliesClient } from './PastRepliesClient';
 import { getDisplayLabel } from '@/lib/locations/display-label';
 import {

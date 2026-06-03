@@ -6,10 +6,10 @@ import { ChannelsClient, type InitialEnrollment } from '../ChannelsClient';
 // The owner Telegram/WhatsApp widgets fetch status on mount. Stub them so we
 // can freely flip telegram/whatsapp availability and prove the SMS row never
 // reacts to any flag state. (Same vi.mock-with-JSX pattern as SettingsClient.test.tsx.)
-vi.mock('@/components/dashboard/OwnerTelegramWidget', () => ({
+vi.mock('@/components/dashboard/channels/OwnerTelegramWidget', () => ({
   OwnerTelegramWidget: () => <div data-testid="telegram-widget" />,
 }));
-vi.mock('@/components/dashboard/OwnerWhatsAppWidget', () => ({
+vi.mock('@/components/dashboard/channels/OwnerWhatsAppWidget', () => ({
   OwnerWhatsAppWidget: () => <div data-testid="whatsapp-widget" />,
 }));
 

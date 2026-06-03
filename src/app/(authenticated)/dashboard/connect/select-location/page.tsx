@@ -8,7 +8,7 @@ import {
 import { locationsKey } from '@/lib/zernio/connect-state';
 import type { ConnectLocationsBlob } from '@/lib/zernio/types';
 import { LocationPicker } from './LocationPicker';
-import { TopBar } from '@/components/dashboard/TopBar';
+import { TopBar } from '@/components/dashboard/shell/TopBar';
 
 export const dynamic = 'force-dynamic';
 

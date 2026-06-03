@@ -308,6 +308,8 @@ Custom React hooks shared across pages.
 
 Reusable React components imported by multiple pages.
 
+- Component placement convention: see `docs/src-structure-preferences.md` → "Component placement rule".
+
 | File | What it does |
 |------|--------------|
 | `DashboardContent.tsx` | Top-level owner dashboard shell. Composes sub-components (`ReviewsList`, `Charts`, `ValueSummary`, `ConnectGoogleBanner`, etc.) and passes dashboard data down. |

@@ -3,7 +3,7 @@
 import type { AggregateDashboardData, PerLocationKpi } from '@/lib/dashboard/types';
 import { useLocationScope } from '@/contexts/LocationContext';
 import type { LocationId } from '@/lib/shared/ids';
-import { Icon } from '../Icon';
+import { Icon } from '@/components/dashboard/shell/Icon';
 
 interface Props {
   locationKpis: AggregateDashboardData['locationKpis'];

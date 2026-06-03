@@ -12,7 +12,7 @@
 // VAL-SETTINGS-016: Removing override reverts to org-default.
 
 import { useCallback, useState } from 'react';
-import { Icon } from '@/components/dashboard/Icon';
+import { Icon } from '@/components/dashboard/shell/Icon';
 
 // ── Types ────────────────────────────────────────────────────────────────
 

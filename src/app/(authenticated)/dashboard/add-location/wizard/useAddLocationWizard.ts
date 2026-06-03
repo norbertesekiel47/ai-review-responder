@@ -8,7 +8,7 @@
 
 import { useCallback, useEffect, useReducer } from 'react';
 import { useRouter } from 'next/navigation';
-import type { PlaceSelection } from '@/components/PlaceAutocomplete';
+import type { PlaceSelection } from '@/components/places/PlaceAutocomplete';
 import { useLocationScope } from '@/contexts/LocationContext';
 import type { LocationId } from '@/lib/shared/ids';
 import { computeNextLocationBillingPreview, computeProration } from './billing';
