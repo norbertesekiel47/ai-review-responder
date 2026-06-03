@@ -1,8 +1,8 @@
 'use client';
 
 import { Icon } from '@/components/dashboard/shell/Icon';
-import { ToneChipPicker } from './ToneChipPicker';
-import { ListEditor } from './ListEditor';
+import { ToneChipPicker } from '@/components/dashboard/settings/ToneChipPicker';
+import { ListEditor } from '@/components/dashboard/settings/ListEditor';
 
 // Voice form fields shared by both SettingsForm (single-location) and
 // VoiceFormState (per-location). BrandVoicePanel only needs the voice-

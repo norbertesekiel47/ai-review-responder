@@ -129,6 +129,10 @@ Co-located folders use the Next.js `_`-prefixed private-folder idiom
 (`_components/`, `_hooks/`). A file graduates from `_components/` to
 `components/<domain>/` only when a second route leaf consumes it.
 
+**Imports:** use `@/` path aliases throughout, **including same-folder siblings**
+(`@/components/dashboard/kpi/Sparkline`, not `./Sparkline`). The only banned form is
+`../../` parent-traversal. This keeps every module reference uniform and move-stable.
+
 **`cn()`:** use `@/lib/ui/cn` (zero-dep className joiner). No `clsx`/`tailwind-merge`.
 
 **react-query:** scoped to `app/admin/**` + the few polling/approve spots. Customer
