@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
-import { requireRole, AuthError } from '@/lib/db/auth';
-import { jsonResponse } from '@/lib/auth/route-helpers';
+import { jsonResponse, requireOwnerWithAccount } from '@/lib/auth/route-helpers';
 import { subscriptionAllowsDashboardRead } from '@/lib/shared/subscription-status';
 import { isValidUuid } from '@/lib/shared/ids';
 import { getLocationById } from '@/lib/locations/repo';
@@ -11,22 +10,13 @@ import { resolveDashboardScopePolicy } from '../policy';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  let user;
-  try {
-    user = await requireRole(request, 'owner');
-  } catch (err) {
-    if (err instanceof AuthError) {
-      return jsonResponse({ error: err.message }, err.statusCode);
-    }
-    console.error('[api/dashboard/kpis] auth check failed:', err);
-    return jsonResponse({ error: 'Internal server error' }, 500);
-  }
-
-  if (!user.accountId) {
-    return jsonResponse({ error: 'No account associated with this user' }, 403);
-  }
-
-  const accountId = user.accountId;
+  // requireOwnerWithAccount is the shared owner read-gate: owner role + account
+  // presence, with AuthError mapped and unexpected (non-auth) failures re-thrown
+  // as a real 5xx (the Part A contract) — replacing this route's bespoke
+  // preamble and its unique 'Internal server error' 500 spelling.
+  const owner = await requireOwnerWithAccount(request);
+  if (!owner.ok) return owner.response;
+  const { user, accountId } = owner;
 
   try {
     // Subscription gate: only entitled accounts get customer KPI data. Mirrors
