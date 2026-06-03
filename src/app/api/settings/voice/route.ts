@@ -11,31 +11,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { sql } from '@/lib/db/server';
-import { requireRole, AuthError } from '@/lib/db/auth';
-import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 import { getLocationsForAccount } from '@/lib/locations/repo';
 import { getDisplayLabel, type HasDisplayLabel } from '@/lib/locations/display-label';
-import { withSameOrigin } from '@/lib/auth/route-helpers';
+import { jsonResponse, requireOwnerOr401, withSameOrigin } from '@/lib/auth/route-helpers';
 import { assertWritableSubscriptionForAccount } from '@/lib/shared/writable-subscription';
 
 export const dynamic = 'force-dynamic';
 
-function jsonResponse(body: unknown, status = 200): NextResponse {
-  return NextResponse.json(body, { status, headers: NO_STORE_HEADERS });
-}
-
 // ── GET: Fetch voice config for one or all locations ────────────────────
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  let user;
-  try {
-    user = await requireRole(request, 'owner');
-  } catch (err) {
-    if (err instanceof AuthError) {
-      return jsonResponse({ error: err.message }, err.statusCode);
-    }
-    return jsonResponse({ error: 'Unauthorized' }, 401);
-  }
+  const auth = await requireOwnerOr401(request);
+  if (!auth.ok) return auth.response;
+  const user = auth.user;
 
   if (!user.accountId) {
     return jsonResponse({ error: 'No account associated with this user' }, 403);
@@ -138,15 +126,9 @@ const VOICE_FIELD_TO_COLUMN: Record<string, string> = {
 };
 
 async function putVoiceConfig(request: NextRequest): Promise<NextResponse> {
-  let user;
-  try {
-    user = await requireRole(request, 'owner');
-  } catch (err) {
-    if (err instanceof AuthError) {
-      return jsonResponse({ error: err.message }, err.statusCode);
-    }
-    return jsonResponse({ error: 'Unauthorized' }, 401);
-  }
+  const auth = await requireOwnerOr401(request);
+  if (!auth.ok) return auth.response;
+  const user = auth.user;
 
   if (!user.accountId) {
     return jsonResponse({ error: 'No account associated with this user' }, 403);

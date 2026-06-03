@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
-import { requireRole, AuthError } from '@/lib/db/auth';
-import { NO_STORE_HEADERS } from '@/lib/shared/constants';
+import { jsonResponse, requireOwnerOr401 } from '@/lib/auth/route-helpers';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import {
   getActiveDashboardData,
@@ -23,11 +22,6 @@ export type {
   DashboardDataActive,
 } from '@/lib/dashboard/types';
 
-
-/** All dashboard responses use no-store headers — owner-specific data. */
-function jsonResponse(body: unknown, status = 200): NextResponse {
-  return NextResponse.json(body, { status, headers: NO_STORE_HEADERS });
-}
 
 function serializePastDueRecovery(recovery: PastDueRecoveryState) {
   return {
@@ -355,15 +349,9 @@ async function handlePerLocationDashboard(
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  let user;
-  try {
-    user = await requireRole(request, 'owner');
-  } catch (err) {
-    if (err instanceof AuthError) {
-      return jsonResponse({ error: err.message }, err.statusCode);
-    }
-    return jsonResponse({ error: 'Unauthorized' }, 401);
-  }
+  const auth = await requireOwnerOr401(request);
+  if (!auth.ok) return auth.response;
+  const user = auth.user;
 
   if (!user.accountId) {
     return jsonResponse({ error: 'No account associated with this user' }, 403);

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
 import { requireRole, AuthError } from '@/lib/db/auth';
-import { NO_STORE_HEADERS } from '@/lib/shared/constants';
+import { jsonResponse } from '@/lib/auth/route-helpers';
 import { subscriptionAllowsDashboardRead } from '@/lib/shared/subscription-status';
 import { isValidUuid } from '@/lib/shared/ids';
 import { getLocationById } from '@/lib/locations/repo';
@@ -9,11 +9,6 @@ import { getLocationKpiSummary, getAccountKpiSummary } from '@/lib/kpi/service';
 import { resolveDashboardScopePolicy } from '../policy';
 
 export const dynamic = 'force-dynamic';
-
-/** All KPI responses use no-store headers — owner-specific data. */
-function jsonResponse(body: unknown, status = 200): NextResponse {
-  return NextResponse.json(body, { status, headers: NO_STORE_HEADERS });
-}
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   let user;

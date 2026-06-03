@@ -4,6 +4,7 @@ import type { User } from '@supabase/supabase-js';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { requireRole, AuthError } from '@/lib/db/auth';
+import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 
 type NextHandler<TArgs extends unknown[] = []> = (
   req: NextRequest,
@@ -109,9 +110,40 @@ export function withSession(
   };
 }
 
+/** JSON response with the standard no-store cache headers (owner/account routes). */
+export function jsonResponse(body: unknown, status = 200): NextResponse {
+  return NextResponse.json(body, { status, headers: NO_STORE_HEADERS });
+}
+
 export type AdminAuthResult =
   | { ok: true; user: Awaited<ReturnType<typeof requireRole>> }
   | { ok: false; response: NextResponse };
+
+export type OwnerAuthResult =
+  | { ok: true; user: Awaited<ReturnType<typeof requireRole>> }
+  | { ok: false; response: NextResponse };
+
+/**
+ * Owner-role gate shared by the owner/account API routes: runs
+ * requireRole(_, 'owner') and maps an AuthError to its no-store JSON response,
+ * falling back to a 401 for any other failure (the routes' long-standing
+ * behavior). Returns the resolved owner user on success.
+ *
+ *   const auth = await requireOwnerOr401(request);
+ *   if (!auth.ok) return auth.response;
+ *   const user = auth.user;
+ */
+export async function requireOwnerOr401(request: NextRequest): Promise<OwnerAuthResult> {
+  try {
+    const user = await requireRole(request, 'owner');
+    return { ok: true, user };
+  } catch (err) {
+    if (err instanceof AuthError) {
+      return { ok: false, response: jsonResponse({ error: err.message }, err.statusCode) };
+    }
+    return { ok: false, response: jsonResponse({ error: 'Unauthorized' }, 401) };
+  }
+}
 
 /**
  * Admin-role gate shared by the admin API routes: runs `requireRole(_, 'admin')`

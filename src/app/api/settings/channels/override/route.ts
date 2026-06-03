@@ -17,18 +17,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '@/lib/db/server';
-import { requireRole, AuthError } from '@/lib/db/auth';
-import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
 import { asAccountId } from '@/lib/shared/ids';
-import { withSameOrigin } from '@/lib/auth/route-helpers';
+import { jsonResponse, requireOwnerOr401, withSameOrigin } from '@/lib/auth/route-helpers';
 import { assertWritableSubscriptionForAccount } from '@/lib/shared/writable-subscription';
 
 export const dynamic = 'force-dynamic';
-
-function jsonResponse(body: unknown, status = 200): NextResponse {
-  return NextResponse.json(body, { status, headers: NO_STORE_HEADERS });
-}
 
 // ── POST: Create per-location channel override ──────────────────────────
 //
@@ -45,15 +39,9 @@ const CreateOverrideSchema = z.object({
 });
 
 async function createOverride(request: NextRequest): Promise<NextResponse> {
-  let user;
-  try {
-    user = await requireRole(request, 'owner');
-  } catch (err) {
-    if (err instanceof AuthError) {
-      return jsonResponse({ error: err.message }, err.statusCode);
-    }
-    return jsonResponse({ error: 'Unauthorized' }, 401);
-  }
+  const auth = await requireOwnerOr401(request);
+  if (!auth.ok) return auth.response;
+  const user = auth.user;
 
   if (!user.accountId) {
     return jsonResponse({ error: 'No account associated with this user' }, 403);
@@ -212,15 +200,9 @@ const DeleteOverrideSchema = z.object({
 });
 
 async function deleteOverride(request: NextRequest): Promise<NextResponse> {
-  let user;
-  try {
-    user = await requireRole(request, 'owner');
-  } catch (err) {
-    if (err instanceof AuthError) {
-      return jsonResponse({ error: err.message }, err.statusCode);
-    }
-    return jsonResponse({ error: 'Unauthorized' }, 401);
-  }
+  const auth = await requireOwnerOr401(request);
+  if (!auth.ok) return auth.response;
+  const user = auth.user;
 
   if (!user.accountId) {
     return jsonResponse({ error: 'No account associated with this user' }, 403);
