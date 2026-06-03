@@ -5,7 +5,7 @@ import { useRouter, usePathname } from 'next/navigation';
 import { useState } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/db/browser';
 import { Icon } from '@/components/dashboard/shell/Icon';
-import { LocationPicker } from '@/components/dashboard/LocationPicker';
+import { LocationPicker } from '@/components/dashboard/location/LocationPicker';
 import { useLocationScope } from '@/contexts/LocationContext';
 
 interface Props {

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Icon } from '@/components/dashboard/shell/Icon';
-import { LocationPicker } from '@/components/dashboard/LocationPicker';
+import { LocationPicker } from '@/components/dashboard/location/LocationPicker';
 import { useLocationScope } from '@/contexts/LocationContext';
 
 interface Props {
