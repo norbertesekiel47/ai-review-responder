@@ -13,8 +13,7 @@ import { z } from 'zod';
 import { sql } from '@/lib/db/server';
 import { getLocationsForAccount } from '@/lib/locations/repo';
 import { getDisplayLabel, type HasDisplayLabel } from '@/lib/locations/display-label';
-import { jsonResponse, requireOwnerOr401, withSameOrigin } from '@/lib/auth/route-helpers';
-import { assertWritableSubscriptionForAccount } from '@/lib/shared/writable-subscription';
+import { jsonResponse, requireOwnerOr401, requireWritableOwner, withSameOrigin } from '@/lib/auth/route-helpers';
 
 export const dynamic = 'force-dynamic';
 
@@ -126,18 +125,9 @@ const VOICE_FIELD_TO_COLUMN: Record<string, string> = {
 };
 
 async function putVoiceConfig(request: NextRequest): Promise<NextResponse> {
-  const auth = await requireOwnerOr401(request);
-  if (!auth.ok) return auth.response;
-  const user = auth.user;
-
-  if (!user.accountId) {
-    return jsonResponse({ error: 'No account associated with this user' }, 403);
-  }
-
-  const writable = await assertWritableSubscriptionForAccount(user.accountId);
-  if (!writable.ok) {
-    return jsonResponse({ error: writable.error }, writable.status);
-  }
+  const owner = await requireWritableOwner(request);
+  if (!owner.ok) return owner.response;
+  const user = owner.user;
 
   let body: unknown;
   try {

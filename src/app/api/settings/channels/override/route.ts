@@ -19,8 +19,7 @@ import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '@/lib/db/server';
 import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
 import { asAccountId } from '@/lib/shared/ids';
-import { jsonResponse, requireOwnerOr401, withSameOrigin } from '@/lib/auth/route-helpers';
-import { assertWritableSubscriptionForAccount } from '@/lib/shared/writable-subscription';
+import { jsonResponse, requireWritableOwner, withSameOrigin } from '@/lib/auth/route-helpers';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,18 +38,9 @@ const CreateOverrideSchema = z.object({
 });
 
 async function createOverride(request: NextRequest): Promise<NextResponse> {
-  const auth = await requireOwnerOr401(request);
-  if (!auth.ok) return auth.response;
-  const user = auth.user;
-
-  if (!user.accountId) {
-    return jsonResponse({ error: 'No account associated with this user' }, 403);
-  }
-
-  const writable = await assertWritableSubscriptionForAccount(user.accountId);
-  if (!writable.ok) {
-    return jsonResponse({ error: writable.error }, writable.status);
-  }
+  const owner = await requireWritableOwner(request);
+  if (!owner.ok) return owner.response;
+  const user = owner.user;
 
   let body: unknown;
   try {
@@ -164,7 +154,7 @@ async function createOverride(request: NextRequest): Promise<NextResponse> {
     `;
 
     // VAL-NOTIF-009: Invalidate cache on channel_enrollments writes
-    await safeInvalidateChannelCache(asAccountId(user.accountId), 'settings.channels.override.upsert');
+    await safeInvalidateChannelCache(asAccountId(owner.accountId), 'settings.channels.override.upsert');
 
     return jsonResponse({
       success: true,
@@ -200,18 +190,9 @@ const DeleteOverrideSchema = z.object({
 });
 
 async function deleteOverride(request: NextRequest): Promise<NextResponse> {
-  const auth = await requireOwnerOr401(request);
-  if (!auth.ok) return auth.response;
-  const user = auth.user;
-
-  if (!user.accountId) {
-    return jsonResponse({ error: 'No account associated with this user' }, 403);
-  }
-
-  const writable = await assertWritableSubscriptionForAccount(user.accountId);
-  if (!writable.ok) {
-    return jsonResponse({ error: writable.error }, writable.status);
-  }
+  const owner = await requireWritableOwner(request);
+  if (!owner.ok) return owner.response;
+  const user = owner.user;
 
   let body: unknown;
   try {
@@ -264,7 +245,7 @@ async function deleteOverride(request: NextRequest): Promise<NextResponse> {
   `;
 
   // VAL-NOTIF-009: Invalidate cache on channel_enrollments writes
-  await safeInvalidateChannelCache(asAccountId(user.accountId), 'settings.channels.override.delete');
+  await safeInvalidateChannelCache(asAccountId(owner.accountId), 'settings.channels.override.delete');
 
   return jsonResponse({ success: true });
 }

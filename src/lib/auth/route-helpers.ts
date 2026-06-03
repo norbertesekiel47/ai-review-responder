@@ -5,6 +5,7 @@ import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
+import { assertWritableSubscriptionForAccount } from '@/lib/shared/writable-subscription';
 
 type NextHandler<TArgs extends unknown[] = []> = (
   req: NextRequest,
@@ -143,6 +144,32 @@ export async function requireOwnerOr401(request: NextRequest): Promise<OwnerAuth
     }
     return { ok: false, response: jsonResponse({ error: 'Unauthorized' }, 401) };
   }
+}
+
+export type WritableOwnerResult =
+  | { ok: true; user: Awaited<ReturnType<typeof requireRole>>; accountId: string }
+  | { ok: false; response: NextResponse };
+
+/**
+ * Owner gate for mutating owner/account routes: requireOwnerOr401 → account
+ * association check → writable-subscription gate (past-due read-only enforced).
+ * Returns the owner user + accountId on success, or the inline no-store JSON
+ * response (401 / 403 no-account / 402|403 not-writable) on failure.
+ */
+export async function requireWritableOwner(request: NextRequest): Promise<WritableOwnerResult> {
+  const auth = await requireOwnerOr401(request);
+  if (!auth.ok) return auth;
+
+  if (!auth.user.accountId) {
+    return { ok: false, response: jsonResponse({ error: 'No account associated with this user' }, 403) };
+  }
+
+  const writable = await assertWritableSubscriptionForAccount(auth.user.accountId);
+  if (!writable.ok) {
+    return { ok: false, response: jsonResponse({ error: writable.error }, writable.status) };
+  }
+
+  return { ok: true, user: auth.user, accountId: auth.user.accountId };
 }
 
 /**
