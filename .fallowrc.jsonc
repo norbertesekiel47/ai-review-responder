@@ -33,9 +33,11 @@
   },
   "duplicates": {
     "ignoreImports": true,
-    // Gate on widespread copy-paste (3+ sites); fallow's guidance is to skip
-    // isolated context-sensitive pairs, which are reviewed case-by-case.
-    "minOccurrences": 3,
+    // Surface all repeated clones (2+ sites) so a new copy-paste pair stays
+    // visible to anyone running `fallow dupes` locally. Intentional/divergent
+    // clones are acknowledged by name in the `ignore` list below, not hidden by
+    // a blanket occurrence threshold.
+    "minOccurrences": 2,
     "ignore": [
       // Tests/e2e are intentionally DAMP; Next.js page.tsx are layout/auth-redirect
       // boilerplate; CI scripts are audit scaffolds. Dupes-scoped only — the
