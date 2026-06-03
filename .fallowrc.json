@@ -7,7 +7,8 @@
   ],
   "entry": [
     "scripts/clear-signup-rate-limits.ts",
-    "scripts/zernio-backfill-external-replies.ts"
+    "scripts/zernio-backfill-external-replies.ts",
+    "scripts/posthog-backfill-activations.ts"
   ],
   "ignoreExports": [
     {

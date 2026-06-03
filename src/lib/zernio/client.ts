@@ -1,6 +1,5 @@
 export { classifyAndParse } from './client/error-classifier';
 export { request, createZernioTransport } from './client/transport';
-export type { RequestOptions, ZernioTransport, ZernioTransportOptions } from './client/transport';
 
 import { createLocationClient } from './client/locations';
 import { createProfileClient } from './client/profiles';
