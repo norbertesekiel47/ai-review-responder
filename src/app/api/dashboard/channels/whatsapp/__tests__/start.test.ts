@@ -144,4 +144,18 @@ describe('POST /api/dashboard/channels/whatsapp/start', () => {
     expect(res.status).toBe(409);
     expect((await res.json()).error).toBe('already_verified');
   });
+
+  it('strips internal formatting from TWILIO_WHATSAPP_NUMBER (digits only in wa.me link)', async () => {
+    // wa.me requires a bare digit string. A human-formatted env value with
+    // spaces/parens/dashes must collapse to digits — proving .replace(/\D/g,'')
+    // strips internal formatting, not just the whatsapp:/+ prefix.
+    process.env.CHANNELS_WHATSAPP_ENABLED = 'true';
+    process.env.TWILIO_WHATSAPP_NUMBER = 'whatsapp:+1 (555) 123-0000';
+    sqlQueue.push([{ id: 'acct-1', subscription_status: 'active' }]);
+    startWhatsAppEnrollmentMock.mockResolvedValue({ kind: 'ok' });
+    const res = await POST(mkReq() as any);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.deepLink).toMatch(/^https:\/\/wa\.me\/15551230000\?text=start-/);
+  });
 });
