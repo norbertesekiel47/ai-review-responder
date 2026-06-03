@@ -1,34 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@supabase/ssr';
-import { AuthError, requireRole, type AppUser } from '@/lib/db/auth';
+import { AuthError, requireRole, cookieBackedServerClient, type AppUser } from '@/lib/db/auth';
 import { requireCurrentAal2FromSupabase, type SupabaseMfaAalClient } from '@/lib/auth/mfa';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 
 export type AdminMfaGateResult =
   | { ok: true; admin: AppUser }
   | { ok: false; response: NextResponse };
-
-/**
- * Cookie-backed Supabase client for the AAL2 (MFA step-up) check. setAll is a
- * no-op: route handlers cannot mutate request cookies — the proxy refreshes the
- * session. Previously copy-pasted into flagged + zernio-queue routes.
- */
-function mfaClientForRequest(request: NextRequest): SupabaseMfaAalClient {
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll() {
-          // Route handlers cannot mutate request cookies; proxy handles refresh.
-        },
-      },
-    },
-  ) as SupabaseMfaAalClient;
-}
 
 function internalError(error: unknown): NextResponse {
   console.error('[admin-mfa-gate] unexpected failure:', error);
@@ -81,7 +58,9 @@ export async function requireAdminWithAal2(
 
   let aal;
   try {
-    aal = await requireCurrentAal2FromSupabase(mfaClientForRequest(request));
+    aal = await requireCurrentAal2FromSupabase(
+      cookieBackedServerClient(request) as SupabaseMfaAalClient,
+    );
   } catch (err) {
     // The Supabase client construction or the AAL2 lookup can throw (network,
     // misconfig) rather than returning { ok: false }. Surface it as the same

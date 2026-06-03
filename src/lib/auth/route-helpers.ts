@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@supabase/ssr';
 import type { User } from '@supabase/supabase-js';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
-import { requireRole, AuthError, type AppUser } from '@/lib/db/auth';
+import { requireRole, AuthError, cookieBackedServerClient, type AppUser } from '@/lib/db/auth';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 import { assertWritableSubscriptionForAccount } from '@/lib/shared/writable-subscription';
 
@@ -81,27 +80,7 @@ export function withSession(
   handler: (session: { user: User }, req: NextRequest) => Promise<Response> | Response,
 ): NextHandler {
   return async (req) => {
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          getAll() {
-            return req.cookies.getAll();
-          },
-          setAll() {
-            // No-op by design. Supabase access-token refresh that would otherwise
-            // write new cookies is silently discarded here. Relies on the browser
-            // Supabase client refreshing via its own cookie writes on the next page
-            // load. Acceptable for short-lived API routes; the trade-off is that
-            // long-hanging routes may see stale access tokens if the browser's
-            // refresh hasn't fired yet. Not a security issue (getUser validates
-            // against Supabase directly), just a potential 401 that triggers a
-            // browser-side refresh round-trip.
-          },
-        },
-      },
-    );
+    const supabase = cookieBackedServerClient(req);
 
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {

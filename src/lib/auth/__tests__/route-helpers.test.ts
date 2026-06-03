@@ -26,12 +26,6 @@ vi.mock('@/lib/shared/rate-limit', () => ({
   checkRateLimit: mockCheckRateLimit,
 }));
 
-vi.mock('@supabase/ssr', () => ({
-  createServerClient: vi.fn(() => ({
-    auth: { getUser: mockGetUser },
-  })),
-}));
-
 vi.mock('@/lib/db/auth', () => {
   class AuthError extends Error {
     constructor(message: string, public readonly statusCode: number) {
@@ -39,7 +33,14 @@ vi.mock('@/lib/db/auth', () => {
       this.name = 'AuthError';
     }
   }
-  return { requireRole: mockRequireRole, AuthError };
+  // withSession builds its Supabase client via cookieBackedServerClient; stub it
+  // to surface the mocked getUser. The cookie-adapter wiring itself is covered by
+  // the cookieBackedServerClient unit test (src/lib/db/__tests__/auth.test.ts).
+  return {
+    requireRole: mockRequireRole,
+    cookieBackedServerClient: () => ({ auth: { getUser: mockGetUser } }),
+    AuthError,
+  };
 });
 
 // ── Import AFTER mocks ───────────────────────────────────────────────────────
@@ -235,31 +236,6 @@ describe('withSession', () => {
     const [session, passedReq] = sessionHandler.mock.calls[0]!;
     expect(session).toEqual({ user: fakeUser });
     expect(passedReq).toBe(req);
-  });
-
-  it('passes cookies from the request to createServerClient', async () => {
-    const { createServerClient } = await import('@supabase/ssr');
-    const mockCreate = vi.mocked(createServerClient);
-    mockCreate.mockClear();
-
-    const fakeUser = { id: 'user-xyz', email: 'test@example.com' };
-    mockGetUser.mockResolvedValue({ data: { user: fakeUser }, error: null });
-
-    const req = new NextRequest('https://app.example.com/api/auth/signup', {
-      method: 'POST',
-      headers: { cookie: 'sb-access-token=tok123' },
-    });
-
-    const sessionHandler = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
-    await withSession(sessionHandler)(req);
-
-    expect(mockCreate).toHaveBeenCalledOnce();
-    const [url, key, opts] = mockCreate.mock.calls[0]!;
-    expect(url).toBe('https://test.supabase.co');
-    expect(key).toBe('anon-key-test');
-    // getAll() on the cookie adapter should return the request cookies
-    const cookies = (opts as any).cookies.getAll();
-    expect(Array.isArray(cookies)).toBe(true);
   });
 });
 
