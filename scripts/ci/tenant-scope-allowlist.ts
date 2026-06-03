@@ -61,30 +61,6 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "Admin-only cross-tenant read of the open flagged-response queue (deny-all RLS table joined to its parent rows); gated by requireRole('admin') and proxy /api/admin protection.",
   },
   {
-    file: "src/app/api/admin/channels/telegram/cancel/route.ts",
-    table: "businesses",
-    sqlSnippet: "SELECT account_id FROM businesses WHERE id = ${businessId}",
-    reason: "Admin-only route or service intentionally performs this statement after requireRole(admin).",
-  },
-  {
-    file: "src/app/api/admin/channels/telegram/disable/route.ts",
-    table: "businesses",
-    sqlSnippet: "SELECT account_id FROM businesses WHERE id = ${businessId}",
-    reason: "Admin-only route or service intentionally performs this statement after requireRole(admin).",
-  },
-  {
-    file: "src/app/api/admin/channels/whatsapp/cancel/route.ts",
-    table: "businesses",
-    sqlSnippet: "SELECT account_id FROM businesses WHERE id = ${businessId}",
-    reason: "Admin-only route or service intentionally performs this statement after requireRole(admin).",
-  },
-  {
-    file: "src/app/api/admin/channels/whatsapp/disable/route.ts",
-    table: "businesses",
-    sqlSnippet: "SELECT account_id FROM businesses WHERE id = ${businessId}",
-    reason: "Admin-only route or service intentionally performs this statement after requireRole(admin).",
-  },
-  {
     file: "src/app/api/admin/overview/route.ts",
     table: "api_costs",
     sqlSnippet: "SELECT COALESCE(SUM(cost_usd), 0)::float AS total FROM api_costs WHERE created_at >= CURRENT_DATE",
