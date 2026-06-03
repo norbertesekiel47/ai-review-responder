@@ -62,4 +62,11 @@ describe('useCountUp', () => {
     frame(1500); // (1500 - 500) / 1000 = 1 → target
     expect(result.current).toBe(100);
   });
+
+  it('cancels the scheduled frame on unmount', () => {
+    const { unmount } = renderHook(() => useCountUp(100, { duration: 1000 }));
+    expect(pending).not.toBeNull(); // a frame is scheduled while active
+    unmount();
+    expect(pending).toBeNull(); // the effect cleanup cancelled it
+  });
 });
