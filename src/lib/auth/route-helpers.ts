@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@supabase/ssr';
 import type { User } from '@supabase/supabase-js';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
+import { requireRole, AuthError, cookieBackedServerClient, type AppUser } from '@/lib/db/auth';
+import { NO_STORE_HEADERS } from '@/lib/shared/constants';
+import { assertWritableSubscriptionForAccount } from '@/lib/shared/writable-subscription';
 
 type NextHandler<TArgs extends unknown[] = []> = (
   req: NextRequest,
@@ -78,27 +80,7 @@ export function withSession(
   handler: (session: { user: User }, req: NextRequest) => Promise<Response> | Response,
 ): NextHandler {
   return async (req) => {
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          getAll() {
-            return req.cookies.getAll();
-          },
-          setAll() {
-            // No-op by design. Supabase access-token refresh that would otherwise
-            // write new cookies is silently discarded here. Relies on the browser
-            // Supabase client refreshing via its own cookie writes on the next page
-            // load. Acceptable for short-lived API routes; the trade-off is that
-            // long-hanging routes may see stale access tokens if the browser's
-            // refresh hasn't fired yet. Not a security issue (getUser validates
-            // against Supabase directly), just a potential 401 that triggers a
-            // browser-side refresh round-trip.
-          },
-        },
-      },
-    );
+    const supabase = cookieBackedServerClient(req);
 
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
@@ -106,4 +88,98 @@ export function withSession(
     }
     return handler({ user }, req);
   };
+}
+
+/** JSON response with the standard no-store cache headers (owner/account routes). */
+export function jsonResponse(body: unknown, status = 200): NextResponse {
+  return NextResponse.json(body, { status, headers: NO_STORE_HEADERS });
+}
+
+export type RoleAuthResult =
+  | { ok: true; user: AppUser }
+  | { ok: false; response: NextResponse };
+
+/**
+ * The single role-auth gate shared by every admin/owner/channel API route.
+ * Runs requireRole(request, role) and maps the outcome:
+ *
+ *   - success           → { ok: true, user }
+ *   - AuthError         → { ok: false, response } — a no-store JSON body
+ *                         ({ error: message }) at the AuthError's statusCode
+ *                         (401 unauthenticated / 403 forbidden).
+ *   - any other failure → re-thrown, surfacing a real 5xx. An unexpected
+ *                         (non-auth) failure must not be masked as a 401 —
+ *                         that drift hid genuine server faults behind an
+ *                         "Unauthorized" response.
+ *
+ * Deliberate asymmetry with requireAdminWithAal2 (the admin control-plane gate,
+ * src/lib/auth/admin-mfa-gate.ts) on this exact failure mode: that gate CATCHES
+ * a non-auth failure and returns a clean { error: 'internal_error' } 500, while
+ * this gate RE-THROWS. Each preserves its own routes' pre-refactor behavior —
+ * the owner/channel/admin routes here intentionally let server faults surface
+ * as a real (un-masked) 5xx; the admin mutation routes return a uniform
+ * internal_error 500. Don't unify one onto the other without accepting that
+ * observable change across ~40 routes.
+ *
+ *   const auth = await requireRoleOr401(request, 'owner');
+ *   if (!auth.ok) return auth.response;
+ *   const user = auth.user;
+ */
+export async function requireRoleOr401(
+  request: NextRequest,
+  role: string,
+): Promise<RoleAuthResult> {
+  try {
+    const user = await requireRole(request, role);
+    return { ok: true, user };
+  } catch (err) {
+    if (err instanceof AuthError) {
+      return { ok: false, response: jsonResponse({ error: err.message }, err.statusCode) };
+    }
+    throw err;
+  }
+}
+
+export type OwnerAccountResult =
+  | { ok: true; user: AppUser; accountId: string }
+  | { ok: false; response: NextResponse };
+
+/**
+ * Owner gate for account-scoped READ routes: requireRoleOr401(_, 'owner') →
+ * account-association check. Returns the owner user + accountId on success, or
+ * the inline no-store JSON response (401/403 AuthError, 403 no-account). Does
+ * NOT enforce the writable-subscription gate — reads stay available to past-due
+ * accounts (use requireWritableOwner for mutations). Unexpected non-auth
+ * failures propagate as 5xx (see requireRoleOr401).
+ */
+export async function requireOwnerWithAccount(request: NextRequest): Promise<OwnerAccountResult> {
+  const auth = await requireRoleOr401(request, 'owner');
+  if (!auth.ok) return auth;
+
+  if (!auth.user.accountId) {
+    return { ok: false, response: jsonResponse({ error: 'No account associated with this user' }, 403) };
+  }
+
+  return { ok: true, user: auth.user, accountId: auth.user.accountId };
+}
+
+export type WritableOwnerResult = OwnerAccountResult;
+
+/**
+ * Owner gate for mutating owner/account routes: requireOwnerWithAccount →
+ * writable-subscription gate (past-due read-only enforced). Returns the owner
+ * user + accountId on success, or the inline no-store JSON response
+ * (401 / 403 no-account / 402|403 not-writable) on failure. Unexpected non-auth
+ * failures propagate as 5xx (see requireRoleOr401).
+ */
+export async function requireWritableOwner(request: NextRequest): Promise<WritableOwnerResult> {
+  const owner = await requireOwnerWithAccount(request);
+  if (!owner.ok) return owner;
+
+  const writable = await assertWritableSubscriptionForAccount(owner.accountId);
+  if (!writable.ok) {
+    return { ok: false, response: jsonResponse({ error: writable.error }, writable.status) };
+  }
+
+  return owner;
 }

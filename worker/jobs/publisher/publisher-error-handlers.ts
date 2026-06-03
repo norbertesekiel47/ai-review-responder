@@ -337,6 +337,27 @@ interface Verify409Args {
 }
 
 /**
+ * Bounds the 409-verifier review walk using the page-cache from
+ * lookupZernioReviewId: a review found on page 0 or 1 avoids re-walking all 4
+ * pages. Cache miss / cache-read failure falls back to the conservative 4-page
+ * cap. Single owner shared by both `verify409AndDispose` and `verify409InTx`
+ * so their maxPages bounding cannot drift apart.
+ */
+async function resolveVerifierMaxPages(
+  account_id: string,
+  location_id: string,
+  zernio_review_id: string,
+): Promise<number> {
+  try {
+    const cachedPage = await getCachedZernioReviewPage(account_id, location_id, zernio_review_id);
+    if (cachedPage !== null) return Math.min(cachedPage + 1, 4);
+  } catch {
+    // Non-fatal — fall back to 4-page walk.
+  }
+  return 4;
+}
+
+/**
  * 409 verify-first handler per spec §6.10b.
  *
  * When postReply returns ZernioReplyAlreadyExistsError, we cannot safely mark
@@ -362,18 +383,7 @@ export async function verify409AndDispose(args: Verify409Args): Promise<Verify40
     approved_text, outboxId, outboxAttempt, logger,
   } = args;
 
-  // Use the page-cache from lookupZernioReviewId to bound maxPages.
-  // If the review was found on page 0 or 1, we avoid re-walking all 4 pages.
-  // If the cache miss (Zernio-sourced row early-return, or expired), default to 4.
-  let maxPages = 4;
-  try {
-    const cachedPage = await getCachedZernioReviewPage(account_id, location_id, zernio_review_id);
-    if (cachedPage !== null) {
-      maxPages = Math.min(cachedPage + 1, 4);
-    }
-  } catch {
-    // Non-fatal — fall back to 4-page walk.
-  }
+  const maxPages = await resolveVerifierMaxPages(account_id, location_id, zernio_review_id);
 
   let allReviews: Awaited<ReturnType<typeof zernioClient.listAllReviews>>;
   try {
@@ -569,18 +579,7 @@ interface Verify409InTxArgs {
 export async function verify409InTx(args: Verify409InTxArgs): Promise<Verify409Disposition> {
   const { account_id, location_id, zernio_review_id, approved_text, logger } = args;
 
-  // Reuse the page-cache + maxPages logic from verify409AndDispose so a review
-  // found on page 0 or 1 doesn't trigger a full 4-page walk. Cache miss /
-  // cache-read failure → fall back to 4 (the conservative cap).
-  let maxPages = 4;
-  try {
-    const cachedPage = await getCachedZernioReviewPage(account_id, location_id, zernio_review_id);
-    if (cachedPage !== null) {
-      maxPages = Math.min(cachedPage + 1, 4);
-    }
-  } catch {
-    // Non-fatal — fall back to 4-page walk.
-  }
+  const maxPages = await resolveVerifierMaxPages(account_id, location_id, zernio_review_id);
 
   let allReviews: Awaited<ReturnType<typeof zernioClient.listAllReviews>>;
   try {

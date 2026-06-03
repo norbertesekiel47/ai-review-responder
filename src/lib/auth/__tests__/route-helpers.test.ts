@@ -16,21 +16,37 @@ const { mockGetUser } = vi.hoisted(() => ({
   mockGetUser: vi.fn(),
 }));
 
+const { mockRequireRole } = vi.hoisted(() => ({
+  mockRequireRole: vi.fn(),
+}));
+
 // ── Module mocks (hoisted before imports) ────────────────────────────────────
 
 vi.mock('@/lib/shared/rate-limit', () => ({
   checkRateLimit: mockCheckRateLimit,
 }));
 
-vi.mock('@supabase/ssr', () => ({
-  createServerClient: vi.fn(() => ({
-    auth: { getUser: mockGetUser },
-  })),
-}));
+vi.mock('@/lib/db/auth', () => {
+  class AuthError extends Error {
+    constructor(message: string, public readonly statusCode: number) {
+      super(message);
+      this.name = 'AuthError';
+    }
+  }
+  // withSession builds its Supabase client via cookieBackedServerClient; stub it
+  // to surface the mocked getUser. The cookie-adapter wiring itself is covered by
+  // the cookieBackedServerClient unit test (src/lib/db/__tests__/auth.test.ts).
+  return {
+    requireRole: mockRequireRole,
+    cookieBackedServerClient: () => ({ auth: { getUser: mockGetUser } }),
+    AuthError,
+  };
+});
 
 // ── Import AFTER mocks ───────────────────────────────────────────────────────
 
-import { withRateLimit, withSameOrigin, withSession } from '../route-helpers';
+import { withRateLimit, withSameOrigin, withSession, requireRoleOr401, requireOwnerWithAccount } from '../route-helpers';
+import { AuthError } from '@/lib/db/auth';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -221,29 +237,115 @@ describe('withSession', () => {
     expect(session).toEqual({ user: fakeUser });
     expect(passedReq).toBe(req);
   });
+});
 
-  it('passes cookies from the request to createServerClient', async () => {
-    const { createServerClient } = await import('@supabase/ssr');
-    const mockCreate = vi.mocked(createServerClient);
-    mockCreate.mockClear();
+// ── requireRoleOr401 ───────────────────────────────────────────────────────────
+//
+// The single role-auth gate shared by every admin/owner/channel API route.
+// Contract:
+//   - success → { ok: true, user }
+//   - AuthError → { ok: false, response } as a no-store JSON body carrying the
+//     AuthError's message + statusCode (401 unauth / 403 forbidden)
+//   - any other (unexpected, non-AuthError) failure → THROWS, surfacing a real
+//     5xx rather than a misleading 401-mask. This is the one deliberate
+//     behavior change of the auth-gate unification.
 
-    const fakeUser = { id: 'user-xyz', email: 'test@example.com' };
-    mockGetUser.mockResolvedValue({ data: { user: fakeUser }, error: null });
+describe('requireRoleOr401', () => {
+  const fakeUser = { id: 'u-1', name: 'Owner', email: 'o@example.com', role: 'owner', accountId: 'a-1', locationId: 'b-1' };
 
-    const req = new NextRequest('https://app.example.com/api/auth/signup', {
-      method: 'POST',
-      headers: { cookie: 'sb-access-token=tok123' },
-    });
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
 
-    const sessionHandler = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
-    await withSession(sessionHandler)(req);
+  it('returns { ok: true, user } and forwards the role to requireRole', async () => {
+    mockRequireRole.mockResolvedValue(fakeUser);
+    const req = makeReq();
 
-    expect(mockCreate).toHaveBeenCalledOnce();
-    const [url, key, opts] = mockCreate.mock.calls[0]!;
-    expect(url).toBe('https://test.supabase.co');
-    expect(key).toBe('anon-key-test');
-    // getAll() on the cookie adapter should return the request cookies
-    const cookies = (opts as any).cookies.getAll();
-    expect(Array.isArray(cookies)).toBe(true);
+    const result = await requireRoleOr401(req, 'owner');
+
+    expect(result).toEqual({ ok: true, user: fakeUser });
+    expect(mockRequireRole).toHaveBeenCalledWith(req, 'owner');
+  });
+
+  it('forwards the admin role through to requireRole', async () => {
+    mockRequireRole.mockResolvedValue({ ...fakeUser, role: 'admin' });
+    const req = makeReq();
+
+    await requireRoleOr401(req, 'admin');
+
+    expect(mockRequireRole).toHaveBeenCalledWith(req, 'admin');
+  });
+
+  it('maps AuthError(401) to a no-store 401 JSON response', async () => {
+    mockRequireRole.mockRejectedValue(new AuthError('Unauthorized', 401));
+
+    const result = await requireRoleOr401(makeReq(), 'owner');
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected failure');
+    expect(result.response.status).toBe(401);
+    expect(await result.response.json()).toEqual({ error: 'Unauthorized' });
+    expect(result.response.headers.get('Cache-Control')).toBe('no-store, private');
+  });
+
+  it('maps AuthError(403) to a 403 JSON response carrying the message', async () => {
+    mockRequireRole.mockRejectedValue(new AuthError('Forbidden', 403));
+
+    const result = await requireRoleOr401(makeReq(), 'admin');
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected failure');
+    expect(result.response.status).toBe(403);
+    expect(await result.response.json()).toEqual({ error: 'Forbidden' });
+  });
+
+  it('THROWS on an unexpected non-AuthError failure (no 401-mask → real 5xx)', async () => {
+    mockRequireRole.mockRejectedValue(new Error('unexpected DB crash'));
+
+    await expect(requireRoleOr401(makeReq(), 'owner')).rejects.toThrow('unexpected DB crash');
+  });
+});
+
+// ── requireOwnerWithAccount ─────────────────────────────────────────────────
+//
+// Owner read-gate (the account-scoped subset of requireWritableOwner, minus the
+// writable-subscription check): requireRoleOr401('owner') → account presence.
+
+describe('requireOwnerWithAccount', () => {
+  const ownerUser = { id: 'u-1', name: 'Owner', email: 'o@x.com', role: 'owner', accountId: 'acct-1', locationId: 'loc-1' };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('returns { ok: true, user, accountId } when an owner with an account resolves', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser);
+
+    const result = await requireOwnerWithAccount(makeReq());
+
+    expect(result).toEqual({ ok: true, user: ownerUser, accountId: 'acct-1' });
+    expect(mockRequireRole).toHaveBeenCalledWith(expect.anything(), 'owner');
+  });
+
+  it('returns 403 no-account (no-store) when the owner has no accountId', async () => {
+    mockRequireRole.mockResolvedValue({ ...ownerUser, accountId: null });
+
+    const result = await requireOwnerWithAccount(makeReq());
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected failure');
+    expect(result.response.status).toBe(403);
+    expect(await result.response.json()).toEqual({ error: 'No account associated with this user' });
+    expect(result.response.headers.get('Cache-Control')).toBe('no-store, private');
+  });
+
+  it('forwards the AuthError response (401) when auth fails', async () => {
+    mockRequireRole.mockRejectedValue(new AuthError('Unauthorized', 401));
+
+    const result = await requireOwnerWithAccount(makeReq());
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected failure');
+    expect(result.response.status).toBe(401);
   });
 });

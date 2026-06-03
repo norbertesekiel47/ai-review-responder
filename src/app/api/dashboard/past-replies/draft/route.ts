@@ -27,7 +27,7 @@ import { v7 as uuidv7 } from 'uuid';
 import { z } from 'zod';
 import { sql, jsonb } from '@/lib/db/server';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
-import { resolveOwnerScope, ScopeError } from '@/lib/auth/resolve-owner-scope';
+import { resolveEditReplyScope } from '../_shared/edit-reply-request';
 import {
   assertCanEditReply,
   validateOptimisticConcurrency,
@@ -55,22 +55,9 @@ const bodySchema = z.discriminatedUnion('mode', [
 ]);
 
 async function handler(request: NextRequest): Promise<Response> {
-  if (
-    process.env.PAST_REPLIES_VIEW_ENABLED !== 'true' ||
-    process.env.EDIT_REPLIES_ENABLED !== 'true'
-  ) {
-    return NextResponse.json({ error: 'feature_disabled' }, { status: 503 });
-  }
-
-  let accountId, locationId;
-  try {
-    ({ accountId, locationId } = await resolveOwnerScope(request));
-  } catch (err) {
-    if (err instanceof ScopeError) {
-      return NextResponse.json({ error: err.message }, { status: err.statusCode });
-    }
-    throw err;
-  }
+  const scope = await resolveEditReplyScope(request);
+  if (!scope.ok) return scope.response;
+  const { accountId, locationId } = scope.value;
 
   const json = await request.json().catch(() => null);
   const parsed = bodySchema.safeParse(json);

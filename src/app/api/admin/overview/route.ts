@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
-import { requireRole, AuthError } from '@/lib/db/auth';
+import { requireRoleOr401 } from '@/lib/auth/route-helpers';
 import { computeChurnRiskScore, type ChurnScore } from '@/lib/shared/churn-score';
 import { HANDLED_STATUSES } from '@/lib/shared/response-status';
 
@@ -67,14 +67,8 @@ interface OverviewData {
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  try {
-    await requireRole(request, 'admin');
-  } catch (err) {
-    if (err instanceof AuthError) {
-      return NextResponse.json({ error: err.message }, { status: err.statusCode });
-    }
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const auth = await requireRoleOr401(request, 'admin');
+  if (!auth.ok) return auth.response;
 
   try {
     const rawLimit = parseInt(request.nextUrl.searchParams.get('limit') ?? '20', 10);

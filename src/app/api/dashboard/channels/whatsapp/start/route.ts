@@ -8,11 +8,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createHash, randomUUID } from 'node:crypto';
 import QRCode from 'qrcode';
 import { sql } from '@/lib/db/server';
-import { requireRole, AuthError } from '@/lib/db/auth';
-import { SubscriptionStatus } from '@/lib/shared/subscription-status';
-import { computePastDueRecoveryState, type AccountFlagsInput } from '@/lib/shared/past-due-recovery';
-import { assertWritableSubscription } from '@/lib/shared/writable-subscription';
-import { withSameOrigin } from '@/lib/auth/route-helpers';
+import { resolveWritableAccountForLocation } from '@/lib/shared/writable-subscription';
+import { requireRoleOr401, withSameOrigin } from '@/lib/auth/route-helpers';
 import { isWhatsAppEnabled, flagOff, assertWhatsAppEnvReady } from '@/app/api/admin/channels/whatsapp/_shared';
 import { startWhatsAppEnrollment } from '@/lib/channels/whatsapp-enrollment';
 import { MultipleMobileChannelsError, EnrollmentDatabaseError } from '@/lib/channels/unique-violation';
@@ -26,43 +23,17 @@ async function handler(req: NextRequest): Promise<NextResponse> {
   const envErr = assertWhatsAppEnvReady();
   if (envErr) return envErr;
 
-  let user;
-  try {
-    user = await requireRole(req, 'owner');
-  } catch (err) {
-    if (err instanceof AuthError) {
-      return NextResponse.json({ error: err.message }, { status: err.statusCode });
-    }
-    throw err; // surface unexpected (non-auth) failures as 5xx, not a misleading 401
-  }
+  const auth = await requireRoleOr401(req, 'owner');
+  if (!auth.ok) return auth.response;
+  const user = auth.user;
 
   const locationId = user.locationId;
   if (!locationId) return NextResponse.json({ error: 'no_business' }, { status: 403 });
 
-  // After migration 034, subscription_status source of truth is accounts.
-  const [accountRow] = await sql<{
-    id: string;
-    subscription_status: string;
-    past_due_at: Date | string | null;
-    flags: AccountFlagsInput;
-  }[]>`
-    SELECT a.id, a.subscription_status, a.past_due_at, a.flags
-    FROM accounts a
-    JOIN businesses b ON b.account_id = a.id
-    WHERE b.id = ${locationId}
-  `;
-  if (!accountRow) return NextResponse.json({ error: 'not_found' }, { status: 404 });
-  if (accountRow.subscription_status === SubscriptionStatus.PAST_DUE) {
-    const writable = assertWritableSubscription(computePastDueRecoveryState({
-      subscriptionStatus: accountRow.subscription_status,
-      pastDueAt: accountRow.past_due_at,
-      accountFlags: accountRow.flags,
-    }));
-    if (!writable.ok) return NextResponse.json({ error: writable.error }, { status: writable.status });
-  } else if (accountRow.subscription_status !== SubscriptionStatus.ACTIVE) {
-    return NextResponse.json({ error: 'subscription_not_active' }, { status: 403 });
-  }
-  const accountId = accountRow.id;
+  const gate = await resolveWritableAccountForLocation(locationId);
+  if (gate.kind === 'no_account') return NextResponse.json({ error: 'not_found' }, { status: 404 });
+  if (gate.kind === 'blocked') return NextResponse.json({ error: gate.error }, { status: gate.status });
+  const accountId = gate.accountId;
 
   const noStore = { 'Cache-Control': 'no-store, private' };
   const rawToken = randomUUID();
@@ -95,8 +66,9 @@ async function handler(req: NextRequest): Promise<NextResponse> {
   // should not block the owner response.
   await safeInvalidateChannelCache(asAccountId(accountId), 'dashboard.whatsapp.start');
 
-  // wa.me requires digits only (no +, no whatsapp:).
-  const digits = process.env.TWILIO_WHATSAPP_NUMBER!.replace(/^whatsapp:\+?/, '');
+  // wa.me requires digits only — strip every non-digit (the whatsapp: prefix,
+  // a leading +, and any spaces/dashes/parens the env value may carry).
+  const digits = process.env.TWILIO_WHATSAPP_NUMBER!.replace(/\D/g, '');
   const prefilled = encodeURIComponent(`start-${rawToken}`);
   const deepLink = `https://wa.me/${digits}?text=${prefilled}`;
   const qrDataUrl = await QRCode.toDataURL(deepLink, { margin: 1, width: 256 });

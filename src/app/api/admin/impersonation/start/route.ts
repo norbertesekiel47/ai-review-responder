@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@supabase/ssr';
 import { z } from 'zod';
 import {
   assertImpersonationCookieConfigured,
@@ -7,10 +6,9 @@ import {
   IMPERSONATION_COOKIE_NAME,
 } from '@/lib/admin/impersonation/cookie';
 import { ImpersonationStartError, startImpersonationSession } from '@/lib/admin/impersonation/session';
-import { requireCurrentAal2FromSupabase, type SupabaseMfaAalClient } from '@/lib/auth/mfa';
-import { AuthError, requireRole } from '@/lib/db/auth';
+import { requireAdminWithAal2, internalError } from '@/lib/auth/admin-mfa-gate';
+import { withSameOrigin } from '@/lib/auth/route-helpers';
 import { sql } from '@/lib/db/server';
-import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,53 +21,15 @@ const StartImpersonationSchema = z.object({
   reason: z.string().trim().min(1).max(1_000),
 });
 
-export async function POST(request: NextRequest): Promise<NextResponse> {
-  try {
-    assertSameOrigin(request);
-  } catch (err) {
-    if (err instanceof SameOriginError) {
-      return NextResponse.json({ error: 'forbidden' }, { status: 403, headers: NO_STORE });
-    }
-    return errorToResponse(err);
-  }
-
-  let admin;
-  try {
-    admin = await requireRole(request, 'admin');
-  } catch (err) {
-    if (err instanceof AuthError) {
-      return NextResponse.json(
-        { error: err.message },
-        { status: err.statusCode, headers: NO_STORE },
-      );
-    }
-    return errorToResponse(err);
-  }
-
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll() {
-          // Route handlers cannot mutate request cookies; proxy handles refresh.
-        },
-      },
-    },
-  ) as SupabaseMfaAalClient;
-
-  const aal = await requireCurrentAal2FromSupabase(supabase);
-  if (!aal.ok) {
-    return NextResponse.json({ error: aal.reason }, { status: 403, headers: NO_STORE });
-  }
+async function startImpersonation(request: NextRequest): Promise<NextResponse> {
+  const gate = await requireAdminWithAal2(request);
+  if (!gate.ok) return gate.response;
+  const admin = gate.admin;
 
   try {
     assertImpersonationCookieConfigured();
   } catch (err) {
-    return errorToResponse(err);
+    return internalError('[api/admin/impersonation/start] Failed:', err);
   }
 
   let rawBody: unknown;
@@ -136,14 +96,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (err instanceof ImpersonationStartError) {
       return NextResponse.json({ error: err.code }, { status: 409, headers: NO_STORE });
     }
-    return errorToResponse(err);
+    return internalError('[api/admin/impersonation/start] Failed:', err);
   }
 }
 
-function errorToResponse(error: unknown): NextResponse {
-  console.error('[api/admin/impersonation/start] Failed:', error);
-  return NextResponse.json(
-    { error: 'internal_error' },
-    { status: 500, headers: NO_STORE },
-  );
-}
+// CSRF by construction: same-origin enforced at the export, not inside the gate.
+export const POST = withSameOrigin()(startImpersonation);

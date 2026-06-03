@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireRole, AuthError } from '@/lib/db/auth';
+import { requireRoleOr401 } from '@/lib/auth/route-helpers';
 import { sql } from '@/lib/db/server';
 
 export const dynamic = 'force-dynamic';
@@ -13,14 +13,8 @@ export const dynamic = 'force-dynamic';
  * has not processed yet — the client retries with exponential backoff.
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  try {
-    await requireRole(request, 'admin');
-  } catch (err) {
-    if (err instanceof AuthError) {
-      return NextResponse.json({ error: err.message }, { status: err.statusCode });
-    }
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const auth = await requireRoleOr401(request, 'admin');
+  if (!auth.ok) return auth.response;
 
   const sessionId = request.nextUrl.searchParams.get('session_id');
   if (!sessionId) {

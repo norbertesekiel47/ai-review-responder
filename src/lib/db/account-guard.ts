@@ -84,31 +84,30 @@ export interface LocationContext {
   };
 }
 
+interface LocationContextRow {
+  account_id: string;
+  subscription_tier: string;
+  subscription_status: string;
+  stripe_customer_id: string | null;
+  stripe_subscription_id: string | null;
+  locations_included: number;
+  locations_paid: number;
+  location_id: string;
+  is_primary: boolean;
+  display_label: string | null;
+  name: string;
+  archived_at: Date | null;
+}
+
 /**
- * Returns the account + location rows for a given location ID.
- * Validates that the location belongs to the returned account.
- * Returns null if the location doesn't exist or is archived.
+ * Single owner of the account+location join. VAL-LOC-034: the
+ * `archived_at IS NULL` predicate returns 0 rows for archived locations, so
+ * both public accessors treat archived locations as missing.
  */
-export async function getLocationContext(
+async function selectLocationContextRow(
   locationId: string,
-): Promise<LocationContext | null> {
-  // VAL-LOC-034: Returns null for archived locations, preventing workers
-  // from operating on them. The WHERE clause excludes archived locations
-  // so the query returns 0 rows when archived_at IS NOT NULL.
-  const [row] = await sql<{
-    account_id: string;
-    subscription_tier: string;
-    subscription_status: string;
-    stripe_customer_id: string | null;
-    stripe_subscription_id: string | null;
-    locations_included: number;
-    locations_paid: number;
-    location_id: string;
-    is_primary: boolean;
-    display_label: string | null;
-    name: string;
-    archived_at: Date | null;
-  }[]>`
+): Promise<LocationContextRow | undefined> {
+  const [row] = await sql<LocationContextRow[]>`
     SELECT
       a.id AS account_id,
       a.subscription_tier,
@@ -127,9 +126,10 @@ export async function getLocationContext(
     WHERE b.id = ${locationId}::uuid
       AND b.archived_at IS NULL
   `;
+  return row;
+}
 
-  if (!row) return null;
-
+function mapLocationContextRow(row: LocationContextRow): LocationContext {
   return {
     account: {
       id: row.account_id,
@@ -148,6 +148,18 @@ export async function getLocationContext(
       archivedAt: row.archived_at,
     },
   };
+}
+
+/**
+ * Returns the account + location rows for a given location ID.
+ * Validates that the location belongs to the returned account.
+ * Returns null if the location doesn't exist or is archived.
+ */
+export async function getLocationContext(
+  locationId: string,
+): Promise<LocationContext | null> {
+  const row = await selectLocationContextRow(locationId);
+  return row ? mapLocationContextRow(row) : null;
 }
 
 // ── getLocationContextForAccount ──────────────────────────────────────────
@@ -175,38 +187,7 @@ export async function getLocationContextForAccount(
   locationId: string,
   accountId: string,
 ): Promise<LocationContext | AccountMismatchResult | null> {
-  const [row] = await sql<{
-    account_id: string;
-    subscription_tier: string;
-    subscription_status: string;
-    stripe_customer_id: string | null;
-    stripe_subscription_id: string | null;
-    locations_included: number;
-    locations_paid: number;
-    location_id: string;
-    is_primary: boolean;
-    display_label: string | null;
-    name: string;
-    archived_at: Date | null;
-  }[]>`
-    SELECT
-      a.id AS account_id,
-      a.subscription_tier,
-      a.subscription_status,
-      a.stripe_customer_id,
-      a.stripe_subscription_id,
-      a.locations_included,
-      a.locations_paid,
-      b.id AS location_id,
-      b.is_primary,
-      b.display_label,
-      b.name,
-      b.archived_at
-    FROM businesses b
-    JOIN accounts a ON a.id = b.account_id
-    WHERE b.id = ${locationId}::uuid
-      AND b.archived_at IS NULL
-  `;
+  const row = await selectLocationContextRow(locationId);
 
   // Location doesn't exist or is archived
   if (!row) return null;
@@ -217,22 +198,5 @@ export async function getLocationContextForAccount(
     return { kind: 'account_mismatch', owningAccountId: row.account_id };
   }
 
-  return {
-    account: {
-      id: row.account_id,
-      subscriptionTier: row.subscription_tier,
-      subscriptionStatus: row.subscription_status,
-      stripeCustomerId: row.stripe_customer_id,
-      stripeSubscriptionId: row.stripe_subscription_id,
-      locationsIncluded: row.locations_included,
-      locationsPaid: row.locations_paid,
-    },
-    location: {
-      id: row.location_id,
-      isPrimary: row.is_primary,
-      displayLabel: row.display_label,
-      name: row.name,
-      archivedAt: row.archived_at,
-    },
-  };
+  return mapLocationContextRow(row);
 }

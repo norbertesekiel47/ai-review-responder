@@ -25,12 +25,6 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "Opaque approval token or callback lookup must resolve the approval row before tenant scope is known.",
   },
   {
-    file: "src/app/api/account/settings/route.ts",
-    table: "accounts",
-    sqlSnippet: "SELECT id, display_name, subscription_tier, subscription_status, stripe_customer_id, subscription_activated_at, locations_included, locations_paid, trial_ends_at FROM accounts WHERE id = ${user.accountId}::uuid",
-    reason: "Authenticated flow uses account id as the tenant-root lookup key for this statement.",
-  },
-  {
     file: "src/app/api/admin/businesses/[id]/keywords/route.ts",
     table: "businesses",
     sqlSnippet: "UPDATE businesses SET tracked_keywords = ${jsonb(parsed.keywords)}, updated_at = NOW() WHERE id = ${businessId} RETURNING id",
@@ -59,30 +53,6 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     table: "businesses",
     sqlSnippet: "SELECT fr.id, fr.response_id, fr.business_id, fr.account_id, fr.review_id, fr.source, fr.reason, fr.severity, fr.status, fr.created_at, r.response_text, r.version, rev.reviewer_name, rev.star_rating, b.name AS business_name FROM flagged_responses fr JOIN responses r ON r.id = fr.response_id JOIN reviews rev ON rev.id = fr.review_id JOIN businesses b ON b.id = fr.business_id WHERE fr.status = 'open' ORDER BY fr.created_at DESC LIMIT ${limit} OFFSET ${offset}",
     reason: "Admin-only cross-tenant read of the open flagged-response queue (deny-all RLS table joined to its parent rows); gated by requireRole('admin') and proxy /api/admin protection.",
-  },
-  {
-    file: "src/app/api/admin/channels/telegram/cancel/route.ts",
-    table: "businesses",
-    sqlSnippet: "SELECT account_id FROM businesses WHERE id = ${businessId}",
-    reason: "Admin-only route or service intentionally performs this statement after requireRole(admin).",
-  },
-  {
-    file: "src/app/api/admin/channels/telegram/disable/route.ts",
-    table: "businesses",
-    sqlSnippet: "SELECT account_id FROM businesses WHERE id = ${businessId}",
-    reason: "Admin-only route or service intentionally performs this statement after requireRole(admin).",
-  },
-  {
-    file: "src/app/api/admin/channels/whatsapp/cancel/route.ts",
-    table: "businesses",
-    sqlSnippet: "SELECT account_id FROM businesses WHERE id = ${businessId}",
-    reason: "Admin-only route or service intentionally performs this statement after requireRole(admin).",
-  },
-  {
-    file: "src/app/api/admin/channels/whatsapp/disable/route.ts",
-    table: "businesses",
-    sqlSnippet: "SELECT account_id FROM businesses WHERE id = ${businessId}",
-    reason: "Admin-only route or service intentionally performs this statement after requireRole(admin).",
   },
   {
     file: "src/app/api/admin/overview/route.ts",
@@ -1601,12 +1571,6 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     table: "reviews",
     sqlSnippet: "SELECT COUNT(*)::int AS count FROM reviews r JOIN responses resp ON resp.review_id = r.id AND resp.status = 'posted' WHERE r.business_id = ${locationId} AND ( ${activatedAtIso}::timestamptz IS NULL OR r.review_date < ${activatedAtIso}::timestamptz )",
     reason: "Owner past-replies transaction has already resolved request account/location scope before this row-level lock or mutation.",
-  },
-  {
-    file: "src/app/api/locations/existing-place-ids/route.ts",
-    table: "businesses",
-    sqlSnippet: "SELECT google_place_id FROM businesses WHERE account_id = ${user.accountId}::uuid AND archived_at IS NULL AND google_place_id IS NOT NULL",
-    reason: "Owner locations route uses user.accountId from the authenticated request before listing existing location place ids.",
   },
   {
     file: "src/app/api/onboarding/select-plan/route.ts",

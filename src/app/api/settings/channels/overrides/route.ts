@@ -9,31 +9,16 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
-import { requireRole, AuthError } from '@/lib/db/auth';
-import { NO_STORE_HEADERS } from '@/lib/shared/constants';
+import { jsonResponse, requireOwnerWithAccount } from '@/lib/auth/route-helpers';
 import { getLocationsForAccount } from '@/lib/locations/repo';
 import { getDisplayLabel, type HasDisplayLabel } from '@/lib/locations/display-label';
 
 export const dynamic = 'force-dynamic';
 
-function jsonResponse(body: unknown, status = 200): NextResponse {
-  return NextResponse.json(body, { status, headers: NO_STORE_HEADERS });
-}
-
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  let user;
-  try {
-    user = await requireRole(request, 'owner');
-  } catch (err) {
-    if (err instanceof AuthError) {
-      return jsonResponse({ error: err.message }, err.statusCode);
-    }
-    return jsonResponse({ error: 'Unauthorized' }, 401);
-  }
-
-  if (!user.accountId) {
-    return jsonResponse({ error: 'No account associated with this user' }, 403);
-  }
+  const owner = await requireOwnerWithAccount(request);
+  if (!owner.ok) return owner.response;
+  const user = owner.user;
 
   const [overrides, locations] = await Promise.all([
     // Fetch per-location overrides (location_id IS NOT NULL)
@@ -53,7 +38,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       ORDER BY e.location_id, e.channel
     `,
     // Fetch location names for display
-    getLocationsForAccount(user.accountId),
+    getLocationsForAccount(owner.accountId),
   ]);
   const locationMap = new Map(
     locations.map((loc) => [loc.id, { name: loc.name, display_label: loc.display_label }]),

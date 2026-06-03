@@ -12,14 +12,13 @@ import { createHash } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { sql, jsonb } from '@/lib/db/server';
-import { requireRole, AuthError } from '@/lib/db/auth';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 import { validateTierChange } from '@/lib/accounts/tier-change';
 import { isSubscriptionTier, type SubscriptionTierValue, TIER_CONFIG } from '@/lib/accounts/tier-config';
 import { getAccountOwnerUserId } from '@/lib/accounts/repo';
 import { getStripe } from '@/lib/payments/create-checkout-session';
 import { basePriceIdForTier, overagePriceIdForTier, overagePriceIdSet } from '@/lib/payments/price-tier-map';
-import { withSameOrigin } from '@/lib/auth/route-helpers';
+import { requireOwnerWithAccount, withSameOrigin } from '@/lib/auth/route-helpers';
 
 export const dynamic = 'force-dynamic';
 
@@ -59,19 +58,8 @@ function normalizeIdempotencyKey(raw: string | null): string {
 // ── Handler ─────────────────────────────────────────────────────────────────
 
 async function changeBillingTier(req: NextRequest): Promise<NextResponse> {
-  let user;
-  try {
-    user = await requireRole(req, 'owner');
-  } catch (err) {
-    if (err instanceof AuthError) {
-      return NextResponse.json({ error: err.message }, { status: err.statusCode, headers: NO_STORE_HEADERS });
-    }
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: NO_STORE_HEADERS });
-  }
-
-  if (!user.accountId) {
-    return NextResponse.json({ error: 'No account associated with this user' }, { status: 403, headers: NO_STORE_HEADERS });
-  }
+  const owner = await requireOwnerWithAccount(req);
+  if (!owner.ok) return owner.response;
 
   let body: unknown;
   try {
@@ -92,7 +80,7 @@ async function changeBillingTier(req: NextRequest): Promise<NextResponse> {
   const tier = newTier as SubscriptionTierValue;
 
   // ── Ownership: body.accountId must match authenticated user ──────────────
-  if (accountId !== user.accountId) {
+  if (accountId !== owner.accountId) {
     return NextResponse.json(
       { error: 'Account ID mismatch' },
       { status: 403, headers: NO_STORE_HEADERS },

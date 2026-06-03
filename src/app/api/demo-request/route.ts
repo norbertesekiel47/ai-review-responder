@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { notifyContactSubmission } from '@/lib/notifications/contact-notify';
+import { parseContactCoreFields } from '@/lib/notifications/contact-form';
 
 export const dynamic = 'force-dynamic';
-
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const MAX_NAME_LEN = 200;
 const MAX_BUSINESS_NAME_LEN = 300;
@@ -17,37 +16,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'Too many requests. Try again later.' }, { status: 429 });
   }
 
-  let body: unknown;
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
-  }
+  const parsed = await parseContactCoreFields(req);
+  if (!parsed.ok) return parsed.response;
+  const { name, email, businessName } = parsed.fields;
 
-  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
-    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
-  }
-
-  const { name, email, businessName, googleMapsUrl } = body as Record<string, unknown>;
-
-  if (!name || typeof name !== 'string' || !name.trim()) {
-    return NextResponse.json({ error: 'name is required' }, { status: 400 });
-  }
-  if (!email || typeof email !== 'string' || !EMAIL_RE.test(email.trim())) {
-    return NextResponse.json({ error: 'A valid email is required' }, { status: 400 });
-  }
-  if (!businessName || typeof businessName !== 'string' || !businessName.trim()) {
-    return NextResponse.json({ error: 'businessName is required' }, { status: 400 });
-  }
-
-  if (name.trim().length > MAX_NAME_LEN) {
+  if (name.length > MAX_NAME_LEN) {
     return NextResponse.json({ error: 'name is too long' }, { status: 400 });
   }
-  if (businessName.trim().length > MAX_BUSINESS_NAME_LEN) {
+  if (businessName.length > MAX_BUSINESS_NAME_LEN) {
     return NextResponse.json({ error: 'businessName is too long' }, { status: 400 });
   }
 
-  const rawUrl = typeof googleMapsUrl === 'string' ? googleMapsUrl.trim() : '';
+  const rawUrl = typeof parsed.body.googleMapsUrl === 'string' ? parsed.body.googleMapsUrl.trim() : '';
   if (rawUrl) {
     if (rawUrl.length > MAX_URL_LEN) {
       return NextResponse.json({ error: 'googleMapsUrl is too long' }, { status: 400 });

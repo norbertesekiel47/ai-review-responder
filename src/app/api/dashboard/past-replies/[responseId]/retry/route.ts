@@ -29,12 +29,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '@/lib/db/server';
-import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
-import { resolveOwnerScope, ScopeError } from '@/lib/auth/resolve-owner-scope';
-import { assertCanEditReply } from '@/lib/responses/edit-existing';
-import { mapEditReplyError } from '@/app/api/dashboard/past-replies/_shared/edit-reply-errors';
 import { insertAuditLogSession } from '@/lib/approval/audit';
-import type { SessionAuditContext } from '@/lib/approval/audit';
+import {
+  resolveEditReplyContext,
+  type ResponseIdRouteContext,
+} from '@/app/api/dashboard/past-replies/_shared/edit-reply-request';
 import type { PublishResponsePayload } from '@/lib/shared/worker-types';
 import {
   DELETE_FAILED_PREFIX,
@@ -45,70 +44,13 @@ import {
 
 export const dynamic = 'force-dynamic';
 
-interface RouteParams {
-  params: Promise<{ responseId: string }>;
-}
-
 export async function POST(
   request: NextRequest,
-  context: RouteParams,
+  context: ResponseIdRouteContext,
 ): Promise<Response> {
-  if (
-    process.env.PAST_REPLIES_VIEW_ENABLED !== 'true' ||
-    process.env.EDIT_REPLIES_ENABLED !== 'true'
-  ) {
-    return NextResponse.json({ error: 'feature_disabled' }, { status: 503 });
-  }
-
-  try {
-    assertSameOrigin(request);
-  } catch (err) {
-    if (err instanceof SameOriginError) {
-      return NextResponse.json({ error: 'forbidden' }, { status: 403 });
-    }
-    throw err;
-  }
-
-  let accountId, locationId, userId;
-  try {
-    ({ accountId, locationId, userId } = await resolveOwnerScope(request));
-  } catch (err) {
-    if (err instanceof ScopeError) {
-      return NextResponse.json({ error: err.message }, { status: err.statusCode });
-    }
-    throw err;
-  }
-
-  const { responseId } = await context.params;
-  if (!responseId) {
-    return NextResponse.json({ error: 'invalid_response_id' }, { status: 400 });
-  }
-
-  // Tier gate (spec §4.4 cross-cutting: applies to ALL routes except /draft-status).
-  // Resolve review_id with a non-locking SELECT so assertCanEditReply (which
-  // queries reviews + businesses on its own connection) doesn't run inside
-  // the transaction. Scoped by locationId — a response_id from another location → 404.
-  const responseRows = await sql<{ review_id: string }[]>`
-    SELECT review_id FROM responses
-    WHERE id = ${responseId} AND business_id = ${locationId}
-    LIMIT 1
-  `;
-  const responseRow = responseRows[0];
-  if (!responseRow) {
-    return NextResponse.json({ error: 'response_not_found' }, { status: 404 });
-  }
-  const reviewId = responseRow.review_id;
-
-  try {
-    await assertCanEditReply(reviewId, { accountId, locationId });
-  } catch (err) {
-    const mapped = mapEditReplyError(err);
-    if (mapped) return mapped;
-    throw err;
-  }
-
-  const ip = request.headers.get('x-forwarded-for') ?? null;
-  const audit: SessionAuditContext = { actorUserId: userId, ipAddress: ip };
+  const ctx = await resolveEditReplyContext(request, context.params);
+  if (!ctx.ok) return ctx.response;
+  const { locationId, responseId, reviewId, audit } = ctx.value;
 
   try {
     return await sql.begin(async (tx) => {
