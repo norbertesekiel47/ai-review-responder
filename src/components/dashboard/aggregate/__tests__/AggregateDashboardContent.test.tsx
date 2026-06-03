@@ -5,7 +5,7 @@ import type { AggregateDashboardData } from '@/lib/dashboard/types';
 import { AggregateDashboardContent } from '@/components/dashboard/aggregate/AggregateDashboardContent';
 
 vi.mock('@/components/dashboard/shell/TopBar', () => ({ TopBar: () => null }));
-vi.mock('@/components/dashboard/PendingCountContext', () => ({
+vi.mock('@/contexts/PendingCountContext', () => ({
   useSetPendingCount: () => vi.fn(),
 }));
 

@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState, useSyncExternalStore } from 'react';
 import { Icon } from '@/components/dashboard/shell/Icon';
-import { usePendingCount } from '@/components/dashboard/PendingCountContext';
+import { usePendingCount } from '@/contexts/PendingCountContext';
 
 const NEEDS_ACTION_HASH = '#needs-action';
 

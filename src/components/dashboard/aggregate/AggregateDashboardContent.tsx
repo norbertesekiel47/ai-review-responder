@@ -11,7 +11,7 @@ import { AggregateIntelligenceBriefCard } from '@/components/dashboard/aggregate
 import { LocationKpiStrip } from '@/components/dashboard/aggregate/LocationKpiStrip';
 import { PastDueBanner } from '@/components/dashboard/account-state/SubscriptionStatusBanner';
 import { PastDueModal } from '@/components/dashboard/account-state/PastDueModal';
-import { useSetPendingCount } from '@/components/dashboard/PendingCountContext';
+import { useSetPendingCount } from '@/contexts/PendingCountContext';
 import { useNeedsActionHashScroll } from '@/hooks/useNeedsActionHashScroll';
 
 interface Props {

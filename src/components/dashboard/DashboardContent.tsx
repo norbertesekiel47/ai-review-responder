@@ -19,7 +19,7 @@ import { RankingCard } from '@/components/dashboard/kpi/RankingCard';
 import { IntelligenceBriefCard } from '@/components/dashboard/kpi/IntelligenceBriefCard';
 import { AggregateDashboardContent } from '@/components/dashboard/aggregate/AggregateDashboardContent';
 import { useDashboardData } from '@/hooks/useDashboardData';
-import { useSetPendingCount } from '@/components/dashboard/PendingCountContext';
+import { useSetPendingCount } from '@/contexts/PendingCountContext';
 import { useLocationScope } from '@/contexts/LocationContext';
 import { useNeedsActionHashScroll } from '@/hooks/useNeedsActionHashScroll';
 
