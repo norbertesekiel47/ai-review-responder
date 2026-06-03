@@ -3,6 +3,7 @@ import { createServerClient } from '@supabase/ssr';
 import type { User } from '@supabase/supabase-js';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
+import { requireRole, AuthError } from '@/lib/db/auth';
 
 type NextHandler<TArgs extends unknown[] = []> = (
   req: NextRequest,
@@ -106,4 +107,30 @@ export function withSession(
     }
     return handler({ user }, req);
   };
+}
+
+export type AdminAuthResult =
+  | { ok: true; user: Awaited<ReturnType<typeof requireRole>> }
+  | { ok: false; response: NextResponse };
+
+/**
+ * Admin-role gate shared by the admin API routes: runs `requireRole(_, 'admin')`
+ * and maps an AuthError to its HTTP response, falling back to a 401 for any
+ * other failure (the routes' long-standing behavior — an unexpected error is
+ * surfaced as Unauthorized, not a 5xx). Returns the resolved user on success.
+ *
+ *   const auth = await requireAdminOr401(request);
+ *   if (!auth.ok) return auth.response;
+ *   // auth.user is the admin AppUser
+ */
+export async function requireAdminOr401(request: NextRequest): Promise<AdminAuthResult> {
+  try {
+    const user = await requireRole(request, 'admin');
+    return { ok: true, user };
+  } catch (err) {
+    if (err instanceof AuthError) {
+      return { ok: false, response: NextResponse.json({ error: err.message }, { status: err.statusCode }) };
+    }
+    return { ok: false, response: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) };
+  }
 }

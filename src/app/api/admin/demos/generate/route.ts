@@ -4,10 +4,9 @@ import { v7 as uuidv7 } from 'uuid';
 import { nanoid } from 'nanoid';
 import { sql, jsonb } from '@/lib/db/server';
 import { isPlaceId, extractPlaceId } from '@/lib/reviews/url-parser';
-import { requireRole, AuthError } from '@/lib/db/auth';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import type { DemoJobPayload } from '@/lib/demos/types';
-import { withSameOrigin } from '@/lib/auth/route-helpers';
+import { requireAdminOr401, withSameOrigin } from '@/lib/auth/route-helpers';
 
 const GenerateDemoSchema = z
   .object({
@@ -22,14 +21,8 @@ const GenerateDemoSchema = z
   );
 
 async function generateDemo(request: NextRequest): Promise<NextResponse> {
-  try {
-    await requireRole(request, 'admin');
-  } catch (err) {
-    if (err instanceof AuthError) {
-      return NextResponse.json({ error: err.message }, { status: err.statusCode });
-    }
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const auth = await requireAdminOr401(request);
+  if (!auth.ok) return auth.response;
 
   // Rate limits: fail CLOSED for cost-sensitive demo generation.
   // If Redis is unavailable, return 503 instead of allowing uncapped generation.

@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { UpdateBusinessSchema } from '@/lib/shared/schemas';
-import { requireRole, AuthError } from '@/lib/db/auth';
 import { asLocationId } from '@/lib/shared/ids';
 import type { LocationId } from '@/lib/shared/ids';
 import {
@@ -9,7 +8,7 @@ import {
   getBusinessDetail,
   updateBusiness,
 } from '@/lib/admin/business-detail-service';
-import { withSameOrigin } from '@/lib/auth/route-helpers';
+import { requireAdminOr401, withSameOrigin } from '@/lib/auth/route-helpers';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,14 +23,8 @@ export async function GET(
   const { id: rawBusinessId } = await params;
   const businessId: LocationId = asLocationId(rawBusinessId);
 
-  try {
-    await requireRole(request, 'admin');
-  } catch (err) {
-    if (err instanceof AuthError) {
-      return NextResponse.json({ error: err.message }, { status: err.statusCode });
-    }
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const auth = await requireAdminOr401(request);
+  if (!auth.ok) return auth.response;
 
   try {
     const detail = await getBusinessDetail(businessId);
@@ -56,14 +49,8 @@ async function patchBusiness(
   const { id: rawBusinessId } = await params;
   const businessId: LocationId = asLocationId(rawBusinessId);
 
-  try {
-    await requireRole(request, 'admin');
-  } catch (err) {
-    if (err instanceof AuthError) {
-      return NextResponse.json({ error: err.message }, { status: err.statusCode });
-    }
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const auth = await requireAdminOr401(request);
+  if (!auth.ok) return auth.response;
 
   let body: unknown;
   try {

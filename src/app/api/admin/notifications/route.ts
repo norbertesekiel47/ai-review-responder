@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
-import { requireRole, AuthError } from '@/lib/db/auth';
+import { requireAdminOr401 } from '@/lib/auth/route-helpers';
 import { asLocationId, asAccountId } from '@/lib/shared/ids';
 import type { LocationId, AccountId } from '@/lib/shared/ids';
 
@@ -48,14 +48,8 @@ interface NotifData {
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  try {
-    await requireRole(request, 'admin');
-  } catch (err) {
-    if (err instanceof AuthError) {
-      return NextResponse.json({ error: err.message }, { status: err.statusCode });
-    }
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const auth = await requireAdminOr401(request);
+  if (!auth.ok) return auth.response;
 
   try {
     const params = request.nextUrl.searchParams;

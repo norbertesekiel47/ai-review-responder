@@ -27,7 +27,6 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import twilio from 'twilio';
-import { requireRole, AuthError } from '@/lib/db/auth';
 import {
   isSmsEnabled,
   flagOff,
@@ -41,7 +40,7 @@ import {
 } from '../_shared';
 import { asLocationId, asAccountId } from '@/lib/shared/ids';
 import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
-import { withSameOrigin } from '@/lib/auth/route-helpers';
+import { requireAdminOr401, withSameOrigin } from '@/lib/auth/route-helpers';
 
 interface ConfirmBody {
   business_id?: string;
@@ -53,14 +52,8 @@ async function confirmSms(request: NextRequest): Promise<NextResponse> {
   const envError = assertSmsEnvReady();
   if (envError) return envError;
 
-  try {
-    await requireRole(request, 'admin');
-  } catch (err) {
-    if (err instanceof AuthError) {
-      return NextResponse.json({ error: err.message }, { status: err.statusCode });
-    }
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const auth = await requireAdminOr401(request);
+  if (!auth.ok) return auth.response;
 
   const body = (await request.json()) as ConfirmBody;
   const rawBusinessId = body.business_id;

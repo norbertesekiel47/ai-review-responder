@@ -27,7 +27,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { parsePhoneNumber } from 'libphonenumber-js';
 import twilio from 'twilio';
 import { v7 as uuidv7 } from 'uuid';
-import { requireRole, AuthError } from '@/lib/db/auth';
 import {
   isSmsEnabled,
   flagOff,
@@ -43,7 +42,7 @@ import {
 import { classifyEnrollmentError, MultipleMobileChannelsError, EnrollmentDatabaseError } from '@/lib/channels/unique-violation';
 import { asLocationId, asAccountId } from '@/lib/shared/ids';
 import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
-import { withSameOrigin } from '@/lib/auth/route-helpers';
+import { requireAdminOr401, withSameOrigin } from '@/lib/auth/route-helpers';
 
 interface VerifyBody {
   business_id?: string;
@@ -64,14 +63,8 @@ async function verifySms(request: NextRequest): Promise<NextResponse> {
   const envError = assertSmsEnvReady();
   if (envError) return envError;
 
-  try {
-    await requireRole(request, 'admin');
-  } catch (err) {
-    if (err instanceof AuthError) {
-      return NextResponse.json({ error: err.message }, { status: err.statusCode });
-    }
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const auth = await requireAdminOr401(request);
+  if (!auth.ok) return auth.response;
 
   const body = (await request.json()) as VerifyBody;
   const rawBusinessId = body.business_id;
