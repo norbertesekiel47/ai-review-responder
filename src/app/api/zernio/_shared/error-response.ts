@@ -9,7 +9,7 @@
 import { NextResponse } from 'next/server';
 import { ZernioRouteError } from '@/lib/zernio/errors';
 
-export const ZERNIO_NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
+const ZERNIO_NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
 
 export function zernioRouteErrorResponse(err: unknown, logPrefix: string): NextResponse {
   if (err instanceof ZernioRouteError) {
