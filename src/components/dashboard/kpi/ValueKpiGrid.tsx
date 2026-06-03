@@ -3,6 +3,7 @@
 import { Icon } from '@/components/dashboard/shell/Icon';
 import { Sparkline } from '@/components/dashboard/kpi/Sparkline';
 import { useCountUp } from '@/hooks/useCountUp';
+import { cn } from '@/lib/ui/cn';
 
 interface ValueSummary {
   totalReviewsHandled: number;
@@ -43,7 +44,7 @@ export function ValueKpiGrid({
   const sparkSaved = synthesizeSpark(timeSavedH, 8);
 
   return (
-    <div className={`kpi-grid ${showPending ? 'has-pending' : ''}`}>
+    <div className={cn('kpi-grid', showPending && 'has-pending')}>
       <div className="kpi">
         <div className="kpi-eyebrow">
           <Icon name="inbox" size={14} /> Reviews handled
@@ -74,7 +75,7 @@ export function ValueKpiGrid({
           <span className="kpi-unit">%</span>
         </div>
         <div className="kpi-bar-wrap">
-          <div className={`kpi-bar ${rateClass}`} style={{ width: `${clampedResponseRate}%` }} />
+          <div className={cn('kpi-bar', rateClass)} style={{ width: `${clampedResponseRate}%` }} />
         </div>
         {baseline != null && <div className="kpi-foot">was {baseline}% before RepWorth</div>}
       </div>

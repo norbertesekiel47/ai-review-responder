@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useCountUp } from '@/hooks/useCountUp';
+import { cn } from '@/lib/ui/cn';
 
 const CLOCK_REVIEWS = [
   { h: 7.5, stars: 5 },
@@ -393,7 +394,7 @@ function TimelineStats() {
   const owner = useCountUp(19, { active: seen, duration: 1500 });
 
   return (
-    <div ref={ref} className={`rw-tl-verdict ${seen ? 'in' : ''}`}>
+    <div ref={ref} className={cn('rw-tl-verdict', seen && 'in')}>
       <div className="rw-tl-v-compare">
         <div className="rw-tl-v-line">
           <div className="rw-tl-v-bar">

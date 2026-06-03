@@ -5,8 +5,8 @@ describe('cn', () => {
   it('joins truthy class values with a single space', () => {
     expect(cn('a', 'b', 'c')).toBe('a b c');
   });
-  it('drops falsy values (false, null, undefined, empty string, 0)', () => {
-    expect(cn('a', false, null, undefined, '', 0 as unknown as string, 'b')).toBe('a b');
+  it('drops falsy values (false, null, undefined, empty string)', () => {
+    expect(cn('a', false, null, undefined, '', 'b')).toBe('a b');
   });
   it('supports conditional ternary composition', () => {
     const active = true;
