@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useCountUp } from '@/hooks/useCountUp';
 import {
   useEffect,
   useMemo,
@@ -124,24 +125,6 @@ function useReveal<T extends HTMLElement>() {
     return () => io.disconnect();
   }, [seen]);
   return [ref, seen] as const;
-}
-
-function useCountUp(target: number, active: boolean, duration = 1600) {
-  const [v, setV] = useState(0);
-  useEffect(() => {
-    if (!active) return;
-    let raf = 0;
-    const t0 = performance.now() + 400;
-    const tick = (t: number) => {
-      const k = Math.max(0, Math.min(1, (t - t0) / duration));
-      const eased = 1 - Math.pow(1 - k, 3);
-      setV(Math.round(target * eased));
-      if (k < 1) raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [target, duration, active]);
-  return v;
 }
 
 function FeatureSection({
@@ -421,9 +404,9 @@ export function FeaturesContent({
   }, []);
 
   // Metrics count-up — fire after hero is in.
-  const m1 = useCountUp(58, heroIn);
-  const m2 = useCountUp(100, heroIn);
-  const m3 = useCountUp(30, heroIn);
+  const m1 = useCountUp(58, { active: heroIn, duration: 1600, delayMs: 400, round: true });
+  const m2 = useCountUp(100, { active: heroIn, duration: 1600, delayMs: 400, round: true });
+  const m3 = useCountUp(30, { active: heroIn, duration: 1600, delayMs: 400, round: true });
 
   // TOC reveal trigger.
   const [tocRef, tocSeen] = useReveal<HTMLDivElement>();

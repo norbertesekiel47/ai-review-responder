@@ -548,8 +548,13 @@ git add -A && git commit -m "refactor(dashboard): group channel widgets + locati
 
 Per spec §6.2, grep revealed these are shared, not single-component:
 
-- `useCountUp.ts` — used by `ValueKpiGrid` **and** marketing `sections/landing`,
-  `sections/features` → genuinely cross-area shared.
+- `useCountUp.ts` — imported by `ValueKpiGrid`. **Correction (post-review):** the
+  marketing `sections/landing` + `sections/features` files defined their *own*
+  inline near-duplicate `useCountUp`, so this was a single-importer hook at move
+  time — the "cross-area shared" rationale was wrong. A follow-up commit
+  consolidated all three variants into the one parameterized `src/hooks/useCountUp`
+  (`active`/`duration`/`delayMs`/`round`), which is what actually earns the
+  `src/hooks/` placement (3 real consumers, −2 duplicate impls).
 - `useNeedsActionHashScroll.ts` — used by `DashboardContent` + `aggregate/` →
   dashboard-shared (matches existing `src/hooks/useDashboardData.ts` placement).
 

@@ -32,9 +32,9 @@ export function ValueKpiGrid({
   const clampedResponseRate = Math.max(0, Math.min(100, responseRate));
   const baseline = valueSummary.baselineResponseRate;
 
-  const v1 = useCountUp(reviewsHandled, 900);
-  const v2 = useCountUp(timeSavedH * 10, 900);
-  const v3 = useCountUp(responseRate, 1100);
+  const v1 = useCountUp(reviewsHandled, { duration: 900 });
+  const v2 = useCountUp(timeSavedH * 10, { duration: 900 });
+  const v3 = useCountUp(responseRate, { duration: 1100 });
 
   const rateClass = clampedResponseRate >= 80 ? 'green' : clampedResponseRate >= 50 ? 'amber' : 'red';
   const showPending = pendingCount > 0;
