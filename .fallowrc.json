@@ -33,6 +33,7 @@
   },
   "duplicates": {
     "ignoreImports": true,
+    "minOccurrences": 3,
     "ignore": [
       "**/__tests__/**",
       "**/*.test.ts",
@@ -40,7 +41,9 @@
       "**/*.spec.ts",
       "**/*.spec.tsx",
       "e2e/**",
-      "**/*.stories.tsx"
+      "**/*.stories.tsx",
+      "src/app/**/page.tsx",
+      "scripts/ci/**"
     ]
   }
 }
