@@ -22,7 +22,6 @@ export const dynamic = 'force-dynamic';
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const owner = await requireOwnerWithAccount(request);
   if (!owner.ok) return owner.response;
-  const user = owner.user;
 
   // Fetch account data
   const [account] = await sql<{
@@ -47,7 +46,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       locations_paid,
       trial_ends_at
     FROM accounts
-    WHERE id = ${user.accountId}::uuid
+    WHERE id = ${owner.accountId}::uuid
   `;
 
   if (!account) {

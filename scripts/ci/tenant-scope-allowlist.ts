@@ -25,12 +25,6 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "Opaque approval token or callback lookup must resolve the approval row before tenant scope is known.",
   },
   {
-    file: "src/app/api/account/settings/route.ts",
-    table: "accounts",
-    sqlSnippet: "SELECT id, display_name, subscription_tier, subscription_status, stripe_customer_id, subscription_activated_at, locations_included, locations_paid, trial_ends_at FROM accounts WHERE id = ${user.accountId}::uuid",
-    reason: "Authenticated flow uses account id as the tenant-root lookup key for this statement.",
-  },
-  {
     file: "src/app/api/admin/businesses/[id]/keywords/route.ts",
     table: "businesses",
     sqlSnippet: "UPDATE businesses SET tracked_keywords = ${jsonb(parsed.keywords)}, updated_at = NOW() WHERE id = ${businessId} RETURNING id",

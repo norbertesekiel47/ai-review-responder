@@ -62,7 +62,7 @@ export async function requireAdminWithAal2(
     return { ok: false, response: internalError('[admin-mfa-gate] unexpected failure:', err) };
   }
 
-  let aal;
+  let aal: Awaited<ReturnType<typeof requireCurrentAal2FromSupabase>>;
   try {
     aal = await requireCurrentAal2FromSupabase(
       cookieBackedServerClient(request) as SupabaseMfaAalClient,

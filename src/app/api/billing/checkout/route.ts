@@ -39,7 +39,7 @@ const CheckoutSchema = z.object({
  * line_items construction, price ID resolution, and Stripe API call.
  *
  * VAL-BILLING-031: This handler does NOT reference STRIPE_PAYMENT_LINK_* env vars.
- * Security: requires owner auth and validates body.accountId === user.accountId.
+ * Security: requires owner auth and validates body.accountId === owner.accountId.
  */
 async function createBillingCheckout(req: NextRequest): Promise<NextResponse> {
   const owner = await requireOwnerWithAccount(req);
