@@ -1,8 +1,11 @@
 /**
  * Result of moderating one generated response. `source` records which layer
- * produced the flag; `categories` carries per-rule hit counts (local) and/or
- * provider category scores. Mirrors the shape recorded on api_costs.
+ * produced the flag; `providerStatus` records the external-provider verdict
+ * that future auto-approval gates must read; `categories` carries per-rule hit
+ * counts (local), provider details, and legacy api_costs metadata.
  */
+export type ProviderModerationStatus = 'clean' | 'error' | null;
+
 export type ModerationDecision = {
   flagged: boolean;
   severity: 'low' | 'medium' | 'high';
@@ -10,6 +13,7 @@ export type ModerationDecision = {
   categories: Record<string, unknown>;
   score: number | null;
   source: 'local_regex' | 'openai_moderation' | null;
+  providerStatus: ProviderModerationStatus;
 };
 
 export const SEVERITY_RANK: Record<ModerationDecision['severity'], number> = {
@@ -132,5 +136,6 @@ export function runOutputFilter(text: string): ModerationDecision {
     categories,
     score: flagged ? SCORE_BY_SEVERITY[topSeverity] : 0,
     source: flagged ? 'local_regex' : null,
+    providerStatus: null,
   };
 }
