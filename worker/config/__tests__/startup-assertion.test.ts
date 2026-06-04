@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   assertAdminNotificationEmail,
+  assertAutoApprovalOptionalBooleansEnv,
   assertChannelsSmsEnv,
   assertProductionMockModeEnv,
   assertSelfServeSignupEnv,
@@ -68,6 +69,35 @@ describe('assertProductionMockModeEnv', () => {
     setEnv('NODE_ENV', 'production');
     process.env.MOCK_EXTERNAL_APIS = 'false';
     expect(() => assertProductionMockModeEnv()).not.toThrow();
+  });
+});
+
+describe('assertAutoApprovalOptionalBooleansEnv', () => {
+  const SNAP: Record<string, string | undefined> = {};
+  const KEYS = ['AUTO_APPROVAL_ENABLED', 'AUTO_APPROVAL_PROVIDER_MODERATION_READY'];
+
+  beforeEach(() => {
+    for (const k of KEYS) { SNAP[k] = process.env[k]; delete process.env[k]; }
+  });
+  afterEach(() => {
+    restoreEnv(SNAP);
+  });
+
+  it('allows both flags to be unset', () => {
+    expect(() => assertAutoApprovalOptionalBooleansEnv()).not.toThrow();
+  });
+
+  it('allows exact true and false strings', () => {
+    process.env.AUTO_APPROVAL_ENABLED = 'true';
+    process.env.AUTO_APPROVAL_PROVIDER_MODERATION_READY = 'false';
+
+    expect(() => assertAutoApprovalOptionalBooleansEnv()).not.toThrow();
+  });
+
+  it('rejects non-boolean values instead of interpreting them loosely', () => {
+    process.env.AUTO_APPROVAL_ENABLED = 'TRUE';
+
+    expect(() => assertAutoApprovalOptionalBooleansEnv()).toThrow(/AUTO_APPROVAL_ENABLED/);
   });
 });
 
@@ -207,7 +237,14 @@ describe('warnMissingProductionEnv', () => {
 
 describe('assertWorkerStartupEnv', () => {
   const SNAP: Record<string, string | undefined> = {};
-  const KEYS = ['NODE_ENV', 'MOCK_EXTERNAL_APIS', 'ADMIN_NOTIFICATION_EMAIL', ...STRIPE_WORKER_REQUIRED];
+  const KEYS = [
+    'NODE_ENV',
+    'MOCK_EXTERNAL_APIS',
+    'ADMIN_NOTIFICATION_EMAIL',
+    'AUTO_APPROVAL_ENABLED',
+    'AUTO_APPROVAL_PROVIDER_MODERATION_READY',
+    ...STRIPE_WORKER_REQUIRED,
+  ];
 
   beforeEach(() => {
     for (const k of KEYS) { SNAP[k] = process.env[k]; delete process.env[k]; }
@@ -235,6 +272,14 @@ describe('assertWorkerStartupEnv', () => {
     for (const k of STRIPE_WORKER_REQUIRED) process.env[k] = 'x';
     process.env.ADMIN_NOTIFICATION_EMAIL = 'admin@repworth.com';
     expect(() => assertWorkerStartupEnv()).not.toThrow();
+  });
+
+  it('runs optional auto-approval boolean validation', () => {
+    setEnv('NODE_ENV', 'test');
+    process.env.MOCK_EXTERNAL_APIS = 'true';
+    process.env.AUTO_APPROVAL_PROVIDER_MODERATION_READY = 'enabled';
+
+    expect(() => assertWorkerStartupEnv()).toThrow(/AUTO_APPROVAL_PROVIDER_MODERATION_READY/);
   });
 });
 

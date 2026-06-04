@@ -13,10 +13,25 @@ export interface BasePayload {
   correlation_id?: string;
 }
 
+export const GENERATE_RESPONSE_ORIGIN_LANES = [
+  'live_ingest_new',
+  'live_ingest_update',
+  'backfill',
+  'regenerate',
+] as const;
+
+export type GenerateResponseOriginLane =
+  (typeof GENERATE_RESPONSE_ORIGIN_LANES)[number];
+
 export interface GenerateResponsePayload extends BasePayload {
   review_id: string;
   business_id: string;
   version: number;
+  /**
+   * PR1 keeps this optional so legacy queued jobs and existing producers remain
+   * valid until PR2 migrates call sites.
+   */
+  origin_lane?: GenerateResponseOriginLane;
   /**
    * When true, the ResponseGeneratorWorker skips the send_notification
    * outbox enqueue. Used by ZernioBackfillWorker so the first-connect

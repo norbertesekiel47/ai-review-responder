@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **054** — next migration is **055**
+Current head: **055** — next migration is **056**
 All tables use UUIDv7 (time-ordered primary keys).
 
 ## Migration Log
@@ -363,6 +363,22 @@ All tables use UUIDv7 (time-ordered primary keys).
   `locations_included` / `locations_overage_price_cents`, read in
   `currentBillingSnapshot`, `monthlyMrrCents`, and `expectedInvoiceForAccount`.
   Additive + re-runnable.
+
+- **055** — Auto-approval policy schema + approval attribution (PR1 scaffolding
+  only; no runtime auto-approval branch). Creates `auto_approval_policies` with
+  app-generated UUIDv7 IDs, account default rows (`location_id IS NULL`) and
+  per-location override rows (`location_id IS NOT NULL`), nullable
+  `auto_approve_min_star` constrained to 1..5 when present, timestamps, deny-by-
+  default RLS, and partial unique indexes
+  `auto_approval_policies_one_account_default` / `auto_approval_policies_one_location_override`
+  whose predicates must match future `ON CONFLICT` clauses byte-for-byte. Adds
+  `businesses_id_account_id_key` and a composite FK
+  `(location_id, account_id) -> businesses(id, account_id)` with default
+  `MATCH SIMPLE`, allowing account-default policy rows. Adds nullable
+  `responses.approval_method` constrained to `owner` / `auto_policy`, backfills
+  clear owner-approved rows conservatively, and leaves external/ambiguous posted
+  rows NULL unless approval audit evidence exists. Extends
+  `approval_audit_log.auth_method` to include `auto_policy`.
 
 ## Key Tables Reference
 

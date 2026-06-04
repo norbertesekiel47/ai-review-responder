@@ -53,6 +53,8 @@ jobs:
         run: pnpm ci:analytics-events
       - name: Run static policy audit
         run: pnpm ci:static-policy
+      - name: Run RLS coverage audit
+        run: pnpm ci:rls-audit
 
   typecheck:
     name: typecheck
