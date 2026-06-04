@@ -1,7 +1,7 @@
 # Auto-Approval Policy - Design Spec
 
 - **Date:** 2026-05-31
-- **Status:** Draft, readiness-audited through 2026-06-03 (synced to `main` @2c81bec3; §14 reconciled against PR #221's `writable-subscription.ts`, AGENTS.md references removed); **not implemented**. This document is now the implementation source of truth for the auto-approval plan. The CLAUDE.md no-auto-posting invariants remain authoritative until the implementation PR lands and updates them in the same change.
+- **Status:** Draft, readiness-audited through 2026-06-03 (synced to `main` @2c81bec3; §14 reconciled against PR #221's `writable-subscription.ts`, AGENTS.md documentation change-map restored); **not implemented**. This document is now the implementation source of truth for the auto-approval plan once synced to `docs/superpowers/specs/2026-05-31-auto-approval-design.md`. The CLAUDE.md and AGENTS.md no-auto-posting invariants remain authoritative until the implementation PR lands and updates them in the same change.
 - **Owner:** Norbert Esekiel
 - **Origin:** Potential-client survey: owners want to choose which review responses can be fully automated (draft -> approval decision -> Google post) and which require manual owner approval.
 
@@ -107,6 +107,8 @@ origin_lane:
 ```
 
 The worker boundary parser is permissive for deploy safety: legacy missing field and unknown values parse successfully but resolve non-auto. Unknown non-empty values log a sanitized warning once per job. Missing old-job lane fails closed quietly. Extra keys are not strict-rejected.
+
+Normalize at the `ResponseGeneratorWorker` entry point before destructuring `job.data` for auto-specific fields. Add a small `parseGenerateResponsePayload(job.data)` / `normalizeGenerateResponsePayload(job.data)` helper that keeps the existing required identifiers (`review_id`, `business_id`, `version`) fail-fast as today, normalizes `suppress_notification === true`, and returns `originLane: GenerateResponseOriginLane | null` plus `unknownOriginLane?: string` for sanitized logging. `persistResponseAndNotify` receives the normalized lane value, not raw `job.data.origin_lane`.
 
 Producer expectations:
 
@@ -311,7 +313,9 @@ If helper insertion hits an existing in-flight publish outbox row, that is an id
 
 Publisher must re-check the auto runtime switch before any external publish/delete call for auto-policy rows.
 
-Add nullable `approval_method` to `loadPublishResponseContext`. Immediately after the publishable-state gate, before subscription, connection lookup, Zernio review lookup, edit-publish, or post calls:
+Add nullable `approval_method` and `business.archived_at` to `loadPublishResponseContext`. `loadPublishResponseContext` must stop returning terminal solely because `business.archived_at IS NOT NULL`; it should load the row and let `handlePublishResponse` order the gates.
+
+In `handlePublishResponse`, run the kill-switch downgrade immediately after the publishable-state gate and before archived-location terminal handling, subscription, connection lookup, Zernio review lookup, edit-publish, or post calls:
 
 ```ts
 if (response.approval_method === 'auto_policy' && !autoApprovalRuntimeEnabled()) {
@@ -347,6 +351,8 @@ If a row returns:
 - Mark the triggering `publish_response` outbox completed in the same transaction.
 
 This applies to unposted `approved`, `edited`, and `awaiting_owner_connect` auto-policy rows. `NULL` and `owner` rows keep current publisher behavior. Owner notification copy stays normal; admin/support visibility comes from `posting_error` and the downgrade audit. Manual owner approval after downgrade must clear stale posting error and set `approval_method='owner'`.
+
+Archived locations are not exempt from kill-switch downgrade. If an auto-policy row is still unposted and the runtime switch is off, downgrade first; then the normal notification worker/archive handling can decide whether a notification is deliverable. If the runtime switch is still on and the location is archived, preserve the existing archived-location terminal behavior: complete the publish outbox without external calls.
 
 **Accepted burst behavior.** Flipping `AUTO_APPROVAL_ENABLED=false` while many auto rows are in-flight downgrades each one (one transaction + one `send_notification` apiece), so an emergency stop can produce a notification burst. This is the safe direction — every affected reply returns to human review — and is accepted as the expected cost of the kill switch, not a bug.
 
@@ -447,7 +453,7 @@ Readiness block:
 Avoid exposing raw subscription status unless an existing settings API already does. UI maps stable reason codes to copy.
 
 `PATCH`:
-- owner auth
+- owner auth via `requireOwnerWithAccount(request)`, not `requireWritableOwner(request)`. The route must parse the operation and compute expansion before applying subscription writability, because contractions/disables must remain available to cancelled, blocked, pending-payment, and read-only past-due accounts.
 - same-origin helper (`withSameOrigin` or equivalent)
 - reject active admin impersonation sessions; do not allowlist this mutation for impersonation in v1. **Net-new at the route layer:** existing `/api/settings/*` routes wire only `withSameOrigin` + `requireWritableOwner` and trust the auth session — impersonation is enforced today at the page wrapper (`src/lib/admin/impersonation/view.ts`), not in the settings API. This route must add an explicit impersonation check rather than copy an existing route-level one.
 - one explicit operation enum:
@@ -459,6 +465,59 @@ Avoid exposing raw subscription status unless an existing settings API already d
   - `delete_location_override`
 - returns refreshed effective policy state and readiness block
 
+PATCH request shape:
+
+```ts
+type AutoApprovalThreshold = 1 | 2 | 3 | 4 | 5;
+
+type AutoApprovalPatchRequest =
+  | {
+      operation: 'set_account_default';
+      threshold: AutoApprovalThreshold;
+      confirmationLevel?: 'standard' | 'all_ratings';
+    }
+  | {
+      operation: 'set_account_manual' | 'clear_account_default';
+      confirmationLevel?: 'standard' | 'all_ratings';
+    }
+  | {
+      operation: 'set_location_override';
+      locationId: string;
+      threshold: AutoApprovalThreshold;
+      confirmationLevel?: 'standard' | 'all_ratings';
+    }
+  | {
+      operation: 'set_location_manual' | 'delete_location_override';
+      locationId: string;
+      confirmationLevel?: 'standard' | 'all_ratings';
+    };
+```
+
+Responses use the same shape as GET:
+
+```ts
+type AutoApprovalSettingsResponse = {
+  accountDefault: PolicyRowState;
+  locations: Array<{
+    locationId: string;
+    displayName: string;
+    override: PolicyRowState;
+    effective: {
+      threshold: AutoApprovalThreshold | null;
+      source: 'location_override' | 'account_default' | 'none';
+      inherited: boolean;
+    };
+  }>;
+  readiness: AutoApprovalReadiness;
+};
+
+type PolicyRowState = {
+  policyId: string | null;
+  threshold: AutoApprovalThreshold | null;
+  exists: boolean;
+};
+```
+
 No separate DELETE route. Deleting an override can expand by inheriting an auto account default, so it must go through the same effective-exposure calculation as every other mutation.
 
 Policy mutation transaction:
@@ -469,7 +528,7 @@ Policy mutation transaction:
 5. Apply mutation.
 6. Read/derive after state.
 7. Compute after exposure rank and expansion.
-8. Enforce expansion gates/confirmation.
+8. Enforce expansion gates/confirmation. This is where `assertWritableSubscriptionForAccount(accountId, tx)` is called for expansions only; do not apply that writable gate at route entry.
 9. Write `account_audit_log` with `writeAccountAuditLog(input, tx)`.
 10. Return refreshed state.
 
@@ -570,7 +629,7 @@ Map each decision point to the existing symbol:
 | --- | --- |
 | Generator pre-gen gate (already in load context) | `checkSubscription({ workerType: 'generator', ... })` — `src/lib/shared/subscription-guard.ts` |
 | Runtime auto's "would the publisher accept this?" gate at persist time (the `canPublishForAccount(...)` label in the §4 predicate) | `checkSubscription({ workerType: 'publisher', status, pastDueAt, accountFlags, now })` — same module, called with the persist-time re-read account state |
-| Settings-expansion writability | `assertWritableSubscriptionForAccount(accountId, tx)` — `src/lib/shared/writable-subscription.ts`; owner routes already gate through `requireWritableOwner(request)` — `src/lib/auth/route-helpers.ts` |
+| Settings-expansion writability | `assertWritableSubscriptionForAccount(accountId, tx)` — `src/lib/shared/writable-subscription.ts`, called inside the PATCH transaction only after computing that the operation expands exposure. Use `requireOwnerWithAccount(request)` for route auth; do **not** gate the route through `requireWritableOwner(request)`, because contractions/disables bypass writability. |
 
 `checkSubscription` is a pure function over `{ status, pastDueAt, accountFlags, workerType, now }`, so the persist-time auto predicate calls it directly with current-state reads — no wrapper needed. Reusing these symbols (rather than re-deriving status strings) is what keeps `pending_payment`, grace-period, cancelled, and future account states from drifting. The only genuinely new gate this feature adds is the auto-approval runtime/provider/confirmation logic itself (§4, §13), which **composes** the above — it never re-implements subscription semantics.
 
@@ -591,7 +650,7 @@ No review text, response text, raw hashes, tokens, or secrets. No durable approv
 
 Recommended PR split after provider-moderation Phase 0:
 
-1. Schema/helper hardening: migration 055, env helpers, subscription helpers, audit helpers, typed job-outbox helpers, lane helper.
+1. Schema/helper hardening: migration 055, env helpers, subscription helpers, audit helpers, typed job-outbox helpers, lane helper, and root-spec sync.
 2. Runtime path behind disabled flag: origin lanes, persist predicate/current-state reads, auto branch, publisher kill-switch downgrade, manual approval attribution, tests. Runtime remains off by default.
 3. Settings UI/API and admin/DTO visibility: owner route, effective exposure gates, UI, admin read-only diagnostics, static policy audit updates.
 
@@ -692,15 +751,18 @@ Static/policy:
 - no `NEXT_PUBLIC_AUTO_APPROVAL_*`
 - no runtime policy Redis/in-memory cache
 - no browser Supabase reads/writes to `auto_approval_policies`
+- root `docs/superpowers/specs/2026-05-31-auto-approval-design.md` matches this audited spec
 
 ## 18. Documentation Change Map
 
 Apply with the implementation PR, not before:
 
-- Update the CLAUDE.md no-auto-posting invariant (there is no AGENTS.md in this repo — `.claude/CLAUDE.md` is the only invariant file): posting requires an approval decision, either explicit owner approval or owner-configured auto policy; auto cannot bypass moderation/provider clean/runtime/publisher/connection/location gates.
+- Update both invariant files, `.claude/CLAUDE.md` and `AGENTS.md`: posting requires an approval decision, either explicit owner approval or owner-configured auto policy; auto cannot bypass moderation/provider clean/runtime/publisher/connection/location gates.
 - Update moderation invariant: high-severity holds override auto; auto also requires provider clean and zero flags.
 - Update subscription invariant: auto uses publisher semantics at persist and publisher runtime.
 - Add policy invariant: account default + location override, threshold-only, current-state persist-time decision, only `live_ingest_new`, `version=1`, no suppression, active connection, active location, no cache.
+- Add the new server-only flags to `.env.example`, `docs/eservices-variables.md`, and `.claude/reference/env-vars.md`: `AUTO_APPROVAL_ENABLED` and `AUTO_APPROVAL_PROVIDER_MODERATION_READY`. Keep them out of `NEXT_PUBLIC_*` and document that missing/invalid values default false.
+- Add `auto_approval_policies` to `docs/security/rls-inventory.md`, `scripts/ci/tenant-tables.ts`, and matching RLS/tenant-scope migration tests.
 - Add/update project skill `auto-approval-policy`.
 - Update `approval-security` skill so it no longer assumes every post is human-approved, while preserving token security for manual paths.
 
