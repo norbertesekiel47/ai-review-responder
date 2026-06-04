@@ -6,6 +6,8 @@ import type { PublishResponsePayload } from '../../../src/lib/shared/worker-type
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import { asLocationId } from '../../../src/lib/shared/ids';
 import type { LocationId } from '../../../src/lib/shared/ids';
+import { autoApprovalRuntimeEnabled } from '../../../src/lib/auto-approval/flags';
+import { APPROVAL_METHOD } from '../../../src/lib/auto-approval/types';
 import { loadPublishResponseContext } from './load-context';
 import { parkResponseForOwnerReconnect } from './no-connection';
 import { postReplyAndHandleTerminalOutcomes } from './post-reply';
@@ -13,6 +15,7 @@ import { resolvePublishableZernioReviewId } from './review-lookup';
 import { runEditPublishIfApplicable } from './edit-publish';
 import { isOrphanMarker } from './orphan-markers';
 import { maybeCaptureActivationCompleted } from './activation';
+import { downgradeAutoApprovedResponseForManualReview } from './auto-policy-downgrade';
 import type { ZernioConnectionRow } from './types';
 
 export async function handlePublishResponse(
@@ -50,6 +53,29 @@ export async function handlePublishResponse(
   if (!(ZERNIO_PUBLISHABLE_STATES as readonly string[]).includes(response.status)) {
     logger.log(
       `Response ${response_id} not in publishable state (status=${response.status}), skipping`,
+    );
+    await markOutboxCompleted(outboxId, outboxAttempt);
+    return;
+  }
+
+  if (
+    response.approval_method === APPROVAL_METHOD.AUTO_POLICY &&
+    !autoApprovalRuntimeEnabled()
+  ) {
+    await downgradeAutoApprovedResponseForManualReview({
+      responseId: response_id,
+      businessId,
+      outboxId,
+      outboxAttempt,
+      correlationId: job.data.correlation_id,
+      logger,
+    });
+    return;
+  }
+
+  if (business.archived_at !== null) {
+    logger.warn(
+      `Business ${businessId} is archived; skipping public publish for response ${response_id}`,
     );
     await markOutboxCompleted(outboxId, outboxAttempt);
     return;

@@ -35,6 +35,16 @@ describe('scanFile — NEXT_PUBLIC allowlist (invariant #13)', () => {
     expect(findings[0]!.detail).toContain('NEXT_PUBLIC_BETA_ENABLED');
   });
 
+  it('explicitly rejects public auto-approval flag companions', () => {
+    const findings = scanFile(
+      'src/x.ts',
+      'const on = process.env.NEXT_PUBLIC_AUTO_APPROVAL_ENABLED === "true";',
+    );
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.rule).toBe('next-public-allowlist');
+    expect(findings[0]!.detail).toContain('NEXT_PUBLIC_AUTO_APPROVAL_ENABLED');
+  });
+
   it('allows every allowlisted var', () => {
     for (const name of ALLOWED_NEXT_PUBLIC) {
       expect(scanFile('src/x.ts', `const v = process.env.${name};`)).toHaveLength(0);
@@ -49,6 +59,30 @@ describe('scanFile — NEXT_PUBLIC allowlist (invariant #13)', () => {
   it('reports the correct 1-based line number', () => {
     const text = ['a', 'b', 'const x = process.env.NEXT_PUBLIC_NOPE;'].join('\n');
     expect(scanFile('src/x.ts', text)[0]!.line).toBe(3);
+  });
+});
+
+describe('scanFile — auto_approval_policies browser access', () => {
+  it('flags client components that reference auto_approval_policies directly', () => {
+    const findings = scanFile(
+      'src/app/dashboard/settings/auto-approval-panel.tsx',
+      [
+        "'use client';",
+        "await supabase.from('auto_approval_policies').select('*');",
+      ].join('\n'),
+    );
+
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.rule).toBe('auto-approval-policy-browser-access');
+  });
+
+  it('allows server routes and workers to reference auto_approval_policies', () => {
+    const findings = scanFile(
+      'src/app/api/settings/auto-approval/route.ts',
+      "await sql`SELECT * FROM auto_approval_policies`;",
+    );
+
+    expect(findings).toHaveLength(0);
   });
 });
 

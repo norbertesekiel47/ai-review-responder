@@ -34,13 +34,14 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { v7 as uuidv7 } from 'uuid';
-import { sql, jsonb } from '@/lib/db/server';
+import { sql } from '@/lib/db/server';
 import { insertAuditLogSession } from '@/lib/approval/audit';
 import {
   resolveEditReplyContext,
   type ResponseIdRouteContext,
 } from '@/app/api/dashboard/past-replies/_shared/edit-reply-request';
-import type { PublishResponsePayload } from '@/lib/shared/worker-types';
+import { APPROVAL_METHOD } from '@/lib/auto-approval/types';
+import { enqueuePublishResponse } from '@/lib/shared/job-outbox-helpers';
 import { POST_AFTER_DELETE_FAILED_PREFIX } from '../../../../../../../worker/jobs/publisher/orphan-markers';
 
 export const dynamic = 'force-dynamic';
@@ -179,7 +180,7 @@ export async function POST(
         INSERT INTO responses (
           id, review_id, business_id,
           response_text, approved_text, original_draft_text, edited_text,
-          response_language, version, status, approved_at,
+          response_language, version, status, approval_method, approved_at,
           llm_provider, llm_model, prompt_tokens, completion_tokens
         )
         VALUES (
@@ -187,7 +188,7 @@ export async function POST(
           ${restoredText}, ${restoredText}, ${restoredText}, ${null},
           ${superseded.response_language},
           (COALESCE((SELECT MAX(version) FROM responses WHERE review_id = ${reviewId}), 0) + 1),
-          'approved', NOW(),
+          'approved', ${APPROVAL_METHOD.OWNER}, NOW(),
           ${null}, ${null}, ${null}, ${null}
         )
       `;
@@ -218,17 +219,11 @@ export async function POST(
       //    does NOT match it → it routes to the normal post-reply path, which
       //    POSTs the original into the now-empty Google slot → 'posted'.
       const outboxId = uuidv7();
-      const payload: PublishResponsePayload = {
-        response_id: newId,
-        business_id: failed.business_id,
-      };
-      await tx`
-        INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-        VALUES (
-          ${outboxId}, 'publish_response', 'response',
-          ${newId}, ${jsonb(payload)}, 'pending'
-        )
-      `;
+      await enqueuePublishResponse(tx, {
+        outboxId,
+        responseId: newId,
+        businessId: failed.business_id,
+      });
 
       // Restore is terminal — the drawer transitions to a success/closing
       // state on the returned ids and does NOT enter the preview/publish path.

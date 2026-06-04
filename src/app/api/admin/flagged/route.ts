@@ -5,7 +5,9 @@ import { sql, jsonb } from '@/lib/db/server';
 import { writeAccountAuditLog } from '@/lib/audit/log';
 import { requireAdminWithAal2, internalError } from '@/lib/auth/admin-mfa-gate';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
-import type { SendNotificationPayload, GenerateResponsePayload } from '@/lib/shared/worker-types';
+import type { SendNotificationPayload } from '@/lib/shared/worker-types';
+import { GENERATE_RESPONSE_ORIGIN_LANE } from '@/lib/shared/worker-types';
+import { enqueueGenerateResponse } from '@/lib/shared/job-outbox-helpers';
 
 export const dynamic = 'force-dynamic';
 
@@ -189,18 +191,12 @@ async function dispositionFlaggedResponse(request: NextRequest): Promise<NextRes
             SET status = 'superseded', updated_at = NOW()
             WHERE id = ${flag.response_id}::uuid AND business_id = ${flag.business_id}::uuid
           `;
-          const regenPayload: GenerateResponsePayload = {
-            review_id: resp.review_id,
-            business_id: flag.business_id,
+          await enqueueGenerateResponse(tx, {
+            reviewId: resp.review_id,
+            businessId: flag.business_id,
             version: resp.version + 1,
-          };
-          await tx`
-            INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-            VALUES (
-              ${uuidv7()}, 'generate_response', 'review', ${resp.review_id},
-              ${jsonb(regenPayload)}, 'pending'
-            )
-          `;
+            originLane: GENERATE_RESPONSE_ORIGIN_LANE.REGENERATE,
+          });
         }
       }
 

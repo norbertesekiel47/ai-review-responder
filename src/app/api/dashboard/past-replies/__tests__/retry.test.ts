@@ -357,21 +357,22 @@ describe('POST /api/dashboard/past-replies/:responseId/retry', () => {
     const updateSql = (updateCall[0] as unknown as TemplateStringsArray).join('|');
     expect(updateSql).toContain('UPDATE responses');
     expect(updateSql).toContain("status = 'approved'");
+    expect(updateSql).toContain('approval_method');
     expect(updateSql).toContain('posting_error =');
     // delete_failed branch → posting_error cleared to NULL.
     expect(updateCall[1]).toBeNull();
+    expect(updateCall).toContain('owner');
     expect(updateSql).toContain('COALESCE(approved_text, response_text)');
 
     // INSERT outbox tx call (6th tx call)
     const insertCall = txMock.mock.calls[5] as unknown as unknown[];
     const insertSql = (insertCall[0] as unknown as TemplateStringsArray).join('|');
     expect(insertSql).toContain('INSERT INTO job_outbox');
-    expect(insertSql).toContain("'publish_response'");
-    // Bound params: [0]=template strings, [1]=outboxId, [2]=responseId (aggregate_id),
-    // [3]=jsonb(payload). topic + aggregate_type + status are SQL literals, NOT bound.
     expect(insertCall[1]).toBe(body.outbox_id);
-    expect(insertCall[2]).toBe(RESPONSE_ID);
-    const payload = insertCall[3] as unknown as { response_id: string; business_id: string };
+    expect(insertCall[2]).toBe('publish_response');
+    expect(insertCall[3]).toBe('response');
+    expect(insertCall[4]).toBe(RESPONSE_ID);
+    const payload = insertCall[5] as unknown as { response_id: string; business_id: string };
     expect(payload.response_id).toBe(RESPONSE_ID);
     expect(payload.business_id).toBe(LOCATION_ID);
   });
@@ -403,7 +404,10 @@ describe('POST /api/dashboard/past-replies/:responseId/retry', () => {
     // as the PENDING_AFTER_DELETE orphan marker so the publisher takes the
     // no-DELETE branch on the next attempt.
     const updateCall = txMock.mock.calls[4] as unknown as unknown[];
+    const updateSql = (updateCall[0] as unknown as TemplateStringsArray).join('|');
+    expect(updateSql).toContain('approval_method');
     expect(updateCall[1]).toBe(PENDING_AFTER_DELETE);
+    expect(updateCall).toContain('owner');
 
     // Outbox INSERT (6th tx call)
     const insertCall = txMock.mock.calls[5] as unknown as unknown[];
@@ -466,7 +470,7 @@ describe('POST /api/dashboard/past-replies/:responseId/retry', () => {
     // Audit + outbox payload scoped to the ALT location.
     expect(mockInsertAuditLogSession.mock.calls[0]![2]).toBe(ALT_LOCATION_ID);
     const insertCall = txMock.mock.calls[5] as unknown as unknown[];
-    const payload = insertCall[3] as unknown as { business_id: string };
+    const payload = insertCall[5] as unknown as { business_id: string };
     expect(payload.business_id).toBe(ALT_LOCATION_ID);
   });
 });

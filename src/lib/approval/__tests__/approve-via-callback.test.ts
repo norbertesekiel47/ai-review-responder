@@ -81,6 +81,10 @@ describe('approveViaCallback', () => {
       viaChannel: 'telegram',
       audit: { providerEventId: '999', ipAddress: '1.2.3.4', telegramUpdateId: 999 },
     });
+    const updateCall = txCalls.find((c) => c.sql.includes("SET status = 'approved'"));
+    expect(updateCall).toBeDefined();
+    expect(updateCall!.sql).toContain('approval_method');
+    expect(updateCall!.params).toContain('owner');
     const auditCall = txCalls.find((c) => c.sql.includes('approval_audit_log'));
     expect(auditCall).toBeDefined();
     expect(auditCall!.params).toContain('Callback approved draft');
@@ -165,8 +169,19 @@ describe('regenerateViaCallback', () => {
       viaChannel: 'telegram',
       audit: { providerEventId: '7', ipAddress: null, telegramUpdateId: 7 },
     });
-    const outboxCall = txCalls.find((c) => c.sql.includes('job_outbox') && c.sql.includes('generate_response'));
+    const outboxCall = txCalls.find((c) => c.sql.includes('job_outbox') && c.params.includes('generate_response'));
     expect(outboxCall).toBeDefined();
+    const payload = outboxCall!.params.find(
+      (param): param is Record<string, unknown> =>
+        !!param && typeof param === 'object' && !Array.isArray(param) && 'review_id' in param,
+    );
+    expect(payload).toMatchObject({
+      review_id: 'rev-1',
+      business_id: 'biz-1',
+      version: 2,
+      origin_lane: 'regenerate',
+      correlation_id: 'upstream-corr-id',
+    });
   });
 
   it('blocks read-only accounts before consuming links or enqueueing regeneration work', async () => {

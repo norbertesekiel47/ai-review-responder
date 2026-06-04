@@ -33,6 +33,7 @@ import {
   ZernioReviewNormalizationError,
 } from '../../../src/lib/reviews/zernio-normalize';
 import { processReview } from '../../../src/lib/reviews/process-review';
+import { GENERATE_RESPONSE_ORIGIN_LANE } from '../../../src/lib/shared/worker-types';
 import {
   handleZernioIngestError,
   openPhiReviewException,
@@ -247,6 +248,7 @@ export async function handleZernioBackfill(job: Job<ZernioInitialBackfillPayload
     }
     await processReview(monitored, business_id, job.data.correlation_id, {
       suppressNotification: true,
+      originLane: GENERATE_RESPONSE_ORIGIN_LANE.BACKFILL,
     });
     if (bucket === 'gap') {
       gapProcessed++;

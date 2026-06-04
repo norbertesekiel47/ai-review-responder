@@ -92,7 +92,12 @@ const MOCK_RESULT: GenerationResult = {
 };
 
 function ctx(overrides: Partial<BusinessContext> = {}): GenerationContext {
-  return { accountId: 'acct-1', normalizedReview: REVIEW, businessContext: { ...BIZ_CONTEXT, ...overrides } };
+  return {
+    accountId: 'acct-1',
+    loadedReviewContentHash: 'hash-1',
+    normalizedReview: REVIEW,
+    businessContext: { ...BIZ_CONTEXT, ...overrides },
+  };
 }
 
 const IDS = { reviewId: 'rev-1', version: 1, businessId: asLocationId('biz-1') };

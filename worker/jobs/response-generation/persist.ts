@@ -12,7 +12,27 @@ import type postgres from 'postgres';
 import { sql, jsonb } from '../../../src/lib/db/server';
 import type { ModerationDecision } from '../../../src/lib/moderation/output-filter';
 import type { GenerationResult } from '../../../src/lib/responses/types';
-import type { SendNotificationPayload } from '../../../src/lib/shared/worker-types';
+import { APPROVAL_METHOD } from '../../../src/lib/auto-approval/types';
+import {
+  GENERATE_RESPONSE_ORIGIN_LANE,
+  type GenerateResponseOriginLane,
+  type SendNotificationPayload,
+} from '../../../src/lib/shared/worker-types';
+import { QUEUE_NAMES } from '../../../src/lib/shared/queue-names';
+import { enqueuePublishResponse } from '../../../src/lib/shared/job-outbox-helpers';
+import { insertAuditLogAutoPolicy } from '../../../src/lib/approval/audit';
+import type { WorkerLogger } from '../../../src/lib/shared/logger';
+import {
+  type AutoApprovalDecision,
+  type AutoApprovalRuntimeState,
+  evaluateAutoApprovalCandidate,
+  loadAutoApprovalRuntimeState,
+} from './auto-approval';
+
+const RESPONSE_STATUS_PENDING_APPROVAL = 'pending_approval';
+const RESPONSE_STATUS_APPROVED = 'approved';
+const FLAGGED_RESPONSE_STATUS_OPEN = 'open';
+const AGGREGATE_TYPE_RESPONSE = 'response';
 
 export interface PersistResponseInput {
   result: GenerationResult;
@@ -23,14 +43,18 @@ export interface PersistResponseInput {
   version: number;
   correlationId: string | undefined;
   suppressNotification: boolean;
+  originLane: GenerateResponseOriginLane | null;
+  loadedReviewContentHash: string | null;
   moderation: ModerationDecision;
   accountId: string;
+  logger?: Pick<WorkerLogger, 'log'>;
 }
 
 export async function persistResponseAndNotify(input: PersistResponseInput): Promise<string> {
   const {
     result, retryCostId, reviewId, businessId, version,
-    correlationId, suppressNotification, moderation, accountId,
+    correlationId, suppressNotification, originLane, loadedReviewContentHash,
+    moderation, accountId, logger,
   } = input;
 
   const responseId = uuidv7();
@@ -42,11 +66,11 @@ export async function persistResponseAndNotify(input: PersistResponseInput): Pro
     await tx`
       INSERT INTO responses (
         id, review_id, business_id, response_text, response_language,
-        version, status, original_draft_text,
+        version, status, approval_method, original_draft_text,
         llm_provider, llm_model, prompt_tokens, completion_tokens
       ) VALUES (
         ${responseId}, ${reviewId}, ${businessId}, ${result.responseText}, ${result.language},
-        ${version}, 'pending_approval', ${result.responseText},
+        ${version}, ${RESPONSE_STATUS_PENDING_APPROVAL}, ${null}, ${result.responseText},
         ${result.provider}, ${result.model}, ${result.usage.promptTokens}, ${result.usage.completionTokens}
       )
     `;
@@ -73,6 +97,86 @@ export async function persistResponseAndNotify(input: PersistResponseInput): Pro
       outputExcerpt: result.responseText.slice(0, 200),
     });
 
+    const runtimeState = await loadAutoApprovalRuntimeState(tx, {
+      reviewId,
+      businessId,
+      accountId,
+    });
+    const autoDecision = evaluateAutoApprovalCandidate({
+      originLane,
+      version,
+      suppressNotification,
+      loadedReviewContentHash,
+      currentReviewContentHash: runtimeState.currentReviewContentHash,
+      currentStarRating: runtimeState.currentStarRating,
+      effectivePolicy: runtimeState.effectivePolicy,
+      moderation,
+      held,
+      subscriptionStatus: runtimeState.subscriptionStatus,
+      accountPastDueAt: runtimeState.accountPastDueAt,
+      accountFlags: runtimeState.accountFlags,
+      activeLocationNow: runtimeState.activeLocationNow,
+      activeZernioConnectionNow: runtimeState.activeZernioConnectionNow,
+    });
+
+    logAutoApprovalFallbackIfNeeded({
+      logger,
+      autoDecision,
+      runtimeState,
+      responseId,
+      reviewId,
+      businessId,
+      version,
+      originLane,
+      moderation,
+    });
+
+    if (autoDecision.approved) {
+      await tx`
+        UPDATE responses
+        SET status = ${RESPONSE_STATUS_APPROVED},
+            approval_method = ${APPROVAL_METHOD.AUTO_POLICY},
+            approved_text = ${result.responseText},
+            approved_at = NOW(),
+            posting_error = NULL,
+            updated_at = NOW()
+        WHERE id = ${responseId}
+          AND status = ${RESPONSE_STATUS_PENDING_APPROVAL}
+      `;
+
+      await insertAuditLogAutoPolicy(tx, {
+        responseId,
+        businessId,
+        responseTextAtApproval: result.responseText,
+        metadata: {
+          policy_id: runtimeState.effectivePolicy.policyId,
+          policy_source: runtimeState.effectivePolicy.source,
+          resolved_min_star: runtimeState.effectivePolicy.threshold,
+          star_rating: runtimeState.currentStarRating,
+          origin_lane: originLane,
+          response_version: version,
+          provider_status: moderation.providerStatus,
+          review_content_hash_matched: autoDecision.reviewContentHashMatched,
+          publisher_subscription_allowed: autoDecision.publisherSubscription.allowed,
+          publisher_subscription_reason: autoDecision.publisherSubscription.allowed
+            ? null
+            : autoDecision.publisherSubscription.reason,
+          active_zernio_connection: runtimeState.activeZernioConnectionNow,
+          active_location: runtimeState.activeLocationNow,
+          runtime_enabled: autoDecision.runtimeEnabled,
+          provider_moderation_enabled: autoDecision.providerModerationEnabled,
+          correlation_id: correlationId,
+        },
+      });
+
+      await enqueuePublishResponse(tx, {
+        responseId,
+        businessId,
+        correlationId,
+      });
+      return;
+    }
+
     // Backfill suppression (spec §4.6, §6.7) OR a high-severity flag both skip
     // the approval notification.
     if (suppressNotification || held) {
@@ -88,13 +192,69 @@ export async function persistResponseAndNotify(input: PersistResponseInput): Pro
     await tx`
       INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
       VALUES (
-        ${uuidv7()}, 'send_notification', 'response', ${responseId},
+        ${uuidv7()}, ${QUEUE_NAMES.SEND_NOTIFICATION}, ${AGGREGATE_TYPE_RESPONSE}, ${responseId},
         ${jsonb(notifyPayload)}, 'pending'
       )
     `;
   });
 
   return responseId;
+}
+
+function logAutoApprovalFallbackIfNeeded(input: {
+  logger: Pick<WorkerLogger, 'log'> | undefined;
+  autoDecision: AutoApprovalDecision;
+  runtimeState: AutoApprovalRuntimeState;
+  responseId: string;
+  reviewId: string;
+  businessId: string;
+  version: number;
+  originLane: GenerateResponseOriginLane | null;
+  moderation: ModerationDecision;
+}): void {
+  const {
+    logger,
+    autoDecision,
+    runtimeState,
+    responseId,
+    reviewId,
+    businessId,
+    version,
+    originLane,
+    moderation,
+  } = input;
+  if (!logger || autoDecision.approved || autoDecision.blockReasons.length === 0) {
+    return;
+  }
+
+  const inAutoDecisionSurface =
+    originLane === GENERATE_RESPONSE_ORIGIN_LANE.LIVE_INGEST_NEW
+    || runtimeState.effectivePolicy.threshold !== null
+    || autoDecision.runtimeEnabled;
+  if (!inAutoDecisionSurface) {
+    return;
+  }
+
+  logger.log('Auto-approval fallback to owner review', {
+    response_id: responseId,
+    review_id: reviewId,
+    business_id: businessId,
+    response_version: version,
+    origin_lane: originLane,
+    block_reasons: autoDecision.blockReasons,
+    runtime_enabled: autoDecision.runtimeEnabled,
+    provider_moderation_enabled: autoDecision.providerModerationEnabled,
+    provider_status: moderation.providerStatus,
+    review_content_hash_matched: autoDecision.reviewContentHashMatched,
+    publisher_subscription_allowed: autoDecision.publisherSubscription.allowed,
+    publisher_subscription_reason: autoDecision.publisherSubscription.allowed
+      ? null
+      : autoDecision.publisherSubscription.reason,
+    active_zernio_connection: runtimeState.activeZernioConnectionNow,
+    active_location: runtimeState.activeLocationNow,
+    policy_source: runtimeState.effectivePolicy.source,
+    resolved_min_star: runtimeState.effectivePolicy.threshold,
+  });
 }
 
 /**
@@ -142,7 +302,7 @@ async function recordModerationAndHold(
         source, reason, severity, status
       ) VALUES (
         ${uuidv7()}, ${responseId}, ${accountId}, ${businessId}, ${reviewId}, ${moderatedCostId ?? null},
-        ${moderation.source ?? 'local_regex'}, ${moderation.reason}, ${moderation.severity}, ${'open'}
+        ${moderation.source ?? 'local_regex'}, ${moderation.reason}, ${moderation.severity}, ${FLAGGED_RESPONSE_STATUS_OPEN}
       )
     `;
   }

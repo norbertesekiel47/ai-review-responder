@@ -25,7 +25,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { v7 as uuidv7 } from 'uuid';
 import { z } from 'zod';
-import { sql, jsonb } from '@/lib/db/server';
+import { sql } from '@/lib/db/server';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
 import { resolveEditReplyScope } from '../_shared/edit-reply-request';
 import {
@@ -36,7 +36,8 @@ import {
 } from '@/lib/responses/edit-existing';
 import { mapEditReplyError } from '../_shared/edit-reply-errors';
 import { snapshotSchema } from '../_shared/schemas';
-import type { GenerateResponsePayload } from '@/lib/shared/worker-types';
+import { GENERATE_RESPONSE_ORIGIN_LANE } from '@/lib/shared/worker-types';
+import { enqueueGenerateResponse } from '@/lib/shared/job-outbox-helpers';
 
 export const dynamic = 'force-dynamic';
 
@@ -203,19 +204,14 @@ async function handler(request: NextRequest): Promise<Response> {
 
       // Regenerate mode.
       const outboxId = uuidv7();
-      const payload: GenerateResponsePayload = {
-        review_id: parsed.data.review_id,
-        business_id: locationId,
+      await enqueueGenerateResponse(tx, {
+        outboxId,
+        reviewId: parsed.data.review_id,
+        businessId: locationId,
         version: nextVersion,
-        suppress_notification: true,
-      };
-      await tx`
-        INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-        VALUES (
-          ${outboxId}, 'generate_response', 'review',
-          ${parsed.data.review_id}, ${jsonb(payload)}, 'pending'
-        )
-      `;
+        originLane: GENERATE_RESPONSE_ORIGIN_LANE.REGENERATE,
+        suppressNotification: true,
+      });
       return NextResponse.json({ outbox_id: outboxId }, { status: 200 });
     });
   } catch (err) {

@@ -24,6 +24,7 @@ import type { BusinessContext } from '../../../src/lib/responses/types';
 
 export interface GenerationContext {
   accountId: string;
+  loadedReviewContentHash: string | null;
   normalizedReview: NormalizedReview;
   businessContext: BusinessContext;
 }
@@ -49,8 +50,9 @@ export async function loadGenerationContext(input: {
     review_text: string | null;
     review_date: string;
     detected_language: string;
+    review_content_hash: string | null;
   }[]>`
-    SELECT id, reviewer_name, star_rating, review_text, review_date, detected_language
+    SELECT id, reviewer_name, star_rating, review_text, review_date, detected_language, review_content_hash
     FROM reviews WHERE id = ${reviewId}
   `;
 
@@ -153,6 +155,11 @@ export async function loadGenerationContext(input: {
 
   return {
     kind: 'ready',
-    ctx: { accountId: business.account_id, normalizedReview, businessContext },
+    ctx: {
+      accountId: business.account_id,
+      loadedReviewContentHash: review.review_content_hash,
+      normalizedReview,
+      businessContext,
+    },
   };
 }

@@ -13,12 +13,14 @@ export interface BasePayload {
   correlation_id?: string;
 }
 
-export const GENERATE_RESPONSE_ORIGIN_LANES = [
-  'live_ingest_new',
-  'live_ingest_update',
-  'backfill',
-  'regenerate',
-] as const;
+export const GENERATE_RESPONSE_ORIGIN_LANE = {
+  LIVE_INGEST_NEW: 'live_ingest_new',
+  LIVE_INGEST_UPDATE: 'live_ingest_update',
+  BACKFILL: 'backfill',
+  REGENERATE: 'regenerate',
+} as const;
+
+export const GENERATE_RESPONSE_ORIGIN_LANES = Object.values(GENERATE_RESPONSE_ORIGIN_LANE);
 
 export type GenerateResponseOriginLane =
   (typeof GENERATE_RESPONSE_ORIGIN_LANES)[number];

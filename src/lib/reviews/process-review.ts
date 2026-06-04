@@ -3,9 +3,11 @@ import type postgres from 'postgres';
 import { sql, jsonb } from '@/lib/db/server';
 import type { MonitoredReview } from './types';
 import type {
-  GenerateResponsePayload,
+  GenerateResponseOriginLane,
   NotifyAdminExceptionPayload,
 } from '@/lib/shared/worker-types';
+import { GENERATE_RESPONSE_ORIGIN_LANE } from '@/lib/shared/worker-types';
+import { enqueueGenerateResponse } from '@/lib/shared/job-outbox-helpers';
 import { enqueueAnalyticsEvent } from '@/lib/analytics/enqueue';
 import { makeAnalyticsEventKey } from '@/lib/analytics/events';
 import { classifySentiment } from '@/lib/reviews/sentiment';
@@ -30,9 +32,11 @@ export async function processReview(
   monitored: MonitoredReview,
   businessId: string,
   correlationId?: string,
-  options?: { suppressNotification?: boolean },
+  options?: { suppressNotification?: boolean; originLane?: GenerateResponseOriginLane },
 ): Promise<ProcessResult> {
   const suppressNotification = options?.suppressNotification ?? false;
+  const newReviewOriginLane = options?.originLane ?? GENERATE_RESPONSE_ORIGIN_LANE.LIVE_INGEST_NEW;
+  const updateOriginLane = options?.originLane ?? GENERATE_RESPONSE_ORIGIN_LANE.LIVE_INGEST_UPDATE;
   const { review, identity, contentHash } = monitored;
 
   return await sql.begin(async (tx) => {
@@ -74,21 +78,14 @@ export async function processReview(
 
       if (inserted.count > 0) {
         // We won the race — enqueue response generation
-        const outboxPayload: GenerateResponsePayload = {
-          review_id: reviewId,
-          business_id: businessId,
+        await enqueueGenerateResponse(tx, {
+          reviewId,
+          businessId,
           version: 1,
-          correlation_id: correlationId,
-          suppress_notification: suppressNotification,
-        };
-
-        await tx`
-          INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-          VALUES (
-            ${uuidv7()}, 'generate_response', 'review', ${reviewId},
-            ${jsonb(outboxPayload)}, 'pending'
-          )
-        `;
+          originLane: newReviewOriginLane,
+          correlationId,
+          suppressNotification,
+        });
 
         await maybeEnqueueFirstReviewIngested(tx, {
           businessId,
@@ -125,6 +122,7 @@ export async function processReview(
         businessId,
         correlationId,
         suppressNotification,
+        updateOriginLane,
       );
     }
 
@@ -135,6 +133,7 @@ export async function processReview(
       businessId,
       correlationId,
       suppressNotification,
+      updateOriginLane,
     );
   });
 }
@@ -190,6 +189,7 @@ async function processExistingReview(
   businessId: string,
   correlationId: string | undefined,
   suppressNotification: boolean,
+  originLane: GenerateResponseOriginLane,
 ): Promise<ProcessResult> {
   const { review, contentHash } = monitored;
   const existingHash = existing.review_content_hash;
@@ -283,21 +283,14 @@ async function processExistingReview(
     `;
     const nextVersion = versionRow?.next_version ?? 1;
 
-    const outboxPayload: GenerateResponsePayload = {
-      review_id: existing.id,
-      business_id: businessId,
+    await enqueueGenerateResponse(tx, {
+      reviewId: existing.id,
+      businessId,
       version: nextVersion,
-      correlation_id: correlationId,
-      suppress_notification: suppressNotification,
-    };
-
-    await tx`
-      INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-      VALUES (
-        ${uuidv7()}, 'generate_response', 'review', ${existing.id},
-        ${jsonb(outboxPayload)}, 'pending'
-      )
-    `;
+      originLane,
+      correlationId,
+      suppressNotification,
+    });
 
     return 'updated' as const;
   }
@@ -311,21 +304,14 @@ async function processExistingReview(
     `;
 
     const nextVersion = activeResponse.version + 1;
-    const outboxPayload: GenerateResponsePayload = {
-      review_id: existing.id,
-      business_id: businessId,
+    await enqueueGenerateResponse(tx, {
+      reviewId: existing.id,
+      businessId,
       version: nextVersion,
-      correlation_id: correlationId,
-      suppress_notification: suppressNotification,
-    };
-
-    await tx`
-      INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-      VALUES (
-        ${uuidv7()}, 'generate_response', 'review', ${existing.id},
-        ${jsonb(outboxPayload)}, 'pending'
-      )
-    `;
+      originLane,
+      correlationId,
+      suppressNotification,
+    });
 
     return 'updated' as const;
   }
@@ -396,21 +382,14 @@ async function processExistingReview(
   `;
 
   const nextVersion = activeResponse.version + 1;
-  const outboxPayload: GenerateResponsePayload = {
-    review_id: existing.id,
-    business_id: businessId,
+  await enqueueGenerateResponse(tx, {
+    reviewId: existing.id,
+    businessId,
     version: nextVersion,
-    correlation_id: correlationId,
-    suppress_notification: suppressNotification,
-  };
-
-  await tx`
-    INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-    VALUES (
-      ${uuidv7()}, 'generate_response', 'review', ${existing.id},
-      ${jsonb(outboxPayload)}, 'pending'
-    )
-  `;
+    originLane,
+    correlationId,
+    suppressNotification,
+  });
 
   return 'updated' as const;
 }

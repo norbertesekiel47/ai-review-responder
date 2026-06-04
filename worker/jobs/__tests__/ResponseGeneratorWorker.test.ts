@@ -119,8 +119,17 @@ vi.mock('uuid', () => ({
   v7: vi.fn(() => 'deterministic-uuid-v7'),
 }));
 
+vi.mock('../response-generation/persist', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../response-generation/persist')>();
+  return {
+    ...actual,
+    persistResponseAndNotify: vi.fn(actual.persistResponseAndNotify),
+  };
+});
+
 // Import after mocks are wired
 import { handleResponseGeneration } from '../ResponseGeneratorWorker';
+import { persistResponseAndNotify } from '../response-generation/persist';
 import { CostLimitExceededError } from '../../../src/lib/costs/tracker';
 
 // ── Helpers ────────────────────────────────────────────────────────────
@@ -132,10 +141,12 @@ function makeJob(overrides = {}): Job<GenerateResponsePayload> {
   } as Job<GenerateResponsePayload>;
 }
 
-function mockReviewRow() {
+function mockReviewRow(overrides = {}) {
   return {
     id: 'rev-1', reviewer_name: 'Jane', star_rating: 5,
     review_text: 'Great!', review_date: '2026-04-01', detected_language: 'en',
+    review_content_hash: 'hash-loaded',
+    ...overrides,
   };
 }
 
@@ -168,7 +179,26 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     sqlReturnQueue.length = 0;
-    mockTx.mockImplementation(() => Promise.resolve([]));
+    mockTx.mockImplementation((strings: TemplateStringsArray) => {
+      const text = strings.join(' ');
+      if (text.includes('FROM reviews r')) {
+        return Promise.resolve([{
+          star_rating: 5,
+          review_content_hash: 'hash-loaded',
+          archived_at: null,
+          subscription_status: 'active',
+          account_past_due_at: null,
+          account_flags: {},
+        }]);
+      }
+      if (text.includes('FROM auto_approval_policies')) {
+        return Promise.resolve([]);
+      }
+      if (text.includes('FROM zernio_connections')) {
+        return Promise.resolve([]);
+      }
+      return Promise.resolve([]);
+    });
     mockIsMockMode.mockReturnValue(false);
     mockModerateResponse.mockResolvedValue({
       flagged: false, severity: 'low', reason: null, categories: {}, score: 0, source: null,
@@ -191,6 +221,73 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
     const txCallArgs = mockTx.mock.calls.map((c) => c.slice(1)).flat();
     expect(txCallArgs).toContain('cost-1');
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-gen-1', undefined);
+  });
+
+  it('passes a normalized valid origin lane and suppress flag to persistence', async () => {
+    sqlReturnQueue.push([mockReviewRow()]);
+    sqlReturnQueue.push([mockBusinessRow()]);
+    mockGenerateResponse.mockResolvedValueOnce(MOCK_RESULT);
+
+    await handleResponseGeneration(makeJob({
+      origin_lane: 'live_ingest_new',
+      suppress_notification: true,
+      extra_key: 'allowed',
+    }));
+
+    expect(persistResponseAndNotify).toHaveBeenCalledWith(expect.objectContaining({
+      originLane: 'live_ingest_new',
+      suppressNotification: true,
+    }));
+  });
+
+  it('passes a null origin lane for legacy missing-lane jobs without noisy logging', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    sqlReturnQueue.push([mockReviewRow()]);
+    sqlReturnQueue.push([mockBusinessRow()]);
+    mockGenerateResponse.mockResolvedValueOnce(MOCK_RESULT);
+
+    await handleResponseGeneration(makeJob());
+
+    expect(persistResponseAndNotify).toHaveBeenCalledWith(expect.objectContaining({
+      originLane: null,
+    }));
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it('fails unknown non-empty origin lanes closed and logs a sanitized lane once', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    sqlReturnQueue.push([mockReviewRow()]);
+    sqlReturnQueue.push([mockBusinessRow()]);
+    mockGenerateResponse.mockResolvedValueOnce(MOCK_RESULT);
+
+    await handleResponseGeneration(makeJob({ origin_lane: ' live ingest:surprise! ' }));
+
+    expect(persistResponseAndNotify).toHaveBeenCalledWith(expect.objectContaining({
+      originLane: null,
+    }));
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    const record = JSON.parse(String(warnSpy.mock.calls[0]?.[0])) as {
+      message?: string;
+      data?: Record<string, unknown>;
+    };
+    expect(record.message).toBe('Unknown generate_response origin_lane; falling back to manual approval');
+    expect(record.data).toEqual({ origin_lane: 'live_ingest_surprise_' });
+    warnSpy.mockRestore();
+  });
+
+  it('loads review_content_hash and passes it to persistence for freshness checks', async () => {
+    sqlReturnQueue.push([mockReviewRow({ review_content_hash: 'fresh-hash' })]);
+    sqlReturnQueue.push([mockBusinessRow()]);
+    mockGenerateResponse.mockResolvedValueOnce(MOCK_RESULT);
+
+    await handleResponseGeneration(makeJob({ origin_lane: 'live_ingest_new' }));
+
+    const reviewSelect = (mockSql.mock.calls[0]?.[0] as TemplateStringsArray).join(' ');
+    expect(reviewSelect).toContain('review_content_hash');
+    expect(persistResponseAndNotify).toHaveBeenCalledWith(expect.objectContaining({
+      loadedReviewContentHash: 'fresh-hash',
+    }));
   });
 
   it('enqueues first_response_drafted once with deterministic event key', async () => {
@@ -220,6 +317,8 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
     await handleResponseGeneration(makeJob());
 
     expect(mockGenerateResponse).not.toHaveBeenCalled();
+    expect(persistResponseAndNotify).not.toHaveBeenCalled();
+    expect(mockSql.begin).not.toHaveBeenCalled();
     expect(mockEnqueueAnalyticsEvent).toHaveBeenCalledWith(expect.objectContaining({
       eventName: 'first_response_drafted',
       eventKey: 'first_response_drafted:acct-1',

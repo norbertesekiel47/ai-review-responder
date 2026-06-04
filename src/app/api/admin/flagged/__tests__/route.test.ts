@@ -227,7 +227,12 @@ describe('POST /api/admin/flagged (disposition)', () => {
     // A generate_response job at version+1 was enqueued.
     const regenPayloads = jsonbPayloads.filter((p) => 'review_id' in p && 'version' in p);
     expect(regenPayloads).toHaveLength(1);
-    expect(regenPayloads[0]).toMatchObject({ review_id: 'rev-1', business_id: 'biz-1', version: 2 });
+    expect(regenPayloads[0]).toMatchObject({
+      review_id: 'rev-1',
+      business_id: 'biz-1',
+      version: 2,
+      origin_lane: 'regenerate',
+    });
 
     // The held response row was superseded.
     expect(txCalls.some((c) => /UPDATE responses/.test(c.text) && /superseded/.test(c.text))).toBe(true);

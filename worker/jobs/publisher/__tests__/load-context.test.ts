@@ -45,6 +45,7 @@ function mockResponseRow(overrides: Record<string, unknown> = {}) {
     business_id: 'biz-1',
     approved_text: 'Thank you!',
     status: 'approved',
+    approval_method: null,
     posting_error: null,
     ...overrides,
   };
@@ -93,6 +94,18 @@ describe('loadPublishResponseContext', () => {
     expect(result.response.posting_error).toBeNull();
   });
 
+  it('returns approval_method from the response row when present', async () => {
+    sqlReturnQueue.push([mockResponseRow({ approval_method: 'auto_policy' })]);
+    sqlReturnQueue.push([mockBusinessRow()]);
+
+    const result = await loadPublishResponseContext(BASE_INPUT);
+
+    expect(result).not.toBe('terminal');
+    if (result === 'terminal') return;
+
+    expect(result.response.approval_method).toBe('auto_policy');
+  });
+
   it('returns terminal and marks outbox failed when response not found', async () => {
     sqlReturnQueue.push([]); // empty → not found
 
@@ -115,13 +128,16 @@ describe('loadPublishResponseContext', () => {
     expect(mockMarkOutboxFailed).toHaveBeenCalledWith('outbox-1', 'business_id_mismatch', undefined);
   });
 
-  it('returns terminal and marks outbox completed when business is archived', async () => {
+  it('returns context when business is archived so the worker can handle terminal behavior', async () => {
     sqlReturnQueue.push([mockResponseRow()]);
     sqlReturnQueue.push([mockBusinessRow({ archived_at: new Date('2026-05-01T00:00:00Z') })]);
 
     const result = await loadPublishResponseContext(BASE_INPUT);
 
-    expect(result).toBe('terminal');
-    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-1', undefined);
+    expect(result).not.toBe('terminal');
+    if (result === 'terminal') return;
+
+    expect(result.business.archived_at).toEqual(new Date('2026-05-01T00:00:00Z'));
+    expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
   });
 });

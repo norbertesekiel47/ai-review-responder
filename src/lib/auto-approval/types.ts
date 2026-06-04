@@ -1,6 +1,11 @@
 export type AutoApprovalThreshold = 1 | 2 | 3 | 4 | 5;
 
-export type ApprovalMethod = 'owner' | 'auto_policy';
+export const APPROVAL_METHOD = {
+  OWNER: 'owner',
+  AUTO_POLICY: 'auto_policy',
+} as const;
+
+export type ApprovalMethod = (typeof APPROVAL_METHOD)[keyof typeof APPROVAL_METHOD];
 
 export type PolicySource = 'location_override' | 'account_default' | 'none';
 

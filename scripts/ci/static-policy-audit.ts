@@ -11,6 +11,8 @@ import { pathToFileURL } from 'node:url';
  *   #13 — Feature flags are server-authoritative. The browser must not learn
  *         flag state from a `NEXT_PUBLIC_*` env var, so every `NEXT_PUBLIC_`
  *         read in code must be on an explicit allowlist of browser-safe values.
+ *   Auto-approval policy rows are server-owned. Client components must not
+ *         read or write `auto_approval_policies` directly through Supabase.
  *
  * Whole-repo (src + worker + scripts), unlike `pnpm lint` which only covers
  * `src`. Adding a genuinely browser-safe public var is a deliberate one-line
@@ -34,7 +36,10 @@ const SKIP_FILE = /\.(?:test|spec)\.[cm]?tsx?$/;
 // so it never flags itself.
 const SELF = join('scripts', 'ci', 'static-policy-audit.ts');
 
-export type PolicyRule = 'crypto-js' | 'next-public-allowlist';
+export type PolicyRule =
+  | 'crypto-js'
+  | 'next-public-allowlist'
+  | 'auto-approval-policy-browser-access';
 
 export interface PolicyFinding {
   file: string;
@@ -48,11 +53,17 @@ const CRYPTO_JS_SPECIFIER = /(?:from|require|import)\s*\(?\s*['"]crypto-js(?:\/[
 // An actual READ of a public env var (`process.env.NEXT_PUBLIC_X`) — not a
 // log/comment that merely names the variable.
 const NEXT_PUBLIC_ACCESS = /process\.env\.(NEXT_PUBLIC_[A-Z0-9_]+)/g;
+const USE_CLIENT_DIRECTIVE = /^\s*['"]use client['"];?/m;
+// File-local guard only: this catches direct client-component table references.
+// It does not follow imports through helper modules, so code review must still
+// reject browser Supabase helper indirection for auto_approval_policies.
+const AUTO_APPROVAL_POLICY_TABLE = /\bauto_approval_policies\b/;
 
 /** Scan one file's text for both forbidden patterns. Pure — unit-tested. */
 export function scanFile(file: string, text: string): PolicyFinding[] {
   const findings: PolicyFinding[] = [];
   const lines = text.split('\n');
+  const isClientComponent = USE_CLIENT_DIRECTIVE.test(text);
   for (let i = 0; i < lines.length; i++) {
     const lineText = lines[i]!;
 
@@ -78,6 +89,17 @@ export function scanFile(file: string, text: string): PolicyFinding[] {
             'browser-safe and not a flag, add it to ALLOWED_NEXT_PUBLIC.',
         });
       }
+    }
+
+    if (isClientComponent && AUTO_APPROVAL_POLICY_TABLE.test(lineText)) {
+      findings.push({
+        file,
+        line: i + 1,
+        rule: 'auto-approval-policy-browser-access',
+        detail:
+          'client components must not access auto_approval_policies directly; ' +
+          'owner policy reads/writes must flow through server routes',
+      });
     }
   }
   return findings;

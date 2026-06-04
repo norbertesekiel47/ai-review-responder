@@ -99,19 +99,25 @@ describe('insertAuditLogAutoPolicy', () => {
     await insertAuditLogAutoPolicy(tx, {
       responseId: 'response-1',
       businessId: 'business-1',
-      action: 'auto_policy_downgraded_to_owner_review',
+      action: 'auto_policy_revoked_by_kill_switch',
       responseTextAtApproval: null,
       metadata: {
         downgrade_reason: 'auto_approval_disabled',
         policy_id: 'policy-1',
+        runtime_enabled: false,
+        outbox_id: 'outbox-1',
+        outbox_attempt: 3,
       },
     });
 
     const values = insertValues(tx);
-    expect(values[6]).toBe('auto_policy_downgraded_to_owner_review');
+    expect(values[6]).toBe('auto_policy_revoked_by_kill_switch');
     expect(values[8]).toEqual({
       downgrade_reason: 'auto_approval_disabled',
+      outbox_attempt: 3,
+      outbox_id: 'outbox-1',
       policy_id: 'policy-1',
+      runtime_enabled: false,
     });
     expect(values[11]).toBeNull();
   });

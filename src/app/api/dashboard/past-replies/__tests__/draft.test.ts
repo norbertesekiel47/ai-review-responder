@@ -382,21 +382,24 @@ describe('POST /api/dashboard/past-replies/draft', () => {
     const templateStrings = insertCall[0] as unknown as TemplateStringsArray;
     const sqlText = templateStrings.join('|');
     expect(sqlText).toContain('INSERT INTO job_outbox');
-    expect(sqlText).toContain("'generate_response'");
-    // Bound args: id, review_id (twice — aggregate_id), payload, ...
+    // Bound args: id, topic, aggregate_type, aggregate_id, payload, status.
     const args = insertCall.slice(1);
     expect(args[0]).toBe(body.outbox_id);
-    expect(args[1]).toBe(REVIEW_ID);
-    // payload is jsonb()-wrapped in route; mock unwraps to identity, so args[2] is payload object.
-    const payload = args[2] as unknown as {
+    expect(args[1]).toBe('generate_response');
+    expect(args[2]).toBe('review');
+    expect(args[3]).toBe(REVIEW_ID);
+    // payload is jsonb()-wrapped in helper; mock unwraps to identity, so args[4] is payload object.
+    const payload = args[4] as unknown as {
       review_id: string;
       business_id: string;
       version: number;
+      origin_lane: string;
       suppress_notification: boolean;
     };
     expect(payload.review_id).toBe(REVIEW_ID);
     expect(payload.business_id).toBe(LOCATION_ID);
     expect(payload.version).toBe(2);
+    expect(payload.origin_lane).toBe('regenerate');
     expect(payload.suppress_notification).toBe(true);
   });
 

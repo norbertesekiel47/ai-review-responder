@@ -2,9 +2,9 @@
 
 ## What this project is
 
-Subscription SaaS that auto-drafts Google review responses for SMBs with an LLM, then posts them to Google only after explicit owner approval. Next.js 16 (Vercel, UI only) + Railway worker (Fastify + BullMQ, all LLM/external/long-running work) + Supabase/PostgreSQL + Redis(Upstash for Cache/Railway Redis for Queue).
+Subscription SaaS that auto-drafts Google review responses for SMBs with an LLM, then posts them to Google only after an explicit approval method: owner approval today, or the disabled-by-default owner-configured auto-policy runtime when all safety gates pass. Next.js 16 (Vercel, UI only) + Railway worker (Fastify + BullMQ, all LLM/external/long-running work) + Supabase/PostgreSQL + Redis(Upstash for Cache/Railway Redis for Queue).
 
-Pipeline: Zernio webhook ingest → AI draft → moderation → owner notified → owner approves via notification channel → posted to Google. Never auto-posts.
+Pipeline: Zernio webhook ingest → AI draft → moderation → owner notification/approval, or gated `auto_policy` approval behind `AUTO_APPROVAL_ENABLED=true` → posted to Google.
 
 ## Dev commands
 
@@ -19,7 +19,7 @@ Pipeline: Zernio webhook ingest → AI draft → moderation → owner notified �
 - `pnpm ci:tenant-scope` — tenant-scope audit
 - `pnpm ci:rls-audit` — RLS audit
 - `pnpm ci:analytics-events` — analytics events audit
-- `pnpm ci:static-policy` — bans `crypto-js`; allowlists `NEXT_PUBLIC_*` (invariants #10, #13)
+- `pnpm ci:static-policy` — bans `crypto-js`; allowlists `NEXT_PUBLIC_*`; blocks client-side direct access to `auto_approval_policies` (invariants #10, #13, #14)
 - Set `MOCK_EXTERNAL_APIS=true` in `.env.local` to bypass all external APIs locally
 
 ## CI & repo
@@ -45,9 +45,9 @@ Trunk-based: `main` is the source of truth. Two long-lived branches — `main` (
 
 2. **Transactional outbox.** State change + follow-up work go in ONE Postgres transaction via `job_outbox`. Never write Postgres then separately enqueue BullMQ — silent data loss on enqueue failure.
 
-3. **No auto-posting.** There is NO code path from response generation to Google posting without an explicit owner approval step. Make it architecturally impossible to bypass.
+3. **No unapproved posting.** A response may reach Google only after an explicit approval method is recorded: `approval_method='owner'` from an owner action, or `approval_method='auto_policy'` from the server-only auto-approval runtime. Auto-policy approval is disabled by default (`AUTO_APPROVAL_ENABLED=false`) and is allowed only for `live_ingest_new` v1 jobs that pass current-state, subscription, active-location/connection, review-hash, policy-threshold, and provider-moderation gates. If the runtime flag is off before publish, `ResponsePublisherWorker` downgrades unposted auto-policy rows back to owner review instead of posting.
 
-   > 🚧 **Planned (not yet built):** an owner-configurable **auto-approval policy** will amend #3/#4/#11 and add invariant #14 — design + change-map in `docs/superpowers/specs/2026-05-31-auto-approval-design.md`. Until that feature lands, **#3 as written is authoritative**: no auto-posting path exists today, and none may be added outside that design (moderation stays an absolute veto; auto-approval skips only the owner step).
+   > Auto-approval skips only the owner step. Moderation remains an absolute veto; high-severity drafts are held and never auto-approved.
 
 4. **High-confidence unsafe drafts are held, not notified.** After generation `ResponseGeneratorWorker` runs `moderateResponse`; a `high`-severity flag writes a `flagged_responses` row (admin-only deny-all RLS) and skips the `send_notification` enqueue in the SAME transaction as response persistence. Re-notify only via admin `approved_for_owner_review` at `/admin/flagged`. Full flow (admin actions, `api_costs` metadata, `OPENAI_MODERATION_ENABLED` fail-open, local regex filter): the `approval-security` skill.
 
@@ -68,6 +68,8 @@ Trunk-based: `main` is the source of truth. Two long-lived branches — `main` (
 12. **Entry points orchestrate; modules own failure behavior.** Route handlers, worker boot files, and ingress handlers may validate, orchestrate, and map errors — extract any error-handling branch over ~30 lines into a named module with focused tests.
 
 13. **Feature flags are server-authoritative.** The browser learns flag state via API responses. Never add a `NEXT_PUBLIC_*` companion for a feature flag — `ci:static-policy` allowlists every `NEXT_PUBLIC_*` and fails CI on any new one.
+
+14. **Auto-approval policy access is server-owned.** Browser/client code never reads or writes `auto_approval_policies` directly through Supabase. Owner settings must flow through server routes, and `ci:static-policy` blocks client components that reference the table.
 
 ## Where things live
 

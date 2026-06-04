@@ -30,7 +30,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { v7 as uuidv7 } from 'uuid';
 import { z } from 'zod';
-import { sql, jsonb } from '@/lib/db/server';
+import { sql } from '@/lib/db/server';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
 import {
   validateOptimisticConcurrency,
@@ -42,7 +42,8 @@ import { snapshotSchema } from '../_shared/schemas';
 import { insertAuditLogSession } from '@/lib/approval/audit';
 import { hasOpenFlag } from '@/lib/moderation/held-draft';
 import type { SessionAuditContext } from '@/lib/approval/audit';
-import type { PublishResponsePayload } from '@/lib/shared/worker-types';
+import { APPROVAL_METHOD } from '@/lib/auto-approval/types';
+import { enqueuePublishResponse } from '@/lib/shared/job-outbox-helpers';
 
 export const dynamic = 'force-dynamic';
 
@@ -161,8 +162,10 @@ async function handler(request: NextRequest): Promise<Response> {
       await tx`
         UPDATE responses
         SET status = CASE WHEN edited_text IS NOT NULL THEN 'edited' ELSE 'approved' END,
+            approval_method = ${APPROVAL_METHOD.OWNER},
             approved_at = NOW(),
             approved_text = COALESCE(approved_text, response_text),
+            posting_error = NULL,
             updated_at = NOW()
         WHERE id = ${parsed.data.response_id} AND business_id = ${locationId}
       `;
@@ -180,17 +183,11 @@ async function handler(request: NextRequest): Promise<Response> {
 
       // 7. Enqueue publish_response outbox in the SAME tx.
       const outboxId = uuidv7();
-      const payload: PublishResponsePayload = {
-        response_id: parsed.data.response_id,
-        business_id: locationId,
-      };
-      await tx`
-        INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-        VALUES (
-          ${outboxId}, 'publish_response', 'response',
-          ${parsed.data.response_id}, ${jsonb(payload)}, 'pending'
-        )
-      `;
+      await enqueuePublishResponse(tx, {
+        outboxId,
+        responseId: parsed.data.response_id,
+        businessId: locationId,
+      });
 
       return NextResponse.json({ outbox_id: outboxId }, { status: 200 });
     });
