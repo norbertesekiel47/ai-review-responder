@@ -30,6 +30,7 @@ function mergeDecisions(a: ModerationDecision, b: ModerationDecision): Moderatio
     categories: { ...a.categories, ...b.categories },
     score: Math.max(a.score ?? 0, b.score ?? 0),
     source: top.source ?? a.source ?? b.source,
+    providerStatus: b.source === 'openai_moderation' ? b.providerStatus : a.providerStatus,
   };
 }
 
@@ -53,7 +54,11 @@ export async function moderateResponse(text: string): Promise<ModerationDecision
     if (!result) return local;
 
     if (result.flagged !== true) {
-      return { ...local, categories: { ...local.categories, openai_moderation: 'clean' } };
+      return {
+        ...local,
+        providerStatus: 'clean',
+        categories: { ...local.categories, openai_moderation: 'clean' },
+      };
     }
 
     const provider: ModerationDecision = {
@@ -63,10 +68,15 @@ export async function moderateResponse(text: string): Promise<ModerationDecision
       categories: { openai_categories: result.categories },
       score: 1,
       source: 'openai_moderation',
+      providerStatus: null,
     };
     return mergeDecisions(local, provider);
   } catch (err) {
     console.error('[moderation] OpenAI moderation failed; using local rules only:', err);
-    return { ...local, categories: { ...local.categories, openai_moderation: 'error' } };
+    return {
+      ...local,
+      providerStatus: 'error',
+      categories: { ...local.categories, openai_moderation: 'error' },
+    };
   }
 }

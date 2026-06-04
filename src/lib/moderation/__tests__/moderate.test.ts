@@ -23,13 +23,23 @@ describe('moderateResponse', () => {
     expect(d.flagged).toBe(true);
     expect(d.severity).toBe('high');
     expect(d.source).toBe('local_regex');
+    expect(d.providerStatus).toBeNull();
     expect(moderationsCreate).not.toHaveBeenCalled();
   });
 
   it('returns a clean local decision for safe text when disabled', async () => {
     const d = await moderateResponse('Thanks so much for visiting!');
     expect(d.flagged).toBe(false);
+    expect(d.providerStatus).toBeNull();
     expect(moderationsCreate).not.toHaveBeenCalled();
+  });
+
+  it('records provider clean status for an enabled clean local decision', async () => {
+    process.env.OPENAI_MODERATION_ENABLED = 'true';
+    moderationsCreate.mockResolvedValueOnce({ results: [{ flagged: false, categories: {} }] });
+    const d = await moderateResponse('Thanks so much for visiting!');
+    expect(d.flagged).toBe(false);
+    expect(d.providerStatus).toBe('clean');
   });
 
   it('calls the provider when enabled and escalates to high on a provider flag', async () => {
@@ -48,6 +58,8 @@ describe('moderateResponse', () => {
     expect(d.flagged).toBe(true);
     expect(d.severity).toBe('high');
     expect(d.source).toBe('openai_moderation');
+    expect(d.providerStatus).toBeNull();
+    expect(d.categories).toHaveProperty('openai_categories');
   });
 
   it('fails open to the local decision when the provider throws', async () => {
@@ -55,7 +67,7 @@ describe('moderateResponse', () => {
     moderationsCreate.mockRejectedValueOnce(new Error('provider 500'));
     const d = await moderateResponse('Thanks for the review!');
     expect(d.flagged).toBe(false); // local says clean; provider error must not throw
-    expect(d.categories).toMatchObject({ openai_moderation: 'error' });
+    expect(d.providerStatus).toBe('error');
   });
 
   it('keeps a local high flag even when the provider says clean', async () => {
@@ -64,5 +76,6 @@ describe('moderateResponse', () => {
     const d = await moderateResponse('We will give you a full refund.');
     expect(d.flagged).toBe(true);
     expect(d.severity).toBe('high');
+    expect(d.providerStatus).toBe('clean');
   });
 });

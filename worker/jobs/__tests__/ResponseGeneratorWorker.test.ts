@@ -172,6 +172,7 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
     mockIsMockMode.mockReturnValue(false);
     mockModerateResponse.mockResolvedValue({
       flagged: false, severity: 'low', reason: null, categories: {}, score: 0, source: null,
+      providerStatus: null,
     });
   });
 
@@ -426,6 +427,7 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
     mockModerateResponse.mockResolvedValueOnce({
       flagged: true, severity: 'high', reason: 'refund_discount',
       categories: { refund_discount: 1 }, score: 1, source: 'local_regex',
+      providerStatus: null,
     });
 
     await handleResponseGeneration(makeJob());

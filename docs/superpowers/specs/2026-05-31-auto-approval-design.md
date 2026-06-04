@@ -81,14 +81,14 @@ The predicate is grouped on purpose. The **independent gates** are the real cont
 ```ts
 function providerModerationClean(m: ModerationDecision): boolean {
   return process.env.OPENAI_MODERATION_ENABLED === 'true'
-    && m.categories.openai_moderation === 'clean'
+    && m.providerStatus === 'clean'
     && m.flagged === false;
 }
 ```
 
-The OpenAI marker is a tri-state implementation detail: `'clean'`, `'error'`, or absent. A provider flag does not set `'flagged'`; it sets `flagged=true` and high severity. Missing marker, provider error, provider disabled, or any local/provider flag all fail auto. High-severity flags still hold and suppress notification under the existing moderation invariant. Medium/low flags fall back to manual.
+`providerStatus` is the canonical typed provider verdict for runtime gates. It is `'clean'`, `'error'`, or `null`. A provider flag does not set a `'flagged'` provider status; it sets `flagged=true` and high severity, so the gate must require both `m.providerStatus === 'clean'` and `m.flagged === false`. Provider error, provider disabled/not consulted, or any local/provider flag all fail auto. High-severity flags still hold and suppress notification under the existing moderation invariant. Medium/low flags fall back to manual.
 
-**Current-code note.** `ModerationDecision.categories` is typed `Record<string, unknown>` (`src/lib/moderation/output-filter.ts`); `moderateResponse` writes `{ openai_moderation: 'clean' }` on the clean path and `{ openai_moderation: 'error' }` on provider error, but on a provider flag it writes `openai_categories` instead — so `openai_moderation` is **absent** and `flagged=true`. `providerModerationClean` therefore reads `categories.openai_moderation` through an explicit narrow; it does not assume a typed field, and the absent-marker case correctly fails auto via the `=== 'clean'` check.
+**Current-code note.** `ModerationDecision.providerStatus` is the consumer contract for auto-approval. `categories.openai_moderation` is legacy `api_costs` metadata only and must not be read by runtime auto gates. Phase-0 may still write the metadata string for continuity; the end state is to derive it from `providerStatus` at the persistence boundary, or drop it after confirming no `api_costs` consumer still needs it. Because `providerStatus === null` can mean provider not consulted/disabled or provider flagged, `providerModerationClean` must rely on `!m.flagged` for the flagged case rather than looking for a `'flagged'` provider-status value.
 
 **Normal non-eligibility cases** inside the transaction degrade to manual: no policy, disabled policy, bad lane, version > 1, stale/null review hash, rating below threshold, provider not clean, runtime disabled, publisher denied, no active connection, archived location, or suppress flag.
 
