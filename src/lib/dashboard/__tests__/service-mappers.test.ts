@@ -151,6 +151,17 @@ describe('dashboard service mappers', () => {
     expect(consoleError).toHaveBeenCalledOnce();
   });
 
+  it('rejects a marker whose status is a string but not an allowed value', () => {
+    // Valid JSON, plausible shape, but an out-of-union status must not leak
+    // into pendingFlow — and this is not a parse error, so nothing is logged.
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    expect(
+      parsePendingFlow(JSON.stringify({ status: 'bogus_status', started_at: 1770000000000 })),
+    ).toBeUndefined();
+    expect(consoleError).not.toHaveBeenCalled();
+  });
+
   it('builds value summary and baseline response rate', () => {
     expect(
       buildValueSummary(

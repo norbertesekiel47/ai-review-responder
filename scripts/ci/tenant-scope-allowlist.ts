@@ -387,7 +387,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/ingress/twilio/twilio-whatsapp-inbound.ts",
     table: "approval_links",
-    sqlSnippet: "SELECT id, business_id FROM approval_links WHERE id = ${parsed.approvalLinkId} AND channel = 'whatsapp' AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at > NOW() LIMIT 1",
+    sqlSnippet: "SELECT id, business_id FROM approval_links WHERE id = ${approvalLinkId} AND channel = 'whatsapp' AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at > NOW() LIMIT 1",
     reason: "Opaque approval token or callback lookup must resolve the approval row before tenant scope is known.",
   },
   {
@@ -1911,7 +1911,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/ingress/twilio/twilio-whatsapp-inbound.ts",
     table: "channel_enrollments",
-    sqlSnippet: "UPDATE channel_enrollments SET status = 'unsubscribed', unsubscribed_at = COALESCE(unsubscribed_at, NOW()), unsubscribed_reason = COALESCE(unsubscribed_reason, 'whatsapp_stop'), updated_at = NOW() WHERE handle = ${senderHandle} AND channel = 'whatsapp' AND archived_at IS NULL RETURNING account_id",
+    sqlSnippet: "UPDATE channel_enrollments SET status = 'unsubscribed', unsubscribed_at = COALESCE(unsubscribed_at, NOW()), unsubscribed_reason = COALESCE(unsubscribed_reason, 'whatsapp_stop'), updated_at = NOW() WHERE handle = ${ctx.senderHandle} AND channel = 'whatsapp' AND archived_at IS NULL RETURNING account_id",
     reason: "WhatsApp STOP handling is intentionally handle-wide for TCPA compliance and returns affected account ids for immediate cache invalidation.",
   },
   {

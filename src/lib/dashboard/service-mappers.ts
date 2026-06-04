@@ -1,5 +1,5 @@
 import { parseDbArray } from '@/lib/shared/db-array';
-import type { ConnectPendingMarker } from '@/lib/zernio/types';
+import { CONNECT_PENDING_STATUSES, type ConnectPendingMarker } from '@/lib/zernio/types';
 import { mapRecentReviews, mapReviewVelocity } from './active-mappers';
 import type { DashboardDataActive } from './types';
 import { resolveZernioConnectionState } from './zernio-banner';
@@ -145,9 +145,13 @@ export function parsePendingFlow(
 
   try {
     const parsed = JSON.parse(pendingRaw) as ConnectPendingMarker;
+    // Validate status against the canonical list, not just `typeof string`: a
+    // malformed marker must not leak an out-of-union status into pendingFlow
+    // and violate the DashboardDataActive contract.
     if (
       parsed &&
       typeof parsed.status === 'string' &&
+      (CONNECT_PENDING_STATUSES as readonly string[]).includes(parsed.status) &&
       typeof parsed.started_at === 'number'
     ) {
       return {
