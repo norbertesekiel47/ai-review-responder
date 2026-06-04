@@ -3,7 +3,9 @@
   "ignoreDependencies": [
     "react-dom",
     "postcss-load-config",
-    "eslint-config-next"
+    "eslint-config-next",
+    // CLI tool, invoked via the `doctor` script / React Doctor Action, never imported.
+    "react-doctor"
   ],
   "entry": [
     "scripts/clear-signup-rate-limits.ts",
