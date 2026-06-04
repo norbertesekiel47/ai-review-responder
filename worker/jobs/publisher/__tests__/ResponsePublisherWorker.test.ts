@@ -241,7 +241,6 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     sqlReturnQueue.push([{ account_id: 'acc-1' }]); // audit account lookup
     sqlReturnQueue.push([]); // audit INSERT
     sqlReturnQueue.push([]); // send_notification INSERT
-    sqlReturnQueue.push(Object.assign([], { count: 1 })); // complete publish outbox
 
     await handlePublishResponse(makeJob({
       correlation_id: 'corr-1',
@@ -251,7 +250,9 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
 
     expect(mockLookupZernioReviewId).not.toHaveBeenCalled();
     expect(mockPostReply).not.toHaveBeenCalled();
-    expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
+    // Publish outbox completion now flows through the canonical markOutboxCompleted
+    // helper (tx-aware), not inline tx SQL.
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-auto-1', 2, expect.anything());
 
     const calls = (mockSql as any).mock.calls as unknown[][];
     const downgradeCall = calls.find((call) => {
@@ -293,14 +294,6 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
       correlation_id: 'corr-1',
       response_id: 'resp-1',
     });
-
-    const completeCall = calls.find((call) => {
-      const text = (call[0] as TemplateStringsArray).join('|');
-      return text.includes('UPDATE job_outbox') && text.includes('completed_at');
-    });
-    expect(completeCall).toBeDefined();
-    expect(completeCall).toContain('outbox-auto-1');
-    expect(completeCall).toContain(2);
   });
 
   it('completes publish outbox without notification when auto-policy downgrade row is already gone', async () => {
@@ -327,7 +320,6 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     sqlReturnQueue.push([{ account_id: 'acc-1' }]);
     sqlReturnQueue.push([]);
     sqlReturnQueue.push([]);
-    sqlReturnQueue.push(Object.assign([], { count: 1 }));
 
     await handlePublishResponse(makeJob());
 
@@ -336,7 +328,7 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     );
     expect(callTexts.some((t: string) => /pending_approval/.test(t))).toBe(true);
     expect((mockSql as any).mock.calls.some((call: unknown[]) => call.includes('send_notification'))).toBe(true);
-    expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined, expect.anything());
     expect(mockLookupZernioReviewId).not.toHaveBeenCalled();
   });
 
