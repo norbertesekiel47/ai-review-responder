@@ -12,6 +12,7 @@ Run `pnpm ci:rls-audit` to verify the required tables below still have `relrowse
 | `reviews` | `business_id` | Reviews inherit tenant scope through their location. RLS owner reads join through `businesses.account_id`. |
 | `responses` | `business_id` | Drafts and published-response state inherit tenant scope through both `business_id` and `review_id`. |
 | `approval_links` | `business_id` | Approval-token metadata is tenant-scoped. Raw tokens are never stored; owner reads remain behind RLS. |
+| `auto_approval_policies` | `account_id` and `location_id` | Auto-approval policy rows are scoped to the billing account with optional per-location overrides. RLS is enabled with no authenticated DML policies; settings routes must enforce session-derived account/location scope server-side. |
 | `notification_deliveries` | `business_id` and `account_id` | Delivery evidence is tenant-scoped and may also be queried by response ID for worker recovery. |
 | `api_costs` | `account_id` and `business_id` | Cost records support account-level and location-level reporting; admin-only global reports are explicitly allowlisted in the SQL scope audit. |
 | `weekly_summaries` | `business_id` | Weekly owner summaries inherit tenant scope through the target location. |

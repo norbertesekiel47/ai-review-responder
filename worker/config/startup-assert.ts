@@ -17,13 +17,34 @@ const STRIPE_WORKER_REQUIRED_ENV = [
   'STRIPE_PRICE_FOUNDERS_OVERAGE',
 ];
 
+const AUTO_APPROVAL_OPTIONAL_BOOLEAN_ENV = [
+  'AUTO_APPROVAL_ENABLED',
+  'AUTO_APPROVAL_PROVIDER_MODERATION_READY',
+] as const;
+
 function missingEnvVars(required: string[]): string[] {
   return required.filter((k) => !process.env[k] || process.env[k]!.trim().length === 0);
+}
+
+function invalidOptionalBooleanEnv(required: readonly string[]): string[] {
+  return required.filter((key) => {
+    const value = process.env[key];
+    return value !== undefined && value !== 'true' && value !== 'false';
+  });
 }
 
 export function assertProductionMockModeEnv(): void {
   if (process.env.NODE_ENV === 'production' && process.env.MOCK_EXTERNAL_APIS === 'true') {
     throw new Error('[startup] NODE_ENV=production cannot run with MOCK_EXTERNAL_APIS=true');
+  }
+}
+
+export function assertAutoApprovalOptionalBooleansEnv(): void {
+  const invalid = invalidOptionalBooleanEnv(AUTO_APPROVAL_OPTIONAL_BOOLEAN_ENV);
+  if (invalid.length > 0) {
+    throw new Error(
+      `[startup] Optional auto-approval boolean env vars must be exactly 'true' or 'false': ${invalid.join(', ')}`,
+    );
   }
 }
 
@@ -95,6 +116,7 @@ export function assertWorkerStartupEnv(): void {
   assertProductionMockModeEnv();
   assertStripeWorkerEnv();
   assertAdminNotificationEmail();
+  assertAutoApprovalOptionalBooleansEnv();
 }
 
 /**

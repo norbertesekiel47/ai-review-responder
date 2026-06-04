@@ -14,6 +14,12 @@ import { createHash } from 'node:crypto';
 import type postgres from 'postgres';
 import { jsonb } from '@/lib/db/server';
 import type {
+  ApprovalMethod,
+  AutoApprovalThreshold,
+  PolicySource,
+} from '@/lib/auto-approval/types';
+import type { GenerateResponseOriginLane } from '@/lib/shared/worker-types';
+import type {
   ApprovalLink,
   CallbackApprovalInput,
   AuditContext,
@@ -25,6 +31,29 @@ type TxClient = postgres.TransactionSql;
 
 export interface ApprovalContentSnapshot {
   responseTextAtApproval: string;
+}
+
+export type AutoPolicyAuditAction =
+  | 'auto_approved_by_policy'
+  | 'auto_policy_downgraded_to_owner_review';
+
+export interface AutoPolicyAuditMetadata {
+  policy_id?: string | null;
+  policy_source?: PolicySource;
+  threshold?: AutoApprovalThreshold | null;
+  star_rating?: number | null;
+  origin_lane?: GenerateResponseOriginLane | null;
+  provider_status?: 'clean' | 'error' | null;
+  review_content_hash_matched?: boolean;
+  downgrade_reason?: string;
+}
+
+export interface AutoPolicyAuditInput {
+  responseId: string;
+  businessId: string;
+  action?: AutoPolicyAuditAction;
+  responseTextAtApproval: string | null;
+  metadata?: AutoPolicyAuditMetadata;
 }
 
 // Re-export the type shapes so existing `import { AuditContext, ... } from '@/lib/approval/audit'`
@@ -48,6 +77,34 @@ async function resolveAccountIdFromBusiness(
     SELECT account_id FROM businesses WHERE id = ${businessId}
   `;
   return row?.account_id ?? '';
+}
+
+const AUTO_POLICY_METADATA_KEYS = [
+  'policy_id',
+  'policy_source',
+  'threshold',
+  'star_rating',
+  'origin_lane',
+  'provider_status',
+  'review_content_hash_matched',
+  'downgrade_reason',
+] as const satisfies readonly (keyof AutoPolicyAuditMetadata)[];
+
+const AUTO_POLICY_AUTH_METHOD: ApprovalMethod = 'auto_policy';
+
+function compactAutoPolicyMetadata(
+  metadata: AutoPolicyAuditMetadata | undefined,
+): Record<string, unknown> {
+  if (!metadata) return {};
+
+  const compact: Record<string, unknown> = {};
+  for (const key of AUTO_POLICY_METADATA_KEYS) {
+    const value = metadata[key];
+    if (value !== undefined) {
+      compact[key] = value;
+    }
+  }
+  return compact;
 }
 
 // ── Insert helpers ────────────────────────────────────────────────────────
@@ -95,6 +152,30 @@ export async function insertAuditLogSession(
       ${uuidv7()}, ${responseId}, ${businessId}, ${accountId}, ${null}, ${null},
       ${action}, ${audit.ipAddress}, ${jsonb(metadata ?? {})},
       ${audit.actorUserId}, 'owner_session', ${snapshot?.responseTextAtApproval ?? null}
+    )
+  `;
+}
+
+export async function insertAuditLogAutoPolicy(
+  tx: TxClient,
+  input: AutoPolicyAuditInput,
+): Promise<void> {
+  const accountId = await resolveAccountIdFromBusiness(tx, input.businessId);
+  await tx`
+    INSERT INTO approval_audit_log (id, response_id, business_id, account_id, token_hash, device_cookie_hash, action, ip_address, metadata, actor_user_id, auth_method, response_text_at_approval)
+    VALUES (
+      ${uuidv7()},
+      ${input.responseId},
+      ${input.businessId},
+      ${accountId},
+      ${null},
+      ${null},
+      ${input.action ?? 'auto_approved_by_policy'},
+      ${null},
+      ${jsonb(compactAutoPolicyMetadata(input.metadata))},
+      ${null},
+      ${AUTO_POLICY_AUTH_METHOD},
+      ${input.responseTextAtApproval}
     )
   `;
 }
