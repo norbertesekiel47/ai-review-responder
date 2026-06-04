@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import {
   collectRlsEnabledTables,
   findRlsCoverageFailures,
   findRlsFailures,
+  readMigrationsSql,
   REQUIRED_RLS_TABLES,
 } from '../rls-audit';
 import { TENANT_TABLES } from '../tenant-tables';
@@ -75,12 +76,8 @@ describe('findRlsCoverageFailures', () => {
   });
 
   it('every TENANT_TABLES entry enables RLS in the real migrations (the CI gate, DB-free)', () => {
-    const dir = 'supabase/migrations';
-    const migrationsSql = readdirSync(dir)
-      .filter((file) => file.endsWith('.sql'))
-      .map((file) => readFileSync(`${dir}/${file}`, 'utf8'));
-    expect(findRlsCoverageFailures(collectRlsEnabledTables(migrationsSql), TENANT_TABLES)).toEqual(
-      [],
-    );
+    expect(
+      findRlsCoverageFailures(collectRlsEnabledTables(readMigrationsSql()), TENANT_TABLES),
+    ).toEqual([]);
   });
 });

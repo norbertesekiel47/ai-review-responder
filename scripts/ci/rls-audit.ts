@@ -34,6 +34,10 @@ const ENABLE_RLS_RE =
  * Tables that receive `ENABLE ROW LEVEL SECURITY` anywhere in the given
  * migration SQL. Pure over its input, so the coverage gate is unit-testable
  * without a database.
+ *
+ * Presence-only: a table enabled then later `DISABLE`d would still be counted.
+ * The realistic regression (forgetting to enable) is caught here; a later
+ * DISABLE is only caught by the live relrowsecurity check.
  */
 export function collectRlsEnabledTables(migrationsSql: readonly string[]): Set<string> {
   const enabled = new Set<string>();
@@ -63,43 +67,24 @@ export function findRlsCoverageFailures(
   );
 }
 
-function readMigrationsSql(dir: string = MIGRATIONS_DIR): string[] {
+export function readMigrationsSql(dir: string = MIGRATIONS_DIR): string[] {
   return readdirSync(dir)
     .filter((file) => file.endsWith('.sql'))
     .map((file) => readFileSync(join(dir, file), 'utf8'));
 }
 
-async function main(): Promise<void> {
-  // 1. Static coverage gate — runs with no database and is the authoritative CI
-  //    check. Every TENANT_TABLES entry must enable RLS in some migration.
-  const coverageFailures = findRlsCoverageFailures(
-    collectRlsEnabledTables(readMigrationsSql()),
-  );
-  if (coverageFailures.length > 0) {
-    console.error('rls-audit: static RLS coverage failed');
-    for (const failure of coverageFailures) {
-      console.error(failure);
-    }
-    process.exitCode = 1;
-    return;
+function reportFailures(label: string, failures: readonly string[]): void {
+  console.error(`rls-audit: ${label} failed`);
+  for (const failure of failures) {
+    console.error(failure);
   }
-  console.log(
-    `rls-audit: static coverage passed (${REQUIRED_RLS_TABLES.length} tenant tables enable RLS in migrations)`,
-  );
+}
 
-  // 2. Live relrowsecurity check — only when an explicit test database is
-  //    provided. We require TEST_DATABASE_POOL_URL (not the always-present
-  //    DATABASE_POOL_URL placeholder) so CI runs the static gate without
-  //    attempting a connection. The gate above already fails closed when no DB
-  //    is available, so this path can never silently pass.
-  const databaseUrl = process.env.TEST_DATABASE_POOL_URL;
-  if (!databaseUrl) {
-    console.log(
-      'rls-audit: live DB check skipped (TEST_DATABASE_POOL_URL unset); static coverage gate enforced above',
-    );
-    return;
-  }
-
+/**
+ * Live relrowsecurity check against a real database. Owns the connection
+ * lifecycle and returns the tables whose RLS is actually disabled or missing.
+ */
+async function auditLiveRls(databaseUrl: string): Promise<string[]> {
   const sql = postgres(databaseUrl, { max: 1, prepare: false });
   try {
     const rows = await sql<RlsRow[]>`
@@ -109,20 +94,46 @@ async function main(): Promise<void> {
       WHERE n.nspname = 'public'
         AND c.relkind IN ('r', 'p')
     `;
-    const failures = findRlsFailures(rows);
-    if (failures.length > 0) {
-      console.error('rls-audit: live DB check failed');
-      for (const failure of failures) {
-        console.error(failure);
-      }
-      process.exitCode = 1;
-      return;
-    }
-
-    console.log('rls-audit: live DB check passed');
+    return findRlsFailures(rows);
   } finally {
     await sql.end({ timeout: 5 });
   }
+}
+
+async function main(): Promise<void> {
+  // 1. Static coverage gate — DB-free and the authoritative CI check. Every
+  //    TENANT_TABLES entry must enable RLS in some migration.
+  const coverageFailures = findRlsCoverageFailures(
+    collectRlsEnabledTables(readMigrationsSql()),
+  );
+  if (coverageFailures.length > 0) {
+    reportFailures('static RLS coverage', coverageFailures);
+    process.exitCode = 1;
+    return;
+  }
+  console.log(
+    `rls-audit: static coverage passed (${REQUIRED_RLS_TABLES.length} tenant tables enable RLS in migrations)`,
+  );
+
+  // 2. Live relrowsecurity check — only when an explicit test database is set.
+  //    We require TEST_DATABASE_POOL_URL (not the always-present DATABASE_POOL_URL
+  //    placeholder) so CI runs the static gate without attempting a connection.
+  //    The gate above already fails closed, so this path can never silently pass.
+  const databaseUrl = process.env.TEST_DATABASE_POOL_URL;
+  if (!databaseUrl) {
+    console.log(
+      'rls-audit: live DB check skipped (TEST_DATABASE_POOL_URL unset); static coverage gate enforced above',
+    );
+    return;
+  }
+
+  const liveFailures = await auditLiveRls(databaseUrl);
+  if (liveFailures.length > 0) {
+    reportFailures('live DB check', liveFailures);
+    process.exitCode = 1;
+    return;
+  }
+  console.log('rls-audit: live DB check passed');
 }
 
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {

@@ -9,7 +9,9 @@ import { v7 as uuidv7 } from 'uuid';
 // behavior the string test cannot: the composite FK (MATCH SIMPLE) admits
 // account-default rows but rejects a cross-account location, the partial unique
 // indexes enforce one account-default and one override per location, and the
-// approval_method / auth_method CHECKs accept the new auto_policy value.
+// approval_method / auth_method CHECKs accept the new auto_policy value. Each
+// failure case asserts the *specific* constraint by name, so a test can never
+// pass for the wrong reason.
 //
 // Gated on a real test database (TEST_DATABASE_POOL_URL), like the repo's other
 // integration tests; skips cleanly without one (e.g. in the no-DB CI test job).
@@ -39,6 +41,17 @@ const ownerEmailB = `aap-055-b-${b.accountId}@test.local`;
 function sql(): postgresType.Sql {
   if (!db) throw new Error('migration 055 integration database was not initialized');
   return db;
+}
+
+async function insertPolicy(
+  accountId: string,
+  locationId: string | null,
+  minStar: number,
+): Promise<void> {
+  await sql()`
+    INSERT INTO auto_approval_policies (id, account_id, location_id, auto_approve_min_star)
+    VALUES (${uuidv7()}::uuid, ${accountId}::uuid, ${locationId}::uuid, ${minStar})
+  `;
 }
 
 d('migration 055 auto_approval_policies — behavioral', () => {
@@ -96,9 +109,9 @@ d('migration 055 auto_approval_policies — behavioral', () => {
 
   afterAll(async () => {
     if (!db) return;
+    // Policies are cleaned per-test by afterEach; tear down the seed parents.
     await sql().begin(async (tx) => {
       await tx`SET CONSTRAINTS ALL DEFERRED`;
-      await tx`DELETE FROM auto_approval_policies WHERE account_id IN (${a.accountId}::uuid, ${b.accountId}::uuid)`;
       await tx`DELETE FROM approval_audit_log WHERE response_id = ${a.responseId}::uuid`;
       await tx`DELETE FROM responses WHERE id = ${a.responseId}::uuid`;
       await tx`DELETE FROM reviews WHERE id = ${a.reviewId}::uuid`;
@@ -110,16 +123,8 @@ d('migration 055 auto_approval_policies — behavioral', () => {
   });
 
   it('composite FK (MATCH SIMPLE) admits an account-default and a same-account override, rejects a cross-account location', async () => {
-    // Account-default row: location_id NULL passes the composite FK under MATCH SIMPLE.
-    await sql()`
-      INSERT INTO auto_approval_policies (id, account_id, location_id, auto_approve_min_star)
-      VALUES (${uuidv7()}::uuid, ${a.accountId}::uuid, NULL, 4)
-    `;
-    // Same-account location override is allowed.
-    await sql()`
-      INSERT INTO auto_approval_policies (id, account_id, location_id, auto_approve_min_star)
-      VALUES (${uuidv7()}::uuid, ${a.accountId}::uuid, ${a.businessId}::uuid, 5)
-    `;
+    await insertPolicy(a.accountId, null, 4); // account default: NULL location passes MATCH SIMPLE
+    await insertPolicy(a.accountId, a.businessId, 5); // same-account override allowed
     const rows = await sql()<{ count: string }[]>`
       SELECT count(*)::text AS count
       FROM auto_approval_policies
@@ -127,37 +132,22 @@ d('migration 055 auto_approval_policies — behavioral', () => {
     `;
     expect(rows[0]?.count).toBe('2');
 
-    // A location that belongs to a DIFFERENT account violates the composite FK.
-    await expect(
-      sql()`
-        INSERT INTO auto_approval_policies (id, account_id, location_id, auto_approve_min_star)
-        VALUES (${uuidv7()}::uuid, ${a.accountId}::uuid, ${b.businessId}::uuid, 5)
-      `,
-    ).rejects.toThrow();
+    // A location owned by a DIFFERENT account must fail the composite FK specifically.
+    await expect(insertPolicy(a.accountId, b.businessId, 5)).rejects.toThrow(
+      /auto_approval_policies_location_account_fk/,
+    );
   });
 
   it('partial unique indexes enforce one account-default and one override per (account, location)', async () => {
-    await sql()`
-      INSERT INTO auto_approval_policies (id, account_id, location_id, auto_approve_min_star)
-      VALUES (${uuidv7()}::uuid, ${a.accountId}::uuid, NULL, 4)
-    `;
-    await expect(
-      sql()`
-        INSERT INTO auto_approval_policies (id, account_id, location_id, auto_approve_min_star)
-        VALUES (${uuidv7()}::uuid, ${a.accountId}::uuid, NULL, 3)
-      `,
-    ).rejects.toThrow();
+    await insertPolicy(a.accountId, null, 4);
+    await expect(insertPolicy(a.accountId, null, 3)).rejects.toThrow(
+      /auto_approval_policies_one_account_default/,
+    );
 
-    await sql()`
-      INSERT INTO auto_approval_policies (id, account_id, location_id, auto_approve_min_star)
-      VALUES (${uuidv7()}::uuid, ${a.accountId}::uuid, ${a.businessId}::uuid, 5)
-    `;
-    await expect(
-      sql()`
-        INSERT INTO auto_approval_policies (id, account_id, location_id, auto_approve_min_star)
-        VALUES (${uuidv7()}::uuid, ${a.accountId}::uuid, ${a.businessId}::uuid, 2)
-      `,
-    ).rejects.toThrow();
+    await insertPolicy(a.accountId, a.businessId, 5);
+    await expect(insertPolicy(a.accountId, a.businessId, 2)).rejects.toThrow(
+      /auto_approval_policies_one_location_override/,
+    );
   });
 
   it('approval_audit_log.auth_method accepts auto_policy and rejects unknown values', async () => {
@@ -176,7 +166,7 @@ d('migration 055 auto_approval_policies — behavioral', () => {
     `;
     expect(row?.auth_method).toBe('auto_policy');
 
-    // Only auth_method differs here, so the rejection isolates its CHECK.
+    // Only auth_method differs, so the rejection isolates its CHECK.
     await expect(
       sql()`
         INSERT INTO approval_audit_log (
@@ -187,7 +177,7 @@ d('migration 055 auto_approval_policies — behavioral', () => {
           'test-token-hash', 'auto_approved_by_policy', 'not_a_method', '{}'::jsonb
         )
       `,
-    ).rejects.toThrow();
+    ).rejects.toThrow(/approval_audit_log_auth_method_check/);
 
     await sql()`DELETE FROM approval_audit_log WHERE id = ${auditId}::uuid`;
   });
@@ -197,7 +187,7 @@ d('migration 055 auto_approval_policies — behavioral', () => {
     await sql()`UPDATE responses SET approval_method = 'owner' WHERE id = ${a.responseId}::uuid`;
     await expect(
       sql()`UPDATE responses SET approval_method = 'bogus' WHERE id = ${a.responseId}::uuid`,
-    ).rejects.toThrow();
+    ).rejects.toThrow(/responses_approval_method_check/);
     await sql()`UPDATE responses SET approval_method = NULL WHERE id = ${a.responseId}::uuid`;
   });
 });
