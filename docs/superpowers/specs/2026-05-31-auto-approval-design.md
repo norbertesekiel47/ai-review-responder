@@ -1,264 +1,709 @@
-# Auto-Approval Policy — Design Spec
+# Auto-Approval Policy - Design Spec
 
 - **Date:** 2026-05-31
-- **Status:** Draft — design decisions approved **and refined via a grilling session (2026-05-31, cross-referenced against the codebase); NOT implemented**. CLAUDE.md invariants #3/#4/#11 remain authoritative until the implementation PR lands.
+- **Status:** Draft, readiness-audited through 2026-06-03 (synced to `main` @2c81bec3; §14 reconciled against PR #221's `writable-subscription.ts`, AGENTS.md references removed); **not implemented**. This document is now the implementation source of truth for the auto-approval plan. The CLAUDE.md no-auto-posting invariants remain authoritative until the implementation PR lands and updates them in the same change.
 - **Owner:** Norbert Esekiel
-- **Origin:** Potential-client survey — clients want to choose which reviews get fully automated (drafting → posting) vs. which require manual owner approval.
-
-> **Grilling-session amendments (2026-05-31).** Several originally-drafted decisions were corrected after reading the actual code. The material changes: auto-approval **reuses the `approved` status** with an `approval_method` discriminator instead of a new `auto_approved` status (§7); it **never applies to the first-connect backfill** (§5); the subscription gate uses **publisher** semantics, not generator (§9); auto requires the **provider moderation layer on + a per-draft clean verdict + zero flags** (§4); and v1 ships **no per-review FYI notification** (§8). The body below reflects the refined decisions; `docs/superpowers/specs/CONTEXT.md` holds the glossary.
-
-> **Code-audit amendments (2026-05-31, second pass).** Every load-bearing code claim in this spec was verified against the live source. The audit changed four things, all reflected below: **(1, blocker)** `approval_audit_log.auth_method` has a migration-014 `CHECK (auth_method IN ('token','owner_session'))` — writing `'auto_policy'` throws and rolls back the whole persist transaction, so **migration 055 must amend that constraint** (§6c, §12). **(2)** `suppressNotification` is **not** backfill's sole producer (the live edit-replies *regenerate* path also sets it), so the backfill exclusion is re-based onto an explicit **`origin_lane`** signal rather than overloading the notification flag (§3.5, §4, §5). **(3)** `publisherSubscriptionOK` is a **second** `checkSubscription` call — the generator gate in `load-context.ts` stays for its own purpose (§7, §9). **(4)** added an explicit **no-retroactive-re-evaluation** non-goal and a **canonical-publish-enqueue-reuse** note (§2, §7, §10). The `categories.openai_moderation` field was confirmed to be a tri-state marker (clean/error/absent), correct only in conjunction with `!flagged` (§4).
-
-> **Owner-review amendments (2026-05-31, third pass).** A subsequent review found five more issues, all verified against code and reflected below. **(P1) `origin_lane` was under-specified and defaulted unsafely.** Four *more* lanes enqueue `generate_response` besides the past-replies route — the token/session/callback approval supersede-regenerate paths (`token-mode.ts:153`, `session-mode.ts:174`, `callback-mode.ts:99`) and the admin flagged re-draft (`admin/flagged/route.ts:254`). The signal is now **required and fail-closed**: anything other than an explicit `'live_ingest'` (including missing/unknown) is non-auto, and *every* regenerate producer must set `'regenerate'` (§3.5, §4, §5). **(P1) The new tenant table needs explicit RLS/inventory work** — enable RLS, mirror the `channel_enrollments` posture, add to `TENANT_TABLES` + `rls-inventory.md`, add migration tests (§6a). **(P2) The "canonical publish enqueue" helper does not exist yet** — the approval modes inline `INSERT … 'publish_response'` *without* `ON CONFLICT`; the spec now requires *extracting* a shared `enqueuePublishResponse(...)` and migrating the existing paths + auto to it (§7, §10). **(P2) A NULL per-location override means "manual override," not inherit** — explicit resolution note + test (§5, §11). **(P2) A new tokenless auto-policy audit helper is required** — existing helpers are token/owner_session-shaped and cannot write `auth_method='auto_policy'` (§8).
-
-> **Consistency-pass amendments (2026-05-31, fourth pass).** Four follow-ups from re-reading the doc against itself and the code. **(P2)** Synced `CONTEXT.md` to the fail-closed rules + five regenerate producers (it had described only the singular older regenerate path). **(P2)** Corrected the RLS posture: `channel_enrollments` is **not** deny-all (it keeps an owner `SELECT` + a narrowed opt-out `UPDATE`, `040_rls_tightening.sql:157`), so §6a now states the precise intended posture — RLS-enabled with **no authenticated INSERT/UPDATE/SELECT policy**, all owner changes via the audited server route. **(P3)** Fixed the §-final producer count ("four regenerate lanes" → five; "all five producers" was conflated). **(P3)** Scoped the publish helper explicitly: three *more* unguarded `publish_response` enqueues exist (`past-replies/publish:224`, `retry:242`, `restore-original:285`, none with `ON CONFLICT`); §7 now recommends migrating all single-row producers and flags the bounded fallback (§5 `CONTEXT.md`, §6a, §7, Next step).
-
----
+- **Origin:** Potential-client survey: owners want to choose which review responses can be fully automated (draft -> approval decision -> Google post) and which require manual owner approval.
 
 ## 1. Problem
 
-Today every generated response requires an explicit human approval before it posts to Google (CLAUDE.md invariant #3, "No auto-posting"). The survey says some clients want hands-off automation for routine reviews while keeping a human in the loop for sensitive ones — typically by star rating (e.g. auto-respond to 3–5★, manually handle 1–2★).
+Today every generated response requires explicit owner approval before it posts to Google. Some owners want routine first-time reviews to be handled automatically by policy, while sensitive or non-routine cases stay manual.
 
-We need an **owner-configurable auto-approval policy** that lets a client pick, in advance, which reviews skip the owner-approval step — **without** removing the safety guarantees the approval architecture exists to enforce.
+The feature must add an owner-configured auto-approval decision without weakening the existing guarantees around moderation, billing, tenant scope, approval tokens, and transactional outbox delivery.
 
-## 2. Goals / Non-goals (v1)
+## 2. Goals / Non-Goals
 
 **Goals**
-- Per-client policy: "all auto", "all manual" (today's behavior), or "auto if star ≥ N".
-- Account-level default with optional per-location override (multi-location clients).
-- Auto-approval **never** weakens moderation, token security, subscription gating, or auditability.
-- Safe, opt-in default: no policy configured ⇒ everything stays manual (current behavior).
+- Account default policy with optional per-location overrides.
+- Star-rating threshold only: manual, 5-star only, 4-5, 3-5, 2-5, or all rated reviews.
+- Auto-approval only for first-time new live-ingest reviews.
+- Runtime auto decision is based on current state at response persistence time.
+- Settings writes are server-authoritative, audited, tenant-safe, same-origin protected, and expansion-gated.
+- Auto-approved rows use the normal publisher path, with an emergency kill switch that can revoke unposted auto approvals.
 
 **Non-goals (v1)**
-- Signals other than **star rating** (sentiment, keyword match, length, language) — clean future extension, explicitly out of scope.
-- Per-reviewer or per-campaign rules.
-- Auto-*editing* of drafts — auto-approval posts the generated draft as-is or holds it; it never silently rewrites.
-- Auto-approving anything but the **live-ingest lane** — the first-connect backfill and the edit-replies regenerate lane stay manual (§5).
-- A per-review "we auto-responded" notification — deferred to a future batched digest (§8, §13).
-- **Retroactive re-evaluation.** Policy is resolved once, at generation time (the `already_exists` dedup short-circuits in `load-context.ts` *before* persist). Enabling or changing a policy does **not** flip already-generated `pending_approval` rows to auto — it applies only to reviews generated afterward. (A backfill-and-auto-approve-existing sweep is explicitly out of scope; see §14.)
+- Sentiment, keywords, language, length, reviewer, campaign, or per-rating map rules.
+- Auto-editing or auto-regeneration before posting.
+- Backfill/import/historical auto-posting.
+- Manual regenerate-and-auto-post.
+- Auto-specific weekly/monthly digest copy or scheduler behavior.
+- New KPI semantics. Auto responses count as handled/responded exactly like owner-approved responses.
+- Runtime policy caching in Redis or memory.
+- Admin mutation controls.
+- Retroactively re-evaluating an existing response row after it exists.
 
-## 3. Locked decisions
+**Policy effective time.** Policy is resolved once at **response persistence time**, inside `persistResponseAndNotify`, and never re-evaluated after the response row exists. A policy change can affect jobs that are queued or mid-generation but not yet persisted. That is deliberate: it avoids carrying stale policy snapshots, and the final decision uses current state.
 
-1. **Moderation is an absolute veto** (approved in design dialogue). A draft flagged high-severity unsafe (invariant #4) is held for manual/admin review and **never** auto-posts, regardless of policy. Auto-approval skips the *owner* step, never the *safety* step. **Refined (§4):** auto further requires the provider moderation layer enabled, a per-draft clean provider verdict, and *zero* flags (medium/low flags also fall to manual).
-2. **Scope = account default + per-location override** (approved). Mirrors owner channel-enrollment (account-scoped default keyed by `location_id IS NULL`, per-location override row) and the multi-location settings pattern. Respects invariant #9 (`accounts` = billing parent, `businesses` = location).
-3. **Dimension = star rating only, threshold model** (locked). A single `auto_approve_min_star` expresses every survey case (see §5). Richer signals are a future generalization.
-4. **Reuse the `approved` status; record the auto-ness in `approval_method`** (locked — *reverses the original §7*). Auto-approval sets `responses.status = 'approved'` and `responses.approval_method = 'auto_policy'`; it does **not** introduce a separate `auto_approved` status. Distinguishability lives in a dedicated column on the same row, not in the status value — which keeps the ~20 inline publisher status lists, the KPI status groups, the non-terminal partial unique index, the dashboard, and edit-replies all working byte-for-byte unchanged. See §7.
-5. **Only the live-ingest lane is auto-eligible — required and fail-closed** (locked; refined by the 2026-05-31 code audit + owner review). Auto-approval is gated on an explicit `origin_lane` signal in the `generate_response` payload; **only the exact value `'live_ingest'` is auto-eligible**, and *anything else — `'backfill'`, `'regenerate'`, an unknown value, or a missing field — is non-auto* (fail-closed, never defaulted to live). Eligibility is **decoupled from `suppressNotification`** (which has more than one producer). There are **five** regenerate producers that must each set `'regenerate'` (§5). See §5.
+## 3. Locked Decisions
 
-## 4. Safety model (the core)
+1. **No new status.** Auto approval reuses `responses.status='approved'`.
+2. **Nullable approval attribution.** Add `responses.approval_method text NULL CHECK (approval_method IN ('owner','auto_policy'))`. Pending/manual-fallback/external/ambiguous rows can be `NULL`.
+3. **Only first-time new live ingest can auto.** `origin_lane='live_ingest_new'` is the only auto-eligible lane. `live_ingest_update`, `backfill`, `regenerate`, unknown, or missing lane are manual.
+4. **Final auto decision lives in `persistResponseAndNotify`.** `load-context.ts` keeps the generator subscription gate and idempotency check. It may load draft context, but it does not make the final policy/subscription/publisher decision.
+5. **Current state is re-read inside the persist transaction.** Runtime uses current review hash/star, current policy, current account state, current location/account relationship, active location, active Zernio connection, current runtime flags, and current provider-moderation state.
+6. **Provider moderation is mandatory for auto.** Auto requires provider moderation enabled and a per-draft clean marker. Regex-only or provider-error drafts fall back to manual.
+7. **Runtime kill switch is separate.** `AUTO_APPROVAL_ENABLED` is the auto-posting switch. It is independent from `OPENAI_MODERATION_ENABLED` and provider validation.
+8. **Settings expansion is gated; contractions are always allowed.** Owners/admins must be able to disable or reduce automation even during incidents or billing problems.
+9. **No durable audit for manual fallback.** Manual fallback is not an approval decision. It gets normal response state + notification only.
 
-Auto-approval is **subordinate** to every existing guarantee. A draft posts automatically **only if all** of the following hold (evaluated as one predicate; the final branch runs inside the response-persistence transaction where the moderation hold result is known):
+## 4. Runtime Predicate
 
-```
-auto =  policyEligible            // resolved min_star ≠ NULL AND star_rating ≥ min_star  (NULL star ⇒ false)
-     && isLiveIngestLane          // origin_lane === 'live_ingest' EXACTLY; missing/unknown/backfill/regenerate ⇒ non-auto (§5)
-     && publisherSubscriptionOK   // SECOND checkSubscription call, workerType:'publisher' — NOT the generator gate (§9)
-     && providerModerationClean   // tri-state marker: categories.openai_moderation === 'clean' (else 'error'|absent) (§4 below)
-     && !moderation.flagged       // zero flags; high-severity still HOLDS, medium/low ⇒ manual
-     && !held                     // recordModerationAndHold returned false (known only inside persist tx)
-```
-
-If any condition fails, the response falls back to the **manual** path (`pending_approval`, owner notification as today). Auto-approval can only ever **remove the owner step** — it can never bypass moderation, billing, or audit.
-
-**Moderation prerequisite (refined).** The human approval step is today's real safety backstop, and `OPENAI_MODERATION_ENABLED` is **off in prod** (local regex only). Auto-approval removes the human, so it must not run on regex-only vetting:
-- **Environment prerequisite:** auto-approval requires `OPENAI_MODERATION_ENABLED=true`. If it is off, no draft carries the `'clean'` provider marker, so `providerModerationClean` is false and **everything stays manual** — the feature fails safe to today's behavior. The provider layer (already a launch-checklist item) is a hard dependency; enable + threshold-tune it first.
-- **Per-draft verification:** `providerModerationClean` is true only when the provider actually ran and passed for *that* draft (`categories.openai_moderation === 'clean'`). **Verified against the code:** this field is a *tri-state marker*, not a verdict enum — it is `'clean'` (passed), `'error'` (provider threw, fail-open to local rules), or **absent** (provider disabled, *or the provider flagged* — a provider flag never sets the field to `'flagged'`, it sets `flagged: true`). The `=== 'clean'` test is therefore correct **only in conjunction with** `!moderation.flagged`; both conjuncts are required (a provider-flagged draft has the marker absent *and* `flagged: true`). A fail-open or disabled result ⇒ not auto-eligible ⇒ manual.
-- **Zero-flag strictness:** auto requires `!moderation.flagged`, not merely `!held`. High-severity still holds; **medium/low flags fall to manual** so a human at least reads flagged text before it posts.
-
-**Fail-closed:** any error resolving the policy (missing row, malformed value, DB error) ⇒ treat as **manual**. We never auto-post on uncertainty.
-
-**Opt-in default:** absence of any policy row ⇒ manual. New accounts and newly-added locations are manual until the owner explicitly enables auto-approval (§13.3).
-
-## 5. Policy model & resolution
-
-**Threshold model.** One nullable field, `auto_approve_min_star ∈ {NULL, 1..5}`:
-
-| Client intent | `auto_approve_min_star` | Effect |
-|---|---|---|
-| All manual (today) | `NULL` | nothing auto-approves |
-| Auto 3–5★, manual 1–2★ | `3` | auto if `star_rating ≥ 3` |
-| All automated | `1` | auto for every (rated) review |
-
-**Resolution order** for a review at location `L` (account `A`, star `S`):
-1. Per-location override row (`account_id = A, location_id = L`). If present, use it.
-2. Else account default row (`account_id = A, location_id IS NULL`).
-3. Else **manual** (no row = opt-out).
-4. `policyEligible = (min_star IS NOT NULL) AND (S IS NOT NULL) AND (S >= min_star)`.
-
-This is the same override→default→fallback resolution used by owner channel enrollment.
-
-**NULL star rating (refined).** `reviews.star_rating` is nullable in the schema (the `CHECK` passes on NULL; Zernio normalization enforces 1..5 but other write paths may not). The resolver guards this explicitly: a NULL star is **not** auto-eligible (do not rely on SQL `NULL >= n` semantics leaking through) ⇒ manual.
-
-**Origin-lane exclusion (refined — locked; corrected by the 2026-05-31 code audit).** Auto-approval must apply **only** to live, post-connect reviews. The first-connect backfill ingests up to 75 historical reviews via `ZernioBackfillWorker` (`worker/jobs/zernio/ZernioBackfillWorker.ts:248`); auto-approving those would blast dozens of replies onto years-old Google reviews the moment an owner connects.
-
-The original draft proposed keying `isBackfill` off `suppressNotification === true`. **The code audit disproved the premise that backfill is `suppressNotification`'s sole producer:** the live edit-replies *regenerate* path (`src/app/api/dashboard/past-replies/draft/route.ts:223`, gated by `EDIT_REPLIES_ENABLED`) **also** sets `suppress_notification: true` and flows through the same `persist.ts`. Overloading a *notification-suppression* flag to carry *approval-eligibility* semantics violates orthogonality (one fact, one owner) and would silently mis-handle any future suppressing producer.
-
-**Decision: carry an explicit positive origin-lane signal**, not a side-effect flag, and make it **required + fail-closed**. The `generate_response` payload gains `origin_lane: 'live_ingest' | 'backfill' | 'regenerate'`. **Auto-eligibility requires `origin_lane === 'live_ingest'` *exactly*; the resolver treats any other value — `'backfill'`, `'regenerate'`, an unrecognized string, *or a missing field* — as non-auto** (`isLiveIngestLane` in §4). There is **no default-to-live**: a producer that forgets to set the field fails *safe* (manual), never *open*.
-
-**Every `generate_response` producer must set its lane explicitly** (verified against code — there are more than the two the prior pass named):
-
-| Lane | Producer(s) | `origin_lane` |
-|---|---|---|
-| Live ingest | `ZernioReviewIngestWorker` / `ZernioRecentReviewPoller` → `process-review.ts` (never suppresses) | `'live_ingest'` — **the only auto-eligible value** |
-| Backfill | `ZernioBackfillWorker` → `process-review.ts` (`suppressNotification: true`) | `'backfill'` |
-| Regenerate | `past-replies/draft/route.ts:228`; approval supersede-regenerate in `token-mode.ts:153`, `session-mode.ts:174`, `callback-mode.ts:99`; admin held-draft re-generate in `admin/flagged/route.ts:254` | `'regenerate'` |
-
-The regenerate lane is the dangerous one to get wrong: e.g. an admin re-drafting a **high-severity-held** 5★ response (`admin/flagged/route.ts`) expects to review the new draft — under a default-to-live rule with an all-auto policy it could silently post. Fail-closed + an explicit `'regenerate'` on all five producers prevents that. Because `process-review.ts` is shared by the live and backfill lanes, it threads `origin_lane` from its callers rather than hard-coding one value.
-
-This also decouples auto-approval from `suppressNotification` — the notification flag keeps its single meaning, and a new ingestion lane becomes an explicit, greppable enum value plus a fail-closed default, instead of an implicit coupling.
-
-**Per-location NULL override = "manual override," not "inherit" (P2b).** Resolution step 1 uses the per-location row **if it exists**, including when its `auto_approve_min_star IS NULL` — that is a deliberate "this location is manual" override that does **not** fall through to the account default. Only the *absence* of a per-location row inherits the account default (step 2). A settings UI must therefore **write a NULL-threshold override row** to make one location manual under an all-auto account default — not delete the row (which would re-inherit auto). Covered by an explicit test (§11).
-
-## 6. Data model
-
-**Migration 055** (head is **054**; confirm `migrations-log.md` at implementation time) carries three changes:
-
-**(a) New table `auto_approval_policies`:**
+Auto approval is subordinate to every existing guarantee. The final predicate is evaluated after generation and moderation, inside the response-persistence transaction, after `recordModerationAndHold` has returned `held`.
 
 ```
-id                    uuid  PK  (uuidv7)
-account_id            uuid  NOT NULL  FK accounts(id)
-location_id           uuid  NULL      FK businesses(id)   -- NULL = account default
-auto_approve_min_star smallint NULL   -- NULL = disabled; 1..5 threshold
-created_at            timestamptz NOT NULL default now()
-updated_at            timestamptz NOT NULL default now()
+auto =
+  // ── Independent gates: each can independently flip the decision — this is the real contract ──
+     policyEligibleNow                                       // current effective threshold non-null AND current star meets it
+  && origin_lane === 'live_ingest_new'                       // only first-time new live reviews
+  && loadedReviewContentHash IS NOT NULL
+  && currentReviewContentHash IS NOT NULL
+  && loadedReviewContentHash === currentReviewContentHash    // review text/star unchanged since generation
+  && currentStarRating IS NOT NULL                           // NOT implied by hash-match (computeContentHash hashes "null|text")
+  && providerModerationClean(moderation)
+  && !moderation.flagged
+  && !held
+  && canPublishForAccount(currentAccountState)               // = existing checkSubscription({workerType:'publisher'}) — NOT a new helper (§14)
+  && activeLocationNow                                       // also backstopped by the publisher's archived_at terminal gate
+  && activeZernioConnectionNow                               // distinct product rule: no auto-post after a disconnect -> reconnect (§8)
+  && autoApprovalRuntimeEnabled()
+  // ── Defensive cross-checks: implied by `live_ingest_new` TODAY, kept fail-closed against a future mislabeled producer ──
+  && responseVersion === 1                                   // Branch A enqueues version 1
+  && suppressNotification === false                          // the live-ingest path never suppresses
+  && providerModerationEnabled()                             // already inside providerModerationClean(); kept as a named gate for the distinct `provider_moderation_disabled` log reason (§15)
 ```
 
-- Partial unique indexes mirroring channel enrollment: one default per account (`UNIQUE (account_id) WHERE location_id IS NULL`) and one override per (account, location) (`UNIQUE (account_id, location_id) WHERE location_id IS NOT NULL`).
-- `CHECK (auto_approve_min_star BETWEEN 1 AND 5)` when not null.
-- Settings-UI writes upsert via `ON CONFLICT`; **the conflict target's predicate must match the partial-index predicate BYTE-FOR-BYTE** (documented gotcha) — two distinct upsert paths, one per index.
-- All reads scoped by `account_id` (and `location_id`) per invariant #8. No cross-account read is required, so **no** tenant-scope allowlist entry is added.
-- **Tenant-isolation work is explicit, not "audits stay green" (P1b).** `auto_approval_policies` is a per-account tenant table and must be wired into the isolation inventory in the **same migration/PR**:
-  - **Enable RLS, with no authenticated write *or* read policy (P2b — precise posture).** Create **no `authenticated`-role INSERT/UPDATE/DELETE policy and no `authenticated` SELECT policy**, and `REVOKE` table-level DML from `authenticated`. Every owner change goes through the **audited server settings route** (which writes the `account_audit_log` row, §6 "Policy-change auditing") and every read is server-side — both via the service role, which bypasses RLS. *Do not describe this as "mirror `channel_enrollments`":* that sibling is **not** deny-all — it keeps an owner `SELECT` policy and a narrowed account-scoped `UPDATE` on opt-out columns (`040_rls_tightening.sql:157`), only its `INSERT` is revoked. `auto_approval_policies` is intentionally **stricter** (no client policy at all) because the browser never reads or writes it directly — the settings UI learns policy state from an API response (invariant #13-style), not a table read.
-  - **Add `'auto_approval_policies'` to `TENANT_TABLES`** in `scripts/ci/tenant-tables.ts`.
-  - **Add a row to `docs/security/rls-inventory.md`** describing the scope key (`account_id`, `location_id`) and the "RLS-enabled, no authenticated policy, all access service-role via the audited route" posture.
-  - **Migration tests** asserting RLS is enabled and that `authenticated` has no INSERT/UPDATE/SELECT path; `ci:tenant-scope` + `ci:rls-audit` then pass *because* the table is inventoried, not by omission.
+`policyEligibleNow` means the current effective threshold is non-null and the current `reviews.star_rating` meets it.
 
-**(b) New column on `responses`:**
+The predicate is grouped on purpose. The **independent gates** are the real contract — each can independently flip the decision. The **defensive cross-checks** (`responseVersion === 1`, `suppressNotification === false`, `providerModerationEnabled()`) are implied by `origin_lane === 'live_ingest_new'` / `providerModerationClean` *today* and are kept deliberately, not deleted: they fail closed if a future producer mislabels a lane, and `providerModerationEnabled()` stays a named gate so §15 can log `provider_moderation_disabled` distinctly from `provider_moderation_error`. The 2026-06-02 trim pass removed **no** safety gate; the two-group layout exists only to cut reader-load by separating the load-bearing gates from the belt-and-suspenders ones.
 
-```
-approval_method  text NOT NULL DEFAULT 'owner'   -- 'owner' | 'auto_policy'
+`providerModerationClean` is intentionally precise:
+
+```ts
+function providerModerationClean(m: ModerationDecision): boolean {
+  return process.env.OPENAI_MODERATION_ENABLED === 'true'
+    && m.categories.openai_moderation === 'clean'
+    && m.flagged === false;
+}
 ```
 
-Records *how* a response was approved without overloading `status` (locked decision #4). Existing rows default to `'owner'`; the manual approval paths keep that default; the auto branch sets `'auto_policy'`. The dashboard badges auto-responded reviews from this column.
+The OpenAI marker is a tri-state implementation detail: `'clean'`, `'error'`, or absent. A provider flag does not set `'flagged'`; it sets `flagged=true` and high severity. Missing marker, provider error, provider disabled, or any local/provider flag all fail auto. High-severity flags still hold and suppress notification under the existing moderation invariant. Medium/low flags fall back to manual.
 
-**(c) Amend the `approval_audit_log.auth_method` CHECK constraint (BLOCKER — found by the 2026-05-31 code audit):**
+**Current-code note.** `ModerationDecision.categories` is typed `Record<string, unknown>` (`src/lib/moderation/output-filter.ts`); `moderateResponse` writes `{ openai_moderation: 'clean' }` on the clean path and `{ openai_moderation: 'error' }` on provider error, but on a provider flag it writes `openai_categories` instead — so `openai_moderation` is **absent** and `flagged=true`. `providerModerationClean` therefore reads `categories.openai_moderation` through an explicit narrow; it does not assume a typed field, and the absent-marker case correctly fails auto via the `=== 'clean'` check.
 
-```
--- migration 014 set: CHECK (auth_method IN ('token','owner_session'))
-ALTER TABLE approval_audit_log DROP CONSTRAINT <existing_auth_method_check_name>;
-ALTER TABLE approval_audit_log
-  ADD CONSTRAINT approval_audit_log_auth_method_check
-  CHECK (auth_method IN ('token', 'owner_session', 'auto_policy'));
-```
+**Normal non-eligibility cases** inside the transaction degrade to manual: no policy, disabled policy, bad lane, version > 1, stale/null review hash, rating below threshold, provider not clean, runtime disabled, publisher denied, no active connection, archived location, or suppress flag.
 
-The §8 audit row writes `auth_method = 'auto_policy'` **inside the response-persistence transaction** (§7). Migration 014 constrains `auth_method` to `('token','owner_session')`, so without this amendment that INSERT throws a CHECK violation, the whole transaction rolls back, and **auto-approval fails 100% of the time — taking response persistence down with it** (the response row never lands). The `action` column has **no** CHECK constraint, so the new value `'auto_approved_by_policy'` there needs no migration. Confirm the existing constraint's exact name against the live schema at implementation time (Postgres auto-named it from migration 014).
+**SQL/schema/connection errors** during the in-transaction current-state lookup do **not** become "manual" inside the same transaction. In Postgres, a failed statement aborts the transaction. The job should fail/retry rather than risk partial state or pretend TypeScript can recover an aborted transaction.
 
-**Policy-change auditing.** Editing a policy is a security-relevant config change. Each create/update writes an audit row capturing owner, account/location scope, and old→new threshold (mechanism: same `account_audit_log` path used for other account-config changes, in the write transaction).
+## 5. Origin Lanes
 
-## 7. Decision flow & state machine
+`GenerateResponsePayload` gains a producer-facing required field:
 
-**Single chokepoint.** The auto/manual decision is resolved **once**, in the response-persistence step (`worker/jobs/response-generation/persist.ts`), immediately after moderation — the same transaction that persists the response. This is the chokepoint precisely because the moderation-hold result (`held`) is only known *inside* that transaction, where it meets the policy/subscription eligibility resolved earlier in `load-context.ts`.
-
-```
-generate → moderate
-  ├─ high-severity flag → flagged_responses + HOLD (invariant #4)              [unchanged; overrides all]
-  └─ resolve §4 predicate (policy ∧ liveIngestLane ∧ publisherSub ∧ providerClean ∧ !flagged ∧ !held)
-       ├─ AUTO  → status = 'approved', approval_method = 'auto_policy',
-       │          approved_text = response_text, approved_at = NOW()
-       │          → write approval_audit_log row (action 'auto_approved_by_policy', token_hash NULL)
-       │          → enqueue publish_response via job_outbox     (NO send_notification; NO FYI — §8)
-       └─ MANUAL→ status = 'pending_approval', approval_method = 'owner'
-                  → enqueue send_notification (unless suppressed)              [today's behavior]
+```ts
+origin_lane:
+  | 'live_ingest_new'
+  | 'live_ingest_update'
+  | 'backfill'
+  | 'regenerate'
 ```
 
-- **No new status.** Auto-approval reuses `approved` (locked decision #4). Because the status value is unchanged, the publisher's `ZERNIO_PUBLISHABLE_STATES`, the ~20 inline `status IN ('approved','edited','awaiting_owner_connect')` clauses across the publisher subsystem, the `response-status.ts` groups (`NON_TERMINAL`, `HANDLED`, `AWAITING_PUBLISH`, `RECENT_REVIEW_DISPLAY`, …), the non-terminal partial unique index, and edit-replies are **untouched** — no status migration, no risk of a missed inline list silently black-holing a post.
-- **Placement.** `load-context.ts` (which already loads `star_rating` and the subscription inputs) also resolves the policy row (override→default→null). A **pure resolver** computes `policyEligible` + `publisherSubscriptionOK` from already-loaded data. **Note (audit):** `load-context.ts` already calls `checkSubscription` with `workerType:'generator'` for the existing generation gate; `publisherSubscriptionOK` is a **separate, second** call with `workerType:'publisher'` over the same already-loaded inputs — do **not** reuse the generator result (it diverges on `pending_payment`; see §9). `checkSubscription` is pure, so the second call is free. `persist.ts` receives a single `autoApproveEligible` boolean (plus audit inputs) and evaluates the final branch against its in-transaction `held` result.
-- **`approved_text` population.** The publisher reads `responses.approved_text` (`ResponsePublisherWorker.ts:97`), never `response_text`. The manual flow sets it at approval time; the auto branch sets `approved_text = response_text` at persist so the existing publisher read works unchanged.
-- **Extract a shared `enqueuePublishResponse(...)` helper — it does not exist yet (P2a).** *Corrected by owner review:* the approval modes (`token-mode.ts`, `session-mode.ts`, `callback-mode.ts`) each **inline** `INSERT INTO job_outbox … 'publish_response' …` **without** `ON CONFLICT`; the only correct, index-aligned enqueue is in `DrainOwnerConnectWorker.ts:72` (`ON CONFLICT (topic, aggregate_id) WHERE topic = 'publish_response'`, matching `idx_jo_publish_response_inflight` from migration 026). So there is **no canonical path to reuse** — the plan must *create* one: extract `enqueuePublishResponse(tx, { responseId, businessId })` (payload `{ response_id, business_id }`, carrying the `ON CONFLICT` guard) into a shared module and have all single-row producers call it. One owner for "how a publish job is enqueued"; the `ON CONFLICT` predicate then lives in exactly one place and cannot drift per call site.
-- **Helper adoption scope — decide deliberately (P3b).** A `'publish_response'` enqueue exists in **more** places than the approval modes, and three of them *also* lack `ON CONFLICT` (latent double-post risk): `past-replies/publish/route.ts:224`, `past-replies/[responseId]/retry/route.ts:242`, `past-replies/[responseId]/restore-original/route.ts:285`. So "one owner" is only true if those migrate too. **Recommended v1 scope:** migrate **all single-row publish enqueues** onto the helper — the 3 approval modes, those 3 past-replies routes, and the new auto branch — since the 3 routes are the same idempotency gap and the fix is mechanical (identical 3-line inserts). `DrainOwnerConnectWorker`'s **bulk** re-enqueue keeps its set-based `NOT EXISTS … ON CONFLICT` form (different shape), but its `ON CONFLICT` clause is the reference the helper copies. **Bounded fallback** (if PR size must stay tight): migrate approval modes + auto only, and file the 3 past-replies routes as a tracked fast-follow — but the spec must then **explicitly state they remain unguarded**, so "single owner" is not claimed prematurely. *This is the one open scope lever in the plan; pick before writing-plans.*
-- All enqueues use the transactional outbox (invariant #2); no Postgres-write-then-enqueue.
-- The publisher path is otherwise unchanged — it already gates on publishable status + (publisher) subscription, so an auto-`approved` row flows through the same posting + idempotency machinery, including supersede/edit (DELETE-before-POST) for a later review version.
+The worker boundary parser is permissive for deploy safety: legacy missing field and unknown values parse successfully but resolve non-auto. Unknown non-empty values log a sanitized warning once per job. Missing old-job lane fails closed quietly. Extra keys are not strict-rejected.
 
-## 8. Notification & audit
+Producer expectations:
 
-- **No per-review FYI notification in v1 (refined).** A client who sets `min_star = 1` ("all auto") did so to *stop* being pinged per review; a per-review "we auto-responded" notice re-introduces the interruption they opted out of. The existing `send_notification` path also mints an **approval link/token** (invariant #5), which an already-posted reply must not have. Transparency in v1 is served entirely by (a) the **dashboard**, which lists responded reviews and badges `approval_method = 'auto_policy'`, and (b) the **audit row** (below). A **batched digest** ("we auto-responded to N reviews this week") is the documented fast-follow — emitted by a time-cadence scheduler reading `approval_method`, never wired into the hot publish path. See §13.
-- **Audit (required, single owner).** Every auto-approval decision writes one row to **`approval_audit_log`** (the response-scoped approval audit; `token_hash` is nullable since migration 014, so a tokenless row is valid), action `auto_approved_by_policy`, `auth_method = 'auto_policy'`, `actor_user_id` NULL, `token_hash` NULL, and `response_text_at_approval = response_text` (the immutable snapshot the manual paths also capture), with the resolved threshold + star + location in metadata — in the same transaction as persistence. **`auth_method = 'auto_policy'` requires the migration-055 CHECK amendment (§6c)** — without it this very INSERT throws and rolls back the persist transaction. This is the *one* owner of "why did this post automatically?" `api_costs` continues to own the separate *moderation* fact only; the original "audit/log.ts **and/or** api_costs" wording is resolved to `approval_audit_log` alone.
-- **A new tokenless auto-policy audit helper is required (P2c).** The existing helpers in `src/lib/approval/audit.ts` cannot be reused: `insertAuditLog` is token-shaped (expects token/device context) and `insertAuditLogSession` hardcodes `auth_method = 'owner_session'`. Add a sibling — e.g. `insertAuditLogAutoPolicy(tx, { responseId, businessId, metadata, snapshot })` — that writes `token_hash = NULL`, `actor_user_id = NULL`, `auth_method = 'auto_policy'`, and `response_text_at_approval`. It lives beside the other two so all three audit shapes share one owner.
+| Producer | Lane |
+| --- | --- |
+| `processReview` first-time new review from live ingestion | `live_ingest_new` |
+| `processReview` reviewer content update / supersede-regenerate path | `live_ingest_update` |
+| Zernio backfill/import | `backfill` |
+| Past Replies regenerate, token/session/callback supersede-regenerate, admin flagged redraft | `regenerate` |
 
-## 9. Subscription & billing gating
+Only `live_ingest_new` can auto. This avoids surprising owners when a changed review thread, manual regenerate, held-draft redraft, or historical import causes a new draft.
 
-Auto-post is a publisher action and inherits invariant #11 — but the **decision-time check must use publisher semantics, not the generator's**, because the two gates diverge on exactly one status:
+Add a small typed `enqueueGenerateResponse` helper so producers cannot hand-roll lane strings. The helper does not add new dedupe. It can live beside `enqueuePublishResponse` in a shared typed job-outbox helper module; document that publish has an in-flight conflict guard and generate does not.
 
-- `checkSubscription` allows `pending_payment` for `workerType: 'generator'` (admin demo drafts) but **denies** it for `workerType: 'publisher'`.
-- A naive auto decision using the generator gate would set `approved` + enqueue `publish_response` for a `pending_payment` account; the publisher then skips it, leaving the row stuck in `approved` forever with no re-drive and (per §8) no notification — a silent black hole.
+`suppress_notification` remains in the job payload. It controls whether manual fallback sends owner notification for lanes such as backfill. It is not provenance. Auto requires both eligible lane and `suppress_notification=false`.
 
-Therefore the §4 predicate uses a **second** `checkSubscription({ …business, workerType: 'publisher' })` call — *in addition to*, not instead of, the existing `workerType:'generator'` gate `load-context.ts` already runs to decide whether to generate at all:
-- `cancelled` ⇒ not auto (and not manual-postable).
-- `pending_payment` ⇒ **not auto** ⇒ degrades to `pending_approval`, exactly like a manual review for a `pending_payment` account (notification itself is skipped, but the row is dashboard-visible and the owner acts after paying).
-- `past_due` within 7-day grace ⇒ auto allowed; after grace (`past_due_expired`) ⇒ not auto ⇒ manual.
+## 6. Policy Model
 
-A subscription-blocked auto-decision **degrades to `pending_approval`** (owner-actionable) rather than dropping or stranding the response.
+One nullable threshold:
 
-**Residual race (accepted, pre-existing).** Subscription `active` at persist → flips to denied before the `publish_response` job runs → publisher skips → row stranded in `approved`. This window is seconds and already affects *manually*-approved rows today; it is not auto-specific. Documented and **out of v1 scope** (no sweeper built now).
+| Intent | `auto_approve_min_star` | Meaning |
+| --- | --- | --- |
+| Off/manual | `NULL` | No automatic approval |
+| 5-star only | `5` | Auto if current star rating is 5 |
+| 4-5 | `4` | Auto if current star rating is 4 or 5 |
+| 3-5 | `3` | Auto if current star rating is 3, 4, or 5 |
+| 2-5 | `2` | Auto if current star rating is 2, 3, 4, or 5 |
+| All rated | `1` | Auto for every rated review that passes all other gates |
 
-## 10. Error handling
+Resolution for account `A`, location `L`:
 
-- Policy resolution error ⇒ **manual** (fail-closed).
-- Provider moderation degraded — fail-open (`'error'`) or disabled (marker absent) ⇒ `providerModerationClean` false ⇒ **manual** (§4). A high-severity *local-rule* flag still holds, unaffected.
-- Auto-publish enqueue is idempotent via the outbox key (invariant #2; BullMQ `_` separator), the generator's `already_exists` idempotency check (re-run ⇒ no re-persist / re-enqueue — this is also why policy is resolved once and never retroactively, see §2), and the `idx_jo_publish_response_inflight` partial unique index. **The enqueue goes through the newly-extracted `enqueuePublishResponse(...)` helper (§7), so the `ON CONFLICT` predicate is owned in one place and stays aligned with that index.** Correlation chained `ingest → generate → publish_response` (notification skipped).
-- The auto branch performs no best-effort work after the primary side effect in v1 (no FYI), so the worker fail-open gotcha does not apply; if a digest is added later, its enqueue is best-effort and must not flip a completed post to failed.
+1. If a per-location row exists for `(A, L)`, use it, including `NULL`.
+2. Else if an account-default row exists for `(A, location_id IS NULL)`, use it, including `NULL`.
+3. Else manual/no policy.
 
-## 11. Testing
+Account scope:
+- Deleting the account default and setting it to `NULL` both mean manual at account scope.
+- `clear_account_default` deletes only the account-default row. It must not delete or rewrite location overrides.
+- UI should prefer an explicit `NULL` account-default row once the owner has configured the feature because it records "Auto-approval off."
+- `clear_account_default` may exist for cleanup/admin use; audit distinguishes it from explicit manual.
 
-- Policy resolution: override beats default; default applies; **no row ⇒ manual**; **NULL star ⇒ manual**.
-- **NULL per-location override is a manual override, not inheritance (P2b)** — account default `min_star = 1` (all-auto) + a per-location row with `auto_approve_min_star = NULL` ⇒ that location resolves **manual** (does not inherit the all-auto default); removing the row re-inherits auto. Guards the UI from "delete row to go manual."
-- Threshold boundaries: `min_star = 3` ⇒ 2★ manual, 3★ auto; `min_star = 1` ⇒ all (rated) auto; `NULL` ⇒ all manual.
-- **Only live-ingest lane auto, fail-closed** — `origin_lane = 'live_ingest'` ⇒ auto-eligible; `'backfill'`, `'regenerate'`, **an unknown value, and a *missing* field** ⇒ manual even with `min_star = 1`. Plus a guard asserting auto-eligibility does **not** read `suppressNotification`.
-- **All five regenerate producers stay manual** — one case per producer (`past-replies/draft`, `token-mode`, `session-mode`, `callback-mode`, `admin/flagged`) asserting each enqueues `origin_lane = 'regenerate'` and the result is never auto, even at `min_star = 1`. The admin-flagged held-draft re-generate is the priority regression (a re-drafted high-severity-held reply must not auto-post).
-- **Moderation veto overrides auto** — high-severity draft is held even with `min_star = 1`.
-- **Provider-degraded ⇒ manual** — `openai_moderation` `'error'` or absent ⇒ not auto; **medium/low flag ⇒ manual** (only `!flagged` is auto).
-- **Subscription (publisher gate)** — `pending_payment`/`cancelled`/`past_due_expired` ⇒ degrades to `pending_approval`, no post, no strand.
-- **Fail-closed** — resolution throws ⇒ manual, never auto.
-- Auto path sets `status='approved'`, `approval_method='auto_policy'`, `approved_text=response_text`; flows through publisher idempotency unchanged.
-- `approval_audit_log` row written for every auto decision (tokenless, `auth_method='auto_policy'`); tenant-scope + RLS audits pass.
-- **CHECK-constraint migration (blocker regression)** — after migration 055, an `INSERT … auth_method='auto_policy'` into `approval_audit_log` **succeeds**; a guard/migration test proves the constraint was amended (a row written with the old constraint would throw and roll back the whole persist tx).
-- **No retroactive re-evaluation** — a review generated as `pending_approval` is **not** flipped to auto when a policy is later enabled/raised; re-running generation hits `already_exists` and does not re-persist.
-- **Shared `enqueuePublishResponse` helper (P2a)** — a unit test on the extracted helper (correct topic/payload + `ON CONFLICT` matching `idx_jo_publish_response_inflight`), plus assertions that the migrated approval modes and the auto branch all route through it (no remaining inline `'publish_response'` INSERTs in those paths).
-- **Tenant-isolation migration (P1b)** — migration test asserts RLS is enabled on `auto_approval_policies` with the deny-direct-write posture; `ci:tenant-scope` + `ci:rls-audit` pass with the table present in `TENANT_TABLES` and `rls-inventory.md`.
-- Outbox idempotency for the auto-publish enqueue (`idx_jo_publish_response_inflight`).
+Location scope:
+- `NULL` location row means explicit manual override.
+- Deleting the location row means inherit the account default.
+- Deleting a `NULL` override under an auto account default is an expansion and must be gated.
+- Creating/enabling/expanding a location override requires an active location (`archived_at IS NULL`). Deleting an existing override or setting it to manual can be allowed for archived locations if the row belongs to the account, because that is cleanup/contraction.
 
-## 12. CLAUDE.md change-map (applied WITH the implementation PR, not before)
+New or reactivated active locations inherit the account default immediately. Do not auto-create `NULL` manual overrides for new locations. Add-location flow should not mutate auto policy; it may show the inherited state and link to settings.
 
-| Location | Change |
-|---|---|
-| **What this project is** (pipeline) | `Never auto-posts.` → posts via owner approval **or** owner-configured auto-approval policy; moderation can always veto |
-| **Invariant #3** | Rewrite: no posting without an approval *decision* (explicit approval **or** owner-set policy); auto-approval **cannot** bypass moderation; still impossible to post without a decision |
-| **Invariant #4** | Add: the high-severity hold **overrides auto-approval**; auto additionally requires provider moderation enabled + a per-draft `'clean'` verdict + **zero** flags |
-| **Invariant #11** | Add: auto-post gated by subscription via the **publisher** gate; `pending_payment` degrades to `pending_approval` (no strand) |
-| **New invariant #14** | Policy contract: account-default + per-location override, star-threshold, resolved once after moderation (**not retroactive**), **subordinate** to moderation veto + **publisher** subscription guard; auto-eligible **only** when `origin_lane === 'live_ingest'` (backfill + regenerate never auto; decoupled from `suppressNotification`); auto-approval **reuses `approved`** with an `approval_method` discriminator (**never** a separate status) |
-| **Database** | Migration 055 = three changes: new `auto_approval_policies` table + `responses.approval_method` column + **amend `approval_audit_log.auth_method` CHECK to allow `'auto_policy'`** (§6c — without it auto-approval throws). Tenant isolation (§6a): RLS-enable the new table, add it to `TENANT_TABLES` + `rls-inventory.md`, migration tests |
-| **Where things live** | New `auto-approval-policy` skill (sibling of `approval-security`); **update `approval-security`** skill — it currently assumes every post is human-approved. New shared `enqueuePublishResponse` helper (§7) + new `insertAuditLogAutoPolicy` helper in `src/lib/approval/audit.ts` (§8) |
+Unrated/null-star reviews remain manual. UI labels should say "All rated" rather than implying unrated reviews auto-post.
 
-These edits flip the docs to the new reality **in the same commit** the code lands, so CLAUDE.md never describes a bypass that isn't yet built.
+## 7. Data Model
 
-## 13. Product decisions (settled in the grilling session)
+Migration 055 should include:
 
-1. **Per-review FYI on auto-post** — **No in v1.** Dashboard badge + `approval_audit_log` provide transparency; a batched digest is the documented fast-follow (§8).
-2. **Threshold vs per-rating map** — **Threshold for v1** (covers all survey cases). Generalize to a per-rating set only if a non-monotonic case appears; `min_star` is the degenerate case of that future widening.
-3. **Onboarding ramp** — **Allow all-auto immediately, no hard trust-gate.** Make it cheaply safe instead: an explicit, unmistakable settings-UI confirmation when enabling ("Replies to these reviews will post to Google automatically, without your review"); rely on dashboard transparency so the owner can audit from post #1 and dial back; optionally pre-select a conservative default threshold (4–5★, "automate your best reviews first"). No trust-tracking infrastructure built speculatively; revisit if quality complaints appear.
+**Policy table**
 
-## 14. Out of scope / future
+```sql
+CREATE TABLE auto_approval_policies (
+  id uuid PRIMARY KEY,
+  account_id uuid NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  location_id uuid NULL,
+  auto_approve_min_star smallint NULL
+    CHECK (auto_approve_min_star IS NULL OR auto_approve_min_star BETWEEN 1 AND 5),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+```
 
-- Non-star signals (sentiment, keywords, length, language) and the per-rating-map generalization.
-- Auto-editing / auto-regeneration before posting.
-- Per-reviewer rules, scheduling windows, A/B of auto vs manual.
-- Batched "auto-responded to N reviews" digest notification (fast-follow off a scheduler).
-- **Retroactively auto-approving already-generated `pending_approval` rows** when a policy is newly enabled or raised (policy is resolved once at generation; see §2). A backfill-style sweep over the pending queue is a deliberate future feature, not v1.
-- A sweeper for the residual `active→denied` publish-time strand (also affects manual today).
+Use the repo's current UUIDv7 migration convention for `id` values rather than introducing a new ID style.
 
----
+Add a composite referential guard, not route validation alone:
 
-## Next step
+```sql
+ALTER TABLE businesses
+  ADD CONSTRAINT businesses_id_account_id_key UNIQUE (id, account_id);
 
-When ready to build: run the **writing-plans** skill against this spec to produce the phased implementation plan (migration 055 = policy table + `approval_method` column + `auth_method` CHECK amendment (§6c) + RLS/`TENANT_TABLES`/`rls-inventory.md` for the new table (§6a) → required, fail-closed `origin_lane` payload plumbing across **every** producer (live ingest + backfill via `process-review.ts`, and all **five** regenerate lanes) → extract shared `enqueuePublishResponse` helper and migrate the approval modes onto it (§7) → new `insertAuditLogAutoPolicy` audit helper (§8) → resolution module + pure resolver + tests → `load-context` policy load + second publisher `checkSubscription` → `persist.ts` decision integration gated on `held` → settings UI + confirmation (incl. NULL-override = manual) → CLAUDE.md change-map). Auto-approval requires `OPENAI_MODERATION_ENABLED=true` enabled + threshold-tuned **before** launch. Anything touching the worker/migration rides `staging` first, then lands on `main` via PR (the CLAUDE.md change-map travels in that same PR).
+ALTER TABLE auto_approval_policies
+  ADD CONSTRAINT auto_approval_policies_location_account_fk
+  FOREIGN KEY (location_id, account_id)
+  REFERENCES businesses(id, account_id)
+  ON DELETE CASCADE;
+```
+
+Do not use `MATCH FULL`; default `MATCH SIMPLE` allows `(NULL, account_id)` account-default rows. A separate standalone `location_id -> businesses(id)` FK is unnecessary if the composite FK cascades correctly.
+
+Partial unique indexes:
+
+```sql
+CREATE UNIQUE INDEX auto_approval_policies_one_account_default
+  ON auto_approval_policies(account_id)
+  WHERE location_id IS NULL;
+
+CREATE UNIQUE INDEX auto_approval_policies_one_location_override
+  ON auto_approval_policies(account_id, location_id)
+  WHERE location_id IS NOT NULL;
+```
+
+Postgres allows multiple `NULL` values in ordinary unique constraints, so `UNIQUE(account_id, location_id)` is insufficient. Any `ON CONFLICT` must match the partial-index predicate byte-for-byte.
+
+RLS posture:
+- Enable RLS.
+- Add no authenticated owner SELECT/INSERT/UPDATE/DELETE policies in v1.
+- Revoke direct authenticated DML if needed.
+- Owner settings read/write goes through server routes using session-derived account scope.
+- Add the table to tenant/RLS inventories, but do not add broad tenant-scope allowlists.
+
+**Responses approval attribution**
+
+```sql
+ALTER TABLE responses
+  ADD COLUMN approval_method text NULL;
+
+ALTER TABLE responses
+  ADD CONSTRAINT responses_approval_method_check
+  CHECK (approval_method IS NULL OR approval_method IN ('owner', 'auto_policy'));
+```
+
+Do not make it `NOT NULL DEFAULT 'owner'`. If the column means "how this response was approved," then pending rows have not been approved and externally ingested Google replies were not approved through RepWorth.
+
+Backfill conservatively:
+- `approved`, `edited`, `awaiting_owner_connect` -> `owner`.
+- `posted` -> `owner` only when an `approval_audit_log` row exists for that response.
+- `posted` with no approval audit stays `NULL` because it may be externally ingested.
+- Leave pending, superseded, failed, and ambiguous rows `NULL` unless there is explicit approval evidence.
+
+Do not add status-based DB constraints on `approval_method` in v1; enforce transitions in code and tests.
+
+**Approval audit auth method**
+
+Migration 014 restricts `approval_audit_log.auth_method` to `token` and `owner_session`. Amend that CHECK to include `auto_policy`. Keep the existing default. Auto code must explicitly set `auth_method='auto_policy'`.
+
+Do not add extra policy-history columns or confirmation columns in v1. `account_audit_log` owns settings actors and confirmations; `approval_audit_log.metadata` owns compact per-response auto decision facts.
+
+Maintain `updated_at` explicitly in route/upsert SQL; do not add a trigger for this feature.
+
+## 8. Runtime Flow
+
+**Generator load**
+- `load-context.ts` keeps the existing generator subscription gate and response `(review_id, version)` idempotency check.
+- It must be **extended** to carry `review_content_hash` from the review row into the loaded context for draft freshness — the load-context SELECT does **not** read this column today (`worker/jobs/response-generation/load-context.ts` currently loads only `id, reviewer_name, star_rating, review_text, review_date, detected_language`). It still does not finalize auto eligibility.
+- Existing Redis generation cache key remains `gen:{reviewId}:v{responseVersion}`. Do not include `review_content_hash` in the cache key for v1.
+
+**Persistence**
+
+Inside `persistResponseAndNotify`:
+
+1. Insert the response as `pending_approval`, `approval_method=NULL`, and `original_draft_text=response_text`.
+2. Link `api_costs`.
+3. Record moderation metadata and high-severity hold in the same transaction.
+4. Re-read current review/business/account/policy/location/connection state inside the same transaction.
+5. Evaluate the final runtime predicate.
+6. If auto:
+   - Update the just-inserted row to `status='approved'`.
+   - Set `approval_method='auto_policy'`.
+   - Set `approved_text=response_text`.
+   - Set `approved_at=NOW()`.
+   - Write one `approval_audit_log` row.
+   - Enqueue `publish_response` through the shared helper in the same transaction, preserving the generation `correlation_id`.
+   - Do not enqueue `send_notification`.
+7. If manual fallback:
+   - Keep `status='pending_approval'`.
+   - Keep `approval_method=NULL`.
+   - Enqueue `send_notification` unless `held` or `suppress_notification=true`.
+
+The step-4 re-reads (review/business/account/policy/location/connection) add ~5 indexed lookups inside the persist transaction. They are local indexed reads with **no remote calls**, so the extra transaction time under PgBouncer transaction-pooling is an accepted cost; the alternative (deciding from the load-time snapshot) was rejected because it can post against stale state. Note `activeLocationNow` is **also** backstopped by the publisher's existing `archived_at` terminal gate, so it is belt-and-suspenders rather than the sole guard. It is **not** a free transaction-trimming lever, though: dropping it changes behavior — an archived-location review would shift from **manual fallback** (`pending_approval`, with the existing notification handling) to **approved-then-publisher-terminal/no-op**, which moves owner-notification and approval-audit expectations and breaks the §17 archived-location fallback test. Treat any removal as a product/behavior change requiring test updates, not a perf tweak. `activeZernioConnectionNow` is **not** redundant either: it encodes the distinct product rule below.
+
+Auto requires an active Zernio connection at persist time. If no active connection exists, fall back to manual rather than creating an approved row that later posts automatically after reconnect.
+
+Auto requires `businesses.archived_at IS NULL` at persist time. Archived locations fall back to manual; the existing NotificationWorker owns actual notification skips for archived locations.
+
+**Manual approval transitions**
+
+All manual paths that transition or insert approved/edited rows must set `approval_method='owner'` atomically:
+- token approve/edit
+- session approve/edit
+- callback approve
+- Past Replies publish/retry/restore-original paths
+
+They should set `approved_text`, `approved_at`, owner approval audit snapshot, publish outbox, and clear stale `posting_error` in the same transaction. Add tests that these paths cannot move a row to `approved`/`edited` without `approval_method='owner'`.
+
+Auto-posted rows can still be edited or corrected later. The replacement owner-driven response gets `approval_method='owner'`; the original historical row remains `auto_policy`.
+
+External ingested replies are terminal evidence, not auto candidates. Zernio ingestion that inserts/preserves a posted external reply must not generate an auto approval around it.
+
+## 9. Publish Outbox Helper
+
+Create `enqueuePublishResponse(tx, { responseId, businessId, correlationId? })` and move all single-row publish producers onto it:
+- token approve/edit
+- session approve/edit
+- callback approve
+- Past Replies publish
+- Past Replies retry
+- Past Replies restore-original
+- auto branch
+
+The helper payload remains identifiers only: `response_id`, `business_id`, optional `correlation_id`. Do not include `approval_method`; publisher loads current state from the DB. Preserve the existing publish in-flight conflict guard matching `idx_jo_publish_response_inflight`. `DrainOwnerConnectWorker` can keep its bulk set-based form, using the same conflict predicate.
+
+If helper insertion hits an existing in-flight publish outbox row, that is an idempotency retry case. The response can remain approved if the durable follow-up already exists. Tests should assert retries do not duplicate response/audit rows through the existing `(review_id, version)` idempotency path.
+
+## 10. Publisher Kill Switch Downgrade
+
+Publisher must re-check the auto runtime switch before any external publish/delete call for auto-policy rows.
+
+Add nullable `approval_method` to `loadPublishResponseContext`. Immediately after the publishable-state gate, before subscription, connection lookup, Zernio review lookup, edit-publish, or post calls:
+
+```ts
+if (response.approval_method === 'auto_policy' && !autoApprovalRuntimeEnabled()) {
+  await downgradeAutoApprovedResponseForManualReview(...);
+  return;
+}
+```
+
+The downgrade helper runs one transaction:
+
+```sql
+UPDATE responses
+SET status = 'pending_approval',
+    approval_method = NULL,
+    approved_at = NULL,
+    approved_text = NULL,
+    posting_error = 'auto_policy_revoked_by_kill_switch',
+    updated_at = NOW()
+WHERE id = $responseId
+  AND business_id = $businessId
+  AND status IN ('approved', 'edited', 'awaiting_owner_connect')
+  AND approval_method = 'auto_policy'
+RETURNING ...
+```
+
+If no row returns, mark the triggering publish outbox completed and do nothing else.
+
+If a row returns:
+- Keep `response_text` unchanged.
+- Write a separate approval audit action `auto_policy_revoked_by_kill_switch` with `auth_method='auto_policy'`, no token/user actor, and metadata including `outbox_id`, optional attempt, runtime flag state, and no text.
+- Enqueue normal `send_notification` regardless of any old suppression metadata.
+- Preserve the publish job `correlation_id` into the `send_notification` payload when present.
+- Mark the triggering `publish_response` outbox completed in the same transaction.
+
+This applies to unposted `approved`, `edited`, and `awaiting_owner_connect` auto-policy rows. `NULL` and `owner` rows keep current publisher behavior. Owner notification copy stays normal; admin/support visibility comes from `posting_error` and the downgrade audit. Manual owner approval after downgrade must clear stale posting error and set `approval_method='owner'`.
+
+**Accepted burst behavior.** Flipping `AUTO_APPROVAL_ENABLED=false` while many auto rows are in-flight downgrades each one (one transaction + one `send_notification` apiece), so an emergency stop can produce a notification burst. This is the safe direction — every affected reply returns to human review — and is accepted as the expected cost of the kill switch, not a bug.
+
+## 11. Notification, Audit, Analytics, And DTOs
+
+**Successful auto**
+- No approval link.
+- No `send_notification`.
+- No per-review FYI notification.
+- Normal publish path posts `approved_text`.
+- Publish success evidence remains `responses.status='posted'`, `posted_at`, and publisher telemetry. Do not write a second approval audit row for posting.
+
+**Manual fallback**
+- Normal `send_notification` path when not held/suppressed.
+- Existing channel failure behavior applies.
+- No approval audit row solely for fallback.
+
+**Approval audit for auto**
+
+Add `insertAuditLogAutoPolicy(tx, ...)` beside the token/session helpers. It writes:
+- `action='auto_approved_by_policy'`
+- `auth_method='auto_policy'`
+- `token_hash=NULL`
+- `device_cookie_hash=NULL`
+- `actor_user_id=NULL`
+- `ip_address=NULL`
+- `response_text_at_approval=approved_text`
+
+Metadata should include compact resolved facts:
+- `policy_source`: `location_override` or `account_default`
+- optional `policy_id`
+- `resolved_min_star`
+- current `star_rating`
+- `origin_lane`
+- `response_version`
+- `review_content_hash_matched: true`
+- provider moderation marker
+- publisher subscription allowed/reason
+- active connection result
+- active location result
+- runtime/provider flag states
+- `correlation_id`
+
+Do not store raw review hash values, generated text, review text, full policy JSON, or extra response columns for resolved policy inputs.
+
+Settings mutations use `account_audit_log` via `writeAccountAuditLog(input, tx)`, not `approval_audit_log`.
+
+No new analytics events in v1. The analytics taxonomy has DB CHECK implications and is not necessary for launch. No new `api_costs` policy metadata; moderation/cost data stays as-is.
+
+Owner/admin response DTOs should carry nullable `approval_method` wherever response rows are shaped for display: dashboard recent reviews, aggregate dashboard recent reviews, Past Replies list/cards, and admin business detail response rows. Render auto badges only where useful, and key badges on `approval_method === 'auto_policy'`, not status.
+
+There is **no single shared response DTO** — these are four distinct per-surface shapes (recent-reviews + aggregate items in `src/lib/dashboard/types.ts`, `PastReplyCard`'s `PastReplyRow`, and `ReviewRow` in `src/lib/admin/business-detail-types.ts`), so the field must be added to each independently. The publisher's `PublishResponseContext` (§10) is a fifth, internal carrier of `approval_method`.
+
+Admin visibility is read-only in v1:
+- current account default and per-location effective policy on admin business detail
+- derived runtime/provider readiness state for the environment
+- recent auto approval audit decisions and kill-switch downgrade actions
+- response `approval_method` badge/field
+
+No auto-specific digest copy or scheduler behavior in v1. Future summaries can query `approval_method='auto_policy'`.
+
+## 12. Settings API And UI
+
+Use one combined owner route:
+
+- `GET /api/settings/auto-approval`
+- `PATCH /api/settings/auto-approval`
+
+Owner routes derive account scope from the authenticated session. Do not accept `accountId` in body/query. For location operations, accept `locationId` and validate it belongs to the session account. Use `locationId` in API shape, not `businessId`.
+
+`GET`:
+- authenticated
+- no-store/dynamic
+- may be read-only under impersonation if useful
+- returns account default, each active location override, effective threshold, inherited/manual/override state, and readiness block
+- returns derived booleans/reasons, not raw env names or values
+
+Readiness block:
+
+```ts
+{
+  runtimeEnabled: boolean,
+  providerModerationEnabled: boolean,
+  providerModerationValidated: boolean,
+  accountWritable: boolean,
+  canExpand: boolean,
+  blockReasons: Array<
+    | 'auto_approval_disabled'
+    | 'provider_moderation_disabled'
+    | 'provider_moderation_not_validated'
+    | 'subscription_not_writable'
+    | 'preview_environment'
+    | 'impersonation_not_allowed'
+  >
+}
+```
+
+Avoid exposing raw subscription status unless an existing settings API already does. UI maps stable reason codes to copy.
+
+`PATCH`:
+- owner auth
+- same-origin helper (`withSameOrigin` or equivalent)
+- reject active admin impersonation sessions; do not allowlist this mutation for impersonation in v1. **Net-new at the route layer:** existing `/api/settings/*` routes wire only `withSameOrigin` + `requireWritableOwner` and trust the auth session — impersonation is enforced today at the page wrapper (`src/lib/admin/impersonation/view.ts`), not in the settings API. This route must add an explicit impersonation check rather than copy an existing route-level one.
+- one explicit operation enum:
+  - `set_account_default`
+  - `set_account_manual`
+  - `clear_account_default`
+  - `set_location_override`
+  - `set_location_manual`
+  - `delete_location_override`
+- returns refreshed effective policy state and readiness block
+
+No separate DELETE route. Deleting an override can expand by inheriting an auto account default, so it must go through the same effective-exposure calculation as every other mutation.
+
+Policy mutation transaction:
+1. `SELECT ... FOR UPDATE` the `accounts` row to serialize per account. This **must** run inside `sql.begin()`: under Supabase PgBouncer transaction pooling, a `FOR UPDATE` outside an explicit transaction drops the row lock the instant the SELECT returns (documented gotcha), so the entire mutation is one `sql.begin()` block.
+2. Read before row/effective state and active inheriting locations.
+3. Validate location account relationship and active location requirements for expansions/active edits.
+4. Compute before exposure rank.
+5. Apply mutation.
+6. Read/derive after state.
+7. Compute after exposure rank and expansion.
+8. Enforce expansion gates/confirmation.
+9. Write `account_audit_log` with `writeAccountAuditLog(input, tx)`.
+10. Return refreshed state.
+
+Exposure rank:
+
+```ts
+NULL = 0
+5 = 1
+4 = 2
+3 = 3
+2 = 4
+1 = 5
+```
+
+`afterRank > beforeRank` is expansion. Compare effective before policy to effective after policy, not only the row value. Account-default writes are bulk/future-effective changes: default `NULL -> 4`, `4 -> 3`, and `NULL -> 1` are expansions even if current active inheriting-location count is zero, because future/new/reactivated locations inherit the default. Audit should record `affectedActiveLocationCount` for current active locations without overrides.
+
+Expansion requires:
+- `autoApprovalRuntimeEnabled() === true`
+- `providerModerationEnabled() === true`
+- `providerModerationValidated() === true`
+- account writable (`active` or past-due-within-grace, matching account writability semantics)
+- not preview environment
+- non-impersonated owner session
+- required confirmation level
+
+Contractions/disables bypass these gates and confirmation. Cancelled, blocked, or pending-payment accounts can turn automation off or make it more conservative; they cannot expand it.
+
+Missing required confirmation returns `400 Bad Request`:
+
+```json
+{ "error": "auto_approval_confirmation_required", "confirmationLevel": "standard" }
+```
+
+For resulting effective threshold `1`, require:
+
+```json
+{ "error": "auto_approval_confirmation_required", "confirmationLevel": "all_ratings" }
+```
+
+Operational/account readiness blocks return `409 Conflict`:
+
+```json
+{ "error": "auto_approval_expansion_blocked", "blockReasons": ["auto_approval_disabled"] }
+```
+
+Use one request field:
+
+```ts
+confirmationLevel?: 'standard' | 'all_ratings'
+```
+
+For any expansion require at least `standard`; for resulting threshold `1`, require `all_ratings`. Store submitted and required confirmation levels in `account_audit_log.payload`. Ignore confirmation fields for contractions/disables.
+
+Audit payload should include operation, scope, old/new row values, old/new effective threshold, exposure ranks, expansion boolean, required/submitted confirmation level, readiness state, affected inheriting active location count, and active/future-default notes where relevant. Use top-level `ip`, `userAgent`, `requestId`, and `actorUserId` fields supported by `writeAccountAuditLog`; do not duplicate them in payload JSON.
+
+UI:
+- Do not hide controls when runtime is disabled; show current state and allow contractions/disables.
+- Disable expansion controls with server-provided reason codes.
+- No optimistic update before PATCH succeeds.
+- Use semantic labels: Off/manual, 5-star only, 4-5, 3-5, 2-5, All rated.
+- Copy must say responses will post to Google automatically without owner review for matching rated reviews that pass safety checks and active connection checks.
+- For `1`, require stronger confirmation copy because every rated review, including negative reviews, can auto-post if all runtime gates pass.
+- Server confirmation is product friction, not the primary runtime safety invariant; the runtime gates remain authoritative for whether a draft actually posts. It is nonetheless **enforced server-side in v1**, not left to client copy: validating the confirmation *level* (`standard` vs `all_ratings`) in the PATCH route is cheap defense-in-depth against an API or client bug that accidentally submits an expansion (e.g. a silent `all_ratings` jump). The runtime gates would not catch that, because it is a malformed-*intent* error, not an unsafe post. So the route rejects an expansion whose submitted confirmation level is below the required one.
+
+## 13. Server Flags And Environments
+
+Server-only env/config values:
+
+- `AUTO_APPROVAL_ENABLED`
+- `AUTO_APPROVAL_PROVIDER_MODERATION_READY`
+- existing `OPENAI_MODERATION_ENABLED`
+
+Each defaults false unless exactly `'true'`. Do not add `NEXT_PUBLIC_*` companions. Settings GET exposes derived booleans, not env names/values.
+
+Helpers:
+
+```ts
+autoApprovalRuntimeEnabled()
+providerModerationEnabled()
+providerModerationValidated()
+```
+
+Keep helpers small and single-purpose. Runtime predicate composes them explicitly. This leaves room for future per-account rollout without touching every call site, but v1 is environment-wide only. Do not add rollout tables or percentage rollout.
+
+Preview environments block settings expansion with reason `preview_environment` because previews are UI-only. Detect preview in the settings route with a server helper using `VERCEL_ENV === 'preview'`; local missing `VERCEL_ENV` is not preview. (No such preview-detection helper exists today — add a small `isPreviewEnvironment()` returning `process.env.VERCEL_ENV === 'preview'`.) Railway worker runtime obeys explicit flags only and has no implicit non-prod gate.
+
+Boot should not fail when these env values are missing. Add them as recognized optional server booleans if the project has an env registry/startup assertion module. Tests should assert missing/invalid values do not enable auto.
+
+`AUTO_APPROVAL_PROVIDER_MODERATION_READY` gates settings expansion only. Runtime uses `AUTO_APPROVAL_ENABLED`, `OPENAI_MODERATION_ENABLED`, and the per-draft clean marker. If ops wants to stop runtime auto, flip `AUTO_APPROVAL_ENABLED=false`.
+
+## 14. Subscription Helpers — reuse what PR #221 already landed
+
+**Do not add new subscription helpers.** PR #221 ("unify the role-auth gate family") consolidated these gates after this spec was first drafted. The auto-approval feature must reuse them, not introduce `canGenerateForAccount` / `canPublishForAccount` / `canExpandAutoApprovalPolicy` wrappers — those would be exactly the near-duplicate the project rules forbid ("never add a near-duplicate"; "reject thin wrappers").
+
+Map each decision point to the existing symbol:
+
+| Decision point | Reuse |
+| --- | --- |
+| Generator pre-gen gate (already in load context) | `checkSubscription({ workerType: 'generator', ... })` — `src/lib/shared/subscription-guard.ts` |
+| Runtime auto's "would the publisher accept this?" gate at persist time (the `canPublishForAccount(...)` label in the §4 predicate) | `checkSubscription({ workerType: 'publisher', status, pastDueAt, accountFlags, now })` — same module, called with the persist-time re-read account state |
+| Settings-expansion writability | `assertWritableSubscriptionForAccount(accountId, tx)` — `src/lib/shared/writable-subscription.ts`; owner routes already gate through `requireWritableOwner(request)` — `src/lib/auth/route-helpers.ts` |
+
+`checkSubscription` is a pure function over `{ status, pastDueAt, accountFlags, workerType, now }`, so the persist-time auto predicate calls it directly with current-state reads — no wrapper needed. Reusing these symbols (rather than re-deriving status strings) is what keeps `pending_payment`, grace-period, cancelled, and future account states from drifting. The only genuinely new gate this feature adds is the auto-approval runtime/provider/confirmation logic itself (§4, §13), which **composes** the above — it never re-implements subscription semantics.
+
+## 15. Logging
+
+When a draft would otherwise auto but a runtime prerequisite blocks it, emit a sanitized structured log with a low-cardinality reason, such as:
+
+- `auto_approval_disabled`
+- `provider_moderation_disabled`
+- `provider_moderation_error`
+- `review_content_changed_before_persist`
+- `publisher_subscription_denied`
+- `active_zernio_connection_missing`
+
+No review text, response text, raw hashes, tokens, or secrets. No durable approval audit for these fallback logs.
+
+## 16. Implementation Split
+
+Recommended PR split after provider-moderation Phase 0:
+
+1. Schema/helper hardening: migration 055, env helpers, subscription helpers, audit helpers, typed job-outbox helpers, lane helper.
+2. Runtime path behind disabled flag: origin lanes, persist predicate/current-state reads, auto branch, publisher kill-switch downgrade, manual approval attribution, tests. Runtime remains off by default.
+3. Settings UI/API and admin/DTO visibility: owner route, effective exposure gates, UI, admin read-only diagnostics, static policy audit updates.
+
+No intermediate state should allow runtime auto-posting before settings and runtime gates are in place.
+
+**Sequencing principle (tracer bullet).** Land PR 2 (the runtime path) behind the disabled flag and let it bake end-to-end — lanes -> persist-time decision -> publisher kill-switch — before building PR 3. PR 3 (the settings exposure-rank / expansion / confirmation state machine) is the heaviest and least safety-critical surface, and is the explicit trim/defer candidate. Proving the auto-posting machinery against Google with a flag-gated runtime first keeps the riskiest change reviewable on its own, before the UI complexity stacks on top.
+
+## 17. Test Plan
+
+Schema/migration:
+- partial unique index for account default
+- partial unique index for location override
+- `businesses(id, account_id)` unique target
+- composite FK `(location_id, account_id) -> businesses(id, account_id)`
+- nullable `location_id` permits account defaults
+- RLS enabled and no authenticated table policies/grants
+- `responses.approval_method` nullable with allowed-value CHECK
+- `approval_audit_log.auth_method` accepts `auto_policy`
+- conservative `approval_method` backfill behavior, including external posted rows staying `NULL`
+
+Origin lanes:
+- every `generate_response` producer uses the helper and exact lane
+- `live_ingest_new` only eligible
+- `live_ingest_update`, `backfill`, `regenerate`, unknown, and missing lane manual
+- boundary parser does not strict-reject old jobs or extra keys
+- targeted static audit that TypeScript producers include `origin_lane`
+
+Persist auto success:
+- current policy/star/hash/subscription/location/connection re-read inside persist
+- status `approved`
+- `approval_method='auto_policy'`
+- `approved_text=response_text`
+- `response_text_at_approval` matches approved text
+- one auto approval audit row with compact metadata
+- publish outbox enqueued in same transaction
+- no approval link and no send notification
+
+Manual fallback matrix:
+- bad lane
+- `version > 1`
+- `suppress_notification=true`
+- hash mismatch
+- null loaded/current hash
+- rating below threshold
+- no policy/disabled policy
+- provider disabled
+- provider error
+- provider flagged
+- local medium/low flag
+- runtime disabled
+- publisher subscription denied
+- no active Zernio connection
+- archived location
+
+Each non-held fallback asserts `status='pending_approval'`, `approval_method IS NULL`, normal notification behavior, and no publish outbox. Held moderation asserts no owner notification.
+
+Settings:
+- account default expansion across inheriting active locations
+- account default future-effective expansion even with zero active locations
+- contractions/disables allowed while runtime/provider/account readiness blocked
+- location override delete can expand or contract based on effective before/after
+- confirmation required for expansions
+- `all_ratings` confirmation required only for expanding to effective threshold `1`
+- `400` for missing confirmation
+- `409` for readiness/account blocks
+- account row locked and policy/audit atomic
+- same-origin rejection on PATCH
+- impersonated session rejected on PATCH
+- no `accountId` accepted from body/query
+- cross-account location rejected
+- GET no-store derived state
+
+Publisher downgrade:
+- auto-policy approved row downgraded when runtime disabled before external call
+- `awaiting_owner_connect` auto-policy row downgraded
+- guarded zero-row update completes outbox without notification/audit
+- duplicate/retry does not spam notifications
+- downgrade clears `approved_text`, `approved_at`, `approval_method`
+- downgrade keeps `response_text` and sets internal `posting_error`
+- downgrade audit written
+- send_notification enqueued regardless of old suppression metadata
+- owner approval after downgrade sets `approval_method='owner'` and clears stale posting error
+
+Manual approval attribution:
+- token approve/edit
+- session approve/edit
+- callback approve
+- Past Replies publish/retry/restore-original
+- no transition to `approved`/`edited` through these paths without `approval_method='owner'`
+
+Display/admin/KPI:
+- owner/admin DTOs include nullable `approval_method`
+- badges key only on `auto_policy`
+- KPI status groups unchanged
+- no digest copy/scheduler changes
+
+Static/policy:
+- no `NEXT_PUBLIC_AUTO_APPROVAL_*`
+- no runtime policy Redis/in-memory cache
+- no browser Supabase reads/writes to `auto_approval_policies`
+
+## 18. Documentation Change Map
+
+Apply with the implementation PR, not before:
+
+- Update the CLAUDE.md no-auto-posting invariant (there is no AGENTS.md in this repo — `.claude/CLAUDE.md` is the only invariant file): posting requires an approval decision, either explicit owner approval or owner-configured auto policy; auto cannot bypass moderation/provider clean/runtime/publisher/connection/location gates.
+- Update moderation invariant: high-severity holds override auto; auto also requires provider clean and zero flags.
+- Update subscription invariant: auto uses publisher semantics at persist and publisher runtime.
+- Add policy invariant: account default + location override, threshold-only, current-state persist-time decision, only `live_ingest_new`, `version=1`, no suppression, active connection, active location, no cache.
+- Add/update project skill `auto-approval-policy`.
+- Update `approval-security` skill so it no longer assumes every post is human-approved, while preserving token security for manual paths.
+
+## 19. Next Step
+
+Run the writing-plans skill against this spec to produce the implementation plan. Keep Phase 0 provider moderation validation separate, then implement in the split above. Anything touching worker, migration, webhook/publisher, or billing rides staging first, then lands on main by PR.
