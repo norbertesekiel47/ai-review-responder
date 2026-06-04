@@ -386,7 +386,7 @@ describe('POST /api/dashboard/past-replies/:responseId/restore-original', () => 
     //   ${newId}, ${reviewId}, ${failed.business_id},
     //   ${restoredText}, ${restoredText}, ${restoredText}, ${null},
     //   ${superseded.response_language},
-    //   inline SQL — ${reviewId} again,
+    //   inline SQL — ${reviewId} and ${failed.business_id} again,
     //   ${APPROVAL_METHOD.OWNER},
     //   ${null}, ${null}, ${null}, ${null}
     const newIdParam = insertCall[1] as string;
@@ -401,14 +401,15 @@ describe('POST /api/dashboard/past-replies/:responseId/restore-original', () => 
     expect(insertCall[7]).toBeNull();
     // response_language preserved from superseded row.
     expect(insertCall[8]).toBe('en');
-    // The MAX(version) sub-select also uses ${reviewId} — bound at position 9.
+    // The MAX(version) sub-select also uses ${reviewId} + business_id.
     expect(insertCall[9]).toBe(REVIEW_ID);
-    expect(insertCall[10]).toBe('owner');
+    expect(insertCall[10]).toBe(LOCATION_ID);
+    expect(insertCall[11]).toBe('owner');
     // llm_provider, llm_model, prompt_tokens, completion_tokens all NULL.
-    expect(insertCall[11]).toBeNull();
     expect(insertCall[12]).toBeNull();
     expect(insertCall[13]).toBeNull();
     expect(insertCall[14]).toBeNull();
+    expect(insertCall[15]).toBeNull();
 
     // The OLD failed row was NOT updated — verify no UPDATE call hit responses.
     const allTxCalls = txMock.mock.calls as unknown as unknown[][];

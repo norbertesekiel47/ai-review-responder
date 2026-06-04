@@ -54,6 +54,7 @@ export async function approveViaCallback(input: CallbackApprovalInput): Promise<
           approved_text = response_text,
           posting_error = NULL
       WHERE id = ${link.response_id}
+        AND business_id = ${link.business_id}
     `;
     await revokeSiblings(tx, link.response_id, link.id);
 
@@ -83,7 +84,12 @@ export async function regenerateViaCallback(input: CallbackApprovalInput): Promi
   await sql.begin(async (tx) => {
     const { link, response } = await claimCallbackResponse(tx, input);
     await revokeSiblings(tx, link.response_id, link.id);
-    await tx`UPDATE responses SET status = 'superseded' WHERE id = ${link.response_id}`;
+    await tx`
+      UPDATE responses
+      SET status = 'superseded'
+      WHERE id = ${link.response_id}
+        AND business_id = ${link.business_id}
+    `;
 
     const correlationId = await recoverCorrelationId(tx, {
       reviewId: response.review_id,

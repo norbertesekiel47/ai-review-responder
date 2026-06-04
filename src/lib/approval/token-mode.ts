@@ -55,6 +55,7 @@ export async function approve(
         approved_text = response_text,
         posting_error = NULL
     WHERE id = ${link.response_id}
+      AND business_id = ${link.business_id}
   `;
 
   await finalizeTokenPublishApproval(tx, link, correlationId);
@@ -94,6 +95,7 @@ export async function edit(
         edit_distance = ${editDist},
         posting_error = NULL
     WHERE id = ${link.response_id}
+      AND business_id = ${link.business_id}
   `;
 
   await finalizeTokenPublishApproval(tx, link, correlationId);
@@ -120,7 +122,10 @@ export async function regenerate(
   await revokeSiblings(tx, link.response_id, link.id);
 
   await tx`
-    UPDATE responses SET status = 'superseded' WHERE id = ${link.response_id}
+    UPDATE responses
+    SET status = 'superseded'
+    WHERE id = ${link.response_id}
+      AND business_id = ${link.business_id}
   `;
 
   await enqueueGenerateResponse(tx, {

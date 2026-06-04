@@ -141,6 +141,7 @@ export async function persistResponseAndNotify(input: PersistResponseInput): Pro
             posting_error = NULL,
             updated_at = NOW()
         WHERE id = ${responseId}
+          AND business_id = ${businessId}
           AND status = ${RESPONSE_STATUS_PENDING_APPROVAL}
       `;
 

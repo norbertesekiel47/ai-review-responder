@@ -53,7 +53,9 @@ export async function loadGenerationContext(input: {
     review_content_hash: string | null;
   }[]>`
     SELECT id, reviewer_name, star_rating, review_text, review_date, detected_language, review_content_hash
-    FROM reviews WHERE id = ${reviewId}
+    FROM reviews
+    WHERE id = ${reviewId}
+      AND business_id = ${businessId}
   `;
 
   if (!review) {
@@ -114,9 +116,10 @@ export async function loadGenerationContext(input: {
   // existing-response).
   const [existingResponse] = await sql<{ id: string; business_id: string; account_id: string }[]>`
     SELECT r.id, r.business_id, b.account_id
-    FROM responses r
-    JOIN businesses b ON b.id = r.business_id
-    WHERE r.review_id = ${reviewId}
+    FROM businesses b
+    JOIN responses r ON r.business_id = b.id
+    WHERE b.id = ${businessId}
+      AND r.review_id = ${reviewId}
       AND r.version = ${version}
   `;
 

@@ -84,6 +84,7 @@ export async function approveBySession(
         approved_text = response_text,
         posting_error = NULL
     WHERE id = ${responseId}
+      AND business_id = ${businessId}
   `;
 
   await enqueuePublishResponse(tx, {
@@ -127,6 +128,7 @@ export async function editBySession(
         edit_distance = ${editDist},
         posting_error = NULL
     WHERE id = ${responseId}
+      AND business_id = ${businessId}
   `;
 
   await enqueuePublishResponse(tx, {
@@ -155,7 +157,10 @@ export async function regenerateBySession(
   await revokeOpenLinksForResponse(tx, responseId);
 
   await tx`
-    UPDATE responses SET status = 'superseded' WHERE id = ${responseId}
+    UPDATE responses
+    SET status = 'superseded'
+    WHERE id = ${responseId}
+      AND business_id = ${businessId}
   `;
 
   await enqueueGenerateResponse(tx, {

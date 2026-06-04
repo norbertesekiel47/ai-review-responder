@@ -96,6 +96,7 @@ export async function POST(
       const nonTermRows = await tx`
         SELECT 1 FROM responses
         WHERE review_id = ${reviewId}
+          AND business_id = ${locationId}
           AND status IN ('pending_approval', 'approved', 'edited', 'awaiting_owner_connect')
         LIMIT 1
       `;
@@ -130,7 +131,9 @@ export async function POST(
       //     restored original and POST the failed edit text — undoing the recovery.
       const livePostedRows = await tx`
         SELECT id FROM responses
-        WHERE review_id = ${reviewId} AND status = 'posted'
+        WHERE review_id = ${reviewId}
+          AND business_id = ${locationId}
+          AND status = 'posted'
         LIMIT 1
       `;
       const livePosted = livePostedRows.length > 0;
@@ -161,6 +164,7 @@ export async function POST(
             approved_text = COALESCE(approved_text, response_text),
             updated_at = NOW()
         WHERE id = ${responseId}
+          AND business_id = ${locationId}
       `;
 
       // 4. Audit log (session-scoped — actor_user_id = users.id, NOT account).
