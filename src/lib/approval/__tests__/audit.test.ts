@@ -115,4 +115,20 @@ describe('insertAuditLogAutoPolicy', () => {
     });
     expect(values[11]).toBeNull();
   });
+
+  it('rejects an auto_approved_by_policy row without a response snapshot', async () => {
+    const tx = createMockTx([]);
+
+    await expect(
+      insertAuditLogAutoPolicy(tx, {
+        responseId: 'response-1',
+        businessId: 'business-1',
+        action: 'auto_approved_by_policy',
+        responseTextAtApproval: null,
+      }),
+    ).rejects.toThrow(/responseTextAtApproval is required/);
+
+    // The guard fires before any DB work.
+    expect(tx).not.toHaveBeenCalled();
+  });
 });

@@ -160,6 +160,14 @@ export async function insertAuditLogAutoPolicy(
   tx: TxClient,
   input: AutoPolicyAuditInput,
 ): Promise<void> {
+  const action = input.action ?? 'auto_approved_by_policy';
+  // The approval action must carry the response snapshot it attests to;
+  // downgrade actions (recorded with no text) are exempt.
+  if (action === 'auto_approved_by_policy' && input.responseTextAtApproval === null) {
+    throw new Error(
+      'insertAuditLogAutoPolicy: responseTextAtApproval is required for auto_approved_by_policy rows',
+    );
+  }
   const accountId = await resolveAccountIdFromBusiness(tx, input.businessId);
   await tx`
     INSERT INTO approval_audit_log (id, response_id, business_id, account_id, token_hash, device_cookie_hash, action, ip_address, metadata, actor_user_id, auth_method, response_text_at_approval)
@@ -170,7 +178,7 @@ export async function insertAuditLogAutoPolicy(
       ${accountId},
       ${null},
       ${null},
-      ${input.action ?? 'auto_approved_by_policy'},
+      ${action},
       ${null},
       ${jsonb(compactAutoPolicyMetadata(input.metadata))},
       ${null},
