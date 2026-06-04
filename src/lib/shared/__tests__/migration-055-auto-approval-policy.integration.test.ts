@@ -1,0 +1,203 @@
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import postgres from 'postgres';
+import type postgresType from 'postgres';
+import { randomUUID } from 'node:crypto';
+import { v7 as uuidv7 } from 'uuid';
+
+// Behavioral (live-DB) companion to migration-055-auto-approval-policy.test.ts,
+// which only asserts the migration SQL *text*. This proves the runtime schema
+// behavior the string test cannot: the composite FK (MATCH SIMPLE) admits
+// account-default rows but rejects a cross-account location, the partial unique
+// indexes enforce one account-default and one override per location, and the
+// approval_method / auth_method CHECKs accept the new auto_policy value.
+//
+// Gated on a real test database (TEST_DATABASE_POOL_URL), like the repo's other
+// integration tests; skips cleanly without one (e.g. in the no-DB CI test job).
+// The database is expected to already have all migrations applied.
+const testDatabaseUrl = process.env.TEST_DATABASE_POOL_URL;
+const RUN = Boolean(testDatabaseUrl);
+const d = RUN ? describe : describe.skip;
+
+let db: postgresType.Sql | undefined;
+
+// Two tenants so we can prove cross-account FK rejection.
+const a = {
+  userId: randomUUID(),
+  accountId: randomUUID(),
+  businessId: randomUUID(),
+  reviewId: randomUUID(),
+  responseId: randomUUID(),
+};
+const b = {
+  userId: randomUUID(),
+  accountId: randomUUID(),
+  businessId: randomUUID(),
+};
+const ownerEmailA = `aap-055-a-${a.accountId}@test.local`;
+const ownerEmailB = `aap-055-b-${b.accountId}@test.local`;
+
+function sql(): postgresType.Sql {
+  if (!db) throw new Error('migration 055 integration database was not initialized');
+  return db;
+}
+
+d('migration 055 auto_approval_policies — behavioral', () => {
+  beforeAll(async () => {
+    db = postgres(testDatabaseUrl!, { max: 1, prepare: false });
+    await sql().begin(async (tx) => {
+      // users.account_id <-> accounts.owner_user_id are mutually referential.
+      await tx`SET CONSTRAINTS ALL DEFERRED`;
+      for (const [tenant, email] of [
+        [a, ownerEmailA],
+        [b, ownerEmailB],
+      ] as const) {
+        await tx`
+          INSERT INTO users (id, name, email, role, account_id)
+          VALUES (${tenant.userId}::uuid, 'AAP 055 Owner', ${email}, 'owner', ${tenant.accountId}::uuid)
+        `;
+        await tx`
+          INSERT INTO accounts (id, owner_user_id, display_name, subscription_tier, subscription_status)
+          VALUES (${tenant.accountId}::uuid, ${tenant.userId}::uuid, 'AAP 055 Account', 'standard', 'active')
+        `;
+        await tx`
+          INSERT INTO businesses (id, name, owner_name, owner_email, account_id, subscription_status)
+          VALUES (${tenant.businessId}::uuid, 'AAP 055 Biz', 'AAP 055 Owner', ${email}, ${tenant.accountId}::uuid, 'active')
+        `;
+      }
+      await tx`
+        INSERT INTO reviews (
+          id, business_id, provider, provider_review_id, provider_review_name,
+          provider_location_name, reviewer_name, star_rating, review_text, status
+        )
+        VALUES (
+          ${a.reviewId}::uuid, ${a.businessId}::uuid, 'zernio', ${`aap-055-${a.reviewId}`},
+          ${`zernio://aap/reviews/${a.reviewId}`}, 'zernio://aap/locations/1', 'Reviewer', 5,
+          'Great visit', 'responded'
+        )
+      `;
+      await tx`
+        INSERT INTO responses (
+          id, review_id, business_id, response_text, original_draft_text, response_language
+        )
+        VALUES (
+          ${a.responseId}::uuid, ${a.reviewId}::uuid, ${a.businessId}::uuid, 'A reply', 'A reply', 'en'
+        )
+      `;
+    });
+  });
+
+  afterEach(async () => {
+    if (!db) return;
+    await sql()`
+      DELETE FROM auto_approval_policies
+      WHERE account_id IN (${a.accountId}::uuid, ${b.accountId}::uuid)
+    `;
+  });
+
+  afterAll(async () => {
+    if (!db) return;
+    await sql().begin(async (tx) => {
+      await tx`SET CONSTRAINTS ALL DEFERRED`;
+      await tx`DELETE FROM auto_approval_policies WHERE account_id IN (${a.accountId}::uuid, ${b.accountId}::uuid)`;
+      await tx`DELETE FROM approval_audit_log WHERE response_id = ${a.responseId}::uuid`;
+      await tx`DELETE FROM responses WHERE id = ${a.responseId}::uuid`;
+      await tx`DELETE FROM reviews WHERE id = ${a.reviewId}::uuid`;
+      await tx`DELETE FROM businesses WHERE id IN (${a.businessId}::uuid, ${b.businessId}::uuid)`;
+      await tx`DELETE FROM accounts WHERE id IN (${a.accountId}::uuid, ${b.accountId}::uuid)`;
+      await tx`DELETE FROM users WHERE id IN (${a.userId}::uuid, ${b.userId}::uuid)`;
+    });
+    await db.end({ timeout: 5 });
+  });
+
+  it('composite FK (MATCH SIMPLE) admits an account-default and a same-account override, rejects a cross-account location', async () => {
+    // Account-default row: location_id NULL passes the composite FK under MATCH SIMPLE.
+    await sql()`
+      INSERT INTO auto_approval_policies (id, account_id, location_id, auto_approve_min_star)
+      VALUES (${uuidv7()}::uuid, ${a.accountId}::uuid, NULL, 4)
+    `;
+    // Same-account location override is allowed.
+    await sql()`
+      INSERT INTO auto_approval_policies (id, account_id, location_id, auto_approve_min_star)
+      VALUES (${uuidv7()}::uuid, ${a.accountId}::uuid, ${a.businessId}::uuid, 5)
+    `;
+    const rows = await sql()<{ count: string }[]>`
+      SELECT count(*)::text AS count
+      FROM auto_approval_policies
+      WHERE account_id = ${a.accountId}::uuid
+    `;
+    expect(rows[0]?.count).toBe('2');
+
+    // A location that belongs to a DIFFERENT account violates the composite FK.
+    await expect(
+      sql()`
+        INSERT INTO auto_approval_policies (id, account_id, location_id, auto_approve_min_star)
+        VALUES (${uuidv7()}::uuid, ${a.accountId}::uuid, ${b.businessId}::uuid, 5)
+      `,
+    ).rejects.toThrow();
+  });
+
+  it('partial unique indexes enforce one account-default and one override per (account, location)', async () => {
+    await sql()`
+      INSERT INTO auto_approval_policies (id, account_id, location_id, auto_approve_min_star)
+      VALUES (${uuidv7()}::uuid, ${a.accountId}::uuid, NULL, 4)
+    `;
+    await expect(
+      sql()`
+        INSERT INTO auto_approval_policies (id, account_id, location_id, auto_approve_min_star)
+        VALUES (${uuidv7()}::uuid, ${a.accountId}::uuid, NULL, 3)
+      `,
+    ).rejects.toThrow();
+
+    await sql()`
+      INSERT INTO auto_approval_policies (id, account_id, location_id, auto_approve_min_star)
+      VALUES (${uuidv7()}::uuid, ${a.accountId}::uuid, ${a.businessId}::uuid, 5)
+    `;
+    await expect(
+      sql()`
+        INSERT INTO auto_approval_policies (id, account_id, location_id, auto_approve_min_star)
+        VALUES (${uuidv7()}::uuid, ${a.accountId}::uuid, ${a.businessId}::uuid, 2)
+      `,
+    ).rejects.toThrow();
+  });
+
+  it('approval_audit_log.auth_method accepts auto_policy and rejects unknown values', async () => {
+    const auditId = randomUUID();
+    await sql()`
+      INSERT INTO approval_audit_log (
+        id, response_id, business_id, account_id, token_hash, action, auth_method, metadata
+      )
+      VALUES (
+        ${auditId}::uuid, ${a.responseId}::uuid, ${a.businessId}::uuid, ${a.accountId}::uuid,
+        'test-token-hash', 'auto_approved_by_policy', 'auto_policy', '{}'::jsonb
+      )
+    `;
+    const [row] = await sql()<{ auth_method: string }[]>`
+      SELECT auth_method FROM approval_audit_log WHERE id = ${auditId}::uuid
+    `;
+    expect(row?.auth_method).toBe('auto_policy');
+
+    // Only auth_method differs here, so the rejection isolates its CHECK.
+    await expect(
+      sql()`
+        INSERT INTO approval_audit_log (
+          id, response_id, business_id, account_id, token_hash, action, auth_method, metadata
+        )
+        VALUES (
+          ${randomUUID()}::uuid, ${a.responseId}::uuid, ${a.businessId}::uuid, ${a.accountId}::uuid,
+          'test-token-hash', 'auto_approved_by_policy', 'not_a_method', '{}'::jsonb
+        )
+      `,
+    ).rejects.toThrow();
+
+    await sql()`DELETE FROM approval_audit_log WHERE id = ${auditId}::uuid`;
+  });
+
+  it('responses.approval_method accepts owner/auto_policy and rejects other values', async () => {
+    await sql()`UPDATE responses SET approval_method = 'auto_policy' WHERE id = ${a.responseId}::uuid`;
+    await sql()`UPDATE responses SET approval_method = 'owner' WHERE id = ${a.responseId}::uuid`;
+    await expect(
+      sql()`UPDATE responses SET approval_method = 'bogus' WHERE id = ${a.responseId}::uuid`,
+    ).rejects.toThrow();
+    await sql()`UPDATE responses SET approval_method = NULL WHERE id = ${a.responseId}::uuid`;
+  });
+});
