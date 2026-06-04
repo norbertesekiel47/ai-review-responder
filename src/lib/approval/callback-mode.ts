@@ -10,6 +10,7 @@
 // outbox row via recoverCorrelationId so the chain stays linked.
 
 import { sql } from '@/lib/db/server';
+import type postgres from 'postgres';
 import {
   lockLinkByIdForCallback,
   lockPendingResponse,
@@ -18,7 +19,7 @@ import {
 } from './locks';
 import { insertAuditLog, buildCallbackAudit } from './audit';
 import { recoverCorrelationId } from './correlation';
-import type { CallbackApprovalInput } from './types';
+import type { ApprovalLink, CallbackApprovalInput } from './types';
 import { GENERATE_RESPONSE_ORIGIN_LANE } from '@/lib/shared/worker-types';
 import { APPROVAL_METHOD } from '@/lib/auto-approval/types';
 import { enqueueGenerateResponse, enqueuePublishResponse } from '@/lib/shared/job-outbox-helpers';
@@ -29,6 +30,14 @@ import {
 
 export type { CallbackApprovalInput };
 
+type TxClient = postgres.TransactionSql;
+type PendingResponse = Awaited<ReturnType<typeof lockPendingResponse>>;
+
+interface ClaimedCallbackResponse {
+  link: ApprovalLink;
+  response: PendingResponse;
+}
+
 /**
  * Approve via inline-button callback (Telegram / WhatsApp).
  * Authorization is provider-signature + sender-handle bound in the ingress layer.
@@ -36,11 +45,7 @@ export type { CallbackApprovalInput };
  */
 export async function approveViaCallback(input: CallbackApprovalInput): Promise<void> {
   await sql.begin(async (tx) => {
-    const link = await lockLinkByIdForCallback(tx, input.approvalLinkId, input.viaChannel);
-    throwIfReadOnly(await assertWritableSubscriptionForBusiness(link.business_id, tx));
-
-    const response = await lockPendingResponse(tx, link.response_id);
-    await consumeLink(tx, link.id);
+    const { link, response } = await claimCallbackResponse(tx, input);
     await tx`
       UPDATE responses
       SET status = 'approved',
@@ -76,11 +81,7 @@ export async function approveViaCallback(input: CallbackApprovalInput): Promise<
  */
 export async function regenerateViaCallback(input: CallbackApprovalInput): Promise<void> {
   await sql.begin(async (tx) => {
-    const link = await lockLinkByIdForCallback(tx, input.approvalLinkId, input.viaChannel);
-    throwIfReadOnly(await assertWritableSubscriptionForBusiness(link.business_id, tx));
-
-    const response = await lockPendingResponse(tx, link.response_id);
-    await consumeLink(tx, link.id);
+    const { link, response } = await claimCallbackResponse(tx, input);
     await revokeSiblings(tx, link.response_id, link.id);
     await tx`UPDATE responses SET status = 'superseded' WHERE id = ${link.response_id}`;
 
@@ -100,4 +101,17 @@ export async function regenerateViaCallback(input: CallbackApprovalInput): Promi
     const { audit, metadata } = buildCallbackAudit(link, input, correlationId);
     await insertAuditLog(tx, link.response_id, link.business_id, `regenerated_via_${input.viaChannel}`, audit, metadata);
   });
+}
+
+async function claimCallbackResponse(
+  tx: TxClient,
+  input: CallbackApprovalInput,
+): Promise<ClaimedCallbackResponse> {
+  const link = await lockLinkByIdForCallback(tx, input.approvalLinkId, input.viaChannel);
+  throwIfReadOnly(await assertWritableSubscriptionForBusiness(link.business_id, tx));
+
+  const response = await lockPendingResponse(tx, link.response_id);
+  await consumeLink(tx, link.id);
+
+  return { link, response };
 }

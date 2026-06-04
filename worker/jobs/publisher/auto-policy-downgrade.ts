@@ -12,7 +12,7 @@ const AGGREGATE_TYPE_RESPONSE = 'response';
 const JOB_OUTBOX_STATUS_DISPATCHED = 'dispatched';
 const JOB_OUTBOX_STATUS_COMPLETED = 'completed';
 
-export const AUTO_POLICY_REVOKED_BY_KILL_SWITCH =
+const AUTO_POLICY_REVOKED_BY_KILL_SWITCH =
   'auto_policy_revoked_by_kill_switch';
 
 export type AutoPolicyDowngradeOutcome = 'downgraded' | 'no-op';

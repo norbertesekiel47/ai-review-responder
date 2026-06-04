@@ -176,7 +176,6 @@ export async function loadAutoApprovalRuntimeState(
 }
 
 export function evaluateAutoApprovalCandidate(input: AutoApprovalCandidateInput): AutoApprovalDecision {
-  const blockReasons: AutoApprovalBlockReason[] = [];
   const publisherSubscription = checkSubscription({
     status: input.subscriptionStatus,
     pastDueAt: input.accountPastDueAt,
@@ -189,56 +188,23 @@ export function evaluateAutoApprovalCandidate(input: AutoApprovalCandidateInput)
   const reviewContentHashMatched = input.loadedReviewContentHash !== null
     && input.currentReviewContentHash !== null
     && input.loadedReviewContentHash === input.currentReviewContentHash;
+  const thresholdReason = thresholdBlockReason(input);
 
-  if (!starMeetsThreshold(input.currentStarRating, input.effectivePolicy.threshold)) {
-    if (input.effectivePolicy.threshold === null) {
-      blockReasons.push('policy_not_enabled');
-    } else if (input.currentStarRating === null) {
-      blockReasons.push('current_rating_missing');
-    } else {
-      blockReasons.push('rating_below_threshold');
-    }
-  }
-  if (input.originLane !== GENERATE_RESPONSE_ORIGIN_LANE.LIVE_INGEST_NEW) {
-    blockReasons.push('bad_origin_lane');
-  }
-  if (input.loadedReviewContentHash === null || input.currentReviewContentHash === null) {
-    blockReasons.push('review_content_hash_missing');
-  } else if (!reviewContentHashMatched) {
-    blockReasons.push('review_content_changed_before_persist');
-  }
-  if (input.currentStarRating === null && !blockReasons.includes('current_rating_missing')) {
-    blockReasons.push('current_rating_missing');
-  }
-  if (!providerEnabled) {
-    blockReasons.push('provider_moderation_disabled');
-  } else if (input.moderation.providerStatus !== 'clean') {
-    blockReasons.push('provider_moderation_error');
-  }
-  if (input.moderation.flagged) {
-    blockReasons.push('moderation_flagged');
-  }
-  if (input.held) {
-    blockReasons.push('moderation_held');
-  }
-  if (!publisherSubscription.allowed) {
-    blockReasons.push('publisher_subscription_denied');
-  }
-  if (!input.activeLocationNow) {
-    blockReasons.push('archived_location');
-  }
-  if (!input.activeZernioConnectionNow) {
-    blockReasons.push('active_zernio_connection_missing');
-  }
-  if (!runtimeEnabled) {
-    blockReasons.push('auto_approval_disabled');
-  }
-  if (input.version !== 1) {
-    blockReasons.push('unsupported_version');
-  }
-  if (input.suppressNotification) {
-    blockReasons.push('suppressed_notification');
-  }
+  const blockReasons = compactBlockReasons([
+    thresholdReason,
+    when(input.originLane !== GENERATE_RESPONSE_ORIGIN_LANE.LIVE_INGEST_NEW, 'bad_origin_lane'),
+    reviewContentHashBlockReason(input, reviewContentHashMatched),
+    when(input.currentStarRating === null && thresholdReason !== 'current_rating_missing', 'current_rating_missing'),
+    providerModerationBlockReason(input.moderation, providerEnabled),
+    when(input.moderation.flagged, 'moderation_flagged'),
+    when(input.held, 'moderation_held'),
+    when(!publisherSubscription.allowed, 'publisher_subscription_denied'),
+    when(!input.activeLocationNow, 'archived_location'),
+    when(!input.activeZernioConnectionNow, 'active_zernio_connection_missing'),
+    when(!runtimeEnabled, 'auto_approval_disabled'),
+    when(input.version !== 1, 'unsupported_version'),
+    when(input.suppressNotification, 'suppressed_notification'),
+  ]);
 
   return {
     approved: blockReasons.length === 0 && providerModerationClean(input.moderation),
@@ -248,4 +214,53 @@ export function evaluateAutoApprovalCandidate(input: AutoApprovalCandidateInput)
     providerModerationEnabled: providerEnabled,
     runtimeEnabled,
   };
+}
+
+function thresholdBlockReason(input: Pick<
+  AutoApprovalCandidateInput,
+  'currentStarRating' | 'effectivePolicy'
+>): AutoApprovalBlockReason | null {
+  if (starMeetsThreshold(input.currentStarRating, input.effectivePolicy.threshold)) {
+    return null;
+  }
+  if (input.effectivePolicy.threshold === null) {
+    return 'policy_not_enabled';
+  }
+  if (input.currentStarRating === null) {
+    return 'current_rating_missing';
+  }
+  return 'rating_below_threshold';
+}
+
+function reviewContentHashBlockReason(
+  input: Pick<AutoApprovalCandidateInput, 'loadedReviewContentHash' | 'currentReviewContentHash'>,
+  reviewContentHashMatched: boolean,
+): AutoApprovalBlockReason | null {
+  if (input.loadedReviewContentHash === null || input.currentReviewContentHash === null) {
+    return 'review_content_hash_missing';
+  }
+  return reviewContentHashMatched ? null : 'review_content_changed_before_persist';
+}
+
+function providerModerationBlockReason(
+  moderation: ModerationDecision,
+  providerEnabled: boolean,
+): AutoApprovalBlockReason | null {
+  if (!providerEnabled) {
+    return 'provider_moderation_disabled';
+  }
+  return moderation.providerStatus === 'clean' ? null : 'provider_moderation_error';
+}
+
+function when(
+  condition: boolean,
+  reason: AutoApprovalBlockReason,
+): AutoApprovalBlockReason | null {
+  return condition ? reason : null;
+}
+
+function compactBlockReasons(
+  blockReasons: Array<AutoApprovalBlockReason | null>,
+): AutoApprovalBlockReason[] {
+  return blockReasons.filter((reason): reason is AutoApprovalBlockReason => reason !== null);
 }

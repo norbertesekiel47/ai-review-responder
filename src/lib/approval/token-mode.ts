@@ -26,6 +26,7 @@ import { APPROVAL_METHOD } from '@/lib/auto-approval/types';
 import { enqueueGenerateResponse, enqueuePublishResponse } from '@/lib/shared/job-outbox-helpers';
 
 type TxClient = postgres.TransactionSql;
+type PendingResponse = Awaited<ReturnType<typeof lockPendingResponse>>;
 
 /**
  * Approve a response as-is. Validates response is still pending,
@@ -44,8 +45,7 @@ export async function approve(
   correlationId?: string,
 ): Promise<void> {
   verifyDevice(link, deviceCookieHash);
-  const resp = await lockPendingResponse(tx, link.response_id);
-  await consumeLink(tx, link.id);
+  const resp = await lockAndConsumeTokenResponse(tx, link);
 
   await tx`
     UPDATE responses
@@ -57,13 +57,7 @@ export async function approve(
     WHERE id = ${link.response_id}
   `;
 
-  await revokeSiblings(tx, link.response_id, link.id);
-
-  await enqueuePublishResponse(tx, {
-    responseId: link.response_id,
-    businessId: link.business_id,
-    correlationId,
-  });
+  await finalizeTokenPublishApproval(tx, link, correlationId);
 
   await insertAuditLog(tx, link.response_id, link.business_id, 'approve', audit, undefined, {
     responseTextAtApproval: resp.response_text,
@@ -86,8 +80,7 @@ export async function edit(
   const sanitizedText = sanitizePublicResponseText(editedText);
   if (sanitizedText.length === 0) throw new EmptyEditedResponseError();
 
-  const resp = await lockPendingResponse(tx, link.response_id);
-  await consumeLink(tx, link.id);
+  const resp = await lockAndConsumeTokenResponse(tx, link);
 
   const editDist = distance(resp.original_draft_text, sanitizedText);
 
@@ -103,13 +96,7 @@ export async function edit(
     WHERE id = ${link.response_id}
   `;
 
-  await revokeSiblings(tx, link.response_id, link.id);
-
-  await enqueuePublishResponse(tx, {
-    responseId: link.response_id,
-    businessId: link.business_id,
-    correlationId,
-  });
+  await finalizeTokenPublishApproval(tx, link, correlationId);
 
   await insertAuditLog(tx, link.response_id, link.business_id, 'edit', audit, { edit_distance: editDist }, {
     responseTextAtApproval: sanitizedText,
@@ -129,8 +116,7 @@ export async function regenerate(
   correlationId?: string,
 ): Promise<void> {
   verifyDevice(link, deviceCookieHash);
-  const resp = await lockPendingResponse(tx, link.response_id);
-  await consumeLink(tx, link.id);
+  const resp = await lockAndConsumeTokenResponse(tx, link);
   await revokeSiblings(tx, link.response_id, link.id);
 
   await tx`
@@ -146,4 +132,26 @@ export async function regenerate(
   });
 
   await insertAuditLog(tx, link.response_id, link.business_id, 'regenerate', audit);
+}
+
+async function lockAndConsumeTokenResponse(
+  tx: TxClient,
+  link: ApprovalLink,
+): Promise<PendingResponse> {
+  const response = await lockPendingResponse(tx, link.response_id);
+  await consumeLink(tx, link.id);
+  return response;
+}
+
+async function finalizeTokenPublishApproval(
+  tx: TxClient,
+  link: ApprovalLink,
+  correlationId: string | undefined,
+): Promise<void> {
+  await revokeSiblings(tx, link.response_id, link.id);
+  await enqueuePublishResponse(tx, {
+    responseId: link.response_id,
+    businessId: link.business_id,
+    correlationId,
+  });
 }
