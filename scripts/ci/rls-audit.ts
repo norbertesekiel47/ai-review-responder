@@ -39,7 +39,8 @@ export function collectRlsEnabledTables(migrationsSql: readonly string[]): Set<s
   const enabled = new Set<string>();
   for (const sql of migrationsSql) {
     for (const match of sql.matchAll(ENABLE_RLS_RE)) {
-      enabled.add(match[1]);
+      const table = match[1];
+      if (table) enabled.add(table);
     }
   }
   return enabled;
