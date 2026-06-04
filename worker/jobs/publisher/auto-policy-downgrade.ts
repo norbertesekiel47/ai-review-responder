@@ -1,45 +1,17 @@
 import { v7 as uuidv7 } from 'uuid';
-import type postgres from 'postgres';
 import { jsonb, sql } from '../../../src/lib/db/server';
 import { insertAuditLogAutoPolicy } from '../../../src/lib/approval/audit';
 import { APPROVAL_METHOD } from '../../../src/lib/auto-approval/types';
 import { QUEUE_NAMES } from '../../../src/lib/shared/queue-names';
+import { markOutboxCompleted } from '../../../src/lib/shared/outbox';
 import type { SendNotificationPayload } from '../../../src/lib/shared/worker-types';
 
-type TxClient = postgres.TransactionSql;
-
 const AGGREGATE_TYPE_RESPONSE = 'response';
-const JOB_OUTBOX_STATUS_DISPATCHED = 'dispatched';
-const JOB_OUTBOX_STATUS_COMPLETED = 'completed';
 
 const AUTO_POLICY_REVOKED_BY_KILL_SWITCH =
   'auto_policy_revoked_by_kill_switch';
 
 export type AutoPolicyDowngradeOutcome = 'downgraded' | 'no-op';
-
-async function markPublishOutboxCompletedTx(
-  tx: TxClient,
-  outboxId: string,
-  outboxAttempt: number | undefined,
-): Promise<void> {
-  if (typeof outboxAttempt === 'number' && Number.isFinite(outboxAttempt)) {
-    await tx`
-      UPDATE job_outbox
-      SET status = ${JOB_OUTBOX_STATUS_COMPLETED}, completed_at = NOW()
-      WHERE id = ${outboxId}
-        AND status = ${JOB_OUTBOX_STATUS_DISPATCHED}
-        AND attempts = ${outboxAttempt}
-    `;
-    return;
-  }
-
-  await tx`
-    UPDATE job_outbox
-    SET status = ${JOB_OUTBOX_STATUS_COMPLETED}, completed_at = NOW()
-    WHERE id = ${outboxId}
-      AND status = ${JOB_OUTBOX_STATUS_DISPATCHED}
-  `;
-}
 
 export async function downgradeAutoApprovedResponseForManualReview(input: {
   responseId: string;
@@ -75,7 +47,7 @@ export async function downgradeAutoApprovedResponseForManualReview(input: {
     `;
 
     if (!downgraded) {
-      await markPublishOutboxCompletedTx(tx, outboxId, outboxAttempt);
+      await markOutboxCompleted(outboxId, outboxAttempt, tx);
       return 'no-op';
     }
 
@@ -113,7 +85,7 @@ export async function downgradeAutoApprovedResponseForManualReview(input: {
       )
     `;
 
-    await markPublishOutboxCompletedTx(tx, outboxId, outboxAttempt);
+    await markOutboxCompleted(outboxId, outboxAttempt, tx);
     logger.warn(
       `Auto-approved response ${responseId} downgraded to owner review because auto-approval runtime is disabled`,
     );

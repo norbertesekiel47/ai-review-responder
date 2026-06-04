@@ -60,7 +60,7 @@ function requireStringField(
 
 function requireVersion(payload: Record<string, unknown>): number {
   const value = payload.version;
-  if (!Number.isInteger(value) || typeof value !== 'number' || value <= 0) {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) {
     throw new Error('generate_response payload requires version');
   }
   return value;

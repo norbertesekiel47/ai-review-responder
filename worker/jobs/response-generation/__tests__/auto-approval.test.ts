@@ -3,7 +3,6 @@ import type { ModerationDecision } from '../../../../src/lib/moderation/output-f
 import type { EffectiveAutoApprovalPolicy } from '../../../../src/lib/auto-approval/types';
 import {
   evaluateAutoApprovalCandidate,
-  providerModerationClean,
   type AutoApprovalBlockReason,
   type AutoApprovalCandidateInput,
 } from '../auto-approval';
@@ -55,23 +54,6 @@ function baseInput(overrides: Partial<AutoApprovalCandidateInput> = {}): AutoApp
     ...overrides,
   };
 }
-
-describe('providerModerationClean', () => {
-  afterEach(() => {
-    delete process.env.OPENAI_MODERATION_ENABLED;
-  });
-
-  it('requires provider moderation to be enabled, clean, and unflagged', () => {
-    process.env.OPENAI_MODERATION_ENABLED = 'true';
-    expect(providerModerationClean(CLEAN_MODERATION)).toBe(true);
-    expect(providerModerationClean({ ...CLEAN_MODERATION, providerStatus: 'error' })).toBe(false);
-    expect(providerModerationClean({ ...CLEAN_MODERATION, providerStatus: null })).toBe(false);
-    expect(providerModerationClean({ ...CLEAN_MODERATION, flagged: true, severity: 'medium' })).toBe(false);
-
-    process.env.OPENAI_MODERATION_ENABLED = 'false';
-    expect(providerModerationClean(CLEAN_MODERATION)).toBe(false);
-  });
-});
 
 describe('evaluateAutoApprovalCandidate', () => {
   afterEach(() => {

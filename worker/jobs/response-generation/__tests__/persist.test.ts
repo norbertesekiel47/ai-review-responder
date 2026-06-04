@@ -128,6 +128,7 @@ function baseInput(overrides: Partial<Parameters<typeof persistResponseAndNotify
     loadedReviewContentHash: 'hash-1',
     moderation: CLEAN_MODERATION,
     accountId: 'acct-1',
+    logger: { log: () => {} },
     ...overrides,
   };
 }

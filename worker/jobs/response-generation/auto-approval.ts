@@ -96,12 +96,6 @@ export interface AutoApprovalRuntimeState {
   activeZernioConnectionNow: boolean;
 }
 
-export function providerModerationClean(moderation: ModerationDecision): boolean {
-  return providerModerationEnabled()
-    && moderation.providerStatus === 'clean'
-    && moderation.flagged === false;
-}
-
 function policyRowsToEffectivePolicy(
   rows: AutoApprovalPolicyRow[],
   accountId: string,
@@ -194,7 +188,7 @@ export function evaluateAutoApprovalCandidate(input: AutoApprovalCandidateInput)
     thresholdReason,
     when(input.originLane !== GENERATE_RESPONSE_ORIGIN_LANE.LIVE_INGEST_NEW, 'bad_origin_lane'),
     reviewContentHashBlockReason(input, reviewContentHashMatched),
-    when(input.currentStarRating === null && thresholdReason !== 'current_rating_missing', 'current_rating_missing'),
+    when(input.currentStarRating === null, 'current_rating_missing'),
     providerModerationBlockReason(input.moderation, providerEnabled),
     when(input.moderation.flagged, 'moderation_flagged'),
     when(input.held, 'moderation_held'),
@@ -207,7 +201,7 @@ export function evaluateAutoApprovalCandidate(input: AutoApprovalCandidateInput)
   ]);
 
   return {
-    approved: blockReasons.length === 0 && providerModerationClean(input.moderation),
+    approved: blockReasons.length === 0,
     blockReasons,
     publisherSubscription,
     reviewContentHashMatched,
@@ -262,5 +256,7 @@ function when(
 function compactBlockReasons(
   blockReasons: Array<AutoApprovalBlockReason | null>,
 ): AutoApprovalBlockReason[] {
-  return blockReasons.filter((reason): reason is AutoApprovalBlockReason => reason !== null);
+  return [...new Set(
+    blockReasons.filter((reason): reason is AutoApprovalBlockReason => reason !== null),
+  )];
 }

@@ -47,7 +47,7 @@ export interface PersistResponseInput {
   loadedReviewContentHash: string | null;
   moderation: ModerationDecision;
   accountId: string;
-  logger?: Pick<WorkerLogger, 'log'>;
+  logger: Pick<WorkerLogger, 'log'>;
 }
 
 export async function persistResponseAndNotify(input: PersistResponseInput): Promise<string> {
@@ -203,7 +203,7 @@ export async function persistResponseAndNotify(input: PersistResponseInput): Pro
 }
 
 function logAutoApprovalFallbackIfNeeded(input: {
-  logger: Pick<WorkerLogger, 'log'> | undefined;
+  logger: Pick<WorkerLogger, 'log'>;
   autoDecision: AutoApprovalDecision;
   runtimeState: AutoApprovalRuntimeState;
   responseId: string;
@@ -224,7 +224,7 @@ function logAutoApprovalFallbackIfNeeded(input: {
     originLane,
     moderation,
   } = input;
-  if (!logger || autoDecision.approved || autoDecision.blockReasons.length === 0) {
+  if (autoDecision.approved || autoDecision.blockReasons.length === 0) {
     return;
   }
 
