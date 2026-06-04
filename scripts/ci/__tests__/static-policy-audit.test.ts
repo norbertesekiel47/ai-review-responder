@@ -84,6 +84,20 @@ describe('scanFile — auto_approval_policies browser access', () => {
 
     expect(findings).toHaveLength(0);
   });
+
+  it('does not treat a mid-file "use client" string literal as a client directive', () => {
+    const findings = scanFile(
+      'src/lib/server/policy-examples.ts',
+      [
+        'const DIRECTIVES = [',
+        "  'use client',",
+        '];',
+        'await sql`SELECT * FROM auto_approval_policies`;',
+      ].join('\n'),
+    );
+
+    expect(findings).toHaveLength(0);
+  });
 });
 
 describe('auditPackageJson — crypto-js (invariant #10)', () => {
