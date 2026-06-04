@@ -691,8 +691,11 @@ describe('GET /api/dashboard', () => {
       },
     ]);
 
-    // Call 1: grace period query — should query cancelled_at
-    const cancelledAt = new Date('2026-05-05T00:00:00Z');
+    // Call 1: grace period query — should query cancelled_at.
+    // Relative to now so the 30-day grace window stays in the future no matter
+    // when CI runs; a hard-coded cancelled_at previously expired once the
+    // calendar crossed grace end and flipped readAccess to false.
+    const cancelledAt = new Date(Date.now() - 5 * 86_400_000); // 5 days ago
     const activatedAt = new Date('2025-11-01T00:00:00Z'); // activated months ago
     mockSqlResults.push([
       { cancelled_at: cancelledAt, subscription_activated_at: activatedAt },
@@ -705,7 +708,7 @@ describe('GET /api/dashboard', () => {
     expect(body.subscriptionStatus).toBe('cancelled');
     expect(body.readAccess).toBe(true);
 
-    // Grace period end should be cancelled_at + 30 days = 2026-06-04
+    // Grace period end should be cancelled_at + 30 days.
     const graceEnd = new Date(body.gracePeriodEndDate);
     const expectedEnd = new Date(cancelledAt.getTime() + 30 * 86_400_000);
     expect(graceEnd.getTime()).toBe(expectedEnd.getTime());
