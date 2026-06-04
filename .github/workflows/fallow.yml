@@ -1,0 +1,36 @@
+name: Fallow
+
+# Advisory codebase-health gate. Runs `fallow audit --gate new-only`, which
+# respects the rule severities in .fallowrc.jsonc and fails ONLY on findings
+# this PR introduces (the large acknowledged backlog in .fallowrc.jsonc is not
+# re-litigated). The check can go red but is NOT a required status check yet —
+# promote it in branch protection once the signal is trusted.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fallow-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fallow:
+    name: fallow
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # Full history so `--base origin/main` resolves the PR base.
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Setup Node + pnpm
+        uses: ./.github/actions/setup
+      - name: Install fallow
+        run: npm install -g fallow@2.88.2
+      - name: Fallow audit (new findings only)
+        run: pnpm ci:fallow
