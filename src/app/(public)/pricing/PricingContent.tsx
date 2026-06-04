@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useReducer, useState, type ReactNode } from 'react';
 import { LeadIntakeForm } from '@/components/sections/lead-intake/LeadIntakeForm';
 import { MarqueeBackground } from '@/components/ui/MarqueeBackground';
 import { SiteNav } from '@/components/ui/SiteNav';
@@ -312,14 +312,41 @@ function MatrixCell({ v, featured }: { v: string | boolean; featured: boolean })
   return <div className={cls}>{v}</div>;
 }
 
+interface RoiState {
+  reviews: number;
+  minutes: number;
+  rate: number;
+}
+
+type RoiAction =
+  | { type: 'setReviews'; value: number }
+  | { type: 'setMinutes'; value: number }
+  | { type: 'setRate'; value: number };
+
+const roiInitialState: RoiState = {
+  reviews: 80,
+  minutes: 8,
+  rate: 45,
+};
+
+function roiReducer(state: RoiState, action: RoiAction): RoiState {
+  switch (action.type) {
+    case 'setReviews':
+      return { ...state, reviews: action.value };
+    case 'setMinutes':
+      return { ...state, minutes: action.value };
+    case 'setRate':
+      return { ...state, rate: action.value };
+  }
+}
+
 export function PricingContent({ selfServeEnabled = false }: { selfServeEnabled?: boolean }) {
   const [billing, setBilling] = useState<Billing>('annual');
   const [featured, setFeatured] = useState<TierId>('standard');
 
   // ROI calculator
-  const [reviews, setReviews] = useState(80);
-  const [minutes, setMinutes] = useState(8);
-  const [rate, setRate] = useState(45);
+  const [roi, dispatchRoi] = useReducer(roiReducer, roiInitialState);
+  const { reviews, minutes, rate } = roi;
   const monthlyHours = useMemo(() => +(reviews * minutes / 60).toFixed(1), [reviews, minutes]);
   const monthlyValue = useMemo(() => Math.round(monthlyHours * rate), [monthlyHours, rate]);
   const yearlyValue = monthlyValue * 12;
@@ -350,8 +377,6 @@ export function PricingContent({ selfServeEnabled = false }: { selfServeEnabled?
           <div className="pr-toggle-wrap">
             <div
               className={`pr-toggle ${isAnnual ? 'is-annual' : 'is-monthly'}`}
-              role="group"
-              aria-label="Billing cadence"
             >
               <div className="pr-toggle-thumb" />
               <button
@@ -406,9 +431,9 @@ export function PricingContent({ selfServeEnabled = false }: { selfServeEnabled?
               </div>
               <div className="pr-calc-grid">
                 <div>
-                  <SliderRow label="Reviews per month" value={reviews} display={String(reviews)} min={10} max={500} step={10} onChange={setReviews} />
-                  <SliderRow label="Minutes to craft each reply" value={minutes} display={`${minutes} min`} min={2} max={20} step={1} onChange={setMinutes} />
-                  <SliderRow label="Your hourly rate" value={rate} display={`$${rate}/hr`} min={20} max={150} step={5} onChange={setRate} />
+                  <SliderRow label="Reviews per month" value={reviews} display={String(reviews)} min={10} max={500} step={10} onChange={(value) => dispatchRoi({ type: 'setReviews', value })} />
+                  <SliderRow label="Minutes to craft each reply" value={minutes} display={`${minutes} min`} min={2} max={20} step={1} onChange={(value) => dispatchRoi({ type: 'setMinutes', value })} />
+                  <SliderRow label="Your hourly rate" value={rate} display={`$${rate}/hr`} min={20} max={150} step={5} onChange={(value) => dispatchRoi({ type: 'setRate', value })} />
                 </div>
                 <div className="pr-calc-readout">
                   <div className="pr-readout-row">
@@ -437,9 +462,8 @@ export function PricingContent({ selfServeEnabled = false }: { selfServeEnabled?
               <h2>Compare every detail</h2>
               <p>The full feature list, side-by-side. No asterisks, no gotchas.</p>
             </div>
-            <div
+            <section
               className="pr-matrix"
-              role="group"
               aria-label="Plan comparison, scroll horizontally to compare all plans"
               tabIndex={0}
             >
@@ -470,7 +494,7 @@ export function PricingContent({ selfServeEnabled = false }: { selfServeEnabled?
                   );
                 })}
               </div>
-            </div>
+            </section>
           </div>
 
           {/* FAQ */}

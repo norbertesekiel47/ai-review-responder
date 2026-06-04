@@ -7,12 +7,8 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { openBillingPortal } from '../billing-portal';
-import { CancelledBanner, PastDueBanner } from '../SubscriptionStatusBanner';
-
-vi.mock('../Icon', () => ({
-  Icon: ({ name }: { name: string }) => <span data-testid="icon">{name}</span>,
-}));
+import { openBillingPortal } from '@/components/dashboard/account-state/billing-portal';
+import { CancelledBanner, PastDueBanner } from '@/components/dashboard/account-state/SubscriptionStatusBanner';
 
 describe('CancelledBanner (VAL-CROSS-011)', () => {
   it('renders read-only banner with grace period date', () => {

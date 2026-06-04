@@ -125,7 +125,8 @@ export function useEnrollment(options: UseEnrollmentOptions): UseEnrollmentRetur
 
   useEffect(() => {
     if (snapshot.state !== 'awaiting_scan' || snapshot.expiresAt === null) {
-      setSecondsRemaining(null);
+      // No reset here — the exposed value is derived from snapshot.state below,
+      // so it reads as null whenever we're not actively counting down.
       return;
     }
     const tick = () => {
@@ -225,6 +226,11 @@ export function useEnrollment(options: UseEnrollmentOptions): UseEnrollmentRetur
   return {
     snapshot,
     actions: { connect, cancel, disable, refresh, dismissError },
-    ttl: { secondsRemaining },
+    ttl: {
+      secondsRemaining:
+        snapshot.state === 'awaiting_scan' && snapshot.expiresAt !== null
+          ? secondsRemaining
+          : null,
+    },
   };
 }

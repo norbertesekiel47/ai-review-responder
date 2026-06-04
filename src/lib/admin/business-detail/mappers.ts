@@ -32,7 +32,7 @@ import type {
  * from `disconnected` (connection existed and is now broken) so the UI can
  * show the correct CTA.
  */
-export function buildZernioPanel(
+function buildZernioPanel(
   connection: ZernioConnectionRow | null,
   awaitingOwnerConnect: AwaitingOwnerConnectRow[],
   unresolvedIncidents: ZernioFinalizeIncidentRow[],

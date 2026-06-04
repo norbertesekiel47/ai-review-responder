@@ -27,7 +27,7 @@ vi.mock('@/lib/db/browser', () => ({
 }));
 
 // Imported after vi.mock so the mocks are in place when the module loads.
-const { MfaChallengeForm } = await import('../page');
+const { MfaChallengeForm } = await import('../MfaChallengeForm');
 
 describe('MfaChallengeForm', () => {
   beforeEach(() => {

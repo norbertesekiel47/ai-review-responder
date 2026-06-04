@@ -8,11 +8,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createHash, randomUUID } from 'node:crypto';
 import QRCode from 'qrcode';
 import { sql } from '@/lib/db/server';
-import { requireRole, AuthError } from '@/lib/db/auth';
-import { SubscriptionStatus } from '@/lib/shared/subscription-status';
-import { computePastDueRecoveryState, type AccountFlagsInput } from '@/lib/shared/past-due-recovery';
-import { assertWritableSubscription } from '@/lib/shared/writable-subscription';
-import { withSameOrigin } from '@/lib/auth/route-helpers';
+import { resolveWritableAccountForLocation } from '@/lib/shared/writable-subscription';
+import { requireRoleOr401, withSameOrigin } from '@/lib/auth/route-helpers';
 import { isTelegramEnabled, flagOff, assertTelegramEnvReady } from '@/app/api/admin/channels/telegram/_shared';
 import { startTelegramEnrollment } from '@/lib/channels/telegram-enrollment';
 import { MultipleMobileChannelsError, EnrollmentDatabaseError } from '@/lib/channels/unique-violation';
@@ -26,43 +23,17 @@ async function handler(req: NextRequest): Promise<NextResponse> {
   const envErr = assertTelegramEnvReady();
   if (envErr) return envErr;
 
-  let user;
-  try {
-    user = await requireRole(req, 'owner');
-  } catch (err) {
-    if (err instanceof AuthError) {
-      return NextResponse.json({ error: err.message }, { status: err.statusCode });
-    }
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-  }
+  const auth = await requireRoleOr401(req, 'owner');
+  if (!auth.ok) return auth.response;
+  const user = auth.user;
 
   const locationId = user.locationId;
   if (!locationId) return NextResponse.json({ error: 'no_business' }, { status: 403 });
 
-  // After migration 034, subscription_status source of truth is accounts.
-  const [accountRow] = await sql<{
-    id: string;
-    subscription_status: string;
-    past_due_at: Date | string | null;
-    flags: AccountFlagsInput;
-  }[]>`
-    SELECT a.id, a.subscription_status, a.past_due_at, a.flags
-    FROM accounts a
-    JOIN businesses b ON b.account_id = a.id
-    WHERE b.id = ${locationId}
-  `;
-  if (!accountRow) return NextResponse.json({ error: 'not_found' }, { status: 404 });
-  if (accountRow.subscription_status === SubscriptionStatus.PAST_DUE) {
-    const writable = assertWritableSubscription(computePastDueRecoveryState({
-      subscriptionStatus: accountRow.subscription_status,
-      pastDueAt: accountRow.past_due_at,
-      accountFlags: accountRow.flags,
-    }));
-    if (!writable.ok) return NextResponse.json({ error: writable.error }, { status: writable.status });
-  } else if (accountRow.subscription_status !== SubscriptionStatus.ACTIVE) {
-    return NextResponse.json({ error: 'subscription_not_active' }, { status: 403 });
-  }
-  const accountId = accountRow.id;
+  const gate = await resolveWritableAccountForLocation(locationId);
+  if (gate.kind === 'no_account') return NextResponse.json({ error: 'not_found' }, { status: 404 });
+  if (gate.kind === 'blocked') return NextResponse.json({ error: gate.error }, { status: gate.status });
+  const accountId = gate.accountId;
 
   const rawToken = randomUUID();
   const tokenHash = createHash('sha256').update(rawToken).digest('hex');
@@ -95,7 +66,9 @@ async function handler(req: NextRequest): Promise<NextResponse> {
   // should not block the owner response.
   await safeInvalidateChannelCache(asAccountId(accountId), 'dashboard.telegram.start');
 
-  const botUsername = process.env.TELEGRAM_BOT_USERNAME ?? 'RepWorthBot';
+  // `||` (not `??`) so a blank TELEGRAM_BOT_USERNAME falls back too — an empty
+  // string would otherwise produce a broken https://t.me/?start=... link.
+  const botUsername = process.env.TELEGRAM_BOT_USERNAME?.trim() || 'RepWorthBot';
   const deepLink = `https://t.me/${botUsername}?start=${rawToken}`;
   const qrDataUrl = await QRCode.toDataURL(deepLink, { margin: 1, width: 256 });
 

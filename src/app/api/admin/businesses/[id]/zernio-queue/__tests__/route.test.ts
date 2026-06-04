@@ -31,6 +31,7 @@ const {
 
 vi.mock('@/lib/db/auth', () => ({
   requireRole: mockRequireRole,
+  cookieBackedServerClient: () => ({ auth: { mfa: {} } }),
   AuthError: class AuthError extends Error {
     constructor(message: string, public readonly statusCode: number) {
       super(message);

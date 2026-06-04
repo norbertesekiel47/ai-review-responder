@@ -19,7 +19,7 @@ describe('44×44 tap targets (P2 #27)', () => {
     expect(tsx).toMatch(/after:-inset-4|after:w-11|min-w-11/);
   });
   it('EditReplyDrawer close button is at least 44px', () => {
-    const tsx = read('src/components/dashboard/EditReplyDrawer.tsx');
+    const tsx = read('src/components/dashboard/reviews/EditReplyDrawer.tsx');
     expect(tsx).toMatch(/min-h-11/);
     expect(tsx).toMatch(/min-w-11/);
   });

@@ -6,7 +6,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { initialState, reducer, type WizardState } from '../wizard/reducer';
-import type { PlaceSelection } from '@/components/PlaceAutocomplete';
+import type { PlaceSelection } from '@/components/places/PlaceAutocomplete';
 import type { ExistingLocationVoice } from '../wizard/types';
 
 const PLACE: PlaceSelection = {

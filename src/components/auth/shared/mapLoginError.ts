@@ -1,4 +1,4 @@
-export const UNSUPPORTED_ROLE_MESSAGE =
+const UNSUPPORTED_ROLE_MESSAGE =
   'This account type is no longer supported. Contact your administrator.';
 
 export function mapInitialQueryError(errorParam: string | null | undefined): string {

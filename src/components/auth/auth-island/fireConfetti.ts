@@ -15,11 +15,13 @@ export function fireConfetti(): void {
     const dx = Math.sin(angle) * dist + (Math.random() - 0.5) * 120;
     const dy = -Math.cos(angle) * dist - 80 + Math.random() * 80;
     s.style.setProperty('--end', `translate3d(${dx}px, ${dy}px, 0)`);
-    s.style.left = `${50 + (Math.random() - 0.5) * 8}%`;
-    s.style.top = '60%';
-    s.style.background = COLORS[i % COLORS.length] ?? COLORS[0]!;
-    s.style.borderRadius = i % 3 === 0 ? '9999px' : '2px';
-    s.style.animationDelay = `${Math.random() * 0.15}s`;
+    Object.assign(s.style, {
+      left: `${50 + (Math.random() - 0.5) * 8}%`,
+      top: '60%',
+      background: COLORS[i % COLORS.length] ?? COLORS[0]!,
+      borderRadius: i % 3 === 0 ? '9999px' : '2px',
+      animationDelay: `${Math.random() * 0.15}s`,
+    });
     layer.appendChild(s);
   }
   setTimeout(() => layer.remove(), 2200);

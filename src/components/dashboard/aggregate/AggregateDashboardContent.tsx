@@ -1,18 +1,18 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import type { AggregateDashboardData } from '@/lib/dashboard/types';
-import { TopBar } from '@/components/dashboard/TopBar';
+import { TopBar } from '@/components/dashboard/shell/TopBar';
 import { AggregateKpiCards } from '@/components/dashboard/aggregate/AggregateKpiCards';
 import { AggregateReviewsCard } from '@/components/dashboard/aggregate/AggregateReviewsCard';
 import { AggregateVelocityCard } from '@/components/dashboard/aggregate/AggregateVelocityCard';
 import { AggregateRankingCard } from '@/components/dashboard/aggregate/AggregateRankingCard';
 import { AggregateIntelligenceBriefCard } from '@/components/dashboard/aggregate/AggregateIntelligenceBriefCard';
 import { LocationKpiStrip } from '@/components/dashboard/aggregate/LocationKpiStrip';
-import { PastDueBanner } from '@/components/dashboard/SubscriptionStatusBanner';
-import { PastDueModal } from '@/components/dashboard/PastDueModal';
-import { useSetPendingCount } from '@/components/dashboard/PendingCountContext';
-import { useNeedsActionHashScroll } from '@/components/dashboard/useNeedsActionHashScroll';
+import { PastDueBanner } from '@/components/dashboard/account-state/SubscriptionStatusBanner';
+import { PastDueModal } from '@/components/dashboard/account-state/PastDueModal';
+import { useSetPendingCount } from '@/contexts/PendingCountContext';
+import { useNeedsActionHashScroll } from '@/hooks/useNeedsActionHashScroll';
 
 interface Props {
   data: AggregateDashboardData;
@@ -34,9 +34,12 @@ interface Props {
 export function AggregateDashboardContent({ data, refresh }: Props) {
   const setPendingCount = useSetPendingCount();
   const reviewsRef = useRef<HTMLDivElement | null>(null);
-  const [initialTab, setInitialTab] = useState<'needs' | 'all'>('needs');
+  // The "needs" tab intent is recorded but never read on the render path, so a
+  // ref avoids the no-op re-render a state setter would queue when the hash
+  // scroll fires.
+  const initialTabRef = useRef<'needs' | 'all'>('needs');
 
-  useNeedsActionHashScroll(reviewsRef, () => setInitialTab('needs'));
+  useNeedsActionHashScroll(reviewsRef, () => { initialTabRef.current = 'needs'; });
 
   // Compute pending count across all locations
   const pendingCount = data.recentReviews.filter(

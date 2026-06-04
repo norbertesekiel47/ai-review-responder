@@ -1,11 +1,12 @@
 'use client';
 
 import Link from 'next/link';
-import { motion } from 'motion/react';
+import { LazyMotion, m, domAnimation } from 'motion/react';
 import { PageShell } from '@/components/ui/PageShell';
 
 export function FeedbackThanksContent() {
   return (
+    <LazyMotion features={domAnimation}>
     <PageShell sections={[]} maxWidthClassName="max-w-md">
       {/* Minimal brand header */}
       <div className="flex items-center justify-center gap-2 px-8 pt-8">
@@ -16,7 +17,7 @@ export function FeedbackThanksContent() {
         <span className="text-sm tracking-wider uppercase text-[#97B3AE]">RepWorth</span>
       </div>
 
-      <motion.div
+      <m.div
         className="px-8 pb-12 pt-6 text-center"
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -42,7 +43,8 @@ export function FeedbackThanksContent() {
         >
           Back to RepWorth →
         </Link>
-      </motion.div>
+      </m.div>
     </PageShell>
+    </LazyMotion>
   );
 }

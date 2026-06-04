@@ -7,7 +7,7 @@ import { GeneralPanel } from '@/components/dashboard/settings/GeneralPanel';
 import { AccountPanel } from '@/components/dashboard/settings/AccountPanel';
 import { BrandVoicePanel } from '@/components/dashboard/settings/BrandVoicePanel';
 import { SettingsSkeleton } from '@/components/dashboard/settings/SettingsSkeleton';
-import type { SettingsTab } from '@/components/dashboard/SettingsTabs';
+import type { SettingsTab } from '@/components/dashboard/shell/SettingsTabs';
 
 interface Props {
   locationsSettingsEnabled: boolean;

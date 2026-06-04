@@ -48,7 +48,7 @@ export function Showcase({ mode }: ShowcaseProps) {
             </p>
             <div className="rw-review-reply">
               <div className="badge">Drafted · 12s ago</div>
-              Marisol — thank you so much! Sofia will be thrilled. We&apos;d love to see you again soon.
+              Marisol, thank you so much! Sofia will be thrilled. We&apos;d love to see you again soon.
             </div>
           </div>
           <div className="rw-review-card r2">

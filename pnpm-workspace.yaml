@@ -1,3 +1,10 @@
+# Supply-chain hardening (react-doctor/require-pnpm-hardening):
+# - minimumReleaseAge delays installs of freshly published versions (7 days)
+#   so a compromised release has time to be caught and unpublished.
+# - trustPolicy: no-downgrade rejects packages whose provenance/signature
+#   trust signals weaken between updates.
+minimumReleaseAge: 10080
+trustPolicy: no-downgrade
 allowBuilds:
   '@sentry/cli': true
   esbuild: true

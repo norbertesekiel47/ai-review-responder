@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { getEmailHeaders, getEmailTags } from '../../notifications/email';
+import { getEmailHeaders, getEmailTags } from '@/lib/notifications/email';
 
 describe('getEmailHeaders', () => {
   const originalListUnsub = process.env.LIST_UNSUBSCRIBE_EMAIL;

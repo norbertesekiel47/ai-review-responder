@@ -4,7 +4,8 @@ import * as React from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { ToneChipPicker, inferActiveTone } from '@/components/dashboard/settings/ToneChipPicker';
+import { ToneChipPicker } from '@/components/dashboard/settings/ToneChipPicker';
+import { inferActiveTone } from '@/components/dashboard/settings/ToneChipPicker.helpers';
 
 describe('inferActiveTone', () => {
   it('matches "warm, witty" tone to witty chip', () => {

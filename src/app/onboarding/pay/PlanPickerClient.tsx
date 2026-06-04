@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { motion } from 'motion/react';
+import { LazyMotion, m, domAnimation } from 'motion/react';
 import { buttonMotion } from '../_shared/field-styles';
 
 import type { SubscriptionTierValue } from '@/lib/accounts/tier-config';
@@ -27,11 +27,11 @@ export function PlanPickerClient({ cancelled }: { cancelled: boolean }) {
         body: JSON.stringify({ tier }),
       });
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
         if (res.status === 401) {
           window.location.href = '/login';
           return;
         }
+        const body = await res.json().catch(() => ({}));
         if (res.status === 409 && body.subscriptionStatus === 'active') {
           window.location.href = '/dashboard';
           return;
@@ -57,10 +57,11 @@ export function PlanPickerClient({ cancelled }: { cancelled: boolean }) {
   }
 
   return (
+    <LazyMotion features={domAnimation}>
     <div className="w-full">
       {cancelled && (
         <p className="text-sm text-[#6a6a6a] mb-4 text-center">
-          No worries — pick a plan when you&apos;re ready.
+          No worries, pick a plan when you&apos;re ready.
         </p>
       )}
       <h1 className="text-3xl md:text-4xl font-medium text-[#2a2a2a] mb-2 text-center">
@@ -101,7 +102,7 @@ export function PlanPickerClient({ cancelled }: { cancelled: boolean }) {
                 <span className="text-[#6a6a6a] text-sm">/month</span>
               </div>
 
-              <motion.button
+              <m.button
                 type="button"
                 onClick={() => handlePick(plan.tier)}
                 disabled={isLoading || isOtherLoading}
@@ -113,7 +114,7 @@ export function PlanPickerClient({ cancelled }: { cancelled: boolean }) {
                 }`}
               >
                 {isLoading ? 'Redirecting to checkout…' : plan.cta}
-              </motion.button>
+              </m.button>
 
               <ul className="space-y-3 flex-1">
                 {plan.features.map((feature) => (
@@ -149,5 +150,6 @@ export function PlanPickerClient({ cancelled }: { cancelled: boolean }) {
         </p>
       )}
     </div>
+    </LazyMotion>
   );
 }

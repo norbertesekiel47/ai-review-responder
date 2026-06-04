@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { LocationsPanel, type LocationEntry } from '../LocationsPanel';
+import { LocationsPanel, type LocationEntry } from '@/components/dashboard/settings/LocationsPanel';
 
 vi.mock('next/link', () => ({
   default: ({ href, children, ...props }: { href: string; children: React.ReactNode }) => (

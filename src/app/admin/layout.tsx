@@ -1,5 +1,5 @@
 import { AdminProviders } from './providers';
-import { AdminNav } from '@/components/AdminNav';
+import { AdminNav } from '@/components/admin/AdminNav';
 
 // Auth: Supabase session checked by src/proxy.ts (admin role required)
 

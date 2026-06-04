@@ -9,11 +9,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { sql } from '@/lib/db/server';
-import { requireRole, AuthError } from '@/lib/db/auth';
-import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 import { updateDisplayLabel } from '@/lib/locations/update-display-label';
-import { withSameOrigin } from '@/lib/auth/route-helpers';
-import { assertWritableSubscriptionForAccount } from '@/lib/shared/writable-subscription';
+import { jsonResponse, requireWritableOwner, withSameOrigin } from '@/lib/auth/route-helpers';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,29 +22,10 @@ const UpdateDisplayLabelSchema = z.object({
   displayLabel: z.string().trim().max(255).nullable(),
 });
 
-function jsonResponse(body: unknown, status = 200): NextResponse {
-  return NextResponse.json(body, { status, headers: NO_STORE_HEADERS });
-}
-
 async function updateLocationDisplayLabel(request: NextRequest): Promise<NextResponse> {
-  let user;
-  try {
-    user = await requireRole(request, 'owner');
-  } catch (err) {
-    if (err instanceof AuthError) {
-      return jsonResponse({ error: err.message }, err.statusCode);
-    }
-    return jsonResponse({ error: 'Unauthorized' }, 401);
-  }
-
-  if (!user.accountId) {
-    return jsonResponse({ error: 'No account associated with this user' }, 403);
-  }
-
-  const writable = await assertWritableSubscriptionForAccount(user.accountId);
-  if (!writable.ok) {
-    return jsonResponse({ error: writable.error }, writable.status);
-  }
+  const owner = await requireWritableOwner(request);
+  if (!owner.ok) return owner.response;
+  const user = owner.user;
 
   let body: unknown;
   try {

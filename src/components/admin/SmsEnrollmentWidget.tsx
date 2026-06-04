@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useReducer } from 'react';
 
 interface EnrollmentState {
   status: 'pending_verification' | 'verified' | 'disabled' | 'unsubscribed';
@@ -28,6 +28,52 @@ function maskPhoneForDisplay(e164: string): string {
   return `+1 ${rest.slice(0, 3)}-XXX-${rest.slice(6)}`;
 }
 
+interface WidgetReducerState {
+  enrollment: EnrollmentState | null;
+  awaitingOptIn: boolean;
+  phoneInput: string;
+  codeInput: string;
+  busy: boolean;
+  error: string | null;
+}
+
+const initialWidgetState: WidgetReducerState = {
+  enrollment: null,
+  awaitingOptIn: false,
+  phoneInput: '+1',
+  codeInput: '',
+  busy: false,
+  error: null,
+};
+
+type WidgetAction =
+  | { type: 'setEnrollment'; enrollment: EnrollmentState | null }
+  | { type: 'setAwaitingOptIn'; awaitingOptIn: boolean }
+  | { type: 'setPhoneInput'; phoneInput: string }
+  | { type: 'setCodeInput'; codeInput: string }
+  | { type: 'callStart' }
+  | { type: 'callError'; error: string | null }
+  | { type: 'callFinish' };
+
+function widgetReducer(state: WidgetReducerState, action: WidgetAction): WidgetReducerState {
+  switch (action.type) {
+    case 'setEnrollment':
+      return { ...state, enrollment: action.enrollment };
+    case 'setAwaitingOptIn':
+      return { ...state, awaitingOptIn: action.awaitingOptIn };
+    case 'setPhoneInput':
+      return { ...state, phoneInput: action.phoneInput };
+    case 'setCodeInput':
+      return { ...state, codeInput: action.codeInput };
+    case 'callStart':
+      return { ...state, busy: true, error: null };
+    case 'callError':
+      return { ...state, error: action.error };
+    case 'callFinish':
+      return { ...state, busy: false };
+  }
+}
+
 function deriveState(enrollment: EnrollmentState | null, awaitingOptIn: boolean): WidgetState {
   if (!enrollment) return { kind: 'empty' };
   const maskedPhone = maskPhoneForDisplay(enrollment.handle);
@@ -44,12 +90,8 @@ function deriveState(enrollment: EnrollmentState | null, awaitingOptIn: boolean)
 }
 
 export function SmsEnrollmentWidget({ businessId }: { businessId: string }) {
-  const [enrollment, setEnrollment] = useState<EnrollmentState | null>(null);
-  const [awaitingOptIn, setAwaitingOptIn] = useState(false);
-  const [phoneInput, setPhoneInput] = useState('+1');
-  const [codeInput, setCodeInput] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [state, dispatch] = useReducer(widgetReducer, initialWidgetState);
+  const { enrollment, awaitingOptIn, phoneInput, codeInput, busy, error } = state;
 
   const loadStatus = useCallback(async (signal?: AbortSignal): Promise<EnrollmentState | null> => {
     try {
@@ -57,7 +99,7 @@ export function SmsEnrollmentWidget({ businessId }: { businessId: string }) {
       if (!res.ok) return null;
       const json = (await res.json()) as { enrollment: EnrollmentState | null };
       if (signal?.aborted) return null;
-      setEnrollment(json.enrollment);
+      dispatch({ type: 'setEnrollment', enrollment: json.enrollment });
       return json.enrollment;
     } catch (err) {
       if ((err as { name?: string } | null)?.name === 'AbortError') return null;
@@ -88,11 +130,10 @@ export function SmsEnrollmentWidget({ businessId }: { businessId: string }) {
     };
   }, [awaitingOptIn, enrollment?.sender_opt_in_cleared, loadStatus]);
 
-  const state = deriveState(enrollment, awaitingOptIn);
+  const widgetState = deriveState(enrollment, awaitingOptIn);
 
   const call = useCallback(async (path: string, body: unknown): Promise<unknown | null> => {
-    setBusy(true);
-    setError(null);
+    dispatch({ type: 'callStart' });
     try {
       const res = await fetch(`/api/admin/channels/sms/${path}`, {
         method: 'POST',
@@ -101,35 +142,35 @@ export function SmsEnrollmentWidget({ businessId }: { businessId: string }) {
       });
       const json = (await res.json()) as { ok?: boolean; reason?: string };
       if (!res.ok) {
-        setError(json.reason ?? `HTTP ${res.status}`);
+        dispatch({ type: 'callError', error: json.reason ?? `HTTP ${res.status}` });
         return null;
       }
       return json;
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'network_error');
+      dispatch({ type: 'callError', error: err instanceof Error ? err.message : 'network_error' });
       return null;
     } finally {
-      setBusy(false);
+      dispatch({ type: 'callFinish' });
     }
   }, []);
 
   async function onSendCode() {
-    const body = state.kind === 'empty' ? { business_id: businessId, phone: phoneInput } : { business_id: businessId };
+    const body = widgetState.kind === 'empty' ? { business_id: businessId, phone: phoneInput } : { business_id: businessId };
     if (await call('verify', body)) await loadStatus();
   }
 
   async function onConfirm() {
     if (await call('confirm', { business_id: businessId, code: codeInput })) {
-      setCodeInput('');
-      setAwaitingOptIn(false);
+      dispatch({ type: 'setCodeInput', codeInput: '' });
+      dispatch({ type: 'setAwaitingOptIn', awaitingOptIn: false });
       await loadStatus();
     }
   }
 
   async function onCancel() {
     await call('cancel', { business_id: businessId });
-    setCodeInput('');
-    setAwaitingOptIn(false);
+    dispatch({ type: 'setCodeInput', codeInput: '' });
+    dispatch({ type: 'setAwaitingOptIn', awaitingOptIn: false });
     await loadStatus();
   }
 
@@ -144,7 +185,7 @@ export function SmsEnrollmentWidget({ businessId }: { businessId: string }) {
     );
     if (!ok) return;
     await call('delete', { business_id: businessId, confirm: true });
-    setAwaitingOptIn(false);
+    dispatch({ type: 'setAwaitingOptIn', awaitingOptIn: false });
     await loadStatus();
   }
 
@@ -153,13 +194,13 @@ export function SmsEnrollmentWidget({ businessId }: { businessId: string }) {
     <div className="sms-enrollment-widget" style={{ padding: '1rem', border: '1px solid #ddd', borderRadius: '0.5rem' }}>
       <h4 style={{ marginTop: 0 }}>SMS</h4>
 
-      {state.kind === 'empty' && (
+      {widgetState.kind === 'empty' && (
         <div>
           <label>
             Phone (US, E.164){' '}
             <input
               value={phoneInput}
-              onChange={(e) => setPhoneInput(e.target.value)}
+              onChange={(e) => dispatch({ type: 'setPhoneInput', phoneInput: e.target.value })}
               placeholder="+1 415 555 2671"
               disabled={busy}
             />
@@ -170,14 +211,14 @@ export function SmsEnrollmentWidget({ businessId }: { businessId: string }) {
         </div>
       )}
 
-      {state.kind === 'sent' && (
+      {widgetState.kind === 'sent' && (
         <div>
-          <p>Code sent to {state.maskedPhone}. Ask the owner to read it back.</p>
+          <p>Code sent to {widgetState.maskedPhone}. Ask the owner to read it back.</p>
           <label>
             6-digit code{' '}
             <input
               value={codeInput}
-              onChange={(e) => setCodeInput(e.target.value)}
+              onChange={(e) => dispatch({ type: 'setCodeInput', codeInput: e.target.value })}
               placeholder="123456"
               disabled={busy}
             />
@@ -191,9 +232,9 @@ export function SmsEnrollmentWidget({ businessId }: { businessId: string }) {
         </div>
       )}
 
-      {state.kind === 'verified' && (
+      {widgetState.kind === 'verified' && (
         <div>
-          <p>✅ SMS verified: {state.maskedPhone}</p>
+          <p>✅ SMS verified: {widgetState.maskedPhone}</p>
           <button type="button" onClick={onDisable} disabled={busy}>
             Disable
           </button>
@@ -203,11 +244,11 @@ export function SmsEnrollmentWidget({ businessId }: { businessId: string }) {
         </div>
       )}
 
-      {state.kind === 'disabled' && (
+      {widgetState.kind === 'disabled' && (
         <div>
-          <p>⛔ SMS disabled: {state.maskedPhone}</p>
+          <p>⛔ SMS disabled: {widgetState.maskedPhone}</p>
           <button type="button" onClick={onSendCode} disabled={busy}>
-            Re-enable — send code to {state.maskedPhone}
+            Re-enable: send code to {widgetState.maskedPhone}
           </button>
           <button type="button" onClick={onDelete} disabled={busy}>
             Delete enrollment
@@ -215,13 +256,13 @@ export function SmsEnrollmentWidget({ businessId }: { businessId: string }) {
         </div>
       )}
 
-      {state.kind === 'unsubscribed' && (
+      {widgetState.kind === 'unsubscribed' && (
         <div>
           <p>
-            🚫 SMS unsubscribed: {state.maskedPhone}
-            {state.reason ? ` (${state.reason})` : ''}
+            🚫 SMS unsubscribed: {widgetState.maskedPhone}
+            {widgetState.reason ? ` (${widgetState.reason})` : ''}
           </p>
-          <button type="button" onClick={() => setAwaitingOptIn(true)} disabled={busy}>
+          <button type="button" onClick={() => dispatch({ type: 'setAwaitingOptIn', awaitingOptIn: true })} disabled={busy}>
             Start re-enable
           </button>
           <button type="button" onClick={onDelete} disabled={busy}>
@@ -230,31 +271,31 @@ export function SmsEnrollmentWidget({ businessId }: { businessId: string }) {
         </div>
       )}
 
-      {state.kind === 'awaiting_sender_opt_in' && (
+      {widgetState.kind === 'awaiting_sender_opt_in' && (
         <div>
           <p>
-            Ask the owner at {state.maskedPhone} to text <strong>START</strong> to our RepWorth number. We&rsquo;ll
+            Ask the owner at {widgetState.maskedPhone} to text <strong>START</strong> to our RepWorth number. We&rsquo;ll
             detect it automatically.
           </p>
-          <button type="button" onClick={() => setAwaitingOptIn(false)} disabled={busy}>
+          <button type="button" onClick={() => dispatch({ type: 'setAwaitingOptIn', awaitingOptIn: false })} disabled={busy}>
             Cancel waiting
           </button>
         </div>
       )}
 
-      {state.kind === 'opt_in_received' && (
+      {widgetState.kind === 'opt_in_received' && (
         <div>
-          <p>✅ Opt-in detected for {state.maskedPhone}. Send the verification code now.</p>
+          <p>✅ Opt-in detected for {widgetState.maskedPhone}. Send the verification code now.</p>
           <button type="button"
             onClick={async () => {
               await onSendCode();
-              setAwaitingOptIn(false);
+              dispatch({ type: 'setAwaitingOptIn', awaitingOptIn: false });
             }}
             disabled={busy}
           >
             Send verification code
           </button>
-          <button type="button" onClick={() => setAwaitingOptIn(false)} disabled={busy}>
+          <button type="button" onClick={() => dispatch({ type: 'setAwaitingOptIn', awaitingOptIn: false })} disabled={busy}>
             Cancel
           </button>
         </div>

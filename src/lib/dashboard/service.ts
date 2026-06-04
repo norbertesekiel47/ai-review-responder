@@ -8,25 +8,19 @@
 
 import { sql } from '@/lib/db/server';
 import { getCacheRedis } from '@/lib/db/redis-cache';
-import { parseDbArray } from '@/lib/shared/db-array';
 import {
   HANDLED_STATUSES,
   RECENT_REVIEW_DISPLAY_STATUSES,
 } from '@/lib/shared/response-status';
 import { pendingKey } from '@/lib/zernio/connect-state';
-import type { ConnectPendingMarker } from '@/lib/zernio/types';
-import { mapRecentReviews, mapReviewVelocity } from './active-mappers';
-import { resolveZernioConnectionState } from './zernio-banner';
 import type { DashboardDataActive } from './types';
-
-/**
- * Heuristic minutes saved per response — owner-facing time-saved metric on
- * the dashboard. The value is intentionally rough (real time per response
- * varies wildly by business size and review complexity) but consistent so
- * week-over-week comparisons are meaningful. Treat as a presentational
- * constant, not an SLA.
- */
-const MINUTES_SAVED_PER_RESPONSE = 7;
+import {
+  buildActiveDashboardResponse,
+  type DashboardBriefRow,
+  type DashboardBusinessRow,
+  type DashboardRankingRow,
+  type DashboardZernioConnectionRow,
+} from './service-mappers';
 
 /**
  * Thrown when the businesses row vanishes between the route's preflight
@@ -45,21 +39,6 @@ export class BusinessNotFoundError extends Error {
 export async function getActiveDashboardData(
   businessId: string,
 ): Promise<DashboardDataActive> {
-  // Pending-marker read is wrapped so a Redis outage degrades gracefully —
-  // the dashboard never depends on this value being available; it only
-  // upgrades the UX during an in-flight connect flow.
-  const pendingMarkerPromise: Promise<string | null> = (async () => {
-    try {
-      return await getCacheRedis().get(pendingKey(businessId));
-    } catch (err) {
-      console.error(
-        '[dashboard/service] failed to read connect_pending marker:',
-        err,
-      );
-      return null;
-    }
-  })();
-
   const [
     businessRows,
     totalReviewRows,
@@ -75,7 +54,7 @@ export async function getActiveDashboardData(
     pendingRaw,
   ] = await Promise.all([
     // Business info + settings
-    sql`
+    sql<DashboardBusinessRow[]>`
       SELECT name, created_at, initial_review_count, initial_responded_count, baseline_captured_at,
              tone, products_services, avoid_facts, sample_responses,
              owner_phone, owner_email,
@@ -86,14 +65,14 @@ export async function getActiveDashboardData(
       LIMIT 1
     `,
     // Total reviews (all time)
-    sql`
+    sql<{ count: number }[]>`
       SELECT COUNT(*)::int AS count
       FROM reviews
       WHERE business_id = ${businessId}
         AND status <> 'deleted'
     `,
     // Total responded (distinct reviews with non-superseded responses)
-    sql`
+    sql<{ count: number }[]>`
       SELECT COUNT(DISTINCT r.id)::int AS count
       FROM reviews r
       JOIN responses resp ON resp.review_id = r.id
@@ -102,7 +81,7 @@ export async function getActiveDashboardData(
         AND resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[])
     `,
     // Review velocity: last 8 weeks (zero-filled)
-    sql`
+    sql<{ week_start: unknown; count: unknown }[]>`
       SELECT gs::date AS week_start,
              COALESCE(r.cnt, 0)::int AS count
       FROM generate_series(
@@ -121,7 +100,7 @@ export async function getActiveDashboardData(
       ORDER BY week_start ASC
     `,
     // Ranking snapshots (all with rank_position)
-    sql`
+    sql<DashboardRankingRow[]>`
       SELECT keyword, snapshot_date, rank_position
       FROM ranking_snapshots
       WHERE business_id = ${businessId}
@@ -131,7 +110,7 @@ export async function getActiveDashboardData(
     `,
     // Recent reviews: last 10 with latest non-superseded/failed response
     // Include pending_approval so the UI can show "check your email" reminders
-    sql`
+    sql<Record<string, unknown>[]>`
       SELECT
         rev.id,
         rev.reviewer_name,
@@ -165,7 +144,7 @@ export async function getActiveDashboardData(
       LIMIT 10
     `,
     // Latest monthly brief (with sent_at for recency comparison)
-    sql`
+    sql<DashboardBriefRow[]>`
       SELECT summary_text, month_start_date, sent_at
       FROM monthly_impact_emails
       WHERE business_id = ${businessId}
@@ -175,7 +154,7 @@ export async function getActiveDashboardData(
       LIMIT 1
     `,
     // Latest weekly brief (with sent_at for recency comparison)
-    sql`
+    sql<DashboardBriefRow[]>`
       SELECT summary_text, week_start_date, sent_at
       FROM weekly_summaries
       WHERE business_id = ${businessId}
@@ -186,7 +165,7 @@ export async function getActiveDashboardData(
     `,
     // Zernio connection: most-recent row (any status). Banner state machine
     // distinguishes 'none' (no row) from 'disconnected' (row with status='disconnected').
-    sql`
+    sql<DashboardZernioConnectionRow[]>`
       SELECT status, disconnect_reason
       FROM zernio_connections
       WHERE business_id = ${businessId}
@@ -195,7 +174,7 @@ export async function getActiveDashboardData(
     `,
     // Queued-for-reconnect responses: approved drafts parked while Zernio is
     // disconnected. Drives banner headline copy ("3 responses are waiting...").
-    sql`
+    sql<{ count: number }[]>`
       SELECT COUNT(*)::int AS count
       FROM responses
       WHERE business_id = ${businessId}
@@ -203,7 +182,7 @@ export async function getActiveDashboardData(
     `,
     // Unresolved finalize incident: takes priority over the connection status —
     // owner sees "manual review" banner regardless of zernio_connections state.
-    sql`
+    sql<{ count: number }[]>`
       SELECT COUNT(*)::int AS count
       FROM zernio_finalize_incidents
       WHERE business_id = ${businessId}
@@ -214,7 +193,7 @@ export async function getActiveDashboardData(
     // Surfacing this lets the dashboard render a "Connecting…" UX during the
     // OAuth + finalize window instead of falling back to "Connect" which
     // would 409 on retry and confuse the owner.
-    pendingMarkerPromise,
+    readPendingMarker(businessId),
   ]);
 
   const business = businessRows[0];
@@ -225,164 +204,36 @@ export async function getActiveDashboardData(
   const totalReviews = totalReviewRows[0]?.count ?? 0;
   const totalResponded = totalRespondedRows[0]?.count ?? 0;
 
-  const currentResponseRate =
-    totalReviews > 0
-      ? Math.round((totalResponded / totalReviews) * 100)
-      : 0;
-
-  let baselineResponseRate: number | null = null;
-  if (
-    business.baseline_captured_at &&
-    business.initial_review_count != null &&
-    business.initial_review_count > 0
-  ) {
-    baselineResponseRate = Math.round(
-      ((business.initial_responded_count ?? 0) /
-        business.initial_review_count) *
-        100,
-    );
-  }
-
-  const totalTimeSavedMinutes = totalResponded * MINUTES_SAVED_PER_RESPONSE;
-
-  // Group ranking snapshots by keyword
-  const rankingMap = new Map<
-    string,
-    Array<{ date: string; position: number }>
-  >();
-  for (const row of rankingRows) {
-    const keyword = row.keyword as string;
-    if (!rankingMap.has(keyword)) {
-      rankingMap.set(keyword, []);
-    }
-    rankingMap.get(keyword)!.push({
-      date: String(row.snapshot_date),
-      position: row.rank_position as number,
-    });
-  }
-  const ranking =
-    rankingMap.size > 0
-      ? Array.from(rankingMap.entries()).map(([keyword, snapshots]) => ({
-          keyword,
-          snapshots,
-        }))
-      : null;
-
-  // Pick whichever brief was sent more recently (by sent_at, not period start)
-  let latestBrief: DashboardDataActive['latestBrief'] = null;
-  const monthlyBrief = monthlyBriefRows[0];
-  const weeklyBrief = weeklyBriefRows[0];
-
-  const monthlySentAt = monthlyBrief?.sent_at ? new Date(monthlyBrief.sent_at as string).getTime() : 0;
-  const weeklySentAt = weeklyBrief?.sent_at ? new Date(weeklyBrief.sent_at as string).getTime() : 0;
-
-  if (monthlyBrief?.summary_text && monthlySentAt >= weeklySentAt) {
-    const monthlyDate = String(monthlyBrief.month_start_date);
-    const d = new Date(monthlyDate + 'T00:00:00Z');
-    latestBrief = {
-      text: monthlyBrief.summary_text as string,
-      type: 'monthly',
-      periodLabel: d.toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' }),
-    };
-  } else if (weeklyBrief?.summary_text) {
-    latestBrief = {
-      text: weeklyBrief.summary_text as string,
-      type: 'weekly',
-      periodLabel: `Week of ${String(weeklyBrief.week_start_date)}`,
-    };
-  }
-
-  // Zernio banner state — precedence (highest to lowest):
-  //   1. Unresolved finalize incident in DB            → 'finalize_unknown'
-  //   2. Pending marker with status='finalize_unknown' → 'finalize_unknown'
-  //      (mirrors #1: a marker we haven't yet written to the incidents
-  //      table because OutboxPoller hasn't run, or we're in the brief
-  //      window between markUnknown + incident insert)
-  //   3. zernio_connections.status === 'active'        → 'active'
-  //      (beats stale non-finalize pending markers — select-location's
-  //      best-effort Redis cleanup can leave a marker behind for up to
-  //      its 15-min TTL if Redis is briefly unavailable. The DB row is
-  //      the source of truth once active.)
-  //   4. Pending marker (any non-finalize status)      → 'pending'
-  //   5. zernio_connections.status ('pending'|'disconnected')
-  //   6. Fallback                                      → 'none'
-  const hasUnresolvedIncident = (unresolvedIncidentRows[0]?.count ?? 0) > 0;
-  const zernioRow = zernioConnectionRows[0];
-  const queuedReconnectCount = queuedReconnectRows[0]?.count ?? 0;
-  const connStatus = zernioRow?.status as
-    | 'pending'
-    | 'active'
-    | 'disconnected'
-    | undefined;
-
-  let pendingFlow:
-    | { status: ConnectPendingMarker['status']; started_at: number }
-    | undefined;
-  if (pendingRaw) {
-    try {
-      const parsed = JSON.parse(pendingRaw) as ConnectPendingMarker;
-      if (
-        parsed &&
-        typeof parsed.status === 'string' &&
-        typeof parsed.started_at === 'number'
-      ) {
-        pendingFlow = {
-          status: parsed.status,
-          started_at: parsed.started_at,
-        };
-      }
-    } catch (err) {
-      // Malformed marker — surface as no flow rather than crash. Ops will
-      // see this in Sentry breadcrumbs once we wire that up.
-      console.error(
-        '[dashboard/service] malformed connect_pending marker:',
-        err,
-      );
-    }
-  }
-
-  const zernioConnection = resolveZernioConnectionState({
-    hasUnresolvedIncident,
-    connectionStatus: connStatus,
-    pendingFlow,
-    queuedReconnectCount,
-    lastDisconnectReason:
-      (zernioRow?.disconnect_reason as string | null) ?? undefined,
+  // Zernio banner precedence (finalize-incident > active > pending marker >
+  // connection status > none) is owned by resolveZernioConnectionState in
+  // zernio-banner.ts — see there for the authoritative rules.
+  return buildActiveDashboardResponse({
+    business,
+    totalReviews,
+    totalResponded,
+    velocityRows,
+    rankingRows,
+    recentReviewRows,
+    monthlyBrief: monthlyBriefRows[0],
+    weeklyBrief: weeklyBriefRows[0],
+    zernioRow: zernioConnectionRows[0],
+    queuedReconnectCount: queuedReconnectRows[0]?.count ?? 0,
+    hasUnresolvedIncident: (unresolvedIncidentRows[0]?.count ?? 0) > 0,
+    pendingRaw,
   });
+}
 
-  const data: DashboardDataActive = {
-    business: {
-      name: business.name as string,
-      createdAt: (business.created_at as Date).toISOString(),
-    },
-    valueSummary: {
-      totalReviewsHandled: totalResponded,
-      totalTimeSavedMinutes,
-      currentResponseRate,
-      baselineResponseRate,
-    },
-    reviewVelocity: mapReviewVelocity(
-      velocityRows as unknown as Array<{ week_start: unknown; count: unknown }>,
-    ),
-    ranking,
-    recentReviews: mapRecentReviews(
-      recentReviewRows as unknown as Array<Record<string, unknown>>,
-    ),
-    latestBrief,
-    settings: {
-      tone: (business.tone as string) ?? 'professional and friendly',
-      productsServices: (business.products_services as string) ?? '',
-      avoidFacts: parseDbArray(business.avoid_facts),
-      sampleResponses: parseDbArray(business.sample_responses),
-      ownerPhone: (business.owner_phone as string) ?? '',
-      ownerEmail: (business.owner_email as string) ?? '',
-      weeklySummaryEnabled: (business.weekly_summary_enabled as boolean) ?? true,
-      monthlyImpactEnabled: (business.monthly_impact_enabled as boolean) ?? true,
-      category: (business.category as string) ?? '',
-      googlePlaceId: (business.google_place_id as string) ?? '',
-    },
-    zernioConnection,
-  };
-
-  return data;
+async function readPendingMarker(businessId: string): Promise<string | null> {
+  // Pending-marker read is wrapped so a Redis outage degrades gracefully. The
+  // dashboard never depends on this value being available; it only upgrades
+  // the UX during an in-flight connect flow.
+  try {
+    return await getCacheRedis().get(pendingKey(businessId));
+  } catch (err) {
+    console.error(
+      '[dashboard/service] failed to read connect_pending marker:',
+      err,
+    );
+    return null;
+  }
 }

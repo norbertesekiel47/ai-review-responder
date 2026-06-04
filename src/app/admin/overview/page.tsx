@@ -60,23 +60,24 @@ function formatRelative(isoString: string | null): string {
   return `${diffDays}d ago`;
 }
 
+const STATUS_BADGE_CLASSES: Record<string, string> = {
+  active: 'bg-green-100 text-green-800',
+  pending_payment: 'bg-gray-100 text-gray-700',
+  past_due: 'bg-yellow-100 text-yellow-800',
+  cancelled: 'bg-red-100 text-red-800',
+};
+const STATUS_BADGE_LABELS: Record<string, string> = {
+  active: 'Active',
+  pending_payment: 'Pending',
+  past_due: 'Past Due',
+  cancelled: 'Cancelled',
+};
+
 function StatusBadge({ status }: { status: string }) {
-  const classes: Record<string, string> = {
-    active: 'bg-green-100 text-green-800',
-    pending_payment: 'bg-gray-100 text-gray-700',
-    past_due: 'bg-yellow-100 text-yellow-800',
-    cancelled: 'bg-red-100 text-red-800',
-  };
-  const label: Record<string, string> = {
-    active: 'Active',
-    pending_payment: 'Pending',
-    past_due: 'Past Due',
-    cancelled: 'Cancelled',
-  };
-  const cls = classes[status] ?? 'bg-gray-100 text-gray-700';
+  const cls = STATUS_BADGE_CLASSES[status] ?? 'bg-gray-100 text-gray-700';
   return (
     <span className={`inline-block rounded px-2 py-0.5 text-xs font-medium ${cls}`}>
-      {label[status] ?? status}
+      {STATUS_BADGE_LABELS[status] ?? status}
     </span>
   );
 }
@@ -104,20 +105,21 @@ function HealthCard({ label, value, warn }: HealthCardProps) {
   );
 }
 
+const HEALTH_BADGE_STYLES: Record<string, string> = {
+  healthy: 'bg-green-100 text-green-800',
+  watch: 'bg-gray-100 text-gray-700',
+  at_risk: 'bg-red-100 text-red-800',
+};
+const HEALTH_BADGE_LABELS: Record<string, string> = {
+  healthy: 'Healthy',
+  watch: 'Watch',
+  at_risk: 'At Risk',
+};
+
 function HealthBadge({ level, score }: { level: string; score: number }) {
-  const styles: Record<string, string> = {
-    healthy: 'bg-green-100 text-green-800',
-    watch: 'bg-gray-100 text-gray-700',
-    at_risk: 'bg-red-100 text-red-800',
-  };
-  const labels: Record<string, string> = {
-    healthy: 'Healthy',
-    watch: 'Watch',
-    at_risk: 'At Risk',
-  };
   return (
-    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${styles[level] ?? styles.healthy}`}>
-      {labels[level] ?? level} <span className="opacity-60">{score}</span>
+    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${HEALTH_BADGE_STYLES[level] ?? HEALTH_BADGE_STYLES.healthy}`}>
+      {HEALTH_BADGE_LABELS[level] ?? level} <span className="opacity-60">{score}</span>
     </span>
   );
 }
@@ -144,7 +146,7 @@ export default function AdminOverviewPage() {
     return (
       <div className="min-h-screen bg-gray-50">
         <div className="mx-auto max-w-6xl px-4 py-8">
-          <p className="text-gray-500">Loading...</p>
+          <p className="text-gray-500">Loading…</p>
         </div>
       </div>
     );
@@ -317,7 +319,7 @@ export default function AdminOverviewPage() {
                           {biz.pendingReconnectCount}
                         </span>
                       ) : (
-                        <span className="text-gray-400">—</span>
+                        <span className="text-gray-400">{'—'}</span>
                       )}
                     </td>
                     <td className="px-4 py-3 text-gray-700">

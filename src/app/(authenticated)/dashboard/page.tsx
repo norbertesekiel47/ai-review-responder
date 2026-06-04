@@ -1,4 +1,4 @@
-import { DashboardContent } from '@/components/DashboardContent';
+import { DashboardContent } from '@/components/dashboard/DashboardContent';
 
 // SetupChecklist removed (2026-05-04, PR #2 follow-up): the checklist's
 // four items collapsed once the post-pay wizard learned to connect Zernio

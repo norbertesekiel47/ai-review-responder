@@ -96,10 +96,16 @@ function buildPatchInternal(initial: VoiceFormState, current: VoiceFormState): R
   if (current.tone !== initial.tone) patch.tone = current.tone;
   if (current.productsServices !== initial.productsServices) patch.productsServices = current.productsServices || null;
   if (JSON.stringify(current.avoidFacts) !== JSON.stringify(initial.avoidFacts)) {
-    patch.avoidFacts = current.avoidFacts.map((l) => l.trim()).filter(Boolean);
+    patch.avoidFacts = current.avoidFacts.flatMap((l) => {
+      const trimmed = l.trim();
+      return trimmed ? [trimmed] : [];
+    });
   }
   if (JSON.stringify(current.sampleResponses) !== JSON.stringify(initial.sampleResponses)) {
-    patch.sampleResponses = current.sampleResponses.map((l) => l.trim()).filter(Boolean);
+    patch.sampleResponses = current.sampleResponses.flatMap((l) => {
+      const trimmed = l.trim();
+      return trimmed ? [trimmed] : [];
+    });
   }
   return Object.keys(patch).length > 0 ? patch : null;
 }

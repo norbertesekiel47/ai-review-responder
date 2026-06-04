@@ -1,8 +1,8 @@
 // src/app/api/admin/channels/telegram/cancel/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
-import { requireRole, AuthError } from '@/lib/db/auth';
 import { isTelegramEnabled, flagOff, assertTelegramEnvReady } from '../_shared';
+import { resolveAdminChannelAccount } from '../../_shared/account';
 import { cancelTelegramEnrollment } from '@/lib/channels/telegram-enrollment';
 import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
 import { asAccountId } from '@/lib/shared/ids';
@@ -14,36 +14,20 @@ async function cancelTelegram(req: NextRequest): Promise<NextResponse> {
   const envErr = assertTelegramEnvReady();
   if (envErr) return envErr;
 
-  try {
-    await requireRole(req, 'admin');
-  } catch (e) {
-    if (e instanceof AuthError) {
-      return NextResponse.json({ error: e.message }, { status: e.statusCode });
-    }
-    throw e;
-  }
-
-  const body = (await req.json().catch(() => null)) as { businessId?: string } | null;
-  const businessId = body?.businessId;
-  if (!businessId) return NextResponse.json({ error: 'businessId required' }, { status: 400 });
-
-  const [acctRow] = await sql<{ account_id: string }[]>`
-    SELECT account_id FROM businesses WHERE id = ${businessId}
-  `;
-  if (!acctRow) return NextResponse.json({ error: 'not_found' }, { status: 404 });
+  const resolved = await resolveAdminChannelAccount(req);
+  if (!resolved.ok) return resolved.response;
+  const { accountId } = resolved;
 
   // Advisory lock uses account_id so an admin cancel and an owner start on the
   // same account+channel mutually exclude (shared mobile_enroll key).
   await sql.begin(async (tx) => {
-    await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`mobile_enroll:${acctRow.account_id}`}, 0))`;
-    return cancelTelegramEnrollment(tx, acctRow.account_id);
+    await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`mobile_enroll:${accountId}`}, 0))`;
+    return cancelTelegramEnrollment(tx, accountId);
   });
 
   // Invalidate channel cache — the cancelled verification changes which
   // channels are available for dispatch.
-  if (acctRow.account_id) {
-    await safeInvalidateChannelCache(asAccountId(acctRow.account_id), 'admin.telegram.cancel');
-  }
+  await safeInvalidateChannelCache(asAccountId(accountId), 'admin.telegram.cancel');
 
   return NextResponse.json({ ok: true }, { headers: { 'Cache-Control': 'no-store, private' } });
 }

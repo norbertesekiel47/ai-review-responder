@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { SettingsShell } from '../SettingsShell';
+import { SettingsShell } from '@/components/dashboard/settings/SettingsShell';
 
 describe('SettingsShell announcements (P1 #18)', () => {
   it('announces "Settings saved" in a polite status region when savedFlash is true', () => {

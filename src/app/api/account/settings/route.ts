@@ -10,37 +10,18 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
-import { requireRole, AuthError } from '@/lib/db/auth';
+import { jsonResponse, requireOwnerWithAccount } from '@/lib/auth/route-helpers';
 import { currentBillingSnapshot } from '@/lib/accounts/quota';
 import { getActiveLocationCount } from '@/lib/locations/repo';
 import { SubscriptionTier } from '@/lib/accounts/tier-config';
 import { isSubscriptionTier } from '@/lib/accounts/tier-config';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
-import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 
 export const dynamic = 'force-dynamic';
 
-function jsonResponse(body: unknown, status = 200): NextResponse {
-  return NextResponse.json(body, { status, headers: NO_STORE_HEADERS });
-}
-
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  let user;
-  try {
-    user = await requireRole(request, 'owner');
-  } catch (err) {
-    if (err instanceof AuthError) {
-      return jsonResponse({ error: err.message }, err.statusCode);
-    }
-    return jsonResponse({ error: 'Unauthorized' }, 401);
-  }
-
-  if (!user.accountId) {
-    return jsonResponse(
-      { error: 'No account associated with this user' },
-      403,
-    );
-  }
+  const owner = await requireOwnerWithAccount(request);
+  if (!owner.ok) return owner.response;
 
   // Fetch account data
   const [account] = await sql<{
@@ -65,7 +46,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       locations_paid,
       trial_ends_at
     FROM accounts
-    WHERE id = ${user.accountId}::uuid
+    WHERE id = ${owner.accountId}::uuid
   `;
 
   if (!account) {
@@ -74,8 +55,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   // Fetch independent account metrics after the account existence check.
   const [activeLocations, billingSnapshot] = await Promise.all([
-    getActiveLocationCount(user.accountId),
-    currentBillingSnapshot(user.accountId),
+    getActiveLocationCount(owner.accountId),
+    currentBillingSnapshot(owner.accountId),
   ]);
 
   // Format tier label for display

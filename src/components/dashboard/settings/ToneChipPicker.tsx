@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
-import { Icon } from '@/components/dashboard/Icon';
+import { useRef, useState } from 'react';
+import { Icon } from '@/components/dashboard/shell/Icon';
+import { inferActiveTone } from '@/components/dashboard/settings/ToneChipPicker.helpers';
 
 const TONES: { id: string; label: string; canonical: string; preview: string }[] = [
   { id: 'warm', label: 'Warm & friendly', canonical: 'warm, friendly', preview: "Thanks so much for the kind words! It really means the world to our little team." },
@@ -12,21 +13,6 @@ const TONES: { id: string; label: string; canonical: string; preview: string }[]
 ];
 
 const FALLBACK_PREVIEW = 'Thanks for the kind review — we appreciate you taking the time.';
-
-/**
- * Best-effort guess of which preset tone matches an existing string. Used to
- * highlight a chip on first render. The picker tracks active mode in local
- * state so it can switch to "custom" regardless of what `tone` infers to.
- */
-export function inferActiveTone(tone: string): string {
-  const lower = tone.toLowerCase();
-  if (lower.includes('witty') || lower.includes('cheeky')) return 'witty';
-  if (lower.includes('professional')) return 'professional';
-  if (lower.includes('warm') || lower.includes('friendly')) return 'warm';
-  if (lower.includes('casual')) return 'casual';
-  if (lower.includes('concise')) return 'concise';
-  return 'custom';
-}
 
 interface Props {
   tone: string;
@@ -42,10 +28,12 @@ export function ToneChipPicker({ tone, onChange }: Props) {
   // externally (e.g. parent called Discard, or initial fetch resolved).
   // External changes drop the override so the chip strip reflects truth.
   // Reconciled during render (not an effect) so the reset lands in the same
-  // commit as the prop change — no stale-UI flash between renders.
-  const [lastWritten, setLastWritten] = useState(tone);
-  if (tone !== lastWritten) {
-    setLastWritten(tone);
+  // commit as the prop change — no stale-UI flash between renders. The
+  // last-written value never feeds the rendered output, so a ref avoids the
+  // extra render a state setter would queue.
+  const lastWrittenRef = useRef(tone);
+  if (tone !== lastWrittenRef.current) {
+    lastWrittenRef.current = tone;
     setOverride(null);
   }
 
@@ -54,7 +42,7 @@ export function ToneChipPicker({ tone, onChange }: Props) {
 
   const pickPreset = (id: string, canonical: string) => {
     setOverride(id);
-    setLastWritten(canonical);
+    lastWrittenRef.current = canonical;
     onChange(canonical);
   };
 
@@ -65,7 +53,7 @@ export function ToneChipPicker({ tone, onChange }: Props) {
   };
 
   const handleCustomTyping = (next: string) => {
-    setLastWritten(next);
+    lastWrittenRef.current = next;
     onChange(next);
   };
 

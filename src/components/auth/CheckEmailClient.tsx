@@ -1,18 +1,57 @@
 'use client';
 
-import { Suspense, useState } from 'react';
+import { Suspense, useReducer } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import { redirectAfterServerSessionCookie } from './CheckEmailClient.helpers';
 
-export function redirectAfterServerSessionCookie(
-  value: unknown,
-  assign: (url: string) => void = (url) => window.location.assign(url),
-): void {
-  const destination =
-    typeof value === 'string' && value.startsWith('/') && !value.startsWith('//')
-      ? value
-      : '/onboarding/pay';
-  assign(destination);
+interface CheckEmailState {
+  code: string;
+  verifying: boolean;
+  verifyError: string;
+  resendLoading: boolean;
+  resendSent: boolean;
+  resendError: string;
+}
+
+const initialCheckEmailState: CheckEmailState = {
+  code: '',
+  verifying: false,
+  verifyError: '',
+  resendLoading: false,
+  resendSent: false,
+  resendError: '',
+};
+
+type CheckEmailAction =
+  | { type: 'setCode'; code: string }
+  | { type: 'clearVerifyError' }
+  | { type: 'setVerifying'; verifying: boolean }
+  | { type: 'setVerifyError'; verifyError: string }
+  | { type: 'resendStart' }
+  | { type: 'setResendError'; resendError: string }
+  | { type: 'resendSuccess' }
+  | { type: 'resendFinish' };
+
+function checkEmailReducer(state: CheckEmailState, action: CheckEmailAction): CheckEmailState {
+  switch (action.type) {
+    case 'setCode':
+      return { ...state, code: action.code };
+    case 'clearVerifyError':
+      return { ...state, verifyError: '' };
+    case 'setVerifying':
+      return { ...state, verifying: action.verifying };
+    case 'setVerifyError':
+      return { ...state, verifyError: action.verifyError };
+    case 'resendStart':
+      return { ...state, resendLoading: true, resendError: '' };
+    case 'setResendError':
+      return { ...state, resendError: action.resendError };
+    case 'resendSuccess':
+      return { ...state, resendSent: true };
+    case 'resendFinish':
+      return { ...state, resendLoading: false };
+  }
 }
 
 export function CheckEmailClient() {
@@ -28,17 +67,12 @@ function CheckEmailInner() {
   const fromLogin = searchParams.get('from') === 'login';
   const email = (searchParams.get('email') ?? '').trim().toLowerCase();
 
-  const [code, setCode] = useState('');
-  const [verifying, setVerifying] = useState(false);
-  const [verifyError, setVerifyError] = useState('');
-
-  const [resendLoading, setResendLoading] = useState(false);
-  const [resendSent, setResendSent] = useState(false);
-  const [resendError, setResendError] = useState('');
+  const [state, dispatch] = useReducer(checkEmailReducer, initialCheckEmailState);
+  const { code, verifying, verifyError, resendLoading, resendSent, resendError } = state;
 
   async function handleVerify(e: React.FormEvent) {
     e.preventDefault();
-    setVerifyError('');
+    dispatch({ type: 'clearVerifyError' });
     // Guard against a missing email — happens when someone lands on
     // /signup/check-email without the ?email= query param (bookmark, manual
     // URL edit, etc.). Without this the POST fires with email='' and the
@@ -46,12 +80,13 @@ function CheckEmailInner() {
     // failed. Please try again." — useless for the user. Surface a clear
     // dead-end message + skip the wasted round-trip.
     if (!email) {
-      setVerifyError(
-        'No email on this page — please go back and start signup again.',
-      );
+      dispatch({
+        type: 'setVerifyError',
+        verifyError: 'No email on this page — please go back and start signup again.',
+      });
       return;
     }
-    setVerifying(true);
+    dispatch({ type: 'setVerifying', verifying: true });
     try {
       const res = await fetch('/api/auth/verify-otp', {
         method: 'POST',
@@ -60,13 +95,15 @@ function CheckEmailInner() {
       });
       const body = await res.json();
       if (!res.ok) {
-        setVerifyError(
-          body.error === 'invalid_or_expired_code'
-            ? 'That code is invalid or has expired. Try again or resend.'
-            : body.error === 'rate_limited'
-              ? 'Too many attempts. Wait a few minutes and try again.'
-              : 'Verification failed. Please try again.',
-        );
+        dispatch({
+          type: 'setVerifyError',
+          verifyError:
+            body.error === 'invalid_or_expired_code'
+              ? 'That code is invalid or has expired. Try again or resend.'
+              : body.error === 'rate_limited'
+                ? 'Too many attempts. Wait a few minutes and try again.'
+                : 'Verification failed. Please try again.',
+        });
         return;
       }
       // verify-otp writes the Supabase session through Set-Cookie. Use a
@@ -74,9 +111,9 @@ function CheckEmailInner() {
       // the fresh cookies instead of racing an app-router transition.
       redirectAfterServerSessionCookie(body.redirectTo);
     } catch {
-      setVerifyError('Connection failed. Please try again.');
+      dispatch({ type: 'setVerifyError', verifyError: 'Connection failed. Please try again.' });
     } finally {
-      setVerifying(false);
+      dispatch({ type: 'setVerifying', verifying: false });
     }
   }
 
@@ -89,13 +126,13 @@ function CheckEmailInner() {
     // here, and silently no-op'ing leaves the user staring at a button
     // that "works" but does nothing.
     if (!email) {
-      setResendError(
-        'No email on this page — please go back and start signup again.',
-      );
+      dispatch({
+        type: 'setResendError',
+        resendError: 'No email on this page — please go back and start signup again.',
+      });
       return;
     }
-    setResendLoading(true);
-    setResendError('');
+    dispatch({ type: 'resendStart' });
     try {
       const res = await fetch('/api/auth/resend-confirmation', {
         method: 'POST',
@@ -103,15 +140,15 @@ function CheckEmailInner() {
         body: JSON.stringify({ email, flow: 'owner' }),
       });
       if (res.status === 429) {
-        setResendError('Too many resend attempts. Please wait a while.');
+        dispatch({ type: 'setResendError', resendError: 'Too many resend attempts. Please wait a while.' });
         return;
       }
-      setResendSent(true);
+      dispatch({ type: 'resendSuccess' });
     } catch {
       // No-enumeration policy: show success even on connection failure.
-      setResendSent(true);
+      dispatch({ type: 'resendSuccess' });
     } finally {
-      setResendLoading(false);
+      dispatch({ type: 'resendFinish' });
     }
   }
 
@@ -164,7 +201,7 @@ function CheckEmailInner() {
               title="Enter the 8-digit code from your email"
               placeholder="8-digit code"
               value={code}
-              onChange={(e) => setCode(e.target.value)}
+              onChange={(e) => dispatch({ type: 'setCode', code: e.target.value })}
               className="w-full px-3 py-2 border border-gray-300 rounded-md text-base text-center tracking-[0.5em] font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>

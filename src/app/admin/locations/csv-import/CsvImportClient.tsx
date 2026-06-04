@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useRef, useState } from 'react';
+import { FormEvent, useReducer, useRef } from 'react';
 import Link from 'next/link';
 import {
   validateLocationsCsvClient,
@@ -20,46 +20,86 @@ interface CsvImportReport {
 
 const MAX_CLIENT_FILE_SIZE = 5 * 1024 * 1024;
 
+// Static asset downloads (served from /public), not in-app routes — kept as
+// <a> with non-literal href so they are plain document requests, not <Link>.
+const CSV_TEMPLATE_HREF = '/csv-templates/locations.csv';
+const CSV_README_HREF = '/csv-templates/README.md';
+
+interface CsvImportState {
+  accountId: string;
+  submitting: boolean;
+  formError: string | null;
+  validationErrors: ClientCsvValidationError[];
+  report: CsvImportReport | null;
+}
+
+type CsvImportAction =
+  | { type: 'setAccountId'; value: string }
+  | { type: 'submitStart' }
+  | { type: 'setFormError'; error: string }
+  | { type: 'setValidationErrors'; errors: ClientCsvValidationError[] }
+  | { type: 'setReport'; report: CsvImportReport }
+  | { type: 'submitDone' };
+
+const initialState: CsvImportState = {
+  accountId: '',
+  submitting: false,
+  formError: null,
+  validationErrors: [],
+  report: null,
+};
+
+function reducer(state: CsvImportState, action: CsvImportAction): CsvImportState {
+  switch (action.type) {
+    case 'setAccountId':
+      return { ...state, accountId: action.value };
+    case 'submitStart':
+      return { ...state, submitting: true, formError: null, validationErrors: [], report: null };
+    case 'setFormError':
+      return { ...state, formError: action.error };
+    case 'setValidationErrors':
+      return { ...state, validationErrors: action.errors };
+    case 'setReport':
+      return { ...state, report: action.report };
+    case 'submitDone':
+      return { ...state, submitting: false };
+  }
+}
+
 export function CsvImportClient() {
-  const [accountId, setAccountId] = useState('');
+  const [state, dispatch] = useReducer(reducer, initialState);
+  const { accountId, submitting, formError, validationErrors, report } = state;
   const fileRef = useRef<File | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [formError, setFormError] = useState<string | null>(null);
-  const [validationErrors, setValidationErrors] = useState<ClientCsvValidationError[]>([]);
-  const [report, setReport] = useState<CsvImportReport | null>(null);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (submitting) return;
 
-    setSubmitting(true);
-    setFormError(null);
-    setValidationErrors([]);
-    setReport(null);
+    dispatch({ type: 'submitStart' });
 
     try {
       if (!accountId.trim()) {
-        setFormError('Enter an account ID.');
+        dispatch({ type: 'setFormError', error: 'Enter an account ID.' });
         return;
       }
       const file = fileRef.current;
       if (!file) {
-        setFormError('Choose a CSV file.');
+        dispatch({ type: 'setFormError', error: 'Choose a CSV file.' });
         return;
       }
       if (file.size > MAX_CLIENT_FILE_SIZE) {
-        setValidationErrors([{ row: 0, reason: 'CSV file is larger than 5 MB.' }]);
+        dispatch({ type: 'setValidationErrors', errors: [{ row: 0, reason: 'CSV file is larger than 5 MB.' }] });
         return;
       }
 
       const parsed = parseCsvRows(await file.text());
       if ('error' in parsed) {
-        setFormError(parsed.error);
+        dispatch({ type: 'setFormError', error: parsed.error });
         return;
       }
 
       const failures = validateLocationsCsvClient(parsed.rows);
-      setValidationErrors(failures);
+      dispatch({ type: 'setValidationErrors', errors: failures });
       if (failures.some((failure) => failure.row === 0)) {
         return;
       }
@@ -75,19 +115,19 @@ export function CsvImportClient() {
       const body = await res.json().catch(() => ({}));
 
       if (isCsvImportReport(body)) {
-        setReport(body);
+        dispatch({ type: 'setReport', report: body });
       }
       if (!res.ok) {
-        setFormError(body.error ?? `Import failed (${res.status}).`);
+        dispatch({ type: 'setFormError', error: body.error ?? `Import failed (${res.status}).` });
         return;
       }
       if (!isCsvImportReport(body)) {
-        setFormError('Import completed, but the response was not readable.');
+        dispatch({ type: 'setFormError', error: 'Import completed, but the response was not readable.' });
       }
     } catch {
-      setFormError('Import failed. Check your connection and try again.');
+      dispatch({ type: 'setFormError', error: 'Import failed. Check your connection and try again.' });
     } finally {
-      setSubmitting(false);
+      dispatch({ type: 'submitDone' });
     }
   }
 
@@ -102,7 +142,7 @@ export function CsvImportClient() {
             </p>
           </div>
           <a
-            href="/csv-templates/locations.csv"
+            href={CSV_TEMPLATE_HREF}
             className="inline-flex rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
           >
             Download template
@@ -125,7 +165,7 @@ export function CsvImportClient() {
                 id="csv-import-account-id"
                 type="text"
                 value={accountId}
-                onChange={(event) => setAccountId(event.target.value)}
+                onChange={(event) => dispatch({ type: 'setAccountId', value: event.target.value })}
                 placeholder="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
                 className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
               />
@@ -151,7 +191,7 @@ export function CsvImportClient() {
                 Required columns are name and placeId. Optional voice columns are accepted by the API.
               </p>
               <a
-                href="/csv-templates/README.md"
+                href={CSV_README_HREF}
                 className="mt-2 inline-block text-xs text-blue-600 hover:underline"
               >
                 View template notes

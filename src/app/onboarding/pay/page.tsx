@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { redirect, notFound } from 'next/navigation';
@@ -7,6 +8,8 @@ import { PlanPickerClient } from './PlanPickerClient';
 import { OnboardingFunnelShell } from '../_shared/OnboardingFunnelShell';
 
 export const dynamic = 'force-dynamic';
+
+export const metadata: Metadata = { title: 'Choose your plan | RepWorth' };
 
 export default async function OnboardingPayPage({
   searchParams,

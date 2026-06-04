@@ -61,7 +61,7 @@ export function FinishSignupClient({
     <div className="min-h-screen bg-gray-50 py-12 px-4">
       <div className="max-w-sm mx-auto">
         <h1 className="text-2xl font-bold text-center mb-2">
-          Almost there — just your name
+          Almost there, just your name
         </h1>
         <p className="text-center text-gray-600 mb-8">
           We&apos;ll set up your business after payment.
@@ -81,6 +81,10 @@ export function FinishSignupClient({
               autoComplete="email"
               disabled
               value={defaultEmail}
+              // Display-only: the email is fixed to the Google account. The
+              // field stays `disabled` (not `readOnly`); the no-op onChange just
+              // makes it a formally controlled input.
+              onChange={() => undefined}
               className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-gray-100 text-gray-600"
             />
           </div>

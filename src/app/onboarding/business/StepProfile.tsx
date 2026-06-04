@@ -2,7 +2,7 @@
 
 import type { RefObject } from 'react';
 import type { WizardFormData } from './BusinessWizardClient';
-import { motion } from 'motion/react';
+import { LazyMotion, m, domAnimation } from 'motion/react';
 import {
   fieldClass,
   labelClass,
@@ -29,10 +29,11 @@ export function StepProfile({
   const canContinue = data.businessName.trim().length > 0;
 
   return (
+    <LazyMotion features={domAnimation}>
     <div className="space-y-4">
       <h2 className="text-xl font-medium text-[#2a2a2a]">Business profile</h2>
       <p className="text-sm text-[#6a6a6a]">
-        We may have pre-filled some of these from Google Maps — feel free to
+        We may have pre-filled some of these from Google Maps. Feel free to
         edit.
       </p>
 
@@ -96,7 +97,7 @@ export function StepProfile({
             ← Back
           </button>
         )}
-        <motion.button
+        <m.button
           type="button"
           onClick={onNext}
           disabled={!canContinue}
@@ -104,8 +105,9 @@ export function StepProfile({
           className={primaryButtonClass}
         >
           Continue →
-        </motion.button>
+        </m.button>
       </div>
     </div>
+    </LazyMotion>
   );
 }

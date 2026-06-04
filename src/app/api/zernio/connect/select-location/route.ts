@@ -4,6 +4,7 @@ import {
   ZernioAuthError,
   ZernioValidationError,
 } from '@/lib/zernio/errors';
+import { zernioRouteErrorResponse } from '../../_shared/error-response';
 import { zernioClient } from '@/lib/zernio/client';
 import {
   pendingKey,
@@ -136,12 +137,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 }
 
 function errorToResponse(err: unknown): NextResponse {
-  if (err instanceof ZernioRouteError) {
-    return NextResponse.json(
-      { error: err.code },
-      { status: err.statusCode, headers: NO_STORE },
-    );
-  }
   if (err instanceof ZernioAuthError) {
     // Outcome-known revert path bubbled up — surface as 502 since Zernio
     // refused at auth layer (likely stale connect_token).
@@ -165,9 +160,6 @@ function errorToResponse(err: unknown): NextResponse {
       { status: 400, headers: NO_STORE },
     );
   }
-  console.error('[api/zernio/connect/select-location] internal error:', err);
-  return NextResponse.json(
-    { error: 'internal_error' },
-    { status: 500, headers: NO_STORE },
-  );
+  // ZernioRouteError → (code, status); else logged 500. NO_STORE on both.
+  return zernioRouteErrorResponse(err, '[api/zernio/connect/select-location]');
 }

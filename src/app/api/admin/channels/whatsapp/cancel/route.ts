@@ -7,8 +7,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
-import { requireRole, AuthError } from '@/lib/db/auth';
 import { isWhatsAppEnabled, flagOff, assertWhatsAppEnvReady } from '../_shared';
+import { resolveAdminChannelAccount } from '../../_shared/account';
 import { cancelWhatsAppEnrollment } from '@/lib/channels/whatsapp-enrollment';
 import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
 import { asAccountId } from '@/lib/shared/ids';
@@ -20,23 +20,9 @@ async function cancelWhatsApp(req: NextRequest): Promise<NextResponse> {
   const envErr = assertWhatsAppEnvReady();
   if (envErr) return envErr;
 
-  try {
-    await requireRole(req, 'admin');
-  } catch (e) {
-    if (e instanceof AuthError) {
-      return NextResponse.json({ error: e.message }, { status: e.statusCode });
-    }
-    throw e;
-  }
-
-  const body = (await req.json().catch(() => null)) as { businessId?: string } | null;
-  const businessId = body?.businessId;
-  if (!businessId) return NextResponse.json({ error: 'businessId required' }, { status: 400 });
-
-  const [acctRow] = await sql<{ account_id: string }[]>`
-    SELECT account_id FROM businesses WHERE id = ${businessId}
-  `;
-  if (!acctRow) return NextResponse.json({ error: 'not_found' }, { status: 404 });
+  const resolved = await resolveAdminChannelAccount(req);
+  if (!resolved.ok) return resolved.response;
+  const { accountId } = resolved;
 
   // Flip to 'disabled' so the migration 027 partial-unique-index slot is
   // released immediately, allowing a fresh mobile channel enrollment.
@@ -48,15 +34,13 @@ async function cancelWhatsApp(req: NextRequest): Promise<NextResponse> {
   // (withMobileEnrollmentLock, account-scoped as of PR #135), and the owner routes —
   // so SMS and the chat channels now mutually exclude on the lock.
   await sql.begin(async (tx) => {
-    await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`mobile_enroll:${acctRow.account_id}`}, 0))`;
-    return cancelWhatsAppEnrollment(tx, acctRow.account_id);
+    await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`mobile_enroll:${accountId}`}, 0))`;
+    return cancelWhatsAppEnrollment(tx, accountId);
   });
 
   // Invalidate channel cache — the cancelled verification changes which
   // channels are available for dispatch.
-  if (acctRow.account_id) {
-    await safeInvalidateChannelCache(asAccountId(acctRow.account_id), 'admin.whatsapp.cancel');
-  }
+  await safeInvalidateChannelCache(asAccountId(accountId), 'admin.whatsapp.cancel');
 
   // M6: no-store for consistency with start/disable routes (admin-action results
   // must not be cached by proxies or the browser).

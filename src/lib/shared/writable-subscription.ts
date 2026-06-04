@@ -109,6 +109,55 @@ export async function assertWritableSubscriptionForBusiness(
   });
 }
 
+export type WritableAccountForLocation =
+  | { kind: 'ok'; accountId: string }
+  | { kind: 'no_account' }
+  | { kind: 'blocked'; status: 402 | 403; error: string };
+
+/**
+ * Loads the billing account for a location (business) and applies the
+ * owner-facing writable-subscription gate, returning the account id on success.
+ *
+ * This is the shared form of the gate the owner-scoped dashboard channel
+ * routes (telegram/whatsapp start/cancel/disable) ran inline. Callers map the
+ * `no_account` outcome to their own status — enrollment `start` returns 404
+ * `not_found`, while `cancel`/`disable` return 403 `subscription_not_active` —
+ * and surface `blocked` (402 `past_due_read_only` / 403 `subscription_not_active`)
+ * verbatim. After migration 034 subscription_status lives on accounts, so this
+ * joins businesses → accounts and hands back the account id the routes need for
+ * the advisory lock and channel-cache invalidation.
+ */
+export async function resolveWritableAccountForLocation(
+  locationId: string,
+  db: SubscriptionSql = sql,
+): Promise<WritableAccountForLocation> {
+  const [accountRow] = await db<{
+    id: string;
+    subscription_status: string;
+    past_due_at: Date | string | null;
+    flags: AccountFlagsInput;
+  }[]>`
+    SELECT a.id, a.subscription_status, a.past_due_at, a.flags
+    FROM accounts a
+    JOIN businesses b ON b.account_id = a.id
+    WHERE b.id = ${locationId}
+  `;
+  if (!accountRow) return { kind: 'no_account' };
+
+  if (accountRow.subscription_status === SubscriptionStatus.PAST_DUE) {
+    const writable = assertWritableSubscription(computePastDueRecoveryState({
+      subscriptionStatus: accountRow.subscription_status,
+      pastDueAt: accountRow.past_due_at,
+      accountFlags: accountRow.flags,
+    }));
+    if (!writable.ok) return { kind: 'blocked', status: writable.status, error: writable.error };
+  } else if (accountRow.subscription_status !== SubscriptionStatus.ACTIVE) {
+    return { kind: 'blocked', status: 403, error: 'subscription_not_active' };
+  }
+
+  return { kind: 'ok', accountId: accountRow.id };
+}
+
 export function throwIfReadOnly(result: WritableSubscriptionResult): void {
   if (!result.ok) {
     throw new SubscriptionReadOnlyError(result.error, result.status);

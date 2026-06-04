@@ -11,26 +11,31 @@ const REVIEW = {
 const REPLY = "Rachel, you made our week! We are so glad the cake landed and that your 7 year old loved it. Tell her happy belated birthday from the team, and come by anytime.\n\n— Claire, owner";
 
 function useTyped(text: string, speed = 16, startDelay = 600): [string, boolean] {
-  const [out, setOut] = useState('');
-  const [done, setDone] = useState(false);
+  // State is tagged with the text it belongs to. When `text` changes we don't
+  // reset state in the effect; instead the output reads as empty/not-done until
+  // the typing run for the new text starts producing values.
+  const [typed, setTyped] = useState<{ forText: string; out: string; done: boolean }>(
+    { forText: text, out: '', done: false },
+  );
   useEffect(() => {
-    setOut('');
-    setDone(false);
     if (!text) return;
-    const start = setTimeout(() => {
-      let i = 0;
-      const iv = setInterval(() => {
-        i++;
-        setOut(text.slice(0, i));
-        if (i >= text.length) {
-          clearInterval(iv);
-          setDone(true);
-        }
-      }, speed);
-      return () => clearInterval(iv);
-    }, startDelay);
-    return () => clearTimeout(start);
+    let i = 0;
+    let waited = 0;
+    const iv = setInterval(() => {
+      // Honor the start delay by skipping the leading ticks, so the whole
+      // animation runs off a single timer.
+      if (waited < startDelay) {
+        waited += speed;
+        return;
+      }
+      i++;
+      setTyped({ forText: text, out: text.slice(0, i), done: i >= text.length });
+      if (i >= text.length) clearInterval(iv);
+    }, speed);
+    return () => clearInterval(iv);
   }, [text, speed, startDelay]);
+  const out = typed.forText === text ? typed.out : '';
+  const done = typed.forText === text ? typed.done : false;
   return [out, done];
 }
 
@@ -81,7 +86,7 @@ export function Hero({ onBook, onTry, primaryCtaLabel, primaryCtaDisabled }: Her
           <div className="rw-hero-demo">
             <div className="rw-demo-chip">
               <span className="rw-demo-chip-dot" />
-              Live — right now
+              Live, right now
             </div>
             <div className="rw-demo-review">
               <div className="rw-demo-avatar">{REVIEW.initial}</div>

@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation';
 import { sql } from '@/lib/db/server';
 import { requireOwnerAccess } from '@/lib/auth/require-owner-access';
-import { TopBar } from '@/components/dashboard/TopBar';
+import { TopBar } from '@/components/dashboard/shell/TopBar';
 import { PastRepliesClient } from './PastRepliesClient';
 import { getDisplayLabel } from '@/lib/locations/display-label';
 import {
@@ -12,6 +12,11 @@ import {
 export const dynamic = 'force-dynamic';
 
 const PAGE_SIZE = 50;
+
+// Sort descending by review_date. Sorting strings works because review_date is an
+// ISO-8601 string after toISOString().
+const sortByDateDesc = (a: { review_date: string }, b: { review_date: string }) =>
+  b.review_date.localeCompare(a.review_date);
 
 interface ReviewRow {
   review_id: string;
@@ -46,6 +51,35 @@ interface OrphanRow {
   // The most-recent superseded sibling's text (for drawer context). May be null.
   superseded_text: string | null;
 }
+
+// Maps an orphan-only row (no posted sibling) into the same PastReplyRow wire
+// shape the card expects, using the failed response's id as response_id so
+// PastRepliesClient's key prop stays unique. Fields that require a posted row
+// (posted_at, external_reply_ingested_at, version) are null — the card already
+// guards all of them. approved_text carries the superseded sibling's text (if
+// any) so the drawer can show it as context; the card falls back gracefully when
+// null. canEdit is always true for orphan rows: the owner already approved and
+// attempted this edit, so recovery affordances must not be gated by the C-2
+// lock (the recovery branch takes precedence over the lock badge in the card).
+const orphanCardRow = (r: OrphanRow) => ({
+  review_id: r.review_id,
+  review_text: r.review_text,
+  review_date:
+    r.review_date instanceof Date ? r.review_date.toISOString() : String(r.review_date),
+  reviewer_name: r.reviewer_name,
+  star_rating: r.star_rating,
+  // Use the failed response's id so the card/drawer can look it up.
+  response_id: r.failed_response_id,
+  approved_text: r.superseded_text ?? null,
+  posted_at: null,
+  external_reply_ingested_at: null,
+  review_content_hash: r.review_content_hash,
+  version: null,
+  // Always canEdit so the recovery button is never replaced by the premium lock.
+  canEdit: true,
+  failed_response_id: r.failed_response_id,
+  failed_posting_error: r.failed_posting_error,
+});
 
 export default async function PastRepliesPage({
   searchParams,
@@ -296,54 +330,24 @@ export default async function PastRepliesPage({
     failed_posting_error: r.failed_posting_error ?? null,
   });
 
-  // Maps an orphan-only row (no posted sibling) into the same PastReplyRow wire
-  // shape the card expects, using the failed response's id as response_id so
-  // PastRepliesClient's key prop stays unique. Fields that require a posted row
-  // (posted_at, external_reply_ingested_at, version) are null — the card already
-  // guards all of them. approved_text carries the superseded sibling's text (if
-  // any) so the drawer can show it as context; the card falls back gracefully when
-  // null. canEdit is always true for orphan rows: the owner already approved and
-  // attempted this edit, so recovery affordances must not be gated by the C-2
-  // lock (the recovery branch takes precedence over the lock badge in the card).
-  const orphanCardRow = (r: OrphanRow) => ({
-    review_id: r.review_id,
-    review_text: r.review_text,
-    review_date:
-      r.review_date instanceof Date ? r.review_date.toISOString() : String(r.review_date),
-    reviewer_name: r.reviewer_name,
-    star_rating: r.star_rating,
-    // Use the failed response's id so the card/drawer can look it up.
-    response_id: r.failed_response_id,
-    approved_text: r.superseded_text ?? null,
-    posted_at: null,
-    external_reply_ingested_at: null,
-    review_content_hash: r.review_content_hash,
-    version: null,
-    // Always canEdit so the recovery button is never replaced by the premium lock.
-    canEdit: true,
-    failed_response_id: r.failed_response_id,
-    failed_posting_error: r.failed_posting_error,
-  });
-
-  // Bucket posted rows by date as before.
-  const postedGapRows = rows.filter((r) => !isHistoricalFn(r.review_date)).map(cardRow);
-  const postedHistRows = rows.filter((r) => isHistoricalFn(r.review_date)).map(cardRow);
+  // Bucket posted rows by date in a single pass (filter + map collapsed).
+  const postedGapRows = rows.flatMap((r) =>
+    !isHistoricalFn(r.review_date) ? [cardRow(r)] : [],
+  );
+  const postedHistRows = rows.flatMap((r) =>
+    isHistoricalFn(r.review_date) ? [cardRow(r)] : [],
+  );
 
   // Bucket orphan rows using the same gap/historical predicate, then merge into
   // each bucket. De-dup is structural: the orphan query's NOT EXISTS clause
-  // guarantees no review_id overlap with the posted query.
-  const orphanGapRows = orphanRows
-    .filter((r) => !isHistoricalFn(r.review_date))
-    .map(orphanCardRow);
-  const orphanHistRows = orphanRows
-    .filter((r) => isHistoricalFn(r.review_date))
-    .map(orphanCardRow);
-
-  // Merge and re-sort descending by review_date (the two sub-lists are individually
-  // sorted but not merged). Sorting strings works here because review_date is an
-  // ISO-8601 string after toISOString().
-  const sortByDateDesc = (a: { review_date: string }, b: { review_date: string }) =>
-    b.review_date.localeCompare(a.review_date);
+  // guarantees no review_id overlap with the posted query. Filter + map collapsed
+  // into a single pass.
+  const orphanGapRows = orphanRows.flatMap((r) =>
+    !isHistoricalFn(r.review_date) ? [orphanCardRow(r)] : [],
+  );
+  const orphanHistRows = orphanRows.flatMap((r) =>
+    isHistoricalFn(r.review_date) ? [orphanCardRow(r)] : [],
+  );
 
   const gapRows = [...postedGapRows, ...orphanGapRows].sort(sortByDateDesc);
   const histRows = [...postedHistRows, ...orphanHistRows].sort(sortByDateDesc);

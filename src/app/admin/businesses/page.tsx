@@ -148,7 +148,7 @@ export default function BusinessListPage() {
                           {biz.name}
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-500">
-                          {biz.category ?? <span className="text-gray-300">—</span>}
+                          {biz.category ?? <span className="text-gray-300">{'—'}</span>}
                         </td>
                         <td className="px-4 py-3">
                           <StatusBadge status={biz.subscriptionStatus} />

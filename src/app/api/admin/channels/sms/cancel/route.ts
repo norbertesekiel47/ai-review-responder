@@ -25,7 +25,6 @@
 //   3. Single CTE inside the lock.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { requireRole, AuthError } from '@/lib/db/auth';
 import {
   isSmsEnabled,
   flagOff,
@@ -38,7 +37,7 @@ import {
 } from '../_shared';
 import { asLocationId, asAccountId } from '@/lib/shared/ids';
 import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
-import { withSameOrigin } from '@/lib/auth/route-helpers';
+import { requireRoleOr401, withSameOrigin } from '@/lib/auth/route-helpers';
 
 interface CancelBody {
   business_id?: string;
@@ -49,14 +48,8 @@ async function cancelSms(request: NextRequest): Promise<NextResponse> {
   const envError = assertSmsEnvReady();
   if (envError) return envError;
 
-  try {
-    await requireRole(request, 'admin');
-  } catch (err) {
-    if (err instanceof AuthError) {
-      return NextResponse.json({ error: err.message }, { status: err.statusCode });
-    }
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const auth = await requireRoleOr401(request, 'admin');
+  if (!auth.ok) return auth.response;
 
   const body = (await request.json()) as CancelBody;
   const rawBusinessId = body.business_id;

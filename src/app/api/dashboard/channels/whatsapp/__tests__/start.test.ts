@@ -19,7 +19,10 @@ vi.mock('@/lib/db/auth', () => ({
   requireRole: (...a: unknown[]) => requireRoleMock(...(a as [])),
   AuthError: class extends Error { statusCode = 401; },
 }));
-vi.mock('@/lib/auth/route-helpers', () => ({ withSameOrigin: () => (h: unknown) => h }));
+vi.mock('@/lib/auth/route-helpers', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/auth/route-helpers')>();
+  return { ...actual, withSameOrigin: () => (h: unknown) => h };
+});
 vi.mock('@/lib/notifications/resolve-channels', () => ({ safeInvalidateChannelCache: vi.fn(async () => {}) }));
 vi.mock('qrcode', () => ({ default: { toDataURL: vi.fn(async () => 'data:image/png;base64,TEST') } }));
 
@@ -140,5 +143,19 @@ describe('POST /api/dashboard/channels/whatsapp/start', () => {
     const res = await POST(mkReq() as any);
     expect(res.status).toBe(409);
     expect((await res.json()).error).toBe('already_verified');
+  });
+
+  it('strips internal formatting from TWILIO_WHATSAPP_NUMBER (digits only in wa.me link)', async () => {
+    // wa.me requires a bare digit string. A human-formatted env value with
+    // spaces/parens/dashes must collapse to digits — proving .replace(/\D/g,'')
+    // strips internal formatting, not just the whatsapp:/+ prefix.
+    process.env.CHANNELS_WHATSAPP_ENABLED = 'true';
+    process.env.TWILIO_WHATSAPP_NUMBER = 'whatsapp:+1 (555) 123-0000';
+    sqlQueue.push([{ id: 'acct-1', subscription_status: 'active' }]);
+    startWhatsAppEnrollmentMock.mockResolvedValue({ kind: 'ok' });
+    const res = await POST(mkReq() as any);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.deepLink).toMatch(/^https:\/\/wa\.me\/15551230000\?text=start-/);
   });
 });

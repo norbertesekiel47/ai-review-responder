@@ -77,7 +77,7 @@ export default function NotificationsPage() {
     return (
       <div className="min-h-screen bg-gray-50">
         <div className="mx-auto max-w-6xl px-4 py-8">
-          <p className="text-gray-500">Loading...</p>
+          <p className="text-gray-500">Loading…</p>
         </div>
       </div>
     );

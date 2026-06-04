@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { DemoListItem } from '@/lib/demos/types';
-import { PlaceAutocomplete, type PlaceSelection } from '@/components/PlaceAutocomplete';
+import { PlaceAutocomplete, type PlaceSelection } from '@/components/places/PlaceAutocomplete';
 
 // Auth: Supabase session checked by src/proxy.ts (admin role required)
 
@@ -70,13 +70,7 @@ function GenerateForm() {
       <h2 className="text-lg font-semibold text-gray-900 mb-4">
         Generate New Demo
       </h2>
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          mutation.mutate();
-        }}
-        className="space-y-4"
-      >
+      <div className="space-y-4">
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
             Business Location
@@ -156,13 +150,14 @@ function GenerateForm() {
         )}
 
         <button
-          type="submit"
+          type="button"
+          onClick={() => mutation.mutate()}
           disabled={mutation.isPending}
           className="bg-blue-600 text-white font-medium px-4 py-2 rounded-md text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {mutation.isPending ? 'Submitting...' : 'Generate Demo'}
         </button>
-      </form>
+      </div>
     </div>
   );
 }

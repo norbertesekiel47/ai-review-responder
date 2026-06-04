@@ -17,18 +17,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '@/lib/db/server';
-import { requireRole, AuthError } from '@/lib/db/auth';
-import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
 import { asAccountId } from '@/lib/shared/ids';
-import { withSameOrigin } from '@/lib/auth/route-helpers';
-import { assertWritableSubscriptionForAccount } from '@/lib/shared/writable-subscription';
+import { jsonResponse, requireWritableOwner, withSameOrigin } from '@/lib/auth/route-helpers';
 
 export const dynamic = 'force-dynamic';
-
-function jsonResponse(body: unknown, status = 200): NextResponse {
-  return NextResponse.json(body, { status, headers: NO_STORE_HEADERS });
-}
 
 // ── POST: Create per-location channel override ──────────────────────────
 //
@@ -45,24 +38,9 @@ const CreateOverrideSchema = z.object({
 });
 
 async function createOverride(request: NextRequest): Promise<NextResponse> {
-  let user;
-  try {
-    user = await requireRole(request, 'owner');
-  } catch (err) {
-    if (err instanceof AuthError) {
-      return jsonResponse({ error: err.message }, err.statusCode);
-    }
-    return jsonResponse({ error: 'Unauthorized' }, 401);
-  }
-
-  if (!user.accountId) {
-    return jsonResponse({ error: 'No account associated with this user' }, 403);
-  }
-
-  const writable = await assertWritableSubscriptionForAccount(user.accountId);
-  if (!writable.ok) {
-    return jsonResponse({ error: writable.error }, writable.status);
-  }
+  const owner = await requireWritableOwner(request);
+  if (!owner.ok) return owner.response;
+  const user = owner.user;
 
   let body: unknown;
   try {
@@ -176,7 +154,7 @@ async function createOverride(request: NextRequest): Promise<NextResponse> {
     `;
 
     // VAL-NOTIF-009: Invalidate cache on channel_enrollments writes
-    await safeInvalidateChannelCache(asAccountId(user.accountId), 'settings.channels.override.upsert');
+    await safeInvalidateChannelCache(asAccountId(owner.accountId), 'settings.channels.override.upsert');
 
     return jsonResponse({
       success: true,
@@ -212,24 +190,9 @@ const DeleteOverrideSchema = z.object({
 });
 
 async function deleteOverride(request: NextRequest): Promise<NextResponse> {
-  let user;
-  try {
-    user = await requireRole(request, 'owner');
-  } catch (err) {
-    if (err instanceof AuthError) {
-      return jsonResponse({ error: err.message }, err.statusCode);
-    }
-    return jsonResponse({ error: 'Unauthorized' }, 401);
-  }
-
-  if (!user.accountId) {
-    return jsonResponse({ error: 'No account associated with this user' }, 403);
-  }
-
-  const writable = await assertWritableSubscriptionForAccount(user.accountId);
-  if (!writable.ok) {
-    return jsonResponse({ error: writable.error }, writable.status);
-  }
+  const owner = await requireWritableOwner(request);
+  if (!owner.ok) return owner.response;
+  const user = owner.user;
 
   let body: unknown;
   try {
@@ -282,7 +245,7 @@ async function deleteOverride(request: NextRequest): Promise<NextResponse> {
   `;
 
   // VAL-NOTIF-009: Invalidate cache on channel_enrollments writes
-  await safeInvalidateChannelCache(asAccountId(user.accountId), 'settings.channels.override.delete');
+  await safeInvalidateChannelCache(asAccountId(owner.accountId), 'settings.channels.override.delete');
 
   return jsonResponse({ success: true });
 }

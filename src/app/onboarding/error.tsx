@@ -1,6 +1,6 @@
 'use client';
 
-import { motion } from 'motion/react';
+import { LazyMotion, m, domAnimation } from 'motion/react';
 
 import { OnboardingFunnelShell } from './_shared/OnboardingFunnelShell';
 import { primaryButtonClass, buttonMotion } from './_shared/field-styles';
@@ -12,6 +12,7 @@ export default function OnboardingError({
   reset: () => void;
 }) {
   return (
+    <LazyMotion features={domAnimation}>
     <OnboardingFunnelShell>
       <div className="max-w-md mx-auto text-center py-6">
         <h1 className="text-2xl font-medium text-[#2a2a2a] mb-3">
@@ -20,13 +21,13 @@ export default function OnboardingError({
         <p className="text-[#6a6a6a] mb-8">
           We couldn&apos;t load the onboarding page. Please try again.
         </p>
-        <motion.button
+        <m.button
           onClick={reset}
           {...buttonMotion}
           className={primaryButtonClass}
         >
           Retry
-        </motion.button>
+        </m.button>
         <p className="text-sm text-[#9a948a] mt-6">
           Still having trouble?{' '}
           <a
@@ -38,5 +39,6 @@ export default function OnboardingError({
         </p>
       </div>
     </OnboardingFunnelShell>
+    </LazyMotion>
   );
 }

@@ -22,18 +22,18 @@ export const dynamic = 'force-dynamic';
 
 function splitCommaOrNewline(text: string | undefined): string[] {
   if (!text?.trim()) return [];
-  return text
-    .split(/\n|,/)
-    .map((s) => s.trim())
-    .filter(Boolean);
+  return text.split(/\n|,/).flatMap((s) => {
+    const trimmed = s.trim();
+    return trimmed ? [trimmed] : [];
+  });
 }
 
 function splitParagraphs(text: string | undefined): string[] {
   if (!text?.trim()) return [];
-  return text
-    .split(/\n\n+/)
-    .map((s) => s.trim())
-    .filter(Boolean);
+  return text.split(/\n\n+/).flatMap((s) => {
+    const trimmed = s.trim();
+    return trimmed ? [trimmed] : [];
+  });
 }
 
 const NO_STORE = { 'Cache-Control': 'no-store, private' } as const;

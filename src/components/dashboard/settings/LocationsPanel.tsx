@@ -1,11 +1,54 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useState } from 'react';
-import { Icon } from '@/components/dashboard/Icon';
+import { type CSSProperties, useCallback, useReducer, useState } from 'react';
+import { Icon } from '@/components/dashboard/shell/Icon';
 import type { LocationId } from '@/lib/shared/ids';
 import { getDisplayLabel } from '@/lib/locations/display-label';
-import { SettingsModal } from './SettingsModal';
+import { SettingsModal } from '@/components/dashboard/settings/SettingsModal';
+
+// ── Static styles ───────────────────────────────────────────────────────
+
+const PENDING_APPROVAL_WARNING_STYLE: CSSProperties = {
+  marginBottom: 16,
+  padding: '10px 12px',
+  borderRadius: 8,
+  background: '#FEF3C7',
+  border: '1px solid #F59E0B',
+  fontSize: 13,
+  color: '#92400E',
+  lineHeight: 1.5,
+};
+
+const ADD_LOCATION_CTA_STYLE: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  marginTop: 16,
+  padding: '10px 16px',
+  border: `1px dashed var(--rw-app-border)`,
+  borderRadius: 8,
+  color: 'var(--rw-blue-600)',
+  fontSize: 14,
+  fontWeight: 500,
+  textDecoration: 'none',
+  transition: 'background-color 160ms ease, border-color 160ms ease, color 160ms ease',
+};
+
+const ARCHIVED_TOGGLE_STYLE: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  width: '100%',
+  border: 'none',
+  background: 'none',
+  cursor: 'pointer',
+  padding: '8px 0',
+  color: '#6B7280',
+  fontSize: 13,
+  fontWeight: 600,
+  textAlign: 'left',
+};
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -81,16 +124,7 @@ function ArchiveConfirmModal({
       </p>
       {/* VAL-LOC-067: Show pending approval count with warning */}
       {pendingApprovalCount > 0 && (
-        <div style={{
-          marginBottom: 16,
-          padding: '10px 12px',
-          borderRadius: 8,
-          background: '#FEF3C7',
-          border: '1px solid #F59E0B',
-          fontSize: 13,
-          color: '#92400E',
-          lineHeight: 1.5,
-        }}>
+        <div style={PENDING_APPROVAL_WARNING_STYLE}>
           <strong>{pendingApprovalCount} pending approval{pendingApprovalCount !== 1 ? 's' : ''}</strong> will not be published after archiving.
         </div>
       )}
@@ -182,6 +216,79 @@ function PromotePrimaryConfirmModal({
   );
 }
 
+interface LocationRowState {
+  archiving: boolean;
+  promoting: boolean;
+  showArchiveConfirm: boolean;
+  showPromoteFirst: boolean;
+  showPromoteConfirm: boolean;
+  error: string | null;
+  editingLabel: boolean;
+  newLabel: string;
+  savingLabel: boolean;
+}
+
+type LocationRowAction =
+  | { type: 'archiveStart' }
+  | { type: 'archiveFinish' }
+  | { type: 'promoteStart' }
+  | { type: 'promoteFinish' }
+  | { type: 'stopEditingLabel' }
+  | { type: 'saveLabelStart' }
+  | { type: 'saveLabelSuccess' }
+  | { type: 'saveLabelFinish' }
+  | { type: 'setError'; error: string | null }
+  | { type: 'showPromoteFirst' }
+  | { type: 'showArchiveConfirm' }
+  | { type: 'hideArchiveConfirm' }
+  | { type: 'hidePromoteFirst' }
+  | { type: 'hidePromoteConfirm' }
+  | { type: 'setNewLabel'; newLabel: string }
+  | { type: 'startEditingLabel' }
+  | { type: 'cancelEditingLabel'; displayName: string }
+  | { type: 'openPromoteConfirm' };
+
+function locationRowReducer(state: LocationRowState, action: LocationRowAction): LocationRowState {
+  switch (action.type) {
+    case 'archiveStart':
+      return { ...state, archiving: true, error: null };
+    case 'archiveFinish':
+      return { ...state, archiving: false, showArchiveConfirm: false };
+    case 'promoteStart':
+      return { ...state, promoting: true, error: null };
+    case 'promoteFinish':
+      return { ...state, promoting: false, showPromoteConfirm: false };
+    case 'stopEditingLabel':
+      return { ...state, editingLabel: false };
+    case 'saveLabelStart':
+      return { ...state, savingLabel: true, error: null };
+    case 'saveLabelSuccess':
+      return { ...state, editingLabel: false };
+    case 'saveLabelFinish':
+      return { ...state, savingLabel: false };
+    case 'setError':
+      return { ...state, error: action.error };
+    case 'showPromoteFirst':
+      return { ...state, showPromoteFirst: true };
+    case 'showArchiveConfirm':
+      return { ...state, showArchiveConfirm: true };
+    case 'hideArchiveConfirm':
+      return { ...state, showArchiveConfirm: false };
+    case 'hidePromoteFirst':
+      return { ...state, showPromoteFirst: false };
+    case 'hidePromoteConfirm':
+      return { ...state, showPromoteConfirm: false };
+    case 'setNewLabel':
+      return { ...state, newLabel: action.newLabel };
+    case 'startEditingLabel':
+      return { ...state, editingLabel: true };
+    case 'cancelEditingLabel':
+      return { ...state, editingLabel: false, newLabel: action.displayName };
+    case 'openPromoteConfirm':
+      return { ...state, error: null, showPromoteConfirm: true };
+  }
+}
+
 function LocationRow({
   location,
   isLastActive,
@@ -196,22 +303,24 @@ function LocationRow({
   onLocationChange: () => void;
 }) {
   const displayName = getDisplayLabel(location);
-  const [archiving, setArchiving] = useState(false);
-  const [promoting, setPromoting] = useState(false);
-  const [showArchiveConfirm, setShowArchiveConfirm] = useState(false);
-  const [showPromoteFirst, setShowPromoteFirst] = useState(false);
-  const [showPromoteConfirm, setShowPromoteConfirm] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [editingLabel, setEditingLabel] = useState(false);
-  const [newLabel, setNewLabel] = useState(displayName);
-  const [savingLabel, setSavingLabel] = useState(false);
+  const [state, dispatch] = useReducer(locationRowReducer, {
+    archiving: false,
+    promoting: false,
+    showArchiveConfirm: false,
+    showPromoteFirst: false,
+    showPromoteConfirm: false,
+    error: null,
+    editingLabel: false,
+    newLabel: displayName,
+    savingLabel: false,
+  });
+  const { archiving, promoting, showArchiveConfirm, showPromoteFirst, showPromoteConfirm, error, editingLabel, newLabel, savingLabel } = state;
   const focusLabelInput = useCallback((input: HTMLInputElement | null) => {
     input?.focus();
   }, []);
 
   async function handleArchive() {
-    setArchiving(true);
-    setError(null);
+    dispatch({ type: 'archiveStart' });
     try {
       const res = await fetch('/api/locations/archive', {
         method: 'POST',
@@ -224,16 +333,14 @@ function LocationRow({
       }
       onLocationChange();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to archive location');
+      dispatch({ type: 'setError', error: err instanceof Error ? err.message : 'Failed to archive location' });
     } finally {
-      setArchiving(false);
-      setShowArchiveConfirm(false);
+      dispatch({ type: 'archiveFinish' });
     }
   }
 
   async function handlePromote() {
-    setPromoting(true);
-    setError(null);
+    dispatch({ type: 'promoteStart' });
     try {
       const res = await fetch('/api/locations/promote-primary', {
         method: 'POST',
@@ -246,20 +353,18 @@ function LocationRow({
       }
       onLocationChange();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to promote location');
+      dispatch({ type: 'setError', error: err instanceof Error ? err.message : 'Failed to promote location' });
     } finally {
-      setPromoting(false);
-      setShowPromoteConfirm(false);
+      dispatch({ type: 'promoteFinish' });
     }
   }
 
   async function handleSaveLabel() {
     if (newLabel.trim() === displayName) {
-      setEditingLabel(false);
+      dispatch({ type: 'stopEditingLabel' });
       return;
     }
-    setSavingLabel(true);
-    setError(null);
+    dispatch({ type: 'saveLabelStart' });
     try {
       const res = await fetch('/api/locations/display-label', {
         method: 'PUT',
@@ -271,25 +376,25 @@ function LocationRow({
         throw new Error(body.error ?? 'Failed to update label');
       }
       onLocationChange();
-      setEditingLabel(false);
+      dispatch({ type: 'saveLabelSuccess' });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update label');
+      dispatch({ type: 'setError', error: err instanceof Error ? err.message : 'Failed to update label' });
     } finally {
-      setSavingLabel(false);
+      dispatch({ type: 'saveLabelFinish' });
     }
   }
 
   function handleArchiveClick() {
     if (location.isPrimary && !isLastActive) {
       // Primary with other active locations — must promote first
-      setShowPromoteFirst(true);
+      dispatch({ type: 'showPromoteFirst' });
     } else if (isLastActive) {
       // Last active location — cannot archive
-      setError('Cannot archive the last active location.');
-      setTimeout(() => setError(null), 3000);
+      dispatch({ type: 'setError', error: 'Cannot archive the last active location.' });
+      setTimeout(() => dispatch({ type: 'setError', error: null }), 3000);
     } else {
       // Non-primary — show confirmation dialog
-      setShowArchiveConfirm(true);
+      dispatch({ type: 'showArchiveConfirm' });
     }
   }
 
@@ -324,12 +429,12 @@ function LocationRow({
                 ref={focusLabelInput}
                 className="input"
                 value={newLabel}
-                onChange={(e) => setNewLabel(e.target.value)}
+                onChange={(e) => dispatch({ type: 'setNewLabel', newLabel: e.target.value })}
                 style={{ fontSize: 14, fontWeight: 600 }}
                 aria-label="Location display name"
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') handleSaveLabel();
-                  if (e.key === 'Escape') { setEditingLabel(false); setNewLabel(displayName); }
+                  if (e.key === 'Escape') { dispatch({ type: 'cancelEditingLabel', displayName }); }
                 }}
               />
               <button
@@ -345,7 +450,7 @@ function LocationRow({
                 type="button"
                 className="btn btn-secondary"
                 style={{ padding: '4px 10px', fontSize: 12 }}
-                onClick={() => { setEditingLabel(false); setNewLabel(displayName); }}
+                onClick={() => dispatch({ type: 'cancelEditingLabel', displayName })}
               >
                 Cancel
               </button>
@@ -356,7 +461,7 @@ function LocationRow({
               <button
                 type="button"
                 className="loc-row-edit-btn"
-                onClick={() => setEditingLabel(true)}
+                onClick={() => dispatch({ type: 'startEditingLabel' })}
                 title="Edit display label"
               >
                 <Icon name="edit" size={12} />
@@ -379,10 +484,7 @@ function LocationRow({
           <button
             type="button"
             className="btn btn-secondary loc-action-btn"
-            onClick={() => {
-              setError(null);
-              setShowPromoteConfirm(true);
-            }}
+            onClick={() => dispatch({ type: 'openPromoteConfirm' })}
             disabled={promoting}
             title="Set as primary location"
           >
@@ -424,22 +526,22 @@ function LocationRow({
           locationName={displayName}
           pendingApprovalCount={location.pendingApprovalCount}
           onConfirm={handleArchive}
-          onCancel={() => setShowArchiveConfirm(false)}
+          onCancel={() => dispatch({ type: 'hideArchiveConfirm' })}
           loading={archiving}
         />
       )}
       {showPromoteFirst && (
         <PromoteFirstModal
           locationName={displayName}
-          onPromote={() => setShowPromoteFirst(false)}
-          onCancel={() => setShowPromoteFirst(false)}
+          onPromote={() => dispatch({ type: 'hidePromoteFirst' })}
+          onCancel={() => dispatch({ type: 'hidePromoteFirst' })}
         />
       )}
       {showPromoteConfirm && (
         <PromotePrimaryConfirmModal
           locationName={displayName}
           onConfirm={handlePromote}
-          onCancel={() => setShowPromoteConfirm(false)}
+          onCancel={() => dispatch({ type: 'hidePromoteConfirm' })}
           loading={promoting}
         />
       )}
@@ -582,20 +684,7 @@ export function LocationsPanel({
         <Link
           href="/dashboard/add-location"
           className="loc-add-cta"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            marginTop: 16,
-            padding: '10px 16px',
-            border: `1px dashed var(--rw-app-border)`,
-            borderRadius: 8,
-            color: 'var(--rw-blue-600)',
-            fontSize: 14,
-            fontWeight: 500,
-            textDecoration: 'none',
-            transition: 'all 160ms ease',
-          }}
+          style={ADD_LOCATION_CTA_STYLE}
         >
           <Icon name="plus" size={14} />
           Add location
@@ -635,20 +724,7 @@ export function LocationsPanel({
           <button
             type="button"
             onClick={() => setArchivedExpanded(!archivedExpanded)}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              width: '100%',
-              border: 'none',
-              background: 'none',
-              cursor: 'pointer',
-              padding: '8px 0',
-              color: '#6B7280',
-              fontSize: 13,
-              fontWeight: 600,
-              textAlign: 'left',
-            }}
+            style={ARCHIVED_TOGGLE_STYLE}
             aria-expanded={archivedExpanded}
             aria-controls="archived-locations-content"
           >

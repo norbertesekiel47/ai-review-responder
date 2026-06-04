@@ -232,14 +232,16 @@ describe('GET /api/dashboard/kpis', () => {
 
   // ── Additional edge cases ─────────────────────────────────────────────
 
-  it('requireRole throws non-AuthError → returns 500 Internal server error', async () => {
+  it('requireRole throws non-AuthError → re-throws (un-masked 5xx, not a clean 500)', async () => {
+    // Adopting requireOwnerWithAccount aligns kpis with the Part A contract: an
+    // unexpected (non-auth) failure surfaces as a real 5xx instead of being
+    // masked behind a clean { error: 'Internal server error' } 500.
     mockRequireRole.mockRejectedValue(new Error('some internal error'));
 
-    const res = await GET(makeRequest());
-    expect(res.status).toBe(500);
+    await expect(GET(makeRequest())).rejects.toThrow('some internal error');
 
-    const body = await res.json();
-    expect(body.error).toBe('Internal server error');
+    expect(mockGetLocationKpiSummary).not.toHaveBeenCalled();
+    expect(mockGetAccountKpiSummary).not.toHaveBeenCalled();
   });
 
   it('user has no accountId → returns 403', async () => {

@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useReducer, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { PlaceAutocomplete } from '@/components/PlaceAutocomplete';
-import { motion } from 'motion/react';
+import { PlaceAutocomplete } from '@/components/places/PlaceAutocomplete';
+import { LazyMotion, m, domAnimation } from 'motion/react';
 import { OnboardingFunnelShell } from '../_shared/OnboardingFunnelShell';
 import {
   fieldClass,
@@ -18,17 +18,109 @@ interface PrefillResponse {
   website: string | null;
 }
 
+type InputMode = 'autocomplete' | 'url';
+
+interface StartLocationState {
+  inputMode: InputMode;
+  googlePlaceId: string;
+  googlePlaceAddress: string;
+  googleMapsUrl: string;
+  businessName: string;
+  prefilledCategory: string | null;
+  prefilledWebsite: string | null;
+  submitting: boolean;
+  error: string;
+}
+
+const initialStartLocationState: StartLocationState = {
+  inputMode: 'autocomplete',
+  googlePlaceId: '',
+  googlePlaceAddress: '',
+  googleMapsUrl: '',
+  businessName: '',
+  prefilledCategory: null,
+  prefilledWebsite: null,
+  submitting: false,
+  error: '',
+};
+
+type StartLocationAction =
+  | { type: 'setBusinessName'; businessName: string }
+  | { type: 'setGoogleMapsUrl'; googleMapsUrl: string }
+  | { type: 'selectPlace'; googlePlaceId: string; googlePlaceAddress: string }
+  | { type: 'clearPlace' }
+  | { type: 'setPrefill'; prefilledCategory: string | null; prefilledWebsite: string | null }
+  | { type: 'clearPrefill' }
+  | { type: 'switchToUrl' }
+  | { type: 'switchToAutocomplete' }
+  | { type: 'submitStart' }
+  | { type: 'submitError'; error: string }
+  | { type: 'submitEnd' };
+
+function startLocationReducer(
+  state: StartLocationState,
+  action: StartLocationAction,
+): StartLocationState {
+  switch (action.type) {
+    case 'setBusinessName':
+      return { ...state, businessName: action.businessName };
+    case 'setGoogleMapsUrl':
+      return { ...state, googleMapsUrl: action.googleMapsUrl };
+    case 'selectPlace':
+      // Drop any prefill from a previously selected place so submit() can't post
+      // the new place with stale category/website until the new prefill resolves.
+      return {
+        ...state,
+        googlePlaceId: action.googlePlaceId,
+        googlePlaceAddress: action.googlePlaceAddress,
+        prefilledCategory: null,
+        prefilledWebsite: null,
+      };
+    case 'clearPlace':
+      return {
+        ...state,
+        googlePlaceId: '',
+        googlePlaceAddress: '',
+        prefilledCategory: null,
+        prefilledWebsite: null,
+      };
+    case 'setPrefill':
+      return {
+        ...state,
+        prefilledCategory: action.prefilledCategory,
+        prefilledWebsite: action.prefilledWebsite,
+      };
+    case 'clearPrefill':
+      return { ...state, prefilledCategory: null, prefilledWebsite: null };
+    case 'switchToUrl':
+      return { ...state, googlePlaceId: '', googlePlaceAddress: '', inputMode: 'url' };
+    case 'switchToAutocomplete':
+      return { ...state, googleMapsUrl: '', inputMode: 'autocomplete' };
+    case 'submitStart':
+      return { ...state, submitting: true, error: '' };
+    case 'submitError':
+      return { ...state, error: action.error };
+    case 'submitEnd':
+      return { ...state, submitting: false };
+    default:
+      return state;
+  }
+}
+
 export function StartLocationClient() {
   const router = useRouter();
-  const [inputMode, setInputMode] = useState<'autocomplete' | 'url'>('autocomplete');
-  const [googlePlaceId, setGooglePlaceId] = useState('');
-  const [googlePlaceAddress, setGooglePlaceAddress] = useState('');
-  const [googleMapsUrl, setGoogleMapsUrl] = useState('');
-  const [businessName, setBusinessName] = useState('');
-  const [prefilledCategory, setPrefilledCategory] = useState<string | null>(null);
-  const [prefilledWebsite, setPrefilledWebsite] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState('');
+  const [state, dispatch] = useReducer(startLocationReducer, initialStartLocationState);
+  const {
+    inputMode,
+    googlePlaceId,
+    googlePlaceAddress,
+    googleMapsUrl,
+    businessName,
+    prefilledCategory,
+    prefilledWebsite,
+    submitting,
+    error,
+  } = state;
 
   const prefillAbortRef = useRef<AbortController | null>(null);
 
@@ -44,16 +136,18 @@ export function StartLocationClient() {
       );
       if (!res.ok) return;
       const prefill = (await res.json()) as PrefillResponse;
-      setPrefilledCategory(prefill.category);
-      setPrefilledWebsite(prefill.website);
+      dispatch({
+        type: 'setPrefill',
+        prefilledCategory: prefill.category,
+        prefilledWebsite: prefill.website,
+      });
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return;
     }
   }
 
   function cancelPrefill() {
-    setPrefilledCategory(null);
-    setPrefilledWebsite(null);
+    dispatch({ type: 'clearPrefill' });
     if (prefillAbortRef.current) {
       prefillAbortRef.current.abort();
       prefillAbortRef.current = null;
@@ -61,8 +155,7 @@ export function StartLocationClient() {
   }
 
   async function submit() {
-    setSubmitting(true);
-    setError('');
+    dispatch({ type: 'submitStart' });
 
     const payload = {
       inputMode,
@@ -81,7 +174,7 @@ export function StartLocationClient() {
       const body = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        setError(body.error ?? 'Submission failed');
+        dispatch({ type: 'submitError', error: body.error ?? 'Submission failed' });
         return;
       }
 
@@ -91,9 +184,9 @@ export function StartLocationClient() {
       }
       router.push(redirectTo);
     } catch {
-      setError('Connection failed');
+      dispatch({ type: 'submitError', error: 'Connection failed' });
     } finally {
-      setSubmitting(false);
+      dispatch({ type: 'submitEnd' });
     }
   }
 
@@ -102,6 +195,7 @@ export function StartLocationClient() {
   );
 
   return (
+    <LazyMotion features={domAnimation}>
     <OnboardingFunnelShell step="find">
       <h1 className="text-3xl md:text-4xl font-medium text-center text-[#2a2a2a] mb-2">
         Find your business
@@ -121,7 +215,7 @@ export function StartLocationClient() {
             id="biz-name-start"
             type="text"
             value={businessName}
-            onChange={(e) => setBusinessName(e.target.value)}
+            onChange={(e) => dispatch({ type: 'setBusinessName', businessName: e.target.value })}
             placeholder="Your business name"
             className={fieldClass}
             maxLength={80}
@@ -132,14 +226,16 @@ export function StartLocationClient() {
           <PlaceAutocomplete
             ariaLabel="Business location"
             onPlaceSelect={(sel) => {
-              setGooglePlaceId(sel.placeId);
-              setGooglePlaceAddress(sel.formattedAddress);
+              dispatch({
+                type: 'selectPlace',
+                googlePlaceId: sel.placeId,
+                googlePlaceAddress: sel.formattedAddress,
+              });
               triggerPrefill(sel.placeId);
             }}
             onClear={() => {
               cancelPrefill();
-              setGooglePlaceId('');
-              setGooglePlaceAddress('');
+              dispatch({ type: 'clearPlace' });
             }}
           />
         ) : (
@@ -147,7 +243,7 @@ export function StartLocationClient() {
             aria-label="Google Maps URL"
             type="text"
             value={googleMapsUrl}
-            onChange={(e) => setGoogleMapsUrl(e.target.value)}
+            onChange={(e) => dispatch({ type: 'setGoogleMapsUrl', googleMapsUrl: e.target.value })}
             placeholder="https://maps.google.com/..."
             className={fieldClass}
           />
@@ -158,12 +254,9 @@ export function StartLocationClient() {
           onClick={() => {
             cancelPrefill();
             if (inputMode === 'autocomplete') {
-              setGooglePlaceId('');
-              setGooglePlaceAddress('');
-              setInputMode('url');
+              dispatch({ type: 'switchToUrl' });
             } else {
-              setGoogleMapsUrl('');
-              setInputMode('autocomplete');
+              dispatch({ type: 'switchToAutocomplete' });
             }
           }}
           className="text-xs text-[#97B3AE] hover:text-[#7e9b96]"
@@ -174,7 +267,7 @@ export function StartLocationClient() {
         </button>
 
         <div className="flex justify-end pt-4">
-          <motion.button
+          <m.button
             type="button"
             onClick={submit}
             disabled={!canSubmit || submitting}
@@ -182,10 +275,11 @@ export function StartLocationClient() {
             className={primaryButtonClass}
           >
             {submitting ? 'Generating demo...' : 'Generate my demo'}
-          </motion.button>
+          </m.button>
         </div>
       </div>
     </OnboardingFunnelShell>
+    </LazyMotion>
   );
 }
 

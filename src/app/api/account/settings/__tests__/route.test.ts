@@ -6,6 +6,12 @@ import { NextRequest } from 'next/server';
 describe('GET /api/account/settings', () => {
   beforeEach(() => {
     vi.stubEnv('MULTI_LOCATION_ENABLED', 'true');
+    // No session cookie → getCurrentUser resolves null → AuthError(401). The
+    // Supabase client still needs URL/key to construct; without them
+    // createServerClient throws a non-auth error (which requireRoleOr401 now
+    // correctly surfaces as 5xx rather than masking as 401).
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'http://localhost:54321');
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY', 'test-anon-key');
   });
 
   afterEach(() => {
@@ -28,6 +34,8 @@ describe('PUT /api/locations/display-label', () => {
   beforeEach(() => {
     vi.stubEnv('MULTI_LOCATION_ENABLED', 'true');
     vi.stubEnv('NEXT_PUBLIC_APP_URL', APP_URL);
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'http://localhost:54321');
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY', 'test-anon-key');
   });
 
   afterEach(() => {

@@ -2,7 +2,7 @@
 //
 // Shared types and constants for the Add-location wizard.
 
-import type { PlaceSelection } from '@/components/PlaceAutocomplete';
+import type { PlaceSelection } from '@/components/places/PlaceAutocomplete';
 import type { BillingSnapshot } from '@/lib/accounts/quota';
 
 export interface Props {

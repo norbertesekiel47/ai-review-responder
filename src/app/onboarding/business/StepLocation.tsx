@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useRef, useState, type RefObject } from 'react';
-import { PlaceAutocomplete } from '@/components/PlaceAutocomplete';
+import { PlaceAutocomplete } from '@/components/places/PlaceAutocomplete';
 import type { WizardFormData } from './BusinessWizardClient';
-import { motion } from 'motion/react';
+import { LazyMotion, m, domAnimation } from 'motion/react';
 import {
   fieldClass,
   primaryButtonClass,
@@ -157,6 +157,7 @@ export function StepLocation({
       : Boolean(data.googleMapsUrl.trim());
 
   return (
+    <LazyMotion features={domAnimation}>
     <div className="space-y-4">
       <h2 className="text-xl font-medium text-[#2a2a2a]">Find your business</h2>
       <p className="text-sm text-[#6a6a6a]">
@@ -225,7 +226,7 @@ export function StepLocation({
       )}
 
       <div className="flex justify-end pt-4">
-        <motion.button
+        <m.button
           type="button"
           onClick={onNext}
           disabled={!canContinue}
@@ -233,8 +234,9 @@ export function StepLocation({
           className={primaryButtonClass}
         >
           Continue →
-        </motion.button>
+        </m.button>
       </div>
     </div>
+    </LazyMotion>
   );
 }

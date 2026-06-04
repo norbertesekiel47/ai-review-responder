@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createElement as h } from 'react';
-import { Sidebar } from '@/components/dashboard/Sidebar';
+import { Sidebar } from '@/components/dashboard/shell/Sidebar';
 import { LocationProvider, type LocationInfo } from '@/contexts/LocationContext';
 import type { LocationId } from '@/lib/shared/ids';
 

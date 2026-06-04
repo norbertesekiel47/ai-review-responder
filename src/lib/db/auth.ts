@@ -15,6 +15,33 @@ export interface AppUser {
 }
 
 /**
+ * Read-only cookie-backed Supabase SSR client for a Next.js route handler.
+ * Reads auth cookies off the NextRequest; `setAll` is a deliberate no-op
+ * because route handlers cannot mutate request cookies — the proxy refreshes
+ * the session. getUser() still validates the token against Supabase on every
+ * call, so a stale access token surfaces as a 401 (triggering a browser-side
+ * refresh), never a trust gap. The single owner of this adapter — previously
+ * copy-pasted into getCurrentUser, withSession, and the admin MFA gate.
+ */
+export function cookieBackedServerClient(request: NextRequest) {
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll();
+        },
+        setAll() {
+          // No-op: route handlers cannot mutate request cookies; the proxy
+          // handles session refresh.
+        },
+      },
+    },
+  );
+}
+
+/**
  * Reads the Supabase session from request cookies and maps the auth identity
  * to the app `users` table. Returns null if unauthenticated or no matching user row.
  *
@@ -28,21 +55,7 @@ export interface AppUser {
 export async function getCurrentUser(
   request: NextRequest,
 ): Promise<AppUser | null> {
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll() {
-          // Route handlers can't set cookies on a request object.
-          // Session refresh is handled by proxy.
-        },
-      },
-    },
-  );
+  const supabase = cookieBackedServerClient(request);
 
   const {
     data: { user: authUser },

@@ -1,0 +1,173 @@
+{
+  "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
+  "ignoreDependencies": [
+    "react-dom",
+    "postcss-load-config",
+    "eslint-config-next"
+  ],
+  "entry": [
+    "scripts/clear-signup-rate-limits.ts",
+    "scripts/zernio-backfill-external-replies.ts",
+    "scripts/posthog-backfill-activations.ts"
+  ],
+  "ignoreExports": [
+    {
+      "file": "worker/background/pollers/CleanupAbandonedSignupsPoller.ts",
+      "exports": ["runOnce"]
+    },
+    {
+      "file": "worker/background/pollers/EmailChannelReconcilePoller.ts",
+      "exports": ["runOnce"]
+    },
+    {
+      "file": "worker/background/pollers/StripeLocationsReconcilePoller.ts",
+      "exports": ["runOnce"]
+    },
+    {
+      "file": "worker/background/pollers/ZernioRecentReviewPoller.ts",
+      "exports": ["runOnce"]
+    }
+  ],
+  "health": {
+    "ignore": ["**/dist/**", "**/__generated__/**"]
+  },
+  "duplicates": {
+    "ignoreImports": true,
+    // Surface all repeated clones (2+ sites) so a new copy-paste pair stays
+    // visible to anyone running `fallow dupes` locally. Intentional/divergent
+    // clones are acknowledged by name in the `ignore` list below, not hidden by
+    // a blanket occurrence threshold.
+    "minOccurrences": 2,
+    "ignore": [
+      // Tests/e2e are intentionally DAMP; Next.js page.tsx are layout/auth-redirect
+      // boilerplate; CI scripts are audit scaffolds. Dupes-scoped only — the
+      // dead-code analyzer still sees all of these.
+      "**/__tests__/**",
+      "**/*.test.ts",
+      "**/*.test.tsx",
+      "**/*.spec.ts",
+      "**/*.spec.tsx",
+      "e2e/**",
+      "**/*.stories.tsx",
+      "src/app/**/page.tsx",
+      "scripts/ci/**",
+
+      // ── Reviewed, intentional/divergent duplication (acknowledged) ──
+      // The clones below are either deliberately parallel, behaviourally
+      // divergent, or extractable only by adding tiny pass-through helpers that
+      // the project's design rules reject (design.md / repworth.md "add nothing").
+      // They are acknowledged here instead of force-merged. The genuinely-deep
+      // shared concern — the role-auth gate family — was EXTRACTED, not frozen:
+      // requireRoleOr401 (all admin/owner/channel routes), requireAdminWithAal2
+      // (admin control-plane MFA gate), requireOwnerWithAccount/requireWritableOwner
+      // (owner + account), so admin control-plane and billing no longer appear here.
+
+      // Admin SMS channel routes: the deep logic already lives in _shared
+      // (loadBusinessAccountContext, withMobileEnrollmentLock, subscription
+      // guards). The residual is per-action composition glue around a GET-query
+      // vs POST-body business_id parse — extracting it would be a thin wrapper.
+      "src/app/api/admin/channels/sms/cancel/route.ts",
+      "src/app/api/admin/channels/sms/confirm/route.ts",
+      "src/app/api/admin/channels/sms/delete/route.ts",
+      "src/app/api/admin/channels/sms/disable/route.ts",
+      "src/app/api/admin/channels/sms/status/route.ts",
+      "src/app/api/admin/channels/sms/verify/route.ts",
+
+      // Admin business-detail routes: small shared auth/validation scaffolding.
+      "src/app/api/admin/businesses/*/keywords/route.ts",
+      "src/app/api/admin/businesses/*/ranking/route.ts",
+      "src/app/api/admin/businesses/*/route.ts",
+      "src/lib/admin/business-detail/update.ts",
+
+      // Owner settings/account routes: the deep owner+account and writable-owner
+      // gates are extracted (requireOwnerWithAccount / requireWritableOwner). The
+      // residual clone is the force-dynamic export + the standardized 3-line gate
+      // call + per-route locationId/writable guards — framework scaffolding, not
+      // extractable without a per-handler HOF wrapper. (dashboard/route.ts dropped
+      // out of the clone set once its preamble adopted requireOwnerWithAccount.)
+      "src/app/api/account/settings/route.ts",
+      "src/app/api/settings/route.ts",
+      "src/app/api/settings/voice/route.ts",
+      "src/app/api/settings/channels/override/route.ts",
+      "src/app/api/settings/channels/overrides/route.ts",
+      "src/app/api/locations/display-label/route.ts",
+
+      // Dashboard channel routes: the owner-auth gate is now shared
+      // (requireRoleOr401). The residual preamble (flag → env → location →
+      // writable-account resolution) diverges by design — start maps no_account
+      // → 404 while cancel/disable map it → 403, and each route binds a
+      // channel-specific enrollment fn + flag/env helper. Not cleanly unifiable
+      // without a config-knobbed helper.
+      "src/app/api/dashboard/channels/telegram/cancel/route.ts",
+      "src/app/api/dashboard/channels/telegram/disable/route.ts",
+      "src/app/api/dashboard/channels/telegram/start/route.ts",
+      "src/app/api/dashboard/channels/whatsapp/cancel/route.ts",
+      "src/app/api/dashboard/channels/whatsapp/disable/route.ts",
+      "src/app/api/dashboard/channels/whatsapp/start/route.ts",
+
+      // Zernio OAuth connect/disconnect: sensitive handshake preamble (ADR 0001),
+      // subtle per-route variance; kept per-route.
+      "src/app/api/zernio/connect/cancel/route.ts",
+      "src/app/api/zernio/connect/start/route.ts",
+      "src/app/api/zernio/disconnect/route.ts",
+
+      // Onboarding flow: code self-documents the duplication as intentional
+      // (isolation), and it rides the pre-pay demo cost-guard / billing path.
+      "src/app/api/onboarding/business/route.ts",
+      "src/app/api/onboarding/start/route.ts",
+      "src/app/api/onboarding/select-plan/route.ts",
+      "src/app/api/onboarding/demo/regenerate/route.ts",
+      "src/app/api/onboarding/demo/status/route.ts",
+      "src/app/onboarding/demo/PaywallWithDemoClient.tsx",
+      "src/app/onboarding/start/StartLocationClient.tsx",
+
+      // Auth/signup routes + form: shared signup scaffold; flows differ per step.
+      "src/app/api/auth/finish-signup/route.ts",
+      "src/app/api/auth/signup/route.ts",
+      "src/app/api/auth/signup-status/route.ts",
+      "src/app/api/auth/verify-otp/route.ts",
+      "src/app/api/auth/mfa/challenge/route.ts",
+      "src/app/api/auth/reset-password/route.ts",
+      "src/components/auth/auth-island/SignupForm.tsx",
+
+      // Dashboard data hooks + approval client: SWR/fetch boilerplate; forcing a
+      // generic hook would over-couple distinct data shapes.
+      "src/hooks/useAccountData.ts",
+      "src/hooks/useDashboardData.ts",
+      "src/hooks/useLocationVoiceForm.ts",
+      "src/hooks/useSettingsForm.ts",
+      "src/components/approval/approval-client.tsx",
+
+      // Aggregate (account-level) vs per-location dashboard cards: render
+      // differently by design (different data + richness).
+      "src/components/dashboard/aggregate/AggregateIntelligenceBriefCard.tsx",
+      "src/components/dashboard/kpi/IntelligenceBriefCard.tsx",
+
+      // Landing/marketing sections: shared animation/section scaffold (count-up
+      // already consolidated); section structure kept readable per-section.
+      "src/components/sections/features/FeaturesContent.tsx",
+      "src/components/sections/landing/Features.tsx",
+      "src/components/sections/landing/TimelineSection.tsx",
+
+      // Worker schedulers: a shared poll-loop scaffold (interval env-parse,
+      // isPolling reentrancy guard, setInterval lifecycle) wrapping divergent
+      // jobs. A createIntervalScheduler factory is tempting, but the lifecycles
+      // genuinely differ — OnboardingDrip has an idempotent-start guard + an
+      // exported tick + a mock-mode skip; Monthly/Weekly log a timezone. A factory
+      // would need behaviour-changing normalization or config knobs, so kept
+      // per-scheduler (reliability-sensitive worker loops; production.md).
+      "worker/background/schedulers/MonthlyImpactScheduler.ts",
+      "worker/background/schedulers/OnboardingDripScheduler.ts",
+      "worker/background/schedulers/WeeklySummaryScheduler.ts",
+
+      // Twilio ingress: webhook signature/parse scaffold; each handles a distinct
+      // Twilio callback (inbound / delivery-status / shared).
+      "worker/ingress/twilio/twilio.ts",
+      "worker/ingress/twilio/twilio-whatsapp-inbound.ts",
+      "worker/ingress/twilio/twilio-delivery-status.ts",
+
+      // Self-contained admin panel with internal repetition kept for clarity.
+      "src/app/admin/businesses/*/_components/ZernioConnectionPanel.tsx"
+    ]
+  }
+}

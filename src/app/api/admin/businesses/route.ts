@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { OnboardBusinessSchema } from '@/lib/shared/schemas';
 import { sql } from '@/lib/db/server';
-import { requireRole, AuthError } from '@/lib/db/auth';
 import {
   onboardBusinessAsAdmin,
   AdminOnboardingError,
 } from '@/lib/onboarding/admin-onboarding-service';
-import { withSameOrigin } from '@/lib/auth/route-helpers';
+import { requireRoleOr401, withSameOrigin } from '@/lib/auth/route-helpers';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,14 +23,8 @@ interface BusinessListRow {
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  try {
-    await requireRole(request, 'admin');
-  } catch (err) {
-    if (err instanceof AuthError) {
-      return NextResponse.json({ error: err.message }, { status: err.statusCode });
-    }
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const auth = await requireRoleOr401(request, 'admin');
+  if (!auth.ok) return auth.response;
 
   try {
     const limit = Math.min(
@@ -90,15 +83,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 // ---------------------------------------------------------------------------
 
 async function createBusiness(request: NextRequest): Promise<NextResponse> {
-  let authUser;
-  try {
-    authUser = await requireRole(request, 'admin');
-  } catch (err) {
-    if (err instanceof AuthError) {
-      return NextResponse.json({ error: err.message }, { status: err.statusCode });
-    }
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const auth = await requireRoleOr401(request, 'admin');
+  if (!auth.ok) return auth.response;
+  const authUser = auth.user;
 
   let body: unknown;
   try {

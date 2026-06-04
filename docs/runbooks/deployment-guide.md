@@ -1032,8 +1032,23 @@ swapping in **live** credentials and the prod column of §II.3:
      before it ever runs against prod.
 4. **Green on staging?** Merge the **PR into `main`.** Vercel ships `repworth.net`;
    Railway `production` redeploys the worker. **This is the promotion.**
-5. **Re-sync staging:** `git checkout staging && git merge --ff-only main &&
-   git push` so staging never drifts.
+5. **Re-sync staging** so it never drifts:
+   - **If staging was behind `main`** (e.g. a frontend-only change that skipped the
+     step-3 side trip): `git checkout staging && git merge --ff-only main && git push`.
+   - **If you pushed your feature to staging in step 3 and the PR was squash-merged**
+     (the default), `staging` now holds your raw feature commits while `main` holds a
+     single squashed commit — the two have **diverged**, so `--ff-only` aborts with
+     *"Not possible to fast-forward."* Reset staging to match `main` instead:
+     ```
+     git fetch origin
+     git checkout staging
+     git reset --hard origin/main
+     git push --force-with-lease origin staging
+     ```
+     This is safe because **staging is a disposable integration anchor, not a source
+     of truth** — nothing of value lives only on staging, so realigning it to `main`
+     loses nothing. After this, `staging == main` again and the next
+     `git push origin HEAD:staging` fast-forwards cleanly.
 
 **Two databases in lockstep:** every migration runs against **both** Supabase
 projects, in numeric order, **staging first**. "Applied to staging, not yet prod"

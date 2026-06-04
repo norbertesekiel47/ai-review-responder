@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useEffectEvent, useRef, useState } from 'react';
 
 const LABELS = ['Warm', 'Friendly', 'Balanced', 'Polished', 'Crisp'] as const;
 const SAMPLES = [
@@ -34,9 +34,11 @@ export function VoiceDial() {
     setValue(Math.round(t * 4));
   }, []);
 
+  const onMove = useEffectEvent((e: PointerEvent) => onPointer(e));
+
   useEffect(() => {
     if (!dragging) return;
-    const move = (e: PointerEvent) => onPointer(e);
+    const move = (e: PointerEvent) => onMove(e);
     const up = () => setDragging(false);
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
@@ -44,7 +46,7 @@ export function VoiceDial() {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
     };
-  }, [dragging, onPointer]);
+  }, [dragging]);
 
   const angle = -135 + (value / 4) * 270;
 
@@ -60,12 +62,7 @@ export function VoiceDial() {
                 setDragging(true);
                 onPointer(e);
               }}
-              role="slider"
-              aria-valuemin={0}
-              aria-valuemax={4}
-              aria-valuenow={value}
-              aria-label="Voice dial — drag to adjust tone"
-              tabIndex={0}
+              aria-hidden="true"
             >
               <div className="rw-voice-ticks">
                 {Array.from({ length: 5 }).map((_, i) => {
@@ -91,6 +88,15 @@ export function VoiceDial() {
                 <div className="rw-voice-dial-value-label">Tone</div>
               </div>
             </div>
+            <input
+              className="sr-only"
+              type="range"
+              min={0}
+              max={4}
+              value={value}
+              aria-label="Voice dial — adjust tone"
+              onChange={(e) => setValue(Number(e.target.value))}
+            />
             <div className="rw-voice-labels">
               {LABELS.map((l, i) => (
                 <Fragment key={l}>
@@ -108,7 +114,7 @@ export function VoiceDial() {
             </h2>
             <p style={{ font: '400 17px/1.6 var(--rw-font-body)', color: 'var(--rw-ink-soft)', margin: '0 0 24px', maxWidth: 460 }}>
               RepWorth learns from the replies you approve. Most owners find their voice
-              sits somewhere between warm and polished — and it stays there, on every
+              sits somewhere between warm and polished, and it stays there, on every
               review, forever. Try a few settings.
             </p>
             <div className="rw-voice-preview">

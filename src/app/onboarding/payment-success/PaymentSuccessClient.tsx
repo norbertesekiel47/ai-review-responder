@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { motion } from 'motion/react';
+import { LazyMotion, m, domAnimation } from 'motion/react';
 import { OnboardingFunnelShell } from '../_shared/OnboardingFunnelShell';
 import { primaryButtonClass, buttonMotion } from '../_shared/field-styles';
 
@@ -120,13 +120,14 @@ export function PaymentSuccessClient({
   }, [router, checkoutSessionId]);
 
   return (
+    <LazyMotion features={domAnimation}>
     <OnboardingFunnelShell step="setup">
       <div className="max-w-md mx-auto text-center py-6">
         {active ? (
           <>
-            <motion.div
+            <m.div
               className="size-16 mx-auto mb-6 rounded-full bg-[#97B3AE] flex items-center justify-center shadow-lg"
-              initial={{ scale: 0, opacity: 0 }}
+              initial={{ scale: 0.5, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               transition={{ duration: 0.5, ease: 'easeOut', delay: 0.1 }}
             >
@@ -143,22 +144,22 @@ export function PaymentSuccessClient({
                   d="M5 13l4 4L19 7"
                 />
               </svg>
-            </motion.div>
+            </m.div>
             {needsSetup ? (
               <>
                 <h1 className="text-3xl font-medium text-[#2a2a2a] mb-3">
-                  You&apos;re in — payment confirmed
+                  You&apos;re in. Payment confirmed
                 </h1>
                 <p className="text-[#6a6a6a] mb-8">
                   Let&apos;s finish setting up your business.
                 </p>
-                <motion.button
+                <m.button
                   onClick={() => router.push('/onboarding/business')}
                   {...buttonMotion}
                   className={primaryButtonClass}
                 >
                   Continue setup →
-                </motion.button>
+                </m.button>
               </>
             ) : (
               <>
@@ -166,20 +167,20 @@ export function PaymentSuccessClient({
                   Welcome to RepWorth!
                 </h1>
                 <p className="text-[#6a6a6a] mb-8">Your subscription is active.</p>
-                <motion.button
+                <m.button
                   onClick={() => router.push('/dashboard')}
                   {...buttonMotion}
                   className={primaryButtonClass}
                 >
                   Go to dashboard
-                </motion.button>
+                </m.button>
               </>
             )}
           </>
         ) : elapsed > MAX_POLL_DURATION_MS ? (
           <>
             <h1 className="text-2xl font-medium text-[#2a2a2a] mb-3">
-              Still processing...
+              Still processing…
             </h1>
             <p className="text-[#6a6a6a]">
               This is taking longer than usual. Please{' '}
@@ -193,12 +194,13 @@ export function PaymentSuccessClient({
           <>
             <div className="inline-block size-12 border-4 border-[#97B3AE]/25 border-t-[#97B3AE] rounded-full animate-spin mb-6" />
             <h1 className="text-2xl font-medium text-[#2a2a2a] mb-3">
-              Processing your payment...
+              Processing your payment…
             </h1>
             <p className="text-[#6a6a6a]">This usually takes a few seconds.</p>
           </>
         )}
       </div>
     </OnboardingFunnelShell>
+    </LazyMotion>
   );
 }

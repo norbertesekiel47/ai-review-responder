@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/db/browser';
 import type { AuthFlow } from '@/lib/shared/auth-flow';
 import {
@@ -22,7 +22,7 @@ export interface UseLoginSubmitInput {
 }
 
 export interface UseLoginSubmitReturn {
-  submit: (email: string, password: string) => Promise<void>;
+  submit: (email: string, password: string, from: string) => Promise<void>;
   loading: boolean;
   error: string;
   setError: (e: string) => void;
@@ -36,9 +36,8 @@ export function useLoginSubmit({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const router = useRouter();
-  const searchParams = useSearchParams();
 
-  async function submit(rawEmail: string, password: string) {
+  async function submit(rawEmail: string, password: string, from: string) {
     const email = rawEmail.trim().toLowerCase();
     setError('');
     setLoading(true);
@@ -109,7 +108,6 @@ export function useLoginSubmit({
       }
 
       let destinationOverride: string | null = null;
-      const from = searchParams.get('from') ?? '';
       if (portal === 'owner') {
         try {
           const statusRes = await fetch('/api/auth/signup-status');

@@ -30,7 +30,10 @@ vi.mock('@/lib/db/auth', () => ({
   requireRole: (...a: unknown[]) => requireRoleMock(...(a as [])),
   AuthError: class extends Error { statusCode = 401; },
 }));
-vi.mock('@/lib/auth/route-helpers', () => ({ withSameOrigin: () => (h: unknown) => h }));
+vi.mock('@/lib/auth/route-helpers', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/auth/route-helpers')>();
+  return { ...actual, withSameOrigin: () => (h: unknown) => h };
+});
 vi.mock('@/lib/notifications/resolve-channels', () => ({ safeInvalidateChannelCache: vi.fn(async () => {}) }));
 
 import { POST } from '../disable/route';

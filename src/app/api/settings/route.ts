@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { sql } from '@/lib/db/server';
-import { requireRole, AuthError } from '@/lib/db/auth';
-import { NO_STORE_HEADERS } from '@/lib/shared/constants';
-import { withSameOrigin } from '@/lib/auth/route-helpers';
+import { jsonResponse, requireRoleOr401, withSameOrigin } from '@/lib/auth/route-helpers';
 import { assertWritableSubscriptionForAccount } from '@/lib/shared/writable-subscription';
 
 export const dynamic = 'force-dynamic';
@@ -32,20 +30,10 @@ const FIELD_TO_COLUMN: Record<string, string> = {
   monthlyImpactEnabled: 'monthly_impact_enabled',
 };
 
-function jsonResponse(body: unknown, status = 200): NextResponse {
-  return NextResponse.json(body, { status, headers: NO_STORE_HEADERS });
-}
-
 async function putSettings(request: NextRequest): Promise<NextResponse> {
-  let user;
-  try {
-    user = await requireRole(request, 'owner');
-  } catch (err) {
-    if (err instanceof AuthError) {
-      return jsonResponse({ error: err.message }, err.statusCode);
-    }
-    return jsonResponse({ error: 'Unauthorized' }, 401);
-  }
+  const auth = await requireRoleOr401(request, 'owner');
+  if (!auth.ok) return auth.response;
+  const user = auth.user;
 
   if (!user.locationId) {
     return jsonResponse(
