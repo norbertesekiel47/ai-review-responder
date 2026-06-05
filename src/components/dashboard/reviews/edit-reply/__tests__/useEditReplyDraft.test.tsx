@@ -18,6 +18,7 @@ function makeRow(overrides: Partial<PastReplyRow> = {}): PastReplyRow {
     star_rating: 5,
     response_id: 'resp-posted-1',
     approved_text: 'Thanks Pat!',
+    approval_method: null,
     posted_at: '2026-05-02T00:00:00Z',
     external_reply_ingested_at: null,
     review_content_hash: 'hash-abc',

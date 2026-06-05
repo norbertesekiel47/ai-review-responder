@@ -15,6 +15,7 @@ function makeRow(overrides: Partial<PastReplyRow> = {}): PastReplyRow {
     star_rating: 5,
     response_id: 'response-1',
     approved_text: 'Thank you for visiting!',
+    approval_method: null,
     posted_at: '2026-04-02T10:00:00Z',
     external_reply_ingested_at: null,
     review_content_hash: 'hash-abc',
@@ -47,6 +48,17 @@ describe('PastReplyCard', () => {
     render(<PastReplyCard row={makeRow()} isImported={false} />);
 
     expect(screen.queryByRole('button', { name: /edit reply/i })).not.toBeInTheDocument();
+  });
+
+  it('shows auto-approved provenance from approval_method', () => {
+    render(
+      <PastReplyCard
+        row={makeRow({ approval_method: 'auto_policy' })}
+        isImported={false}
+      />,
+    );
+
+    expect(screen.getByText('Auto-approved')).toBeInTheDocument();
   });
 
   // ── canEdit=true → Edit CTA ───────────────────────────────────────────────

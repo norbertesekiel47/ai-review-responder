@@ -1,3 +1,5 @@
+import type { ApprovalMethod } from '@/lib/auto-approval/types';
+
 export interface DashboardSettings {
   tone: string;
   productsServices: string;
@@ -34,6 +36,7 @@ export interface DashboardDataActive {
     status: string;
     responseText: string | null;
     responseStatus: string | null;
+    approvalMethod: ApprovalMethod | null;
   }>;
   latestBrief: {
     text: string;
@@ -170,6 +173,7 @@ export interface AggregateReviewItem {
   status: string;
   responseText: string | null;
   responseStatus: string | null;
+  approvalMethod: ApprovalMethod | null;
   locationId: string;
   locationDisplayName: string;
 }

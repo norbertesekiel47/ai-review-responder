@@ -11,6 +11,7 @@ import { ReviewsList } from './_components/ReviewsList';
 import { ChannelsPanel } from './_components/ChannelsPanel';
 import { ZernioConnectionPanel } from './_components/ZernioConnectionPanel';
 import { PastDueExtensionPanel } from './_components/PastDueExtensionPanel';
+import { AutoApprovalDiagnosticsPanel } from './_components/AutoApprovalDiagnosticsPanel';
 import { useBusinessDetail } from './_hooks/useBusinessDetail';
 
 const HEALTH_BADGE_STYLES: Record<string, string> = {
@@ -48,7 +49,16 @@ export default function BusinessDetailPage() {
     );
   }
 
-  const { business, reviews, rankingSnapshots, zernio, account, approvalAuditLog, accountAuditLog } = data;
+  const {
+    business,
+    reviews,
+    rankingSnapshots,
+    zernio,
+    account,
+    approvalAuditLog,
+    accountAuditLog,
+    autoApproval,
+  } = data;
 
   const mapsUrl = business.googlePlaceId
     ? `https://www.google.com/maps/place/?q=place_id:${business.googlePlaceId}`
@@ -168,6 +178,8 @@ export default function BusinessDetailPage() {
           subscriptionStatus={account.subscriptionStatus}
           onGranted={invalidate}
         />
+
+        <AutoApprovalDiagnosticsPanel diagnostics={autoApproval} />
 
         {/* Profile editor */}
         <ProfileEditor

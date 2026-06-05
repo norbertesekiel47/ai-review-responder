@@ -81,6 +81,11 @@
   --rw-attn-fg-soft: #5a5a5a;  /* secondary text on blush (~6:1, AA) */
   --rw-attn-icon-bg: #F2C3B9;
 
+  /* Auto-approved provenance badge — single owner of the badge color,
+     referenced by .badge-auto (review feed) and .pr-prov-auto (past replies). */
+  --rw-auto-bg: #EDE9FE;
+  --rw-auto-fg: #5B21B6;
+
   --rw-red-600:    #DC2626;
   --rw-red-700:    #B91C1C;
   --rw-red-100:    #FEE2E2;

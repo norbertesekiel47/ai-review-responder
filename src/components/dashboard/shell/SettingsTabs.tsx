@@ -6,7 +6,14 @@ import { Icon, type IconName } from '@/components/dashboard/shell/Icon';
 
 // ── Tab types ──────────────────────────────────────────────────────────
 
-export type SettingsTab = 'account' | 'locations' | 'voice' | 'channels' | 'general' | 'security';
+export type SettingsTab =
+  | 'account'
+  | 'locations'
+  | 'voice'
+  | 'autoApproval'
+  | 'channels'
+  | 'general'
+  | 'security';
 
 interface Tab {
   id: SettingsTab;
@@ -22,6 +29,7 @@ const TABS_MULTI: Tab[] = [
   { id: 'account', label: 'Account', icon: 'cog', href: '/settings' },
   { id: 'locations', label: 'Locations', icon: 'location', href: '/settings/locations' },
   { id: 'voice', label: 'Voice', icon: 'sparkle', href: '/settings/voice' },
+  { id: 'autoApproval', label: 'Auto-approval', icon: 'shield', href: '/settings/auto-approval' },
   { id: 'channels', label: 'Notifications', icon: 'inbox', href: '/settings/channels' },
   { id: 'security', label: 'Security', icon: 'shield', href: '/settings/security' },
 ];
@@ -30,6 +38,7 @@ const TABS_MULTI: Tab[] = [
 const TABS_SINGLE: Tab[] = [
   { id: 'general', label: 'General', icon: 'cog', href: '/settings' },
   { id: 'voice', label: 'Brand Voice', icon: 'sparkle', href: '/settings#brand-voice' },
+  { id: 'autoApproval', label: 'Auto-approval', icon: 'shield', href: '/settings/auto-approval' },
   { id: 'channels', label: 'Notifications', icon: 'inbox', href: '/settings/channels' },
   { id: 'security', label: 'Security', icon: 'shield', href: '/settings/security' },
 ];
@@ -39,6 +48,7 @@ const TABS_SINGLE_WITH_LOCATIONS: Tab[] = [
   { id: 'account', label: 'Account', icon: 'cog', href: '/settings' },
   { id: 'locations', label: 'Locations', icon: 'location', href: '/settings/locations' },
   { id: 'voice', label: 'Brand Voice', icon: 'sparkle', href: '/settings#brand-voice' },
+  { id: 'autoApproval', label: 'Auto-approval', icon: 'shield', href: '/settings/auto-approval' },
   { id: 'channels', label: 'Notifications', icon: 'inbox', href: '/settings/channels' },
   { id: 'security', label: 'Security', icon: 'shield', href: '/settings/security' },
 ];

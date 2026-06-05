@@ -945,7 +945,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/lib/admin/business-detail/queries.ts",
     table: "responses",
-    sqlSnippet: "SELECT r.id, r.reviewer_name, r.star_rating, r.review_text, r.review_date, r.detected_language, r.status AS review_status, r.detected_at, resp.id AS response_id, resp.status AS response_status, resp.response_text, resp.approved_text, resp.version FROM reviews r LEFT JOIN LATERAL ( SELECT id, status, response_text, approved_text, version FROM responses WHERE review_id = r.id AND status != 'superseded' ORDER BY version DESC LIMIT 1 ) resp ON true WHERE r.business_id = ${businessId} ORDER BY r.detected_at DESC",
+    sqlSnippet: "SELECT r.id, r.reviewer_name, r.star_rating, r.review_text, r.review_date, r.detected_language, r.status AS review_status, r.detected_at, resp.id AS response_id, resp.status AS response_status, resp.response_text, resp.approved_text, resp.approval_method, resp.version FROM reviews r LEFT JOIN LATERAL ( SELECT id, status, response_text, approved_text, approval_method, version FROM responses WHERE review_id = r.id AND status != 'superseded' ORDER BY version DESC LIMIT 1 ) resp ON true WHERE r.business_id = ${businessId} ORDER BY r.detected_at DESC",
     reason: "Admin-only route or service intentionally performs this statement after requireRole(admin).",
   },
   {
@@ -1017,7 +1017,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/lib/dashboard/service.ts",
     table: "responses",
-    sqlSnippet: "SELECT rev.id, rev.reviewer_name, rev.star_rating, rev.review_text, rev.review_date, rev.status, resp.response_text, resp.status AS response_status FROM reviews rev LEFT JOIN LATERAL ( SELECT COALESCE(approved_text, response_text) AS response_text, status FROM responses WHERE review_id = rev.id AND business_id = ${businessId} AND status = ANY(${[...RECENT_REVIEW_DISPLAY_STATUSES] as string[]}::text[]) AND NOT EXISTS ( SELECT 1 FROM flagged_responses fr WHERE fr.response_id = responses.id AND fr.status = 'open' ) ORDER BY version DESC LIMIT 1 ) resp ON true WHERE rev.business_id = ${businessId} AND rev.status <> 'deleted' ORDER BY rev.detected_at DESC LIMIT 10",
+    sqlSnippet: "SELECT rev.id, rev.reviewer_name, rev.star_rating, rev.review_text, rev.review_date, rev.status, resp.response_text, resp.status AS response_status, resp.approval_method FROM reviews rev LEFT JOIN LATERAL ( SELECT COALESCE(approved_text, response_text) AS response_text, status, approval_method FROM responses WHERE review_id = rev.id AND business_id = ${businessId} AND status = ANY(${[...RECENT_REVIEW_DISPLAY_STATUSES] as string[]}::text[]) AND NOT EXISTS ( SELECT 1 FROM flagged_responses fr WHERE fr.response_id = responses.id AND fr.status = 'open' ) ORDER BY version DESC LIMIT 1 ) resp ON true WHERE rev.business_id = ${businessId} AND rev.status <> 'deleted' ORDER BY rev.detected_at DESC LIMIT 10",
     reason: "Dashboard service receives an owner-scoped accountId or businessId and uses it as the tenant boundary for joined data; the NOT EXISTS clause excludes drafts held by an open moderation flag from owner view.",
   },
   {
@@ -1599,7 +1599,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/app/(authenticated)/dashboard/past-replies/page.tsx",
     table: "responses",
-    sqlSnippet: "SELECT r.id AS review_id, r.review_text, r.review_date, r.review_content_hash, r.external_reply_ingested_at, r.star_rating, r.reviewer_name, resp.id AS response_id, resp.approved_text, resp.posted_at, resp.version, fail_sidecar.id AS failed_response_id, fail_sidecar.posting_error AS failed_posting_error FROM reviews r JOIN responses resp ON resp.review_id = r.id AND resp.status = 'posted' LEFT JOIN LATERAL ( SELECT id, posting_error FROM responses WHERE review_id = r.id AND status = 'failed' AND posting_error LIKE ${deletePfx} ORDER BY created_at DESC LIMIT 1 ) fail_sidecar ON true WHERE r.business_id = ${locationId} ORDER BY r.review_date DESC LIMIT ${PAGE_SIZE} OFFSET ${offset}",
+    sqlSnippet: "SELECT r.id AS review_id, r.review_text, r.review_date, r.review_content_hash, r.external_reply_ingested_at, r.star_rating, r.reviewer_name, resp.id AS response_id, resp.approved_text, resp.approval_method, resp.posted_at, resp.version, fail_sidecar.id AS failed_response_id, fail_sidecar.posting_error AS failed_posting_error FROM reviews r JOIN responses resp ON resp.review_id = r.id AND resp.status = 'posted' LEFT JOIN LATERAL ( SELECT id, posting_error FROM responses WHERE review_id = r.id AND status = 'failed' AND posting_error LIKE ${deletePfx} ORDER BY created_at DESC LIMIT 1 ) fail_sidecar ON true WHERE r.business_id = ${locationId} ORDER BY r.review_date DESC LIMIT ${PAGE_SIZE} OFFSET ${offset}",
     reason: "Owner past-replies transaction has already resolved request account/location scope before this row-level lock or mutation.",
   },
   {

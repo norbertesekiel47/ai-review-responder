@@ -89,6 +89,7 @@ const REVIEW_ROW = {
   response_status: 'approved',
   response_text: 'Thank you so much!',
   approved_text: 'Thank you so much! We hope to see you again.',
+  approval_method: 'auto_policy',
   version: 2,
 };
 
@@ -156,7 +157,7 @@ const ACCOUNT_LOCATION_ROWS = [
 const APPROVAL_AUDIT_ROW = {
   id: 'aal-1',
   response_id: 'resp-1',
-  action: 'approved',
+  action: 'auto_approved_by_policy',
   actor_user_id: 'user-owner',
   created_at: new Date('2026-05-05T15:00:00Z'),
   business_id: 'biz-abc',
@@ -165,17 +166,38 @@ const APPROVAL_AUDIT_ROW = {
 
 const ACCOUNT_AUDIT_ROW = {
   id: 'aaudit-1',
-  event_type: 'location_archived',
+  event_type: 'auto_approval_policy_changed',
   actor_user_id: null,
   location_id: 'biz-branch',
   payload: { reason: 'closed' },
   created_at: new Date('2026-01-01T10:00:00Z'),
 };
 
+const AUTO_APPROVAL_POLICY_ROWS = [
+  {
+    id: 'auto-policy-account',
+    account_id: 'acct-xyz',
+    location_id: null,
+    auto_approve_min_star: 5,
+  },
+  {
+    id: 'auto-policy-branch',
+    account_id: 'acct-xyz',
+    location_id: 'biz-branch',
+    auto_approve_min_star: null,
+  },
+];
+
+const AUTO_APPROVAL_ACCOUNT_ROW = {
+  subscription_status: 'active',
+  past_due_at: null,
+  flags: {},
+};
+
 /**
- * Queue results for all 10 queries in call order. The order and COUNT are
+ * Queue results for all 12 queries in call order. The order and COUNT are
  * load-bearing: results are consumed positionally as `sql` is invoked
- * (batch-1's 6 parallel queries, then batch-2's 4). Adding/removing a query
+ * (batch-1's 6 parallel queries, then batch-2's 6). Adding/removing a query
  * in queries.ts means updating every manual push sequence in this file.
  */
 function queueAllResults() {
@@ -191,6 +213,8 @@ function queueAllResults() {
   mockSqlResults.push(ACCOUNT_LOCATION_ROWS);     // 7: account locations
   mockSqlResults.push([APPROVAL_AUDIT_ROW]);      // 8: approval_audit_log
   mockSqlResults.push([ACCOUNT_AUDIT_ROW]);       // 9: account_audit_log
+  mockSqlResults.push(AUTO_APPROVAL_POLICY_ROWS); // 10: auto_approval_policies
+  mockSqlResults.push([AUTO_APPROVAL_ACCOUNT_ROW]); // 11: account readiness
 }
 
 // ── Tests ────────────────────────────────────────────────────────────
@@ -303,6 +327,7 @@ describe('getBusinessDetail — full DTO characterization', () => {
       responseStatus: 'approved',
       responseText: 'Thank you so much!',
       approvedText: 'Thank you so much! We hope to see you again.',
+      approvalMethod: 'auto_policy',
       responseVersion: 2,
     });
 
@@ -344,7 +369,7 @@ describe('getBusinessDetail — full DTO characterization', () => {
     expect(res.approvalAuditLog[0]).toEqual({
       id: 'aal-1',
       responseId: 'resp-1',
-      action: 'approved',
+      action: 'auto_approved_by_policy',
       actorUserId: 'user-owner',
       createdAt: new Date('2026-05-05T15:00:00Z').toISOString(),
     });
@@ -354,12 +379,42 @@ describe('getBusinessDetail — full DTO characterization', () => {
     expect(res.accountAuditLog).toHaveLength(1);
     expect(res.accountAuditLog[0]).toEqual({
       id: 'aaudit-1',
-      eventType: 'location_archived',
+      eventType: 'auto_approval_policy_changed',
       actorUserId: null,
       locationId: 'biz-branch',
       payload: { reason: 'closed' },
       createdAt: new Date('2026-01-01T10:00:00Z').toISOString(),
     });
+
+    // ── autoApproval diagnostics ─────────────────────────────────────
+
+    expect(res.autoApproval.accountDefault).toEqual({
+      policyId: 'auto-policy-account',
+      threshold: 5,
+      exists: true,
+    });
+    expect(res.autoApproval.locations).toHaveLength(2);
+    expect(res.autoApproval.locations[0]).toEqual({
+      locationId: 'biz-abc',
+      displayName: 'Main St',
+      isPrimary: true,
+      archivedAt: null,
+      override: { policyId: null, threshold: null, exists: false },
+      effective: {
+        threshold: 5,
+        source: 'account_default',
+        policyId: 'auto-policy-account',
+      },
+    });
+    expect(res.autoApproval.locations[1]!.override).toEqual({
+      policyId: 'auto-policy-branch',
+      threshold: null,
+      exists: true,
+    });
+    expect(res.autoApproval.recentApprovalAudit[0]!.action).toBe('auto_approved_by_policy');
+    expect(res.autoApproval.recentPolicyChanges[0]!.eventType).toBe('auto_approval_policy_changed');
+    expect(res.autoApproval.readiness.runtimeEnabled).toBe(false);
+    expect(res.autoApproval.readiness.blockReasons).toContain('auto_approval_disabled');
   });
 
   it('returns null when the business row is not found (empty batch-1 business query)', async () => {
@@ -385,7 +440,7 @@ describe('getBusinessDetail — full DTO characterization', () => {
 
     queueAllResults();
     // Override the metrics row (index 6) with slower trend data.
-    // We queued 10 results; replace index 6 (already queued) — easier to
+    // We queued 12 results; replace index 6 (already queued) — easier to
     // just re-queue all with the override.
     mockSqlResults.length = 0;
     sqlCallCounter.value = 0;
@@ -409,6 +464,8 @@ describe('getBusinessDetail — full DTO characterization', () => {
     mockSqlResults.push([{ id: 'biz-abc', name: 'Main Street Cafe', display_label: 'Main St', is_primary: true, archived_at: null }]);
     mockSqlResults.push([]);
     mockSqlResults.push([]);
+    mockSqlResults.push([]);
+    mockSqlResults.push([AUTO_APPROVAL_ACCOUNT_ROW]);
 
     const result = await getBusinessDetail('biz-abc');
     expect(result).not.toBeNull();
@@ -439,6 +496,8 @@ describe('getBusinessDetail — full DTO characterization', () => {
     mockSqlResults.push([{ id: 'biz-abc', name: 'Main Street Cafe', display_label: null, is_primary: true, archived_at: null }]);
     mockSqlResults.push([]);
     mockSqlResults.push([]);
+    mockSqlResults.push([]);
+    mockSqlResults.push([AUTO_APPROVAL_ACCOUNT_ROW]);
 
     const result = await getBusinessDetail('biz-abc');
     expect(result).not.toBeNull();
@@ -464,6 +523,8 @@ describe('getBusinessDetail — full DTO characterization', () => {
     mockSqlResults.push([{ id: 'biz-abc', name: 'Main Street Cafe', display_label: null, is_primary: true, archived_at: null }]);
     mockSqlResults.push([]);
     mockSqlResults.push([]);
+    mockSqlResults.push([]);
+    mockSqlResults.push([AUTO_APPROVAL_ACCOUNT_ROW]);
 
     const result = await getBusinessDetail('biz-abc');
     expect(result).not.toBeNull();
@@ -484,6 +545,8 @@ describe('getBusinessDetail — full DTO characterization', () => {
     mockSqlResults.push([{ id: 'biz-abc', name: 'Main Street Cafe', display_label: null, is_primary: true, archived_at: null }]);
     mockSqlResults.push([]);
     mockSqlResults.push([]);
+    mockSqlResults.push([]);
+    mockSqlResults.push([AUTO_APPROVAL_ACCOUNT_ROW]);
 
     const result = await getBusinessDetail('biz-abc');
     expect(result).not.toBeNull();

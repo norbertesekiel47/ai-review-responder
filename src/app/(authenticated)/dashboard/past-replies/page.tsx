@@ -8,6 +8,7 @@ import {
   DELETE_FAILED_PREFIX,
   POST_AFTER_DELETE_FAILED_PREFIX,
 } from '../../../../../worker/jobs/publisher/orphan-markers';
+import type { ApprovalMethod } from '@/lib/auto-approval/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,6 +25,7 @@ interface ReviewRow {
   review_date: Date;
   response_id: string;
   approved_text: string | null;
+  approval_method: ApprovalMethod | null;
   posted_at: Date | null;
   external_reply_ingested_at: Date | null;
   star_rating: number | null;
@@ -71,6 +73,7 @@ const orphanCardRow = (r: OrphanRow) => ({
   // Use the failed response's id so the card/drawer can look it up.
   response_id: r.failed_response_id,
   approved_text: r.superseded_text ?? null,
+  approval_method: null,
   posted_at: null,
   external_reply_ingested_at: null,
   review_content_hash: r.review_content_hash,
@@ -176,6 +179,7 @@ export default async function PastRepliesPage({
         r.reviewer_name,
         resp.id                        AS response_id,
         resp.approved_text,
+        resp.approval_method,
         resp.posted_at,
         resp.version,
         fail_sidecar.id                AS failed_response_id,
@@ -306,6 +310,7 @@ export default async function PastRepliesPage({
     star_rating: r.star_rating,
     response_id: r.response_id,
     approved_text: r.approved_text,
+    approval_method: r.approval_method,
     posted_at:
       r.posted_at instanceof Date
         ? r.posted_at.toISOString()

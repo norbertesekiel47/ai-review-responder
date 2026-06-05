@@ -11,6 +11,12 @@
 import { z } from 'zod';
 import { UpdateBusinessSchema } from '@/lib/shared/schemas';
 import type { ChurnScore } from '@/lib/shared/churn-score';
+import type {
+  ApprovalMethod,
+  AutoApprovalReadiness,
+  AutoApprovalThreshold,
+  PolicySource,
+} from '@/lib/auto-approval/types';
 
 // Raw DB row shapes (returned from `sql<...>`)
 
@@ -62,6 +68,7 @@ export interface ReviewRow {
   response_status: string | null;
   response_text: string | null;
   approved_text: string | null;
+  approval_method: ApprovalMethod | null;
   version: number | null;
 }
 
@@ -164,6 +171,33 @@ export interface AccountAuditLogEntry {
   createdAt: string;
 }
 
+export interface AutoApprovalPolicyDiagnostic {
+  policyId: string | null;
+  threshold: AutoApprovalThreshold | null;
+  exists: boolean;
+}
+
+export interface AutoApprovalLocationDiagnostic {
+  locationId: string;
+  displayName: string;
+  isPrimary: boolean;
+  archivedAt: string | null;
+  override: AutoApprovalPolicyDiagnostic;
+  effective: {
+    threshold: AutoApprovalThreshold | null;
+    source: PolicySource;
+    policyId: string | null;
+  };
+}
+
+export interface AutoApprovalDiagnostics {
+  accountDefault: AutoApprovalPolicyDiagnostic;
+  locations: AutoApprovalLocationDiagnostic[];
+  readiness: AutoApprovalReadiness;
+  recentApprovalAudit: ApprovalAuditLogEntry[];
+  recentPolicyChanges: AccountAuditLogEntry[];
+}
+
 // HTTP response shape for GET
 
 export interface BusinessDetailResponse {
@@ -214,11 +248,13 @@ export interface BusinessDetailResponse {
     responseStatus: string | null;
     responseText: string | null;
     approvedText: string | null;
+    approvalMethod: ApprovalMethod | null;
     responseVersion: number | null;
   }>;
   zernio: ZernioPanelData;
   approvalAuditLog: ApprovalAuditLogEntry[];
   accountAuditLog: AccountAuditLogEntry[];
+  autoApproval: AutoApprovalDiagnostics;
 }
 
 // PATCH request body shape (derived from the Zod schema so it stays in sync)

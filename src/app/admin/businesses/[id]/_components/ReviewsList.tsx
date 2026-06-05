@@ -64,6 +64,11 @@ export function ReviewsList({ reviews }: ReviewsListProps) {
                   </span>
                 )}
                 <ResponseBadge status={review.responseStatus} />
+                {review.approvalMethod === 'auto_policy' && (
+                  <span className="inline-block rounded bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-800">
+                    auto
+                  </span>
+                )}
               </div>
               {review.reviewText && (
                 <p className="mt-1 text-sm text-gray-600 line-clamp-3">

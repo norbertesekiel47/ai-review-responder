@@ -97,6 +97,7 @@ describe('AggregateDashboardData types', () => {
       status: 'pending_approval',
       responseText: 'Thank you!',
       responseStatus: 'pending_approval',
+      approvalMethod: null,
       locationId: 'loc-1',
       locationDisplayName: 'Downtown Cafe',
     };

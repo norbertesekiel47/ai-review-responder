@@ -6,6 +6,8 @@
 
 import { sql } from '@/lib/db/server';
 import { HANDLED_STATUSES } from '@/lib/shared/response-status';
+import type { AccountFlagsInput } from '@/lib/shared/past-due-recovery';
+import type { AutoApprovalThreshold } from '@/lib/auto-approval/types';
 import type {
   AwaitingOwnerConnectRow,
   BusinessRow,
@@ -54,6 +56,19 @@ export interface AccountAuditRow {
   created_at: Date;
 }
 
+export interface AutoApprovalPolicyRow {
+  id: string;
+  account_id: string;
+  location_id: string | null;
+  auto_approve_min_star: AutoApprovalThreshold | null;
+}
+
+export interface AutoApprovalAccountRow {
+  subscription_status: string;
+  past_due_at: Date | string | null;
+  flags: AccountFlagsInput;
+}
+
 // ── Batch 1 ───────────────────────────────────────────────────────────────
 
 export interface BusinessDetailBatch1 {
@@ -92,10 +107,10 @@ export async function fetchBusinessDetailBatch1(businessId: string): Promise<Bus
         r.id, r.reviewer_name, r.star_rating, r.review_text, r.review_date,
         r.detected_language, r.status AS review_status, r.detected_at,
         resp.id AS response_id, resp.status AS response_status,
-        resp.response_text, resp.approved_text, resp.version
+        resp.response_text, resp.approved_text, resp.approval_method, resp.version
       FROM reviews r
       LEFT JOIN LATERAL (
-        SELECT id, status, response_text, approved_text, version
+        SELECT id, status, response_text, approved_text, approval_method, version
         FROM responses
         WHERE review_id = r.id AND status != 'superseded'
         ORDER BY version DESC LIMIT 1
@@ -167,13 +182,22 @@ export interface BusinessDetailBatch2 {
   accountLocationRows: AccountLocationRow[];
   approvalAuditRows: ApprovalAuditRow[];
   accountAuditRows: AccountAuditRow[];
+  autoApprovalPolicyRows: AutoApprovalPolicyRow[];
+  autoApprovalAccountRows: AutoApprovalAccountRow[];
 }
 
 export async function fetchBusinessDetailBatch2(
   businessId: string,
   accountId: string,
 ): Promise<BusinessDetailBatch2> {
-  const [metricsRows, accountLocationRows, approvalAuditRows, accountAuditRows] = await Promise.all([
+  const [
+    metricsRows,
+    accountLocationRows,
+    approvalAuditRows,
+    accountAuditRows,
+    autoApprovalPolicyRows,
+    autoApprovalAccountRows,
+  ] = await Promise.all([
     sql<BusinessMetricsRow[]>`
       WITH notif AS (
         SELECT
@@ -245,7 +269,26 @@ export async function fetchBusinessDetailBatch2(
       ORDER BY created_at DESC
       LIMIT 50
     `,
+    sql<AutoApprovalPolicyRow[]>`
+      SELECT id, account_id, location_id, auto_approve_min_star
+      FROM auto_approval_policies
+      WHERE account_id = ${accountId}
+      ORDER BY location_id NULLS FIRST
+    `,
+    sql<AutoApprovalAccountRow[]>`
+      SELECT subscription_status, past_due_at, flags
+      FROM accounts
+      WHERE id = ${accountId}
+      LIMIT 1
+    `,
   ]);
 
-  return { metricsRows, accountLocationRows, approvalAuditRows, accountAuditRows };
+  return {
+    metricsRows,
+    accountLocationRows,
+    approvalAuditRows,
+    accountAuditRows,
+    autoApprovalPolicyRows,
+    autoApprovalAccountRows,
+  };
 }
