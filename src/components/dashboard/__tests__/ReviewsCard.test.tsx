@@ -15,6 +15,7 @@ const REVIEWS = [
     status: 'pending_approval',
     responseText: 'Thanks Daniel!',
     responseStatus: 'pending_approval' as string | null,
+    approvalMethod: null,
   },
   {
     id: 'r2',
@@ -25,6 +26,7 @@ const REVIEWS = [
     status: 'posted',
     responseText: 'Thank you Sarah!',
     responseStatus: 'posted' as string | null,
+    approvalMethod: 'auto_policy' as const,
   },
 ];
 
@@ -47,6 +49,12 @@ describe('ReviewsCard', () => {
   it('respects initialTab="all"', () => {
     render(<ReviewsCard recentReviews={REVIEWS} onActionSuccess={() => {}} initialTab="all" />);
     expect(screen.getByText('Sarah')).toBeInTheDocument();
+  });
+
+  it('badges auto-approved replies from approvalMethod', () => {
+    render(<ReviewsCard recentReviews={REVIEWS} onActionSuccess={() => {}} initialTab="all" />);
+
+    expect(screen.getByText('Auto')).toBeInTheDocument();
   });
 
   it('hides pending review action buttons in read-only mode', () => {

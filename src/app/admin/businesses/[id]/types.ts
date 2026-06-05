@@ -1,90 +1,32 @@
-export interface BusinessDetail {
-  id: string;
-  name: string;
-  category: string | null;
-  website: string | null;
-  googlePlaceId: string | null;
+import type {
+  AccountAuditLogEntry,
+  AccountContext,
+  ApprovalAuditLogEntry,
+  AutoApprovalDiagnostics,
+  BusinessDetailResponse,
+  ZernioPanelData,
+} from '@/lib/admin/business-detail-types';
+import type { ChurnScore } from '@/lib/shared/churn-score';
+
+export type BusinessDetail = Omit<
+  BusinessDetailResponse['business'],
+  'tone' | 'ownerName' | 'ownerEmail' | 'churnScore'
+> & {
   tone: string;
-  productsServices: string | null;
-  staffNames: string[];
-  highlightFacts: string[];
-  avoidFacts: string[];
-  sampleResponses: string[];
-  subscriptionStatus: string;
-  subscriptionTier: string;
   ownerName: string;
   ownerEmail: string;
-  lastSyncAt: string | null;
-  trackedKeywords: string[];
-  googlePlaceLat: number | null;
-  googlePlaceLng: number | null;
-  rankingSearchLocation: string | null;
-  googlePlaceAddress: string | null;
-  ownerEmailBounced: boolean;
-  smsEnabled: boolean;
-  telegramEnabled: boolean;
-  whatsappEnabled: boolean;
-  churnScore?: {
-    score: number;
-    level: 'healthy' | 'watch' | 'at_risk';
-    breakdown: Array<{ signal: string; value: string; contribution: number }>;
-  };
-}
+  churnScore?: ChurnScore;
+};
 
-export interface ReviewRow {
-  id: string;
-  reviewerName: string;
-  starRating: number;
-  reviewText: string | null;
-  reviewDate: string | null;
-  detectedLanguage: string | null;
-  detectedAt: string;
-  responseId: string | null;
-  responseStatus: string | null;
-  responseText: string | null;
-  approvedText: string | null;
-  responseVersion: number | null;
-}
-
-export interface RankingSnapshot {
-  keyword: string;
-  rankPosition: number | null;
-  snapshotDate: string;
-  source: string;
-}
-
-export interface AccountLocationSummary {
-  id: string;
-  name: string;
-  displayLabel: string | null;
-  isPrimary: boolean;
-  archivedAt: string | null;
-}
-
-export interface AccountContext {
-  id: string;
-  displayName: string;
-  subscriptionTier: string;
-  subscriptionStatus: string;
-  locations: AccountLocationSummary[];
-}
-
-export interface ApprovalAuditLogEntry {
-  id: string;
-  responseId: string;
-  action: string;
-  actorUserId: string | null;
-  createdAt: string;
-}
-
-export interface AccountAuditLogEntry {
-  id: string;
-  eventType: string;
-  actorUserId: string | null;
-  locationId: string | null;
-  payload: unknown;
-  createdAt: string;
-}
+export type ReviewRow = BusinessDetailResponse['reviews'][number];
+export type RankingSnapshot = BusinessDetailResponse['rankingSnapshots'][number];
+export type {
+  AccountAuditLogEntry,
+  AccountContext,
+  ApprovalAuditLogEntry,
+  AutoApprovalDiagnostics,
+  ZernioPanelData,
+};
 
 export interface DetailData {
   business: BusinessDetail;
@@ -94,40 +36,12 @@ export interface DetailData {
   zernio: ZernioPanelData;
   approvalAuditLog: ApprovalAuditLogEntry[];
   accountAuditLog: AccountAuditLogEntry[];
+  autoApproval: AutoApprovalDiagnostics;
 }
 
-export interface ZernioConnectionSummary {
-  status: 'pending' | 'active' | 'disconnected';
-  connectedAt: string | null;
-  disconnectedAt: string | null;
-  disconnectReason: string | null;
-  lastError: string | null;
-  lastErrorAt: string | null;
-  zernioAccountId: string;
-  zernioLocationId: string;
-}
-
-export interface AwaitingOwnerConnectResponse {
-  responseId: string;
-  createdAt: string;
-  draftText: string | null;
-  reviewerName: string;
-  reviewText: string | null;
-  starRating: number;
-}
-
-export interface ZernioFinalizeIncident {
-  id: string;
-  finalizeUnknownAt: string;
-  flowId: string;
-  zernioProfileId: string;
-}
-
-export interface ZernioPanelData {
-  connection: ZernioConnectionSummary | null;
-  awaitingOwnerConnect: AwaitingOwnerConnectResponse[];
-  unresolvedIncidents: ZernioFinalizeIncident[];
-}
+export type ZernioConnectionSummary = NonNullable<ZernioPanelData['connection']>;
+export type AwaitingOwnerConnectResponse = ZernioPanelData['awaitingOwnerConnect'][number];
+export type ZernioFinalizeIncident = ZernioPanelData['unresolvedIncidents'][number];
 
 export interface ChannelEnrollmentRow {
   channel: 'email' | 'sms' | 'telegram' | 'whatsapp';

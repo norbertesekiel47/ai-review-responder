@@ -16,6 +16,7 @@ describe('dashboard active mappers', () => {
           status: 'pending_approval',
           response_text: null,
           response_status: null,
+          approval_method: null,
         },
       ]),
     ).toEqual([
@@ -28,6 +29,7 @@ describe('dashboard active mappers', () => {
         status: 'pending_approval',
         responseText: null,
         responseStatus: null,
+        approvalMethod: null,
       },
     ]);
   });
@@ -46,6 +48,7 @@ describe('dashboard active mappers', () => {
           status: 'pending_approval',
           response_text: 'Draft response',
           response_status: 'approved',
+          approval_method: 'auto_policy',
         },
       ]),
     ).toEqual([
@@ -58,6 +61,7 @@ describe('dashboard active mappers', () => {
         status: 'pending_approval',
         responseText: 'Draft response',
         responseStatus: 'approved',
+        approvalMethod: 'auto_policy',
       },
     ]);
   });

@@ -216,11 +216,13 @@ describe('Admin denormalized account_id queries', () => {
       mockSqlResults.push([]); // awaiting_owner_connect
       mockSqlResults.push([]); // finalize_incidents
 
-      // Second batch (4 parallel queries):
+      // Second batch (6 parallel queries):
       // 1. metrics
       // 2. account locations
       // 3. approval_audit_log
       // 4. account_audit_log
+      // 5. auto_approval_policies
+      // 6. account readiness
       mockSqlResults.push([{
         approval_rate: null,
         notified_count: 0,
@@ -263,6 +265,8 @@ describe('Admin denormalized account_id queries', () => {
         payload: {},
         created_at: new Date(),
       }]);
+      mockSqlResults.push([]);
+      mockSqlResults.push([{ subscription_status: 'active', past_due_at: null, flags: {} }]);
 
       const result = await getBusinessDetail('loc-1');
       expect(result).not.toBeNull();
@@ -309,6 +313,8 @@ describe('Admin denormalized account_id queries', () => {
       mockSqlResults.push([]); // account locations
       mockSqlResults.push([]); // approval audit log
       mockSqlResults.push([]); // account audit log
+      mockSqlResults.push([]); // auto approval policies
+      mockSqlResults.push([{ subscription_status: 'active', past_due_at: null, flags: {} }]);
 
       await getBusinessDetail('loc-1');
 
@@ -345,6 +351,8 @@ describe('Admin denormalized account_id queries', () => {
       mockSqlResults.push([]);
       mockSqlResults.push([]);
       mockSqlResults.push([]);
+      mockSqlResults.push([]);
+      mockSqlResults.push([{ subscription_status: 'active', past_due_at: null, flags: {} }]);
 
       await getBusinessDetail('loc-1');
 
@@ -353,6 +361,11 @@ describe('Admin denormalized account_id queries', () => {
         (sql) => sql.includes('account_audit_log') && sql.includes('account_id'),
       );
       expect(accountAuditQueries.length).toBeGreaterThanOrEqual(1);
+
+      const autoApprovalPolicyQueries = capturedSqlTexts.filter(
+        (sql) => sql.includes('auto_approval_policies') && sql.includes('account_id'),
+      );
+      expect(autoApprovalPolicyQueries.length).toBeGreaterThanOrEqual(1);
     });
   });
 });

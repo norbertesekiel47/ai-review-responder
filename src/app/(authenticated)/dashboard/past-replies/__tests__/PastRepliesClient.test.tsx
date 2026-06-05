@@ -19,6 +19,7 @@ function row(overrides: Partial<Parameters<typeof PastRepliesClient>[0]['gapRows
     star_rating: overrides.star_rating ?? 5,
     response_id: overrides.response_id ?? 'response-1',
     approved_text: overrides.approved_text ?? 'A thoughtful reply',
+    approval_method: overrides.approval_method ?? null,
     posted_at: overrides.posted_at ?? '2026-05-02T10:00:00Z',
     external_reply_ingested_at: overrides.external_reply_ingested_at ?? null,
     canEdit: overrides.canEdit ?? true,

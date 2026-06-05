@@ -713,6 +713,7 @@
 .badge-awaiting { background: var(--rw-attn-bg); color: var(--rw-attn-fg); }
 .badge-edited { background: var(--rw-blue-100); color: var(--rw-blue-800); }
 .badge-failed { background: var(--rw-red-100); color: #991B1B; }
+.badge-auto { background: #EDE9FE; color: #5B21B6; }
 .review-meta-time {
   margin-left: auto;
   font-size: 11px;

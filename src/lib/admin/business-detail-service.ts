@@ -38,7 +38,14 @@ export async function getBusinessDetail(
     return null;
   }
 
-  const { metricsRows, accountLocationRows, approvalAuditRows, accountAuditRows } =
+  const {
+    metricsRows,
+    accountLocationRows,
+    approvalAuditRows,
+    accountAuditRows,
+    autoApprovalPolicyRows,
+    autoApprovalAccountRows,
+  } =
     await fetchBusinessDetailBatch2(businessId, business.account_id);
 
   return mapBusinessDetailResponse({
@@ -52,5 +59,7 @@ export async function getBusinessDetail(
     accountLocationRows,
     approvalAuditRows,
     accountAuditRows,
+    autoApprovalPolicyRows,
+    autoApprovalAccountRows,
   });
 }

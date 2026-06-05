@@ -6,10 +6,23 @@
 
 import { computeChurnRiskScore } from '@/lib/shared/churn-score';
 import { parseDbArray } from '@/lib/shared/db-array';
+import {
+  autoApprovalRuntimeEnabled,
+  isPreviewEnvironment,
+  providerModerationEnabled,
+  providerModerationValidated,
+} from '@/lib/auto-approval/flags';
+import { resolveEffectivePolicy } from '@/lib/auto-approval/policy';
+import { buildAutoApprovalReadiness } from '@/lib/auto-approval/readiness';
+import { assertWritableSubscriptionStatus } from '@/lib/shared/writable-subscription';
 import type {
   AccountContext,
+  AccountAuditLogEntry,
   AccountLocationSummary,
+  ApprovalAuditLogEntry,
   AwaitingOwnerConnectRow,
+  AutoApprovalDiagnostics,
+  AutoApprovalPolicyDiagnostic,
   BusinessDetailResponse,
   BusinessRow,
   RankingSnapshotRow,
@@ -22,8 +35,16 @@ import type {
   AccountAuditRow,
   AccountLocationRow,
   ApprovalAuditRow,
+  AutoApprovalAccountRow,
+  AutoApprovalPolicyRow,
   BusinessMetricsRow,
 } from './queries';
+import type { PolicyRowState } from '@/lib/auto-approval/types';
+
+const AUTO_APPROVAL_AUDIT_ACTIONS = new Set([
+  'auto_approved_by_policy',
+  'auto_policy_revoked_by_kill_switch',
+]);
 
 /**
  * Convert raw DB rows for the Zernio admin panel into the wire shape. The
@@ -73,6 +94,114 @@ function buildZernioPanel(
   };
 }
 
+function mapApprovalAuditRow(row: ApprovalAuditRow): ApprovalAuditLogEntry {
+  return {
+    id: row.id,
+    responseId: row.response_id,
+    action: row.action,
+    actorUserId: row.actor_user_id,
+    createdAt: row.created_at.toISOString(),
+  };
+}
+
+function mapAccountAuditRow(row: AccountAuditRow): AccountAuditLogEntry {
+  return {
+    id: row.id,
+    eventType: row.event_type,
+    actorUserId: row.actor_user_id,
+    locationId: row.location_id,
+    payload: row.payload,
+    createdAt: row.created_at.toISOString(),
+  };
+}
+
+function toPolicyState(row: AutoApprovalPolicyRow | undefined): PolicyRowState | null {
+  if (!row) return null;
+  return {
+    id: row.id,
+    accountId: row.account_id,
+    locationId: row.location_id,
+    autoApproveMinStar: row.auto_approve_min_star,
+  };
+}
+
+function toPolicyDiagnostic(row: AutoApprovalPolicyRow | undefined): AutoApprovalPolicyDiagnostic {
+  return {
+    policyId: row?.id ?? null,
+    threshold: row?.auto_approve_min_star ?? null,
+    exists: !!row,
+  };
+}
+
+function buildAutoApprovalDiagnostics({
+  accountLocationRows,
+  approvalAuditRows,
+  accountAuditRows,
+  autoApprovalPolicyRows,
+  autoApprovalAccountRows,
+}: {
+  accountLocationRows: AccountLocationRow[];
+  approvalAuditRows: ApprovalAuditRow[];
+  accountAuditRows: AccountAuditRow[];
+  autoApprovalPolicyRows: AutoApprovalPolicyRow[];
+  autoApprovalAccountRows: AutoApprovalAccountRow[];
+}): AutoApprovalDiagnostics {
+  const accountDefault = autoApprovalPolicyRows.find((row) => row.location_id === null);
+  const accountDefaultState = toPolicyState(accountDefault);
+  const overridesByLocation = new Map(
+    autoApprovalPolicyRows
+      .filter((row) => row.location_id !== null)
+      .map((row) => [row.location_id!, row]),
+  );
+  const runtimeEnabled = autoApprovalRuntimeEnabled();
+  const moderationEnabled = providerModerationEnabled();
+  const moderationValidated = providerModerationValidated();
+  const previewEnvironment = isPreviewEnvironment();
+  const accountRow = autoApprovalAccountRows[0];
+  const writable = accountRow
+    ? assertWritableSubscriptionStatus({
+        subscriptionStatus: accountRow.subscription_status,
+        pastDueAt: accountRow.past_due_at,
+        accountFlags: accountRow.flags,
+      })
+    : { ok: false as const, status: 403 as const, error: 'no_business' };
+
+  const readiness = buildAutoApprovalReadiness({
+    runtimeEnabled,
+    providerModerationEnabled: moderationEnabled,
+    providerModerationValidated: moderationValidated,
+    accountWritable: writable.ok,
+    previewEnvironment,
+  });
+
+  return {
+    accountDefault: toPolicyDiagnostic(accountDefault),
+    locations: accountLocationRows.map((location) => {
+      const override = overridesByLocation.get(location.id);
+      const effective = resolveEffectivePolicy(accountDefaultState, toPolicyState(override));
+      return {
+        locationId: location.id,
+        displayName: location.display_label ?? location.name,
+        isPrimary: location.is_primary,
+        archivedAt: location.archived_at ? location.archived_at.toISOString() : null,
+        override: toPolicyDiagnostic(override),
+        effective: {
+          threshold: effective.threshold,
+          source: effective.source,
+          policyId: effective.policyId,
+        },
+      };
+    }),
+    readiness,
+    recentApprovalAudit: approvalAuditRows
+      .filter((row) => AUTO_APPROVAL_AUDIT_ACTIONS.has(row.action))
+      .map(mapApprovalAuditRow),
+    recentPolicyChanges: accountAuditRows
+      .filter((row) => row.event_type === 'auto_approval_policy_changed')
+      .map(mapAccountAuditRow),
+  };
+}
+
 export interface MapBusinessDetailResponseArgs {
   business: BusinessRow;
   reviewRows: ReviewRow[];
@@ -84,6 +213,8 @@ export interface MapBusinessDetailResponseArgs {
   accountLocationRows: AccountLocationRow[];
   approvalAuditRows: ApprovalAuditRow[];
   accountAuditRows: AccountAuditRow[];
+  autoApprovalPolicyRows: AutoApprovalPolicyRow[];
+  autoApprovalAccountRows: AutoApprovalAccountRow[];
 }
 
 /**
@@ -102,6 +233,8 @@ export function mapBusinessDetailResponse({
   accountLocationRows,
   approvalAuditRows,
   accountAuditRows,
+  autoApprovalPolicyRows,
+  autoApprovalAccountRows,
 }: MapBusinessDetailResponseArgs): BusinessDetailResponse {
   let responseTimeTrend: 'faster_or_stable' | 'slower' | 'stopped' | null = null;
   if (metrics?.avg_hours_current != null && metrics?.avg_hours_prev != null) {
@@ -184,6 +317,7 @@ export function mapBusinessDetailResponse({
       responseStatus: row.response_status ?? null,
       responseText: row.response_text ?? null,
       approvedText: row.approved_text ?? null,
+      approvalMethod: row.approval_method ?? null,
       responseVersion: row.version ?? null,
     })),
     zernio: buildZernioPanel(
@@ -191,20 +325,14 @@ export function mapBusinessDetailResponse({
       awaitingOwnerConnectRows,
       finalizeIncidentRows,
     ),
-    approvalAuditLog: approvalAuditRows.map((row) => ({
-      id: row.id,
-      responseId: row.response_id,
-      action: row.action,
-      actorUserId: row.actor_user_id,
-      createdAt: row.created_at.toISOString(),
-    })),
-    accountAuditLog: accountAuditRows.map((row) => ({
-      id: row.id,
-      eventType: row.event_type,
-      actorUserId: row.actor_user_id,
-      locationId: row.location_id,
-      payload: row.payload,
-      createdAt: row.created_at.toISOString(),
-    })),
+    approvalAuditLog: approvalAuditRows.map(mapApprovalAuditRow),
+    accountAuditLog: accountAuditRows.map(mapAccountAuditRow),
+    autoApproval: buildAutoApprovalDiagnostics({
+      accountLocationRows,
+      approvalAuditRows,
+      accountAuditRows,
+      autoApprovalPolicyRows,
+      autoApprovalAccountRows,
+    }),
   };
 }

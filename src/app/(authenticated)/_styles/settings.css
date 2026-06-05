@@ -161,6 +161,74 @@
 .textarea { min-height: 76px; line-height: 1.55; }
 .textarea-tall { min-height: 110px; }
 
+/* Auto-approval policy editor */
+.auto-policy-readiness {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.auto-policy-readiness.ok {
+  border: 1px solid #BBF7D0;
+  background: #F0FDF4;
+  color: #166534;
+}
+.auto-policy-readiness.blocked {
+  border: 1px solid #FDE68A;
+  background: #FFFBEB;
+  color: #92400E;
+}
+.auto-policy-readiness .ni-icon {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+.auto-policy-location-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.auto-policy-location-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 240px);
+  gap: 14px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid var(--rw-app-border-soft);
+  border-radius: 8px;
+  background: #fff;
+}
+.auto-policy-location-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--rw-app-text);
+}
+.auto-policy-location-sub {
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--rw-app-text-muted);
+}
+.auto-policy-location-select {
+  min-width: 0;
+}
+.auto-policy-warning {
+  border: 1px solid #FDBA74;
+  border-radius: 8px;
+  background: #FFF7ED;
+  color: #9A3412;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+@media (max-width: 640px) {
+  .auto-policy-location-row {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* Tone tag picker */
 .tone-grid {
   display: flex;

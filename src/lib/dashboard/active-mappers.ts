@@ -1,4 +1,5 @@
 import type { DashboardDataActive } from './types';
+import type { ApprovalMethod } from '@/lib/auto-approval/types';
 
 function toReviewDateIso(value: unknown): string {
   if (!value) return '';
@@ -36,5 +37,6 @@ export function mapRecentReviews(
     status: row.status as string,
     responseText: (row.response_text as string) ?? null,
     responseStatus: (row.response_status as string) ?? null,
+    approvalMethod: (row.approval_method as ApprovalMethod) ?? null,
   }));
 }
