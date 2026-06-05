@@ -1,0 +1,28 @@
+# Local pre-push gate — the cheap, high-signal subset of CI, run before code
+# leaves the machine. Every command here mirrors a step in
+# .github/workflows/ci.yml so the local loop and CI never diverge; CI remains
+# the authoritative full-suite gate (this hook is the fast first signal, not a
+# replacement). Commands run in parallel, so wall-clock ≈ the slowest one and
+# all failures surface together.
+#
+# Escape hatch for genuine WIP: `git push --no-verify` (CI still enforces).
+pre-push:
+  parallel: true
+  commands:
+    lint:
+      run: pnpm lint
+    typecheck:
+      run: pnpm typecheck
+    tenant-scope:
+      run: pnpm ci:tenant-scope
+    rls-audit:
+      run: pnpm ci:rls-audit
+    analytics-events:
+      run: pnpm ci:analytics-events
+    static-policy:
+      run: pnpm ci:static-policy
+    # Affected tests only (module graph vs origin/main) to keep the hook fast.
+    # CI runs the full `pnpm test` suite as the backstop for anything the
+    # change graph misses (e.g. config/env-only changes run zero tests here).
+    test-changed:
+      run: pnpm test:changed

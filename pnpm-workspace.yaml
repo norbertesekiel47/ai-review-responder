@@ -8,6 +8,9 @@ trustPolicy: no-downgrade
 allowBuilds:
   '@sentry/cli': true
   esbuild: true
+  # Hooks are installed by the root `prepare: lefthook install` script (always
+  # runs, unlike a dependency postinstall); lefthook's own build is redundant.
+  lefthook: false
   msgpackr-extract: true
   sharp: true
   unrs-resolver: true
