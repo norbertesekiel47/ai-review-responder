@@ -49,7 +49,7 @@ Full per-var matrix: `docs/runbooks/deployment-guide.md` §II.3. Flag definition
 
 Log into your staging URL as an **owner** (real session, not admin view-as) and open:
 
-```
+```text
 https://<your-staging-host>/settings/auto-approval
 ```
 
@@ -175,7 +175,7 @@ confirm a flagged draft is **held** and does **not** auto-post (moderation is an
 
 As an admin, open:
 
-```
+```text
 https://<your-staging-host>/admin/businesses/<businessId>
 ```
 
