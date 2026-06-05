@@ -94,3 +94,21 @@ jobs:
         uses: ./.github/actions/setup
       - name: Build app
         run: pnpm build
+
+  # Reproduces a deploy build context (e.g. Railway RAILPACK) that runs
+  # `pnpm install` with NO .git directory. Catches lifecycle scripts
+  # (prepare/postinstall) that shell out to git and would abort the deploy.
+  # GitHub CI and Vercel both build from a git checkout, so no other job sees
+  # this failure mode. See .claude/reference/lab-notes.md (2026-06-04).
+  deploy-install:
+    name: deploy-install
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Remove .git to simulate a no-git deploy build context
+        run: rm -rf .git
+      - name: Install must succeed without git (runs prepare/postinstall)
+        uses: ./.github/actions/setup
