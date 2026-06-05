@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const AutoApprovalThresholdSchema = z.union([
+const AutoApprovalThresholdSchema = z.union([
   z.literal(1),
   z.literal(2),
   z.literal(3),
@@ -72,7 +72,7 @@ export interface AutoApprovalSettingsResponse {
   readiness: AutoApprovalReadiness;
 }
 
-export const AutoApprovalConfirmationLevelSchema = z.enum(['standard', 'all_ratings']);
+const AutoApprovalConfirmationLevelSchema = z.enum(['standard', 'all_ratings']);
 
 export type AutoApprovalConfirmationLevel = z.infer<typeof AutoApprovalConfirmationLevelSchema>;
 
