@@ -439,12 +439,6 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "Worker follows a durable job payload or scheduler-selected id; caller establishes tenant context before this statement.",
   },
   {
-    file: "worker/jobs/response-generation/load-context.ts",
-    table: "reviews",
-    sqlSnippet: "SELECT id, reviewer_name, star_rating, review_text, review_date, detected_language FROM reviews WHERE id = ${reviewId}",
-    reason: "Worker follows a durable job payload or scheduler-selected id; caller establishes tenant context before this statement.",
-  },
-  {
     file: "src/lib/admin/impersonation/session.ts",
     table: "accounts",
     sqlSnippet: "SELECT s.id, s.actor_user_id, s.impersonated_user_id, s.account_id, s.ticket_id, s.reason, s.started_at, s.expires_at, u.email AS impersonated_email, a.display_name AS account_display_name FROM impersonation_sessions s JOIN users u ON u.id = s.impersonated_user_id JOIN accounts a ON a.id = s.account_id WHERE s.id = ${input.sessionId}::uuid AND s.actor_user_id = ${input.actorUserId}::uuid AND s.ended_at IS NULL AND s.expires_at > ${input.now ?? new Date()} LIMIT 1",
@@ -455,18 +449,6 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     table: "reviews",
     sqlSnippet: "SELECT b.account_id, EXISTS ( SELECT 1 FROM reviews r2 JOIN businesses b2 ON b2.id = r2.business_id WHERE b2.account_id = b.account_id AND r2.id <> ${input.reviewId}::uuid AND r2.detected_at IS NOT NULL LIMIT 1 ) AS earlier_exists FROM businesses b WHERE b.id = ${input.businessId}::uuid LIMIT 1",
     reason: "first_review_ingested activation check is account-scoped (b2.account_id = b.account_id) inside an EXISTS subquery the static scanner cannot see; the business is resolved by id for a durable ingest job.",
-  },
-  {
-    file: "worker/jobs/response-generation/load-context.ts",
-    table: "responses",
-    sqlSnippet: "SELECT r.id, r.business_id, b.account_id FROM responses r JOIN businesses b ON b.id = r.business_id WHERE r.review_id = ${reviewId} AND r.version = ${version}",
-    reason: "Worker follows a durable job payload or scheduler-selected id; caller establishes tenant context before this statement.",
-  },
-  {
-    file: "worker/jobs/response-generation/load-context.ts",
-    table: "businesses",
-    sqlSnippet: "SELECT r.id, r.business_id, b.account_id FROM responses r JOIN businesses b ON b.id = r.business_id WHERE r.review_id = ${reviewId} AND r.version = ${version}",
-    reason: "Worker follows a durable job payload or scheduler-selected id; caller establishes tenant context before this statement.",
   },
   {
     file: "worker/jobs/response-generation/analytics.ts",
@@ -513,7 +495,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/jobs/publisher/load-context.ts",
     table: "responses",
-    sqlSnippet: "SELECT id, review_id, business_id, approved_text, status, posting_error FROM responses WHERE id = ${responseId}",
+    sqlSnippet: "SELECT id, review_id, business_id, approved_text, status, approval_method, posting_error FROM responses WHERE id = ${responseId}",
     reason: "Worker follows a durable job payload or scheduler-selected id; caller establishes tenant context before this statement.",
   },
   {
@@ -1203,43 +1185,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/app/api/dashboard/past-replies/[responseId]/restore-original/route.ts",
     table: "responses",
-    sqlSnippet: "SELECT 1 FROM responses WHERE review_id = ${reviewId} AND status = 'posted' LIMIT 1",
-    reason: "Owner past-replies transaction has already resolved request account/location scope before this row-level lock or mutation.",
-  },
-  {
-    file: "src/app/api/dashboard/past-replies/[responseId]/restore-original/route.ts",
-    table: "responses",
-    sqlSnippet: "SELECT 1 FROM responses WHERE review_id = ${reviewId} AND status IN ('pending_approval', 'approved', 'edited', 'awaiting_owner_connect') LIMIT 1",
-    reason: "Owner past-replies transaction has already resolved request account/location scope before this row-level lock or mutation.",
-  },
-  {
-    file: "src/app/api/dashboard/past-replies/[responseId]/restore-original/route.ts",
-    table: "responses",
-    sqlSnippet: "SELECT id, approved_text, response_text, original_draft_text, response_language, version, posted_at FROM responses WHERE review_id = ${reviewId} AND status = 'superseded' AND posted_at IS NOT NULL ORDER BY posted_at DESC, version DESC LIMIT 1 FOR UPDATE",
-    reason: "Owner past-replies transaction has already resolved request account/location scope before this row-level lock or mutation.",
-  },
-  {
-    file: "src/app/api/dashboard/past-replies/[responseId]/restore-original/route.ts",
-    table: "responses",
-    sqlSnippet: "INSERT INTO responses ( id, review_id, business_id, response_text, approved_text, original_draft_text, edited_text, response_language, version, status, approved_at, llm_provider, llm_model, prompt_tokens, completion_tokens ) VALUES ( ${newId}, ${reviewId}, ${failed.business_id}, ${restoredText}, ${restoredText}, ${restoredText}, ${null}, ${superseded.response_language}, (COALESCE((SELECT MAX(version) FROM responses WHERE review_id = ${reviewId}), 0) + 1), 'approved', NOW(), ${null}, ${null}, ${null}, ${null} )",
-    reason: "Owner past-replies transaction has already resolved request account/location scope before this row-level lock or mutation.",
-  },
-  {
-    file: "src/app/api/dashboard/past-replies/[responseId]/retry/route.ts",
-    table: "responses",
-    sqlSnippet: "SELECT 1 FROM responses WHERE review_id = ${reviewId} AND status IN ('pending_approval', 'approved', 'edited', 'awaiting_owner_connect') LIMIT 1",
-    reason: "Owner past-replies transaction has already resolved request account/location scope before this row-level lock or mutation.",
-  },
-  {
-    file: "src/app/api/dashboard/past-replies/[responseId]/retry/route.ts",
-    table: "responses",
-    sqlSnippet: "SELECT id FROM responses WHERE review_id = ${reviewId} AND status = 'posted' LIMIT 1",
-    reason: "Owner past-replies transaction has already resolved request account/location scope before this row-level lock or mutation.",
-  },
-  {
-    file: "src/app/api/dashboard/past-replies/[responseId]/retry/route.ts",
-    table: "responses",
-    sqlSnippet: "UPDATE responses SET status = 'approved', posting_error = ${newPostingError}, approved_at = NOW(), approved_text = COALESCE(approved_text, response_text), updated_at = NOW() WHERE id = ${responseId}",
+    sqlSnippet: "INSERT INTO responses ( id, review_id, business_id, response_text, approved_text, original_draft_text, edited_text, response_language, version, status, approval_method, approved_at, llm_provider, llm_model, prompt_tokens, completion_tokens ) VALUES ( ${newId}, ${reviewId}, ${failed.business_id}, ${restoredText}, ${restoredText}, ${restoredText}, ${null}, ${superseded.response_language}, (COALESCE((SELECT MAX(version) FROM responses WHERE review_id = ${reviewId} AND business_id = ${failed.business_id}), 0) + 1), 'approved', ${APPROVAL_METHOD.OWNER}, NOW(), ${null}, ${null}, ${null}, ${null} )",
     reason: "Owner past-replies transaction has already resolved request account/location scope before this row-level lock or mutation.",
   },
   {
@@ -1277,18 +1223,6 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     table: "zernio_connections",
     sqlSnippet: "SELECT ( NOT EXISTS ( SELECT 1 FROM zernio_connections WHERE business_id = ${stored.businessId} AND id != ${connectionId} AND connected_at IS NOT NULL ) OR NOT EXISTS ( SELECT 1 FROM zernio_backfill_runs WHERE business_id = ${stored.businessId} AND completed_at IS NOT NULL ) ) AS needs_backfill",
     reason: "Zernio OAuth finalize uses a server-side stored connect intent with connectionId and stored.businessId as the tenant boundary.",
-  },
-  {
-    file: "src/lib/approval/callback-mode.ts",
-    table: "responses",
-    sqlSnippet: "UPDATE responses SET status = 'approved', approved_at = NOW(), approved_text = response_text WHERE id = ${link.response_id}",
-    reason: "Approval transaction resolves token/response rows by durable approval identifiers before tenant scope is known.",
-  },
-  {
-    file: "src/lib/approval/callback-mode.ts",
-    table: "responses",
-    sqlSnippet: "UPDATE responses SET status = 'superseded' WHERE id = ${link.response_id}",
-    reason: "Approval transaction resolves token/response rows by durable approval identifiers before tenant scope is known.",
   },
   {
     file: "src/lib/approval/create-link.ts",
@@ -1354,42 +1288,6 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     file: "src/lib/approval/session-mode.ts",
     table: "approval_links",
     sqlSnippet: "UPDATE approval_links SET device_cookie_hash = ${deviceCookieHash} WHERE id = ${linkId}",
-    reason: "Approval transaction resolves token/response rows by durable approval identifiers before tenant scope is known.",
-  },
-  {
-    file: "src/lib/approval/session-mode.ts",
-    table: "responses",
-    sqlSnippet: "UPDATE responses SET status = 'approved', approved_at = NOW(), approved_text = response_text WHERE id = ${responseId}",
-    reason: "Approval transaction resolves token/response rows by durable approval identifiers before tenant scope is known.",
-  },
-  {
-    file: "src/lib/approval/session-mode.ts",
-    table: "responses",
-    sqlSnippet: "UPDATE responses SET status = 'edited', approved_at = NOW(), approved_text = ${sanitizedText}, edited_text = ${sanitizedText}, edit_distance = ${editDist} WHERE id = ${responseId}",
-    reason: "Approval transaction resolves token/response rows by durable approval identifiers before tenant scope is known.",
-  },
-  {
-    file: "src/lib/approval/session-mode.ts",
-    table: "responses",
-    sqlSnippet: "UPDATE responses SET status = 'superseded' WHERE id = ${responseId}",
-    reason: "Approval transaction resolves token/response rows by durable approval identifiers before tenant scope is known.",
-  },
-  {
-    file: "src/lib/approval/token-mode.ts",
-    table: "responses",
-    sqlSnippet: "UPDATE responses SET status = 'approved', approved_at = NOW(), approved_text = response_text WHERE id = ${link.response_id}",
-    reason: "Approval transaction resolves token/response rows by durable approval identifiers before tenant scope is known.",
-  },
-  {
-    file: "src/lib/approval/token-mode.ts",
-    table: "responses",
-    sqlSnippet: "UPDATE responses SET status = 'edited', approved_at = NOW(), approved_text = ${sanitizedText}, edited_text = ${sanitizedText}, edit_distance = ${editDist} WHERE id = ${link.response_id}",
-    reason: "Approval transaction resolves token/response rows by durable approval identifiers before tenant scope is known.",
-  },
-  {
-    file: "src/lib/approval/token-mode.ts",
-    table: "responses",
-    sqlSnippet: "UPDATE responses SET status = 'superseded' WHERE id = ${link.response_id}",
     reason: "Approval transaction resolves token/response rows by durable approval identifiers before tenant scope is known.",
   },
   {

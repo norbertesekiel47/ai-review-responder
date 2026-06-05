@@ -24,6 +24,7 @@ import type { BusinessContext } from '../../../src/lib/responses/types';
 
 export interface GenerationContext {
   accountId: string;
+  loadedReviewContentHash: string | null;
   normalizedReview: NormalizedReview;
   businessContext: BusinessContext;
 }
@@ -49,9 +50,12 @@ export async function loadGenerationContext(input: {
     review_text: string | null;
     review_date: string;
     detected_language: string;
+    review_content_hash: string | null;
   }[]>`
-    SELECT id, reviewer_name, star_rating, review_text, review_date, detected_language
-    FROM reviews WHERE id = ${reviewId}
+    SELECT id, reviewer_name, star_rating, review_text, review_date, detected_language, review_content_hash
+    FROM reviews
+    WHERE id = ${reviewId}
+      AND business_id = ${businessId}
   `;
 
   if (!review) {
@@ -112,9 +116,10 @@ export async function loadGenerationContext(input: {
   // existing-response).
   const [existingResponse] = await sql<{ id: string; business_id: string; account_id: string }[]>`
     SELECT r.id, r.business_id, b.account_id
-    FROM responses r
-    JOIN businesses b ON b.id = r.business_id
-    WHERE r.review_id = ${reviewId}
+    FROM businesses b
+    JOIN responses r ON r.business_id = b.id
+    WHERE b.id = ${businessId}
+      AND r.review_id = ${reviewId}
       AND r.version = ${version}
   `;
 
@@ -153,6 +158,11 @@ export async function loadGenerationContext(input: {
 
   return {
     kind: 'ready',
-    ctx: { accountId: business.account_id, normalizedReview, businessContext },
+    ctx: {
+      accountId: business.account_id,
+      loadedReviewContentHash: review.review_content_hash,
+      normalizedReview,
+      businessContext,
+    },
   };
 }

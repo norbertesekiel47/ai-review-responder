@@ -1,4 +1,5 @@
 import { sql, jsonb } from '@/lib/db/server';
+import { markOutboxCompleted } from '@/lib/shared/outbox';
 import type { WorkerLogger } from '@/lib/shared/logger';
 import type { DemoTable, ClaimResult, CompleteDemoArgs } from './types';
 
@@ -131,22 +132,7 @@ export async function completeDemo(
         `;
       }
 
-      if (typeof outboxAttempt === 'number') {
-        await tx`
-          UPDATE job_outbox
-          SET status = 'completed', completed_at = NOW()
-          WHERE id = ${outboxId}
-            AND status = 'dispatched'
-            AND attempts = ${outboxAttempt}
-        `;
-      } else {
-        await tx`
-          UPDATE job_outbox
-          SET status = 'completed', completed_at = NOW()
-          WHERE id = ${outboxId}
-            AND status = 'dispatched'
-        `;
-      }
+      await markOutboxCompleted(outboxId, outboxAttempt, tx);
     });
   } catch (err) {
     // 23505 race-loser recovery for onboarding_demos. The partial unique
@@ -170,22 +156,7 @@ export async function completeDemo(
           WHERE id = ${demoId}
         `;
 
-        if (typeof outboxAttempt === 'number') {
-          await tx`
-            UPDATE job_outbox
-            SET status = 'completed', completed_at = NOW()
-            WHERE id = ${outboxId}
-              AND status = 'dispatched'
-              AND attempts = ${outboxAttempt}
-          `;
-        } else {
-          await tx`
-            UPDATE job_outbox
-            SET status = 'completed', completed_at = NOW()
-            WHERE id = ${outboxId}
-              AND status = 'dispatched'
-          `;
-        }
+        await markOutboxCompleted(outboxId, outboxAttempt, tx);
       });
       return;
     }

@@ -15,6 +15,7 @@ import {
   lockValidLink,
   establishApprovalSession,
   approve,
+  approveBySession,
   edit,
   editBySession,
   regenerate,
@@ -205,6 +206,13 @@ describe('approve', () => {
     );
     expect(publishPayload).toBeDefined();
     expect(publishPayload!.correlation_id).toBe('test-correlation-xyz');
+
+    const responseUpdateCall = tx.mock.calls.find((call: unknown[]) =>
+      String((call[0] as TemplateStringsArray).join('')).includes("SET status = 'approved'"),
+    );
+    expect(responseUpdateCall).toBeDefined();
+    expect(String((responseUpdateCall![0] as TemplateStringsArray).join(''))).toContain('approval_method');
+    expect(responseUpdateCall!.flat()).toContain('owner');
   });
 
   it('writes approved text snapshot to approval_audit_log for approve-as-is', async () => {
@@ -294,8 +302,9 @@ describe('edit', () => {
       String((call[0] as TemplateStringsArray).join('')).includes("SET status = 'edited'"),
     );
     expect(responseUpdateCall).toBeDefined();
-    expect(responseUpdateCall![1]).toBe(sanitizedText);
-    expect(responseUpdateCall![2]).toBe(sanitizedText);
+    expect(String((responseUpdateCall![0] as TemplateStringsArray).join(''))).toContain('approval_method');
+    expect(responseUpdateCall!.flat()).toContain('owner');
+    expect(responseUpdateCall!.filter((arg: unknown) => arg === sanitizedText)).toHaveLength(2);
 
     const auditCall = tx.mock.calls.find((call: unknown[]) =>
       String((call[0] as TemplateStringsArray).join('')).includes('approval_audit_log'),
@@ -314,6 +323,32 @@ describe('edit', () => {
 });
 
 // ── editBySession ────────────────────────────────────────────────────────
+
+describe('approveBySession', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('sets owner approval attribution when approving from a session', async () => {
+    const tx = createMockTx([
+      [{ status: 'pending_approval', original_draft_text: 'Session draft', response_text: 'Session response', version: 1, review_id: 'rev-1' }],
+      [],
+      [],
+      [],
+      [{ account_id: 'acc-1' }],
+      [],
+    ]);
+
+    await approveBySession(tx, 'resp-1', 'biz-1', SESSION_AUDIT, 'test-correlation-xyz');
+
+    const responseUpdateCall = tx.mock.calls.find((call: unknown[]) =>
+      String((call[0] as TemplateStringsArray).join('')).includes("SET status = 'approved'"),
+    );
+    expect(responseUpdateCall).toBeDefined();
+    expect(String((responseUpdateCall![0] as TemplateStringsArray).join(''))).toContain('approval_method');
+    expect(responseUpdateCall!.flat()).toContain('owner');
+  });
+});
 
 describe('editBySession', () => {
   beforeEach(() => {
@@ -361,8 +396,9 @@ describe('editBySession', () => {
       String((call[0] as TemplateStringsArray).join('')).includes("SET status = 'edited'"),
     );
     expect(responseUpdateCall).toBeDefined();
-    expect(responseUpdateCall![1]).toBe(sanitizedText);
-    expect(responseUpdateCall![2]).toBe(sanitizedText);
+    expect(String((responseUpdateCall![0] as TemplateStringsArray).join(''))).toContain('approval_method');
+    expect(responseUpdateCall!.flat()).toContain('owner');
+    expect(responseUpdateCall!.filter((arg: unknown) => arg === sanitizedText)).toHaveLength(2);
 
     const auditCall = tx.mock.calls.find((call: unknown[]) =>
       String((call[0] as TemplateStringsArray).join('')).includes('approval_audit_log'),
@@ -433,6 +469,7 @@ describe('regenerate', () => {
     expect(parsed!.version).toBe(2);
     expect(parsed!.review_id).toBe('rev-1');
     expect(parsed!.business_id).toBe('biz-1');
+    expect(parsed!.origin_lane).toBe('regenerate');
 
     // Verify correlation_id propagates into the generate_response outbox payload.
     expect(parsed!.correlation_id).toBe('test-correlation-xyz');

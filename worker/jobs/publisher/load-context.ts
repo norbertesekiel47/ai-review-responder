@@ -1,5 +1,5 @@
 import { sql } from '../../../src/lib/db/server';
-import { markOutboxCompleted, markOutboxFailed } from '../../../src/lib/shared/outbox';
+import { markOutboxFailed } from '../../../src/lib/shared/outbox';
 import type { AccountFlagsInput } from '../../../src/lib/shared/subscription-guard';
 
 export interface PublishResponseContext {
@@ -9,6 +9,7 @@ export interface PublishResponseContext {
     business_id: string;
     approved_text: string | null;
     status: string;
+    approval_method: string | null;
     posting_error: string | null;
   };
   business: {
@@ -32,7 +33,7 @@ export async function loadPublishResponseContext(input: {
   const { responseId, businessId, outboxId, outboxAttempt, logger } = input;
 
   const [response] = await sql<PublishResponseContext['response'][]>`
-    SELECT id, review_id, business_id, approved_text, status, posting_error
+    SELECT id, review_id, business_id, approved_text, status, approval_method, posting_error
     FROM responses
     WHERE id = ${responseId}
   `;
@@ -60,14 +61,6 @@ export async function loadPublishResponseContext(input: {
   if (!business) {
     logger.error(`Business ${businessId} not found`);
     await markOutboxFailed(outboxId, `business_not_found: ${businessId}`, outboxAttempt);
-    return 'terminal';
-  }
-
-  if (business.archived_at !== null) {
-    logger.warn(
-      `Business ${businessId} is archived; skipping public publish for response ${responseId}`,
-    );
-    await markOutboxCompleted(outboxId, outboxAttempt);
     return 'terminal';
   }
 

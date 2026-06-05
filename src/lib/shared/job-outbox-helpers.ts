@@ -7,6 +7,7 @@ import {
   type GenerateResponseOriginLane,
   type GenerateResponsePayload,
   type PublishResponsePayload,
+  type SendNotificationPayload,
 } from './worker-types';
 
 type TxClient = postgres.TransactionSql;
@@ -27,6 +28,7 @@ export interface NormalizedGenerateResponsePayload {
 }
 
 export interface EnqueueGenerateResponseInput {
+  outboxId?: string;
   reviewId: string;
   businessId: string;
   version: number;
@@ -36,6 +38,14 @@ export interface EnqueueGenerateResponseInput {
 }
 
 export interface EnqueuePublishResponseInput {
+  outboxId?: string;
+  responseId: string;
+  businessId: string;
+  correlationId?: string;
+}
+
+export interface EnqueueSendNotificationInput {
+  outboxId?: string;
   responseId: string;
   businessId: string;
   correlationId?: string;
@@ -58,7 +68,7 @@ function requireStringField(
 
 function requireVersion(payload: Record<string, unknown>): number {
   const value = payload.version;
-  if (!Number.isInteger(value) || typeof value !== 'number' || value <= 0) {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) {
     throw new Error('generate_response payload requires version');
   }
   return value;
@@ -115,7 +125,8 @@ export function normalizeGenerateResponsePayload(
 export async function enqueueGenerateResponse(
   tx: TxClient,
   input: EnqueueGenerateResponseInput,
-): Promise<void> {
+): Promise<string> {
+  const outboxId = input.outboxId ?? uuidv7();
   const payload: GenerateResponsePayload = {
     review_id: input.reviewId,
     business_id: input.businessId,
@@ -132,7 +143,7 @@ export async function enqueueGenerateResponse(
   await tx`
     INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
     VALUES (
-      ${uuidv7()},
+      ${outboxId},
       ${QUEUE_NAMES.GENERATE_RESPONSE},
       ${AGGREGATE_TYPE_REVIEW},
       ${input.reviewId},
@@ -140,12 +151,20 @@ export async function enqueueGenerateResponse(
       ${JOB_OUTBOX_STATUS_PENDING}
     )
   `;
+  return outboxId;
 }
 
+/**
+ * Publish jobs preserve the in-flight outbox guard because retries can happen
+ * after a row is already approved. Generate jobs intentionally do not add that
+ * helper-level guard: generation idempotency is the durable `(review_id,
+ * version)` response check in `loadGenerationContext`, before LLM spend.
+ */
 export async function enqueuePublishResponse(
   tx: TxClient,
   input: EnqueuePublishResponseInput,
-): Promise<void> {
+): Promise<string> {
+  const outboxId = input.outboxId ?? uuidv7();
   const payload: PublishResponsePayload = {
     response_id: input.responseId,
     business_id: input.businessId,
@@ -157,7 +176,7 @@ export async function enqueuePublishResponse(
   await tx`
     INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
     VALUES (
-      ${uuidv7()},
+      ${outboxId},
       ${QUEUE_NAMES.PUBLISH_RESPONSE},
       ${AGGREGATE_TYPE_RESPONSE},
       ${input.responseId},
@@ -169,4 +188,38 @@ export async function enqueuePublishResponse(
       AND status IN ('pending', 'dispatching', 'dispatched')
     DO NOTHING
   `;
+  return outboxId;
+}
+
+/**
+ * Enqueues the owner approval notification. Plain INSERT (no in-flight guard):
+ * unlike publish, notification has no posted-state idempotency to protect, and
+ * each call site already gates on a state-guarded transition before reaching
+ * here (response persistence, downgrade, or admin owner-release).
+ */
+export async function enqueueSendNotification(
+  tx: TxClient,
+  input: EnqueueSendNotificationInput,
+): Promise<string> {
+  const outboxId = input.outboxId ?? uuidv7();
+  const payload: SendNotificationPayload = {
+    response_id: input.responseId,
+    business_id: input.businessId,
+  };
+  if (input.correlationId !== undefined) {
+    payload.correlation_id = input.correlationId;
+  }
+
+  await tx`
+    INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+    VALUES (
+      ${outboxId},
+      ${QUEUE_NAMES.SEND_NOTIFICATION},
+      ${AGGREGATE_TYPE_RESPONSE},
+      ${input.responseId},
+      ${jsonb(payload)},
+      ${JOB_OUTBOX_STATUS_PENDING}
+    )
+  `;
+  return outboxId;
 }

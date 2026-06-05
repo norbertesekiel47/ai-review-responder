@@ -35,7 +35,7 @@ describe('insertAuditLogAutoPolicy', () => {
       metadata: {
         policy_id: 'policy-1',
         policy_source: 'account_default',
-        threshold: 5,
+        resolved_min_star: 5,
         star_rating: 5,
         origin_lane: 'live_ingest_new',
         provider_status: 'clean',
@@ -69,7 +69,7 @@ describe('insertAuditLogAutoPolicy', () => {
       responseTextAtApproval: 'Approved response text',
       metadata: {
         policy_id: 'policy-1',
-        threshold: 4,
+        resolved_min_star: 4,
         review_text: 'Raw customer review',
         response_text: 'Approved response text',
         review_content_hash: 'raw-review-hash',
@@ -81,7 +81,7 @@ describe('insertAuditLogAutoPolicy', () => {
     const metadata = insertValues(tx)[8] as Record<string, unknown>;
     expect(metadata).toEqual({
       policy_id: 'policy-1',
-      threshold: 4,
+      resolved_min_star: 4,
     });
     expect(JSON.stringify(metadata)).not.toContain('Raw customer review');
     expect(JSON.stringify(metadata)).not.toContain('Approved response text');
@@ -99,19 +99,25 @@ describe('insertAuditLogAutoPolicy', () => {
     await insertAuditLogAutoPolicy(tx, {
       responseId: 'response-1',
       businessId: 'business-1',
-      action: 'auto_policy_downgraded_to_owner_review',
+      action: 'auto_policy_revoked_by_kill_switch',
       responseTextAtApproval: null,
       metadata: {
         downgrade_reason: 'auto_approval_disabled',
         policy_id: 'policy-1',
+        runtime_enabled: false,
+        outbox_id: 'outbox-1',
+        outbox_attempt: 3,
       },
     });
 
     const values = insertValues(tx);
-    expect(values[6]).toBe('auto_policy_downgraded_to_owner_review');
+    expect(values[6]).toBe('auto_policy_revoked_by_kill_switch');
     expect(values[8]).toEqual({
       downgrade_reason: 'auto_approval_disabled',
+      outbox_attempt: 3,
+      outbox_id: 'outbox-1',
       policy_id: 'policy-1',
+      runtime_enabled: false,
     });
     expect(values[11]).toBeNull();
   });

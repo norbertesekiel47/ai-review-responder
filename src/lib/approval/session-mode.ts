@@ -11,10 +11,8 @@
 // the same approval_links rows as token-mode. We keep it here because
 // the route under /api/approve/[token]/session calls it.
 
-import { v7 as uuidv7 } from 'uuid';
 import { distance } from 'fastest-levenshtein';
 import type postgres from 'postgres';
-import { jsonb } from '@/lib/db/server';
 import { sanitizePublicResponseText } from '@/lib/shared/sanitize';
 import { InvalidTokenError, DeviceConflictError, EmptyEditedResponseError } from './errors';
 import {
@@ -27,7 +25,9 @@ import {
   type AuditContext,
   type SessionAuditContext,
 } from './audit';
-import type { PublishResponsePayload, GenerateResponsePayload } from '@/lib/shared/worker-types';
+import { GENERATE_RESPONSE_ORIGIN_LANE } from '@/lib/shared/worker-types';
+import { APPROVAL_METHOD } from '@/lib/auto-approval/types';
+import { enqueueGenerateResponse, enqueuePublishResponse } from '@/lib/shared/job-outbox-helpers';
 
 type TxClient = postgres.TransactionSql;
 
@@ -78,20 +78,20 @@ export async function approveBySession(
 
   await tx`
     UPDATE responses
-    SET status = 'approved', approved_at = NOW(), approved_text = response_text
+    SET status = 'approved',
+        approval_method = ${APPROVAL_METHOD.OWNER},
+        approved_at = NOW(),
+        approved_text = response_text,
+        posting_error = NULL
     WHERE id = ${responseId}
+      AND business_id = ${businessId}
   `;
 
-  const payload: PublishResponsePayload = {
-    response_id: responseId,
-    business_id: businessId,
-    correlation_id: correlationId,
-  };
-
-  await tx`
-    INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-    VALUES (${uuidv7()}, 'publish_response', 'response', ${responseId}, ${jsonb(payload)}, 'pending')
-  `;
+  await enqueuePublishResponse(tx, {
+    responseId,
+    businessId,
+    correlationId,
+  });
 
   await insertAuditLogSession(tx, responseId, businessId, 'approve', audit, undefined, {
     responseTextAtApproval: resp.response_text,
@@ -121,23 +121,21 @@ export async function editBySession(
   await tx`
     UPDATE responses
     SET status = 'edited',
+        approval_method = ${APPROVAL_METHOD.OWNER},
         approved_at = NOW(),
         approved_text = ${sanitizedText},
         edited_text = ${sanitizedText},
-        edit_distance = ${editDist}
+        edit_distance = ${editDist},
+        posting_error = NULL
     WHERE id = ${responseId}
+      AND business_id = ${businessId}
   `;
 
-  const payload: PublishResponsePayload = {
-    response_id: responseId,
-    business_id: businessId,
-    correlation_id: correlationId,
-  };
-
-  await tx`
-    INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-    VALUES (${uuidv7()}, 'publish_response', 'response', ${responseId}, ${jsonb(payload)}, 'pending')
-  `;
+  await enqueuePublishResponse(tx, {
+    responseId,
+    businessId,
+    correlationId,
+  });
 
   await insertAuditLogSession(tx, responseId, businessId, 'edit', audit, { edit_distance: editDist }, {
     responseTextAtApproval: sanitizedText,
@@ -159,20 +157,19 @@ export async function regenerateBySession(
   await revokeOpenLinksForResponse(tx, responseId);
 
   await tx`
-    UPDATE responses SET status = 'superseded' WHERE id = ${responseId}
+    UPDATE responses
+    SET status = 'superseded'
+    WHERE id = ${responseId}
+      AND business_id = ${businessId}
   `;
 
-  const payload: GenerateResponsePayload = {
-    review_id: resp.review_id,
-    business_id: businessId,
+  await enqueueGenerateResponse(tx, {
+    reviewId: resp.review_id,
+    businessId,
     version: resp.version + 1,
-    correlation_id: correlationId,
-  };
-
-  await tx`
-    INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-    VALUES (${uuidv7()}, 'generate_response', 'review', ${resp.review_id}, ${jsonb(payload)}, 'pending')
-  `;
+    originLane: GENERATE_RESPONSE_ORIGIN_LANE.REGENERATE,
+    correlationId,
+  });
 
   await insertAuditLogSession(tx, responseId, businessId, 'regenerate', audit);
 }

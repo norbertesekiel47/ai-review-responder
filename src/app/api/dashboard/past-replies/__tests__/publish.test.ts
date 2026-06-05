@@ -377,17 +377,21 @@ describe('POST /api/dashboard/past-replies/publish', () => {
     expect(updateSql).toContain('UPDATE responses');
     expect(updateSql).toContain("'edited'");
     expect(updateSql).toContain("'approved'");
+    expect(updateSql).toContain('approval_method');
     expect(updateSql).toContain('COALESCE(approved_text, response_text)');
-    expect(updateCall[1]).toBe(RESPONSE_ID);
+    expect(updateCall).toContain('owner');
+    expect(updateCall).toContain(RESPONSE_ID);
+    expect(updateCall).toContain(LOCATION_ID);
 
     // INSERT outbox tx call (5th tx call)
     const insertCall = txMock.mock.calls[4] as unknown as unknown[];
     const insertSql = (insertCall[0] as unknown as TemplateStringsArray).join('|');
     expect(insertSql).toContain('INSERT INTO job_outbox');
-    expect(insertSql).toContain("'publish_response'");
     expect(insertCall[1]).toBe(body.outbox_id);
-    // payload bound at args[3] (after id, topic-literal, aggregate_id-literal, payload)
-    const payload = insertCall[3] as unknown as { response_id: string; business_id: string };
+    expect(insertCall[2]).toBe('publish_response');
+    expect(insertCall[3]).toBe('response');
+    expect(insertCall[4]).toBe(RESPONSE_ID);
+    const payload = insertCall[5] as unknown as { response_id: string; business_id: string };
     expect(payload.response_id).toBe(RESPONSE_ID);
     expect(payload.business_id).toBe(LOCATION_ID);
   });
@@ -428,6 +432,8 @@ describe('POST /api/dashboard/past-replies/publish', () => {
     expect(updateSql).toContain(
       "CASE WHEN edited_text IS NOT NULL THEN 'edited' ELSE 'approved' END",
     );
+    expect(updateSql).toContain('approval_method');
+    expect(updateCall).toContain('owner');
     // The COALESCE is the regression guard for regenerate_as_is.
     expect(updateSql).toContain('COALESCE(approved_text, response_text)');
   });
@@ -502,7 +508,7 @@ describe('POST /api/dashboard/past-replies/publish', () => {
 
     // Outbox payload references ALT_LOCATION_ID.
     const insertCall = txMock.mock.calls[4] as unknown as unknown[];
-    const payload = insertCall[3] as unknown as { response_id: string; business_id: string };
+    const payload = insertCall[5] as unknown as { response_id: string; business_id: string };
     expect(payload.business_id).toBe(ALT_LOCATION_ID);
   });
 });

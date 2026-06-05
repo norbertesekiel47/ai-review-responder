@@ -29,3 +29,11 @@ Email security scanners (Gmail, Outlook, corporate proxies) prefetch GET URLs. I
 ## Audit logging
 - Log every approval action to `approval_audit_log`: timestamp, token hash, device cookie hash, response ID, business ID, action type, IP address.
 - Critical for investigating disputes and detecting abuse patterns.
+
+## Auto-approval runtime
+- Auto-approval is disabled by default via server-only `AUTO_APPROVAL_ENABLED=false`; never add a `NEXT_PUBLIC_*` companion.
+- `approval_method` is authoritative: owner actions set `owner`; policy approvals set `auto_policy`; pending drafts must have it `NULL`.
+- High-severity moderation flags are an absolute veto. Held drafts are not notified, not auto-approved, and re-enter owner review only through admin disposition.
+- Runtime policy approval is allowed only for fresh `live_ingest_new` v1 jobs with matching review content hash, active location/connection, allowed publisher subscription, enabled policy threshold, and clean provider moderation.
+- If the runtime flag is off before publish, `ResponsePublisherWorker` downgrades unposted `auto_policy` rows to `pending_approval`, records `auto_policy_revoked_by_kill_switch`, enqueues normal owner notification, and completes the publish outbox in the same transaction.
+- Manual approval after a downgrade must set `approval_method='owner'` and clear stale `posting_error`.

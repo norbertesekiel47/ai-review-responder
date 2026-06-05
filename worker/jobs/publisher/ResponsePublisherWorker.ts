@@ -6,6 +6,8 @@ import type { PublishResponsePayload } from '../../../src/lib/shared/worker-type
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import { asLocationId } from '../../../src/lib/shared/ids';
 import type { LocationId } from '../../../src/lib/shared/ids';
+import { autoApprovalRuntimeEnabled } from '../../../src/lib/auto-approval/flags';
+import { APPROVAL_METHOD } from '../../../src/lib/auto-approval/types';
 import { loadPublishResponseContext } from './load-context';
 import { parkResponseForOwnerReconnect } from './no-connection';
 import { postReplyAndHandleTerminalOutcomes } from './post-reply';
@@ -13,6 +15,7 @@ import { resolvePublishableZernioReviewId } from './review-lookup';
 import { runEditPublishIfApplicable } from './edit-publish';
 import { isOrphanMarker } from './orphan-markers';
 import { maybeCaptureActivationCompleted } from './activation';
+import { downgradeAutoApprovedResponseForManualReview } from './auto-policy-downgrade';
 import type { ZernioConnectionRow } from './types';
 
 export async function handlePublishResponse(
@@ -35,7 +38,7 @@ export async function handlePublishResponse(
 
   const { response, business } = context;
 
-  // ── Step 2: Publishable-state gate ──────────────────────────────────
+  // ── Publishable-state gate ──────────────────────────────────
   //
   // Only proceed for states that represent owner-approved responses ready
   // to publish via Zernio. Bailing here is critical: without it, a 'failed'
@@ -55,7 +58,32 @@ export async function handlePublishResponse(
     return;
   }
 
-  // ── Step 3: Subscription guard ─────────────────────────────────────
+  // ── Auto-policy kill-switch downgrade (before any external call) ────
+  if (
+    response.approval_method === APPROVAL_METHOD.AUTO_POLICY &&
+    !autoApprovalRuntimeEnabled()
+  ) {
+    await downgradeAutoApprovedResponseForManualReview({
+      responseId: response_id,
+      businessId,
+      outboxId,
+      outboxAttempt,
+      correlationId: job.data.correlation_id,
+      logger,
+    });
+    return;
+  }
+
+  // ── Archived-location terminal ──────────────────────────────────────
+  if (business.archived_at !== null) {
+    logger.warn(
+      `Business ${businessId} is archived; skipping public publish for response ${response_id}`,
+    );
+    await markOutboxCompleted(outboxId, outboxAttempt);
+    return;
+  }
+
+  // ── Subscription guard ─────────────────────────────────────
   const subCheck = checkSubscription({
     status: business.subscription_status,
     pastDueAt: business.account_past_due_at,
@@ -71,7 +99,7 @@ export async function handlePublishResponse(
     return;
   }
 
-  // ── Step 4: Load active Zernio connection ──────────────────────────
+  // ── Load active Zernio connection ──────────────────────────
   const [zernioConnection] = await sql<ZernioConnectionRow[]>`
     SELECT zernio_account_id, zernio_location_id
     FROM zernio_connections
@@ -79,7 +107,7 @@ export async function handlePublishResponse(
     LIMIT 1
   `;
 
-  // ── Step 5: Branch on connection presence ──────────────────────────
+  // ── Branch on connection presence ──────────────────────────
   if (!zernioConnection) {
     await parkResponseForOwnerReconnect({
       responseId: response_id,
@@ -112,7 +140,7 @@ export async function handlePublishResponse(
   });
   if (zernioReviewId === 'completed') return;
 
-  // ── Step 6: Edit-publish dispatch (DELETE-before-POST) ──────────────
+  // ── Edit-publish dispatch (DELETE-before-POST) ──────────────
   //
   // When an owner edits an already-`posted` Google reply, the replacement
   // must DELETE the old reply before POSTing the new one. We enter that path
@@ -182,7 +210,7 @@ export async function handlePublishResponse(
   });
   if (postOutcome === 'completed') return;
 
-  // ── Step 8: Success ────────────────────────────────────────────────
+  // ── Success: mark posted ────────────────────────────────────────────────
   await sql`
     UPDATE responses
     SET status = 'posted', posted_at = NOW(), updated_at = NOW()

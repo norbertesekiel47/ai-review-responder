@@ -9,10 +9,8 @@
 // revokeSiblings → enqueue follow-up outbox row → write audit log.
 // State change + outbox enqueue stay in the SAME transaction.
 
-import { v7 as uuidv7 } from 'uuid';
 import { distance } from 'fastest-levenshtein';
 import type postgres from 'postgres';
-import { jsonb } from '@/lib/db/server';
 import { sanitizePublicResponseText } from '@/lib/shared/sanitize';
 import {
   verifyDevice,
@@ -23,9 +21,12 @@ import {
 import { insertAuditLog, type AuditContext } from './audit';
 import { EmptyEditedResponseError } from './errors';
 import type { ApprovalLink } from './types';
-import type { PublishResponsePayload, GenerateResponsePayload } from '@/lib/shared/worker-types';
+import { GENERATE_RESPONSE_ORIGIN_LANE } from '@/lib/shared/worker-types';
+import { APPROVAL_METHOD } from '@/lib/auto-approval/types';
+import { enqueueGenerateResponse, enqueuePublishResponse } from '@/lib/shared/job-outbox-helpers';
 
 type TxClient = postgres.TransactionSql;
+type PendingResponse = Awaited<ReturnType<typeof lockPendingResponse>>;
 
 /**
  * Approve a response as-is. Validates response is still pending,
@@ -44,27 +45,20 @@ export async function approve(
   correlationId?: string,
 ): Promise<void> {
   verifyDevice(link, deviceCookieHash);
-  const resp = await lockPendingResponse(tx, link.response_id);
-  await consumeLink(tx, link.id);
+  const resp = await lockAndConsumeTokenResponse(tx, link);
 
   await tx`
     UPDATE responses
-    SET status = 'approved', approved_at = NOW(), approved_text = response_text
+    SET status = 'approved',
+        approval_method = ${APPROVAL_METHOD.OWNER},
+        approved_at = NOW(),
+        approved_text = response_text,
+        posting_error = NULL
     WHERE id = ${link.response_id}
+      AND business_id = ${link.business_id}
   `;
 
-  await revokeSiblings(tx, link.response_id, link.id);
-
-  const payload: PublishResponsePayload = {
-    response_id: link.response_id,
-    business_id: link.business_id,
-    correlation_id: correlationId,
-  };
-
-  await tx`
-    INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-    VALUES (${uuidv7()}, 'publish_response', 'response', ${link.response_id}, ${jsonb(payload)}, 'pending')
-  `;
+  await finalizeTokenPublishApproval(tx, link, correlationId);
 
   await insertAuditLog(tx, link.response_id, link.business_id, 'approve', audit, undefined, {
     responseTextAtApproval: resp.response_text,
@@ -87,33 +81,24 @@ export async function edit(
   const sanitizedText = sanitizePublicResponseText(editedText);
   if (sanitizedText.length === 0) throw new EmptyEditedResponseError();
 
-  const resp = await lockPendingResponse(tx, link.response_id);
-  await consumeLink(tx, link.id);
+  const resp = await lockAndConsumeTokenResponse(tx, link);
 
   const editDist = distance(resp.original_draft_text, sanitizedText);
 
   await tx`
     UPDATE responses
     SET status = 'edited',
+        approval_method = ${APPROVAL_METHOD.OWNER},
         approved_at = NOW(),
         approved_text = ${sanitizedText},
         edited_text = ${sanitizedText},
-        edit_distance = ${editDist}
+        edit_distance = ${editDist},
+        posting_error = NULL
     WHERE id = ${link.response_id}
+      AND business_id = ${link.business_id}
   `;
 
-  await revokeSiblings(tx, link.response_id, link.id);
-
-  const payload: PublishResponsePayload = {
-    response_id: link.response_id,
-    business_id: link.business_id,
-    correlation_id: correlationId,
-  };
-
-  await tx`
-    INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-    VALUES (${uuidv7()}, 'publish_response', 'response', ${link.response_id}, ${jsonb(payload)}, 'pending')
-  `;
+  await finalizeTokenPublishApproval(tx, link, correlationId);
 
   await insertAuditLog(tx, link.response_id, link.business_id, 'edit', audit, { edit_distance: editDist }, {
     responseTextAtApproval: sanitizedText,
@@ -133,25 +118,45 @@ export async function regenerate(
   correlationId?: string,
 ): Promise<void> {
   verifyDevice(link, deviceCookieHash);
-  const resp = await lockPendingResponse(tx, link.response_id);
-  await consumeLink(tx, link.id);
+  const resp = await lockAndConsumeTokenResponse(tx, link);
   await revokeSiblings(tx, link.response_id, link.id);
 
   await tx`
-    UPDATE responses SET status = 'superseded' WHERE id = ${link.response_id}
+    UPDATE responses
+    SET status = 'superseded'
+    WHERE id = ${link.response_id}
+      AND business_id = ${link.business_id}
   `;
 
-  const payload: GenerateResponsePayload = {
-    review_id: resp.review_id,
-    business_id: link.business_id,
+  await enqueueGenerateResponse(tx, {
+    reviewId: resp.review_id,
+    businessId: link.business_id,
     version: resp.version + 1,
-    correlation_id: correlationId,
-  };
-
-  await tx`
-    INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-    VALUES (${uuidv7()}, 'generate_response', 'review', ${resp.review_id}, ${jsonb(payload)}, 'pending')
-  `;
+    originLane: GENERATE_RESPONSE_ORIGIN_LANE.REGENERATE,
+    correlationId,
+  });
 
   await insertAuditLog(tx, link.response_id, link.business_id, 'regenerate', audit);
+}
+
+async function lockAndConsumeTokenResponse(
+  tx: TxClient,
+  link: ApprovalLink,
+): Promise<PendingResponse> {
+  const response = await lockPendingResponse(tx, link.response_id);
+  await consumeLink(tx, link.id);
+  return response;
+}
+
+async function finalizeTokenPublishApproval(
+  tx: TxClient,
+  link: ApprovalLink,
+  correlationId: string | undefined,
+): Promise<void> {
+  await revokeSiblings(tx, link.response_id, link.id);
+  await enqueuePublishResponse(tx, {
+    responseId: link.response_id,
+    businessId: link.business_id,
+    correlationId,
+  });
 }

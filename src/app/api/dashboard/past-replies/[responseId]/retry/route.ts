@@ -28,13 +28,14 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { v7 as uuidv7 } from 'uuid';
-import { sql, jsonb } from '@/lib/db/server';
+import { sql } from '@/lib/db/server';
 import { insertAuditLogSession } from '@/lib/approval/audit';
 import {
   resolveEditReplyContext,
   type ResponseIdRouteContext,
 } from '@/app/api/dashboard/past-replies/_shared/edit-reply-request';
-import type { PublishResponsePayload } from '@/lib/shared/worker-types';
+import { APPROVAL_METHOD } from '@/lib/auto-approval/types';
+import { enqueuePublishResponse } from '@/lib/shared/job-outbox-helpers';
 import {
   DELETE_FAILED_PREFIX,
   POST_AFTER_DELETE_FAILED_PREFIX,
@@ -95,6 +96,7 @@ export async function POST(
       const nonTermRows = await tx`
         SELECT 1 FROM responses
         WHERE review_id = ${reviewId}
+          AND business_id = ${locationId}
           AND status IN ('pending_approval', 'approved', 'edited', 'awaiting_owner_connect')
         LIMIT 1
       `;
@@ -129,7 +131,9 @@ export async function POST(
       //     restored original and POST the failed edit text — undoing the recovery.
       const livePostedRows = await tx`
         SELECT id FROM responses
-        WHERE review_id = ${reviewId} AND status = 'posted'
+        WHERE review_id = ${reviewId}
+          AND business_id = ${locationId}
+          AND status = 'posted'
         LIMIT 1
       `;
       const livePosted = livePostedRows.length > 0;
@@ -155,10 +159,12 @@ export async function POST(
         UPDATE responses
         SET status = 'approved',
             posting_error = ${newPostingError},
+            approval_method = ${APPROVAL_METHOD.OWNER},
             approved_at = NOW(),
             approved_text = COALESCE(approved_text, response_text),
             updated_at = NOW()
         WHERE id = ${responseId}
+          AND business_id = ${locationId}
       `;
 
       // 4. Audit log (session-scoped — actor_user_id = users.id, NOT account).
@@ -174,17 +180,11 @@ export async function POST(
 
       // 5. Enqueue publish_response outbox in the SAME tx (spec §4.2 atomicity).
       const outboxId = uuidv7();
-      const payload: PublishResponsePayload = {
-        response_id: responseId,
-        business_id: locationId,
-      };
-      await tx`
-        INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-        VALUES (
-          ${outboxId}, 'publish_response', 'response',
-          ${responseId}, ${jsonb(payload)}, 'pending'
-        )
-      `;
+      await enqueuePublishResponse(tx, {
+        outboxId,
+        responseId,
+        businessId: locationId,
+      });
 
       return NextResponse.json({ outbox_id: outboxId }, { status: 200 });
     });

@@ -35,17 +35,27 @@ export interface ApprovalContentSnapshot {
 
 export type AutoPolicyAuditAction =
   | 'auto_approved_by_policy'
-  | 'auto_policy_downgraded_to_owner_review';
+  | 'auto_policy_revoked_by_kill_switch';
 
 export interface AutoPolicyAuditMetadata {
   policy_id?: string | null;
   policy_source?: PolicySource;
-  threshold?: AutoApprovalThreshold | null;
+  resolved_min_star?: AutoApprovalThreshold | null;
   star_rating?: number | null;
   origin_lane?: GenerateResponseOriginLane | null;
+  response_version?: number;
   provider_status?: 'clean' | 'error' | null;
   review_content_hash_matched?: boolean;
+  publisher_subscription_allowed?: boolean;
+  publisher_subscription_reason?: string | null;
+  active_zernio_connection?: boolean;
+  active_location?: boolean;
+  runtime_enabled?: boolean;
+  provider_moderation_enabled?: boolean;
+  correlation_id?: string;
   downgrade_reason?: string;
+  outbox_id?: string;
+  outbox_attempt?: number;
 }
 
 export interface AutoPolicyAuditInput {
@@ -82,12 +92,22 @@ async function resolveAccountIdFromBusiness(
 const AUTO_POLICY_METADATA_KEYS = [
   'policy_id',
   'policy_source',
-  'threshold',
+  'resolved_min_star',
   'star_rating',
   'origin_lane',
+  'response_version',
   'provider_status',
   'review_content_hash_matched',
+  'publisher_subscription_allowed',
+  'publisher_subscription_reason',
+  'active_zernio_connection',
+  'active_location',
+  'runtime_enabled',
+  'provider_moderation_enabled',
+  'correlation_id',
   'downgrade_reason',
+  'outbox_id',
+  'outbox_attempt',
 ] as const satisfies readonly (keyof AutoPolicyAuditMetadata)[];
 
 const AUTO_POLICY_AUTH_METHOD: ApprovalMethod = 'auto_policy';

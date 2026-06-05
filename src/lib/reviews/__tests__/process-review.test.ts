@@ -4,6 +4,8 @@
 // suppressNotification propagation. sql.begin is mocked so no DB is required.
 //
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 // We capture payloads passed to jsonb() via a module-level array.
 // The array is declared here and the vi.mock factory closes over it.
@@ -101,9 +103,10 @@ describe('processReview', () => {
     expect(result).toBe('new');
     expect(tx).toHaveBeenCalledTimes(4);
 
-    // 3rd tx call is the job_outbox INSERT — verify topic string is present
+    // 3rd tx call is the job_outbox INSERT — queue name is bound via helper.
     const outboxSql = (tx.mock.calls[2]?.[0] as TemplateStringsArray | undefined)?.join('?') ?? '';
-    expect(outboxSql).toContain('generate_response');
+    expect(outboxSql).toContain('INSERT INTO job_outbox');
+    expect(tx.mock.calls[2]).toContain('generate_response');
   });
 
   it('enqueues first_review_ingested for the first account-level review', async () => {
@@ -193,10 +196,11 @@ describe('processReview', () => {
     // capturedJsonbPayloads[0] is the GenerateResponsePayload passed to jsonb()
     expect(capturedJsonbPayloads).toHaveLength(1);
     const payload = capturedJsonbPayloads[0] as Record<string, unknown>;
+    expect(payload['origin_lane']).toBe('live_ingest_new');
     expect(payload['suppress_notification']).toBe(true);
   });
 
-  it('suppressNotification defaults to false when options is omitted', async () => {
+  it('live-ingest new review payload defaults to live_ingest_new and omits false suppress_notification', async () => {
     const monitored = makeMonitoredReview();
 
     tx
@@ -211,7 +215,29 @@ describe('processReview', () => {
     expect(result).toBe('new');
     expect(capturedJsonbPayloads).toHaveLength(1);
     const payload = capturedJsonbPayloads[0] as Record<string, unknown>;
-    expect(payload['suppress_notification']).toBe(false);
+    expect(payload['origin_lane']).toBe('live_ingest_new');
+    expect(payload).not.toHaveProperty('suppress_notification');
+  });
+
+  it('backfill callers can force the backfill origin lane', async () => {
+    const monitored = makeMonitoredReview();
+
+    tx
+      .mockResolvedValueOnce(withCount([], 0))
+      .mockResolvedValueOnce(withCount([{ id: 'new-id' }], 1))
+      .mockResolvedValueOnce(withCount([], 0))
+      .mockResolvedValueOnce(withCount([{ account_id: 'acct-1', earlier_exists: false }], 1));
+
+    const result = await processReview(monitored, 'biz-1', 'corr-1', {
+      suppressNotification: true,
+      originLane: 'backfill',
+    } as never);
+
+    expect(result).toBe('new');
+    expect(capturedJsonbPayloads[0]).toMatchObject({
+      origin_lane: 'backfill',
+      suppress_notification: true,
+    });
   });
 
   // ── Stale-marking (Task 8) ────────────────────────────────────────────
@@ -371,6 +397,9 @@ describe('processReview', () => {
       expect(allParams).not.toContain('stale_after_review_changed');
       // Exactly 5 tx calls (no extra stale UPDATE)
       expect(tx).toHaveBeenCalledTimes(5);
+
+      const payload = capturedJsonbPayloads[0] as Record<string, unknown>;
+      expect(payload['origin_lane']).toBe('live_ingest_update');
     });
   });
 
@@ -517,5 +546,20 @@ describe('processReview', () => {
     const updateSql = (tx.mock.calls[1]?.[0] as TemplateStringsArray | undefined)?.join('?') ?? '';
     expect(updateSql).toContain("status = 'new'");
     expect(updateSql).not.toContain('sentiment_label');
+  });
+});
+
+describe('generate_response producer static guard', () => {
+  it.each([
+    'src/lib/reviews/process-review.ts',
+    'src/lib/approval/token-mode.ts',
+    'src/lib/approval/session-mode.ts',
+    'src/lib/approval/callback-mode.ts',
+    'src/app/api/admin/flagged/route.ts',
+    'src/app/api/dashboard/past-replies/draft/route.ts',
+  ])('routes %s through enqueueGenerateResponse', (file) => {
+    const source = readFileSync(resolve(process.cwd(), file), 'utf8');
+    expect(source).not.toMatch(/tx`\s*INSERT\s+INTO\s+job_outbox[\s\S]*?'generate_response'/);
+    expect(source).toContain('enqueueGenerateResponse');
   });
 });

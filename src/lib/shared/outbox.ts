@@ -1,4 +1,8 @@
+import type postgres from 'postgres';
 import { sql } from '@/lib/db/server';
+
+/** Either the standalone `sql` client or an open `sql.begin()` transaction handle. */
+type SqlExecutor = typeof sql | postgres.TransactionSql;
 
 /**
  * Extracts outbox_id and outbox_attempt from a BullMQ job payload.
@@ -23,8 +27,9 @@ export function extractOutboxHandle(
  * Marks an outbox entry as completed. Used by every worker on the
  * success path when the work is done outside a transaction.
  *
- * For outbox completion INSIDE a sql.begin() transaction, use inline
- * tx SQL instead — this function uses the standalone sql client.
+ * Pass `exec` (a `sql.begin()` transaction handle) to complete the entry
+ * INSIDE an open transaction — atomic with the state change it accompanies.
+ * Defaults to the standalone `sql` client for the common out-of-tx case.
  *
  * `attempt` is the outbox_attempt the BullMQ job was dispatched under.
  * When provided, the UPDATE is attempt-guarded so a stale BullMQ worker
@@ -39,9 +44,10 @@ export function extractOutboxHandle(
 export async function markOutboxCompleted(
   outboxId: string,
   attempt?: number,
+  exec: SqlExecutor = sql,
 ): Promise<void> {
   if (typeof attempt === 'number' && Number.isFinite(attempt)) {
-    const res = await sql`
+    const res = await exec`
       UPDATE job_outbox
       SET status = 'completed', completed_at = NOW()
       WHERE id = ${outboxId}
@@ -57,7 +63,7 @@ export async function markOutboxCompleted(
   }
   // Legacy path: attempt unknown. Still guard on status so a stale caller
   // can't regress a row that has already moved to 'failed' or 'completed'.
-  await sql`
+  await exec`
     UPDATE job_outbox
     SET status = 'completed', completed_at = NOW()
     WHERE id = ${outboxId}

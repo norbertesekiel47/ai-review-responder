@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Job } from 'bullmq';
 import type { PublishResponsePayload } from '../../../../src/lib/shared/worker-types';
 import {
@@ -81,9 +81,11 @@ import { handlePublishResponse } from '../ResponsePublisherWorker';
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
-function makeJob(): Job<PublishResponsePayload> {
+function makeJob(
+  overrides: Partial<PublishResponsePayload & { outbox_id: string; outbox_attempt: number }> = {},
+): Job<PublishResponsePayload> {
   return {
-    data: { response_id: 'resp-1', business_id: 'biz-1' },
+    data: { response_id: 'resp-1', business_id: 'biz-1', ...overrides },
     id: 'outbox-pub-1',
   } as Job<PublishResponsePayload>;
 }
@@ -92,6 +94,7 @@ function mockResponseRow(overrides: Record<string, unknown> = {}) {
   return {
     id: 'resp-1', review_id: 'rev-1', business_id: 'biz-1',
     approved_text: 'Thank you for your kind review!', status: 'approved',
+    approval_method: null,
     posting_error: null,
     ...overrides,
   };
@@ -160,9 +163,14 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     vi.clearAllMocks();
     sqlReturnQueue.length = 0;
     delete process.env.EDIT_REPLIES_ENABLED;
+    delete process.env.AUTO_APPROVAL_ENABLED;
     // clearAllMocks wipes the queued/persistent return; re-establish the safe default.
     mockRunEditPublishIfApplicable.mockResolvedValue({ outcome: 'continue_to_fresh' });
     mockMaybeCaptureActivationCompleted.mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   // ── Steps 1–3 unchanged behavior ────────────────────────────────────
@@ -220,6 +228,142 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     expect(mockPostReply).not.toHaveBeenCalled();
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['approved'],
+    ['edited'],
+    ['awaiting_owner_connect'],
+  ])('downgrades auto-policy %s rows to owner review when runtime flag is off', async (status) => {
+    sqlReturnQueue.push([mockResponseRow({ status, approval_method: 'auto_policy' })]);
+    sqlReturnQueue.push([mockBusinessRow()]);
+    sqlReturnQueue.push([{ id: 'resp-1' }]); // downgrade UPDATE RETURNING
+    sqlReturnQueue.push([{ account_id: 'acc-1' }]); // audit account lookup
+    sqlReturnQueue.push([]); // audit INSERT
+    sqlReturnQueue.push([]); // send_notification INSERT
+
+    await handlePublishResponse(makeJob({
+      correlation_id: 'corr-1',
+      outbox_id: 'outbox-auto-1',
+      outbox_attempt: 2,
+    }));
+
+    expect(mockLookupZernioReviewId).not.toHaveBeenCalled();
+    expect(mockPostReply).not.toHaveBeenCalled();
+    // Publish outbox completion now flows through the canonical markOutboxCompleted
+    // helper (tx-aware), not inline tx SQL.
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-auto-1', 2, expect.anything());
+
+    const calls = (mockSql as any).mock.calls as unknown[][];
+    const downgradeCall = calls.find((call) => {
+      const text = (call[0] as TemplateStringsArray).join('|');
+      return text.includes('UPDATE responses') && text.includes("status = 'pending_approval'");
+    });
+    expect(downgradeCall).toBeDefined();
+    expect(downgradeCall).toContain('auto_policy_revoked_by_kill_switch');
+    expect(downgradeCall).toContain('auto_policy');
+
+    const auditCall = calls.find((call) =>
+      (call[0] as TemplateStringsArray).join('|').includes('approval_audit_log'),
+    );
+    expect(auditCall).toBeDefined();
+    expect(auditCall).toContain('auto_policy_revoked_by_kill_switch');
+    const auditMetadata = auditCall!.find(
+      (arg): arg is Record<string, unknown> =>
+        !!arg && typeof arg === 'object' && !Array.isArray(arg) && 'downgrade_reason' in arg,
+    );
+    expect(auditMetadata).toEqual({
+      correlation_id: 'corr-1',
+      downgrade_reason: 'auto_approval_disabled',
+      outbox_attempt: 2,
+      outbox_id: 'outbox-auto-1',
+      runtime_enabled: false,
+    });
+
+    const notifyCall = calls.find((call) => {
+      const text = (call[0] as TemplateStringsArray).join('|');
+      return text.includes('INSERT INTO job_outbox') && call.includes('send_notification');
+    });
+    expect(notifyCall).toBeDefined();
+    const notifyPayload = notifyCall!.find(
+      (arg): arg is Record<string, unknown> =>
+        !!arg && typeof arg === 'object' && !Array.isArray(arg) && 'response_id' in arg,
+    );
+    expect(notifyPayload).toEqual({
+      business_id: 'biz-1',
+      correlation_id: 'corr-1',
+      response_id: 'resp-1',
+    });
+  });
+
+  it('completes publish outbox without notification when auto-policy downgrade row is already gone', async () => {
+    sqlReturnQueue.push([mockResponseRow({ approval_method: 'auto_policy' })]);
+    sqlReturnQueue.push([mockBusinessRow()]);
+    sqlReturnQueue.push([]); // downgrade UPDATE RETURNING no rows
+    sqlReturnQueue.push(Object.assign([], { count: 1 })); // complete publish outbox
+
+    await handlePublishResponse(makeJob());
+
+    const callTexts = (mockSql as any).mock.calls.map(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?'),
+    );
+    expect(callTexts.some((t: string) => /approval_audit_log/.test(t))).toBe(false);
+    expect(callTexts.some((t: string) => /send_notification/.test(t))).toBe(false);
+    expect(mockLookupZernioReviewId).not.toHaveBeenCalled();
+    expect(mockPostReply).not.toHaveBeenCalled();
+  });
+
+  it('downgrades auto-policy rows before archived-location terminal handling', async () => {
+    sqlReturnQueue.push([mockResponseRow({ approval_method: 'auto_policy' })]);
+    sqlReturnQueue.push([mockBusinessRow({ archived_at: new Date('2026-05-09T00:00:00Z') })]);
+    sqlReturnQueue.push([{ id: 'resp-1' }]);
+    sqlReturnQueue.push([{ account_id: 'acc-1' }]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([]);
+
+    await handlePublishResponse(makeJob());
+
+    const callTexts = (mockSql as any).mock.calls.map(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?'),
+    );
+    expect(callTexts.some((t: string) => /pending_approval/.test(t))).toBe(true);
+    expect((mockSql as any).mock.calls.some((call: unknown[]) => call.includes('send_notification'))).toBe(true);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined, expect.anything());
+    expect(mockLookupZernioReviewId).not.toHaveBeenCalled();
+  });
+
+  it('preserves archived-location terminal behavior for auto-policy rows while runtime flag is on', async () => {
+    vi.stubEnv('AUTO_APPROVAL_ENABLED', 'true');
+    sqlReturnQueue.push([mockResponseRow({ approval_method: 'auto_policy' })]);
+    sqlReturnQueue.push([mockBusinessRow({ archived_at: new Date('2026-05-09T00:00:00Z') })]);
+
+    await handlePublishResponse(makeJob());
+
+    const callTexts = (mockSql as any).mock.calls.map(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?'),
+    );
+    expect(callTexts.some((t: string) => /pending_approval/.test(t))).toBe(false);
+    expect(mockLookupZernioReviewId).not.toHaveBeenCalled();
+    expect(mockPostReply).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
+  });
+
+  it('keeps owner-approved rows on the normal publisher path when runtime flag is off', async () => {
+    sqlReturnQueue.push([mockResponseRow({ approval_method: 'owner' })]);
+    sqlReturnQueue.push([mockBusinessRow()]);
+    sqlReturnQueue.push([]); // zernio_connections
+    sqlReturnQueue.push(Object.assign([], { count: 1 })); // UPDATE awaiting_owner_connect
+    sqlReturnQueue.push(Object.assign([], { count: 1 })); // reconnect notify INSERT
+
+    await handlePublishResponse(makeJob());
+
+    const callTexts = (mockSql as any).mock.calls.map(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?'),
+    );
+    expect(callTexts.some((t: string) => /auto_policy_revoked_by_kill_switch/.test(t))).toBe(false);
+    expect(callTexts.some((t: string) => /awaiting_owner_connect/.test(t))).toBe(true);
+    expect(callTexts.some((t: string) => /notify_owner_reconnect/.test(t))).toBe(true);
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-pub-1', undefined);
   });
 
   it('marks outbox failed when response not found', async () => {

@@ -373,9 +373,11 @@ describe('POST /api/dashboard/past-replies/:responseId/restore-original', () => 
     expect(insertSql).toContain('approved_text');
     expect(insertSql).toContain('original_draft_text');
     expect(insertSql).toContain('edited_text');
+    expect(insertSql).toContain('approval_method');
     expect(insertSql).toContain("'approved'");
     expect(insertSql).toContain('approved_at');
     expect(insertSql).toContain('NOW()');
+    expect(insertCall).toContain('owner');
     // The version expression is inline SQL; verify the COALESCE/MAX expression is present.
     expect(insertSql).toContain('COALESCE');
     expect(insertSql).toContain('MAX(version)');
@@ -384,7 +386,8 @@ describe('POST /api/dashboard/past-replies/:responseId/restore-original', () => 
     //   ${newId}, ${reviewId}, ${failed.business_id},
     //   ${restoredText}, ${restoredText}, ${restoredText}, ${null},
     //   ${superseded.response_language},
-    //   inline SQL — ${reviewId} again,
+    //   inline SQL — ${reviewId} and ${failed.business_id} again,
+    //   ${APPROVAL_METHOD.OWNER},
     //   ${null}, ${null}, ${null}, ${null}
     const newIdParam = insertCall[1] as string;
     expect(newIdParam).toBe(body.response_id);
@@ -398,13 +401,15 @@ describe('POST /api/dashboard/past-replies/:responseId/restore-original', () => 
     expect(insertCall[7]).toBeNull();
     // response_language preserved from superseded row.
     expect(insertCall[8]).toBe('en');
-    // The MAX(version) sub-select also uses ${reviewId} — bound at position 9.
+    // The MAX(version) sub-select also uses ${reviewId} + business_id.
     expect(insertCall[9]).toBe(REVIEW_ID);
+    expect(insertCall[10]).toBe(LOCATION_ID);
+    expect(insertCall[11]).toBe('owner');
     // llm_provider, llm_model, prompt_tokens, completion_tokens all NULL.
-    expect(insertCall[10]).toBeNull();
-    expect(insertCall[11]).toBeNull();
     expect(insertCall[12]).toBeNull();
     expect(insertCall[13]).toBeNull();
+    expect(insertCall[14]).toBeNull();
+    expect(insertCall[15]).toBeNull();
 
     // The OLD failed row was NOT updated — verify no UPDATE call hit responses.
     const allTxCalls = txMock.mock.calls as unknown as unknown[][];
@@ -425,15 +430,17 @@ describe('POST /api/dashboard/past-replies/:responseId/restore-original', () => 
     // A publish_response outbox row IS enqueued — restore republishes directly.
     const outboxInserts = allTxCalls.filter((call) => {
       const sqlText = (call[0] as unknown as TemplateStringsArray).join('|');
-      return sqlText.includes('INSERT INTO job_outbox') && sqlText.includes("'publish_response'");
+      return sqlText.includes('INSERT INTO job_outbox') && call.includes('publish_response');
     });
     expect(outboxInserts).toHaveLength(1);
     const outboxCall = outboxInserts[0]!;
     // payload param is jsonb()-wrapped; the mock unwraps jsonb to identity.
     const outboxArgs = outboxCall.slice(1);
     expect(outboxArgs[0]).toBe(body.outbox_id); // outbox id
-    expect(outboxArgs[1]).toBe(body.response_id); // aggregate_id = new response id
-    const outboxPayload = outboxArgs[2] as { response_id: string; business_id: string };
+    expect(outboxArgs[1]).toBe('publish_response');
+    expect(outboxArgs[2]).toBe('response');
+    expect(outboxArgs[3]).toBe(body.response_id); // aggregate_id = new response id
+    const outboxPayload = outboxArgs[4] as { response_id: string; business_id: string };
     expect(outboxPayload.response_id).toBe(body.response_id);
     expect(outboxPayload.business_id).toBe(LOCATION_ID);
 
