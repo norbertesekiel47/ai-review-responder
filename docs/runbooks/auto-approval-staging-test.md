@@ -27,7 +27,7 @@ both, scoped to the **staging** environment.
 | `AUTO_APPROVAL_ENABLED` | Railway worker **and** Vercel staging | `true` | Runtime auto-posting switch + settings readiness |
 | `OPENAI_MODERATION_ENABLED` | Railway worker **and** Vercel staging | `true` | Provider moderation (mandatory for auto) |
 | `AUTO_APPROVAL_PROVIDER_MODERATION_READY` | Vercel staging | `true` | Gates **settings expansion** only (not runtime) |
-| `VERCEL_ENV` | Vercel staging | **not** `preview` | Previews are UI-only; `preview` blocks expansion |
+| `VERCEL_TARGET_ENV` | Vercel (auto-injected) | n/a — auto | Only genuine per-PR previews (`preview`) block expansion; the staging custom env is `staging`, so it's allowed |
 
 - **Railway** → staging worker service → *Variables* → set `AUTO_APPROVAL_ENABLED=true`,
   `OPENAI_MODERATION_ENABLED=true` → redeploy. (The worker rejects any value that
@@ -62,7 +62,7 @@ reason, fix it before continuing:
 | Auto-approval is not enabled for this environment | `AUTO_APPROVAL_ENABLED` ≠ true on **Vercel** | set it, redeploy staging |
 | Provider moderation is not enabled | `OPENAI_MODERATION_ENABLED` ≠ true on **Vercel** | set it, redeploy |
 | Provider moderation readiness has not been validated | `AUTO_APPROVAL_PROVIDER_MODERATION_READY` ≠ true | set it, redeploy |
-| Preview environments cannot expand auto-approval | staging deploy reports `VERCEL_ENV=preview` | fix the staging env so it isn't detected as preview |
+| Preview environments cannot expand auto-approval | you're on a genuine per-PR **preview** deploy (`VERCEL_TARGET_ENV=preview`), not staging | use the staging deploy (`VERCEL_TARGET_ENV=staging`), where this is not blocked |
 | The account cannot expand automation while billing is read-only | test account not active / in grace | use an active-subscription account |
 | View-as sessions cannot change auto-approval | you're impersonating | use a real owner login |
 
