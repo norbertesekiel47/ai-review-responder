@@ -149,6 +149,10 @@ export async function loadAutoApprovalRuntimeState(
       AND (location_id IS NULL OR location_id = ${businessId})
   `;
 
+  // Kept as a separate top-level statement on purpose: the tenant-scope auditor
+  // strips subqueries before crediting business_id/account_id scope, so folding
+  // this into an EXISTS on the state SELECT reads as unscoped. The spec (§8)
+  // accepts this extra indexed read as the cost of a current-state re-read.
   const [activeConnection] = await tx<{ id: string }[]>`
     SELECT id
     FROM zernio_connections

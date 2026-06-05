@@ -16,10 +16,11 @@ import { APPROVAL_METHOD } from '../../../src/lib/auto-approval/types';
 import {
   GENERATE_RESPONSE_ORIGIN_LANE,
   type GenerateResponseOriginLane,
-  type SendNotificationPayload,
 } from '../../../src/lib/shared/worker-types';
-import { QUEUE_NAMES } from '../../../src/lib/shared/queue-names';
-import { enqueuePublishResponse } from '../../../src/lib/shared/job-outbox-helpers';
+import {
+  enqueuePublishResponse,
+  enqueueSendNotification,
+} from '../../../src/lib/shared/job-outbox-helpers';
 import { insertAuditLogAutoPolicy } from '../../../src/lib/approval/audit';
 import type { WorkerLogger } from '../../../src/lib/shared/logger';
 import {
@@ -32,7 +33,6 @@ import {
 const RESPONSE_STATUS_PENDING_APPROVAL = 'pending_approval';
 const RESPONSE_STATUS_APPROVED = 'approved';
 const FLAGGED_RESPONSE_STATUS_OPEN = 'open';
-const AGGREGATE_TYPE_RESPONSE = 'response';
 
 export interface PersistResponseInput {
   result: GenerationResult;
@@ -150,22 +150,9 @@ export async function persistResponseAndNotify(input: PersistResponseInput): Pro
         businessId,
         responseTextAtApproval: result.responseText,
         metadata: {
+          ...buildAutoApprovalDecisionSummary({ autoDecision, runtimeState, originLane, moderation, version }),
           policy_id: runtimeState.effectivePolicy.policyId,
-          policy_source: runtimeState.effectivePolicy.source,
-          resolved_min_star: runtimeState.effectivePolicy.threshold,
           star_rating: runtimeState.currentStarRating,
-          origin_lane: originLane,
-          response_version: version,
-          provider_status: moderation.providerStatus,
-          review_content_hash_matched: autoDecision.reviewContentHashMatched,
-          publisher_subscription_allowed: autoDecision.publisherSubscription.allowed,
-          publisher_subscription_reason: autoDecision.publisherSubscription.allowed
-            ? null
-            : autoDecision.publisherSubscription.reason,
-          active_zernio_connection: runtimeState.activeZernioConnectionNow,
-          active_location: runtimeState.activeLocationNow,
-          runtime_enabled: autoDecision.runtimeEnabled,
-          provider_moderation_enabled: autoDecision.providerModerationEnabled,
           correlation_id: correlationId,
         },
       });
@@ -184,19 +171,11 @@ export async function persistResponseAndNotify(input: PersistResponseInput): Pro
       return;
     }
 
-    const notifyPayload: SendNotificationPayload = {
-      response_id: responseId,
-      business_id: businessId,
-      correlation_id: correlationId,
-    };
-
-    await tx`
-      INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-      VALUES (
-        ${uuidv7()}, ${QUEUE_NAMES.SEND_NOTIFICATION}, ${AGGREGATE_TYPE_RESPONSE}, ${responseId},
-        ${jsonb(notifyPayload)}, 'pending'
-      )
-    `;
+    await enqueueSendNotification(tx, {
+      responseId,
+      businessId,
+      correlationId,
+    });
   });
 
   return responseId;
@@ -228,23 +207,47 @@ function logAutoApprovalFallbackIfNeeded(input: {
     return;
   }
 
-  const inAutoDecisionSurface =
+  // Narrow to genuine auto candidates: a draft on the auto-eligible lane whose
+  // account has a policy configured, so the only thing standing between it and
+  // an auto-post is a runtime prerequisite (provider moderation, subscription,
+  // active connection/location, review-hash freshness, or the runtime flag).
+  // Bad-lane / no-policy drafts were never going to auto and would otherwise log
+  // on every generated draft while AUTO_APPROVAL_ENABLED is on (spec §15).
+  const isAutoCandidate =
     originLane === GENERATE_RESPONSE_ORIGIN_LANE.LIVE_INGEST_NEW
-    || runtimeState.effectivePolicy.threshold !== null
-    || autoDecision.runtimeEnabled;
-  if (!inAutoDecisionSurface) {
+    && runtimeState.effectivePolicy.threshold !== null;
+  if (!isAutoCandidate) {
     return;
   }
 
   logger.log('Auto-approval fallback to owner review', {
+    ...buildAutoApprovalDecisionSummary({ autoDecision, runtimeState, originLane, moderation, version }),
     response_id: responseId,
     review_id: reviewId,
     business_id: businessId,
-    response_version: version,
-    origin_lane: originLane,
     block_reasons: autoDecision.blockReasons,
-    runtime_enabled: autoDecision.runtimeEnabled,
-    provider_moderation_enabled: autoDecision.providerModerationEnabled,
+  });
+}
+
+/**
+ * The resolved auto-approval decision facts shared by the durable approval
+ * audit row and the sanitized fallback log — one owner so the two sinks can
+ * never drift. Carries no review/response text or raw hashes, so it is safe to
+ * spread into both the audit metadata and the structured log (spec §11, §15).
+ */
+function buildAutoApprovalDecisionSummary(input: {
+  autoDecision: AutoApprovalDecision;
+  runtimeState: AutoApprovalRuntimeState;
+  originLane: GenerateResponseOriginLane | null;
+  moderation: ModerationDecision;
+  version: number;
+}) {
+  const { autoDecision, runtimeState, originLane, moderation, version } = input;
+  return {
+    policy_source: runtimeState.effectivePolicy.source,
+    resolved_min_star: runtimeState.effectivePolicy.threshold,
+    origin_lane: originLane,
+    response_version: version,
     provider_status: moderation.providerStatus,
     review_content_hash_matched: autoDecision.reviewContentHashMatched,
     publisher_subscription_allowed: autoDecision.publisherSubscription.allowed,
@@ -253,9 +256,9 @@ function logAutoApprovalFallbackIfNeeded(input: {
       : autoDecision.publisherSubscription.reason,
     active_zernio_connection: runtimeState.activeZernioConnectionNow,
     active_location: runtimeState.activeLocationNow,
-    policy_source: runtimeState.effectivePolicy.source,
-    resolved_min_star: runtimeState.effectivePolicy.threshold,
-  });
+    runtime_enabled: autoDecision.runtimeEnabled,
+    provider_moderation_enabled: autoDecision.providerModerationEnabled,
+  };
 }
 
 /**

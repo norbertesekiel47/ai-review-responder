@@ -1,12 +1,8 @@
-import { v7 as uuidv7 } from 'uuid';
-import { jsonb, sql } from '../../../src/lib/db/server';
+import { sql } from '../../../src/lib/db/server';
 import { insertAuditLogAutoPolicy } from '../../../src/lib/approval/audit';
 import { APPROVAL_METHOD } from '../../../src/lib/auto-approval/types';
-import { QUEUE_NAMES } from '../../../src/lib/shared/queue-names';
+import { enqueueSendNotification } from '../../../src/lib/shared/job-outbox-helpers';
 import { markOutboxCompleted } from '../../../src/lib/shared/outbox';
-import type { SendNotificationPayload } from '../../../src/lib/shared/worker-types';
-
-const AGGREGATE_TYPE_RESPONSE = 'response';
 
 const AUTO_POLICY_REVOKED_BY_KILL_SWITCH =
   'auto_policy_revoked_by_kill_switch';
@@ -65,25 +61,11 @@ export async function downgradeAutoApprovedResponseForManualReview(input: {
       },
     });
 
-    const notifyPayload: SendNotificationPayload = {
-      response_id: responseId,
-      business_id: businessId,
-    };
-    if (correlationId !== undefined) {
-      notifyPayload.correlation_id = correlationId;
-    }
-
-    await tx`
-      INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-      VALUES (
-        ${uuidv7()},
-        ${QUEUE_NAMES.SEND_NOTIFICATION},
-        ${AGGREGATE_TYPE_RESPONSE},
-        ${responseId},
-        ${jsonb(notifyPayload)},
-        'pending'
-      )
-    `;
+    await enqueueSendNotification(tx, {
+      responseId,
+      businessId,
+      correlationId,
+    });
 
     await markOutboxCompleted(outboxId, outboxAttempt, tx);
     logger.warn(

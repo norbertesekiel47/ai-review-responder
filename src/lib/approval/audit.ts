@@ -40,7 +40,6 @@ export type AutoPolicyAuditAction =
 export interface AutoPolicyAuditMetadata {
   policy_id?: string | null;
   policy_source?: PolicySource;
-  threshold?: AutoApprovalThreshold | null;
   resolved_min_star?: AutoApprovalThreshold | null;
   star_rating?: number | null;
   origin_lane?: GenerateResponseOriginLane | null;
@@ -93,7 +92,6 @@ async function resolveAccountIdFromBusiness(
 const AUTO_POLICY_METADATA_KEYS = [
   'policy_id',
   'policy_source',
-  'threshold',
   'resolved_min_star',
   'star_rating',
   'origin_lane',

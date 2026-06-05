@@ -30,10 +30,15 @@ export interface GenerateResponsePayload extends BasePayload {
   business_id: string;
   version: number;
   /**
-   * PR1 keeps this optional so legacy queued jobs and existing producers remain
-   * valid until PR2 migrates call sites.
+   * Producer-required. Every generate_response job is emitted through
+   * `enqueueGenerateResponse`, whose typed input requires a lane, so this field
+   * is always present on freshly produced jobs and a producer cannot silently
+   * omit it. Legacy in-flight jobs that predate this field are tolerated only at
+   * the runtime boundary by `normalizeGenerateResponsePayload`, which reads
+   * `job.data` as `unknown` and resolves a missing/unknown lane to a non-auto
+   * `null` — that tolerance lives in the parser, not in this wire contract.
    */
-  origin_lane?: GenerateResponseOriginLane;
+  origin_lane: GenerateResponseOriginLane;
   /**
    * When true, the ResponseGeneratorWorker skips the send_notification
    * outbox enqueue. Used by ZernioBackfillWorker so the first-connect

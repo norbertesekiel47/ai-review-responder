@@ -1,13 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { v7 as uuidv7 } from 'uuid';
-import { sql, jsonb } from '@/lib/db/server';
+import { sql } from '@/lib/db/server';
 import { writeAccountAuditLog } from '@/lib/audit/log';
 import { requireAdminWithAal2, internalError } from '@/lib/auth/admin-mfa-gate';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
-import type { SendNotificationPayload } from '@/lib/shared/worker-types';
 import { GENERATE_RESPONSE_ORIGIN_LANE } from '@/lib/shared/worker-types';
-import { enqueueGenerateResponse } from '@/lib/shared/job-outbox-helpers';
+import { enqueueGenerateResponse, enqueueSendNotification } from '@/lib/shared/job-outbox-helpers';
 
 export const dynamic = 'force-dynamic';
 
@@ -160,17 +158,10 @@ async function dispositionFlaggedResponse(request: NextRequest): Promise<NextRes
       // Only an explicit approval releases the held draft to the owner — via the
       // transactional outbox, atomic with the status change.
       if (action === 'approved_for_owner_review') {
-        const payload: SendNotificationPayload = {
-          response_id: flag.response_id,
-          business_id: flag.business_id,
-        };
-        await tx`
-          INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-          VALUES (
-            ${uuidv7()}, 'send_notification', 'response', ${flag.response_id},
-            ${jsonb(payload)}, 'pending'
-          )
-        `;
+        await enqueueSendNotification(tx, {
+          responseId: flag.response_id,
+          businessId: flag.business_id,
+        });
       }
 
       // Regeneration supersedes the held (unsafe) draft so it can never be

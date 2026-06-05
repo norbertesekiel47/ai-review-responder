@@ -136,7 +136,7 @@ import { CostLimitExceededError } from '../../../src/lib/costs/tracker';
 
 function makeJob(overrides = {}): Job<GenerateResponsePayload> {
   return {
-    data: { review_id: 'rev-1', business_id: 'biz-1', version: 1, ...overrides },
+    data: { review_id: 'rev-1', business_id: 'biz-1', version: 1, origin_lane: 'live_ingest_new', ...overrides },
     id: 'outbox-gen-1',
   } as Job<GenerateResponsePayload>;
 }
@@ -246,7 +246,12 @@ describe('ResponseGeneratorWorker – handleResponseGeneration', () => {
     sqlReturnQueue.push([mockBusinessRow()]);
     mockGenerateResponse.mockResolvedValueOnce(MOCK_RESULT);
 
-    await handleResponseGeneration(makeJob());
+    // Simulate an in-flight job enqueued before origin_lane existed: the wire
+    // type now requires the lane, but the boundary parser must still tolerate
+    // its absence by resolving to a non-auto null (spec §5).
+    const legacyJob = makeJob();
+    delete (legacyJob.data as unknown as Record<string, unknown>).origin_lane;
+    await handleResponseGeneration(legacyJob);
 
     expect(persistResponseAndNotify).toHaveBeenCalledWith(expect.objectContaining({
       originLane: null,

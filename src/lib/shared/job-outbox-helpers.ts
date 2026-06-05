@@ -7,6 +7,7 @@ import {
   type GenerateResponseOriginLane,
   type GenerateResponsePayload,
   type PublishResponsePayload,
+  type SendNotificationPayload,
 } from './worker-types';
 
 type TxClient = postgres.TransactionSql;
@@ -37,6 +38,13 @@ export interface EnqueueGenerateResponseInput {
 }
 
 export interface EnqueuePublishResponseInput {
+  outboxId?: string;
+  responseId: string;
+  businessId: string;
+  correlationId?: string;
+}
+
+export interface EnqueueSendNotificationInput {
   outboxId?: string;
   responseId: string;
   businessId: string;
@@ -179,6 +187,39 @@ export async function enqueuePublishResponse(
     WHERE topic = 'publish_response'
       AND status IN ('pending', 'dispatching', 'dispatched')
     DO NOTHING
+  `;
+  return outboxId;
+}
+
+/**
+ * Enqueues the owner approval notification. Plain INSERT (no in-flight guard):
+ * unlike publish, notification has no posted-state idempotency to protect, and
+ * each call site already gates on a state-guarded transition before reaching
+ * here (response persistence, downgrade, or admin owner-release).
+ */
+export async function enqueueSendNotification(
+  tx: TxClient,
+  input: EnqueueSendNotificationInput,
+): Promise<string> {
+  const outboxId = input.outboxId ?? uuidv7();
+  const payload: SendNotificationPayload = {
+    response_id: input.responseId,
+    business_id: input.businessId,
+  };
+  if (input.correlationId !== undefined) {
+    payload.correlation_id = input.correlationId;
+  }
+
+  await tx`
+    INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+    VALUES (
+      ${outboxId},
+      ${QUEUE_NAMES.SEND_NOTIFICATION},
+      ${AGGREGATE_TYPE_RESPONSE},
+      ${input.responseId},
+      ${jsonb(payload)},
+      ${JOB_OUTBOX_STATUS_PENDING}
+    )
   `;
   return outboxId;
 }

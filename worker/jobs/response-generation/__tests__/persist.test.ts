@@ -268,6 +268,19 @@ describe('persistResponseAndNotify auto approval runtime branch', () => {
     expect(JSON.stringify(logged)).not.toContain('hash-1');
   });
 
+  it('does not log a fallback for non-candidate drafts even while the runtime flag is on', async () => {
+    // A bad-lane draft was never an auto candidate; with AUTO_APPROVAL_ENABLED
+    // on, the log must stay scoped to live-ingest/policy-relevant drafts (spec
+    // §15) rather than firing on every generated draft.
+    const logger = { log: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    queuePersistRows();
+
+    await persistResponseAndNotify(baseInput({ originLane: 'regenerate', logger } as never));
+
+    expect(logger.log).not.toHaveBeenCalled();
+    assertManualNotificationFallback();
+  });
+
   it.each(manualFallbackCases)('persists manual notification fallback for %s', async (_label, scenario) => {
     if (scenario.env?.OPENAI_MODERATION_ENABLED) {
       process.env.OPENAI_MODERATION_ENABLED = scenario.env.OPENAI_MODERATION_ENABLED;
