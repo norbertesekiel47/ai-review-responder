@@ -203,4 +203,21 @@ describe('/api/settings/auto-approval', () => {
       blockReasons: ['auto_approval_disabled'],
     });
   });
+
+  it('PATCH rejects an unknown operation with 400 before calling the module', async () => {
+    const res = await PATCH(makeRequest('PATCH', { operation: 'nuke_everything' }));
+
+    expect(res.status).toBe(400);
+    expect(mockPatchAutoApprovalSettings).not.toHaveBeenCalled();
+  });
+
+  it('PATCH rejects an out-of-range threshold with 400 before calling the module', async () => {
+    const res = await PATCH(makeRequest('PATCH', {
+      operation: 'set_account_default',
+      threshold: 9,
+    }));
+
+    expect(res.status).toBe(400);
+    expect(mockPatchAutoApprovalSettings).not.toHaveBeenCalled();
+  });
 });

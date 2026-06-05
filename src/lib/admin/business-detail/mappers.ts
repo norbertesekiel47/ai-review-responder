@@ -166,6 +166,9 @@ function buildAutoApprovalDiagnostics({
       })
     : { ok: false as const, status: 403 as const, error: 'no_business' };
 
+  // Admin diagnostics are observational, not a settings gate, so readiness is derived
+  // without an `impersonated` input — it reflects environment/account state, not the
+  // admin's view-as session (which is always blocked from expanding by the owner route).
   const readiness = buildAutoApprovalReadiness({
     runtimeEnabled,
     providerModerationEnabled: moderationEnabled,

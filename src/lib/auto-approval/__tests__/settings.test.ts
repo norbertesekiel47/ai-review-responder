@@ -63,7 +63,11 @@ const {
       return override ? [policyRow(override, accountId, locationId)] : [];
     }
 
-    if (text.includes('FROM businesses b') && text.includes('LEFT JOIN auto_approval_policies p')) {
+    if (
+      text.includes('FROM businesses b') &&
+      text.includes('LEFT JOIN auto_approval_policies p') &&
+      !text.includes('COUNT(*)')
+    ) {
       return dbState.locations
         .filter((location) => location.archivedAt === null)
         .map((location) => {
@@ -324,5 +328,132 @@ describe('auto-approval settings service', () => {
         confirmationLevel: 'standard',
       }),
     ).rejects.toMatchObject({ confirmationLevel: 'all_ratings' });
+  });
+
+  it('rejects deleting a manual override on an archived location when it would expand', async () => {
+    dbState.accountDefault = { id: 'policy-default', threshold: 4 };
+    dbState.locations = [
+      { id: LOCATION_1, name: 'Old Cafe', displayLabel: 'Old', archivedAt: new Date('2026-01-01T00:00:00Z') },
+    ];
+    dbState.overrides.set(LOCATION_1, { id: 'policy-main-manual', threshold: null });
+    const { AutoApprovalSettingsError, patchAutoApprovalSettings } = await import('../settings');
+
+    let caught: unknown;
+    try {
+      await patchAutoApprovalSettings({
+        accountId: ACCOUNT_ID,
+        actorUserId: ACTOR_USER_ID,
+        impersonated: false,
+        operation: 'delete_location_override',
+        locationId: LOCATION_1,
+        confirmationLevel: 'all_ratings',
+      });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(AutoApprovalSettingsError);
+    expect(caught).toMatchObject({ code: 'location_inactive', status: 409 });
+  });
+
+  it('allows deleting an override on an archived location when it does not expand', async () => {
+    dbState.accountDefault = null;
+    dbState.locations = [
+      { id: LOCATION_1, name: 'Old Cafe', displayLabel: 'Old', archivedAt: new Date('2026-01-01T00:00:00Z') },
+    ];
+    dbState.overrides.set(LOCATION_1, { id: 'policy-main', threshold: 4 });
+    const { patchAutoApprovalSettings } = await import('../settings');
+
+    await expect(
+      patchAutoApprovalSettings({
+        accountId: ACCOUNT_ID,
+        actorUserId: ACTOR_USER_ID,
+        impersonated: false,
+        operation: 'delete_location_override',
+        locationId: LOCATION_1,
+      }),
+    ).resolves.toBeDefined();
+    expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          operation: 'delete_location_override',
+          expansion: false,
+        }),
+      }),
+      mockSql,
+    );
+  });
+
+  it('rejects a locationId that does not belong to the session account', async () => {
+    const FOREIGN_LOCATION = 'cccccccc-0000-0000-0000-000000000099';
+    const { AutoApprovalSettingsError, patchAutoApprovalSettings } = await import('../settings');
+
+    let caught: unknown;
+    try {
+      await patchAutoApprovalSettings({
+        accountId: ACCOUNT_ID,
+        actorUserId: ACTOR_USER_ID,
+        impersonated: false,
+        operation: 'set_location_manual',
+        locationId: FOREIGN_LOCATION,
+      });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(AutoApprovalSettingsError);
+    expect(caught).toMatchObject({ code: 'location_not_found', status: 404 });
+  });
+
+  it('allows deleting a location override that contracts exposure without confirmation', async () => {
+    dbState.accountDefault = null;
+    dbState.overrides.set(LOCATION_1, { id: 'policy-main', threshold: 4 });
+    const { patchAutoApprovalSettings } = await import('../settings');
+
+    const result = await patchAutoApprovalSettings({
+      accountId: ACCOUNT_ID,
+      actorUserId: ACTOR_USER_ID,
+      impersonated: false,
+      operation: 'delete_location_override',
+      locationId: LOCATION_1,
+    });
+
+    const location = result.locations.find((entry) => entry.locationId === LOCATION_1);
+    expect(location?.override).toEqual({ policyId: null, threshold: null, exists: false });
+    expect(location?.effective.threshold).toBeNull();
+    expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          operation: 'delete_location_override',
+          expansion: false,
+        }),
+      }),
+      mockSql,
+    );
+  });
+
+  it('records affectedActiveLocationCount across inheriting active locations', async () => {
+    const { patchAutoApprovalSettings } = await import('../settings');
+
+    await patchAutoApprovalSettings({
+      accountId: ACCOUNT_ID,
+      actorUserId: ACTOR_USER_ID,
+      impersonated: false,
+      operation: 'set_account_default',
+      threshold: 4,
+      confirmationLevel: 'standard',
+    });
+
+    expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          operation: 'set_account_default',
+          expansion: true,
+          affectedActiveLocationCount: 2,
+          futureDefaultApplies: true,
+        }),
+      }),
+      mockSql,
+    );
   });
 });

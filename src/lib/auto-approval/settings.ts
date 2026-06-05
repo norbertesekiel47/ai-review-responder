@@ -74,6 +74,7 @@ interface MutationBeforeAfter {
   affectedActiveLocationCount: number;
   scope: 'account_default' | 'location_override';
   locationId: string | null;
+  locationArchived: boolean;
 }
 
 export class AutoApprovalConfirmationRequiredError extends Error {
@@ -162,6 +163,15 @@ async function buildAuditContext(
   after: MutationBeforeAfter,
 ): Promise<PolicyChangeAuditContext> {
   const expansion = isThresholdExpansion(before.beforeEffective.threshold, after.afterEffective.threshold);
+
+  // Spec §6: expanding a location's effective policy requires an active location.
+  // captureBefore already rejects set_location_override on archived locations; this
+  // additionally blocks delete_location_override that would expand an archived location
+  // into an auto account default (which would auto-post the moment it is reactivated).
+  if (expansion && before.scope === 'location_override' && before.locationArchived) {
+    throw new AutoApprovalSettingsError('location_inactive', 409);
+  }
+
   const requiredConfirmationLevel = expansion ? requiredConfirmation(after.afterEffective.threshold) : null;
 
   if (requiredConfirmationLevel && !confirmationSatisfies(input.confirmationLevel, requiredConfirmationLevel)) {
@@ -252,6 +262,7 @@ async function captureBefore(
       affectedActiveLocationCount: await countActiveInheritingLocations(db, input.accountId),
       scope: 'account_default',
       locationId: null,
+      locationArchived: false,
     };
   }
 
@@ -275,6 +286,7 @@ async function captureBefore(
     affectedActiveLocationCount: target.archived_at === null ? 1 : 0,
     scope: 'location_override',
     locationId: input.locationId,
+    locationArchived: target.archived_at !== null,
   };
 }
 
