@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useReducer, useRef } from 'react';
+import { useEffect, useMemo, useReducer, useRef } from 'react';
 import { SettingsShell } from '@/components/dashboard/settings/SettingsShell';
 import { SettingsModal } from '@/components/dashboard/settings/SettingsModal';
 import { Icon } from '@/components/dashboard/shell/Icon';
@@ -89,6 +89,12 @@ export function AutoApprovalClient({
     pendingConfirmation: null,
   });
   const flashTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (flashTimeoutRef.current) clearTimeout(flashTimeoutRef.current);
+    };
+  }, []);
 
   const blockCopy = useMemo(
     () => state.data.readiness.blockReasons.map((reason) => BLOCK_REASON_COPY[reason]),

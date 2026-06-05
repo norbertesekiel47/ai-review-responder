@@ -102,7 +102,10 @@ const {
       return [{ count }];
     }
 
-    if (text.includes('INSERT INTO auto_approval_policies') && text.includes('location_id') && text.includes('NULL')) {
+    if (
+      text.includes('INSERT INTO auto_approval_policies') &&
+      text.includes('ON CONFLICT (account_id) WHERE location_id IS NULL')
+    ) {
       dbState.accountDefault = {
         id: dbState.accountDefault?.id ?? 'policy-account-default',
         threshold: values[2] as AutoApprovalThreshold | null,
@@ -110,7 +113,10 @@ const {
       return [];
     }
 
-    if (text.includes('INSERT INTO auto_approval_policies') && text.includes('ON CONFLICT (account_id, location_id)')) {
+    if (
+      text.includes('INSERT INTO auto_approval_policies') &&
+      text.includes('ON CONFLICT (account_id, location_id) WHERE location_id IS NOT NULL')
+    ) {
       const locationId = values[1] as string;
       dbState.overrides.set(locationId, {
         id: dbState.overrides.get(locationId)?.id ?? `policy-${locationId}`,
