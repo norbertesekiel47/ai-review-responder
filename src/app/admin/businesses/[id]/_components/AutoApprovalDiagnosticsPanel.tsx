@@ -1,8 +1,9 @@
 'use client';
 
+import type { AutoApprovalReadinessBlockReason } from '@/lib/auto-approval/types';
 import type { AutoApprovalDiagnostics } from '../types';
 
-const BLOCK_REASON_LABELS: Record<string, string> = {
+const BLOCK_REASON_LABELS: Record<AutoApprovalReadinessBlockReason, string> = {
   auto_approval_disabled: 'Runtime flag off',
   provider_moderation_disabled: 'Moderation off',
   provider_moderation_not_validated: 'Moderation not validated',
@@ -62,9 +63,7 @@ function DiagnosticsHeader({ canExpand }: { canExpand: boolean }) {
 }
 
 function DiagnosticsSummary({ diagnostics }: { diagnostics: AutoApprovalDiagnostics }) {
-  const blockReasons = diagnostics.readiness.blockReasons.length > 0
-    ? diagnostics.readiness.blockReasons
-    : ['Ready for expansions'];
+  const { blockReasons } = diagnostics.readiness;
 
   return (
     <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -84,14 +83,20 @@ function DiagnosticsSummary({ diagnostics }: { diagnostics: AutoApprovalDiagnost
           Readiness
         </div>
         <div className="mt-2 flex flex-wrap gap-2">
-          {blockReasons.map((reason) => (
-            <span
-              key={reason}
-              className="rounded bg-white px-2 py-0.5 text-xs font-medium text-gray-700 ring-1 ring-gray-200"
-            >
-              {BLOCK_REASON_LABELS[reason] ?? reason}
+          {blockReasons.length === 0 ? (
+            <span className="rounded bg-white px-2 py-0.5 text-xs font-medium text-gray-700 ring-1 ring-gray-200">
+              Ready for expansions
             </span>
-          ))}
+          ) : (
+            blockReasons.map((reason) => (
+              <span
+                key={reason}
+                className="rounded bg-white px-2 py-0.5 text-xs font-medium text-gray-700 ring-1 ring-gray-200"
+              >
+                {BLOCK_REASON_LABELS[reason]}
+              </span>
+            ))
+          )}
         </div>
       </div>
     </div>

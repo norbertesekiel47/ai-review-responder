@@ -1,6 +1,7 @@
 'use client';
 
 import { uniqueSiblingKey } from '@/lib/shared/unique-sibling-key';
+import { AutoApprovedBadge } from '@/components/dashboard/reviews/AutoApprovedBadge';
 import { Icon } from '@/components/dashboard/shell/Icon';
 import type { ApprovalMethod } from '@/lib/auto-approval/types';
 
@@ -178,11 +179,7 @@ function Provenance({ row, isImported }: { row: PastReplyRow; isImported: boolea
           </>
         )}
       </span>
-      {row.approval_method === 'auto_policy' && (
-        <span className="pr-prov-badge pr-prov-auto">
-          <Icon name="shield" size={10} /> Auto-approved
-        </span>
-      )}
+      <AutoApprovedBadge method={row.approval_method} variant="provenance" />
       {row.posted_at && <span>· {fmt(row.posted_at)}</span>}
     </div>
   );

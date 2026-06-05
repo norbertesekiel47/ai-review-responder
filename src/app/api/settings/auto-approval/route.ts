@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { z } from 'zod';
 import { IMPERSONATION_COOKIE_NAME } from '@/lib/admin/impersonation/cookie';
 import { jsonResponse, requireOwnerWithAccount, withSameOrigin } from '@/lib/auth/route-helpers';
 import {
@@ -9,55 +8,15 @@ import {
   getAutoApprovalSettings,
   patchAutoApprovalSettings,
 } from '@/lib/auto-approval/settings';
+import { AutoApprovalPatchSchema, type AutoApprovalPatchRequest } from '@/lib/auto-approval/types';
 
 export const dynamic = 'force-dynamic';
-
-const ConfirmationLevelSchema = z.enum(['standard', 'all_ratings']);
-const ThresholdSchema = z.union([
-  z.literal(1),
-  z.literal(2),
-  z.literal(3),
-  z.literal(4),
-  z.literal(5),
-]);
-
-const AutoApprovalPatchSchema = z.discriminatedUnion('operation', [
-  z.object({
-    operation: z.literal('set_account_default'),
-    threshold: ThresholdSchema,
-    confirmationLevel: ConfirmationLevelSchema.optional(),
-  }).strict(),
-  z.object({
-    operation: z.literal('set_account_manual'),
-    confirmationLevel: ConfirmationLevelSchema.optional(),
-  }).strict(),
-  z.object({
-    operation: z.literal('clear_account_default'),
-    confirmationLevel: ConfirmationLevelSchema.optional(),
-  }).strict(),
-  z.object({
-    operation: z.literal('set_location_override'),
-    locationId: z.uuid(),
-    threshold: ThresholdSchema,
-    confirmationLevel: ConfirmationLevelSchema.optional(),
-  }).strict(),
-  z.object({
-    operation: z.literal('set_location_manual'),
-    locationId: z.uuid(),
-    confirmationLevel: ConfirmationLevelSchema.optional(),
-  }).strict(),
-  z.object({
-    operation: z.literal('delete_location_override'),
-    locationId: z.uuid(),
-    confirmationLevel: ConfirmationLevelSchema.optional(),
-  }).strict(),
-]);
 
 type OwnerWithAccountResult = Awaited<ReturnType<typeof requireOwnerWithAccount>>;
 type OwnerWithAccount = Extract<OwnerWithAccountResult, { ok: true }>;
 type SettingsOwnerResult = OwnerWithAccount | { ok: false; response: NextResponse };
 type ParsedPatchBody =
-  | { ok: true; body: z.infer<typeof AutoApprovalPatchSchema> }
+  | { ok: true; body: AutoApprovalPatchRequest }
   | { ok: false; response: NextResponse };
 
 export async function GET(request: NextRequest): Promise<NextResponse> {

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, type Ref } from 'react';
+import { AutoApprovedBadge } from '@/components/dashboard/reviews/AutoApprovedBadge';
 import { ReviewActions } from '@/components/dashboard/reviews/ReviewActions';
 import { Icon } from '@/components/dashboard/shell/Icon';
 import type { ApprovalMethod } from '@/lib/auto-approval/types';
@@ -148,7 +149,7 @@ function ReviewFeedHeader({
         </span>
       )}
       <span className={`badge ${badge.cls}`}>{badge.label}</span>
-      {r.approvalMethod === 'auto_policy' && <span className="badge badge-auto">Auto</span>}
+      <AutoApprovedBadge method={r.approvalMethod} variant="compact" />
       <span className="review-meta-time">{formatRelative(r.reviewDate)}</span>
     </div>
   );

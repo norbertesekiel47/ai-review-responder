@@ -245,7 +245,7 @@
 }
 .pr-prov-imported { background: #FEF3C7; color: #92400E; }
 .pr-prov-repworth { background: var(--rw-blue-100); color: var(--rw-blue-800); }
-.pr-prov-auto { background: #EDE9FE; color: #5B21B6; }
+.pr-prov-auto { background: var(--rw-auto-bg); color: var(--rw-auto-fg); }
 .pr-prov-recovery { background: rgba(242, 195, 185, 0.15); border: 1px solid #F2C3B9; color: #7a3e2b; }
 
 /* Empty state */

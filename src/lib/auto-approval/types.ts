@@ -1,6 +1,14 @@
-export type AutoApprovalThreshold = 1 | 2 | 3 | 4 | 5;
+import { z } from 'zod';
 
-const AUTO_APPROVAL_THRESHOLDS = [1, 2, 3, 4, 5] as const;
+export const AutoApprovalThresholdSchema = z.union([
+  z.literal(1),
+  z.literal(2),
+  z.literal(3),
+  z.literal(4),
+  z.literal(5),
+]);
+
+export type AutoApprovalThreshold = z.infer<typeof AutoApprovalThresholdSchema>;
 
 export const APPROVAL_METHOD = {
   OWNER: 'owner',
@@ -64,30 +72,47 @@ export interface AutoApprovalSettingsResponse {
   readiness: AutoApprovalReadiness;
 }
 
-export type AutoApprovalConfirmationLevel = 'standard' | 'all_ratings';
+export const AutoApprovalConfirmationLevelSchema = z.enum(['standard', 'all_ratings']);
 
-export type AutoApprovalPatchRequest =
-  | {
-      operation: 'set_account_default';
-      threshold: AutoApprovalThreshold;
-      confirmationLevel?: AutoApprovalConfirmationLevel;
-    }
-  | {
-      operation: 'set_account_manual' | 'clear_account_default';
-      confirmationLevel?: AutoApprovalConfirmationLevel;
-    }
-  | {
-      operation: 'set_location_override';
-      locationId: string;
-      threshold: AutoApprovalThreshold;
-      confirmationLevel?: AutoApprovalConfirmationLevel;
-    }
-  | {
-      operation: 'set_location_manual' | 'delete_location_override';
-      locationId: string;
-      confirmationLevel?: AutoApprovalConfirmationLevel;
-    };
+export type AutoApprovalConfirmationLevel = z.infer<typeof AutoApprovalConfirmationLevelSchema>;
+
+// Single source of truth for the PATCH /api/settings/auto-approval contract.
+// The route validates against this schema; AutoApprovalPatchRequest is inferred
+// from it, so adding an operation can't drift the runtime check from the type.
+export const AutoApprovalPatchSchema = z.discriminatedUnion('operation', [
+  z.object({
+    operation: z.literal('set_account_default'),
+    threshold: AutoApprovalThresholdSchema,
+    confirmationLevel: AutoApprovalConfirmationLevelSchema.optional(),
+  }).strict(),
+  z.object({
+    operation: z.literal('set_account_manual'),
+    confirmationLevel: AutoApprovalConfirmationLevelSchema.optional(),
+  }).strict(),
+  z.object({
+    operation: z.literal('clear_account_default'),
+    confirmationLevel: AutoApprovalConfirmationLevelSchema.optional(),
+  }).strict(),
+  z.object({
+    operation: z.literal('set_location_override'),
+    locationId: z.uuid(),
+    threshold: AutoApprovalThresholdSchema,
+    confirmationLevel: AutoApprovalConfirmationLevelSchema.optional(),
+  }).strict(),
+  z.object({
+    operation: z.literal('set_location_manual'),
+    locationId: z.uuid(),
+    confirmationLevel: AutoApprovalConfirmationLevelSchema.optional(),
+  }).strict(),
+  z.object({
+    operation: z.literal('delete_location_override'),
+    locationId: z.uuid(),
+    confirmationLevel: AutoApprovalConfirmationLevelSchema.optional(),
+  }).strict(),
+]);
+
+export type AutoApprovalPatchRequest = z.infer<typeof AutoApprovalPatchSchema>;
 
 export function isAutoApprovalThreshold(value: unknown): value is AutoApprovalThreshold {
-  return typeof value === 'number' && (AUTO_APPROVAL_THRESHOLDS as readonly number[]).includes(value);
+  return AutoApprovalThresholdSchema.safeParse(value).success;
 }
