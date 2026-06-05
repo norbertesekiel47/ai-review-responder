@@ -15,7 +15,7 @@ Jump to the dated entries by subsystem (search the anchors below):
 - **Billing / multi-location** — stored-quota vs TIER_CONFIG, base price not grandfathered, channel account-scope desync
 - **Analytics / PostHog** — unconfigured no-op retry budget, durable vs intent events, RLS on new tables
 - **Moderation / logging** — fail-open moderation, logger-never-throws (incl. AsyncLocalStorage binding for correlation IDs)
-- **CI / tooling** — nested-worktree poisoning, MOCK_EXTERNAL_APIS=false in CI, tenant-scope allowlist drift, comment-backtick extractor false-positive, allowlist file-move orphaning, worktree test-failure vs real regression (verify on the same ref), nested-worktree Edit/Write path leak + concurrent branch/stash churn (explicit `git add`, /tmp patch, re-verify HEAD before commit)
+- **CI / tooling** — nested-worktree poisoning, MOCK_EXTERNAL_APIS=false in CI, tenant-scope allowlist drift, comment-backtick extractor false-positive, allowlist file-move orphaning, worktree test-failure vs real regression (verify on the same ref), nested-worktree Edit/Write path leak + concurrent branch/stash churn (explicit `git add`, /tmp patch, re-verify HEAD before commit), Railway RAILPACK build has no `.git` so git-touching `prepare`/`postinstall` scripts must be `|| true`
 - **Testing** — vi.hoisted for shared mocks, NextRequest vs Request, relative imports under tsx, compat re-export must shield all consumers (mock-contract)
 - **Frontend / CSS / brand** — iOS Safari rounded-island clip is `overflow:hidden`+`border-radius`+retained `transform` (not a sibling clip), reproduce an audit's CSS cause before trusting it; flag-driven copy swaps on dead-end features mislead; an admin "act on stuck items" panel needs a real outbox-backed route (2026-05-29 launch readiness)
 
@@ -1235,3 +1235,22 @@ consumers (worker dispatch, admin enrollment, factory, boot assertion) were left
 untouched. **Correct approach:** a feature flag should gate real behavior; if both
 branches dead-end at the same place, delete the branch and the plumbing rather than
 dressing it up.
+
+## 2026-06-04
+
+### Railway RAILPACK builds have no `.git` → a git-touching `prepare` script breaks the deploy
+A `prepare: "lefthook install"` script (added to install git hooks on `pnpm
+install`) passed local installs, GitHub CI, and Vercel — but **failed the
+Railway worker build**. Railway's RAILPACK builder runs `pnpm install
+--frozen-lockfile --prefer-offline` in a build context with **no `.git`
+directory**, so `lefthook install` aborts with `fatal: not a git repository`
+(exit 128) → `prepare` Failed → `[ELIFECYCLE] Command failed with exit code 1`
+→ `Build Failed`. The previous image keeps running (no live outage), but every
+subsequent Railway deploy is blocked until it's fixed. GitHub CI (`actions/checkout`)
+and Vercel both build from a git checkout, so neither reproduces it — **CI green
+does NOT prove a Railway-safe install.** **Correct approach:** any
+`prepare`/`postinstall` that shells out to git must be deploy-safe —
+`prepare: "lefthook install || true"`. Hook installation is a local-dev
+convenience; never let it abort a production install. To reproduce the failure
+locally, run the installer from a dir with no `.git` (`cd $(mktemp -d) &&
+node_modules/.bin/lefthook install; echo $?` → 1).

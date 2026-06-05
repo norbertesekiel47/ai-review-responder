@@ -28,7 +28,7 @@
     "redis": "tsx scripts/redis.ts",
     "eval:llm": "tsx tests/llm-eval/run.ts",
     "doctor": "npx react-doctor@latest",
-    "prepare": "lefthook install"
+    "prepare": "lefthook install || true"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.100.1",
