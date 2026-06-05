@@ -26,6 +26,7 @@ Pipeline: Zernio webhook ingest → AI draft → moderation → owner notificati
 
 - Repo **`RepWorth/ai-review-responder`**; `main` is protected — **land changes via PR**, direct pushes rejected.
 - CI (`.github/workflows/ci.yml`): `lint` (also runs tenant-scope + analytics-events + static-policy audits), `typecheck`, `test`, `build` on every PR + push to `main`. `MOCK_EXTERNAL_APIS=false` in CI — `true` short-circuits Zernio transport and breaks real-path tests. Third-party actions pinned to commit SHAs.
+- **Local pre-push hook (`lefthook.yml`)** runs the cheap CI subset before code leaves the machine — lint, typecheck, the four audits, and affected tests (`vitest --changed`), in parallel. Same commands as CI; CI stays the full-suite gate. Installed via the `prepare` script on `pnpm install`. Escape hatch for WIP: `git push --no-verify`.
 - **Worktrees are footguns here.** Validating CI from a nested worktree poisons lint/test (parent `node_modules`/eslintrc leakage) — push and read the runner instead. And Write/Edit given a parent-absolute path silently edits `main`'s checkout, not the worktree — always include the `.claude/worktrees/<name>/` segment in paths.
 
 ## Environments & branches
