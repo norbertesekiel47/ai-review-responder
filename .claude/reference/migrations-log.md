@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **055** — next migration is **056**
+Current head: **056** — next migration is **057**
 All tables use UUIDv7 (time-ordered primary keys).
 
 ## Migration Log
@@ -380,6 +380,24 @@ All tables use UUIDv7 (time-ordered primary keys).
   rows NULL unless approval audit evidence exists. Extends
   `approval_audit_log.auth_method` to include `auto_policy`.
 
+- **056** — Owner offboarding lifecycle schema (PR1 Task 1.1 only; no routes,
+  workers, feature flag, or purge logic). Creates service-only deny-all RLS
+  tables `account_offboardings` and `account_offboarding_tokens`.
+  `account_offboardings` uses app-generated UUIDv7 IDs, an account FK, v1
+  `mode` (`cancel_only` / `delete_data`), `system_origin='owner'`, the approved
+  8-status machine, failed-step/terminal consistency checks, lifecycle stamps,
+  snapshot fields (`stripe_*`, Zernio ids, location ids, auth user id), per-step
+  outcomes, retry/error fields, transient recipient field, and
+  `provider_dispositions JSONB NOT NULL DEFAULT '[]'::jsonb` for later admin
+  provider-disposition overrides. Reason-code storage is deferred until the
+  confirm route defines the canonical predefined code set. Adds the active-row
+  partial unique index `(account_id) WHERE terminal_at IS NULL`, claim indexes for
+  `purge_after WHERE status = 'purge_scheduled'` and
+  `access_ends_at WHERE status = 'scheduled'`, plus lookup indexes on
+  `account_id` and non-null `stripe_subscription_id`. `account_offboarding_tokens`
+  stores only SHA-256 hex `token_hash` values for `token_type='keep_my_data'`,
+  expiry/consume/revoke stamps, and audit metadata; no raw token column exists.
+
 ## Key Tables Reference
 
 | Table | Purpose |
@@ -408,6 +426,8 @@ All tables use UUIDv7 (time-ordered primary keys).
 | `zernio_backfill_runs` | First-connect backfill state per business |
 | `accounts` | Billing parent / org. Owns subscription state, Stripe IDs, location quota. One per owner. |
 | `account_audit_log` | Append-only account events: location create / archive / promote / tier-change / CSV import / `subscription_status_changed`. Generic metadata cols (`entity_type`, `entity_id`, `ip`, `user_agent`, `request_id`) added in 043. Write via `src/lib/audit/log.ts` (`writeAccountAuditLog`), never raw INSERT. |
+| `account_offboardings` | Service-only owner offboarding lifecycle rows. One active non-terminal row per account; terminal outcomes are `purged`, `churned`, or `reactivated`. |
+| `account_offboarding_tokens` | Service-only keep-my-data token metadata for delete-data offboarding. Stores SHA-256 token hashes only; raw tokens are never persisted. |
 | `owner_leads` | Marketing capture from contact + demo-request endpoints (independent of authenticated paths). |
 
 ## Response Status Values

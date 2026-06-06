@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   assertAdminNotificationEmail,
-  assertAutoApprovalOptionalBooleansEnv,
   assertChannelsSmsEnv,
   assertProductionMockModeEnv,
+  assertServerOnlyFeatureOptionalBooleansEnv,
   assertSelfServeSignupEnv,
   assertStripeWorkerEnv,
   assertWorkerStartupEnv,
@@ -72,9 +72,13 @@ describe('assertProductionMockModeEnv', () => {
   });
 });
 
-describe('assertAutoApprovalOptionalBooleansEnv', () => {
+describe('assertServerOnlyFeatureOptionalBooleansEnv', () => {
   const SNAP: Record<string, string | undefined> = {};
-  const KEYS = ['AUTO_APPROVAL_ENABLED', 'AUTO_APPROVAL_PROVIDER_MODERATION_READY'];
+  const KEYS = [
+    'ACCOUNT_OFFBOARDING_ENABLED',
+    'AUTO_APPROVAL_ENABLED',
+    'AUTO_APPROVAL_PROVIDER_MODERATION_READY',
+  ];
 
   beforeEach(() => {
     for (const k of KEYS) { SNAP[k] = process.env[k]; delete process.env[k]; }
@@ -84,20 +88,27 @@ describe('assertAutoApprovalOptionalBooleansEnv', () => {
   });
 
   it('allows both flags to be unset', () => {
-    expect(() => assertAutoApprovalOptionalBooleansEnv()).not.toThrow();
+    expect(() => assertServerOnlyFeatureOptionalBooleansEnv()).not.toThrow();
   });
 
   it('allows exact true and false strings', () => {
+    process.env.ACCOUNT_OFFBOARDING_ENABLED = 'false';
     process.env.AUTO_APPROVAL_ENABLED = 'true';
     process.env.AUTO_APPROVAL_PROVIDER_MODERATION_READY = 'false';
 
-    expect(() => assertAutoApprovalOptionalBooleansEnv()).not.toThrow();
+    expect(() => assertServerOnlyFeatureOptionalBooleansEnv()).not.toThrow();
   });
 
   it('rejects non-boolean values instead of interpreting them loosely', () => {
     process.env.AUTO_APPROVAL_ENABLED = 'TRUE';
 
-    expect(() => assertAutoApprovalOptionalBooleansEnv()).toThrow(/AUTO_APPROVAL_ENABLED/);
+    expect(() => assertServerOnlyFeatureOptionalBooleansEnv()).toThrow(/AUTO_APPROVAL_ENABLED/);
+  });
+
+  it('rejects loose account offboarding flag values', () => {
+    process.env.ACCOUNT_OFFBOARDING_ENABLED = '1';
+
+    expect(() => assertServerOnlyFeatureOptionalBooleansEnv()).toThrow(/ACCOUNT_OFFBOARDING_ENABLED/);
   });
 });
 
@@ -241,6 +252,7 @@ describe('assertWorkerStartupEnv', () => {
     'NODE_ENV',
     'MOCK_EXTERNAL_APIS',
     'ADMIN_NOTIFICATION_EMAIL',
+    'ACCOUNT_OFFBOARDING_ENABLED',
     'AUTO_APPROVAL_ENABLED',
     'AUTO_APPROVAL_PROVIDER_MODERATION_READY',
     ...STRIPE_WORKER_REQUIRED,
@@ -274,12 +286,12 @@ describe('assertWorkerStartupEnv', () => {
     expect(() => assertWorkerStartupEnv()).not.toThrow();
   });
 
-  it('runs optional auto-approval boolean validation', () => {
+  it('runs optional server-only feature boolean validation', () => {
     setEnv('NODE_ENV', 'test');
     process.env.MOCK_EXTERNAL_APIS = 'true';
-    process.env.AUTO_APPROVAL_PROVIDER_MODERATION_READY = 'enabled';
+    process.env.ACCOUNT_OFFBOARDING_ENABLED = 'enabled';
 
-    expect(() => assertWorkerStartupEnv()).toThrow(/AUTO_APPROVAL_PROVIDER_MODERATION_READY/);
+    expect(() => assertWorkerStartupEnv()).toThrow(/ACCOUNT_OFFBOARDING_ENABLED/);
   });
 });
 

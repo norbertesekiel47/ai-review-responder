@@ -149,6 +149,51 @@ describe('tenant-scope-audit', () => {
     ).toEqual([]);
   });
 
+  it('passes offboarding tokens joined through a scoped offboarding row', () => {
+    expect(
+      auditSqlText(
+        'src/example.ts',
+        `
+          SELECT t.*
+          FROM account_offboarding_tokens t
+          JOIN account_offboardings o ON o.id = t.account_offboarding_id
+          WHERE o.account_id = \${accountId}
+        `,
+      ),
+    ).toEqual([]);
+  });
+
+  it('passes offboarding tokens joined through an account-scoped offboarding row', () => {
+    expect(
+      auditSqlText(
+        'src/example.ts',
+        `
+          SELECT t.*
+          FROM account_offboarding_tokens t
+          JOIN account_offboardings o ON o.id = t.account_offboarding_id
+          JOIN accounts a ON a.id = o.account_id
+          WHERE a.id = \${accountId}
+        `,
+      ),
+    ).toEqual([]);
+  });
+
+  it('fails offboarding tokens joined to an unscoped offboarding row', () => {
+    expect(
+      auditSqlText(
+        'src/example.ts',
+        `
+          SELECT t.*
+          FROM account_offboarding_tokens t
+          JOIN account_offboardings o ON o.id = t.account_offboarding_id
+        `,
+      ),
+    ).toEqual([
+      ...finding('src/example.ts', 'account_offboardings'),
+      ...finding('src/example.ts', 'account_offboarding_tokens'),
+    ]);
+  });
+
   it('fails unscoped tenant table query', () => {
     expect(auditSqlText('src/example.ts', 'SELECT * FROM reviews')).toEqual(finding('src/example.ts', 'reviews'));
   });

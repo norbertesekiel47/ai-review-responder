@@ -25,6 +25,8 @@ Run `pnpm ci:rls-audit` to verify the required tables below still have `relrowse
 | `ranking_snapshots` | `business_id` | Ranking history is location-scoped by keyword and snapshot date. |
 | `approval_audit_log` | `account_id` and `business_id` | Approval forensics are denormalized with account and location scope for owner/admin evidence queries. |
 | `account_audit_log` | `account_id` | Account-level audit entries are scoped to the billing parent. |
+| `account_offboardings` | `account_id` | Owner offboarding lifecycle rows are account-scoped and service-only. RLS is deny-all with no authenticated owner policies; routes and workers must enforce session/account scope in application code. |
+| `account_offboarding_tokens` | `account_offboarding_id` via `account_offboardings.account_id` | Keep-my-data token metadata inherits account scope through its offboarding row. Raw tokens are never stored; service-role routes validate the hashed token and lifecycle state. |
 | `zernio_connections` | `business_id` | Zernio mappings are per location; owner reads join through the owning business account. |
 | `zernio_finalize_incidents` | `business_id` | Finalize-unknown incident rows inherit tenant scope through the affected location. |
 | `zernio_backfill_runs` | `business_id` | Backfill summary rows inherit tenant scope through the connected location. |

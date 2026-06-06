@@ -70,8 +70,9 @@ Model offboarding separately.
   (scrubbed). `teardown_completed_at` is stamped only when all required steps are
   `success`/`not_applicable`; never optimistically.
 - **Transient:** `recipient_email` (stored only while lifecycle emails are
-  pending; nulled at `terminal_at`), `feedback_reason_code` (predefined codes
-  only — no free-text, to avoid a PII-scrub surface).
+  pending; nulled at `terminal_at`). `feedback_reason_code` is deferred until
+  the confirm route defines the canonical predefined code set; v1 still forbids
+  free-text feedback to avoid a PII-scrub surface.
 - **Indexes:** `UNIQUE (account_id) WHERE terminal_at IS NULL` (one active
   offboarding per account); partial index on `purge_after WHERE
   status='purge_scheduled'`; partial index on `access_ends_at WHERE

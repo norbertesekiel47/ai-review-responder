@@ -17,7 +17,8 @@ const STRIPE_WORKER_REQUIRED_ENV = [
   'STRIPE_PRICE_FOUNDERS_OVERAGE',
 ];
 
-const AUTO_APPROVAL_OPTIONAL_BOOLEAN_ENV = [
+const SERVER_ONLY_FEATURE_OPTIONAL_BOOLEAN_ENV = [
+  'ACCOUNT_OFFBOARDING_ENABLED',
   'AUTO_APPROVAL_ENABLED',
   'AUTO_APPROVAL_PROVIDER_MODERATION_READY',
 ] as const;
@@ -39,11 +40,11 @@ export function assertProductionMockModeEnv(): void {
   }
 }
 
-export function assertAutoApprovalOptionalBooleansEnv(): void {
-  const invalid = invalidOptionalBooleanEnv(AUTO_APPROVAL_OPTIONAL_BOOLEAN_ENV);
+export function assertServerOnlyFeatureOptionalBooleansEnv(): void {
+  const invalid = invalidOptionalBooleanEnv(SERVER_ONLY_FEATURE_OPTIONAL_BOOLEAN_ENV);
   if (invalid.length > 0) {
     throw new Error(
-      `[startup] Optional auto-approval boolean env vars must be exactly 'true' or 'false': ${invalid.join(', ')}`,
+      `[startup] Optional server-only feature boolean env vars must be exactly 'true' or 'false': ${invalid.join(', ')}`,
     );
   }
 }
@@ -116,7 +117,7 @@ export function assertWorkerStartupEnv(): void {
   assertProductionMockModeEnv();
   assertStripeWorkerEnv();
   assertAdminNotificationEmail();
-  assertAutoApprovalOptionalBooleansEnv();
+  assertServerOnlyFeatureOptionalBooleansEnv();
 }
 
 /**
