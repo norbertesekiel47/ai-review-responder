@@ -4,9 +4,10 @@ import { render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { SettingsClient } from '../SettingsClient';
 
-const { mockUseSettingsForm, mockUseAccountData } = vi.hoisted(() => ({
+const { mockUseSettingsForm, mockUseAccountData, mockAccountPanel } = vi.hoisted(() => ({
   mockUseSettingsForm: vi.fn(),
   mockUseAccountData: vi.fn(),
+  mockAccountPanel: vi.fn(() => <div>Account panel</div>),
 }));
 
 vi.mock('@/hooks/useSettingsForm', () => ({
@@ -26,7 +27,7 @@ vi.mock('@/components/dashboard/settings/SettingsShell', () => ({
 }));
 
 vi.mock('@/components/dashboard/settings/AccountPanel', () => ({
-  AccountPanel: () => <div>Account panel</div>,
+  AccountPanel: mockAccountPanel,
 }));
 
 vi.mock('@/components/dashboard/settings/GeneralPanel', () => ({
@@ -39,6 +40,7 @@ vi.mock('@/components/dashboard/settings/BrandVoicePanel', () => ({
 
 describe('SettingsClient', () => {
   beforeEach(() => {
+    mockAccountPanel.mockClear();
     mockUseSettingsForm.mockReturnValue({
       fetchError: null,
       data: {},
@@ -66,6 +68,54 @@ describe('SettingsClient', () => {
     expect(screen.getByTestId('settings-shell')).toHaveAttribute('data-active-tab', 'account');
     expect(screen.getByText('Account panel')).toBeInTheDocument();
     expect(screen.queryByText('General panel')).not.toBeInTheDocument();
+  });
+
+  it('passes account data and refetch through to the account panel', () => {
+    const refetch = vi.fn();
+    const accountData = {
+      accountId: 'acct_1',
+      displayName: 'RepWorth',
+      subscription: {
+        tier: 'standard',
+        tierLabel: 'Standard',
+        status: 'active',
+        statusLabel: 'Active',
+        stripeCustomerId: 'cus_test',
+        activatedAt: null,
+        trialEndsAt: null,
+      },
+      quota: {
+        activeLocations: 1,
+        included: 1,
+        paid: 1,
+        overage: 0,
+      },
+      billing: {
+        basePriceCents: 7900,
+        overagePriceCents: 2500,
+        overageUnits: 0,
+        totalCents: 7900,
+      },
+      timeZone: 'America/New_York',
+    };
+    mockUseAccountData.mockReturnValue({
+      data: accountData,
+      loading: false,
+      error: null,
+      refetch,
+    });
+
+    render(<SettingsClient locationsSettingsEnabled multiLocationEnabled={false} />);
+
+    expect(mockAccountPanel).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountData,
+        accountLoading: false,
+        accountError: null,
+        onAccountRefetch: refetch,
+      }),
+      undefined,
+    );
   });
 
   it('prefers account tab when multi-location enabled even if locations settings are disabled', () => {

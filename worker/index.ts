@@ -18,6 +18,8 @@ import { handleIngestFailed } from './jobs/zernio/ingest-failed-hook';
 import { handleZernioBackfill } from './jobs/zernio/ZernioBackfillWorker';
 import type {
   IngestZernioReviewPayload,
+  AccountOffboardingBillingSchedulePayload,
+  AccountOffboardingEmailPayload,
   StripeCheckoutReconcilePayload,
   ZernioInitialBackfillPayload,
 } from '../src/lib/shared/worker-types';
@@ -47,6 +49,8 @@ import { handleDrainOwnerConnect } from './jobs/DrainOwnerConnectWorker';
 import { handleOnboardingDemo } from './jobs/OnboardingDemoWorker';
 import { handleUpdateStripeOverage } from './jobs/billing/UpdateStripeOverageWorker';
 import { handleStripeCheckoutReconcile } from './jobs/billing/StripeCheckoutReconcileWorker';
+import { handleAccountOffboardingBillingSchedule } from './jobs/account-offboarding/BillingScheduleWorker';
+import { handleAccountOffboardingEmail } from './jobs/account-offboarding/AccountOffboardingEmailWorker';
 import { startCleanupAbandonedSignupsPoller, stopCleanupAbandonedSignupsPoller } from './background/pollers/CleanupAbandonedSignupsPoller';
 import { startEmailChannelReconcilePoller, stopEmailChannelReconcilePoller } from './background/pollers/EmailChannelReconcilePoller';
 import { startCancellationGracePoller, stopCancellationGracePoller } from './background/pollers/CancellationGracePoller';
@@ -155,6 +159,18 @@ const stripeCheckoutReconcileWorker = new Worker<StripeCheckoutReconcilePayload>
   workerOpts,
 );
 
+const accountOffboardingBillingScheduleWorker = new Worker<AccountOffboardingBillingSchedulePayload>(
+  QUEUE_NAMES.ACCOUNT_OFFBOARDING_BILLING_SCHEDULE,
+  withJobLogContext(handleAccountOffboardingBillingSchedule),
+  workerOpts,
+);
+
+const accountOffboardingEmailWorker = new Worker<AccountOffboardingEmailPayload>(
+  QUEUE_NAMES.ACCOUNT_OFFBOARDING_EMAIL,
+  withJobLogContext(handleAccountOffboardingEmail),
+  workerOpts,
+);
+
 // Workers map keyed by queue name. Single source of truth for the
 // graceful-shutdown loop, Sentry breadcrumb wiring, and any future
 // observability hook that needs to enumerate workers without keeping a
@@ -178,6 +194,8 @@ const workersByQueue = {
   [QUEUE_NAMES.ONBOARDING_DEMO_RESPONSE]: onboardingDemoWorker,
   [QUEUE_NAMES.UPDATE_STRIPE_OVERAGE]: updateStripeOverageWorker,
   [QUEUE_NAMES.STRIPE_CHECKOUT_RECONCILE]: stripeCheckoutReconcileWorker,
+  [QUEUE_NAMES.ACCOUNT_OFFBOARDING_BILLING_SCHEDULE]: accountOffboardingBillingScheduleWorker,
+  [QUEUE_NAMES.ACCOUNT_OFFBOARDING_EMAIL]: accountOffboardingEmailWorker,
 } as const;
 
 const workers = Object.values(workersByQueue);

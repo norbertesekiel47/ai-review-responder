@@ -96,6 +96,30 @@ function mockAccountRow(status: string, stripeCustomerId: string | null) {
   };
 }
 
+function safePortalConfiguration(id: string) {
+  return {
+    id,
+    active: true,
+    features: {
+      payment_method_update: { enabled: true },
+      invoice_history: { enabled: true },
+      subscription_cancel: { enabled: false },
+    },
+  };
+}
+
+function unsafeCancellationPortalConfiguration(id: string) {
+  return {
+    id,
+    active: true,
+    features: {
+      payment_method_update: { enabled: true },
+      invoice_history: { enabled: true },
+      subscription_cancel: { enabled: true },
+    },
+  };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   mockRequireRole.mockReset();
@@ -107,7 +131,7 @@ beforeEach(() => {
 
   // Default: existing active portal configuration
   mockConfigList.mockResolvedValue({
-    data: [{ id: 'bpc_test_existing', active: true }],
+    data: [safePortalConfiguration('bpc_test_existing')],
   });
 
   // Default: successful portal session creation
@@ -198,7 +222,29 @@ describe('POST /api/billing/portal', () => {
     );
   });
 
-  it('creates default portal configuration when none exists', async () => {
+  it('does not use an existing portal configuration that enables subscription cancellation', async () => {
+    mockRequireRole.mockResolvedValueOnce(ownerUser());
+    mockSql.mockResolvedValueOnce([mockAccountRow('active', 'cus_test_123')]);
+    mockConfigList.mockResolvedValueOnce({
+      data: [
+        unsafeCancellationPortalConfiguration('bpc_cancel_enabled'),
+        safePortalConfiguration('bpc_cancel_disabled'),
+      ],
+    });
+
+    const req = mkRequest();
+    const res = await POST(req);
+
+    expect(res.status).toBe(200);
+    expect(mockConfigCreate).not.toHaveBeenCalled();
+    expect(mockPortalCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        configuration: 'bpc_cancel_disabled',
+      }),
+    );
+  });
+
+  it('creates default portal configuration without self-serve subscription cancellation when none exists', async () => {
     mockRequireRole.mockResolvedValueOnce(ownerUser());
     mockSql.mockResolvedValueOnce([mockAccountRow('active', 'cus_test_123')]);
     mockConfigList.mockResolvedValueOnce({ data: [] });
@@ -214,9 +260,15 @@ describe('POST /api/billing/portal', () => {
           payment_method_update: { enabled: true },
           invoice_history: { enabled: true },
           subscription_cancel: expect.objectContaining({
-            enabled: true,
-            mode: 'at_period_end',
+            enabled: false,
           }),
+        }),
+      }),
+    );
+    expect(mockConfigCreate).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        features: expect.objectContaining({
+          subscription_cancel: expect.objectContaining({ enabled: true }),
         }),
       }),
     );

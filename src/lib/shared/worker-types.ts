@@ -11,6 +11,8 @@
  */
 export interface BasePayload {
   correlation_id?: string;
+  outbox_id?: string;
+  outbox_attempt?: number;
 }
 
 export const GENERATE_RESPONSE_ORIGIN_LANE = {
@@ -166,4 +168,17 @@ export interface ZernioInitialBackfillPayload extends BasePayload {
 export interface StripeCheckoutReconcilePayload extends BasePayload {
   account_id: string;
   checkout_session_id: string;
+}
+
+export interface AccountOffboardingBillingSchedulePayload extends BasePayload {
+  account_offboarding_id: string;
+  account_id: string;
+  idempotency_key_hash: string;
+}
+
+export interface AccountOffboardingEmailPayload extends BasePayload {
+  account_offboarding_id: string;
+  account_id: string;
+  email_type: 'cancel_only_confirmation' | 'cancel_only_reactivation_confirmation';
+  idempotency_key_hash?: string;
 }

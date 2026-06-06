@@ -4,6 +4,12 @@ const PROTECTED_OWNER_ZERNIO_API_PATHS = new Set([
   '/api/zernio/connect/select-location',
 ]);
 
+const PROTECTED_OWNER_ACCOUNT_API_PATHS = new Set([
+  '/api/account/offboarding/confirm',
+  '/api/account/offboarding/reactivate',
+  '/api/account/offboarding/status',
+]);
+
 const PROTECTED_MIXED_ROLE_API_PATHS = new Set([
   '/api/zernio/disconnect',
 ]);
@@ -30,6 +36,7 @@ export function isProtectedOwnerApiRoute(pathname: string): boolean {
   return (
     normalized === '/api/dashboard' || normalized.startsWith('/api/dashboard/') ||
     normalized === '/api/settings' || normalized.startsWith('/api/settings/') ||
+    PROTECTED_OWNER_ACCOUNT_API_PATHS.has(normalized) ||
     normalized === '/api/account' || normalized.startsWith('/api/account/') ||
     normalized === '/api/billing' || normalized.startsWith('/api/billing/') ||
     normalized === '/api/locations' || normalized.startsWith('/api/locations/') ||

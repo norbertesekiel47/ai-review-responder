@@ -1,8 +1,7 @@
 // src/app/api/billing/portal/route.ts
 //
 // POST /api/billing/portal — Creates a Stripe Customer Portal session
-// for self-serve billing management (card updates, invoice viewing,
-// subscription cancellation).
+// for self-serve billing management (card updates and invoice viewing).
 //
 // Validation contract: VAL-BILLING-068, VAL-BILLING-069.
 
@@ -17,6 +16,15 @@ export const dynamic = 'force-dynamic';
 
 const NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
 
+type PortalConfigurationCandidate = {
+  id: string;
+  features?: {
+    payment_method_update?: { enabled?: boolean };
+    invoice_history?: { enabled?: boolean };
+    subscription_cancel?: { enabled?: boolean };
+  };
+};
+
 // ── Handler ─────────────────────────────────────────────────────────────────
 
 /**
@@ -26,7 +34,6 @@ const NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
  * The portal allows:
  *   - Card updates (payment method changes)
  *   - Invoice viewing
- *   - Subscription cancellation
  *
  * Security: requires owner auth; loads Stripe customer from session user's
  * accountId only. Body accountId is ignored (prevents cross-account access).
@@ -35,8 +42,6 @@ const NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
  * items (tier base and location overage) and allows payment method updates.
  * VAL-BILLING-069: If portal session creation fails, returns error with
  * user-facing message instead of navigating to broken URL.
- * VAL-BILLING-070: Cancellation via portal triggers
- * customer.subscription.deleted webhook (handled by existing webhook handler).
  */
 async function createBillingPortal(req: NextRequest): Promise<NextResponse> {
   const owner = await requireOwnerWithAccount(req);
@@ -83,19 +88,19 @@ async function createBillingPortal(req: NextRequest): Promise<NextResponse> {
   try {
     const stripe = getStripe();
 
-    // VAL-BILLING-068: Configure the portal to show both subscription items
-    // (tier base + location overage) and allow payment method updates,
-    // invoice viewing, and cancellation.
+    // VAL-BILLING-068: Configure the portal for payment method updates and
+    // invoice viewing. Owner cancellation stays in RepWorth offboarding so the
+    // lifecycle record, paid-through access, and reactivation path stay durable.
     const configuration = await stripe.billingPortal.configurations.list({
       active: true,
-      limit: 1,
+      limit: 100,
     });
 
     let configurationId: string;
+    const safeExistingConfiguration = configuration.data.find(isCancellationSafePortalConfiguration);
 
-    if (configuration.data.length > 0) {
-      // Use the existing active portal configuration
-      configurationId = configuration.data[0]!.id;
+    if (safeExistingConfiguration) {
+      configurationId = safeExistingConfiguration.id;
     } else {
       // Create a default portal configuration if none exists
       const newConfig = await stripe.billingPortal.configurations.create({
@@ -107,18 +112,7 @@ async function createBillingPortal(req: NextRequest): Promise<NextResponse> {
             enabled: true,
           },
           subscription_cancel: {
-            enabled: true,
-            mode: 'at_period_end',
-            cancellation_reason: {
-              enabled: true,
-              options: [
-                'too_expensive',
-                'missing_features',
-                'switched_service',
-                'unused',
-                'other',
-              ],
-            },
+            enabled: false,
           },
         },
         business_profile: {
@@ -150,3 +144,11 @@ async function createBillingPortal(req: NextRequest): Promise<NextResponse> {
 }
 
 export const POST = withSameOrigin()(createBillingPortal);
+
+function isCancellationSafePortalConfiguration(
+  configuration: PortalConfigurationCandidate,
+): boolean {
+  return configuration.features?.payment_method_update?.enabled === true
+    && configuration.features.invoice_history?.enabled === true
+    && configuration.features.subscription_cancel?.enabled !== true;
+}

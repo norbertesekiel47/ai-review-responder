@@ -28,6 +28,7 @@ export interface AccountSettingsData {
     overageUnits: number;
     totalCents: number;
   };
+  timeZone?: string | null;
 }
 
 export interface UseAccountData {
