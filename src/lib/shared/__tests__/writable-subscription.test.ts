@@ -4,10 +4,11 @@ import {
   assertWritableSubscriptionForBusiness,
   resolveWritableAccountForLocation,
 } from '../writable-subscription';
+import type { ActiveOffboardingProjection } from '@/lib/account-offboarding/gate';
 import { SubscriptionStatus } from '../subscription-status';
 import type { AccountFlagsInput } from '../past-due-recovery';
 
-type AccountRow = {
+type AccountRow = ActiveOffboardingProjection & {
   id: string;
   subscription_status: string;
   past_due_at: Date | string | null;
@@ -39,19 +40,18 @@ function activeAccountRow(overrides: Partial<AccountRow> = {}): AccountRow {
   };
 }
 
-function offboardingRow(overrides: Record<string, unknown> = {}) {
+function projectedOffboarding(overrides: Partial<ActiveOffboardingProjection> = {}): ActiveOffboardingProjection {
   return {
-    id: 'offboarding-1',
-    account_id: 'acc-1',
-    mode: 'delete_data',
-    status: 'pending',
-    failed_step: null,
-    terminal_at: null,
-    access_ends_at: null,
-    teardown_started_at: null,
-    purge_after: null,
-    purge_started_at: null,
-    purge_cancelled_at: null,
+    offboarding_id: 'offboarding-1',
+    offboarding_account_id: 'acc-1',
+    offboarding_mode: 'delete_data',
+    offboarding_status: 'pending',
+    offboarding_failed_step: null,
+    offboarding_access_ends_at: null,
+    offboarding_teardown_started_at: null,
+    offboarding_purge_after: null,
+    offboarding_purge_started_at: null,
+    offboarding_purge_cancelled_at: null,
     ...overrides,
   };
 }
@@ -60,14 +60,12 @@ describe('assertWritableSubscriptionForAccount', () => {
   it('allows cancel-only scheduled offboarding for normal writable product routes', async () => {
     const result = await assertWritableSubscriptionForAccount(
       'acc-1',
-      fakeDbSequence([
-        activeAccountRow(),
-      ], [
-        offboardingRow({
-          mode: 'cancel_only',
-          status: 'scheduled',
-          access_ends_at: new Date('2026-07-01T00:00:00.000Z'),
-        }),
+      fakeDb([
+        activeAccountRow(projectedOffboarding({
+          offboarding_mode: 'cancel_only',
+          offboarding_status: 'scheduled',
+          offboarding_access_ends_at: new Date('2026-07-01T00:00:00.000Z'),
+        })),
       ]),
     );
 
@@ -77,7 +75,7 @@ describe('assertWritableSubscriptionForAccount', () => {
   it('blocks active accounts in delete-data offboarding', async () => {
     const result = await assertWritableSubscriptionForAccount(
       'acc-1',
-      fakeDbSequence([activeAccountRow()], [offboardingRow()]),
+      fakeDb([activeAccountRow(projectedOffboarding())]),
     );
 
     expect(result).toEqual({
@@ -92,7 +90,12 @@ describe('assertWritableSubscriptionForBusiness', () => {
   it('blocks when the joined account is in a full offboarding block', async () => {
     const result = await assertWritableSubscriptionForBusiness(
       'loc-1',
-      fakeDbSequence([activeAccountRow()], [offboardingRow({ mode: 'cancel_only', status: 'tearing_down' })]),
+      fakeDb([
+        activeAccountRow(projectedOffboarding({
+          offboarding_mode: 'cancel_only',
+          offboarding_status: 'tearing_down',
+        })),
+      ]),
     );
 
     expect(result).toEqual({
@@ -146,11 +149,41 @@ describe('resolveWritableAccountForLocation', () => {
   it('blocks active subscription routes when account offboarding is a full block', async () => {
     const result = await resolveWritableAccountForLocation(
       'loc-1',
-      fakeDbSequence([activeAccountRow()], [offboardingRow()]),
+      fakeDb([activeAccountRow(projectedOffboarding())]),
     );
 
     expect(result).toEqual({
       kind: 'blocked',
+      status: 403,
+      error: 'account_offboarding_blocked',
+    });
+  });
+
+  it('still supports an explicit offboarding gate for callers that cache state separately', async () => {
+    const offboardingGate = {
+      getOffboardingState: async () => ({
+        id: 'offboarding-1',
+        accountId: 'acc-1',
+        mode: 'delete_data' as const,
+        status: 'pending' as const,
+        failedStep: null,
+        terminalAt: null,
+        accessEndsAt: null,
+        teardownStartedAt: null,
+        purgeAfter: null,
+        purgeStartedAt: null,
+        purgeCancelledAt: null,
+      }),
+    };
+
+    const result = await assertWritableSubscriptionForAccount(
+      'acc-1',
+      fakeDb([activeAccountRow()]),
+      offboardingGate,
+    );
+
+    expect(result).toEqual({
+      ok: false,
       status: 403,
       error: 'account_offboarding_blocked',
     });

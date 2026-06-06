@@ -1,4 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
+import {
+  activeOffboardingStateFromProjection,
+  isConnectBlocked,
+  type ActiveOffboardingProjection,
+} from '@/lib/account-offboarding/gate';
 import { sql } from '@/lib/db/server';
 import { enqueueAnalyticsEvent } from '@/lib/analytics/enqueue';
 import { makeAnalyticsEventKey } from '@/lib/analytics/events';
@@ -92,14 +97,35 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // 3. Subscription guard. After migration 034, subscription_status source of
   // truth is accounts. Past-due accounts remain writable until recovery closes.
   try {
-    const [accountRow] = await sql<{
+    const [accountRow] = await sql<Array<{
+      id: string;
       subscription_status: string;
       past_due_at: Date | string | null;
       flags: AccountFlagsInput;
-    }[]>`
-      SELECT a.subscription_status, a.past_due_at, a.flags
+    } & ActiveOffboardingProjection>>`
+      SELECT a.id, a.subscription_status, a.past_due_at, a.flags,
+           ao.id AS offboarding_id,
+           ao.account_id AS offboarding_account_id,
+           ao.mode AS offboarding_mode,
+           ao.status AS offboarding_status,
+           ao.failed_step AS offboarding_failed_step,
+           ao.access_ends_at AS offboarding_access_ends_at,
+           ao.teardown_started_at AS offboarding_teardown_started_at,
+           ao.purge_after AS offboarding_purge_after,
+           ao.purge_started_at AS offboarding_purge_started_at,
+           ao.purge_cancelled_at AS offboarding_purge_cancelled_at
       FROM businesses b
       JOIN accounts a ON a.id = b.account_id
+      LEFT JOIN LATERAL (
+        SELECT id, account_id, mode, status, failed_step, access_ends_at,
+               teardown_started_at, purge_after, purge_started_at,
+               purge_cancelled_at
+        FROM account_offboardings
+        WHERE account_id = a.id
+          AND terminal_at IS NULL
+        ORDER BY created_at DESC
+        LIMIT 1
+      ) ao ON TRUE
       WHERE b.id = ${locationId}
         AND b.account_id = ${user.accountId}
         AND b.archived_at IS NULL
@@ -120,6 +146,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json(
         { error: writable.error },
         { status: writable.status, headers: NO_STORE },
+      );
+    }
+    const offboardingState = activeOffboardingStateFromProjection(accountRow);
+    if (isConnectBlocked(offboardingState)) {
+      return NextResponse.json(
+        { error: 'account_offboarding_blocked' },
+        { status: 403, headers: NO_STORE },
       );
     }
   } catch (err) {

@@ -278,9 +278,13 @@ function isPermanentButtonError(err: Error): boolean {
 
 function permanentButtonErrorMessage(err: Error): string {
   if (err instanceof SubscriptionReadOnlyError) {
-    return err.error === 'past_due_read_only'
-      ? 'Billing recovery has ended. Update billing in RepWorth before approving replies.'
-      : 'Billing is not active. Update billing in RepWorth before approving replies.';
+    if (err.error === 'past_due_read_only') {
+      return 'Billing recovery has ended. Update billing in RepWorth before approving replies.';
+    }
+    if (err.error === 'account_offboarding_blocked' || err.error === 'no_business') {
+      return 'This RepWorth account is being offboarded, so this approval can no longer be completed.';
+    }
+    return 'Billing is not active. Update billing in RepWorth before approving replies.';
   }
 
   if (err instanceof ExpiredLinkError) {

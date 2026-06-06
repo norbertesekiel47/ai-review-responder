@@ -26,6 +26,19 @@ export interface OffboardingGate {
   isBlocked(state: ActiveOffboardingState | null, intent: OffboardingIntent): boolean;
 }
 
+export interface ActiveOffboardingProjection {
+  offboarding_id?: string | null;
+  offboarding_account_id?: string | null;
+  offboarding_mode?: ActiveOffboardingState['mode'] | null;
+  offboarding_status?: ActiveOffboardingState['status'] | null;
+  offboarding_failed_step?: ActiveOffboardingState['failedStep'];
+  offboarding_access_ends_at?: Date | null;
+  offboarding_teardown_started_at?: Date | null;
+  offboarding_purge_after?: Date | null;
+  offboarding_purge_started_at?: Date | null;
+  offboarding_purge_cancelled_at?: Date | null;
+}
+
 interface ActiveOffboardingRow {
   id: string;
   account_id: string;
@@ -65,6 +78,33 @@ export async function getOffboardingState(
   `;
 
   return row ? mapActiveOffboardingRow(row) : null;
+}
+
+export function activeOffboardingStateFromProjection(
+  row: ActiveOffboardingProjection,
+): ActiveOffboardingState | null {
+  if (
+    !row.offboarding_id ||
+    !row.offboarding_account_id ||
+    !row.offboarding_mode ||
+    !row.offboarding_status
+  ) {
+    return null;
+  }
+
+  return {
+    id: row.offboarding_id,
+    accountId: row.offboarding_account_id,
+    mode: row.offboarding_mode,
+    status: row.offboarding_status,
+    failedStep: row.offboarding_failed_step ?? null,
+    terminalAt: null,
+    accessEndsAt: row.offboarding_access_ends_at ?? null,
+    teardownStartedAt: row.offboarding_teardown_started_at ?? null,
+    purgeAfter: row.offboarding_purge_after ?? null,
+    purgeStartedAt: row.offboarding_purge_started_at ?? null,
+    purgeCancelledAt: row.offboarding_purge_cancelled_at ?? null,
+  };
 }
 
 /**

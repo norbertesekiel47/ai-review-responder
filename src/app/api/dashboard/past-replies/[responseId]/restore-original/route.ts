@@ -34,6 +34,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { v7 as uuidv7 } from 'uuid';
+import { getOffboardingState, isPublishingBlocked } from '@/lib/account-offboarding/gate';
 import { sql } from '@/lib/db/server';
 import { insertAuditLogSession } from '@/lib/approval/audit';
 import {
@@ -52,7 +53,12 @@ export async function POST(
 ): Promise<Response> {
   const ctx = await resolveEditReplyContext(request, context.params);
   if (!ctx.ok) return ctx.response;
-  const { locationId, responseId, reviewId, audit } = ctx.value;
+  const { accountId, locationId, responseId, reviewId, audit } = ctx.value;
+
+  const offboardingState = await getOffboardingState(accountId);
+  if (isPublishingBlocked(offboardingState)) {
+    return NextResponse.json({ error: 'account_offboarding_blocked' }, { status: 403 });
+  }
 
   try {
     return await sql.begin(async (tx) => {

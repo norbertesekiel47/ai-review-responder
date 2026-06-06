@@ -1,7 +1,9 @@
 import type postgres from 'postgres';
 import {
+  activeOffboardingStateFromProjection,
   getOffboardingState,
   isProcessingBlocked,
+  type ActiveOffboardingProjection,
   type OffboardingGate,
 } from '@/lib/account-offboarding/gate';
 import { sql } from '@/lib/db/server';
@@ -80,14 +82,37 @@ export async function assertWritableSubscriptionForAccount(
   db: SubscriptionSql = sql,
   offboardingGate?: Pick<OffboardingGate, 'getOffboardingState'>,
 ): Promise<WritableSubscriptionResult> {
-  const [account] = await db<{
+  const [account] = await db<Array<{
     subscription_status: string;
     past_due_at: Date | string | null;
     flags: AccountFlagsInput;
-  }[]>`
-    SELECT subscription_status, past_due_at, flags
-    FROM accounts
-    WHERE id = ${accountId}::uuid
+  } & ActiveOffboardingProjection>>`
+    SELECT
+      a.subscription_status,
+      a.past_due_at,
+      a.flags,
+      ao.id AS offboarding_id,
+      ao.account_id AS offboarding_account_id,
+      ao.mode AS offboarding_mode,
+      ao.status AS offboarding_status,
+      ao.failed_step AS offboarding_failed_step,
+      ao.access_ends_at AS offboarding_access_ends_at,
+      ao.teardown_started_at AS offboarding_teardown_started_at,
+      ao.purge_after AS offboarding_purge_after,
+      ao.purge_started_at AS offboarding_purge_started_at,
+      ao.purge_cancelled_at AS offboarding_purge_cancelled_at
+    FROM accounts a
+    LEFT JOIN LATERAL (
+      SELECT id, account_id, mode, status, failed_step, access_ends_at,
+             teardown_started_at, purge_after, purge_started_at,
+             purge_cancelled_at
+      FROM account_offboardings
+      WHERE account_id = a.id
+        AND terminal_at IS NULL
+      ORDER BY created_at DESC
+      LIMIT 1
+    ) ao ON TRUE
+    WHERE a.id = ${accountId}::uuid
     LIMIT 1
   `;
 
@@ -103,7 +128,15 @@ export async function assertWritableSubscriptionForAccount(
 
   if (!subscription.ok) return subscription;
 
-  return assertNoBlockingOffboardingForAccount(accountId, db, offboardingGate);
+  if (offboardingGate) {
+    return assertNoBlockingOffboardingForAccount(accountId, db, offboardingGate);
+  }
+
+  const offboardingState = activeOffboardingStateFromProjection(account);
+  if (isProcessingBlocked(offboardingState)) {
+    return { ok: false, status: 403, error: 'account_offboarding_blocked' };
+  }
+  return { ok: true };
 }
 
 export async function assertWritableSubscriptionForBusiness(
@@ -111,15 +144,39 @@ export async function assertWritableSubscriptionForBusiness(
   db: SubscriptionSql = sql,
   offboardingGate?: Pick<OffboardingGate, 'getOffboardingState'>,
 ): Promise<WritableSubscriptionResult> {
-  const [account] = await db<{
+  const [account] = await db<Array<{
     id: string;
     subscription_status: string;
     past_due_at: Date | string | null;
     flags: AccountFlagsInput;
-  }[]>`
-    SELECT a.id, a.subscription_status, a.past_due_at, a.flags
+  } & ActiveOffboardingProjection>>`
+    SELECT
+      a.id,
+      a.subscription_status,
+      a.past_due_at,
+      a.flags,
+      ao.id AS offboarding_id,
+      ao.account_id AS offboarding_account_id,
+      ao.mode AS offboarding_mode,
+      ao.status AS offboarding_status,
+      ao.failed_step AS offboarding_failed_step,
+      ao.access_ends_at AS offboarding_access_ends_at,
+      ao.teardown_started_at AS offboarding_teardown_started_at,
+      ao.purge_after AS offboarding_purge_after,
+      ao.purge_started_at AS offboarding_purge_started_at,
+      ao.purge_cancelled_at AS offboarding_purge_cancelled_at
     FROM businesses b
     JOIN accounts a ON a.id = b.account_id
+    LEFT JOIN LATERAL (
+      SELECT id, account_id, mode, status, failed_step, access_ends_at,
+             teardown_started_at, purge_after, purge_started_at,
+             purge_cancelled_at
+      FROM account_offboardings
+      WHERE account_id = a.id
+        AND terminal_at IS NULL
+      ORDER BY created_at DESC
+      LIMIT 1
+    ) ao ON TRUE
     WHERE b.id = ${businessId}::uuid
     LIMIT 1
   `;
@@ -136,7 +193,15 @@ export async function assertWritableSubscriptionForBusiness(
 
   if (!subscription.ok) return subscription;
 
-  return assertNoBlockingOffboardingForAccount(account.id, db, offboardingGate);
+  if (offboardingGate) {
+    return assertNoBlockingOffboardingForAccount(account.id, db, offboardingGate);
+  }
+
+  const offboardingState = activeOffboardingStateFromProjection(account);
+  if (isProcessingBlocked(offboardingState)) {
+    return { ok: false, status: 403, error: 'account_offboarding_blocked' };
+  }
+  return { ok: true };
 }
 
 export type WritableAccountForLocation =
@@ -162,15 +227,39 @@ export async function resolveWritableAccountForLocation(
   db: SubscriptionSql = sql,
   offboardingGate?: Pick<OffboardingGate, 'getOffboardingState'>,
 ): Promise<WritableAccountForLocation> {
-  const [accountRow] = await db<{
+  const [accountRow] = await db<Array<{
     id: string;
     subscription_status: string;
     past_due_at: Date | string | null;
     flags: AccountFlagsInput;
-  }[]>`
-    SELECT a.id, a.subscription_status, a.past_due_at, a.flags
+  } & ActiveOffboardingProjection>>`
+    SELECT
+      a.id,
+      a.subscription_status,
+      a.past_due_at,
+      a.flags,
+      ao.id AS offboarding_id,
+      ao.account_id AS offboarding_account_id,
+      ao.mode AS offboarding_mode,
+      ao.status AS offboarding_status,
+      ao.failed_step AS offboarding_failed_step,
+      ao.access_ends_at AS offboarding_access_ends_at,
+      ao.teardown_started_at AS offboarding_teardown_started_at,
+      ao.purge_after AS offboarding_purge_after,
+      ao.purge_started_at AS offboarding_purge_started_at,
+      ao.purge_cancelled_at AS offboarding_purge_cancelled_at
     FROM accounts a
     JOIN businesses b ON b.account_id = a.id
+    LEFT JOIN LATERAL (
+      SELECT id, account_id, mode, status, failed_step, access_ends_at,
+             teardown_started_at, purge_after, purge_started_at,
+             purge_cancelled_at
+      FROM account_offboardings
+      WHERE account_id = a.id
+        AND terminal_at IS NULL
+      ORDER BY created_at DESC
+      LIMIT 1
+    ) ao ON TRUE
     WHERE b.id = ${locationId}
   `;
   if (!accountRow) return { kind: 'no_account' };
@@ -186,9 +275,16 @@ export async function resolveWritableAccountForLocation(
     return { kind: 'blocked', status: 403, error: 'subscription_not_active' };
   }
 
-  const offboarding = await assertNoBlockingOffboardingForAccount(accountRow.id, db, offboardingGate);
-  if (!offboarding.ok) {
-    return { kind: 'blocked', status: offboarding.status, error: offboarding.error };
+  if (offboardingGate) {
+    const offboarding = await assertNoBlockingOffboardingForAccount(accountRow.id, db, offboardingGate);
+    if (!offboarding.ok) {
+      return { kind: 'blocked', status: offboarding.status, error: offboarding.error };
+    }
+  } else {
+    const offboardingState = activeOffboardingStateFromProjection(accountRow);
+    if (isProcessingBlocked(offboardingState)) {
+      return { kind: 'blocked', status: 403, error: 'account_offboarding_blocked' };
+    }
   }
 
   return { kind: 'ok', accountId: accountRow.id };

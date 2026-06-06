@@ -353,8 +353,10 @@ describe('requireDashboardReviewOwner', () => {
 
 describe('runDashboardReviewAction', () => {
   it('scopes the response lookup by owner account and passes the review location to the action', async () => {
-    sqlResults.push([ACTIVE_ACCOUNT_ROW]);
     sqlResults.push([{ id: 'resp-1', business_id: 'biz-secondary', status: 'pending_approval' }]);
+    sqlResults.push([ACTIVE_ACCOUNT_ROW]);
+    sqlResults.push([]); // SELECT id ... FOR UPDATE
+    sqlResults.push([]); // hasOpenFlag → no open flag
     const action = vi.fn();
 
     const res = await runDashboardReviewAction(
@@ -383,8 +385,8 @@ describe('runDashboardReviewAction', () => {
   });
 
   it('returns 409 and skips the action when an open moderation flag holds the draft', async () => {
-    sqlResults.push([ACTIVE_ACCOUNT_ROW]); // assertWritableSubscriptionForAccount
     sqlResults.push([{ id: 'resp-1', business_id: 'biz-1', status: 'pending_approval' }]); // response lookup
+    sqlResults.push([ACTIVE_ACCOUNT_ROW]); // assertWritableSubscriptionForAccount
     sqlResults.push([]); // SELECT ... FOR UPDATE
     sqlResults.push([{ one: 1 }]); // hasOpenFlag → open flag present
     const action = vi.fn();
@@ -404,7 +406,6 @@ describe('runDashboardReviewAction', () => {
   });
 
   it('returns no-store 404 when no actionable response is visible to the owner', async () => {
-    sqlResults.push([ACTIVE_ACCOUNT_ROW]);
     sqlResults.push([]);
     const action = vi.fn();
 
@@ -424,8 +425,10 @@ describe('runDashboardReviewAction', () => {
   });
 
   it('maps stale response and unexpected action errors without leaking internals', async () => {
-    sqlResults.push([ACTIVE_ACCOUNT_ROW]);
     sqlResults.push([{ id: 'resp-1', business_id: 'biz-1', status: 'pending_approval' }]);
+    sqlResults.push([ACTIVE_ACCOUNT_ROW]);
+    sqlResults.push([]); // SELECT id ... FOR UPDATE
+    sqlResults.push([]); // hasOpenFlag → no open flag
     const staleRes = await runDashboardReviewAction(
       request(),
       'rev-1',
@@ -438,8 +441,10 @@ describe('runDashboardReviewAction', () => {
     );
     expect(staleRes.status).toBe(409);
 
-    sqlResults.push([ACTIVE_ACCOUNT_ROW]);
     sqlResults.push([{ id: 'resp-1', business_id: 'biz-1', status: 'pending_approval' }]);
+    sqlResults.push([ACTIVE_ACCOUNT_ROW]);
+    sqlResults.push([]); // SELECT id ... FOR UPDATE
+    sqlResults.push([]); // hasOpenFlag → no open flag
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const unexpectedRes = await runDashboardReviewAction(
       request(),

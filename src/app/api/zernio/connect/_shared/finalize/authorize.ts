@@ -1,4 +1,9 @@
 import type { NextRequest } from 'next/server';
+import {
+  activeOffboardingStateFromProjection,
+  isConnectBlocked,
+  type ActiveOffboardingProjection,
+} from '@/lib/account-offboarding/gate';
 import { sql } from '@/lib/db/server';
 import { getCacheRedis } from '@/lib/db/redis-cache';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
@@ -116,14 +121,35 @@ export async function authorizeSelectLocation(
   if (stored.userId !== user.id) {
     throw new ZernioRouteError(403, 'user_mismatch');
   }
-  const [business] = await sql<{
+  const [business] = await sql<Array<{
+    account_id: string;
     subscription_status: string;
     past_due_at: Date | string | null;
     flags: AccountFlagsInput;
-  }[]>`
-    SELECT a.subscription_status, a.past_due_at, a.flags
+  } & ActiveOffboardingProjection>>`
+    SELECT a.id AS account_id, a.subscription_status, a.past_due_at, a.flags,
+           ao.id AS offboarding_id,
+           ao.account_id AS offboarding_account_id,
+           ao.mode AS offboarding_mode,
+           ao.status AS offboarding_status,
+           ao.failed_step AS offboarding_failed_step,
+           ao.access_ends_at AS offboarding_access_ends_at,
+           ao.teardown_started_at AS offboarding_teardown_started_at,
+           ao.purge_after AS offboarding_purge_after,
+           ao.purge_started_at AS offboarding_purge_started_at,
+           ao.purge_cancelled_at AS offboarding_purge_cancelled_at
     FROM businesses b
     JOIN accounts a ON a.id = b.account_id
+    LEFT JOIN LATERAL (
+      SELECT id, account_id, mode, status, failed_step, access_ends_at,
+             teardown_started_at, purge_after, purge_started_at,
+             purge_cancelled_at
+      FROM account_offboardings
+      WHERE account_id = a.id
+        AND terminal_at IS NULL
+      ORDER BY created_at DESC
+      LIMIT 1
+    ) ao ON TRUE
     WHERE b.id = ${stored.businessId}
       AND b.account_id = ${user.accountId}
       AND b.archived_at IS NULL
@@ -139,6 +165,10 @@ export async function authorizeSelectLocation(
   });
   if (!writable.ok) {
     throw new ZernioRouteError(writable.status, writable.error);
+  }
+  const offboardingState = activeOffboardingStateFromProjection(business);
+  if (isConnectBlocked(offboardingState)) {
+    throw new ZernioRouteError(403, 'account_offboarding_blocked');
   }
   const locationKnown = stored.locations.some((loc) => loc.id === locationId);
   if (!locationKnown) {

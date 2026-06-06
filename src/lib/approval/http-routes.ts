@@ -156,14 +156,6 @@ export async function runDashboardReviewAction(
   successMessage: string,
   action: (ctx: DashboardReviewActionContext) => Promise<void>,
 ): Promise<NextResponse> {
-  const writable = await assertWritableSubscriptionForAccount(owner.accountId);
-  if (!writable.ok) {
-    return NextResponse.json(
-      { error: writable.error },
-      { status: writable.status, headers: NO_STORE_HEADERS },
-    );
-  }
-
   const rows = await sql`
     SELECT r.id, r.business_id, r.status
     FROM responses r
@@ -179,6 +171,14 @@ export async function runDashboardReviewAction(
   const response = rows[0];
   if (!response) {
     return NextResponse.json({ error: 'No actionable response found for this review' }, { status: 404, headers: NO_STORE_HEADERS });
+  }
+
+  const writable = await assertWritableSubscriptionForAccount(owner.accountId);
+  if (!writable.ok) {
+    return NextResponse.json(
+      { error: writable.error },
+      { status: writable.status, headers: NO_STORE_HEADERS },
+    );
   }
 
   const ip = getRequestIp(request);

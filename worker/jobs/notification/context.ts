@@ -20,6 +20,11 @@
 // 'fail' carries the reason string for markOutboxFailed.
 
 import { sql } from '../../../src/lib/db/server';
+import {
+  activeOffboardingStateFromProjection,
+  isNotificationBlocked,
+  type ActiveOffboardingProjection,
+} from '../../../src/lib/account-offboarding/gate';
 import type { AccountFlagsInput } from '../../../src/lib/shared/subscription-guard';
 
 export interface NotificationContextInput {
@@ -44,7 +49,7 @@ export interface ResponseRow {
   review_date: string;
 }
 
-export interface BusinessRow {
+export interface BusinessRow extends ActiveOffboardingProjection {
   account_id: string;
   name: string;
   display_label: string | null;
@@ -94,9 +99,29 @@ export async function loadNotificationContext(
   const [business] = await sql<BusinessRow[]>`
     SELECT b.name, b.display_label, b.owner_email_bounced, b.archived_at,
            a.id AS account_id, a.subscription_status, a.updated_at AS account_updated_at,
-           a.past_due_at AS account_past_due_at, a.flags AS account_flags
+           a.past_due_at AS account_past_due_at, a.flags AS account_flags,
+           ao.id AS offboarding_id,
+           ao.account_id AS offboarding_account_id,
+           ao.mode AS offboarding_mode,
+           ao.status AS offboarding_status,
+           ao.failed_step AS offboarding_failed_step,
+           ao.access_ends_at AS offboarding_access_ends_at,
+           ao.teardown_started_at AS offboarding_teardown_started_at,
+           ao.purge_after AS offboarding_purge_after,
+           ao.purge_started_at AS offboarding_purge_started_at,
+           ao.purge_cancelled_at AS offboarding_purge_cancelled_at
     FROM businesses b
     JOIN accounts a ON a.id = b.account_id
+    LEFT JOIN LATERAL (
+      SELECT id, account_id, mode, status, failed_step, access_ends_at,
+             teardown_started_at, purge_after, purge_started_at,
+             purge_cancelled_at
+      FROM account_offboardings
+      WHERE account_id = a.id
+        AND terminal_at IS NULL
+      ORDER BY created_at DESC
+      LIMIT 1
+    ) ao ON TRUE
     WHERE b.id = ${input.businessId}
   `;
   if (!business) {
@@ -113,6 +138,14 @@ export async function loadNotificationContext(
   if (business.archived_at !== null) {
     logger.warn(
       `Business ${input.businessId} is archived (archived_at=${business.archived_at}) — skipping notification`,
+    );
+    return { kind: 'skip' };
+  }
+
+  const offboardingState = activeOffboardingStateFromProjection(business);
+  if (isNotificationBlocked(offboardingState)) {
+    logger.warn(
+      `Business ${input.businessId} account is offboarding — skipping notification`,
     );
     return { kind: 'skip' };
   }

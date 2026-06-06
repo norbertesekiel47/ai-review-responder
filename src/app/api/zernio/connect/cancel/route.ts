@@ -6,7 +6,7 @@ import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { zernioRouteErrorResponse } from '../../_shared/error-response';
 import { isValidUuid } from '@/lib/shared/ids';
-import { assertWritableSubscriptionForBusiness } from '@/lib/shared/writable-subscription';
+import { assertWritableSubscriptionStatus } from '@/lib/shared/writable-subscription';
 import { zernioClient } from '@/lib/zernio/client';
 import {
   pendingKey,
@@ -20,6 +20,7 @@ import {
   clearConnectSessionCookie,
 } from '@/lib/zernio/connect-session-cookie';
 import type { ConnectPendingMarker } from '@/lib/zernio/types';
+import type { AccountFlagsInput } from '@/lib/shared/past-due-recovery';
 
 export const dynamic = 'force-dynamic';
 
@@ -110,26 +111,30 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const locationId = requestedLocationId ?? user.locationId!;
 
   try {
-    const [business] = await sql<{ exists: number }[]>`
-      SELECT 1 AS exists
-      FROM businesses
-      WHERE id = ${locationId}
-        AND account_id = ${user.accountId}
-        AND archived_at IS NULL
+    const [accountRow] = await sql<{
+      subscription_status: string;
+      past_due_at: Date | string | null;
+      flags: AccountFlagsInput;
+    }[]>`
+      SELECT a.subscription_status, a.past_due_at, a.flags
+      FROM businesses b
+      JOIN accounts a ON a.id = b.account_id
+      WHERE b.id = ${locationId}
+        AND b.account_id = ${user.accountId}
+        AND b.archived_at IS NULL
       LIMIT 1
     `;
-    if (!business) {
+    if (!accountRow) {
       return NextResponse.json(
         { error: 'invalid_location_scope' },
         { status: 403, headers: NO_STORE },
       );
     }
-  } catch (err) {
-    return errorToResponse(err);
-  }
-
-  try {
-    const writable = await assertWritableSubscriptionForBusiness(locationId);
+    const writable = assertWritableSubscriptionStatus({
+      subscriptionStatus: accountRow.subscription_status,
+      pastDueAt: accountRow.past_due_at,
+      accountFlags: accountRow.flags,
+    });
     if (!writable.ok) {
       return NextResponse.json(
         { error: writable.error },

@@ -29,6 +29,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import { getOffboardingState, isOperationalUIBlocked } from '@/lib/account-offboarding/gate';
 import { sql } from '@/lib/db/server';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { resolveOwnerScope, ScopeError } from '@/lib/auth/resolve-owner-scope';
@@ -99,6 +100,11 @@ export async function PATCH(
   const authorized = await authorizeEditReplyResponse(responseId, { accountId, locationId });
   if (!authorized.ok) return authorized.response;
   const { reviewId } = authorized.value;
+
+  const offboardingState = await getOffboardingState(accountId);
+  if (isOperationalUIBlocked(offboardingState)) {
+    return NextResponse.json({ error: 'account_offboarding_blocked' }, { status: 403 });
+  }
 
   try {
     return await sql.begin(async (tx) => {
@@ -186,9 +192,9 @@ export async function DELETE(
     throw err;
   }
 
-  let locationId;
+  let accountId, locationId;
   try {
-    ({ locationId } = await resolveOwnerScope(request));
+    ({ accountId, locationId } = await resolveOwnerScope(request));
   } catch (err) {
     if (err instanceof ScopeError) {
       return NextResponse.json({ error: err.message }, { status: err.statusCode });
@@ -219,6 +225,11 @@ export async function DELETE(
       //    no-ops (already past the editable window — idempotent).
       //    business_id guard mirrors the FOR UPDATE lock scope (defense-in-depth).
       if (locked.status === 'pending_approval') {
+        const offboardingState = await getOffboardingState(accountId, tx);
+        if (isOperationalUIBlocked(offboardingState)) {
+          return NextResponse.json({ error: 'account_offboarding_blocked' }, { status: 403 });
+        }
+
         await tx`
           UPDATE responses
           SET status = 'superseded', updated_at = NOW()

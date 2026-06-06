@@ -1,10 +1,33 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { redisData, mockListLocations, mockGetCurrentUser, mockDeleteProfile } = vi.hoisted(() => ({
+const {
+  redisData,
+  mockListLocations,
+  mockGetCurrentUser,
+  mockDeleteProfile,
+  mockSql,
+  dbState,
+} = vi.hoisted(() => ({
   redisData: new Map<string, string>(),
   mockListLocations: vi.fn(),
   mockGetCurrentUser: vi.fn(),
   mockDeleteProfile: vi.fn(),
+  mockSql: vi.fn(),
+  dbState: {
+    businessAccountId: 'acct-1' as string | null,
+    offboarding: null as null | {
+      offboarding_id: string;
+      offboarding_account_id: string;
+      offboarding_mode: 'cancel_only' | 'delete_data';
+      offboarding_status: 'pending' | 'scheduled' | 'tearing_down' | 'purge_scheduled' | 'failed';
+      offboarding_failed_step: string | null;
+      offboarding_access_ends_at: Date | null;
+      offboarding_teardown_started_at: Date | null;
+      offboarding_purge_after: Date | null;
+      offboarding_purge_started_at: Date | null;
+      offboarding_purge_cancelled_at: Date | null;
+    },
+  },
 }));
 
 vi.mock('@/lib/db/redis-cache', () => ({
@@ -47,6 +70,10 @@ vi.mock('@/lib/db/auth', () => ({
   getCurrentUser: mockGetCurrentUser,
 }));
 
+vi.mock('@/lib/db/server', () => ({
+  sql: mockSql,
+}));
+
 vi.mock('@/lib/zernio/client', () => ({
   zernioClient: {
     listLocations: mockListLocations,
@@ -62,6 +89,20 @@ describe('GET /api/zernio/connect/callback', () => {
     mockListLocations.mockReset();
     mockGetCurrentUser.mockReset();
     mockDeleteProfile.mockReset();
+    mockSql.mockReset();
+    dbState.businessAccountId = 'acct-1';
+    dbState.offboarding = null;
+    mockSql.mockImplementation((strings: TemplateStringsArray) => {
+      const raw = strings.join('?');
+      if (/FROM businesses/.test(raw)) {
+        return Promise.resolve(
+          dbState.businessAccountId
+            ? [{ account_id: dbState.businessAccountId, ...dbState.offboarding }]
+            : [],
+        );
+      }
+      return Promise.resolve([]);
+    });
     process.env.ZERNIO_PUBLISHING_ENABLED = 'true';
     process.env.SESSION_COOKIE_SECRET = 'test-session-cookie-secret';
   });
@@ -207,6 +248,103 @@ describe('GET /api/zernio/connect/callback', () => {
       connectToken: 'ct_123',
     });
     expect(redisData.has(`connect_profile_state:${profileId}`)).toBe(false);
+  });
+
+  it('cleans up and redirects before Zernio listing when offboarding blocks connect', async () => {
+    const state = 'zernio-state-offboarding-blocked';
+    const businessId = 'biz-1';
+    const profileId = 'profile-1';
+    const userId = 'user-1';
+    const flowId = 'flow-1';
+
+    redisData.set(
+      `connect_state:${state}`,
+      JSON.stringify({ businessId, profileId, userId, createdAt: Date.now() }),
+    );
+    redisData.set(
+      `connect_pending:${businessId}`,
+      JSON.stringify({
+        flowId,
+        userId,
+        started_at: Date.now(),
+        status: 'oauth_in_progress',
+        profileId,
+        state,
+      }),
+    );
+    mockGetCurrentUser.mockResolvedValue({ id: userId });
+    mockDeleteProfile.mockResolvedValue(undefined);
+    dbState.offboarding = {
+      offboarding_id: 'offboarding-1',
+      offboarding_account_id: 'acct-1',
+      offboarding_mode: 'delete_data',
+      offboarding_status: 'pending',
+      offboarding_failed_step: null,
+      offboarding_access_ends_at: null,
+      offboarding_teardown_started_at: null,
+      offboarding_purge_after: null,
+      offboarding_purge_started_at: null,
+      offboarding_purge_cancelled_at: null,
+    };
+
+    const res = await GET(
+      new Request(
+        `http://localhost/api/zernio/connect/callback?state=${encodeURIComponent(
+          state,
+        )}&pendingDataToken=pdt-123`,
+      ) as never,
+    );
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe(
+      'http://localhost/dashboard/connect?error=account_offboarding_blocked',
+    );
+    expect(redisData.has(`connect_pending:${businessId}`)).toBe(false);
+    expect(mockDeleteProfile).toHaveBeenCalledWith(profileId);
+    expect(mockListLocations).not.toHaveBeenCalled();
+  });
+
+  it('cleans up and redirects when the post-claim offboarding lookup fails', async () => {
+    const state = 'zernio-state-db-failure';
+    const businessId = 'biz-1';
+    const profileId = 'profile-1';
+    const userId = 'user-1';
+    const flowId = 'flow-1';
+
+    redisData.set(
+      `connect_state:${state}`,
+      JSON.stringify({ businessId, profileId, userId, createdAt: Date.now() }),
+    );
+    redisData.set(
+      `connect_pending:${businessId}`,
+      JSON.stringify({
+        flowId,
+        userId,
+        started_at: Date.now(),
+        status: 'oauth_in_progress',
+        profileId,
+        state,
+      }),
+    );
+    mockGetCurrentUser.mockResolvedValue({ id: userId });
+    mockDeleteProfile.mockResolvedValue(undefined);
+    mockSql.mockRejectedValueOnce(new Error('db unavailable'));
+
+    const res = await GET(
+      new Request(
+        `http://localhost/api/zernio/connect/callback?state=${encodeURIComponent(
+          state,
+        )}&pendingDataToken=pdt-123`,
+      ) as never,
+    );
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe(
+      'http://localhost/dashboard/connect?error=internal_error',
+    );
+    expect(redisData.has(`connect_pending:${businessId}`)).toBe(false);
+    expect(mockDeleteProfile).toHaveBeenCalledWith(profileId);
+    expect(mockListLocations).not.toHaveBeenCalled();
   });
 
   it('cleans up the pending flow when callback has state but no connect token', async () => {
