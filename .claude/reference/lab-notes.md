@@ -1254,3 +1254,35 @@ does NOT prove a Railway-safe install.** **Correct approach:** any
 convenience; never let it abort a production install. To reproduce the failure
 locally, run the installer from a dir with no `.git` (`cd $(mktemp -d) &&
 node_modules/.bin/lefthook install; echo $?` → 1).
+
+## 2026-06-06
+
+### The auto-approval kill switch is read at worker *boot*, so you can't test the §6 downgrade with a "flip mid-flight" race
+`autoApprovalRuntimeEnabled()` reads `process.env.AUTO_APPROVAL_ENABLED`, and Railway
+injects env at **process start** — so a running worker keeps its boot-time value until
+it **restarts**. Trying to test the publisher kill-switch downgrade by auto-approving a
+review and then flipping the flag mid-flight just **posts**: the old process publishes
+within seconds, long before a redeploy boots a flag-off process. On a real connected GBP
+that is a real reply you didn't want. **Correct approach (post-safe):** set
+`AUTO_APPROVAL_ENABLED=false` on the worker *first*, then make the publisher process an
+already-`approved` `auto_policy` row while the flag is off — seed a *test* review's
+response to `approved`/`auto_policy` + insert its `publish_response` `job_outbox` row in
+one tx; the running (flag-off) publisher hits the kill-switch and **downgrades instead of
+posting** (`status='pending_approval'`, `posting_error='auto_policy_revoked_by_kill_switch'`,
+re-notify). Documented in the runbook appendix (`completed_runbooks/auto-approval-staging-test.md`).
+
+### `psql` can't open the staging `DATABASE_POOL_URL` — it carries a Postgres.js-only `?pgbouncer=true` param
+The Railway worker's `DATABASE_POOL_URL` ends in `?pgbouncer=true` (a Postgres.js
+connection hint). `psql`/libpq rejects it: `invalid URI query parameter: "pgbouncer"`.
+**Correct approach:** strip the query string and re-add only `sslmode=require`
+(`"${url%%\?*}?sslmode=require"`), or use the direct `DATABASE_URL`. Pull the value
+**unprinted** (`railway variables --kv | grep '^DATABASE_POOL_URL=' | cut -d= -f2-`) so the
+credential never lands in the terminal.
+
+### Vercel staging is behind Deployment Protection (SSO) — automation/CDP browsers can't log in
+`staging.repworth.net` returns `401` and redirects to `vercel.com/login`; the Google SSO
+step then refuses an automation-controlled (DevTools-protocol) browser ("this browser may
+not be secure"). **Correct approach:** use a **Protection Bypass for Automation** token —
+navigate once to `…?x-vercel-protection-bypass=<secret>&x-vercel-set-bypass-cookie=true` to
+set the bypass cookie, then the app's own **email/password** login works in the automated
+browser. Don't try to complete Vercel/Google SSO inside the controlled browser.

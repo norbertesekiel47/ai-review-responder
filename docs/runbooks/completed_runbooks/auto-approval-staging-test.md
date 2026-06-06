@@ -16,6 +16,43 @@ auto-eligible. Backfill/import, regenerate, and review-updates are always manual
 
 ---
 
+## ✅ Test results — COMPLETED on staging (2026-06-06)
+
+Run full-stack on `staging.repworth.net` + the Railway staging worker (owner account
+`norbertliverpool` / Tanicia Resort, admin `norbertesekiel`). Per-step:
+
+- ✅ **§1 Flags** — worker + Vercel `AUTO_APPROVAL_ENABLED`, `OPENAI_MODERATION_ENABLED`,
+  `AUTO_APPROVAL_PROVIDER_MODERATION_READY` confirmed (`MOCK_EXTERNAL_APIS=false`, `OPENAI_API_KEY` set).
+- ✅ **§2 Readiness** — UI block + `GET /api/settings/auto-approval` → `200`, `Cache-Control: no-store, private`,
+  derived booleans only (`canExpand`, `blockReasons`); no raw env names/values.
+- ✅ **§3.1 / §3.2 Confirmation modals** — standard expansion, the stronger **All rated** warning, and the
+  per-location modal (names the location).
+- ✅ **§3.3 Contraction-while-blocked + 409** — with readiness blocked, an expansion → **`409
+  auto_approval_expansion_blocked`** (+ `blockReasons`), while a contraction (`set_account_manual`) → **`200`** success.
+- ✅ **§3.4 Negative paths** — `400 auto_approval_confirmation_required`, `404 location_not_found` (cross-account),
+  `400` strict-schema reject of a body `accountId`.
+- ✅ **§3.5 Audit** — `account_audit_log` `auto_approval_policy_changed` rows with correct `operation` /
+  `expansion` / submitted-confirmation level.
+- ✅ **§4 Happy path** — a 5★ `live_ingest_new` review auto-posted: `status=posted`, `approval_method=auto_policy`,
+  one `auto_approved_by_policy` audit row (no token, no actor, `resolved_min_star=4`, `star=5`).
+- ✅ **§5 Manual fallback** — **rating-below-threshold** (2★ under 4-5) and **auto_approval_disabled** (5★ with the
+  worker kill-switch off) both fell back to `pending_approval` / `approval_method NULL`, no post — confirmed via
+  the worker's structured gate log. ⚠️ The **high-severity moderation HELD** case was **not** live-verified —
+  tracked in **#239**.
+- ✅ **§6 Kill-switch downgrade** — the publisher downgraded an unposted `auto_policy` row instead of posting:
+  `pending_approval` / `approval_method NULL` / `posting_error=auto_policy_revoked_by_kill_switch`, `response_text`
+  preserved, downgrade audit + owner re-notification, no post. (Exercised **post-safe** by seeding the approved row +
+  publish job with the worker runtime flag **off** — see Appendix.)
+- ✅ **§7 Admin diagnostics** — read-only panel verified.
+- ✅ **§8 Supabase verification** — queries run against the staging project.
+- ⏭️ **§9 Revert** — owner elected to leave staging **armed** rather than fully off: both `AUTO_APPROVAL_ENABLED=true`
+  with **policy `Off/manual`**, so nothing auto-posts until a policy threshold is set. Production is unaffected
+  (Phase 3 shipped flag-off on `main`).
+
+Open follow-ups: **#239** (live-verify the high-severity HELD case), **#240** (a11y: "Settings saved" live-region).
+
+---
+
 ## 1. Flags to set — on BOTH surfaces
 
 The flags are read in two different places: the **settings route runs on Vercel**
@@ -231,3 +268,33 @@ values (gen_random_uuid(), '<account-uuid>', null, 1);  -- account default = All
 
 Then proceed from §4. (The UI path in §3 is the proper test of the settings layer; this
 shortcut is only for isolating the worker predicate.)
+
+## Appendix — §6 kill-switch downgrade, post-safe
+
+A live §6 test is risky on a real GBP because the runtime flag is read at **worker boot**: a
+"flip the flag mid-flight" race usually just posts (the old process posts before it restarts).
+The reliable, **post-safe** method is to make the publisher process an already-`approved`
+`auto_policy` row while the runtime flag is **off** — it then hits the kill-switch and downgrades
+instead of posting. Set `AUTO_APPROVAL_ENABLED=false` on the **worker** first, then, in one tx,
+flip a *test* review's response to look auto-approved-but-unposted and enqueue its publish:
+
+```sql
+-- worker AUTO_APPROVAL_ENABLED must already be false (so the publisher downgrades, never posts)
+begin;
+update responses
+   set status='approved', approval_method='auto_policy',
+       approved_text=response_text, approved_at=now(), updated_at=now()
+ where id='<test-response-uuid>' and business_id='<business-uuid>' and status='pending_approval';
+insert into job_outbox (id, topic, aggregate_type, aggregate_id, payload, available_at, status, attempts, max_attempts, created_at)
+values (gen_random_uuid(), 'publish_response', 'response', '<test-response-uuid>',
+        jsonb_build_object('business_id','<business-uuid>','response_id','<test-response-uuid>'),
+        now(), 'pending', 0, 5, now());
+commit;
+```
+
+The OutboxPoller dispatches it → `ResponsePublisherWorker` sees `approval_method='auto_policy'` with
+the runtime flag off → downgrades (`status='pending_approval'`, `approval_method=NULL`,
+`approved_text=NULL`, `posting_error='auto_policy_revoked_by_kill_switch'`), writes one
+`auto_policy_revoked_by_kill_switch` audit row, enqueues `send_notification`, and marks the publish
+outbox `completed` — **no Google call**. Use a throwaway/test review's response so the leftover
+downgrade + re-notification land on test data.
