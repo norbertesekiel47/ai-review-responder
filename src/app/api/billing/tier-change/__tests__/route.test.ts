@@ -9,8 +9,9 @@ import { NextRequest } from 'next/server';
 
 // ── Hoisted mocks ──────────────────────────────────────────────────────────
 
-const { mockRequireRole } = vi.hoisted(() => ({
+const { mockRequireRole, mockGetOffboardingState } = vi.hoisted(() => ({
   mockRequireRole: vi.fn(),
+  mockGetOffboardingState: vi.fn(),
 }));
 
 vi.mock('@/lib/db/auth', () => {
@@ -39,6 +40,14 @@ vi.mock('@/lib/db/server', () => ({
   sql: mockSql,
   jsonb: (v: unknown) => v,
 }));
+
+vi.mock('@/lib/account-offboarding/gate', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/account-offboarding/gate')>();
+  return {
+    ...actual,
+    getOffboardingState: (...args: unknown[]) => mockGetOffboardingState(...args),
+  };
+});
 
 // Mock validateTierChange
 const { mockValidateTierChange } = vi.hoisted(() => ({
@@ -160,6 +169,8 @@ function setupHappyPathMocks() {
 beforeEach(() => {
   vi.clearAllMocks();
   mockRequireRole.mockReset();
+  mockGetOffboardingState.mockReset();
+  mockGetOffboardingState.mockResolvedValue(null);
   mockSql.mockReset();
   mockSql.mockResolvedValue([]);
   mockValidateTierChange.mockReset();
@@ -218,6 +229,31 @@ describe('POST /api/billing/tier-change', () => {
     const req = mkRequest({ accountId: OTHER_ACCOUNT_ID, newTier: 'premium' });
     await POST(req);
     expect(mockValidateTierChange).not.toHaveBeenCalled();
+  });
+
+  it('blocks tier changes before validation when account offboarding forbids billing expansion', async () => {
+    mockRequireRole.mockResolvedValueOnce(ownerUser());
+    mockGetOffboardingState.mockResolvedValueOnce({
+      id: 'offboarding-1',
+      accountId: ACCOUNT_ID,
+      mode: 'cancel_only',
+      status: 'scheduled',
+      failedStep: null,
+      terminalAt: null,
+      accessEndsAt: new Date('2026-07-01T00:00:00.000Z'),
+      teardownStartedAt: null,
+      purgeAfter: null,
+      purgeStartedAt: null,
+      purgeCancelledAt: null,
+    });
+
+    const req = mkRequest({ accountId: ACCOUNT_ID, newTier: 'premium' });
+    const res = await POST(req);
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'account_offboarding_blocked' });
+    expect(mockValidateTierChange).not.toHaveBeenCalled();
+    expect(mockSubscriptionsRetrieve).not.toHaveBeenCalled();
   });
 
   // ── Business logic ─────────────────────────────────────────────────────

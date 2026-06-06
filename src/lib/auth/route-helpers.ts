@@ -167,10 +167,10 @@ export type WritableOwnerResult = OwnerAccountResult;
 
 /**
  * Owner gate for mutating owner/account routes: requireOwnerWithAccount →
- * writable-subscription gate (past-due read-only enforced). Returns the owner
- * user + accountId on success, or the inline no-store JSON response
- * (401 / 403 no-account / 402|403 not-writable) on failure. Unexpected non-auth
- * failures propagate as 5xx (see requireRoleOr401).
+ * writable-subscription/offboarding gate. Returns the owner user + accountId on
+ * success, or the inline no-store JSON response (401 / 403 no-account /
+ * 402|403 not-writable) on failure. Unexpected non-auth failures propagate as
+ * 5xx (see requireRoleOr401).
  */
 export async function requireWritableOwner(request: NextRequest): Promise<WritableOwnerResult> {
   const owner = await requireOwnerWithAccount(request);

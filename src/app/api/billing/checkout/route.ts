@@ -8,6 +8,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import { getOffboardingState, isCheckoutBlocked } from '@/lib/account-offboarding/gate';
 import { sql } from '@/lib/db/server';
 import { isSubscriptionTier, type SubscriptionTierValue } from '@/lib/accounts/tier-config';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
@@ -90,6 +91,14 @@ async function createBillingCheckout(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json(
       { error: 'account_not_found' },
       { status: 404, headers: NO_STORE },
+    );
+  }
+
+  const offboardingState = await getOffboardingState(accountId);
+  if (isCheckoutBlocked(offboardingState)) {
+    return NextResponse.json(
+      { error: 'account_offboarding_blocked' },
+      { status: 403, headers: NO_STORE },
     );
   }
 

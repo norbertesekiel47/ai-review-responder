@@ -9,12 +9,20 @@ import { NextRequest } from 'next/server';
 
 // ── Hoisted mocks ──────────────────────────────────────────────────────────
 
-const { mockRequireRole, mockSql, mockPortalCreate, mockConfigList, mockConfigCreate } = vi.hoisted(() => ({
+const {
+  mockRequireRole,
+  mockSql,
+  mockPortalCreate,
+  mockConfigList,
+  mockConfigCreate,
+  mockGetOffboardingState,
+} = vi.hoisted(() => ({
   mockRequireRole: vi.fn(),
   mockSql: vi.fn(),
   mockPortalCreate: vi.fn(),
   mockConfigList: vi.fn(),
   mockConfigCreate: vi.fn(),
+  mockGetOffboardingState: vi.fn(),
 }));
 
 vi.mock('@/lib/db/auth', () => {
@@ -37,6 +45,14 @@ vi.mock('@/lib/db/server', () => ({
   sql: mockSql,
   jsonb: (v: unknown) => v,
 }));
+
+vi.mock('@/lib/account-offboarding/gate', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/account-offboarding/gate')>();
+  return {
+    ...actual,
+    getOffboardingState: (...args: unknown[]) => mockGetOffboardingState(...args),
+  };
+});
 
 // Mock Stripe SDK
 vi.mock('stripe', () => {
@@ -125,6 +141,8 @@ beforeEach(() => {
   mockRequireRole.mockReset();
   mockSql.mockReset();
   mockSql.mockResolvedValue([]);
+  mockGetOffboardingState.mockReset();
+  mockGetOffboardingState.mockResolvedValue(null);
   mockPortalCreate.mockReset();
   mockConfigList.mockReset();
   mockConfigCreate.mockReset();
@@ -220,6 +238,55 @@ describe('POST /api/billing/portal', () => {
         configuration: 'bpc_test_existing',
       }),
     );
+  });
+
+  it('allows portal management during cancel-only scheduled offboarding', async () => {
+    mockRequireRole.mockResolvedValueOnce(ownerUser());
+    mockSql.mockResolvedValueOnce([mockAccountRow('active', 'cus_test_123')]);
+    mockGetOffboardingState.mockResolvedValueOnce({
+      id: 'offboarding-1',
+      accountId: ACCOUNT_ID,
+      mode: 'cancel_only',
+      status: 'scheduled',
+      failedStep: null,
+      terminalAt: null,
+      accessEndsAt: new Date('2026-07-01T00:00:00.000Z'),
+      teardownStartedAt: null,
+      purgeAfter: null,
+      purgeStartedAt: null,
+      purgeCancelledAt: null,
+    });
+
+    const req = mkRequest();
+    const res = await POST(req);
+
+    expect(res.status).toBe(200);
+    expect(mockPortalCreate).toHaveBeenCalled();
+  });
+
+  it('blocks portal management during delete-data offboarding', async () => {
+    mockRequireRole.mockResolvedValueOnce(ownerUser());
+    mockSql.mockResolvedValueOnce([mockAccountRow('active', 'cus_test_123')]);
+    mockGetOffboardingState.mockResolvedValueOnce({
+      id: 'offboarding-1',
+      accountId: ACCOUNT_ID,
+      mode: 'delete_data',
+      status: 'pending',
+      failedStep: null,
+      terminalAt: null,
+      accessEndsAt: null,
+      teardownStartedAt: null,
+      purgeAfter: null,
+      purgeStartedAt: null,
+      purgeCancelledAt: null,
+    });
+
+    const req = mkRequest();
+    const res = await POST(req);
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'account_offboarding_blocked' });
+    expect(mockPortalCreate).not.toHaveBeenCalled();
   });
 
   it('does not use an existing portal configuration that enables subscription cancellation', async () => {

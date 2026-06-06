@@ -1,5 +1,9 @@
 import type postgres from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
+import {
+  getOffboardingState,
+  isBillingMutationBlocked,
+} from '@/lib/account-offboarding/gate';
 import { writeAccountAuditLog } from '@/lib/audit/log';
 import { sql } from '@/lib/db/server';
 import { assertWritableSubscriptionForAccount } from '@/lib/shared/writable-subscription';
@@ -522,12 +526,13 @@ async function buildReadiness(
   const moderationValidated = providerModerationValidated();
   const preview = isPreviewEnvironment();
   const writable = await assertWritableSubscriptionForAccount(accountId, db);
+  const offboardingState = await getOffboardingState(accountId, db);
 
   return buildAutoApprovalReadiness({
     runtimeEnabled,
     providerModerationEnabled: moderationEnabled,
     providerModerationValidated: moderationValidated,
-    accountWritable: writable.ok,
+    accountWritable: writable.ok && !isBillingMutationBlocked(offboardingState),
     previewEnvironment: preview,
     impersonated,
   });

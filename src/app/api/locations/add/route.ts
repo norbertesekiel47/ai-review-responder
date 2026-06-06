@@ -9,6 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import { createOffboardingGate, isBillingMutationBlocked } from '@/lib/account-offboarding/gate';
 import { assertCanAddLocation } from '@/lib/accounts/quota';
 import { getAccountById, getAccountOwnerUserId } from '@/lib/accounts/repo';
 import { addLocationTransaction } from '@/lib/locations/add-location-tx';
@@ -68,7 +69,8 @@ const QUOTA_DENIAL_STATUS: Record<string, number> = {
  * Gated by MULTI_LOCATION_ENABLED — returns 404 when disabled (VAL-LOC-041).
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  const owner = await readOwnerForMultiLocationRoute(req);
+  const offboardingGate = createOffboardingGate();
+  const owner = await readOwnerForMultiLocationRoute(req, offboardingGate);
   if (!owner.ok) return owner.response;
   const { user } = owner;
 
@@ -79,6 +81,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // ── Ownership: body.accountId must match authenticated user ──────────────
   if (accountId !== user.accountId) {
     return ownerAccountMismatchResponse();
+  }
+
+  const offboardingState = await offboardingGate.getOffboardingState(accountId);
+  if (isBillingMutationBlocked(offboardingState)) {
+    return NextResponse.json(
+      { error: 'account_offboarding_blocked' },
+      { status: 403, headers: NO_STORE },
+    );
   }
 
   // Use the quota chokepoint for tier, subscription, and overage preview.

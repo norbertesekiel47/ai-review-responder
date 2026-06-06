@@ -15,12 +15,26 @@ const {
     displayLabel: string | null;
     archivedAt: Date | null;
   };
+  type Offboarding = {
+    id: string;
+    account_id: string;
+    mode: string;
+    status: string;
+    failed_step: string | null;
+    terminal_at: null;
+    access_ends_at: Date | null;
+    teardown_started_at: Date | null;
+    purge_after: Date | null;
+    purge_started_at: Date | null;
+    purge_cancelled_at: Date | null;
+  };
   const sqlCalls: { text: string; values: unknown[] }[] = [];
   const dbState = {
     accountExists: true,
     accountDefault: null as Policy | null,
     locations: [] as Location[],
     overrides: new Map<string, Policy>(),
+    offboarding: null as Offboarding | null,
   };
 
   const policyRow = (
@@ -41,6 +55,10 @@ const {
 
     if (text.includes('FROM accounts') && text.includes('FOR UPDATE')) {
       return dbState.accountExists ? [{ id: accountId }] : [];
+    }
+
+    if (text.includes('FROM account_offboardings')) {
+      return dbState.offboarding ? [dbState.offboarding] : [];
     }
 
     if (
@@ -179,6 +197,7 @@ function resetDb(): void {
     { id: LOCATION_2, name: 'East Cafe', displayLabel: null, archivedAt: null },
   ];
   dbState.overrides = new Map();
+  dbState.offboarding = null;
 }
 
 function enableReadiness(): void {
@@ -317,6 +336,44 @@ describe('auto-approval settings service', () => {
       }),
       mockSql,
     );
+  });
+
+  it('blocks expansion while cancel-only scheduled offboarding is active', async () => {
+    dbState.offboarding = {
+      id: '22222222-2222-7333-8444-555555555555',
+      account_id: ACCOUNT_ID,
+      mode: 'cancel_only',
+      status: 'scheduled',
+      failed_step: null,
+      terminal_at: null,
+      access_ends_at: new Date('2026-07-01T00:00:00.000Z'),
+      teardown_started_at: null,
+      purge_after: null,
+      purge_started_at: null,
+      purge_cancelled_at: null,
+    };
+
+    const { AutoApprovalExpansionBlockedError, patchAutoApprovalSettings } =
+      await import('../settings');
+
+    let caught: unknown;
+    try {
+      await patchAutoApprovalSettings({
+        accountId: ACCOUNT_ID,
+        actorUserId: ACTOR_USER_ID,
+        impersonated: false,
+        operation: 'set_account_default',
+        threshold: 4,
+        confirmationLevel: 'standard',
+      });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(AutoApprovalExpansionBlockedError);
+    expect(caught).toMatchObject({
+      blockReasons: ['subscription_not_writable'],
+    });
   });
 
   it('requires all-ratings confirmation when deleting a manual override inherits all rated', async () => {

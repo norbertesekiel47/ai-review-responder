@@ -9,10 +9,11 @@ import { NextRequest } from 'next/server';
 
 // ── Hoisted mocks ──────────────────────────────────────────────────────────
 
-const { mockRequireRole, mockSql, mockStripeCheckoutCreate } = vi.hoisted(() => ({
+const { mockRequireRole, mockSql, mockStripeCheckoutCreate, mockGetOffboardingState } = vi.hoisted(() => ({
   mockRequireRole: vi.fn(),
   mockSql: vi.fn(),
   mockStripeCheckoutCreate: vi.fn(),
+  mockGetOffboardingState: vi.fn(),
 }));
 
 vi.mock('@/lib/db/auth', () => {
@@ -35,6 +36,14 @@ vi.mock('@/lib/db/server', () => ({
   sql: mockSql,
   jsonb: (v: unknown) => v,
 }));
+
+vi.mock('@/lib/account-offboarding/gate', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/account-offboarding/gate')>();
+  return {
+    ...actual,
+    getOffboardingState: (...args: unknown[]) => mockGetOffboardingState(...args),
+  };
+});
 
 // Mock Stripe SDK
 vi.mock('stripe', () => {
@@ -151,6 +160,8 @@ describe('POST /api/billing/checkout', () => {
     mockRequireRole.mockReset();
     mockSql.mockReset();
     mockSql.mockResolvedValue([]);
+    mockGetOffboardingState.mockReset();
+    mockGetOffboardingState.mockResolvedValue(null);
     mockStripeCheckoutCreate.mockReset();
     setPriceEnvVars();
     process.env.NEXT_PUBLIC_APP_URL = APP_URL;
@@ -229,6 +240,31 @@ describe('POST /api/billing/checkout', () => {
     expect(
       createArgs.line_items.some((item: { quantity: number }) => item.quantity === 0),
     ).toBe(false);
+  });
+
+  it('returns 403 without Stripe when checkout is blocked by account offboarding', async () => {
+    mockRequireRole.mockResolvedValueOnce(ownerUser());
+    mockSql.mockResolvedValueOnce([mockAccountRow('standard', 'pending_payment')]);
+    mockGetOffboardingState.mockResolvedValueOnce({
+      id: 'offboarding-1',
+      accountId: ACCOUNT_ID,
+      mode: 'cancel_only',
+      status: 'scheduled',
+      failedStep: null,
+      terminalAt: null,
+      accessEndsAt: new Date('2026-07-01T00:00:00.000Z'),
+      teardownStartedAt: null,
+      purgeAfter: null,
+      purgeStartedAt: null,
+      purgeCancelledAt: null,
+    });
+
+    const req = mkRequest({ accountId: ACCOUNT_ID });
+    const res = await POST(req);
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'account_offboarding_blocked' });
+    expect(mockStripeCheckoutCreate).not.toHaveBeenCalled();
   });
 
   // Regression: accounts.owner_email does not exist after migration 034.

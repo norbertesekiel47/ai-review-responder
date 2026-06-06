@@ -11,6 +11,7 @@ import { v7 as uuidv7 } from 'uuid';
 import { createHash } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import { getOffboardingState, isBillingMutationBlocked } from '@/lib/account-offboarding/gate';
 import { sql, jsonb } from '@/lib/db/server';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 import { validateTierChange } from '@/lib/accounts/tier-change';
@@ -83,6 +84,14 @@ async function changeBillingTier(req: NextRequest): Promise<NextResponse> {
   if (accountId !== owner.accountId) {
     return NextResponse.json(
       { error: 'Account ID mismatch' },
+      { status: 403, headers: NO_STORE_HEADERS },
+    );
+  }
+
+  const offboardingState = await getOffboardingState(accountId);
+  if (isBillingMutationBlocked(offboardingState)) {
+    return NextResponse.json(
+      { error: 'account_offboarding_blocked' },
       { status: 403, headers: NO_STORE_HEADERS },
     );
   }

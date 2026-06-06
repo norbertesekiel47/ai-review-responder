@@ -5,10 +5,12 @@ const {
   mockRequireRole,
   mockGetAutoApprovalSettings,
   mockPatchAutoApprovalSettings,
+  mockGetOffboardingState,
 } = vi.hoisted(() => ({
   mockRequireRole: vi.fn(),
   mockGetAutoApprovalSettings: vi.fn(),
   mockPatchAutoApprovalSettings: vi.fn(),
+  mockGetOffboardingState: vi.fn(),
 }));
 
 vi.mock('@/lib/db/auth', () => {
@@ -52,6 +54,14 @@ vi.mock('@/lib/auto-approval/settings', () => {
     AutoApprovalConfirmationRequiredError,
     AutoApprovalExpansionBlockedError,
     AutoApprovalSettingsError,
+  };
+});
+
+vi.mock('@/lib/account-offboarding/gate', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/account-offboarding/gate')>();
+  return {
+    ...actual,
+    getOffboardingState: (...args: unknown[]) => mockGetOffboardingState(...args),
   };
 });
 
@@ -111,6 +121,7 @@ describe('/api/settings/auto-approval', () => {
     vi.clearAllMocks();
     process.env.NEXT_PUBLIC_APP_URL = APP_URL;
     mockRequireRole.mockResolvedValue(ownerUser());
+    mockGetOffboardingState.mockResolvedValue(null);
     mockGetAutoApprovalSettings.mockResolvedValue(settingsResponse());
     mockPatchAutoApprovalSettings.mockResolvedValue(settingsResponse());
   });
@@ -125,6 +136,28 @@ describe('/api/settings/auto-approval', () => {
       impersonated: false,
     });
     expect(await res.json()).toEqual(settingsResponse());
+  });
+
+  it('GET blocks settings during delete-data offboarding', async () => {
+    mockGetOffboardingState.mockResolvedValueOnce({
+      id: 'offboarding-1',
+      accountId: ACCOUNT_ID,
+      mode: 'delete_data',
+      status: 'pending',
+      failedStep: null,
+      terminalAt: null,
+      accessEndsAt: null,
+      teardownStartedAt: null,
+      purgeAfter: null,
+      purgeStartedAt: null,
+      purgeCancelledAt: null,
+    });
+
+    const res = await GET(makeRequest('GET'));
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'account_offboarding_blocked' });
+    expect(mockGetAutoApprovalSettings).not.toHaveBeenCalled();
   });
 
   it('rejects accountId in GET query', async () => {
@@ -165,6 +198,28 @@ describe('/api/settings/auto-approval', () => {
       error: 'auto_approval_expansion_blocked',
       blockReasons: ['impersonation_not_allowed'],
     });
+    expect(mockPatchAutoApprovalSettings).not.toHaveBeenCalled();
+  });
+
+  it('PATCH blocks settings during tearing-down offboarding before parsing mutations', async () => {
+    mockGetOffboardingState.mockResolvedValueOnce({
+      id: 'offboarding-1',
+      accountId: ACCOUNT_ID,
+      mode: 'cancel_only',
+      status: 'tearing_down',
+      failedStep: null,
+      terminalAt: null,
+      accessEndsAt: new Date('2026-07-01T00:00:00.000Z'),
+      teardownStartedAt: new Date('2026-07-01T00:00:00.000Z'),
+      purgeAfter: null,
+      purgeStartedAt: null,
+      purgeCancelledAt: null,
+    });
+
+    const res = await PATCH(makeRequest('PATCH', { operation: 'set_account_manual' }));
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'account_offboarding_blocked' });
     expect(mockPatchAutoApprovalSettings).not.toHaveBeenCalled();
   });
 

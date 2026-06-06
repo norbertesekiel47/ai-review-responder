@@ -4,8 +4,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 
-const { mockRequireRole } = vi.hoisted(() => ({
+const { mockRequireRole, mockGetOffboardingState } = vi.hoisted(() => ({
   mockRequireRole: vi.fn(),
+  mockGetOffboardingState: vi.fn(),
 }));
 
 vi.mock('@/lib/db/auth', () => {
@@ -31,6 +32,14 @@ const { mockSql } = vi.hoisted(() => ({
 vi.mock('@/lib/db/server', () => ({
   sql: mockSql,
 }));
+
+vi.mock('@/lib/account-offboarding/gate', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/account-offboarding/gate')>();
+  return {
+    ...actual,
+    getOffboardingState: (...args: unknown[]) => mockGetOffboardingState(...args),
+  };
+});
 
 const { mockCreateCheckoutSession } = vi.hoisted(() => ({
   mockCreateCheckoutSession: vi.fn(),
@@ -80,6 +89,7 @@ function accountRow(status: string) {
 beforeEach(() => {
   vi.clearAllMocks();
   mockRequireRole.mockResolvedValue(ownerUser());
+  mockGetOffboardingState.mockResolvedValue(null);
   mockSql.mockResolvedValue([accountRow(SubscriptionStatus.PENDING_PAYMENT)]);
   mockCreateCheckoutSession.mockResolvedValue({
     url: 'https://checkout.stripe.test/session',
@@ -116,6 +126,28 @@ describe('POST /api/billing/checkout', () => {
       error: 'account_already_active',
       subscriptionStatus: SubscriptionStatus.PAST_DUE,
     });
+    expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
+  });
+
+  it('blocks checkout when account offboarding forbids billing expansion', async () => {
+    mockGetOffboardingState.mockResolvedValueOnce({
+      id: 'offboarding-1',
+      accountId: ACCOUNT_ID,
+      mode: 'cancel_only',
+      status: 'scheduled',
+      failedStep: null,
+      terminalAt: null,
+      accessEndsAt: new Date('2026-07-01T00:00:00.000Z'),
+      teardownStartedAt: null,
+      purgeAfter: null,
+      purgeStartedAt: null,
+      purgeCancelledAt: null,
+    });
+
+    const res = await POST(mkRequest({ accountId: ACCOUNT_ID }));
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'account_offboarding_blocked' });
     expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
   });
 });

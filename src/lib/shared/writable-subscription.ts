@@ -1,4 +1,9 @@
 import type postgres from 'postgres';
+import {
+  getOffboardingState,
+  isProcessingBlocked,
+  type OffboardingGate,
+} from '@/lib/account-offboarding/gate';
 import { sql } from '@/lib/db/server';
 import {
   computePastDueRecoveryState,
@@ -56,9 +61,24 @@ export function assertWritableSubscriptionStatus(
   return { ok: false, status: 403, error: 'subscription_inactive' };
 }
 
+async function assertNoBlockingOffboardingForAccount(
+  accountId: string,
+  db: SubscriptionSql,
+  offboardingGate?: Pick<OffboardingGate, 'getOffboardingState'>,
+): Promise<WritableSubscriptionResult> {
+  const state = offboardingGate
+    ? await offboardingGate.getOffboardingState(accountId)
+    : await getOffboardingState(accountId, db);
+  if (isProcessingBlocked(state)) {
+    return { ok: false, status: 403, error: 'account_offboarding_blocked' };
+  }
+  return { ok: true };
+}
+
 export async function assertWritableSubscriptionForAccount(
   accountId: string,
   db: SubscriptionSql = sql,
+  offboardingGate?: Pick<OffboardingGate, 'getOffboardingState'>,
 ): Promise<WritableSubscriptionResult> {
   const [account] = await db<{
     subscription_status: string;
@@ -75,23 +95,29 @@ export async function assertWritableSubscriptionForAccount(
     return { ok: false, status: 403, error: 'no_business' };
   }
 
-  return assertWritableSubscriptionStatus({
+  const subscription = assertWritableSubscriptionStatus({
     subscriptionStatus: account.subscription_status,
     pastDueAt: account.past_due_at,
     accountFlags: account.flags,
   });
+
+  if (!subscription.ok) return subscription;
+
+  return assertNoBlockingOffboardingForAccount(accountId, db, offboardingGate);
 }
 
 export async function assertWritableSubscriptionForBusiness(
   businessId: string,
   db: SubscriptionSql = sql,
+  offboardingGate?: Pick<OffboardingGate, 'getOffboardingState'>,
 ): Promise<WritableSubscriptionResult> {
   const [account] = await db<{
+    id: string;
     subscription_status: string;
     past_due_at: Date | string | null;
     flags: AccountFlagsInput;
   }[]>`
-    SELECT a.subscription_status, a.past_due_at, a.flags
+    SELECT a.id, a.subscription_status, a.past_due_at, a.flags
     FROM businesses b
     JOIN accounts a ON a.id = b.account_id
     WHERE b.id = ${businessId}::uuid
@@ -102,11 +128,15 @@ export async function assertWritableSubscriptionForBusiness(
     return { ok: false, status: 403, error: 'no_business' };
   }
 
-  return assertWritableSubscriptionStatus({
+  const subscription = assertWritableSubscriptionStatus({
     subscriptionStatus: account.subscription_status,
     pastDueAt: account.past_due_at,
     accountFlags: account.flags,
   });
+
+  if (!subscription.ok) return subscription;
+
+  return assertNoBlockingOffboardingForAccount(account.id, db, offboardingGate);
 }
 
 export type WritableAccountForLocation =
@@ -122,14 +152,15 @@ export type WritableAccountForLocation =
  * routes (telegram/whatsapp start/cancel/disable) ran inline. Callers map the
  * `no_account` outcome to their own status — enrollment `start` returns 404
  * `not_found`, while `cancel`/`disable` return 403 `subscription_not_active` —
- * and surface `blocked` (402 `past_due_read_only` / 403 `subscription_not_active`)
- * verbatim. After migration 034 subscription_status lives on accounts, so this
- * joins businesses → accounts and hands back the account id the routes need for
- * the advisory lock and channel-cache invalidation.
+ * and surface `blocked` (402 `past_due_read_only` / 403 subscription or
+ * offboarding blocks) verbatim. After migration 034 subscription_status lives
+ * on accounts, so this joins businesses → accounts and hands back the account
+ * id the routes need for the advisory lock and channel-cache invalidation.
  */
 export async function resolveWritableAccountForLocation(
   locationId: string,
   db: SubscriptionSql = sql,
+  offboardingGate?: Pick<OffboardingGate, 'getOffboardingState'>,
 ): Promise<WritableAccountForLocation> {
   const [accountRow] = await db<{
     id: string;
@@ -153,6 +184,11 @@ export async function resolveWritableAccountForLocation(
     if (!writable.ok) return { kind: 'blocked', status: writable.status, error: writable.error };
   } else if (accountRow.subscription_status !== SubscriptionStatus.ACTIVE) {
     return { kind: 'blocked', status: 403, error: 'subscription_not_active' };
+  }
+
+  const offboarding = await assertNoBlockingOffboardingForAccount(accountRow.id, db, offboardingGate);
+  if (!offboarding.ok) {
+    return { kind: 'blocked', status: offboarding.status, error: offboarding.error };
   }
 
   return { kind: 'ok', accountId: accountRow.id };
