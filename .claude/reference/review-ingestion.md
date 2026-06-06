@@ -14,6 +14,14 @@ hash comparison). These are separate concerns — never mix them.
 > or CSV bulk-imports, scope by `account_id` first, then fan out per
 > `business_id`.
 
+> **Auto-approval lane note (since the auto-approval feature, migration 055):** the
+> new-vs-content-changed distinction this dedup logic produces now feeds `origin_lane`
+> on the `generate_response` job. A **first-time new** review → `live_ingest_new` (the
+> ONLY lane eligible for auto-approval); a content-changed / supersede-regenerate review
+> → `live_ingest_update`, and Zernio backfill/import → `backfill` — both always manual.
+> So if you change what counts as "new" vs "update/import" here, you are also changing
+> what can auto-post to Google. See the auto-approval design spec §5 (origin lanes).
+
 ## Stable Identity Construction (SerpAPI mode)
 
 Identity must NOT include mutable text (review body, star rating can be

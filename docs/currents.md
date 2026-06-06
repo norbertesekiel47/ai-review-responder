@@ -3343,3 +3343,34 @@ src/app/admin/flagged/page.tsx       ← NEW: the admin review screen
 ### One thing to remember
 
 Two safety nets both **fail open**: the JSON logger never throws (a bad log argument can't crash a worker), and the moderation never throws (if the optional OpenAI check errors, it falls back to the local rules — it never "passes" something by accident). The held-draft behavior keeps the golden rule intact: **nothing posts to Google without owner approval** — flagging just removes the owner's notification until an admin says it's okay. The OpenAI moderation layer stays **off** unless you set `OPENAI_MODERATION_ENABLED=true`. Migrations 050 and 051 are additive and safe to run in order.
+
+## Quick summary — Auto-Approval Policy (2026-06, PRs #224–#229, #241)
+
+In simple words: we built the **opt-in "let routine good reviews answer themselves"** feature. An owner can now say *"for 5-star reviews (or 4-5, 3-5, …) post the AI's reply automatically without asking me first."* It only ever applies to **brand-new, first-time** reviews, and only after **every** existing safety check passes (moderation clean, active Google connection, active location, subscription OK, the review unchanged since we drafted it). Everything else still waits for the owner. It ships **switched off** — nothing auto-posts until an operator turns it on *and* the owner picks a policy.
+
+### What we changed
+
+**1. A policy you can set per account and per location.** A new settings page (`/settings/auto-approval`) lets the owner pick a star threshold for the whole account, and optionally override it per location. Making auto-approval *broader* asks for a confirmation (with a stronger warning for "All rated", since that includes 1- and 2-star reviews); making it *narrower* or turning it **off** always works instantly — even during a billing problem or an incident.
+
+**2. The robot only acts when it's truly safe.** At the moment we save a draft, the worker re-reads the live state and only auto-approves if the star rating meets the policy **and** moderation came back clean **and** the Google connection + location are active **and** the subscription can post **and** the master switch is on. If any of those fail, it falls back to the normal "owner, please approve" flow — it never posts.
+
+**3. A kill switch that un-does in-flight auto-approvals.** If an operator flips the master switch **off**, any reply that was auto-approved but hasn't posted yet is quietly **put back** to "waiting for owner", the owner is notified, and nothing reaches Google. Turning it off is always the safe direction.
+
+**4. Owners and admins can see what happened.** Past Replies and the dashboard show an **"Auto-approved"** badge on replies the robot handled; an admin-only diagnostics panel shows the current policy, whether the environment is ready, and recent auto / kill-switch decisions — read-only.
+
+```text
+src/lib/auto-approval/                                      ← NEW: the whole policy "brain" (thresholds, gates, flags, readiness, types)
+src/app/api/settings/auto-approval/route.ts                ← NEW: owner GET/PATCH settings API (server-owned, session-scoped, same-origin)
+src/app/(authenticated)/settings/auto-approval/            ← NEW: the owner settings page + UI
+src/app/admin/businesses/[id]/_components/AutoApprovalDiagnosticsPanel.tsx  ← NEW: admin read-only diagnostics
+src/components/dashboard/reviews/AutoApprovedBadge.tsx      ← NEW: the shared "Auto"/"Auto-approved" badge
+src/components/dashboard/reviews/ReviewFeedCard.tsx         ← NEW: one review-feed card (replaced the duplicated ReviewsCard/AggregateReviewsCard bodies)
+worker/jobs/response-generation/                           ← the persist-time auto decision (origin lane + final predicate) lives here
+worker/jobs/publisher/                                     ← the kill-switch downgrade lives here
+supabase/migrations/055_*.sql                              ← NEW auto_approval_policies table + responses.approval_method
+docs/runbooks/completed_runbooks/auto-approval-staging-test.md  ← the staging test runbook (now done + archived)
+```
+
+### One thing to remember
+
+Auto-approval **skips only the owner's click** — it never skips a safety check. Moderation stays an absolute veto (high-severity drafts are held and never auto-post), and the master switch (`AUTO_APPROVAL_ENABLED`) is read fresh at worker boot, so turning it **off** stops new auto-approvals *and* un-does any that haven't posted yet. It ships **off** in production; staging was fully exercised end-to-end on 2026-06-06.
