@@ -63,8 +63,10 @@ vi.mock('@supabase/ssr', () => ({
 process.env.NEXT_PUBLIC_APP_URL = 'https://app.example.com';
 process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://supabase.example.com';
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'anon-key';
+process.env.SESSION_COOKIE_SECRET = 'test-session-cookie-secret-at-least-32-chars';
 
 import { POST } from '../mfa/challenge/route';
+import { FRESH_AUTH_COOKIE_NAME } from '@/lib/account-offboarding/destructive-auth';
 
 function req(body: unknown): NextRequest {
   return new NextRequest('https://app.example.com/api/auth/mfa/challenge', {
@@ -86,7 +88,7 @@ describe('POST /api/auth/mfa/challenge', () => {
     mockVerify.mockResolvedValue({ data: {}, error: null });
     mockUnenroll.mockResolvedValue({ data: {}, error: null });
     mockGetAal.mockResolvedValue({ data: { currentLevel: 'aal2', nextLevel: 'aal2' }, error: null });
-    mockSql.mockResolvedValue([{ id: 'user-1', account_id: 'acct-1' }]);
+    mockSql.mockResolvedValue([{ id: 'user-1', account_id: 'acct-1', role: 'owner' }]);
     mockWriteAudit.mockResolvedValue(undefined);
     mockSetSupabaseCookies.value = false;
   });
@@ -160,6 +162,23 @@ describe('POST /api/auth/mfa/challenge', () => {
       challengeId: 'challenge-1',
       code: '123456',
     });
+  });
+
+  it('stamps fresh auth after a successful MFA verification for account owners', async () => {
+    const res = await POST(req({
+      action: 'verify',
+      factorId: 'factor-1',
+      challengeId: 'challenge-1',
+      code: '123456',
+    }));
+
+    expect(res.status).toBe(200);
+    const setCookie = res.headers.get('set-cookie') ?? '';
+    expect(setCookie).toContain(`${FRESH_AUTH_COOKIE_NAME}=`);
+    expect(setCookie).toContain('Max-Age=600');
+    expect(setCookie).toContain('HttpOnly');
+    expect(setCookie.toLowerCase()).toContain('samesite=strict');
+    expect(setCookie).toMatch(/;\s*Path=\/(?:;|$)/);
   });
 
   it('audits a failed verify as mfa_challenge_failed', async () => {
