@@ -7,7 +7,7 @@ import { SettingsClient } from '../SettingsClient';
 const { mockUseSettingsForm, mockUseAccountData, mockAccountPanel } = vi.hoisted(() => ({
   mockUseSettingsForm: vi.fn(),
   mockUseAccountData: vi.fn(),
-  mockAccountPanel: vi.fn(() => <div>Account panel</div>),
+  mockAccountPanel: vi.fn((_props: unknown) => <div>Account panel</div>),
 }));
 
 vi.mock('@/hooks/useSettingsForm', () => ({
@@ -116,6 +116,10 @@ describe('SettingsClient', () => {
       }),
       undefined,
     );
+    const accountPanelProps = mockAccountPanel.mock.calls[0]?.[0] as {
+      accountData?: { timeZone?: string };
+    } | undefined;
+    expect(accountPanelProps?.accountData?.timeZone).toBe('America/New_York');
   });
 
   it('prefers account tab when multi-location enabled even if locations settings are disabled', () => {

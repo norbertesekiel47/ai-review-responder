@@ -71,6 +71,7 @@ export function isProtectedRoute(pathname: string): boolean {
     normalized === '/api/admin' || normalized.startsWith('/api/admin/') ||
     isProtectedAppApiRoute(normalized) ||
     normalized === '/dashboard' || normalized.startsWith('/dashboard/') ||
+    normalized === '/account' || normalized.startsWith('/account/') ||
     normalized === '/settings' || normalized.startsWith('/settings/') ||
     normalized === '/mfa' || normalized.startsWith('/mfa/') ||
     normalized === '/onboarding' || normalized.startsWith('/onboarding/')

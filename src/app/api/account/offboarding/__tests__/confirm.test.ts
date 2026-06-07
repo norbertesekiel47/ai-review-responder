@@ -450,6 +450,7 @@ describe('GET /api/account/offboarding/status', () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
       enabled: true,
+      accountTimeZone: 'UTC',
       activeOffboarding: null,
     });
     expect(mockRequireOwnerWithAccount).toHaveBeenCalledOnce();
@@ -477,8 +478,11 @@ describe('GET /api/account/offboarding/status', () => {
         accessEndsAt,
         teardownStartedAt: null,
         purgeAfter: null,
+        operationalUIBlocked: false,
         stripeSubscriptionId: 'sub_should_not_leak',
         recipientEmail: 'owner@example.com',
+        businessName: 'Acme Reviews',
+        reviewText: 'Loved the service',
       },
     });
     const { statusRoute } = await importRoutes();
@@ -489,6 +493,7 @@ describe('GET /api/account/offboarding/status', () => {
     const body = await res.json();
     expect(body).toEqual({
       enabled: true,
+      accountTimeZone: 'UTC',
       activeOffboarding: {
         id: 'eeeeeeee-2222-7333-8444-555555555555',
         accountId: ACCOUNT_ID,
@@ -498,7 +503,12 @@ describe('GET /api/account/offboarding/status', () => {
         accessEndsAt: accessEndsAt.toISOString(),
         teardownStartedAt: null,
         purgeAfter: null,
+        operationalUIBlocked: false,
       },
     });
+    expect(JSON.stringify(body)).not.toContain('sub_should_not_leak');
+    expect(JSON.stringify(body)).not.toContain('owner@example.com');
+    expect(JSON.stringify(body)).not.toContain('Acme Reviews');
+    expect(JSON.stringify(body)).not.toContain('Loved the service');
   });
 });

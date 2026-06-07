@@ -1,5 +1,7 @@
 'use client';
 
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { useState } from 'react';
 import { LocationProvider, type LocationInfo, type LocationScope } from '@/contexts/LocationContext';
 import type { ReactNode } from 'react';
 
@@ -7,6 +9,7 @@ interface AuthenticatedProvidersProps {
   locations: LocationInfo[];
   initialScope: LocationScope;
   multiLocationEnabled: boolean;
+  enableLocationProvider?: boolean;
   children: ReactNode;
 }
 
@@ -22,9 +25,12 @@ export function AuthenticatedProviders({
   locations,
   initialScope,
   multiLocationEnabled,
+  enableLocationProvider = true,
   children,
 }: AuthenticatedProvidersProps) {
-  return (
+  const [queryClient] = useState(() => new QueryClient());
+
+  const content = enableLocationProvider ? (
     <LocationProvider
       locations={locations}
       initialScope={initialScope}
@@ -32,5 +38,13 @@ export function AuthenticatedProviders({
     >
       {children}
     </LocationProvider>
+  ) : (
+    children
+  );
+
+  return (
+    <QueryClientProvider client={queryClient}>
+      {content}
+    </QueryClientProvider>
   );
 }

@@ -1,4 +1,4 @@
-import { getOffboardingState } from './gate';
+import { getOffboardingState, isOperationalUIBlocked } from './gate';
 
 export interface AccountOffboardingStatusSummary {
   id: string;
@@ -9,6 +9,7 @@ export interface AccountOffboardingStatusSummary {
   accessEndsAt: Date | null;
   teardownStartedAt: Date | null;
   purgeAfter: Date | null;
+  operationalUIBlocked: boolean;
 }
 
 export interface AccountOffboardingStatusResult {
@@ -30,6 +31,7 @@ export async function getAccountOffboardingStatus(
         accessEndsAt: state.accessEndsAt,
         teardownStartedAt: state.teardownStartedAt,
         purgeAfter: state.purgeAfter,
+        operationalUIBlocked: isOperationalUIBlocked(state),
       }
       : null,
   };

@@ -1,4 +1,4 @@
-import { cookies } from 'next/headers';
+import { cookies, headers } from 'next/headers';
 import { createServerClient } from '@supabase/ssr';
 import { redirect } from 'next/navigation';
 import { Plus_Jakarta_Sans, DM_Sans } from 'next/font/google';
@@ -13,6 +13,12 @@ import { getLocationsForAccount } from '@/lib/locations/repo';
 import { getDisplayLabel } from '@/lib/locations/display-label';
 import type { LocationScope } from '@/contexts/LocationContext';
 import type { LocationId } from '@/lib/shared/ids';
+import { accountOffboardingEnabled } from '@/lib/account-offboarding/flags';
+import { getOffboardingState, isOperationalUIBlocked } from '@/lib/account-offboarding/gate';
+import {
+  ACCOUNT_OFFBOARDING_STATUS_PATH,
+  REQUEST_PATHNAME_HEADER,
+} from '@/lib/shared/request-path-header';
 import './_styles/tokens.css';
 import './_styles/console.css';
 import './_styles/past-replies.css';
@@ -39,7 +45,13 @@ export default async function AuthenticatedLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const cookieStore = await cookies();
+  const [cookieStore, requestHeaders] = await Promise.all([
+    cookies(),
+    headers(),
+  ]);
+  const pathname = normalizeLayoutPathname(
+    requestHeaders.get(REQUEST_PATHNAME_HEADER),
+  );
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -75,6 +87,28 @@ export default async function AuthenticatedLayout({
   if (!appUser?.account_id) redirect('/admin/login');
 
   const accountId = asAccountId(appUser.account_id);
+
+  if (accountOffboardingEnabled()) {
+    const activeOffboarding = await getOffboardingState(accountId);
+    if (isOperationalUIBlocked(activeOffboarding)) {
+      if (pathname !== null && pathname !== ACCOUNT_OFFBOARDING_STATUS_PATH) {
+        redirect(ACCOUNT_OFFBOARDING_STATUS_PATH);
+      }
+
+      return (
+        <div className={`rw-console ${plusJakarta.variable} ${dmSans.variable}`}>
+          <AuthenticatedProviders
+            locations={[]}
+            initialScope="all"
+            multiLocationEnabled={false}
+            enableLocationProvider={false}
+          >
+            <div className="main">{children}</div>
+          </AuthenticatedProviders>
+        </div>
+      );
+    }
+  }
 
   // Determine multi-location state and fetch all active locations
   const multiLocationEnabled = process.env.MULTI_LOCATION_ENABLED === 'true';
@@ -159,4 +193,11 @@ export default async function AuthenticatedLayout({
       </AuthenticatedProviders>
     </div>
   );
+}
+
+function normalizeLayoutPathname(pathname: string | null): string | null {
+  if (!pathname) return null;
+  return pathname.length > 1 && pathname.endsWith('/')
+    ? pathname.replace(/\/+$/, '')
+    : pathname;
 }

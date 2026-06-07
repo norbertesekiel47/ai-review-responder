@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { proxy } from '../proxy';
+import { REQUEST_PATHNAME_HEADER } from '@/lib/shared/request-path-header';
 
 const {
   getUser,
@@ -162,6 +163,43 @@ describe('proxy public launch host behavior', () => {
     const redirect = new URL(location!);
     expect(redirect.pathname).toBe('/login');
     expect(redirect.searchParams.get('from')).toBe('/mfa/challenge');
+  });
+
+  it('redirects unauthenticated account status page requests to owner login', async () => {
+    const response = await proxy(request('https://repworth.net/account/offboarding/status'));
+    const location = response.headers.get('location');
+
+    expect(createServerClient).toHaveBeenCalledTimes(1);
+    expect(location).not.toBeNull();
+    const redirect = new URL(location!);
+    expect(redirect.pathname).toBe('/login');
+    expect(redirect.searchParams.get('from')).toBe('/account/offboarding/status');
+  });
+
+  it('allows authenticated owners through the account status page', async () => {
+    getUser.mockResolvedValueOnce({ data: { user: { id: 'auth-owner' } } });
+    selfRow.value = { role: 'owner', account_id: 'acct-1' };
+
+    const response = await proxy(request('https://repworth.net/account/offboarding/status'));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('location')).toBeNull();
+  });
+
+  it('forwards refreshed Supabase cookies and the pathname header downstream on pass-through owner pages', async () => {
+    getUser.mockResolvedValueOnce({ data: { user: { id: 'auth-owner' } } });
+    selfRow.value = { role: 'owner', account_id: 'acct-1' };
+    setSupabaseCookies.value = true;
+
+    const response = await proxy(request('https://repworth.net/account/offboarding/status'));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('x-middleware-request-cookie')).toContain('sb-refresh-token=updated');
+    expect(response.headers.get(`x-middleware-request-${REQUEST_PATHNAME_HEADER}`)).toBe(
+      '/account/offboarding/status',
+    );
+    expect(response.headers.get('x-middleware-override-headers')).toContain('cookie');
+    expect(response.headers.get('x-middleware-override-headers')).toContain(REQUEST_PATHNAME_HEADER);
   });
 
   it('redirects enrolled admin AAL1 sessions to MFA challenge when enforcement is enabled', async () => {

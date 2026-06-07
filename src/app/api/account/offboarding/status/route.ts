@@ -10,7 +10,11 @@ export const dynamic = 'force-dynamic';
 
 async function readOffboardingStatus(req: NextRequest): Promise<NextResponse> {
   if (!accountOffboardingEnabled()) {
-    return jsonResponse({ enabled: false, activeOffboarding: null });
+    return jsonResponse({
+      enabled: false,
+      accountTimeZone: 'UTC',
+      activeOffboarding: null,
+    });
   }
 
   const owner = await requireOwnerWithAccount(req);
@@ -19,6 +23,9 @@ async function readOffboardingStatus(req: NextRequest): Promise<NextResponse> {
   const status = await getAccountOffboardingStatus(owner.accountId);
   return jsonResponse({
     enabled: true,
+    // The current account schema has no persisted IANA timezone. Keep the
+    // display timezone server-owned and explicit until a future schema adds it.
+    accountTimeZone: 'UTC',
     activeOffboarding: status.activeOffboarding
       ? routeOffboardingStatus(status.activeOffboarding)
       : null,
@@ -34,6 +41,7 @@ function routeOffboardingStatus(offboarding: {
   accessEndsAt: Date | string | null;
   teardownStartedAt: Date | string | null;
   purgeAfter: Date | string | null;
+  operationalUIBlocked: boolean;
 }) {
   return {
     id: offboarding.id,
@@ -44,6 +52,7 @@ function routeOffboardingStatus(offboarding: {
     accessEndsAt: offboarding.accessEndsAt,
     teardownStartedAt: offboarding.teardownStartedAt,
     purgeAfter: offboarding.purgeAfter,
+    operationalUIBlocked: offboarding.operationalUIBlocked,
   };
 }
 

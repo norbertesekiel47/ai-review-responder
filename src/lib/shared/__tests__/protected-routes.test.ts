@@ -63,6 +63,7 @@ const PROTECTED: string[] = [
   '/api/account/offboarding/confirm',
   '/api/account/offboarding/reactivate',
   '/api/account/offboarding/status',
+  '/account/offboarding/status',
   '/api/zernio/connect/start',
   '/api/zernio/connect/cancel',
   '/api/zernio/connect/select-location',
