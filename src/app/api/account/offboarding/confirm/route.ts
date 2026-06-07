@@ -7,22 +7,42 @@ import {
   withSameOrigin,
 } from '@/lib/auth/route-helpers';
 import { accountOffboardingEnabled } from '@/lib/account-offboarding/flags';
-import { confirmCancelOnlyOffboarding } from '@/lib/account-offboarding/confirm';
+import {
+  confirmCancelOnlyOffboarding,
+  confirmDeleteDataOffboarding,
+} from '@/lib/account-offboarding/confirm';
+import { requireDeleteDataDestructiveAuth } from '@/lib/account-offboarding/destructive-auth';
 
 export const dynamic = 'force-dynamic';
 
+const ReasonCodeSchema = z.enum([
+  'too_expensive',
+  'missing_features',
+  'switched_service',
+  'unused',
+  'other',
+]);
+
 const ConfirmCancelOnlySchema = z.object({
   mode: z.literal('cancel_only'),
-  reasonCode: z.string().trim().min(1).max(64).optional(),
+  reasonCode: ReasonCodeSchema.optional(),
 }).strict();
+
+const ConfirmDeleteDataSchema = z.object({
+  mode: z.literal('delete_data'),
+  reasonCode: ReasonCodeSchema,
+  confirmationText: z.literal('DELETE DATA'),
+}).strict();
+
+const ConfirmOffboardingSchema = z.discriminatedUnion('mode', [
+  ConfirmCancelOnlySchema,
+  ConfirmDeleteDataSchema,
+]);
 
 async function confirmOffboarding(req: NextRequest): Promise<NextResponse> {
   if (!accountOffboardingEnabled()) {
     return jsonResponse({ error: 'account_offboarding_disabled' }, 404);
   }
-
-  const owner = await requireWritableOwner(req);
-  if (!owner.ok) return owner.response;
 
   const idempotencyKey = parseIdempotencyKey(req.headers.get('Idempotency-Key'));
   if (!idempotencyKey.ok) {
@@ -36,7 +56,7 @@ async function confirmOffboarding(req: NextRequest): Promise<NextResponse> {
     return jsonResponse({ error: 'invalid_json' }, 400);
   }
 
-  const parsed = ConfirmCancelOnlySchema.safeParse(body);
+  const parsed = ConfirmOffboardingSchema.safeParse(body);
   if (!parsed.success) {
     return jsonResponse(
       { error: 'invalid_body', issues: parsed.error.issues },
@@ -44,15 +64,13 @@ async function confirmOffboarding(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  const result = await confirmCancelOnlyOffboarding({
-    accountId: owner.accountId,
-    actorUserId: owner.user.id,
-    idempotencyKey: idempotencyKey.value,
-    reasonCode: parsed.data.reasonCode,
-    requestId: req.headers.get('x-request-id') ?? uuidv7(),
-    ip: clientIp(req),
-    userAgent: req.headers.get('user-agent'),
-  });
+  const result = parsed.data.mode === 'delete_data'
+    ? await confirmDeleteData(req, parsed.data, idempotencyKey.value)
+    : await confirmCancelOnly(req, parsed.data, idempotencyKey.value);
+
+  if (result instanceof NextResponse) {
+    return result;
+  }
 
   if (!result.ok) {
     if (result.reason === 'duplicate_active') {
@@ -74,6 +92,44 @@ async function confirmOffboarding(req: NextRequest): Promise<NextResponse> {
     idempotent: result.status === 'idempotent',
     offboarding: routeOffboarding(result.offboarding),
   }, result.status === 'idempotent' ? 200 : 202);
+}
+
+async function confirmCancelOnly(
+  req: NextRequest,
+  body: z.infer<typeof ConfirmCancelOnlySchema>,
+  idempotencyKey: string,
+) {
+  const owner = await requireWritableOwner(req);
+  if (!owner.ok) return owner.response;
+
+  return confirmCancelOnlyOffboarding({
+    accountId: owner.accountId,
+    actorUserId: owner.user.id,
+    idempotencyKey,
+    reasonCode: body.reasonCode,
+    requestId: req.headers.get('x-request-id') ?? uuidv7(),
+    ip: clientIp(req),
+    userAgent: req.headers.get('user-agent'),
+  });
+}
+
+async function confirmDeleteData(
+  req: NextRequest,
+  body: z.infer<typeof ConfirmDeleteDataSchema>,
+  idempotencyKey: string,
+) {
+  const owner = await requireDeleteDataDestructiveAuth(req);
+  if (!owner.ok) return owner.response;
+
+  return confirmDeleteDataOffboarding({
+    accountId: owner.accountId,
+    actorUserId: owner.user.id,
+    idempotencyKey,
+    reasonCode: body.reasonCode,
+    requestId: req.headers.get('x-request-id') ?? uuidv7(),
+    ip: clientIp(req),
+    userAgent: req.headers.get('user-agent'),
+  });
 }
 
 type IdempotencyKeyParseResult =

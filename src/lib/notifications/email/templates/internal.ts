@@ -15,6 +15,12 @@ export interface InternalEmailParams {
   subject: string;
   bodyHtml: string;
   /**
+   * Deterministic provider idempotency key for retryable transactional sends.
+   * Resend applies this key at the API layer to prevent duplicate accepted
+   * emails when a worker retries after losing the local DB update.
+   */
+  idempotencyKey?: string;
+  /**
    * Sender address. Defaults to `process.env.RESEND_FROM_EMAIL`. Callers that
    * own a sender-fallback policy (e.g. the public contact/demo/lead routes,
    * which historically default to the company no-reply mailbox) pass it
@@ -45,16 +51,19 @@ export async function sendInternalEmail(
   const headers = getEmailHeaders(category);
 
   const resend = getResend();
-  const { data, error } = await resend.emails.send({
-    from,
-    to: params.to,
-    subject: params.subject,
-    html: params.bodyHtml,
-    tags: getEmailTags(category),
-    // Only pass headers when non-empty — empty object still adds no value
-    // but avoids passing an unused property to Resend's JSON body.
-    ...(Object.keys(headers).length > 0 ? { headers } : {}),
-  });
+  const { data, error } = await resend.emails.send(
+    {
+      from,
+      to: params.to,
+      subject: params.subject,
+      html: params.bodyHtml,
+      tags: getEmailTags(category),
+      // Only pass headers when non-empty — empty object still adds no value
+      // but avoids passing an unused property to Resend's JSON body.
+      ...(Object.keys(headers).length > 0 ? { headers } : {}),
+    },
+    params.idempotencyKey ? { idempotencyKey: params.idempotencyKey } : undefined,
+  );
 
   if (error) {
     throw new Error(`Resend API error: ${error.message}`);

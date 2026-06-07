@@ -4,6 +4,7 @@ import {
   type WeeklyValueReportParams,
   buildMonthlyImpactEmailHtml,
   type MonthlyImpactEmailParams,
+  buildAccountOffboardingEmailHtml,
 } from '../email';
 
 function baseWeeklyParams(overrides: Partial<WeeklyValueReportParams> = {}): WeeklyValueReportParams {
@@ -40,6 +41,33 @@ function baseMonthlyParams(overrides: Partial<MonthlyImpactEmailParams> = {}): M
     ...overrides,
   };
 }
+
+// ── buildAccountOffboardingEmailHtml ───────────────────────────────────
+
+describe('buildAccountOffboardingEmailHtml', () => {
+  it('renders delete-data confirmation with escaped keep-my-data link', () => {
+    const html = buildAccountOffboardingEmailHtml({
+      emailType: 'delete_data_confirmation',
+      accessEndsAt: null,
+      purgeAfter: '2026-07-06T00:00:00.000Z',
+      keepMyDataUrl: 'https://app.repworth.com/api/account/offboarding/keep-my-data?token=abc&return=/dashboard',
+    });
+
+    expect(html).toContain('Your RepWorth data deletion is scheduled');
+    expect(html).toContain('July 6, 2026');
+    expect(html).toContain('Keep my data');
+    expect(html).toContain('token=abc&amp;return=/dashboard');
+    expect(html).toContain('does not restore product access');
+  });
+
+  it('requires a keep-my-data link for delete-data confirmation', () => {
+    expect(() => buildAccountOffboardingEmailHtml({
+      emailType: 'delete_data_confirmation',
+      accessEndsAt: null,
+      purgeAfter: '2026-07-06T00:00:00.000Z',
+    })).toThrow(/keepMyDataUrl/);
+  });
+});
 
 // ── buildWeeklyValueReportHtml ──────────────────────────────────────────
 

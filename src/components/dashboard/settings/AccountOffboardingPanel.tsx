@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Icon } from '@/components/dashboard/shell/Icon';
 import { SettingsModal } from '@/components/dashboard/settings/SettingsModal';
+import { DeleteDataOffboardingModal } from '@/components/dashboard/settings/DeleteDataOffboardingModal';
 
 type OffboardingStatusResponse = {
   enabled: boolean;
@@ -45,6 +46,7 @@ export function AccountOffboardingPanel({
   } | null>(null);
   const [reactivating, setReactivating] = useState(false);
   const [reactivateError, setReactivateError] = useState<string | null>(null);
+  const [deleteDataIdempotencyKey, setDeleteDataIdempotencyKey] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -93,6 +95,10 @@ export function AccountOffboardingPanel({
       submitting: false,
       error: null,
     });
+  }
+
+  function openDeleteDataModal() {
+    setDeleteDataIdempotencyKey(createIdempotencyKey());
   }
 
   async function confirmCancellation() {
@@ -211,6 +217,14 @@ export function AccountOffboardingPanel({
           >
             Cancel subscription
           </button>
+          <button
+            type="button"
+            className="btn btn-danger"
+            style={{ alignSelf: 'flex-start' }}
+            onClick={openDeleteDataModal}
+          >
+            Delete data
+          </button>
         </div>
       )}
 
@@ -272,6 +286,25 @@ export function AccountOffboardingPanel({
             </button>
           </div>
         </SettingsModal>
+      )}
+
+      {deleteDataIdempotencyKey && (
+        <DeleteDataOffboardingModal
+          idempotencyKey={deleteDataIdempotencyKey}
+          onClose={() => setDeleteDataIdempotencyKey(null)}
+          onConfirmed={(offboarding) => {
+            setStatusResponse({
+              enabled: true,
+              activeOffboarding: {
+                id: offboarding.id,
+                mode: offboarding.mode,
+                status: offboarding.status,
+              },
+            });
+            setDeleteDataIdempotencyKey(null);
+            onAccountRefetch();
+          }}
+        />
       )}
     </div>
   );

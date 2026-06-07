@@ -179,6 +179,9 @@ export interface AccountOffboardingBillingSchedulePayload extends BasePayload {
 export interface AccountOffboardingEmailPayload extends BasePayload {
   account_offboarding_id: string;
   account_id: string;
-  email_type: 'cancel_only_confirmation' | 'cancel_only_reactivation_confirmation';
+  email_type:
+    | 'cancel_only_confirmation'
+    | 'cancel_only_reactivation_confirmation'
+    | 'delete_data_confirmation';
   idempotency_key_hash?: string;
 }

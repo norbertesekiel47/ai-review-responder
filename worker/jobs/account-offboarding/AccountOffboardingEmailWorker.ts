@@ -1,5 +1,6 @@
-import { createHash } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import type { Job } from 'bullmq';
+import { v7 as uuidv7 } from 'uuid';
 import { sql } from '../../../src/lib/db/server';
 import {
   extractOutboxHandle,
@@ -17,6 +18,10 @@ const DELIVERY_ID_NAMESPACE = 'repworth:account-offboarding-email:v1';
 const CANCEL_ONLY_CONFIRMATION_TEMPLATE = 'account_offboarding_cancel_only_confirmation';
 const CANCEL_ONLY_REACTIVATION_CONFIRMATION_TEMPLATE =
   'account_offboarding_cancel_only_reactivation_confirmation';
+const DELETE_DATA_CONFIRMATION_TEMPLATE = 'account_offboarding_delete_data_confirmation';
+const STALE_DELIVERY_CLAIM_MINUTES = 15;
+const KEEP_MY_DATA_TOKEN_CONTEXT = 'repworth:account-offboarding-keep-my-data-token:v1';
+const EMAIL_IDEMPOTENCY_NAMESPACE = 'repworth:account-offboarding-email-send:v1';
 
 interface AccountOffboardingEmailRow {
   id: string;
@@ -24,10 +29,20 @@ interface AccountOffboardingEmailRow {
   mode: string;
   status: string;
   access_ends_at: Date | string | null;
+  purge_after: Date | string | null;
+  purge_started_at: Date | string | null;
   terminal_at: Date | string | null;
   recipient_email: string | null;
   location_ids: string[] | null;
 }
+
+interface KeepMyDataToken {
+  id: string;
+  rawToken: string;
+  created: boolean;
+}
+
+type DeliveryClaimResult = 'claimed' | 'already_sent' | 'in_progress';
 
 export function accountOffboardingDeliveryId(
   accountOffboardingId: string,
@@ -56,7 +71,8 @@ export async function handleAccountOffboardingEmail(
   const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
 
   const [offboarding] = await sql<AccountOffboardingEmailRow[]>`
-    SELECT id, account_id, mode, status, access_ends_at, terminal_at, recipient_email, location_ids
+    SELECT id, account_id, mode, status, access_ends_at, purge_after, purge_started_at,
+           terminal_at, recipient_email, location_ids
     FROM account_offboardings
     WHERE id = ${job.data.account_offboarding_id}::uuid
       AND account_id = ${job.data.account_id}::uuid
@@ -72,6 +88,14 @@ export async function handleAccountOffboardingEmail(
     await markOutboxFailed(outboxId, validationError, outboxAttempt);
     return;
   }
+  if (job.data.email_type === 'delete_data_confirmation' && !process.env.NEXT_PUBLIC_APP_URL) {
+    await markOutboxFailed(outboxId, 'NEXT_PUBLIC_APP_URL not configured', outboxAttempt);
+    return;
+  }
+  if (job.data.email_type === 'delete_data_confirmation' && !process.env.SESSION_COOKIE_SECRET) {
+    await markOutboxFailed(outboxId, 'SESSION_COOKIE_SECRET not configured', outboxAttempt);
+    return;
+  }
 
   const recipient = offboarding.recipient_email!.trim();
   const businessId = offboarding.location_ids![0]!;
@@ -80,49 +104,50 @@ export async function handleAccountOffboardingEmail(
     job.data.email_type,
   );
 
-  const claimed = await sql<{ id: string }[]>`
-    INSERT INTO notification_deliveries
-      (id, account_id, business_id, channel, recipient, template)
-    VALUES
-      (
-        ${deliveryId}::uuid,
-        ${job.data.account_id}::uuid,
-        ${businessId}::uuid,
-        'email',
-        ${recipient},
-        ${templateForEmailType(job.data.email_type)}
-      )
-    ON CONFLICT (id) DO NOTHING
-    RETURNING id
-  `;
+  const claimResult = await claimDelivery({
+    deliveryId,
+    emailType: job.data.email_type,
+    accountId: job.data.account_id,
+    businessId,
+    recipient,
+    template: templateForEmailType(job.data.email_type),
+  });
 
-  if (claimed.length === 0) {
-    logger.log(`Dedup hit for account offboarding email ${deliveryId}`);
+  if (claimResult === 'already_sent') {
+    logger.log(`Dedup hit for sent account offboarding email ${deliveryId}`);
     await markOutboxCompleted(outboxId, outboxAttempt);
     return;
   }
-
-  const bodyHtml = job.data.email_type === 'cancel_only_reactivation_confirmation'
-    ? buildAccountOffboardingEmailHtml({
-      emailType: job.data.email_type,
-      accessEndsAt: offboarding.access_ends_at,
-    })
-    : buildAccountOffboardingEmailHtml({
-      accessEndsAt: offboarding.access_ends_at,
-    });
+  if (claimResult === 'in_progress') {
+    throw new Error(`account_offboarding_email_claim_in_progress:${deliveryId}`);
+  }
 
   let messageId: string;
+  let keepMyDataToken: KeepMyDataToken | null = null;
   try {
+    keepMyDataToken = job.data.email_type === 'delete_data_confirmation'
+      ? await ensureKeepMyDataToken(offboarding, deliveryId)
+      : null;
+    const bodyHtml = buildBodyHtmlForEmailType(job.data.email_type, offboarding, keepMyDataToken);
     const result = await sendInternalEmail({
       to: recipient,
       subject: subjectForEmailType(job.data.email_type),
       bodyHtml,
       category: 'transactional',
+      idempotencyKey: emailSendIdempotencyKey(deliveryId),
     });
     messageId = result.messageId;
   } catch (err) {
     let rollbackError: unknown = null;
     try {
+      if (keepMyDataToken?.created) {
+        await sql`
+          DELETE FROM account_offboarding_tokens
+          WHERE id = ${keepMyDataToken.id}::uuid
+            AND consumed_at IS NULL
+            AND revoked_at IS NULL
+        `;
+      }
       await sql`
         DELETE FROM notification_deliveries
         WHERE id = ${deliveryId}::uuid
@@ -151,6 +176,66 @@ export async function handleAccountOffboardingEmail(
   await markOutboxCompleted(outboxId, outboxAttempt);
 }
 
+async function claimDelivery(input: {
+  deliveryId: string;
+  emailType: AccountOffboardingEmailPayload['email_type'];
+  accountId: string;
+  businessId: string;
+  recipient: string;
+  template: string;
+}): Promise<DeliveryClaimResult> {
+  const claimed = await insertDeliveryClaim(input);
+  if (claimed.length > 0) return 'claimed';
+
+  const [existing] = await sql<{
+    sent_at: Date | string | null;
+    external_message_id: string | null;
+  }[]>`
+    SELECT sent_at, external_message_id
+    FROM notification_deliveries
+    WHERE id = ${input.deliveryId}::uuid
+  `;
+  if (existing?.sent_at || existing?.external_message_id) return 'already_sent';
+  if (input.emailType !== 'delete_data_confirmation') return 'in_progress';
+
+  const reclaimed = await sql<{ id: string }[]>`
+    DELETE FROM notification_deliveries
+    WHERE id = ${input.deliveryId}::uuid
+      AND sent_at IS NULL
+      AND external_message_id IS NULL
+      AND created_at < NOW() - (${STALE_DELIVERY_CLAIM_MINUTES} * INTERVAL '1 minute')
+    RETURNING id
+  `;
+  if (reclaimed.length === 0) return 'in_progress';
+
+  const retryClaimed = await insertDeliveryClaim(input);
+  return retryClaimed.length > 0 ? 'claimed' : 'in_progress';
+}
+
+async function insertDeliveryClaim(input: {
+  deliveryId: string;
+  accountId: string;
+  businessId: string;
+  recipient: string;
+  template: string;
+}): Promise<Array<{ id: string }>> {
+  return sql<{ id: string }[]>`
+    INSERT INTO notification_deliveries
+      (id, account_id, business_id, channel, recipient, template)
+    VALUES
+      (
+        ${input.deliveryId}::uuid,
+        ${input.accountId}::uuid,
+        ${input.businessId}::uuid,
+        'email',
+        ${input.recipient},
+        ${input.template}
+      )
+    ON CONFLICT (id) DO NOTHING
+    RETURNING id
+  `;
+}
+
 function validateEmailOffboarding(
   row: AccountOffboardingEmailRow,
   emailType: AccountOffboardingEmailPayload['email_type'],
@@ -158,8 +243,22 @@ function validateEmailOffboarding(
   if (
     emailType !== 'cancel_only_confirmation'
     && emailType !== 'cancel_only_reactivation_confirmation'
+    && emailType !== 'delete_data_confirmation'
   ) {
     return `unknown_account_offboarding_email_type:${emailType}`;
+  }
+  if (emailType === 'delete_data_confirmation') {
+    if (row.mode !== 'delete_data') return 'account_offboarding_mode_not_delete_data';
+    if (!isEmailableDeleteDataStatus(row.status)) {
+      return `account_offboarding_status_not_delete_data_emailable:${row.status}`;
+    }
+    if (row.purge_started_at) return 'account_offboarding_purge_already_started';
+    if (!row.purge_after) return 'account_offboarding_missing_purge_after';
+    if (!row.recipient_email?.trim()) return 'account_offboarding_missing_recipient_email';
+    if (!Array.isArray(row.location_ids) || row.location_ids.length === 0 || !row.location_ids[0]) {
+      return 'account_offboarding_missing_location_id';
+    }
+    return null;
   }
   if (row.mode !== 'cancel_only') return 'account_offboarding_mode_not_cancel_only';
   if (emailType === 'cancel_only_confirmation' && row.status !== 'scheduled') {
@@ -187,20 +286,121 @@ function validateEmailOffboarding(
   return null;
 }
 
+function isEmailableDeleteDataStatus(status: string): boolean {
+  return status === 'pending' || status === 'tearing_down' || status === 'purge_scheduled';
+}
+
+async function ensureKeepMyDataToken(
+  row: AccountOffboardingEmailRow,
+  deliveryId: string,
+): Promise<KeepMyDataToken> {
+  if (!row.purge_after) {
+    throw new Error('account_offboarding_missing_purge_after');
+  }
+  const rawToken = deterministicKeepMyDataToken(row.id, deliveryId);
+  const tokenHash = createHash('sha256').update(rawToken).digest('hex');
+  const tokenId = uuidv7();
+
+  const inserted = await sql<{ id: string }[]>`
+    INSERT INTO account_offboarding_tokens
+      (id, account_offboarding_id, token_hash, token_type, expires_at)
+    VALUES (
+      ${tokenId}::uuid,
+      ${row.id}::uuid,
+      ${tokenHash},
+      'keep_my_data',
+      ${row.purge_after}
+    )
+    ON CONFLICT (token_hash) DO NOTHING
+    RETURNING id
+  `;
+  if (inserted[0]) return { id: inserted[0].id, rawToken, created: true };
+
+  const [existing] = await sql<{ id: string }[]>`
+    SELECT id
+    FROM account_offboarding_tokens
+    WHERE token_hash = ${tokenHash}
+      AND account_offboarding_id = ${row.id}::uuid
+      AND token_type = 'keep_my_data'
+      AND consumed_at IS NULL
+      AND revoked_at IS NULL
+      AND expires_at > NOW()
+    LIMIT 1
+  `;
+  if (!existing) throw new Error('keep_my_data_token_conflict_unusable');
+
+  return { id: existing.id, rawToken, created: false };
+}
+
+function deterministicKeepMyDataToken(accountOffboardingId: string, deliveryId: string): string {
+  return createHmac('sha256', getKeepMyDataTokenSecret())
+    .update(`${KEEP_MY_DATA_TOKEN_CONTEXT}:${accountOffboardingId}:${deliveryId}`)
+    .digest('base64url');
+}
+
+function getKeepMyDataTokenSecret(): string {
+  const secret = process.env.SESSION_COOKIE_SECRET;
+  if (!secret) throw new Error('SESSION_COOKIE_SECRET not configured');
+  return secret;
+}
+
+function buildBodyHtmlForEmailType(
+  emailType: AccountOffboardingEmailPayload['email_type'],
+  offboarding: AccountOffboardingEmailRow,
+  keepMyDataToken: KeepMyDataToken | null,
+): string {
+  if (emailType === 'cancel_only_reactivation_confirmation') {
+    return buildAccountOffboardingEmailHtml({
+      emailType,
+      accessEndsAt: offboarding.access_ends_at,
+    });
+  }
+  if (emailType === 'delete_data_confirmation') {
+    if (!keepMyDataToken) {
+      throw new Error('missing_keep_my_data_token');
+    }
+    return buildAccountOffboardingEmailHtml({
+      emailType,
+      accessEndsAt: offboarding.access_ends_at,
+      purgeAfter: offboarding.purge_after,
+      keepMyDataUrl: buildKeepMyDataUrl(process.env.NEXT_PUBLIC_APP_URL!, keepMyDataToken.rawToken),
+    });
+  }
+  return buildAccountOffboardingEmailHtml({
+    accessEndsAt: offboarding.access_ends_at,
+  });
+}
+
+function buildKeepMyDataUrl(appUrl: string, rawToken: string): string {
+  return `${appUrl.replace(/\/$/, '')}/api/account/offboarding/keep-my-data?token=${encodeURIComponent(rawToken)}`;
+}
+
+function emailSendIdempotencyKey(deliveryId: string): string {
+  return `${EMAIL_IDEMPOTENCY_NAMESPACE}:${deliveryId}`;
+}
+
 function templateForEmailType(
   emailType: AccountOffboardingEmailPayload['email_type'],
 ): string {
-  return emailType === 'cancel_only_reactivation_confirmation'
-    ? CANCEL_ONLY_REACTIVATION_CONFIRMATION_TEMPLATE
-    : CANCEL_ONLY_CONFIRMATION_TEMPLATE;
+  if (emailType === 'cancel_only_reactivation_confirmation') {
+    return CANCEL_ONLY_REACTIVATION_CONFIRMATION_TEMPLATE;
+  }
+  if (emailType === 'delete_data_confirmation') {
+    return DELETE_DATA_CONFIRMATION_TEMPLATE;
+  }
+  return CANCEL_ONLY_CONFIRMATION_TEMPLATE;
 }
 
 function subjectForEmailType(
   emailType: AccountOffboardingEmailPayload['email_type'],
 ): string {
-  return emailType === 'cancel_only_reactivation_confirmation'
-    ? 'Your RepWorth subscription is active again'
-    : 'Your RepWorth cancellation is scheduled';
+  if (emailType === 'cancel_only_reactivation_confirmation') {
+    return 'Your RepWorth subscription is active again';
+  }
+  if (emailType === 'delete_data_confirmation') {
+    return 'Your RepWorth data deletion is scheduled';
+  }
+  return 'Your RepWorth cancellation is scheduled';
 }
 
 function errorMessage(err: unknown): string {

@@ -4,13 +4,17 @@ import { NextRequest, NextResponse } from 'next/server';
 const {
   mockRequireWritableOwner,
   mockRequireOwnerWithAccount,
+  mockRequireDeleteDataDestructiveAuth,
   mockConfirmCancelOnlyOffboarding,
+  mockConfirmDeleteDataOffboarding,
   mockReactivateCancelOnlyOffboarding,
   mockGetAccountOffboardingStatus,
 } = vi.hoisted(() => ({
   mockRequireWritableOwner: vi.fn(),
   mockRequireOwnerWithAccount: vi.fn(),
+  mockRequireDeleteDataDestructiveAuth: vi.fn(),
   mockConfirmCancelOnlyOffboarding: vi.fn(),
+  mockConfirmDeleteDataOffboarding: vi.fn(),
   mockReactivateCancelOnlyOffboarding: vi.fn(),
   mockGetAccountOffboardingStatus: vi.fn(),
 }));
@@ -26,6 +30,11 @@ vi.mock('@/lib/auth/route-helpers', async (importOriginal) => {
 
 vi.mock('@/lib/account-offboarding/confirm', () => ({
   confirmCancelOnlyOffboarding: mockConfirmCancelOnlyOffboarding,
+  confirmDeleteDataOffboarding: mockConfirmDeleteDataOffboarding,
+}));
+
+vi.mock('@/lib/account-offboarding/destructive-auth', () => ({
+  requireDeleteDataDestructiveAuth: mockRequireDeleteDataDestructiveAuth,
 }));
 
 vi.mock('@/lib/account-offboarding/reactivate', () => ({
@@ -103,6 +112,11 @@ describe('POST /api/account/offboarding/confirm', () => {
       user: ownerUser(),
       accountId: ACCOUNT_ID,
     });
+    mockRequireDeleteDataDestructiveAuth.mockResolvedValue({
+      ok: true,
+      user: ownerUser(),
+      accountId: ACCOUNT_ID,
+    });
   });
 
   it('returns 404 and does not auth or start work when the feature flag is off', async () => {
@@ -114,7 +128,27 @@ describe('POST /api/account/offboarding/confirm', () => {
     expect(res.status).toBe(404);
     expect(await res.json()).toEqual({ error: 'account_offboarding_disabled' });
     expect(mockRequireWritableOwner).not.toHaveBeenCalled();
+    expect(mockRequireDeleteDataDestructiveAuth).not.toHaveBeenCalled();
     expect(mockConfirmCancelOnlyOffboarding).not.toHaveBeenCalled();
+    expect(mockConfirmDeleteDataOffboarding).not.toHaveBeenCalled();
+  });
+
+  it('keeps delete_data disabled when the server flag is off', async () => {
+    vi.stubEnv('ACCOUNT_OFFBOARDING_ENABLED', 'false');
+    const { confirmRoute } = await importRoutes();
+
+    const res = await confirmRoute.POST(makePost({
+      mode: 'delete_data',
+      reasonCode: 'switched_service',
+      confirmationText: 'DELETE DATA',
+    }));
+
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: 'account_offboarding_disabled' });
+    expect(mockRequireWritableOwner).not.toHaveBeenCalled();
+    expect(mockRequireDeleteDataDestructiveAuth).not.toHaveBeenCalled();
+    expect(mockConfirmCancelOnlyOffboarding).not.toHaveBeenCalled();
+    expect(mockConfirmDeleteDataOffboarding).not.toHaveBeenCalled();
   });
 
   it('returns 403 for cross-origin requests before auth', async () => {
@@ -124,7 +158,9 @@ describe('POST /api/account/offboarding/confirm', () => {
 
     expect(res.status).toBe(403);
     expect(mockRequireWritableOwner).not.toHaveBeenCalled();
+    expect(mockRequireDeleteDataDestructiveAuth).not.toHaveBeenCalled();
     expect(mockConfirmCancelOnlyOffboarding).not.toHaveBeenCalled();
+    expect(mockConfirmDeleteDataOffboarding).not.toHaveBeenCalled();
   });
 
   it('returns 401 when unauthenticated', async () => {
@@ -166,15 +202,149 @@ describe('POST /api/account/offboarding/confirm', () => {
     expect(mockConfirmCancelOnlyOffboarding).not.toHaveBeenCalled();
   });
 
+  it('returns 400 for invalid delete_data confirmation text before destructive auth', async () => {
+    const { confirmRoute } = await importRoutes();
+
+    const res = await confirmRoute.POST(makePost({
+      mode: 'delete_data',
+      reasonCode: 'switched_service',
+      confirmationText: 'delete data',
+    }));
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe('invalid_body');
+    expect(mockRequireDeleteDataDestructiveAuth).not.toHaveBeenCalled();
+    expect(mockConfirmDeleteDataOffboarding).not.toHaveBeenCalled();
+  });
+
+  it('requires delete_data reason code and rejects free-text feedback fields', async () => {
+    const { confirmRoute } = await importRoutes();
+
+    const res = await confirmRoute.POST(makePost({
+      mode: 'delete_data',
+      confirmationText: 'DELETE DATA',
+      feedback: 'Please call me before deleting data.',
+    }));
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe('invalid_body');
+    expect(mockRequireDeleteDataDestructiveAuth).not.toHaveBeenCalled();
+    expect(mockConfirmDeleteDataOffboarding).not.toHaveBeenCalled();
+  });
+
+  it('uses the destructive auth guard for delete_data and does not use the writable-owner guard', async () => {
+    mockConfirmDeleteDataOffboarding.mockResolvedValueOnce({
+      ok: true,
+      status: 'created',
+      offboarding: {
+        id: 'eeeeeeee-2222-7333-8444-555555555555',
+        accountId: ACCOUNT_ID,
+        mode: 'delete_data',
+        status: 'pending',
+      },
+    });
+    const { confirmRoute } = await importRoutes();
+
+    const res = await confirmRoute.POST(makePost(
+      {
+        mode: 'delete_data',
+        reasonCode: 'switched_service',
+        confirmationText: 'DELETE DATA',
+      },
+      {
+        'Idempotency-Key': ' delete-key ',
+        'x-request-id': 'req-delete-1',
+        'x-forwarded-for': '203.0.113.44, 10.0.0.1',
+        'user-agent': 'vitest',
+      },
+    ));
+
+    expect(res.status).toBe(202);
+    expect(mockRequireDeleteDataDestructiveAuth).toHaveBeenCalledOnce();
+    expect(mockRequireWritableOwner).not.toHaveBeenCalled();
+    expect(mockConfirmCancelOnlyOffboarding).not.toHaveBeenCalled();
+    expect(mockConfirmDeleteDataOffboarding).toHaveBeenCalledWith({
+      accountId: ACCOUNT_ID,
+      actorUserId: USER_ID,
+      idempotencyKey: 'delete-key',
+      reasonCode: 'switched_service',
+      requestId: 'req-delete-1',
+      ip: '203.0.113.44',
+      userAgent: 'vitest',
+    });
+    expect(await res.json()).toEqual({
+      ok: true,
+      idempotent: false,
+      offboarding: {
+        id: 'eeeeeeee-2222-7333-8444-555555555555',
+        mode: 'delete_data',
+        status: 'pending',
+      },
+    });
+  });
+
+  it('returns the destructive-auth failure before delete_data service work', async () => {
+    mockRequireDeleteDataDestructiveAuth.mockResolvedValueOnce({
+      ok: false,
+      response: NextResponse.json({ error: 'fresh_auth_required' }, { status: 403 }),
+    });
+    const { confirmRoute } = await importRoutes();
+
+    const res = await confirmRoute.POST(makePost({
+      mode: 'delete_data',
+      reasonCode: 'switched_service',
+      confirmationText: 'DELETE DATA',
+    }));
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'fresh_auth_required' });
+    expect(mockConfirmDeleteDataOffboarding).not.toHaveBeenCalled();
+    expect(mockRequireWritableOwner).not.toHaveBeenCalled();
+  });
+
+  it('returns a delete_data idempotent retry as an existing success', async () => {
+    mockConfirmDeleteDataOffboarding.mockResolvedValueOnce({
+      ok: true,
+      status: 'idempotent',
+      offboarding: {
+        id: 'eeeeeeee-2222-7333-8444-555555555555',
+        accountId: ACCOUNT_ID,
+        mode: 'delete_data',
+        status: 'pending',
+      },
+    });
+    const { confirmRoute } = await importRoutes();
+
+    const res = await confirmRoute.POST(makePost({
+      mode: 'delete_data',
+      reasonCode: 'switched_service',
+      confirmationText: 'DELETE DATA',
+    }));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      ok: true,
+      idempotent: true,
+      offboarding: {
+        id: 'eeeeeeee-2222-7333-8444-555555555555',
+        mode: 'delete_data',
+        status: 'pending',
+      },
+    });
+  });
+
   it('returns 400 for an unsupported offboarding mode', async () => {
     const { confirmRoute } = await importRoutes();
 
-    const res = await confirmRoute.POST(makePost({ mode: 'delete_data' }));
+    const res = await confirmRoute.POST(makePost({ mode: 'export_data' }));
 
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error).toBe('invalid_body');
     expect(mockConfirmCancelOnlyOffboarding).not.toHaveBeenCalled();
+    expect(mockConfirmDeleteDataOffboarding).not.toHaveBeenCalled();
   });
 
   it('rejects free-text feedback fields', async () => {
