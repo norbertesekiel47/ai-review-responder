@@ -59,6 +59,7 @@ import { startCancellationGracePoller, stopCancellationGracePoller } from './bac
 import { startStripeLocationsReconcilePoller, stopStripeLocationsReconcilePoller } from './background/pollers/StripeLocationsReconcilePoller';
 import { startZernioRecentReviewPoller, stopZernioRecentReviewPoller } from './background/pollers/ZernioRecentReviewPoller';
 import { startAnalyticsDispatchPoller, stopAnalyticsDispatchPoller } from './background/pollers/AnalyticsDispatchPoller';
+import { startAccountOffboardingAccessEndPoller, stopAccountOffboardingAccessEndPoller } from './background/pollers/AccountOffboardingAccessEndPoller';
 import { isMockMode } from '../src/lib/shared/mock-mode';
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
@@ -316,6 +317,7 @@ async function main(): Promise<void> {
   startStripeLocationsReconcilePoller();
   startZernioRecentReviewPoller();
   startAnalyticsDispatchPoller();
+  startAccountOffboardingAccessEndPoller();
   console.log(`Worker service running on port ${PORT}`);
 }
 
@@ -337,6 +339,7 @@ async function shutdown(): Promise<void> {
   stopCancellationGracePoller();
   stopStripeLocationsReconcilePoller();
   stopZernioRecentReviewPoller();
+  stopAccountOffboardingAccessEndPoller();
   // Await the analytics drain so we never mark rows completed (or call PostHog)
   // after the client is shut down and the DB pool is closed below.
   await stopAnalyticsDispatchPoller();
