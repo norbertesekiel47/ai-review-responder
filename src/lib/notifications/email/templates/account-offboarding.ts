@@ -5,7 +5,8 @@ export interface AccountOffboardingEmailParams {
   emailType?:
     | 'cancel_only_confirmation'
     | 'cancel_only_reactivation_confirmation'
-    | 'delete_data_confirmation';
+    | 'delete_data_confirmation'
+    | 'keep_my_data_confirmation';
   accessEndsAt: Date | string | null;
   purgeAfter?: Date | string | null;
   keepMyDataUrl?: string;
@@ -25,6 +26,9 @@ export function buildAccountOffboardingEmailHtml(
       keepMyDataUrl: params.keepMyDataUrl,
       purgeAfter: params.purgeAfter ?? null,
     });
+  }
+  if (params.emailType === 'keep_my_data_confirmation') {
+    return buildKeepMyDataConfirmationEmailHtml();
   }
 
   const accessEndsLabel = formatAccessEndsAt(params.accessEndsAt);
@@ -74,6 +78,29 @@ function buildDeleteDataConfirmationEmailHtml(params: {
           <p style="margin:0 0 20px;">
             <a href="${keepMyDataUrl}" style="display:inline-block;background:#111827;color:#ffffff;padding:12px 18px;border-radius:6px;font-size:14px;font-weight:600;text-decoration:none;">Keep my data</a>
           </p>
+          <p style="margin:0;font-size:14px;color:#6b7280;line-height:1.5;">Keeping data does not restore product access. To use RepWorth again, you will need to resubscribe and reconnect your Google locations.</p>
+        </td></tr>
+        <tr><td style="padding:24px;">
+          <p style="margin:0;font-size:12px;color:#9ca3af;text-align:center;">RepWorth</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+}
+
+function buildKeepMyDataConfirmationEmailHtml(): string {
+  return `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f5f5f5;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f5f5;padding:24px 0;">
+    <tr><td align="center">
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;max-width:600px;width:100%;">
+        <tr><td style="padding:32px 24px 8px;">
+          <h2 style="margin:0 0 12px;font-size:18px;color:#111;">Your RepWorth data will be kept</h2>
+          <p style="margin:0 0 16px;font-size:15px;color:#374151;line-height:1.5;">Your deletion request has been cancelled. RepWorth will keep your historical account data subject to the usual retention rules.</p>
           <p style="margin:0;font-size:14px;color:#6b7280;line-height:1.5;">Keeping data does not restore product access. To use RepWorth again, you will need to resubscribe and reconnect your Google locations.</p>
         </td></tr>
         <tr><td style="padding:24px;">

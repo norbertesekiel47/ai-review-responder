@@ -86,6 +86,7 @@ function offboardingRow(overrides: Record<string, unknown> = {}) {
     access_ends_at: new Date('2027-01-01T00:00:00.000Z'),
     purge_after: null,
     purge_started_at: null,
+    purge_cancelled_at: null,
     terminal_at: null,
     recipient_email: 'snapshot-owner@example.com',
     location_ids: [LOCATION_ID],
@@ -211,6 +212,77 @@ describe('AccountOffboardingEmailWorker', () => {
       bodyHtml: '<html>offboarding</html>',
       category: 'transactional',
       idempotencyKey: `repworth:account-offboarding-email-send:v1:${accountOffboardingDeliveryId(OFFBOARDING_ID, 'delete_data_confirmation')}`,
+    });
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-email-1', 4);
+  });
+
+  it('sends keep-my-data confirmation after a delete-data purge is cancelled', async () => {
+    sqlReturnQueue.push([offboardingRow({
+      mode: 'delete_data',
+      status: 'purge_scheduled',
+      access_ends_at: null,
+      purge_after: new Date('2026-07-06T00:00:00.000Z'),
+      purge_cancelled_at: new Date('2026-06-20T12:00:00.000Z'),
+    })]);
+    sqlReturnQueue.push([{
+      id: accountOffboardingDeliveryId(OFFBOARDING_ID, 'keep_my_data_confirmation'),
+    }]);
+    sqlReturnQueue.push([]);
+
+    await handleAccountOffboardingEmail(makeJob({
+      email_type: 'keep_my_data_confirmation',
+    }));
+
+    expect(mockBuildAccountOffboardingEmailHtml).toHaveBeenCalledWith({
+      emailType: 'keep_my_data_confirmation',
+      accessEndsAt: null,
+    });
+    const claimCall = sqlCalls.find((call) => call.text.includes('INSERT INTO notification_deliveries'));
+    expect(claimCall?.values).toContain(
+      accountOffboardingDeliveryId(OFFBOARDING_ID, 'keep_my_data_confirmation'),
+    );
+    expect(claimCall?.values).toContain('account_offboarding_keep_my_data_confirmation');
+    expect(mockSendInternalEmail).toHaveBeenCalledWith({
+      to: 'snapshot-owner@example.com',
+      subject: 'Your RepWorth data will be kept',
+      bodyHtml: '<html>offboarding</html>',
+      category: 'transactional',
+      idempotencyKey: `repworth:account-offboarding-email-send:v1:${accountOffboardingDeliveryId(OFFBOARDING_ID, 'keep_my_data_confirmation')}`,
+    });
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-email-1', 4);
+  });
+
+  it('reclaims a stale unsent keep-my-data delivery claim before sending confirmation', async () => {
+    const deliveryId = accountOffboardingDeliveryId(OFFBOARDING_ID, 'keep_my_data_confirmation');
+    sqlReturnQueue.push([offboardingRow({
+      mode: 'delete_data',
+      status: 'purge_scheduled',
+      access_ends_at: null,
+      purge_after: new Date('2026-07-06T00:00:00.000Z'),
+      purge_cancelled_at: new Date('2026-06-20T12:00:00.000Z'),
+    })]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([{ sent_at: null, external_message_id: null }]);
+    sqlReturnQueue.push([{ id: deliveryId }]);
+    sqlReturnQueue.push([{ id: deliveryId }]);
+    sqlReturnQueue.push([]);
+
+    await handleAccountOffboardingEmail(makeJob({
+      email_type: 'keep_my_data_confirmation',
+    }));
+
+    const claimCalls = sqlCalls.filter((call) => call.text.includes('INSERT INTO notification_deliveries'));
+    expect(claimCalls).toHaveLength(2);
+    const staleDeleteCall = sqlCalls.find((call) => call.text.includes('DELETE FROM notification_deliveries'));
+    expect(staleDeleteCall?.text).toContain('created_at < NOW() -');
+    expect(staleDeleteCall?.values).toContain(deliveryId);
+    expect(sqlCalls.some((call) => call.text.includes('INSERT INTO account_offboarding_tokens'))).toBe(false);
+    expect(mockSendInternalEmail).toHaveBeenCalledWith({
+      to: 'snapshot-owner@example.com',
+      subject: 'Your RepWorth data will be kept',
+      bodyHtml: '<html>offboarding</html>',
+      category: 'transactional',
+      idempotencyKey: `repworth:account-offboarding-email-send:v1:${deliveryId}`,
     });
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-email-1', 4);
   });
@@ -482,6 +554,29 @@ describe('AccountOffboardingEmailWorker', () => {
     expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
       'outbox-email-1',
       'account_offboarding_purge_already_started',
+      4,
+    );
+  });
+
+  it('fails keep-my-data confirmation when purge cancellation is missing', async () => {
+    sqlReturnQueue.push([offboardingRow({
+      mode: 'delete_data',
+      status: 'purge_scheduled',
+      access_ends_at: null,
+      purge_after: new Date('2026-07-06T00:00:00.000Z'),
+      purge_cancelled_at: null,
+    })]);
+
+    await handleAccountOffboardingEmail(makeJob({
+      email_type: 'keep_my_data_confirmation',
+    }));
+
+    const sqlText = sqlCalls.map((call) => call.text).join('\n');
+    expect(sqlText).not.toContain('INSERT INTO notification_deliveries');
+    expect(mockSendInternalEmail).not.toHaveBeenCalled();
+    expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+      'outbox-email-1',
+      'account_offboarding_missing_purge_cancelled_at',
       4,
     );
   });

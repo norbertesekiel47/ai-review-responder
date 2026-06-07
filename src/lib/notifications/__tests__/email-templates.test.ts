@@ -67,6 +67,19 @@ describe('buildAccountOffboardingEmailHtml', () => {
       purgeAfter: '2026-07-06T00:00:00.000Z',
     })).toThrow(/keepMyDataUrl/);
   });
+
+  it('renders keep-my-data confirmation without irreversible deletion copy', () => {
+    const html = buildAccountOffboardingEmailHtml({
+      emailType: 'keep_my_data_confirmation',
+      accessEndsAt: null,
+    });
+
+    expect(html).toContain('Your RepWorth data will be kept');
+    expect(html).toContain('Your deletion request has been cancelled');
+    expect(html).toContain('RepWorth will keep your historical account data');
+    expect(html).not.toContain('Your account data is scheduled for deletion');
+    expect(html).not.toContain('use this secure link before deletion starts');
+  });
 });
 
 // ── buildWeeklyValueReportHtml ──────────────────────────────────────────

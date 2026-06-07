@@ -182,6 +182,7 @@ export interface AccountOffboardingEmailPayload extends BasePayload {
   email_type:
     | 'cancel_only_confirmation'
     | 'cancel_only_reactivation_confirmation'
-    | 'delete_data_confirmation';
+    | 'delete_data_confirmation'
+    | 'keep_my_data_confirmation';
   idempotency_key_hash?: string;
 }
