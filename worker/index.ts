@@ -20,6 +20,7 @@ import type {
   IngestZernioReviewPayload,
   AccountOffboardingBillingSchedulePayload,
   AccountOffboardingEmailPayload,
+  AccountOffboardingTeardownPayload,
   StripeCheckoutReconcilePayload,
   ZernioInitialBackfillPayload,
 } from '../src/lib/shared/worker-types';
@@ -51,6 +52,7 @@ import { handleUpdateStripeOverage } from './jobs/billing/UpdateStripeOverageWor
 import { handleStripeCheckoutReconcile } from './jobs/billing/StripeCheckoutReconcileWorker';
 import { handleAccountOffboardingBillingSchedule } from './jobs/account-offboarding/BillingScheduleWorker';
 import { handleAccountOffboardingEmail } from './jobs/account-offboarding/AccountOffboardingEmailWorker';
+import { handleAccountOffboardingTeardown } from './jobs/account-offboarding/TeardownWorker';
 import { startCleanupAbandonedSignupsPoller, stopCleanupAbandonedSignupsPoller } from './background/pollers/CleanupAbandonedSignupsPoller';
 import { startEmailChannelReconcilePoller, stopEmailChannelReconcilePoller } from './background/pollers/EmailChannelReconcilePoller';
 import { startCancellationGracePoller, stopCancellationGracePoller } from './background/pollers/CancellationGracePoller';
@@ -171,6 +173,12 @@ const accountOffboardingEmailWorker = new Worker<AccountOffboardingEmailPayload>
   workerOpts,
 );
 
+const accountOffboardingTeardownWorker = new Worker<AccountOffboardingTeardownPayload>(
+  QUEUE_NAMES.ACCOUNT_OFFBOARDING_TEARDOWN,
+  withJobLogContext(handleAccountOffboardingTeardown),
+  workerOpts,
+);
+
 // Workers map keyed by queue name. Single source of truth for the
 // graceful-shutdown loop, Sentry breadcrumb wiring, and any future
 // observability hook that needs to enumerate workers without keeping a
@@ -196,6 +204,7 @@ const workersByQueue = {
   [QUEUE_NAMES.STRIPE_CHECKOUT_RECONCILE]: stripeCheckoutReconcileWorker,
   [QUEUE_NAMES.ACCOUNT_OFFBOARDING_BILLING_SCHEDULE]: accountOffboardingBillingScheduleWorker,
   [QUEUE_NAMES.ACCOUNT_OFFBOARDING_EMAIL]: accountOffboardingEmailWorker,
+  [QUEUE_NAMES.ACCOUNT_OFFBOARDING_TEARDOWN]: accountOffboardingTeardownWorker,
 } as const;
 
 const workers = Object.values(workersByQueue);

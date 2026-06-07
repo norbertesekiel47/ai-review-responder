@@ -109,7 +109,7 @@ describe('confirmDeleteDataOffboarding', () => {
     mockWriteAccountAuditLog.mockResolvedValue(undefined);
   });
 
-  it('creates a pending delete-data offboarding, marks Zernio disconnected, and enqueues only the confirmation email in one transaction', async () => {
+  it('creates a pending delete-data offboarding, marks Zernio disconnected, and enqueues teardown plus confirmation email in one transaction', async () => {
     const { tx, calls } = makeTx();
     mockSql.begin.mockImplementationOnce(async (cb: (txArg: typeof tx) => Promise<unknown>) => cb(tx));
 
@@ -160,9 +160,10 @@ describe('confirmDeleteDataOffboarding', () => {
     );
 
     const outboxCalls = calls.filter((call) => call.text.includes('INSERT INTO job_outbox'));
-    expect(outboxCalls).toHaveLength(1);
+    expect(outboxCalls).toHaveLength(2);
     const outboxValues = outboxCalls.flatMap((call) => call.values);
     expect(outboxValues).toContain(QUEUE_NAMES.ACCOUNT_OFFBOARDING_EMAIL);
+    expect(outboxValues).toContain(QUEUE_NAMES.ACCOUNT_OFFBOARDING_TEARDOWN);
     expect(outboxValues).not.toContain(QUEUE_NAMES.ACCOUNT_OFFBOARDING_BILLING_SCHEDULE);
 
     const payloads = outboxValues.filter(
@@ -172,10 +173,105 @@ describe('confirmDeleteDataOffboarding', () => {
     expect(payloads).toContainEqual(expect.objectContaining({
       account_offboarding_id: result.offboarding.id,
       account_id: ACCOUNT_ID,
+    }));
+    expect(payloads).toContainEqual(expect.objectContaining({
+      account_offboarding_id: result.offboarding.id,
+      account_id: ACCOUNT_ID,
       email_type: 'delete_data_confirmation',
     }));
     expect(JSON.stringify(payloads)).not.toContain('keep_my_data_token');
     expect(JSON.stringify(payloads)).not.toContain('raw_token');
+  });
+
+  it('fails the transaction when the teardown outbox insert fails so state change and enqueue stay atomic', async () => {
+    const calls: QueryCall[] = [];
+    const persistedState = {
+      offboardings: [] as Array<{ id: string; accountId: string }>,
+      disconnectedBusinessIds: new Set<string>(),
+      outboxTopics: [] as string[],
+    };
+
+    const tx = vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
+      const text = strings.join('?');
+      calls.push({ text, values });
+
+      if (text.includes('FROM accounts') && text.includes('FOR UPDATE')) {
+        return [{
+          stripe_customer_id: 'cus_test',
+          stripe_subscription_id: 'sub_test',
+        }];
+      }
+
+      if (text.includes('FROM users')) {
+        return [{ auth_id: AUTH_USER_ID, email: 'owner@example.com' }];
+      }
+
+      if (text.includes('FROM businesses') && text.includes('location_ids')) {
+        return [{ location_ids: [LOCATION_ID] }];
+      }
+
+      if (text.includes('FROM zernio_connections')) {
+        return [{ zernio_account_ids: ['zacct-1'], zernio_profile_ids: ['zprof-1'] }];
+      }
+
+      if (text.includes('INSERT INTO account_offboardings')) {
+        persistedState.offboardings.push({
+          id: String(values[0]),
+          accountId: String(values[1]),
+        });
+        return [];
+      }
+
+      if (text.includes('UPDATE zernio_connections')) {
+        persistedState.disconnectedBusinessIds.add(LOCATION_ID);
+        return [];
+      }
+
+      if (text.includes('INSERT INTO job_outbox')) {
+        const topic = values.find((value): value is string =>
+          typeof value === 'string' && value.startsWith('account_offboarding_'),
+        ) ?? '';
+        if (topic === QUEUE_NAMES.ACCOUNT_OFFBOARDING_TEARDOWN) {
+          throw new Error('job_outbox_teardown_insert_failed');
+        }
+        if (topic.length > 0) {
+          persistedState.outboxTopics.push(topic);
+        }
+        return [];
+      }
+
+      return [];
+    });
+    mockSql.begin.mockImplementationOnce(async (cb: (txArg: typeof tx) => Promise<unknown>) => {
+      const snapshot = {
+        offboardings: [...persistedState.offboardings],
+        disconnectedBusinessIds: new Set(persistedState.disconnectedBusinessIds),
+        outboxTopics: [...persistedState.outboxTopics],
+      };
+      try {
+        return await cb(tx);
+      } catch (err) {
+        persistedState.offboardings = snapshot.offboardings;
+        persistedState.disconnectedBusinessIds = snapshot.disconnectedBusinessIds;
+        persistedState.outboxTopics = snapshot.outboxTopics;
+        throw err;
+      }
+    });
+
+    await expect(confirmDeleteDataOffboarding({
+      accountId: ACCOUNT_ID,
+      actorUserId: USER_ID,
+      idempotencyKey: IDEMPOTENCY_KEY,
+      reasonCode: 'switched_service',
+    })).rejects.toThrow('job_outbox_teardown_insert_failed');
+
+    expect(sqlText(calls)).toContain('INSERT INTO account_offboardings');
+    expect(sqlText(calls)).toContain('UPDATE zernio_connections');
+    expect(sqlText(calls)).toContain('INSERT INTO job_outbox');
+    expect(mockSql.begin).toHaveBeenCalledOnce();
+    expect(persistedState.offboardings).toEqual([]);
+    expect([...persistedState.disconnectedBusinessIds]).toEqual([]);
+    expect(persistedState.outboxTopics).toEqual([]);
   });
 
   it('aborts before inserts and Zernio disconnect when the snapshot is incomplete', async () => {

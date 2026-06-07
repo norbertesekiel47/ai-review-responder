@@ -18,10 +18,10 @@
 //   VAL-LOC-044: Location with in-flight approvals can be archived
 //   VAL-LOC-047: Concurrent archive and add at quota boundary is safe
 
+import type postgres from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '@/lib/db/server';
 import { getLocationById, getActiveLocationCount } from './repo';
-import type { AccountId, LocationId } from '@/lib/shared/ids';
 
 // ── Guard result types ─────────────────────────────────────────────────────
 
@@ -119,6 +119,16 @@ export interface ArchiveLocationTxResult {
   archived: boolean;
 }
 
+export interface ArchiveLocationForOffboardingTeardownTxInput {
+  locationId: string;
+  accountId: string;
+  accountOffboardingId: string;
+}
+
+export interface ArchiveLocationForOffboardingTeardownTxResult extends ArchiveLocationTxResult {
+  alreadyArchived: boolean;
+}
+
 // ── archiveLocationTransaction ───────────────────────────────────────────────
 
 /**
@@ -141,85 +151,152 @@ export async function archiveLocationTransaction(
 ): Promise<ArchiveLocationTxResult> {
   const { locationId, accountId, actorUserId, activeLocationsBefore } = input;
 
-  // Execute atomic transaction
   await sql.begin(async (tx) => {
-    await tx`
-      SELECT id
-      FROM accounts
-      WHERE id = ${accountId}::uuid
-      FOR UPDATE
-    `;
-
-    const [activeRow] = await tx<{ count: number }[]>`
-      SELECT COUNT(*) AS count
-      FROM businesses
-      WHERE account_id = ${accountId}::uuid
-        AND archived_at IS NULL
-    `;
-    if (Number(activeRow?.count ?? 0) <= 1) {
+    const context = await lockArchiveContext(tx, locationId, accountId);
+    if (context.activeLocationsBefore <= 1) {
       throw new Error('last_active_location');
     }
-
-    // 1. Set archived_at and is_primary = FALSE on the location
-    //    is_primary is set FALSE as a safety measure — even though the guard
-    //    should prevent archiving a primary with other locations, this ensures
-    //    no orphaned primary remains. The partial unique index guarantees
-    //    at most one is_primary=TRUE per active account.
-    const [updatedLocation] = await tx<{ id: string }[]>`
-      UPDATE businesses
-      SET archived_at = NOW(),
-          is_primary = FALSE,
-          updated_at = NOW()
-      WHERE id = ${locationId}::uuid
-        AND account_id = ${accountId}::uuid
-        AND archived_at IS NULL
-      RETURNING id
-    `;
-    if (!updatedLocation) {
-      throw new Error('location_archive_conflict');
-    }
-
-    // 2. Insert audit log entry
-    await tx`
-      INSERT INTO account_audit_log (
-        id, account_id, location_id, event_type, actor_user_id, payload
-      ) VALUES (
-        ${uuidv7()}::uuid,
-        ${accountId}::uuid,
-        ${locationId}::uuid,
-        'location_archived',
-        ${actorUserId ?? null}::uuid,
-        ${jsonb({
-          location_id: locationId,
-          active_locations_before: activeLocationsBefore,
-          active_locations_after: activeLocationsBefore - 1,
-        })}
-      )
-    `;
-
-    // 3. Enqueue Stripe overage update (decrement)
-    //    The UpdateStripeOverageWorker reads the actual location count
-    //    and sets the overage quantity accordingly. It is idempotent.
-    await tx`
-      INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
-      VALUES (
-        ${uuidv7()},
-        'update_stripe_overage_quantity',
-        'account',
-        ${accountId}::uuid,
-        ${jsonb({
-          account_id: accountId,
-          correlation_id: uuidv7(),
-        })},
-        'pending'
-      )
-    `;
+    await applyArchiveLocationUpdate(tx, {
+      locationId,
+      accountId,
+      actorUserId,
+      activeLocationsBefore,
+    });
   });
 
   return {
     locationId,
     archived: true,
   };
+}
+
+export async function archiveLocationForAccountOffboardingTeardownTransaction(
+  input: ArchiveLocationForOffboardingTeardownTxInput,
+): Promise<ArchiveLocationForOffboardingTeardownTxResult> {
+  const { locationId, accountId, accountOffboardingId } = input;
+
+  const result = await sql.begin(async (tx) => {
+    const context = await lockArchiveContext(tx, locationId, accountId);
+    if (context.archivedAt !== null) {
+      return { locationId, archived: true, alreadyArchived: true };
+    }
+
+    await applyArchiveLocationUpdate(tx, {
+      locationId,
+      accountId,
+      actorUserId: null,
+      activeLocationsBefore: context.activeLocationsBefore,
+      auditPayload: {
+        location_id: locationId,
+        active_locations_before: context.activeLocationsBefore,
+        active_locations_after: Math.max(context.activeLocationsBefore - 1, 0),
+        account_offboarding_id: accountOffboardingId,
+        archive_reason: 'account_offboarding_teardown',
+      },
+    });
+
+    return { locationId, archived: true, alreadyArchived: false };
+  });
+
+  return result;
+}
+
+interface ArchiveContext {
+  archivedAt: Date | string | null;
+  activeLocationsBefore: number;
+}
+
+async function lockArchiveContext(
+  tx: postgres.TransactionSql,
+  locationId: string,
+  accountId: string,
+): Promise<ArchiveContext> {
+  await tx`
+    SELECT id
+    FROM accounts
+    WHERE id = ${accountId}::uuid
+    FOR UPDATE
+  `;
+
+  const [activeRow] = await tx<{ count: number }[]>`
+    SELECT COUNT(*) AS count
+    FROM businesses
+    WHERE account_id = ${accountId}::uuid
+      AND archived_at IS NULL
+  `;
+
+  const [location] = await tx<{ archived_at: Date | string | null }[]>`
+    SELECT archived_at
+    FROM businesses
+    WHERE id = ${locationId}::uuid
+      AND account_id = ${accountId}::uuid
+    FOR UPDATE
+  `;
+  if (!location) {
+    throw new Error('location_archive_conflict');
+  }
+
+  return {
+    archivedAt: location.archived_at,
+    activeLocationsBefore: Number(activeRow?.count ?? 0),
+  };
+}
+
+async function applyArchiveLocationUpdate(
+  tx: postgres.TransactionSql,
+  input: {
+    locationId: string;
+    accountId: string;
+    actorUserId?: string | null;
+    activeLocationsBefore: number;
+    auditPayload?: Record<string, unknown>;
+  },
+): Promise<void> {
+  const [updatedLocation] = await tx<{ id: string }[]>`
+    UPDATE businesses
+    SET archived_at = NOW(),
+        is_primary = FALSE,
+        updated_at = NOW()
+    WHERE id = ${input.locationId}::uuid
+      AND account_id = ${input.accountId}::uuid
+      AND archived_at IS NULL
+    RETURNING id
+  `;
+  if (!updatedLocation) {
+    throw new Error('location_archive_conflict');
+  }
+
+  await tx`
+    INSERT INTO account_audit_log (
+      id, account_id, location_id, event_type, actor_user_id, payload
+    ) VALUES (
+      ${uuidv7()}::uuid,
+      ${input.accountId}::uuid,
+      ${input.locationId}::uuid,
+      'location_archived',
+      ${input.actorUserId ?? null}::uuid,
+      ${jsonb(input.auditPayload ?? {
+        location_id: input.locationId,
+        active_locations_before: input.activeLocationsBefore,
+        active_locations_after: input.activeLocationsBefore - 1,
+      })}
+    )
+  `;
+
+  await tx`
+    INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+    VALUES (
+      ${uuidv7()},
+      'update_stripe_overage_quantity',
+      'account',
+      ${input.accountId}::uuid,
+      ${jsonb({
+        account_id: input.accountId,
+        correlation_id: uuidv7(),
+      })},
+      'pending'
+    )
+  `;
 }
 
 // ── Reactivate transaction input/result ──────────────────────────────────────

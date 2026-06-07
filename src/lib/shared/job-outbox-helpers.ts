@@ -8,6 +8,7 @@ import {
   type GenerateResponseOriginLane,
   type AccountOffboardingBillingSchedulePayload,
   type AccountOffboardingEmailPayload,
+  type AccountOffboardingTeardownPayload,
   type GenerateResponsePayload,
   type PublishResponsePayload,
   type SendNotificationPayload,
@@ -71,6 +72,13 @@ export interface EnqueueAccountOffboardingEmailInput {
   idempotencyKeyHash?: string;
   correlationId?: string;
   emailType?: AccountOffboardingEmailPayload['email_type'];
+}
+
+export interface EnqueueAccountOffboardingTeardownInput {
+  outboxId?: string;
+  accountOffboardingId: string;
+  accountId: string;
+  correlationId?: string;
 }
 
 function isRecord(data: unknown): data is Record<string, unknown> {
@@ -306,6 +314,33 @@ export async function enqueueAccountOffboardingEmail(
       ${JOB_OUTBOX_STATUS_PENDING}
     )
     ON CONFLICT (id) DO NOTHING
+  `;
+  return outboxId;
+}
+
+export async function enqueueAccountOffboardingTeardown(
+  tx: TxClient,
+  input: EnqueueAccountOffboardingTeardownInput,
+): Promise<string> {
+  const outboxId = input.outboxId ?? uuidv7();
+  const payload: AccountOffboardingTeardownPayload = {
+    account_offboarding_id: input.accountOffboardingId,
+    account_id: input.accountId,
+  };
+  if (input.correlationId !== undefined) {
+    payload.correlation_id = input.correlationId;
+  }
+
+  await tx`
+    INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+    VALUES (
+      ${outboxId},
+      ${QUEUE_NAMES.ACCOUNT_OFFBOARDING_TEARDOWN},
+      ${AGGREGATE_TYPE_ACCOUNT_OFFBOARDING},
+      ${input.accountOffboardingId},
+      ${jsonb(payload)},
+      ${JOB_OUTBOX_STATUS_PENDING}
+    )
   `;
   return outboxId;
 }

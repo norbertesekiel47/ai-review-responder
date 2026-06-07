@@ -47,6 +47,7 @@ export const queues = {
   stripeCheckoutReconcile: new Queue(QUEUE_NAMES.STRIPE_CHECKOUT_RECONCILE, { connection: opts, defaultJobOptions }),
   accountOffboardingBillingSchedule: new Queue(QUEUE_NAMES.ACCOUNT_OFFBOARDING_BILLING_SCHEDULE, { connection: opts, defaultJobOptions }),
   accountOffboardingEmail: new Queue(QUEUE_NAMES.ACCOUNT_OFFBOARDING_EMAIL, { connection: opts, defaultJobOptions }),
+  accountOffboardingTeardown: new Queue(QUEUE_NAMES.ACCOUNT_OFFBOARDING_TEARDOWN, { connection: opts, defaultJobOptions }),
 } as const;
 
 // Lookup table: outbox topic string → Queue instance
@@ -77,4 +78,5 @@ export const topicToQueue: Record<string, Queue> = {
   [QUEUE_NAMES.STRIPE_CHECKOUT_RECONCILE]: queues.stripeCheckoutReconcile,
   [QUEUE_NAMES.ACCOUNT_OFFBOARDING_BILLING_SCHEDULE]: queues.accountOffboardingBillingSchedule,
   [QUEUE_NAMES.ACCOUNT_OFFBOARDING_EMAIL]: queues.accountOffboardingEmail,
+  [QUEUE_NAMES.ACCOUNT_OFFBOARDING_TEARDOWN]: queues.accountOffboardingTeardown,
 };

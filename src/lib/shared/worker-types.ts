@@ -186,3 +186,8 @@ export interface AccountOffboardingEmailPayload extends BasePayload {
     | 'keep_my_data_confirmation';
   idempotency_key_hash?: string;
 }
+
+export interface AccountOffboardingTeardownPayload extends BasePayload {
+  account_offboarding_id: string;
+  account_id: string;
+}

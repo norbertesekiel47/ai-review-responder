@@ -6,6 +6,7 @@ import { writeAccountAuditLog } from '@/lib/audit/log';
 import {
   enqueueAccountOffboardingBillingSchedule,
   enqueueAccountOffboardingEmail,
+  enqueueAccountOffboardingTeardown,
 } from '@/lib/shared/job-outbox-helpers';
 import {
   captureAccountOffboardingSnapshot,
@@ -296,6 +297,12 @@ export async function confirmDeleteDataOffboarding(
       },
       tx,
     );
+
+    await enqueueAccountOffboardingTeardown(tx, {
+      accountOffboardingId: offboardingId,
+      accountId: input.accountId,
+      correlationId: input.requestId ?? undefined,
+    });
 
     await enqueueAccountOffboardingEmail(tx, {
       accountOffboardingId: offboardingId,
