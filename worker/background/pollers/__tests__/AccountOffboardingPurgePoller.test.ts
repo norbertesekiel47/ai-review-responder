@@ -185,11 +185,19 @@ function hasAdminProviderDisposition(dispositions: unknown[]): boolean {
   return dispositions.some((entry) => {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return false;
     const record = entry as Record<string, unknown>;
-    if (record.type === 'sms_opt_out_scrub_scope') return false;
     return (
-      record.type === 'admin_provider_disposition' ||
-      record.type === 'provider_disposition' ||
-      (typeof record.provider === 'string' && typeof record.disposition === 'string')
+      record.type === 'admin_provider_disposition' &&
+      typeof record.provider === 'string' &&
+      typeof record.resource_type === 'string' &&
+      record.resource_type.trim().length > 0 &&
+      typeof record.scrubbed_resource_reference === 'string' &&
+      record.scrubbed_resource_reference.trim().length > 0 &&
+      typeof record.admin_actor_user_id === 'string' &&
+      record.admin_actor_user_id.trim().length > 0 &&
+      typeof record.reason === 'string' &&
+      record.reason.trim().length > 0 &&
+      typeof record.recorded_at === 'string' &&
+      record.recorded_at.trim().length > 0
     );
   });
 }
@@ -289,8 +297,10 @@ describe('AccountOffboardingPurgePoller', () => {
     expect(claimCall!.template).toContain('teardown_completed_at IS NOT NULL');
     expect(claimCall!.template).toContain('jsonb_array_elements(provider_dispositions)');
     expect(claimCall!.template).toContain("'admin_provider_disposition'");
-    expect(claimCall!.template).toContain("'provider_disposition'");
-    expect(claimCall!.template).toContain("'sms_opt_out_scrub_scope'");
+    expect(claimCall!.template).toContain('scrubbed_resource_reference');
+    expect(claimCall!.template).toContain('admin_actor_user_id');
+    expect(claimCall!.template).not.toContain("'provider_disposition'");
+    expect(claimCall!.template).not.toContain("'sms_opt_out_scrub_scope'");
 
     const updateCall = sqlCalls.find((call) =>
       call.scope === 'tx' &&
@@ -366,7 +376,28 @@ describe('AccountOffboardingPurgePoller', () => {
     expect(sqlText).toContain('purge_started_at IS NULL');
   });
 
-  it('uses admin/provider dispositions as an eligibility fallback before Task 6.3', async () => {
+  it('uses concrete admin provider dispositions as an eligibility fallback', async () => {
+    testState.persistedOffboardingRow = makePersistedOffboardingRow({
+      teardown_completed_at: null,
+      provider_dispositions: [{
+        type: 'admin_provider_disposition',
+        provider: 'zernio',
+        resource_type: 'account',
+        scrubbed_resource_reference: 'sha256:provider-ref',
+        admin_actor_user_id: 'admin-1',
+        reason: 'Provider support confirmed teardown.',
+        recorded_at: '2026-06-07T12:00:00.000Z',
+        ticket: 'SUP-123',
+      }],
+    });
+
+    await runAccountOffboardingPurgeOnce();
+
+    expect(mockWriteAccountAuditLog).toHaveBeenCalledOnce();
+    expect(combinedSql()).toContain('jsonb_array_elements(provider_dispositions)');
+  });
+
+  it('does not treat generic provider markers as provider-disposition purge eligibility', async () => {
     testState.persistedOffboardingRow = makePersistedOffboardingRow({
       teardown_completed_at: null,
       provider_dispositions: [{ provider: 'zernio', disposition: 'recorded' }],
@@ -374,8 +405,9 @@ describe('AccountOffboardingPurgePoller', () => {
 
     await runAccountOffboardingPurgeOnce();
 
-    expect(mockWriteAccountAuditLog).toHaveBeenCalledOnce();
-    expect(combinedSql()).toContain('jsonb_array_elements(provider_dispositions)');
+    expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
+    expect(mockEnqueueAccountOffboardingPurge).not.toHaveBeenCalled();
+    expect(testState.revokedTokenCount).toBe(0);
   });
 
   it('does not treat SMS scrub-scope records as admin provider dispositions', async () => {

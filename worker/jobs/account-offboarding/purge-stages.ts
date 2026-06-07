@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import type postgres from 'postgres';
 import { jsonb, sql, supabaseServer } from '../../../src/lib/db/server';
 import { verifyAccountOffboardingPurge } from '../../../src/lib/account-offboarding/purge-verification';
+import { hasConcreteAdminProviderDisposition } from '../../../src/lib/account-offboarding/provider-disposition';
 
 export interface AccountOffboardingPurgeRow {
   id: string;
@@ -88,7 +89,7 @@ export function validatePurgeableOffboarding(
   if (row.purge_started_at === null) return 'account_offboarding_purge_not_started';
   if (
     row.teardown_completed_at === null &&
-    !hasAdminProviderDisposition(row.provider_dispositions)
+    !hasConcreteAdminProviderDisposition(row.provider_dispositions)
   ) {
     return 'account_offboarding_teardown_incomplete';
   }
@@ -872,33 +873,6 @@ function sha256Hex(value: string): string {
   return createHash('sha256').update(value).digest('hex');
 }
 
-function hasAdminProviderDisposition(value: unknown): boolean {
-  const dispositions = parseJsonArray(value);
-  return dispositions.some((entry) => {
-    if (!isRecord(entry)) return false;
-    if (entry.type === 'sms_opt_out_scrub_scope') return false;
-    return (
-      entry.type === 'admin_provider_disposition' ||
-      entry.type === 'provider_disposition' ||
-      (typeof entry.provider === 'string' && typeof entry.disposition === 'string')
-    );
-  });
-}
-
-function parseJsonArray(value: unknown): unknown[] {
-  if (Array.isArray(value)) return value;
-  if (typeof value !== 'string') return [];
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
 
 function safeSupabaseError(error: { message?: string; status?: number | string }): string {
   const status = error.status ? `status_${error.status}` : 'unknown_status';

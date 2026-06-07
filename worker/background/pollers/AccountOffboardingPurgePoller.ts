@@ -99,11 +99,13 @@ async function runAccountOffboardingPurgeInner(
             OR EXISTS (
               SELECT 1
               FROM jsonb_array_elements(provider_dispositions) AS disposition(value)
-              WHERE (
-                disposition.value->>'type' IN ('admin_provider_disposition', 'provider_disposition')
-                OR (disposition.value ? 'provider' AND disposition.value ? 'disposition')
-              )
-                AND COALESCE(disposition.value->>'type', '') <> 'sms_opt_out_scrub_scope'
+              WHERE disposition.value->>'type' = 'admin_provider_disposition'
+                AND disposition.value->>'provider' IN ('stripe', 'zernio', 'google', 'supabase_auth', 'other')
+                AND NULLIF(BTRIM(disposition.value->>'resource_type'), '') IS NOT NULL
+                AND NULLIF(BTRIM(disposition.value->>'scrubbed_resource_reference'), '') IS NOT NULL
+                AND NULLIF(BTRIM(disposition.value->>'admin_actor_user_id'), '') IS NOT NULL
+                AND NULLIF(BTRIM(disposition.value->>'reason'), '') IS NOT NULL
+                AND NULLIF(BTRIM(disposition.value->>'recorded_at'), '') IS NOT NULL
             )
           )
         ORDER BY purge_after ASC, id ASC
@@ -141,11 +143,13 @@ async function runAccountOffboardingPurgeInner(
             OR EXISTS (
               SELECT 1
               FROM jsonb_array_elements(provider_dispositions) AS disposition(value)
-              WHERE (
-                disposition.value->>'type' IN ('admin_provider_disposition', 'provider_disposition')
-                OR (disposition.value ? 'provider' AND disposition.value ? 'disposition')
-              )
-                AND COALESCE(disposition.value->>'type', '') <> 'sms_opt_out_scrub_scope'
+              WHERE disposition.value->>'type' = 'admin_provider_disposition'
+                AND disposition.value->>'provider' IN ('stripe', 'zernio', 'google', 'supabase_auth', 'other')
+                AND NULLIF(BTRIM(disposition.value->>'resource_type'), '') IS NOT NULL
+                AND NULLIF(BTRIM(disposition.value->>'scrubbed_resource_reference'), '') IS NOT NULL
+                AND NULLIF(BTRIM(disposition.value->>'admin_actor_user_id'), '') IS NOT NULL
+                AND NULLIF(BTRIM(disposition.value->>'reason'), '') IS NOT NULL
+                AND NULLIF(BTRIM(disposition.value->>'recorded_at'), '') IS NOT NULL
             )
           )
         RETURNING id, account_id, mode, status, purge_after

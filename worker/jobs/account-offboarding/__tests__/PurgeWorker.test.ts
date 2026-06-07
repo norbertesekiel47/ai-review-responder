@@ -294,13 +294,37 @@ describe('AccountOffboarding PurgeWorker', () => {
     mockState.offboarding = {
       ...mockState.offboarding!,
       teardown_completed_at: null,
-      provider_dispositions: [{ provider: 'zernio', disposition: 'admin_recorded' }],
+      provider_dispositions: [{
+        type: 'admin_provider_disposition',
+        provider: 'zernio',
+        resource_type: 'account',
+        scrubbed_resource_reference: 'sha256:provider-ref',
+        admin_actor_user_id: 'admin-1',
+        reason: 'Provider support confirmed teardown.',
+        recorded_at: '2026-06-07T12:00:00.000Z',
+        ticket: 'SUP-123',
+      }],
     };
 
     await handleAccountOffboardingPurge(makeJob());
 
     expect(mockVerifyAccountOffboardingPurge).toHaveBeenCalledOnce();
     expect(mockState.offboarding?.status).toBe('purged');
+  });
+
+  it('does not treat generic provider markers as provider-disposition purge eligibility', async () => {
+    mockState.offboarding = {
+      ...mockState.offboarding!,
+      teardown_completed_at: null,
+      provider_dispositions: [{ provider: 'zernio', disposition: 'admin_recorded' }],
+    };
+
+    await expect(handleAccountOffboardingPurge(makeJob({ attemptsMade: 0 }))).rejects.toThrow(
+      'account_offboarding_teardown_incomplete',
+    );
+
+    expect(mockVerifyAccountOffboardingPurge).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
   });
 
   it('does not treat SMS scrub-scope records as provider-disposition purge eligibility', async () => {

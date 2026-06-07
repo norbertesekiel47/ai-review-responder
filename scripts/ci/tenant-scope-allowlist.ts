@@ -1890,6 +1890,30 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "Admin-only route or service intentionally performs this statement after requireRole(admin).",
   },
   {
+    file: "src/app/api/admin/offboardings/route.ts",
+    table: "accounts",
+    sqlSnippet: "SELECT ao.id, ao.account_id, a.display_name AS account_name, a.subscription_status, ao.mode, ao.status, ao.failed_step, ao.last_error, ao.requested_at, ao.access_ends_at, ao.teardown_started_at, ao.teardown_completed_at, ao.purge_after, ao.purge_started_at, ao.purge_cancelled_at, ao.purged_at, ao.terminal_at, ao.stripe_step, ao.zernio_accounts_step, ao.zernio_profiles_step, ao.location_archival_step, ao.job_terminalization_step, ao.retry_count, ao.provider_dispositions, ( ao.status = 'failed' OR ao.failed_step IS NOT NULL OR ao.last_error IS NOT NULL OR ( ao.status = 'scheduled' AND ao.access_ends_at IS NOT NULL AND ao.access_ends_at <= NOW() AND ao.teardown_started_at IS NULL ) OR ( ao.status = 'purge_scheduled' AND ao.purge_after IS NOT NULL AND ao.purge_after <= NOW() AND ao.purge_started_at IS NULL ) ) AS is_stuck FROM account_offboardings ao JOIN accounts a ON a.id = ao.account_id WHERE ao.terminal_at IS NULL OR ao.status = 'failed' ORDER BY CASE WHEN ao.status = 'failed' THEN 0 WHEN ao.last_error IS NOT NULL THEN 1 ELSE 2 END, ao.requested_at DESC, ao.id ASC LIMIT ${limit} OFFSET ${offset}",
+    reason: "Admin-only owner-offboarding visibility intentionally lists active/failed/stuck account lifecycles cross-tenant after requireRole(admin) + current AAL2.",
+  },
+  {
+    file: "src/app/api/admin/offboardings/route.ts",
+    table: "account_offboardings",
+    sqlSnippet: "SELECT ao.id, ao.account_id, a.display_name AS account_name, a.subscription_status, ao.mode, ao.status, ao.failed_step, ao.last_error, ao.requested_at, ao.access_ends_at, ao.teardown_started_at, ao.teardown_completed_at, ao.purge_after, ao.purge_started_at, ao.purge_cancelled_at, ao.purged_at, ao.terminal_at, ao.stripe_step, ao.zernio_accounts_step, ao.zernio_profiles_step, ao.location_archival_step, ao.job_terminalization_step, ao.retry_count, ao.provider_dispositions, ( ao.status = 'failed' OR ao.failed_step IS NOT NULL OR ao.last_error IS NOT NULL OR ( ao.status = 'scheduled' AND ao.access_ends_at IS NOT NULL AND ao.access_ends_at <= NOW() AND ao.teardown_started_at IS NULL ) OR ( ao.status = 'purge_scheduled' AND ao.purge_after IS NOT NULL AND ao.purge_after <= NOW() AND ao.purge_started_at IS NULL ) ) AS is_stuck FROM account_offboardings ao JOIN accounts a ON a.id = ao.account_id WHERE ao.terminal_at IS NULL OR ao.status = 'failed' ORDER BY CASE WHEN ao.status = 'failed' THEN 0 WHEN ao.last_error IS NOT NULL THEN 1 ELSE 2 END, ao.requested_at DESC, ao.id ASC LIMIT ${limit} OFFSET ${offset}",
+    reason: "Admin-only owner-offboarding visibility intentionally lists active/failed/stuck lifecycle rows cross-tenant after requireRole(admin) + current AAL2.",
+  },
+  {
+    file: "src/app/api/admin/offboardings/route.ts",
+    table: "account_offboardings",
+    sqlSnippet: "SELECT COUNT(*)::int AS total FROM account_offboardings WHERE terminal_at IS NULL OR status = 'failed'",
+    reason: "Admin-only owner-offboarding visibility needs a cross-tenant count for active/failed lifecycle pagination after requireRole(admin) + current AAL2.",
+  },
+  {
+    file: "src/lib/account-offboarding/provider-disposition.ts",
+    table: "account_offboardings",
+    sqlSnippet: "SELECT id, account_id, mode, status, failed_step, terminal_at, purge_after, purge_cancelled_at, stripe_step, zernio_accounts_step, zernio_profiles_step, location_archival_step, provider_dispositions FROM account_offboardings WHERE id = ${input.offboardingId}::uuid FOR UPDATE",
+    reason: "Admin-only provider-disposition mutation resolves the offboarding row by route id after same-origin + requireRole(admin) + current AAL2; the following update and audit are scoped by the locked row's account_id.",
+  },
+  {
     file: "src/app/api/zernio/connect/callback/route.ts",
     table: "account_offboardings",
     sqlSnippet: "SELECT b.account_id, ao.id AS offboarding_id, ao.account_id AS offboarding_account_id, ao.mode AS offboarding_mode, ao.status AS offboarding_status, ao.failed_step AS offboarding_failed_step, ao.access_ends_at AS offboarding_access_ends_at, ao.teardown_started_at AS offboarding_teardown_started_at, ao.purge_after AS offboarding_purge_after, ao.purge_started_at AS offboarding_purge_started_at, ao.purge_cancelled_at AS offboarding_purge_cancelled_at FROM businesses b LEFT JOIN account_offboardings ao ON ao.account_id = b.account_id AND ao.terminal_at IS NULL WHERE b.id = ${businessId} ORDER BY ao.created_at DESC NULLS LAST LIMIT 1",
@@ -1946,7 +1970,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/background/pollers/AccountOffboardingPurgePoller.ts",
     table: "account_offboardings",
-    sqlSnippet: "SELECT id, account_id, mode, status, purge_after FROM account_offboardings WHERE mode = 'delete_data' AND status = 'purge_scheduled' AND purge_after IS NOT NULL AND ( purge_after <= NOW() OR ( ${purgeWindowOverrideMs}::int IS NOT NULL AND purge_after <= NOW() + (${purgeWindowOverrideMs}::int * INTERVAL '1 millisecond') ) ) AND purge_cancelled_at IS NULL AND purge_started_at IS NULL AND terminal_at IS NULL AND ( teardown_completed_at IS NOT NULL OR EXISTS ( SELECT 1 FROM jsonb_array_elements(provider_dispositions) AS disposition(value) WHERE ( disposition.value->>'type' IN ('admin_provider_disposition', 'provider_disposition') OR (disposition.value ? 'provider' AND disposition.value ? 'disposition') ) AND COALESCE(disposition.value->>'type', '') <> 'sms_opt_out_scrub_scope' ) ) ORDER BY purge_after ASC, id ASC LIMIT 1 FOR UPDATE SKIP LOCKED",
+    sqlSnippet: "SELECT id, account_id, mode, status, purge_after FROM account_offboardings WHERE mode = 'delete_data' AND status = 'purge_scheduled' AND purge_after IS NOT NULL AND ( purge_after <= NOW() OR ( ${purgeWindowOverrideMs}::int IS NOT NULL AND purge_after <= NOW() + (${purgeWindowOverrideMs}::int * INTERVAL '1 millisecond') ) ) AND purge_cancelled_at IS NULL AND purge_started_at IS NULL AND terminal_at IS NULL AND ( teardown_completed_at IS NOT NULL OR EXISTS ( SELECT 1 FROM jsonb_array_elements(provider_dispositions) AS disposition(value) WHERE disposition.value->>'type' = 'admin_provider_disposition' AND disposition.value->>'provider' IN ('stripe', 'zernio', 'google', 'supabase_auth', 'other') AND NULLIF(BTRIM(disposition.value->>'resource_type'), '') IS NOT NULL AND NULLIF(BTRIM(disposition.value->>'scrubbed_resource_reference'), '') IS NOT NULL AND NULLIF(BTRIM(disposition.value->>'admin_actor_user_id'), '') IS NOT NULL AND NULLIF(BTRIM(disposition.value->>'reason'), '') IS NOT NULL AND NULLIF(BTRIM(disposition.value->>'recorded_at'), '') IS NOT NULL ) ) ORDER BY purge_after ASC, id ASC LIMIT 1 FOR UPDATE SKIP LOCKED",
     reason: "Background scheduler scans purge-eligible owner-offboarding rows globally before claiming one row and enqueueing scoped purge work transactionally.",
   },
   {
