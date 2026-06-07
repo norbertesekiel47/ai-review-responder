@@ -45,6 +45,11 @@ async function runCancellationGrace(): Promise<void> {
         AND a.cancelled_at IS NOT NULL
         AND a.cancelled_at < NOW() - INTERVAL '30 days'
         AND b.archived_at IS NULL
+        AND NOT EXISTS (
+          SELECT 1
+          FROM account_offboardings ao
+          WHERE ao.account_id = a.id
+        )
       GROUP BY a.id
     `;
 
@@ -65,6 +70,11 @@ async function runCancellationGrace(): Promise<void> {
           SET archived_at = NOW(), updated_at = NOW()
           WHERE account_id = ${account_id}::uuid
             AND archived_at IS NULL
+            AND NOT EXISTS (
+              SELECT 1
+              FROM account_offboardings ao
+              WHERE ao.account_id = ${account_id}::uuid
+            )
           RETURNING id, display_label, name
         `;
 

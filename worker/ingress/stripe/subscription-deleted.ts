@@ -4,6 +4,12 @@ import { writeAccountAuditLog } from '../../../src/lib/audit/log';
 import { LOG_PREFIX, extractCustomerId } from './shared';
 
 export async function processSubscriptionDeleted(sub: Stripe.Subscription): Promise<void> {
+  const subscriptionId = sub.id;
+  if (!subscriptionId) {
+    console.warn(`${LOG_PREFIX} customer.subscription.deleted missing subscription id — skipping`);
+    return;
+  }
+
   const customerId = extractCustomerId(sub.customer);
   if (!customerId) {
     console.warn(`${LOG_PREFIX} customer.subscription.deleted missing customer — skipping`);
@@ -13,15 +19,48 @@ export async function processSubscriptionDeleted(sub: Stripe.Subscription): Prom
   // VAL-BILLING-015: Set subscription_status = 'cancelled'
   // VAL-BILLING-062: Advisory lock prevents duplicate cancellation writes.
   await sql.begin(async (tx) => {
-    const [acctRow] = await tx<{ id: string; subscription_status: string }[]>`
-      SELECT id, subscription_status
-      FROM accounts
-      WHERE stripe_customer_id = ${customerId}
+    const [acctRow] = await tx<{
+      id: string;
+      subscription_status: string;
+      stripe_subscription_id: string | null;
+      active_offboarding_subscription_id: string | null;
+    }[]>`
+      SELECT
+        a.id,
+        a.subscription_status,
+        a.stripe_subscription_id,
+        CASE
+          WHEN EXISTS (
+            SELECT 1
+            FROM account_offboardings ao
+            WHERE ao.account_id = a.id
+              AND ao.stripe_subscription_id = ${subscriptionId}
+              AND ao.terminal_at IS NULL
+          )
+          THEN ${subscriptionId}
+          ELSE NULL
+        END AS active_offboarding_subscription_id
+      FROM accounts a
+      WHERE a.stripe_customer_id = ${customerId}
       FOR UPDATE
     `;
 
     if (!acctRow) {
       console.warn(`${LOG_PREFIX} customer.subscription.deleted no account found for customer=${customerId} — skipping`);
+      return;
+    }
+
+    if (subscriptionId !== acctRow.stripe_subscription_id) {
+      if (subscriptionId === acctRow.active_offboarding_subscription_id) {
+        console.log(
+          `${LOG_PREFIX} customer.subscription.deleted subscription=${subscriptionId} matches active offboarding snapshot for account ${acctRow.id} but not current subscription — skipping live status update`,
+        );
+        return;
+      }
+
+      console.warn(
+        `${LOG_PREFIX} customer.subscription.deleted subscription=${subscriptionId} does not match account ${acctRow.id} current/active-offboarding subscription — skipping`,
+      );
       return;
     }
 

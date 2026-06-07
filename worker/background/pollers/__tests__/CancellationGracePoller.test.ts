@@ -168,4 +168,42 @@ describe('CancellationGracePoller', () => {
       template.includes("archived_at > NOW() - INTERVAL '1 minute'"),
     )).toBe(false);
   });
+
+  it('re-checks account_offboardings inside the archival UPDATE transaction', async () => {
+    sqlReturnQueue.push([
+      { account_id: 'acct-race', cancelled_count: 2 },
+    ]);
+
+    // Simulates an offboarding row being created after discovery: the guarded
+    // UPDATE should return no locations, so no audit rows are written.
+    sqlReturnQueue.push([]);
+
+    await runOneCycle();
+
+    const updateCall = mockSql.mock.calls.find((c: any[]) => {
+      const template = (c[0] as TemplateStringsArray).join('?');
+      return template.includes('UPDATE businesses') && template.includes('archived_at');
+    });
+    expect(updateCall).toBeDefined();
+
+    const updateTemplate = (updateCall![0] as TemplateStringsArray).join('?');
+    expect(updateTemplate).toMatch(/NOT\s+EXISTS\s*\(\s*SELECT\s+1\s+FROM\s+account_offboardings\s+ao/i);
+    expect(updateTemplate).toContain('ao.account_id = ?::uuid');
+
+    const auditCalls = mockSql.mock.calls.filter(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?').includes('account_audit_log'),
+    );
+    expect(auditCalls).toHaveLength(0);
+  });
+
+  it('excludes accounts with any offboarding row from grace archival', async () => {
+    sqlReturnQueue.push([]);
+
+    await runOneCycle();
+
+    const firstCall = mockSql.mock.calls[0];
+    const template = (firstCall[0] as TemplateStringsArray).join('?');
+    expect(template).toMatch(/NOT\s+EXISTS\s*\(\s*SELECT\s+1\s+FROM\s+account_offboardings\s+ao/i);
+    expect(template).toContain('ao.account_id = a.id');
+  });
 });

@@ -59,6 +59,43 @@ async function processAccountDisconnected(body: ZernioWebhookBody): Promise<void
   const reason = typeof body.reason === 'string' ? body.reason : 'webhook account.disconnected';
 
   await sql.begin(async (tx) => {
+    const teardownReconciled = await tx`
+      UPDATE account_offboardings
+      SET zernio_accounts_step = 'success',
+          updated_at = NOW()
+      WHERE status = 'tearing_down'
+        AND teardown_started_at IS NOT NULL
+        AND teardown_completed_at IS NULL
+        AND terminal_at IS NULL
+        AND zernio_accounts_step <> 'success'
+        AND cardinality(zernio_account_ids) = 1
+        AND ${accountId} = ANY(zernio_account_ids)
+    `;
+
+    if ((teardownReconciled.count ?? 0) > 0) {
+      console.log(`${LOG_PREFIX} account.disconnected reconciled active teardown for account=${accountId}`);
+      return;
+    }
+
+    const [activeTeardown] = await tx<{ id: string }[]>`
+      SELECT id
+      FROM account_offboardings
+      WHERE status = 'tearing_down'
+        AND teardown_started_at IS NOT NULL
+        AND teardown_completed_at IS NULL
+        AND terminal_at IS NULL
+        AND zernio_accounts_step <> 'success'
+        AND ${accountId} = ANY(zernio_account_ids)
+      LIMIT 1
+    `;
+
+    if (activeTeardown) {
+      console.log(
+        `${LOG_PREFIX} account.disconnected matched active multi-account teardown for account=${accountId} — skipping connection-lost notification`,
+      );
+      return;
+    }
+
     await tx`
       WITH disconnected AS (
         UPDATE zernio_connections
