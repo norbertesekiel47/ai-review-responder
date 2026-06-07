@@ -1,0 +1,215 @@
+import { createHash } from 'node:crypto';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  PURGE_VERIFICATION_TABLES,
+  TABLE_DISPOSITIONS,
+} from '../table-disposition';
+
+interface QueryCall {
+  text: string;
+  values: unknown[];
+}
+
+const { calls, mockSql } = vi.hoisted(() => {
+  const calls: QueryCall[] = [];
+  const mockSql: any = vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
+    const text = strings.join('?');
+    calls.push({ text, values });
+    return [{ violation_count: 0 }];
+  });
+  return { calls, mockSql };
+});
+
+vi.mock('../../db/server', () => ({
+  sql: mockSql,
+}));
+
+import {
+  PURGE_VERIFICATION_SQL_TABLES,
+  verifyAccountOffboardingPurge,
+} from '../purge-verification';
+
+describe('purge verification', () => {
+  beforeEach(() => {
+    calls.length = 0;
+    mockSql.mockClear();
+    mockSql.mockImplementation(async (strings: TemplateStringsArray, ...values: unknown[]) => {
+      const text = strings.join('?');
+      calls.push({ text, values });
+      if (text.includes("scope.value->>'type' = 'sms_opt_out_scrub_scope'")) {
+        return [{
+          messaging_service_sid_hash: sha256Hex('MG123'),
+          handle_hash: sha256Hex('MG123:+15555550123'),
+        }];
+      }
+      if (
+        text.includes('FROM sms_sender_opt_outs') ||
+        text.includes('FROM sms_sender_opt_out_events')
+      ) {
+        return [];
+      }
+      return [{ violation_count: 0 }];
+    });
+  });
+
+  it('has explicit verification SQL for every disposition table that requires purge verification', () => {
+    const expected = PURGE_VERIFICATION_TABLES.map((entry) => entry.table).sort();
+    expect(PURGE_VERIFICATION_SQL_TABLES.toSorted()).toEqual(expected);
+  });
+
+  it('reports only tables with remaining verification violations', async () => {
+    mockSql.mockImplementation(async (strings: TemplateStringsArray, ...values: unknown[]) => {
+      const text = strings.join('?');
+      calls.push({ text, values });
+      if (text.includes('FROM responses')) return [{ violation_count: 2 }];
+      if (text.includes('FROM approval_audit_log')) return [{ violation_count: 1 }];
+      return [{ violation_count: 0 }];
+    });
+
+    const result = await verifyAccountOffboardingPurge({
+      accountId: '00000000-0000-7000-8000-000000000001',
+      offboardingId: '00000000-0000-7000-8000-000000000002',
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.issues).toEqual([
+      expect.objectContaining({
+        table: 'responses',
+        purgeVerification: 'must_be_absent',
+        violationCount: 2,
+      }),
+      expect.objectContaining({
+        table: 'approval_audit_log',
+        purgeVerification: 'must_be_scrubbed',
+        violationCount: 1,
+      }),
+    ]);
+  });
+
+  it('uses explicit account, business, offboarding, and compliance retention scopes', async () => {
+    await verifyAccountOffboardingPurge({
+      accountId: '00000000-0000-7000-8000-000000000001',
+      offboardingId: '00000000-0000-7000-8000-000000000002',
+      currentOutboxId: '00000000-0000-7000-8000-000000000003',
+      authUserId: 'auth-user-1',
+      stripeCustomerId: 'cus_123',
+      stripeSubscriptionId: 'sub_123',
+      zernioAccountIds: ['zernio-account-1'],
+      zernioProfileIds: ['zernio-profile-1'],
+    });
+
+    const sqlText = calls.map((call) => call.text).join('\n');
+    expect(sqlText).toContain('WITH account_businesses AS');
+    expect(sqlText).toContain('UNION ALL SELECT ?::text');
+    expect(sqlText).toContain('UNION ALL SELECT UNNEST(?::text[])');
+    expect(sqlText).toContain('FROM account_offboarding_tokens');
+    expect(sqlText).toContain('FROM sms_sender_opt_outs');
+    expect(sqlText).toContain('FROM sms_sender_opt_out_events');
+    expect(sqlText).toContain('google_maps_url IS NOT NULL');
+    expect(sqlText).toContain('approval_link_id IS NOT NULL');
+    expect(sqlText).toContain('user_agent IS NOT NULL');
+    expect(sqlText).toContain("scope.value->>'type' = 'job_outbox_scrub_scope'");
+    expect(sqlText).toContain("scope.value->>'type' = 'impersonation_session_scrub_scope'");
+    expect(sqlText).toContain("scope.value->>'type' = 'sms_opt_out_scrub_scope'");
+    expect(sqlText).toContain('jsonb_array_elements(ao.provider_dispositions)');
+    expect(sqlText).toContain("handle NOT LIKE 'sha256:%'");
+    expect(sqlText).not.toContain('digest(');
+    expect(sqlText).not.toContain('SELECT *');
+  });
+
+  it('checks payload-control tables against the full raw identifier scope', async () => {
+    await verifyAccountOffboardingPurge({
+      accountId: '00000000-0000-7000-8000-000000000001',
+      offboardingId: '00000000-0000-7000-8000-000000000002',
+      currentOutboxId: '00000000-0000-7000-8000-000000000003',
+      authUserId: 'auth-user-1',
+      stripeCustomerId: 'cus_123',
+      stripeSubscriptionId: 'sub_123',
+      zernioAccountIds: ['zernio-account-1'],
+      zernioProfileIds: ['zernio-profile-1'],
+    });
+
+    const payloadQueries = calls
+      .filter((call) =>
+        call.text.includes('FROM inbound_events') ||
+        call.text.includes('FROM job_outbox')
+      )
+      .map((call) => call.text)
+      .join('\n');
+
+    expect(payloadQueries).toContain('offboarding_scope AS');
+    expect(payloadQueries).toContain('job_outbox_id');
+    expect(payloadQueries).toContain('job_outbox_scrub_scope AS');
+    expect(payloadQueries).toContain('UNION ALL SELECT UNNEST(?::text[])');
+    expect(payloadQueries).toContain('payload::text LIKE');
+    expect(payloadQueries).toContain('last_error LIKE');
+    expect(payloadQueries).toContain('length(btrim(s.identifier)) > 0');
+    expect(payloadQueries).toContain('id <> ?::uuid');
+    expect(payloadQueries).toContain("status NOT IN ('completed', 'failed')");
+  });
+
+  it('does not scope final SMS verification through deleted channel enrollments', async () => {
+    await verifyAccountOffboardingPurge({
+      accountId: '00000000-0000-7000-8000-000000000001',
+      offboardingId: '00000000-0000-7000-8000-000000000002',
+    });
+
+    const smsQueries = calls
+      .filter((call) =>
+        call.text.includes('FROM sms_sender_opt_outs') ||
+        call.text.includes('FROM sms_sender_opt_out_events') ||
+        call.text.includes("scope.value->>'type' = 'sms_opt_out_scrub_scope'")
+      )
+      .map((call) => call.text)
+      .join('\n');
+
+    expect(smsQueries).toContain('provider_dispositions');
+    expect(smsQueries).not.toContain('FROM channel_enrollments');
+  });
+
+  it('checks final SMS scrub scope with Node SHA-256 instead of database digest', async () => {
+    mockSql.mockImplementation(async (strings: TemplateStringsArray, ...values: unknown[]) => {
+      const text = strings.join('?');
+      calls.push({ text, values });
+      if (text.includes("scope.value->>'type' = 'sms_opt_out_scrub_scope'")) {
+        return [{
+          messaging_service_sid_hash: sha256Hex('MG123'),
+          handle_hash: sha256Hex('MG123:+15555550123'),
+        }];
+      }
+      if (text.includes('FROM sms_sender_opt_outs')) {
+        return [
+          { messaging_service_sid: 'MG123', handle: '+15555550123' },
+          { messaging_service_sid: 'MG123', handle: '+15555559999' },
+        ];
+      }
+      if (text.includes('FROM sms_sender_opt_out_events')) {
+        return [];
+      }
+      return [{ violation_count: 0 }];
+    });
+
+    const result = await verifyAccountOffboardingPurge({
+      accountId: '00000000-0000-7000-8000-000000000001',
+      offboardingId: '00000000-0000-7000-8000-000000000002',
+    });
+
+    expect(result.issues).toEqual([
+      expect.objectContaining({
+        table: 'sms_sender_opt_outs',
+        violationCount: 1,
+      }),
+    ]);
+    expect(calls.map((call) => call.text).join('\n')).not.toContain('digest(');
+  });
+
+  it('does not silently add disposition tables without verification coverage', () => {
+    const uniqueTables = new Set(TABLE_DISPOSITIONS.map((entry) => entry.table));
+    expect(uniqueTables.size).toBe(TABLE_DISPOSITIONS.length);
+    expect(PURGE_VERIFICATION_TABLES.length).toBeGreaterThan(20);
+  });
+});
+
+function sha256Hex(value: string): string {
+  return createHash('sha256').update(value).digest('hex');
+}

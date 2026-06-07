@@ -217,17 +217,11 @@ async function loadCallbackBusiness(
       ao.purge_started_at AS offboarding_purge_started_at,
       ao.purge_cancelled_at AS offboarding_purge_cancelled_at
     FROM businesses b
-    LEFT JOIN LATERAL (
-      SELECT id, account_id, mode, status, failed_step, access_ends_at,
-             teardown_started_at, purge_after, purge_started_at,
-             purge_cancelled_at
-      FROM account_offboardings
-      WHERE account_id = b.account_id
-        AND terminal_at IS NULL
-      ORDER BY created_at DESC
-      LIMIT 1
-    ) ao ON TRUE
+    LEFT JOIN account_offboardings ao
+      ON ao.account_id = b.account_id
+     AND ao.terminal_at IS NULL
     WHERE b.id = ${businessId}
+    ORDER BY ao.created_at DESC NULLS LAST
     LIMIT 1
   `;
   return business;

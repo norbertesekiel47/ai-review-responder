@@ -191,3 +191,8 @@ export interface AccountOffboardingTeardownPayload extends BasePayload {
   account_offboarding_id: string;
   account_id: string;
 }
+
+export interface AccountOffboardingPurgePayload extends BasePayload {
+  account_offboarding_id: string;
+  account_id: string;
+}

@@ -326,7 +326,7 @@ describe('keepMyDataWithToken', () => {
     expect(combinedSql).toContain('FOR UPDATE OF t, ao');
     expect(combinedSql).toContain('SET consumed_at = NOW()');
     expect(combinedSql).toContain('SET purge_cancelled_at');
-    expect(combinedSql).toContain('AND id <>');
+    expect(combinedSql).toContain('AND t.id <>');
     expect(combinedSql).toContain("revoked_reason = 'keep_my_data'");
     expect(JSON.stringify(calls.flatMap((call) => call.values))).not.toContain(RAW_TOKEN);
     expect(calls.flatMap((call) => call.values)).toContain(TOKEN_HASH);

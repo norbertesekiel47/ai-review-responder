@@ -151,15 +151,19 @@ export async function handleAccountOffboardingEmail(
     try {
       if (keepMyDataToken?.created) {
         await sql`
-          DELETE FROM account_offboarding_tokens
-          WHERE id = ${keepMyDataToken.id}::uuid
-            AND consumed_at IS NULL
-            AND revoked_at IS NULL
+          DELETE FROM account_offboarding_tokens t
+          USING account_offboardings ao
+          WHERE t.id = ${keepMyDataToken.id}::uuid
+            AND t.account_offboarding_id = ao.id
+            AND ao.account_id = ${offboarding.account_id}::uuid
+            AND t.consumed_at IS NULL
+            AND t.revoked_at IS NULL
         `;
       }
       await sql`
         DELETE FROM notification_deliveries
         WHERE id = ${deliveryId}::uuid
+          AND account_id = ${offboarding.account_id}::uuid
           AND external_message_id IS NULL
       `;
     } catch (deleteErr) {
@@ -180,6 +184,7 @@ export async function handleAccountOffboardingEmail(
     SET external_message_id = ${messageId},
         sent_at = NOW()
     WHERE id = ${deliveryId}::uuid
+      AND account_id = ${job.data.account_id}::uuid
   `;
 
   await markOutboxCompleted(outboxId, outboxAttempt);
@@ -202,12 +207,14 @@ async function claimDelivery(input: {
     SELECT sent_at, external_message_id
     FROM notification_deliveries
     WHERE id = ${input.deliveryId}::uuid
+      AND account_id = ${input.accountId}::uuid
   `;
   if (existing?.sent_at || existing?.external_message_id) return 'already_sent';
 
   const reclaimed = await sql<{ id: string }[]>`
     DELETE FROM notification_deliveries
     WHERE id = ${input.deliveryId}::uuid
+      AND account_id = ${input.accountId}::uuid
       AND sent_at IS NULL
       AND external_message_id IS NULL
       AND created_at < NOW() - (${STALE_DELIVERY_CLAIM_MINUTES} * INTERVAL '1 minute')
@@ -350,14 +357,16 @@ async function ensureKeepMyDataToken(
   if (inserted[0]) return { id: inserted[0].id, rawToken, created: true };
 
   const [existing] = await sql<{ id: string }[]>`
-    SELECT id
-    FROM account_offboarding_tokens
-    WHERE token_hash = ${tokenHash}
-      AND account_offboarding_id = ${row.id}::uuid
-      AND token_type = 'keep_my_data'
-      AND consumed_at IS NULL
-      AND revoked_at IS NULL
-      AND expires_at > NOW()
+    SELECT t.id
+    FROM account_offboarding_tokens t
+    JOIN account_offboardings ao ON ao.id = t.account_offboarding_id
+    WHERE t.token_hash = ${tokenHash}
+      AND t.account_offboarding_id = ${row.id}::uuid
+      AND ao.account_id = ${row.account_id}::uuid
+      AND t.token_type = 'keep_my_data'
+      AND t.consumed_at IS NULL
+      AND t.revoked_at IS NULL
+      AND t.expires_at > NOW()
     LIMIT 1
   `;
   if (!existing) throw new Error('keep_my_data_token_conflict_unusable');

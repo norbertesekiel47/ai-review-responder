@@ -8,6 +8,7 @@ import {
   type GenerateResponseOriginLane,
   type AccountOffboardingBillingSchedulePayload,
   type AccountOffboardingEmailPayload,
+  type AccountOffboardingPurgePayload,
   type AccountOffboardingTeardownPayload,
   type GenerateResponsePayload,
   type PublishResponsePayload,
@@ -75,6 +76,13 @@ export interface EnqueueAccountOffboardingEmailInput {
 }
 
 export interface EnqueueAccountOffboardingTeardownInput {
+  outboxId?: string;
+  accountOffboardingId: string;
+  accountId: string;
+  correlationId?: string;
+}
+
+export interface EnqueueAccountOffboardingPurgeInput {
   outboxId?: string;
   accountOffboardingId: string;
   accountId: string;
@@ -336,6 +344,33 @@ export async function enqueueAccountOffboardingTeardown(
     VALUES (
       ${outboxId},
       ${QUEUE_NAMES.ACCOUNT_OFFBOARDING_TEARDOWN},
+      ${AGGREGATE_TYPE_ACCOUNT_OFFBOARDING},
+      ${input.accountOffboardingId},
+      ${jsonb(payload)},
+      ${JOB_OUTBOX_STATUS_PENDING}
+    )
+  `;
+  return outboxId;
+}
+
+export async function enqueueAccountOffboardingPurge(
+  tx: TxClient,
+  input: EnqueueAccountOffboardingPurgeInput,
+): Promise<string> {
+  const outboxId = input.outboxId ?? uuidv7();
+  const payload: AccountOffboardingPurgePayload = {
+    account_offboarding_id: input.accountOffboardingId,
+    account_id: input.accountId,
+  };
+  if (input.correlationId !== undefined) {
+    payload.correlation_id = input.correlationId;
+  }
+
+  await tx`
+    INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+    VALUES (
+      ${outboxId},
+      ${QUEUE_NAMES.ACCOUNT_OFFBOARDING_PURGE},
       ${AGGREGATE_TYPE_ACCOUNT_OFFBOARDING},
       ${input.accountOffboardingId},
       ${jsonb(payload)},

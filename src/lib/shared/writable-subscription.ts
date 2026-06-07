@@ -102,17 +102,11 @@ export async function assertWritableSubscriptionForAccount(
       ao.purge_started_at AS offboarding_purge_started_at,
       ao.purge_cancelled_at AS offboarding_purge_cancelled_at
     FROM accounts a
-    LEFT JOIN LATERAL (
-      SELECT id, account_id, mode, status, failed_step, access_ends_at,
-             teardown_started_at, purge_after, purge_started_at,
-             purge_cancelled_at
-      FROM account_offboardings
-      WHERE account_id = a.id
-        AND terminal_at IS NULL
-      ORDER BY created_at DESC
-      LIMIT 1
-    ) ao ON TRUE
+    LEFT JOIN account_offboardings ao
+      ON ao.account_id = a.id
+     AND ao.terminal_at IS NULL
     WHERE a.id = ${accountId}::uuid
+    ORDER BY ao.created_at DESC NULLS LAST
     LIMIT 1
   `;
 
@@ -167,17 +161,11 @@ export async function assertWritableSubscriptionForBusiness(
       ao.purge_cancelled_at AS offboarding_purge_cancelled_at
     FROM businesses b
     JOIN accounts a ON a.id = b.account_id
-    LEFT JOIN LATERAL (
-      SELECT id, account_id, mode, status, failed_step, access_ends_at,
-             teardown_started_at, purge_after, purge_started_at,
-             purge_cancelled_at
-      FROM account_offboardings
-      WHERE account_id = a.id
-        AND terminal_at IS NULL
-      ORDER BY created_at DESC
-      LIMIT 1
-    ) ao ON TRUE
+    LEFT JOIN account_offboardings ao
+      ON ao.account_id = a.id
+     AND ao.terminal_at IS NULL
     WHERE b.id = ${businessId}::uuid
+    ORDER BY ao.created_at DESC NULLS LAST
     LIMIT 1
   `;
 
@@ -250,17 +238,12 @@ export async function resolveWritableAccountForLocation(
       ao.purge_cancelled_at AS offboarding_purge_cancelled_at
     FROM accounts a
     JOIN businesses b ON b.account_id = a.id
-    LEFT JOIN LATERAL (
-      SELECT id, account_id, mode, status, failed_step, access_ends_at,
-             teardown_started_at, purge_after, purge_started_at,
-             purge_cancelled_at
-      FROM account_offboardings
-      WHERE account_id = a.id
-        AND terminal_at IS NULL
-      ORDER BY created_at DESC
-      LIMIT 1
-    ) ao ON TRUE
+    LEFT JOIN account_offboardings ao
+      ON ao.account_id = a.id
+     AND ao.terminal_at IS NULL
     WHERE b.id = ${locationId}
+    ORDER BY ao.created_at DESC NULLS LAST
+    LIMIT 1
   `;
   if (!accountRow) return { kind: 'no_account' };
 

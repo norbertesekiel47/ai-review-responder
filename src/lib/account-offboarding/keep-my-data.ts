@@ -127,16 +127,19 @@ export async function keepMyDataWithToken(
     if (!canApplyKeepMyData(tokenRow)) return { ok: false, reason: 'not_available' };
 
     const consumed = await tx<{ id: string }[]>`
-      UPDATE account_offboarding_tokens
+      UPDATE account_offboarding_tokens t
       SET consumed_at = NOW(),
           consumed_ip = ${input.ip ?? null},
           consumed_user_agent = ${input.userAgent ?? null},
           updated_at = NOW()
-      WHERE id = ${tokenRow.token_id}::uuid
-        AND consumed_at IS NULL
-        AND revoked_at IS NULL
-        AND expires_at > NOW()
-      RETURNING id
+      FROM account_offboardings ao
+      WHERE t.id = ${tokenRow.token_id}::uuid
+        AND t.account_offboarding_id = ao.id
+        AND ao.account_id = ${tokenRow.account_id}::uuid
+        AND t.consumed_at IS NULL
+        AND t.revoked_at IS NULL
+        AND t.expires_at > NOW()
+      RETURNING t.id
     `;
     if (consumed.length === 0) return { ok: false, reason: 'not_available' };
 
@@ -199,26 +202,32 @@ async function applyKeepMyData(
 
   if (input.tokenId) {
     await tx`
-      UPDATE account_offboarding_tokens
+      UPDATE account_offboarding_tokens t
       SET revoked_at = NOW(),
           revoked_reason = 'keep_my_data',
           revoked_by_user_id = ${input.actorUserId ?? null}::uuid,
           updated_at = NOW()
-      WHERE account_offboarding_id = ${row.id}::uuid
-        AND consumed_at IS NULL
-        AND revoked_at IS NULL
-        AND id <> ${input.tokenId}::uuid
+      FROM account_offboardings ao
+      WHERE t.account_offboarding_id = ao.id
+        AND ao.id = ${row.id}::uuid
+        AND ao.account_id = ${row.account_id}::uuid
+        AND t.consumed_at IS NULL
+        AND t.revoked_at IS NULL
+        AND t.id <> ${input.tokenId}::uuid
     `;
   } else {
     await tx`
-      UPDATE account_offboarding_tokens
+      UPDATE account_offboarding_tokens t
       SET revoked_at = NOW(),
           revoked_reason = 'keep_my_data',
           revoked_by_user_id = ${input.actorUserId ?? null}::uuid,
           updated_at = NOW()
-      WHERE account_offboarding_id = ${row.id}::uuid
-        AND consumed_at IS NULL
-        AND revoked_at IS NULL
+      FROM account_offboardings ao
+      WHERE t.account_offboarding_id = ao.id
+        AND ao.id = ${row.id}::uuid
+        AND ao.account_id = ${row.account_id}::uuid
+        AND t.consumed_at IS NULL
+        AND t.revoked_at IS NULL
     `;
   }
 
@@ -323,7 +332,8 @@ async function getIdempotentKeepMyDataOffboarding(
       AND EXISTS (
         SELECT 1
         FROM account_audit_log aal
-        WHERE aal.account_id = ao.account_id
+        WHERE aal.account_id = ${accountId}::uuid
+          AND aal.account_id = ao.account_id
           AND aal.entity_type = 'account_offboarding'
           AND aal.entity_id = ao.id::text
           AND aal.event_type = 'account_offboarding_keep_my_data'

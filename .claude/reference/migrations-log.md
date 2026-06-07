@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **056** — next migration is **057**
+Current head: **057** — next migration is **058**
 All tables use UUIDv7 (time-ordered primary keys).
 
 ## Migration Log
@@ -397,6 +397,17 @@ All tables use UUIDv7 (time-ordered primary keys).
   `account_id` and non-null `stripe_subscription_id`. `account_offboarding_tokens`
   stores only SHA-256 hex `token_hash` values for `token_type='keep_my_data'`,
   expiry/consume/revoke stamps, and audit metadata; no raw token column exists.
+
+- **057** — Owner offboarding tombstone nullability (PR6 Task 6.2). Drops
+  `NOT NULL` from `account_offboardings.zernio_account_ids` and
+  `account_offboardings.zernio_profile_ids` so the purge terminal scrub can
+  null raw provider snapshot identifiers while retaining the lifecycle receipt.
+  Drops `NOT NULL` from `approval_audit_log.response_id` so scrubbed audit rows
+  can be detached before hard-deleting response content. Drops `NOT NULL` from
+  `impersonation_sessions.account_id` and
+  `impersonation_sessions.impersonated_user_id` so retained admin-control rows
+  can scrub purged account/user references. No new tables, policies, statuses,
+  indexes, or browser-visible flags.
 
 ## Key Tables Reference
 

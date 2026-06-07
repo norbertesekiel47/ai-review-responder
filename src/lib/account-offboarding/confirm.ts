@@ -342,7 +342,8 @@ async function getActiveOffboarding(
       EXISTS (
         SELECT 1
         FROM account_audit_log aal
-        WHERE aal.account_id = ao.account_id
+        WHERE aal.account_id = ${accountId}::uuid
+          AND aal.account_id = ao.account_id
           AND aal.entity_type = 'account_offboarding'
           AND aal.entity_id = ao.id::text
           AND aal.event_type = 'account_offboarding_requested'

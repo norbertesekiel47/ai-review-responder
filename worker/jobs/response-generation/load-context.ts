@@ -99,17 +99,12 @@ export async function loadGenerationContext(input: {
            ao.purge_cancelled_at AS offboarding_purge_cancelled_at
     FROM businesses b
     JOIN accounts a ON a.id = b.account_id
-    LEFT JOIN LATERAL (
-      SELECT id, account_id, mode, status, failed_step, access_ends_at,
-             teardown_started_at, purge_after, purge_started_at,
-             purge_cancelled_at
-      FROM account_offboardings
-      WHERE account_id = a.id
-        AND terminal_at IS NULL
-      ORDER BY created_at DESC
-      LIMIT 1
-    ) ao ON TRUE
+    LEFT JOIN account_offboardings ao
+      ON ao.account_id = a.id
+     AND ao.terminal_at IS NULL
     WHERE b.id = ${businessId}
+    ORDER BY ao.created_at DESC NULLS LAST
+    LIMIT 1
   `;
 
   if (!business) {
