@@ -28,7 +28,11 @@ export async function runOutboxTerminalization(
           AND payload->>'business_id' = ANY(${locationIds}::text[])
         )
         OR (
-          topic IN ('account_offboarding_billing_schedule', 'account_offboarding_teardown')
+          topic IN (
+            'account_offboarding_billing_schedule',
+            'account_offboarding_reactivation',
+            'account_offboarding_teardown'
+          )
           AND aggregate_type = 'account_offboarding'
           AND aggregate_id = ${row.id}
           AND id <> ${currentOutboxId}

@@ -1,7 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { ANALYTICS_EVENT_NAMES } from '@/lib/analytics/events';
 
 const sql = readFileSync(
   join(process.cwd(), 'supabase/migrations/046_analytics_events.sql'),
@@ -65,13 +64,22 @@ describe('migration 046 - analytics_events', () => {
     expect(sql).not.toMatch(/posthog-js/i);
   });
 
-  it('keeps the event_name CHECK list in sync with ANALYTICS_EVENT_NAMES', () => {
-    // The allowlist lives in two places: the migration CHECK constraint (DB
-    // enforcement) and events.ts (app enforcement). Adding an event to one
-    // without the other makes inserts fail at runtime — this guard catches it.
+  it('keeps migration 046 scoped to the original analytics event allowlist', () => {
     const checkMatch = sql.match(/event_name IN\s*\(([^)]*)\)/i);
     expect(checkMatch).not.toBeNull();
     const namesInCheck = [...checkMatch![1]!.matchAll(/'([^']+)'/g)].map((m) => m[1]).sort();
-    expect(namesInCheck).toEqual([...ANALYTICS_EVENT_NAMES].sort());
+    expect(namesInCheck).toEqual([
+      'activation_completed',
+      'email_verified',
+      'first_response_drafted',
+      'first_review_ingested',
+      'gbp_connect_failed',
+      'gbp_connect_started',
+      'gbp_connected',
+      'sample_demo_started',
+      'sample_demo_to_signup',
+      'signup_started',
+    ]);
+    expect(namesInCheck).not.toContain('offboarding_started');
   });
 });

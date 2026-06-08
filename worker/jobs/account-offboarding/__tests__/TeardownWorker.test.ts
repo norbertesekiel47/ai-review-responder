@@ -11,6 +11,7 @@ type OffboardingStatus =
   | 'purge_scheduled'
   | 'churned'
   | 'failed';
+type AccountSubscriptionStatus = 'pending_payment' | 'active' | 'past_due' | 'cancelled';
 type StepOutcome = 'success' | 'failed' | 'not_applicable' | null;
 
 interface QueryCall {
@@ -41,6 +42,14 @@ interface MockOffboardingRow {
   last_error: string | null;
 }
 
+interface MockAccountRow {
+  id: string;
+  subscription_status: AccountSubscriptionStatus;
+  subscription_activated_at: Date | string | null;
+  trial_ends_at: Date | string | null;
+  past_due_at: Date | string | null;
+}
+
 const {
   sqlCalls,
   mockState,
@@ -53,10 +62,12 @@ const {
   mockMarkOutboxCompleted,
   mockMarkOutboxFailed,
   mockCaptureMessage,
+  mockEnqueueOffboardingTeardownCompleted,
 } = vi.hoisted(() => {
   const sqlCalls: QueryCall[] = [];
   const mockState = {
     offboarding: null as MockOffboardingRow | null,
+    account: null as MockAccountRow | null,
     archivedLocations: new Set<string>(),
   };
 
@@ -91,8 +102,19 @@ const {
     return [{ id: row.id, status: row.status }];
   };
 
-  const mockSql: any = vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
-    const text = strings.join('?');
+  // Model Postgres.js faithfully: a single-string call is identifier interpolation
+  // (sql('col')) and is inlined into the query text; tagged-template values become '?'.
+  const renderSqlText = (strings: readonly string[], values: unknown[]): string =>
+    strings.reduce((acc, segment, i) => {
+      if (i === 0) return segment;
+      const value = values[i - 1] as { __id?: unknown } | undefined;
+      const rendered = value && typeof value === 'object' && '__id' in value
+        ? String(value.__id)
+        : '?';
+      return acc + rendered + segment;
+    }, '');
+  const runSqlQuery = async (strings: readonly string[], ...values: unknown[]) => {
+    const text = renderSqlText(strings, values);
     sqlCalls.push({ text, values });
 
     if (text.includes('FROM account_offboardings') && text.includes('WHERE id =') && !text.includes('UPDATE')) {
@@ -145,7 +167,7 @@ const {
     }
 
     if (text.includes('FROM accounts') && text.includes('FOR UPDATE')) {
-      return [{ id: ACCOUNT_ID }];
+      return [mockState.account ?? accountRow()];
     }
 
     if (text.includes('SELECT COUNT(*) AS count') && text.includes('FROM businesses')) {
@@ -187,7 +209,9 @@ const {
       text.includes('UPDATE job_outbox')
       && text.includes("status = 'completed'")
       && text.includes("topic IN ('generate_response', 'send_notification', 'publish_response')")
-      && text.includes("topic IN ('account_offboarding_billing_schedule', 'account_offboarding_teardown')")
+      && text.includes("'account_offboarding_billing_schedule'")
+      && text.includes("'account_offboarding_reactivation'")
+      && text.includes("'account_offboarding_teardown'")
     ) {
       if (!mockState.offboarding) return { count: 0 };
       mockState.offboarding.job_terminalization_step = 'success';
@@ -218,7 +242,10 @@ const {
     }
 
     return [];
-  });
+  };
+  const mockSql: any = vi.fn((strings: any, ...values: unknown[]) =>
+    Array.isArray(strings) ? runSqlQuery(strings, ...values) : { __id: String(strings) },
+  );
 
   mockSql.begin = vi.fn(async (cb: (tx: any) => Promise<unknown>) => cb(mockSql));
 
@@ -234,6 +261,7 @@ const {
     mockMarkOutboxCompleted: vi.fn(),
     mockMarkOutboxFailed: vi.fn(),
     mockCaptureMessage: vi.fn(),
+    mockEnqueueOffboardingTeardownCompleted: vi.fn(),
   };
 });
 
@@ -274,6 +302,10 @@ vi.mock('../../../../src/lib/account-offboarding/stripe-invoices', () => ({
       this.code = input.code;
     }
   },
+}));
+
+vi.mock('../../../../src/lib/account-offboarding/analytics', () => ({
+  enqueueOffboardingTeardownCompleted: mockEnqueueOffboardingTeardownCompleted,
 }));
 
 vi.mock('../../../../src/lib/zernio/client', () => ({
@@ -341,13 +373,26 @@ function offboardingRow(overrides: Partial<MockOffboardingRow> = {}): MockOffboa
   };
 }
 
+function accountRow(overrides: Partial<MockAccountRow> = {}): MockAccountRow {
+  return {
+    id: ACCOUNT_ID,
+    subscription_status: 'active',
+    subscription_activated_at: new Date('2026-05-01T00:00:00.000Z'),
+    trial_ends_at: null,
+    past_due_at: null,
+    ...overrides,
+  };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   sqlCalls.length = 0;
   mockState.archivedLocations.clear();
   mockState.offboarding = offboardingRow();
+  mockState.account = accountRow();
   process.env.STRIPE_SECRET_KEY = 'sk_test_dummy';
   mockStripeSubscriptionsRetrieve.mockResolvedValue({ status: 'canceled' });
+  mockEnqueueOffboardingTeardownCompleted.mockResolvedValue(undefined);
 });
 
 describe('AccountOffboarding TeardownWorker', () => {
@@ -391,13 +436,21 @@ describe('AccountOffboarding TeardownWorker', () => {
     expect(combinedSql).toContain("COALESCE(array_length(location_ids, 1), 0) > 0 AND location_archival_step = 'success'");
     expect(combinedSql).toContain("job_terminalization_step = 'success'");
     expect(combinedSql).toContain("topic IN ('generate_response', 'send_notification', 'publish_response')");
-    expect(combinedSql).toContain("topic IN ('account_offboarding_billing_schedule', 'account_offboarding_teardown')");
+    expect(combinedSql).toContain("'account_offboarding_billing_schedule'");
+    expect(combinedSql).toContain("'account_offboarding_reactivation'");
+    expect(combinedSql).toContain("'account_offboarding_teardown'");
     expect(combinedSql).not.toContain('stripe_checkout_session_reconcile');
 
     expect(mockState.archivedLocations.has(LOCATION_ID)).toBe(true);
     expect(mockState.archivedLocations.has(SECOND_LOCATION_ID)).toBe(true);
     expect(mockState.offboarding?.status).toBe('purge_scheduled');
     expect(mockState.offboarding?.teardown_completed_at).not.toBeNull();
+    expect(mockEnqueueOffboardingTeardownCompleted).toHaveBeenCalledWith(mockSql, {
+      accountId: ACCOUNT_ID,
+      offboardingId: OFFBOARDING_ID,
+      mode: 'delete_data',
+      status: 'purge_scheduled',
+    });
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-teardown-1', 4);
     expect(mockCaptureMessage).not.toHaveBeenCalled();
   });
@@ -425,6 +478,108 @@ describe('AccountOffboarding TeardownWorker', () => {
     expect(combinedSql).not.toContain("SET location_archival_step = 'success'");
     expect(mockState.offboarding?.status).toBe('churned');
     expect(mockState.offboarding?.terminal_at).not.toBeNull();
+    expect(mockEnqueueOffboardingTeardownCompleted).toHaveBeenCalledWith(mockSql, {
+      accountId: ACCOUNT_ID,
+      offboardingId: OFFBOARDING_ID,
+      mode: 'delete_data',
+      status: 'churned',
+    });
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-teardown-1', 4);
+  });
+
+  it('lands churned, not purge_scheduled, when keep-my-data cancels purge mid-teardown', async () => {
+    // Snapshot is loaded with purge_cancelled_at = null (owner has not kept data yet).
+    mockState.offboarding = offboardingRow({ purge_cancelled_at: null });
+    mockStripeSubscriptionsCancel.mockResolvedValueOnce({ id: 'sub_live_123' });
+    // A concurrent keep-my-data transaction commits purge_cancelled_at while teardown
+    // is mid-flight — after the worker loaded the row, before it finalizes.
+    mockCleanupSubscriptionInvoices.mockImplementationOnce(async () => {
+      mockState.offboarding!.purge_cancelled_at = new Date('2026-06-06T11:30:00.000Z');
+      return {
+        subscriptionId: 'sub_live_123',
+        actions: [],
+        summary: { inspected: 0, finalized: 0, voided: 0, retained: 0, skipped: 0 },
+      };
+    });
+
+    await handleAccountOffboardingTeardown(makeJob());
+
+    // Completion must reflect the live cancellation: terminal churned, not purge_scheduled.
+    // Otherwise the row strands non-terminal and the account can never offboard again.
+    expect(mockEnqueueOffboardingTeardownCompleted).toHaveBeenCalledWith(mockSql, {
+      accountId: ACCOUNT_ID,
+      offboardingId: OFFBOARDING_ID,
+      mode: 'delete_data',
+      status: 'churned',
+    });
+    expect(mockState.offboarding?.status).toBe('churned');
+    expect(mockState.offboarding?.terminal_at).not.toBeNull();
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-teardown-1', 4);
+  });
+
+  it.each([
+    [
+      'pending_payment',
+      accountRow({
+        subscription_status: 'pending_payment',
+        subscription_activated_at: null,
+      }),
+    ],
+    [
+      'never-activated',
+      accountRow({
+        subscription_status: 'active',
+        subscription_activated_at: null,
+      }),
+    ],
+    [
+      'trial',
+      accountRow({
+        subscription_status: 'active',
+        trial_ends_at: new Date('2026-07-01T00:00:00.000Z'),
+      }),
+    ],
+    [
+      'past_due',
+      accountRow({
+        subscription_status: 'past_due',
+        past_due_at: new Date('2026-06-01T00:00:00.000Z'),
+      }),
+    ],
+  ])('completes %s delete-data teardown when billing/provider steps are absent', async (_label, account) => {
+    mockState.account = account;
+    mockState.offboarding = offboardingRow({
+      mode: 'delete_data',
+      status: 'pending',
+      stripe_subscription_id: null,
+      zernio_account_ids: [],
+      zernio_profile_ids: [],
+      location_ids: [LOCATION_ID],
+      purge_cancelled_at: null,
+    });
+
+    await handleAccountOffboardingTeardown(makeJob());
+
+    const accountLockCall = sqlCalls.find((call) => call.text.includes('FROM accounts') && call.text.includes('FOR UPDATE'));
+    expect(accountLockCall).toBeDefined();
+    expect(mockState.account).toEqual(account);
+    expect(mockStripeSubscriptionsCancel).not.toHaveBeenCalled();
+    expect(mockStripeSubscriptionsRetrieve).not.toHaveBeenCalled();
+    expect(mockCleanupSubscriptionInvoices).not.toHaveBeenCalled();
+    expect(mockDeleteAccount).not.toHaveBeenCalled();
+    expect(mockDeleteProfile).not.toHaveBeenCalled();
+    expect(mockState.offboarding?.stripe_step).toBe('not_applicable');
+    expect(mockState.offboarding?.zernio_accounts_step).toBe('not_applicable');
+    expect(mockState.offboarding?.zernio_profiles_step).toBe('not_applicable');
+    expect(mockState.offboarding?.location_archival_step).toBe('success');
+    expect(mockState.offboarding?.status).toBe('purge_scheduled');
+    expect(mockState.offboarding?.teardown_completed_at).not.toBeNull();
+    expect(mockEnqueueOffboardingTeardownCompleted).toHaveBeenCalledWith(mockSql, {
+      accountId: ACCOUNT_ID,
+      offboardingId: OFFBOARDING_ID,
+      mode: 'delete_data',
+      status: 'purge_scheduled',
+    });
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-teardown-1', 4);
   });
 
@@ -470,6 +625,7 @@ describe('AccountOffboarding TeardownWorker', () => {
     expect(mockState.offboarding?.teardown_completed_at).toBeNull();
     expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+    expect(mockEnqueueOffboardingTeardownCompleted).not.toHaveBeenCalled();
     expect(sqlCalls.some((call) => call.text.includes("SET status = 'tearing_down'"))).toBe(false);
     expect(mockCaptureMessage).toHaveBeenCalledWith(
       'account_offboarding_teardown_failed',
@@ -501,6 +657,7 @@ describe('AccountOffboarding TeardownWorker', () => {
     expect(mockState.offboarding?.teardown_started_at).toBeNull();
     expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+    expect(mockEnqueueOffboardingTeardownCompleted).not.toHaveBeenCalled();
     expect(sqlCalls.some((call) => call.text.includes("SET status = 'tearing_down'"))).toBe(false);
   });
 
@@ -527,6 +684,26 @@ describe('AccountOffboarding TeardownWorker', () => {
     });
     expect(mockState.offboarding?.status).toBe('churned');
     expect(mockState.offboarding?.terminal_at).not.toBeNull();
+    expect(mockEnqueueOffboardingTeardownCompleted).toHaveBeenCalledWith(mockSql, {
+      accountId: ACCOUNT_ID,
+      offboardingId: OFFBOARDING_ID,
+      mode: 'cancel_only',
+      status: 'churned',
+    });
+
+    // H1a: cancel_only landing churned enqueues the access-end email in the
+    // same finalize transaction.
+    const emailEnqueue = sqlCalls.find(
+      (call) => call.text.includes('INSERT INTO job_outbox')
+        && call.values.includes('account_offboarding_email'),
+    );
+    expect(emailEnqueue).toBeDefined();
+    expect(
+      emailEnqueue!.values.some(
+        (v) => v !== null && typeof v === 'object'
+          && (v as { email_type?: string }).email_type === 'cancel_only_access_end',
+      ),
+    ).toBe(true);
   });
 
   it('does not downgrade a finalized delete-data teardown when markOutboxCompleted fails afterward', async () => {
@@ -547,6 +724,12 @@ describe('AccountOffboarding TeardownWorker', () => {
     expect(mockState.offboarding?.status).toBe('purge_scheduled');
     expect(mockState.offboarding?.failed_step).toBeNull();
     expect(mockState.offboarding?.teardown_completed_at).not.toBeNull();
+    expect(mockEnqueueOffboardingTeardownCompleted).toHaveBeenCalledWith(mockSql, {
+      accountId: ACCOUNT_ID,
+      offboardingId: OFFBOARDING_ID,
+      mode: 'delete_data',
+      status: 'purge_scheduled',
+    });
     expect(sqlCalls.some((call) => call.text.includes("failed_step = 'teardown'"))).toBe(false);
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
   });
@@ -561,6 +744,7 @@ describe('AccountOffboarding TeardownWorker', () => {
     );
 
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+    expect(mockEnqueueOffboardingTeardownCompleted).not.toHaveBeenCalled();
     expect(sqlCalls.some((call) => call.text.includes("failed_step = 'teardown'"))).toBe(false);
     expect(mockCaptureMessage).toHaveBeenCalledWith(
       'account_offboarding_teardown_failed',
@@ -588,7 +772,9 @@ describe('AccountOffboarding TeardownWorker', () => {
     const updateCall = sqlCalls.find((call) => call.text.includes('UPDATE job_outbox'));
     expect(updateCall?.text).toContain("topic IN ('generate_response', 'send_notification', 'publish_response')");
     expect(updateCall?.text).toContain("payload->>'business_id' = ANY(?::text[])");
-    expect(updateCall?.text).toContain("topic IN ('account_offboarding_billing_schedule', 'account_offboarding_teardown')");
+    expect(updateCall?.text).toContain("'account_offboarding_billing_schedule'");
+    expect(updateCall?.text).toContain("'account_offboarding_reactivation'");
+    expect(updateCall?.text).toContain("'account_offboarding_teardown'");
     expect(updateCall?.text).toContain("aggregate_id = ?");
     expect(updateCall?.text).toContain("id <> ?");
     expect(updateCall?.text).not.toContain('stripe_checkout_session_reconcile');
@@ -615,6 +801,7 @@ describe('AccountOffboarding TeardownWorker', () => {
     expect(mockDeleteAccount).not.toHaveBeenCalled();
     expect(mockDeleteProfile).not.toHaveBeenCalled();
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-teardown-1', 4);
+    expect(mockEnqueueOffboardingTeardownCompleted).not.toHaveBeenCalled();
     expect(sqlCalls.some((call) => call.text.includes("SET status = 'tearing_down'"))).toBe(false);
   });
 
@@ -635,6 +822,7 @@ describe('AccountOffboarding TeardownWorker', () => {
     expect(failureCall?.values.join(' ')).not.toContain('sk_live_secret');
     expect(failureCall?.values.join(' ')).not.toContain('hunter2');
     expect(mockState.offboarding?.status).toBe('failed');
+    expect(mockEnqueueOffboardingTeardownCompleted).not.toHaveBeenCalled();
     expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
       'outbox-teardown-1',
       expect.stringContaining('token=[REDACTED]'),

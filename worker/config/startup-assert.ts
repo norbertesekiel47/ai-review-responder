@@ -251,3 +251,22 @@ export function assertZernioPublishingEnv(): void {
     throw new Error(`ZERNIO_PUBLISHING_ENABLED=true but missing required env vars: ${missing.join(', ')}`);
   }
 }
+
+/**
+ * Boot-time assertion. When ACCOUNT_OFFBOARDING_ENABLED=true, verifies the env
+ * vars the delete_data flow depends on: SESSION_COOKIE_SECRET (keep-my-data token
+ * HMAC + fresh-auth stamp) and NEXT_PUBLIC_APP_URL (keep-my-data email link). The
+ * AccountOffboardingEmailWorker already fails the outbox visibly when these are
+ * missing; this fails fast at boot so the misconfig surfaces before any owner
+ * triggers offboarding rather than stranding it at the confirmation email. No-op
+ * when the flag is off or in MOCK_EXTERNAL_APIS=true.
+ */
+export function assertAccountOffboardingEnv(): void {
+  if (process.env.ACCOUNT_OFFBOARDING_ENABLED !== 'true') return;
+  if (process.env.MOCK_EXTERNAL_APIS === 'true') return;
+  const required = ['SESSION_COOKIE_SECRET', 'NEXT_PUBLIC_APP_URL'];
+  const missing = required.filter((k) => !process.env[k] || process.env[k]!.trim().length === 0);
+  if (missing.length > 0) {
+    throw new Error(`ACCOUNT_OFFBOARDING_ENABLED=true but missing required env vars: ${missing.join(', ')}`);
+  }
+}

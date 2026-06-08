@@ -62,6 +62,32 @@ function readOnlyAccountRow() {
   return [{ subscription_status: 'past_due', past_due_at: '2020-01-01T00:00:00.000Z', flags: {} }];
 }
 
+function offboardingAccountRow() {
+  return [{
+    id: 'acc-1',
+    subscription_status: 'active',
+    past_due_at: null,
+    flags: {},
+    offboarding_id: 'offboarding-1',
+    offboarding_account_id: 'acc-1',
+    offboarding_mode: 'delete_data',
+    offboarding_status: 'pending',
+    offboarding_failed_step: null,
+    offboarding_access_ends_at: null,
+    offboarding_teardown_started_at: null,
+    offboarding_purge_after: null,
+    offboarding_purge_started_at: null,
+    offboarding_purge_cancelled_at: null,
+  }];
+}
+
+function expectNoCallbackMutation() {
+  expect(txCalls.some((call) => call.sql.includes('UPDATE approval_links SET consumed_at'))).toBe(false);
+  expect(txCalls.some((call) => call.sql.includes('UPDATE responses'))).toBe(false);
+  expect(txCalls.some((call) => call.sql.includes('job_outbox'))).toBe(false);
+  expect(txCalls.some((call) => call.sql.includes('approval_audit_log'))).toBe(false);
+}
+
 describe('approveViaCallback', () => {
   beforeEach(() => { txQueue.length = 0; txCalls.length = 0; });
 
@@ -111,10 +137,43 @@ describe('approveViaCallback', () => {
       audit: { providerEventId: '999', ipAddress: '1.2.3.4', telegramUpdateId: 999 },
     })).rejects.toBeInstanceOf(SubscriptionReadOnlyError);
 
-    expect(txCalls.some((call) => call.sql.includes('UPDATE approval_links SET consumed_at'))).toBe(false);
-    expect(txCalls.some((call) => call.sql.includes('UPDATE responses'))).toBe(false);
-    expect(txCalls.some((call) => call.sql.includes('job_outbox'))).toBe(false);
-    expect(txCalls.some((call) => call.sql.includes('approval_audit_log'))).toBe(false);
+    expectNoCallbackMutation();
+  });
+
+  it('blocks offboarding accounts before consuming links or enqueueing publish work', async () => {
+    txQueue.push(liveLinkRow());
+    txQueue.push(offboardingAccountRow());
+
+    await expect(approveViaCallback({
+      approvalLinkId: 'link-1',
+      chatHandle: '123456789',
+      viaChannel: 'telegram',
+      audit: { providerEventId: '999', ipAddress: '1.2.3.4', telegramUpdateId: 999 },
+    })).rejects.toMatchObject({
+      name: 'SubscriptionReadOnlyError',
+      message: 'account_offboarding_blocked',
+      status: 403,
+    });
+
+    expectNoCallbackMutation();
+  });
+
+  it('blocks deleted business/account rows before consuming links or enqueueing publish work', async () => {
+    txQueue.push(liveLinkRow());
+    txQueue.push([]);
+
+    await expect(approveViaCallback({
+      approvalLinkId: 'link-1',
+      chatHandle: '123456789',
+      viaChannel: 'telegram',
+      audit: { providerEventId: '999', ipAddress: '1.2.3.4', telegramUpdateId: 999 },
+    })).rejects.toMatchObject({
+      name: 'SubscriptionReadOnlyError',
+      message: 'no_business',
+      status: 403,
+    });
+
+    expectNoCallbackMutation();
   });
 
   it('throws ConsumedLinkError when consumed_at is set', async () => {
@@ -195,9 +254,42 @@ describe('regenerateViaCallback', () => {
       audit: { providerEventId: '7', ipAddress: null, telegramUpdateId: 7 },
     })).rejects.toBeInstanceOf(SubscriptionReadOnlyError);
 
-    expect(txCalls.some((call) => call.sql.includes('UPDATE approval_links SET consumed_at'))).toBe(false);
-    expect(txCalls.some((call) => call.sql.includes('UPDATE responses'))).toBe(false);
-    expect(txCalls.some((call) => call.sql.includes('job_outbox'))).toBe(false);
-    expect(txCalls.some((call) => call.sql.includes('approval_audit_log'))).toBe(false);
+    expectNoCallbackMutation();
+  });
+
+  it('blocks offboarding accounts before consuming links or enqueueing regeneration work', async () => {
+    txQueue.push(liveLinkRow());
+    txQueue.push(offboardingAccountRow());
+
+    await expect(regenerateViaCallback({
+      approvalLinkId: 'link-1',
+      chatHandle: '123',
+      viaChannel: 'telegram',
+      audit: { providerEventId: '7', ipAddress: null, telegramUpdateId: 7 },
+    })).rejects.toMatchObject({
+      name: 'SubscriptionReadOnlyError',
+      message: 'account_offboarding_blocked',
+      status: 403,
+    });
+
+    expectNoCallbackMutation();
+  });
+
+  it('blocks deleted business/account rows before consuming links or enqueueing regeneration work', async () => {
+    txQueue.push(liveLinkRow());
+    txQueue.push([]);
+
+    await expect(regenerateViaCallback({
+      approvalLinkId: 'link-1',
+      chatHandle: '123',
+      viaChannel: 'telegram',
+      audit: { providerEventId: '7', ipAddress: null, telegramUpdateId: 7 },
+    })).rejects.toMatchObject({
+      name: 'SubscriptionReadOnlyError',
+      message: 'no_business',
+      status: 403,
+    });
+
+    expectNoCallbackMutation();
   });
 });

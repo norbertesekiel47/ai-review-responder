@@ -1,6 +1,6 @@
-// Keep this allowlist in sync with the event_name CHECK constraint in
-// supabase/migrations/046_analytics_events.sql. A drift guard in
-// migration-046-analytics-events.test.ts fails the build if they diverge.
+// Keep this allowlist in sync with the latest analytics_events event_name CHECK
+// constraint migration. Drift guards fail the build if the effective DB
+// allowlist and app allowlist diverge.
 export const ANALYTICS_EVENT_NAMES = [
   'signup_started',
   'email_verified',
@@ -12,6 +12,10 @@ export const ANALYTICS_EVENT_NAMES = [
   'first_review_ingested',
   'first_response_drafted',
   'activation_completed',
+  'offboarding_started',
+  'offboarding_reactivated',
+  'offboarding_teardown_completed',
+  'offboarding_purged',
 ] as const;
 
 export type AnalyticsEventName = (typeof ANALYTICS_EVENT_NAMES)[number];

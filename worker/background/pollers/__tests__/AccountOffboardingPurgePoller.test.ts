@@ -445,4 +445,25 @@ describe('AccountOffboardingPurgePoller', () => {
     process.env.VERCEL_ENV = 'production';
     expect(getAccountOffboardingPurgeWindowOverrideMs()).toBeNull();
   });
+
+  it('clamps the override to a 3-day maximum and rejects non-positive or non-numeric values', () => {
+    vi.stubEnv('NODE_ENV', 'test');
+    delete process.env.VERCEL_ENV;
+    const threeDaysMs = 3 * 24 * 60 * 60 * 1000;
+
+    // A value above the cap is clamped down to exactly 3 days — so a fat-fingered
+    // staging override can never push the destructive purge window arbitrarily far out.
+    process.env.ACCOUNT_OFFBOARDING_PURGE_WINDOW_OVERRIDE_MS = String(7 * 24 * 60 * 60 * 1000);
+    expect(getAccountOffboardingPurgeWindowOverrideMs()).toBe(threeDaysMs);
+
+    // Exactly 3 days passes through unchanged.
+    process.env.ACCOUNT_OFFBOARDING_PURGE_WINDOW_OVERRIDE_MS = String(threeDaysMs);
+    expect(getAccountOffboardingPurgeWindowOverrideMs()).toBe(threeDaysMs);
+
+    // Non-positive and non-numeric values are rejected (null), never coerced to 0/NaN.
+    for (const bad of ['0', '-1', 'abc', '']) {
+      process.env.ACCOUNT_OFFBOARDING_PURGE_WINDOW_OVERRIDE_MS = bad;
+      expect(getAccountOffboardingPurgeWindowOverrideMs()).toBeNull();
+    }
+  });
 });

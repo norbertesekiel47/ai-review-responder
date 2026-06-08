@@ -56,6 +56,12 @@ function accountLinkedTablesFromMigrations(): string[] {
   const linkedTables = new Set<string>();
   const linkedColumnPattern =
     /\b(?:account_id|business_id|user_id|owner_user_id|actor_user_id|created_by_user_id|consumed_by_user_id|revoked_by_user_id|reviewed_by_user_id|impersonated_user_id|account_offboarding_id|created_by)\b/i;
+  // M6: structural catch — any table whose body REFERENCES a tenant root
+  // (accounts/businesses) is account-linked regardless of the FK column NAME, so
+  // a future `org_id REFERENCES accounts(...)` cannot silently drift out of the
+  // inventory + purge just because the column is not on the name list above.
+  const referencesTenantRootPattern =
+    /references\s+(?:"?public"?\.)?"?(?:accounts|businesses)"?\b/i;
 
   for (const sql of migrationSqlFiles()) {
     const strippedSql = stripSqlComments(sql);
@@ -64,7 +70,9 @@ function accountLinkedTablesFromMigrations(): string[] {
     for (const match of strippedSql.matchAll(createTablePattern)) {
       const [, table, body] = match;
       if (!table || !body) continue;
-      if (linkedColumnPattern.test(body)) linkedTables.add(table);
+      if (linkedColumnPattern.test(body) || referencesTenantRootPattern.test(body)) {
+        linkedTables.add(table);
+      }
     }
 
     const alterAddColumnPattern =
@@ -73,6 +81,14 @@ function accountLinkedTablesFromMigrations(): string[] {
       const [, table, column] = match;
       if (!table || !column) continue;
       if (linkedColumnPattern.test(column)) linkedTables.add(table);
+    }
+
+    // ALTER TABLE … ADD … REFERENCES accounts/businesses (named-constraint FKs).
+    const alterReferencesPattern =
+      /alter\s+table\s+(?:if\s+exists\s+)?(?:"?public"?\.)?"?([a-z_][a-z0-9_]*)"?\s+add\s+[\s\S]*?references\s+(?:"?public"?\.)?"?(?:accounts|businesses)"?\b/gi;
+    for (const match of strippedSql.matchAll(alterReferencesPattern)) {
+      const [, table] = match;
+      if (table) linkedTables.add(table);
     }
   }
 

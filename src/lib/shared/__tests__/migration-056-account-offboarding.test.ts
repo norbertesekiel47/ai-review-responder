@@ -100,7 +100,7 @@ describe('migration 056 - account offboarding schema', () => {
       /status IN \('pending', 'scheduled', 'tearing_down', 'purge_scheduled', 'purged', 'churned', 'reactivated', 'failed'\)/i,
     );
     expect(normalized).toMatch(
-      /status = 'failed' AND failed_step IN \('billing', 'teardown', 'purge'\)/i,
+      /status = 'failed' AND failed_step IS NOT NULL AND failed_step IN \('billing', 'teardown', 'purge'\)/i,
     );
     expect(normalized).toMatch(/status <> 'failed' AND failed_step IS NULL/i);
     expect(normalized).toMatch(

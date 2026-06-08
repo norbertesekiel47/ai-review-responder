@@ -30,6 +30,7 @@ export const QUEUE_NAMES = {
   STRIPE_CHECKOUT_RECONCILE: 'stripe_checkout_session_reconcile',
   ACCOUNT_OFFBOARDING_BILLING_SCHEDULE: 'account_offboarding_billing_schedule',
   ACCOUNT_OFFBOARDING_EMAIL: 'account_offboarding_email',
+  ACCOUNT_OFFBOARDING_REACTIVATION: 'account_offboarding_reactivation',
   ACCOUNT_OFFBOARDING_TEARDOWN: 'account_offboarding_teardown',
   ACCOUNT_OFFBOARDING_PURGE: 'account_offboarding_purge',
 } as const;

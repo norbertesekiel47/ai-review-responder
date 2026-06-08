@@ -70,7 +70,12 @@ Model offboarding separately.
   (scrubbed). `teardown_completed_at` is stamped only when all required steps are
   `success`/`not_applicable`; never optimistically.
 - **Transient:** `recipient_email` (stored only while lifecycle emails are
-  pending; nulled at `terminal_at`). `feedback_reason_code` is deferred until
+  pending; nulled once the final lifecycle email for the row is delivered — the
+  email worker nulls it after sending a terminal-state email, and the purge
+  terminal scrub always nulls it. It cannot be nulled synchronously at
+  `terminal_at` because the cancel_only access-end and reactivation emails are
+  enqueued in the same transaction that stamps `terminal_at` and still need the
+  recipient to send). `feedback_reason_code` is deferred until
   the confirm route defines the canonical predefined code set; v1 still forbids
   free-text feedback to avoid a PII-scrub surface.
 - **Indexes:** `UNIQUE (account_id) WHERE terminal_at IS NULL` (one active
@@ -224,7 +229,9 @@ flag).
 
 1. **Claim** — lock row; require `purge_cancelled_at IS NULL`, `purge_after<=now`,
    and teardown complete (or admin-recorded provider disposition); set
-   `status='purging'`, `purge_started_at`; revoke keep-my-data tokens.
+   `purge_started_at` (status stays `purge_scheduled` — there is no `purging`
+   status in the 8-status machine; `purge_started_at IS NOT NULL` is the
+   in-progress marker); revoke keep-my-data tokens.
 2. Clear app-auth binding and revoke/sign out sessions (Supabase tokens may remain
    valid until expiry, so guards must not rely on sign-out alone).
 3. **Auth-user delete** — short tx revalidates the `users` row: `auth_id` still

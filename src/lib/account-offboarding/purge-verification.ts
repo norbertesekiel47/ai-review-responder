@@ -231,12 +231,6 @@ function verificationQuery(
         SELECT COUNT(*) AS violation_count
         FROM notification_deliveries
         WHERE (account_id = ${accountId}::uuid OR business_id IN (SELECT id FROM account_businesses))
-          AND (
-            response_id IS NOT NULL
-            OR recipient <> '[redacted]'
-            OR failure_reason IS NOT NULL
-            OR external_message_id IS NOT NULL
-          )
       `;
 
     case 'channel_enrollments':
@@ -370,6 +364,10 @@ function verificationQuery(
           WHERE account_id = ${accountId}::uuid
              OR business_id IN (SELECT id FROM businesses WHERE account_id = ${accountId}::uuid)
              OR user_id IN (SELECT id FROM users WHERE account_id = ${accountId}::uuid)
+             -- Mirror the FK-independent scrub pass so a residual raw-UUID
+             -- distinct_id with no FK and no 'scrubbed:' prefix stays in scope and
+             -- fails verification closed if the scrub ever regresses.
+             OR distinct_id IN (${accountId}, ${`account:${accountId}`})
              OR event_key LIKE 'scrubbed:%'
              OR distinct_id LIKE 'scrubbed:%'
         )
@@ -598,71 +596,33 @@ async function countSmsOptOutViolations(
   )).length;
 }
 
+// Verification twin of DELETABLE_BY_BUSINESS: count any surviving rows whose business
+// belongs to the account. Allowlisted so the dynamic table identifier is never untrusted.
+const ABSENT_BY_BUSINESS_TABLES = new Set<string>([
+  'weekly_summaries',
+  'monthly_impact_emails',
+  'ranking_snapshots',
+  'onboarding_drip_log',
+  'onboarding_demos',
+  'satisfaction_responses',
+  'google_connections',
+]);
+
 function absentByBusiness(
   tableName: string,
   accountId: string,
   exec: SqlExecutor,
 ): Promise<VerificationRow[]> {
-  switch (tableName) {
-    case 'weekly_summaries':
-      return exec<VerificationRow[]>`
-        WITH account_businesses AS (
-          SELECT id FROM businesses WHERE account_id = ${accountId}::uuid
-        )
-        SELECT COUNT(*) AS violation_count FROM weekly_summaries
-        WHERE business_id IN (SELECT id FROM account_businesses)
-      `;
-    case 'monthly_impact_emails':
-      return exec<VerificationRow[]>`
-        WITH account_businesses AS (
-          SELECT id FROM businesses WHERE account_id = ${accountId}::uuid
-        )
-        SELECT COUNT(*) AS violation_count FROM monthly_impact_emails
-        WHERE business_id IN (SELECT id FROM account_businesses)
-      `;
-    case 'ranking_snapshots':
-      return exec<VerificationRow[]>`
-        WITH account_businesses AS (
-          SELECT id FROM businesses WHERE account_id = ${accountId}::uuid
-        )
-        SELECT COUNT(*) AS violation_count FROM ranking_snapshots
-        WHERE business_id IN (SELECT id FROM account_businesses)
-      `;
-    case 'onboarding_drip_log':
-      return exec<VerificationRow[]>`
-        WITH account_businesses AS (
-          SELECT id FROM businesses WHERE account_id = ${accountId}::uuid
-        )
-        SELECT COUNT(*) AS violation_count FROM onboarding_drip_log
-        WHERE business_id IN (SELECT id FROM account_businesses)
-      `;
-    case 'onboarding_demos':
-      return exec<VerificationRow[]>`
-        WITH account_businesses AS (
-          SELECT id FROM businesses WHERE account_id = ${accountId}::uuid
-        )
-        SELECT COUNT(*) AS violation_count FROM onboarding_demos
-        WHERE business_id IN (SELECT id FROM account_businesses)
-      `;
-    case 'satisfaction_responses':
-      return exec<VerificationRow[]>`
-        WITH account_businesses AS (
-          SELECT id FROM businesses WHERE account_id = ${accountId}::uuid
-        )
-        SELECT COUNT(*) AS violation_count FROM satisfaction_responses
-        WHERE business_id IN (SELECT id FROM account_businesses)
-      `;
-    case 'google_connections':
-      return exec<VerificationRow[]>`
-        WITH account_businesses AS (
-          SELECT id FROM businesses WHERE account_id = ${accountId}::uuid
-        )
-        SELECT COUNT(*) AS violation_count FROM google_connections
-        WHERE business_id IN (SELECT id FROM account_businesses)
-      `;
-    default:
-      throw new Error(`missing_absent_by_business_sql:${tableName}`);
+  if (!ABSENT_BY_BUSINESS_TABLES.has(tableName)) {
+    throw new Error(`missing_absent_by_business_sql:${tableName}`);
   }
+  return exec<VerificationRow[]>`
+    WITH account_businesses AS (
+      SELECT id FROM businesses WHERE account_id = ${accountId}::uuid
+    )
+    SELECT COUNT(*) AS violation_count FROM ${exec(tableName)}
+    WHERE business_id IN (SELECT id FROM account_businesses)
+  `;
 }
 
 function sha256Hex(value: string): string {

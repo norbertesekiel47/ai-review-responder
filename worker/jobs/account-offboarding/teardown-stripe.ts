@@ -18,7 +18,9 @@ function getStripe(): Stripe {
   if (!stripeInstance) {
     const key = process.env.STRIPE_SECRET_KEY;
     if (!key) throw new Error('STRIPE_SECRET_KEY is not set');
-    stripeInstance = new Stripe(key);
+    // Explicit bounds on the destructive teardown path: cap the 80s SDK default
+    // timeout and keep network retries bounded (repworth.md reliability rule).
+    stripeInstance = new Stripe(key, { timeout: 20_000, maxNetworkRetries: 2 });
   }
   return stripeInstance;
 }

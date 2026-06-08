@@ -107,6 +107,21 @@ const INACTIVE_ACCOUNT_ROW = {
   past_due_at: null,
   flags: {},
 };
+const OFFBOARDING_ACCOUNT_ROW = {
+  subscription_status: 'active',
+  past_due_at: null,
+  flags: {},
+  offboarding_id: 'offboarding-1',
+  offboarding_account_id: 'a0000000-0000-0000-0000-000000000001',
+  offboarding_mode: 'delete_data',
+  offboarding_status: 'pending',
+  offboarding_failed_step: null,
+  offboarding_access_ends_at: null,
+  offboarding_teardown_started_at: null,
+  offboarding_purge_after: null,
+  offboarding_purge_started_at: null,
+  offboarding_purge_cancelled_at: null,
+};
 const LINK = {
   id: 'link-1',
   response_id: 'resp-1',
@@ -326,6 +341,45 @@ describe('runTokenApprovalAction', () => {
 
     expect(res.status).toBe(403);
     expect(await res.json()).toEqual({ error: 'subscription_inactive' });
+    expect(mockRecoverCorrelationId).not.toHaveBeenCalled();
+    expect(action).not.toHaveBeenCalled();
+  });
+
+  it('returns 403 before token approval work when owner offboarding blocks callbacks', async () => {
+    sqlResults.push([OFFBOARDING_ACCOUNT_ROW]);
+    const action = vi.fn();
+
+    const res = await runTokenApprovalAction(
+      request(),
+      RAW_TOKEN,
+      'approve',
+      { success: true },
+      action,
+    );
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'account_offboarding_blocked' });
+    expect(mockLockValidLink).toHaveBeenCalledWith(mockSql, RAW_TOKEN);
+    expect(mockRecoverCorrelationId).not.toHaveBeenCalled();
+    expect(action).not.toHaveBeenCalled();
+  });
+
+  it('returns 403 before token session work when the link business/account was deleted', async () => {
+    sqlResults.push([]);
+    const action = vi.fn();
+
+    const res = await runTokenApprovalAction(
+      request(),
+      RAW_TOKEN,
+      'session',
+      { success: true },
+      action,
+      { requireVerifiedDeviceCookie: false, recoverResponseCorrelation: false },
+    );
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'no_business' });
+    expect(mockVerifyDeviceCookie).not.toHaveBeenCalled();
     expect(mockRecoverCorrelationId).not.toHaveBeenCalled();
     expect(action).not.toHaveBeenCalled();
   });

@@ -8,11 +8,14 @@ import {
 } from '../../../src/lib/shared/outbox';
 import type { AccountOffboardingTeardownPayload } from '../../../src/lib/shared/worker-types';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
+import { enqueueAccountOffboardingEmail } from '../../../src/lib/shared/job-outbox-helpers';
 import type {
   AccountOffboardingMode,
   AccountOffboardingStatus,
   AccountOffboardingStepOutcome,
 } from '../../../src/lib/account-offboarding/types';
+import { enqueueOffboardingTeardownCompleted } from '../../../src/lib/account-offboarding/analytics';
+import { scrubOffboardingErrorForStorage } from '../../../src/lib/account-offboarding/scrub-error';
 import { runStripeTeardown, verifyCancelOnlyNaturalCancellation } from './teardown-stripe';
 import { runZernioTeardown } from './teardown-zernio';
 import { runLocationTeardown } from './teardown-locations';
@@ -78,7 +81,7 @@ export async function handleAccountOffboardingTeardown(
 
   const validationError = validateTeardownableOffboarding(offboarding);
   if (validationError) {
-    const safeMessage = scrubErrorForStorage(validationError);
+    const safeMessage = scrubOffboardingErrorForStorage(validationError);
     alertTeardownFailure(job.data, safeMessage, isTerminalAttempt(job));
     if (!isTerminalAttempt(job)) {
       throw new Error(safeMessage);
@@ -112,7 +115,7 @@ export async function handleAccountOffboardingTeardown(
       throw new Error('account_offboarding_teardown_incomplete');
     }
   } catch (err) {
-    const safeMessage = scrubErrorForStorage(errorMessage(err));
+    const safeMessage = scrubOffboardingErrorForStorage(errorMessage(err));
     logger.error(`Teardown failed for offboarding ${offboarding.id}: ${safeMessage}`);
     alertTeardownFailure(job.data, safeMessage, isTerminalAttempt(job));
     if (!isTerminalAttempt(job)) {
@@ -142,46 +145,70 @@ async function markTeardownStarted(row: AccountOffboardingTeardownRow): Promise<
 }
 
 async function finalizeTeardown(row: AccountOffboardingTeardownRow): Promise<boolean> {
-  const terminalStatus = row.mode === 'delete_data'
-    ? row.purge_cancelled_at !== null
-      ? 'churned'
-      : 'purge_scheduled'
-    : 'churned';
+  // Derive the terminal status from the LIVE purge_cancelled_at column, not the
+  // in-memory snapshot loaded at the start of the job. A keep-my-data request can
+  // cancel the purge while teardown is mid-flight; reading the stale snapshot would
+  // land purge_scheduled and strand the row non-terminal forever (it would never
+  // reach churned, blocking the account from ever offboarding again).
+  return sql.begin(async (tx) => {
+    const [completed] = await tx<{ id: string; status: 'churned' | 'purge_scheduled' }[]>`
+      UPDATE account_offboardings
+      SET teardown_completed_at = NOW(),
+          status = CASE
+            WHEN ${row.mode} = 'delete_data' AND purge_cancelled_at IS NOT NULL THEN 'churned'
+            WHEN ${row.mode} = 'delete_data' THEN 'purge_scheduled'
+            ELSE 'churned'
+          END,
+          terminal_at = CASE
+            WHEN ${row.mode} = 'delete_data' AND purge_cancelled_at IS NULL THEN terminal_at
+            ELSE COALESCE(terminal_at, NOW())
+          END,
+          failed_step = NULL,
+          last_error = NULL,
+          updated_at = NOW()
+      WHERE id = ${row.id}::uuid
+        AND account_id = ${row.account_id}::uuid
+        AND (
+          (stripe_subscription_id IS NULL AND stripe_step IN ('success', 'not_applicable'))
+          OR (stripe_subscription_id IS NOT NULL AND stripe_step = 'success')
+        )
+        AND (
+          (COALESCE(array_length(zernio_account_ids, 1), 0) = 0 AND zernio_accounts_step IN ('success', 'not_applicable'))
+          OR (COALESCE(array_length(zernio_account_ids, 1), 0) > 0 AND zernio_accounts_step = 'success')
+        )
+        AND (
+          (COALESCE(array_length(zernio_profile_ids, 1), 0) = 0 AND zernio_profiles_step IN ('success', 'not_applicable'))
+          OR (COALESCE(array_length(zernio_profile_ids, 1), 0) > 0 AND zernio_profiles_step = 'success')
+        )
+        AND (
+          (COALESCE(array_length(location_ids, 1), 0) = 0 AND location_archival_step IN ('success', 'not_applicable'))
+          OR (COALESCE(array_length(location_ids, 1), 0) > 0 AND location_archival_step = 'success')
+        )
+        AND job_terminalization_step = 'success'
+      RETURNING id, status
+    `;
 
-  const [completed] = await sql<{ id: string; status: string }[]>`
-    UPDATE account_offboardings
-    SET teardown_completed_at = NOW(),
-        status = ${terminalStatus},
-        terminal_at = CASE
-          WHEN ${terminalStatus} = 'churned' THEN COALESCE(terminal_at, NOW())
-          ELSE terminal_at
-        END,
-        failed_step = NULL,
-        last_error = NULL,
-        updated_at = NOW()
-    WHERE id = ${row.id}::uuid
-      AND account_id = ${row.account_id}::uuid
-      AND (
-        (stripe_subscription_id IS NULL AND stripe_step IN ('success', 'not_applicable'))
-        OR (stripe_subscription_id IS NOT NULL AND stripe_step = 'success')
-      )
-      AND (
-        (COALESCE(array_length(zernio_account_ids, 1), 0) = 0 AND zernio_accounts_step IN ('success', 'not_applicable'))
-        OR (COALESCE(array_length(zernio_account_ids, 1), 0) > 0 AND zernio_accounts_step = 'success')
-      )
-      AND (
-        (COALESCE(array_length(zernio_profile_ids, 1), 0) = 0 AND zernio_profiles_step IN ('success', 'not_applicable'))
-        OR (COALESCE(array_length(zernio_profile_ids, 1), 0) > 0 AND zernio_profiles_step = 'success')
-      )
-      AND (
-        (COALESCE(array_length(location_ids, 1), 0) = 0 AND location_archival_step IN ('success', 'not_applicable'))
-        OR (COALESCE(array_length(location_ids, 1), 0) > 0 AND location_archival_step = 'success')
-      )
-      AND job_terminalization_step = 'success'
-    RETURNING id, status
-  `;
+    if (!completed) return false;
 
-  return Boolean(completed);
+    await enqueueOffboardingTeardownCompleted(tx, {
+      accountId: row.account_id,
+      offboardingId: row.id,
+      mode: row.mode,
+      status: completed.status,
+    });
+
+    // cancel_only access ended → tell the owner their subscription has ended.
+    // (delete_data landing churned was rescued by keep-my-data, which sends its
+    // own confirmation; landing purge_scheduled gets the purge receipt later.)
+    if (row.mode === 'cancel_only' && completed.status === 'churned') {
+      await enqueueAccountOffboardingEmail(tx, {
+        accountOffboardingId: row.id,
+        accountId: row.account_id,
+        emailType: 'cancel_only_access_end',
+      });
+    }
+    return true;
+  });
 }
 
 async function markTeardownFailed(
@@ -189,76 +216,14 @@ async function markTeardownFailed(
   safeMessage: string,
   failedColumn: FailureStepColumn | undefined,
 ): Promise<void> {
-  if (failedColumn === 'stripe_step') {
+  // failedColumn is a closed union (FailureStepColumn), so the identifier interpolation
+  // can only ever be one of the five known per-step columns — never untrusted input.
+  if (failedColumn) {
     await sql`
       UPDATE account_offboardings
       SET status = 'failed',
           failed_step = 'teardown',
-          stripe_step = 'failed',
-          last_error = ${safeMessage},
-          retry_count = retry_count + 1,
-          updated_at = NOW()
-      WHERE id = ${row.id}::uuid
-        AND account_id = ${row.account_id}::uuid
-        AND terminal_at IS NULL
-    `;
-    return;
-  }
-
-  if (failedColumn === 'zernio_accounts_step') {
-    await sql`
-      UPDATE account_offboardings
-      SET status = 'failed',
-          failed_step = 'teardown',
-          zernio_accounts_step = 'failed',
-          last_error = ${safeMessage},
-          retry_count = retry_count + 1,
-          updated_at = NOW()
-      WHERE id = ${row.id}::uuid
-        AND account_id = ${row.account_id}::uuid
-        AND terminal_at IS NULL
-    `;
-    return;
-  }
-
-  if (failedColumn === 'zernio_profiles_step') {
-    await sql`
-      UPDATE account_offboardings
-      SET status = 'failed',
-          failed_step = 'teardown',
-          zernio_profiles_step = 'failed',
-          last_error = ${safeMessage},
-          retry_count = retry_count + 1,
-          updated_at = NOW()
-      WHERE id = ${row.id}::uuid
-        AND account_id = ${row.account_id}::uuid
-        AND terminal_at IS NULL
-    `;
-    return;
-  }
-
-  if (failedColumn === 'location_archival_step') {
-    await sql`
-      UPDATE account_offboardings
-      SET status = 'failed',
-          failed_step = 'teardown',
-          location_archival_step = 'failed',
-          last_error = ${safeMessage},
-          retry_count = retry_count + 1,
-          updated_at = NOW()
-      WHERE id = ${row.id}::uuid
-        AND account_id = ${row.account_id}::uuid
-        AND terminal_at IS NULL
-    `;
-    return;
-  }
-
-  if (failedColumn === 'job_terminalization_step') {
-    await sql`
-      UPDATE account_offboardings
-      SET status = 'failed',
-          failed_step = 'teardown',
-          job_terminalization_step = 'failed',
+          ${sql(failedColumn)} = 'failed',
           last_error = ${safeMessage},
           retry_count = retry_count + 1,
           updated_at = NOW()
@@ -385,25 +350,3 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-function scrubErrorForStorage(message: string): string {
-  return message
-    .replace(/Bearer\s+[A-Za-z0-9\-._~+/]+=*/gi, 'Bearer [REDACTED]')
-    .replace(/Basic\s+[A-Za-z0-9+/]+=*/gi, 'Basic [REDACTED]')
-    .replace(
-      /((?:access[_-]?token|refresh[_-]?token|client[_-]?secret|api[_-]?key|authorization|password|token|secret))=([^&\s"']+)/gi,
-      '$1=[REDACTED]',
-    )
-    .replace(
-      /([?&]\s*(?:access[_-]?token|refresh[_-]?token|client[_-]?secret|api[_-]?key|authorization|password|token|secret)=)([^&\s"']+)/gi,
-      '$1[REDACTED]',
-    )
-    .replace(
-      /("?(?:access[_-]?token|refresh[_-]?token|client[_-]?secret|api[_-]?key|authorization|password|token|secret)"?\s*:\s*)"[^"]*"/gi,
-      '$1"[REDACTED]"',
-    )
-    .replace(
-      /('(?:access[_-]?token|refresh[_-]?token|client[_-]?secret|api[_-]?key|authorization|password|token|secret)'\s*:\s*)'[^']*'/gi,
-      `$1'[REDACTED]'`,
-    )
-    .slice(0, 500);
-}

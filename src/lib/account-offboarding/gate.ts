@@ -7,7 +7,6 @@ type SqlExecutor = typeof sql | postgres.TransactionSql;
 
 export const OFFBOARDING_INTENTS = [
   'processing',
-  'approval_callback',
   'notification',
   'publishing',
   'checkout',
@@ -15,9 +14,6 @@ export const OFFBOARDING_INTENTS = [
   'billing_expanding_mutation',
   'billing_management',
   'operational_ui',
-  'offboarding_status',
-  'offboarding_keep_my_data',
-  'offboarding_reactivation',
 ] as const;
 export type OffboardingIntent = (typeof OFFBOARDING_INTENTS)[number];
 
@@ -132,7 +128,6 @@ export function isOffboardingIntentBlocked(
   state: ActiveOffboardingState | null,
   intent: OffboardingIntent,
 ): boolean {
-  if (isDedicatedOffboardingIntent(intent)) return false;
   if (state === null) return false;
 
   if (intent === 'billing_expanding_mutation' || intent === 'checkout') {
@@ -158,12 +153,6 @@ export function isCheckoutBlocked(
   state: ActiveOffboardingState | null,
 ): boolean {
   return isOffboardingIntentBlocked(state, 'checkout');
-}
-
-export function isApprovalCallbackBlocked(
-  state: ActiveOffboardingState | null,
-): boolean {
-  return isOffboardingIntentBlocked(state, 'approval_callback');
 }
 
 export function isNotificationBlocked(
@@ -196,82 +185,38 @@ export function isOperationalUIBlocked(
   return isOffboardingIntentBlocked(state, 'operational_ui');
 }
 
-export function isOffboardingStatusBlocked(
-  state: ActiveOffboardingState | null,
-): boolean {
-  return isOffboardingIntentBlocked(state, 'offboarding_status');
-}
-
-export function canKeepMyData(state: ActiveOffboardingState | null): boolean {
-  return (
-    state !== null &&
-    state.mode === 'delete_data' &&
-    (
-      state.status === 'pending' ||
-      state.status === 'tearing_down' ||
-      state.status === 'purge_scheduled'
-    ) &&
-    state.terminalAt === null &&
-    state.purgeStartedAt === null &&
-    state.purgeCancelledAt === null
-  );
-}
-
-export function isKeepMyDataBlocked(
-  state: ActiveOffboardingState | null,
-): boolean {
-  return isOffboardingIntentBlocked(state, 'offboarding_keep_my_data') || !canKeepMyData(state);
-}
-
-export function canReactivate(state: ActiveOffboardingState | null): boolean {
-  return (
-    state !== null &&
-    state.mode === 'cancel_only' &&
-    state.status === 'scheduled' &&
-    state.teardownStartedAt === null &&
-    state.terminalAt === null
-  );
-}
-
-export function isOffboardingReactivationBlocked(
-  state: ActiveOffboardingState | null,
-): boolean {
-  return isOffboardingIntentBlocked(state, 'offboarding_reactivation') || !canReactivate(state);
-}
-
-export function purgeEligible(
-  state: ActiveOffboardingState | null,
-  now = new Date(),
-): boolean {
-  return (
-    state !== null &&
-    state.mode === 'delete_data' &&
-    state.status === 'purge_scheduled' &&
-    state.purgeAfter !== null &&
-    state.purgeAfter <= now &&
-    state.purgeStartedAt === null &&
-    state.purgeCancelledAt === null
-  );
-}
-
-function isDedicatedOffboardingIntent(intent: OffboardingIntent): boolean {
-  return (
-    intent === 'offboarding_status' ||
-    intent === 'offboarding_keep_my_data' ||
-    intent === 'offboarding_reactivation'
-  );
-}
-
 function isBillingExpansionBlocked(state: ActiveOffboardingState): boolean {
   if (isFullBlockState(state)) return true;
-  return state.mode === 'cancel_only' && state.status === 'scheduled';
+  return isCancellationPendingLane(state);
 }
 
 function isFullBlockState(state: ActiveOffboardingState | null): boolean {
   if (state === null) return false;
-  if (state.status === 'failed') return true;
   if (state.mode === 'delete_data') return true;
-  return state.status === 'tearing_down' || state.status === 'purge_scheduled';
+  if (state.status === 'tearing_down' || state.status === 'purge_scheduled') return true;
+  if (state.status === 'failed') {
+    // A cancel_only billing-step failure happens BEFORE teardown begins: the owner
+    // is still being charged and nothing destructive has run, so a full lockout
+    // would trap them while billing continues. Fall back to the cancellation-pending
+    // lane instead. Any other failure (teardown started, or a non-billing failed
+    // step) is a genuine full block.
+    return state.teardownStartedAt !== null || state.failedStep !== 'billing';
+  }
+  return false;
+}
+
+/**
+ * cancel_only, pre-teardown, still paid-through: a scheduled cancellation or a
+ * billing-step failure that has not yet started teardown. In this lane the owner
+ * keeps normal product access, but billing-expanding mutations stay frozen.
+ */
+function isCancellationPendingLane(state: ActiveOffboardingState): boolean {
+  if (state.mode !== 'cancel_only') return false;
+  if (state.teardownStartedAt !== null) return false;
+  return (
+    state.status === 'scheduled' ||
+    (state.status === 'failed' && state.failedStep === 'billing')
+  );
 }
 
 function mapActiveOffboardingRow(

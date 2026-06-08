@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import type { Job } from 'bullmq';
 import { v7 as uuidv7 } from 'uuid';
 import { sql } from '../../../src/lib/db/server';
@@ -18,15 +17,20 @@ import {
   createKeepMyDataRawToken,
   hashAccountOffboardingToken,
 } from '../../../src/lib/account-offboarding/tokens';
+import {
+  accountOffboardingDeliveryId,
+  accountOffboardingEmailSendIdempotencyKey,
+} from '../../../src/lib/account-offboarding/email-dedup';
+import { scrubOffboardingErrorForStorage } from '../../../src/lib/account-offboarding/scrub-error';
 
-const DELIVERY_ID_NAMESPACE = 'repworth:account-offboarding-email:v1';
 const CANCEL_ONLY_CONFIRMATION_TEMPLATE = 'account_offboarding_cancel_only_confirmation';
+const CANCEL_ONLY_ACCESS_END_TEMPLATE = 'account_offboarding_cancel_only_access_end';
 const CANCEL_ONLY_REACTIVATION_CONFIRMATION_TEMPLATE =
   'account_offboarding_cancel_only_reactivation_confirmation';
 const DELETE_DATA_CONFIRMATION_TEMPLATE = 'account_offboarding_delete_data_confirmation';
+const DELETE_DATA_PURGE_REMINDER_TEMPLATE = 'account_offboarding_delete_data_purge_reminder';
 const KEEP_MY_DATA_CONFIRMATION_TEMPLATE = 'account_offboarding_keep_my_data_confirmation';
 const STALE_DELIVERY_CLAIM_MINUTES = 15;
-const EMAIL_IDEMPOTENCY_NAMESPACE = 'repworth:account-offboarding-email-send:v1';
 
 interface AccountOffboardingEmailRow {
   id: string;
@@ -50,31 +54,170 @@ interface KeepMyDataToken {
 
 type DeliveryClaimResult = 'claimed' | 'already_sent' | 'in_progress';
 
-export function accountOffboardingDeliveryId(
-  accountOffboardingId: string,
-  emailType: AccountOffboardingEmailPayload['email_type'],
-): string {
-  const digest = createHash('sha256')
-    .update(`${DELIVERY_ID_NAMESPACE}:${accountOffboardingId}:${emailType}`)
-    .digest();
-  const bytes = Uint8Array.from(digest.subarray(0, 16));
-  bytes[6] = (bytes[6]! & 0x0f) | 0x50;
-  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
-  const hex = Buffer.from(bytes).toString('hex');
-  return [
-    hex.slice(0, 8),
-    hex.slice(8, 12),
-    hex.slice(12, 16),
-    hex.slice(16, 20),
-    hex.slice(20),
-  ].join('-');
+/** Every email type except purge_receipt, which is row-less and forked at the top of the handler. */
+type RowBackedEmailType = Exclude<AccountOffboardingEmailPayload['email_type'], 'purge_receipt'>;
+
+const PURGE_RECEIPT_SUBJECT = 'Your RepWorth data has been deleted';
+
+interface EmailTypeDescriptor {
+  template: string;
+  subject: string;
+  /** Final lifecycle email for a terminal row — recipient_email is scrubbed after send (M3). */
+  isTerminalRow: boolean;
+  /** delete_data_confirmation mints + embeds a keep-my-data token; needs APP_URL + token secret. */
+  needsKeepMyDataToken: boolean;
+  /** Type-specific precondition checks. The shared recipient/location checks run after, once. */
+  validate: (row: AccountOffboardingEmailRow) => string | null;
+  buildBody: (row: AccountOffboardingEmailRow, token: KeepMyDataToken | null) => string;
 }
+
+/**
+ * One authoritative descriptor per row-backed email type. Adding an email type is one
+ * entry here, not edits across five parallel `email_type` switches; the exhaustive
+ * Record makes a missing type a compile error.
+ */
+const EMAIL_DESCRIPTORS: Record<RowBackedEmailType, EmailTypeDescriptor> = {
+  cancel_only_confirmation: {
+    template: CANCEL_ONLY_CONFIRMATION_TEMPLATE,
+    subject: 'Your RepWorth cancellation is scheduled',
+    isTerminalRow: false,
+    needsKeepMyDataToken: false,
+    validate: (row) => {
+      if (row.mode !== 'cancel_only') return 'account_offboarding_mode_not_cancel_only';
+      if (row.status !== 'scheduled') return `account_offboarding_status_not_emailable:${row.status}`;
+      if (!row.access_ends_at) return 'account_offboarding_missing_access_ends_at';
+      return null;
+    },
+    buildBody: (row) => buildAccountOffboardingEmailHtml({ accessEndsAt: row.access_ends_at }),
+  },
+  cancel_only_access_end: {
+    template: CANCEL_ONLY_ACCESS_END_TEMPLATE,
+    subject: 'Your RepWorth subscription has ended',
+    isTerminalRow: true,
+    needsKeepMyDataToken: false,
+    validate: (row) => {
+      if (row.mode !== 'cancel_only') return 'account_offboarding_mode_not_cancel_only';
+      if (row.status !== 'churned') {
+        return `account_offboarding_status_not_access_end_emailable:${row.status}`;
+      }
+      if (!row.terminal_at) return 'account_offboarding_access_end_not_terminal';
+      if (!row.access_ends_at) return 'account_offboarding_missing_access_ends_at';
+      return null;
+    },
+    buildBody: (row) =>
+      buildAccountOffboardingEmailHtml({
+        emailType: 'cancel_only_access_end',
+        accessEndsAt: row.access_ends_at,
+      }),
+  },
+  cancel_only_reactivation_confirmation: {
+    template: CANCEL_ONLY_REACTIVATION_CONFIRMATION_TEMPLATE,
+    subject: 'Your RepWorth subscription is active again',
+    isTerminalRow: true,
+    needsKeepMyDataToken: false,
+    validate: (row) => {
+      if (row.mode !== 'cancel_only') return 'account_offboarding_mode_not_cancel_only';
+      if (row.status !== 'reactivated') return `account_offboarding_status_not_reactivated:${row.status}`;
+      if (!row.terminal_at) return 'account_offboarding_reactivation_not_terminal';
+      return null;
+    },
+    buildBody: (row) =>
+      buildAccountOffboardingEmailHtml({
+        emailType: 'cancel_only_reactivation_confirmation',
+        accessEndsAt: row.access_ends_at,
+      }),
+  },
+  delete_data_confirmation: {
+    template: DELETE_DATA_CONFIRMATION_TEMPLATE,
+    subject: 'Your RepWorth data deletion is scheduled',
+    isTerminalRow: false,
+    needsKeepMyDataToken: true,
+    validate: (row) => {
+      if (row.mode !== 'delete_data') return 'account_offboarding_mode_not_delete_data';
+      if (!isEmailableDeleteDataStatus(row.status)) {
+        return `account_offboarding_status_not_delete_data_emailable:${row.status}`;
+      }
+      if (row.purge_started_at) return 'account_offboarding_purge_already_started';
+      if (!row.purge_after) return 'account_offboarding_missing_purge_after';
+      return null;
+    },
+    buildBody: (row, token) => {
+      if (!token) throw new Error('missing_keep_my_data_token');
+      return buildAccountOffboardingEmailHtml({
+        emailType: 'delete_data_confirmation',
+        accessEndsAt: row.access_ends_at,
+        purgeAfter: row.purge_after,
+        keepMyDataUrl: buildKeepMyDataUrl(process.env.NEXT_PUBLIC_APP_URL!, token.rawToken),
+      });
+    },
+  },
+  delete_data_purge_reminder: {
+    template: DELETE_DATA_PURGE_REMINDER_TEMPLATE,
+    subject: 'Reminder: your RepWorth data will be deleted soon',
+    isTerminalRow: false,
+    needsKeepMyDataToken: false,
+    validate: (row) => {
+      if (row.mode !== 'delete_data') return 'account_offboarding_mode_not_delete_data';
+      if (row.status !== 'purge_scheduled') {
+        return `account_offboarding_status_not_purge_reminder_emailable:${row.status}`;
+      }
+      if (row.purge_started_at) return 'account_offboarding_purge_already_started';
+      if (row.purge_cancelled_at) return 'account_offboarding_purge_already_cancelled';
+      if (!row.purge_after) return 'account_offboarding_missing_purge_after';
+      return null;
+    },
+    buildBody: (row) =>
+      buildAccountOffboardingEmailHtml({
+        emailType: 'delete_data_purge_reminder',
+        accessEndsAt: row.access_ends_at,
+        purgeAfter: row.purge_after,
+      }),
+  },
+  keep_my_data_confirmation: {
+    template: KEEP_MY_DATA_CONFIRMATION_TEMPLATE,
+    subject: 'Your RepWorth data will be kept',
+    isTerminalRow: true,
+    needsKeepMyDataToken: false,
+    validate: (row) => {
+      if (row.mode !== 'delete_data') return 'account_offboarding_mode_not_delete_data';
+      if (!isEmailableKeepMyDataStatus(row.status)) {
+        return `account_offboarding_status_not_keep_my_data_emailable:${row.status}`;
+      }
+      if (!row.purge_cancelled_at) return 'account_offboarding_missing_purge_cancelled_at';
+      if (row.status === 'churned' && !row.terminal_at) {
+        return 'account_offboarding_churned_not_terminal';
+      }
+      return null;
+    },
+    buildBody: (row) =>
+      buildAccountOffboardingEmailHtml({
+        emailType: 'keep_my_data_confirmation',
+        accessEndsAt: row.access_ends_at,
+      }),
+  },
+};
+
+// Final lifecycle email for a terminal row — recipient_email is nulled after send (M3).
+const TERMINAL_ROW_EMAIL_TYPES: ReadonlySet<AccountOffboardingEmailPayload['email_type']> = new Set(
+  (Object.keys(EMAIL_DESCRIPTORS) as RowBackedEmailType[]).filter(
+    (type) => EMAIL_DESCRIPTORS[type].isTerminalRow,
+  ),
+);
 
 export async function handleAccountOffboardingEmail(
   job: Job<AccountOffboardingEmailPayload>,
 ): Promise<void> {
   const logger = createWorkerLogger('[AccountOffboardingEmailWorker]', job.data.correlation_id);
   const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
+  const emailType = job.data.email_type;
+
+  // purge_receipt is sent AFTER the account row is scrubbed, so it carries its
+  // recipient in the outbox payload and cannot use the row-backed dedup path.
+  if (emailType === 'purge_receipt') {
+    await handlePurgeReceipt(job, outboxId, outboxAttempt);
+    return;
+  }
+  const descriptor = EMAIL_DESCRIPTORS[emailType];
 
   const [offboarding] = await sql<AccountOffboardingEmailRow[]>`
     SELECT id, account_id, mode, status, access_ends_at, purge_after, purge_started_at,
@@ -89,16 +232,38 @@ export async function handleAccountOffboardingEmail(
     return;
   }
 
-  const validationError = validateEmailOffboarding(offboarding, job.data.email_type);
+  // M3: a terminal-row email nulls recipient_email after a successful send
+  // (scrubRecipientAfterTerminalEmail). On a retry that lands after that scrub but
+  // before the outbox was marked completed, re-validating the scrubbed row would
+  // wrongly FAIL an already-delivered email. Dedup on the persisted send first. This
+  // only queries when the row is already terminal AND scrubbed — i.e. exactly the
+  // post-send retry — so the happy path adds no extra read.
+  if (
+    offboarding.terminal_at !== null
+    && !offboarding.recipient_email?.trim()
+    && descriptor.isTerminalRow
+  ) {
+    const sentDeliveryId = accountOffboardingDeliveryId(
+      job.data.account_offboarding_id,
+      emailType,
+    );
+    if (await offboardingEmailAlreadySent(sentDeliveryId, job.data.account_id)) {
+      logger.log(`Dedup hit for already-sent terminal-row email ${sentDeliveryId}`);
+      await markOutboxCompleted(outboxId, outboxAttempt);
+      return;
+    }
+  }
+
+  const validationError = validateEmailOffboarding(offboarding, emailType);
   if (validationError) {
     await markOutboxFailed(outboxId, validationError, outboxAttempt);
     return;
   }
-  if (job.data.email_type === 'delete_data_confirmation' && !process.env.NEXT_PUBLIC_APP_URL) {
+  if (descriptor.needsKeepMyDataToken && !process.env.NEXT_PUBLIC_APP_URL) {
     await markOutboxFailed(outboxId, 'NEXT_PUBLIC_APP_URL not configured', outboxAttempt);
     return;
   }
-  if (job.data.email_type === 'delete_data_confirmation') {
+  if (descriptor.needsKeepMyDataToken) {
     try {
       assertKeepMyDataTokenSecretConfigured();
     } catch {
@@ -111,7 +276,7 @@ export async function handleAccountOffboardingEmail(
   const businessId = offboarding.location_ids![0]!;
   const deliveryId = accountOffboardingDeliveryId(
     job.data.account_offboarding_id,
-    job.data.email_type,
+    emailType,
   );
 
   const claimResult = await claimDelivery({
@@ -119,7 +284,7 @@ export async function handleAccountOffboardingEmail(
     accountId: job.data.account_id,
     businessId,
     recipient,
-    template: templateForEmailType(job.data.email_type),
+    template: descriptor.template,
   });
 
   if (claimResult === 'already_sent') {
@@ -134,13 +299,13 @@ export async function handleAccountOffboardingEmail(
   let messageId: string;
   let keepMyDataToken: KeepMyDataToken | null = null;
   try {
-    keepMyDataToken = job.data.email_type === 'delete_data_confirmation'
+    keepMyDataToken = descriptor.needsKeepMyDataToken
       ? await ensureKeepMyDataToken(offboarding, deliveryId)
       : null;
-    const bodyHtml = buildBodyHtmlForEmailType(job.data.email_type, offboarding, keepMyDataToken);
+    const bodyHtml = descriptor.buildBody(offboarding, keepMyDataToken);
     const result = await sendInternalEmail({
       to: recipient,
-      subject: subjectForEmailType(job.data.email_type),
+      subject: descriptor.subject,
       bodyHtml,
       category: 'transactional',
       idempotencyKey: emailSendIdempotencyKey(deliveryId),
@@ -171,7 +336,7 @@ export async function handleAccountOffboardingEmail(
     }
 
     if (rollbackError !== null) {
-      const message = `send_failed_and_rollback_failed: send=${scrubErrorForStorage(errorMessage(err))} rollback=${scrubErrorForStorage(errorMessage(rollbackError))}`;
+      const message = `send_failed_and_rollback_failed: send=${scrubOffboardingErrorForStorage(errorMessage(err))} rollback=${scrubOffboardingErrorForStorage(errorMessage(rollbackError))}`;
       logger.error(message);
       await markOutboxFailed(outboxId, message, outboxAttempt);
       return;
@@ -187,7 +352,116 @@ export async function handleAccountOffboardingEmail(
       AND account_id = ${job.data.account_id}::uuid
   `;
 
+  // Best-effort transient-PII cleanup AFTER the email is durably sent. A failure
+  // here must not flip an already-completed send to failed (log-and-swallow).
+  try {
+    await scrubRecipientAfterTerminalEmail(job.data);
+  } catch (err) {
+    logger.error(
+      `recipient scrub after terminal email failed: ${scrubOffboardingErrorForStorage(errorMessage(err))}`,
+    );
+  }
+
   await markOutboxCompleted(outboxId, outboxAttempt);
+}
+
+/**
+ * M3: null the transient `recipient_email` once the final lifecycle email has been
+ * delivered for a terminal row (cancel_only churned/reactivated, keep-my-data
+ * churned). Guarded on `terminal_at` so a non-terminal keep-my-data row keeps the
+ * recipient until teardown completes; the purge path scrubs it independently.
+ */
+async function scrubRecipientAfterTerminalEmail(
+  payload: AccountOffboardingEmailPayload,
+): Promise<void> {
+  if (!TERMINAL_ROW_EMAIL_TYPES.has(payload.email_type)) return;
+  await sql`
+    UPDATE account_offboardings
+    SET recipient_email = NULL,
+        updated_at = NOW()
+    WHERE id = ${payload.account_offboarding_id}::uuid
+      AND account_id = ${payload.account_id}::uuid
+      AND terminal_at IS NOT NULL
+      AND recipient_email IS NOT NULL
+  `;
+}
+
+async function handlePurgeReceipt(
+  job: Job<AccountOffboardingEmailPayload>,
+  outboxId: string,
+  outboxAttempt: number | undefined,
+): Promise<void> {
+  const recipient = job.data.recipient_email?.trim();
+  if (!recipient) {
+    await markOutboxFailed(
+      outboxId,
+      'account_offboarding_purge_receipt_missing_recipient',
+      outboxAttempt,
+    );
+    return;
+  }
+
+  const deliveryId = accountOffboardingDeliveryId(job.data.account_offboarding_id, 'purge_receipt');
+  // Durability + dedup come from the outbox (at-least-once) plus the deterministic
+  // Resend idempotency key — not notification_deliveries, whose account/business
+  // FKs no longer exist after purge.
+  await sendInternalEmail({
+    to: recipient,
+    subject: PURGE_RECEIPT_SUBJECT,
+    bodyHtml: buildAccountOffboardingEmailHtml({
+      emailType: 'purge_receipt',
+      accessEndsAt: null,
+      purgedAt: job.data.purged_at ?? null,
+    }),
+    category: 'transactional',
+    idempotencyKey: emailSendIdempotencyKey(deliveryId),
+  });
+
+  // Complete the outbox AND scrub the recipient PII from its payload in ONE update.
+  // The recipient is the only place the address survives after purge, so completion
+  // and scrub must be atomic: otherwise a crash between them (or a failed best-effort
+  // scrub) leaves a raw email in job_outbox past purged_at. If this update fails the
+  // outbox stays 'dispatched' and the job retries — the Resend idempotency key makes
+  // the re-send a no-op, and the payload is only cleared once the row is completed.
+  await completePurgeReceiptOutbox(outboxId, outboxAttempt);
+}
+
+async function completePurgeReceiptOutbox(
+  outboxId: string,
+  attempt: number | undefined,
+): Promise<void> {
+  if (typeof attempt === 'number' && Number.isFinite(attempt)) {
+    await sql`
+      UPDATE job_outbox
+      SET status = 'completed', completed_at = NOW(), payload = '{}'::jsonb
+      WHERE id = ${outboxId}::uuid
+        AND status = 'dispatched'
+        AND attempts = ${attempt}
+    `;
+    return;
+  }
+  await sql`
+    UPDATE job_outbox
+    SET status = 'completed', completed_at = NOW(), payload = '{}'::jsonb
+    WHERE id = ${outboxId}::uuid
+      AND status = 'dispatched'
+  `;
+}
+
+async function offboardingEmailAlreadySent(
+  deliveryId: string,
+  accountId: string,
+): Promise<boolean> {
+  const [existing] = await sql<{
+    sent_at: Date | string | null;
+    external_message_id: string | null;
+  }[]>`
+    SELECT sent_at, external_message_id
+    FROM notification_deliveries
+    WHERE id = ${deliveryId}::uuid
+      AND account_id = ${accountId}::uuid
+  `;
+  return Boolean(existing?.sent_at || existing?.external_message_id);
 }
 
 async function claimDelivery(input: {
@@ -252,63 +526,11 @@ async function insertDeliveryClaim(input: {
 
 function validateEmailOffboarding(
   row: AccountOffboardingEmailRow,
-  emailType: AccountOffboardingEmailPayload['email_type'],
+  emailType: RowBackedEmailType,
 ): string | null {
-  if (
-    emailType !== 'cancel_only_confirmation'
-    && emailType !== 'cancel_only_reactivation_confirmation'
-    && emailType !== 'delete_data_confirmation'
-    && emailType !== 'keep_my_data_confirmation'
-  ) {
-    return `unknown_account_offboarding_email_type:${emailType}`;
-  }
-  if (emailType === 'keep_my_data_confirmation') {
-    if (row.mode !== 'delete_data') return 'account_offboarding_mode_not_delete_data';
-    if (!isEmailableKeepMyDataStatus(row.status)) {
-      return `account_offboarding_status_not_keep_my_data_emailable:${row.status}`;
-    }
-    if (!row.purge_cancelled_at) return 'account_offboarding_missing_purge_cancelled_at';
-    if (row.status === 'churned' && !row.terminal_at) {
-      return 'account_offboarding_churned_not_terminal';
-    }
-    if (!row.recipient_email?.trim()) return 'account_offboarding_missing_recipient_email';
-    if (!Array.isArray(row.location_ids) || row.location_ids.length === 0 || !row.location_ids[0]) {
-      return 'account_offboarding_missing_location_id';
-    }
-    return null;
-  }
-  if (emailType === 'delete_data_confirmation') {
-    if (row.mode !== 'delete_data') return 'account_offboarding_mode_not_delete_data';
-    if (!isEmailableDeleteDataStatus(row.status)) {
-      return `account_offboarding_status_not_delete_data_emailable:${row.status}`;
-    }
-    if (row.purge_started_at) return 'account_offboarding_purge_already_started';
-    if (!row.purge_after) return 'account_offboarding_missing_purge_after';
-    if (!row.recipient_email?.trim()) return 'account_offboarding_missing_recipient_email';
-    if (!Array.isArray(row.location_ids) || row.location_ids.length === 0 || !row.location_ids[0]) {
-      return 'account_offboarding_missing_location_id';
-    }
-    return null;
-  }
-  if (row.mode !== 'cancel_only') return 'account_offboarding_mode_not_cancel_only';
-  if (emailType === 'cancel_only_confirmation' && row.status !== 'scheduled') {
-    return `account_offboarding_status_not_emailable:${row.status}`;
-  }
-  if (
-    emailType === 'cancel_only_reactivation_confirmation'
-    && row.status !== 'reactivated'
-  ) {
-    return `account_offboarding_status_not_reactivated:${row.status}`;
-  }
-  if (
-    emailType === 'cancel_only_reactivation_confirmation'
-    && !row.terminal_at
-  ) {
-    return 'account_offboarding_reactivation_not_terminal';
-  }
-  if (emailType === 'cancel_only_confirmation' && !row.access_ends_at) {
-    return 'account_offboarding_missing_access_ends_at';
-  }
+  const typeError = EMAIL_DESCRIPTORS[emailType].validate(row);
+  if (typeError) return typeError;
+  // Shared tail: every row-backed email needs a recipient and a business id.
   if (!row.recipient_email?.trim()) return 'account_offboarding_missing_recipient_email';
   if (!Array.isArray(row.location_ids) || row.location_ids.length === 0 || !row.location_ids[0]) {
     return 'account_offboarding_missing_location_id';
@@ -374,86 +596,15 @@ async function ensureKeepMyDataToken(
   return { id: existing.id, rawToken, created: false };
 }
 
-function buildBodyHtmlForEmailType(
-  emailType: AccountOffboardingEmailPayload['email_type'],
-  offboarding: AccountOffboardingEmailRow,
-  keepMyDataToken: KeepMyDataToken | null,
-): string {
-  if (emailType === 'cancel_only_reactivation_confirmation') {
-    return buildAccountOffboardingEmailHtml({
-      emailType,
-      accessEndsAt: offboarding.access_ends_at,
-    });
-  }
-  if (emailType === 'delete_data_confirmation') {
-    if (!keepMyDataToken) {
-      throw new Error('missing_keep_my_data_token');
-    }
-    return buildAccountOffboardingEmailHtml({
-      emailType,
-      accessEndsAt: offboarding.access_ends_at,
-      purgeAfter: offboarding.purge_after,
-      keepMyDataUrl: buildKeepMyDataUrl(process.env.NEXT_PUBLIC_APP_URL!, keepMyDataToken.rawToken),
-    });
-  }
-  if (emailType === 'keep_my_data_confirmation') {
-    return buildAccountOffboardingEmailHtml({
-      emailType,
-      accessEndsAt: offboarding.access_ends_at,
-    });
-  }
-  return buildAccountOffboardingEmailHtml({
-    accessEndsAt: offboarding.access_ends_at,
-  });
-}
-
 function buildKeepMyDataUrl(appUrl: string, rawToken: string): string {
   return `${appUrl.replace(/\/$/, '')}/api/account/offboarding/keep-my-data?token=${encodeURIComponent(rawToken)}`;
 }
 
 function emailSendIdempotencyKey(deliveryId: string): string {
-  return `${EMAIL_IDEMPOTENCY_NAMESPACE}:${deliveryId}`;
-}
-
-function templateForEmailType(
-  emailType: AccountOffboardingEmailPayload['email_type'],
-): string {
-  if (emailType === 'cancel_only_reactivation_confirmation') {
-    return CANCEL_ONLY_REACTIVATION_CONFIRMATION_TEMPLATE;
-  }
-  if (emailType === 'delete_data_confirmation') {
-    return DELETE_DATA_CONFIRMATION_TEMPLATE;
-  }
-  if (emailType === 'keep_my_data_confirmation') {
-    return KEEP_MY_DATA_CONFIRMATION_TEMPLATE;
-  }
-  return CANCEL_ONLY_CONFIRMATION_TEMPLATE;
-}
-
-function subjectForEmailType(
-  emailType: AccountOffboardingEmailPayload['email_type'],
-): string {
-  if (emailType === 'cancel_only_reactivation_confirmation') {
-    return 'Your RepWorth subscription is active again';
-  }
-  if (emailType === 'delete_data_confirmation') {
-    return 'Your RepWorth data deletion is scheduled';
-  }
-  if (emailType === 'keep_my_data_confirmation') {
-    return 'Your RepWorth data will be kept';
-  }
-  return 'Your RepWorth cancellation is scheduled';
+  return accountOffboardingEmailSendIdempotencyKey(deliveryId);
 }
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-function scrubErrorForStorage(message: string): string {
-  return message
-    .replace(/Bearer\s+[A-Za-z0-9\-._~+/]+=*/gi, 'Bearer [REDACTED]')
-    .replace(/Basic\s+[A-Za-z0-9+/]+=*/gi, 'Basic [REDACTED]')
-    .replace(/(token|secret|api[_-]?key|password|authorization)=([^&\s"']+)/gi, '$1=[REDACTED]')
-    .replace(/("(token|secret|api[_-]?key|password|authorization)"\s*:\s*)"[^"]*"/gi, '$1"[REDACTED]"')
-    .slice(0, 500);
-}

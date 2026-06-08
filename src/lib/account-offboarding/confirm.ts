@@ -12,6 +12,7 @@ import {
   captureAccountOffboardingSnapshot,
   type AccountOffboardingSnapshotMissingField,
 } from './snapshot';
+import { enqueueOffboardingStarted } from './analytics';
 import type { AccountOffboardingMode } from './types';
 
 interface ActiveOffboardingRow {
@@ -96,24 +97,21 @@ export async function confirmCancelOnlyOffboarding(
   const idempotencyKeyHash = hashIdempotencyKey(input.idempotencyKey);
 
   return sql.begin(async (tx) => {
-    await tx`
-      SELECT id
-      FROM accounts
-      WHERE id = ${input.accountId}::uuid
-      FOR UPDATE
-    `;
-
-    const active = await getActiveOffboarding(tx, input.accountId, idempotencyKeyHash);
-    if (active) {
-      const offboarding = mapActiveOffboarding(active, input.accountId);
-      if (active.idempotency_key_matches && offboarding.mode === 'cancel_only') {
-        return {
-          ok: true,
-          status: 'idempotent',
-          offboarding: offboarding as CancelOnlyOffboardingSummary,
-        };
-      }
-      return { ok: false, reason: 'duplicate_active', activeOffboarding: offboarding };
+    const prologue = await resolveActiveOrLock(
+      tx,
+      input.accountId,
+      idempotencyKeyHash,
+      'cancel_only',
+    );
+    if (prologue.kind === 'idempotent') {
+      return {
+        ok: true,
+        status: 'idempotent',
+        offboarding: prologue.offboarding as CancelOnlyOffboardingSummary,
+      };
+    }
+    if (prologue.kind === 'duplicate') {
+      return { ok: false, reason: 'duplicate_active', activeOffboarding: prologue.activeOffboarding };
     }
 
     const snapshotResult = await captureAccountOffboardingSnapshot(tx, {
@@ -158,32 +156,18 @@ export async function confirmCancelOnlyOffboarding(
       )
     `;
 
-    await writeAccountAuditLog(
-      {
-        accountId: input.accountId,
-        actorUserId: input.actorUserId,
-        eventType: 'account_offboarding_requested',
-        entityType: 'account_offboarding',
-        entityId: offboardingId,
-        ip: input.ip ?? null,
-        userAgent: input.userAgent ?? null,
-        requestId: input.requestId ?? null,
-        payload: {
-          mode: 'cancel_only',
-          status: 'pending',
-          idempotency_key_hash: idempotencyKeyHash,
-        },
-      },
-      tx,
-    );
+    await writeConfirmAuditAndAnalytics(tx, input, offboardingId, 'cancel_only', {
+      mode: 'cancel_only',
+      status: 'pending',
+      idempotency_key_hash: idempotencyKeyHash,
+    });
 
-    const outboxInput = {
+    await enqueueAccountOffboardingBillingSchedule(tx, {
       accountOffboardingId: offboardingId,
       accountId: input.accountId,
       idempotencyKeyHash,
       correlationId: input.requestId ?? undefined,
-    };
-    await enqueueAccountOffboardingBillingSchedule(tx, outboxInput);
+    });
 
     return {
       ok: true,
@@ -204,29 +188,31 @@ export async function confirmDeleteDataOffboarding(
   const idempotencyKeyHash = hashIdempotencyKey(input.idempotencyKey);
 
   return sql.begin(async (tx) => {
-    await tx`
-      SELECT id
-      FROM accounts
-      WHERE id = ${input.accountId}::uuid
-      FOR UPDATE
-    `;
-
-    const active = await getActiveOffboarding(tx, input.accountId, idempotencyKeyHash);
-    if (active) {
-      const offboarding = mapActiveOffboarding(active, input.accountId);
-      if (active.idempotency_key_matches && offboarding.mode === 'delete_data') {
-        return {
-          ok: true,
-          status: 'idempotent',
-          offboarding: offboarding as DeleteDataOffboardingSummary,
-        };
-      }
-      return { ok: false, reason: 'duplicate_active', activeOffboarding: offboarding };
+    const prologue = await resolveActiveOrLock(
+      tx,
+      input.accountId,
+      idempotencyKeyHash,
+      'delete_data',
+    );
+    if (prologue.kind === 'idempotent') {
+      return {
+        ok: true,
+        status: 'idempotent',
+        offboarding: prologue.offboarding as DeleteDataOffboardingSummary,
+      };
+    }
+    if (prologue.kind === 'duplicate') {
+      return { ok: false, reason: 'duplicate_active', activeOffboarding: prologue.activeOffboarding };
     }
 
     const snapshotResult = await captureAccountOffboardingSnapshot(tx, {
       accountId: input.accountId,
       actorUserId: input.actorUserId,
+      requireStripeCustomerId: false,
+      requireStripeSubscriptionId: false,
+      // delete_data purges archived businesses too, so a fully-archived /
+      // never-activated account must still capture a location_ids snapshot.
+      includeArchivedLocations: true,
     });
     if (!snapshotResult.ok) {
       return {
@@ -268,35 +254,29 @@ export async function confirmDeleteDataOffboarding(
       )
     `;
 
+    // Mark-then-call: disconnect every live Zernio connection for the account,
+    // including connections on ARCHIVED businesses (which are excluded from the
+    // active-location snapshot). Scoping this to snapshot.locationIds would leave
+    // an archived business's live connection processing inbound webhooks during
+    // teardown. Provider-side deletion still runs from the snapshot in teardown.
     await tx`
-      UPDATE zernio_connections
+      UPDATE zernio_connections zc
       SET status = 'disconnected',
           disconnected_at = COALESCE(disconnected_at, NOW()),
           disconnect_reason = 'account_offboarding_delete_data',
           updated_at = NOW()
-      WHERE business_id = ANY(${snapshot.locationIds}::uuid[])
-        AND status IN ('pending', 'active')
+      FROM businesses b
+      WHERE zc.business_id = b.id
+        AND b.account_id = ${input.accountId}::uuid
+        AND zc.status IN ('pending', 'active')
     `;
 
-    await writeAccountAuditLog(
-      {
-        accountId: input.accountId,
-        actorUserId: input.actorUserId,
-        eventType: 'account_offboarding_requested',
-        entityType: 'account_offboarding',
-        entityId: offboardingId,
-        ip: input.ip ?? null,
-        userAgent: input.userAgent ?? null,
-        requestId: input.requestId ?? null,
-        payload: {
-          mode: 'delete_data',
-          status: 'pending',
-          reason_code: input.reasonCode,
-          idempotency_key_hash: idempotencyKeyHash,
-        },
-      },
-      tx,
-    );
+    await writeConfirmAuditAndAnalytics(tx, input, offboardingId, 'delete_data', {
+      mode: 'delete_data',
+      status: 'pending',
+      reason_code: input.reasonCode,
+      idempotency_key_hash: idempotencyKeyHash,
+    });
 
     await enqueueAccountOffboardingTeardown(tx, {
       accountOffboardingId: offboardingId,
@@ -368,4 +348,69 @@ function mapActiveOffboarding(
     mode: row.mode,
     status: row.status,
   };
+}
+
+type ConfirmPrologueResult =
+  | { kind: 'idempotent'; offboarding: AccountOffboardingConfirmSummary }
+  | { kind: 'duplicate'; activeOffboarding: AccountOffboardingConfirmSummary }
+  | { kind: 'proceed' };
+
+/**
+ * Shared confirm prologue for both modes: lock the account row, then resolve any
+ * existing active offboarding into an idempotent replay (same key + same mode),
+ * a duplicate-active rejection, or a green light to proceed. The row lock + the
+ * `WHERE terminal_at IS NULL` unique index are the double-click/retry safety net.
+ */
+async function resolveActiveOrLock(
+  tx: postgres.TransactionSql,
+  accountId: string,
+  idempotencyKeyHash: string,
+  expectedMode: AccountOffboardingMode,
+): Promise<ConfirmPrologueResult> {
+  await tx`
+    SELECT id
+    FROM accounts
+    WHERE id = ${accountId}::uuid
+    FOR UPDATE
+  `;
+
+  const active = await getActiveOffboarding(tx, accountId, idempotencyKeyHash);
+  if (!active) return { kind: 'proceed' };
+
+  const offboarding = mapActiveOffboarding(active, accountId);
+  if (active.idempotency_key_matches && offboarding.mode === expectedMode) {
+    return { kind: 'idempotent', offboarding };
+  }
+  return { kind: 'duplicate', activeOffboarding: offboarding };
+}
+
+/** Shared confirm epilogue: the audit row + analytics enqueue every confirm path writes. */
+async function writeConfirmAuditAndAnalytics(
+  tx: postgres.TransactionSql,
+  input: ConfirmCancelOnlyOffboardingInput | ConfirmDeleteDataOffboardingInput,
+  offboardingId: string,
+  mode: AccountOffboardingMode,
+  auditPayload: Record<string, unknown>,
+): Promise<void> {
+  await writeAccountAuditLog(
+    {
+      accountId: input.accountId,
+      actorUserId: input.actorUserId,
+      eventType: 'account_offboarding_requested',
+      entityType: 'account_offboarding',
+      entityId: offboardingId,
+      ip: input.ip ?? null,
+      userAgent: input.userAgent ?? null,
+      requestId: input.requestId ?? null,
+      payload: auditPayload,
+    },
+    tx,
+  );
+
+  await enqueueOffboardingStarted(tx, {
+    accountId: input.accountId,
+    actorUserId: input.actorUserId,
+    offboardingId,
+    mode,
+  });
 }

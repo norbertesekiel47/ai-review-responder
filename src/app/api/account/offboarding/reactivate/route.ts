@@ -6,7 +6,7 @@ import {
   withSameOrigin,
 } from '@/lib/auth/route-helpers';
 import { accountOffboardingEnabled } from '@/lib/account-offboarding/flags';
-import { reactivateCancelOnlyOffboarding } from '@/lib/account-offboarding/reactivate';
+import { requestCancelOnlyReactivation } from '@/lib/account-offboarding/reactivation-request';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,7 +23,7 @@ async function reactivateOffboarding(req: NextRequest): Promise<NextResponse> {
     return jsonResponse({ error: idempotencyKey.error }, 400);
   }
 
-  const result = await reactivateCancelOnlyOffboarding({
+  const result = await requestCancelOnlyReactivation({
     accountId: owner.accountId,
     actorUserId: owner.user.id,
     idempotencyKey: idempotencyKey.value,
@@ -33,13 +33,6 @@ async function reactivateOffboarding(req: NextRequest): Promise<NextResponse> {
   });
 
   if (!result.ok) {
-    if (result.reason === 'stripe_reversal_unavailable') {
-      return jsonResponse({
-        error: 'stripe_reversal_unavailable',
-        recovery: result.recovery,
-      }, 409);
-    }
-
     return jsonResponse({ error: 'account_offboarding_not_reactivatable' }, 409);
   }
 
@@ -48,9 +41,9 @@ async function reactivateOffboarding(req: NextRequest): Promise<NextResponse> {
     offboarding: {
       id: result.offboarding.id,
       mode: result.offboarding.mode,
-      status: result.offboarding.status,
+      status: result.status,
     },
-  });
+  }, 202);
 }
 
 type IdempotencyKeyParseResult =

@@ -8,7 +8,7 @@ import {
 } from '../events';
 
 describe('analytics events', () => {
-  it('contains exactly the Wave 2 activation event names', () => {
+  it('contains exactly the server-authorized event names', () => {
     expect(ANALYTICS_EVENT_NAMES).toEqual([
       'signup_started',
       'email_verified',
@@ -20,6 +20,10 @@ describe('analytics events', () => {
       'first_review_ingested',
       'first_response_drafted',
       'activation_completed',
+      'offboarding_started',
+      'offboarding_reactivated',
+      'offboarding_teardown_completed',
+      'offboarding_purged',
     ]);
   });
 
@@ -46,6 +50,10 @@ describe('analytics events', () => {
       'first_review_ingested',
       'first_response_drafted',
       'activation_completed',
+      'offboarding_started',
+      'offboarding_reactivated',
+      'offboarding_teardown_completed',
+      'offboarding_purged',
     ]) {
       expect(isClientEnqueueableEventName(name)).toBe(false);
     }

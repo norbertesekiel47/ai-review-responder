@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **057** — next migration is **058**
+Current head: **059** — next migration is **060**
 All tables use UUIDv7 (time-ordered primary keys).
 
 ## Migration Log
@@ -408,6 +408,22 @@ All tables use UUIDv7 (time-ordered primary keys).
   `impersonation_sessions.impersonated_user_id` so retained admin-control rows
   can scrub purged account/user references. No new tables, policies, statuses,
   indexes, or browser-visible flags.
+
+- **058** — Owner offboarding analytics event allowlist (PR7 Task 7.1).
+  Replaces `analytics_events_event_name_check` so the durable, server-side
+  owner offboarding lifecycle events can be enqueued:
+  `offboarding_started`, `offboarding_reactivated`,
+  `offboarding_teardown_completed`, and `offboarding_purged`. Fresh databases
+  get the same event list from migration 046; existing staging/prod databases
+  must receive 058 staging-first, then production. No new tables, policies,
+  indexes, browser-visible flags, or client-postable analytics events.
+
+- **059** — Owner offboarding purge-reminder marker (H1b). Adds
+  `account_offboardings.purge_reminder_sent_at TIMESTAMPTZ` (nullable, additive)
+  so the `AccountOffboardingPurgeReminderPoller` sends the T-3d "your data will
+  be deleted soon" last-chance email at most once per `delete_data` offboarding.
+  No backfill. Apply staging-first, then production, both Supabase projects in
+  lockstep. No new tables, policies, indexes, or browser-visible flags.
 
 ## Key Tables Reference
 

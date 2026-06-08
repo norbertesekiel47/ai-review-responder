@@ -47,7 +47,10 @@ describe('account offboarding tokens', () => {
   });
 
   it('fails closed when the signing secret is missing', () => {
-    vi.unstubAllEnvs();
+    // Force the secret falsy explicitly — unstubAllEnvs() restores the ambient
+    // process.env value, which is SET in CI (workflow env), so it would not be
+    // "missing" there. Stubbing empty makes this deterministic in any environment.
+    vi.stubEnv('SESSION_COOKIE_SECRET', '');
 
     expect(() => assertKeepMyDataTokenSecretConfigured()).toThrow(
       /SESSION_COOKIE_SECRET/,

@@ -80,6 +80,49 @@ describe('buildAccountOffboardingEmailHtml', () => {
     expect(html).not.toContain('Your account data is scheduled for deletion');
     expect(html).not.toContain('use this secure link before deletion starts');
   });
+
+  it('renders cancel_only access-end notice with the access-ended date (H1a)', () => {
+    const html = buildAccountOffboardingEmailHtml({
+      emailType: 'cancel_only_access_end',
+      accessEndsAt: '2026-07-06T00:00:00.000Z',
+    });
+
+    expect(html).toContain('Your RepWorth subscription has ended');
+    expect(html).toContain('July 6, 2026');
+    expect(html).toContain('resubscribe and reconnect');
+    expect(html).not.toContain('Keep my data');
+  });
+
+  it('renders the T-3d purge reminder with the deletion date and a last-chance warning (H1b)', () => {
+    const html = buildAccountOffboardingEmailHtml({
+      emailType: 'delete_data_purge_reminder',
+      accessEndsAt: null,
+      purgeAfter: '2026-07-06T00:00:00.000Z',
+    });
+
+    expect(html).toContain('Reminder: your RepWorth data will be deleted soon');
+    expect(html).toContain('July 6, 2026');
+    expect(html).toContain('cannot be undone');
+    expect(html).toContain('sign in to RepWorth to keep it');
+  });
+
+  it('renders purge receipt with purge date and support-only generic copy', () => {
+    const html = buildAccountOffboardingEmailHtml({
+      emailType: 'purge_receipt',
+      accessEndsAt: null,
+      purgedAt: '2026-07-06T00:00:00.000Z',
+    });
+
+    expect(html).toContain('Your RepWorth data has been deleted');
+    expect(html).toContain('July 6, 2026');
+    expect(html).toContain('contact RepWorth support');
+    expect(html).not.toContain('Acme');
+    expect(html).not.toContain('review');
+    expect(html).not.toContain('location');
+    expect(html).not.toContain('zernio');
+    expect(html).not.toContain('cus_');
+    expect(html).not.toContain('sub_');
+  });
 });
 
 // ── buildWeeklyValueReportHtml ──────────────────────────────────────────

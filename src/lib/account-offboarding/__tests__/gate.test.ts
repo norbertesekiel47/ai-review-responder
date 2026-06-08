@@ -2,23 +2,17 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   createOffboardingGate,
-  canReactivate,
   getOffboardingState,
-  isApprovalCallbackBlocked,
   isBillingMutationBlocked,
   isBillingManagementBlocked,
   isCheckoutBlocked,
   isConnectBlocked,
-  isKeepMyDataBlocked,
   isNotificationBlocked,
   isOffboardingIntentBlocked,
-  isOffboardingReactivationBlocked,
-  isOffboardingStatusBlocked,
   isOperationalUIBlocked,
   isPublishingBlocked,
   isProcessingBlocked,
   OFFBOARDING_INTENTS,
-  purgeEligible,
   type OffboardingIntent,
 } from '../gate';
 import type { ActiveOffboardingState } from '../types';
@@ -103,7 +97,6 @@ describe('account offboarding gate', () => {
       expect(isOffboardingIntentBlocked(null, intent)).toBe(false);
     }
     expect(isProcessingBlocked(null)).toBe(false);
-    expect(isApprovalCallbackBlocked(null)).toBe(false);
     expect(isNotificationBlocked(null)).toBe(false);
     expect(isPublishingBlocked(null)).toBe(false);
     expect(isCheckoutBlocked(null)).toBe(false);
@@ -111,26 +104,17 @@ describe('account offboarding gate', () => {
     expect(isBillingManagementBlocked(null)).toBe(false);
     expect(isConnectBlocked(null)).toBe(false);
     expect(isOperationalUIBlocked(null)).toBe(false);
-    expect(isOffboardingStatusBlocked(null)).toBe(false);
-    expect(isKeepMyDataBlocked(null)).toBe(true);
-    expect(isOffboardingReactivationBlocked(null)).toBe(true);
-    expect(canReactivate(null)).toBe(false);
-    expect(purgeEligible(null)).toBe(false);
   });
 
   it.each([
     {
       label: 'cancel_only pending',
       state: offboardingState({ mode: 'cancel_only', status: 'pending' }),
-      blocked: [],
-      reactivatable: false,
-    },
+      blocked: [],    },
     {
       label: 'cancel_only scheduled',
       state: offboardingState({ mode: 'cancel_only', status: 'scheduled' }),
-      blocked: ['checkout', 'billing_expanding_mutation'],
-      reactivatable: true,
-    },
+      blocked: ['checkout', 'billing_expanding_mutation'],    },
     {
       label: 'cancel_only tearing_down',
       state: offboardingState({
@@ -138,25 +122,31 @@ describe('account offboarding gate', () => {
         status: 'tearing_down',
         teardownStartedAt: new Date('2026-07-01T00:00:00.000Z'),
       }),
-      blocked: fullBlockIntents(),
-      reactivatable: false,
-    },
+      blocked: fullBlockIntents(),    },
     {
-      label: 'cancel_only failed',
+      label: 'cancel_only failed at teardown',
       state: offboardingState({
         mode: 'cancel_only',
         status: 'failed',
         failedStep: 'teardown',
+        teardownStartedAt: new Date('2026-07-01T00:00:00.000Z'),
       }),
-      blocked: fullBlockIntents(),
-      reactivatable: false,
-    },
+      blocked: fullBlockIntents(),    },
+    {
+      // C1: a pre-teardown billing failure must NOT fully lock the owner out
+      // while Stripe keeps charging — only billing-expanding mutations freeze.
+      label: 'cancel_only failed at billing (pre-teardown)',
+      state: offboardingState({
+        mode: 'cancel_only',
+        status: 'failed',
+        failedStep: 'billing',
+        teardownStartedAt: null,
+      }),
+      blocked: ['checkout', 'billing_expanding_mutation'],    },
     {
       label: 'delete_data pending',
       state: offboardingState({ mode: 'delete_data', status: 'pending' }),
-      blocked: fullBlockIntents(),
-      reactivatable: false,
-    },
+      blocked: fullBlockIntents(),    },
     {
       label: 'delete_data tearing_down',
       state: offboardingState({
@@ -164,9 +154,7 @@ describe('account offboarding gate', () => {
         status: 'tearing_down',
         teardownStartedAt: new Date('2026-07-01T00:00:00.000Z'),
       }),
-      blocked: fullBlockIntents(),
-      reactivatable: false,
-    },
+      blocked: fullBlockIntents(),    },
     {
       label: 'delete_data purge_scheduled',
       state: offboardingState({
@@ -174,9 +162,7 @@ describe('account offboarding gate', () => {
         status: 'purge_scheduled',
         purgeAfter: new Date('2026-07-31T00:00:00.000Z'),
       }),
-      blocked: fullBlockIntents(),
-      reactivatable: false,
-    },
+      blocked: fullBlockIntents(),    },
     {
       label: 'delete_data failed',
       state: offboardingState({
@@ -184,15 +170,12 @@ describe('account offboarding gate', () => {
         status: 'failed',
         failedStep: 'purge',
       }),
-      blocked: fullBlockIntents(),
-      reactivatable: false,
-    },
+      blocked: fullBlockIntents(),    },
   ] satisfies Array<{
     label: string;
     state: ActiveOffboardingState;
     blocked: OffboardingIntent[];
-    reactivatable: boolean;
-  }>)('applies the policy matrix for $label', ({ state, blocked, reactivatable }) => {
+  }>)('applies the policy matrix for $label', ({ state, blocked }) => {
     const blockedIntents = blocked as readonly OffboardingIntent[];
     for (const intent of OFFBOARDING_INTENTS) {
       expect(isOffboardingIntentBlocked(state, intent), `${intent}`).toBe(
@@ -201,7 +184,6 @@ describe('account offboarding gate', () => {
     }
 
     expect(isProcessingBlocked(state)).toBe(blockedIntents.includes('processing'));
-    expect(isApprovalCallbackBlocked(state)).toBe(blockedIntents.includes('approval_callback'));
     expect(isNotificationBlocked(state)).toBe(blockedIntents.includes('notification'));
     expect(isPublishingBlocked(state)).toBe(blockedIntents.includes('publishing'));
     expect(isCheckoutBlocked(state)).toBe(blockedIntents.includes('checkout'));
@@ -211,72 +193,6 @@ describe('account offboarding gate', () => {
     expect(isBillingMutationBlocked(state)).toBe(
       blockedIntents.includes('billing_expanding_mutation'),
     );
-    expect(isOffboardingStatusBlocked(state)).toBe(false);
-    expect(isOffboardingReactivationBlocked(state)).toBe(!reactivatable);
-    expect(canReactivate(state)).toBe(reactivatable);
-  });
-
-  it.each([
-    {
-      label: 'delete_data pending',
-      state: offboardingState({ mode: 'delete_data', status: 'pending' }),
-      blocked: false,
-    },
-    {
-      label: 'delete_data tearing_down before purge starts',
-      state: offboardingState({
-        mode: 'delete_data',
-        status: 'tearing_down',
-        teardownStartedAt: new Date('2026-07-01T00:00:00.000Z'),
-      }),
-      blocked: false,
-    },
-    {
-      label: 'delete_data purge_scheduled before purge starts',
-      state: offboardingState({
-        mode: 'delete_data',
-        status: 'purge_scheduled',
-        purgeAfter: new Date('2026-07-31T00:00:00.000Z'),
-      }),
-      blocked: false,
-    },
-    {
-      label: 'cancel_only scheduled',
-      state: offboardingState({ mode: 'cancel_only', status: 'scheduled' }),
-      blocked: true,
-    },
-    {
-      label: 'delete_data failed',
-      state: offboardingState({
-        mode: 'delete_data',
-        status: 'failed',
-        failedStep: 'purge',
-      }),
-      blocked: true,
-    },
-    {
-      label: 'delete_data purge already started',
-      state: offboardingState({
-        mode: 'delete_data',
-        status: 'purge_scheduled',
-        purgeAfter: new Date('2026-07-31T00:00:00.000Z'),
-        purgeStartedAt: new Date('2026-08-01T00:00:00.000Z'),
-      }),
-      blocked: true,
-    },
-    {
-      label: 'delete_data purge already cancelled',
-      state: offboardingState({
-        mode: 'delete_data',
-        status: 'purge_scheduled',
-        purgeAfter: new Date('2026-07-31T00:00:00.000Z'),
-        purgeCancelledAt: new Date('2026-07-15T00:00:00.000Z'),
-      }),
-      blocked: true,
-    },
-  ])('applies the keep-my-data action guard for $label', ({ state, blocked }) => {
-    expect(isOffboardingIntentBlocked(state, 'offboarding_keep_my_data')).toBe(false);
-    expect(isKeepMyDataBlocked(state)).toBe(blocked);
   });
 
   it('caches loaded offboarding state within a gate instance only', async () => {
@@ -289,58 +205,11 @@ describe('account offboarding gate', () => {
 
     expect(fn.mock.calls).toHaveLength(2);
   });
-
-  it('marks only unstarted delete_data purge_scheduled rows as purge eligible', () => {
-    const purgeAfter = new Date('2026-07-31T00:00:00.000Z');
-
-    expect(
-      purgeEligible(
-        offboardingState({
-          mode: 'delete_data',
-          status: 'purge_scheduled',
-          purgeAfter,
-        }),
-        new Date('2026-08-01T00:00:00.000Z'),
-      ),
-    ).toBe(true);
-    expect(
-      purgeEligible(
-        offboardingState({
-          mode: 'delete_data',
-          status: 'purge_scheduled',
-          purgeAfter,
-        }),
-        new Date('2026-07-01T00:00:00.000Z'),
-      ),
-    ).toBe(false);
-    expect(
-      purgeEligible(
-        offboardingState({
-          mode: 'delete_data',
-          status: 'purge_scheduled',
-          purgeAfter,
-          purgeStartedAt: new Date('2026-08-01T00:00:00.000Z'),
-        }),
-        new Date('2026-08-01T00:00:00.000Z'),
-      ),
-    ).toBe(false);
-    expect(
-      purgeEligible(
-        offboardingState({
-          mode: 'cancel_only',
-          status: 'scheduled',
-          purgeAfter,
-        }),
-        new Date('2026-08-01T00:00:00.000Z'),
-      ),
-    ).toBe(false);
-  });
 });
 
 function fullBlockIntents(): OffboardingIntent[] {
   return [
     'processing',
-    'approval_callback',
     'notification',
     'publishing',
     'checkout',

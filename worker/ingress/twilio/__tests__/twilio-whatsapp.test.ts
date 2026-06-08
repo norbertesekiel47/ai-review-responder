@@ -368,6 +368,29 @@ describe('handleTwilioWhatsAppInbound — button tap path', () => {
     expect(reply.status).toHaveBeenCalledWith(200);
   });
 
+  it.each([
+    ['offboarding-blocked', new SubscriptionReadOnlyError('account_offboarding_blocked', 403)],
+    ['deleted-account', new SubscriptionReadOnlyError('no_business', 403)],
+  ])('classifies %s SubscriptionReadOnlyError as permanent offboarding copy', async (_label, err) => {
+    sqlQueue.push([{ id: '019db8c1-c3f4-7668-b353-2b8b718ec603', business_id: 'biz-1' }]);
+    sqlQueue.push([{ handle: '+15551234567' }]);
+    mockApproveViaCallback.mockRejectedValueOnce(err);
+    sqlQueue.push([]); // markProcessed
+
+    const req = buildRequest({
+      MessageSid: 'SM_ob',
+      From: 'whatsapp:+15551234567',
+      ButtonPayload: 'a:019db8c1-c3f4-7668-b353-2b8b718ec603',
+    });
+    const reply = buildReply();
+    await handleTwilioWhatsAppInbound(req, reply);
+
+    expect(mockSendFreeform).toHaveBeenCalledWith(expect.objectContaining({
+      body: expect.stringMatching(/offboarded|can no longer be completed/i),
+    }));
+    expect(reply.status).toHaveBeenCalledWith(200);
+  });
+
   it('unexpected error routes to failed + 503 for reclaim', async () => {
     sqlQueue.push([{ id: '019db8c1-c3f4-7668-b353-2b8b718ec603', business_id: 'biz-1' }]);
     sqlQueue.push([{ handle: '+15551234567' }]);

@@ -4,6 +4,7 @@ import type postgres from 'postgres';
 import { sql } from '@/lib/db/server';
 import { writeAccountAuditLog } from '@/lib/audit/log';
 import { enqueueAccountOffboardingEmail } from '@/lib/shared/job-outbox-helpers';
+import { enqueueOffboardingReactivated } from './analytics';
 
 type SqlExecutor = typeof sql | postgres.TransactionSql;
 const REACTIVATION_CLAIM_PREFIX = 'reactivation_claim:';
@@ -28,8 +29,10 @@ interface ReactivatedOffboardingRow {
 
 export interface ReactivateCancelOnlyOffboardingInput {
   accountId: string;
+  accountOffboardingId?: string;
   actorUserId: string;
-  idempotencyKey: string;
+  idempotencyKey?: string;
+  idempotencyKeyHash?: string;
   requestId?: string | null;
   ip?: string | null;
   userAgent?: string | null;
@@ -63,7 +66,9 @@ function getStripe(): Stripe {
   if (!stripeInstance) {
     const key = process.env.STRIPE_SECRET_KEY;
     if (!key) throw new Error('STRIPE_SECRET_KEY is not set');
-    stripeInstance = new Stripe(key);
+    // Explicit timeout + bounded network retries (repworth.md reliability rule);
+    // caps the 80s SDK default on the offboarding reactivation path.
+    stripeInstance = new Stripe(key, { timeout: 20_000, maxNetworkRetries: 2 });
   }
   return stripeInstance;
 }
@@ -71,9 +76,13 @@ function getStripe(): Stripe {
 export async function reactivateCancelOnlyOffboarding(
   input: ReactivateCancelOnlyOffboardingInput,
 ): Promise<ReactivateCancelOnlyOffboardingResult> {
-  const idempotencyKeyHash = hashIdempotencyKey(input.idempotencyKey);
+  const idempotencyKeyHash = resolveIdempotencyKeyHash(input);
 
-  const claim = await claimReactivation(input.accountId, idempotencyKeyHash);
+  const claim = await claimReactivation(
+    input.accountId,
+    idempotencyKeyHash,
+    input.accountOffboardingId,
+  );
   if (claim.kind === 'idempotent') {
     return {
       ok: true,
@@ -110,10 +119,14 @@ export async function reactivateCancelOnlyOffboarding(
       await clearReactivationClaim(offboarding, input.accountId, idempotencyKeyHash);
       return stripeRecoveryResult();
     }
-  } catch {
+  } catch (err) {
     // A thrown Stripe update can be a timeout after Stripe accepted the
     // idempotent reversal. Keep the claim so a same-key retry can reconcile
     // instead of allowing access-end teardown to race an active subscription.
+    if (isRetryableStripeReactivationError(err)) {
+      throw new Error('account_offboarding_stripe_reactivation_retryable');
+    }
+    await clearReactivationClaim(offboarding, input.accountId, idempotencyKeyHash);
     return stripeRecoveryResult();
   }
 
@@ -125,6 +138,7 @@ export async function reactivateCancelOnlyOffboarding(
       sql,
       input.accountId,
       idempotencyKeyHash,
+      input.accountOffboardingId,
     );
     if (idempotent) {
       return {
@@ -171,14 +185,16 @@ type ReactivationClaim =
 async function claimReactivation(
   accountId: string,
   idempotencyKeyHash: string,
+  accountOffboardingId?: string,
 ): Promise<ReactivationClaim> {
   return sql.begin(async (tx) => {
-    const offboarding = await lockReactivatableOffboarding(tx, accountId);
+    const offboarding = await lockReactivatableOffboarding(tx, accountId, accountOffboardingId);
     if (!offboarding) {
       const idempotent = await getIdempotentReactivatedOffboarding(
         tx,
         accountId,
         idempotencyKeyHash,
+        accountOffboardingId,
       );
       if (idempotent) return { kind: 'idempotent', offboarding: idempotent };
       return { kind: 'not_reactivatable' };
@@ -272,6 +288,7 @@ async function finalizeReactivation(
         tx,
         input.accountId,
         idempotencyKeyHash,
+        input.accountOffboardingId,
       );
       if (idempotent) {
         return {
@@ -307,6 +324,12 @@ async function finalizeReactivation(
       },
       tx,
     );
+
+    await enqueueOffboardingReactivated(tx, {
+      accountId: input.accountId,
+      actorUserId: input.actorUserId,
+      offboardingId: offboarding.id,
+    });
 
     await enqueueAccountOffboardingEmail(tx, {
       accountOffboardingId: offboarding.id,
@@ -413,10 +436,38 @@ function hashIdempotencyKey(idempotencyKey: string): string {
   return createHash('sha256').update(idempotencyKey).digest('hex');
 }
 
+function resolveIdempotencyKeyHash(input: ReactivateCancelOnlyOffboardingInput): string {
+  if (input.idempotencyKeyHash?.trim()) {
+    return input.idempotencyKeyHash.trim();
+  }
+  if (input.idempotencyKey?.trim()) {
+    return hashIdempotencyKey(input.idempotencyKey);
+  }
+  throw new Error('account_offboarding_reactivation_missing_idempotency_key');
+}
+
 async function lockReactivatableOffboarding(
   tx: postgres.TransactionSql,
   accountId: string,
+  accountOffboardingId?: string,
 ): Promise<ReactivatableOffboardingRow | null> {
+  if (accountOffboardingId) {
+    const [row] = await tx<ReactivatableOffboardingRow[]>`
+      SELECT id, mode, status, teardown_started_at, terminal_at, reactivated_at, last_error, stripe_subscription_id
+      FROM account_offboardings
+      WHERE id = ${accountOffboardingId}::uuid
+        AND account_id = ${accountId}::uuid
+        AND mode = 'cancel_only'
+        AND status = 'scheduled'
+        AND teardown_started_at IS NULL
+        AND terminal_at IS NULL
+      LIMIT 1
+      FOR UPDATE
+    `;
+    if (!row?.stripe_subscription_id?.trim()) return null;
+    return row;
+  }
+
   const [row] = await tx<ReactivatableOffboardingRow[]>`
     SELECT id, mode, status, teardown_started_at, terminal_at, reactivated_at, last_error, stripe_subscription_id
     FROM account_offboardings
@@ -437,7 +488,31 @@ async function getIdempotentReactivatedOffboarding(
   exec: SqlExecutor,
   accountId: string,
   idempotencyKeyHash: string,
+  accountOffboardingId?: string,
 ): Promise<ReactivatedOffboardingRow | null> {
+  if (accountOffboardingId) {
+    const [row] = await exec<ReactivatedOffboardingRow[]>`
+      SELECT ao.id, ao.mode, ao.status
+      FROM account_offboardings ao
+      WHERE ao.id = ${accountOffboardingId}::uuid
+        AND ao.account_id = ${accountId}::uuid
+        AND ao.mode = 'cancel_only'
+        AND ao.status = 'reactivated'
+        AND ao.terminal_at IS NOT NULL
+        AND EXISTS (
+          SELECT 1
+          FROM account_audit_log aal
+          WHERE aal.account_id = ao.account_id
+            AND aal.entity_type = 'account_offboarding'
+            AND aal.entity_id = ao.id::text
+            AND aal.event_type = 'account_offboarding_reactivated'
+            AND aal.payload->>'idempotency_key_hash' = ${idempotencyKeyHash}
+        )
+      LIMIT 1
+    `;
+    return row ?? null;
+  }
+
   const [row] = await exec<ReactivatedOffboardingRow[]>`
     SELECT ao.id, ao.mode, ao.status
     FROM account_offboardings ao
@@ -499,6 +574,27 @@ function isSameReactivatedSubscription(
   return response.id === stripeSubscriptionId
     && response.cancel_at_period_end === false
     && response.status !== 'canceled';
+}
+
+function isRetryableStripeReactivationError(err: unknown): boolean {
+  const error = err as { type?: unknown; statusCode?: unknown; message?: unknown };
+  const type = typeof error.type === 'string' ? error.type : '';
+  if (
+    type === 'StripeAPIConnectionError'
+    || type === 'StripeConnectionError'
+    || type === 'StripeAPIError'
+    || type === 'StripeRateLimitError'
+  ) {
+    return true;
+  }
+
+  const statusCode = typeof error.statusCode === 'number' ? error.statusCode : null;
+  if (statusCode !== null) {
+    return statusCode === 408 || statusCode === 409 || statusCode === 429 || statusCode >= 500;
+  }
+
+  const message = typeof error.message === 'string' ? error.message.toLowerCase() : '';
+  return message.includes('timeout') || message.includes('timed out') || message.includes('network');
 }
 
 function stripeRecoveryResult(): Extract<

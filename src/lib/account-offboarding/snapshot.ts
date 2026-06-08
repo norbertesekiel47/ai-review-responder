@@ -9,8 +9,8 @@ export type AccountOffboardingSnapshotMissingField =
   | 'location_ids';
 
 export interface AccountOffboardingSnapshot {
-  stripeCustomerId: string;
-  stripeSubscriptionId: string;
+  stripeCustomerId: string | null;
+  stripeSubscriptionId: string | null;
   zernioAccountIds: string[];
   zernioProfileIds: string[];
   locationIds: string[];
@@ -40,6 +40,17 @@ interface ZernioSnapshotRow {
 export interface CaptureAccountOffboardingSnapshotInput {
   accountId: string;
   actorUserId: string;
+  requireStripeCustomerId?: boolean;
+  requireStripeSubscriptionId?: boolean;
+  /**
+   * Include archived locations in the captured `location_ids`. `delete_data`
+   * sets this so a never-activated / fully-archived account (which has no ACTIVE
+   * business row) can still offboard: purge deletes archived businesses anyway,
+   * teardown archival is idempotent for already-archived rows, and the
+   * confirmation email still has a business id to key delivery on. `cancel_only`
+   * leaves it off and only snapshots active locations.
+   */
+  includeArchivedLocations?: boolean;
 }
 
 export type CaptureAccountOffboardingSnapshotResult =
@@ -72,6 +83,7 @@ export async function captureAccountOffboardingSnapshot(
     LIMIT 1
   `;
 
+  const includeArchivedLocations = input.includeArchivedLocations === true;
   const [locations] = await tx<LocationRow[]>`
     SELECT COALESCE(
       array_agg(id ORDER BY is_primary DESC, created_at ASC)
@@ -80,7 +92,7 @@ export async function captureAccountOffboardingSnapshot(
     ) AS location_ids
     FROM businesses
     WHERE account_id = ${input.accountId}::uuid
-      AND archived_at IS NULL
+      AND (${includeArchivedLocations} OR archived_at IS NULL)
   `;
 
   const [zernio] = await tx<ZernioSnapshotRow[]>`
@@ -105,8 +117,12 @@ export async function captureAccountOffboardingSnapshot(
 
   const missingFields: AccountOffboardingSnapshotMissingField[] = [];
   const locationIds = locations?.location_ids ?? [];
-  if (!present(account.stripe_customer_id)) missingFields.push('stripe_customer_id');
-  if (!present(account.stripe_subscription_id)) missingFields.push('stripe_subscription_id');
+  if (input.requireStripeCustomerId !== false && !present(account.stripe_customer_id)) {
+    missingFields.push('stripe_customer_id');
+  }
+  if (input.requireStripeSubscriptionId !== false && !present(account.stripe_subscription_id)) {
+    missingFields.push('stripe_subscription_id');
+  }
   if (!present(owner?.auth_id)) missingFields.push('auth_user_id');
   if (!present(owner?.email)) missingFields.push('recipient_email');
   if (locationIds.length === 0) {
@@ -120,8 +136,8 @@ export async function captureAccountOffboardingSnapshot(
   return {
     ok: true,
     snapshot: {
-      stripeCustomerId: account.stripe_customer_id!,
-      stripeSubscriptionId: account.stripe_subscription_id!,
+      stripeCustomerId: present(account.stripe_customer_id) ? account.stripe_customer_id : null,
+      stripeSubscriptionId: present(account.stripe_subscription_id) ? account.stripe_subscription_id : null,
       zernioAccountIds: zernio?.zernio_account_ids ?? [],
       zernioProfileIds: zernio?.zernio_profile_ids ?? [],
       locationIds,

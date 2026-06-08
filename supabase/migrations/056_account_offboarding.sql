@@ -5,6 +5,9 @@
 -- exists in this migration. Both tables are service-only: RLS is enabled with no
 -- policies, and app code must use the postgres/service role with explicit account
 -- scope checks.
+--
+-- Deploy: apply to staging Supabase first, verify, then production — both
+-- projects in lockstep (never leave one ahead of the other).
 -- ==============================================================================
 
 -- ==============================================================================
@@ -67,7 +70,11 @@ CREATE TABLE IF NOT EXISTS account_offboardings (
 
   CONSTRAINT account_offboardings_failed_step_check
     CHECK (
-      (status = 'failed' AND failed_step IN ('billing', 'teardown', 'purge'))
+      -- `failed_step IS NOT NULL` is required: without it, `failed_step IN (...)` is
+      -- NULL for a failed row with no failed_step, and a CHECK passes on NULL — so the
+      -- DB would silently admit status='failed' with no failed_step. The explicit
+      -- NOT NULL test makes that branch FALSE and the row is rejected.
+      (status = 'failed' AND failed_step IS NOT NULL AND failed_step IN ('billing', 'teardown', 'purge'))
       OR (status <> 'failed' AND failed_step IS NULL)
     ),
   CONSTRAINT account_offboardings_terminal_status_check

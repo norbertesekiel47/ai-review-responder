@@ -16,6 +16,10 @@ const { mockWriteAccountAuditLog } = vi.hoisted(() => ({
   mockWriteAccountAuditLog: vi.fn(),
 }));
 
+const { mockEnqueueOffboardingReactivated } = vi.hoisted(() => ({
+  mockEnqueueOffboardingReactivated: vi.fn(),
+}));
+
 vi.mock('@/lib/db/server', () => ({
   sql: mockSql,
   jsonb: mockJsonb,
@@ -23,6 +27,10 @@ vi.mock('@/lib/db/server', () => ({
 
 vi.mock('@/lib/audit/log', () => ({
   writeAccountAuditLog: mockWriteAccountAuditLog,
+}));
+
+vi.mock('../analytics', () => ({
+  enqueueOffboardingReactivated: mockEnqueueOffboardingReactivated,
 }));
 
 vi.mock('stripe', () => ({
@@ -131,6 +139,7 @@ describe('reactivateCancelOnlyOffboarding', () => {
     mockSql.mockReset();
     mockSql.begin.mockReset();
     mockWriteAccountAuditLog.mockResolvedValue(undefined);
+    mockEnqueueOffboardingReactivated.mockResolvedValue(undefined);
     mockStripeSubscriptionsUpdate.mockResolvedValue({
       id: 'sub_snapshot_123',
       cancel_at_period_end: false,
@@ -201,6 +210,12 @@ describe('reactivateCancelOnlyOffboarding', () => {
       tx,
     );
 
+    expect(mockEnqueueOffboardingReactivated).toHaveBeenCalledWith(tx, {
+      accountId: ACCOUNT_ID,
+      actorUserId: USER_ID,
+      offboardingId: OFFBOARDING_ID,
+    });
+
     const outboxCall = calls.find((call) => call.text.includes('INSERT INTO job_outbox'));
     expect(outboxCall?.values).toContain(QUEUE_NAMES.ACCOUNT_OFFBOARDING_EMAIL);
     expect(outboxCall?.values).toContain(OFFBOARDING_ID);
@@ -222,6 +237,7 @@ describe('reactivateCancelOnlyOffboarding', () => {
     expect(result).toEqual({ ok: false, reason: 'not_reactivatable' });
     expect(mockStripeSubscriptionsUpdate).not.toHaveBeenCalled();
     expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
+    expect(mockEnqueueOffboardingReactivated).not.toHaveBeenCalled();
   });
 
   it('returns the terminal reactivated row for same-key idempotent retries without calling Stripe', async () => {
@@ -253,6 +269,7 @@ describe('reactivateCancelOnlyOffboarding', () => {
     });
     expect(mockStripeSubscriptionsUpdate).not.toHaveBeenCalled();
     expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
+    expect(mockEnqueueOffboardingReactivated).not.toHaveBeenCalled();
     expect(sqlText(calls)).toContain('FROM account_audit_log');
     expect(sqlText(calls)).toContain('account_offboarding_reactivated');
   });
@@ -277,8 +294,30 @@ describe('reactivateCancelOnlyOffboarding', () => {
       },
     });
     expect(sqlText(calls)).not.toContain("status = 'reactivated'");
+    const clearCall = calls.find((call) => call.text.includes('SET reactivated_at = NULL'));
+    expect(clearCall?.values).toContain(`reactivation_claim:${IDEMPOTENCY_KEY_HASH}`);
+    expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
+    expect(mockEnqueueOffboardingReactivated).not.toHaveBeenCalled();
+  });
+
+  it('keeps the claim and throws for retryable Stripe reversal failures so the worker can retry', async () => {
+    const { tx, calls } = makeTx();
+    mockSql.begin.mockImplementation(async (cb: (txArg: typeof tx) => Promise<unknown>) => cb(tx));
+    mockStripeSubscriptionsUpdate.mockRejectedValueOnce(Object.assign(
+      new Error('Stripe connection timeout'),
+      { type: 'StripeAPIConnectionError' },
+    ));
+
+    await expect(reactivateCancelOnlyOffboarding({
+      accountId: ACCOUNT_ID,
+      actorUserId: USER_ID,
+      idempotencyKey: IDEMPOTENCY_KEY,
+    })).rejects.toThrow('account_offboarding_stripe_reactivation_retryable');
+
+    expect(sqlText(calls)).not.toContain("status = 'reactivated'");
     expect(sqlText(calls)).not.toContain('SET reactivated_at = NULL');
     expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
+    expect(mockEnqueueOffboardingReactivated).not.toHaveBeenCalled();
   });
 
   it('treats a different Stripe subscription response as non-reversible and keeps the row open', async () => {
@@ -309,6 +348,7 @@ describe('reactivateCancelOnlyOffboarding', () => {
     expect(clearCall?.text).toContain('last_error =');
     expect(clearCall?.values).toContain(`reactivation_claim:${IDEMPOTENCY_KEY_HASH}`);
     expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
+    expect(mockEnqueueOffboardingReactivated).not.toHaveBeenCalled();
   });
 
   it('does not continue a reactivation claim owned by a different idempotency key', async () => {
@@ -419,6 +459,23 @@ describe('reactivateCancelOnlyOffboarding', () => {
     expect(finalUpdateCall?.text).toContain('terminal_at IS NULL');
     expect(finalUpdateCall?.text).toContain('reactivated_at IS NOT NULL');
     expect(finalUpdateCall?.text).toContain('last_error =');
+  });
+
+  it('scopes worker-driven claims to the payload account_offboarding_id', async () => {
+    const { tx, calls } = makeTx();
+    mockSql.begin.mockImplementation(async (cb: (txArg: typeof tx) => Promise<unknown>) => cb(tx));
+
+    const result = await reactivateCancelOnlyOffboarding({
+      accountId: ACCOUNT_ID,
+      accountOffboardingId: OFFBOARDING_ID,
+      actorUserId: USER_ID,
+      idempotencyKeyHash: IDEMPOTENCY_KEY_HASH,
+    });
+
+    expect(result.ok).toBe(true);
+    const lockCall = calls.find((call) => call.text.includes('FROM account_offboardings') && call.text.includes('FOR UPDATE'));
+    expect(lockCall?.text).toContain('WHERE id = ?::uuid');
+    expect(lockCall?.values).toContain(OFFBOARDING_ID);
   });
 
   it('compensates Stripe and returns a conflict if the final update loses to teardown', async () => {

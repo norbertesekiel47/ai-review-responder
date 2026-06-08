@@ -7,7 +7,7 @@ const {
   mockRequireDeleteDataDestructiveAuth,
   mockConfirmCancelOnlyOffboarding,
   mockConfirmDeleteDataOffboarding,
-  mockReactivateCancelOnlyOffboarding,
+  mockRequestCancelOnlyReactivation,
   mockGetAccountOffboardingStatus,
 } = vi.hoisted(() => ({
   mockRequireWritableOwner: vi.fn(),
@@ -15,7 +15,7 @@ const {
   mockRequireDeleteDataDestructiveAuth: vi.fn(),
   mockConfirmCancelOnlyOffboarding: vi.fn(),
   mockConfirmDeleteDataOffboarding: vi.fn(),
-  mockReactivateCancelOnlyOffboarding: vi.fn(),
+  mockRequestCancelOnlyReactivation: vi.fn(),
   mockGetAccountOffboardingStatus: vi.fn(),
 }));
 
@@ -37,8 +37,8 @@ vi.mock('@/lib/account-offboarding/destructive-auth', () => ({
   requireDeleteDataDestructiveAuth: mockRequireDeleteDataDestructiveAuth,
 }));
 
-vi.mock('@/lib/account-offboarding/reactivate', () => ({
-  reactivateCancelOnlyOffboarding: mockReactivateCancelOnlyOffboarding,
+vi.mock('@/lib/account-offboarding/reactivation-request', () => ({
+  requestCancelOnlyReactivation: mockRequestCancelOnlyReactivation,
 }));
 
 vi.mock('@/lib/account-offboarding/status', () => ({
@@ -473,14 +473,14 @@ describe('POST /api/account/offboarding/reactivate', () => {
       user: ownerUser(),
       accountId: ACCOUNT_ID,
     });
-    mockReactivateCancelOnlyOffboarding.mockResolvedValue({
+    mockRequestCancelOnlyReactivation.mockResolvedValue({
       ok: true,
-      status: 'reactivated',
+      status: 'queued',
       offboarding: {
         id: 'bbbbbbbb-2222-7333-8444-555555555555',
         accountId: ACCOUNT_ID,
         mode: 'cancel_only',
-        status: 'reactivated',
+        status: 'scheduled',
       },
     });
   });
@@ -495,7 +495,7 @@ describe('POST /api/account/offboarding/reactivate', () => {
     expect(await res.json()).toEqual({ error: 'account_offboarding_disabled' });
     expect(mockRequireOwnerWithAccount).not.toHaveBeenCalled();
     expect(mockRequireWritableOwner).not.toHaveBeenCalled();
-    expect(mockReactivateCancelOnlyOffboarding).not.toHaveBeenCalled();
+    expect(mockRequestCancelOnlyReactivation).not.toHaveBeenCalled();
   });
 
   it('returns 403 for cross-origin requests before auth', async () => {
@@ -505,10 +505,10 @@ describe('POST /api/account/offboarding/reactivate', () => {
 
     expect(res.status).toBe(403);
     expect(mockRequireOwnerWithAccount).not.toHaveBeenCalled();
-    expect(mockReactivateCancelOnlyOffboarding).not.toHaveBeenCalled();
+    expect(mockRequestCancelOnlyReactivation).not.toHaveBeenCalled();
   });
 
-  it('uses the read-only owner guard as an explicit cancelled-account write exception', async () => {
+  it('uses the read-only owner guard and enqueues reactivation instead of calling Stripe on Vercel', async () => {
     const { reactivateRoute } = await importRoutes();
 
     const res = await reactivateRoute.POST(makeReactivatePost({
@@ -517,18 +517,18 @@ describe('POST /api/account/offboarding/reactivate', () => {
       'user-agent': 'vitest',
     }));
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(202);
     expect(await res.json()).toEqual({
       ok: true,
       offboarding: {
         id: 'bbbbbbbb-2222-7333-8444-555555555555',
         mode: 'cancel_only',
-        status: 'reactivated',
+        status: 'queued',
       },
     });
     expect(mockRequireOwnerWithAccount).toHaveBeenCalledOnce();
     expect(mockRequireWritableOwner).not.toHaveBeenCalled();
-    expect(mockReactivateCancelOnlyOffboarding).toHaveBeenCalledWith({
+    expect(mockRequestCancelOnlyReactivation).toHaveBeenCalledWith({
       accountId: ACCOUNT_ID,
       actorUserId: USER_ID,
       idempotencyKey: 'reactivate-key-1',
@@ -545,7 +545,7 @@ describe('POST /api/account/offboarding/reactivate', () => {
 
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ error: 'missing_idempotency_key' });
-    expect(mockReactivateCancelOnlyOffboarding).not.toHaveBeenCalled();
+    expect(mockRequestCancelOnlyReactivation).not.toHaveBeenCalled();
   });
 
   it('returns 400 when the reactivation idempotency key is too long', async () => {
@@ -557,11 +557,11 @@ describe('POST /api/account/offboarding/reactivate', () => {
 
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ error: 'idempotency_key_too_long' });
-    expect(mockReactivateCancelOnlyOffboarding).not.toHaveBeenCalled();
+    expect(mockRequestCancelOnlyReactivation).not.toHaveBeenCalled();
   });
 
   it('returns 409 when there is no scheduled cancel-only row to reactivate', async () => {
-    mockReactivateCancelOnlyOffboarding.mockResolvedValueOnce({
+    mockRequestCancelOnlyReactivation.mockResolvedValueOnce({
       ok: false,
       reason: 'not_reactivatable',
     });
@@ -571,29 +571,6 @@ describe('POST /api/account/offboarding/reactivate', () => {
 
     expect(res.status).toBe(409);
     expect(await res.json()).toEqual({ error: 'account_offboarding_not_reactivatable' });
-  });
-
-  it('returns checkout and reconnect recovery paths when Stripe cannot reverse the snapshot subscription', async () => {
-    mockReactivateCancelOnlyOffboarding.mockResolvedValueOnce({
-      ok: false,
-      reason: 'stripe_reversal_unavailable',
-      recovery: {
-        checkoutPath: '/api/billing/checkout',
-        reconnectPath: '/api/zernio/connect/start',
-      },
-    });
-    const { reactivateRoute } = await importRoutes();
-
-    const res = await reactivateRoute.POST(makeReactivatePost());
-
-    expect(res.status).toBe(409);
-    expect(await res.json()).toEqual({
-      error: 'stripe_reversal_unavailable',
-      recovery: {
-        checkoutPath: '/api/billing/checkout',
-        reconnectPath: '/api/zernio/connect/start',
-      },
-    });
   });
 });
 

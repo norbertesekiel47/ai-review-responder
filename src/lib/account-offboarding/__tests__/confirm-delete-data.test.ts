@@ -14,6 +14,10 @@ const { mockWriteAccountAuditLog } = vi.hoisted(() => ({
   mockWriteAccountAuditLog: vi.fn(),
 }));
 
+const { mockEnqueueOffboardingStarted } = vi.hoisted(() => ({
+  mockEnqueueOffboardingStarted: vi.fn(),
+}));
+
 vi.mock('@/lib/db/server', () => ({
   sql: mockSql,
   jsonb: mockJsonb,
@@ -21,6 +25,10 @@ vi.mock('@/lib/db/server', () => ({
 
 vi.mock('@/lib/audit/log', () => ({
   writeAccountAuditLog: mockWriteAccountAuditLog,
+}));
+
+vi.mock('../analytics', () => ({
+  enqueueOffboardingStarted: mockEnqueueOffboardingStarted,
 }));
 
 import { confirmDeleteDataOffboarding } from '../confirm';
@@ -107,6 +115,7 @@ describe('confirmDeleteDataOffboarding', () => {
     vi.clearAllMocks();
     mockSql.begin.mockReset();
     mockWriteAccountAuditLog.mockResolvedValue(undefined);
+    mockEnqueueOffboardingStarted.mockResolvedValue(undefined);
   });
 
   it('creates a pending delete-data offboarding, marks Zernio disconnected, and enqueues teardown plus confirmation email in one transaction', async () => {
@@ -158,6 +167,13 @@ describe('confirmDeleteDataOffboarding', () => {
       }),
       tx,
     );
+
+    expect(mockEnqueueOffboardingStarted).toHaveBeenCalledWith(tx, {
+      accountId: ACCOUNT_ID,
+      actorUserId: USER_ID,
+      offboardingId: result.offboarding.id,
+      mode: 'delete_data',
+    });
 
     const outboxCalls = calls.filter((call) => call.text.includes('INSERT INTO job_outbox'));
     expect(outboxCalls).toHaveLength(2);
@@ -274,12 +290,44 @@ describe('confirmDeleteDataOffboarding', () => {
     expect(persistedState.outboxTopics).toEqual([]);
   });
 
-  it('aborts before inserts and Zernio disconnect when the snapshot is incomplete', async () => {
+  it('creates delete-data offboarding when billing and provider snapshots are absent', async () => {
     const { tx, calls } = makeTx({
       account: {
-        stripe_customer_id: 'cus_test',
+        stripe_customer_id: null,
         stripe_subscription_id: null,
       },
+      zernio: {
+        zernio_account_ids: [],
+        zernio_profile_ids: [],
+      },
+    });
+    mockSql.begin.mockImplementationOnce(async (cb: (txArg: typeof tx) => Promise<unknown>) => cb(tx));
+
+    const result = await confirmDeleteDataOffboarding({
+      accountId: ACCOUNT_ID,
+      actorUserId: USER_ID,
+      idempotencyKey: IDEMPOTENCY_KEY,
+      reasonCode: 'closing_business',
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('expected success');
+    expect(result.offboarding.mode).toBe('delete_data');
+    const insertCall = calls.find((call) => call.text.includes('INSERT INTO account_offboardings'));
+    expect(insertCall?.values).toContain(null);
+    expect(sqlText(calls)).toContain('INSERT INTO job_outbox');
+    expect(sqlText(calls)).toContain('account_offboarding_delete_data');
+    expect(mockEnqueueOffboardingStarted).toHaveBeenCalledWith(tx, {
+      accountId: ACCOUNT_ID,
+      actorUserId: USER_ID,
+      offboardingId: result.offboarding.id,
+      mode: 'delete_data',
+    });
+  });
+
+  it('aborts before inserts and Zernio disconnect when the snapshot is incomplete', async () => {
+    const { tx, calls } = makeTx({
+      owner: null,
     });
     mockSql.begin.mockImplementationOnce(async (cb: (txArg: typeof tx) => Promise<unknown>) => cb(tx));
 
@@ -293,12 +341,13 @@ describe('confirmDeleteDataOffboarding', () => {
     expect(result).toEqual({
       ok: false,
       reason: 'snapshot_incomplete',
-      missingFields: ['stripe_subscription_id'],
+      missingFields: ['auth_user_id', 'recipient_email'],
     });
     expect(sqlText(calls)).not.toContain('INSERT INTO account_offboardings');
     expect(sqlText(calls)).not.toContain('UPDATE zernio_connections');
     expect(sqlText(calls)).not.toContain('INSERT INTO job_outbox');
     expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
+    expect(mockEnqueueOffboardingStarted).not.toHaveBeenCalled();
   });
 
   it('returns the active delete-data row as an idempotent retry when the key matches durable audit metadata', async () => {
@@ -332,6 +381,7 @@ describe('confirmDeleteDataOffboarding', () => {
     expect(sqlText(calls)).not.toContain('INSERT INTO account_offboardings');
     expect(sqlText(calls)).not.toContain('UPDATE zernio_connections');
     expect(sqlText(calls)).not.toContain('INSERT INTO job_outbox');
+    expect(mockEnqueueOffboardingStarted).not.toHaveBeenCalled();
   });
 
   it('returns duplicate_active when any active offboarding exists for a different key', async () => {
@@ -363,5 +413,6 @@ describe('confirmDeleteDataOffboarding', () => {
       },
     });
     expect(sqlText(calls)).not.toContain('INSERT INTO account_offboardings');
+    expect(mockEnqueueOffboardingStarted).not.toHaveBeenCalled();
   });
 });

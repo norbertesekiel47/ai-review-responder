@@ -12,7 +12,8 @@ interface QueryCall {
 
 const { calls, mockSql } = vi.hoisted(() => {
   const calls: QueryCall[] = [];
-  const mockSql: any = vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
+  const mockSql: any = vi.fn(async (strings: any, ...values: unknown[]) => {
+    if (!Array.isArray(strings)) return [];
     const text = strings.join('?');
     calls.push({ text, values });
     return [{ violation_count: 0 }];
@@ -33,7 +34,8 @@ describe('purge verification', () => {
   beforeEach(() => {
     calls.length = 0;
     mockSql.mockClear();
-    mockSql.mockImplementation(async (strings: TemplateStringsArray, ...values: unknown[]) => {
+    mockSql.mockImplementation(async (strings: any, ...values: unknown[]) => {
+      if (!Array.isArray(strings)) return [];
       const text = strings.join('?');
       calls.push({ text, values });
       if (text.includes("scope.value->>'type' = 'sms_opt_out_scrub_scope'")) {
@@ -58,7 +60,8 @@ describe('purge verification', () => {
   });
 
   it('reports only tables with remaining verification violations', async () => {
-    mockSql.mockImplementation(async (strings: TemplateStringsArray, ...values: unknown[]) => {
+    mockSql.mockImplementation(async (strings: any, ...values: unknown[]) => {
+      if (!Array.isArray(strings)) return [];
       const text = strings.join('?');
       calls.push({ text, values });
       if (text.includes('FROM responses')) return [{ violation_count: 2 }];
@@ -113,6 +116,9 @@ describe('purge verification', () => {
     expect(sqlText).toContain("scope.value->>'type' = 'sms_opt_out_scrub_scope'");
     expect(sqlText).toContain('jsonb_array_elements(ao.provider_dispositions)');
     expect(sqlText).toContain("handle NOT LIKE 'sha256:%'");
+    // M1: analytics verification mirrors the FK-independent scrub, so a residual
+    // raw-UUID distinct_id with no FK stays in scope and fails verification closed.
+    expect(sqlText).toContain('distinct_id IN (?, ?)');
     expect(sqlText).not.toContain('digest(');
     expect(sqlText).not.toContain('SELECT *');
   });
@@ -167,8 +173,22 @@ describe('purge verification', () => {
     expect(smsQueries).not.toContain('FROM channel_enrollments');
   });
 
+  it('fails purge verification for any retained notification delivery linked to the account or its businesses', async () => {
+    await verifyAccountOffboardingPurge({
+      accountId: '00000000-0000-7000-8000-000000000001',
+      offboardingId: '00000000-0000-7000-8000-000000000002',
+    });
+
+    const notificationQuery = calls.find((call) => call.text.includes('FROM notification_deliveries'));
+    expect(notificationQuery?.text).toContain('account_id =');
+    expect(notificationQuery?.text).toContain('business_id IN');
+    expect(notificationQuery?.text).not.toContain("recipient <> '[redacted]'");
+    expect(notificationQuery?.text).not.toContain('external_message_id IS NOT NULL');
+  });
+
   it('checks final SMS scrub scope with Node SHA-256 instead of database digest', async () => {
-    mockSql.mockImplementation(async (strings: TemplateStringsArray, ...values: unknown[]) => {
+    mockSql.mockImplementation(async (strings: any, ...values: unknown[]) => {
+      if (!Array.isArray(strings)) return [];
       const text = strings.join('?');
       calls.push({ text, values });
       if (text.includes("scope.value->>'type' = 'sms_opt_out_scrub_scope'")) {

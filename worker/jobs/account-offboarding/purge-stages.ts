@@ -1,8 +1,19 @@
-import { createHash } from 'node:crypto';
 import type postgres from 'postgres';
 import { jsonb, sql, supabaseServer } from '../../../src/lib/db/server';
 import { verifyAccountOffboardingPurge } from '../../../src/lib/account-offboarding/purge-verification';
 import { hasConcreteAdminProviderDisposition } from '../../../src/lib/account-offboarding/provider-disposition';
+import { enqueueOffboardingPurged } from '../../../src/lib/account-offboarding/analytics';
+import { enqueueAccountOffboardingEmail } from '../../../src/lib/shared/job-outbox-helpers';
+import {
+  deleteByBusiness,
+  hashSmsHandle,
+  impersonationSessionScrubScopeRecord,
+  isSupabaseAuthNotFound,
+  jobOutboxScrubScopeRecord,
+  safeSupabaseError,
+  smsOptOutScrubScopeRecord,
+  type SmsHandleRow,
+} from './purge-helpers';
 
 export interface AccountOffboardingPurgeRow {
   id: string;
@@ -14,6 +25,7 @@ export interface AccountOffboardingPurgeRow {
   purge_started_at: Date | string | null;
   purge_cancelled_at: Date | string | null;
   auth_user_id: string | null;
+  recipient_email: string | null;
   provider_dispositions: unknown;
   stripe_customer_id: string | null;
   stripe_subscription_id: string | null;
@@ -24,30 +36,6 @@ export interface AccountOffboardingPurgeRow {
 interface AuthRevalidationRow {
   can_delete: boolean;
   already_detached: boolean;
-}
-
-interface SmsHandleRow {
-  messaging_service_sid: string;
-  handle: string;
-}
-
-interface SmsOptOutScrubScopeRecord {
-  type: 'sms_opt_out_scrub_scope';
-  messaging_service_sid_hash: string;
-  handle_hash: string;
-  scrubbed_handle: string;
-}
-
-interface JobOutboxScrubScopeRecord {
-  type: 'job_outbox_scrub_scope';
-  job_outbox_id: string;
-  job_outbox_id_hash: string;
-}
-
-interface ImpersonationSessionScrubScopeRecord {
-  type: 'impersonation_session_scrub_scope';
-  impersonation_session_id: string;
-  impersonation_session_id_hash: string;
 }
 
 class StaleOutboxAttemptError extends Error {
@@ -68,8 +56,8 @@ export async function loadPurgeOffboarding(
   const [row] = await sql<AccountOffboardingPurgeRow[]>`
     SELECT id, account_id, mode, status, terminal_at, teardown_completed_at,
            purge_started_at, purge_cancelled_at, auth_user_id,
-           provider_dispositions, stripe_customer_id, stripe_subscription_id,
-           zernio_account_ids, zernio_profile_ids
+           recipient_email, provider_dispositions, stripe_customer_id,
+           stripe_subscription_id, zernio_account_ids, zernio_profile_ids
     FROM account_offboardings
     WHERE id = ${accountOffboardingId}::uuid
       AND account_id = ${accountId}::uuid
@@ -176,12 +164,11 @@ export async function runDependentReferencePurgeStage(row: AccountOffboardingPur
       WHERE account_id = ${row.account_id}::uuid
     `;
     await tx`
-      UPDATE notification_deliveries
-      SET response_id = NULL,
-          recipient = '[redacted]',
-          failure_reason = NULL,
-          external_message_id = NULL
-      WHERE account_id = ${row.account_id}::uuid
+      DELETE FROM notification_deliveries nd
+      WHERE nd.account_id = ${row.account_id}::uuid
+         OR nd.business_id IN (
+           SELECT id FROM businesses WHERE account_id = ${row.account_id}::uuid
+         )
     `;
     await tx`
       UPDATE api_costs
@@ -366,48 +353,27 @@ export async function runRawPayloadPurgeStage(
 }
 
 export async function runAnalyticsPurgeStage(row: AccountOffboardingPurgeRow): Promise<void> {
-  await sql.begin(async (tx) => {
-    await tx`
-      UPDATE analytics_events
-      SET event_key = 'scrubbed:' || id::text,
-          distinct_id = 'scrubbed:' || id::text,
-          anonymous_id = NULL,
-          account_id = NULL,
-          user_id = NULL,
-          business_id = NULL,
-          properties = '{}'::jsonb,
-          last_error = NULL
-      WHERE account_id = ${row.account_id}::uuid
-    `;
-    await tx`
-      UPDATE analytics_events ae
-      SET event_key = 'scrubbed:' || ae.id::text,
-          distinct_id = 'scrubbed:' || ae.id::text,
-          anonymous_id = NULL,
-          account_id = NULL,
-          user_id = NULL,
-          business_id = NULL,
-          properties = '{}'::jsonb,
-          last_error = NULL
-      FROM businesses b
-      WHERE ae.business_id = b.id
-        AND b.account_id = ${row.account_id}::uuid
-    `;
-    await tx`
-      UPDATE analytics_events ae
-      SET event_key = 'scrubbed:' || ae.id::text,
-          distinct_id = 'scrubbed:' || ae.id::text,
-          anonymous_id = NULL,
-          account_id = NULL,
-          user_id = NULL,
-          business_id = NULL,
-          properties = '{}'::jsonb,
-          last_error = NULL
-      FROM users u
-      WHERE ae.user_id = u.id
-        AND u.account_id = ${row.account_id}::uuid
-    `;
-  });
+  // One scrub over a single account-scope predicate: every analytics row owned by this
+  // account by FK (account/business/user) OR by a raw account identifier still sitting in
+  // `distinct_id` (the FK-independent case the unenforced "raw UUID implies FK" invariant
+  // used to miss). This predicate is the write-side twin of the post-purge read-side check
+  // in `purge-verification.ts` (`account_id IS NULL ... distinct_id IN`); keep the two in
+  // sync — a divergence is what previously let scrubbed-distinct_id rows survive (M1).
+  await sql`
+    UPDATE analytics_events
+    SET event_key = 'scrubbed:' || id::text,
+        distinct_id = 'scrubbed:' || id::text,
+        anonymous_id = NULL,
+        account_id = NULL,
+        user_id = NULL,
+        business_id = NULL,
+        properties = '{}'::jsonb,
+        last_error = NULL
+    WHERE account_id = ${row.account_id}::uuid
+       OR business_id IN (SELECT id FROM businesses WHERE account_id = ${row.account_id}::uuid)
+       OR user_id IN (SELECT id FROM users WHERE account_id = ${row.account_id}::uuid)
+       OR distinct_id IN (${row.account_id}, ${`account:${row.account_id}`})
+  `;
 }
 
 export async function runSmsOptOutPurgeStage(row: AccountOffboardingPurgeRow): Promise<void> {
@@ -689,6 +655,26 @@ export async function finalizePurgeInTransaction(
       throw new Error('account_offboarding_purge_finalize_precondition_failed');
     }
 
+    await enqueueOffboardingPurged(tx, {
+      offboardingId: row.id,
+    });
+
+    // Durable purge receipt: enqueue inside the finalize tx so a crash after
+    // commit cannot lose it (the prior best-effort post-commit send could). The
+    // recipient is carried in the outbox payload because the row's
+    // recipient_email is scrubbed in this same transaction; the email worker
+    // sends it and scrubs the payload afterwards.
+    const recipient = row.recipient_email?.trim();
+    if (recipient) {
+      await enqueueAccountOffboardingEmail(tx, {
+        accountOffboardingId: row.id,
+        accountId: row.account_id,
+        emailType: 'purge_receipt',
+        recipientEmail: recipient,
+        purgedAt: new Date().toISOString(),
+      });
+    }
+
     await completeCurrentOutboxAttempt(tx, outboxId, outboxAttempt);
   });
 }
@@ -802,54 +788,6 @@ export async function markPurgeTerminalFailure(
   `;
 }
 
-export function scrubPurgeErrorForStorage(message: string): string {
-  return message
-    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[REDACTED_EMAIL]')
-    .replace(/\+?[0-9][0-9().\-\s]{7,}[0-9]/g, '[REDACTED_PHONE]')
-    .replace(/Bearer\s+[A-Za-z0-9\-._~+/]+=*/gi, 'Bearer [REDACTED]')
-    .replace(/Basic\s+[A-Za-z0-9+/]+=*/gi, 'Basic [REDACTED]')
-    .replace(
-      /((?:access[_-]?token|refresh[_-]?token|client[_-]?secret|api[_-]?key|authorization|password|token|secret))=([^&\s"']+)/gi,
-      '$1=[REDACTED]',
-    )
-    .replace(
-      /("?(?:access[_-]?token|refresh[_-]?token|client[_-]?secret|api[_-]?key|authorization|password|token|secret)"?\s*:\s*)"[^"]*"/gi,
-      '$1"[REDACTED]"',
-    )
-    .slice(0, 500);
-}
-
-function hashSmsHandle(messagingServiceSid: string, handle: string): string {
-  return `sha256:${hashSmsHandleValue(messagingServiceSid, handle)}`;
-}
-
-function smsOptOutScrubScopeRecord(entry: SmsHandleRow): SmsOptOutScrubScopeRecord {
-  return {
-    type: 'sms_opt_out_scrub_scope',
-    messaging_service_sid_hash: sha256Hex(entry.messaging_service_sid),
-    handle_hash: hashSmsHandleValue(entry.messaging_service_sid, entry.handle),
-    scrubbed_handle: hashSmsHandle(entry.messaging_service_sid, entry.handle),
-  };
-}
-
-function jobOutboxScrubScopeRecord(entry: { id: string }): JobOutboxScrubScopeRecord {
-  return {
-    type: 'job_outbox_scrub_scope',
-    job_outbox_id: entry.id,
-    job_outbox_id_hash: sha256Hex(entry.id),
-  };
-}
-
-function impersonationSessionScrubScopeRecord(
-  id: string,
-): ImpersonationSessionScrubScopeRecord {
-  return {
-    type: 'impersonation_session_scrub_scope',
-    impersonation_session_id: id,
-    impersonation_session_id_hash: sha256Hex(id),
-  };
-}
-
 async function scopedImpersonationSessionIds(
   tx: postgres.TransactionSql,
   row: AccountOffboardingPurgeRow,
@@ -865,120 +803,3 @@ async function scopedImpersonationSessionIds(
   return rows.map((entry) => entry.id);
 }
 
-function hashSmsHandleValue(messagingServiceSid: string, handle: string): string {
-  return sha256Hex(`${messagingServiceSid}:${handle}`);
-}
-
-function sha256Hex(value: string): string {
-  return createHash('sha256').update(value).digest('hex');
-}
-
-
-function safeSupabaseError(error: { message?: string; status?: number | string }): string {
-  const status = error.status ? `status_${error.status}` : 'unknown_status';
-  return `${status}:${scrubPurgeErrorForStorage(error.message ?? 'unknown_error')}`;
-}
-
-function isSupabaseAuthNotFound(error: { message?: string; status?: number | string }): boolean {
-  const status = typeof error.status === 'number' ? error.status : Number(error.status);
-  return status === 404 || /not\s+found/i.test(error.message ?? '');
-}
-
-async function deleteByBusiness(
-  tx: postgres.TransactionSql,
-  tableName: string,
-  accountId: string,
-): Promise<void> {
-  switch (tableName) {
-    case 'approval_links':
-      await tx`
-        DELETE FROM approval_links al
-        USING businesses b
-        WHERE al.business_id = b.id
-          AND b.account_id = ${accountId}::uuid
-      `;
-      return;
-    case 'responses':
-      await tx`
-        DELETE FROM responses r
-        USING businesses b
-        WHERE r.business_id = b.id
-          AND b.account_id = ${accountId}::uuid
-      `;
-      return;
-    case 'reviews':
-      await tx`
-        DELETE FROM reviews r
-        USING businesses b
-        WHERE r.business_id = b.id
-          AND b.account_id = ${accountId}::uuid
-      `;
-      return;
-    case 'weekly_summaries':
-      await tx`
-        DELETE FROM weekly_summaries ws
-        USING businesses b
-        WHERE ws.business_id = b.id
-          AND b.account_id = ${accountId}::uuid
-      `;
-      return;
-    case 'monthly_impact_emails':
-      await tx`
-        DELETE FROM monthly_impact_emails mie
-        USING businesses b
-        WHERE mie.business_id = b.id
-          AND b.account_id = ${accountId}::uuid
-      `;
-      return;
-    case 'ranking_snapshots':
-      await tx`
-        DELETE FROM ranking_snapshots rs
-        USING businesses b
-        WHERE rs.business_id = b.id
-          AND b.account_id = ${accountId}::uuid
-      `;
-      return;
-    case 'onboarding_drip_log':
-      await tx`
-        DELETE FROM onboarding_drip_log odl
-        USING businesses b
-        WHERE odl.business_id = b.id
-          AND b.account_id = ${accountId}::uuid
-      `;
-      return;
-    case 'onboarding_demos':
-      await tx`
-        DELETE FROM onboarding_demos od
-        USING businesses b
-        WHERE od.business_id = b.id
-          AND b.account_id = ${accountId}::uuid
-      `;
-      return;
-    case 'satisfaction_responses':
-      await tx`
-        DELETE FROM satisfaction_responses sr
-        USING businesses b
-        WHERE sr.business_id = b.id
-          AND b.account_id = ${accountId}::uuid
-      `;
-      return;
-    case 'google_connections':
-      await tx`
-        DELETE FROM google_connections gc
-        USING businesses b
-        WHERE gc.business_id = b.id
-          AND b.account_id = ${accountId}::uuid
-      `;
-      return;
-    case 'zernio_connections':
-      await tx`
-        DELETE FROM zernio_connections zc
-        USING businesses b
-        WHERE zc.business_id = b.id
-          AND b.account_id = ${accountId}::uuid
-      `;
-      return;
-    default:
-      throw new Error(`unsupported_delete_by_business:${tableName}`);
-  }
-}

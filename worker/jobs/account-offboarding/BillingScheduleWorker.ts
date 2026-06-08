@@ -10,6 +10,7 @@ import {
 import type { AccountOffboardingBillingSchedulePayload } from '../../../src/lib/shared/worker-types';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import { enqueueAccountOffboardingEmail } from '../../../src/lib/shared/job-outbox-helpers';
+import { scrubOffboardingErrorForStorage } from '../../../src/lib/account-offboarding/scrub-error';
 
 interface AccountOffboardingBillingRow {
   id: string;
@@ -27,7 +28,9 @@ function getStripe(): Stripe {
   if (!stripeInstance) {
     const key = process.env.STRIPE_SECRET_KEY;
     if (!key) throw new Error('STRIPE_SECRET_KEY is not set');
-    stripeInstance = new Stripe(key);
+    // Explicit timeout + bounded network retries (repworth.md reliability rule);
+    // caps the 80s SDK default on the offboarding billing path.
+    stripeInstance = new Stripe(key, { timeout: 20_000, maxNetworkRetries: 2 });
   }
   return stripeInstance;
 }
@@ -71,7 +74,7 @@ export async function handleAccountOffboardingBillingSchedule(
 
   const validationError = validateSchedulableOffboarding(offboarding);
   if (validationError) {
-    const safeMessage = scrubErrorForStorage(validationError);
+    const safeMessage = scrubOffboardingErrorForStorage(validationError);
     alertBillingScheduleFailure(job.data, safeMessage, isTerminalAttempt(job));
     if (!isTerminalAttempt(job)) {
       throw new Error(safeMessage);
@@ -130,7 +133,7 @@ export async function handleAccountOffboardingBillingSchedule(
       await markOutboxCompleted(outboxId, outboxAttempt, tx);
     });
   } catch (err) {
-    const safeMessage = scrubErrorForStorage(errorMessage(err));
+    const safeMessage = scrubOffboardingErrorForStorage(errorMessage(err));
     logger.error(`Billing cancellation schedule failed for offboarding ${offboarding.id}: ${safeMessage}`);
     alertBillingScheduleFailure(job.data, safeMessage, isTerminalAttempt(job));
     if (!isTerminalAttempt(job)) {
@@ -215,11 +218,3 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-function scrubErrorForStorage(message: string): string {
-  return message
-    .replace(/Bearer\s+[A-Za-z0-9\-._~+/]+=*/gi, 'Bearer [REDACTED]')
-    .replace(/Basic\s+[A-Za-z0-9+/]+=*/gi, 'Basic [REDACTED]')
-    .replace(/(token|secret|api[_-]?key|password|authorization)=([^&\s"']+)/gi, '$1=[REDACTED]')
-    .replace(/("(token|secret|api[_-]?key|password|authorization)"\s*:\s*)"[^"]*"/gi, '$1"[REDACTED]"')
-    .slice(0, 500);
-}

@@ -1974,6 +1974,36 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "Background scheduler scans purge-eligible owner-offboarding rows globally before claiming one row and enqueueing scoped purge work transactionally.",
   },
   {
+    file: "worker/background/pollers/AccountOffboardingPurgeReminderPoller.ts",
+    table: "account_offboardings",
+    sqlSnippet: "SELECT id, account_id, mode, status, purge_after FROM account_offboardings WHERE mode = 'delete_data' AND status = 'purge_scheduled' AND purge_after IS NOT NULL AND purge_after > NOW() AND purge_after <= NOW() + (${REMINDER_LEAD_DAYS}::int * INTERVAL '1 day') AND purge_reminder_sent_at IS NULL AND purge_started_at IS NULL AND purge_cancelled_at IS NULL AND terminal_at IS NULL ORDER BY purge_after ASC, id ASC LIMIT 1 FOR UPDATE SKIP LOCKED",
+    reason: "Background scheduler scans purge-reminder-eligible owner-offboarding rows globally before claiming one row and enqueueing scoped reminder-email work transactionally.",
+  },
+  {
+    file: "worker/jobs/account-offboarding/purge-helpers.ts",
+    table: "businesses",
+    sqlSnippet: "DELETE FROM ${tx(tableName)} WHERE business_id IN ( SELECT id FROM businesses WHERE account_id = ${accountId}::uuid )",
+    reason: "Purge deletes account-owned rows by business; businesses is scoped by account_id inside the IN-subquery, which the scanner strips before predicate analysis.",
+  },
+  {
+    file: "worker/jobs/account-offboarding/purge-stages.ts",
+    table: "notification_deliveries",
+    sqlSnippet: "DELETE FROM notification_deliveries nd WHERE nd.account_id = ${row.account_id}::uuid OR nd.business_id IN ( SELECT id FROM businesses WHERE account_id = ${row.account_id}::uuid )",
+    reason: "Purge deletes the account's notification deliveries; both branches are account-scoped (direct account_id, or business_id IN the account's businesses), but the scanner rejects OR predicates and strips the subquery.",
+  },
+  {
+    file: "worker/jobs/account-offboarding/purge-stages.ts",
+    table: "businesses",
+    sqlSnippet: "DELETE FROM notification_deliveries nd WHERE nd.account_id = ${row.account_id}::uuid OR nd.business_id IN ( SELECT id FROM businesses WHERE account_id = ${row.account_id}::uuid )",
+    reason: "Purge deletes the account's notification deliveries; the businesses reference is the account-scoped business_id IN-subquery, which the scanner strips before predicate analysis.",
+  },
+  {
+    file: "worker/jobs/account-offboarding/purge-stages.ts",
+    table: "businesses",
+    sqlSnippet: "UPDATE analytics_events SET event_key = 'scrubbed:' || id::text, distinct_id = 'scrubbed:' || id::text, anonymous_id = NULL, account_id = NULL, user_id = NULL, business_id = NULL, properties = '{}'::jsonb, last_error = NULL WHERE account_id = ${row.account_id}::uuid OR business_id IN (SELECT id FROM businesses WHERE account_id = ${row.account_id}::uuid) OR user_id IN (SELECT id FROM users WHERE account_id = ${row.account_id}::uuid) OR distinct_id IN (${row.account_id}, ${`account:${row.account_id}`})",
+    reason: "Purge scrubs the account's analytics events by FK or raw account distinct_id; every branch is account-scoped but the scanner rejects OR predicates and strips the business/user subqueries.",
+  },
+  {
     file: "worker/background/pollers/CancellationGracePoller.ts",
     table: "accounts",
     sqlSnippet: "SELECT a.id AS account_id, COUNT(b.id) AS cancelled_count FROM accounts a JOIN businesses b ON b.account_id = a.id WHERE a.subscription_status = 'cancelled' AND a.cancelled_at IS NOT NULL AND a.cancelled_at < NOW() - INTERVAL '30 days' AND b.archived_at IS NULL AND NOT EXISTS ( SELECT 1 FROM account_offboardings ao WHERE ao.account_id = a.id ) GROUP BY a.id",

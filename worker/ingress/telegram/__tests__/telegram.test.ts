@@ -241,6 +241,8 @@ describe('telegram ingress — permanent link-state failures after ack', () => {
     ['expired', new ExpiredLinkError()],
     ['channel-mismatch', new ChannelMismatchError('telegram', 'sms')],
     ['read-only', new SubscriptionReadOnlyError()],
+    ['offboarding-blocked', new SubscriptionReadOnlyError('account_offboarding_blocked', 403)],
+    ['deleted-account', new SubscriptionReadOnlyError('no_business', 403)],
   ])('%s → ack then editMessageText replaces stale draft (no buttons remain), processed', async (_label, err) => {
     mockVerify.mockReturnValueOnce(true);
     mockClaim.mockResolvedValueOnce('claimed');
@@ -262,7 +264,10 @@ describe('telegram ingress — permanent link-state failures after ack', () => {
     expect(mockEditText).toHaveBeenCalledWith(expect.objectContaining({
       chat_id: '111',
       message_id: 1,
-      text: expect.any(String),
+      text: err instanceof SubscriptionReadOnlyError
+        && (err.error === 'account_offboarding_blocked' || err.error === 'no_business')
+        ? expect.stringMatching(/offboarded|can no longer be completed/i)
+        : expect.any(String),
     }));
     expect(mockSendMsg).not.toHaveBeenCalled();
     expect(mockEditMarkup).not.toHaveBeenCalled();

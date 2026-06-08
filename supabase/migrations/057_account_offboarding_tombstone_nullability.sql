@@ -14,6 +14,10 @@
 --
 -- Scrubbed impersonation sessions are retained for admin forensics, but the
 -- purged account/user references must be removed from those rows.
+--
+-- Deploy: apply to staging Supabase first, verify, then production — both
+-- projects in lockstep, staging first. 057 drops NOT NULL on shared tables, so
+-- "applied to prod, not staging" (or vice versa) is especially damaging here.
 -- ==============================================================================
 
 ALTER TABLE account_offboardings

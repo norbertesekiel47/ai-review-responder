@@ -22,9 +22,9 @@ import {
   runProviderIdentifierPurgeStage,
   runRawPayloadPurgeStage,
   runSmsOptOutPurgeStage,
-  scrubPurgeErrorForStorage,
   validatePurgeableOffboarding,
 } from './purge-stages';
+import { scrubOffboardingErrorForStorage } from '../../../src/lib/account-offboarding/scrub-error';
 
 export async function handleAccountOffboardingPurge(
   job: Job<AccountOffboardingPurgePayload>,
@@ -52,7 +52,7 @@ export async function handleAccountOffboardingPurge(
 
   const validationError = validatePurgeableOffboarding(offboarding);
   if (validationError) {
-    const safeMessage = scrubPurgeErrorForStorage(validationError);
+    const safeMessage = scrubOffboardingErrorForStorage(validationError);
     alertPurgeFailure(job.data, safeMessage, isTerminalAttempt(job));
     if (!isTerminalAttempt(job)) {
       await markPurgeRetryableFailure(offboarding, safeMessage);
@@ -74,6 +74,9 @@ export async function handleAccountOffboardingPurge(
     await runAuditAndCostPayloadPurgeStage(offboarding);
     await runParentTombstonePurgeStage(offboarding);
 
+    // finalizePurgeInTransaction enqueues the purge-receipt email durably inside
+    // its transaction (see M2), so there is no best-effort post-commit send to
+    // lose on a crash.
     await finalizePurgeInTransaction(offboarding, outboxId, outboxAttempt);
   } catch (err) {
     if (isStaleOutboxAttemptError(err)) {
@@ -81,7 +84,7 @@ export async function handleAccountOffboardingPurge(
       return;
     }
 
-    const safeMessage = scrubPurgeErrorForStorage(errorMessage(err));
+    const safeMessage = scrubOffboardingErrorForStorage(errorMessage(err));
     logger.error(`Purge failed for offboarding ${offboarding.id}: ${safeMessage}`);
     alertPurgeFailure(job.data, safeMessage, isTerminalAttempt(job));
     if (!isTerminalAttempt(job)) {

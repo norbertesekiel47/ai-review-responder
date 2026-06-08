@@ -14,6 +14,10 @@ const { mockWriteAccountAuditLog } = vi.hoisted(() => ({
   mockWriteAccountAuditLog: vi.fn(),
 }));
 
+const { mockEnqueueOffboardingStarted } = vi.hoisted(() => ({
+  mockEnqueueOffboardingStarted: vi.fn(),
+}));
+
 vi.mock('@/lib/db/server', () => ({
   sql: mockSql,
   jsonb: mockJsonb,
@@ -21,6 +25,10 @@ vi.mock('@/lib/db/server', () => ({
 
 vi.mock('@/lib/audit/log', () => ({
   writeAccountAuditLog: mockWriteAccountAuditLog,
+}));
+
+vi.mock('../analytics', () => ({
+  enqueueOffboardingStarted: mockEnqueueOffboardingStarted,
 }));
 
 import { confirmCancelOnlyOffboarding } from '../confirm';
@@ -107,6 +115,7 @@ describe('confirmCancelOnlyOffboarding', () => {
     vi.clearAllMocks();
     mockSql.begin.mockReset();
     mockWriteAccountAuditLog.mockResolvedValue(undefined);
+    mockEnqueueOffboardingStarted.mockResolvedValue(undefined);
   });
 
   it('creates a pending cancel-only offboarding with audit and outbox rows in one transaction', async () => {
@@ -152,6 +161,13 @@ describe('confirmCancelOnlyOffboarding', () => {
     const auditInput = mockWriteAccountAuditLog.mock.calls[0]![0];
     expect(auditInput.payload).not.toHaveProperty('reason_code');
 
+    expect(mockEnqueueOffboardingStarted).toHaveBeenCalledWith(tx, {
+      accountId: ACCOUNT_ID,
+      actorUserId: USER_ID,
+      offboardingId: result.offboarding.id,
+      mode: 'cancel_only',
+    });
+
     const topics = calls
       .filter((call) => call.text.includes('INSERT INTO job_outbox'))
       .flatMap((call) => call.values);
@@ -182,6 +198,7 @@ describe('confirmCancelOnlyOffboarding', () => {
     expect(sqlText(calls)).not.toContain('INSERT INTO account_offboardings');
     expect(sqlText(calls)).not.toContain('INSERT INTO job_outbox');
     expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
+    expect(mockEnqueueOffboardingStarted).not.toHaveBeenCalled();
   });
 
   it('returns the active row as an idempotent retry when the key matches durable audit metadata', async () => {
@@ -214,6 +231,7 @@ describe('confirmCancelOnlyOffboarding', () => {
     expect(sqlText(calls)).not.toContain('INSERT INTO account_offboardings');
     expect(sqlText(calls)).toContain('FROM account_audit_log');
     expect(sqlText(calls)).not.toContain('FROM job_outbox');
+    expect(mockEnqueueOffboardingStarted).not.toHaveBeenCalled();
   });
 
   it('returns duplicate_active when another active offboarding exists for a different key', async () => {
@@ -244,5 +262,6 @@ describe('confirmCancelOnlyOffboarding', () => {
       },
     });
     expect(sqlText(calls)).not.toContain('INSERT INTO account_offboardings');
+    expect(mockEnqueueOffboardingStarted).not.toHaveBeenCalled();
   });
 });

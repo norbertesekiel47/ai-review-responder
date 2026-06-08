@@ -36,6 +36,11 @@ function getBatchSize(): number {
   return raw;
 }
 
+// The override only ever SHORTENS the purge window for staging dry-runs. Cap it
+// so a fat-fingered huge value cannot make every purge_scheduled row claimable
+// at once (which would purge staging test data far earlier than intended).
+const MAX_PURGE_WINDOW_OVERRIDE_MS = 3 * 24 * 60 * 60 * 1000; // 3 days
+
 export function getAccountOffboardingPurgeWindowOverrideMs(): number | null {
   if (process.env.NODE_ENV === 'production' || process.env.VERCEL_ENV === 'production') {
     return null;
@@ -45,7 +50,7 @@ export function getAccountOffboardingPurgeWindowOverrideMs(): number | null {
   if (!Number.isFinite(raw) || raw <= 0) {
     return null;
   }
-  return raw;
+  return Math.min(raw, MAX_PURGE_WINDOW_OVERRIDE_MS);
 }
 
 export async function runAccountOffboardingPurgeOnce(): Promise<void> {

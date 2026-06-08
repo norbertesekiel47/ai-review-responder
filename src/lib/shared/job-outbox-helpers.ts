@@ -9,6 +9,7 @@ import {
   type AccountOffboardingBillingSchedulePayload,
   type AccountOffboardingEmailPayload,
   type AccountOffboardingPurgePayload,
+  type AccountOffboardingReactivationPayload,
   type AccountOffboardingTeardownPayload,
   type GenerateResponsePayload,
   type PublishResponsePayload,
@@ -23,6 +24,7 @@ const AGGREGATE_TYPE_RESPONSE = 'response';
 const AGGREGATE_TYPE_ACCOUNT_OFFBOARDING = 'account_offboarding';
 const KNOWN_ORIGIN_LANES = new Set<string>(GENERATE_RESPONSE_ORIGIN_LANES);
 const ACCOUNT_OFFBOARDING_EMAIL_OUTBOX_NAMESPACE = 'repworth:account-offboarding-email-outbox:v1';
+const ACCOUNT_OFFBOARDING_REACTIVATION_OUTBOX_NAMESPACE = 'repworth:account-offboarding-reactivation-outbox:v1';
 
 export interface NormalizedGenerateResponsePayload {
   reviewId: string;
@@ -73,6 +75,21 @@ export interface EnqueueAccountOffboardingEmailInput {
   idempotencyKeyHash?: string;
   correlationId?: string;
   emailType?: AccountOffboardingEmailPayload['email_type'];
+  // purge_receipt only: carried in the payload because the row is scrubbed by then.
+  recipientEmail?: string;
+  purgedAt?: string;
+}
+
+export interface EnqueueAccountOffboardingReactivationInput {
+  outboxId?: string;
+  accountOffboardingId: string;
+  accountId: string;
+  actorUserId: string;
+  idempotencyKeyHash: string;
+  requestId?: string | null;
+  ip?: string | null;
+  userAgent?: string | null;
+  correlationId?: string;
 }
 
 export interface EnqueueAccountOffboardingTeardownInput {
@@ -310,12 +327,60 @@ export async function enqueueAccountOffboardingEmail(
   if (input.correlationId !== undefined) {
     payload.correlation_id = input.correlationId;
   }
+  if (input.recipientEmail !== undefined) {
+    payload.recipient_email = input.recipientEmail;
+  }
+  if (input.purgedAt !== undefined) {
+    payload.purged_at = input.purgedAt;
+  }
 
   await tx`
     INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
     VALUES (
       ${outboxId},
       ${QUEUE_NAMES.ACCOUNT_OFFBOARDING_EMAIL},
+      ${AGGREGATE_TYPE_ACCOUNT_OFFBOARDING},
+      ${input.accountOffboardingId},
+      ${jsonb(payload)},
+      ${JOB_OUTBOX_STATUS_PENDING}
+    )
+    ON CONFLICT (id) DO NOTHING
+  `;
+  return outboxId;
+}
+
+export async function enqueueAccountOffboardingReactivation(
+  tx: TxClient,
+  input: EnqueueAccountOffboardingReactivationInput,
+): Promise<string> {
+  const outboxId = input.outboxId ?? deterministicAccountOffboardingReactivationOutboxId(
+    input.accountOffboardingId,
+    input.idempotencyKeyHash,
+  );
+  const payload: AccountOffboardingReactivationPayload = {
+    account_offboarding_id: input.accountOffboardingId,
+    account_id: input.accountId,
+    actor_user_id: input.actorUserId,
+    idempotency_key_hash: input.idempotencyKeyHash,
+  };
+  if (input.requestId !== undefined) {
+    payload.request_id = input.requestId;
+  }
+  if (input.ip !== undefined) {
+    payload.ip = input.ip;
+  }
+  if (input.userAgent !== undefined) {
+    payload.user_agent = input.userAgent;
+  }
+  if (input.correlationId !== undefined) {
+    payload.correlation_id = input.correlationId;
+  }
+
+  await tx`
+    INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+    VALUES (
+      ${outboxId},
+      ${QUEUE_NAMES.ACCOUNT_OFFBOARDING_REACTIVATION},
       ${AGGREGATE_TYPE_ACCOUNT_OFFBOARDING},
       ${input.accountOffboardingId},
       ${jsonb(payload)},
@@ -386,6 +451,26 @@ function deterministicAccountOffboardingEmailOutboxId(
 ): string {
   const digest = createHash('sha256')
     .update(`${ACCOUNT_OFFBOARDING_EMAIL_OUTBOX_NAMESPACE}:${accountOffboardingId}:${emailType}`)
+    .digest();
+  const bytes = Uint8Array.from(digest.subarray(0, 16));
+  bytes[6] = (bytes[6]! & 0x0f) | 0x50;
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  const hex = Buffer.from(bytes).toString('hex');
+  return [
+    hex.slice(0, 8),
+    hex.slice(8, 12),
+    hex.slice(12, 16),
+    hex.slice(16, 20),
+    hex.slice(20),
+  ].join('-');
+}
+
+function deterministicAccountOffboardingReactivationOutboxId(
+  accountOffboardingId: string,
+  idempotencyKeyHash: string,
+): string {
+  const digest = createHash('sha256')
+    .update(`${ACCOUNT_OFFBOARDING_REACTIVATION_OUTBOX_NAMESPACE}:${accountOffboardingId}:${idempotencyKeyHash}`)
     .digest();
   const bytes = Uint8Array.from(digest.subarray(0, 16));
   bytes[6] = (bytes[6]! & 0x0f) | 0x50;

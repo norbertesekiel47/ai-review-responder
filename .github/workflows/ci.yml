@@ -72,6 +72,26 @@ jobs:
   test:
     name: test
     runs-on: ubuntu-latest
+    # A real Postgres so the DB-backed suite (CHECK-constraint, RLS, tenant-scope,
+    # and other *.integration.test.ts) actually runs instead of self-skipping.
+    # DATABASE_POOL_URL is already pointed here by the workflow env; TEST_DATABASE_POOL_URL
+    # (the gate those tests check) is added below.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U test -d test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_POOL_URL: postgres://test:test@localhost:5432/test
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -79,6 +99,15 @@ jobs:
           persist-credentials: false
       - name: Setup Node + pnpm
         uses: ./.github/actions/setup
+      - name: Apply Supabase prerequisites + migrations to the test database
+        env:
+          PGPASSWORD: test
+        run: |
+          psql -h localhost -U test -d test -v ON_ERROR_STOP=1 -f scripts/ci/test-db-bootstrap.sql
+          for f in $(ls supabase/migrations/*.sql | sort); do
+            echo "applying $(basename "$f")"
+            psql -h localhost -U test -d test -v ON_ERROR_STOP=1 -q -f "$f"
+          done
       - name: Run unit tests
         run: pnpm test
 

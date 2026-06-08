@@ -50,10 +50,8 @@ vi.mock('../../../../src/lib/notifications/email', () => ({
   buildAccountOffboardingEmailHtml: mockBuildAccountOffboardingEmailHtml,
 }));
 
-import {
-  accountOffboardingDeliveryId,
-  handleAccountOffboardingEmail,
-} from '../AccountOffboardingEmailWorker';
+import { accountOffboardingDeliveryId } from '../../../../src/lib/account-offboarding/email-dedup';
+import { handleAccountOffboardingEmail } from '../AccountOffboardingEmailWorker';
 
 const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
 const OFFBOARDING_ID = '22222222-2222-4222-8222-222222222222';
@@ -123,6 +121,27 @@ describe('AccountOffboardingEmailWorker', () => {
     const sqlText = sqlCalls.map((call) => call.text).join('\n');
     expect(sqlText).not.toContain('FROM businesses');
     expect(sqlText).not.toContain('subscription_status');
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-email-1', 4);
+  });
+
+  it('completes a terminal-row email retry after the recipient was scrubbed post-send instead of failing it (M3)', async () => {
+    // Retry of an already-delivered keep-my-data email: the row is terminal and its
+    // recipient_email was nulled by the post-send scrub. Dedup on the persisted send
+    // must run BEFORE validation so the outbox completes rather than spuriously failing
+    // on the missing recipient.
+    sqlReturnQueue.push([offboardingRow({
+      mode: 'delete_data',
+      status: 'churned',
+      terminal_at: new Date('2026-06-06T12:00:00.000Z'),
+      purge_cancelled_at: new Date('2026-06-06T11:00:00.000Z'),
+      recipient_email: null,
+    })]);
+    sqlReturnQueue.push([{ sent_at: new Date('2026-06-06T12:00:00.000Z'), external_message_id: 'msg-sent-1' }]);
+
+    await handleAccountOffboardingEmail(makeJob({ email_type: 'keep_my_data_confirmation' }));
+
+    expect(mockSendInternalEmail).not.toHaveBeenCalled();
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-email-1', 4);
   });
 
@@ -298,6 +317,83 @@ describe('AccountOffboardingEmailWorker', () => {
     expect(claimCall?.values).toContain(accountOffboardingDeliveryId(OFFBOARDING_ID, 'cancel_only_confirmation'));
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-email-1', 4);
+  });
+
+  it.each([
+    ['cancel_only_confirmation', offboardingRow()],
+    ['cancel_only_reactivation_confirmation', offboardingRow({
+      status: 'reactivated',
+      terminal_at: new Date('2026-06-06T12:00:00.000Z'),
+    })],
+    ['delete_data_confirmation', offboardingRow({
+      mode: 'delete_data',
+      status: 'pending',
+      access_ends_at: null,
+      purge_after: new Date('2026-07-06T00:00:00.000Z'),
+    })],
+    ['keep_my_data_confirmation', offboardingRow({
+      mode: 'delete_data',
+      status: 'purge_scheduled',
+      access_ends_at: null,
+      purge_after: new Date('2026-07-06T00:00:00.000Z'),
+      purge_cancelled_at: new Date('2026-06-20T12:00:00.000Z'),
+    })],
+  ] as const)('dedupes sent %s deliveries without sending again', async (emailType, row) => {
+    sqlReturnQueue.push([row]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([{ sent_at: new Date('2026-06-06T12:00:00.000Z'), external_message_id: null }]);
+
+    await handleAccountOffboardingEmail(makeJob({
+      email_type: emailType,
+    }));
+
+    const claimCall = sqlCalls.find((call) => call.text.includes('INSERT INTO notification_deliveries'));
+    expect(claimCall?.values).toContain(accountOffboardingDeliveryId(OFFBOARDING_ID, emailType));
+    expect(mockSendInternalEmail).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).toHaveBeenCalledWith('outbox-email-1', 4);
+  });
+
+  it('sends a purge receipt and atomically completes + scrubs the payload in one outbox update (M2)', async () => {
+    mockSendInternalEmail.mockResolvedValueOnce({ messageId: 'msg-purge-receipt-1' });
+
+    await handleAccountOffboardingEmail(makeJob({
+      email_type: 'purge_receipt' as AccountOffboardingEmailPayload['email_type'],
+      recipient_email: 'owner@example.com',
+      purged_at: '2026-07-06T00:00:00.000Z',
+    }));
+
+    expect(mockSendInternalEmail).toHaveBeenCalledWith(expect.objectContaining({
+      to: 'owner@example.com',
+      subject: 'Your RepWorth data has been deleted',
+      category: 'transactional',
+    }));
+    // No row load and no notification_deliveries claim for the post-purge receipt.
+    expect(sqlCalls.some((call) => call.text.includes('INSERT INTO notification_deliveries'))).toBe(false);
+    expect(sqlCalls.some((call) => call.text.includes('FROM account_offboardings'))).toBe(false);
+
+    // Completion and PII scrub happen in ONE outbox update — no window where the
+    // outbox is marked done while the raw recipient still sits in the payload, and
+    // no best-effort scrub that could leave permanent residue past purged_at.
+    const outboxUpdates = sqlCalls.filter((call) => call.text.includes('UPDATE job_outbox'));
+    expect(outboxUpdates).toHaveLength(1);
+    expect(outboxUpdates[0]!.text).toContain("status = 'completed'");
+    expect(outboxUpdates[0]!.text).toContain("payload = '{}'::jsonb");
+    // Must NOT complete via the generic helper, which would leave the scrub as a
+    // separate, best-effort step.
+    expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
+  });
+
+  it('fails the purge receipt when the outbox payload carries no recipient', async () => {
+    await handleAccountOffboardingEmail(makeJob({
+      email_type: 'purge_receipt' as AccountOffboardingEmailPayload['email_type'],
+    }));
+
+    expect(mockMarkOutboxFailed).toHaveBeenCalledWith(
+      'outbox-email-1',
+      'account_offboarding_purge_receipt_missing_recipient',
+      4,
+    );
+    expect(mockSendInternalEmail).not.toHaveBeenCalled();
   });
 
   it('does not create a keep-my-data token on delete-data email dedupe', async () => {

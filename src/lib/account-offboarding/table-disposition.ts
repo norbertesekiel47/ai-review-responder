@@ -128,10 +128,10 @@ export const TABLE_DISPOSITIONS = [
   },
   {
     table: 'notification_deliveries',
-    disposition: 'scrub_in_place',
+    disposition: 'hard_delete',
     scopeEvidence: 'direct_account_id',
-    purgeVerification: 'must_be_scrubbed',
-    reason: 'Delivery evidence may remain only after recipients, response references, and message metadata are scrubbed.',
+    purgeVerification: 'must_be_absent',
+    reason: 'Delivery evidence is removed during destructive purge because legacy rows retain business/account linkage.',
   },
   {
     table: 'channel_enrollments',

@@ -18,6 +18,7 @@ interface MockOffboardingRow {
   purge_started_at: Date | null;
   purge_cancelled_at: Date | null;
   auth_user_id: string | null;
+  recipient_email: string | null;
   provider_dispositions: unknown[];
   stripe_customer_id: string | null;
   stripe_subscription_id: string | null;
@@ -39,6 +40,8 @@ const {
   mockMarkOutboxFailed,
   mockVerifyAccountOffboardingPurge,
   mockCaptureMessage,
+  mockEnqueueOffboardingPurged,
+  mockSendInternalEmail,
 } = vi.hoisted(() => {
   const calls: QueryCall[] = [];
   const mockState = {
@@ -106,12 +109,16 @@ const {
     return [];
   };
 
-  const mockSql: any = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) =>
-    execute('sql', strings, ...values)
+  // A single-string call is Postgres.js identifier interpolation (sql('table')); model it
+  // as an opaque fragment rather than a tagged-template query so dynamic-table SQL works.
+  const identifierFragment = (strings: unknown) =>
+    !Array.isArray(strings) ? { __id: String(strings) } : null;
+  const mockSql: any = vi.fn((strings: any, ...values: unknown[]) =>
+    identifierFragment(strings) ?? execute('sql', strings, ...values)
   );
   mockSql.begin = vi.fn(async (cb: (tx: any) => Promise<unknown>) => {
-    const tx: any = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) =>
-      execute('tx', strings, ...values)
+    const tx: any = vi.fn((strings: any, ...values: unknown[]) =>
+      identifierFragment(strings) ?? execute('tx', strings, ...values)
     );
     return cb(tx);
   });
@@ -126,6 +133,8 @@ const {
     mockMarkOutboxFailed: vi.fn(),
     mockVerifyAccountOffboardingPurge: vi.fn(async () => ({ ok: true, issues: [] })),
     mockCaptureMessage: vi.fn(),
+    mockEnqueueOffboardingPurged: vi.fn(),
+    mockSendInternalEmail: vi.fn(),
   };
 });
 
@@ -154,6 +163,18 @@ vi.mock('../../../../src/lib/account-offboarding/purge-verification', () => ({
   verifyAccountOffboardingPurge: mockVerifyAccountOffboardingPurge,
 }));
 
+vi.mock('../../../../src/lib/account-offboarding/analytics', () => ({
+  enqueueOffboardingPurged: mockEnqueueOffboardingPurged,
+}));
+
+vi.mock('../../../../src/lib/notifications/email', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../../src/lib/notifications/email')>();
+  return {
+    ...actual,
+    sendInternalEmail: mockSendInternalEmail,
+  };
+});
+
 vi.mock('@sentry/node', () => ({
   captureMessage: mockCaptureMessage,
 }));
@@ -179,6 +200,10 @@ describe('AccountOffboarding PurgeWorker', () => {
     mockVerifyAccountOffboardingPurge.mockClear();
     mockVerifyAccountOffboardingPurge.mockResolvedValue({ ok: true, issues: [] });
     mockCaptureMessage.mockClear();
+    mockEnqueueOffboardingPurged.mockClear();
+    mockEnqueueOffboardingPurged.mockResolvedValue(undefined);
+    mockSendInternalEmail.mockClear();
+    mockSendInternalEmail.mockResolvedValue({ messageId: 'email-purge-receipt-1' });
     mockState.authRevalidationPasses = true;
     mockState.authAlreadyDetached = false;
     mockState.offboarding = {
@@ -191,6 +216,7 @@ describe('AccountOffboarding PurgeWorker', () => {
       purge_started_at: new Date('2026-06-07T11:30:00.000Z'),
       purge_cancelled_at: null,
       auth_user_id: AUTH_USER_ID,
+      recipient_email: 'owner@example.com',
       provider_dispositions: [],
       stripe_customer_id: 'cus_123',
       stripe_subscription_id: 'sub_123',
@@ -230,6 +256,27 @@ describe('AccountOffboarding PurgeWorker', () => {
     const terminalIdx = calls.findIndex((call) => call.text.includes("SET status = 'purged'"));
     expect(terminalIdx).toBeGreaterThanOrEqual(0);
     expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
+    expect(mockEnqueueOffboardingPurged).toHaveBeenCalledWith(expect.any(Function), {
+      offboardingId: OFFBOARDING_ID,
+    });
+    expect(mockVerifyAccountOffboardingPurge.mock.invocationCallOrder[0]!).toBeLessThan(
+      mockEnqueueOffboardingPurged.mock.invocationCallOrder[0]!,
+    );
+    // M2: the purge receipt is enqueued durably inside the finalize tx (carrying
+    // the recipient in the payload because the row is scrubbed), not sent
+    // best-effort post-commit.
+    expect(mockSendInternalEmail).not.toHaveBeenCalled();
+    const receiptEnqueue = calls.find(
+      (call) => call.text.includes('INSERT INTO job_outbox')
+        && call.values.includes('account_offboarding_email'),
+    );
+    expect(receiptEnqueue).toBeDefined();
+    expect(receiptEnqueue!.scope).toBe('tx');
+    const receiptPayload = receiptEnqueue!.values.find(
+      (value) => value !== null && typeof value === 'object'
+        && (value as { email_type?: string }).email_type === 'purge_receipt',
+    ) as { email_type: string; recipient_email?: string } | undefined;
+    expect(receiptPayload?.recipient_email).toBe('owner@example.com');
     const sqlText = calls.map((call) => call.text).join('\n');
     expect(sqlText).toContain('job_outbox.id <>');
     expect(sqlText).toContain('onboarding_demo_scope AS');
@@ -242,6 +289,39 @@ describe('AccountOffboarding PurgeWorker', () => {
     expect(sqlText).toContain('approval_link_id = NULL');
     expect(sqlText).toContain('user_agent = NULL');
     expect(sqlText).toContain('provider_dispositions = provider_dispositions ||');
+    const notificationDelete = calls.find((call) => call.text.includes('DELETE FROM notification_deliveries'));
+    expect(notificationDelete?.text).toContain('nd.account_id =');
+    expect(notificationDelete?.text).toContain('nd.business_id IN');
+    expect(notificationDelete?.text).toContain('SELECT id FROM businesses WHERE account_id =');
+    expect(sqlText).toContain('recipient_email = NULL');
+    expect(sqlText).toContain('stripe_customer_id = NULL');
+    expect(sqlText).toContain('stripe_subscription_id = NULL');
+    expect(sqlText).toContain('zernio_account_ids = NULL');
+    expect(sqlText).toContain('zernio_profile_ids = NULL');
+    expect(sqlText).toContain('auth_user_id = NULL');
+    expect(sqlText).toContain('last_error = NULL');
+    // One scrub over a single account-scope predicate (write-side twin of the purge
+    // verification): FK by account/business/user OR a raw account id left in distinct_id.
+    const analyticsUpdates = calls.filter((call) => call.text.includes('UPDATE analytics_events'));
+    expect(analyticsUpdates).toHaveLength(1);
+    const analyticsUpdate = analyticsUpdates[0]!;
+    expect(analyticsUpdate.text).toContain("event_key = 'scrubbed:' ||");
+    expect(analyticsUpdate.text).toContain("distinct_id = 'scrubbed:' ||");
+    expect(analyticsUpdate.text).toContain('anonymous_id = NULL');
+    expect(analyticsUpdate.text).toContain('account_id = NULL');
+    expect(analyticsUpdate.text).toContain('user_id = NULL');
+    expect(analyticsUpdate.text).toContain('business_id = NULL');
+    expect(analyticsUpdate.text).toContain("properties = '{}'::jsonb");
+    expect(analyticsUpdate.text).toContain('last_error = NULL');
+    expect(analyticsUpdate.text).toContain('WHERE account_id =');
+    expect(analyticsUpdate.text).toContain('business_id IN (SELECT id FROM businesses');
+    expect(analyticsUpdate.text).toContain('user_id IN (SELECT id FROM users');
+    // M1: FK-independent branch catches a raw account identifier left in distinct_id.
+    expect(analyticsUpdate.text).toContain('distinct_id IN');
+    expect(sqlText).not.toContain('account_offboarding_purge_receipt');
+    expect(sqlText).not.toContain('INSERT INTO notification_deliveries');
+    expect(sqlText).not.toContain('owner@example.com');
+    expect(sqlText).not.toContain('email-purge-receipt-1');
     expect(calls.some((call) =>
       call.values.some((value) =>
         Array.isArray(value) &&
@@ -276,6 +356,8 @@ describe('AccountOffboarding PurgeWorker', () => {
 
     expect(mockDeleteUser).not.toHaveBeenCalled();
     expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
+    expect(mockEnqueueOffboardingPurged).not.toHaveBeenCalled();
+    expect(mockSendInternalEmail).not.toHaveBeenCalled();
   });
 
   it('treats auth not-found as success only after revalidation has already passed', async () => {
@@ -325,6 +407,8 @@ describe('AccountOffboarding PurgeWorker', () => {
 
     expect(mockVerifyAccountOffboardingPurge).not.toHaveBeenCalled();
     expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
+    expect(mockEnqueueOffboardingPurged).not.toHaveBeenCalled();
+    expect(mockSendInternalEmail).not.toHaveBeenCalled();
   });
 
   it('does not treat SMS scrub-scope records as provider-disposition purge eligibility', async () => {
@@ -345,6 +429,8 @@ describe('AccountOffboarding PurgeWorker', () => {
 
     expect(mockVerifyAccountOffboardingPurge).not.toHaveBeenCalled();
     expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
+    expect(mockEnqueueOffboardingPurged).not.toHaveBeenCalled();
+    expect(mockSendInternalEmail).not.toHaveBeenCalled();
   });
 
   it('terminally fails and stores a scrubbed error when final verification finds remnants on the last attempt', async () => {
@@ -370,6 +456,8 @@ describe('AccountOffboarding PurgeWorker', () => {
     );
     expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
     expect(mockState.offboarding?.status).toBe('failed');
+    expect(mockEnqueueOffboardingPurged).not.toHaveBeenCalled();
+    expect(mockSendInternalEmail).not.toHaveBeenCalled();
   });
 });
 

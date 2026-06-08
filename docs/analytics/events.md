@@ -129,3 +129,47 @@ CSV content.
 - **Required properties:** none
 - **Optional properties:** none
 - **Privacy notes:** IDs only.
+
+### `offboarding_started`
+- **Status:** live
+- **Description:** Owner confirmed an account offboarding request.
+- **Owner:** account offboarding confirm transaction
+- **Source:** server-side, in the offboarding creation transaction (durable; not client-postable)
+- **Distinct ID:** account ID
+- **Event key:** `offboarding_started:<offboarding_id>`
+- **Required properties:** `mode` (`cancel_only` or `delete_data`), `status` (`pending`)
+- **Optional properties:** none
+- **Privacy notes:** IDs only; no raw tokens, provider identifiers, or free-text reason.
+
+### `offboarding_reactivated`
+- **Status:** live
+- **Description:** Owner reactivated a cancel-only offboarding before teardown began.
+- **Owner:** account offboarding reactivation transaction
+- **Source:** server-side, in the reactivation transaction (durable; not client-postable)
+- **Distinct ID:** account ID
+- **Event key:** `offboarding_reactivated:<offboarding_id>`
+- **Required properties:** `mode` (`cancel_only`), `status` (`reactivated`)
+- **Optional properties:** none
+- **Privacy notes:** IDs only; no Stripe subscription identifiers.
+
+### `offboarding_teardown_completed`
+- **Status:** live
+- **Description:** Worker finished all offboarding teardown steps.
+- **Owner:** Railway account offboarding teardown worker
+- **Source:** worker-side, in the teardown completion transaction (durable; not client-postable)
+- **Distinct ID:** account ID
+- **Event key:** `offboarding_teardown_completed:<offboarding_id>`
+- **Required properties:** `mode`, `status` (`churned` or `purge_scheduled`)
+- **Optional properties:** none
+- **Privacy notes:** IDs only; provider resource identifiers stay out of analytics.
+
+### `offboarding_purged`
+- **Status:** live
+- **Description:** Worker completed delete-data purge and retained only the lifecycle receipt.
+- **Owner:** Railway account offboarding purge worker
+- **Source:** worker-side, in the purge finalization transaction (durable; not client-postable)
+- **Distinct ID:** SHA-256 pseudonymous offboarding key
+- **Event key:** `offboarding_purged:<sha256(offboarding_id)>`
+- **Required properties:** none
+- **Optional properties:** none
+- **Privacy notes:** no account, user, business, provider, or raw offboarding identifier is retained.
