@@ -18,11 +18,14 @@ gated on this record plus the legal launch gate being complete.
 
 ## 0. Dry-run outcome — executed 2026-06-08 (operator: Claude, autonomous)
 
-**VERDICT: NOT launch-ready. 3 launch-blocking defects found.** 6 of 9 scenarios
-pass; the 3 failures are independent code defects (not infra), each of which
-alone blocks a core path. All work ran on **disposable** accounts provisioned for
-the dry-run; the real GBP-connected owner account (`norbertliverpool@gmail.com`)
-and its Google Business Profile were never touched.
+**VERDICT (first run): NOT launch-ready — 3 launch-blocking defects (D1/D2/D3).**
+**UPDATE 2026-06-08: all three remediated in PR #245 and re-validated against the
+real Stripe API + real staging schema — see the "Re-validation" subsection below.**
+6 of 9 scenarios passed on the first run; the 3 failures were independent code
+defects (not infra), each of which alone blocks a core path. All work ran on
+**disposable** accounts provisioned for the dry-run; the real GBP-connected owner
+account (`norbertliverpool@gmail.com`) and its Google Business Profile were never
+touched.
 
 | Scenario | Result |
 | --- | --- |
@@ -96,6 +99,52 @@ columns were present), never against the real table. Live evidence: offboarding
 > Common theme across D1 + D3: tests assert on mocked Stripe responses / SQL
 > strings, so schema/API drift sails through CI. Recommend an integration test
 > that runs purge + billing-schedule against the real staging schema/API.
+
+### Re-validation of the D1/D2/D3 fixes — 2026-06-08 (operator: Claude, autonomous)
+
+The three blockers were fixed in **PR #245** (`fix/offboarding-dryrun-d1-d2-d3`,
+commit `02aed937`, base `owner-offboarding-plan`) with regression tests at the
+seams the original mock drift had hidden. Each fix was then re-validated against
+the **real** Stripe API / staging schema — exactly the surfaces CI's mocks could
+not see. PR #245 CI: all green (lint, typecheck, test, build, fallow, react-doctor,
+deploy-install) — run
+https://github.com/RepWorth/ai-review-responder/actions/runs/27173067120.
+
+- **D1 — re-validated against the live Stripe test API.** Retrieved a real
+  test-mode subscription under the app's pinned `apiVersion 2026-05-27.dahlia`:
+  top-level `current_period_end` is **null**, `items.data[0].current_period_end`
+  is populated (`1783118908`). Confirms the root cause and that the fix
+  (`items.data[0].current_period_end ?? top-level`) reads the field Stripe
+  actually returns. The new unit test feeds this exact item shape and asserts the
+  row reaches `scheduled` (was: `failed/billing`).
+- **D3 — re-validated against the real staging schema (non-mutating `EXPLAIN`).**
+  `approval_audit_log` real columns: `id, response_id, business_id, token_hash,
+  device_cookie_hash, action, ip_address, metadata, created_at, actor_user_id,
+  auth_method, account_id, response_text_at_approval` — **no `approval_link_id`,
+  no `user_agent`.** `EXPLAIN` of the OLD scrub errors with
+  `column "approval_link_id" … does not exist`; the corrected scrub + verification
+  both plan clean. The sibling `user_agent` scrub at `purge-stages.ts:558` +
+  `purge-verification.ts:223` targets `account_audit_log`, which **does** have
+  those columns (`… ip, user_agent, request_id`) — correct, no second instance of
+  the bug. A real-DB integration test
+  (`approval-audit-log-scrub.integration.test.ts`) now runs the production scrub +
+  verification against the real schema so this drift can never re-hide.
+- **D2 — fix is a deterministic proxy-routing exemption, unit-test-pinned.**
+  `isProtectedOwnerApiRoute('/api/account/offboarding/keep-my-data')` is now
+  `false` (token-authenticated public route) while `confirm`/`reactivate`/`status`
+  stay owner-gated. The defect was reproduced on the deployed (pre-fix) staging
+  proxy — GET keep-my-data with the Vercel bypass + no session returns `401`. The
+  proxy decision is a pure function of the static path set, so the unit test is
+  authoritative; the only step still pending is an end-to-end click-through once
+  the fix is deployed to the staging Vercel env (staging currently runs the pre-fix
+  dry-run build).
+
+**Re-validation verdict:** all three root causes are confirmed fixed against the
+real API/schema — D1 and D3 are environment-proven, D2 is logic-proven + reproduced
+pre-fix. Remaining before prod enablement: merge PR #245 → `owner-offboarding-plan`
+(PR #244) → `main`, deploy to the staging stack and run a one-pass end-to-end smoke
+of §4.1 / §4.4-token / §4.5 on fix-deployed staging, plus the legal launch gate
+(§7).
 
 ### Disposable accounts provisioned (cleanup pending — all test-mode, no real GBP)
 
@@ -404,8 +453,10 @@ https://github.com/RepWorth/ai-review-responder/actions/runs/27136392049
       operationally required" (delete-or-anonymize language present).
 - [x] 056 / optional 057 / 058 / 059 / 060 applied to **staging** (head `060`).
       Prod application is a promotion-time step (currently behind — feature off).
-- [ ] ❌ Staging dry-run evidence (sections 4–6) recorded — **3 launch-blocking
-      defects (D1, D2, D3) must be fixed and re-validated before this is cleared.**
+- [~] Staging dry-run evidence (sections 4–6) recorded; the 3 launch-blocking
+      defects (D1, D2, D3) are **fixed in PR #245 and re-validated against the real
+      Stripe API + staging schema** (see §0 "Re-validation"). Final clearance still
+      needs PR #245 merged and a one-pass end-to-end smoke on fix-deployed staging.
 - [ ] **DO NOT** set `ACCOUNT_OFFBOARDING_ENABLED=true` on production until the
       above is green. `ACCOUNT_OFFBOARDING_PURGE_WINDOW_OVERRIDE_MS` stays unset in prod.
 - [ ] Post-enable smoke test — pending defect fixes.
