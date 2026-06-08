@@ -43,7 +43,7 @@ async function keepMyData(req: NextRequest): Promise<NextResponse> {
 
   const authBody = AuthenticatedBodySchema.safeParse(body.value);
   if (!authBody.success) {
-    return jsonResponse({ error: 'invalid_body', issues: tokenBody.error.issues }, 400);
+    return jsonResponse({ error: 'invalid_body', issues: authBody.error.issues }, 400);
   }
 
   const owner = await requireOwnerWithAccount(req);

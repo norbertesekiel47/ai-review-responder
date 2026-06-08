@@ -1,7 +1,11 @@
 import type postgres from 'postgres';
 import { jsonb, sql, supabaseServer } from '../../../src/lib/db/server';
 import { verifyAccountOffboardingPurge } from '../../../src/lib/account-offboarding/purge-verification';
-import { hasConcreteAdminProviderDisposition } from '../../../src/lib/account-offboarding/provider-disposition';
+import {
+  extractConcreteAdminProviderDispositions,
+  hasConcreteAdminProviderDisposition,
+  unresolvedApplicableTeardownProviders,
+} from '../../../src/lib/account-offboarding/provider-disposition';
 import { enqueueOffboardingPurged } from '../../../src/lib/account-offboarding/analytics';
 import { enqueueAccountOffboardingEmail } from '../../../src/lib/shared/job-outbox-helpers';
 import {
@@ -31,6 +35,11 @@ export interface AccountOffboardingPurgeRow {
   stripe_subscription_id: string | null;
   zernio_account_ids: string[] | null;
   zernio_profile_ids: string[] | null;
+  location_ids: string[] | null;
+  stripe_step: string | null;
+  zernio_accounts_step: string | null;
+  zernio_profiles_step: string | null;
+  location_archival_step: string | null;
 }
 
 interface AuthRevalidationRow {
@@ -57,7 +66,9 @@ export async function loadPurgeOffboarding(
     SELECT id, account_id, mode, status, terminal_at, teardown_completed_at,
            purge_started_at, purge_cancelled_at, auth_user_id,
            recipient_email, provider_dispositions, stripe_customer_id,
-           stripe_subscription_id, zernio_account_ids, zernio_profile_ids
+           stripe_subscription_id, zernio_account_ids, zernio_profile_ids,
+           location_ids, stripe_step, zernio_accounts_step, zernio_profiles_step,
+           location_archival_step
     FROM account_offboardings
     WHERE id = ${accountOffboardingId}::uuid
       AND account_id = ${accountId}::uuid
@@ -75,11 +86,23 @@ export function validatePurgeableOffboarding(
   if (row.terminal_at !== null) return 'account_offboarding_already_terminal';
   if (row.purge_cancelled_at !== null) return 'account_offboarding_purge_cancelled';
   if (row.purge_started_at === null) return 'account_offboarding_purge_not_started';
-  if (
-    row.teardown_completed_at === null &&
-    !hasConcreteAdminProviderDisposition(row.provider_dispositions)
-  ) {
-    return 'account_offboarding_teardown_incomplete';
+  if (row.teardown_completed_at === null) {
+    // Teardown did not complete normally — this row reached purge_scheduled via an
+    // admin force-transition. Re-assert the same invariant that gate enforces, as
+    // defense-in-depth before the irreversible purge: there must be a concrete
+    // disposition, AND it (plus any others) must cover EVERY applicable provider
+    // resource the teardown left unresolved. Otherwise a purge would destroy the
+    // local pointers to a live provider resource that was never torn down.
+    if (!hasConcreteAdminProviderDisposition(row.provider_dispositions)) {
+      return 'account_offboarding_teardown_incomplete';
+    }
+    const unresolved = unresolvedApplicableTeardownProviders(
+      row,
+      extractConcreteAdminProviderDispositions(row.provider_dispositions),
+    );
+    if (unresolved.length > 0) {
+      return 'account_offboarding_teardown_incomplete';
+    }
   }
   return null;
 }
@@ -237,6 +260,14 @@ export async function runContentPurgeStage(row: AccountOffboardingPurgeRow): Pro
   });
 }
 
+// Scrubs raw account-linked content out of the schemaless payload columns of
+// inbound_events + job_outbox. Because those payloads are unstructured JSON, the
+// scope identifiers are matched with a substring LIKE over payload::text rather
+// than a structured key lookup. This is an accepted tradeoff: the identifiers are
+// UUIDs / Stripe ids / Zernio ids (effectively unique high-entropy strings), so a
+// cross-account false-positive scrub is vanishingly unlikely, and the verification
+// twin (purge-verification.ts) checks the same scope shape on the read side so the
+// purge cannot stamp purged_at while a matching raw identifier survives.
 export async function runRawPayloadPurgeStage(
   row: AccountOffboardingPurgeRow,
   currentOutboxId: string,
@@ -682,6 +713,16 @@ export async function finalizePurgeInTransaction(
     // recipient is carried in the outbox payload because the row's
     // recipient_email is scrubbed in this same transaction; the email worker
     // sends it and scrubs the payload afterwards.
+    //
+    // ACCEPTED RESIDUAL (M4): this means a single raw owner email lives in
+    // job_outbox.payload past the purged_at stamp — sending the final "your data
+    // was deleted" notice inherently requires retaining the address until it is
+    // sent, and the account row is tombstoned so it cannot be re-derived. The
+    // window is bounded by the outbox dispatch + BullMQ retry guarantee, and the
+    // email worker scrubs the payload atomically on completion. The verification
+    // gate above intentionally does not scan for this (it would never allow the
+    // receipt to be sent). The only way it persists is a permanently-undeliverable
+    // receipt; the outbox failure surface is the place to detect that.
     const recipient = row.recipient_email?.trim();
     if (recipient) {
       await enqueueAccountOffboardingEmail(tx, {

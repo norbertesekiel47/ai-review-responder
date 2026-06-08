@@ -18,6 +18,7 @@ import { getRequestIp } from '@/lib/shared/request-ip';
 import {
   assertWritableSubscriptionForAccount,
   assertWritableSubscriptionForBusiness,
+  SubscriptionReadOnlyError,
   throwIfReadOnly,
 } from '@/lib/shared/writable-subscription';
 
@@ -194,6 +195,11 @@ export async function runDashboardReviewAction(
         throw new HeldForReviewError();
       }
 
+      // Re-assert the writable/offboarding gate INSIDE the locked tx (TOCTOU): the
+      // pre-tx check above can go stale if an offboarding is confirmed between it
+      // and this commit. Token + callback approval paths re-check the same way.
+      throwIfReadOnly(await assertWritableSubscriptionForBusiness(response.business_id as string, tx));
+
       const correlationId = await recoverCorrelationId(tx, {
         reviewId,
         responseId: response.id as string,
@@ -220,6 +226,9 @@ export async function runDashboardReviewAction(
     }
     if (err instanceof HeldForReviewError) {
       return NextResponse.json({ error: err.message }, { status: 409, headers: NO_STORE_HEADERS });
+    }
+    if (err instanceof SubscriptionReadOnlyError) {
+      return NextResponse.json({ error: err.error }, { status: err.status, headers: NO_STORE_HEADERS });
     }
     console.error(`[api/dashboard/reviews/${actionName}] Unexpected error:`, err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500, headers: NO_STORE_HEADERS });

@@ -24,6 +24,11 @@ interface MockOffboardingRow {
   stripe_subscription_id: string | null;
   zernio_account_ids: string[] | null;
   zernio_profile_ids: string[] | null;
+  location_ids: string[] | null;
+  stripe_step: string | null;
+  zernio_accounts_step: string | null;
+  zernio_profiles_step: string | null;
+  location_archival_step: string | null;
 }
 
 const ACCOUNT_ID = '00000000-0000-7000-8000-000000000001';
@@ -222,6 +227,11 @@ describe('AccountOffboarding PurgeWorker', () => {
       stripe_subscription_id: 'sub_123',
       zernio_account_ids: ['zernio-account-1'],
       zernio_profile_ids: ['zernio-profile-1'],
+      location_ids: ['00000000-0000-7000-8000-0000000000a1'],
+      stripe_step: 'success',
+      zernio_accounts_step: 'success',
+      zernio_profiles_step: 'success',
+      location_archival_step: 'success',
     };
   });
 
@@ -372,10 +382,13 @@ describe('AccountOffboarding PurgeWorker', () => {
     expect(mockState.offboarding?.status).toBe('purged');
   });
 
-  it('allows purge when admin provider disposition is recorded even if teardown completion is absent', async () => {
+  it('allows purge when admin provider disposition covers every applicable failed provider step', async () => {
     mockState.offboarding = {
       ...mockState.offboarding!,
       teardown_completed_at: null,
+      // The Zernio account teardown failed; the concrete Zernio disposition covers it.
+      // Every other applicable provider step succeeded, so the purge is safe.
+      zernio_accounts_step: 'failed',
       provider_dispositions: [{
         type: 'admin_provider_disposition',
         provider: 'zernio',
@@ -392,6 +405,35 @@ describe('AccountOffboarding PurgeWorker', () => {
 
     expect(mockVerifyAccountOffboardingPurge).toHaveBeenCalledOnce();
     expect(mockState.offboarding?.status).toBe('purged');
+  });
+
+  it('refuses to purge when a concrete disposition leaves another applicable provider step unresolved (H2 defense-in-depth)', async () => {
+    mockState.offboarding = {
+      ...mockState.offboarding!,
+      teardown_completed_at: null,
+      // Stripe teardown failed and the Zernio account step never ran (default
+      // 'not_applicable') even though a Zernio account exists. Only Zernio is
+      // dispositioned, so the live Stripe subscription is still unresolved.
+      stripe_step: 'failed',
+      zernio_accounts_step: 'not_applicable',
+      provider_dispositions: [{
+        type: 'admin_provider_disposition',
+        provider: 'zernio',
+        resource_type: 'account',
+        scrubbed_resource_reference: 'sha256:provider-ref',
+        admin_actor_user_id: 'admin-1',
+        reason: 'Provider support confirmed teardown.',
+        recorded_at: '2026-06-07T12:00:00.000Z',
+        ticket: 'SUP-123',
+      }],
+    };
+
+    await expect(handleAccountOffboardingPurge(makeJob({ attemptsMade: 0 }))).rejects.toThrow(
+      'account_offboarding_teardown_incomplete',
+    );
+
+    expect(mockVerifyAccountOffboardingPurge).not.toHaveBeenCalled();
+    expect(mockEnqueueOffboardingPurged).not.toHaveBeenCalled();
   });
 
   it('does not treat generic provider markers as provider-disposition purge eligibility', async () => {

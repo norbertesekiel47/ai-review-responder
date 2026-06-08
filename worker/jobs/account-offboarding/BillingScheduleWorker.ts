@@ -3,7 +3,9 @@ import Stripe from 'stripe';
 import * as Sentry from '@sentry/node';
 import { sql } from '../../../src/lib/db/server';
 import {
+  errorMessage,
   extractOutboxHandle,
+  isTerminalAttempt,
   markOutboxCompleted,
   markOutboxFailed,
 } from '../../../src/lib/shared/outbox';
@@ -205,16 +207,5 @@ function parseStripeCurrentPeriodEnd(value: unknown): Date {
 
 function readCurrentPeriodEnd(subscription: Stripe.Response<Stripe.Subscription>): unknown {
   return (subscription as unknown as { current_period_end?: unknown }).current_period_end;
-}
-
-function isTerminalAttempt(job: Job<unknown>): boolean {
-  const maxAttempts = typeof job.opts.attempts === 'number' && job.opts.attempts > 0
-    ? job.opts.attempts
-    : 1;
-  return job.attemptsMade >= maxAttempts || job.attemptsMade + 1 >= maxAttempts;
-}
-
-function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }
 

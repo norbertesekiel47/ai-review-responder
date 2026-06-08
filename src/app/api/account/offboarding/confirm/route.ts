@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import {
   jsonResponse,
-  requireWritableOwner,
+  requireOwnerWithAccount,
   withSameOrigin,
 } from '@/lib/auth/route-helpers';
 import { accountOffboardingEnabled } from '@/lib/account-offboarding/flags';
@@ -99,7 +99,12 @@ async function confirmCancelOnly(
   body: z.infer<typeof ConfirmCancelOnlySchema>,
   idempotencyKey: string,
 ) {
-  const owner = await requireWritableOwner(req);
+  // Read-level owner gate, NOT requireWritableOwner: a past_due owner (live, still
+  // billed subscription) must be able to cancel per the spec's edge-account
+  // contract, and offboarding's own routes never use the writable-subscription
+  // gate. The cancel_only snapshot still requires a stripe_subscription_id, so a
+  // never-activated / no-subscription account gets a clean 422 instead.
+  const owner = await requireOwnerWithAccount(req);
   if (!owner.ok) return owner.response;
 
   return confirmCancelOnlyOffboarding({

@@ -152,8 +152,13 @@ the account timezone ("scheduled for [date/time]").
 
 ### `cancel_only`
 
-1. **Confirm route** — owner auth + `withSameOrigin` (no fresh re-auth). One tx:
-   lock account, assert no active offboarding, insert `status='pending'`, capture
+1. **Confirm route** — read-level owner auth (`requireOwnerWithAccount`, NOT
+   `requireWritableOwner`) + `withSameOrigin`, no fresh re-auth. The read-level gate
+   is deliberate: a `past_due` owner (live, still-billed subscription) must be able
+   to cancel per the edge-account contract, and the writable-subscription gate would
+   402 them. A never-activated / no-subscription account is still rejected — cleanly
+   — by the snapshot's required `stripe_subscription_id` (a 422), not the gate. One
+   tx: lock account, assert no active offboarding, insert `status='pending'`, capture
    snapshot, write audit, enqueue billing-schedule + confirmation-email outbox
    rows. Returns immediately. Optional reason code (non-blocking).
 2. **Billing-schedule worker** — set Stripe `cancel_at_period_end=true` on the
@@ -217,8 +222,14 @@ BullMQ retry/backoff; terminal exhaustion → `failed` + `failed_step` + scrubbe
 events whose subscription id does not match `accounts.stripe_subscription_id` or
 the active offboarding snapshot, so a stale old-subscription webhook after
 reactivation cannot clobber a new subscription under the same customer. Inbound
-Zernio `account.disconnected` during an active teardown reconciles/stamps the
-Zernio step; otherwise the existing connection-lost path runs.
+Zernio `account.disconnected` during an active teardown stamps the Zernio step
+**only for single-account snapshots** (`cardinality(zernio_account_ids)=1`), where
+one disconnect proves the step is done. There is no per-account reconciliation
+state, so for **multi-account snapshots** the authoritative, idempotent driver is
+the teardown provider DELETE loop (404/410 ⇒ success); the webhook still suppresses
+the connection-lost notification so the offboarding owner is not paged about an
+expected disconnect. Otherwise (no active teardown) the existing connection-lost
+path runs.
 
 ## Purge model (`delete_data` only)
 

@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **059** — next migration is **060**
+Current head: **060** — next migration is **061**
 All tables use UUIDv7 (time-ordered primary keys).
 
 ## Migration Log
@@ -424,6 +424,18 @@ All tables use UUIDv7 (time-ordered primary keys).
   be deleted soon" last-chance email at most once per `delete_data` offboarding.
   No backfill. Apply staging-first, then production, both Supabase projects in
   lockstep. No new tables, policies, indexes, or browser-visible flags.
+
+- **060** — Owner offboarding reactivation claim columns (M1/M2). Adds
+  `account_offboardings.reactivation_claimed_at TIMESTAMPTZ` and
+  `reactivation_claim_token TEXT` (both nullable, additive) so the cancel_only
+  reactivation flow stops overloading `last_error`/`reactivated_at` as the claim
+  mutex. `reactivated_at` now stamps only at terminal success. Adds partial index
+  `idx_account_offboardings_reactivation_claim ON (reactivation_claimed_at) WHERE
+  reactivation_claimed_at IS NOT NULL AND terminal_at IS NULL` backing
+  `AccountOffboardingReactivationResetPoller`, which clears stale claims (a dead
+  reactivation process) after compensating Stripe back to
+  `cancel_at_period_end=true`. No backfill (NULL = no active claim). Apply
+  staging-first, then production, both Supabase projects in lockstep.
 
 ## Key Tables Reference
 

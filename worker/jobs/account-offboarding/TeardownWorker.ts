@@ -2,7 +2,9 @@ import type { Job } from 'bullmq';
 import * as Sentry from '@sentry/node';
 import { sql } from '../../../src/lib/db/server';
 import {
+  errorMessage,
   extractOutboxHandle,
+  isTerminalAttempt,
   markOutboxCompleted,
   markOutboxFailed,
 } from '../../../src/lib/shared/outbox';
@@ -337,16 +339,5 @@ function alertTeardownFailure(
       error: safeMessage,
     },
   });
-}
-
-function isTerminalAttempt(job: Job<unknown>): boolean {
-  const maxAttempts = typeof job.opts.attempts === 'number' && job.opts.attempts > 0
-    ? job.opts.attempts
-    : 1;
-  return job.attemptsMade >= maxAttempts || job.attemptsMade + 1 >= maxAttempts;
-}
-
-function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }
 

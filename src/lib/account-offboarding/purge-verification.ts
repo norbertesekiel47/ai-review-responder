@@ -88,7 +88,9 @@ async function countViolations(
   return Number(rows[0]?.violation_count ?? 0);
 }
 
-function verificationQuery(
+// Exported for the fail-closed guard test: a table added to the disposition
+// inventory but missing a verification branch must throw, never silently pass.
+export function verificationQuery(
   table: string,
   input: VerifyAccountOffboardingPurgeInput,
   exec: SqlExecutor,
@@ -612,7 +614,7 @@ const ABSENT_BY_BUSINESS_TABLES = new Set<string>([
   'google_connections',
 ]);
 
-function absentByBusiness(
+export function absentByBusiness(
   tableName: string,
   accountId: string,
   exec: SqlExecutor,

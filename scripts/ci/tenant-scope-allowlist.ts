@@ -1910,8 +1910,8 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/lib/account-offboarding/provider-disposition.ts",
     table: "account_offboardings",
-    sqlSnippet: "SELECT id, account_id, mode, status, failed_step, terminal_at, purge_after, purge_cancelled_at, stripe_step, zernio_accounts_step, zernio_profiles_step, location_archival_step, provider_dispositions FROM account_offboardings WHERE id = ${input.offboardingId}::uuid FOR UPDATE",
-    reason: "Admin-only provider-disposition mutation resolves the offboarding row by route id after same-origin + requireRole(admin) + current AAL2; the following update and audit are scoped by the locked row's account_id.",
+    sqlSnippet: "SELECT id, account_id, mode, status, failed_step, terminal_at, purge_after, purge_cancelled_at, stripe_subscription_id, zernio_account_ids, zernio_profile_ids, location_ids, stripe_step, zernio_accounts_step, zernio_profiles_step, location_archival_step, provider_dispositions FROM account_offboardings WHERE id = ${input.offboardingId}::uuid FOR UPDATE",
+    reason: "Admin-only provider-disposition mutation resolves the offboarding row by route id after same-origin + requireRole(admin) + current AAL2; the following update and audit are scoped by the locked row's account_id. Snapshot step/array columns are read to verify every applicable provider step is success-or-dispositioned before force-transition (H2).",
   },
   {
     file: "src/app/api/zernio/connect/callback/route.ts",
@@ -1964,7 +1964,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/background/pollers/AccountOffboardingAccessEndPoller.ts",
     table: "account_offboardings",
-    sqlSnippet: "SELECT id, account_id, mode, status, access_ends_at FROM account_offboardings WHERE mode = 'cancel_only' AND status = 'scheduled' AND access_ends_at IS NOT NULL AND access_ends_at <= NOW() AND reactivated_at IS NULL AND teardown_started_at IS NULL AND terminal_at IS NULL ORDER BY access_ends_at ASC, id ASC LIMIT 1 FOR UPDATE SKIP LOCKED",
+    sqlSnippet: "SELECT id, account_id, mode, status, access_ends_at FROM account_offboardings WHERE mode = 'cancel_only' AND status = 'scheduled' AND access_ends_at IS NOT NULL AND access_ends_at <= NOW() AND reactivation_claimed_at IS NULL AND teardown_started_at IS NULL AND terminal_at IS NULL ORDER BY access_ends_at ASC, id ASC LIMIT 1 FOR UPDATE SKIP LOCKED",
     reason: "Background scheduler scans scheduled owner-offboarding rows globally before claiming one row and enqueueing scoped teardown work transactionally.",
   },
   {
@@ -1978,6 +1978,18 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     table: "account_offboardings",
     sqlSnippet: "SELECT id, account_id, mode, status, purge_after FROM account_offboardings WHERE mode = 'delete_data' AND status = 'purge_scheduled' AND purge_after IS NOT NULL AND purge_after > NOW() AND purge_after <= NOW() + (${REMINDER_LEAD_DAYS}::int * INTERVAL '1 day') AND purge_reminder_sent_at IS NULL AND purge_started_at IS NULL AND purge_cancelled_at IS NULL AND terminal_at IS NULL ORDER BY purge_after ASC, id ASC LIMIT 1 FOR UPDATE SKIP LOCKED",
     reason: "Background scheduler scans purge-reminder-eligible owner-offboarding rows globally before claiming one row and enqueueing scoped reminder-email work transactionally.",
+  },
+  {
+    file: "worker/background/pollers/AccountOffboardingReactivationResetPoller.ts",
+    table: "account_offboardings",
+    sqlSnippet: "SELECT id, account_id, stripe_subscription_id, reactivation_claim_token FROM account_offboardings WHERE mode = 'cancel_only' AND status = 'scheduled' AND terminal_at IS NULL AND reactivated_at IS NULL AND teardown_started_at IS NULL AND reactivation_claimed_at IS NOT NULL AND reactivation_claimed_at <= NOW() - make_interval(secs => ${staleSeconds}) ORDER BY reactivation_claimed_at ASC, id ASC LIMIT ${getBatchSize()}",
+    reason: "Background scheduler scans stale reactivation-claim rows globally before compensating Stripe and clearing each claim scoped by the row's account_id (M1).",
+  },
+  {
+    file: "worker/background/pollers/AccountOffboardingTeardownRetryPoller.ts",
+    table: "account_offboardings",
+    sqlSnippet: "SELECT id, account_id, mode FROM account_offboardings WHERE status = 'failed' AND failed_step = 'teardown' AND terminal_at IS NULL AND retry_count < ${maxRetries} AND updated_at <= NOW() - make_interval(secs => ${cooldownSeconds}) ORDER BY updated_at ASC, id ASC LIMIT 1 FOR UPDATE SKIP LOCKED",
+    reason: "Background scheduler scans failed-teardown rows globally before claiming one row and re-enqueueing scoped teardown work transactionally (bounded re-drive).",
   },
   {
     file: "worker/jobs/account-offboarding/purge-helpers.ts",

@@ -455,6 +455,72 @@ describe('AccountOffboarding TeardownWorker', () => {
     expect(mockCaptureMessage).not.toHaveBeenCalled();
   });
 
+  it('treats an already-canceled delete_data subscription as success instead of stranding teardown failed', async () => {
+    // The subscription was canceled out-of-band (dunning, a webhook race, manual
+    // cancel) or a retry landed past the ~24h idempotency-key window: re-cancelling
+    // raises a permanent StripeInvalidRequestError. Teardown must confirm the desired
+    // end-state and proceed, not strand the destructive delete_data row as failed.
+    mockStripeSubscriptionsCancel.mockRejectedValueOnce(
+      Object.assign(new Error("A subscription with status 'canceled' may not be updated"), {
+        type: 'StripeInvalidRequestError',
+        statusCode: 400,
+      }),
+    );
+    mockStripeSubscriptionsRetrieve.mockResolvedValueOnce({ id: 'sub_live_123', status: 'canceled' });
+    mockCleanupSubscriptionInvoices.mockResolvedValueOnce({
+      subscriptionId: 'sub_live_123',
+      actions: [],
+      summary: { inspected: 0, finalized: 0, voided: 0, retained: 0, skipped: 0 },
+    });
+
+    await handleAccountOffboardingTeardown(makeJob());
+
+    expect(mockStripeSubscriptionsRetrieve).toHaveBeenCalledWith('sub_live_123');
+    expect(mockCleanupSubscriptionInvoices).toHaveBeenCalled();
+    const combinedSql = sqlCalls.map((call) => call.text).join('\n');
+    expect(combinedSql).toContain("SET stripe_step = 'success'");
+    expect(sqlCalls.some((call) => call.text.includes("failed_step = 'teardown'"))).toBe(false);
+    expect(mockState.offboarding?.status).toBe('purge_scheduled');
+    expect(mockCaptureMessage).not.toHaveBeenCalled();
+  });
+
+  it('treats a deleted delete_data subscription (resource_missing) as success without a redundant retrieve', async () => {
+    mockStripeSubscriptionsCancel.mockRejectedValueOnce(
+      Object.assign(new Error('No such subscription: sub_live_123'), {
+        type: 'StripeInvalidRequestError',
+        statusCode: 404,
+        code: 'resource_missing',
+      }),
+    );
+    mockCleanupSubscriptionInvoices.mockResolvedValueOnce({
+      subscriptionId: 'sub_live_123',
+      actions: [],
+      summary: { inspected: 0, finalized: 0, voided: 0, retained: 0, skipped: 0 },
+    });
+
+    await handleAccountOffboardingTeardown(makeJob());
+
+    expect(mockStripeSubscriptionsRetrieve).not.toHaveBeenCalled();
+    const combinedSql = sqlCalls.map((call) => call.text).join('\n');
+    expect(combinedSql).toContain("SET stripe_step = 'success'");
+    expect(mockState.offboarding?.status).toBe('purge_scheduled');
+    expect(mockCaptureMessage).not.toHaveBeenCalled();
+  });
+
+  it('still rethrows a retryable Stripe cancel error for delete_data (BullMQ retry, not swallowed)', async () => {
+    mockStripeSubscriptionsCancel.mockRejectedValueOnce(
+      Object.assign(new Error('Stripe is unavailable'), {
+        type: 'StripeAPIError',
+        statusCode: 503,
+      }),
+    );
+
+    await expect(handleAccountOffboardingTeardown(makeJob())).rejects.toThrow();
+
+    expect(mockStripeSubscriptionsRetrieve).not.toHaveBeenCalled();
+    expect(mockCleanupSubscriptionInvoices).not.toHaveBeenCalled();
+  });
+
   it('treats missing Stripe/Zernio/location snapshots as not_applicable and lands churned when keep-my-data already cancelled purge', async () => {
     mockState.offboarding = offboardingRow({
       stripe_subscription_id: null,

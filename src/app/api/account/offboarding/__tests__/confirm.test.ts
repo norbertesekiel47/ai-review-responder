@@ -112,6 +112,13 @@ describe('POST /api/account/offboarding/confirm', () => {
       user: ownerUser(),
       accountId: ACCOUNT_ID,
     });
+    // cancel_only confirm uses the read-level owner gate (so a past_due owner is
+    // not blocked by the writable-subscription gate — M3).
+    mockRequireOwnerWithAccount.mockResolvedValue({
+      ok: true,
+      user: ownerUser(),
+      accountId: ACCOUNT_ID,
+    });
     mockRequireDeleteDataDestructiveAuth.mockResolvedValue({
       ok: true,
       user: ownerUser(),
@@ -164,7 +171,7 @@ describe('POST /api/account/offboarding/confirm', () => {
   });
 
   it('returns 401 when unauthenticated', async () => {
-    mockRequireWritableOwner.mockResolvedValueOnce({
+    mockRequireOwnerWithAccount.mockResolvedValueOnce({
       ok: false,
       response: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }),
     });
@@ -174,6 +181,30 @@ describe('POST /api/account/offboarding/confirm', () => {
 
     expect(res.status).toBe(401);
     expect(mockConfirmCancelOnlyOffboarding).not.toHaveBeenCalled();
+  });
+
+  it('allows a past_due owner to confirm cancel_only via the read-level gate, not requireWritableOwner', async () => {
+    // M3: a past_due account (live, still-billed subscription) must be able to
+    // cancel. The route must use the read-level requireOwnerWithAccount gate, NOT
+    // requireWritableOwner, which would 402 a past_due owner before confirm runs.
+    mockConfirmCancelOnlyOffboarding.mockResolvedValueOnce({
+      ok: true,
+      status: 'created',
+      offboarding: {
+        id: 'eeeeeeee-2222-7333-8444-555555555555',
+        accountId: ACCOUNT_ID,
+        mode: 'cancel_only',
+        status: 'pending',
+      },
+    });
+    const { confirmRoute } = await importRoutes();
+
+    const res = await confirmRoute.POST(makePost({ mode: 'cancel_only' }));
+
+    expect(res.status).toBe(202);
+    expect(mockRequireOwnerWithAccount).toHaveBeenCalledOnce();
+    expect(mockRequireWritableOwner).not.toHaveBeenCalled();
+    expect(mockConfirmCancelOnlyOffboarding).toHaveBeenCalled();
   });
 
   it('returns 400 when the idempotency key is missing', async () => {

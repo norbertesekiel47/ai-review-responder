@@ -80,7 +80,7 @@ async function runAccountOffboardingAccessEndInner(
           AND status = 'scheduled'
           AND access_ends_at IS NOT NULL
           AND access_ends_at <= NOW()
-          AND reactivated_at IS NULL
+          AND reactivation_claimed_at IS NULL
           AND teardown_started_at IS NULL
           AND terminal_at IS NULL
         ORDER BY access_ends_at ASC, id ASC
@@ -105,7 +105,7 @@ async function runAccountOffboardingAccessEndInner(
           AND status = 'scheduled'
           AND access_ends_at IS NOT NULL
           AND access_ends_at <= NOW()
-          AND reactivated_at IS NULL
+          AND reactivation_claimed_at IS NULL
           AND teardown_started_at IS NULL
           AND terminal_at IS NULL
         RETURNING id, account_id, mode, status, access_ends_at

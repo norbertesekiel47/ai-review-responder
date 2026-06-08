@@ -3,9 +3,9 @@ import { z } from 'zod';
 import { jsonb, sql } from '@/lib/db/server';
 import { writeAccountAuditLog } from '@/lib/audit/log';
 
-export const ADMIN_PROVIDER_DISPOSITION_TYPE = 'admin_provider_disposition';
+const ADMIN_PROVIDER_DISPOSITION_TYPE = 'admin_provider_disposition';
 
-export const ACCOUNT_OFFBOARDING_PROVIDER_DISPOSITION_PROVIDERS = [
+const ACCOUNT_OFFBOARDING_PROVIDER_DISPOSITION_PROVIDERS = [
   'stripe',
   'zernio',
   'google',
@@ -64,11 +64,30 @@ interface ProviderDispositionOffboardingRow {
   terminal_at: Date | string | null;
   purge_after: Date | string | null;
   purge_cancelled_at: Date | string | null;
+  stripe_subscription_id: string | null;
+  zernio_account_ids: string[] | null;
+  zernio_profile_ids: string[] | null;
+  location_ids: string[] | null;
   stripe_step: string;
   zernio_accounts_step: string;
   zernio_profiles_step: string;
   location_archival_step: string;
   provider_dispositions: unknown;
+}
+
+// The immutable teardown snapshot + the mutable per-step outcomes. Applicability of
+// a provider step is derived from the SNAPSHOT (was there work to do?), never from
+// the step column alone — a step that never ran because teardown aborts on the first
+// failure sits at its 'not_applicable' DEFAULT, indistinguishable from genuinely-N/A.
+export interface ProviderTeardownStepState {
+  stripe_subscription_id: string | null;
+  zernio_account_ids: string[] | null;
+  zernio_profile_ids: string[] | null;
+  location_ids: string[] | null;
+  stripe_step: string | null;
+  zernio_accounts_step: string | null;
+  zernio_profiles_step: string | null;
+  location_archival_step: string | null;
 }
 
 export class ProviderDispositionError extends Error {
@@ -109,7 +128,7 @@ export function extractConcreteAdminProviderDispositions(
   return parseJsonArray(value).filter(isConcreteAdminProviderDisposition);
 }
 
-export function isConcreteAdminProviderDisposition(
+function isConcreteAdminProviderDisposition(
   value: unknown,
 ): value is AdminProviderDispositionRecord {
   if (!isRecord(value)) return false;
@@ -135,6 +154,7 @@ export async function recordProviderDisposition(
     const [row] = await tx<ProviderDispositionOffboardingRow[]>`
       SELECT id, account_id, mode, status, failed_step, terminal_at,
              purge_after, purge_cancelled_at,
+             stripe_subscription_id, zernio_account_ids, zernio_profile_ids, location_ids,
              stripe_step, zernio_accounts_step, zernio_profiles_step,
              location_archival_step, provider_dispositions
       FROM account_offboardings
@@ -203,6 +223,60 @@ export async function recordProviderDisposition(
   });
 }
 
+// Provider teardown steps that are APPLICABLE (snapshot non-empty) but not yet
+// resolved — neither completed ('success') nor covered by a concrete admin
+// disposition for that provider. A non-empty result means a force-purge would
+// destroy the local pointers to a provider resource (e.g. a live Zernio account or
+// Google location) that was never torn down and never dispositioned — a blind
+// force-purge. Only stripe/zernio/google map to teardown steps.
+export function unresolvedApplicableTeardownProviders(
+  state: ProviderTeardownStepState,
+  dispositions: AdminProviderDispositionRecord[],
+): AccountOffboardingProviderDispositionProvider[] {
+  const covered = new Set(dispositions.map((disposition) => disposition.provider));
+  const checks: Array<{
+    applicable: boolean;
+    step: string | null;
+    provider: AccountOffboardingProviderDispositionProvider;
+  }> = [
+    {
+      applicable: Boolean(state.stripe_subscription_id?.trim()),
+      step: state.stripe_step,
+      provider: 'stripe',
+    },
+    {
+      applicable: (state.zernio_account_ids?.length ?? 0) > 0,
+      step: state.zernio_accounts_step,
+      provider: 'zernio',
+    },
+    {
+      applicable: (state.zernio_profile_ids?.length ?? 0) > 0,
+      step: state.zernio_profiles_step,
+      provider: 'zernio',
+    },
+    {
+      applicable: (state.location_ids?.length ?? 0) > 0,
+      step: state.location_archival_step,
+      provider: 'google',
+    },
+  ];
+
+  const unresolved = new Set<AccountOffboardingProviderDispositionProvider>();
+  for (const check of checks) {
+    if (check.applicable && check.step !== 'success' && !covered.has(check.provider)) {
+      unresolved.add(check.provider);
+    }
+  }
+  return [...unresolved];
+}
+
+function allApplicableTeardownProvidersResolved(
+  state: ProviderTeardownStepState,
+  dispositions: AdminProviderDispositionRecord[],
+): boolean {
+  return unresolvedApplicableTeardownProviders(state, dispositions).length === 0;
+}
+
 function shouldTransitionToPurgeScheduled(
   row: ProviderDispositionOffboardingRow,
   disposition: AdminProviderDispositionRecord,
@@ -212,12 +286,15 @@ function shouldTransitionToPurgeScheduled(
   if (row.purge_after === null) return false;
   if (row.purge_cancelled_at !== null) return false;
 
-  if (disposition.provider === 'stripe') return row.stripe_step === 'failed';
-  if (disposition.provider === 'zernio') {
-    return row.zernio_accounts_step === 'failed' || row.zernio_profiles_step === 'failed';
-  }
-  if (disposition.provider === 'google') return row.location_archival_step === 'failed';
-  return false;
+  // The newly-recorded disposition PLUS any already-recorded ones must cover EVERY
+  // applicable provider teardown step still not 'success'. A single provider
+  // disposition must never terminalize a purge while another applicable provider
+  // resource the teardown never reached is still unresolved and un-dispositioned.
+  const dispositions = [
+    ...extractConcreteAdminProviderDispositions(row.provider_dispositions),
+    disposition,
+  ];
+  return allApplicableTeardownProvidersResolved(row, dispositions);
 }
 
 function scrubDispositionText(value: string, maxLength: number): string {

@@ -119,7 +119,7 @@ type ClaimableRow = {
 };
 
 type PersistedOffboardingRow = ClaimableRow & {
-  reactivated_at: Date | null;
+  reactivation_claimed_at: Date | null;
   teardown_started_at: Date | null;
   terminal_at: Date | null;
   failed_step: string | null;
@@ -141,7 +141,7 @@ function makePersistedOffboardingRow(
 ): PersistedOffboardingRow {
   return {
     ...makeClaimableRow(overrides),
-    reactivated_at: overrides.reactivated_at ?? null,
+    reactivation_claimed_at: overrides.reactivation_claimed_at ?? null,
     teardown_started_at: overrides.teardown_started_at ?? null,
     terminal_at: overrides.terminal_at ?? null,
     failed_step: overrides.failed_step ?? 'billing',
@@ -154,7 +154,7 @@ function rowMatchesAccessEndClaimPredicate(row: PersistedOffboardingRow): boolea
     row.mode === 'cancel_only' &&
     row.status === 'scheduled' &&
     row.access_ends_at.getTime() <= Date.now() &&
-    row.reactivated_at === null &&
+    row.reactivation_claimed_at === null &&
     row.teardown_started_at === null &&
     row.terminal_at === null
   );
@@ -235,7 +235,7 @@ describe('AccountOffboardingAccessEndPoller', () => {
     expect(claimCall).toBeDefined();
     expect(claimCall!.template).toContain("status = 'scheduled'");
     expect(claimCall!.template).toContain('access_ends_at <= NOW()');
-    expect(claimCall!.template).toContain('reactivated_at IS NULL');
+    expect(claimCall!.template).toContain('reactivation_claimed_at IS NULL');
     expect(claimCall!.template).toContain('teardown_started_at IS NULL');
     expect(claimCall!.template).toContain('terminal_at IS NULL');
 
@@ -246,7 +246,7 @@ describe('AccountOffboardingAccessEndPoller', () => {
     );
     expect(updateCall).toBeDefined();
     expect(updateCall!.template).toContain('teardown_started_at = NOW()');
-    expect(updateCall!.template).toContain('reactivated_at IS NULL');
+    expect(updateCall!.template).toContain('reactivation_claimed_at IS NULL');
 
     expect(mockWriteAccountAuditLog).toHaveBeenCalledOnce();
     expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
@@ -284,15 +284,15 @@ describe('AccountOffboardingAccessEndPoller', () => {
       call.template.includes('FROM account_offboardings'),
     );
     expect(claimCall).toBeDefined();
-    expect(claimCall!.template).toContain('reactivated_at IS NULL');
+    expect(claimCall!.template).toContain('reactivation_claimed_at IS NULL');
     expect(claimCall!.template).toContain('teardown_started_at IS NULL');
     expect(claimCall!.template).toContain('terminal_at IS NULL');
   });
 
-  it('reactivation race: excludes a scheduled row already claimed by reactivation via reactivated_at', async () => {
+  it('reactivation race: excludes a scheduled row already claimed by reactivation via reactivation_claimed_at', async () => {
     testState.persistedOffboardingRow = makePersistedOffboardingRow({
       status: 'scheduled',
-      reactivated_at: new Date('2026-06-06T12:59:00.000Z'),
+      reactivation_claimed_at: new Date('2026-06-06T12:59:00.000Z'),
       teardown_started_at: null,
       terminal_at: null,
     });
@@ -309,7 +309,7 @@ describe('AccountOffboardingAccessEndPoller', () => {
       ),
     ).toBe(false);
     expect(testState.persistedOffboardingRow?.status).toBe('scheduled');
-    expect(testState.persistedOffboardingRow?.reactivated_at).not.toBeNull();
+    expect(testState.persistedOffboardingRow?.reactivation_claimed_at).not.toBeNull();
   });
 
   it('does not update, audit, or enqueue when revalidation loses the race', async () => {
@@ -330,7 +330,7 @@ describe('AccountOffboardingAccessEndPoller', () => {
   it('teardown claim win persists state that makes the reactivation predicate false', async () => {
     testState.persistedOffboardingRow = makePersistedOffboardingRow({
       status: 'scheduled',
-      reactivated_at: null,
+      reactivation_claimed_at: null,
       teardown_started_at: null,
       terminal_at: null,
     });

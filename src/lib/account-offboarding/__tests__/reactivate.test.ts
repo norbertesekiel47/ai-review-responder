@@ -62,8 +62,8 @@ interface TxOptions {
     status: string;
     teardown_started_at: Date | string | null;
     terminal_at: Date | string | null;
-    reactivated_at: Date | string | null;
-    last_error: string | null;
+    reactivation_claimed_at: Date | string | null;
+    reactivation_claim_token: string | null;
     stripe_subscription_id: string | null;
   } | null;
   idempotentReactivated?: {
@@ -100,7 +100,7 @@ function makeTx(options: TxOptions = {}) {
       return options.terminalReactivated ? [{ id: OFFBOARDING_ID }] : [];
     }
 
-    if (text.includes('UPDATE account_offboardings') && text.includes('SET reactivated_at = NOW()')) {
+    if (text.includes('UPDATE account_offboardings') && text.includes('SET reactivation_claimed_at = NOW()')) {
       return options.claimWins === false ? [] : [{ id: OFFBOARDING_ID }];
     }
 
@@ -122,8 +122,8 @@ function activeRow(overrides: Partial<TxOptions['active']> = {}) {
     status: 'scheduled',
     teardown_started_at: null,
     terminal_at: null,
-    reactivated_at: null,
-    last_error: null,
+    reactivation_claimed_at: null,
+    reactivation_claim_token: null,
     stripe_subscription_id: 'sub_snapshot_123',
     ...overrides,
   };
@@ -187,6 +187,7 @@ describe('reactivateCancelOnlyOffboarding', () => {
     expect(combinedSql).toContain('teardown_started_at IS NULL');
     expect(combinedSql).toContain('terminal_at IS NULL');
     expect(combinedSql).toContain("status = 'reactivated'");
+    expect(combinedSql).toContain('reactivation_claimed_at = NOW()');
     expect(combinedSql).toContain('reactivated_at = NOW()');
     expect(combinedSql).toContain('terminal_at = NOW()');
 
@@ -294,8 +295,8 @@ describe('reactivateCancelOnlyOffboarding', () => {
       },
     });
     expect(sqlText(calls)).not.toContain("status = 'reactivated'");
-    const clearCall = calls.find((call) => call.text.includes('SET reactivated_at = NULL'));
-    expect(clearCall?.values).toContain(`reactivation_claim:${IDEMPOTENCY_KEY_HASH}`);
+    const clearCall = calls.find((call) => call.text.includes('SET reactivation_claimed_at = NULL'));
+    expect(clearCall?.values).toContain(IDEMPOTENCY_KEY_HASH);
     expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
     expect(mockEnqueueOffboardingReactivated).not.toHaveBeenCalled();
   });
@@ -315,7 +316,7 @@ describe('reactivateCancelOnlyOffboarding', () => {
     })).rejects.toThrow('account_offboarding_stripe_reactivation_retryable');
 
     expect(sqlText(calls)).not.toContain("status = 'reactivated'");
-    expect(sqlText(calls)).not.toContain('SET reactivated_at = NULL');
+    expect(sqlText(calls)).not.toContain('SET reactivation_claimed_at = NULL');
     expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
     expect(mockEnqueueOffboardingReactivated).not.toHaveBeenCalled();
   });
@@ -344,9 +345,9 @@ describe('reactivateCancelOnlyOffboarding', () => {
       },
     });
     expect(sqlText(calls)).not.toContain("status = 'reactivated'");
-    const clearCall = calls.find((call) => call.text.includes('SET reactivated_at = NULL'));
-    expect(clearCall?.text).toContain('last_error =');
-    expect(clearCall?.values).toContain(`reactivation_claim:${IDEMPOTENCY_KEY_HASH}`);
+    const clearCall = calls.find((call) => call.text.includes('SET reactivation_claimed_at = NULL'));
+    expect(clearCall?.text).toContain('reactivation_claim_token =');
+    expect(clearCall?.values).toContain(IDEMPOTENCY_KEY_HASH);
     expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
     expect(mockEnqueueOffboardingReactivated).not.toHaveBeenCalled();
   });
@@ -354,8 +355,8 @@ describe('reactivateCancelOnlyOffboarding', () => {
   it('does not continue a reactivation claim owned by a different idempotency key', async () => {
     const { tx } = makeTx({
       active: activeRow({
-        reactivated_at: new Date(),
-        last_error: 'reactivation_claim:different-hash',
+        reactivation_claimed_at: new Date(),
+        reactivation_claim_token: 'different-hash',
       }),
     });
     mockSql.begin.mockImplementation(async (cb: (txArg: typeof tx) => Promise<unknown>) => cb(tx));
@@ -375,8 +376,8 @@ describe('reactivateCancelOnlyOffboarding', () => {
     const staleClaimedAt = new Date(Date.now() - 10 * 60 * 1000);
     const { tx, calls } = makeTx({
       active: activeRow({
-        reactivated_at: staleClaimedAt,
-        last_error: 'reactivation_claim:abandoned-hash',
+        reactivation_claimed_at: staleClaimedAt,
+        reactivation_claim_token: 'abandoned-hash',
       }),
     });
     mockSql.begin.mockImplementation(async (cb: (txArg: typeof tx) => Promise<unknown>) => cb(tx));
@@ -403,11 +404,11 @@ describe('reactivateCancelOnlyOffboarding', () => {
       expect.any(Object),
     );
     const takeoverCall = calls.find((call) => (
-      call.text.includes('reactivated_at IS NOT NULL')
-      && call.text.includes('last_error =')
-      && call.values.includes('reactivation_claim:abandoned-hash')
+      call.text.includes('reactivation_claimed_at IS NOT NULL')
+      && call.text.includes('reactivation_claim_token =')
+      && call.values.includes('abandoned-hash')
     ));
-    expect(takeoverCall?.values).toContain(`reactivation_claim:${IDEMPOTENCY_KEY_HASH}`);
+    expect(takeoverCall?.values).toContain(IDEMPOTENCY_KEY_HASH);
   });
 
   it('compensates Stripe and clears the claim when finalization throws after Stripe success', async () => {
@@ -430,9 +431,9 @@ describe('reactivateCancelOnlyOffboarding', () => {
           `account-offboarding-reactivate-compensate:22222222-2222-7333-8444-555555555555:aaaaaaaa-bbbb-7ccc-8ddd-eeeeeeeeeeee:${IDEMPOTENCY_KEY_HASH}`,
       },
     );
-    const clearCall = calls.find((call) => call.text.includes('SET reactivated_at = NULL'));
-    expect(clearCall?.text).toContain('last_error =');
-    expect(clearCall?.values).toContain(`reactivation_claim:${IDEMPOTENCY_KEY_HASH}`);
+    const clearCall = calls.find((call) => call.text.includes('SET reactivation_claimed_at = NULL'));
+    expect(clearCall?.text).toContain('reactivation_claim_token =');
+    expect(clearCall?.values).toContain(IDEMPOTENCY_KEY_HASH);
   });
 
   it('uses a state-conditional update so teardown cannot win after reactivation claims the row', async () => {
@@ -445,20 +446,20 @@ describe('reactivateCancelOnlyOffboarding', () => {
       idempotencyKey: IDEMPOTENCY_KEY,
     });
 
-    const claimCall = calls.find((call) => call.text.includes('SET reactivated_at = NOW()'));
+    const claimCall = calls.find((call) => call.text.includes('SET reactivation_claimed_at = NOW()'));
     expect(claimCall?.text).toContain("status = 'scheduled'");
     expect(claimCall?.text).toContain('teardown_started_at IS NULL');
     expect(claimCall?.text).toContain('terminal_at IS NULL');
-    expect(claimCall?.text).toContain('reactivated_at IS NULL');
-    expect(claimCall?.text).toContain('last_error =');
-    expect(claimCall?.values).toContain(`reactivation_claim:${IDEMPOTENCY_KEY_HASH}`);
+    expect(claimCall?.text).toContain('reactivation_claimed_at IS NULL');
+    expect(claimCall?.text).toContain('reactivation_claim_token =');
+    expect(claimCall?.values).toContain(IDEMPOTENCY_KEY_HASH);
 
     const finalUpdateCall = calls.find((call) => call.text.includes("status = 'reactivated'"));
     expect(finalUpdateCall?.text).toContain("status = 'scheduled'");
     expect(finalUpdateCall?.text).toContain('teardown_started_at IS NULL');
     expect(finalUpdateCall?.text).toContain('terminal_at IS NULL');
-    expect(finalUpdateCall?.text).toContain('reactivated_at IS NOT NULL');
-    expect(finalUpdateCall?.text).toContain('last_error =');
+    expect(finalUpdateCall?.text).toContain('reactivation_claimed_at IS NOT NULL');
+    expect(finalUpdateCall?.text).toContain('reactivation_claim_token =');
   });
 
   it('scopes worker-driven claims to the payload account_offboarding_id', async () => {

@@ -2,6 +2,7 @@ import type { Job } from 'bullmq';
 import { v7 as uuidv7 } from 'uuid';
 import { sql } from '../../../src/lib/db/server';
 import {
+  errorMessage,
   extractOutboxHandle,
   markOutboxCompleted,
   markOutboxFailed,
@@ -602,9 +603,5 @@ function buildKeepMyDataUrl(appUrl: string, rawToken: string): string {
 
 function emailSendIdempotencyKey(deliveryId: string): string {
   return accountOffboardingEmailSendIdempotencyKey(deliveryId);
-}
-
-function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }
 

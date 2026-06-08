@@ -128,4 +128,52 @@ d('migration 056 account_offboardings — lifecycle CHECK constraints (behaviora
       insertOffboarding({ mode: 'cancel_only', status: 'purge_scheduled' }),
     ).rejects.toThrow(/account_offboardings_mode_status_check/);
   });
+
+  it('rejects a second active (non-terminal) offboarding for the same account (one_active_per_account)', async () => {
+    await insertOffboarding({ mode: 'delete_data', status: 'pending' });
+    await expect(
+      insertOffboarding({ mode: 'cancel_only', status: 'pending' }),
+    ).rejects.toThrow(/account_offboardings_one_active_per_account/);
+  });
+
+  it('admits a new active offboarding once the prior one is terminal (partial-unique excludes terminal_at)', async () => {
+    await insertOffboarding({
+      mode: 'cancel_only',
+      status: 'churned',
+      terminalAt: '2026-06-06T12:00:00.000Z',
+    });
+    await insertOffboarding({ mode: 'delete_data', status: 'pending' });
+    const [row] = await sql()<{ count: string }[]>`
+      SELECT count(*)::text AS count
+      FROM account_offboardings
+      WHERE account_id = ${tenant.accountId}::uuid
+    `;
+    expect(row?.count).toBe('2');
+  });
+});
+
+d('migration 056 deny-all RLS (behavioral)', () => {
+  let rlsDb: postgresType.Sql | undefined;
+
+  beforeAll(() => {
+    rlsDb = postgres(testDatabaseUrl!, { max: 1, prepare: false });
+  });
+
+  afterAll(async () => {
+    if (rlsDb) await rlsDb.end({ timeout: 5 });
+  });
+
+  it('denies the authenticated role read access to account_offboardings', async () => {
+    await expect(rlsDb!.begin(async (tx) => {
+      await tx`SET LOCAL ROLE authenticated`;
+      await tx`SELECT id FROM account_offboardings LIMIT 1`;
+    })).rejects.toThrow(/permission denied for (table|relation) account_offboardings/i);
+  });
+
+  it('denies the authenticated role read access to account_offboarding_tokens', async () => {
+    await expect(rlsDb!.begin(async (tx) => {
+      await tx`SET LOCAL ROLE authenticated`;
+      await tx`SELECT id FROM account_offboarding_tokens LIMIT 1`;
+    })).rejects.toThrow(/permission denied for (table|relation) account_offboarding_tokens/i);
+  });
 });

@@ -66,6 +66,8 @@ import { startAnalyticsDispatchPoller, stopAnalyticsDispatchPoller } from './bac
 import { startAccountOffboardingAccessEndPoller, stopAccountOffboardingAccessEndPoller } from './background/pollers/AccountOffboardingAccessEndPoller';
 import { startAccountOffboardingPurgePoller, stopAccountOffboardingPurgePoller } from './background/pollers/AccountOffboardingPurgePoller';
 import { startAccountOffboardingPurgeReminderPoller, stopAccountOffboardingPurgeReminderPoller } from './background/pollers/AccountOffboardingPurgeReminderPoller';
+import { startAccountOffboardingReactivationResetPoller, stopAccountOffboardingReactivationResetPoller } from './background/pollers/AccountOffboardingReactivationResetPoller';
+import { startAccountOffboardingTeardownRetryPoller, stopAccountOffboardingTeardownRetryPoller } from './background/pollers/AccountOffboardingTeardownRetryPoller';
 import { isMockMode } from '../src/lib/shared/mock-mode';
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
@@ -341,6 +343,8 @@ async function main(): Promise<void> {
   startAccountOffboardingAccessEndPoller();
   startAccountOffboardingPurgePoller();
   startAccountOffboardingPurgeReminderPoller();
+  startAccountOffboardingReactivationResetPoller();
+  startAccountOffboardingTeardownRetryPoller();
   console.log(`Worker service running on port ${PORT}`);
 }
 
@@ -365,6 +369,8 @@ async function shutdown(): Promise<void> {
   stopAccountOffboardingAccessEndPoller();
   stopAccountOffboardingPurgePoller();
   stopAccountOffboardingPurgeReminderPoller();
+  stopAccountOffboardingReactivationResetPoller();
+  stopAccountOffboardingTeardownRetryPoller();
   // Await the analytics drain so we never mark rows completed (or call PostHog)
   // after the client is shut down and the DB pool is closed below.
   await stopAnalyticsDispatchPoller();

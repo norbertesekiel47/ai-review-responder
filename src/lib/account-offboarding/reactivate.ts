@@ -7,7 +7,6 @@ import { enqueueAccountOffboardingEmail } from '@/lib/shared/job-outbox-helpers'
 import { enqueueOffboardingReactivated } from './analytics';
 
 type SqlExecutor = typeof sql | postgres.TransactionSql;
-const REACTIVATION_CLAIM_PREFIX = 'reactivation_claim:';
 const STALE_REACTIVATION_CLAIM_MS = 5 * 60 * 1000;
 
 interface ReactivatableOffboardingRow {
@@ -16,8 +15,12 @@ interface ReactivatableOffboardingRow {
   status: 'scheduled';
   teardown_started_at: Date | string | null;
   terminal_at: Date | string | null;
-  reactivated_at: Date | string | null;
-  last_error: string | null;
+  // Dedicated reactivation-claim columns (migration 060). reactivation_claimed_at
+  // is the in-flight marker; reactivation_claim_token is the claiming idempotency
+  // key hash. reactivated_at is NOT a claim marker — it stamps only at terminal
+  // success in finalizeReactivation.
+  reactivation_claimed_at: Date | string | null;
+  reactivation_claim_token: string | null;
   stripe_subscription_id: string | null;
 }
 
@@ -152,6 +155,10 @@ export async function reactivateCancelOnlyOffboarding(
         },
       };
     }
+    // Best-effort compensation: if compensateReactivationStripeReversal itself
+    // throws, the claim is intentionally left set and we rethrow. The row is not
+    // stranded — AccountOffboardingReactivationResetPoller detects the stale claim
+    // (>5min), idempotently re-applies the Stripe reversal, and releases it.
     if (await shouldCompensateReactivation(offboarding, input.accountId, idempotencyKeyHash)) {
       await compensateReactivationStripeReversal(
         offboarding,
@@ -200,18 +207,17 @@ async function claimReactivation(
       return { kind: 'not_reactivatable' };
     }
 
-    if (offboarding.reactivated_at !== null) {
-      const currentMarker = reactivationClaimMarker(idempotencyKeyHash);
-      if (offboarding.last_error === currentMarker) {
+    if (offboarding.reactivation_claimed_at !== null) {
+      if (offboarding.reactivation_claim_token === idempotencyKeyHash) {
         return { kind: 'claimed', offboarding };
       }
-      if (!isStaleReactivationClaim(offboarding.reactivated_at)) {
+      if (!isStaleReactivationClaim(offboarding.reactivation_claimed_at)) {
         return { kind: 'state_changed' };
       }
       const takeover = await tx<{ id: string }[]>`
         UPDATE account_offboardings
-        SET reactivated_at = NOW(),
-            last_error = ${currentMarker},
+        SET reactivation_claimed_at = NOW(),
+            reactivation_claim_token = ${idempotencyKeyHash},
             updated_at = NOW()
         WHERE id = ${offboarding.id}::uuid
           AND account_id = ${accountId}::uuid
@@ -219,8 +225,8 @@ async function claimReactivation(
           AND status = 'scheduled'
           AND teardown_started_at IS NULL
           AND terminal_at IS NULL
-          AND reactivated_at IS NOT NULL
-          AND last_error = ${offboarding.last_error}
+          AND reactivation_claimed_at IS NOT NULL
+          AND reactivation_claim_token = ${offboarding.reactivation_claim_token}
         RETURNING id
       `;
       if (takeover.length === 0) return { kind: 'state_changed' };
@@ -228,16 +234,16 @@ async function claimReactivation(
         kind: 'claimed',
         offboarding: {
           ...offboarding,
-          reactivated_at: new Date(),
-          last_error: currentMarker,
+          reactivation_claimed_at: new Date(),
+          reactivation_claim_token: idempotencyKeyHash,
         },
       };
     }
 
     const claimed = await tx<{ id: string }[]>`
       UPDATE account_offboardings
-      SET reactivated_at = NOW(),
-          last_error = ${reactivationClaimMarker(idempotencyKeyHash)},
+      SET reactivation_claimed_at = NOW(),
+          reactivation_claim_token = ${idempotencyKeyHash},
           updated_at = NOW()
       WHERE id = ${offboarding.id}::uuid
         AND account_id = ${accountId}::uuid
@@ -245,7 +251,7 @@ async function claimReactivation(
         AND status = 'scheduled'
         AND teardown_started_at IS NULL
         AND terminal_at IS NULL
-        AND reactivated_at IS NULL
+        AND reactivation_claimed_at IS NULL
       RETURNING id
     `;
     if (claimed.length === 0) return { kind: 'state_changed' };
@@ -253,8 +259,8 @@ async function claimReactivation(
       kind: 'claimed',
       offboarding: {
         ...offboarding,
-        reactivated_at: new Date(),
-        last_error: reactivationClaimMarker(idempotencyKeyHash),
+        reactivation_claimed_at: new Date(),
+        reactivation_claim_token: idempotencyKeyHash,
       },
     };
   });
@@ -269,8 +275,10 @@ async function finalizeReactivation(
     const updated = await tx<{ id: string }[]>`
       UPDATE account_offboardings
       SET status = 'reactivated',
-          reactivated_at = COALESCE(reactivated_at, NOW()),
+          reactivated_at = NOW(),
           terminal_at = NOW(),
+          reactivation_claimed_at = NULL,
+          reactivation_claim_token = NULL,
           last_error = NULL,
           updated_at = NOW()
       WHERE id = ${offboarding.id}::uuid
@@ -279,8 +287,8 @@ async function finalizeReactivation(
         AND status = 'scheduled'
         AND teardown_started_at IS NULL
         AND terminal_at IS NULL
-        AND reactivated_at IS NOT NULL
-        AND last_error = ${reactivationClaimMarker(idempotencyKeyHash)}
+        AND reactivation_claimed_at IS NOT NULL
+        AND reactivation_claim_token = ${idempotencyKeyHash}
       RETURNING id
     `;
     if (updated.length === 0) {
@@ -385,16 +393,16 @@ async function clearReactivationClaim(
 ): Promise<void> {
   await sql`
     UPDATE account_offboardings
-    SET reactivated_at = NULL,
-        last_error = NULL,
+    SET reactivation_claimed_at = NULL,
+        reactivation_claim_token = NULL,
         updated_at = NOW()
     WHERE id = ${offboarding.id}::uuid
       AND account_id = ${accountId}::uuid
       AND mode = 'cancel_only'
       AND status = 'scheduled'
       AND terminal_at IS NULL
-      AND reactivated_at IS NOT NULL
-      AND last_error = ${reactivationClaimMarker(idempotencyKeyHash)}
+      AND reactivation_claimed_at IS NOT NULL
+      AND reactivation_claim_token = ${idempotencyKeyHash}
   `;
 }
 
@@ -407,23 +415,22 @@ async function shouldCompensateReactivation(
     return false;
   }
 
-  const [row] = await sql<{ last_error: string | null }[]>`
-    SELECT last_error
+  const [row] = await sql<{ reactivation_claim_token: string | null }[]>`
+    SELECT reactivation_claim_token
     FROM account_offboardings
     WHERE id = ${offboarding.id}::uuid
       AND account_id = ${accountId}::uuid
       AND mode = 'cancel_only'
       AND status = 'scheduled'
       AND terminal_at IS NULL
-      AND reactivated_at IS NOT NULL
+      AND reactivation_claimed_at IS NOT NULL
     LIMIT 1
   `;
 
-  const marker = row?.last_error;
-  return !(
-    marker?.startsWith(REACTIVATION_CLAIM_PREFIX)
-    && marker !== reactivationClaimMarker(idempotencyKeyHash)
-  );
+  // Compensate UNLESS a different idempotency key now owns the claim (it will run
+  // its own finalize/compensation). No claim, or our own claim → compensate.
+  const token = row?.reactivation_claim_token;
+  return !(token != null && token !== idempotencyKeyHash);
 }
 
 function accountOffboardingReactivationIdempotencyKey(
@@ -455,7 +462,7 @@ async function lockReactivatableOffboarding(
 ): Promise<ReactivatableOffboardingRow | null> {
   if (accountOffboardingId) {
     const [row] = await tx<ReactivatableOffboardingRow[]>`
-      SELECT id, mode, status, teardown_started_at, terminal_at, reactivated_at, last_error, stripe_subscription_id
+      SELECT id, mode, status, teardown_started_at, terminal_at, reactivation_claimed_at, reactivation_claim_token, stripe_subscription_id
       FROM account_offboardings
       WHERE id = ${accountOffboardingId}::uuid
         AND account_id = ${accountId}::uuid
@@ -471,7 +478,7 @@ async function lockReactivatableOffboarding(
   }
 
   const [row] = await tx<ReactivatableOffboardingRow[]>`
-    SELECT id, mode, status, teardown_started_at, terminal_at, reactivated_at, last_error, stripe_subscription_id
+    SELECT id, mode, status, teardown_started_at, terminal_at, reactivation_claimed_at, reactivation_claim_token, stripe_subscription_id
     FROM account_offboardings
     WHERE account_id = ${accountId}::uuid
       AND mode = 'cancel_only'
@@ -552,10 +559,6 @@ async function isTerminalReactivatedOffboarding(
     LIMIT 1
   `;
   return Boolean(row);
-}
-
-function reactivationClaimMarker(idempotencyKeyHash: string): string {
-  return `${REACTIVATION_CLAIM_PREFIX}${idempotencyKeyHash}`;
 }
 
 function isStaleReactivationClaim(value: Date | string): boolean {

@@ -26,9 +26,37 @@ vi.mock('../../db/server', () => ({
 }));
 
 import {
+  absentByBusiness,
   PURGE_VERIFICATION_SQL_TABLES,
+  verificationQuery,
   verifyAccountOffboardingPurge,
 } from '../purge-verification';
+
+describe('purge verification fail-closed guards', () => {
+  const noopExec = (() => Promise.resolve([])) as unknown as Parameters<typeof verificationQuery>[2];
+
+  it('throws for a table with no verification branch so inventory drift is caught, not silently passed', () => {
+    expect(() => verificationQuery(
+      'a_future_unclassified_table',
+      {
+        accountId: 'acct-1',
+        offboardingId: 'off-1',
+        currentOutboxId: null,
+        authUserId: null,
+        stripeCustomerId: null,
+        stripeSubscriptionId: null,
+        zernioAccountIds: null,
+        zernioProfileIds: null,
+      } as unknown as Parameters<typeof verificationQuery>[1],
+      noopExec,
+    )).toThrow('missing_purge_verification_sql:a_future_unclassified_table');
+  });
+
+  it('throws for an absent-by-business table that is not on the allowlist', () => {
+    expect(() => absentByBusiness('a_future_unclassified_table', 'acct-1', noopExec))
+      .toThrow('missing_absent_by_business_sql:a_future_unclassified_table');
+  });
+});
 
 describe('purge verification', () => {
   beforeEach(() => {

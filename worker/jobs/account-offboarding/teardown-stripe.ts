@@ -67,16 +67,7 @@ export async function runStripeTeardown(row: StripeTeardownRow): Promise<void> {
 
   const stripe = getStripe();
   if (row.mode === 'delete_data') {
-    await stripe.subscriptions.cancel(
-      activeSubscriptionId,
-      { invoice_now: false, prorate: false },
-      {
-        idempotencyKey: accountOffboardingTeardownStripeIdempotencyKey(
-          row.id,
-          row.account_id,
-        ),
-      },
-    );
+    await cancelDeleteDataSubscription(stripe, activeSubscriptionId, row);
   }
   await cleanupSubscriptionInvoices({
     stripe,
@@ -91,4 +82,74 @@ export async function runStripeTeardown(row: StripeTeardownRow): Promise<void> {
     WHERE id = ${row.id}::uuid
       AND account_id = ${row.account_id}::uuid
   `;
+}
+
+// Cancel the delete_data subscription, tolerating a subscription that is already
+// canceled or deleted. The subscription can reach that state out-of-band (Stripe
+// dunning, a customer.subscription.deleted race, a manual cancel) or on a teardown
+// retry past the ~24h idempotency-key window. Re-cancelling then raises a permanent
+// StripeInvalidRequestError; without this guard the destructive delete_data row
+// strands as `failed` even though the desired end-state (canceled) already holds.
+// Retryable errors still propagate to BullMQ; an unrecognized error is never masked.
+async function cancelDeleteDataSubscription(
+  stripe: Stripe,
+  subscriptionId: string,
+  row: StripeTeardownRow,
+): Promise<void> {
+  try {
+    await stripe.subscriptions.cancel(
+      subscriptionId,
+      { invoice_now: false, prorate: false },
+      {
+        idempotencyKey: accountOffboardingTeardownStripeIdempotencyKey(
+          row.id,
+          row.account_id,
+        ),
+      },
+    );
+    return;
+  } catch (err) {
+    if (isRetryableStripeError(err)) throw err;
+    if (!isStripeInvalidRequestError(err)) throw err;
+    if (isStripeResourceMissing(err)) return; // subscription already deleted
+    // Permanent invalid-request that isn't resource_missing: confirm the
+    // subscription really is already canceled before treating it as done.
+    let status: string;
+    try {
+      const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+      status = typeof subscription.status === 'string' ? subscription.status : 'unknown';
+    } catch (retrieveErr) {
+      if (isStripeResourceMissing(retrieveErr)) return; // deleted between cancel and retrieve
+      throw err; // surface the original cancel error, which is more meaningful
+    }
+    if (status !== 'canceled') throw err;
+  }
+}
+
+function isRetryableStripeError(err: unknown): boolean {
+  const error = err as { type?: unknown; statusCode?: unknown };
+  const type = typeof error.type === 'string' ? error.type : '';
+  if (
+    type === 'StripeAPIConnectionError'
+    || type === 'StripeConnectionError'
+    || type === 'StripeAPIError'
+    || type === 'StripeRateLimitError'
+  ) {
+    return true;
+  }
+  const statusCode = typeof error.statusCode === 'number' ? error.statusCode : null;
+  if (statusCode !== null) return statusCode === 429 || statusCode >= 500;
+  return false;
+}
+
+function isStripeInvalidRequestError(err: unknown): boolean {
+  const error = err as { type?: unknown; statusCode?: unknown };
+  if (error.type === 'StripeInvalidRequestError') return true;
+  const statusCode = typeof error.statusCode === 'number' ? error.statusCode : null;
+  return statusCode !== null && statusCode >= 400 && statusCode < 500;
+}
+
+function isStripeResourceMissing(err: unknown): boolean {
+  const error = err as { code?: unknown; statusCode?: unknown };
+  return error.code === 'resource_missing' || error.statusCode === 404;
 }

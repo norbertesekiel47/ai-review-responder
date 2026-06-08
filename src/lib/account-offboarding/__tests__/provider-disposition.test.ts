@@ -55,6 +55,12 @@ function offboardingRow(overrides: Record<string, unknown> = {}) {
     terminal_at: null,
     purge_after: '2026-07-01T12:00:00.000Z',
     purge_cancelled_at: null,
+    // Snapshot drives applicability: this row had a Stripe sub, one Zernio account,
+    // no Zernio profiles, and one location. Zernio-account teardown failed.
+    stripe_subscription_id: 'sub_live_1',
+    zernio_account_ids: ['zacct-1'],
+    zernio_profile_ids: [],
+    location_ids: ['loc-1'],
     stripe_step: 'success',
     zernio_accounts_step: 'failed',
     zernio_profiles_step: 'not_applicable',
@@ -173,8 +179,13 @@ describe('recordProviderDisposition', () => {
     vi.useRealTimers();
   });
 
-  it('does not transition to purge scheduled when the provider record does not cover the failed step', async () => {
-    txResults.push([offboardingRow({ zernio_accounts_step: 'success', zernio_profiles_step: 'success' })]);
+  it('does not transition to purge scheduled when another applicable provider step remains uncovered', async () => {
+    // Zernio-account AND location teardown both failed; a Zernio disposition covers
+    // only one. The Google/location resource is still applicable + un-dispositioned.
+    txResults.push([offboardingRow({
+      zernio_accounts_step: 'failed',
+      location_archival_step: 'failed',
+    })]);
 
     const result = await recordProviderDisposition({
       offboardingId: OFFBOARDING_ID,
@@ -186,6 +197,80 @@ describe('recordProviderDisposition', () => {
     });
 
     expect(result.transitionedToPurgeScheduled).toBe(false);
+  });
+
+  it('does not force-purge with a stripe-only disposition while an applicable Zernio account was never torn down (H2)', async () => {
+    // The bug: teardown aborts at the FIRST failed step (Stripe), so the Zernio
+    // account step never runs and sits at its 'not_applicable' DEFAULT even though
+    // zernio_account_ids is non-empty. A stripe-only disposition must NOT terminalize
+    // the purge while that live Zernio account is unresolved and un-dispositioned.
+    txResults.push([offboardingRow({
+      stripe_step: 'failed',
+      zernio_account_ids: ['zacct-1'],
+      zernio_accounts_step: 'not_applicable',
+      location_archival_step: 'success',
+    })]);
+
+    const result = await recordProviderDisposition({
+      offboardingId: OFFBOARDING_ID,
+      adminUserId: ADMIN_ID,
+      provider: 'stripe',
+      resourceType: 'subscription',
+      resourceReference: 'sub_live_1',
+      reason: 'Stripe support voided the subscription manually.',
+    });
+
+    expect(result.transitionedToPurgeScheduled).toBe(false);
+  });
+
+  it('transitions to purge scheduled once every applicable provider failure is dispositioned (H2)', async () => {
+    const priorGoogleDisposition = buildAdminProviderDispositionRecord({
+      offboardingId: OFFBOARDING_ID,
+      adminUserId: ADMIN_ID,
+      provider: 'google',
+      resourceType: 'location',
+      resourceReference: 'loc-1',
+      reason: 'Google location archived manually.',
+    });
+    txResults.push([offboardingRow({
+      zernio_accounts_step: 'failed',
+      location_archival_step: 'failed',
+      provider_dispositions: [priorGoogleDisposition],
+    })]);
+
+    const result = await recordProviderDisposition({
+      offboardingId: OFFBOARDING_ID,
+      adminUserId: ADMIN_ID,
+      provider: 'zernio',
+      resourceType: 'account',
+      resourceReference: RAW_RESOURCE_REFERENCE,
+      reason: 'Zernio support confirmed remote account teardown.',
+    });
+
+    expect(result.transitionedToPurgeScheduled).toBe(true);
+  });
+
+  it('force-purges with a stripe-only disposition when no other provider work was applicable', async () => {
+    txResults.push([offboardingRow({
+      stripe_step: 'failed',
+      zernio_account_ids: [],
+      zernio_profile_ids: [],
+      zernio_accounts_step: 'not_applicable',
+      zernio_profiles_step: 'not_applicable',
+      location_ids: [],
+      location_archival_step: 'not_applicable',
+    })]);
+
+    const result = await recordProviderDisposition({
+      offboardingId: OFFBOARDING_ID,
+      adminUserId: ADMIN_ID,
+      provider: 'stripe',
+      resourceType: 'subscription',
+      resourceReference: 'sub_live_1',
+      reason: 'Stripe support voided the subscription manually.',
+    });
+
+    expect(result.transitionedToPurgeScheduled).toBe(true);
   });
 
   it('throws not_found without writing audit when the offboarding row is absent', async () => {

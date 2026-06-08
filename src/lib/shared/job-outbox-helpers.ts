@@ -445,12 +445,16 @@ export async function enqueueAccountOffboardingPurge(
   return outboxId;
 }
 
-function deterministicAccountOffboardingEmailOutboxId(
-  accountOffboardingId: string,
-  emailType: AccountOffboardingEmailPayload['email_type'],
-): string {
+/**
+ * Deterministic, collision-resistant outbox id derived from a namespace + parts
+ * (UUIDv5-shaped: SHA-256 of `namespace:part:part...`, version 0x5 / RFC-4122
+ * variant). Same inputs always yield the same id, so it doubles as the outbox
+ * idempotency key. Changing the namespace or the parts changes the id — never
+ * reorder or alter them for an existing job type.
+ */
+function deterministicOutboxId(namespace: string, ...parts: string[]): string {
   const digest = createHash('sha256')
-    .update(`${ACCOUNT_OFFBOARDING_EMAIL_OUTBOX_NAMESPACE}:${accountOffboardingId}:${emailType}`)
+    .update([namespace, ...parts].join(':'))
     .digest();
   const bytes = Uint8Array.from(digest.subarray(0, 16));
   bytes[6] = (bytes[6]! & 0x0f) | 0x50;
@@ -465,22 +469,24 @@ function deterministicAccountOffboardingEmailOutboxId(
   ].join('-');
 }
 
+function deterministicAccountOffboardingEmailOutboxId(
+  accountOffboardingId: string,
+  emailType: AccountOffboardingEmailPayload['email_type'],
+): string {
+  return deterministicOutboxId(
+    ACCOUNT_OFFBOARDING_EMAIL_OUTBOX_NAMESPACE,
+    accountOffboardingId,
+    emailType,
+  );
+}
+
 function deterministicAccountOffboardingReactivationOutboxId(
   accountOffboardingId: string,
   idempotencyKeyHash: string,
 ): string {
-  const digest = createHash('sha256')
-    .update(`${ACCOUNT_OFFBOARDING_REACTIVATION_OUTBOX_NAMESPACE}:${accountOffboardingId}:${idempotencyKeyHash}`)
-    .digest();
-  const bytes = Uint8Array.from(digest.subarray(0, 16));
-  bytes[6] = (bytes[6]! & 0x0f) | 0x50;
-  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
-  const hex = Buffer.from(bytes).toString('hex');
-  return [
-    hex.slice(0, 8),
-    hex.slice(8, 12),
-    hex.slice(12, 16),
-    hex.slice(16, 20),
-    hex.slice(20),
-  ].join('-');
+  return deterministicOutboxId(
+    ACCOUNT_OFFBOARDING_REACTIVATION_OUTBOX_NAMESPACE,
+    accountOffboardingId,
+    idempotencyKeyHash,
+  );
 }

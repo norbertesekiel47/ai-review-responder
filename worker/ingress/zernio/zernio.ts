@@ -59,6 +59,17 @@ async function processAccountDisconnected(body: ZernioWebhookBody): Promise<void
   const reason = typeof body.reason === 'string' ? body.reason : 'webhook account.disconnected';
 
   await sql.begin(async (tx) => {
+    // Teardown reconciliation, intentionally narrowed to SINGLE-account snapshots.
+    //
+    // `zernio_accounts_step` is one outcome for the whole `zernio_account_ids`
+    // array, and there is no per-account reconciliation column. A single
+    // account.disconnected event therefore can only PROVE the step is done when
+    // that account is the entire snapshot (cardinality = 1). For multi-account
+    // snapshots one disconnect says nothing about the others, so we do NOT stamp
+    // here — the authoritative, idempotent driver is `runZernioTeardown`'s provider
+    // DELETE loop (404/410 ⇒ success). The webhook still suppresses the
+    // connection-lost notification for multi-account teardowns (below) so an owner
+    // mid-offboarding is not paged about an expected disconnect.
     const teardownReconciled = await tx`
       UPDATE account_offboardings
       SET zernio_accounts_step = 'success',

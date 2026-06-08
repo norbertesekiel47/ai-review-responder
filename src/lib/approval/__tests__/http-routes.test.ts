@@ -411,6 +411,7 @@ describe('runDashboardReviewAction', () => {
     sqlResults.push([ACTIVE_ACCOUNT_ROW]);
     sqlResults.push([]); // SELECT id ... FOR UPDATE
     sqlResults.push([]); // hasOpenFlag → no open flag
+    sqlResults.push([ACTIVE_ACCOUNT_ROW]); // in-tx writable/offboarding re-assert (business)
     const action = vi.fn();
 
     const res = await runDashboardReviewAction(
@@ -436,6 +437,28 @@ describe('runDashboardReviewAction', () => {
       audit: { actorUserId: 'owner-1', ipAddress: '203.0.113.10' },
       correlationId: 'corr-1',
     }));
+  });
+
+  it('re-asserts the writable/offboarding gate inside the tx and blocks an offboarding confirmed after the pre-tx check', async () => {
+    sqlResults.push([{ id: 'resp-1', business_id: 'biz-1', status: 'pending_approval' }]); // response lookup
+    sqlResults.push([ACTIVE_ACCOUNT_ROW]); // outer pre-tx account gate still sees a writable account
+    sqlResults.push([]); // SELECT ... FOR UPDATE
+    sqlResults.push([]); // hasOpenFlag → no open flag
+    sqlResults.push([OFFBOARDING_ACCOUNT_ROW]); // in-tx business gate now sees an active offboarding
+    const action = vi.fn();
+
+    const res = await runDashboardReviewAction(
+      request(),
+      'rev-1',
+      { id: 'owner-1', accountId: 'acct-1' },
+      'approve',
+      'Response approved.',
+      action,
+    );
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'account_offboarding_blocked' });
+    expect(action).not.toHaveBeenCalled();
   });
 
   it('returns 409 and skips the action when an open moderation flag holds the draft', async () => {
@@ -483,6 +506,7 @@ describe('runDashboardReviewAction', () => {
     sqlResults.push([ACTIVE_ACCOUNT_ROW]);
     sqlResults.push([]); // SELECT id ... FOR UPDATE
     sqlResults.push([]); // hasOpenFlag → no open flag
+    sqlResults.push([ACTIVE_ACCOUNT_ROW]); // in-tx writable/offboarding re-assert (business)
     const staleRes = await runDashboardReviewAction(
       request(),
       'rev-1',
@@ -499,6 +523,7 @@ describe('runDashboardReviewAction', () => {
     sqlResults.push([ACTIVE_ACCOUNT_ROW]);
     sqlResults.push([]); // SELECT id ... FOR UPDATE
     sqlResults.push([]); // hasOpenFlag → no open flag
+    sqlResults.push([ACTIVE_ACCOUNT_ROW]); // in-tx writable/offboarding re-assert (business)
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const unexpectedRes = await runDashboardReviewAction(
       request(),
