@@ -300,8 +300,15 @@ describe('AccountOffboarding PurgeWorker', () => {
     expect(sqlText).toContain("status IN ('pending', 'dispatching', 'dispatched')");
     expect(sqlText).toContain('WHERE id = ?::uuid');
     expect(sqlText).toContain('payload = ?');
-    expect(sqlText).toContain('approval_link_id = NULL');
-    expect(sqlText).toContain('user_agent = NULL');
+    // D3 regression: scrub the REAL approval_audit_log PII columns; never the
+    // phantom columns approval_link_id / user_agent (which don't exist in the
+    // schema and made every purge throw). Scoped to the approval_audit_log
+    // statement so a real user_agent column on another table can't mask this.
+    const approvalScrub = calls.find((call) => call.text.includes('UPDATE approval_audit_log'));
+    expect(approvalScrub?.text).toContain('response_text_at_approval = NULL');
+    expect(approvalScrub?.text).toContain('token_hash = NULL');
+    expect(approvalScrub?.text).not.toContain('approval_link_id');
+    expect(approvalScrub?.text).not.toContain('user_agent');
     expect(sqlText).toContain('provider_dispositions = provider_dispositions ||');
     const notificationDelete = calls.find((call) => call.text.includes('DELETE FROM notification_deliveries'));
     expect(notificationDelete?.text).toContain('nd.account_id =');

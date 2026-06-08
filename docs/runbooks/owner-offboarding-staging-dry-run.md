@@ -83,13 +83,14 @@ auth_method, account_id, response_text_at_approval`). The statement raises
 purge retries to the cap and lands `status='failed', failed_step='purge'`,
 `purged_at` never set. delete_data accounts therefore reach `purge_scheduled` but
 the data is **never actually deleted** — a functional *and* compliance failure
-(deletion promised, not delivered). The scrub also **omits the real PII column
-`response_text_at_approval`**, so even after the SQL is fixed it would leave
-sensitive data behind. `purge-verification.ts:204` references the same phantom
-`approval_link_id` column. *Fix:* rewrite the scrub + verification against the
-real schema (null `response_text_at_approval`, drop the phantom columns). Same
-mock-drift root cause as D1 — `PurgeWorker.test.ts` asserts on SQL *text*, never
-against the real table. Live evidence: offboarding
+(deletion promised, not delivered). The scrub *does* correctly null the real PII
+columns (incl. `response_text_at_approval`, line 189); the only defect is the two
+phantom columns. `purge-verification.ts:204,207` reference the same two phantoms.
+*Fix (DONE):* drop `approval_link_id` + `user_agent` from the scrub + verification
+— verified against the real staging schema (old SQL errors, corrected SQL runs
+clean) and locked with a real-DB integration test. Same mock-drift root cause as
+D1 — `PurgeWorker.test.ts` asserted the SQL *text* (it even asserted the phantom
+columns were present), never against the real table. Live evidence: offboarding
 `019ea745-aff9-7434-96fb-43bdfba424e2`, `failed_step='purge'`, `retry_count=3`.
 
 > Common theme across D1 + D3: tests assert on mocked Stripe responses / SQL
