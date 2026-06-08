@@ -22,13 +22,19 @@ Confirm each before starting. Check the box and record the value/evidence.
 
 - [ ] **Migrations applied to the staging Supabase project, staging-first**:
       `056_account_offboarding.sql`, `057_account_offboarding_tombstone_nullability.sql`
-      (if present), `058_offboarding_analytics_events.sql`. Migrations-log head
-      is `058`. Record applied-at timestamps.
-- [ ] Production Supabase is **not** yet ahead of staging on any of 056/057/058
+      (if present), `058_offboarding_analytics_events.sql`,
+      `059_account_offboarding_purge_reminder.sql` (adds `purge_reminder_sent_at`),
+      `060_account_offboarding_reactivation_claim.sql` (adds `reactivation_claimed_at`
+      + `reactivation_claim_token`). Migrations-log head is `060`. Record
+      applied-at timestamps.
+- [ ] Production Supabase is **not** yet ahead of staging on any of 056–060
       (lockstep rule: staging first, prod during promotion).
 - [ ] Railway **staging** worker is deployed from the offboarding branch and
-      booted clean (startup assert lists `ACCOUNT_OFFBOARDING_ENABLED`; offboarding
-      Workers and the two pollers registered).
+      booted clean (startup assert lists `ACCOUNT_OFFBOARDING_ENABLED`; the
+      offboarding Workers and **all five** pollers registered:
+      `AccountOffboardingAccessEndPoller`, `AccountOffboardingPurgePoller`,
+      `AccountOffboardingPurgeReminderPoller`, `AccountOffboardingReactivationResetPoller`,
+      `AccountOffboardingTeardownRetryPoller`).
 - [ ] Vercel **staging** custom env is deployed from the same ref.
 - [ ] Stripe **test-mode** creds configured on staging; a test subscription
       exists for each test account with a known `current_period_end`.
@@ -44,6 +50,18 @@ Confirm each before starting. Check the box and record the value/evidence.
 | `ACCOUNT_OFFBOARDING_ENABLED` | `true` | Enables routes, pollers, and worker paths. **Staging only during the dry-run.** |
 | `ACCOUNT_OFFBOARDING_PURGE_WINDOW_OVERRIDE_MS` | small value (e.g. `60000`) | Server-only, non-production purge-window shortener so the 30-day window does not block the run. **Must be unset / refused in production.** Never exposed to browser code. |
 
+The recovery/reminder pollers below are server-authoritative and all default to
+sane values; leave them **unset** to exercise defaults, or override to speed the
+dry-run. None are ever exposed to the browser.
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `ACCOUNT_OFFBOARDING_PURGE_REMINDER_INTERVAL_MS` / `_BATCH_SIZE` | `60000` / `25` | `PurgeReminderPoller` cadence + batch. Reminder fires at **T-3 days** before `purge_after`. |
+| `ACCOUNT_OFFBOARDING_REACTIVATION_RESET_INTERVAL_MS` / `_BATCH_SIZE` | `60000` / `25` | `ReactivationResetPoller` cadence + batch. A reactivation claim is **stale after 5 min**. |
+| `ACCOUNT_OFFBOARDING_TEARDOWN_RETRY_INTERVAL_MS` / `_BATCH_SIZE` | `60000` / `10` | `TeardownRetryPoller` cadence + batch. |
+| `ACCOUNT_OFFBOARDING_TEARDOWN_RETRY_COOLDOWN_MS` | `300000` (5 min) | Min wait after a failed teardown before re-drive. |
+| `ACCOUNT_OFFBOARDING_TEARDOWN_MAX_RETRIES` | `12` | Re-drive cap; beyond this the row stays `failed` for an operator. |
+
 After the dry-run, leave `ACCOUNT_OFFBOARDING_ENABLED` as the team decides for
 staging, but **do not** carry `ACCOUNT_OFFBOARDING_PURGE_WINDOW_OVERRIDE_MS` into
 production.
@@ -53,6 +71,13 @@ production.
 `pending → scheduled → tearing_down → purge_scheduled → purged`
 with terminal branches `churned`, `reactivated`, and `failed`. Every terminal
 status stamps `terminal_at`; non-terminal statuses keep `terminal_at IS NULL`.
+
+A `failed` row whose `failed_step = 'teardown'` is **not** terminal-by-policy:
+`TeardownRetryPoller` re-drives it back to `tearing_down` after the cooldown,
+up to `ACCOUNT_OFFBOARDING_TEARDOWN_MAX_RETRIES`, after which it remains `failed`
+for an operator. A stale `reactivation_claimed_at` (>5 min) on a `scheduled`
+`cancel_only` row is released by `ReactivationResetPoller` (Stripe re-stamped to
+`cancel_at_period_end=true`) so the row is never stranded mid-reversal.
 
 ## 4. Dry-run scenarios
 
@@ -69,8 +94,10 @@ Use a fresh disposable test account per destructive scenario. Record the
 
 ### 4.2 Same-subscription reactivation before access end
 - [ ] Owner reactivates while `status='scheduled'` and `teardown_started_at IS NULL`.
-- [ ] `cancel_at_period_end` is reversed on the **same** snapshot subscription;
-      row lands `status='reactivated'`, `terminal_at` set; reactivation email sent.
+- [ ] The row is claimed via `reactivation_claimed_at` + `reactivation_claim_token`
+      (idempotency-key hash); `cancel_at_period_end` is reversed on the **same**
+      snapshot subscription; row lands `status='reactivated'`, `terminal_at` set,
+      and the claim columns are cleared on success; reactivation email sent.
 - [ ] Confirm the access-end poller can no longer claim this row (no double-win).
 - **Observed:** →
 
@@ -118,6 +145,40 @@ Run `delete_data` (or `cancel_only` where billing is absent) against accounts in
       teardown completion.
 - **Observed (per state):** →
 
+### 4.7 T-3d purge reminder (migration 059 / `PurgeReminderPoller`)
+- [ ] On a `delete_data` account in `purge_scheduled` with `purge_after` set
+      **within 3 days** (use `ACCOUNT_OFFBOARDING_PURGE_WINDOW_OVERRIDE_MS` to land
+      inside the window), the poller sends the `delete_data_purge_reminder` email
+      exactly once and stamps `purge_reminder_sent_at`.
+- [ ] Re-poll: the row is **not** reminded again (`purge_reminder_sent_at IS NULL`
+      guard holds); audit `account_offboarding_purge_reminder_sent` written once.
+- [ ] A row rescued by keep-my-data (`purge_cancelled_at` set) is **not** reminded.
+- **Observed:** _row id / reminder sent_at / email observed_ →
+
+### 4.8 Reactivation stale-claim recovery (migration 060 / `ReactivationResetPoller`)
+- [ ] Simulate a crash mid-reversal: leave a `cancel_only` `scheduled` row with
+      `reactivation_claimed_at` set >5 min ago and `reactivation_claim_token`
+      populated (e.g. kill the reactivation worker after the claim, before
+      finalize), with Stripe possibly already at `cancel_at_period_end=false`.
+- [ ] The reset poller re-stamps Stripe to `cancel_at_period_end=true`
+      (idempotent, same compensate key), clears the claim columns, writes audit
+      `account_offboarding_reactivation_claim_reset`, and leaves the row
+      `status='scheduled'` so natural cancellation/reactivation can proceed.
+- [ ] A token-mismatched / concurrently-taken-over claim is **not** clobbered.
+- **Observed:** _row id / Stripe state before+after / claim cleared_ →
+
+### 4.9 Stalled-teardown auto re-drive (`TeardownRetryPoller`)
+- [ ] Force a `delete_data` teardown to exhaust its BullMQ attempts so the row
+      lands `status='failed'`, `failed_step='teardown'`, `terminal_at IS NULL`
+      (e.g. point a provider step at an erroring sandbox).
+- [ ] After the cooldown (`ACCOUNT_OFFBOARDING_TEARDOWN_RETRY_COOLDOWN_MS`), the
+      retry poller flips it back to `tearing_down`, clears `last_error`, and
+      re-enqueues teardown (`FOR UPDATE SKIP LOCKED`, one row per tick).
+- [ ] Once the provider step is healthy, teardown completes → `purge_scheduled`.
+- [ ] Confirm the re-drive **stops** at `ACCOUNT_OFFBOARDING_TEARDOWN_MAX_RETRIES`
+      (lower it for the dry-run): the row stays `failed` for an operator, no loop.
+- **Observed:** _row id / retry_count progression / final status_ →
+
 ## 5. Evidence to record
 
 - [ ] **Stripe invoice cleanup** — observed behavior for draft / open /
@@ -133,7 +194,12 @@ Run `delete_data` (or `cancel_only` where billing is absent) against accounts in
       Confirm override cannot blind force-purge (a concrete disposition record is
       required). **Observed / N/A reason:** →
 - [ ] **Email dedup** — each offboarding email sent once per
-      `account_offboarding_id + email_type`. **Observed:** →
+      `account_offboarding_id + email_type` (incl. `delete_data_purge_reminder`).
+      **Observed:** →
+- [ ] **Recovery-poller audit trail** — `account_offboarding_purge_reminder_sent`
+      and `account_offboarding_reactivation_claim_reset` audit rows written exactly
+      once for the §4.7/§4.8 runs, and teardown `retry_count` advances per §4.9.
+      **Observed:** →
 
 ## 6. Audit & test commands
 
@@ -161,8 +227,8 @@ Record the runner conclusion (URL + green/red) here: →
       jurisdictions RepWorth sells into is recorded.
 - [ ] No product copy promises absolute deletion (delete-or-anonymize +
       retained-records language confirmed).
-- [ ] 056 / optional 057 / 058 applied to **both** Supabase projects in lockstep,
-      staging-first.
+- [ ] 056 / optional 057 / 058 / 059 / 060 applied to **both** Supabase projects
+      in lockstep, staging-first (head `060`).
 - [ ] Staging dry-run evidence (sections 4–6) recorded and reviewed.
 - [ ] Only then: set `ACCOUNT_OFFBOARDING_ENABLED=true` on production Railway and
       Vercel. `ACCOUNT_OFFBOARDING_PURGE_WINDOW_OVERRIDE_MS` stays unset in prod.
