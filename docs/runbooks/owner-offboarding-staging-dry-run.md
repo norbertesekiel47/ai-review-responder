@@ -42,13 +42,32 @@ Confirm each before starting. Check the box and record the value/evidence.
       location exists for the `delete_data` accounts.
 - [ ] Resend (or the staging email transport) is reachable; confirmation and
       keep-my-data emails can be observed.
+- [ ] **Access to the SSO-gated staging UI/API.** `staging.repworth.net` (the owner
+      offboarding pages **and** the Next.js `/api/account/offboarding/*` routes that
+      initiate offboarding) sits behind **Vercel Deployment Protection**. A human in a
+      browser logged into the Vercel team can reach it; an automated/headless runner
+      cannot without a **Vercel Protection Bypass for Automation** token (sent as the
+      `x-vercel-protection-bypass` header / `?_vercel_protection_bypass=` query). Webhook
+      ingress (Stripe/Zernio → `repworth-worker-staging.up.railway.app/ingress/*`) and
+      all teardown/purge/poller work run on Railway and are **not** gated. Decide before
+      starting: bypass token for the runner, or a human drives the UI/initiation steps.
 
 ## 2. Environment & flags (staging only)
 
 | Variable | Staging value | Notes |
 | --- | --- | --- |
 | `ACCOUNT_OFFBOARDING_ENABLED` | `true` | Enables routes, pollers, and worker paths. **Staging only during the dry-run.** |
-| `ACCOUNT_OFFBOARDING_PURGE_WINDOW_OVERRIDE_MS` | small value (e.g. `60000`) | Server-only, non-production purge-window shortener so the 30-day window does not block the run. **Must be unset / refused in production.** Never exposed to browser code. |
+| `ACCOUNT_OFFBOARDING_TEARDOWN_MAX_RETRIES` | `3` (dry-run) | Lowered from `12` so §4.9 exhausts in minutes. |
+| `ACCOUNT_OFFBOARDING_TEARDOWN_RETRY_COOLDOWN_MS` | `60000` (dry-run) | Lowered from `300000` to re-drive faster. |
+
+> ⚠️ **`ACCOUNT_OFFBOARDING_PURGE_WINDOW_OVERRIDE_MS` does NOT work on this staging
+> worker.** The code refuses it when `NODE_ENV === 'production'` (or `VERCEL_ENV ===
+> 'production'`), and the Railway **staging** worker runs `NODE_ENV=production`; it is
+> also capped at 3 days while `purge_after` is written as a fixed `NOW() + 30 days`.
+> So it cannot collapse the 30-day window here. **Drive purge/reminder timing by
+> shortening `purge_after` directly via SQL** on the disposable row (Supabase MCP) —
+> see §4.5 / §4.7. (Known mismatch: the override was built for staging dry-runs but is
+> gated on `NODE_ENV`; tracked as a follow-up — it does not block the dry-run.)
 
 The recovery/reminder pollers below are server-authoritative and all default to
 sane values; leave them **unset** to exercise defaults, or override to speed the
@@ -63,8 +82,9 @@ dry-run. None are ever exposed to the browser.
 | `ACCOUNT_OFFBOARDING_TEARDOWN_MAX_RETRIES` | `12` | Re-drive cap; beyond this the row stays `failed` for an operator. |
 
 After the dry-run, leave `ACCOUNT_OFFBOARDING_ENABLED` as the team decides for
-staging, but **do not** carry `ACCOUNT_OFFBOARDING_PURGE_WINDOW_OVERRIDE_MS` into
-production.
+staging, and revert the lowered `…TEARDOWN_MAX_RETRIES` / `…TEARDOWN_RETRY_COOLDOWN_MS`
+to defaults. `ACCOUNT_OFFBOARDING_PURGE_WINDOW_OVERRIDE_MS` must never be set in
+production (it is refused there anyway).
 
 ## 3. Status machine (expected transitions)
 
@@ -126,10 +146,12 @@ Use a fresh disposable test account per destructive scenario. Record the
 
 ### 4.5 `delete_data` confirmation again (separate account), through purge
 - [ ] Second disposable account confirms `delete_data` and is **not** rescued.
-- [ ] With the shortened window, the purge poller claims
-      `status='purge_scheduled' AND purge_after<=now() AND purge_cancelled_at IS NULL`
-      with `FOR UPDATE SKIP LOCKED`, stamps `purge_started_at`, revokes tokens,
-      enqueues purge.
+- [ ] Make the row purge-eligible (the env override is inert here — see §2): via
+      Supabase MCP, `UPDATE account_offboardings SET purge_after = NOW() WHERE id =
+      '<row>' AND account_id = '<acct>';` (disposable staging row only). The poller
+      claims `status='purge_scheduled' AND purge_after<=now() AND purge_cancelled_at
+      IS NULL` with `FOR UPDATE SKIP LOCKED`, stamps `purge_started_at`, revokes
+      tokens, enqueues purge.
 - [ ] Purge worker runs short, restartable stages; auth-user deletion is
       revalidated immediately before `deleteUser()`. Final verification is derived
       from `table-disposition.ts`; `purged_at` is stamped only when every table is
@@ -146,10 +168,12 @@ Run `delete_data` (or `cancel_only` where billing is absent) against accounts in
 - **Observed (per state):** →
 
 ### 4.7 T-3d purge reminder (migration 059 / `PurgeReminderPoller`)
-- [ ] On a `delete_data` account in `purge_scheduled` with `purge_after` set
-      **within 3 days** (use `ACCOUNT_OFFBOARDING_PURGE_WINDOW_OVERRIDE_MS` to land
-      inside the window), the poller sends the `delete_data_purge_reminder` email
-      exactly once and stamps `purge_reminder_sent_at`.
+- [ ] On a `delete_data` account in `purge_scheduled`, bring `purge_after` **within 3
+      days but still in the future** via Supabase MCP, e.g. `UPDATE account_offboardings
+      SET purge_after = NOW() + interval '1 hour' WHERE id = '<row>' AND account_id =
+      '<acct>';` (disposable row only). The reminder poller sends the
+      `delete_data_purge_reminder` email exactly once and stamps `purge_reminder_sent_at`;
+      because `purge_after` is still in the future, the purge poller does **not** fire yet.
 - [ ] Re-poll: the row is **not** reminded again (`purge_reminder_sent_at IS NULL`
       guard holds); audit `account_offboarding_purge_reminder_sent` written once.
 - [ ] A row rescued by keep-my-data (`purge_cancelled_at` set) is **not** reminded.
