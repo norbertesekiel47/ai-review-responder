@@ -146,6 +146,10 @@ function setResponseLookup(
   // correlation id. Empty results = not held, so the action proceeds.
   mockSqlResults.push([]); // SELECT id ... FOR UPDATE
   mockSqlResults.push([]); // hasOpenFlag → no open flag
+  // In-tx TOCTOU re-assertion: assertWritableSubscriptionForBusiness re-reads the
+  // account/offboarding projection by business id. Active + no active offboarding
+  // = writable, so the action proceeds to recover the correlation id and run.
+  mockSqlResults.push([{ id: ACCOUNT_ID, subscription_status: 'active', past_due_at: null, flags: {} }]);
 }
 
 function offboardingBlockedAccountRow() {

@@ -155,14 +155,18 @@ vi.mock('../../../../src/lib/db/server', () => ({
   },
 }));
 
-vi.mock('../../../../src/lib/shared/outbox', () => ({
-  markOutboxCompleted: mockMarkOutboxCompleted,
-  markOutboxFailed: mockMarkOutboxFailed,
-  extractOutboxHandle: (data: { outbox_id?: string; outbox_attempt?: number }, fallback: string) => ({
-    outboxId: data.outbox_id ?? fallback,
-    attempt: data.outbox_attempt,
-  }),
-}));
+vi.mock('../../../../src/lib/shared/outbox', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../../src/lib/shared/outbox')>();
+  return {
+    ...actual,
+    markOutboxCompleted: mockMarkOutboxCompleted,
+    markOutboxFailed: mockMarkOutboxFailed,
+    extractOutboxHandle: (data: { outbox_id?: string; outbox_attempt?: number }, fallback: string) => ({
+      outboxId: data.outbox_id ?? fallback,
+      attempt: data.outbox_attempt,
+    }),
+  };
+});
 
 vi.mock('../../../../src/lib/account-offboarding/purge-verification', () => ({
   verifyAccountOffboardingPurge: mockVerifyAccountOffboardingPurge,
