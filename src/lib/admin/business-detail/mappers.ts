@@ -196,12 +196,12 @@ function buildAutoApprovalDiagnostics({
       };
     }),
     readiness,
-    recentApprovalAudit: approvalAuditRows
-      .filter((row) => AUTO_APPROVAL_AUDIT_ACTIONS.has(row.action))
-      .map(mapApprovalAuditRow),
-    recentPolicyChanges: accountAuditRows
-      .filter((row) => row.event_type === 'auto_approval_policy_changed')
-      .map(mapAccountAuditRow),
+    recentApprovalAudit: approvalAuditRows.flatMap((row) =>
+      AUTO_APPROVAL_AUDIT_ACTIONS.has(row.action) ? [mapApprovalAuditRow(row)] : [],
+    ),
+    recentPolicyChanges: accountAuditRows.flatMap((row) =>
+      row.event_type === 'auto_approval_policy_changed' ? [mapAccountAuditRow(row)] : [],
+    ),
   };
 }
 

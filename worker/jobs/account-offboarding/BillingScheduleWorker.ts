@@ -35,7 +35,7 @@ function getStripe(): Stripe {
   return stripeInstance;
 }
 
-export function accountOffboardingBillingIdempotencyKey(
+function accountOffboardingBillingIdempotencyKey(
   payload: AccountOffboardingBillingSchedulePayload,
 ): string {
   return [

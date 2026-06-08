@@ -305,6 +305,8 @@ async function finalizeReactivation(
       return { ok: false, reason: 'state_changed' };
     }
 
+    // sequential within sql.begin transaction (Postgres.js serializes tx queries on one connection)
+    // react-doctor-disable-next-line react-doctor/async-parallel
     await writeAccountAuditLog(
       {
         accountId: input.accountId,

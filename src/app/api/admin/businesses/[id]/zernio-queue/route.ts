@@ -32,6 +32,8 @@ async function handleZernioQueueAction(
 ): Promise<NextResponse> {
   const { id: businessId } = await params;
 
+  // FP: security ordering — the admin AAL2 auth/authorization gate must pass before the untrusted request body is parsed; these awaits cannot run in parallel.
+  // react-doctor-disable-next-line react-doctor/server-sequential-independent-await
   const gate = await requireAdminWithAal2(request);
   if (!gate.ok) return gate.response;
   const admin = gate.admin;

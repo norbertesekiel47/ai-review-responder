@@ -16,9 +16,9 @@ export const dynamic = 'force-dynamic';
 
 const RETRY_AFTER_SECONDS = 15 * 60;
 
-const FreshAuthSchema = z.object({
+const FreshAuthSchema = z.strictObject({
   password: z.string().min(1).max(1024),
-}).strict();
+});
 
 async function freshAuth(req: NextRequest): Promise<NextResponse> {
   if (!accountOffboardingEnabled()) {

@@ -1,7 +1,7 @@
-export const ACCOUNT_OFFBOARDING_MODES = ['cancel_only', 'delete_data'] as const;
+const ACCOUNT_OFFBOARDING_MODES = ['cancel_only', 'delete_data'] as const;
 export type AccountOffboardingMode = (typeof ACCOUNT_OFFBOARDING_MODES)[number];
 
-export const ACCOUNT_OFFBOARDING_STATUSES = [
+const ACCOUNT_OFFBOARDING_STATUSES = [
   'pending',
   'scheduled',
   'tearing_down',
@@ -14,7 +14,7 @@ export const ACCOUNT_OFFBOARDING_STATUSES = [
 export type AccountOffboardingStatus =
   (typeof ACCOUNT_OFFBOARDING_STATUSES)[number];
 
-export const ACCOUNT_OFFBOARDING_TERMINAL_STATUSES = [
+const ACCOUNT_OFFBOARDING_TERMINAL_STATUSES = [
   'purged',
   'churned',
   'reactivated',
@@ -22,7 +22,7 @@ export const ACCOUNT_OFFBOARDING_TERMINAL_STATUSES = [
 export type AccountOffboardingTerminalStatus =
   (typeof ACCOUNT_OFFBOARDING_TERMINAL_STATUSES)[number];
 
-export const ACCOUNT_OFFBOARDING_ACTIVE_STATUSES = [
+const ACCOUNT_OFFBOARDING_ACTIVE_STATUSES = [
   'pending',
   'scheduled',
   'tearing_down',
@@ -32,7 +32,7 @@ export const ACCOUNT_OFFBOARDING_ACTIVE_STATUSES = [
 export type AccountOffboardingActiveStatus =
   (typeof ACCOUNT_OFFBOARDING_ACTIVE_STATUSES)[number];
 
-export const ACCOUNT_OFFBOARDING_FAILED_STEPS = [
+const ACCOUNT_OFFBOARDING_FAILED_STEPS = [
   'billing',
   'teardown',
   'purge',
@@ -40,7 +40,7 @@ export const ACCOUNT_OFFBOARDING_FAILED_STEPS = [
 export type AccountOffboardingFailedStep =
   (typeof ACCOUNT_OFFBOARDING_FAILED_STEPS)[number];
 
-export const ACCOUNT_OFFBOARDING_STEP_OUTCOMES = [
+const ACCOUNT_OFFBOARDING_STEP_OUTCOMES = [
   'success',
   'failed',
   'not_applicable',

@@ -31,6 +31,9 @@ export async function runLocationTeardown(row: LocationTeardownRow): Promise<voi
   }
 
   for (const locationId of locationIds) {
+    // Each archival is its own transaction taking a FOR UPDATE lock on the shared account-scoped
+    // accounts row; running them in parallel would deadlock/contend on that row.
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop
     await archiveLocationForAccountOffboardingTeardownTransaction({
       accountId: row.account_id,
       locationId,
@@ -48,5 +51,8 @@ export async function runLocationTeardown(row: LocationTeardownRow): Promise<voi
 }
 
 function normalizeIds(values: string[] | null): string[] {
-  return (values ?? []).map((value) => value.trim()).filter((value) => value.length > 0);
+  return (values ?? []).flatMap((value) => {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? [trimmed] : [];
+  });
 }

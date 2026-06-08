@@ -17,11 +17,11 @@ import { escapeHtml } from '@/lib/shared/html';
 
 export const dynamic = 'force-dynamic';
 
-const TokenBodySchema = z.object({
+const TokenBodySchema = z.strictObject({
   token: z.string().trim().min(1).max(2000),
-}).strict();
+});
 
-const AuthenticatedBodySchema = z.object({}).strict();
+const AuthenticatedBodySchema = z.strictObject({});
 
 async function keepMyData(req: NextRequest): Promise<NextResponse> {
   if (!accountOffboardingEnabled()) {

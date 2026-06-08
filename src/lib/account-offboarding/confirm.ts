@@ -128,6 +128,8 @@ export async function confirmCancelOnlyOffboarding(
 
     const offboardingId = uuidv7();
     const { snapshot } = snapshotResult;
+    // sequential within sql.begin transaction (Postgres.js serializes tx queries on one connection)
+    // react-doctor-disable-next-line react-doctor/async-parallel
     await tx`
       INSERT INTO account_offboardings (
         id,
@@ -224,6 +226,8 @@ export async function confirmDeleteDataOffboarding(
 
     const offboardingId = uuidv7();
     const { snapshot } = snapshotResult;
+    // sequential within sql.begin transaction (Postgres.js serializes tx queries on one connection)
+    // react-doctor-disable-next-line react-doctor/async-parallel
     await tx`
       INSERT INTO account_offboardings (
         id,

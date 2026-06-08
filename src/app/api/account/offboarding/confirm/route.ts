@@ -23,16 +23,16 @@ const ReasonCodeSchema = z.enum([
   'other',
 ]);
 
-const ConfirmCancelOnlySchema = z.object({
+const ConfirmCancelOnlySchema = z.strictObject({
   mode: z.literal('cancel_only'),
   reasonCode: ReasonCodeSchema.optional(),
-}).strict();
+});
 
-const ConfirmDeleteDataSchema = z.object({
+const ConfirmDeleteDataSchema = z.strictObject({
   mode: z.literal('delete_data'),
   reasonCode: ReasonCodeSchema,
   confirmationText: z.literal('DELETE DATA'),
-}).strict();
+});
 
 const ConfirmOffboardingSchema = z.discriminatedUnion('mode', [
   ConfirmCancelOnlySchema,

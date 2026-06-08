@@ -34,11 +34,11 @@ export interface ImpersonationSessionScrubScopeRecord {
   impersonation_session_id_hash: string;
 }
 
-export function sha256Hex(value: string): string {
+function sha256Hex(value: string): string {
   return createHash('sha256').update(value).digest('hex');
 }
 
-export function hashSmsHandleValue(messagingServiceSid: string, handle: string): string {
+function hashSmsHandleValue(messagingServiceSid: string, handle: string): string {
   return sha256Hex(`${messagingServiceSid}:${handle}`);
 }
 

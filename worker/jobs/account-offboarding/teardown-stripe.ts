@@ -25,7 +25,7 @@ function getStripe(): Stripe {
   return stripeInstance;
 }
 
-export function accountOffboardingTeardownStripeIdempotencyKey(
+function accountOffboardingTeardownStripeIdempotencyKey(
   offboardingId: string,
   accountId: string,
 ): string {

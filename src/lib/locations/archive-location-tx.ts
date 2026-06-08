@@ -225,6 +225,8 @@ async function lockArchiveContext(
       AND archived_at IS NULL
   `;
 
+  // FP: lock-ordering inside the tx — account FOR UPDATE lock, then active-count read, then this per-location FOR UPDATE row lock; reordering/parallelizing would break the lock acquisition order.
+  // react-doctor-disable-next-line react-doctor/server-sequential-independent-await
   const [location] = await tx<{ archived_at: Date | string | null }[]>`
     SELECT archived_at
     FROM businesses

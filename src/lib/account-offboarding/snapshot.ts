@@ -95,6 +95,8 @@ export async function captureAccountOffboardingSnapshot(
       AND (${includeArchivedLocations} OR archived_at IS NULL)
   `;
 
+  // sequential within tx after FOR UPDATE lock on the accounts row (Postgres.js serializes tx queries; parallelizing would contend the held row lock)
+  // react-doctor-disable-next-line react-doctor/server-sequential-independent-await
   const [zernio] = await tx<ZernioSnapshotRow[]>`
     SELECT
       COALESCE(

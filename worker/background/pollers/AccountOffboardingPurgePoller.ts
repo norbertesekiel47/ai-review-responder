@@ -167,6 +167,10 @@ async function runAccountOffboardingPurgeInner(
         return { kind: 'skipped' } satisfies ClaimResult;
       }
 
+      // Sequential awaits share one Postgres.js claim transaction connection (sql.begin); token
+      // revoke → audit log → outbox enqueue must commit atomically in this order and cannot run
+      // in parallel on a single connection.
+      // react-doctor-disable-next-line react-doctor/async-parallel
       await tx`
         UPDATE account_offboarding_tokens t
         SET revoked_at = NOW(),

@@ -64,6 +64,10 @@ export async function handleAccountOffboardingPurge(
   }
 
   try {
+    // Purge stages are strictly ordered (auth → refs → payload → content → … → tombstone →
+    // finalize); each is its own transaction taking FOR UPDATE locks on the shared accounts row,
+    // so running them in parallel would deadlock and violate the dependency ordering.
+    // react-doctor-disable-next-line react-doctor/async-parallel
     await runAuthBindingPurgeStage(offboarding);
     await runDependentReferencePurgeStage(offboarding);
     await runRawPayloadPurgeStage(offboarding, outboxId);

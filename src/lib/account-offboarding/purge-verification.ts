@@ -55,6 +55,8 @@ export async function verifyAccountOffboardingPurge(
   const issues: PurgeVerificationIssue[] = [];
 
   for (const entry of PURGE_VERIFICATION_TABLES) {
+    // sequential account-scoped verification queries (parallel fan-out would contend on the same account's rows/locks)
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop
     const violationCount = await countViolations(entry.table, input, exec);
     if (violationCount > 0) {
       issues.push({
@@ -573,9 +575,11 @@ async function countSmsOptOutViolations(
   `;
 
   const scopedHashes = new Set(
-    scopeRows
-      .filter((row) => row.messaging_service_sid_hash && row.handle_hash)
-      .map((row) => `${row.messaging_service_sid_hash}:${row.handle_hash}`),
+    scopeRows.flatMap((row) =>
+      row.messaging_service_sid_hash && row.handle_hash
+        ? [`${row.messaging_service_sid_hash}:${row.handle_hash}`]
+        : [],
+    ),
   );
   if (scopedHashes.size === 0) return 0;
 

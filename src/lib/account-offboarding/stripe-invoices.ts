@@ -161,8 +161,12 @@ export async function cleanupSubscriptionInvoices(
     };
     if (startingAfter) listParams.starting_after = startingAfter;
 
+    // cursor pagination loop: each page needs starting_after from the prior page (cannot parallelize)
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop
     const pageResult = await listInvoices(input, listParams, maxNetworkRetries);
     for (const invoice of pageResult.data) {
+      // rate-limited Stripe provider call: sequential to avoid Stripe rate-limit/429 bursts
+      // react-doctor-disable-next-line react-doctor/async-await-in-loop
       await cleanupInvoice(input, invoice, result, maxNetworkRetries);
     }
 

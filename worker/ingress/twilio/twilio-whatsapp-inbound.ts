@@ -180,6 +180,8 @@ async function handleButtonTap(
   }
 
   try {
+    // FP: ordering-dependent — the action must succeed before the success message + ack send; failure routes to handleButtonActionError, so these cannot run in parallel.
+    // react-doctor-disable-next-line react-doctor/async-parallel
     await runButtonAction(ctx, parsed, link.id);
     await sendFreeformIgnoringErrors(ctx, buttonSuccessMessage(parsed.action));
     await acknowledgeProcessed(ctx);

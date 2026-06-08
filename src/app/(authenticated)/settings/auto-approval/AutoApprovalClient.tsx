@@ -90,6 +90,8 @@ export function AutoApprovalClient({
   });
   const flashTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Unmount-only cleanup reading a stable ref; the empty dep array is intentional (refs are not reactive deps).
+  // react-doctor-disable-next-line react-doctor/exhaustive-deps
   useEffect(() => {
     return () => {
       if (flashTimeoutRef.current) clearTimeout(flashTimeoutRef.current);

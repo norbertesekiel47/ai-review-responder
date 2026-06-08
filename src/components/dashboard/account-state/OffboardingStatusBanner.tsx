@@ -92,6 +92,8 @@ function offboardingDeadlineDetail(
 function formatOffboardingTimestamp(value: string | Date, timeZone?: string | null): string {
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return 'the server-provided deadline';
+  // timeZone is per-call (account-specific); options are not module-static, so the constructor cannot be hoisted.
+  // react-doctor-disable-next-line react-doctor/js-hoist-intl
   return new Intl.DateTimeFormat('en-US', {
     month: 'short',
     day: 'numeric',

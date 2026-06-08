@@ -27,6 +27,9 @@ export async function runZernioTeardown(row: ZernioTeardownRow): Promise<void> {
       }
     } else {
       for (const accountId of accountIds) {
+        // Rate-limited Zernio provider calls must stay sequential; parallelizing would breach the
+        // provider's rate limit and trip throttling.
+        // react-doctor-disable-next-line react-doctor/async-await-in-loop
         await deleteZernioResource(() => zernioClient.deleteAccount(accountId));
       }
       await sql`
@@ -57,6 +60,9 @@ export async function runZernioTeardown(row: ZernioTeardownRow): Promise<void> {
   }
 
   for (const profileId of profileIds) {
+    // Rate-limited Zernio provider calls must stay sequential; parallelizing would breach the
+    // provider's rate limit and trip throttling.
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop
     await deleteZernioResource(() => zernioClient.deleteProfile(profileId));
   }
   await sql`
@@ -69,7 +75,10 @@ export async function runZernioTeardown(row: ZernioTeardownRow): Promise<void> {
 }
 
 function normalizeIds(values: string[] | null): string[] {
-  return (values ?? []).map((value) => value.trim()).filter((value) => value.length > 0);
+  return (values ?? []).flatMap((value) => {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? [trimmed] : [];
+  });
 }
 
 async function deleteZernioResource(fn: () => Promise<void>): Promise<void> {

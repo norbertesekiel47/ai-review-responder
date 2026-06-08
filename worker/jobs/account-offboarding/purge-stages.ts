@@ -143,6 +143,9 @@ async function revalidateAuthBinding(
 
 export async function runDependentReferencePurgeStage(row: AccountOffboardingPurgeRow): Promise<void> {
   await sql.begin(async (tx) => {
+    // Sequential awaits share one Postgres.js transaction connection (sql.begin); they execute
+    // serially on a single connection and cannot be parallelized.
+    // react-doctor-disable-next-line react-doctor/async-parallel
     await tx`
       DELETE FROM account_offboarding_tokens t
       USING account_offboardings ao
@@ -208,6 +211,9 @@ export async function runDependentReferencePurgeStage(row: AccountOffboardingPur
 
 export async function runContentPurgeStage(row: AccountOffboardingPurgeRow): Promise<void> {
   await sql.begin(async (tx) => {
+    // Sequential awaits share one Postgres.js transaction connection (sql.begin); they execute
+    // serially on a single connection and cannot be parallelized.
+    // react-doctor-disable-next-line react-doctor/async-parallel
     await tx`
       DELETE FROM flagged_responses
       WHERE account_id = ${row.account_id}::uuid
@@ -409,6 +415,9 @@ export async function runSmsOptOutPurgeStage(row: AccountOffboardingPurgeRow): P
 
     for (const entry of handles) {
       const hashedHandle = hashSmsHandle(entry.messaging_service_sid, entry.handle);
+      // Loop awaits run on one Postgres.js transaction connection (sql.begin); tx queries are
+      // serialized on a single connection, so the per-handle UPDATEs cannot be parallelized.
+      // react-doctor-disable-next-line react-doctor/async-await-in-loop
       await tx`
         UPDATE sms_sender_opt_out_events
         SET handle = ${hashedHandle}
@@ -469,6 +478,9 @@ export async function runSmsOptOutPurgeStage(row: AccountOffboardingPurgeRow): P
 
 export async function runProviderIdentifierPurgeStage(row: AccountOffboardingPurgeRow): Promise<void> {
   await sql.begin(async (tx) => {
+    // Sequential awaits share one Postgres.js transaction connection (sql.begin); they execute
+    // serially on a single connection and cannot be parallelized.
+    // react-doctor-disable-next-line react-doctor/async-parallel
     await deleteByBusiness(tx, 'zernio_connections', row.account_id);
     await tx`
       UPDATE zernio_finalize_incidents zfi
@@ -542,6 +554,9 @@ export async function runAuditAndCostPayloadPurgeStage(row: AccountOffboardingPu
 
 export async function runParentTombstonePurgeStage(row: AccountOffboardingPurgeRow): Promise<void> {
   await sql.begin(async (tx) => {
+    // Sequential awaits share one Postgres.js transaction connection (sql.begin) and tombstone
+    // account-scoped rows ending on the shared accounts row; parallel = lock contention/deadlock.
+    // react-doctor-disable-next-line react-doctor/async-parallel
     await tx`
       UPDATE users
       SET name = 'Deleted user',
@@ -597,6 +612,9 @@ export async function finalizePurgeInTransaction(
   outboxAttempt: number | undefined,
 ): Promise<void> {
   await sql.begin(async (tx) => {
+    // Sequential awaits share one Postgres.js transaction connection (sql.begin);
+    // they cannot run in parallel and ordering (lock → scrub → verify → finalize) is load-bearing.
+    // react-doctor-disable-next-line react-doctor/async-parallel
     await lockCurrentOutboxAttempt(tx, outboxId, outboxAttempt);
 
     await tx`

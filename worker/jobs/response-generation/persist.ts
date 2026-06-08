@@ -97,6 +97,8 @@ export async function persistResponseAndNotify(input: PersistResponseInput): Pro
       outputExcerpt: result.responseText.slice(0, 200),
     });
 
+    // FP: sequential reads on the shared tx after the moderation/hold write in the same sql.begin; runtime-state re-read is ordered against the prior tx writes, not independent.
+    // react-doctor-disable-next-line react-doctor/server-sequential-independent-await
     const runtimeState = await loadAutoApprovalRuntimeState(tx, {
       reviewId,
       businessId,
@@ -132,6 +134,8 @@ export async function persistResponseAndNotify(input: PersistResponseInput): Pro
     });
 
     if (autoDecision.approved) {
+      // FP: ordered writes inside one sql.begin tx (approve UPDATE → audit log → enqueue publish); parallelizing would break tx ordering.
+      // react-doctor-disable-next-line react-doctor/async-parallel
       await tx`
         UPDATE responses
         SET status = ${RESPONSE_STATUS_APPROVED},

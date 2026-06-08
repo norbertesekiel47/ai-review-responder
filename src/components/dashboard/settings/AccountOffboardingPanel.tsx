@@ -35,6 +35,8 @@ interface AccountOffboardingPanelProps {
 export function AccountOffboardingPanel({
   accountTimeZone,
   onAccountRefetch,
+// States are independent flows (status load, confirm-cancel modal, reactivate, delete-data modal); merging into one reducer would couple unrelated UI on a billing-critical panel.
+// react-doctor-disable-next-line react-doctor/prefer-useReducer
 }: AccountOffboardingPanelProps) {
   const [statusResponse, setStatusResponse] = useState<OffboardingStatusResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -48,6 +50,8 @@ export function AccountOffboardingPanel({
   const [reactivateError, setReactivateError] = useState<string | null>(null);
   const [deleteDataIdempotencyKey, setDeleteDataIdempotencyKey] = useState<string | null>(null);
 
+  // Client status fetch on mount with cancelled-guard cleanup; server-fetch refactor out of scope.
+  // react-doctor-disable-next-line react-doctor/no-fetch-in-effect
   useEffect(() => {
     let cancelled = false;
 
@@ -322,6 +326,8 @@ function formatAccessEnd(value: string | Date | null | undefined, timeZone?: str
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return 'the paid-through date';
 
+  // timeZone is per-call (account-specific); options are not module-static, so the constructor cannot be hoisted.
+  // react-doctor-disable-next-line react-doctor/js-hoist-intl
   return new Intl.DateTimeFormat('en-US', {
     month: 'short',
     day: 'numeric',

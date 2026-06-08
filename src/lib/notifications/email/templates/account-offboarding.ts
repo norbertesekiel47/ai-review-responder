@@ -232,38 +232,30 @@ function buildCancelOnlyReactivationConfirmationEmailHtml(): string {
 </html>`;
 }
 
+const OFFBOARDING_DATE_FORMAT = new Intl.DateTimeFormat('en-US', {
+  month: 'long',
+  day: 'numeric',
+  year: 'numeric',
+  timeZone: 'UTC',
+});
+
 function formatPurgeAfter(value: Date | string | null): string {
   if (!value) return '30 days from your deletion request';
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return '30 days from your deletion request';
-  return new Intl.DateTimeFormat('en-US', {
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-    timeZone: 'UTC',
-  }).format(date);
+  return OFFBOARDING_DATE_FORMAT.format(date);
 }
 
 function formatPurgedAt(value: Date | string | null): string {
   if (!value) return 'the scheduled deletion date';
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return 'the scheduled deletion date';
-  return new Intl.DateTimeFormat('en-US', {
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-    timeZone: 'UTC',
-  }).format(date);
+  return OFFBOARDING_DATE_FORMAT.format(date);
 }
 
 function formatAccessEndsAt(value: Date | string | null): string {
   if (!value) return 'the end of your current billing period';
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return 'the end of your current billing period';
-  return new Intl.DateTimeFormat('en-US', {
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-    timeZone: 'UTC',
-  }).format(date);
+  return OFFBOARDING_DATE_FORMAT.format(date);
 }

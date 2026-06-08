@@ -183,7 +183,7 @@ export function buildDashboardSettings(
   };
 }
 
-export function buildZernioConnection(
+function buildZernioConnection(
   input: {
     hasUnresolvedIncident: boolean;
     zernioRow: DashboardZernioConnectionRow | undefined;

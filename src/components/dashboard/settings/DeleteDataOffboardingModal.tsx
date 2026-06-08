@@ -23,6 +23,8 @@ export function DeleteDataOffboardingModal({
   idempotencyKey,
   onClose,
   onConfirmed,
+// Three of the five states are independent controlled inputs; per-field useState is clearer than a reducer for this small deletion-confirmation form.
+// react-doctor-disable-next-line react-doctor/prefer-useReducer
 }: DeleteDataOffboardingModalProps) {
   const [password, setPassword] = useState('');
   const [reasonCode, setReasonCode] = useState<ReasonCode | null>(null);
