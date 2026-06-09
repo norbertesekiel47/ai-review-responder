@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
-import { POST_AFTER_DELETE_FAILED_PREFIX } from '../../../../../../worker/jobs/publisher/orphan-markers';
+import { POST_AFTER_DELETE_FAILED_PREFIX } from '@/lib/publishing/orphan-markers';
 
 // ── Hoisted shared state ────────────────────────────────────────────
 

@@ -1,4 +1,4 @@
-// worker/jobs/publisher/orphan-markers.ts
+// src/lib/publishing/orphan-markers.ts
 //
 // SHARED RECOVERY-MARKER CONTRACT for the edit-publisher DELETE-before-POST
 // flow (spec `docs/superpowers/specs/2026-05-01-edit-existing-replies-design.md`

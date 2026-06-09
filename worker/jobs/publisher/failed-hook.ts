@@ -13,7 +13,7 @@ import {
   PublisherTransientWithContext,
   ZernioReplyVerificationIndeterminateError,
 } from './publisher-error-handlers';
-import { isOrphanMarker, POST_AFTER_DELETE_FAILED_RETRY_EXHAUSTED } from './orphan-markers';
+import { isOrphanMarker, POST_AFTER_DELETE_FAILED_RETRY_EXHAUSTED } from '../../../src/lib/publishing/orphan-markers';
 import type { PublishResponsePayload } from '../../../src/lib/shared/worker-types';
 
 const PUBLISHABLE_STATUSES = ['approved', 'edited', 'awaiting_owner_connect'] as const;

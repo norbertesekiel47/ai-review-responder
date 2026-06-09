@@ -29,7 +29,7 @@ import {
   setOrphanMarker,
   supersedeSibling,
 } from './edit-publish-tx';
-import { deleteFailedMarker } from './orphan-markers';
+import { deleteFailedMarker } from '../../../src/lib/publishing/orphan-markers';
 
 export interface EditPublishCatchArgs {
   responseId: string;

@@ -7,7 +7,7 @@ import { getDisplayLabel } from '@/lib/locations/display-label';
 import {
   DELETE_FAILED_PREFIX,
   POST_AFTER_DELETE_FAILED_PREFIX,
-} from '../../../../../worker/jobs/publisher/orphan-markers';
+} from '@/lib/publishing/orphan-markers';
 import type { ApprovalMethod } from '@/lib/auto-approval/types';
 
 export const dynamic = 'force-dynamic';

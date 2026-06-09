@@ -43,7 +43,7 @@ import {
 } from '@/app/api/dashboard/past-replies/_shared/edit-reply-request';
 import { APPROVAL_METHOD } from '@/lib/auto-approval/types';
 import { enqueuePublishResponse } from '@/lib/shared/job-outbox-helpers';
-import { POST_AFTER_DELETE_FAILED_PREFIX } from '../../../../../../../worker/jobs/publisher/orphan-markers';
+import { POST_AFTER_DELETE_FAILED_PREFIX } from '@/lib/publishing/orphan-markers';
 
 export const dynamic = 'force-dynamic';
 

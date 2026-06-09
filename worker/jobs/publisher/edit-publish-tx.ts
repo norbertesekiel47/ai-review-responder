@@ -15,7 +15,7 @@ import {
   ZERNIO_AUTH_ERROR,
   ZERNIO_AUTH_ERROR_AFTER_DELETE,
   postAfterDeleteFailedMarker,
-} from './orphan-markers';
+} from '../../../src/lib/publishing/orphan-markers';
 import type { WorkerLogger } from '../../../src/lib/shared/logger';
 import type { SendOwnerEmailPayload } from '../../../src/lib/shared/worker-types';
 
