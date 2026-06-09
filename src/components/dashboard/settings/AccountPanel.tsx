@@ -94,7 +94,7 @@ interface TierChangeModalProps {
   changing: boolean;
 }
 
-function TierChangeModal({
+export function TierChangeModal({
   currentTier,
   newTier,
   accountId,
@@ -170,6 +170,12 @@ function TierChangeModal({
               </div>
             </div>
           </div>
+        )}
+        {billingPreview && !previewLoading && (
+          <p style={{ fontSize: 12, color: '#6B7280', marginBottom: 12, textAlign: 'center' }}>
+            Estimate shown before any applicable taxes. Subscription continues
+            monthly until cancelled.
+          </p>
         )}
 
         {isDowngrade && newTier === 'basic' && (
